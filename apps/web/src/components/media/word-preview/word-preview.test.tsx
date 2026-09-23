@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -383,6 +384,7 @@ describe("word preview", () => {
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+    vi.useRealTimers()
   })
 
   function selectNativeText(testId = "docx-editor-text") {
@@ -406,6 +408,142 @@ describe("word preview", () => {
     expect(calculateWordPreviewFitZoom(680, 800)).toBe(0.8)
     expect(calculateWordPreviewFitZoom(1_000, 800)).toBe(1)
     expect(calculateWordPreviewFitZoom(0, 800)).toBeNull()
+  })
+
+  it.each(["ctrlKey", "metaKey"] as const)(
+    "zooms only the document with %s + wheel and keeps the toolbar and reset in sync",
+    async (modifier) => {
+      render(
+        <WordPreview
+          document={{ status: "ready", content: new Uint8Array([1]) }}
+          fileName="wheel.docx"
+        />
+      )
+      const surface = document.querySelector(".word-preview-editor-surface")
+      const viewport = document.querySelector(".docx-editor__scroll-container")
+      if (!viewport) throw new Error("Missing Word viewport")
+      await waitFor(() =>
+        expect(surface).toHaveAttribute("data-layout-ready", "true")
+      )
+      await act(async () => {})
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+      editor.setZoom.mockClear()
+
+      for (const init of [
+        { deltaY: 100 },
+        { deltaY: 100, shiftKey: true },
+        { deltaX: 100 },
+      ]) {
+        const scroll = new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          ...init,
+        })
+        fireEvent(viewport, scroll)
+        expect(scroll.defaultPrevented).toBe(false)
+      }
+      expect(editor.setZoom).not.toHaveBeenCalled()
+
+      const zoomIn = new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        deltaY: -10,
+        [modifier]: true,
+      })
+      fireEvent(viewport, zoomIn)
+      expect(zoomIn.defaultPrevented).toBe(true)
+      expect(editor.setZoom).toHaveBeenLastCalledWith(0.88)
+      expect(screen.getByText("88%")).toBeVisible()
+      expect(surface).toHaveAttribute("data-fit-width", "false")
+
+      fireEvent.wheel(viewport, { deltaY: 10, [modifier]: true })
+      expect(
+        Number(screen.getByText(/%$/).textContent?.replace("%", ""))
+      ).toBeLessThan(88)
+      act(() => vi.advanceTimersByTime(200))
+
+      fireEvent.wheel(viewport, { deltaY: -10000, [modifier]: true })
+      expect(editor.setZoom).toHaveBeenLastCalledWith(2)
+      expect(
+        screen.getByRole("button", { name: "放大 Word 文档" })
+      ).toBeDisabled()
+      act(() => vi.advanceTimersByTime(200))
+      fireEvent.wheel(viewport, { deltaY: 10000, [modifier]: true })
+      expect(editor.setZoom).toHaveBeenLastCalledWith(0.25)
+      expect(
+        screen.getByRole("button", { name: "缩小 Word 文档" })
+      ).toBeDisabled()
+
+      editor.setZoom.mockClear()
+      const toolbarWheel = new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        deltaY: -10,
+        [modifier]: true,
+      })
+      fireEvent(screen.getByText("25%"), toolbarWheel)
+      expect(toolbarWheel.defaultPrevented).toBe(false)
+      expect(editor.setZoom).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getByText("25%"))
+      act(() => vi.advanceTimersByTime(200))
+      expect(editor.setZoom).toHaveBeenLastCalledWith(0.8)
+      expect(screen.getByText("80%")).toBeVisible()
+      expect(surface).toHaveAttribute("data-fit-width", "true")
+    }
+  )
+
+  it("handles two-finger pinch and removes gesture listeners when the preview closes", async () => {
+    const { unmount } = render(
+      <WordPreview
+        document={{ status: "ready", content: new Uint8Array([1]) }}
+        fileName="pinch.docx"
+      />
+    )
+    const surface = document.querySelector(".word-preview-editor-surface")
+    const viewport = document.querySelector(".docx-editor__scroll-container")
+    if (!viewport) throw new Error("Missing Word viewport")
+    await waitFor(() =>
+      expect(surface).toHaveAttribute("data-layout-ready", "true")
+    )
+    // Readiness is set in an animation frame; flush the gesture binding effect
+    // before dispatching touchstart so the first touch is not lost in the test.
+    await act(async () => {})
+    const touches = (distance: number) => [
+      { identifier: 1, clientX: 100, clientY: 100, target: viewport },
+      {
+        identifier: 2,
+        clientX: 100 + distance,
+        clientY: 100,
+        target: viewport,
+      },
+    ]
+    fireEvent.touchStart(viewport, {
+      touches: touches(100),
+      targetTouches: touches(100),
+    })
+    fireEvent.touchMove(viewport, {
+      touches: touches(150),
+      targetTouches: touches(150),
+    })
+    expect(editor.setZoom).toHaveBeenLastCalledWith(1.2)
+    expect(screen.getByText("120%")).toBeVisible()
+    fireEvent.touchEnd(viewport, {
+      touches: [],
+      targetTouches: [],
+      changedTouches: touches(150),
+    })
+    unmount()
+    editor.setZoom.mockClear()
+    const wheel = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: -10,
+    })
+    fireEvent(viewport, wheel)
+    expect(wheel.defaultPrevented).toBe(false)
+    expect(editor.setZoom).not.toHaveBeenCalled()
   })
 
   it("fits the whole page on open and resets manual zoom back to the current width", async () => {
@@ -451,6 +589,95 @@ describe("word preview", () => {
 
     expect(editor.setZoom).toHaveBeenLastCalledWith(0.6)
     expect(surface).toHaveAttribute("data-fit-width", "true")
+  })
+
+  it.each(["pinch", "toolbar"] as const)(
+    "reserves the full scaled page width after %s zoom and shrinks it on reset",
+    async (input) => {
+      render(
+        <WordPreview
+          document={{ status: "ready", content: new Uint8Array([1]) }}
+          fileName="horizontal-scroll.docx"
+        />
+      )
+      const surface = document.querySelector<HTMLElement>(
+        ".word-preview-editor-surface"
+      )
+      const viewport = document.querySelector<HTMLElement>(
+        ".docx-editor__scroll-container"
+      )
+      if (!surface || !viewport) throw new Error("Missing Word viewport")
+      await waitFor(() =>
+        expect(surface).toHaveAttribute("data-layout-ready", "true")
+      )
+      await act(async () => {})
+
+      if (input === "pinch") {
+        fireEvent.wheel(viewport, { ctrlKey: true, deltaY: -148.75 })
+      } else {
+        for (let step = 0; step < 12; step += 1) {
+          fireEvent.click(
+            screen.getByRole("button", { name: "放大 Word 文档" })
+          )
+        }
+      }
+      expect(
+        screen.getByText(input === "pinch" ? "199%" : "200%")
+      ).toBeVisible()
+      expect(surface).toHaveAttribute("data-fit-width", "false")
+      expect(
+        surface.style.getPropertyValue("--word-preview-scroll-width")
+      ).toBe(input === "pinch" ? "1632px" : "1640px")
+
+      fireEvent.click(screen.getByText(input === "pinch" ? "199%" : "200%"))
+      expect(surface).toHaveAttribute("data-fit-width", "true")
+      expect(
+        surface.style.getPropertyValue("--word-preview-scroll-width")
+      ).toBe("680px")
+    }
+  )
+
+  it("includes wider pages rendered after manual zoom without resetting the zoom", async () => {
+    render(
+      <WordPreview
+        document={{ status: "ready", content: new Uint8Array([1]) }}
+        fileName="mixed-page-sizes.docx"
+      />
+    )
+    const surface = document.querySelector<HTMLElement>(
+      ".word-preview-editor-surface"
+    )
+    const viewport = document.querySelector<HTMLElement>(
+      ".docx-editor__scroll-container"
+    )
+    const pages = document.querySelector<HTMLElement>(".paged-editor__pages")
+    if (!surface || !viewport || !pages) throw new Error("Missing Word pages")
+    await waitFor(() =>
+      expect(surface).toHaveAttribute("data-layout-ready", "true")
+    )
+    await act(async () => {})
+    fireEvent.wheel(viewport, { ctrlKey: true, deltaY: -10000 })
+    expect(screen.getByText("200%")).toBeVisible()
+    editor.setZoom.mockClear()
+
+    const landscapePage = document.createElement("div")
+    landscapePage.className = "layout-page"
+    Object.defineProperty(landscapePage, "offsetWidth", { value: 1_150 })
+    pages.append(landscapePage)
+    await waitFor(() =>
+      expect(
+        surface.style.getPropertyValue("--word-preview-scroll-width")
+      ).toBe("2340px")
+    )
+    expect(editor.setZoom).not.toHaveBeenCalled()
+    expect(screen.getByText("200%")).toBeVisible()
+
+    landscapePage.remove()
+    await waitFor(() =>
+      expect(
+        surface.style.getPropertyValue("--word-preview-scroll-width")
+      ).toBe("1640px")
+    )
   })
 
   it.each(["es-ES", "pt-BR", "fr-FR", "ja-JP"] as const)(

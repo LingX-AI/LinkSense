@@ -7,6 +7,7 @@ export const errorMessages = {
   "APPLICATION_DEVELOPMENT_TEST_BUSY": "Todavía hay una prueba activa. Detenla y resuelve las solicitudes pendientes en el historial de pruebas antes de continuar.",
   "APPLICATION_DEVELOPMENT_TEST_CHANGED": "La sesión de prueba ha cambiado. Continúa desde la vista previa más reciente.",
   "APPLICATION_DEVELOPMENT_WORKSPACE_BOUND": "Este proyecto contiene archivos de aplicaciones. Elimina esas aplicaciones en Mis aplicaciones antes de eliminar el proyecto. Las tareas de desarrollo deben permanecer en su proyecto actual.",
+  APPLICATION_DEVELOPMENT_PROJECT_NAME_FIXED: "Este proyecto reúne las tareas de desarrollo de aplicaciones. No se puede cambiar su nombre.",
   "APPLICATION_DEVELOPMENT_NOT_FOUND": "Esta aplicación no está disponible. Vuelve a Mis aplicaciones.",
   "APPLICATION_DEVELOPMENT_SOURCE_CHANGED": "La aplicación ha cambiado. Revisa la vista previa más reciente antes de instalar.",
   "WEB_SITE_NOT_FOUND": "Este sitio no está disponible o se ha dejado de compartir",

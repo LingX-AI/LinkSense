@@ -51,7 +51,7 @@ describe("application test sessions", () => {
     expect(f.conversations.delete).not.toHaveBeenCalled();
     await f.service.deleteTest(actor, f.project.id, TASK);
     expect(f.conversations.delete).toHaveBeenCalledWith(actor.id, TASK, {});
-    await f.service.tool(actor, TASK, TASK, { operation: "tests", conversation_id: TASK }, "zh-CN");
+    await f.service.tool(actor, TASK, TASK, { operation: "tests", conversation_id: TASK }, "zh-CN", f.workspace);
     expect(f.store.inspectTest).toHaveBeenCalledWith(expect.objectContaining({ id: f.project.id }), TASK);
   });
 });

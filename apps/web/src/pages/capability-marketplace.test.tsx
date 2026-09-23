@@ -5082,7 +5082,8 @@ describe("capability marketplace pages", () => {
       const actionTrigger = within(item).getByRole("button", {
         name: actionLabel,
       })
-      expect(actionTrigger.querySelector("svg")).not.toBeNull()
+      const actionIcon = suspended ? "lucide-store" : "lucide-package-minus"
+      expect(actionTrigger.querySelector("svg")).toHaveClass(actionIcon)
       await interaction.click(actionTrigger)
       expect(screen.queryByRole("menu")).toBeNull()
       expect(
@@ -5090,32 +5091,51 @@ describe("capability marketplace pages", () => {
           name: `${actionLabel}“${release.name}”？`,
         })
       ).toBeVisible()
+      const dialog = screen.getByRole("dialog")
+      expect(
+        within(dialog)
+          .getByRole("button", { name: actionLabel })
+          .querySelector("svg")
+      ).toHaveClass(actionIcon)
       if (!suspended) expect(screen.getByLabelText("下架原因")).toBeVisible()
     }
   )
 
-  it("does not offer another unlisting action for a publisher-unlisted listing", async () => {
+  it("shows the unlisted status consistently and lets an administrator relist a publisher-unlisted item", async () => {
+    let listingStatus: "unlisted" | "published" = "unlisted"
     const publication = {
       listing: { ...listing, status: "unlisted" as const },
       current_release: release,
       latest_release: release,
       install_count: 7,
     }
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL) => {
-        const path = new URL(String(input), window.location.origin).pathname
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), window.location.origin).pathname
+      if (
+        path === `/api/v1/admin/marketplace/${LISTING_ID}/status` &&
+        init?.method === "PATCH"
+      ) {
+        listingStatus = "published"
         return Promise.resolve(
-          envelope({
-            items:
-              path === "/api/v1/admin/marketplace/listings"
-                ? [publication]
-                : [],
-            next_cursor: null,
-          })
+          envelope({ ...publication.listing, status: listingStatus })
         )
-      })
-    )
+      }
+      return Promise.resolve(
+        envelope({
+          items:
+            path === "/api/v1/admin/marketplace/listings"
+              ? [
+                  {
+                    ...publication,
+                    listing: { ...publication.listing, status: listingStatus },
+                  },
+                ]
+              : [],
+          next_cursor: null,
+        })
+      )
+    })
+    vi.stubGlobal("fetch", fetchMock)
     const interaction = userEvent.setup()
     renderAdminPage()
 
@@ -5124,8 +5144,47 @@ describe("capability marketplace pages", () => {
     )
 
     const item = await screen.findByRole("article", { name: release.name })
-    expect(within(item).getByText("已下架")).toBeVisible()
+    expect(within(item).getByText("已下架")).toHaveAttribute(
+      "data-variant",
+      "destructive"
+    )
     expect(within(item).queryByRole("button", { name: "下架" })).toBeNull()
+    expect(
+      within(item)
+        .getByRole("button", { name: "重新上架" })
+        .querySelector("svg")
+    ).toHaveClass("lucide-store")
+    await interaction.click(
+      within(item).getByRole("button", { name: "重新上架" })
+    )
+    const dialog = await screen.findByRole("dialog")
+    expect(
+      within(dialog).getByRole("heading", {
+        name: `重新上架“${release.name}”？`,
+      })
+    ).toBeVisible()
+    expect(
+      within(dialog).getByText(i18n.t("marketplace.relistUnlistedDescription"))
+    ).toBeVisible()
+    expect(
+      within(dialog)
+        .getByRole("button", { name: "重新上架" })
+        .querySelector("svg")
+    ).toHaveClass("lucide-store")
+    expect(within(dialog).queryByLabelText("下架原因")).toBeNull()
+    await interaction.click(
+      within(dialog).getByRole("button", { name: "重新上架" })
+    )
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining(`/admin/marketplace/${LISTING_ID}/status`),
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ action: "resume" }),
+        })
+      )
+    )
+    expect(await within(item).findByText("已上架")).toBeVisible()
     expect(within(item).queryByRole("button", { name: "重新上架" })).toBeNull()
   })
 

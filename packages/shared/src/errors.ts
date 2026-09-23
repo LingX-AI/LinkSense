@@ -36,6 +36,10 @@ export const errorCatalog = {
     message_key: "errors.applicationDevelopment.workspaceBound", http_status: 409,
     messages: { "zh-CN": "此项目中仍有应用开发内容。请在“我的应用”中删除相关应用后再删除项目；开发任务不能移动到其他项目。", "en-US": "This project contains application sources. Delete those applications in My applications before deleting the project. Development tasks must stay in their current project." },
   },
+  APPLICATION_DEVELOPMENT_PROJECT_NAME_FIXED: {
+    message_key: "errors.applicationDevelopment.projectNameFixed", http_status: 409,
+    messages: { "zh-CN": "此项目用于集中管理应用开发任务，名称不能更改。", "en-US": "This project keeps application development tasks together. Its name cannot be changed." },
+  },
   APPLICATION_DEVELOPMENT_NOT_FOUND: {
     message_key: "errors.applicationDevelopment.notFound", http_status: 404,
     messages: { "zh-CN": "找不到这个应用，请返回“我的应用”查看。", "en-US": "This application is unavailable. Return to My applications." },

@@ -14,6 +14,7 @@ export const errorMessages = {
         "Todavía hay una prueba activa. Detenla y resuelve las solicitudes pendientes en el historial de pruebas antes de continuar.",
       testChanged:
         "La sesión de prueba ha cambiado. Continúa desde la vista previa más reciente.",
+      projectNameFixed: "Este proyecto reúne las tareas de desarrollo de aplicaciones. No se puede cambiar su nombre.",
       workspaceBound:
         "Este proyecto contiene archivos de aplicaciones. Elimina esas aplicaciones en Mis aplicaciones antes de eliminar el proyecto. Las tareas de desarrollo deben permanecer en su proyecto actual.",
       notFound:

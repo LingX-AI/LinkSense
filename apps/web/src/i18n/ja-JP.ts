@@ -412,6 +412,7 @@ export const jaJP = {
     unreadFailure: "失敗後、まだ確認されていないタスク",
     creditQuotaRemainingTitle: "クレジット",
     creditQuotaRemaining: "{{weekly}}",
+    creditQuotaUnlimited: "無制限",
   },
   support: {
     menuLabel: "フィードバックとヘルプ",
@@ -1829,6 +1830,8 @@ export const jaJP = {
     selectionStatus: "スライド {{slide}} の {{count}} 個の要素を選択中",
   },
   officePreview: {
+    zoomGestureHint:
+      "Ctrl（Mac は ⌘）を押しながらホイールを回すか、トラックパッドでピンチ操作をすると、文書を拡大・縮小できます。",
     previewTitle: "ドキュメント {{name}} をプレビュー",
     loading: "ドキュメントを読み込み中",
     loadFailed:
@@ -3580,6 +3583,8 @@ export const jaJP = {
     resumeListingTitle: "「{{name}}」を再掲載しますか？",
     resumeListingDescription:
       "プラグインセンターに再表示され、インストール済みのコピーを新しいタスクで再び使用できます。",
+    relistUnlistedDescription:
+      "プラグインセンターに再表示されます。既存のインストールには影響しません。",
     suspensionReason: "掲載停止の理由",
     listingSuspended:
       "掲載を停止しました。すべてのインストールで新しいタスクの開始がブロックされました。",
@@ -5484,6 +5489,8 @@ export const jaJP = {
         "テストがまだ実行中です。テスト履歴で停止し、対応待ちのリクエストを処理してから続行してください。",
       testChanged:
         "テストセッションが変更されました。最新のプレビューから続行してください。",
+      projectNameFixed:
+        "このプロジェクトはアプリ開発タスクをまとめるためのものです。名前は変更できません。",
       workspaceBound:
         "このプロジェクトにはアプリケーションのソースがあります。プロジェクトを削除する前に「マイアプリケーション」で該当アプリを削除してください。開発タスクは現在のプロジェクトに保持する必要があります。",
       notFound:

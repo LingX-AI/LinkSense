@@ -191,6 +191,7 @@ export const zhCN = {
     unreadFailure: "任务执行失败，尚未查看",
     creditQuotaRemainingTitle: "额度",
     creditQuotaRemaining: "{{weekly}}",
+    creditQuotaUnlimited: "不限",
   },
   support: {
     menuLabel: "反馈与帮助",
@@ -1487,6 +1488,8 @@ export const zhCN = {
     selectionStatus: "已选择第 {{slide}} 页中的 {{count}} 个元素",
   },
   officePreview: {
+    zoomGestureHint:
+      "按住 Ctrl（Mac 为 ⌘）并滚动滚轮，或在触控板上双指捏合，即可缩放文档。",
     previewTitle: "预览文档 {{name}}",
     loading: "正在加载文档",
     loadFailed: "无法预览此文档，请重试。",
@@ -3099,6 +3102,8 @@ export const zhCN = {
     resumeListingTitle: "重新上架“{{name}}”？",
     resumeListingDescription:
       "重新上架后条目会显示在插件中心，已安装副本也可以再次用于新任务。",
+    relistUnlistedDescription:
+      "重新上架后条目会再次显示在插件中心，现有安装不受影响。",
     suspensionReason: "下架原因",
     listingSuspended: "上架项已下架，所有安装副本的新任务已被阻止。",
     listingResumed: "上架项已重新上架。",
@@ -4860,6 +4865,7 @@ export const zhCN = {
         errorCatalog.APPLICATION_DEVELOPMENT_TEST_BUSY.messages["zh-CN"],
       testChanged:
         errorCatalog.APPLICATION_DEVELOPMENT_TEST_CHANGED.messages["zh-CN"],
+      projectNameFixed: "此项目用于集中管理应用开发任务，名称不能更改。",
       workspaceBound:
         errorCatalog.APPLICATION_DEVELOPMENT_WORKSPACE_BOUND.messages["zh-CN"],
       notFound:

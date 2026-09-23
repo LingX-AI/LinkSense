@@ -1,4 +1,5 @@
 import type { Logger } from "pino";
+import { relative } from "node:path";
 
 import {
   RUNNER_EVENT_BATCH_MAX_COUNT,
@@ -6,6 +7,7 @@ import {
   runnerEventBatchReceiptSchema,
   runnerStartSettledSchema,
   runnerStartSettledReceiptSchema,
+  userWorkspacePathSchema,
   type RunnerStartSettled,
 } from "@linksense/shared";
 import type {
@@ -365,7 +367,9 @@ export class HttpRunnerEventSink implements RunnerEventSink {
   }
 
   async applicationBuilder(input: { conversationId: string; turnId: string; request: import("@linksense/shared").ApplicationBuilderRequest }): Promise<unknown> {
-    const response = await this.request("/internal/application-builder", input, this.workspaceManager.ownerFor(input.conversationId));
+    const paths = this.workspaceManager.pathsFor(input.conversationId);
+    const workspacePath = userWorkspacePathSchema.parse(relative(paths.home, paths.workspace));
+    const response = await this.request("/internal/application-builder", { ...input, workspacePath }, this.workspaceManager.ownerFor(input.conversationId));
     const body = await parseResponseBody(response);
     if (!response.ok) throw applicationBuilderErrorFromApi(response.status, body);
     return body;

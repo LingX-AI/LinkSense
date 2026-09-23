@@ -7,6 +7,7 @@ export const errorMessages: Record<ErrorCode, string> = {
  APPLICATION_DEVELOPMENT_TEST_BUSY: "Un test est encore actif. Arrêtez-le et traitez les demandes en attente dans l’historique des tests avant de continuer.",
  APPLICATION_DEVELOPMENT_TEST_CHANGED: "La session de test a changé. Continuez depuis le dernier aperçu.",
  APPLICATION_DEVELOPMENT_WORKSPACE_BOUND: "Ce projet contient des sources d’applications. Supprimez ces applications dans Mes applications avant de supprimer le projet. Les tâches de développement doivent rester dans leur projet actuel.",
+  APPLICATION_DEVELOPMENT_PROJECT_NAME_FIXED: "Ce projet regroupe les tâches de développement d’applications. Son nom ne peut pas être modifié.",
  APPLICATION_DEVELOPMENT_NOT_FOUND: "Cette application est indisponible. Revenez à Mes applications.",
  APPLICATION_DEVELOPMENT_SOURCE_CHANGED: "L’application a changé. Consultez le dernier aperçu avant de l’installer.",
  WEB_SITE_NOT_FOUND: "Ce site est indisponible ou son partage a été arrêté",

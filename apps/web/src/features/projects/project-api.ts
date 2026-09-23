@@ -55,13 +55,16 @@ export function reorderProjects(projectIds: string[]): Promise<Project[]> {
   })
 }
 
-export function moveTaskToProject(
-  id: string,
+export async function moveTaskToProject(
+  conversation: Pick<Conversation, "id" | "pinned_at">,
   projectId: string | null
 ): Promise<Conversation> {
-  return apiRequest(`/conversations/${id}`, {
+  return apiRequest(`/conversations/${conversation.id}`, {
     method: "PATCH",
-    body: { project_id: projectId },
+    body: {
+      project_id: projectId,
+      ...(conversation.pinned_at ? { pinned: false } : {}),
+    },
     schema: conversationSchema,
   })
 }

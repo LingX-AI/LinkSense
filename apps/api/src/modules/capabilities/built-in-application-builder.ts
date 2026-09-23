@@ -22,9 +22,16 @@ The platform creates a working starter and opens the preview beside this chat.
 To use an existing static application directory, pass its workspace-relative
 \`directory\`; it must already contain a valid manifest.json and index.html.
 
-Edit the files in the returned \`directory\` with the normal workspace tools.
-Reuse the same project on subsequent requests. Choose the task's project before
-opening development; the development task keeps its source in that project.
+Edit the files in the returned \`source_directory\` with the normal workspace tools;
+expand its leading \`~\` to the current user's HOME. New development tasks and
+their starter files belong to the automatically created “制作应用” project.
+The current turn's working directory may still be the original task workspace:
+use the returned source location explicitly, including for build output, and keep
+new build sources beside that location. Do not assume a relative \`directory\`
+is relative to the current turn's working directory. Subsequent turns use the
+new project workspace. Existing development tasks keep their original sources.
+Development tasks cannot be moved to another project. Reuse the same development
+on subsequent requests.
 The platform automatically captures file changes while the panel is open; it does not require
 registering a ZIP or manually refreshing after every edit. Use the inspect tool
 after a coherent change to check source validation and browser diagnostics.

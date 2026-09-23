@@ -31,7 +31,7 @@ describe("application development task titles", () => {
 
   it("names an ordinary task when the development tool opens a project in it", async () => {
     const f = await setup();
-    await f.service.tool(actor, TASK, OWNER, { operation: "open", name: "天气助手" }, "zh-CN");
+    await f.service.tool(actor, TASK, OWNER, { operation: "open", name: "天气助手" }, "zh-CN", f.workspace);
     expect(await f.store.conversation()).toMatchObject({ title: "开发 天气助手" });
     expect(f.conversations.create).not.toHaveBeenCalled();
   });

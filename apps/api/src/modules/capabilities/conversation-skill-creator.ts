@@ -1,8 +1,12 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { lstat, realpath } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 
 import {
+  coreMcpServerKey,
+  conversationFormAcceptedOutcome,
+  conversationFormResponseContentSchema,
+  conversationFormResponseSemanticsSchema,
   skillCreatorConfirmRequestSchema,
   skillCreatorPreviewRequestSchema,
   skillCreatorPreviewResultSchema,
@@ -32,10 +36,13 @@ const installTokenClaimsSchema = z.strictObject({
   conversation_id: z.uuid(),
   preview_turn_id: z.string().min(1).max(256),
   preview_token: z.uuid(),
+  skill_name: z.string().min(1).max(160),
+  requires_confirmation: z.boolean(),
+  approval_reference: z.uuid(),
   expires_at: z.iso.datetime({ offset: true }),
 });
 
-type SkillCreatorPrisma = Pick<PrismaClient, "conversationTurn" | "conversation" | "user">;
+type SkillCreatorPrisma = Pick<PrismaClient, "conversationTurn" | "conversation" | "conversationUserInputRequest" | "user">;
 
 export interface ConversationSkillCreatorServiceOptions {
   prisma: SkillCreatorPrisma;
@@ -151,6 +158,10 @@ export class ConversationSkillCreatorService {
     ) {
       throw invalidArchive("requested_type_mismatch");
     }
+    const requiresConfirmation = Object.values(preview.risk_summary).some(
+      (value) => value === true || (Array.isArray(value) && value.length > 0),
+    );
+    const approvalReference = randomUUID();
     return skillCreatorPreviewResultSchema.parse({
       success: true,
       install_token: this.#signInstallToken({
@@ -158,8 +169,13 @@ export class ConversationSkillCreatorService {
         conversation_id: input.conversationId,
         preview_turn_id: input.turnId,
         preview_token: preview.preview_token,
+        skill_name: preview.name,
+        requires_confirmation: requiresConfirmation,
+        approval_reference: approvalReference,
         expires_at: preview.expires_at,
       }),
+      requires_confirmation: requiresConfirmation,
+      approval_reference: approvalReference,
       expires_at: preview.expires_at,
       name: preview.name,
       description: preview.description,
@@ -186,7 +202,11 @@ export class ConversationSkillCreatorService {
     ) {
       throw new AppError("SKILL_CREATOR_PREVIEW_INVALID");
     }
-    if (claims.preview_turn_id === input.turnId) {
+    if (
+      claims.requires_confirmation &&
+      claims.preview_turn_id === input.turnId &&
+      !(await this.#hasApprovedForm(actor.id, input.conversationId, claims))
+    ) {
       throw new AppError("SKILL_CREATOR_CONFIRMATION_REQUIRED");
     }
 
@@ -205,6 +225,44 @@ export class ConversationSkillCreatorService {
       status: capability.status,
       preference_status: capability.preference_status,
     };
+  }
+
+  async #hasApprovedForm(
+    ownerId: string,
+    conversationId: string,
+    claims: z.infer<typeof installTokenClaimsSchema>,
+  ): Promise<boolean> {
+    const forms = await this.#prisma.conversationUserInputRequest.findMany({
+      where: {
+        ownerId,
+        conversationId,
+        codexTurnId: claims.preview_turn_id,
+        serverName: coreMcpServerKey,
+        requestKind: "form",
+        status: "answered",
+        resolvedAction: "accept",
+        messageText: { contains: claims.approval_reference },
+      },
+      select: {
+        messageText: true,
+        formResponseSemanticsJson: true,
+        responseContentJson: true,
+      },
+    });
+    return forms.some((form) => {
+      if (
+        !form.messageText?.includes(claims.skill_name) ||
+        !form.messageText.includes(claims.approval_reference)
+      ) return false;
+      const semantics = conversationFormResponseSemanticsSchema.safeParse(
+        form.formResponseSemanticsJson,
+      );
+      const content = conversationFormResponseContentSchema.safeParse(
+        form.responseContentJson,
+      );
+      return semantics.success && content.success &&
+        conversationFormAcceptedOutcome(semantics.data, content.data) === "approved";
+    });
   }
 
   async #activeActor(ownerId: string): Promise<RequestActor> {

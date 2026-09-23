@@ -198,6 +198,7 @@ export const enUS = {
     unreadFailure: "Task failed and has not been viewed",
     creditQuotaRemainingTitle: "Credits",
     creditQuotaRemaining: "{{weekly}}",
+    creditQuotaUnlimited: "Unlimited",
   },
   support: {
     menuLabel: "Feedback and help",
@@ -1622,6 +1623,8 @@ export const enUS = {
     selectionStatus: "Selected {{count}} elements on slide {{slide}}",
   },
   officePreview: {
+    zoomGestureHint:
+      "Hold Ctrl (⌘ on Mac) and scroll, or pinch on your trackpad, to zoom the document.",
     previewTitle: "Preview document {{name}}",
     loading: "Loading document",
     loadFailed: "This document could not be previewed. Try again.",
@@ -3345,6 +3348,8 @@ export const enUS = {
     resumeListingTitle: "Relist “{{name}}”?",
     resumeListingDescription:
       "The listing will return to the Plugin Center and installed copies can be used in new tasks again.",
+    relistUnlistedDescription:
+      "The listing will appear in the Plugin Center again. Existing installations are unaffected.",
     suspensionReason: "Unlisting reason",
     listingSuspended:
       "The listing was unlisted and new tasks are blocked for every installation.",
@@ -5242,6 +5247,8 @@ export const enUS = {
         errorCatalog.APPLICATION_DEVELOPMENT_TEST_BUSY.messages["en-US"],
       testChanged:
         errorCatalog.APPLICATION_DEVELOPMENT_TEST_CHANGED.messages["en-US"],
+      projectNameFixed:
+        "This project keeps application development tasks together. Its name cannot be changed.",
       workspaceBound:
         errorCatalog.APPLICATION_DEVELOPMENT_WORKSPACE_BOUND.messages["en-US"],
       notFound:

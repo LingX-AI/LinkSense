@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppError } from "../src/lib/errors.js";
 import { inspectInteractiveApplicationArchive } from "../src/modules/applications/interactive-package.js";
-import { actor, OWNER, TASK, developmentFixture } from "./application-development.fixture.js";
+import { actor, OWNER, TASK, DEVELOPMENT_PROJECT, developmentFixture } from "./application-development.fixture.js";
 import { applicationDevelopmentTemplate } from "../src/modules/applications/development-template.js";
 
 const roots: string[] = [];
@@ -54,7 +54,7 @@ describe("conversational application development", () => {
     const resumed = await f.service.reopen(actor, first.id, "en-US");
     expect(resumed.conversation_id).toBeTruthy(); expect(resumed.conversation_id).not.toBe(TASK);
     expect(resumed).toMatchObject({ id: first.id, directory: first.directory, preview_conversation_id: first.preview_conversation_id });
-    expect(f.conversations.createDevelopmentConversation).toHaveBeenCalledWith(OWNER, { id: first.id, workspaceRelPath: `${OWNER}/home/workspace`, projectId: null }, "en-US");
+    expect(f.conversations.createDevelopmentConversation).toHaveBeenCalledWith(OWNER, { id: first.id, workspaceRelPath: `${OWNER}/home/projects/${DEVELOPMENT_PROJECT}`, projectId: DEVELOPMENT_PROJECT }, "en-US");
     await f.service.reopen(actor, first.id, "en-US");
     expect(f.conversations.createDevelopmentConversation).toHaveBeenCalledOnce();
   });
@@ -174,8 +174,8 @@ describe("conversational application development", () => {
     await expect(f.service.sync({ ...actor, id: TASK }, project.id)).rejects.toMatchObject({ code: "APPLICATION_DEVELOPMENT_NOT_FOUND" });
     await expect(f.service.create({ ...actor, status: "disabled" }, { name: "No" }, "en-US")).rejects.toMatchObject({ code: "USER_DISABLED" });
     f.store.assertActiveTurn.mockRejectedValue(new AppError("FORBIDDEN"));
-    await expect(f.service.tool(actor, TASK, OWNER, { operation: "inspect" }, "en-US")).rejects.toMatchObject({ code: "FORBIDDEN" });
-    f.store.conversation.mockResolvedValue({ id: TASK, ownerId: OWNER, applicationId: null, collaborationMode: "plan", workspaceRelPath: `${OWNER}/home/workspace`, title: "Example" });
+    await expect(f.service.tool(actor, TASK, OWNER, { operation: "inspect" }, "en-US", f.workspace)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    f.store.conversation.mockResolvedValue({ id: TASK, ownerId: OWNER, applicationId: null, collaborationMode: "plan", projectId: null, workspaceRelPath: `${OWNER}/home/workspace`, title: "Example" });
     await expect(f.service.open(actor, TASK, { name: "No" }, "en-US")).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
   it("returns the winning snapshot when concurrent preview publication loses its optimistic write", async () => {

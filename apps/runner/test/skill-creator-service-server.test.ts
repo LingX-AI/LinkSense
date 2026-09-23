@@ -69,7 +69,7 @@ describe("LinkSense Core MCP Skill creator module", () => {
         expect.objectContaining({ name: "preview_skill_zip" }),
         expect.objectContaining({
           name: "install_skill",
-          description: expect.stringContaining("Call only after the user explicitly confirms that preview"),
+          description: expect.stringContaining("A preview with no risks may be installed immediately"),
         }),
       ]),
     })
@@ -234,6 +234,8 @@ function previewResult(installToken: string) {
   return {
     success: true,
     install_token: installToken,
+    requires_confirmation: true,
+    approval_reference: "40000000-0000-4000-8000-000000000001",
     expires_at: "2026-07-27T10:15:00.000Z",
     name: "my-skill",
     description: "A test Skill.",

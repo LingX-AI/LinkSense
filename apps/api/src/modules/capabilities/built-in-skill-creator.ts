@@ -7,7 +7,7 @@ export const BUILT_IN_SKILL_CREATOR_NAME = "linksense-skill-creator"
 
 const SKILL_MARKDOWN = `---
 name: linksense-skill-creator
-description: Create a complete, reusable LinkSense Skill from an explicit user request or the current conversation, package it as a validated ZIP archive, preview its risks, and install it only after the user confirms.
+description: Create a complete, reusable LinkSense Skill from an explicit user request or the current conversation, validate and preview its ZIP archive, and install it with risk-based confirmation.
 ---
 
 # LinkSense Skill Creator
@@ -43,12 +43,21 @@ existing Skill from the Skill Center.
    manual ZIP import but does not install anything.
 8. Register the validated ZIP through
    \`${coreMcpServerKey}.register_artifact\` so the user can download and
-   inspect it. Summarize the Skill name, purpose, included resources, declared
-   capabilities, and risk findings. Ask for explicit confirmation to install.
-9. Only after the user explicitly confirms in a follow-up turn, call
-   \`${coreMcpServerKey}.install_skill\` with the opaque install token from
-   the preview result. Never print or reveal that token. A changed package
-   requires a new preview and a new confirmation.
+   inspect it. Check the preview's \`requires_confirmation\` value and review
+   the Skill instructions for risks the automated scan may miss. If the user
+   asked to install and no risk is present, call \`${coreMcpServerKey}.install_skill\`
+   immediately in this turn. Do not ask the user to confirm again.
+9. If the preview requires confirmation or the Skill instructions reveal a
+   material risk, briefly explain the specific risk and ask once. Use
+   \`${coreMcpServerKey}.request_user_form\` with \`purpose: "approval"\`, a required
+   two-option approve/reject field, and a message containing the exact Skill
+   name and \`approval_reference\` from the preview. After the form returns an
+   explicit approval, call \`${coreMcpServerKey}.install_skill\` in the same turn.
+   A rejection, cancellation, timeout, or unanswered form is not approval.
+   An explicit approval in a later user message also permits installation in
+   that later turn. Never ask for typed confirmation when the form is available.
+   Never print or reveal the opaque install token. A changed package requires
+   a new preview and, if risky, a new confirmation.
 10. Report the installed Skill name. Explain that a Skill installed during a
     running turn becomes available to LinkSense from the next turn. If the name
     conflicts with an existing capability, ask the user for a new name; never

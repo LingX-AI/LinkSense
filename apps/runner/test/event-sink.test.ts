@@ -355,7 +355,7 @@ describe("HttpRunnerEventSink", () => {
     const input = { conversationId, turnId: "01900000-0000-7000-8000-000000000003", request: { operation: "inspect" as const } };
     await expect(sink.applicationBuilder(input)).resolves.toBeNull();
     await expect(sink.applicationBuilder(input)).rejects.toMatchObject({ code: "APPLICATION_PACKAGE_INVALID", retryable: false, message: "APPLICATION_PACKAGE_INVALID" });
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ headers: expect.objectContaining({ "x-linksense-owner-id": ownerId }), body: JSON.stringify(input) });
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ headers: expect.objectContaining({ "x-linksense-owner-id": ownerId }), body: JSON.stringify({ ...input, workspacePath: "workspace" }) });
     await sink.close();
   });
 

@@ -31,6 +31,7 @@ import {
   EyeOffIcon,
   FileTextIcon,
   MoreHorizontalIcon,
+  PackageMinusIcon,
   PackagePlusIcon,
   PowerIcon,
   RefreshCwIcon,
@@ -435,7 +436,8 @@ function MarketplaceStatusBadge({
     status in listingStatusKeys
       ? listingStatusKeys[status as keyof typeof listingStatusKeys]
       : releaseStatusKeys[status as keyof typeof releaseStatusKeys]
-  const destructive = status === "rejected" || status === "suspended"
+  const destructive =
+    status === "rejected" || status === "suspended" || status === "unlisted"
   const positive = status === "approved" || status === "published"
   const Icon = marketplaceStatusIcons[status]
   return (
@@ -3901,14 +3903,16 @@ function GovernanceDialog({
   onCompleted: (message: string) => Promise<void>
 }) {
   const { t } = useTranslation()
-  const suspended = publication?.listing.status === "suspended"
+  const restoring =
+    publication?.listing.status === "suspended" ||
+    publication?.listing.status === "unlisted"
   const [reason, setReason] = useState("")
   const [error, setError] = useState<string | null>(null)
   const mutation = useMutation({
     mutationFn: () =>
       apiRequest(`/admin/marketplace/${publication?.listing.id}/status`, {
         method: "PATCH",
-        body: suspended
+        body: restoring
           ? { action: "resume" }
           : { action: "suspend", reason: reason.trim() },
         schema: marketplaceListingSchema,
@@ -3916,7 +3920,7 @@ function GovernanceDialog({
     onSuccess: async () => {
       await onCompleted(
         t(
-          suspended
+          restoring
             ? "marketplace.listingResumed"
             : "marketplace.listingSuspended"
         )
@@ -3942,7 +3946,7 @@ function GovernanceDialog({
         <DialogHeader>
           <DialogTitle>
             {t(
-              suspended
+              restoring
                 ? "marketplace.resumeListingTitle"
                 : "marketplace.suspendListingTitle",
               {
@@ -3957,14 +3961,16 @@ function GovernanceDialog({
           </DialogTitle>
           <DialogDescription>
             {t(
-              suspended
-                ? "marketplace.resumeListingDescription"
+              restoring
+                ? publication?.listing.status === "unlisted"
+                  ? "marketplace.relistUnlistedDescription"
+                  : "marketplace.resumeListingDescription"
                 : "marketplace.suspendListingDescription"
             )}
           </DialogDescription>
         </DialogHeader>
         {error && <StatusBanner variant="error">{error}</StatusBanner>}
-        {!suspended && (
+        {!restoring && (
           <FieldShell
             id="marketplace-suspension-reason"
             label={t("marketplace.suspensionReason")}
@@ -3983,17 +3989,17 @@ function GovernanceDialog({
           </DialogClose>
           <Button
             type="button"
-            variant={suspended ? "default" : "destructive"}
-            disabled={mutation.isPending || (!suspended && !reason.trim())}
+            variant={restoring ? "default" : "destructive"}
+            disabled={mutation.isPending || (!restoring && !reason.trim())}
             onClick={() => mutation.mutate()}
           >
-            {suspended ? (
-              <RefreshCwIcon data-icon="inline-start" />
+            {restoring ? (
+              <StoreIcon data-icon="inline-start" />
             ) : (
-              <BanIcon data-icon="inline-start" />
+              <PackageMinusIcon data-icon="inline-start" />
             )}
             {t(
-              suspended
+              restoring
                 ? "marketplace.resumeListing"
                 : "marketplace.suspendListing"
             )}
@@ -4074,9 +4080,11 @@ function GovernanceListingItem({
   onStatusChange: () => void
 }) {
   const { t } = useTranslation()
-  const suspended = publication.listing.status === "suspended"
+  const restoring =
+    publication.listing.status === "suspended" ||
+    publication.listing.status === "unlisted"
   const canChangeGovernanceStatus =
-    publication.listing.status === "published" || suspended
+    publication.listing.status === "published" || restoring
 
   return (
     <MarketplaceGovernanceItem
@@ -4108,17 +4116,17 @@ function GovernanceListingItem({
         publication.current_release && canChangeGovernanceStatus ? (
           <Button
             type="button"
-            variant={suspended ? "secondary" : "destructive-ghost"}
+            variant={restoring ? "secondary" : "destructive-ghost"}
             size="default"
             onClick={onStatusChange}
           >
-            {suspended ? (
-              <RefreshCwIcon data-icon="inline-start" />
+            {restoring ? (
+              <StoreIcon data-icon="inline-start" />
             ) : (
-              <BanIcon data-icon="inline-start" />
+              <PackageMinusIcon data-icon="inline-start" />
             )}
             {t(
-              suspended
+              restoring
                 ? "marketplace.resumeListing"
                 : "marketplace.suspendListing"
             )}

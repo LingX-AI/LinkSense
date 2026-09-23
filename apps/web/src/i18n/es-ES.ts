@@ -143,6 +143,7 @@ export const esES = {
     unreadFailure: "La tarea ha fallado y aún no se ha visto",
     creditQuotaRemainingTitle: "Créditos",
     creditQuotaRemaining: "{{weekly}}",
+    creditQuotaUnlimited: "Sin límite",
   },
   auth: {
     loginTitle: "Iniciar sesión en {{productName}}",

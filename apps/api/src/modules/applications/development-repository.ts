@@ -1,12 +1,28 @@
-import { applicationTestInspectionSchema, applicationTestSessionsSchema, type ApplicationTestSessions, type ApplicationTestSessionsQuery, type InteractiveApplicationManifest, type InteractiveDependencyBinding, type InteractiveDependencyState } from "@linksense/shared";
+import { randomUUID } from "node:crypto";
+import { APPLICATION_DEVELOPMENT_PROJECT_NAME, applicationTestInspectionSchema, applicationTestSessionsSchema, type ApplicationTestSessions, type ApplicationTestSessionsQuery, type InteractiveApplicationManifest, type InteractiveDependencyBinding, type InteractiveDependencyState } from "@linksense/shared";
 import { Prisma, type PrismaClient, type ApplicationDevelopment, type Conversation } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
+import { projectWorkspaceRelativePath } from "../../lib/user-runtime-paths.js";
+import { lockOwnedProject } from "../projects/repository.js";
 import { deleteApplicationDevelopment } from "./development-deletion.js";
 import { developmentTestActivity } from "./development-test-activity.js";
 import { resolveInteractiveDependencies } from "./interactive-dependencies.js";
 
 export class ApplicationDevelopmentRepository {
   constructor(private readonly db: PrismaClient) {}
+
+  async ensureProject(ownerId: string): Promise<{ id: string }> {
+    // Prisma 7's compound-key upsert can read then insert. Use PostgreSQL's
+    // atomic conflict handling so simultaneous first requests all get one ID.
+    const [project] = await this.db.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      INSERT INTO projects (id, owner_id, name, updated_at)
+      VALUES (${randomUUID()}::uuid, ${ownerId}::uuid, ${APPLICATION_DEVELOPMENT_PROJECT_NAME}, CURRENT_TIMESTAMP)
+      ON CONFLICT (owner_id, name) DO UPDATE SET name = EXCLUDED.name
+      RETURNING id
+    `);
+    if (!project) throw new AppError("CONFLICT");
+    return project;
+  }
 
   resolveDependencies(ownerId: string, manifest: InteractiveApplicationManifest, previous: unknown = [], selections: InteractiveDependencyBinding[] = []): Promise<InteractiveDependencyState> {
     return resolveInteractiveDependencies(this.db, ownerId, manifest, previous, selections);
@@ -38,14 +54,25 @@ export class ApplicationDevelopmentRepository {
     return this.db.applicationDevelopment.findFirst({ where: { ownerId, applicationId } });
   }
 
-  async create(input: { id: string; ownerId: string; conversationId: string; name: string; directory: string; applicationId?: string }) {
+  async create(input: { id: string; ownerId: string; conversationId: string; name: string; directory: string; applicationId?: string; projectId: string }) {
     return this.db.$transaction(async tx => {
+      await lockOwnedProject(tx, input.ownerId, input.projectId);
       const [parent] = await tx.$queryRaw<Array<{ workspaceRelPath: string; projectId: string | null }>>(Prisma.sql`
         SELECT workspace_rel_path AS "workspaceRelPath", project_id AS "projectId" FROM conversations
-        WHERE id = ${input.conversationId}::uuid AND owner_id = ${input.ownerId}::uuid AND application_id IS NULL FOR SHARE
+        WHERE id = ${input.conversationId}::uuid AND owner_id = ${input.ownerId}::uuid
+          AND application_id IS NULL AND collaboration_mode = 'default' FOR UPDATE
       `);
       if (!parent) throw new AppError("APPLICATION_DEVELOPMENT_NOT_FOUND");
-      return tx.applicationDevelopment.upsert({ where: { conversationId: input.conversationId }, create: { ...input, ...parent }, update: {} });
+      const existing = await tx.applicationDevelopment.findUnique({ where: { conversationId: input.conversationId } });
+      if (existing) return existing;
+      const workspaceRelPath = projectWorkspaceRelativePath(input.ownerId, input.projectId);
+      // Registering development and assigning its task are one state transition. It does
+      // not restart an active native turn; the tool returns the new source location.
+      await tx.conversation.update({ where: { id: input.conversationId }, data: {
+        projectId: input.projectId, workspaceRelPath,
+        ...(parent.projectId !== input.projectId ? { sortOrder: null } : {}),
+      } });
+      return tx.applicationDevelopment.create({ data: { ...input, workspaceRelPath } });
     });
   }
 

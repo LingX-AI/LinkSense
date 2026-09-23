@@ -3,6 +3,9 @@ import { z } from "zod";
 import { timestampSchema, uniqueArraySchema, uuidSchema } from "./common.js";
 import { projectColorSchema, projectIconSchema } from "./project-appearance.js";
 
+// A fixed, user-requested project name; changing UI language must not create another project.
+export const APPLICATION_DEVELOPMENT_PROJECT_NAME = "制作应用";
+
 export const projectNameSchema = z.string().trim().min(1).max(80);
 export const projectInputSchema = z.strictObject({
   name: projectNameSchema,

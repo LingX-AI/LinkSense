@@ -42,11 +42,12 @@ describe("personal quota chart data", () => {
       "9,007,199,254,740,993"
     )
   })
-  it("rounds display credits without changing accounting values", () => {
-    expect(formatQuotaAmount("12610.951119", "zh-CN")).toBe("12,611")
+  it("discards fractional display credits without changing accounting values", () => {
+    expect(formatQuotaAmount("12610.951119", "zh-CN")).toBe("12,610")
     expect(formatQuotaAmount("3545.108241", "zh-CN")).toBe("3,545")
-    expect(formatQuotaAmount("2.80622", "zh-CN")).toBe("3")
-    expect(formatQuotaAmount("0.5", "en-US")).toBe("1")
+    expect(formatQuotaAmount("9794.999999", "zh-CN")).toBe("9,794")
+    expect(formatQuotaAmount("2.80622", "zh-CN")).toBe("2")
+    expect(formatQuotaAmount("0.5", "en-US")).toBe("0")
     expect(formatQuotaAmount("0.04", "en-US")).toBe("0")
   })
 })

@@ -20,6 +20,9 @@ describe("built-in application builder", () => {
       expect(skill).toContain("../linksense-docs/references/zh-CN/developer-guide/interactive-application.md");
       expect(skill).toContain("Publish / Publish update button");
       expect(skill).toContain("Configure capabilities action");
+      expect(skill).toContain("source_directory");
+      expect(skill).toContain("制作应用");
+      expect(skill).toContain("Development tasks cannot be moved");
       expect(skill).toContain("linksense_core.update_application_metadata");
       expect(skill).toContain("workspace-relative-image.png");
       expect(skill).toContain("preserve icon, icon_preset");
@@ -34,7 +37,7 @@ describe("built-in application builder", () => {
       for (const file of ["SKILL.md", "agents/openai.yaml"]) expect((await stat(join(path, file))).mode & 0o777).toBe(0o640);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
-  it.each(["APPLICATION_DEVELOPMENT_NOT_FOUND", "APPLICATION_DEVELOPMENT_SOURCE_CHANGED", "APPLICATION_DEVELOPMENT_WORKSPACE_BOUND"] as const)("localizes %s and falls back to Chinese", code => {
+  it.each(["APPLICATION_DEVELOPMENT_NOT_FOUND", "APPLICATION_DEVELOPMENT_SOURCE_CHANGED", "APPLICATION_DEVELOPMENT_WORKSPACE_BOUND", "APPLICATION_DEVELOPMENT_PROJECT_NAME_FIXED"] as const)("localizes %s and falls back to Chinese", code => {
     expect(translateError(code, "zh-CN")).not.toBe(translateError(code, "en-US"));
     expect(backendI18n.t(errorCatalog[code].message_key, { lng: "de-DE" })).toBe(translateError(code, "zh-CN"));
   });

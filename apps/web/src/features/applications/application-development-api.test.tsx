@@ -227,6 +227,9 @@ describe("immediate application opening", () => {
         )
       ).toBeUndefined()
       expect(screen.queryByRole("status")).not.toBeInTheDocument()
+      expect(client.invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ["projects"],
+      })
       await act(async () => refresh.resolve(undefined))
     }
   )

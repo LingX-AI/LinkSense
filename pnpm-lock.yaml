@@ -36,7 +36,7 @@ patchedDependencies:
     hash: 800fea686fe5507bff31254efd248c4c0442952b5d653b404adcd24a9e65d8be
     path: patches/@easyops-cn__docusaurus-search-local@0.55.3.patch
   '@extend-ai/react-xlsx@0.14.1':
-    hash: a62e15cabfaf9a7191af4c5da09f0f17db033cf316f3aee24723d030ef2afba1
+    hash: 9a8122e54fbc4b5a86920d5c8a680087ba7ba9a6abc4b3edd7a2b78e19d505d9
     path: patches/@extend-ai__react-xlsx@0.14.1.patch
   '@file-viewer/renderer-spreadsheet@2.2.4':
     hash: 3b012fa44ba92889c7d5b138b090468e670d245bcdc0f95326e2163c50f12aad
@@ -540,7 +540,7 @@ importers:
         version: 1.9.0(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.3)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.42.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@extend-ai/react-xlsx':
         specifier: ^0.14.1
-        version: 0.14.1(patch_hash=a62e15cabfaf9a7191af4c5da09f0f17db033cf316f3aee24723d030ef2afba1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        version: 0.14.1(patch_hash=9a8122e54fbc4b5a86920d5c8a680087ba7ba9a6abc4b3edd7a2b78e19d505d9)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@file-viewer/preset-lite':
         specifier: 2.2.4
         version: 2.2.4
@@ -14636,7 +14636,7 @@ snapshots:
 
   '@exodus/bytes@1.15.1': {}
 
-  '@extend-ai/react-xlsx@0.14.1(patch_hash=a62e15cabfaf9a7191af4c5da09f0f17db033cf316f3aee24723d030ef2afba1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
+  '@extend-ai/react-xlsx@0.14.1(patch_hash=9a8122e54fbc4b5a86920d5c8a680087ba7ba9a6abc4b3edd7a2b78e19d505d9)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:
       '@dukelib/sheets-wasm': 0.1.19
       '@tanstack/react-virtual': 3.14.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

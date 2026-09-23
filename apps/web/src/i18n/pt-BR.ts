@@ -412,6 +412,7 @@ export const ptBR = {
     unreadFailure: "Tarefa com falha e ainda não visualizada",
     creditQuotaRemainingTitle: "Créditos",
     creditQuotaRemaining: "{{weekly}}",
+    creditQuotaUnlimited: "Ilimitado",
   },
   support: {
     menuLabel: "Feedback e ajuda",
@@ -1863,6 +1864,8 @@ export const ptBR = {
     selectionStatus: "{{count}} elementos selecionados no slide {{slide}}",
   },
   officePreview: {
+    zoomGestureHint:
+      "Segure Ctrl (⌘ no Mac) e gire a roda do mouse, ou faça um gesto de pinça no trackpad, para ajustar o zoom do documento.",
     previewTitle: "Visualizar documento {{name}}",
     loading: "Carregando documento",
     loadFailed: "Não foi possível visualizar este documento. Tente novamente.",
@@ -3635,6 +3638,8 @@ export const ptBR = {
     resumeListingTitle: "Recolocar “{{name}}” na listagem?",
     resumeListingDescription:
       "A listagem voltará à Central de plugins e as cópias instaladas poderão ser usadas novamente em novas tarefas.",
+    relistUnlistedDescription:
+      "A listagem voltará a aparecer na Central de plugins. As instalações existentes não serão afetadas.",
     suspensionReason: "Motivo da remoção da listagem",
     listingSuspended:
       "A listagem foi removida e novas tarefas estão bloqueadas em todas as instalações.",
@@ -5577,6 +5582,8 @@ export const ptBR = {
         "Ainda há um teste ativo. Interrompa-o e resolva as solicitações pendentes no Histórico de testes antes de continuar.",
       testChanged:
         "A sessão de teste mudou. Continue pela visualização mais recente.",
+      projectNameFixed:
+        "Este projeto reúne as tarefas de desenvolvimento de aplicativos. Seu nome não pode ser alterado.",
       workspaceBound:
         "Este projeto contém códigos-fonte de aplicativos. Exclua esses aplicativos em Meus aplicativos antes de excluir o projeto. As tarefas de desenvolvimento devem permanecer no projeto atual.",
       notFound: "Este aplicativo está indisponível. Volte a Meus aplicativos.",

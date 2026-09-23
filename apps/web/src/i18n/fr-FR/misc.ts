@@ -29,6 +29,8 @@ export const miscResources = {
       "{{count}} éléments sélectionnés sur la diapositive {{slide}}",
   },
   officePreview: {
+    zoomGestureHint:
+      "Maintenez Ctrl (⌘ sur Mac) et faites tourner la molette, ou pincez sur le pavé tactile, pour ajuster le zoom du document.",
     previewTitle: "Aperçu du document {{name}}",
     loading: "Chargement du document",
     loadFailed: "Impossible de prévisualiser ce document. Réessayez.",

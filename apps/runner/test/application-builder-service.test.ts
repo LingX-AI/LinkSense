@@ -10,6 +10,19 @@ function fixture() {
   return { fetch, call };
 }
 describe("application builder Core MCP tools", () => {
+  it.each(["workspace", "projects/60000000-0000-4000-8000-000000000001"])("returns the explicit source location for %s instead of assuming the active cwd", async workspace => {
+    const f = fixture();
+    f.fetch.mockResolvedValueOnce(Response.json({
+      id: "10000000-0000-4000-8000-000000000001", conversation_id: "20000000-0000-4000-8000-000000000001",
+      name: "App", directory: "applications/example", workspace_path: workspace,
+      application_id: null, preview_application_id: null, preview_conversation_id: null,
+      preview_current: false, revision: 0, source_hash: null, installed_source_hash: null,
+      source_error: null, manifest: null, diagnostics: [], updated_at: "2026-09-23T00:00:00Z",
+    }));
+    const result = await f.call("open_application_development", { name: "App" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toEqual([expect.objectContaining({ text: expect.stringContaining(`"source_directory":"~/${workspace}/applications/example"`) })]);
+  });
   it("offers metadata editing only in default mode and forwards only scoped metadata", async () => {
     const f = fixture();
     expect(coreMcpToolNamesFor("default")).toContain("update_application_metadata");

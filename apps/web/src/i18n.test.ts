@@ -54,6 +54,34 @@ function interpolationTokens(value: string): string[] {
 }
 
 describe("i18n resources", () => {
+  it.each(supportedLanguages)(
+    "localizes publisher-unlisted relisting guidance in %s with Chinese fallback",
+    (locale) => {
+      const key = "marketplace.relistUnlistedDescription"
+      const translated = i18n.t(key, { lng: locale })
+      const chinese = i18n.t(key, { lng: "zh-CN" })
+      expect(translated).not.toBe(key)
+      if (locale !== "zh-CN") expect(translated).not.toBe(chinese)
+      const fallback = i18n.cloneInstance({ forkResourceStore: true })
+      if (locale !== "zh-CN")
+        fallback.removeResourceBundle(locale, "translation")
+      expect(fallback.t(key, { lng: locale })).toBe(chinese)
+    }
+  )
+  it.each(supportedLanguages)(
+    "localizes the fixed development project name hint in %s",
+    (locale) => {
+      const key = "errors.applicationDevelopment.projectNameFixed"
+      const translated = i18n.t(key, { lng: locale })
+      const chinese = i18n.t(key, { lng: "zh-CN" })
+      expect(translated).not.toBe(key)
+      if (locale !== "zh-CN") expect(translated).not.toBe(chinese)
+      const fallback = i18n.cloneInstance({ forkResourceStore: true })
+      if (locale !== "zh-CN")
+        fallback.removeResourceBundle(locale, "translation")
+      expect(fallback.t(key, { lng: locale })).toBe(chinese)
+    }
+  )
   it("localizes date range selection and falls back to Chinese", () => {
     const fallback = i18n.cloneInstance({ forkResourceStore: true })
     fallback.removeResourceBundle("en-US", "translation")
@@ -327,8 +355,15 @@ describe("i18n resources", () => {
     expect(i18n.t("nav.creditQuotaRemainingTitle", { lng: "en-US" })).toBe(
       "Credits"
     )
+    expect(i18n.t("nav.creditQuotaUnlimited", { lng: "zh-CN" })).toBe("不限")
+    expect(i18n.t("nav.creditQuotaUnlimited", { lng: "en-US" })).toBe(
+      "Unlimited"
+    )
     expect(instance.t("nav.creditQuotaRemainingTitle", { lng: "en-US" })).toBe(
       "额度"
+    )
+    expect(instance.t("nav.creditQuotaUnlimited", { lng: "en-US" })).toBe(
+      "不限"
     )
   })
 

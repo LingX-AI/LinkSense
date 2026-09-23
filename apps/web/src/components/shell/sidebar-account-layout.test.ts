@@ -39,7 +39,7 @@ describe("sidebar account bar layout", () => {
       )
     ).toHaveLength(2)
     expect(appShellSource).toContain(
-      '<DropdownMenuLabel className="account-menu-quota flex min-h-7 items-center justify-between gap-2 px-2 py-1.5'
+      '<DropdownMenuItem\n                  className="account-menu-quota min-h-7 justify-between gap-2'
     )
   })
 })

@@ -10,6 +10,7 @@ export const errors = {
       "Un test est encore actif. Arrêtez-le et traitez les demandes en attente dans l’historique des tests avant de continuer.",
     testChanged:
       "La session de test a changé. Continuez depuis le dernier aperçu.",
+    projectNameFixed: "Ce projet regroupe les tâches de développement d’applications. Son nom ne peut pas être modifié.",
     workspaceBound:
       "Ce projet contient des sources d’applications. Supprimez ces applications dans Mes applications avant de supprimer le projet. Les tâches de développement doivent rester dans leur projet actuel.",
     notFound: "Cette application est indisponible. Revenez à Mes applications.",

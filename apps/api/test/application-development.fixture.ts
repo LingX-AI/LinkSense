@@ -13,17 +13,18 @@ import { dependencyBindings, resolveInteractiveDependencies } from "../src/modul
 
 export const OWNER = "10000000-0000-4000-8000-000000000001";
 export const TASK = "20000000-0000-4000-8000-000000000001";
+export const DEVELOPMENT_PROJECT = "60000000-0000-4000-8000-000000000001";
 export const actor = { id: OWNER, role: "user" as const, status: "active" as const };
 const now = new Date("2026-09-17T00:00:00Z");
 type PreviewState = Awaited<ReturnType<ApplicationDevelopmentStore["previewState"]>>;
 
 export async function developmentFixture() {
   const root = await mkdtemp(join(tmpdir(), "linksense-builder-test-"));
-  const workspaceRelPath = `${OWNER}/home/workspace`;
+  const workspaceRelPath = `${OWNER}/home/projects/${DEVELOPMENT_PROJECT}`;
   const workspace = join(root, workspaceRelPath);
   await mkdir(workspace, { recursive: true });
   let row: ApplicationDevelopment | null = null;
-  const conversation = { id: TASK, ownerId: OWNER, applicationId: null, collaborationMode: "default", workspaceRelPath, title: "Untitled task" };
+  const conversation = { id: TASK, ownerId: OWNER, applicationId: null, collaborationMode: "default", projectId: DEVELOPMENT_PROJECT as string | null, workspaceRelPath, title: "Untitled task" };
   let preview: PreviewState = { application: null, package_: null, conversation: null };
   const installed = new Map<string, Buffer>();
   const dependencyDb = {
@@ -36,13 +37,15 @@ export async function developmentFixture() {
   } as unknown as Parameters<typeof resolveInteractiveDependencies>[0];
   const submittedTests = new Set<string>();
   const store = {
+    ensureProject: vi.fn(async () => ({ id: DEVELOPMENT_PROJECT })),
     actor: vi.fn(async () => ({ id: OWNER, role: "user", status: "active", preferredLocale: "zh-CN" })),
     resolveDependencies: vi.fn((...args: Parameters<ApplicationDevelopmentStore["resolveDependencies"]>) => resolveInteractiveDependencies(dependencyDb, ...args)),
     conversation: vi.fn(async () => ({ ...conversation })),
     owned: vi.fn(async (owner: string, id: string) => { if (owner !== OWNER || row?.id !== id) throw new AppError("APPLICATION_DEVELOPMENT_NOT_FOUND"); return { ...row }; }),
     byConversation: vi.fn(async () => row), byApplication: vi.fn(async () => row),
-    create: vi.fn(async (data: { id: string; ownerId: string; conversationId: string; name: string; directory: string; applicationId?: string }) => {
-      row = { workspaceRelPath, projectId: null, applicationId: null, previewApplicationId: null, previewConversationId: null, revision: 0, installedVersion: 0, sourceHash: null, installedSourceHash: null, sourceError: null, diagnosticsJson: [], createdAt: now, updatedAt: now, ...data }; return { ...row };
+    create: vi.fn(async (data: { id: string; ownerId: string; conversationId: string; name: string; directory: string; projectId: string; applicationId?: string }) => {
+      Object.assign(conversation, { projectId: data.projectId, workspaceRelPath });
+      row = { workspaceRelPath, applicationId: null, previewApplicationId: null, previewConversationId: null, revision: 0, installedVersion: 0, sourceHash: null, installedSourceHash: null, sourceError: null, diagnosticsJson: [], createdAt: now, updatedAt: now, ...data }; return { ...row };
     }),
     update: vi.fn(async (before: ApplicationDevelopment, data: Prisma.ApplicationDevelopmentUpdateManyMutationInput) => {
       if (!row || row.revision !== before.revision || row.installedVersion !== before.installedVersion) throw new AppError("CONFLICT");
@@ -111,5 +114,5 @@ export async function developmentFixture() {
     applications: applications as unknown as ApplicationDevelopmentServiceOptions["applications"],
     conversations: conversations as unknown as ApplicationDevelopmentServiceOptions["conversations"], assets, workspaceRoot: root,
   });
-  return { root, workspace, service, store, applications, conversations, assets, installed, submittedTests, row: () => { if (!row) throw new Error("fixture project missing"); return row; }, preview: () => preview };
+  return { root, workspace, conversation, service, store, applications, conversations, assets, installed, submittedTests, row: () => { if (!row) throw new Error("fixture project missing"); return row; }, preview: () => preview };
 }

@@ -2632,6 +2632,18 @@
   max-width: 100%;
 }
 
+/* EigenPal scales a full-width wrapper around centered pages. Reserve the
+ * scaled paper width for both edges, then clip the wrapper's extra overflow
+ * so it cannot add blank horizontal scrolling. Keep vertical overflow visible
+ * without introducing another scroll container. */
+.word-preview-editor-surface[data-fit-width="false"]
+  .docx-editor__scroll-container
+  > div {
+  min-width: var(--word-preview-scroll-width) !important;
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
 /* EigenPal's internal scroll page indicator duplicates the shared toolbar count. */
 .word-preview-editor
   .docx-editor__scroll-container
@@ -8709,9 +8721,12 @@ button.annotation-hover-file:focus-visible {
   object-fit: contain;
 }
 
-.marketplace-governance-item .capability-logo svg {
-  width: 20px;
-  height: 20px;
+.marketplace-governance-item
+  .capability-logo
+  [data-application-icon-preset]
+  svg {
+  width: 32px;
+  height: 32px;
 }
 
 .marketplace-governance-copy {

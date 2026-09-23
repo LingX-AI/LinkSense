@@ -2,6 +2,7 @@ import { z } from "zod";
 import { applicationVersionInputSchema } from "./application-version.js";
 import { DEFAULT_APPLICATION_ICON_PRESET, applicationIconInputSchema, applicationIconPresetSchema, applicationIconSchema } from "./application-icons.js";
 import { interactiveApplicationManifestSchema, interactiveDependenciesSchema, interactiveDependencyStateSchema } from "./interactive-applications.js";
+import { userWorkspacePathSchema } from "./runtime-workspace.js";
 
 export const APPLICATION_BUILDER_SKILL_NAME = "linksense-interactive-app-builder";
 export const APPLICATION_DEVELOPMENT_POLL_MS = 1500;
@@ -37,6 +38,10 @@ export const applicationDevelopmentSchema = z.strictObject({
 });
 export const applicationDevelopmentInstallSchema = applicationVersionInputSchema.extend({
   source_hash: z.string().regex(/^[a-f0-9]{64}$/u),
+});
+/** Internal builder response; never includes an API-host absolute filesystem path. */
+export const applicationBuilderDevelopmentSchema = applicationDevelopmentSchema.extend({
+  workspace_path: userWorkspacePathSchema,
 });
 export const applicationDevelopmentMetadataSchema = z.strictObject({
   name: interactiveApplicationManifestSchema.shape.name.optional(),

@@ -31,6 +31,8 @@ export const previewMessages = {
       "{{count}} elementos seleccionados en la diapositiva {{slide}}",
   },
   officePreview: {
+    zoomGestureHint:
+      "Mantén pulsado Ctrl (⌘ en Mac) y gira la rueda, o pellizca con dos dedos en el panel táctil, para ajustar el zoom del documento.",
     previewTitle: "Vista previa del documento {{name}}",
     loading: "Cargando documento",
     loadFailed: "No se pudo mostrar el documento. Inténtalo de nuevo.",

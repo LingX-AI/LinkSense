@@ -271,6 +271,8 @@ export const marketplaceMessages = {
     resumeListingTitle: "¿Volver a publicar «{{name}}»?",
     resumeListingDescription:
       "La publicación volverá al centro de plugins y las copias instaladas podrán usarse de nuevo en tareas nuevas.",
+    relistUnlistedDescription:
+      "La publicación volverá a aparecer en el centro de plugins. Las instalaciones existentes no se verán afectadas.",
     suspensionReason: "Motivo de retirada",
     listingSuspended:
       "La publicación se ha retirado y se ha bloqueado el inicio de nuevas tareas para todas sus instalaciones.",

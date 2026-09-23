@@ -4,6 +4,20 @@ import previewStyles from "@/index.css?raw"
 import { describe, expect, it } from "vitest"
 
 describe("Word preview layout", () => {
+  it("keeps manually enlarged pages inside the horizontal scroll range", () => {
+    expect(previewStyles).toMatch(
+      /\.word-preview-editor-surface\[data-fit-width="false"\]\s+\.docx-editor__scroll-container\s*> div\s*\{[^}]*?min-width:\s*var\(--word-preview-scroll-width\)\s*!important;/u
+    )
+  })
+
+  it("clips scaled wrapper overflow at the page width without creating a nested vertical scroller", () => {
+    const manualZoomLayout = previewStyles.match(
+      /\.word-preview-editor-surface\[data-fit-width="false"\]\s+\.docx-editor__scroll-container\s*> div\s*\{(?<body>[^}]*)\}/u
+    )?.groups?.body
+    expect(manualZoomLayout).toMatch(/overflow-x:\s*clip;/u)
+    expect(manualZoomLayout).toMatch(/overflow-y:\s*visible;/u)
+  })
+
   it("hides EigenPal's duplicate scroll page indicator without affecting the shared toolbar count", () => {
     expect(previewStyles).toMatch(
       /\.word-preview-editor\s+\.docx-editor__scroll-container\s*\+\s*\[role="status"\]\[aria-live="polite"\]\s*\{[\s\S]*?display:\s*none\s*!important;/u

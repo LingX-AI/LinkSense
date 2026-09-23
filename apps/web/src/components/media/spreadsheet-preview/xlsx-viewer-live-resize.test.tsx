@@ -286,7 +286,178 @@ describe("@extend-ai/react-xlsx live row and column resizing", () => {
     cleanup()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+    vi.useRealTimers()
   })
+
+  it.each(["ctrlKey", "metaKey"] as const)(
+    "preserves ordinary scrolling and bounds native %s wheel zoom in read-only mode",
+    (modifier) => {
+      vi.useFakeTimers()
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+        createCanvasContextMock()
+      )
+      const controller = createController()
+      const { container, unmount } = renderCanvasViewer(controller)
+      const scroller = requireElement<HTMLElement>(container, '[role="grid"]')
+      for (const init of [
+        { deltaY: 100 },
+        { deltaY: 100, shiftKey: true },
+        { deltaX: 100 },
+        { deltaY: 0, [modifier]: true },
+      ]) {
+        const event = new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          ...init,
+        })
+        fireEvent(scroller, event)
+        expect(event.defaultPrevented).toBe(false)
+      }
+      act(() => vi.advanceTimersByTime(500))
+      expect(controller.setZoomScale).not.toHaveBeenCalled()
+
+      const zoomIn = new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        deltaY: -10000,
+        [modifier]: true,
+      })
+      fireEvent(scroller, zoomIn)
+      expect(zoomIn.defaultPrevented).toBe(true)
+      act(() => vi.advanceTimersByTime(500))
+      expect(controller.setZoomScale).toHaveBeenLastCalledWith(165)
+      for (let step = 0; step < 10; step += 1) {
+        fireEvent.wheel(scroller, { deltaY: -10000, [modifier]: true })
+      }
+      act(() => vi.advanceTimersByTime(500))
+      expect(controller.setZoomScale).toHaveBeenLastCalledWith(
+        controller.maxZoomScale
+      )
+      for (let step = 0; step < 20; step += 1) {
+        fireEvent.wheel(scroller, { deltaY: 10000, [modifier]: true })
+      }
+      act(() => vi.advanceTimersByTime(500))
+      expect(controller.setZoomScale).toHaveBeenLastCalledWith(
+        controller.minZoomScale
+      )
+
+      unmount()
+      controller.setZoomScale.mockClear()
+      fireEvent.wheel(scroller, { deltaY: -100, [modifier]: true })
+      act(() => vi.advanceTimersByTime(500))
+      expect(controller.setZoomScale).not.toHaveBeenCalled()
+    }
+  )
+
+  it("keeps native trackpad gesture zoom active in the worksheet", () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      createCanvasContextMock()
+    )
+    const controller = createController()
+    const { container } = renderCanvasViewer(controller)
+    const scroller = requireElement<HTMLElement>(container, '[role="grid"]')
+    const gesture = (type: string, scale: number) => {
+      const event = new Event(type, { bubbles: true, cancelable: true })
+      Object.defineProperty(event, "scale", { value: scale })
+      Object.defineProperty(event, "clientX", { value: 100 })
+      Object.defineProperty(event, "clientY", { value: 100 })
+      fireEvent(scroller, event)
+      return event
+    }
+    expect(gesture("gesturestart", 1).defaultPrevented).toBe(true)
+    expect(gesture("gesturechange", 1.5).defaultPrevented).toBe(true)
+    gesture("gestureend", 1.5)
+    expect(controller.setZoomScale).toHaveBeenLastCalledWith(200)
+  })
+
+  it.each([
+    { deltaY: -0.5, expectedZoom: 158 },
+    { deltaY: 0.5, expectedZoom: 143 },
+  ])(
+    "accumulates small trackpad pinch deltas ($deltaY) into $expectedZoom%",
+    ({ deltaY, expectedZoom }) => {
+      vi.useFakeTimers()
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+        createCanvasContextMock()
+      )
+      const controller = createController()
+      const { container } = renderCanvasViewer(controller)
+      const scroller = requireElement<HTMLElement>(container, '[role="grid"]')
+      for (let frame = 0; frame < 10; frame += 1) {
+        const event = new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          ctrlKey: true,
+          deltaY,
+          clientX: 100,
+          clientY: 100,
+        })
+        fireEvent(scroller, event)
+        expect(event.defaultPrevented).toBe(true)
+        act(() => {
+          vi.advanceTimersByTime(16)
+          flushAnimationFrames()
+        })
+      }
+      act(() => vi.advanceTimersByTime(100))
+      expect(controller.setZoomScale).toHaveBeenLastCalledWith(expectedZoom)
+    }
+  )
+
+  it.each([-100, 100])(
+    "keeps row and column headers on their viewport edges during a live zoom (%i)",
+    (deltaY) => {
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+        createCanvasContextMock()
+      )
+      const controller = createController()
+      const { container } = renderCanvasViewer(controller)
+      const scroller = requireElement<HTMLElement>(container, '[role="grid"]')
+      scroller.getBoundingClientRect = () => new DOMRect(0, 0, 600, 400)
+      fireEvent.wheel(scroller, {
+        ctrlKey: true,
+        deltaY,
+        clientX: 300,
+        clientY: 200,
+      })
+
+      const canvases = container.querySelectorAll("canvas")
+      const topBody = canvases.item(1)
+      const leftBody = canvases.item(2)
+      const cornerBody = canvases.item(3)
+      const topFrozen = canvases.item(4)
+      const topScroll = canvases.item(5)
+      const leftFrozen = canvases.item(6)
+      const leftScroll = canvases.item(7)
+      const corner = canvases.item(8)
+      const transform = (canvas: HTMLCanvasElement) => {
+        const match =
+          /^translate3d\(([-\d.]+)px, ([-\d.]+)px, 0\) scale\(([-\d.]+)\)$/u.exec(
+            canvas.style.transform
+          )
+        if (!match) throw new Error("Missing canvas zoom transform")
+        return {
+          x: Number(match[1]),
+          y: Number(match[2]),
+          scale: Number(match[3]),
+        }
+      }
+      const scale = transform(corner).scale
+      const frozenColumnOffset = 60 * (scale - 1)
+      const frozenRowOffset = 36 * (scale - 1)
+      expect(transform(corner)).toEqual({ x: 0, y: 0, scale })
+      expect(transform(topScroll).y).toBe(0)
+      expect(transform(leftScroll).x).toBe(0)
+      expect(transform(topFrozen).x).toBeCloseTo(frozenColumnOffset)
+      expect(transform(topFrozen).y).toBe(0)
+      expect(transform(leftFrozen).x).toBe(0)
+      expect(transform(leftFrozen).y).toBeCloseTo(frozenRowOffset)
+      expect(transform(topBody).y).toBeCloseTo(frozenRowOffset)
+      expect(transform(leftBody).x).toBeCloseTo(frozenColumnOffset)
+      expect(transform(cornerBody).x).toBeCloseTo(frozenColumnOffset)
+      expect(transform(cornerBody).y).toBeCloseTo(frozenRowOffset)
+    }
+  )
 
   it.each([false, true])(
     "returns native annotation bounds through scrolling and zoom with canvas=%s",
@@ -499,8 +670,8 @@ describe("@extend-ai/react-xlsx live row and column resizing", () => {
     fireEvent.wheel(scroller, {
       ctrlKey: true,
       deltaY: 100,
-      clientX: 0,
-      clientY: 0,
+      clientX: 300,
+      clientY: 200,
     })
     const canvas = container.querySelectorAll("canvas").item(3)
     const scale = Number(/scale\(([^)]+)\)/u.exec(canvas.style.transform)?.[1])
@@ -515,12 +686,12 @@ describe("@extend-ai/react-xlsx live row and column resizing", () => {
       },
     })
     expect(geometry?.viewportRects).toHaveLength(1)
-    expect(geometry?.viewportRects[0]?.left).toBe(60)
-    expect(geometry?.viewportRects[0]?.top).toBe(36)
+    expect(geometry?.viewportRects[0]?.left).toBeCloseTo(60 * scale)
+    expect(geometry?.viewportRects[0]?.top).toBeCloseTo(36 * scale)
     expect(geometry?.viewportRects[0]?.width).toBeCloseTo(150 * scale)
     expect(geometry?.viewportRects[0]?.height).toBeCloseTo(60 * scale)
     expect(
-      scrollerProps.getAnnotationTargetAtPoint(60 + 20 * scale, 36 + 10 * scale)
+      scrollerProps.getAnnotationTargetAtPoint(80 * scale, 46 * scale)
     ).toEqual({
       type: "range",
       range: { start: { row: 0, col: 0 }, end: { row: 0, col: 0 } },

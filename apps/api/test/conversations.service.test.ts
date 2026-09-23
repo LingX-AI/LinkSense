@@ -13322,6 +13322,17 @@ function nativeSubAgentEventRow(
 describe("task category assignment", () => {
   const projectId = "60000000-0000-4000-8000-000000000099";
 
+  it.each([null, "60000000-0000-4000-8000-000000000098"])("rejects moving a development task to %s before unpinning or changing its workspace", async destination => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.conversation.findUnique.mockResolvedValueOnce(conversationRow({ projectId, pinnedAt: NOW }));
+    fixture.defaultTransaction.$queryRaw.mockImplementation(async (...input) => {
+      const query = input[0] as { sql?: string } | undefined;
+      return query?.sql?.includes("AS busy") ? [{ busy: false, development: true }] : [{ id: destination }];
+    });
+    await expect(fixture.service.patch(OWNER_ID, CONVERSATION_ID, { projectId: destination, pinned: false })).rejects.toMatchObject({ code: "APPLICATION_DEVELOPMENT_WORKSPACE_BOUND" });
+    expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
+  });
+
   it("creates a task in its owned category in the same database transaction", async () => {
     const fixture = await conversationFixture();
     fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: projectId }]);

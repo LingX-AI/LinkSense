@@ -587,7 +587,10 @@ export class MarketplaceService {
     return this.#store.transaction(async (store) => {
       await store.lockListing(listingId);
       const listing = await requireListingFromStore(store, listingId);
-      if (listing.status !== "suspended" || listing.currentReleaseId === null) {
+      if (
+        (listing.status !== "suspended" && listing.status !== "unlisted") ||
+        listing.currentReleaseId === null
+      ) {
         throw new AppError("CONFLICT");
       }
       const updated = await store.updateListing(listing.id, {

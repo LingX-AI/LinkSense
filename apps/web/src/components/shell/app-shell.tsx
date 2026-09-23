@@ -670,15 +670,29 @@ function AppSidebarContent({
 
   const moveProjectMutation = useMutation({
     mutationFn: ({
-      conversationId,
+      conversation,
       projectId,
     }: {
-      conversationId: string
+      conversation: Conversation
       projectId: string | null
-    }) => moveTaskToProject(conversationId, projectId),
-    onMutate: () => setActionError(undefined),
-    onSuccess: () => refreshProjects(queryClient),
-    onError: (error) => setActionError(getErrorMessage(error, t)),
+    }) => moveTaskToProject(conversation, projectId),
+    onMutate: () => {
+      setActionError(undefined)
+      setUnpinBlockedMessage(undefined)
+    },
+    onError: (error, { conversation }) => {
+      const message = getErrorMessage(error, t)
+      if (
+        conversation.pinned_at &&
+        error instanceof ApiError &&
+        error.errorCode === "AUTOMATION_TASK_IN_USE"
+      ) {
+        setUnpinBlockedMessage(message)
+        return
+      }
+      setActionError(message)
+    },
+    onSettled: () => refreshProjects(queryClient),
   })
 
   const reorderProjectMutation = useMutation({
@@ -775,12 +789,15 @@ function AppSidebarContent({
       ? `${parts[0]?.[0] ?? ""}${parts.at(-1)?.[0] ?? ""}`.toUpperCase()
       : (parts[0]?.slice(0, 2) ?? "LS").toUpperCase()
   }, [user?.name])
-  const creditQuotaRemainingLabel = t("nav.creditQuotaRemaining", {
-    weekly: formatRemainingCredits(
-      user?.credit_quota?.weekly?.remaining_credits,
-      language
-    ),
-  })
+  const creditQuotaRemainingLabel =
+    user?.weekly_credit_limit === null
+      ? t("nav.creditQuotaUnlimited")
+      : t("nav.creditQuotaRemaining", {
+          weekly: formatRemainingCredits(
+            user?.credit_quota?.weekly?.remaining_credits,
+            language
+          ),
+        })
   const settingsReturnState = conversationSettingsReturnState(location)
 
   const handleSignOut = async () => {
@@ -984,10 +1001,25 @@ function AppSidebarContent({
             onReorder={(request) => reorderMutation.mutateAsync(request)}
             onReorderProjects={(ids) => reorderProjectMutation.mutateAsync(ids)}
             onSortModeChange={handleTaskSortModeChange}
-            onMove={(conversationId, projectId) =>
-              moveProjectMutation.mutateAsync({ conversationId, projectId })
-            }
-            onError={(error) => setActionError(getErrorMessage(error, t))}
+            onMove={(conversationId, projectId) => {
+              const conversation = sidebarConversations.find(
+                (candidate) => candidate.id === conversationId
+              )
+              if (!conversation) throw new Error("Conversation not found")
+              return moveProjectMutation.mutateAsync({
+                conversation,
+                projectId,
+              })
+            }}
+            onError={(error) => {
+              if (
+                error instanceof ApiError &&
+                error.errorCode === "AUTOMATION_TASK_IN_USE"
+              ) {
+                return
+              }
+              setActionError(getErrorMessage(error, t))
+            }}
           >
             <SidebarTaskGroups
               userId={user?.id}
@@ -1222,11 +1254,15 @@ function AppSidebarContent({
                             projectsQuery.isError ||
                             moveProjectMutation.isPending
                           }
-                          onMoveToProject={(projectId) =>
-                            moveProjectMutation.mutate({
-                              conversationId: conversation.id,
-                              projectId,
-                            })
+                          onMoveToProject={
+                            conversation.application_development_role ===
+                            "development"
+                              ? undefined
+                              : (projectId) =>
+                                  moveProjectMutation.mutate({
+                                    conversation,
+                                    projectId,
+                                  })
                           }
                           pinned={pinned}
                           pinDisabled={pinMutation.isPending}
@@ -1324,7 +1360,16 @@ function AppSidebarContent({
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuLabel className="account-menu-quota flex min-h-7 items-center justify-between gap-2 px-2 py-1.5 text-[length:var(--app-ui-font-size)] font-medium text-popover-foreground">
+                <DropdownMenuItem
+                  className="account-menu-quota min-h-7 justify-between gap-2 text-[length:var(--app-ui-font-size)] font-medium"
+                  render={
+                    <NavLink
+                      to="/settings/quota"
+                      state={settingsReturnState}
+                      onClick={onNavigate}
+                    />
+                  }
+                >
                   <span className="flex shrink-0 items-center gap-2">
                     <GaugeIcon
                       className="size-3.5 shrink-0"
@@ -1335,7 +1380,7 @@ function AppSidebarContent({
                   <span className="min-w-0 text-right text-[length:var(--app-font-11)] text-[var(--app-muted)] tabular-nums">
                     {creditQuotaRemainingLabel}
                   </span>
-                </DropdownMenuLabel>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-[length:var(--app-ui-font-size)]"
                   render={

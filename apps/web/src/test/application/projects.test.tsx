@@ -27,8 +27,22 @@ const workId = "80000000-0000-4000-8000-000000000001"
 const personalId = "80000000-0000-4000-8000-000000000002"
 const now = "2026-09-09T00:00:00.000Z"
 const initialProjects: Project[] = [
-  { id: workId, name: "工作", icon: "folder", color: "default", created_at: now, updated_at: now },
-  { id: personalId, name: "生活", icon: "folder", color: "default", created_at: now, updated_at: now },
+  {
+    id: workId,
+    name: "工作",
+    icon: "folder",
+    color: "default",
+    created_at: now,
+    updated_at: now,
+  },
+  {
+    id: personalId,
+    name: "生活",
+    icon: "folder",
+    color: "default",
+    created_at: now,
+    updated_at: now,
+  },
 ]
 
 function installProjectApi(
@@ -39,6 +53,8 @@ function installProjectApi(
     moveFailure?: boolean
     reorderFailure?: boolean
     pinned?: boolean
+    automation?: boolean
+    development?: boolean
     firstProjectId?: string | null
     listAfterRename?: Promise<void>
     newTaskEventStreamBody?: string
@@ -58,6 +74,9 @@ function installProjectApi(
             : options.firstProjectId
           : null,
       pinned_at: options.pinned && index === 0 ? now : null,
+      has_automation: Boolean(options.automation && index === 0),
+      application_development_role:
+        options.development && index === 0 ? "development" : null,
     })
   )
   const actions: Array<{ path: string; method: string; body: unknown }> = []
@@ -118,9 +137,7 @@ function installProjectApi(
         }
         const { name, icon, color } = projectInputSchema.parse(body)
         if (
-          projects.some(
-            (project) => project.name === name && project.id !== id
-          )
+          projects.some((project) => project.name === name && project.id !== id)
         )
           return json(
             { success: false, error_code: "PROJECT_NAME_EXISTS" },
@@ -129,8 +146,12 @@ function installProjectApi(
         const project: Project = {
           id: method === "POST" ? "80000000-0000-4000-8000-000000000003" : id!,
           name,
-          icon: icon ?? projects.find((item) => item.id === id)?.icon ?? "folder",
-          color: color ?? projects.find((item) => item.id === id)?.color ?? "default",
+          icon:
+            icon ?? projects.find((item) => item.id === id)?.icon ?? "folder",
+          color:
+            color ??
+            projects.find((item) => item.id === id)?.color ??
+            "default",
           created_at: now,
           updated_at: now,
         }
@@ -170,26 +191,68 @@ function installProjectApi(
         path.startsWith("/api/v1/conversations/") &&
         body &&
         typeof body === "object" &&
+        "pinned" in body &&
+        !("project_id" in body)
+      ) {
+        actions.push({ path, method, body })
+        const { pinned } = z.object({ pinned: z.boolean() }).parse(body)
+        const id = path.split("/").at(-1)
+        const current = tasks.find((task) => task.id === id)
+        if (!current) throw new Error("Task must exist before pinning")
+        if (!pinned && current.has_automation) {
+          return json(
+            { success: false, error_code: "AUTOMATION_TASK_IN_USE" },
+            409
+          )
+        }
+        const updated = conversationSchema.parse({
+          ...conversation,
+          ...current,
+          pinned_at: pinned ? now : null,
+          sort_order: null,
+        })
+        tasks = tasks.map((task) => (task.id === id ? updated : task))
+        return json({ success: true, data: updated })
+      }
+      if (
+        method === "PATCH" &&
+        path.startsWith("/api/v1/conversations/") &&
+        body &&
+        typeof body === "object" &&
         "project_id" in body
       ) {
         actions.push({ path, method, body })
         if (options.moveFailure)
-          return json(
-            { success: false, error_code: "PROJECT_NOT_FOUND" },
-            404
-          )
-        const { project_id } = z
-          .object({ project_id: z.string().uuid().nullable() })
+          return json({ success: false, error_code: "PROJECT_NOT_FOUND" }, 404)
+        const { project_id, pinned } = z
+          .object({
+            project_id: z.string().uuid().nullable(),
+            pinned: z.boolean().optional(),
+          })
           .parse(body)
         const id = path.split("/").at(-1)
+        const current = tasks.find((task) => task.id === id)
+        if (pinned === false && current?.has_automation) {
+          return json(
+            { success: false, error_code: "AUTOMATION_TASK_IN_USE" },
+            409
+          )
+        }
         tasks = tasks.map((task) =>
-          task.id === id ? { ...task, project_id } : task
+          task.id === id
+            ? {
+                ...task,
+                project_id,
+                ...(pinned === false ? { pinned_at: null } : {}),
+              }
+            : task
         )
         if (id === "new-task-1") createdProjectId = project_id
         return json({
           success: true,
           data: {
             ...conversation,
+            ...tasks.find((task) => task.id === id),
             id,
             project_id,
             messages: id === "new-task-1" ? [] : conversation.messages,
@@ -365,30 +428,74 @@ describe("task projects", () => {
     const interaction = userEvent.setup()
     renderApp("/conversations/new")
     await chooseProject(interaction, "工作")
-    await interaction.click(await screen.findByRole("button", { name: "工作的更多操作" }))
-    await interaction.click(await screen.findByRole("menuitem", { name: "编辑" }))
+    await interaction.click(
+      await screen.findByRole("button", { name: "工作的更多操作" })
+    )
+    await interaction.click(
+      await screen.findByRole("menuitem", { name: "编辑" })
+    )
     const dialog = await screen.findByRole("dialog", { name: "编辑项目" })
-    await interaction.click(within(dialog).getByRole("button", { name: "选择项目图标和颜色" }))
-    const picker = await screen.findByRole("dialog", { name: "选择项目图标和颜色" })
-    await interaction.click(within(picker).getByRole("button", { name: "蓝色" }))
-    await interaction.click(within(picker).getByRole("button", { name: "花朵" }))
-    await interaction.click(within(picker).getByRole("button", { name: "完成" }))
-    expect(actions.filter((action) => action.method === "PATCH")).toHaveLength(0)
-    await interaction.click(within(dialog).getByRole("button", { name: "保存" }))
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
-    expect(actions).toContainEqual({ path: `/api/v1/projects/${workId}`, method: "PATCH", body: { name: "工作", icon: "flower", color: "blue" } })
-    expect(screen.getByRole("button", { name: "工作" }).querySelector("svg")).toHaveAttribute("data-project-icon", "flower")
-    expect(screen.getByRole("combobox", { name: "项目" }).querySelector("svg")).toHaveAttribute("data-project-color", "blue")
-    await interaction.click(screen.getByRole("button", { name: "工作的更多操作" }))
-    await interaction.click(await screen.findByRole("menuitem", { name: "编辑" }))
+    await interaction.click(
+      within(dialog).getByRole("button", { name: "选择项目图标和颜色" })
+    )
+    const picker = await screen.findByRole("dialog", {
+      name: "选择项目图标和颜色",
+    })
+    await interaction.click(
+      within(picker).getByRole("button", { name: "蓝色" })
+    )
+    await interaction.click(
+      within(picker).getByRole("button", { name: "花朵" })
+    )
+    await interaction.click(
+      within(picker).getByRole("button", { name: "完成" })
+    )
+    expect(actions.filter((action) => action.method === "PATCH")).toHaveLength(
+      0
+    )
+    await interaction.click(
+      within(dialog).getByRole("button", { name: "保存" })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+    expect(actions).toContainEqual({
+      path: `/api/v1/projects/${workId}`,
+      method: "PATCH",
+      body: { name: "工作", icon: "flower", color: "blue" },
+    })
+    expect(
+      screen.getByRole("button", { name: "工作" }).querySelector("svg")
+    ).toHaveAttribute("data-project-icon", "flower")
+    expect(
+      screen.getByRole("combobox", { name: "项目" }).querySelector("svg")
+    ).toHaveAttribute("data-project-color", "blue")
+    await interaction.click(
+      screen.getByRole("button", { name: "工作的更多操作" })
+    )
+    await interaction.click(
+      await screen.findByRole("menuitem", { name: "编辑" })
+    )
     const reopened = await screen.findByRole("dialog", { name: "编辑项目" })
-    expect(within(reopened).getByRole("button", { name: "选择项目图标和颜色" }).querySelector("svg")).toHaveAttribute("data-project-icon", "flower")
-    await interaction.click(within(reopened).getByRole("button", { name: "选择项目图标和颜色" }))
+    expect(
+      within(reopened)
+        .getByRole("button", { name: "选择项目图标和颜色" })
+        .querySelector("svg")
+    ).toHaveAttribute("data-project-icon", "flower")
+    await interaction.click(
+      within(reopened).getByRole("button", { name: "选择项目图标和颜色" })
+    )
     await interaction.click(await screen.findByRole("button", { name: "红色" }))
     await interaction.click(screen.getByRole("button", { name: "完成" }))
-    await interaction.click(within(reopened).getByRole("button", { name: "取消" }))
-    expect(actions.filter((action) => action.method === "PATCH")).toHaveLength(1)
-    expect(screen.getByRole("combobox", { name: "项目" }).querySelector("svg")).toHaveAttribute("data-project-color", "blue")
+    await interaction.click(
+      within(reopened).getByRole("button", { name: "取消" })
+    )
+    expect(actions.filter((action) => action.method === "PATCH")).toHaveLength(
+      1
+    )
+    expect(
+      screen.getByRole("combobox", { name: "项目" }).querySelector("svg")
+    ).toHaveAttribute("data-project-color", "blue")
   })
 
   setupApplicationTests()
@@ -520,9 +627,9 @@ describe("task projects", () => {
     page.unmount()
     renderApp("/conversations/new")
     await waitFor(() =>
-      expect(
-        screen.getByRole("combobox", { name: "项目" })
-      ).toHaveTextContent("生活")
+      expect(screen.getByRole("combobox", { name: "项目" })).toHaveTextContent(
+        "生活"
+      )
     )
   })
 
@@ -547,9 +654,7 @@ describe("task projects", () => {
           name: /未命名任务/u,
         })
         await waitFor(() =>
-          expect(
-            screen.getByRole("combobox", { name: "项目" })
-          ).toBeEnabled()
+          expect(screen.getByRole("combobox", { name: "项目" })).toBeEnabled()
         )
         if (entry === "sidebar") {
           await interaction.dblClick(within(task).getByText("未命名任务"))
@@ -884,18 +989,26 @@ describe("task projects", () => {
   })
 
   it.each([false, true])(
-    "saves a dragged task's project and refreshes the sidebar, pinned=%s",
+    "atomically moves a dragged task and clears its pin, pinned=%s",
     async (pinned) => {
       const { actions } = installProjectApi({ pinned })
       renderApp("/conversations/new")
       await dragFirstTaskToPersonalProject()
-      await waitFor(() =>
-        expect(actions).toContainEqual({
-          path: "/api/v1/conversations/c1",
-          method: "PATCH",
-          body: { project_id: personalId },
-        })
-      )
+      await waitFor(() => {
+        expect(
+          actions
+            .filter(
+              (action) =>
+                action.path === "/api/v1/conversations/c1" &&
+                action.method === "PATCH"
+            )
+            .map((action) => action.body)
+        ).toEqual(
+          pinned
+            ? [{ pinned: false, project_id: personalId }]
+            : [{ project_id: personalId }]
+        )
+      })
       await waitFor(() =>
         expect(
           screen.getByText(
@@ -904,26 +1017,84 @@ describe("task projects", () => {
         ).toHaveAttribute("role", "status")
       )
       const folder = screen.getByRole("region", { name: "生活" })
-      if (pinned) {
-        expect(
-          within(folder).queryByText(conversations[0].title)
-        ).not.toBeInTheDocument()
-        expect(
-          within(
-            screen.getByRole("heading", { name: "置顶" }).closest("section")!
-          ).getByText(conversations[0].title)
-        ).toBeVisible()
-      } else {
-        expect(within(folder).getByText(conversations[0].title)).toBeVisible()
-        expect(
-          within(screen.getByRole("region", { name: "工作" })).queryByText(
-            conversations[0].title
-          )
-        ).not.toBeInTheDocument()
-      }
+      expect(within(folder).getByText(conversations[0].title)).toBeVisible()
+      expect(
+        within(screen.getByRole("region", { name: "工作" })).queryByText(
+          conversations[0].title
+        )
+      ).not.toBeInTheDocument()
       expect(screen.getByRole("textbox", { name: "任务输入框" })).toBeVisible()
     }
   )
+
+  it.each([false, true])(
+    "hides project moves for development tasks while retaining pin actions, pinned=%s",
+    async (pinned) => {
+      const { actions } = installProjectApi({ pinned, development: true })
+      const interaction = userEvent.setup()
+      renderApp("/conversations/new")
+      const sidebar = await screen.findByRole("complementary", {
+        name: "LinkSense 导航",
+      })
+      await within(sidebar).findByRole("region", { name: "生活" })
+      await interaction.click(
+        within(sidebar).getByRole("button", {
+          name: `${conversations[0].title}的更多操作`,
+        })
+      )
+      expect(
+        await screen.findByRole("menuitem", {
+          name: pinned ? "取消置顶" : "置顶任务",
+        })
+      ).toBeVisible()
+      expect(
+        screen.queryByRole("menuitem", { name: "移动到项目" })
+      ).not.toBeInTheDocument()
+      expect(
+        actions.filter((action) => action.method === "PATCH")
+      ).toHaveLength(0)
+    }
+  )
+
+  it("blocks moving a pinned automation task from its actions menu", async () => {
+    const { actions } = installProjectApi({ pinned: true, automation: true })
+    const interaction = userEvent.setup()
+    renderApp("/conversations/new")
+    const sidebar = await screen.findByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+    const personalProject = await within(sidebar).findByRole("region", {
+      name: "生活",
+    })
+
+    await interaction.click(
+      within(sidebar).getByRole("button", {
+        name: `${conversations[0].title}的更多操作`,
+      })
+    )
+    const submenu = await openMoveProjectMenu(interaction)
+    fireEvent.click(within(submenu).getByRole("menuitem", { name: "生活" }))
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "无法取消置顶",
+    })
+    expect(dialog).toHaveTextContent(
+      "该任务仍关联自动化，请先删除或重新绑定自动化。"
+    )
+    expect(
+      actions
+        .filter(
+          (action) =>
+            action.path === "/api/v1/conversations/c1" &&
+            action.method === "PATCH"
+        )
+        .map((action) => action.body)
+    ).toEqual([{ pinned: false, project_id: personalId }])
+    expect(within(sidebar).getByText(conversations[0].title)).toBeVisible()
+    expect(
+      within(personalProject).queryByText(conversations[0].title)
+    ).not.toBeInTheDocument()
+  })
 
   it("shows a failed drag's API error and keeps the task in its original project", async () => {
     installProjectApi({ moveFailure: true })
@@ -1001,9 +1172,7 @@ describe("task projects", () => {
     renderApp("/conversations/new")
     const composer = await screen.findByRole("textbox", { name: "任务输入框" })
     await interaction.type(composer, "保留这段任务内容")
-    await interaction.click(
-      screen.getByRole("button", { name: "新建项目" })
-    )
+    await interaction.click(screen.getByRole("button", { name: "新建项目" }))
     const dialog = await screen.findByRole("dialog", { name: "新建项目" })
     const create = within(dialog).getByRole("button", { name: "创建" })
     expect(create).toBeDisabled()
@@ -1112,8 +1281,8 @@ describe("task projects", () => {
     )
   })
 
-  it("moves existing tasks between projects and back to Common workspace", async () => {
-    const { actions } = installProjectApi()
+  it("atomically unpins and moves a task from its actions menu", async () => {
+    const { actions } = installProjectApi({ pinned: true })
     const interaction = userEvent.setup()
     renderApp()
     await interaction.click(
@@ -1145,7 +1314,10 @@ describe("task projects", () => {
         actions
           .filter((action) => action.method === "PATCH")
           .map((action) => action.body)
-      ).toEqual([{ project_id: personalId }, { project_id: null }])
+      ).toEqual([
+        { pinned: false, project_id: personalId },
+        { project_id: null },
+      ])
     )
     await waitFor(() =>
       expect(

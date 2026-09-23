@@ -43,6 +43,8 @@ export const skillCreatorConfirmRequestSchema = z.strictObject({
 export const skillCreatorPreviewResultSchema = z.strictObject({
   success: z.literal(true),
   install_token: z.string().min(64).max(2_048),
+  requires_confirmation: z.boolean(),
+  approval_reference: uuidSchema,
   expires_at: timestampSchema,
   name: z.string().min(1).max(160),
   description: z.string().max(4_000).nullable(),

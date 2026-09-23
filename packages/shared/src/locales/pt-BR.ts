@@ -7,6 +7,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   "APPLICATION_DEVELOPMENT_TEST_BUSY": "Ainda há um teste ativo. Interrompa-o e resolva as solicitações pendentes no Histórico de testes antes de continuar.",
   "APPLICATION_DEVELOPMENT_TEST_CHANGED": "A sessão de teste mudou. Continue pela visualização mais recente.",
   "APPLICATION_DEVELOPMENT_WORKSPACE_BOUND": "Este projeto contém códigos-fonte de aplicativos. Exclua esses aplicativos em Meus aplicativos antes de excluir o projeto. As tarefas de desenvolvimento devem permanecer no projeto atual.",
+  APPLICATION_DEVELOPMENT_PROJECT_NAME_FIXED: "Este projeto reúne as tarefas de desenvolvimento de aplicativos. Seu nome não pode ser alterado.",
   "APPLICATION_DEVELOPMENT_NOT_FOUND": "Este aplicativo está indisponível. Volte a Meus aplicativos.",
   "APPLICATION_DEVELOPMENT_SOURCE_CHANGED": "O aplicativo mudou. Revise a visualização mais recente antes de instalar.",
   "WEB_SITE_NOT_FOUND": "Este site está indisponível ou o compartilhamento foi interrompido",
