@@ -327,8 +327,15 @@ describe("i18n resources", () => {
     expect(i18n.t("nav.creditQuotaRemainingTitle", { lng: "en-US" })).toBe(
       "Credits"
     )
+    expect(i18n.t("nav.creditQuotaUnlimited", { lng: "zh-CN" })).toBe("不限")
+    expect(i18n.t("nav.creditQuotaUnlimited", { lng: "en-US" })).toBe(
+      "Unlimited"
+    )
     expect(instance.t("nav.creditQuotaRemainingTitle", { lng: "en-US" })).toBe(
       "额度"
+    )
+    expect(instance.t("nav.creditQuotaUnlimited", { lng: "en-US" })).toBe(
+      "不限"
     )
   })
 

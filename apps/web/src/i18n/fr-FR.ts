@@ -139,6 +139,7 @@ export const frFR = {
     unreadFailure: "La tâche a échoué et n’a pas encore été consultée",
     creditQuotaRemainingTitle: "Crédits",
     creditQuotaRemaining: "{{weekly}}",
+    creditQuotaUnlimited: "Illimité",
   },
   auth: {
     loginTitle: "Se connecter à {{productName}}",

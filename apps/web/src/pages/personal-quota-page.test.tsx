@@ -94,7 +94,7 @@ describe("personal quota page", () => {
     )
     const user = userEvent.setup()
     mount()
-    await screen.findByText("750")
+    await screen.findByText("749")
     await user.click(screen.getByRole("tab", { name: "分析" }))
     expect(
       screen.queryByRole("button", { name: "Task 11" })
@@ -106,7 +106,7 @@ describe("personal quota page", () => {
     ).not.toBeInTheDocument()
   })
   it.each(["zh-CN", "en-US", "de-DE"])(
-    "renders rounded credits in %s",
+    "renders whole credits in %s",
     async (language) => {
       await i18n.changeLanguage(language)
       vi.stubGlobal(
@@ -114,7 +114,7 @@ describe("personal quota page", () => {
         vi.fn(async () => envelope(fixture()))
       )
       mount()
-      expect(await screen.findByText("750")).toBeVisible()
+      expect(await screen.findByText("749")).toBeVisible()
       expect(
         screen.getByRole("tab", {
           name: language === "en-US" ? "Overview" : "概览",
@@ -138,7 +138,7 @@ describe("personal quota page", () => {
     )
     const user = userEvent.setup()
     mount()
-    await screen.findByText("750")
+    await screen.findByText("749")
     await user.click(screen.getByRole("tab", { name: "分析" }))
     expect(await screen.findByText("消费历史")).toBeVisible()
     expect(screen.getAllByText("所选周期内暂无记录")).toHaveLength(3)
@@ -227,7 +227,7 @@ describe("personal quota page", () => {
     const user = userEvent.setup()
     mount()
     await user.click(await screen.findByRole("button", { name: "重试" }))
-    expect(await screen.findByText("750")).toBeVisible()
+    expect(await screen.findByText("749")).toBeVisible()
   })
   it("shows loading while pending", () => {
     vi.stubGlobal(

@@ -198,6 +198,7 @@ export const enUS = {
     unreadFailure: "Task failed and has not been viewed",
     creditQuotaRemainingTitle: "Credits",
     creditQuotaRemaining: "{{weekly}}",
+    creditQuotaUnlimited: "Unlimited",
   },
   support: {
     menuLabel: "Feedback and help",

@@ -125,9 +125,9 @@ describe("personal quota chart presentation", () => {
     expect(
       container.querySelectorAll("rect[fill='var(--app-usage-cost-assistant)']")
     ).toHaveLength(1)
-    expect(screen.getByText("12,611")).toBeVisible()
-    expect(container.querySelector("p.text-3xl")).toHaveTextContent("12,614")
-    expect(screen.getByText("3")).toBeVisible()
+    expect(screen.getByText("12,610")).toBeVisible()
+    expect(container.querySelector("p.text-3xl")).toHaveTextContent("12,613")
+    expect(screen.getByText("2")).toBeVisible()
     expect(screen.queryByText("12,610.951119")).not.toBeInTheDocument()
   })
 })

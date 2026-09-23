@@ -412,6 +412,7 @@ export const ptBR = {
     unreadFailure: "Tarefa com falha e ainda não visualizada",
     creditQuotaRemainingTitle: "Créditos",
     creditQuotaRemaining: "{{weekly}}",
+    creditQuotaUnlimited: "Ilimitado",
   },
   support: {
     menuLabel: "Feedback e ajuda",

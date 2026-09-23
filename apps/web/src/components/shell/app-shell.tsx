@@ -789,12 +789,15 @@ function AppSidebarContent({
       ? `${parts[0]?.[0] ?? ""}${parts.at(-1)?.[0] ?? ""}`.toUpperCase()
       : (parts[0]?.slice(0, 2) ?? "LS").toUpperCase()
   }, [user?.name])
-  const creditQuotaRemainingLabel = t("nav.creditQuotaRemaining", {
-    weekly: formatRemainingCredits(
-      user?.credit_quota?.weekly?.remaining_credits,
-      language
-    ),
-  })
+  const creditQuotaRemainingLabel =
+    user?.weekly_credit_limit === null
+      ? t("nav.creditQuotaUnlimited")
+      : t("nav.creditQuotaRemaining", {
+          weekly: formatRemainingCredits(
+            user?.credit_quota?.weekly?.remaining_credits,
+            language
+          ),
+        })
   const settingsReturnState = conversationSettingsReturnState(location)
 
   const handleSignOut = async () => {
@@ -1357,7 +1360,16 @@ function AppSidebarContent({
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuLabel className="account-menu-quota flex min-h-7 items-center justify-between gap-2 px-2 py-1.5 text-[length:var(--app-ui-font-size)] font-medium text-popover-foreground">
+                <DropdownMenuItem
+                  className="account-menu-quota min-h-7 justify-between gap-2 text-[length:var(--app-ui-font-size)] font-medium"
+                  render={
+                    <NavLink
+                      to="/settings/quota"
+                      state={settingsReturnState}
+                      onClick={onNavigate}
+                    />
+                  }
+                >
                   <span className="flex shrink-0 items-center gap-2">
                     <GaugeIcon
                       className="size-3.5 shrink-0"
@@ -1368,7 +1380,7 @@ function AppSidebarContent({
                   <span className="min-w-0 text-right text-[length:var(--app-font-11)] text-[var(--app-muted)] tabular-nums">
                     {creditQuotaRemainingLabel}
                   </span>
-                </DropdownMenuLabel>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-[length:var(--app-ui-font-size)]"
                   render={

@@ -412,6 +412,7 @@ export const jaJP = {
     unreadFailure: "失敗後、まだ確認されていないタスク",
     creditQuotaRemainingTitle: "クレジット",
     creditQuotaRemaining: "{{weekly}}",
+    creditQuotaUnlimited: "無制限",
   },
   support: {
     menuLabel: "フィードバックとヘルプ",

@@ -1,4 +1,5 @@
 import { creditMicrosToDecimal, decimalToCreditMicros } from "@linksense/shared"
+import { formatCreditAmount } from "@/lib/credit-quota"
 
 export type QuotaChartInput = { date: string; name: string; amount: string }
 export const personalQuotaChartColors = [
@@ -83,6 +84,5 @@ export function quotaPercentage(
 }
 
 export function formatQuotaAmount(amount: string, language: string): string {
-  const rounded = (decimalToCreditMicros(amount) + 500_000n) / 1_000_000n
-  return new Intl.NumberFormat(language).format(rounded)
+  return formatCreditAmount(amount, language)
 }

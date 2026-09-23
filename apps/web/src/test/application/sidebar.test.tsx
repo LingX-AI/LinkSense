@@ -1698,7 +1698,7 @@ describe("LinkSense application", () => {
       "text-[length:var(--app-ui-font-size)]"
     )
     const quotaTitle = within(menu).getByText("额度")
-    const quotaValues = within(menu).getByText("-")
+    const quotaValues = within(menu).getByText("不限")
     expect(quotaTitle).toHaveClass("flex", "shrink-0", "items-center", "gap-2")
     const quotaIcon = quotaTitle.querySelector("svg")
     expect(quotaIcon).toHaveClass("lucide-gauge", "size-3.5", "shrink-0")
@@ -1713,15 +1713,13 @@ describe("LinkSense application", () => {
     )
     expect(quotaTitle.nextElementSibling).toBe(quotaValues)
     const quotaRemaining = quotaTitle.parentElement
+    expect(quotaRemaining).toHaveAttribute("href", "/settings/quota")
     expect(quotaRemaining).toHaveClass(
       "account-menu-quota",
-      "flex",
-      "items-center",
       "justify-between",
       "gap-2",
       "text-[length:var(--app-ui-font-size)]",
-      "font-medium",
-      "text-popover-foreground"
+      "font-medium"
     )
     expect(accountName.parentElement).not.toContainElement(quotaRemaining)
     expect(
@@ -1780,5 +1778,28 @@ describe("LinkSense application", () => {
     expect(
       within(settingsSidebar).queryByRole("link", { name: "分享审批" })
     ).not.toBeInTheDocument()
+  })
+
+  it("opens personal quota usage from the unlimited account-menu quota", async () => {
+    installApiMock()
+    const interaction = userEvent.setup()
+    renderApp()
+    const sidebar = await screen.findByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+
+    await interaction.click(
+      within(sidebar).getByRole("button", { name: "林晓" })
+    )
+    const quotaMenuItem = await screen.findByRole("menuitem", {
+      name: /额度.*不限/u,
+    })
+    expect(quotaMenuItem).toHaveAttribute("href", "/settings/quota")
+
+    await interaction.click(quotaMenuItem)
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "额度使用" })
+    ).toBeVisible()
   })
 })
