@@ -1,4 +1,5 @@
 import { autoUpdate } from "@floating-ui/react-dom"
+import { usePinch } from "@use-gesture/react"
 import {
   useCallback,
   useEffect,
@@ -53,8 +54,10 @@ import {
 import {
   calculateWordPreviewFitZoom,
   clampWordPreviewZoom,
+  getWordPreviewPageWidth,
   maximumWordPreviewZoom,
   minimumWordPreviewZoom,
+  wordPreviewHorizontalPadding,
 } from "@/components/media/word-preview/word-preview-zoom"
 import { normalizeLanguage } from "@/i18n"
 
@@ -295,7 +298,7 @@ function WordPreviewSession({
   const selectionOverlayFrameRef = useRef<number | null>(null)
   const handledAnnotationNavigationSequenceRef = useRef<number | null>(null)
   const selectionOverlaySuspendedRef = useRef(false)
-  const fitWidthFrameRef = useRef<number | null>(null)
+  const documentLayoutFrameRef = useRef<number | null>(null)
   const horizontalCenterFrameRef = useRef<number | null>(null)
   const layoutReadyFrameRef = useRef<number | null>(null)
   const layoutReadyRef = useRef(false)
@@ -368,15 +371,28 @@ function WordPreviewSession({
     })
   }, [centerDocumentHorizontally])
 
+  const syncDocumentScrollWidth = useCallback((nextZoom = zoomRef.current) => {
+    const surface = editorSurfaceRef.current
+    if (!surface) return
+    const pageWidth = getWordPreviewPageWidth(surface, zoomRef.current)
+    if (pageWidth <= 0) return
+
+    surface.style.setProperty(
+      "--word-preview-scroll-width",
+      `${pageWidth * nextZoom + wordPreviewHorizontalPadding}px`
+    )
+  }, [])
+
   const applyZoom = useCallback(
     (nextZoom: number) => {
       const normalizedZoom = clampWordPreviewZoom(nextZoom)
+      syncDocumentScrollWidth(normalizedZoom)
       zoomRef.current = normalizedZoom
       editorRef.current?.setZoom(normalizedZoom)
       setZoom(normalizedZoom)
       scheduleHorizontalCenter()
     },
-    [scheduleHorizontalCenter]
+    [scheduleHorizontalCenter, syncDocumentScrollWidth]
   )
 
   const scheduleLayoutReady = useCallback(() => {
@@ -403,6 +419,36 @@ function WordPreviewSession({
     [applyZoom, scheduleLayoutReady]
   )
 
+  usePinch(
+    ({ active, offset: [nextScale], event }) => {
+      // A delayed gesture-end event must not undo a toolbar reset.
+      if (!active) return
+      if (event.cancelable) event.preventDefault()
+      const nextZoom = clampWordPreviewZoom(
+        Math.round(nextScale * 1_000) / 1_000
+      )
+      if (nextZoom !== zoomRef.current) updateZoom(nextZoom)
+    },
+    {
+      target: {
+        get current() {
+          return (
+            editorSurfaceRef.current?.querySelector<HTMLElement>(
+              ".docx-editor__scroll-container"
+            ) ?? null
+          )
+        },
+      },
+      enabled: document.status === "ready" && layoutReady && !viewerFailed,
+      eventOptions: { passive: false },
+      modifierKey: ["ctrlKey", "metaKey"],
+      from: () => [zoomRef.current, 0],
+      scaleBounds: { min: minimumWordPreviewZoom, max: maximumWordPreviewZoom },
+      rubberband: 0,
+      pointer: { touch: true },
+    }
+  )
+
   const fitDocumentToWidth = useCallback(() => {
     if (manualZoomRef.current) return false
 
@@ -415,13 +461,7 @@ function WordPreviewSession({
       surface
     const availableWidth =
       viewport.clientWidth || viewport.getBoundingClientRect().width
-    const pageWidths = Array.from(
-      surface.querySelectorAll<HTMLElement>(".layout-page")
-    ).map((page) => {
-      if (page.offsetWidth > 0) return page.offsetWidth
-      return page.getBoundingClientRect().width / zoomRef.current
-    })
-    const pageWidth = Math.max(0, ...pageWidths)
+    const pageWidth = getWordPreviewPageWidth(surface, zoomRef.current)
     const fitZoom = calculateWordPreviewFitZoom(availableWidth, pageWidth)
     if (fitZoom === null) return false
 
@@ -430,19 +470,19 @@ function WordPreviewSession({
     return true
   }, [applyZoom, scheduleLayoutReady])
 
-  const scheduleFitDocumentToWidth = useCallback(() => {
-    if (manualZoomRef.current || fitWidthFrameRef.current !== null) return
-    fitWidthFrameRef.current = globalThis.requestAnimationFrame(() => {
-      fitWidthFrameRef.current = null
-      fitDocumentToWidth()
+  const scheduleDocumentLayout = useCallback(() => {
+    if (documentLayoutFrameRef.current !== null) return
+    documentLayoutFrameRef.current = globalThis.requestAnimationFrame(() => {
+      documentLayoutFrameRef.current = null
+      if (!fitDocumentToWidth()) syncDocumentScrollWidth()
     })
-  }, [fitDocumentToWidth])
+  }, [fitDocumentToWidth, syncDocumentScrollWidth])
 
   const resetZoom = useCallback(() => {
     manualZoomRef.current = false
     setFitWidthEnabled(true)
-    if (!fitDocumentToWidth()) scheduleFitDocumentToWidth()
-  }, [fitDocumentToWidth, scheduleFitDocumentToWidth])
+    if (!fitDocumentToWidth()) scheduleDocumentLayout()
+  }, [fitDocumentToWidth, scheduleDocumentLayout])
 
   useEffect(() => {
     return () => annotationScrollAnimationRef.current?.stop()
@@ -456,22 +496,22 @@ function WordPreviewSession({
     const resizeObserver =
       typeof ResizeObserver === "undefined"
         ? null
-        : new ResizeObserver(scheduleFitDocumentToWidth)
+        : new ResizeObserver(scheduleDocumentLayout)
     resizeObserver?.observe(surface)
 
     const mutationObserver =
       typeof MutationObserver === "undefined"
         ? null
-        : new MutationObserver(scheduleFitDocumentToWidth)
+        : new MutationObserver(scheduleDocumentLayout)
     mutationObserver?.observe(surface, { childList: true, subtree: true })
-    scheduleFitDocumentToWidth()
+    scheduleDocumentLayout()
 
     return () => {
       resizeObserver?.disconnect()
       mutationObserver?.disconnect()
-      if (fitWidthFrameRef.current !== null) {
-        globalThis.cancelAnimationFrame(fitWidthFrameRef.current)
-        fitWidthFrameRef.current = null
+      if (documentLayoutFrameRef.current !== null) {
+        globalThis.cancelAnimationFrame(documentLayoutFrameRef.current)
+        documentLayoutFrameRef.current = null
       }
       if (horizontalCenterFrameRef.current !== null) {
         globalThis.cancelAnimationFrame(horizontalCenterFrameRef.current)
@@ -482,7 +522,7 @@ function WordPreviewSession({
         layoutReadyFrameRef.current = null
       }
     }
-  }, [document.status, scheduleFitDocumentToWidth, viewerFailed])
+  }, [document.status, scheduleDocumentLayout, viewerFailed])
 
   const applySelectionState = useCallback(
     (state: WordSelectionLocation | null) => {
@@ -1138,6 +1178,7 @@ function WordPreviewSession({
             zoomOutLabel={t("wordPreview.zoomOut")}
             zoomInLabel={t("wordPreview.zoomIn")}
             resetZoomLabel={t("wordPreview.resetZoom")}
+            gestureHint={t("officePreview.zoomGestureHint")}
             canZoomOut={zoom > minimumWordPreviewZoom}
             canZoomIn={zoom < maximumWordPreviewZoom}
             onZoomOut={() => updateZoom(zoom - 0.1)}

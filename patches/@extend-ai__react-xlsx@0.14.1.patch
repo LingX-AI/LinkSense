@@ -1,8 +1,19 @@
 diff --git a/dist/index.cjs b/dist/index.cjs
-index a242d3c12520ed9e5324a354a7d88a70eae1022a..8ed1246bdf4120aa1e30202e77a14908d796ddcd 100644
+index a242d3c12520ed9e5324a354a7d88a70eae1022a..4e938661239904f341830caa34ac64fcd92fb663 100644
 --- a/dist/index.cjs
 +++ b/dist/index.cjs
-@@ -23324,6 +23324,7 @@ function XlsxGrid({
+@@ -17948,7 +17948,9 @@ var THUMBNAIL_MAX_COLS = 80;
+ var THUMBNAIL_MAX_SOURCE_HEIGHT_PX = 900;
+ var THUMBNAIL_MAX_SOURCE_WIDTH_PX = 1440;
+ var LIVE_ZOOM_COMMIT_IDLE_MS = 48;
+-var WHEEL_ZOOM_SENSITIVITY = 25e-5;
++// Trackpad pinch uses small pixel deltas. Keep them visible and bound coarse wheel steps.
++var WHEEL_ZOOM_SENSITIVITY = 0.01;
++var MAX_WHEEL_ZOOM_LOG_STEP = Math.log(1.1);
+ var WHEEL_LINE_DELTA_PX = 16;
+ var CHART_SOURCE_HIGHLIGHT_COLORS = ["#2563eb", "#dc2626", "#7c3aed", "#059669", "#ea580c", "#db2777"];
+ var CHART_SOURCE_HIGHLIGHT_COLOR_BY_ROLE = {
+@@ -23324,6 +23326,7 @@ function XlsxGrid({
      width: 0
    });
    const [resizeGuide, setResizeGuide] = React4.useState(null);
@@ -10,7 +21,111 @@ index a242d3c12520ed9e5324a354a7d88a70eae1022a..8ed1246bdf4120aa1e30202e77a14908
    const selectionPreviewRangeRef = React4.useRef(null);
    const [imagePreviewRect, setImagePreviewRect] = React4.useState(null);
    const imagePreviewRectRef = React4.useRef(null);
-@@ -23875,12 +23876,12 @@ function XlsxGrid({
+@@ -23419,6 +23422,8 @@ function XlsxGrid({
+     const scrollDeltaY = paintedViewport.top - nextLiveViewport.top;
+     const liveZoomTranslateX2 = isLiveZooming2 ? currentLiveGestureZoom.anchor.x * (1 - liveZoomScale2) : 0;
+     const liveZoomTranslateY2 = isLiveZooming2 ? currentLiveGestureZoom.anchor.y * (1 - liveZoomScale2) : 0;
++    const frozenColumnTranslateX = liveDisplayRowHeaderWidth * (liveZoomScale2 - 1);
++    const frozenRowTranslateY = liveDisplayHeaderHeight * (liveZoomScale2 - 1);
+     const applyElementTransform = (element, transform, willChange, transformOrigin = null) => {
+       if (!element) {
+         return;
+@@ -23447,10 +23452,10 @@ function XlsxGrid({
+         shouldTransform ? "transform" : ""
+       );
+     };
+-    const applyOverlayTransform = (element, translateX, translateY) => {
++    const applyOverlayTransform = (element, translateX, translateY, zoomTranslateX = liveZoomTranslateX2, zoomTranslateY = liveZoomTranslateY2) => {
+       applyElementTransform(
+         element,
+-        liveZoomScale2 !== 1 ? `translate3d(${translateX + liveZoomTranslateX2}px, ${translateY + liveZoomTranslateY2}px, 0) scale(${liveZoomScale2})` : `translate3d(${translateX}px, ${translateY}px, 0)`,
++        liveZoomScale2 !== 1 ? `translate3d(${translateX + zoomTranslateX}px, ${translateY + zoomTranslateY}px, 0) scale(${liveZoomScale2})` : `translate3d(${translateX}px, ${translateY}px, 0)`,
+         "transform",
+         "0 0"
+       );
+@@ -23463,42 +23468,42 @@ function XlsxGrid({
+     applyCanvasTransform(
+       topBodyCanvasRef.current,
+       scrollDeltaX + liveZoomTranslateX2,
+-      liveZoomTranslateY2
++      frozenRowTranslateY
+     );
+     applyCanvasTransform(
+       leftBodyCanvasRef.current,
+-      liveZoomTranslateX2,
++      frozenColumnTranslateX,
+       scrollDeltaY + liveZoomTranslateY2
+     );
+     applyCanvasTransform(
+       cornerBodyCanvasRef.current,
+-      liveZoomTranslateX2,
+-      liveZoomTranslateY2
++      frozenColumnTranslateX,
++      frozenRowTranslateY
+     );
+     applyCanvasTransform(
+       topScrollHeaderCanvasRef.current,
+       scrollDeltaX + liveZoomTranslateX2,
+-      liveZoomTranslateY2
++      0
+     );
+     applyCanvasTransform(
+       topFrozenHeaderCanvasRef.current,
+-      liveZoomTranslateX2,
+-      liveZoomTranslateY2
++      frozenColumnTranslateX,
++      0
+     );
+     applyCanvasTransform(
+       leftScrollHeaderCanvasRef.current,
+-      liveZoomTranslateX2,
++      0,
+       scrollDeltaY + liveZoomTranslateY2
+     );
+     applyCanvasTransform(
+       leftFrozenHeaderCanvasRef.current,
+-      liveZoomTranslateX2,
+-      liveZoomTranslateY2
++      0,
++      frozenRowTranslateY
+     );
+     applyCanvasTransform(
+       cornerHeaderCanvasRef.current,
+-      liveZoomTranslateX2,
+-      liveZoomTranslateY2
++      0,
++      0
+     );
+     applyOverlayTransform(
+       canvasScrollOverlayContentRef.current,
+@@ -23508,17 +23513,23 @@ function XlsxGrid({
+     applyOverlayTransform(
+       canvasTopOverlayContentRef.current,
+       -nextLiveViewport.left - liveFrozenPaneRight,
+-      -liveDisplayHeaderHeight
++      -liveDisplayHeaderHeight,
++      liveZoomTranslateX2,
++      0
+     );
+     applyOverlayTransform(
+       canvasLeftOverlayContentRef.current,
+       -liveDisplayRowHeaderWidth,
+-      -nextLiveViewport.top - liveFrozenPaneBottom
++      -nextLiveViewport.top - liveFrozenPaneBottom,
++      0,
++      liveZoomTranslateY2
+     );
+     applyOverlayTransform(
+       canvasCornerOverlayContentRef.current,
+       -liveDisplayRowHeaderWidth,
+-      -liveDisplayHeaderHeight
++      -liveDisplayHeaderHeight,
++      0,
++      0
+     );
+   }, [zoomScale]);
+   const updateLiveGestureZoomState = React4.useCallback((nextState) => {
+@@ -23875,12 +23886,12 @@ function XlsxGrid({
      ]
    );
    const displayActualColWidths = React4.useMemo(
@@ -27,7 +142,16 @@ index a242d3c12520ed9e5324a354a7d88a70eae1022a..8ed1246bdf4120aa1e30202e77a14908
    );
    const displayEffectiveColWidths = React4.useMemo(
      () => visibleCols.map((col) => displayActualColWidths[col] ?? displayDefaultColWidth),
-@@ -24838,6 +24839,7 @@ function XlsxGrid({
+@@ -24461,7 +24472,7 @@ function XlsxGrid({
+       event.preventDefault();
+       const anchor = resolveEventAnchor(event.clientX, event.clientY, scroller.getBoundingClientRect());
+       updateLiveGestureZoomTarget(
+-        gestureZoomScaleRef.current * Math.exp(-delta * WHEEL_ZOOM_SENSITIVITY),
++        gestureZoomScaleRef.current * Math.exp(clampValue(-delta * WHEEL_ZOOM_SENSITIVITY, -MAX_WHEEL_ZOOM_LOG_STEP, MAX_WHEEL_ZOOM_LOG_STEP)),
+         anchor
+       );
+       scheduleLiveGestureZoomCommit();
+@@ -24838,6 +24849,7 @@ function XlsxGrid({
      pendingResizePreviewRef.current = null;
      columnPreviewRef.current = null;
      rowPreviewRef.current = null;
@@ -35,7 +159,7 @@ index a242d3c12520ed9e5324a354a7d88a70eae1022a..8ed1246bdf4120aa1e30202e77a14908
      setResizeGuide(null);
      clearGlobalCursor();
      setEditingCell(null);
-@@ -26110,6 +26112,7 @@ function XlsxGrid({
+@@ -26110,6 +26122,7 @@ function XlsxGrid({
          if (!preview) {
            return;
          }
@@ -43,7 +167,7 @@ index a242d3c12520ed9e5324a354a7d88a70eae1022a..8ed1246bdf4120aa1e30202e77a14908
          if (preview.type === "column") {
            columnPreviewRef.current = { actualIndex: preview.actualIndex, size: preview.size };
            rowPreviewRef.current = null;
-@@ -26139,6 +26142,7 @@ function XlsxGrid({
+@@ -26139,6 +26152,7 @@ function XlsxGrid({
          pendingResizePreviewRef.current = null;
          columnPreviewRef.current = null;
          rowPreviewRef.current = null;
@@ -51,7 +175,7 @@ index a242d3c12520ed9e5324a354a7d88a70eae1022a..8ed1246bdf4120aa1e30202e77a14908
          setInteractionMode("idle");
          setResizeGuide(null);
          clearGlobalCursor();
-@@ -27142,13 +27146,13 @@ function XlsxGrid({
+@@ -27142,13 +27156,13 @@ function XlsxGrid({
      const shouldRepaintBody = !(previousBodyCanvasSignature && previousBodyCanvasSignature.activeSheet === nextBodyCanvasSignature.activeSheet && previousBodyCanvasSignature.bakedDrawingSignature === nextBodyCanvasSignature.bakedDrawingSignature && previousBodyCanvasSignature.bodyHeight === nextBodyCanvasSignature.bodyHeight && previousBodyCanvasSignature.bodyWidth === nextBodyCanvasSignature.bodyWidth && previousBodyCanvasSignature.colSignature === nextBodyCanvasSignature.colSignature && previousBodyCanvasSignature.getCellData === nextBodyCanvasSignature.getCellData && previousBodyCanvasSignature.headerHeight === nextBodyCanvasSignature.headerHeight && previousBodyCanvasSignature.palette === nextBodyCanvasSignature.palette && previousBodyCanvasSignature.rowHeaderWidth === nextBodyCanvasSignature.rowHeaderWidth && previousBodyCanvasSignature.rowSignature === nextBodyCanvasSignature.rowSignature && previousBodyCanvasSignature.zoomFactor === nextBodyCanvasSignature.zoomFactor);
      const shouldRepaintHeaders = !(previousHeaderCanvasSignature && previousHeaderCanvasSignature.activeSheet === nextHeaderCanvasSignature.activeSheet && previousHeaderCanvasSignature.bodyHeight === nextHeaderCanvasSignature.bodyHeight && previousHeaderCanvasSignature.bodyWidth === nextHeaderCanvasSignature.bodyWidth && previousHeaderCanvasSignature.colSignature === nextHeaderCanvasSignature.colSignature && previousHeaderCanvasSignature.headerHeight === nextHeaderCanvasSignature.headerHeight && previousHeaderCanvasSignature.palette === nextHeaderCanvasSignature.palette && previousHeaderCanvasSignature.rangeSignature === nextHeaderCanvasSignature.rangeSignature && previousHeaderCanvasSignature.rowHeaderWidth === nextHeaderCanvasSignature.rowHeaderWidth && previousHeaderCanvasSignature.rowSignature === nextHeaderCanvasSignature.rowSignature && previousHeaderCanvasSignature.viewportLeft === nextHeaderCanvasSignature.viewportLeft && previousHeaderCanvasSignature.viewportTop === nextHeaderCanvasSignature.viewportTop && previousHeaderCanvasSignature.zoomFactor === nextHeaderCanvasSignature.zoomFactor);
      const canBlitBody = Boolean(
@@ -68,7 +192,7 @@ index a242d3c12520ed9e5324a354a7d88a70eae1022a..8ed1246bdf4120aa1e30202e77a14908
      );
      if (!shouldRepaintBody && !shouldRepaintHeaders) {
        return;
-@@ -28113,6 +28117,7 @@ function XlsxGrid({
+@@ -28113,6 +28127,7 @@ function XlsxGrid({
      getCanvasImage,
      getBodyBlitBufferCanvas,
      getHeaderBlitBufferCanvas,
@@ -76,7 +200,7 @@ index a242d3c12520ed9e5324a354a7d88a70eae1022a..8ed1246bdf4120aa1e30202e77a14908
      palette,
      resolveCellDisplayRect,
      resolveMergeAnchorCell,
-@@ -29979,6 +29984,93 @@ function XlsxGrid({
+@@ -29979,6 +29994,91 @@ function XlsxGrid({
      }
    }
    gridKeyboardHandlerRef.current = handleGridKeyDown;
@@ -107,15 +231,16 @@ index a242d3c12520ed9e5324a354a7d88a70eae1022a..8ed1246bdf4120aa1e30202e77a14908
 +      }
 +      return segments.flatMap((segment) => {
 +        const scrollOffset = segment.frozen ? 0 : scroll;
-+        const clipStart = segment.frozen ? header : frozenEnd;
-+        const clipEnd = segment.frozen ? Math.min(frozenEnd, viewportSize) : viewportSize;
-+        // Canvas cells scale around each painted pane's origin; DOM drawings use the overlay origin.
-+        const origin = segment.frozen ? header : canvasStart;
-+        const paintedOffset = segment.frozen ? 0 : paintedScroll;
++        const liveBoundaryScale = experimentalCanvas ? scale : 1;
++        const clipStart = (segment.frozen ? header : frozenEnd) * liveBoundaryScale;
++        const clipEnd = segment.frozen ? Math.min(frozenEnd * liveBoundaryScale, viewportSize) : viewportSize;
++        // Frozen panes scale from the sheet origin; scrolling cells scale around their painted pane.
 +        const project = (position) => experimentalCanvas
-+          ? canvasTarget
-+            ? origin + (position - paintedOffset - origin) * scale + paintedOffset - scrollOffset + translate
-+            : position * scale - scrollOffset + translate
++          ? segment.frozen
++            ? position * scale
++            : canvasTarget
++              ? canvasStart + (position - paintedScroll - canvasStart) * scale + paintedScroll - scrollOffset + translate
++              : position * scale - scrollOffset + translate
 +          : (position - scrollOffset) * scale + translate;
 +        const first = Math.max(clipStart, project(segment.start));
 +        const last = Math.min(clipEnd, project(segment.end));
@@ -135,7 +260,9 @@ index a242d3c12520ed9e5324a354a7d88a70eae1022a..8ed1246bdf4120aa1e30202e77a14908
 +    const bounds = scroller.getBoundingClientRect();
 +    const x = clientX - bounds.left;
 +    const y = clientY - bounds.top;
-+    if (x < displayRowHeaderWidth || y < displayHeaderHeight || x >= scroller.clientWidth || y >= scroller.clientHeight) return null;
++    const liveZoom = liveGestureZoomRef.current;
++    const scale = experimentalCanvas && liveZoom && liveZoom.baseZoomScale === zoomScale ? liveZoom.targetZoomScale / liveZoom.baseZoomScale : 1;
++    if (x < displayRowHeaderWidth * scale || y < displayHeaderHeight * scale || x >= scroller.clientWidth || y >= scroller.clientHeight) return null;
 +    const containsPoint = (rect) => x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height;
 +    const drawings = [
 +      ...imageRects.map(({ image }) => ({ target: { type: "image", id: image.id }, zIndex: image.zIndex })),
@@ -145,21 +272,16 @@ index a242d3c12520ed9e5324a354a7d88a70eae1022a..8ed1246bdf4120aa1e30202e77a14908
 +      if (getAnnotationGeometry(drawing.target)?.viewportRects.some(containsPoint)) return drawing.target;
 +    }
 +    // Invert the live canvas transform before reusing the renderer's cell hit test.
-+    const liveZoom = liveGestureZoomRef.current;
 +    let hitX = clientX;
 +    let hitY = clientY;
 +    if (experimentalCanvas && liveZoom && liveZoom.baseZoomScale === zoomScale) {
-+      const scale = liveZoom.targetZoomScale / liveZoom.baseZoomScale;
-+      const inverse = (point, header, frozenEnd, canvasStart, scroll, paintedScroll, anchor) => {
-+        const frozen = point < frozenEnd;
-+        const origin = frozen ? header : canvasStart;
-+        const paintedOffset = frozen ? 0 : paintedScroll;
-+        const scrollOffset = frozen ? 0 : scroll;
-+        return (point - origin - paintedOffset + scrollOffset - anchor * (1 - scale)) / scale + paintedOffset + origin - scrollOffset;
++      const inverse = (point, frozenEnd, canvasStart, scroll, paintedScroll, anchor) => {
++        if (point < frozenEnd * scale) return point / scale;
++        return (point - canvasStart - paintedScroll + scroll - anchor * (1 - scale)) / scale + paintedScroll + canvasStart - scroll;
 +      };
 +      const painted = paintedDrawingViewportRef.current;
-+      hitX = bounds.left + inverse(x, displayRowHeaderWidth, frozenPaneRight, scrollBodyCanvasLeft, scroller.scrollLeft, painted.left, liveZoom.anchor.x);
-+      hitY = bounds.top + inverse(y, displayHeaderHeight, frozenPaneBottom, scrollBodyCanvasTop, scroller.scrollTop, painted.top, liveZoom.anchor.y);
++      hitX = bounds.left + inverse(x, frozenPaneRight, scrollBodyCanvasLeft, scroller.scrollLeft, painted.left, liveZoom.anchor.x);
++      hitY = bounds.top + inverse(y, frozenPaneBottom, scrollBodyCanvasTop, scroller.scrollTop, painted.top, liveZoom.anchor.y);
 +    }
 +    const cell = resolvePointerCellFromClient(hitX, hitY);
 +    if (!cell) return null;
@@ -170,7 +292,7 @@ index a242d3c12520ed9e5324a354a7d88a70eae1022a..8ed1246bdf4120aa1e30202e77a14908
    const scrollerViewportProps = {
      ref: scrollRef,
      "aria-colcount": Math.max(activeSheet?.colCount ?? 0, displayColLimit),
-@@ -30617,7 +30709,7 @@ function XlsxGrid({
+@@ -30617,7 +30717,7 @@ function XlsxGrid({
        )
      }
    );
@@ -208,10 +330,21 @@ index 427c2f7709ffca0561e98386ccd0c324268026b3..b1c0199e22f289fe13294b9b96e057bf
      children: React.ReactNode;
      /** Props that must be applied to the actual scrollable viewport element. */
 diff --git a/dist/index.js b/dist/index.js
-index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d0ab21d77bc90360170a2aa3f0d1a09dd2c64f47 100644
+index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..a3ccb9990ec4c2ecb5e86dfc54cd285accefcf27 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -23290,6 +23290,7 @@ function XlsxGrid({
+@@ -17914,7 +17914,9 @@ var THUMBNAIL_MAX_COLS = 80;
+ var THUMBNAIL_MAX_SOURCE_HEIGHT_PX = 900;
+ var THUMBNAIL_MAX_SOURCE_WIDTH_PX = 1440;
+ var LIVE_ZOOM_COMMIT_IDLE_MS = 48;
+-var WHEEL_ZOOM_SENSITIVITY = 25e-5;
++// Trackpad pinch uses small pixel deltas. Keep them visible and bound coarse wheel steps.
++var WHEEL_ZOOM_SENSITIVITY = 0.01;
++var MAX_WHEEL_ZOOM_LOG_STEP = Math.log(1.1);
+ var WHEEL_LINE_DELTA_PX = 16;
+ var CHART_SOURCE_HIGHLIGHT_COLORS = ["#2563eb", "#dc2626", "#7c3aed", "#059669", "#ea580c", "#db2777"];
+ var CHART_SOURCE_HIGHLIGHT_COLOR_BY_ROLE = {
+@@ -23290,6 +23292,7 @@ function XlsxGrid({
      width: 0
    });
    const [resizeGuide, setResizeGuide] = React4.useState(null);
@@ -219,7 +352,111 @@ index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d0ab21d77bc90360170a2aa3f0d1a09d
    const selectionPreviewRangeRef = React4.useRef(null);
    const [imagePreviewRect, setImagePreviewRect] = React4.useState(null);
    const imagePreviewRectRef = React4.useRef(null);
-@@ -23841,12 +23842,12 @@ function XlsxGrid({
+@@ -23385,6 +23388,8 @@ function XlsxGrid({
+     const scrollDeltaY = paintedViewport.top - nextLiveViewport.top;
+     const liveZoomTranslateX2 = isLiveZooming2 ? currentLiveGestureZoom.anchor.x * (1 - liveZoomScale2) : 0;
+     const liveZoomTranslateY2 = isLiveZooming2 ? currentLiveGestureZoom.anchor.y * (1 - liveZoomScale2) : 0;
++    const frozenColumnTranslateX = liveDisplayRowHeaderWidth * (liveZoomScale2 - 1);
++    const frozenRowTranslateY = liveDisplayHeaderHeight * (liveZoomScale2 - 1);
+     const applyElementTransform = (element, transform, willChange, transformOrigin = null) => {
+       if (!element) {
+         return;
+@@ -23413,10 +23418,10 @@ function XlsxGrid({
+         shouldTransform ? "transform" : ""
+       );
+     };
+-    const applyOverlayTransform = (element, translateX, translateY) => {
++    const applyOverlayTransform = (element, translateX, translateY, zoomTranslateX = liveZoomTranslateX2, zoomTranslateY = liveZoomTranslateY2) => {
+       applyElementTransform(
+         element,
+-        liveZoomScale2 !== 1 ? `translate3d(${translateX + liveZoomTranslateX2}px, ${translateY + liveZoomTranslateY2}px, 0) scale(${liveZoomScale2})` : `translate3d(${translateX}px, ${translateY}px, 0)`,
++        liveZoomScale2 !== 1 ? `translate3d(${translateX + zoomTranslateX}px, ${translateY + zoomTranslateY}px, 0) scale(${liveZoomScale2})` : `translate3d(${translateX}px, ${translateY}px, 0)`,
+         "transform",
+         "0 0"
+       );
+@@ -23429,42 +23434,42 @@ function XlsxGrid({
+     applyCanvasTransform(
+       topBodyCanvasRef.current,
+       scrollDeltaX + liveZoomTranslateX2,
+-      liveZoomTranslateY2
++      frozenRowTranslateY
+     );
+     applyCanvasTransform(
+       leftBodyCanvasRef.current,
+-      liveZoomTranslateX2,
++      frozenColumnTranslateX,
+       scrollDeltaY + liveZoomTranslateY2
+     );
+     applyCanvasTransform(
+       cornerBodyCanvasRef.current,
+-      liveZoomTranslateX2,
+-      liveZoomTranslateY2
++      frozenColumnTranslateX,
++      frozenRowTranslateY
+     );
+     applyCanvasTransform(
+       topScrollHeaderCanvasRef.current,
+       scrollDeltaX + liveZoomTranslateX2,
+-      liveZoomTranslateY2
++      0
+     );
+     applyCanvasTransform(
+       topFrozenHeaderCanvasRef.current,
+-      liveZoomTranslateX2,
+-      liveZoomTranslateY2
++      frozenColumnTranslateX,
++      0
+     );
+     applyCanvasTransform(
+       leftScrollHeaderCanvasRef.current,
+-      liveZoomTranslateX2,
++      0,
+       scrollDeltaY + liveZoomTranslateY2
+     );
+     applyCanvasTransform(
+       leftFrozenHeaderCanvasRef.current,
+-      liveZoomTranslateX2,
+-      liveZoomTranslateY2
++      0,
++      frozenRowTranslateY
+     );
+     applyCanvasTransform(
+       cornerHeaderCanvasRef.current,
+-      liveZoomTranslateX2,
+-      liveZoomTranslateY2
++      0,
++      0
+     );
+     applyOverlayTransform(
+       canvasScrollOverlayContentRef.current,
+@@ -23474,17 +23479,23 @@ function XlsxGrid({
+     applyOverlayTransform(
+       canvasTopOverlayContentRef.current,
+       -nextLiveViewport.left - liveFrozenPaneRight,
+-      -liveDisplayHeaderHeight
++      -liveDisplayHeaderHeight,
++      liveZoomTranslateX2,
++      0
+     );
+     applyOverlayTransform(
+       canvasLeftOverlayContentRef.current,
+       -liveDisplayRowHeaderWidth,
+-      -nextLiveViewport.top - liveFrozenPaneBottom
++      -nextLiveViewport.top - liveFrozenPaneBottom,
++      0,
++      liveZoomTranslateY2
+     );
+     applyOverlayTransform(
+       canvasCornerOverlayContentRef.current,
+       -liveDisplayRowHeaderWidth,
+-      -liveDisplayHeaderHeight
++      -liveDisplayHeaderHeight,
++      0,
++      0
+     );
+   }, [zoomScale]);
+   const updateLiveGestureZoomState = React4.useCallback((nextState) => {
+@@ -23841,12 +23852,12 @@ function XlsxGrid({
      ]
    );
    const displayActualColWidths = React4.useMemo(
@@ -236,7 +473,16 @@ index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d0ab21d77bc90360170a2aa3f0d1a09d
    );
    const displayEffectiveColWidths = React4.useMemo(
      () => visibleCols.map((col) => displayActualColWidths[col] ?? displayDefaultColWidth),
-@@ -24804,6 +24805,7 @@ function XlsxGrid({
+@@ -24427,7 +24438,7 @@ function XlsxGrid({
+       event.preventDefault();
+       const anchor = resolveEventAnchor(event.clientX, event.clientY, scroller.getBoundingClientRect());
+       updateLiveGestureZoomTarget(
+-        gestureZoomScaleRef.current * Math.exp(-delta * WHEEL_ZOOM_SENSITIVITY),
++        gestureZoomScaleRef.current * Math.exp(clampValue(-delta * WHEEL_ZOOM_SENSITIVITY, -MAX_WHEEL_ZOOM_LOG_STEP, MAX_WHEEL_ZOOM_LOG_STEP)),
+         anchor
+       );
+       scheduleLiveGestureZoomCommit();
+@@ -24804,6 +24815,7 @@ function XlsxGrid({
      pendingResizePreviewRef.current = null;
      columnPreviewRef.current = null;
      rowPreviewRef.current = null;
@@ -244,7 +490,7 @@ index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d0ab21d77bc90360170a2aa3f0d1a09d
      setResizeGuide(null);
      clearGlobalCursor();
      setEditingCell(null);
-@@ -26076,6 +26078,7 @@ function XlsxGrid({
+@@ -26076,6 +26088,7 @@ function XlsxGrid({
          if (!preview) {
            return;
          }
@@ -252,7 +498,7 @@ index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d0ab21d77bc90360170a2aa3f0d1a09d
          if (preview.type === "column") {
            columnPreviewRef.current = { actualIndex: preview.actualIndex, size: preview.size };
            rowPreviewRef.current = null;
-@@ -26105,6 +26108,7 @@ function XlsxGrid({
+@@ -26105,6 +26118,7 @@ function XlsxGrid({
          pendingResizePreviewRef.current = null;
          columnPreviewRef.current = null;
          rowPreviewRef.current = null;
@@ -260,7 +506,7 @@ index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d0ab21d77bc90360170a2aa3f0d1a09d
          setInteractionMode("idle");
          setResizeGuide(null);
          clearGlobalCursor();
-@@ -27108,13 +27112,13 @@ function XlsxGrid({
+@@ -27108,13 +27122,13 @@ function XlsxGrid({
      const shouldRepaintBody = !(previousBodyCanvasSignature && previousBodyCanvasSignature.activeSheet === nextBodyCanvasSignature.activeSheet && previousBodyCanvasSignature.bakedDrawingSignature === nextBodyCanvasSignature.bakedDrawingSignature && previousBodyCanvasSignature.bodyHeight === nextBodyCanvasSignature.bodyHeight && previousBodyCanvasSignature.bodyWidth === nextBodyCanvasSignature.bodyWidth && previousBodyCanvasSignature.colSignature === nextBodyCanvasSignature.colSignature && previousBodyCanvasSignature.getCellData === nextBodyCanvasSignature.getCellData && previousBodyCanvasSignature.headerHeight === nextBodyCanvasSignature.headerHeight && previousBodyCanvasSignature.palette === nextBodyCanvasSignature.palette && previousBodyCanvasSignature.rowHeaderWidth === nextBodyCanvasSignature.rowHeaderWidth && previousBodyCanvasSignature.rowSignature === nextBodyCanvasSignature.rowSignature && previousBodyCanvasSignature.zoomFactor === nextBodyCanvasSignature.zoomFactor);
      const shouldRepaintHeaders = !(previousHeaderCanvasSignature && previousHeaderCanvasSignature.activeSheet === nextHeaderCanvasSignature.activeSheet && previousHeaderCanvasSignature.bodyHeight === nextHeaderCanvasSignature.bodyHeight && previousHeaderCanvasSignature.bodyWidth === nextHeaderCanvasSignature.bodyWidth && previousHeaderCanvasSignature.colSignature === nextHeaderCanvasSignature.colSignature && previousHeaderCanvasSignature.headerHeight === nextHeaderCanvasSignature.headerHeight && previousHeaderCanvasSignature.palette === nextHeaderCanvasSignature.palette && previousHeaderCanvasSignature.rangeSignature === nextHeaderCanvasSignature.rangeSignature && previousHeaderCanvasSignature.rowHeaderWidth === nextHeaderCanvasSignature.rowHeaderWidth && previousHeaderCanvasSignature.rowSignature === nextHeaderCanvasSignature.rowSignature && previousHeaderCanvasSignature.viewportLeft === nextHeaderCanvasSignature.viewportLeft && previousHeaderCanvasSignature.viewportTop === nextHeaderCanvasSignature.viewportTop && previousHeaderCanvasSignature.zoomFactor === nextHeaderCanvasSignature.zoomFactor);
      const canBlitBody = Boolean(
@@ -277,7 +523,7 @@ index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d0ab21d77bc90360170a2aa3f0d1a09d
      );
      if (!shouldRepaintBody && !shouldRepaintHeaders) {
        return;
-@@ -28079,6 +28083,7 @@ function XlsxGrid({
+@@ -28079,6 +28093,7 @@ function XlsxGrid({
      getCanvasImage,
      getBodyBlitBufferCanvas,
      getHeaderBlitBufferCanvas,
@@ -285,7 +531,7 @@ index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d0ab21d77bc90360170a2aa3f0d1a09d
      palette,
      resolveCellDisplayRect,
      resolveMergeAnchorCell,
-@@ -29945,6 +29950,93 @@ function XlsxGrid({
+@@ -29945,6 +29960,91 @@ function XlsxGrid({
      }
    }
    gridKeyboardHandlerRef.current = handleGridKeyDown;
@@ -316,15 +562,16 @@ index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d0ab21d77bc90360170a2aa3f0d1a09d
 +      }
 +      return segments.flatMap((segment) => {
 +        const scrollOffset = segment.frozen ? 0 : scroll;
-+        const clipStart = segment.frozen ? header : frozenEnd;
-+        const clipEnd = segment.frozen ? Math.min(frozenEnd, viewportSize) : viewportSize;
-+        // Canvas cells scale around each painted pane's origin; DOM drawings use the overlay origin.
-+        const origin = segment.frozen ? header : canvasStart;
-+        const paintedOffset = segment.frozen ? 0 : paintedScroll;
++        const liveBoundaryScale = experimentalCanvas ? scale : 1;
++        const clipStart = (segment.frozen ? header : frozenEnd) * liveBoundaryScale;
++        const clipEnd = segment.frozen ? Math.min(frozenEnd * liveBoundaryScale, viewportSize) : viewportSize;
++        // Frozen panes scale from the sheet origin; scrolling cells scale around their painted pane.
 +        const project = (position) => experimentalCanvas
-+          ? canvasTarget
-+            ? origin + (position - paintedOffset - origin) * scale + paintedOffset - scrollOffset + translate
-+            : position * scale - scrollOffset + translate
++          ? segment.frozen
++            ? position * scale
++            : canvasTarget
++              ? canvasStart + (position - paintedScroll - canvasStart) * scale + paintedScroll - scrollOffset + translate
++              : position * scale - scrollOffset + translate
 +          : (position - scrollOffset) * scale + translate;
 +        const first = Math.max(clipStart, project(segment.start));
 +        const last = Math.min(clipEnd, project(segment.end));
@@ -344,7 +591,9 @@ index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d0ab21d77bc90360170a2aa3f0d1a09d
 +    const bounds = scroller.getBoundingClientRect();
 +    const x = clientX - bounds.left;
 +    const y = clientY - bounds.top;
-+    if (x < displayRowHeaderWidth || y < displayHeaderHeight || x >= scroller.clientWidth || y >= scroller.clientHeight) return null;
++    const liveZoom = liveGestureZoomRef.current;
++    const scale = experimentalCanvas && liveZoom && liveZoom.baseZoomScale === zoomScale ? liveZoom.targetZoomScale / liveZoom.baseZoomScale : 1;
++    if (x < displayRowHeaderWidth * scale || y < displayHeaderHeight * scale || x >= scroller.clientWidth || y >= scroller.clientHeight) return null;
 +    const containsPoint = (rect) => x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height;
 +    const drawings = [
 +      ...imageRects.map(({ image }) => ({ target: { type: "image", id: image.id }, zIndex: image.zIndex })),
@@ -354,21 +603,16 @@ index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d0ab21d77bc90360170a2aa3f0d1a09d
 +      if (getAnnotationGeometry(drawing.target)?.viewportRects.some(containsPoint)) return drawing.target;
 +    }
 +    // Invert the live canvas transform before reusing the renderer's cell hit test.
-+    const liveZoom = liveGestureZoomRef.current;
 +    let hitX = clientX;
 +    let hitY = clientY;
 +    if (experimentalCanvas && liveZoom && liveZoom.baseZoomScale === zoomScale) {
-+      const scale = liveZoom.targetZoomScale / liveZoom.baseZoomScale;
-+      const inverse = (point, header, frozenEnd, canvasStart, scroll, paintedScroll, anchor) => {
-+        const frozen = point < frozenEnd;
-+        const origin = frozen ? header : canvasStart;
-+        const paintedOffset = frozen ? 0 : paintedScroll;
-+        const scrollOffset = frozen ? 0 : scroll;
-+        return (point - origin - paintedOffset + scrollOffset - anchor * (1 - scale)) / scale + paintedOffset + origin - scrollOffset;
++      const inverse = (point, frozenEnd, canvasStart, scroll, paintedScroll, anchor) => {
++        if (point < frozenEnd * scale) return point / scale;
++        return (point - canvasStart - paintedScroll + scroll - anchor * (1 - scale)) / scale + paintedScroll + canvasStart - scroll;
 +      };
 +      const painted = paintedDrawingViewportRef.current;
-+      hitX = bounds.left + inverse(x, displayRowHeaderWidth, frozenPaneRight, scrollBodyCanvasLeft, scroller.scrollLeft, painted.left, liveZoom.anchor.x);
-+      hitY = bounds.top + inverse(y, displayHeaderHeight, frozenPaneBottom, scrollBodyCanvasTop, scroller.scrollTop, painted.top, liveZoom.anchor.y);
++      hitX = bounds.left + inverse(x, frozenPaneRight, scrollBodyCanvasLeft, scroller.scrollLeft, painted.left, liveZoom.anchor.x);
++      hitY = bounds.top + inverse(y, frozenPaneBottom, scrollBodyCanvasTop, scroller.scrollTop, painted.top, liveZoom.anchor.y);
 +    }
 +    const cell = resolvePointerCellFromClient(hitX, hitY);
 +    if (!cell) return null;
@@ -379,7 +623,7 @@ index 4a8d5dcca7b441574f1f3610fe07efd8e69effca..d0ab21d77bc90360170a2aa3f0d1a09d
    const scrollerViewportProps = {
      ref: scrollRef,
      "aria-colcount": Math.max(activeSheet?.colCount ?? 0, displayColLimit),
-@@ -30583,7 +30675,7 @@ function XlsxGrid({
+@@ -30583,7 +30683,7 @@ function XlsxGrid({
        )
      }
    );

@@ -1487,6 +1487,8 @@ export const zhCN = {
     selectionStatus: "已选择第 {{slide}} 页中的 {{count}} 个元素",
   },
   officePreview: {
+    zoomGestureHint:
+      "按住 Ctrl（Mac 为 ⌘）并滚动滚轮，或在触控板上双指捏合，即可缩放文档。",
     previewTitle: "预览文档 {{name}}",
     loading: "正在加载文档",
     loadFailed: "无法预览此文档，请重试。",

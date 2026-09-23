@@ -1863,6 +1863,8 @@ export const ptBR = {
     selectionStatus: "{{count}} elementos selecionados no slide {{slide}}",
   },
   officePreview: {
+    zoomGestureHint:
+      "Segure Ctrl (⌘ no Mac) e gire a roda do mouse, ou faça um gesto de pinça no trackpad, para ajustar o zoom do documento.",
     previewTitle: "Visualizar documento {{name}}",
     loading: "Carregando documento",
     loadFailed: "Não foi possível visualizar este documento. Tente novamente.",

@@ -727,6 +727,7 @@ function SpreadsheetPreviewControllerSession({
             zoomOutLabel={t("spreadsheetPreview.zoomOut")}
             zoomInLabel={t("spreadsheetPreview.zoomIn")}
             resetZoomLabel={t("spreadsheetPreview.resetZoom")}
+            gestureHint={t("officePreview.zoomGestureHint")}
             canZoomOut={controller.canZoomOut}
             canZoomIn={controller.canZoomIn}
             onZoomOut={controller.zoomOut}
@@ -749,6 +750,7 @@ function SpreadsheetPreviewControllerSession({
         >
           <XlsxViewer
             controller={controller}
+            enableGestureZoom
             allowResizeInReadOnly={allowSpreadsheetResizeInReadOnly}
             className="spreadsheet-preview-grid"
             getCellStyle={getAnnotatedCellStyle}

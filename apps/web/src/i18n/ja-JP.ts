@@ -1829,6 +1829,8 @@ export const jaJP = {
     selectionStatus: "スライド {{slide}} の {{count}} 個の要素を選択中",
   },
   officePreview: {
+    zoomGestureHint:
+      "Ctrl（Mac は ⌘）を押しながらホイールを回すか、トラックパッドでピンチ操作をすると、文書を拡大・縮小できます。",
     previewTitle: "ドキュメント {{name}} をプレビュー",
     loading: "ドキュメントを読み込み中",
     loadFailed:

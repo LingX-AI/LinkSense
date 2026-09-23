@@ -246,6 +246,7 @@ vi.mock("@extend-ai/react-xlsx", async () => {
 
   function XlsxViewer({
     controller,
+    enableGestureZoom,
     allowResizeInReadOnly,
     getCellStyle,
     loadingState,
@@ -258,6 +259,7 @@ vi.mock("@extend-ai/react-xlsx", async () => {
     toolbar,
   }: {
     controller: MockController
+    enableGestureZoom?: boolean
     allowResizeInReadOnly?: boolean
     getCellStyle?: (context: {
       cell: { row: number; col: number }
@@ -373,6 +375,7 @@ vi.mock("@extend-ai/react-xlsx", async () => {
       "div",
       {
         "data-testid": "xlsx-viewer",
+        "data-gesture-zoom": String(enableGestureZoom),
         "data-allow-resize-in-read-only": String(allowResizeInReadOnly),
         "data-read-only": String(readOnly),
         "data-default-toolbar": String(showDefaultToolbar),
@@ -550,6 +553,10 @@ describe("spreadsheet preview", () => {
     )
 
     expect(xlsx.setWasmSource).toHaveBeenCalledWith("/assets/duke-sheets.wasm")
+    expect(screen.getByTestId("xlsx-viewer")).toHaveAttribute(
+      "data-gesture-zoom",
+      "true"
+    )
     expect(xlsx.lastOptions).toMatchObject({
       allowResizeInReadOnly: true,
       fileName: "budget.xlsx",

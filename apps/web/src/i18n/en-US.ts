@@ -1622,6 +1622,8 @@ export const enUS = {
     selectionStatus: "Selected {{count}} elements on slide {{slide}}",
   },
   officePreview: {
+    zoomGestureHint:
+      "Hold Ctrl (⌘ on Mac) and scroll, or pinch on your trackpad, to zoom the document.",
     previewTitle: "Preview document {{name}}",
     loading: "Loading document",
     loadFailed: "This document could not be previewed. Try again.",
