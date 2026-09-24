@@ -10,7 +10,7 @@ Built with the open-source Codex runtime — running inside your LinkSense deplo
 
 **Codex Experience. Organizational Intelligence.**
 
-[Quick Start](#quick-start) · [Architecture](#architecture) · [Build with LinkSense](#build-with-linksense)
+[Live Demo](https://explore.linksense.org/) · [Quick Start](#quick-start) · [Architecture](#architecture) · [Build with LinkSense](#build-with-linksense)
 
 ---
 

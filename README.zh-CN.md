@@ -10,7 +10,7 @@ LinkSense 基于开源 Codex 运行时构建，Codex 在你部署的 LinkSense �
 
 **Codex 的工作体验，组织级的能力管理。**
 
-[快速开始](#快速开始) · [系统架构](#系统架构) · [基于-linksense-扩展](#基于-linksense-扩展)
+[在线体验](https://explore.linksense.org/) · [快速开始](#快速开始) · [系统架构](#系统架构) · [基于-linksense-扩展](#基于-linksense-扩展)
 
 ---
 
