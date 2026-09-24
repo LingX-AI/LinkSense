@@ -14,6 +14,8 @@ test("the bilingual READMEs describe the open-source workspace and its public en
   ])
   assert.match(chinese, /\[English\]\(\.\/README\.md\)/u)
   assert.match(english, /\[简体中文\]\(\.\/README\.zh-CN\.md\)/u)
+  assert.match(chinese, /\[在线体验\]\(https:\/\/explore\.linksense\.org\/\)/u)
+  assert.match(english, /\[Live Demo\]\(https:\/\/explore\.linksense\.org\/\)/u)
   assert.match(english, /60\+ GiB/u)
   assert.match(english, /120\+ GiB/u)
   assert.match(chinese, /60 GiB\+/u)
