@@ -171,6 +171,19 @@ describe("LoginPage session restoration", () => {
     expect(teamsAdapterMocks.detectTeamsHost).not.toHaveBeenCalled()
   })
 
+  it("shows the password form without two provider spinners while login methods load", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {}))
+    )
+    const { container } = renderLoginPageWithAuthStatus("anonymous")
+
+    expect(screen.getByLabelText("邮箱")).toBeVisible()
+    expect(screen.getByLabelText("密码")).toBeVisible()
+    expect(screen.getByRole("button", { name: "登录" })).toBeEnabled()
+    expect(container.querySelectorAll('[data-slot="spinner"]')).toHaveLength(0)
+  })
+
   it("shows inline login errors and focuses the first invalid field", async () => {
     const interaction = userEvent.setup()
     renderLoginPageWithAuthStatus("anonymous")
