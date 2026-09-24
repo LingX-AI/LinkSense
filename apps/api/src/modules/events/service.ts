@@ -766,12 +766,15 @@ export class ConversationEventService {
       return { accepted: false, reason_code: "TURN_PROJECTION_PENDING" };
     }
     if (input.method === "turn/started") {
-      await this.attachGoalContinuation(
+      const attachment = await this.attachGoalContinuation(
         conversationId,
         threadId,
         turnId,
         nativeTurnStartedAt(input.params),
       );
+      if (attachment === "pending") {
+        return { accepted: false, reason_code: "TURN_PROJECTION_PENDING" };
+      }
     }
     const projection = await this.resolveTurnProjection(
       conversationId,
@@ -3184,13 +3187,20 @@ export class ConversationEventService {
     threadId: string,
     codexTurnId: string,
     nativeStartedAt: Date | null,
-  ): Promise<boolean> {
+  ): Promise<boolean | "pending"> {
     return this.prisma.$transaction(async (tx) => {
       if (
         !(await this.lockActiveConversationBranch(tx, conversationId, threadId))
       ) {
         return false;
       }
+      // A user start owns its initial native turn even when turn/started arrives
+      // before the start response. Do not attach it to the previous Goal.
+      const startIntent = await tx.conversationTurnStartIntent.findUnique({
+        where: { conversationId },
+        select: { projectionTurnId: true },
+      });
+      if (startIntent) return "pending";
       await tx.$queryRaw<Array<{ conversation_id: string }>>`
         SELECT conversation_id
         FROM conversation_goals
@@ -3421,6 +3431,11 @@ export class ConversationEventService {
     threadId: string,
     codexTurnId: string,
   ): Promise<boolean> {
+    const startIntent = await this.prisma.conversationTurnStartIntent.findUnique({
+      where: { conversationId },
+      select: { projectionTurnId: true },
+    });
+    if (startIntent) return false;
     const goal = await this.prisma.conversationGoal.findFirst({
       where: {
         conversationId,

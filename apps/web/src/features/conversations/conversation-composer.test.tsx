@@ -545,7 +545,7 @@ describe("conversation voice input", () => {
 
     expect(input).toHaveValue("请添加 ")
     expect(props.onValueChange).toHaveBeenLastCalledWith("请添加 ")
-    expect(screen.getByRole("option", { name: "文件" })).toBeVisible()
+    expect(screen.getByRole("option", { name: "本地文件" })).toBeVisible()
     expect(screen.getByRole("option", { name: "文件夹" })).toBeVisible()
     expect(onRetryCapabilities).toHaveBeenCalledTimes(1)
   })
@@ -580,7 +580,7 @@ describe("conversation voice input", () => {
     await interaction.type(input, "user@example.com")
 
     expect(input).toHaveValue("user@example.com")
-    expect(screen.queryByRole("option", { name: "文件" })).toBeNull()
+    expect(screen.queryByRole("option", { name: "本地文件" })).toBeNull()
   })
 
   it("enables native Goal mode from the add menu and exposes the mode chip", async () => {
@@ -652,7 +652,7 @@ describe("conversation voice input", () => {
     expect(
       screen.queryByRole("option", { name: /计划模式/ })
     ).not.toBeInTheDocument()
-    expect(screen.getByRole("option", { name: "文件" })).toBeVisible()
+    expect(screen.getByRole("option", { name: "本地文件" })).toBeVisible()
     expect(screen.getByRole("option", { name: "文件夹" })).toBeVisible()
   })
 
@@ -699,7 +699,7 @@ describe("conversation voice input", () => {
     ).not.toBeInTheDocument()
     await interaction.click(screen.getByRole("button", { name: "添加" }))
 
-    const fileOption = screen.getByRole("option", { name: "文件" })
+    const fileOption = screen.getByRole("option", { name: "本地文件" })
     const folderOption = screen.getByRole("option", { name: "文件夹" })
     const goalOption = screen.getByRole("option", { name: /目标/ })
     expect(fileOption).toBeVisible()
@@ -1094,7 +1094,7 @@ describe("conversation voice input", () => {
 
     await interaction.click(addMenu)
 
-    expect(screen.getByRole("option", { name: "文件" })).toBeVisible()
+    expect(screen.getByRole("option", { name: "本地文件" })).toBeVisible()
     expect(screen.getByRole("option", { name: "文件夹" })).toBeVisible()
     expect(
       screen.queryByRole("option", { name: "文件和文件夹" })

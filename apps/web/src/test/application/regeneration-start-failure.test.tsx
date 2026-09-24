@@ -137,4 +137,114 @@ describe("regeneration start failure", () => {
       expect(regenerationRequests()).toHaveLength(1)
     }
   )
+  it("keeps an explicit retry running when the detail still contains the preceding failure", async () => {
+    const turnIds = [
+      "30000000-0000-4000-8000-000000000088",
+      "30000000-0000-4000-8000-000000000089",
+    ]
+    let attempts = 0
+    let failedKey: string | undefined
+    const options = {
+      eventStreamBody: "",
+      conversationGetResponse: async () =>
+        json({
+          success: true,
+          data: {
+            ...conversation,
+            execution_status: "interrupted",
+            running_turn: null,
+            messages: [
+              {
+                id: "m1",
+                role: "user",
+                turn_id: "turn-1",
+                content: "继续试一下",
+              },
+            ],
+            turns: [{ id: "turn-1", status: "interrupted" }],
+            events: failedKey
+              ? [
+                  {
+                    id: "60000000-0000-4000-8000-000000000019",
+                    conversation_id: "20000000-0000-4000-8000-000000000001",
+                    turn_id: null,
+                    sequence_no: 19,
+                    event_type: "conversation.error",
+                    visibility: "user_visible",
+                    sse_event_id: "c1:19",
+                    created_at: "2026-09-24T01:38:43Z",
+                    payload: {
+                      schema_version: 1,
+                      error_code: "RUNNER_UNAVAILABLE",
+                      message_key: "errors.runnerUnavailable",
+                      retryable: true,
+                      start_failure: {
+                        turn_id: turnIds[0],
+                        idempotency_key: `regenerate:m1:${failedKey}`,
+                      },
+                    },
+                  },
+                ]
+              : [],
+          },
+        }),
+      regenerateResponse: async () => {
+        attempts += 1
+        if (attempts === 1)
+          failedKey = z
+            .object({ idempotency_key: z.string() })
+            .parse(regenerationRequests()[0]?.body).idempotency_key
+        return json(
+          {
+            success: true,
+            data: {
+              turn_id: turnIds[attempts - 1],
+              accepted: true,
+              status: "starting",
+            },
+          },
+          202
+        )
+      },
+    }
+    const { requests } = installApiMock(options)
+    const regenerationRequests = () =>
+      requests.filter(
+        (r) => r.method === "POST" && r.path.endsWith("/regenerate")
+      )
+    renderApp()
+    const interaction = userEvent.setup()
+    const resend = async () => {
+      const message = await screen.findByRole("article", { name: "用户消息" })
+      await interaction.click(
+        within(message).getByRole("button", { name: "编辑消息" })
+      )
+      await interaction.click(
+        within(message).getByRole("button", { name: "发送" })
+      )
+    }
+    await resend()
+    await screen.findByText(/执行服务暂不可用，请稍后重试/u)
+    await waitFor(() =>
+      expect(screen.queryByText("正在思考")).not.toBeInTheDocument()
+    )
+    await resend()
+    await waitFor(() => expect(regenerationRequests()).toHaveLength(2))
+    const nextKey = z
+      .object({ idempotency_key: z.string() })
+      .parse(regenerationRequests()[1]?.body).idempotency_key
+    expect(nextKey).not.toBe(failedKey)
+    expect(await screen.findByText("正在思考")).toBeVisible()
+    const count = requests.filter(
+      (r) => r.path === "/api/v1/conversations/c1"
+    ).length
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400))
+    })
+    expect(regenerationRequests()).toHaveLength(2)
+    expect(
+      requests.filter((r) => r.path === "/api/v1/conversations/c1").length
+    ).toBeLessThanOrEqual(count + 1)
+    expect(screen.getByText("正在思考")).toBeVisible()
+  })
 })

@@ -11,7 +11,7 @@ export function matchingConversationStartFailure(
   submission:
     | (Pick<
         PendingConversationTurnSubmission,
-        "turnId" | "idempotencyKey" | "replacesTurnId"
+        "turnId" | "idempotencyKey" | "replacesTurnId" | "afterEventSequence"
       > & {
         message?: Pick<PendingConversationTurnSubmission["message"], "id">
       })
@@ -19,6 +19,11 @@ export function matchingConversationStartFailure(
     | undefined
 ) {
   if (event.type !== "conversation.error" || !submission) return null
+  if (
+    submission.afterEventSequence !== undefined &&
+    event.sequence_no <= submission.afterEventSequence
+  )
+    return null
   const parsed = conversationStartFailurePayloadSchema.safeParse(event.payload)
   if (!parsed.success) return null
   const failure = parsed.data.start_failure

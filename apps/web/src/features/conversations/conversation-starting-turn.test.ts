@@ -32,6 +32,34 @@ const conversation = conversationSchema.parse({
 })
 
 describe("restoring accepted submissions", () => {
+  it("restores the event boundary of a retry without reapplying an older failure", () => {
+    const client = new QueryClient()
+    restoreStartingConversationTurn(client, {
+      ...conversation,
+      events: [
+        {
+          id: "task:19",
+          type: "conversation.error",
+          turn_id: null,
+          sequence_no: 19,
+          created_at: "2026-09-17T23:59:59Z",
+          payload: {},
+        },
+        {
+          id: "task:20",
+          type: "conversation.error",
+          turn_id: null,
+          sequence_no: 20,
+          created_at: "2026-09-18T00:00:01Z",
+          payload: {},
+        },
+      ],
+    })
+    expect(
+      getPendingConversationTurnSubmission(client, conversation.id)
+        ?.afterEventSequence
+    ).toBe(19)
+  })
   it("restores the prompt, attachments and exact accepted identity after a refresh", () => {
     const client = new QueryClient()
     restoreStartingConversationTurn(client, conversation)

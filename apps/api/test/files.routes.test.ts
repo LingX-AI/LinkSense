@@ -148,6 +148,13 @@ async function artifactListApp(
   listTaskArtifacts: ReturnType<typeof vi.fn>,
   authenticated = true,
 ) {
+  return fileRouteApp({ listTaskArtifacts }, authenticated);
+}
+
+async function fileRouteApp(
+  files: Record<string, unknown>,
+  authenticated = true,
+) {
   const app = Fastify();
   apps.push(app);
   app.decorate("authenticate", async (request: FastifyRequest) => {
@@ -168,10 +175,44 @@ async function artifactListApp(
   );
   await app.register(fileRoutes, {
     prefix: "/conversations",
-    services: { files: { listTaskArtifacts } } as unknown as AppServices,
+    services: { files } as unknown as AppServices,
   });
   return app;
 }
+
+describe("historical file reference routes", () => {
+  it("lists searchable historical files for the authenticated owner", async () => {
+    const listReferenceableFiles = vi.fn(async () => ({ items: [], next_cursor: null }));
+    const app = await fileRouteApp({ listReferenceableFiles });
+    const response = await app.inject(`/conversations/referenceable-files?search=notes&exclude_conversation_id=${CONVERSATION_ID}&limit=20`);
+    expect(response.statusCode).toBe(200);
+    expect(listReferenceableFiles).toHaveBeenCalledWith(OWNER_ID, {
+      search: "notes", excludeConversationId: CONVERSATION_ID, limit: 20,
+    });
+  });
+
+  it("rejects unauthenticated and invalid searches before listing files", async () => {
+    const listReferenceableFiles = vi.fn();
+    const unauthenticated = await fileRouteApp({ listReferenceableFiles }, false);
+    expect((await unauthenticated.inject("/conversations/referenceable-files")).statusCode).toBe(401);
+    const authenticated = await fileRouteApp({ listReferenceableFiles });
+    expect((await authenticated.inject("/conversations/referenceable-files?exclude_conversation_id=bad")).statusCode).toBe(400);
+    expect(listReferenceableFiles).not.toHaveBeenCalled();
+  });
+
+  it("validates the selected file and stages it in the requested task", async () => {
+    const referenceFile = vi.fn(async () => ({ id: FILE_ID, filename: "notes.txt", kind: "attachment", status: "staged" }));
+    const app = await fileRouteApp({ referenceFile });
+    const response = await app.inject({
+      method: "POST", url: `/conversations/${CONVERSATION_ID}/attachments/references`,
+      payload: { source_file_id: FILE_ID },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(referenceFile).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, FILE_ID, expect.any(Object));
+    expect((await app.inject({ method: "POST", url: `/conversations/${CONVERSATION_ID}/attachments/references`, payload: { source_file_id: "bad" } })).statusCode).toBe(400);
+    expect(referenceFile).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("draft attachment mutation routes", () => {
   it("clears an exact attachment batch with one service operation", async () => {

@@ -5537,6 +5537,116 @@ describe("conversation turn responses", () => {
     expect(within(summary).queryByText(/codex/iu)).not.toBeInTheDocument()
   })
 
+  it("shows a generated file card only after its final-answer turn finishes", () => {
+    const file = {
+      id: "artifact-deferred-final",
+      name: "final-report.pdf",
+      mime_type: "application/pdf",
+      size: 1_024,
+      kind: "artifact" as const,
+      turn_id: "turn-1",
+      download_available: true,
+    }
+    const runningTurn = {
+      ...completedConversation.turns![0]!,
+      status: "running" as const,
+      completed_at: null,
+    }
+    const runningConversation: Conversation = {
+      ...completedConversation,
+      turns: [runningTurn],
+      running_turn: runningTurn,
+      messages: [
+        completedConversation.messages![0]!,
+        {
+          ...completedConversation.messages![1]!,
+          phase: "final_answer",
+          artifacts: [file],
+        },
+      ],
+      artifacts: [file],
+    }
+    const onDownload = vi.fn()
+    const { rerender } = render(
+      <ConversationThread
+        conversation={runningConversation}
+        onDownload={onDownload}
+      />
+    )
+
+    expect(screen.getByText("处理完成")).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: "下载 final-report.pdf" })
+    ).toBeNull()
+
+    rerender(
+      <ConversationThread
+        conversation={{
+          ...runningConversation,
+          turns: [{ ...runningTurn, status: "completed" }],
+          running_turn: null,
+        }}
+        onDownload={onDownload}
+      />
+    )
+
+    expect(
+      screen.getAllByRole("button", { name: "下载 final-report.pdf" })
+    ).toHaveLength(1)
+  })
+
+  it.each(["failed", "interrupted"] as const)(
+    "shows a generated file without a final answer after its turn is %s",
+    (status) => {
+      const file = {
+        id: `artifact-${status}`,
+        name: `${status}-report.pdf`,
+        mime_type: "application/pdf",
+        size: 1_024,
+        kind: "artifact" as const,
+        turn_id: "turn-1",
+        download_available: true,
+      }
+      const runningTurn = {
+        ...completedConversation.turns![0]!,
+        status: "running" as const,
+        completed_at: null,
+      }
+      const runningConversation: Conversation = {
+        ...completedConversation,
+        messages: [completedConversation.messages![0]!],
+        turns: [runningTurn],
+        running_turn: runningTurn,
+        artifacts: [file],
+      }
+      const { rerender } = render(
+        <ConversationThread
+          conversation={runningConversation}
+          onDownload={vi.fn()}
+        />
+      )
+
+      expect(
+        screen.queryByRole("button", { name: `下载 ${file.name}` })
+      ).toBeNull()
+
+      rerender(
+        <ConversationThread
+          conversation={{
+            ...runningConversation,
+            turns: [{ ...runningTurn, status }],
+            running_turn: null,
+          }}
+          onDownload={vi.fn()}
+        />
+      )
+
+      expect(
+        screen.getByRole("button", { name: `下载 ${file.name}` })
+      ).toBeVisible()
+    }
+  )
+
   it("collapses native commentary and tool calls while keeping the final answer and artifact visible once", async () => {
     const interaction = userEvent.setup()
     const artifact = {
@@ -6756,7 +6866,7 @@ describe("conversation turn responses", () => {
 
   it.each([
     [
-      "the turn summary before a final answer",
+      "a running turn without a final answer",
       {
         ...completedConversation,
         messages: [completedConversation.messages![0]!],
@@ -6774,38 +6884,51 @@ describe("conversation turn responses", () => {
         },
       },
       "turn-1",
+      false,
     ],
-    ["the conversation fallback area", completedConversation, null],
-  ])("renders image artifacts in %s", async (_label, source, turnId) => {
-    const imageArtifact = {
-      id: `artifact-image-${turnId ?? "orphan"}`,
-      name: `preview-${turnId ?? "orphan"}.png`,
-      mime_type: "image/png",
-      size: 1_024,
-      kind: "artifact" as const,
-      turn_id: turnId,
-      download_available: true,
-    }
-    const loadArtifactPreview = vi.fn().mockResolvedValue({
-      url: `https://files.example.test/${imageArtifact.name}`,
-      expiresAt: "2099-07-14T10:49:00.000Z",
-    })
-
-    render(
-      <ConversationThread
-        conversation={{ ...source, artifacts: [imageArtifact] }}
-        loadArtifactPreview={loadArtifactPreview}
-        onDownload={vi.fn()}
-      />
-    )
-
-    expect(
-      await screen.findByRole("button", {
-        name: `预览图片 ${imageArtifact.name}`,
+    ["the conversation fallback area", completedConversation, null, true],
+  ])(
+    "shows image artifact cards only for %s",
+    async (_label, source, turnId, visible) => {
+      const imageArtifact = {
+        id: `artifact-image-${turnId ?? "orphan"}`,
+        name: `preview-${turnId ?? "orphan"}.png`,
+        mime_type: "image/png",
+        size: 1_024,
+        kind: "artifact" as const,
+        turn_id: turnId,
+        download_available: true,
+      }
+      const loadArtifactPreview = vi.fn().mockResolvedValue({
+        url: `https://files.example.test/${imageArtifact.name}`,
+        expiresAt: "2099-07-14T10:49:00.000Z",
       })
-    ).toBeVisible()
-    expect(loadArtifactPreview).toHaveBeenCalledOnce()
-  })
+
+      render(
+        <ConversationThread
+          conversation={{ ...source, artifacts: [imageArtifact] }}
+          loadArtifactPreview={loadArtifactPreview}
+          onDownload={vi.fn()}
+        />
+      )
+
+      if (visible) {
+        expect(
+          await screen.findByRole("button", {
+            name: `预览图片 ${imageArtifact.name}`,
+          })
+        ).toBeVisible()
+        expect(loadArtifactPreview).toHaveBeenCalledOnce()
+      } else {
+        expect(
+          screen.queryByRole("button", {
+            name: `预览图片 ${imageArtifact.name}`,
+          })
+        ).toBeNull()
+        expect(loadArtifactPreview).not.toHaveBeenCalled()
+      }
+    }
+  )
 
   it("keeps an expanded native item open when commentary arrives and the item completes", async () => {
     const interaction = userEvent.setup()
