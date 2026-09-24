@@ -20,7 +20,7 @@ resolve() {
 resolve POSTGRES docker.io/library/postgres:16.10-alpine3.22
 resolve REDIS docker.io/library/redis:7.4.5-alpine3.21
 resolve MINIO quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-resolve MINIO_CLIENT docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+resolve MINIO_CLIENT quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
 resolve BUSYBOX docker.io/library/busybox:1.37.0
 resolve GATEWAY docker.io/library/nginx:1.28.0-alpine3.21
 resolve ELASTICSEARCH docker.elastic.co/elasticsearch/elasticsearch:8.19.2
