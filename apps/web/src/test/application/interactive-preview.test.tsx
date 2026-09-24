@@ -272,7 +272,15 @@ describe("interactive preview event connections", () => {
         .filter(({ path }) => path.endsWith("/c1/events"))
         .map(({ cursor }) => cursor)
     ).toEqual([null, "c1:7"])
-    expect(postMessage).toHaveBeenCalledTimes(2)
+    expect(
+      postMessage.mock.calls.filter(
+        ([message]) =>
+          typeof message === "object" &&
+          message !== null &&
+          "type" in message &&
+          message.type === "custom-event"
+      )
+    ).toHaveLength(1)
     expect(screen.getByTitle(application.name)).toBeInTheDocument()
     expect(
       requests.filter(

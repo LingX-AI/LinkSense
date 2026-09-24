@@ -11,7 +11,7 @@
     "format": "node ../../scripts/format-web.mjs",
     "test": "pnpm run '/^test:(unit|e2e)$/'",
     "test:e2e": "playwright test",
-    "test:unit": "vitest run --project application --maxWorkers=4 && vitest run --project components --project shared-components --project node --maxWorkers=4",
+    "test:unit": "vitest run --project application --maxWorkers=2 && vitest run --project components --project shared-components --project node --maxWorkers=4",
     "test:watch": "vitest",
     "typecheck": "tsc -b --pretty false",
     "preview": "vite preview"
