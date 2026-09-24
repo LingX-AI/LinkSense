@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaClient, Prisma } from "../src/generated/prisma/client.js";
 import { WebSiteRepository } from "../src/modules/web-sites/repository.js";
-import { ownerId, siteId } from "./web-sites.fixture.js";
+import { fileId, ownerId, siteFixture, siteId } from "./web-sites.fixture.js";
 
 function fixture(owned = true) {
   const tx = {
@@ -48,5 +48,21 @@ describe("website permanent deletion", () => {
     await expect(repository.delete(ownerId, siteId)).rejects.toBe(failure);
     expect(tx.webSite.delete).not.toHaveBeenCalled();
     expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("website lookup by original HTML file", () => {
+  it("keeps the owner filter when looking up a previously published file", async () => {
+    const row = siteFixture().row;
+    const findSites = vi.fn().mockResolvedValue([row.site]);
+    const findReleases = vi.fn().mockResolvedValue([row.release]);
+    const repository = new WebSiteRepository({
+      webSite: { findMany: findSites },
+      webSiteRelease: { findMany: findReleases },
+    } as unknown as PrismaClient);
+    await expect(repository.list(ownerId, { originFileId: fileId, limit: 30 })).resolves.toEqual([row]);
+    expect(findSites).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ ownerId, originFileId: fileId }),
+    }));
   });
 });

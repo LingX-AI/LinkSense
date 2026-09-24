@@ -16,6 +16,8 @@ LinkSense can publish a registered HTML deliverable from a task as a public site
 5. Choose **Publish site** and wait for the site link.
 6. Copy the link and test the content and interactions in a signed-out window.
 
+Selecting **Publish as site** again for the same HTML shows its linked site's current address and publication status. You can also choose **Update another site**.
+
 A custom link name must contain 3–80 letters, numbers, or hyphens without a leading or trailing hyphen. Choose another name if it is already in use.
 
 A site may include CSS, JavaScript, images, fonts, and other static resources saved when the deliverable was registered. Publishing fails if a standalone HTML file refers to local files that were not saved. Ask LinkSense to regenerate and register the complete web deliverable in that case.

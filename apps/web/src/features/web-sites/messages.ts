@@ -36,6 +36,13 @@ export const webSitesZhCN = {
   datedSource: "{{name}} · {{date}}",
   selectSource: "选择此任务中的网页文件",
   noSources: "暂无可发布的网页，请先在原任务中生成新版本。",
+  alreadyPublishedTitle: "此网页已有站点",
+  alreadyPublishedDescription:
+    "此网页已关联站点。你可以复制当前链接，或在“我的站点”中管理。",
+  alreadyDisabledTitle: "此站点未发布",
+  alreadyDisabledDescription:
+    "此网页关联的站点当前未发布。可在“我的站点”中重新发布。",
+  updateAnotherSite: "更新其他站点",
   publishedTitle: "站点已发布",
   updatedTitle: "站点已更新",
   publishedDescription: "复制链接即可分享站点，也可在“我的站点”中管理。",
@@ -115,6 +122,13 @@ export const webSitesEnUS = {
   selectSource: "Choose a webpage from this task",
   noSources:
     "No webpages available. Generate a new version in the original task first.",
+  alreadyPublishedTitle: "This webpage already has a site",
+  alreadyPublishedDescription:
+    "This webpage is linked to a site. Copy its current link or manage it in My sites.",
+  alreadyDisabledTitle: "This site is unpublished",
+  alreadyDisabledDescription:
+    "The site linked to this webpage is unpublished. Republish it in My sites.",
+  updateAnotherSite: "Update another site",
   publishedTitle: "Site published",
   updatedTitle: "Site updated",
   publishedDescription:

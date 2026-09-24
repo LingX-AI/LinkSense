@@ -727,6 +727,167 @@ describe("website management", () => {
     )
     expect(screen.getByRole("button", { name: "发布为站点" })).toBeVisible()
   })
+  it("shows the existing site immediately when its original HTML is published, including after reopening", async () => {
+    const fetch = vi.fn(async (input: string, options?: RequestInit) => {
+      expect(options?.method).toBe("GET")
+      expect(
+        new URL(input, window.location.origin).searchParams.get(
+          "origin_file_id"
+        )
+      ).toBe(fileId)
+      return success({ items: [site], next_cursor: null })
+    })
+    vi.stubGlobal("fetch", fetch)
+    mount(
+      <SiteShareButton
+        conversationId={id}
+        file={{
+          id: fileId,
+          name: "page.html",
+          size: 10,
+          download_available: true,
+          kind: "artifact",
+        }}
+      />
+    )
+    await userEvent.click(screen.getByRole("button", { name: "发布为站点" }))
+    expect(
+      await screen.findByRole("heading", { name: "此网页已有站点" })
+    ).toBeVisible()
+    expect(screen.getByRole("textbox", { name: "站点链接" })).toHaveValue(
+      "http://localhost/web/shanhai"
+    )
+    expect(
+      screen.queryByRole("button", { name: "发布站点" })
+    ).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "完成" }))
+    await userEvent.click(screen.getByRole("button", { name: "发布为站点" }))
+    expect(
+      await screen.findByRole("heading", { name: "此网页已有站点" })
+    ).toBeVisible()
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+  it("shows an unpublished linked site and allows updating a different site", async () => {
+    const unpublished = { ...site, status: "disabled" }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => success({ items: [unpublished], next_cursor: null }))
+    )
+    mount(
+      <SiteShareButton
+        conversationId={id}
+        file={{
+          id: fileId,
+          name: "page.html",
+          size: 10,
+          download_available: true,
+          kind: "artifact",
+        }}
+      />
+    )
+    await userEvent.click(screen.getByRole("button", { name: "发布为站点" }))
+    expect(
+      await screen.findByRole("heading", { name: "此站点未发布" })
+    ).toBeVisible()
+    await userEvent.click(screen.getByRole("button", { name: "更新其他站点" }))
+    expect(screen.getByRole("button", { name: "更新站点" })).toBeDisabled()
+    expect(screen.getByRole("combobox", { name: "选择站点" })).toBeVisible()
+  })
+  it("opens the first-publish form when the HTML has no site", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => success({ items: [], next_cursor: null }))
+    )
+    mount(
+      <SiteShareButton
+        conversationId={id}
+        file={{
+          id: fileId,
+          name: "page.html",
+          size: 10,
+          download_available: true,
+          kind: "artifact",
+        }}
+      />
+    )
+    await userEvent.click(screen.getByRole("button", { name: "发布为站点" }))
+    expect(
+      await screen.findByRole("button", { name: "发布站点" })
+    ).toBeEnabled()
+  })
+  it("shows the created site's link when the same HTML is opened again after publishing", async () => {
+    let published = false
+    const fetch = vi.fn(async (_input: string, options?: RequestInit) => {
+      if (options?.method === "POST") {
+        published = true
+        return success(site)
+      }
+      return success({ items: published ? [site] : [], next_cursor: null })
+    })
+    vi.stubGlobal("fetch", fetch)
+    mount(
+      <SiteShareButton
+        conversationId={id}
+        file={{
+          id: fileId,
+          name: "page.html",
+          size: 10,
+          download_available: true,
+          kind: "artifact",
+        }}
+      />
+    )
+    await userEvent.click(screen.getByRole("button", { name: "发布为站点" }))
+    await userEvent.click(
+      await screen.findByRole("button", { name: "发布站点" })
+    )
+    expect(
+      await screen.findByRole("heading", { name: "站点已发布" })
+    ).toBeVisible()
+    await userEvent.click(screen.getByRole("button", { name: "完成" }))
+    await userEvent.click(screen.getByRole("button", { name: "发布为站点" }))
+    expect(
+      await screen.findByRole("heading", { name: "此网页已有站点" })
+    ).toBeVisible()
+    expect(screen.getByRole("textbox", { name: "站点链接" })).toHaveValue(
+      "http://localhost/web/shanhai"
+    )
+    expect(
+      fetch.mock.calls.filter(([, options]) => options?.method === "POST")
+    ).toHaveLength(1)
+  })
+  it("shows a retryable error if the site lookup fails", async () => {
+    let attempt = 0
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        attempt += 1
+        if (attempt === 1) throw new Error("offline")
+        return success({ items: [site], next_cursor: null })
+      })
+    )
+    mount(
+      <SiteShareButton
+        conversationId={id}
+        file={{
+          id: fileId,
+          name: "page.html",
+          size: 10,
+          download_available: true,
+          kind: "artifact",
+        }}
+      />
+    )
+    await userEvent.click(screen.getByRole("button", { name: "发布为站点" }))
+    expect(await screen.findByRole("button", { name: "重试" })).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: "发布站点" })
+    ).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "重试" }))
+    expect(
+      await screen.findByRole("heading", { name: "此网页已有站点" })
+    ).toBeVisible()
+  })
   it("renders the publishing dialog inside an expanded office preview", async () => {
     mount(
       <OfficePreviewShell

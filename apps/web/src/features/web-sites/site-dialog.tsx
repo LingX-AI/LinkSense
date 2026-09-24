@@ -62,14 +62,20 @@ export type WebSiteSourceFile = {
 export type SiteAction =
   | { kind: "share"; source: WebSiteSourceFile }
   | { kind: "edit" | "publish" | "delete"; site: WebSite }
+export type SiteLookup =
+  | { kind: "loading" }
+  | { kind: "error"; error: Error; retry: () => void }
+  | { kind: "ready"; site: WebSite | null }
 export function SiteDialog({
   action,
   onClose,
   portalContainer,
+  lookup,
 }: {
   action: SiteAction
   onClose: () => void
   portalContainer?: HTMLElement | null
+  lookup?: SiteLookup
 }) {
   const { t, i18n } = useTranslation()
   const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
@@ -92,6 +98,12 @@ export function SiteDialog({
   const [selectedSite, setSelectedSite] = useState<WebSite | null>(null)
   const [fileId, setFileId] = useState("")
   const [result, setResult] = useState<WebSite | null>(null)
+  const [showUpdateOther, setShowUpdateOther] = useState(false)
+  const lookupPending = lookup?.kind === "loading"
+  const lookupError = lookup?.kind === "error" ? lookup.error : null
+  const existingSite = lookup?.kind === "ready" ? lookup.site : null
+  const viewingExisting = Boolean(existingSite && !showUpdateOther && !result)
+  const visibleResult = result ?? (viewingExisting ? existingSite : null)
   const sources = useQuery({
     queryKey: webSiteKeys.sources(
       action.kind === "publish" ? action.site.id : ""
@@ -120,14 +132,16 @@ export function SiteDialog({
   }))
   const valid =
     action.kind === "share"
-      ? publishMode === "update"
-        ? Boolean(selectedSite)
-        : publishMode === "new" &&
-          webSiteCreateSchema.safeParse({
-            ...metadata,
-            conversation_id: action.source.conversationId,
-            file_id: action.source.fileId,
-          }).success
+      ? lookupPending || lookupError || viewingExisting
+        ? false
+        : publishMode === "update"
+          ? Boolean(selectedSite)
+          : publishMode === "new" &&
+            webSiteCreateSchema.safeParse({
+              ...metadata,
+              conversation_id: action.source.conversationId,
+              file_id: action.source.fileId,
+            }).success
       : action.kind === "edit"
         ? webSiteUpdateSchema.safeParse({ name, description, slug }).success
         : action.kind === "publish"
@@ -168,10 +182,10 @@ export function SiteDialog({
     },
   })
   const copy = async () => {
-    if (!result) return
+    if (!visibleResult) return
     try {
       await copyConversationShareUrl(
-        new URL(result.url_path, window.location.origin).href
+        new URL(visibleResult.url_path, window.location.origin).href
       )
       notify.success(t("webSites.copied"))
     } catch {
@@ -187,7 +201,7 @@ export function SiteDialog({
     >
       <DialogContent
         showCloseButton={false}
-        portalContainer={portalContainer}
+        portalContainer={portalContainer ?? undefined}
         className={cn(
           "max-h-[calc(100dvh_-_2rem)] w-[calc(100vw_-_2rem)] grid-rows-[minmax(0,1fr)_auto] gap-0 overflow-hidden p-0",
           action.kind === "share"
@@ -208,7 +222,9 @@ export function SiteDialog({
         >
           {action.kind !== "delete" && (
             <SiteDialogHero
-              mode={result ? "success" : updating ? "publish" : action.kind}
+              mode={
+                visibleResult ? "success" : updating ? "publish" : action.kind
+              }
             />
           )}
           <DialogHeader
@@ -226,11 +242,15 @@ export function SiteDialog({
               }
             >
               {t(
-                result
-                  ? updating || result.status === "disabled"
-                    ? "webSites.updatedTitle"
-                    : "webSites.publishedTitle"
-                  : `webSites.dialog.${action.kind}`
+                viewingExisting
+                  ? visibleResult?.status === "disabled"
+                    ? "webSites.alreadyDisabledTitle"
+                    : "webSites.alreadyPublishedTitle"
+                  : result
+                    ? updating || result.status === "disabled"
+                      ? "webSites.updatedTitle"
+                      : "webSites.publishedTitle"
+                    : `webSites.dialog.${action.kind}`
               )}
             </DialogTitle>
             <DialogDescription
@@ -241,17 +261,21 @@ export function SiteDialog({
               }
             >
               {t(
-                result
-                  ? result.status === "disabled"
-                    ? "webSites.stillDisabled"
-                    : updating
-                      ? "webSites.updatedDescription"
-                      : "webSites.publishedDescription"
-                  : action.kind === "delete"
-                    ? "webSites.deleteDescription"
-                    : updating
-                      ? "webSites.updateDescription"
-                      : "webSites.shareDescription"
+                viewingExisting
+                  ? visibleResult?.status === "disabled"
+                    ? "webSites.alreadyDisabledDescription"
+                    : "webSites.alreadyPublishedDescription"
+                  : result
+                    ? result.status === "disabled"
+                      ? "webSites.stillDisabled"
+                      : updating
+                        ? "webSites.updatedDescription"
+                        : "webSites.publishedDescription"
+                    : action.kind === "delete"
+                      ? "webSites.deleteDescription"
+                      : updating
+                        ? "webSites.updateDescription"
+                        : "webSites.shareDescription"
               )}
             </DialogDescription>
           </DialogHeader>
@@ -261,17 +285,53 @@ export function SiteDialog({
                 {getErrorMessage(mutation.error, t)}
               </StatusBanner>
             )}
-            {result ? (
+            {lookupPending ? (
+              <div
+                className="flex items-center gap-2 text-sm text-muted-foreground"
+                role="status"
+              >
+                <Spinner />
+                {t("common.loading")}
+              </div>
+            ) : lookupError ? (
+              <div className="flex flex-col items-start gap-3">
+                <StatusBanner variant="error">
+                  {getErrorMessage(lookupError, t)}
+                </StatusBanner>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={lookup?.kind === "error" ? lookup.retry : undefined}
+                >
+                  {t("common.retry")}
+                </Button>
+              </div>
+            ) : visibleResult ? (
               <FieldShell id={`${id}-url`} label={t("webSites.url")}>
                 <Input
                   id={`${id}-url`}
                   readOnly
-                  value={new URL(result.url_path, window.location.origin).href}
+                  value={
+                    new URL(visibleResult.url_path, window.location.origin).href
+                  }
                 />
+                {viewingExisting && (
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="self-start px-0"
+                    onClick={() => {
+                      setPublishMode("update")
+                      setShowUpdateOther(true)
+                    }}
+                  >
+                    {t("webSites.updateAnotherSite")}
+                  </Button>
+                )}
               </FieldShell>
             ) : (
               <FieldGroup className="gap-4">
-                {action.kind === "share" && (
+                {action.kind === "share" && !existingSite && (
                   <FieldSet>
                     <FieldLegend id={`${id}-mode-label`} variant="label">
                       {t("webSites.publishMode")}
@@ -469,9 +529,9 @@ export function SiteDialog({
             disabled={mutation.isPending}
             onClick={onClose}
           >
-            {t(result ? "webSites.done" : "webSites.cancel")}
+            {t(visibleResult ? "webSites.done" : "webSites.cancel")}
           </Button>
-          {result ? (
+          {visibleResult ? (
             <Button
               type="button"
               className="h-9 min-w-32 rounded-full"
@@ -480,7 +540,7 @@ export function SiteDialog({
               <CopyIcon aria-hidden="true" />
               {t("webSites.copy")}
             </Button>
-          ) : (
+          ) : !lookupPending && !lookupError ? (
             <Button
               type="submit"
               form={formId}
@@ -509,7 +569,7 @@ export function SiteDialog({
                       : "webSites.publish"
               )}
             </Button>
-          )}
+          ) : null}
         </DialogFooter>
         <DialogClose
           render={

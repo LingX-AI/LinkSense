@@ -47,6 +47,13 @@ export const siteMessages = {
     selectSource: "Elige una página web de esta tarea",
     noSources:
       "No hay páginas web disponibles. Genera primero una nueva versión en la tarea original.",
+    alreadyPublishedTitle: "Esta página web ya tiene un sitio",
+    alreadyPublishedDescription:
+      "Esta página web está vinculada a un sitio. Copia su enlace actual o gestiónalo en Mis sitios.",
+    alreadyDisabledTitle: "Este sitio no está publicado",
+    alreadyDisabledDescription:
+      "El sitio vinculado a esta página web no está publicado. Vuelve a publicarlo en Mis sitios.",
+    updateAnotherSite: "Actualizar otro sitio",
     publishedTitle: "Sitio publicado",
     updatedTitle: "Sitio actualizado",
     publishedDescription:

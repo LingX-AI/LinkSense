@@ -8,7 +8,7 @@ type SiteSource = {
   file: Pick<ConversationFile, "id" | "conversationId" | "filename" | "mimeType" | "minioObjectKey" | "sizeBytes" | "checksumSha256">;
   bundle: WebArtifactBundle | null;
 };
-export type SiteListInput = { search?: string; status?: WebSiteStatus; conversationId?: string; cursor?: { updatedAt: Date; id: string }; limit: number };
+export type SiteListInput = { search?: string; status?: WebSiteStatus; conversationId?: string; originFileId?: string; cursor?: { updatedAt: Date; id: string }; limit: number };
 export class WebSiteRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -17,6 +17,7 @@ export class WebSiteRepository {
       where: { ownerId,
         ...(input.status ? { status: input.status } : {}),
         ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+        ...(input.originFileId ? { originFileId: input.originFileId } : {}),
         AND: [
           ...(input.search ? [{ OR: [{ name: { contains: input.search, mode: "insensitive" as const } }, { slug: { contains: input.search, mode: "insensitive" as const } }] }] : []),
           ...(input.cursor ? [{ OR: [{ updatedAt: { lt: input.cursor.updatedAt } }, { updatedAt: input.cursor.updatedAt, id: { lt: input.cursor.id } }] }] : []),
