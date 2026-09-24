@@ -13,7 +13,7 @@ export function SocialLoginButtons() {
   const { t } = useTranslation()
   const providers = useSocialProviders()
   const start = useSocialStart()
-  if (providers.isPending) return <Spinner className="mx-auto" />
+  if (providers.isPending) return null
   if (providers.isError)
     return (
       <Button
