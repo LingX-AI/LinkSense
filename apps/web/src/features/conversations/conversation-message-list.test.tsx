@@ -378,9 +378,20 @@ describe("virtual conversation messages", () => {
     act(() => {
       navigation.current?.scrollToMessage("message-60")
     })
-    await waitFor(() =>
-      expect(screen.getByText("message-60")).toBeInTheDocument()
-    )
+    await waitFor(() => {
+      const target = screen
+        .getByText("message-60")
+        .closest<HTMLElement>("[data-conversation-row]")
+      expect(
+        Number.parseFloat(target?.style.top ?? "NaN") -
+          screen.getByTestId("scroller").scrollTop
+      ).toBe(0)
+    })
+    // Let the virtualizer finish its index-based navigation before changing
+    // the row indices. The prepend should then preserve the reading anchor.
+    await act(async () => {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    })
     const before = screen.getByTestId("scroller").scrollTop
     view.rerender(
       <div className="conversation-scroll" data-testid="scroller">
