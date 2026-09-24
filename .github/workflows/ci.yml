@@ -50,6 +50,8 @@ jobs:
         run: pnpm audit --registry=https://registry.npmjs.org --prod --audit-level high
 
       - name: Validate types and lint
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: |
           pnpm typecheck
           pnpm lint
