@@ -19,7 +19,9 @@ overrides:
   hono@<4.13.5: 4.13.5
   ip-address@<10.5.0: 10.5.0
   js-yaml@>=4.0.0 <4.3.2: 4.3.2
+  lodash-es@<4.18.0: 4.18.1
   mermaid@>=11.0.0 <11.17.2: 11.17.2
+  '@file-viewer/doc@<2.3.1': 2.3.1
   mysql2@<3.22.0: 3.22.0
   nanoid@>=3.0.0 <3.3.18: 3.3.18
   postcss@>=8.0.0 <8.5.26: 8.5.26
@@ -2790,8 +2792,8 @@ packages:
   '@file-viewer/core@2.2.4':
     resolution: {integrity: sha512-2jnNUILGftRo96dr0dxs4HQBjlWY3V93+ZqiHafUmWAr3wLr1tc9MbJVFKc6KkITo1nA9ilQYcOxqITs0by9Wg==}
 
-  '@file-viewer/doc@2.2.4':
-    resolution: {integrity: sha512-V/XyaHcr+pSrkkPdf9Ecihuk4STeZYBVlhPYAe/+cbBhshq2C1H9SbwDYEo/f/yvC7LBBn/5jxyEx5dB3d1hMw==}
+  '@file-viewer/doc@2.3.1':
+    resolution: {integrity: sha512-FBV0ETHelfestUyVApdIMi1ySFqYvQDCwmK4xurUTRfiDNR/qED1KaPAFoGcCE8XscjE16AT8IH68PSkL0lHWw==}
 
   '@file-viewer/docx@0.3.26':
     resolution: {integrity: sha512-O4VCOtLNm3QZLODhqhJMhPf+2wmWSdGzW7YmKzkUXHZGOo3CmfpeVzoRQXTQA7UQRuLpJankmYYWtR2Y7EYrZg==}
@@ -8067,9 +8069,6 @@ packages:
     resolution: {integrity: sha512-gvVijfZvn7R+2qyPX8mAuKcFGDf6Nc61GdvGafQsHL0sBIxfKzA+usWn4GFC/bk+QdwPUD4kWFJLhElipq+0VA==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
-  lodash-es@4.17.23:
-    resolution: {integrity: sha512-kVI48u3PZr38HdYz98UmfPnXl2DXrpdctLrFLCd3kOx1xUkOmpFPx7gCWWM5MPkL/fD8zb+Ph0QzjGFs4+hHWg==}
-
   lodash-es@4.18.1:
     resolution: {integrity: sha512-J8xewKD/Gk22OZbhpOVSwcs60zhd95ESDwezOFuA3/099925PdHJ7OFHNTGtajL3AlZkykD32HykiMo+BIBI8A==}
 
@@ -12817,12 +12816,12 @@ snapshots:
     dependencies:
       '@chevrotain/gast': 11.1.2
       '@chevrotain/types': 11.1.2
-      lodash-es: 4.17.23
+      lodash-es: 4.18.1
 
   '@chevrotain/gast@11.1.2':
     dependencies:
       '@chevrotain/types': 11.1.2
-      lodash-es: 4.17.23
+      lodash-es: 4.18.1
 
   '@chevrotain/regexp-to-ast@11.1.2': {}
 
@@ -14772,7 +14771,9 @@ snapshots:
 
   '@file-viewer/core@2.2.4': {}
 
-  '@file-viewer/doc@2.2.4': {}
+  '@file-viewer/doc@2.3.1':
+    dependencies:
+      dompurify: 3.4.14
 
   '@file-viewer/docx@0.3.26':
     dependencies:
@@ -14860,7 +14861,7 @@ snapshots:
   '@file-viewer/renderer-word@2.2.4':
     dependencies:
       '@file-viewer/core': 2.2.4
-      '@file-viewer/doc': 2.2.4
+      '@file-viewer/doc': 2.3.1
       '@file-viewer/docx': 0.3.26
       jszip: 3.10.1
       rtf.js: 3.0.9
@@ -17902,7 +17903,7 @@ snapshots:
       '@chevrotain/regexp-to-ast': 11.1.2
       '@chevrotain/types': 11.1.2
       '@chevrotain/utils': 11.1.2
-      lodash-es: 4.17.23
+      lodash-es: 4.18.1
 
   chokidar@3.6.0:
     dependencies:
@@ -20593,8 +20594,6 @@ snapshots:
   locate-path@7.2.0:
     dependencies:
       p-locate: 6.0.0
-
-  lodash-es@4.17.23: {}
 
   lodash-es@4.18.1: {}
 
