@@ -92,6 +92,15 @@ require('node:fs').writeFileSync(process.argv[process.argv.indexOf('-o')+1], 'lo
 
 test("preparation freezes all upstream digests, tokenizer bytes, entry scripts and identity", (t) => {
   const { output, countFile, prepare } = fixture(t)
+  const source = readFileSync(
+    path.join(root, "scripts/prepare-release-inputs.sh"),
+    "utf8",
+  )
+  assert.match(
+    source,
+    /resolve MINIO_CLIENT quay\.io\/minio\/mc:RELEASE\.2025-08-13T08-35-41Z/u,
+  )
+  assert.doesNotMatch(source, /resolve MINIO_CLIENT docker\.io\/minio\/mc:/u)
   const result = prepare()
   assert.equal(result.status, 0, result.stderr)
   assert.equal(Number(readFileSync(countFile, "utf8")), 8)
