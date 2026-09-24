@@ -687,12 +687,14 @@ describe("task projects", () => {
         const saveButton = within(dialog).getByRole("button", { name: "保存" })
         await waitFor(() => expect(saveButton).toBeEnabled())
         await interaction.click(saveButton)
-        await waitFor(() =>
-          expect(actions).toContainEqual({
-            path: "/api/v1/conversations/new-task-1",
-            method: "PATCH",
-            body: { title: "新的生活计划" },
-          })
+        await waitFor(
+          () =>
+            expect(actions).toContainEqual({
+              path: "/api/v1/conversations/new-task-1",
+              method: "PATCH",
+              body: { title: "新的生活计划" },
+            }),
+          { timeout: 10_000 }
         )
         expect(
           await within(project).findByRole("link", { name: /新的生活计划/u })

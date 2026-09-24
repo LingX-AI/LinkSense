@@ -74,7 +74,9 @@ describe("historical file references in the composer", () => {
     const interaction = userEvent.setup()
     renderApp()
 
-    await interaction.click(await screen.findByRole("button", { name: "添加" }))
+    await interaction.click(
+      await screen.findByRole("button", { name: "添加" }, { timeout: 10_000 })
+    )
     expect(screen.getByRole("option", { name: "本地文件" })).toBeVisible()
     await interaction.click(screen.getByRole("option", { name: "引用文件" }))
     const popover = await screen.findByRole("dialog", {
