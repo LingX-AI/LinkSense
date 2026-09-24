@@ -9,7 +9,7 @@ export function SamlLoginButton() {
   const { t } = useTranslation()
   const status = useSamlStatus()
   const start = useSamlStart()
-  if (status.isPending) return <Spinner className="mx-auto" />
+  if (status.isPending) return null
   if (status.isError)
     return (
       <Button variant="ghost" onClick={() => void status.refetch()}>
