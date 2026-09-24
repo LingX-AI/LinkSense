@@ -117,6 +117,9 @@ describe("CredentialManagementPage", () => {
     const dialog = screen.getByRole("dialog", { name: "解除插件关联？" })
     expect(within(dialog).getByText(/ManageBac Connector/)).toBeVisible()
     expect(
+      within(dialog).getByRole("button", { name: "解除关联" })
+    ).toHaveClass("bg-destructive", "text-destructive-foreground")
+    expect(
       requests.filter((request) => request.method === "DELETE")
     ).toHaveLength(0)
     await interaction.click(
@@ -130,6 +133,69 @@ describe("CredentialManagementPage", () => {
     expect(deletes[0]?.query.get("capability_id")).toBe("plugin-1")
     expect(screen.getByText("ManageBac 凭据")).toBeVisible()
     expect(screen.getByText(/尚未用于任何插件/)).toBeVisible()
+  })
+
+  it.each([
+    {
+      status: "active",
+      action: "停用",
+      title: "停用此凭据？",
+      destructive: true,
+    },
+    {
+      status: "disabled",
+      action: "启用",
+      title: "启用此凭据？",
+      destructive: false,
+    },
+  ] as const)(
+    "styles the $action credential confirmation according to its effect",
+    async ({ status, action, title, destructive }) => {
+      installLinkedCredentialMock(undefined, status)
+      const interaction = userEvent.setup()
+      renderPage()
+      const credential = await screen.findByRole("article", {
+        name: "ManageBac 凭据",
+      })
+      await interaction.click(
+        within(credential).getByRole("button", { name: "操作" })
+      )
+      await interaction.click(
+        await screen.findByRole("menuitem", { name: action })
+      )
+      const confirm = within(
+        screen.getByRole("dialog", { name: title })
+      ).getByRole("button", { name: action })
+      if (destructive) {
+        expect(confirm).toHaveClass(
+          "bg-destructive",
+          "text-destructive-foreground"
+        )
+      } else {
+        expect(confirm).not.toHaveClass("bg-destructive")
+      }
+    }
+  )
+
+  it("marks removal of one credential field association as destructive", async () => {
+    installLinkedCredentialMock()
+    const interaction = userEvent.setup()
+    renderPage()
+    await screen.findByText("凭据已配置")
+    await interaction.click(
+      screen.getByRole("button", {
+        name: "ManageBac Connector 的配置详情",
+      })
+    )
+    await interaction.click(
+      screen.getByRole("button", {
+        name: "移除 MANAGEBAC_CLIENT_ID 的关联",
+      })
+    )
+    const dialog = screen.getByRole("dialog", { name: "移除此项关联？" })
+    expect(
+      within(dialog).getByRole("button", { name: "移除关联" })
+    ).toHaveClass("bg-destructive", "text-destructive-foreground")
   })
 
   it("blocks invalid provider types before submitting a credential", async () => {
@@ -602,7 +668,10 @@ function createBinding(id: string, envKey: string, credentialKey: string) {
   }
 }
 
-function installLinkedCredentialMock(bindingsWait?: Promise<void>) {
+function installLinkedCredentialMock(
+  bindingsWait?: Promise<void>,
+  credentialStatus: "active" | "disabled" = "active"
+) {
   let linked = true
   const requests: Array<{
     path: string
@@ -624,7 +693,7 @@ function installLinkedCredentialMock(bindingsWait?: Promise<void>) {
               name: "ManageBac 凭据",
               provider_type: "managebac",
               secret_keys: ["MANAGEBAC_CLIENT_ID", "vault_secret"],
-              status: "active",
+              status: credentialStatus,
               last_used_at: null,
               created_at: "2026-09-10T00:00:00Z",
               updated_at: "2026-09-10T00:00:00Z",

@@ -413,6 +413,7 @@ export function QuotaSettingsForm({
             ? "quotaManagement.confirmReset"
             : "quotaManagement.confirmApply"
         )}
+        destructive={action?.kind === "reset"}
         pending={batchMutation.isPending}
         onConfirm={() => {
           if (action && !pending) batchMutation.mutate(action)

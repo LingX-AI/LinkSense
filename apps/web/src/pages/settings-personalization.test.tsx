@@ -44,6 +44,26 @@ describe("personalization settings", () => {
     ).not.toBeChecked()
   })
 
+  it("keeps the custom instructions editor background transparent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        envelope({
+          custom_instructions: "",
+          memories_enabled: false,
+          task_auto_naming: "first_message",
+        })
+      )
+    )
+    renderPage()
+
+    const editor = await screen.findByRole("textbox", {
+      name: "自定义指令",
+    })
+    expect(editor).toHaveClass("bg-transparent", "focus-visible:bg-transparent")
+    expect(editor).not.toHaveClass("bg-field", "focus-visible:bg-field-focus")
+  })
+
   it.each(["zh-CN", "en-US", "de-DE"])(
     "starts with memory off and allows explicit opt-in in %s",
     async (language) => {

@@ -352,6 +352,16 @@ describe("application external access page", () => {
     expect(appSecretButtons[1]).toHaveTextContent("重新生成")
     expect(appSecretButtons[1]).toHaveClass("bg-secondary")
     expect(appSecretButtons[1].querySelector("svg")).not.toBeInTheDocument()
+    await interaction.click(appSecretButtons[1]!)
+    const rotateDialog = screen.getByRole("dialog", {
+      name: "重新生成 App Secret？",
+    })
+    expect(
+      within(rotateDialog).getByRole("button", { name: "重新生成" })
+    ).toHaveClass("bg-destructive", "text-destructive-foreground")
+    await interaction.click(
+      within(rotateDialog).getByRole("button", { name: "取消" })
+    )
     await interaction.click(
       screen.getByRole("button", { name: "复制App Secret" })
     )

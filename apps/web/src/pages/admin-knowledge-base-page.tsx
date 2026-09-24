@@ -871,7 +871,14 @@ function GovernanceReasonDialog({
           </DialogClose>
           <Button
             type="button"
-            variant={actionType === "delete" ? "destructive" : "default"}
+            variant={
+              actionType === "disable" ||
+              actionType === "archive" ||
+              actionType === "delete" ||
+              actionType === "revoke_grant"
+                ? "destructive"
+                : "default"
+            }
             disabled={!reason.trim() || pending}
             onClick={onConfirm}
           >

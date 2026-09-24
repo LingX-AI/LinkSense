@@ -216,7 +216,7 @@ describe("SettingsShell administrator navigation", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("exposes personal MCP and preserves its Plugin Center return target", async () => {
+  it("keeps MCP management active and preserves its Plugin Center return target", async () => {
     const interaction = userEvent.setup()
     const settingsReturnTo =
       "/capabilities?section=mcp&scope=personal&search=%E6%9C%AC%E5%9C%B0"

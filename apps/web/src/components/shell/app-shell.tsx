@@ -1457,6 +1457,7 @@ function AppSidebarContent({
         title={t("auth.signOutTitle")}
         description={t("auth.signOutDescription", { productName })}
         confirmLabel={t("common.signOut")}
+        destructive
         pending={signOutPending}
         onConfirm={() => void handleSignOut()}
       />

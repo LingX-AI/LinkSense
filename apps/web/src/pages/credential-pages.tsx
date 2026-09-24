@@ -1219,6 +1219,7 @@ export function CredentialManagementPage() {
         confirmLabel={t(
           statusTarget?.status === "active" ? "common.disable" : "common.enable"
         )}
+        destructive={statusTarget?.status === "active"}
         pending={statusMutation.isPending}
         onConfirm={() => statusMutation.mutate()}
       />
@@ -1240,6 +1241,7 @@ export function CredentialManagementPage() {
           name: removePluginTarget?.name,
         })}
         confirmLabel={t("credential.removeAssociation")}
+        destructive
         pending={removePluginMutation.isPending}
         onConfirm={() => {
           if (removePluginTarget)
@@ -1258,6 +1260,7 @@ export function CredentialManagementPage() {
             : "",
         })}
         confirmLabel={t("credential.confirmUnbind")}
+        destructive
         pending={unbindMutation.isPending}
         onConfirm={() => unbindMutation.mutate()}
       />

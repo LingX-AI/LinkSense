@@ -711,6 +711,7 @@ function ApplicationExternalAccessSettings({
             ? "applications.externalAccess.rotateSecret"
             : "common.save"
         )}
+        destructive={pendingSecurityAction === "rotate"}
         pending={saveAccess.isPending || rotateSecret.isPending}
         onConfirm={() => {
           if (pendingSecurityAction === "rotate") {

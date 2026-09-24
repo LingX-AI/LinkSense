@@ -282,12 +282,20 @@ describe("administrator knowledge-base governance", () => {
     await interaction.click(
       screen.getByRole("button", { name: "治理知识库 活跃知识库" })
     )
-    expect(await screen.findByRole("menuitem", { name: "归档" })).toBeVisible()
+    const archiveItem = await screen.findByRole("menuitem", {
+      name: "归档",
+    })
+    expect(archiveItem).toBeVisible()
     expect(
       screen.queryByRole("menuitem", { name: "永久删除" })
     ).not.toBeInTheDocument()
 
-    await interaction.keyboard("{Escape}")
+    await interaction.click(archiveItem)
+    expect(screen.getByRole("button", { name: "确认归档" })).toHaveClass(
+      "bg-destructive",
+      "text-destructive-foreground"
+    )
+    await interaction.click(screen.getByRole("button", { name: "取消" }))
     await interaction.click(
       screen.getByRole("button", { name: "治理知识库 已归档知识库" })
     )
@@ -310,6 +318,7 @@ describe("administrator knowledge-base governance", () => {
     )
 
     const confirm = screen.getByRole("button", { name: "确认停用" })
+    expect(confirm).toHaveClass("bg-destructive", "text-destructive-foreground")
     expect(confirm).toBeDisabled()
     await interaction.type(screen.getByLabelText("操作原因"), "内容需要复核")
     expect(confirm).toBeEnabled()
@@ -345,6 +354,10 @@ describe("administrator knowledge-base governance", () => {
         name: "撤销对 售后组 的共享授权",
       })
     )
+    expect(screen.getByRole("button", { name: "确认撤销" })).toHaveClass(
+      "bg-destructive",
+      "text-destructive-foreground"
+    )
     await interaction.type(screen.getByLabelText("操作原因"), "授权范围调整")
     await interaction.click(screen.getByRole("button", { name: "确认撤销" }))
 
@@ -377,6 +390,9 @@ describe("administrator knowledge-base governance", () => {
     )
     await interaction.click(
       await screen.findByRole("menuitem", { name: "重试清理" })
+    )
+    expect(screen.getByRole("button", { name: "确认重试" })).not.toHaveClass(
+      "bg-destructive"
     )
     await interaction.type(screen.getByLabelText("操作原因"), "修复清理任务")
     await interaction.click(screen.getByRole("button", { name: "确认重试" }))

@@ -549,6 +549,10 @@ describe("application center review", () => {
       const reject = within(dialog).getByRole("button", {
         name: i18n.t("applications.distribution.reject"),
       })
+      expect(reject).toHaveClass(
+        "bg-destructive",
+        "text-destructive-foreground"
+      )
       expect(reject).toBeDisabled()
       await userEvent.type(
         within(dialog).getByLabelText(

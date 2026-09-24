@@ -627,7 +627,7 @@ export function SettingsPersonalizationPage() {
               <Textarea
                 id="custom-instructions"
                 aria-labelledby="custom-instructions-heading"
-                className="min-h-56 resize-y"
+                className="min-h-56 resize-y bg-transparent focus-visible:bg-transparent"
                 value={customInstructions}
                 maxLength={MAX_CUSTOM_INSTRUCTIONS_LENGTH}
                 disabled={customInstructionsMutation.isPending}
