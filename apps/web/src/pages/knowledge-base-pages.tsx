@@ -1516,9 +1516,12 @@ function KnowledgeBaseDetailContent({
         description={getConfirmDescription(confirmAction, t)}
         confirmLabel={getConfirmLabel(confirmAction, t)}
         destructive={
+          confirmAction?.type === "archive" ||
           confirmAction?.type === "delete_base" ||
           confirmAction?.type === "delete_document" ||
-          confirmAction?.type === "remove_direct_share"
+          confirmAction?.type === "remove_direct_share" ||
+          confirmAction?.type === "rebuild_selected" ||
+          confirmAction?.type === "rebuild_all"
         }
         pending={actionMutation.isPending}
         onConfirm={() => {

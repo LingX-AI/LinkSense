@@ -87,6 +87,25 @@ type TaskArtifactRow = {
   updatedAt: Date;
 };
 
+type ReferenceableFileRow = TaskArtifactRow & {
+  kind: "attachment" | "artifact";
+};
+
+type ReferenceableFileSummary = {
+  id: string;
+  conversation_id: string;
+  kind: "attachment" | "artifact";
+  filename: string;
+  mime_type: string | null;
+  size_bytes: number;
+  created_at: string;
+  task: {
+    id: string;
+    title: string;
+    archive_status: string;
+  };
+};
+
 export function parseTaskArtifactCursor(
   value: string,
 ): TaskArtifactCursor | null {
@@ -177,6 +196,164 @@ export class FileService {
             : null
           : null,
     };
+  }
+
+  async listReferenceableFiles(
+    ownerId: string,
+    input: {
+      search?: string;
+      excludeConversationId?: string;
+      cursor?: string;
+      limit: number;
+    },
+  ): Promise<{ items: ReferenceableFileSummary[]; next_cursor: string | null }> {
+    const cursor = input.cursor ? parseTaskArtifactCursor(input.cursor) : null;
+    if (input.cursor && !cursor) throw new AppError("VALIDATION_ERROR");
+    const rows = await this.prisma.$queryRaw<ReferenceableFileRow[]>(Prisma.sql`
+      SELECT
+        f.id,
+        f.conversation_id AS "conversationId",
+        c.title AS "conversationTitle",
+        c.title_source AS "conversationTitleSource",
+        c.archive_status AS "conversationArchiveStatus",
+        f.turn_id AS "turnId",
+        f.kind,
+        f.source,
+        f.filename,
+        f.mime_type AS "mimeType",
+        f.size_bytes AS "sizeBytes",
+        f.created_at AS "createdAt",
+        f.updated_at AS "updatedAt"
+      FROM conversation_files AS f
+      INNER JOIN conversations AS c ON c.id = f.conversation_id
+      WHERE c.owner_id = CAST(${ownerId} AS uuid)
+        AND f.size_bytes >= 0
+        AND f.size_bytes <= ${this.config.upload.maxFileSizeBytes}
+        AND (
+          (f.kind = 'artifact' AND f.source IN ('agent_generated', 'system_generated')
+            AND f.status = 'registered' AND f.downloadable = TRUE
+            AND f.storage_backend = 'minio' AND f.minio_object_key IS NOT NULL)
+          OR (f.kind = 'attachment' AND f.source = 'user_upload'
+            AND f.status = 'bound' AND f.storage_backend = 'workspace'
+            AND f.workspace_root_rel_path IS NOT NULL
+            AND f.workspace_relative_path IS NOT NULL
+            AND f.checksum_sha256 IS NOT NULL)
+        )
+        ${input.excludeConversationId
+          ? Prisma.sql`AND f.conversation_id <> CAST(${input.excludeConversationId} AS uuid)`
+          : Prisma.empty}
+        ${input.search
+          ? Prisma.sql`AND strpos(lower(f.filename), lower(${input.search})) > 0`
+          : Prisma.empty}
+        ${cursor
+          ? Prisma.sql`AND (
+              f.created_at < ${cursor.createdAt}
+              OR (f.created_at = ${cursor.createdAt} AND f.id < CAST(${cursor.id} AS uuid))
+            )`
+          : Prisma.empty}
+      ORDER BY f.created_at DESC, f.id DESC
+      LIMIT ${input.limit + 1}
+    `);
+    const selected = rows.slice(0, input.limit);
+    const last = selected.at(-1);
+    return {
+      items: selected.map(projectReferenceableFile),
+      next_cursor: rows.length > input.limit && last
+        ? encodeTaskArtifactCursor(last)
+        : null,
+    };
+  }
+
+  async referenceFile(
+    ownerId: string,
+    conversationId: string,
+    sourceFileId: string,
+    context: AuditContext,
+  ): Promise<ReturnType<typeof projectFile>> {
+    await this.conversations.assertOwner(ownerId, conversationId);
+    const source = await this.prisma.conversationFile.findFirst({
+      where: { id: sourceFileId },
+    });
+    if (!source || source.conversationId === conversationId) {
+      throw new AppError("NOT_FOUND");
+    }
+    await this.conversations.assertOwner(ownerId, source.conversationId);
+    if (
+      source.sizeBytes < 0n ||
+      source.sizeBytes > BigInt(this.config.upload.maxFileSizeBytes) ||
+      !(
+        (source.kind === "artifact" &&
+          (source.source === "agent_generated" || source.source === "system_generated") &&
+          source.status === "registered" && source.downloadable &&
+          source.storageBackend === "minio" && source.minioObjectKey) ||
+        (source.kind === "attachment" && source.source === "user_upload" &&
+          source.status === "bound" && source.storageBackend === "workspace" &&
+          source.workspaceRootRelPath && source.workspaceRelativePath &&
+          source.checksumSha256)
+      )
+    ) {
+      throw new AppError("NOT_FOUND");
+    }
+
+    let data: Buffer;
+    if (source.storageBackend === "minio" && source.minioObjectKey) {
+      try {
+        const size = await this.storage.getObjectSize(source.minioObjectKey);
+        if (size !== Number(source.sizeBytes)) throw new AppError("NOT_FOUND");
+        const stream = await this.storage.getObjectStream(source.minioObjectKey);
+        data = Buffer.alloc(size);
+        let bytes = 0;
+        try {
+          for await (const chunk of stream) {
+            if (!(chunk instanceof Uint8Array)) throw new AppError("NOT_FOUND");
+            if (bytes + chunk.byteLength > size) throw new AppError("NOT_FOUND");
+            data.set(chunk, bytes);
+            bytes += chunk.byteLength;
+          }
+        } finally {
+          stream.destroy();
+        }
+        if (bytes !== size) throw new AppError("NOT_FOUND");
+      } catch {
+        throw new AppError("NOT_FOUND");
+      }
+    } else if (
+      source.storageBackend === "workspace" &&
+      source.workspaceRootRelPath && source.workspaceRelativePath
+    ) {
+      try {
+        const root = await realpath(workspaceRoot(
+          this.config.workspaceRoot, ownerId, source.workspaceRootRelPath,
+        ));
+        const candidate = resolve(root, source.workspaceRelativePath);
+        assertDescendant(root, candidate);
+        const actual = await realpath(candidate);
+        if (actual !== candidate) throw new AppError("NOT_FOUND");
+        assertDescendant(root, actual);
+        const pathStats = await lstat(actual);
+        if (!pathStats.isFile()) throw new AppError("NOT_FOUND");
+        data = await readStableRegularFile(actual, pathStats, {
+          maximumBytes: this.config.upload.maxFileSizeBytes,
+          invalidFileError: () => new AppError("NOT_FOUND"),
+          fileTooLargeError: () => new AppError("NOT_FOUND"),
+        });
+      } catch {
+        throw new AppError("NOT_FOUND");
+      }
+    } else {
+      throw new AppError("NOT_FOUND");
+    }
+    if (
+      BigInt(data.byteLength) !== source.sizeBytes ||
+      (source.checksumSha256 && sha256(data) !== source.checksumSha256.toLowerCase())
+    ) {
+      throw new AppError("NOT_FOUND");
+    }
+    return this.uploadAttachment(ownerId, conversationId, {
+      filename: source.filename,
+      ...(source.mimeType ? { reportedMimeType: source.mimeType } : {}),
+      data,
+    }, context);
   }
 
   async listInteractiveAttachments(
@@ -2182,6 +2359,23 @@ function projectTaskArtifact(row: TaskArtifactRow) {
         row.conversationTitle,
         row.conversationTitleSource,
       ),
+      archive_status: row.conversationArchiveStatus,
+    },
+  };
+}
+
+function projectReferenceableFile(row: ReferenceableFileRow): ReferenceableFileSummary {
+  return {
+    id: row.id,
+    conversation_id: row.conversationId,
+    kind: row.kind,
+    filename: row.filename,
+    mime_type: row.mimeType,
+    size_bytes: Number(row.sizeBytes),
+    created_at: row.createdAt.toISOString(),
+    task: {
+      id: row.conversationId,
+      title: projectTaskTitle(row.conversationTitle, row.conversationTitleSource),
       archive_status: row.conversationArchiveStatus,
     },
   };

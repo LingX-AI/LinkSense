@@ -10992,12 +10992,13 @@ describe("ConversationService pending and turn materialization", () => {
     expect(fixture.runner.reconcile).not.toHaveBeenCalled();
   });
 
-  it("forks the latest terminal turn, reuses its priorities and attachments, and preserves the old branch", async () => {
+  it.each(["completed", "interrupted"] as const)("regenerates a %s turn with its attachments", async (status) => {
     const fixture = await conversationFixture();
     const sourceTurn = turnRow({
       sequenceNo: 2,
-      status: "completed",
-      completedAt: NOW,
+      status,
+      completedAt: status === "completed" ? NOW : null,
+      interruptedAt: status === "interrupted" ? NOW : null,
       codexThreadId: "codex-thread-source",
       codexTurnId: "codex-turn-source",
       knowledgeBaseIdsJson: [KNOWLEDGE_BASE_ID],

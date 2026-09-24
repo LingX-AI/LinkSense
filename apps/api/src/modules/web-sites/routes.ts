@@ -22,12 +22,13 @@ const cursorSchema = z.string().max(100).transform((value, context) => {
 export const webSiteRoutes: FastifyPluginAsync<{ service: WebSiteService }> = async (app, { service }) => {
   app.addHook("preHandler", app.authenticate);
   app.get("/", async (request, reply) => {
-    const query = z.object({ search: z.string().trim().max(240).optional(), status: webSiteStatusSchema.optional(), conversation_id: z.uuid().optional(), cursor: cursorSchema.optional(), limit: z.coerce.number().int().min(1).max(100).default(30) }).parse(request.query);
+    const query = z.object({ search: z.string().trim().max(240).optional(), status: webSiteStatusSchema.optional(), conversation_id: z.uuid().optional(), origin_file_id: z.uuid().optional(), cursor: cursorSchema.optional(), limit: z.coerce.number().int().min(1).max(100).default(30) }).parse(request.query);
     return reply.send(ok(await service.list((request as AuthenticatedRequest).authUser.id, {
       limit: query.limit,
       ...(query.search !== undefined ? { search: query.search } : {}),
       ...(query.status !== undefined ? { status: query.status } : {}),
       ...(query.conversation_id !== undefined ? { conversationId: query.conversation_id } : {}),
+      ...(query.origin_file_id !== undefined ? { originFileId: query.origin_file_id } : {}),
       ...(query.cursor !== undefined ? { cursor: query.cursor } : {}),
     }), request.id));
   });

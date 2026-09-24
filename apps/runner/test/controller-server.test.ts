@@ -40,6 +40,44 @@ afterEach(async () => {
 })
 
 describe("published service routing", () => {
+  it("relays a file upload larger than the controller's default body limit", async () => {
+    const { server } = await createServer();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ kind: "deleted", item_id: "item-1" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const payload = { conversationId: ownerId, turnId: otherOwnerId, input: { operation: "create_file", provider: "onedrive", drive_id: "drive-1", name: "report.txt", content_base64: Buffer.alloc(13 * 1024 * 1024, 65).toString("base64") } };
+    try {
+      const response = await server.inject({ method: "POST", url: "/internal/connections/execute", payload, headers: { authorization: `Bearer ${ownerWorkerSecret(ownerId, secret)}`, "x-linksense-owner-id": ownerId } });
+      expect(response.statusCode).toBe(200);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual(payload);
+    } finally { await server.close(); }
+  });
+  it("relays personal Microsoft connections with the owner identity and blocks external service credentials", async () => {
+    const { server } = await createServer();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ kind: "connections", items: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const payload = { conversationId: ownerId, turnId: otherOwnerId, input: { operation: "list_connections" } };
+    const url = "/internal/connections/execute";
+    try {
+      expect((await server.inject({ method: "POST", url, payload })).statusCode).toBe(401);
+      const accepted = await server.inject({ method: "POST", url, payload, headers: {
+        authorization: `Bearer ${ownerWorkerSecret(ownerId, secret)}`, "x-linksense-owner-id": ownerId,
+      } });
+      expect(accepted.statusCode).toBe(200);
+      expect(accepted.json()).toEqual({ kind: "connections", items: [] });
+      const [destination, init] = fetchMock.mock.calls[0]!;
+      expect(String(destination)).toBe("http://api:4000/internal/connections/execute");
+      expect(new Headers(init?.headers).get("x-linksense-owner-id")).toBe(ownerId);
+      expect(JSON.parse(String(init?.body))).toEqual(payload);
+      const session = "01900000-0000-7000-8000-000000000011";
+      const denied = await server.inject({ method: "POST", url, payload, headers: {
+        authorization: `Bearer ${ownerWorkerSecret(ownerId, secret, session)}`, "x-linksense-owner-id": ownerId, "x-linksense-service-session": session,
+      } });
+      expect(denied.statusCode).toBe(403);
+      expect(denied.json()).toEqual({ error_code: "CONNECTION_ACCESS_DENIED" });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally { await server.close(); }
+  });
   it("authenticates runtime close and uses the existing-worker path without starting an environment", async () => {
     const { server, request, closeConversationRuntime } = await createServer();
     const session = "01900000-0000-7000-8000-000000000011";

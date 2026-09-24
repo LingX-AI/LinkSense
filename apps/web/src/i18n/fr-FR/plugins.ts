@@ -56,6 +56,7 @@ export const pluginResources = {
     catalogTabs: {
       plugin: "Plugins",
       skill: "Compétences",
+      connector: "Connecteurs",
       mcp: "MCP",
       application: "Applications",
     },
@@ -66,6 +67,8 @@ export const pluginResources = {
         "Parcourez et gérez les plugins pour ajouter des outils et des connexions à vos tâches.",
       skill:
         "Parcourez le dépôt de compétences, installez-les et gérez-les selon vos tâches.",
+      connector:
+        "Connectez des services externes pour que l’IA consulte des informations et agisse dans vos tâches, sans synchroniser automatiquement les données avec la bibliothèque de ressources.",
       mcp: "Gérez les connexions MCP et les plugins pour donner aux tâches accès aux outils et données nécessaires.",
     },
     catalogScopesLabel: "Périmètre du contenu",

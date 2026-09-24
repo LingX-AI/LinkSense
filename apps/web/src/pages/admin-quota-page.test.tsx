@@ -287,6 +287,7 @@ describe("quota management", () => {
     await chooseMemberQuotaAction(user, "重置全员额度")
     dialog = screen.getByRole("dialog", { name: "重置全员额度" })
     const confirm = within(dialog).getByRole("button", { name: "确认重置额度" })
+    expect(confirm).toHaveClass("bg-destructive", "text-destructive-foreground")
     await user.dblClick(confirm)
     expect(confirm).toBeDisabled()
     expect(fetch).toHaveBeenCalledTimes(1)
@@ -325,6 +326,9 @@ describe("quota management", () => {
     await chooseMemberQuotaAction(user, "应用限额到全员")
     const dialog = screen.getByRole("dialog", { name: "应用限额到全员" })
     expect(dialog).toHaveTextContent("150.5")
+    expect(
+      within(dialog).getByRole("button", { name: "确认保存并应用" })
+    ).not.toHaveClass("bg-destructive")
     await user.click(
       within(dialog).getByRole("button", { name: "确认保存并应用" })
     )

@@ -1,0 +1,18 @@
+{
+  "name": "linksense-microsoft-files",
+  "version": "1.0.0",
+  "description": "Search, read and manage the current user's authorized OneDrive and SharePoint files.",
+  "author": {
+    "name": "LinkSense"
+  },
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "OneDrive & SharePoint",
+    "shortDescription": "Work with your connected Microsoft files.",
+    "longDescription": "Search, read and manage files in your authorized OneDrive and SharePoint accounts.",
+    "developerName": "LinkSense",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": "Find the files relevant to my task in OneDrive or SharePoint."
+  }
+}

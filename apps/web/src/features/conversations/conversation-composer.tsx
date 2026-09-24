@@ -20,6 +20,7 @@ import {
   FileIcon,
   FolderOpenIcon,
   GoalIcon,
+  Link2Icon,
   LightbulbIcon,
   LoaderCircleIcon,
   MicIcon,
@@ -72,6 +73,8 @@ import {
 import { ConversationAttachmentPreviews } from "@/features/conversations/conversation-attachment-previews"
 import { ConversationAttachmentUploadPreview } from "@/features/conversations/conversation-attachment-upload-preview"
 import { ConversationAttachmentOverflow } from "@/features/conversations/conversation-attachment-overflow"
+import { ReferenceFilePopover } from "@/features/conversations/reference-file-popover"
+import type { ReferenceableFile } from "@/features/conversations/reference-file-api"
 import { capabilityPresentation } from "@/features/capabilities/built-in-presentation"
 import {
   canSelectConversationCapability,
@@ -449,6 +452,8 @@ type ConversationComposerProps = Readonly<{
   startingApplicationId?: string
   onInterrupt: () => void
   onAttach: (files: File[]) => Promise<unknown> | boolean | void
+  currentConversationId?: string
+  onReferenceFile?: (file: ReferenceableFile) => Promise<boolean>
   loadAttachmentPreview: (
     file: ConversationFile,
     signal: AbortSignal
@@ -520,6 +525,8 @@ export const ConversationComposer = forwardRef<
     startingApplicationId,
     onInterrupt,
     onAttach,
+    currentConversationId,
+    onReferenceFile,
     loadAttachmentPreview,
     onRemoveAttachment,
     onClearAttachments,
@@ -533,6 +540,7 @@ export const ConversationComposer = forwardRef<
   const productName = useProductName()
   const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
   const [menuOpen, setMenuOpen] = useState(false)
+  const [referenceFileOpen, setReferenceFileOpen] = useState(false)
   const [knowledgeMenuOpen, setKnowledgeMenuOpen] = useState(false)
   const [slashPanel, setSlashPanel] =
     useState<ConversationSlashCommandPanel | null>(null)
@@ -1231,6 +1239,11 @@ export const ConversationComposer = forwardRef<
     fileInputRef.current?.click()
   }
 
+  const openReferenceFilePicker = () => {
+    setMenuOpen(false)
+    setReferenceFileOpen(true)
+  }
+
   const openAttachmentFolderPicker = () => {
     setMenuOpen(false)
     directoryInputRef.current?.click()
@@ -1300,6 +1313,16 @@ export const ConversationComposer = forwardRef<
           <FileIcon aria-hidden="true" />
           <span>{t("conversation.dropFilesToAttach")}</span>
         </div>
+      )}
+      {onReferenceFile && referenceFileOpen && (
+        <ReferenceFilePopover
+          anchor={composerShellRef}
+          open={referenceFileOpen}
+          onOpenChange={setReferenceFileOpen}
+          currentConversationId={currentConversationId}
+          disabled={attachmentActionDisabled}
+          onReference={onReferenceFile}
+        />
       )}
       {skillMenuOpen && (
         <ConversationSkillCommandMenu
@@ -1735,6 +1758,20 @@ export const ConversationComposer = forwardRef<
                         {t("conversation.attachFileMenuLabel")}
                       </span>
                     </CommandItem>
+                    {onReferenceFile && (
+                      <CommandItem
+                        value={t("conversation.referenceFile.menuSearchValue")}
+                        disabled={attachmentActionDisabled}
+                        onSelect={openReferenceFilePicker}
+                      >
+                        <span className="capability-menu-icon capability-menu-action-icon">
+                          <Link2Icon aria-hidden="true" />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                          {t("conversation.referenceFile.menuLabel")}
+                        </span>
+                      </CommandItem>
+                    )}
                     <CommandItem
                       value={t("conversation.attachFolderMenuSearchValue")}
                       disabled={attachmentActionDisabled}

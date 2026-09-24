@@ -27,6 +27,7 @@ import { testConfig } from "./test-config.js";
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
 const OTHER_ID = "10000000-0000-4000-8000-000000000002";
 const CONVERSATION_ID = "20000000-0000-4000-8000-000000000001";
+const SOURCE_CONVERSATION_ID = "20000000-0000-4000-8000-000000000002";
 const FILE_ID = "30000000-0000-4000-8000-000000000001";
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
@@ -57,6 +58,103 @@ afterEach(async () => {
 });
 
 describe("FileService workspace and MIME boundaries", () => {
+  it("searches historical filenames without matching task titles and keeps a stable cursor", async () => {
+    const fixture = await fileFixture();
+    const first = { ...taskArtifactRow({ conversationId: SOURCE_CONVERSATION_ID }), kind: "artifact" };
+    const second = { ...taskArtifactRow({ id: "30000000-0000-4000-8000-000000000002", conversationId: SOURCE_CONVERSATION_ID, createdAt: new Date("2026-08-09T08:00:00Z") }), kind: "attachment" };
+    fixture.prisma.$queryRaw.mockResolvedValueOnce([first, second]);
+
+    const page = await fixture.service.listReferenceableFiles(OWNER_ID, {
+      search: "result", excludeConversationId: CONVERSATION_ID, limit: 1,
+    });
+
+    expect(page.items).toEqual([expect.objectContaining({ id: FILE_ID, task: expect.objectContaining({ title: "季度材料整理" }) })]);
+    expect(page.next_cursor).toBe(`${first.createdAt.toISOString()}|${FILE_ID}`);
+    const query = fixture.prisma.$queryRaw.mock.calls[0]?.[0];
+    expect(query?.text).toContain("c.owner_id = CAST(");
+    expect(query?.text).toContain("f.source = 'user_upload'");
+    expect(query?.text).toContain("f.status = 'bound'");
+    expect(query?.text).toContain("f.status = 'registered'");
+    expect(query?.text).toContain("f.conversation_id <> CAST(");
+    expect(query?.values).toContain(OWNER_ID);
+    expect(query?.values).toContain(CONVERSATION_ID);
+    expect(query?.text).toContain("strpos(lower(f.filename)");
+    expect(query?.text).not.toContain("strpos(lower(c.title)");
+    expect(query?.values).toContain("result");
+  });
+
+  it("copies a verified generated file into the current task's staged attachments", async () => {
+    const fixture = await fileFixture();
+    const data = Buffer.from("previous task result");
+    fixture.prisma.conversationFile.findFirst.mockResolvedValueOnce({
+      id: FILE_ID, conversationId: SOURCE_CONVERSATION_ID,
+      kind: "artifact", source: "agent_generated", status: "registered",
+      downloadable: true, storageBackend: "minio", minioObjectKey: "artifacts/result.txt",
+      workspaceRootRelPath: null, workspaceRelativePath: null,
+      filename: "result.txt", mimeType: "text/plain", sizeBytes: BigInt(data.length),
+      checksumSha256: createHash("sha256").update(data).digest("hex"),
+    });
+    fixture.storage.getObjectSize.mockResolvedValueOnce(data.length);
+    fixture.storage.getObjectStream.mockResolvedValueOnce(Readable.from([data]));
+    const tx = attachmentUploadTransactionFixture();
+    fixture.prisma.$transaction.mockImplementationOnce(
+      async (operation: (transaction: typeof tx) => Promise<unknown>) => operation(tx),
+    );
+
+    await expect(fixture.service.referenceFile(OWNER_ID, CONVERSATION_ID, FILE_ID, {}))
+      .resolves.toMatchObject({ filename: "result.txt", status: "staged" });
+    expect(tx.conversationFile.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      conversationId: CONVERSATION_ID, kind: "attachment", status: "staged",
+      checksumSha256: createHash("sha256").update(data).digest("hex"),
+    }) });
+    expect(fixture.conversations.assertOwner).toHaveBeenCalledWith(OWNER_ID, SOURCE_CONVERSATION_ID);
+  });
+
+  it("copies a verified historical upload without trusting a symlink or changed bytes", async () => {
+    const fixture = await fileFixture();
+    const data = Buffer.from("previous upload");
+    await mkdir(join(fixture.conversationRoot, "attachments/source"), { recursive: true });
+    await writeFile(join(fixture.conversationRoot, "attachments/source/notes.txt"), data);
+    fixture.prisma.conversationFile.findFirst.mockResolvedValue({
+      id: FILE_ID, conversationId: SOURCE_CONVERSATION_ID,
+      kind: "attachment", source: "user_upload", status: "bound",
+      downloadable: false, storageBackend: "workspace", minioObjectKey: null,
+      workspaceRootRelPath: `${OWNER_ID}/home/workspace`,
+      workspaceRelativePath: "attachments/source/notes.txt",
+      filename: "notes.txt", mimeType: "text/plain", sizeBytes: BigInt(data.length),
+      checksumSha256: createHash("sha256").update(data).digest("hex"),
+    });
+    const tx = attachmentUploadTransactionFixture();
+    fixture.prisma.$transaction.mockImplementationOnce(
+      async (operation: (transaction: typeof tx) => Promise<unknown>) => operation(tx),
+    );
+    await expect(fixture.service.referenceFile(OWNER_ID, CONVERSATION_ID, FILE_ID, {}))
+      .resolves.toMatchObject({ filename: "notes.txt", status: "staged" });
+
+    await writeFile(join(fixture.conversationRoot, "attachments/source/notes.txt"), "changed bytes...");
+    await expect(fixture.service.referenceFile(OWNER_ID, CONVERSATION_ID, FILE_ID, {}))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+    await rm(join(fixture.conversationRoot, "attachments/source/notes.txt"));
+    await symlink(join(fixture.root, "outside.txt"), join(fixture.conversationRoot, "attachments/source/notes.txt"));
+    await expect(fixture.service.referenceFile(OWNER_ID, CONVERSATION_ID, FILE_ID, {}))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("rejects another owner's file and a staged historical upload", async () => {
+    const fixture = await fileFixture();
+    fixture.prisma.conversationFile.findFirst.mockResolvedValue({
+      id: FILE_ID, conversationId: SOURCE_CONVERSATION_ID,
+      kind: "attachment", source: "user_upload", status: "staged", sizeBytes: 5n,
+    });
+    await expect(fixture.service.referenceFile(OWNER_ID, CONVERSATION_ID, FILE_ID, {}))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+    fixture.conversations.assertOwner
+      .mockResolvedValueOnce({ id: CONVERSATION_ID, ownerId: OWNER_ID, workspaceRelPath: `${OWNER_ID}/home/workspace` })
+      .mockRejectedValueOnce(new AppError("FORBIDDEN"));
+    await expect(fixture.service.referenceFile(OWNER_ID, CONVERSATION_ID, FILE_ID, {}))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(fixture.storage.getObjectStream).not.toHaveBeenCalled();
+  });
   it("registers a complete website snapshot atomically with its HTML artifact", async () => {
     const fixture = await fileFixture();
     await mkdir(join(fixture.conversationRoot, "site"));

@@ -29,6 +29,7 @@ import { isNodeError } from "./worker-provider-utils.js"
 import {
   prepareLocalProcessRuntimeTools,
   resolvePersonalStdioLauncher,
+  resolveConnectionLauncher,
 } from "./local-process-runtime-tools.js"
 
 export interface LocalWorkerProcess {
@@ -141,6 +142,7 @@ export class LocalProcessWorkerProvider implements WorkerProvider {
         ...process.execArgv,
         resolvePersonalStdioLauncher(import.meta.url),
       ],
+      connectionLauncherArgs: [...process.execArgv, resolveConnectionLauncher(import.meta.url)],
     })
     this.logger.warn(
       { provider: this.kind, isolation: this.capabilities.isolation },

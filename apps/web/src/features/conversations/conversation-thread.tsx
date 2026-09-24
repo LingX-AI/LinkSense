@@ -4624,9 +4624,11 @@ export function ConversationThread({
           }
         : message
     const resolvedArtifacts =
-      isFinal && turn
-        ? [...(artifactsByTurn.get(turn.id)?.values() ?? [])]
-        : visibleArtifacts(displayMessage.artifacts)
+      turn?.status === "running"
+        ? []
+        : isFinal && turn
+          ? [...(artifactsByTurn.get(turn.id)?.values() ?? [])]
+          : visibleArtifacts(displayMessage.artifacts)
     const currentArtifacts = displayMessage.artifacts
     const artifactsUnchanged =
       (currentArtifacts?.length ?? 0) === (resolvedArtifacts?.length ?? 0) &&
@@ -4909,7 +4911,11 @@ export function ConversationThread({
         renderGuidedMessage={(message) => renderConversationMessage(message)}
         finalAnswerConfirmed={turnFinalAnswerConfirmed}
         finalAnswerVisible={finalAnswerVisible}
-        artifacts={finalMessageByTurn.has(turn.id) ? [] : turnArtifacts}
+        artifacts={
+          turn.status === "running" || finalMessageByTurn.has(turn.id)
+            ? []
+            : turnArtifacts
+        }
         artifactFilesById={conversationFilesById}
         loadArtifactPreview={loadArtifactPreview}
         onPreviewHtmlCode={onPreviewHtmlCode}

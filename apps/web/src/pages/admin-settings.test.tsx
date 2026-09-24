@@ -3340,6 +3340,10 @@ describe("administrator authentication settings", () => {
     await openModelEditor(interaction, "Model B")
     await interaction.type(screen.getByLabelText("显示名称"), "未保存")
     await interaction.click(screen.getByRole("button", { name: "取消" }))
+    expect(screen.getByRole("button", { name: "放弃修改" })).toHaveClass(
+      "bg-destructive",
+      "text-destructive-foreground"
+    )
     await interaction.click(screen.getByRole("button", { name: "放弃修改" }))
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()

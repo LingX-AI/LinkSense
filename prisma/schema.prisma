@@ -418,6 +418,26 @@ model CredentialBinding {
   @@map("credential_bindings")
 }
 
+// User-consented external accounts. Tokens never enter conversation snapshots.
+model UserConnection {
+  id               String    @id @default(uuid()) @db.Uuid
+  ownerId          String    @map("owner_id") @db.Uuid
+  // SQL CHECK must track connectionProviderSchema through forward migrations.
+  provider         String    @db.VarChar(32)
+  status           String    @default("disconnected") @db.VarChar(32)
+  enabled          Boolean   @default(false)
+  accountName      String?   @map("account_name") @db.VarChar(320)
+  encryptedPayload String?   @map("encrypted_payload") @db.Text
+  encryptionKeyId  String?   @map("encryption_key_id") @db.VarChar(120)
+  revision         Int       @default(0)
+  connectedAt      DateTime? @map("connected_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([ownerId, provider], map: "user_connections_owner_provider_key")
+  @@map("user_connections")
+}
+
 model McpServer {
   id                       String    @id @default(uuid()) @db.Uuid
   ownerId                  String    @map("owner_id") @db.Uuid

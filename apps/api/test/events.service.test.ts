@@ -2853,6 +2853,35 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
     expect(fixture.redis.publishConversationEvent).not.toHaveBeenCalled();
   });
 
+  it.each(["turn/started", "item/started"])("keeps %s pending while a user start owns the next Goal turn", async (method) => {
+    const fixture = eventFixture(undefined, { taskKind: "goal", activeGoal: true });
+    fixture.tx.conversationTurnStartIntent.findUnique.mockResolvedValue({ projectionTurnId: OTHER_ID });
+    fixture.prisma.conversationTurnStartIntent.findUnique.mockResolvedValue({ projectionTurnId: OTHER_ID });
+    fixture.tx.conversationGoal.findFirst.mockResolvedValue(goalRow());
+    fixture.tx.conversationTurn.findFirst.mockResolvedValue(turnRow({ taskKind: "goal" }));
+    fixture.tx.conversationTurnAttempt.findFirst.mockResolvedValue(attemptRow({ status: "completed" }));
+    fixture.prisma.conversationTurnAttempt.findUnique.mockResolvedValue(null);
+    fixture.prisma.conversationTurn.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(turnRow({ taskKind: "goal" }));
+    fixture.prisma.conversationTurnAttempt.findFirst.mockResolvedValue(attemptRow({ status: "completed" }));
+    fixture.prisma.conversationGoal.findFirst.mockResolvedValue(goalRow());
+
+    await expect(fixture.service.ingest(CONVERSATION_ID, {
+      method,
+      visibility: "user_visible",
+      params: {
+        threadId: "codex-thread-1",
+        turnId: "codex-new-user-goal-turn",
+        turn: { id: "codex-new-user-goal-turn", status: "inProgress" },
+        item: { id: "new-item", type: "agentMessage", text: "" },
+      },
+    })).resolves.toEqual({ accepted: false, reason_code: "TURN_PROJECTION_PENDING" });
+    expect(fixture.tx.conversationTurnAttempt.create).not.toHaveBeenCalled();
+    expect(fixture.tx.conversationTurn.updateMany).not.toHaveBeenCalled();
+    expect(fixture.tx.conversationEvent.create).not.toHaveBeenCalled();
+  });
+
   it("attaches a native Goal continuation to the existing logical turn", async () => {
     const fixture = eventFixture(undefined, {
       taskKind: "goal",
@@ -6250,6 +6279,9 @@ function eventFixture(
 ) {
   const tx = transactionFixture(options);
   const prisma = {
+    conversationTurnStartIntent: {
+      findUnique: vi.fn(async () => null as { projectionTurnId: string } | null),
+    },
     $queryRaw: vi.fn<(query: Prisma.Sql) => Promise<Array<(ConversationEvent | { id: null }) & { confirmedSequence: bigint }>>>().mockResolvedValue([]),
     auditLog: { findFirst: vi.fn<() => Promise<{ createdAt: Date } | null>>().mockResolvedValue(null) },
     conversation: {

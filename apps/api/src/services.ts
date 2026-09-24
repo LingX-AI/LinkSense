@@ -18,8 +18,12 @@ import { BotChannelService } from "./modules/bot-channels/service.js";
 
 import {
   isBuiltInCapabilityId,
+  officialConnectionPluginFor,
+  officialConnectionPlugins,
   type RuntimeMcpServer,
 } from "@linksense/shared";
+import { ConnectionRuntimePlugins } from "./modules/connections/runtime-plugins.js";
+import { PrismaConnectionRepository } from "./modules/connections/repository.js";
 
 import { isFullAppConfig, type AppConfig } from "./config.js";
 import type { PrismaClient } from "./generated/prisma/client.js";
@@ -380,6 +384,7 @@ export function createServices(input: {
     capabilityMaterializer,
     mcpServers,
     input.config.credentialMasterKey,
+    new ConnectionRuntimePlugins(new PrismaConnectionRepository(input.prisma)),
   );
   const userHomeReconciler = new UserHomeCapabilityReconciler({
     loadCapabilityOwnerIds: async (capabilityIds) => {
@@ -934,6 +939,9 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     },
     private readonly externalApplicationSessionIdMasterKey: string | null =
       null,
+    private readonly connectionPlugins: Pick<ConnectionRuntimePlugins, "resolve"> = {
+      resolve: async () => [],
+    },
   ) {}
 
   async ensureUserHome(userId: string, serviceSessionId?: string): Promise<void> {
@@ -1026,6 +1034,9 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     priorityCapabilityIds: string[];
     capabilityScope?: CapabilityResolutionScope;
   }) {
+    // Application tasks use their published catalog. They must never inherit
+    // a publisher's personal Microsoft account from this runtime extension.
+    const connections = input.capabilityScope ? [] : await this.connectionPlugins.resolve(input.userId);
     const activeCapabilities = await this.prisma.capability.findMany({
       where: {
         status: "active",
@@ -1080,14 +1091,17 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
       } else {
         validatePluginName(capability.name);
       }
-      if (visibleNames.has(capability.name)) {
+      if (visibleNames.has(capability.name) || officialConnectionPlugins.some(
+        (plugin) => capability.id === plugin.id ||
+          (capability.type === "plugin" && capability.name === plugin.name),
+      )) {
         // Fail closed if persisted ownership data contains duplicate package
         // names that would make the user's Codex capability catalog ambiguous.
         throw new AppError("CONFLICT");
       }
       visibleNames.add(capability.name);
     }
-    const visibleIds = new Set(visible.map((capability) => capability.id));
+    const visibleIds = new Set([...visible, ...connections].map((capability) => capability.id));
     if (
       input.priorityCapabilityIds.some((id) =>
         isBuiltInCapabilityId(id)
@@ -1178,7 +1192,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
         );
       }
     }
-    const executionCapabilities: ExecutionCapability[] = [];
+    const executionCapabilities: ExecutionCapability[] = [...connections];
     const materializationCapabilities: Array<{
       id: string;
       type: "plugin" | "skill";
@@ -1187,7 +1201,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
       name: string;
       credentialEnvironment?: Record<string, string>;
       credentialFingerprint?: string;
-    }> = [];
+    }> = connections.map(({ id, type, sourcePath, revision, name }) => ({ id, type, sourcePath, revision, name }));
     for (const capability of visible) {
       if (capability.type !== "plugin" && capability.type !== "skill") continue;
       if (
@@ -1342,8 +1356,10 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     if (new Set(capabilityIds).size !== capabilityIds.length) {
       throw new AppError("CAPABILITY_NOT_FOUND");
     }
-    if (capabilityIds.length > 0) {
-      const personallyOwnedIds = input.capabilities
+    const installed = input.capabilities.filter((capability) => !officialConnectionPluginFor(capability));
+    const installedIds = installed.map((capability) => capability.id);
+    if (installedIds.length > 0) {
+      const personallyOwnedIds = installed
         .filter(
           (capability) =>
             (capability.sourceOwnerId ?? input.userId) === input.userId,
@@ -1352,7 +1368,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
       const [activeCapabilities, disabledPreferences] = await Promise.all([
         this.prisma.capability.findMany({
           where: {
-            id: { in: capabilityIds },
+            id: { in: installedIds },
             status: "active",
           },
           select: {
@@ -1382,7 +1398,7 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
         disabledPreferences.map((preference) => preference.capabilityId),
       );
       if (
-        input.capabilities.some((capability) => {
+        installed.some((capability) => {
           const active = activeById.get(capability.id);
           return (
             !active ||
@@ -1545,6 +1561,15 @@ export class DatabaseConversationPreflight implements ConversationPreflight {
     mcpServers?: RuntimeMcpServer[];
     applicationId?: string;
   }): Promise<{ environment: Record<string, string> }> {
+    const official = input.capabilities.filter((capability) => officialConnectionPluginFor(capability));
+    if (official.length > 0) {
+      const available = input.applicationId ? [] : await this.connectionPlugins.resolve(input.userId);
+      if (official.some((capability) =>
+        !available.some((plugin) => plugin.id === capability.id && plugin.revision === capability.revision) ||
+        capability.sourceOwnerId !== input.userId || capability.sourceType !== "local" ||
+        Object.keys(capability.credentialEnvironment ?? {}).length > 0,
+      )) throw new AppError("CAPABILITY_NOT_FOUND");
+    }
     const environment: Record<string, string> = {};
     const applicationIdentity = input.applicationId
       ? await this.#resolveApplicationOwnerId(input.applicationId)

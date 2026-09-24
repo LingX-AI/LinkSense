@@ -20,6 +20,17 @@ const event: ConversationEvent = {
 }
 
 describe("failed start correlation", () => {
+  it("ignores a failure already present before an explicit retry of an existing request", () => {
+    const submission = {
+      turnId,
+      idempotencyKey: "submitted-request",
+      afterEventSequence: 1,
+    }
+    expect(matchingConversationStartFailure(event, submission)).toBeNull()
+    expect(
+      matchingConversationStartFailure({ ...event, sequence_no: 2 }, submission)
+    ).toEqual(payload)
+  })
   it.each([undefined, turnId])(
     "matches a persisted regeneration failure with receipt %s",
     (receiptTurnId) => {

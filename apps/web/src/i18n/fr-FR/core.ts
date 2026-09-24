@@ -171,6 +171,13 @@ export const core = {
     selectSource: "Choisissez une page Web de cette tâche",
     noSources:
       "Aucune page Web disponible. Générez d’abord une nouvelle version dans la tâche d’origine.",
+    alreadyPublishedTitle: "Cette page Web possède déjà un site",
+    alreadyPublishedDescription:
+      "Cette page Web est liée à un site. Copiez son lien actuel ou gérez-le dans Mes sites.",
+    alreadyDisabledTitle: "Ce site n’est pas publié",
+    alreadyDisabledDescription:
+      "Le site lié à cette page Web n’est pas publié. Republiez-le dans Mes sites.",
+    updateAnotherSite: "Mettre à jour un autre site",
     publishedTitle: "Site publié",
     updatedTitle: "Site mis à jour",
     publishedDescription:

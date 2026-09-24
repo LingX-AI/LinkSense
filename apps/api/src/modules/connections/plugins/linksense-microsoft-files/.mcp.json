@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "microsoft_files": {
+      "command": "linksense-connection-mcp",
+      "args": [
+        "microsoft-files"
+      ],
+      "env_vars": [
+        "LINKSENSE_CONNECTION_ENDPOINT",
+        "LINKSENSE_CONNECTION_TOKEN",
+        "LINKSENSE_COLLABORATION_MODE"
+      ],
+      "startup_timeout_sec": 10,
+      "tool_timeout_sec": 120
+    }
+  }
+}

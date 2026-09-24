@@ -148,6 +148,9 @@ describe("LinkSense application", () => {
       })
     )
     dialog = await screen.findByRole("dialog", { name: "退出登录？" })
+    expect(
+      within(dialog).getByRole("button", { name: "退出登录" })
+    ).toHaveClass("bg-destructive", "text-destructive-foreground")
     await interaction.click(
       within(dialog).getByRole("button", { name: "退出登录" })
     )

@@ -12,6 +12,14 @@ type ErrorCatalogEntry = {
 };
 
 export const errorCatalog = {
+  CONNECTION_WRITE_REQUIRED: {"message_key": "connections.errors.writeRequired", "http_status": 409, "messages": {"zh-CN": "当前连接仅有读取权限，请在插件中心的「连接器」中启用读写并重新授权。", "en-US": "This connection only allows reading. Enable read and write in Plugin Center → Connectors and authorize again."}},
+  CONNECTION_FILE_CONFLICT: {"message_key": "connections.errors.fileConflict", "http_status": 409, "messages": {"zh-CN": "文件已被修改或存在同名文件，请重新读取文件状态后再操作。", "en-US": "The file has changed or a file with this name already exists. Read its current state before trying again."}},
+  CONNECTION_NOT_CONFIGURED: { message_key: "connections.errors.notConfigured", http_status: 503, messages: { "zh-CN": "管理员尚未配置此连接。", "en-US": "An administrator must configure this connection first." } },
+  CONNECTION_AUTH_FAILED: { message_key: "connections.errors.authFailed", http_status: 400, messages: { "zh-CN": "授权未完成或已失效，请重新连接。", "en-US": "Authorization failed or expired. Connect again." } },
+  CONNECTION_REQUIRED: { message_key: "connections.errors.required", http_status: 409, messages: { "zh-CN": "请先在插件中心的「连接器」中连接此服务。", "en-US": "Connect this service in Plugin Center → Connectors first." } },
+  CONNECTION_UNAVAILABLE: { message_key: "connections.errors.unavailable", http_status: 503, messages: { "zh-CN": "暂时无法访问此服务，请稍后重试。", "en-US": "This service is temporarily unavailable. Try again later." } },
+  CONNECTION_ACCESS_DENIED: { message_key: "connections.errors.accessDenied", http_status: 403, messages: { "zh-CN": "当前账号无法访问此内容，请检查账号和权限。", "en-US": "This account cannot access this content. Check your account and permissions." } },
+  CONNECTION_FILE_TOO_LARGE: { message_key: "connections.errors.fileTooLarge", http_status: 413, messages: { "zh-CN": "内容或附件超过此操作允许的大小，请缩小范围或选择较小的文件。", "en-US": "The content or attachments exceed the size allowed for this action. Narrow the request or choose smaller files." } },
   SOCIAL_CLIENT_IN_USE: {
     message_key: "errors.socialClientInUse", http_status: 409,
     messages: { "zh-CN": "已有用户绑定此应用，不能更换应用 ID。您仍可更新密钥或停用登录。", "en-US": "Accounts are linked to this app. Its app ID cannot be changed; you can rotate its secret or disable sign-in." },

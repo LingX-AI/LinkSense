@@ -182,7 +182,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
       ? isLocalProcessWorker
         ? {
             runtimeToolBin: requiredLocalProcessRuntimeToolBin(process.env),
-            requiredRuntimeTools: ["linksense-plugin-stdio"],
+            requiredRuntimeTools: ["linksense-plugin-stdio", "linksense-connection-mcp"],
           }
         : {
             bashEnvironmentFile: MANAGED_BASH_ENVIRONMENT_FILE,

@@ -8,6 +8,14 @@ import {
 } from "@/lib/public-copy"
 
 const errorCodeToKey: Record<string, string> = {
+  CONNECTION_WRITE_REQUIRED: errorCatalog.CONNECTION_WRITE_REQUIRED.message_key,
+  CONNECTION_FILE_CONFLICT: errorCatalog.CONNECTION_FILE_CONFLICT.message_key,
+  CONNECTION_NOT_CONFIGURED: errorCatalog.CONNECTION_NOT_CONFIGURED.message_key,
+  CONNECTION_AUTH_FAILED: errorCatalog.CONNECTION_AUTH_FAILED.message_key,
+  CONNECTION_REQUIRED: errorCatalog.CONNECTION_REQUIRED.message_key,
+  CONNECTION_UNAVAILABLE: errorCatalog.CONNECTION_UNAVAILABLE.message_key,
+  CONNECTION_ACCESS_DENIED: errorCatalog.CONNECTION_ACCESS_DENIED.message_key,
+  CONNECTION_FILE_TOO_LARGE: errorCatalog.CONNECTION_FILE_TOO_LARGE.message_key,
   SOCIAL_CLIENT_IN_USE: errorCatalog.SOCIAL_CLIENT_IN_USE.message_key,
   SOCIAL_LAST_METHOD: errorCatalog.SOCIAL_LAST_METHOD.message_key,
   SOCIAL_AUTH_FAILED: errorCatalog.SOCIAL_AUTH_FAILED.message_key,

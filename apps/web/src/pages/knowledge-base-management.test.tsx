@@ -1695,6 +1695,10 @@ describe("knowledge-base document and access management", () => {
     expect(
       await screen.findByRole("heading", { name: "重建选中文档的索引？" })
     ).toBeVisible()
+    expect(screen.getByRole("button", { name: "重建索引" })).toHaveClass(
+      "bg-destructive",
+      "text-destructive-foreground"
+    )
     await interaction.click(screen.getByRole("button", { name: "重建索引" }))
 
     await waitFor(() => {
@@ -1740,6 +1744,19 @@ describe("knowledge-base document and access management", () => {
         display_name: "新方案.pdf",
       })
     })
+  })
+
+  it("shows the destructive color before archiving a knowledge base", async () => {
+    vi.stubGlobal("fetch", createFetchMock({}))
+    renderDetailPage()
+    await userEvent.click(await screen.findByRole("button", { name: "归档" }))
+    const dialog = await screen.findByRole("dialog", {
+      name: "归档知识库？",
+    })
+    expect(within(dialog).getByRole("button", { name: "归档" })).toHaveClass(
+      "bg-destructive",
+      "text-destructive-foreground"
+    )
   })
 
   it("shows failed candidate details from the full failure-status control", async () => {

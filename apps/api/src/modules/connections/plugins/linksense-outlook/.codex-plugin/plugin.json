@@ -1,0 +1,21 @@
+{
+  "name": "linksense-outlook",
+  "version": "1.0.0",
+  "description": "Search and read Outlook mail, manage drafts and send user-requested mail.",
+  "author": {
+    "name": "LinkSense"
+  },
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Outlook Mail",
+    "shortDescription": "Search and read Outlook mail, manage drafts and send user-requested mail.",
+    "longDescription": "Search and read Outlook mail, manage drafts and send user-requested mail.",
+    "developerName": "LinkSense",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": "Search and read Outlook mail, manage drafts and send user-requested mail."
+  }
+}

@@ -10,6 +10,7 @@ export type PendingConversationTurnSubmission = Readonly<{
   turnId?: string
   status?: TurnStartReceipt["status"]
   replacesTurnId?: string
+  afterEventSequence?: number
   interruptRequested?: boolean
 }>
 

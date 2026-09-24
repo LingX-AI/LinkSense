@@ -18,6 +18,41 @@ export function getConversationFiles(conversation: Conversation) {
   return [...new Map(files.map((file) => [file.id, file])).values()]
 }
 
+export function findFirstCompletedTurnPreviewFile(
+  conversation: Conversation,
+  turnId: string
+): ConversationFile | null {
+  if (
+    conversation.turns?.find((turn) => turn.id === turnId)?.status !==
+    "completed"
+  ) {
+    return null
+  }
+
+  return getConversationFiles(conversation).reduce<ConversationFile | null>(
+    (first, file) => {
+      if (
+        file.kind !== "artifact" ||
+        file.turn_id !== turnId ||
+        !file.download_available ||
+        getConversationFilePreviewKind(file) === null
+      ) {
+        return first
+      }
+      if (
+        !first ||
+        (first.created_at &&
+          file.created_at &&
+          file.created_at < first.created_at)
+      ) {
+        return file
+      }
+      return first
+    },
+    null
+  )
+}
+
 export function findUpdatedOfficePreviewFile({
   sourceFile,
   knownFileIds,

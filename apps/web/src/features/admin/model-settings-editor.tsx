@@ -107,6 +107,7 @@ export function ModelSettingsEditor({
         title={t("admin.modelProvider.discardTitle")}
         description={t("admin.modelProvider.discardDescription")}
         confirmLabel={t("admin.modelProvider.discardAction")}
+        destructive
         onConfirm={onClose}
       />
     </>

@@ -66,6 +66,29 @@ export const fileRoutes: FastifyPluginAsync<{ services: AppServices }> = async (
     },
   );
 
+  app.get(
+    "/referenceable-files",
+    { preHandler: app.authenticate },
+    async (request, reply) => {
+      const user = (request as AuthenticatedRequest).authUser;
+      const query = z.strictObject({
+        search: z.string().trim().max(240).optional(),
+        exclude_conversation_id: z.string().uuid().optional(),
+        cursor: z.string().trim().min(1).max(320).refine(
+          (value) => parseTaskArtifactCursor(value) !== null,
+          "invalid_cursor",
+        ).optional(),
+        limit: z.coerce.number().int().min(1).max(100).default(50),
+      }).parse(request.query);
+      return reply.send(ok(await services.files.listReferenceableFiles(user.id, {
+        ...(query.search ? { search: query.search } : {}),
+        ...(query.exclude_conversation_id ? { excludeConversationId: query.exclude_conversation_id } : {}),
+        ...(query.cursor ? { cursor: query.cursor } : {}),
+        limit: query.limit,
+      }), request.id));
+    },
+  );
+
   app.get("/:id/interactive-attachments", { preHandler: app.authenticate }, async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
     const { id } = conversationParams.parse(request.params);
@@ -118,6 +141,22 @@ export const fileRoutes: FastifyPluginAsync<{ services: AppServices }> = async (
           data,
         },
         auditContext(request),
+      );
+      return reply.code(201).send(ok(result, request.id));
+    },
+  );
+
+  app.post(
+    "/:id/attachments/references",
+    { preHandler: app.authenticate },
+    async (request, reply) => {
+      const user = (request as AuthenticatedRequest).authUser;
+      const { id } = conversationParams.parse(request.params);
+      const { source_file_id: sourceFileId } = z.strictObject({
+        source_file_id: z.string().uuid(),
+      }).parse(request.body);
+      const result = await services.files.referenceFile(
+        user.id, id, sourceFileId, auditContext(request),
       );
       return reply.code(201).send(ok(result, request.id));
     },

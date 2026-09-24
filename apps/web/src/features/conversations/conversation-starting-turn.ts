@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query"
+import dayjs from "dayjs"
 import type { Conversation } from "@/api/contracts"
 import {
   getPendingConversationTurnSubmission,
@@ -23,6 +24,13 @@ export function restoreStartingConversationTurn(
     setPendingConversationTurnSubmission(queryClient, conversation.id, {
       conversationId: conversation.id,
       idempotencyKey: start.idempotency_key ?? "",
+      afterEventSequence: (conversation.events ?? []).reduce(
+        (sequence, event) =>
+          dayjs(event.created_at).isBefore(start.created_at)
+            ? Math.max(sequence, event.sequence_no)
+            : sequence,
+        0
+      ),
       turnId: start.turn_id,
       status: "starting",
       message: {

@@ -1,3 +1,4 @@
+import { connectionMessages } from "@/features/connections/messages"
 import { samlesES } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
 import { settingsMessages } from "@/i18n/es-ES/settings"
@@ -18,6 +19,7 @@ import { adminMessages } from "@/i18n/es-ES/admin"
 import { knowledgeMessages } from "@/i18n/es-ES/knowledge"
 
 export const esES = {
+  connections: connectionMessages["es-ES"],
   saml: samlesES,
   common: {
     dateRange: {

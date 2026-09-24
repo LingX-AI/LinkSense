@@ -266,7 +266,7 @@ function ApplicationCenterReviewDialog({
           {current?.status === "pending" && (
             <>
               <Button
-                variant="outline"
+                variant="destructive"
                 disabled={!comment.trim() || mutation.isPending}
                 onClick={() => mutation.mutate({ decision: "rejected" })}
               >

@@ -121,4 +121,13 @@ describe("website HTTP boundary", () => {
     expect((await fixture.app.inject({ method: "DELETE", url: `/api/v1/web-sites/${siteId}`, headers })).statusCode).toBe(204);
     expect(fixture.store.delete).toHaveBeenCalledWith(ownerId, siteId);
   });
+  it("finds the owner's site for an original HTML file and rejects an invalid file ID", async () => {
+    const fixture = await setup();
+    const headers = { authorization: "Bearer test-owner" };
+    const response = await fixture.app.inject({ url: `/api/v1/web-sites?origin_file_id=${fileId}`, headers });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.items).toEqual([expect.objectContaining({ id: siteId, url_path: "/web/sample" })]);
+    expect(fixture.store.list).toHaveBeenCalledWith(ownerId, { originFileId: fileId, limit: 30 });
+    expect((await fixture.app.inject({ url: "/api/v1/web-sites?origin_file_id=invalid", headers })).statusCode).toBe(400);
+  });
 });

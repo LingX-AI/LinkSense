@@ -1,3 +1,4 @@
+import { MICROSOFT_CONNECTION_BODY_LIMIT } from "@linksense/shared";
 import { timingSafeEqual } from "node:crypto";
 import { ApplicationBuilderRequestError } from "./application-builder-error.js";
 import { constants } from "node:fs";
@@ -41,6 +42,8 @@ import {
 
 import type { RunnerConfig } from "./config.js";
 import { CurrentUserInfoRequestError } from "./current-user-error.js";
+import { ConnectionRequestError } from "./connection-error.js";
+import { connectionInputSchema } from "@linksense/shared";
 import { FileServiceRequestError } from "./file-service-error.js";
 import { ImageGenerationRequestError } from "./image-generation-error.js";
 import { InteractiveFormRequestError } from "./interactive-form-error.js";
@@ -801,6 +804,7 @@ export function buildRunnerServer(
       request.url.startsWith("/mcp-skill-creator/") ||
       request.url.startsWith("/mcp-application-builder/") ||
       request.url.startsWith("/mcp-current-user/") ||
+      request.url.startsWith("/mcp-connections/") ||
       request.url.startsWith("/mcp-user/")
     )
       return;
@@ -1316,6 +1320,44 @@ export function buildRunnerServer(
           code: failure.code,
           retryable: failure.retryable,
         });
+      }
+    },
+  );
+
+  app.post<{ Params: { conversationId: string } }>(
+    "/mcp-connections/:conversationId/execute",
+    { bodyLimit: MICROSOFT_CONNECTION_BODY_LIMIT },
+    async (request, reply) => {
+      const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "") ?? "";
+      if (!token)
+        return reply.code(401).send({ code: "CONNECTION_ACCESS_DENIED", retryable: false });
+      const conversationId = uuid.safeParse(request.params.conversationId);
+      const input = connectionInputSchema.safeParse(request.body);
+      if (!conversationId.success || !input.success)
+        return reply.code(400).send({ code: "VALIDATION_ERROR", retryable: false });
+      const controller = new AbortController();
+      const abort = () => {
+        if (!reply.raw.writableEnded) controller.abort();
+      };
+      reply.raw.once("close", abort);
+      try {
+        return await pool.accessConnection(
+          conversationId.data,
+          token,
+          input.data,
+          controller.signal,
+        );
+      } catch (error) {
+        const failure =
+          error instanceof ConnectionRequestError
+            ? error
+            : new ConnectionRequestError("CONNECTION_UNAVAILABLE", true, 503);
+        return reply.code(failure.statusCode).send({
+          code: failure.code,
+          retryable: failure.retryable,
+        });
+      } finally {
+        reply.raw.off("close", abort);
       }
     },
   );

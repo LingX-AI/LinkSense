@@ -11,6 +11,10 @@ const conversationId = "01900000-0000-7000-8000-000000000001"
 const token = "turn-token-00000000000000000000000000000000"
 
 describe("Core MCP module registry", () => {
+  it.each(["default", "plan"] as const)("leaves personal Microsoft connections out of Core in %s mode", (mode) => {
+    const registry = createCoreMcpRegistry({ mode, environment: defaultEnvironment() })
+    expect(registry.tools.map((tool) => tool.name)).not.toContain("microsoft_files")
+  })
   it.each(["default", "plan"] as const)("keeps %s service instructions short and independent of individual tool workflows", (mode) => {
     const registry = createCoreMcpRegistry({ mode, environment: defaultEnvironment() })
     expect(encode(registry.instructions).length).toBeLessThanOrEqual(64)

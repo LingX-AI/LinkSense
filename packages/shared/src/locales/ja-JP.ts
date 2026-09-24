@@ -1,6 +1,14 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  CONNECTION_WRITE_REQUIRED: "この接続は読み取り専用です。プラグインセンターの「コネクター」で書き込みを許可し、再認証してください。",
+  CONNECTION_FILE_CONFLICT: "ファイルが変更されたか、同じ名前のファイルが存在します。最新の状態を確認してから再試行してください。",
+  CONNECTION_NOT_CONFIGURED: "管理者による接続設定が必要です。",
+  CONNECTION_AUTH_FAILED: "認証が完了しなかったか、有効期限が切れました。再接続してください。",
+  CONNECTION_REQUIRED: "先にプラグインセンターの「コネクター」でこのサービスに接続してください。",
+  CONNECTION_UNAVAILABLE: "現在このサービスにアクセスできません。しばらくしてから再試行してください。",
+  CONNECTION_ACCESS_DENIED: "このアカウントではアクセスできません。アカウントと権限を確認してください。",
+  CONNECTION_FILE_TOO_LARGE: "内容または添付ファイルがこの操作のサイズ上限を超えています。対象を絞るか、小さいファイルを選択してください。",
   SOCIAL_CLIENT_IN_USE: "このアプリには連携済みアカウントがあるため、アプリ ID は変更できません。シークレットの更新やログインの無効化は可能です。",
   SOCIAL_LAST_METHOD: "連携を解除する前に、パスワードを設定するか、別の有効なログイン方法を連携してください。",
   SOCIAL_AUTH_FAILED: "ソーシャルアカウントの確認を完了できませんでした。再試行してください。",
@@ -244,6 +252,12 @@ export const errorMessages: Record<ErrorCode, string> = {
 
 export const auditMessages = {
   actions: {
+    connection_authorized: "接続を認証",
+    connection_disconnected: "接続を解除",
+    connection_enabled: "接続を有効化",
+    connection_disabled: "接続を無効化",
+    connection_used: "接続を使用",
+
     social_authentication_settings_updated: "ソーシャルログイン設定を更新",
     social_account_linked: "ソーシャルアカウントを連携",
     social_account_unlinked: "ソーシャルアカウントの連携を解除",
@@ -453,6 +467,7 @@ export const auditMessages = {
     weixin_connection_updated: "Weixin の接続を更新",
   },
   targetTypes: {
+    connection: "個人用接続",
     web_site: "共有サイト", application: "アプリケーション",
     application_distribution: "アプリケーションの共有と掲載",
     application_external_access: "アプリケーションの外部アクセス",

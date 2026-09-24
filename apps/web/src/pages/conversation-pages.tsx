@@ -209,6 +209,7 @@ import {
   type ConversationOfficeAnnotationRequest,
 } from "@/features/conversations/conversation-office-preview"
 import {
+  findFirstCompletedTurnPreviewFile,
   findUpdatedOfficePreviewFile,
   getConversationFiles,
 } from "@/features/conversations/conversation-office-preview-update"
@@ -252,6 +253,10 @@ import {
   retainConversationAttachmentPreviewResource,
   type ConversationAttachmentPreviewResource,
 } from "@/features/conversations/conversation-attachment-preview-cache"
+import {
+  referenceConversationFile,
+  type ReferenceableFile,
+} from "@/features/conversations/reference-file-api"
 import { ConversationPlanCard } from "@/features/conversations/conversation-plan-card"
 import {
   ConversationPlanDecisionCard,
@@ -277,6 +282,7 @@ import {
 } from "@/features/conversations/conversation-refresh-policy"
 import {
   operationAttemptId,
+  retireOperationId,
   stableOperationId,
 } from "@/features/conversations/operation-id"
 import { PendingRequests } from "@/features/conversations/pending-requests"
@@ -741,6 +747,22 @@ export function ConversationPage({
   const [filePreviewClosing, setFilePreviewClosing] = useState(false)
   const [selectedSubAgent, setSelectedSubAgent] =
     useState<ConversationSubAgentSelection | null>(null)
+  const autoPreviewedCompletedTurnIdsRef = useRef(new Set<string>())
+  const handlePreviewOfficeDocument = useCallback(
+    (file: ConversationFile) => {
+      setSelectedSubAgent(null)
+      setHtmlCodePreview(null)
+      setImagePreview(null)
+      setFilePreviewClosing(false)
+      setOfficePreview((current) => ({
+        conversationId,
+        file,
+        animateEntrance: current?.conversationId !== conversationId,
+      }))
+      setOfficePreviewUpdate(null)
+    },
+    [conversationId]
+  )
   const officeFile =
     officePreview?.conversationId === conversationId
       ? (officePreview?.file ?? null)
@@ -1733,12 +1755,15 @@ export function ConversationPage({
     (event: ConversationEvent) => {
       if (!conversationId) return
       const pending =
-        getPendingConversationTurnSubmission(queryClient, conversationId) ??
         (pendingTurnSubmission?.conversationId === conversationId
           ? pendingTurnSubmission
-          : null)
+          : null) ??
+        getPendingConversationTurnSubmission(queryClient, conversationId)
       const failure = matchingConversationStartFailure(event, pending)
       if (!failure) return
+      if (pending?.replacesTurnId) {
+        retireOperationId(regenerateOperationRef, pending.idempotencyKey)
+      }
       clearPendingConversationTurnSubmission(queryClient, conversationId)
       clearPendingConversationExecution(queryClient, conversationId)
       setPendingTurnSubmission((current) =>
@@ -2356,22 +2381,36 @@ export function ConversationPage({
     ) {
       return
     }
-    const timer = window.setTimeout(
-      () =>
-        setTerminalDetailReconciliations((current) => {
-          if (!conversationId || current[conversationId] !== reconciliation) {
-            return current
-          }
-          const next = { ...current }
-          delete next[conversationId]
-          return next
-        }),
-      0
-    )
+    const previewFile =
+      reconciliation.status === "completed" && conversationQuery.data
+        ? findFirstCompletedTurnPreviewFile(
+            conversationQuery.data,
+            reconciliation.turnId
+          )
+        : null
+    const timer = window.setTimeout(() => {
+      if (previewFile && conversationId) {
+        const completedTurnKey = `${conversationId}:${reconciliation.turnId}`
+        if (!autoPreviewedCompletedTurnIdsRef.current.has(completedTurnKey)) {
+          autoPreviewedCompletedTurnIdsRef.current.add(completedTurnKey)
+          handlePreviewOfficeDocument(previewFile)
+        }
+      }
+      setTerminalDetailReconciliations((current) => {
+        if (!conversationId || current[conversationId] !== reconciliation) {
+          return current
+        }
+        const next = { ...current }
+        delete next[conversationId]
+        return next
+      })
+    }, 0)
     return () => window.clearTimeout(timer)
   }, [
     conversationId,
+    conversationQuery.data,
     conversationQuery.isFetching,
+    handlePreviewOfficeDocument,
     queryClient,
     terminalDetailReconciliation,
   ])
@@ -3702,6 +3741,7 @@ export function ConversationPage({
       setPendingTurnSubmission({
         conversationId,
         idempotencyKey,
+        afterEventSequence: conversation?.events?.at(-1)?.sequence_no ?? 0,
         message: {
           ...sourceMessage,
           content,
@@ -3734,7 +3774,6 @@ export function ConversationPage({
       return { id: conversationId }
     },
     onSuccess: ({ id }) => {
-      regenerateOperationRef.current = null
       clearConversationLiveState(id)
       if (liveConversationIdRef.current === id) clearNativeReconnect()
       void refreshSubmittedConversation(id).catch(() =>
@@ -3867,6 +3906,16 @@ export function ConversationPage({
     },
   })
 
+  const referenceFileMutation = useMutation({
+    mutationFn: async (file: ReferenceableFile) => {
+      const id = await ensureConversation()
+      attachmentMutationTargetConversationIdRef.current = id
+      await referenceConversationFile(id, file.id)
+      return id
+    },
+    onSuccess: (id) => refreshAfterMutation(id),
+  })
+
   const removeAttachmentMutation = useMutation({
     mutationFn: ({
       targetConversationId,
@@ -3906,6 +3955,7 @@ export function ConversationPage({
   const attachmentOperationPending =
     composerAttachmentOperationPending ||
     attachMutation.isPending ||
+    referenceFileMutation.isPending ||
     removeAttachmentMutation.isPending ||
     clearAttachmentsMutation.isPending
 
@@ -3947,6 +3997,33 @@ export function ConversationPage({
         composerAttachmentOperationInFlightRef.current = false
         setComposerAttachmentOperationPending(false)
       })
+  }
+
+  const referenceComposerFile = async (
+    file: ReferenceableFile
+  ): Promise<boolean> => {
+    if (
+      composerSubmissionInFlightRef.current ||
+      composerAttachmentOperationInFlightRef.current ||
+      composerModelPreferenceOperationInFlightRef.current
+    ) {
+      return false
+    }
+    composerAttachmentOperationInFlightRef.current = true
+    setComposerAttachmentOperationPending(true)
+    attachmentMutationTargetConversationIdRef.current = null
+    try {
+      await referenceFileMutation.mutateAsync(file)
+      return true
+    } catch (error) {
+      const targetId = attachmentMutationTargetConversationIdRef.current
+      if (targetId) await refreshAfterMutation(targetId).catch(() => undefined)
+      throw error
+    } finally {
+      attachmentMutationTargetConversationIdRef.current = null
+      composerAttachmentOperationInFlightRef.current = false
+      setComposerAttachmentOperationPending(false)
+    }
   }
 
   const removeComposerAttachment = async (file: ConversationFile) => {
@@ -4916,22 +4993,6 @@ export function ConversationPage({
       setOfficePreviewUpdate(null)
       setImagePreview(null)
       setFilePreviewClosing(false)
-    },
-    [conversationId]
-  )
-
-  const handlePreviewOfficeDocument = useCallback(
-    (file: ConversationFile) => {
-      setSelectedSubAgent(null)
-      setHtmlCodePreview(null)
-      setImagePreview(null)
-      setFilePreviewClosing(false)
-      setOfficePreview((current) => ({
-        conversationId,
-        file,
-        animateEntrance: current?.conversationId !== conversationId,
-      }))
-      setOfficePreviewUpdate(null)
     },
     [conversationId]
   )
@@ -6047,6 +6108,8 @@ export function ConversationPage({
               }
             }}
             onAttach={attachComposerFiles}
+            currentConversationId={conversationId ?? undefined}
+            onReferenceFile={referenceComposerFile}
             loadAttachmentPreview={loadAttachmentPreview}
             onRemoveAttachment={(file) => void removeComposerAttachment(file)}
             onClearAttachments={clearComposerAttachments}

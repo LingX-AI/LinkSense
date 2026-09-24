@@ -285,7 +285,13 @@ describe("i18n resources", () => {
   it("localizes category descriptions in both languages with a Chinese fallback", () => {
     const fallback = i18n.cloneInstance({ forkResourceStore: true })
     fallback.removeResourceBundle("en-US", "translation")
-    for (const section of ["application", "plugin", "skill", "mcp"] as const) {
+    for (const section of [
+      "application",
+      "plugin",
+      "skill",
+      "connector",
+      "mcp",
+    ] as const) {
       const key = `marketplace.catalogDescriptions.${section}`
       expect(i18n.t(key, { lng: "zh-CN" })).toBe(
         zhCN.marketplace.catalogDescriptions[section]
@@ -859,6 +865,7 @@ describe("i18n resources", () => {
     expect(zhCN.marketplace.catalogTabs).toEqual({
       plugin: "插件",
       skill: "技能",
+      connector: "连接器",
       mcp: "MCP",
       application: "应用",
     })
@@ -869,6 +876,7 @@ describe("i18n resources", () => {
     expect(enUS.marketplace.catalogTabs).toEqual({
       plugin: "Plugins",
       skill: "Skills",
+      connector: "Connectors",
       mcp: "MCP",
       application: "Applications",
     })

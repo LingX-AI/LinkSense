@@ -253,10 +253,12 @@ COPY --chmod=0755 deploy/runtime/browser/linksense-browser /opt/linksense/bin/li
 COPY --chmod=0755 deploy/runtime/node/pnpm /opt/linksense/bin/pnpm
 COPY --chmod=0755 deploy/runtime/node/linksense-pnpm /opt/linksense/bin/linksense-pnpm
 COPY --chmod=0755 deploy/runtime/node/linksense-plugin-stdio /opt/linksense/bin/linksense-plugin-stdio
+COPY --chmod=0755 deploy/runtime/node/linksense-connection-mcp /opt/linksense/bin/linksense-connection-mcp
 COPY --chmod=0755 deploy/runtime/python/linksense-uv /opt/linksense/bin/linksense-uv
 RUN ln -s /opt/linksense/bin/linksense-browser /usr/local/bin/linksense-browser \
   && ln -s /opt/linksense/bin/linksense-pnpm /usr/local/bin/linksense-pnpm \
   && ln -s /opt/linksense/bin/linksense-plugin-stdio /usr/local/bin/linksense-plugin-stdio \
+  && ln -s /opt/linksense/bin/linksense-connection-mcp /usr/local/bin/linksense-connection-mcp \
   && ln -s /opt/linksense/bin/linksense-uv /usr/local/bin/linksense-uv
 RUN install -d -o root -g root -m 0755 /opt/linksense/codex-home-template
 COPY --chown=root:root --chmod=0444 deploy/codex-home-template/config.toml /opt/linksense/codex-home-template/config.toml
@@ -290,7 +292,7 @@ RUN uv venv --python /opt/linksense/runtime/python/bin/python /tmp/linksense-use
   && test "$(stat -c %a /opt/linksense/runtime/shell)" = 755 \
   && test "$(stat -c %a /opt/linksense/runtime/shell/linksense-bash-env.sh)" = 444 \
   && cd "/tmp/browser-smoke/home/workspace" \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="$user_home/.codex" LINKSENSE_CONVERSATION_ID="$conversation_id" LINKSENSE_WORKSPACE_PATH="$user_home/workspace" /usr/bin/bash -lc 'test "$(command -v linksense-browser)" = /opt/linksense/bin/linksense-browser && test "$(command -v linksense-pnpm)" = /opt/linksense/bin/linksense-pnpm && test "$(command -v linksense-plugin-stdio)" = /opt/linksense/bin/linksense-plugin-stdio && test "$(command -v linksense-uv)" = /opt/linksense/bin/linksense-uv' \
+  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="$user_home/.codex" LINKSENSE_CONVERSATION_ID="$conversation_id" LINKSENSE_WORKSPACE_PATH="$user_home/workspace" /usr/bin/bash -lc 'test "$(command -v linksense-browser)" = /opt/linksense/bin/linksense-browser && test "$(command -v linksense-pnpm)" = /opt/linksense/bin/linksense-pnpm && test "$(command -v linksense-plugin-stdio)" = /opt/linksense/bin/linksense-plugin-stdio && test "$(command -v linksense-connection-mcp)" = /opt/linksense/bin/linksense-connection-mcp && test "$(command -v linksense-uv)" = /opt/linksense/bin/linksense-uv' \
   && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="$user_home/.codex" LINKSENSE_CONVERSATION_ID="$conversation_id" LINKSENSE_WORKSPACE_PATH="$user_home/workspace" /usr/bin/bash -lc 'linksense-browser open-workspace-html artifacts/browser-smoke.html' \
   && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="$user_home/.codex" LINKSENSE_CONVERSATION_ID="$conversation_id" LINKSENSE_WORKSPACE_PATH="$user_home/workspace" /usr/bin/bash -lc 'linksense-browser screenshot --filename=chromium-smoke.png' \
   && test -s "/tmp/browser-smoke/home/workspace/temp/browser/chromium-smoke.png" \
@@ -382,10 +384,12 @@ COPY --chmod=0755 deploy/runtime/browser/linksense-browser /opt/linksense/bin/li
 COPY --chmod=0755 deploy/runtime/node/pnpm /opt/linksense/bin/pnpm
 COPY --chmod=0755 deploy/runtime/node/linksense-pnpm /opt/linksense/bin/linksense-pnpm
 COPY --chmod=0755 deploy/runtime/node/linksense-plugin-stdio /opt/linksense/bin/linksense-plugin-stdio
+COPY --chmod=0755 deploy/runtime/node/linksense-connection-mcp /opt/linksense/bin/linksense-connection-mcp
 COPY --chmod=0755 deploy/runtime/python/linksense-uv /opt/linksense/bin/linksense-uv
 RUN ln -s /opt/linksense/bin/linksense-browser /usr/local/bin/linksense-browser \
   && ln -s /opt/linksense/bin/linksense-pnpm /usr/local/bin/linksense-pnpm \
   && ln -s /opt/linksense/bin/linksense-plugin-stdio /usr/local/bin/linksense-plugin-stdio \
+  && ln -s /opt/linksense/bin/linksense-connection-mcp /usr/local/bin/linksense-connection-mcp \
   && ln -s /opt/linksense/bin/linksense-uv /usr/local/bin/linksense-uv
 RUN install -d -o root -g root -m 0755 /opt/linksense/codex-home-template
 COPY --chown=root:root --chmod=0444 deploy/codex-home-template/config.toml /opt/linksense/codex-home-template/config.toml
@@ -419,7 +423,7 @@ RUN uv venv --python /opt/linksense/runtime/python/bin/python /tmp/linksense-use
   && test "$(stat -c %a /opt/linksense/runtime/shell)" = 755 \
   && test "$(stat -c %a /opt/linksense/runtime/shell/linksense-bash-env.sh)" = 444 \
   && cd "/tmp/browser-smoke/home/workspace" \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="$user_home/.codex" LINKSENSE_CONVERSATION_ID="$conversation_id" LINKSENSE_WORKSPACE_PATH="$user_home/workspace" /usr/bin/bash -lc 'test "$(command -v linksense-browser)" = /opt/linksense/bin/linksense-browser && test "$(command -v linksense-pnpm)" = /opt/linksense/bin/linksense-pnpm && test "$(command -v linksense-plugin-stdio)" = /opt/linksense/bin/linksense-plugin-stdio && test "$(command -v linksense-uv)" = /opt/linksense/bin/linksense-uv' \
+  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="$user_home/.codex" LINKSENSE_CONVERSATION_ID="$conversation_id" LINKSENSE_WORKSPACE_PATH="$user_home/workspace" /usr/bin/bash -lc 'test "$(command -v linksense-browser)" = /opt/linksense/bin/linksense-browser && test "$(command -v linksense-pnpm)" = /opt/linksense/bin/linksense-pnpm && test "$(command -v linksense-plugin-stdio)" = /opt/linksense/bin/linksense-plugin-stdio && test "$(command -v linksense-connection-mcp)" = /opt/linksense/bin/linksense-connection-mcp && test "$(command -v linksense-uv)" = /opt/linksense/bin/linksense-uv' \
   && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="$user_home/.codex" LINKSENSE_CONVERSATION_ID="$conversation_id" LINKSENSE_WORKSPACE_PATH="$user_home/workspace" /usr/bin/bash -lc 'linksense-browser open-workspace-html artifacts/browser-smoke.html' \
   && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="$user_home/.codex" LINKSENSE_CONVERSATION_ID="$conversation_id" LINKSENSE_WORKSPACE_PATH="$user_home/workspace" /usr/bin/bash -lc 'linksense-browser screenshot --filename=chromium-smoke.png' \
   && test -s "/tmp/browser-smoke/home/workspace/temp/browser/chromium-smoke.png" \

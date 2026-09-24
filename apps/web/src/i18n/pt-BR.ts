@@ -1,8 +1,10 @@
+import { connectionMessages } from "@/features/connections/messages"
 import { samlptBR } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
 import type { TranslationResource } from "@/i18n/types"
 
 export const ptBR = {
+  connections: connectionMessages["pt-BR"],
   saml: samlptBR,
   social: {
     disableHelp:
@@ -177,6 +179,13 @@ export const ptBR = {
     selectSource: "Escolha uma página da Web desta tarefa",
     noSources:
       "Nenhuma página da Web disponível. Primeiro, gere uma nova versão na tarefa original.",
+    alreadyPublishedTitle: "Esta página já tem um site",
+    alreadyPublishedDescription:
+      "Esta página está vinculada a um site. Copie o link atual ou gerencie o site em Meus sites.",
+    alreadyDisabledTitle: "Este site não está publicado",
+    alreadyDisabledDescription:
+      "O site vinculado a esta página não está publicado. Publique-o novamente em Meus sites.",
+    updateAnotherSite: "Atualizar outro site",
     publishedTitle: "Site publicado",
     updatedTitle: "Site atualizado",
     publishedDescription:
@@ -2362,8 +2371,22 @@ export const ptBR = {
     addMenu: "Adicionar",
     addMenuTitle: "Adicionar conteúdo",
     addGroup: "Adicionar",
-    attachFileMenuLabel: "Arquivos",
-    attachFileMenuSearchValue: "arquivos anexos envio",
+    attachFileMenuLabel: "Arquivos locais",
+    attachFileMenuSearchValue: "arquivos locais anexos envio",
+    referenceFile: {
+      menuLabel: "Referenciar arquivo",
+      menuSearchValue: "referenciar arquivo tarefas anteriores pesquisa",
+      title: "Referenciar arquivo de uma tarefa anterior",
+      description:
+        "Escolha um arquivo de uma tarefa anterior para adicionar à mensagem.",
+      searchPlaceholder: "Pesquisar nomes de arquivos…",
+      empty: "Nenhum arquivo disponível para referência",
+      selectFile: "Selecionar {{filename}} de {{task}}",
+      deselectFile: "Desmarcar {{filename}} de {{task}}",
+      addSelected: "Adicionar arquivos selecionados ({{count}})",
+      addFailed:
+        "Não foi possível adicionar os arquivos selecionados. Tente novamente.",
+    },
     attachFolderMenuLabel: "Pastas",
     attachFolderMenuSearchValue: "pastas diretórios anexos envio",
     capabilitySearch: "Pesquisar plugins ou habilidades disponíveis…",
@@ -3424,6 +3447,7 @@ export const ptBR = {
     catalogTabs: {
       plugin: "Plugins",
       skill: "Habilidades",
+      connector: "Conectores",
       mcp: "MCP",
       application: "Aplicativos",
     },
@@ -3434,6 +3458,8 @@ export const ptBR = {
         "Explore e gerencie plugins para adicionar ferramentas e conexões às suas tarefas.",
       skill:
         "Explore o repositório de habilidades e instale e gerencie habilidades para diferentes tarefas.",
+      connector:
+        "Conecte serviços externos para que a IA consulte informações e execute ações nas suas tarefas, sem sincronizar dados automaticamente com a biblioteca de recursos.",
       mcp: "Gerencie conexões MCP e plugins para dar às tarefas acesso às ferramentas e aos dados necessários.",
     },
     catalogScopesLabel: "Escopo do conteúdo",

@@ -15,6 +15,7 @@ export const webSiteKeys = {
     search?: string
     status?: WebSiteStatus
     conversationId?: string
+    originFileId?: string
   }) => ["web-sites", "list", input] as const,
   sources: (id: string) => ["web-sites", "sources", id] as const,
 }
@@ -22,6 +23,7 @@ export function listWebSites(input: {
   search?: string
   status?: WebSiteStatus
   conversationId?: string
+  originFileId?: string
   cursor?: string | null
   signal?: AbortSignal
 }) {
@@ -32,6 +34,7 @@ export function listWebSites(input: {
       search: input.search,
       status: input.status,
       conversation_id: input.conversationId,
+      origin_file_id: input.originFileId,
       cursor: input.cursor,
       limit: 30,
     },

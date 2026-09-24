@@ -466,6 +466,13 @@ function installApiMock(options?: {
     formData: FormData,
     callIndex: number
   ) => Response | Promise<Response>
+  referenceableFilesResponse?: (
+    query: URLSearchParams
+  ) => Response | Promise<Response>
+  attachmentReferenceResponse?: (
+    body: unknown,
+    conversationId: string
+  ) => Response | Promise<Response>
   turnStartResponse?: () => Promise<Response>
   pendingRequestResponse?: (body: unknown) => Response | Promise<Response>
   userInputResponse?: (body: unknown) => Response | Promise<Response>
@@ -961,6 +968,26 @@ function installApiMock(options?: {
           status: 200,
           headers: { "Content-Type": "text/event-stream" },
         })
+      }
+      if (
+        path === "/api/v1/conversations/referenceable-files" &&
+        method === "GET"
+      ) {
+        return (
+          options?.referenceableFilesResponse?.(url.searchParams) ??
+          json({ success: true, data: { items: [], next_cursor: null } })
+        )
+      }
+      const referencePath = path.match(
+        /^\/api\/v1\/conversations\/([^/]+)\/attachments\/references$/u
+      )
+      if (referencePath && method === "POST") {
+        return (
+          options?.attachmentReferenceResponse?.(
+            requestBody,
+            referencePath[1] ?? ""
+          ) ?? json({ success: false, error_code: "NOT_FOUND" }, 404)
+        )
       }
       if (
         path === "/api/v1/conversations/c1/attachments" &&

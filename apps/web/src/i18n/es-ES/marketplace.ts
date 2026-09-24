@@ -59,6 +59,7 @@ export const marketplaceMessages = {
     catalogTabs: {
       plugin: "Plugins",
       skill: "Skills",
+      connector: "Conectores",
       mcp: "MCP",
       application: "Aplicaciones",
     },
@@ -69,6 +70,8 @@ export const marketplaceMessages = {
         "Explora y gestiona plugins para añadir herramientas y conexiones a tus tareas.",
       skill:
         "Explora el repositorio de Skills e instala y gestiona Skills para diferentes tareas.",
+      connector:
+        "Conecta servicios externos para que la IA consulte información y realice acciones en tus tareas, sin sincronizar datos automáticamente con la biblioteca de recursos.",
       mcp: "Gestiona conexiones y plugins MCP para dar a las tareas acceso a las herramientas y los datos que necesitan.",
     },
     catalogScopesLabel: "Ámbito del contenido",

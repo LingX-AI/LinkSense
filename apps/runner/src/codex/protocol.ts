@@ -185,11 +185,6 @@ export type ThreadForkParams = {
   deferGoalContinuation?: boolean;
 };
 
-export type ThreadRollbackParams = {
-  threadId: string;
-  numTurns: number;
-};
-
 export type ThreadReadResponse = {
   thread: CodexThread;
 };
@@ -235,10 +230,6 @@ export type ThreadListResponse = {
 };
 
 export type ThreadForkResponse = ThreadRuntimeResponse;
-
-export type ThreadRollbackResponse = {
-  thread: CodexThread;
-};
 
 export type ThreadNameUpdatedParams = {
   threadId: string;
