@@ -1,3 +1,4 @@
+import { connectionMessages } from "@/features/connections/messages"
 import { samlfrFR } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
 import type { TranslationResource } from "@/i18n/types"
@@ -14,6 +15,7 @@ import { admin } from "./fr-FR/admin"
 import { errors } from "./fr-FR/errors"
 
 export const frFR = {
+  connections: connectionMessages["fr-FR"],
   saml: samlfrFR,
   common: {
     dateRange: {

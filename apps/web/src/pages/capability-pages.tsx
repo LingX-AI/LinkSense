@@ -159,18 +159,21 @@ import {
   coreMcpPresentation,
 } from "@/features/capabilities/built-in-presentation"
 import {
+  capabilityCenterSections,
   capabilityCenterLocationFromSearch,
   capabilityCenterPath,
   capabilityCenterSettingsState,
+  type CapabilityCenterSection,
 } from "@/features/capabilities/capability-center-navigation"
 import { ClawHubSkillRepositoryPanel } from "@/features/capabilities/clawhub-skill-repository-panel"
+import { ConnectionCatalogPanel } from "@/features/connections/connection-catalog-panel"
 
 type CapabilityType = "plugin" | "skill"
 type ImportSource = "local" | "manual_skill"
 type CapabilityImportProgress =
   { phase: "uploading"; percentage: number } | { phase: "parsing" }
 type UserCapabilityView = "store" | "publishing"
-type MarketplaceCatalogSection = "plugin" | "skill" | "mcp" | "application"
+type MarketplaceCatalogSection = Exclude<CapabilityCenterSection, "connector">
 type MarketplaceCatalogScope = "public" | "personal" | "clawhub"
 type AdminMarketplaceTab = "reviews" | "listings"
 type CapabilityUninstallTarget = {
@@ -219,6 +222,7 @@ const marketplaceStatusIcons = {
 const marketplaceCatalogSectionKeys = {
   plugin: "marketplace.catalogTabs.plugin",
   skill: "marketplace.catalogTabs.skill",
+  connector: "marketplace.catalogTabs.connector",
   mcp: "marketplace.catalogTabs.mcp",
   application: "marketplace.catalogTabs.application",
 } as const
@@ -229,12 +233,9 @@ function isRepositoryCapability(capability: CapabilitySummary) {
     capability.source_type === "clawhub"
   )
 }
-const marketplaceCatalogSections = [
-  "application",
-  "plugin",
-  "skill",
-  "mcp",
-] as const satisfies readonly MarketplaceCatalogSection[]
+const marketplaceCatalogSections = capabilityCenterSections.filter(
+  (section): section is MarketplaceCatalogSection => section !== "connector"
+)
 
 function matchesMarketplaceCatalogSection(
   item: MarketplaceCatalogItem,
@@ -475,7 +476,7 @@ function CapabilityStatusBadge({ disabled }: { disabled: boolean }) {
         "capability-status-badge",
         disabled
           ? "capability-status-badge-inactive"
-          : "capability-status-badge-active capability-status-badge-icon-only"
+          : "capability-status-badge-active capability-status-badge-icon-only [&>svg]:size-4!"
       )}
     >
       {disabled ? label : <CheckIcon aria-hidden="true" />}
@@ -2113,11 +2114,19 @@ function MarketplaceCatalogPanel({
   const requestedCatalogLocation = capabilityCenterLocationFromSearch(
     location.search
   )
+  const marketplaceSection: MarketplaceCatalogSection =
+    requestedCatalogLocation.section === "connector"
+      ? "mcp"
+      : requestedCatalogLocation.section
   const catalogLocation =
     !organizationMarketplaceEnabled &&
     requestedCatalogLocation.scope === "public"
-      ? { ...requestedCatalogLocation, scope: "personal" as const }
-      : requestedCatalogLocation
+      ? {
+          ...requestedCatalogLocation,
+          section: marketplaceSection,
+          scope: "personal" as const,
+        }
+      : { ...requestedCatalogLocation, section: marketplaceSection }
   const { search, section, scope } = catalogLocation
   const normalizedPersonalPath = capabilityCenterPath(catalogLocation)
   useEffect(() => {
@@ -3584,7 +3593,7 @@ export function CapabilityManagementPage() {
       className="h-full min-h-0 min-w-0 gap-0"
       value={section}
       onValueChange={(value) => {
-        const nextSection = marketplaceCatalogSections.find(
+        const nextSection = capabilityCenterSections.find(
           (item) => item === value
         )
         if (!nextSection) return
@@ -3603,7 +3612,7 @@ export function CapabilityManagementPage() {
             className="max-w-full overflow-x-auto"
             aria-label={t("marketplace.catalogTabsLabel")}
           >
-            {marketplaceCatalogSections.map((value) => (
+            {capabilityCenterSections.map((value) => (
               <TabsTrigger key={value} value={value}>
                 {t(marketplaceCatalogSectionKeys[value])}
               </TabsTrigger>
@@ -3656,7 +3665,15 @@ export function CapabilityManagementPage() {
           view !== "publishing" && error ? <Feedback error={error} /> : null
         }
       >
-        {view === "store" && (
+        {view === "store" && section === "connector" && (
+          <TabsContent
+            value="connector"
+            className="capability-center-tab-content"
+          >
+            <ConnectionCatalogPanel />
+          </TabsContent>
+        )}
+        {view === "store" && section !== "connector" && (
           <MarketplaceCatalogPanel
             onFeedback={feedback}
             organizationMarketplaceEnabled={organizationMarketplaceEnabled}

@@ -89,6 +89,8 @@ import {
   NativePluginManager,
   type NativePluginActivation,
 } from "./codex/native-plugin-manager.js";
+import { activePluginNames, connectionPluginConfigOverrides } from "./codex/connection-plugin-policy.js";
+import { isConnectionWrite } from "@linksense/shared";
 import {
   deriveLogicalSubAgentPathLabel,
   deriveSubAgentThreadLabel,
@@ -120,8 +122,6 @@ import type {
   ThreadReadParams,
   ThreadReadResponse,
   ThreadResumeResponse,
-  ThreadRollbackParams,
-  ThreadRollbackResponse,
   ThreadStartResponse,
   TurnStartParams,
   TurnInterruptParams,
@@ -131,6 +131,8 @@ import type {
 } from "./codex/protocol.js";
 import type { RunnerEventSink } from "./event-sink.js";
 import { CurrentUserInfoRequestError } from "./current-user-error.js";
+import { ConnectionRequestError } from "./connection-error.js";
+import type { ConnectionInput } from "@linksense/shared";
 import { FileServiceRequestError } from "./file-service-error.js";
 import { ImageGenerationRequestError } from "./image-generation-error.js";
 import { InteractiveFormRequestError } from "./interactive-form-error.js";
@@ -685,6 +687,7 @@ type ManagedProcess = {
     baselineTurnIds: ReadonlySet<string>;
     projectionTurnId: string;
     threadId: string;
+    nativeTurn: Pick<CodexTurn, "id" | "status"> | null;
   } | null;
   knownTurnIds: Set<string>;
   /** Native turn/start notifications observed for this loaded app-server. */
@@ -718,6 +721,7 @@ type ManagedProcess = {
   skillCreatorToken: string;
   interactiveFormToken: string;
   currentUserToken: string;
+  connectionToken: string;
   notificationQueue: OrderedBatchQueue<QueuedCodexNotification>;
   pendingUserInputRequests: Map<number, PendingUserInputRequest>;
   assistantMessageProjections: Map<string, string>;
@@ -1634,6 +1638,7 @@ export class AppServerProcessPool {
         const skillCreatorToken = randomBytes(32).toString("base64url");
         const interactiveFormToken = randomBytes(32).toString("base64url");
         const currentUserToken = randomBytes(32).toString("base64url");
+        const connectionToken = randomBytes(32).toString("base64url");
         const transferredReservation = reservedProcessSlot;
         reservedProcessSlot = false;
         managed = await this.getOrCreate(
@@ -1658,6 +1663,8 @@ export class AppServerProcessPool {
               LINKSENSE_APPLICATION_BUILDER_TOKEN: skillCreatorToken,
               LINKSENSE_CURRENT_USER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/info`,
               LINKSENSE_CURRENT_USER_TOKEN: currentUserToken,
+              LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
+              LINKSENSE_CONNECTION_TOKEN: connectionToken,
               LINKSENSE_CONVERSATION_ID: input.conversationId,
               LINKSENSE_COLLABORATION_MODE: input.collaborationMode,
               ...managedBrowserTurnEnvironment(
@@ -1753,10 +1760,24 @@ export class AppServerProcessPool {
           "Codex did not report the resumed thread model",
         );
       }
+      const regenerationTargetIndex = input.forkFromCodexTurnId
+        ? sourceTurns.findIndex((turn) => turn.id === input.forkFromCodexTurnId)
+        : null;
+      if (regenerationTargetIndex === -1) {
+        throw new CodexProtocolError("fork source turn was not found");
+      }
+      if (
+        regenerationTargetIndex !== null &&
+        !isTerminalTurn(sourceTurns[regenerationTargetIndex]!)
+      ) {
+        throw new CodexProtocolError("fork source turn is not terminal");
+      }
+      const regeneratesInitialTurn = regenerationTargetIndex === 0;
       const isModelSwitch =
         isResumingExistingNativeThread &&
         sourceThreadModel !== null &&
-        sourceThreadModel !== input.model;
+        sourceThreadModel !== input.model &&
+        !regeneratesInitialTurn;
       if (isModelSwitch && operationKind === "compact") {
         throw new CodexProtocolError(
           "context compaction model does not match the native thread",
@@ -1774,52 +1795,43 @@ export class AppServerProcessPool {
         managed.modelTransitionNonce = transitionNonce;
       }
 
-      if (input.forkFromCodexTurnId) {
-        const targetIndex = sourceTurns.findIndex(
-          (turn) => turn.id === input.forkFromCodexTurnId,
-        );
-        if (targetIndex < 0) {
-          throw new CodexProtocolError("fork source turn was not found");
-        }
-        if (!isTerminalTurn(sourceTurns[targetIndex]!)) {
-          throw new CodexProtocolError("fork source turn is not terminal");
-        }
-
+      if (regeneratesInitialTurn) {
         nativeRequestIssued = true;
-        await this.forkManagedThread(
+        const freshThreadId = await this.startManagedThread(
+          managed,
+          input.model,
+          paths.workspace,
+        );
+        await this.options.eventSink.alignConversationThread?.(
+          managed.conversationId,
+          freshThreadId,
+        );
+        baselineTurnIds = [];
+        managed.knownTurnIds = new Set();
+      } else if (regenerationTargetIndex !== null) {
+        const precedingTurnId = sourceTurns[regenerationTargetIndex - 1]!.id;
+        const expectedBaselineTurnIds = sourceTurns
+          .slice(0, regenerationTargetIndex)
+          .map((turn) => turn.id);
+        nativeRequestIssued = true;
+        const sourceFork = await this.forkManagedThread(
           managed,
           isModelSwitch ? sourceThreadModel! : input.model,
           paths.workspace,
+          precedingTurnId,
         );
+        baselineTurnIds = sourceFork.thread.turns?.map((turn) => turn.id) ?? [];
+        if (!sameStringSequence(baselineTurnIds, expectedBaselineTurnIds)) {
+          throw new CodexProtocolError("fork history verification failed");
+        }
+        managed.knownTurnIds = new Set(baselineTurnIds);
+        sourceTurns = sourceFork.thread.turns ?? [];
         if (!isModelSwitch) {
           await this.options.eventSink.alignConversationThread?.(
             managed.conversationId,
-            managed.codexThreadId!,
+            sourceFork.thread.id,
           );
         }
-
-        const rolledBack = await managed.client.request<ThreadRollbackResponse>(
-          "thread/rollback",
-          {
-            threadId: managed.codexThreadId,
-            numTurns: sourceTurns.length - targetIndex,
-          } satisfies ThreadRollbackParams,
-        );
-        if (rolledBack.thread.id !== managed.codexThreadId) {
-          throw new CodexProtocolError(
-            "Codex returned an invalid rollback thread",
-          );
-        }
-        assertLinkSenseThreadProvider(rolledBack.thread, "rollback");
-        baselineTurnIds = rolledBack.thread.turns?.map((turn) => turn.id) ?? [];
-        const expectedBaselineTurnIds = sourceTurns
-          .slice(0, targetIndex)
-          .map((turn) => turn.id);
-        if (!sameStringSequence(baselineTurnIds, expectedBaselineTurnIds)) {
-          throw new CodexProtocolError("fork rollback verification failed");
-        }
-        managed.knownTurnIds = new Set(baselineTurnIds);
-        sourceTurns = rolledBack.thread.turns ?? [];
         if (isModelSwitch) {
           if (sourceTurns.length > 0) {
             sourceTurns = await this.runModelTransitionCompaction(
@@ -2193,10 +2205,36 @@ export class AppServerProcessPool {
     );
   }
 
+  private async startManagedThread(
+    managed: ManagedProcess,
+    model: string,
+    workspace: string,
+  ): Promise<string> {
+    const response = await managed.client.request<ThreadStartResponse>(
+      "thread/start",
+      {
+        ...linkSenseThreadRuntimeOverrides(model, workspace),
+        ephemeral: false,
+      },
+    );
+    if (!response.thread.id) {
+      throw new CodexProtocolError("Codex returned an invalid thread");
+    }
+    assertLinkSenseThreadProvider(response.thread, "start");
+    managed.codexThreadModel = assertLinkSenseThreadRuntime(
+      response,
+      "start",
+      model,
+    );
+    managed.codexThreadId = response.thread.id;
+    return response.thread.id;
+  }
+
   private async forkManagedThread(
     managed: ManagedProcess,
     model: string,
     workspace: string,
+    lastTurnId?: string,
   ): Promise<ThreadForkResponse> {
     const sourceThreadId = managed.codexThreadId;
     if (!sourceThreadId) {
@@ -2206,6 +2244,7 @@ export class AppServerProcessPool {
       "thread/fork",
       {
         threadId: sourceThreadId,
+        ...(lastTurnId ? { lastTurnId } : {}),
         deferGoalContinuation: true,
         ...linkSenseThreadRuntimeOverrides(model, workspace),
       } satisfies ThreadForkParams,
@@ -2233,11 +2272,15 @@ export class AppServerProcessPool {
       throw new CodexProtocolError("conversation has no Codex thread");
     }
     const baseline = new Set(baselineTurnIds);
-    managed.internalModelTransitionCompaction = {
+    const preparation: NonNullable<
+      ManagedProcess["internalModelTransitionCompaction"]
+    > = {
       baselineTurnIds: baseline,
       projectionTurnId,
       threadId,
+      nativeTurn: null,
     };
+    managed.internalModelTransitionCompaction = preparation;
     managed.modelGatewayLease.setManualModelTransitionCompaction(true);
     let interruptRequested = false;
     try {
@@ -2250,36 +2293,14 @@ export class AppServerProcessPool {
         (this.options.modelTransitionCompactionTimeoutMs ??
           MODEL_TRANSITION_COMPACTION_TIMEOUT_MS);
       do {
-        const response: ThreadReadResponse =
-          await managed.client.request<ThreadReadResponse>(
-          "thread/read",
-          { threadId, includeTurns: true } satisfies ThreadReadParams,
-          );
-        if (response.thread.id !== threadId) {
-          throw new CodexProtocolError("Codex read an unexpected thread");
+        if (!managed.client.isHealthy) {
+          throw new CodexProtocolError("compaction app-server is unavailable");
         }
-        assertLinkSenseThreadProvider(response.thread, "read");
-        const turns = response.thread.turns ?? [];
-        for (const turn of turns) managed.knownTurnIds.add(turn.id);
-        const newTurns = turns.filter((turn) => !baseline.has(turn.id));
-        if (newTurns.length > 1) {
-          throw new CodexProtocolError(
-            "Codex started multiple turns during model transition compaction",
-            -32_600,
-          );
-        }
-        const compactTurn = newTurns.find((turn) =>
-          (turn.items ?? []).some(
-            (item) => item.type === "contextCompaction",
-          ),
-        );
+        // History reads may cross native compaction's history replacement.
+        // Only the native lifecycle notification decides whether it completed;
+        // read history afterwards to establish the fork's baseline IDs.
+        const compactTurn = preparation.nativeTurn;
         if (compactTurn) {
-          rememberBounded(
-            managed.suppressedNativeTurnIds,
-            compactTurn.id,
-            true,
-            128,
-          );
           if (isTerminalTurn(compactTurn)) {
             await this.startOperationStore.assertNotInterrupted(
               managed.conversationId,
@@ -2291,6 +2312,21 @@ export class AppServerProcessPool {
                 -32_600,
               );
             }
+            const response = await managed.client.request<ThreadReadResponse>(
+              "thread/read",
+              { threadId, includeTurns: true } satisfies ThreadReadParams,
+            );
+            if (response.thread.id !== threadId) {
+              throw new CodexProtocolError("Codex read an unexpected thread");
+            }
+            assertLinkSenseThreadProvider(response.thread, "read");
+            const turns = response.thread.turns ?? [];
+            if (!turns.some((turn) => turn.id === compactTurn.id)) {
+              throw new CodexProtocolError(
+                "Codex did not persist the completed compaction turn",
+              );
+            }
+            for (const turn of turns) managed.knownTurnIds.add(turn.id);
             return turns;
           }
           if (!interruptRequested && await this.startOperationStore.isInterruptRequested(
@@ -3718,6 +3754,7 @@ export class AppServerProcessPool {
         const skillCreatorToken = randomBytes(32).toString("base64url");
         const interactiveFormToken = randomBytes(32).toString("base64url");
         const currentUserToken = randomBytes(32).toString("base64url");
+        const connectionToken = randomBytes(32).toString("base64url");
         managed = await this.getOrCreate(
           {
             ...recoveryStartInput,
@@ -3740,6 +3777,8 @@ export class AppServerProcessPool {
               LINKSENSE_APPLICATION_BUILDER_TOKEN: skillCreatorToken,
               LINKSENSE_CURRENT_USER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/info`,
               LINKSENSE_CURRENT_USER_TOKEN: currentUserToken,
+              LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
+              LINKSENSE_CONNECTION_TOKEN: connectionToken,
               LINKSENSE_CONVERSATION_ID: input.conversationId,
               LINKSENSE_COLLABORATION_MODE:
                 recoveryStartInput.collaborationMode ?? "default",
@@ -4403,6 +4442,35 @@ export class AppServerProcessPool {
       conversationId,
       turnId: managed.activeProjectionTurnId,
     });
+  }
+
+  async accessConnection(
+    conversationId: string,
+    token: string,
+    input: ConnectionInput,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const managed = this.processes.get(conversationId);
+    if (
+      !managed?.activeTurnId ||
+      !managed.activeProjectionTurnId ||
+      !safeTokenEqual(token, managed.connectionToken)
+    )
+      throw new ConnectionRequestError("CONNECTION_ACCESS_DENIED", false, 403);
+    if (managed.activeCollaborationMode === "plan" && isConnectionWrite(input))
+      throw new ConnectionRequestError("CONNECTION_ACCESS_DENIED", false, 403);
+    if (!this.options.eventSink.accessConnection)
+      throw new ConnectionRequestError("CONNECTION_UNAVAILABLE", true, 503);
+    const turnId = managed.activeProjectionTurnId;
+    const result = await this.options.eventSink.accessConnection({
+      conversationId,
+      turnId,
+      input,
+      ...(signal ? { signal } : {}),
+    });
+    if (managed.activeProjectionTurnId !== turnId || !managed.activeTurnId)
+      throw new ConnectionRequestError("CONNECTION_ACCESS_DENIED", false, 403);
+    return result;
   }
 
   private get knowledgeMcpEndpointBase(): string {
@@ -5268,6 +5336,8 @@ export class AppServerProcessPool {
         throw new CodexProtocolError("interactive form token is missing");
       }
       const currentUserToken = input.environment.LINKSENSE_CURRENT_USER_TOKEN;
+      const connectionToken = input.environment.LINKSENSE_CONNECTION_TOKEN;
+      if (!connectionToken) throw new CodexProtocolError("connection token is missing");
       if (!currentUserToken) {
         throw new CodexProtocolError("current user token is missing");
       }
@@ -5375,9 +5445,7 @@ export class AppServerProcessPool {
                   }
                 : undefined,
             ),
-            ...(input.collaborationMode === "plan"
-              ? ["features.plugins=false"]
-              : []),
+            ...connectionPluginConfigOverrides(input.capabilities, input.collaborationMode),
           ],
           runtimeEnvironment: { ...runtimeEnvironment, LINKSENSE_CONVERSATION_ID: input.conversationId, LINKSENSE_WORKSPACE_PATH: paths.workspace },
           ...(this.options.codexProcessIdentity
@@ -5443,6 +5511,7 @@ export class AppServerProcessPool {
         skillCreatorToken,
         interactiveFormToken,
         currentUserToken,
+        connectionToken,
         notificationQueue: new OrderedBatchQueue<QueuedCodexNotification>(
           async entries => this.handleNotification(
             managed,
@@ -5502,6 +5571,24 @@ export class AppServerProcessPool {
           }
         }
         const preparation = managed.internalModelTransitionCompaction;
+        if (
+          preparation && params.threadId === preparation.threadId &&
+          (notification.method === "turn/started" || notification.method === "turn/completed")
+        ) {
+          for (const event of mapCodexNotification(notification)) {
+            if (
+              (event.method === "turn/started" || event.method === "turn/completed") &&
+              !preparation.baselineTurnIds.has(event.params.turn.id) &&
+              (!preparation.nativeTurn || preparation.nativeTurn.id === event.params.turn.id)
+            ) {
+              preparation.nativeTurn = {
+                id: event.params.turn.id,
+                status: event.params.turn.status,
+              };
+              rememberBounded(managed.suppressedNativeTurnIds, event.params.turn.id, true, 128);
+            }
+          }
+        }
         void managed.notificationQueue
           .enqueue(
             { notification, preparation },
@@ -5591,18 +5678,14 @@ export class AppServerProcessPool {
         const isControl = input.runtimePurpose === "control";
         const skipsCapabilityRuntime = isCompact || isControl;
         const pluginNames =
-          skipsCapabilityRuntime || input.collaborationMode === "plan"
-            ? []
-            : input.capabilities
-                .filter((capability) => capability.type === "plugin")
-                .map((capability) => capability.name);
+          skipsCapabilityRuntime ? [] : activePluginNames(input.capabilities, input.collaborationMode);
         if (!skipsCapabilityRuntime && !capabilityRuntime) {
           throw new CodexProtocolError(
             "published capability runtime is unavailable",
           );
         }
         managed.authorizedPlugins =
-          skipsCapabilityRuntime || input.collaborationMode === "plan"
+          skipsCapabilityRuntime || (input.collaborationMode === "plan" && pluginNames.length === 0)
             ? []
             : await this.nativePluginManager.verifyAfterStart({
                 client,
@@ -5612,23 +5695,7 @@ export class AppServerProcessPool {
                 pluginNames,
               });
         const startNativeThread = async (): Promise<void> => {
-          const response = await client.request<ThreadStartResponse>(
-            "thread/start",
-            {
-              ...linkSenseThreadRuntimeOverrides(input.model, paths.workspace),
-              ephemeral: false,
-            },
-          );
-          if (!response.thread.id) {
-            throw new CodexProtocolError("Codex returned an invalid thread");
-          }
-          assertLinkSenseThreadProvider(response.thread, "start");
-          managed.codexThreadModel = assertLinkSenseThreadRuntime(
-            response,
-            "start",
-            input.model,
-          );
-          managed.codexThreadId = response.thread.id;
+          await this.startManagedThread(managed, input.model, paths.workspace);
         };
 
         const ensureNativeThread = async (): Promise<void> => {

@@ -8665,14 +8665,9 @@ button.annotation-hover-file:focus-visible {
   padding-inline: 0;
 }
 
-.capability-status-badge svg {
-  width: 18px;
-  height: 18px;
-}
-
 .capability-status-badge-active {
   background: transparent;
-  color: var(--app-text);
+  color: var(--app-muted);
 }
 
 .capability-status-badge-inactive {

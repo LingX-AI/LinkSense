@@ -4,6 +4,12 @@ import { localizedAuditMessages } from "./locale-messages.js"
 type AuditMessages = Readonly<Record<string, readonly [string, string]>>
 
 const actionMessages = {
+  connection_authorized: ["已授权连接", "Connection authorized"],
+  connection_disconnected: ["已断开连接", "Connection disconnected"],
+  connection_enabled: ["已启用连接", "Connection enabled"],
+  connection_disabled: ["已停用连接", "Connection disabled"],
+  connection_used: ["已使用连接", "Connection used"],
+
   social_authentication_settings_updated: ["已更新社交登录设置", "Social sign-in settings updated"],
   social_account_linked: ["已关联社交账号", "Social account linked"],
   social_account_unlinked: ["已解除社交账号关联", "Social account unlinked"],
@@ -217,6 +223,7 @@ const actionMessages = {
 } as const satisfies AuditMessages
 
 const targetTypeMessages = {
+  connection: ["个人连接", "Personal connection"],
   web_site: ["分享站点", "Shared site"],
   application: ["应用", "Application"],
   application_distribution: ["应用分享与上架", "Application sharing and listing"],

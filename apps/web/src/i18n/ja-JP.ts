@@ -1,8 +1,10 @@
+import { connectionMessages } from "@/features/connections/messages"
 import { samljaJP } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
 import type { TranslationResource } from "@/i18n/types"
 
 export const jaJP = {
+  connections: connectionMessages["ja-JP"],
   saml: samljaJP,
   social: {
     disableHelp:
@@ -177,6 +179,13 @@ export const jaJP = {
     selectSource: "このタスクのウェブページを選択",
     noSources:
       "利用できるウェブページがありません。先に元のタスクで新しいバージョンを生成してください。",
+    alreadyPublishedTitle: "このウェブページには既にサイトがあります",
+    alreadyPublishedDescription:
+      "このウェブページはサイトに関連付けられています。現在のリンクをコピーするか、マイサイトで管理できます。",
+    alreadyDisabledTitle: "このサイトは非公開です",
+    alreadyDisabledDescription:
+      "このウェブページに関連付けられたサイトは非公開です。マイサイトから再公開できます。",
+    updateAnotherSite: "別のサイトを更新",
     publishedTitle: "サイトを公開しました",
     updatedTitle: "サイトを更新しました",
     publishedDescription:
@@ -2323,8 +2332,21 @@ export const jaJP = {
     addMenu: "追加",
     addMenuTitle: "コンテンツを追加",
     addGroup: "追加",
-    attachFileMenuLabel: "ファイル",
-    attachFileMenuSearchValue: "ファイル 添付 アップロード",
+    attachFileMenuLabel: "ローカルファイル",
+    attachFileMenuSearchValue: "ローカルファイル 添付 アップロード",
+    referenceFile: {
+      menuLabel: "ファイルを引用",
+      menuSearchValue: "ファイルを引用 過去のタスク 検索",
+      title: "過去のタスクのファイルを引用",
+      description: "過去のタスクからファイルを選び、入力欄に追加します。",
+      searchPlaceholder: "ファイル名を検索…",
+      empty: "引用できるファイルが見つかりません",
+      selectFile: "{{task}} の {{filename}} を選択",
+      deselectFile: "{{task}} の {{filename}} の選択を解除",
+      addSelected: "選択したファイルを追加（{{count}}）",
+      addFailed:
+        "選択したファイルを追加できませんでした。もう一度お試しください。",
+    },
     attachFolderMenuLabel: "フォルダー",
     attachFolderMenuSearchValue: "フォルダー ディレクトリ 添付 アップロード",
     capabilitySearch: "利用可能なプラグインまたはスキルを検索…",
@@ -3366,6 +3388,7 @@ export const jaJP = {
     catalogTabs: {
       plugin: "プラグイン",
       skill: "スキル",
+      connector: "コネクター",
       mcp: "MCP",
       application: "アプリケーション",
     },
@@ -3375,6 +3398,8 @@ export const jaJP = {
       plugin: "プラグインを閲覧・管理し、タスクにツールや接続を追加します。",
       skill:
         "スキルリポジトリを閲覧し、さまざまなタスク向けのスキルをインストール・管理します。",
+      connector:
+        "外部サービスを接続すると、AI がタスク内で必要に応じて情報を取得し、操作できます。資料ライブラリには自動同期されません。",
       mcp: "MCP 接続とプラグインを管理し、タスクで必要なツールやデータを利用できるようにします。",
     },
     catalogScopesLabel: "コンテンツの範囲",

@@ -8,6 +8,12 @@ import { registerRunnerRuntimeScope } from "./modules/events/runtime-scope.js";
 import { finishTaskRequest, withTaskLatencyContext } from "./lib/task-latency.js";
 import cookie from "@fastify/cookie";
 import { socialAuthRoutes } from "./modules/social-auth/routes.js";
+import { connectionRoutes, internalConnectionRoutes } from "./modules/connections/routes.js";
+import { ConnectionService } from "./modules/connections/service.js";
+import { PrismaConnectionRepository } from "./modules/connections/repository.js";
+import { ProviderConnectionProtocol } from "./modules/connections/google-protocol.js";
+import { WorkspaceConnections } from "./modules/connections/workspace-adapter.js";
+import { MicrosoftFilesGraph } from "./modules/connections/graph.js";
 import { SocialSettingsService } from "./modules/social-auth/settings.js";
 import { PrismaSocialRepository } from "./modules/social-auth/repository.js";
 import { RedisSocialStateStore } from "./modules/social-auth/state.js";
@@ -252,6 +258,28 @@ export async function buildApi(
   });
   const socialSettings = new SocialSettingsService(services.prisma, services.config);
   const socialRepository = new PrismaSocialRepository(services.prisma, socialSettings);
+  const connections = new ConnectionService({
+    repository: new PrismaConnectionRepository(services.prisma),
+    settings: socialSettings,
+    states: new RedisSocialStateStore(services.redis),
+    workspace: new WorkspaceConnections(),
+    protocol: new ProviderConnectionProtocol(services.config.publicBaseUrl),
+    graph: new MicrosoftFilesGraph({
+      allowBenchmarkProxyAddresses: services.config.safeHttp.allowBenchmarkProxyAddresses,
+    }),
+    audit: services.audit,
+    masterKey: services.config.credentialMasterKey,
+    keyId: services.config.credentialKeyId,
+  });
+  await app.register(connectionRoutes, {
+    service: connections,
+    publicBaseUrl: services.config.publicBaseUrl,
+  });
+  await app.register(internalConnectionRoutes, {
+    prefix: "/internal",
+    service: connections,
+    sharedSecret: services.config.runnerSharedSecret,
+  });
   await app.register(socialAuthRoutes, {
     settings: socialSettings, repository: socialRepository, auth: authService,
     publicBaseUrl: services.config.publicBaseUrl,

@@ -15,6 +15,7 @@ export async function prepareLocalProcessRuntimeTools(input: {
   root: string
   launcherCommand: string
   launcherArgs: readonly string[]
+  connectionLauncherArgs: readonly string[]
 }): Promise<string> {
   if (!input.launcherCommand.trim()) {
     throw new Error("local STDIO launcher command is required")
@@ -28,12 +29,16 @@ export async function prepareLocalProcessRuntimeTools(input: {
   }
   await chmod(bin, 0o700)
 
-  const launcher = path.join(bin, "linksense-plugin-stdio")
+  for (const [name, args] of [
+    ["linksense-plugin-stdio", input.launcherArgs],
+    ["linksense-connection-mcp", input.connectionLauncherArgs],
+  ] as const) {
+  const launcher = path.join(bin, name)
   const temporaryLauncher = path.join(
     bin,
-    `.linksense-plugin-stdio-${randomUUID()}.tmp`,
+    `.${name}-${randomUUID()}.tmp`,
   )
-  const invocation = [input.launcherCommand, ...input.launcherArgs]
+  const invocation = [input.launcherCommand, ...args]
     .map(quoteShellArgument)
     .join(" ")
   try {
@@ -48,19 +53,28 @@ export async function prepareLocalProcessRuntimeTools(input: {
     await rm(temporaryLauncher, { force: true }).catch(() => undefined)
     throw error
   }
+  }
   return bin
 }
 
 export function resolvePersonalStdioLauncher(moduleUrl: string): string {
+  return resolveRuntimeLauncher(moduleUrl, "personal-stdio-launcher")
+}
+
+export function resolveConnectionLauncher(moduleUrl: string): string {
+  return resolveRuntimeLauncher(moduleUrl, "connection-service-server")
+}
+
+function resolveRuntimeLauncher(moduleUrl: string, name: string): string {
   const directory = path.dirname(fileURLToPath(moduleUrl))
   const built = path.resolve(
     directory,
-    "../mcp/personal-stdio-launcher.js",
+    `../mcp/${name}.js`,
   )
   if (isRealFile(built)) return built
   const source = path.resolve(
     directory,
-    "../mcp/personal-stdio-launcher.ts",
+    `../mcp/${name}.ts`,
   )
   if (isRealFile(source)) return source
   throw new Error("LinkSense personal STDIO launcher was not found")

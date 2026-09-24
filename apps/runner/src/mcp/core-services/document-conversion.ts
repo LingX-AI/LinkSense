@@ -135,7 +135,7 @@ export const documentConversionCoreMcpModule = {
   },
 } satisfies CoreMcpModuleDefinition
 
-async function readWorkspaceDocument(
+export async function readWorkspaceDocument(
   workspaceRootInput: string,
   workspaceRelativePath: string,
 ): Promise<{ bytes: Buffer; extension: string }> {
@@ -242,7 +242,7 @@ async function readWorkspaceDocument(
   }
 }
 
-function markdownPage(
+export function markdownPage(
   bytes: Buffer,
   byteOffset: number,
   maxBytes: number,

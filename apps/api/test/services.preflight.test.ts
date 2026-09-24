@@ -17,6 +17,8 @@ import {
 } from "../src/modules/capabilities/user-home-materializer.js";
 import { hashMarketplacePackage } from "../src/modules/marketplace/package.js";
 import { publishedCapabilitySchema } from "../src/modules/applications/published-definition.js";
+import { microsoftFilesPlugin, type ConnectionProvider } from "@linksense/shared";
+import { ConnectionRuntimePlugins } from "../src/modules/connections/runtime-plugins.js";
 
 const TASK_ID = "01900000-0000-7000-8000-000000000011";
 const USER_ID = "10000000-0000-4000-8000-000000000001";
@@ -41,6 +43,83 @@ afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
+});
+
+describe("official connection runtime isolation", () => {
+  async function fixture() {
+    const root = await capabilityRoot();
+    const database = prismaFixture([]);
+    const home = materializer();
+    const listAvailableProviders = vi.fn(async (): Promise<ConnectionProvider[]> => ["onedrive"]);
+    const connections = new ConnectionRuntimePlugins({ listAvailableProviders });
+    const credentials = { resolveForCapabilities: vi.fn() };
+    const preflight = new DatabaseConversationPreflight(
+      database as never, credentials as never, root,
+      "credential-source-secret-for-tests-1234567890", home,
+      undefined, null, connections,
+    );
+    const input = { userId: USER_ID, conversationId: TASK_ID, priorityCapabilityIds: [] };
+    return { preflight, input, database, home, credentials, listAvailableProviders, connections };
+  }
+
+  it("publishes the authorized official package through native capability materialization with no credential binding", async () => {
+    const f = await fixture();
+    const result = await f.preflight.resolve(f.input);
+    expect(result.capabilities).toEqual([expect.objectContaining({
+      id: microsoftFilesPlugin.id, name: microsoftFilesPlugin.name, type: "plugin", sourceOwnerId: USER_ID,
+    })]);
+    expect(f.home.resolvePublishedRuntimeWithinPublicationStartFence).toHaveBeenCalledWith({
+      ownerId: USER_ID, conversationId: TASK_ID,
+      capabilities: [expect.objectContaining({ id: microsoftFilesPlugin.id, sourcePath: expect.any(String) })],
+    });
+    expect(f.credentials.resolveForCapabilities).not.toHaveBeenCalled();
+    expect(result.environment).toEqual({});
+    f.listAvailableProviders.mockResolvedValue([]);
+    await expect(f.preflight.resolve(f.input)).resolves.toMatchObject({ capabilities: [] });
+  });
+
+  it("never mounts a publisher's personal connection in an application catalog", async () => {
+    const f = await fixture();
+    await expect(f.preflight.resolve({
+      ...f.input,
+      capabilityScope: { source: "draft", sourceOwnerId: APPLICATION_OWNER_ID, capabilityIds: [], mcpServerIds: [] },
+    })).resolves.toMatchObject({ capabilities: [] });
+    expect(f.listAvailableProviders).not.toHaveBeenCalled();
+  });
+
+  it("refuses to start if a connection is disabled between resolution and task start", async () => {
+    const f = await fixture();
+    const resolved = await f.preflight.resolve(f.input);
+    f.listAvailableProviders.mockResolvedValue([]);
+    const action = vi.fn(async () => "started");
+    await expect(f.preflight.withCapabilityStartBarrier({ ...f.input, ...resolved }, action))
+      .rejects.toMatchObject({ code: "CONFLICT" });
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it("recovers a native official package without a capability database row, but refuses revoked or foreign authorization", async () => {
+    const f = await fixture();
+    const capabilities = (await f.connections.resolve(USER_ID)).map((entry) => ({ ...entry, sourceType: "local" as const }));
+    const input = { userId: USER_ID, capabilities };
+    await expect(f.preflight.resolveStartIntentRecovery(input)).resolves.toEqual({ environment: {} });
+    expect(f.database.capability.findMany).not.toHaveBeenCalled();
+    await expect(f.preflight.resolveRecovery({
+      ...input, capabilities: capabilities.map((entry) => ({ ...entry, sourceOwnerId: OTHER_USER_ID })),
+    })).rejects.toMatchObject({ code: "CAPABILITY_NOT_FOUND" });
+    await expect(f.preflight.resolveRecovery({ ...input, applicationId: APPLICATION_ID }))
+      .rejects.toMatchObject({ code: "CAPABILITY_NOT_FOUND" });
+    f.listAvailableProviders.mockResolvedValue([]);
+    await expect(f.preflight.resolveStartIntentRecovery(input)).rejects.toMatchObject({ code: "CAPABILITY_NOT_FOUND" });
+  });
+
+  it("does not trust an installed package that impersonates the official package name", async () => {
+    const f = await fixture();
+    f.database.capability.findMany.mockResolvedValue([
+      { ...capability(PRIMARY_PLUGIN_ID, "/unused", false), name: microsoftFilesPlugin.name },
+    ]);
+    await expect(f.preflight.resolve(f.input)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(f.home.reconcile).not.toHaveBeenCalled();
+  });
 });
 
 describe("DatabaseConversationPreflight credential isolation", () => {

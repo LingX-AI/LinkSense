@@ -1,3 +1,4 @@
+import { MICROSOFT_CONNECTION_BODY_LIMIT } from "@linksense/shared"
 import { timingSafeEqual } from "node:crypto"
 
 import Fastify, { type FastifyReply } from "fastify"
@@ -60,6 +61,9 @@ export function buildControllerServer(
     const scope = uuid.optional().safeParse(request.headers[runtimeServiceSessionHeader])
     if (!scope.success) return reply.code(400).send({ error_code: "RUNNER_SERVICE_SCOPE_INVALID" })
     if (!scope.data) return
+    if (request.url.startsWith("/internal/connections/")) {
+      return reply.code(403).send({ error_code: "CONNECTION_ACCESS_DENIED" })
+    }
     if (request.url.startsWith("/internal/skill-creator/") || request.url === "/internal/application-builder") {
       return reply.code(403).send({ error_code: "RUNNER_SERVICE_SCOPE_MISMATCH" })
     }
@@ -149,10 +153,11 @@ export function buildControllerServer(
     "/internal/skill-creator/preview",
     "/internal/skill-creator/confirm",
     "/internal/current-user/info",
+    "/internal/connections/execute",
     "/internal/application-events/emit",
     "/internal/application-builder",
   ]) {
-    app.post(route, async (request, reply) => {
+    app.post(route, { ...(route === "/internal/connections/execute" ? { bodyLimit: MICROSOFT_CONNECTION_BODY_LIMIT } : {}) }, async (request, reply) => {
       const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
       if (!ownerId) {
         return reply.code(401).send({ error_code: "RUNNER_UNAUTHORIZED" })
@@ -177,7 +182,7 @@ export function buildControllerServer(
               ? 180_000
             : route === "/internal/runner/process-exit"
               ? 130_000
-            : route === "/internal/application-builder"
+            : route === "/internal/application-builder" || route === "/internal/connections/execute"
               ? 60_000
             : 15_000,
           controller.signal,

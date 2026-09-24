@@ -19,7 +19,7 @@ describe("capability card layout", () => {
     )
   })
 
-  it("uses distinct semantic colors for enabled and disabled capabilities", () => {
+  it("shows a larger status check for plugins, skills, and connectors", () => {
     expect(capabilityPageStyles).toMatch(
       /\.capability-status-badge\s*\{[^}]*border:\s*0;/u
     )
@@ -30,10 +30,7 @@ describe("capability card layout", () => {
       /\.capability-status-badge-icon-only\s*\{[^}]*padding-inline:\s*0;/u
     )
     expect(capabilityPageStyles).toMatch(
-      /\.capability-status-badge svg\s*\{[^}]*width:\s*18px;[^}]*height:\s*18px;/u
-    )
-    expect(capabilityPageStyles).toMatch(
-      /\.capability-status-badge-active\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--app-text\);/u
+      /\.capability-status-badge-active\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--app-muted\);/u
     )
     expect(capabilityPageStyles).toMatch(
       /\.capability-status-badge-inactive\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--destructive\) 10%, var\(--app-canvas\)\);[^}]*color:\s*var\(--destructive\);/u

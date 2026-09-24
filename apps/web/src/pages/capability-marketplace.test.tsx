@@ -653,7 +653,15 @@ describe("capability marketplace pages", () => {
       await i18n.changeLanguage(language)
       vi.stubGlobal(
         "fetch",
-        vi.fn(() => Promise.resolve(envelope({ items: [], next_cursor: null })))
+        vi.fn((input: RequestInfo | URL) =>
+          Promise.resolve(
+            envelope(
+              String(input).includes("/connections")
+                ? { items: [] }
+                : { items: [], next_cursor: null }
+            )
+          )
+        )
       )
       const interaction = userEvent.setup()
       const { router } = renderUserPageWithRouter(
@@ -675,11 +683,17 @@ describe("capability marketplace pages", () => {
       expect(page).not.toContainElement(publicationsButton)
       expect(tabs.parentElement).toContainElement(publicationsButton)
       expect(publicationsButton).toHaveClass("ml-auto", "shrink-0")
+      expect(i18n.t("marketplace.catalogDescriptions.connector")).toBe(
+        language === "zh-CN"
+          ? "连接外部系统，在任务中让 AI 按需获取信息和执行操作，不会自动同步到资料库。"
+          : "Connect external services so AI can access information and take action in your tasks, without automatically syncing data to your resource library."
+      )
 
       for (const section of [
         "application",
         "plugin",
         "skill",
+        "connector",
         "mcp",
       ] as const) {
         const name = i18n.t(`marketplace.catalogTabs.${section}`)
@@ -699,7 +713,7 @@ describe("capability marketplace pages", () => {
       await act(() => router.navigate(-1))
       expect(
         within(header).getByRole("heading", {
-          name: i18n.t("marketplace.catalogTabs.skill"),
+          name: i18n.t("marketplace.catalogTabs.connector"),
           level: 1,
         })
       ).toBeVisible()
@@ -906,8 +920,10 @@ describe("capability marketplace pages", () => {
     expect(enabledStatus).toHaveClass(
       "capability-status-badge",
       "capability-status-badge-active",
-      "capability-status-badge-icon-only"
+      "capability-status-badge-icon-only",
+      "[&>svg]:size-4!"
     )
+    expect(enabledStatus).not.toHaveClass("[&>svg]:size-3!")
     expect(enabledStatus.querySelector("svg")).not.toBeNull()
     expect(within(installedCard).queryByText("启用")).not.toBeInTheDocument()
     expect(
@@ -1979,7 +1995,7 @@ describe("capability marketplace pages", () => {
       within(catalogTabs)
         .getAllByRole("tab")
         .map((tab) => tab.textContent)
-    ).toEqual(["应用", "插件", "技能", "MCP"])
+    ).toEqual(["应用", "插件", "技能", "连接器", "MCP"])
     expect(screen.getByRole("heading", { name: "已安装" })).toBeVisible()
     const scopeToggle = screen.getByLabelText("内容范围")
     expect(

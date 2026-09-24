@@ -1,3 +1,4 @@
+import { connectionMessages } from "@/features/connections/messages"
 import { samlenUS } from "@/features/saml/messages"
 import { webSitesEnUS } from "@/features/web-sites/messages"
 import { socialEnUS } from "@/features/social-auth/messages"
@@ -5,6 +6,7 @@ import { personalQuotaEnUS } from "@/features/usage/personal-quota-messages"
 import { errorCatalog } from "@linksense/shared"
 
 export const enUS = {
+  connections: connectionMessages["en-US"],
   saml: samlenUS,
   social: socialEnUS,
   personalQuota: personalQuotaEnUS,
@@ -2102,8 +2104,20 @@ export const enUS = {
     addMenu: "Add",
     addMenuTitle: "Add content",
     addGroup: "Add",
-    attachFileMenuLabel: "Files",
-    attachFileMenuSearchValue: "files attachments upload",
+    attachFileMenuLabel: "Local files",
+    attachFileMenuSearchValue: "local files attachments upload",
+    referenceFile: {
+      menuLabel: "Reference file",
+      menuSearchValue: "reference file previous tasks search",
+      title: "Reference a file from a previous task",
+      description: "Choose a file from a previous task to add to your message.",
+      searchPlaceholder: "Search file names…",
+      empty: "No files available to reference",
+      selectFile: "Select {{filename}} from {{task}}",
+      deselectFile: "Deselect {{filename}} from {{task}}",
+      addSelected: "Add selected files ({{count}})",
+      addFailed: "Could not add the selected files. Try again.",
+    },
     attachFolderMenuLabel: "Folders",
     attachFolderMenuSearchValue: "folders directories attachments upload",
     capabilitySearch: "Search available plugins or Skills…",
@@ -3137,6 +3151,7 @@ export const enUS = {
     catalogTabs: {
       plugin: "Plugins",
       skill: "Skills",
+      connector: "Connectors",
       mcp: "MCP",
       application: "Applications",
     },
@@ -3147,6 +3162,8 @@ export const enUS = {
         "Browse and manage plugins to add tools and connections to your tasks.",
       skill:
         "Browse the Skill repository, and install and manage Skills for different tasks.",
+      connector:
+        "Connect external services so AI can access information and take action in your tasks, without automatically syncing data to your resource library.",
       mcp: "Manage MCP connections and plugins to give tasks access to the tools and data they need.",
     },
     catalogScopesLabel: "Content scope",

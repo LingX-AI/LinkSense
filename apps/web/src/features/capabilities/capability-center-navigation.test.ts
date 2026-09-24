@@ -20,7 +20,7 @@ describe("capability center navigation", () => {
     }
   )
 
-  it.each(["application", "plugin", "skill", "mcp"])(
+  it.each(["application", "plugin", "skill", "connector", "mcp"])(
     "preserves the explicitly selected %s category",
     (section) => {
       expect(
@@ -76,5 +76,8 @@ describe("capability center navigation", () => {
     expect(
       capabilityCenterLocationFromSearch("?section=mcp&scope=public")
     ).toEqual({ section: "mcp", scope: "personal", search: "" })
+    expect(
+      capabilityCenterLocationFromSearch("?section=connector&scope=public")
+    ).toEqual({ section: "connector", scope: "personal", search: "" })
   })
 })

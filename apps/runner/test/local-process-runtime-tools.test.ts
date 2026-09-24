@@ -38,6 +38,7 @@ describe("local-process runtime tools", () => {
       root,
       launcherCommand: process.execPath,
       launcherArgs: [tsxCli, personalStdioLauncher],
+      connectionLauncherArgs: [tsxCli, fileURLToPath(new URL("../src/mcp/connection-service-server.ts", import.meta.url))],
     })
     const fixture = fileURLToPath(
       new URL("./fixtures/personal-stdio-server.mjs", import.meta.url),
@@ -70,5 +71,11 @@ describe("local-process runtime tools", () => {
       serverName: "linksense-personal-stdio-fixture",
       toolCount: 1,
     })
+    await expect(probePersonalStdioMcp({
+      command: "linksense-connection-mcp", args: ["microsoft-files"],
+      environment: { LINKSENSE_COLLABORATION_MODE: "default" },
+      runtimeEnvironment: { HOME: root, PATH: [runtimeToolBin, process.env.PATH ?? "/usr/bin:/bin"].join(path.delimiter) },
+      timeoutMs: 10_000,
+    })).resolves.toMatchObject({ serverName: "linksense-microsoft-files", toolCount: 2 })
   })
 })

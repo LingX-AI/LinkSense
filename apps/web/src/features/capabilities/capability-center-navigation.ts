@@ -1,8 +1,9 @@
-const capabilityCenterSections = [
+export const capabilityCenterSections = [
+  "application",
   "plugin",
   "skill",
+  "connector",
   "mcp",
-  "application",
 ] as const
 const capabilityCenterScopes = ["personal", "public", "clawhub"] as const
 
@@ -25,7 +26,8 @@ function normalizeCapabilityCenterScope(
   section: CapabilityCenterSection,
   scope: CapabilityCenterScope
 ): CapabilityCenterScope {
-  if (scope === "public" && section === "mcp") return "personal"
+  if (scope === "public" && (section === "mcp" || section === "connector"))
+    return "personal"
   if (scope === "clawhub" && section !== "skill") return "personal"
   return scope
 }

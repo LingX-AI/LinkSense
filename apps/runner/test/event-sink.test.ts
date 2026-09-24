@@ -36,6 +36,23 @@ afterEach(async () => {
 });
 
 describe("HttpRunnerEventSink", () => {
+  it("relays connection operations with the task owner and redacts provider failures", async () => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ kind: "connections", items: [] }));
+    const sink = new HttpRunnerEventSink("http://api:4000", "runner-secret", workspaceManager, { fetch: fetchMock });
+    const abort = new AbortController();
+    const body = { conversationId, turnId: ownerId, input: { operation: "list_connections" as const } };
+    try {
+      expect(await sink.accessConnection({ ...body, signal: abort.signal })).toEqual({ kind: "connections", items: [] });
+      expect(fetchMock).toHaveBeenCalledWith(new URL("http://api:4000/internal/connections/execute"), expect.objectContaining({
+        body: JSON.stringify(body), headers: expect.objectContaining({ "x-linksense-owner-id": ownerId }),
+      }));
+      abort.abort();
+      expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+      fetchMock.mockResolvedValueOnce(Response.json({ error_code: "CONNECTION_REQUIRED", message: "private-token-detail" }, { status: 409 }));
+      await expect(sink.accessConnection(body)).rejects.toMatchObject({ code: "CONNECTION_REQUIRED", message: "CONNECTION_REQUIRED", retryable: false });
+    } finally { await sink.close(); }
+  });
   it("projects a settled start outside the blocked event queue and wakes delivery immediately", async () => {
     const { workspaceManager } = await createWorkspaceManager();
     let projected = false;

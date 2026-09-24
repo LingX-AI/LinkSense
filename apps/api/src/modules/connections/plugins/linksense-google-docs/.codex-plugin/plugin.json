@@ -1,0 +1,21 @@
+{
+  "name": "linksense-google-docs",
+  "version": "1.0.0",
+  "description": "Search, read, create and edit Google documents.",
+  "author": {
+    "name": "LinkSense"
+  },
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Google Docs",
+    "shortDescription": "Search, read, create and edit Google documents.",
+    "longDescription": "Search, read, create and edit Google documents.",
+    "developerName": "LinkSense",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": "Search, read, create and edit Google documents."
+  }
+}

@@ -1,3 +1,4 @@
+import { connectionMessages } from "@/features/connections/messages"
 import { samlzhCN } from "@/features/saml/messages"
 import { webSitesZhCN } from "@/features/web-sites/messages"
 import { socialZhCN } from "@/features/social-auth/messages"
@@ -5,6 +6,7 @@ import { personalQuotaZhCN } from "@/features/usage/personal-quota-messages"
 import { errorCatalog } from "@linksense/shared"
 
 export const zhCN = {
+  connections: connectionMessages["zh-CN"],
   saml: samlzhCN,
   social: socialZhCN,
   personalQuota: personalQuotaZhCN,
@@ -1943,8 +1945,20 @@ export const zhCN = {
     addMenu: "添加",
     addMenuTitle: "添加内容",
     addGroup: "添加",
-    attachFileMenuLabel: "文件",
-    attachFileMenuSearchValue: "文件 附件 上传",
+    attachFileMenuLabel: "本地文件",
+    attachFileMenuSearchValue: "本地文件 附件 上传",
+    referenceFile: {
+      menuLabel: "引用文件",
+      menuSearchValue: "引用文件 历史任务 搜索文件",
+      title: "引用历史任务文件",
+      description: "选择过往任务中的文件，添加到当前输入框。",
+      searchPlaceholder: "搜索文件名…",
+      empty: "没有找到可引用的文件",
+      selectFile: "选择 {{task}} 中的 {{filename}}",
+      deselectFile: "取消选择 {{task}} 中的 {{filename}}",
+      addSelected: "添加所选文件（{{count}}）",
+      addFailed: "无法添加所选文件，请重试。",
+    },
     attachFolderMenuLabel: "文件夹",
     attachFolderMenuSearchValue: "文件夹 目录 附件 上传",
     capabilitySearch: "搜索可用插件或 Skill…",
@@ -2910,6 +2924,7 @@ export const zhCN = {
     catalogTabs: {
       plugin: "插件",
       skill: "技能",
+      connector: "连接器",
       mcp: "MCP",
       application: "应用",
     },
@@ -2917,6 +2932,8 @@ export const zhCN = {
       application: "创建和管理应用，查找并使用可用的应用。",
       plugin: "浏览和管理插件，为任务扩展工具与连接能力。",
       skill: "浏览技能仓库，安装和管理适用于不同任务的技能。",
+      connector:
+        "连接外部系统，在任务中让 AI 按需获取信息和执行操作，不会自动同步到资料库。",
       mcp: "管理 MCP 连接与插件，让任务访问所需的工具和数据。",
     },
     catalogScopesLabel: "内容范围",

@@ -1797,6 +1797,46 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it("binds Microsoft file access to the active task and rejects wrong or expired process tokens", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-connection-token-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    await pool.startTurn(input);
+    const token = controlled.environment?.LINKSENSE_CONNECTION_TOKEN;
+    if (!token) throw new Error("missing connection token");
+    expect(controlled.environment?.LINKSENSE_CONNECTION_ENDPOINT).toBe(`http://127.0.0.1:4010/mcp-connections/${input.conversationId}/execute`);
+    await pool.accessConnection(input.conversationId, token, { operation: "list_connections" });
+    expect(eventSink.accessConnection).toHaveBeenCalledWith({ conversationId: input.conversationId, turnId: input.projectionTurnId, input: { operation: "list_connections" } });
+    await expect(pool.accessConnection(input.conversationId, "wrong-token", { operation: "list_connections" })).rejects.toMatchObject({ code: "CONNECTION_ACCESS_DENIED" });
+    controlled.notify({ method: "turn/completed", params: { threadId: "thread-native-1", turn: { id: "turn-native-1", status: "completed" } } });
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
+    await expect(pool.accessConnection(input.conversationId, token, { operation: "list_connections" })).rejects.toMatchObject({ code: "CONNECTION_ACCESS_DENIED" });
+    await pool.closeAll();
+  });
+
+  it.each(["default", "plan"] as const)("enforces Microsoft writes in %s mode at the process boundary", async (collaborationMode) => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-connection-write-mode-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+    const input = { ...startOperationInput(), collaborationMode };
+    await pool.startTurn(input);
+    const token = controlled.environment?.LINKSENSE_CONNECTION_TOKEN;
+    if (!token) throw new Error("missing connection token");
+    const operation = { operation: "delete_file" as const, provider: "onedrive" as const, drive_id: "drive-1", item_id: "item-1", expected_etag: '"v1"' };
+    try {
+      if (collaborationMode === "plan") {
+        await expect(pool.accessConnection(input.conversationId, token, operation)).rejects.toMatchObject({ code: "CONNECTION_ACCESS_DENIED" });
+        expect(eventSink.accessConnection).not.toHaveBeenCalled();
+      } else {
+        await pool.accessConnection(input.conversationId, token, operation);
+        expect(eventSink.accessConnection).toHaveBeenCalledWith({ conversationId: input.conversationId, turnId: input.projectionTurnId, input: operation });
+      }
+    } finally { await pool.closeAll(); }
+  });
+
   it("starts the first turn without reading an unmaterialized native thread", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-first-turn-"));
     roots.push(root);
@@ -4018,13 +4058,19 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("stops a fork before rollback when Codex reports the wrong model provider", async () => {
+  it("stops a historical fork before turn start when Codex reports the wrong model provider", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-fork-provider-mismatch-"),
     );
     roots.push(root);
     const controlled = createControlledAppServer({
       threadReadTurns: [
+        {
+          id: "turn-before",
+          status: "completed",
+          items: [],
+          error: null,
+        },
         {
           id: "turn-target",
           status: "completed",
@@ -4060,7 +4106,7 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("stops a fork before turn/start when rollback reports the wrong model provider", async () => {
+  it("stops a first-turn regeneration when the fresh thread reports the wrong model provider", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-rollback-provider-mismatch-"),
     );
@@ -4074,7 +4120,7 @@ trust_level = "trusted"
           error: null,
         },
       ],
-      threadRollbackModelProvider: "openai",
+      threadStartModelProvider: "openai",
     });
     const { pool, eventSink } = createStartOperationPool(
       root,
@@ -4090,12 +4136,13 @@ trust_level = "trusted"
       "native turn start result is uncertain",
     );
 
-    expect(controlled.methods).toContain("thread/fork");
-    expect(controlled.methods).toContain("thread/rollback");
+    expect(controlled.methods).toContain("thread/start");
+    expect(controlled.methods).not.toContain("thread/fork");
+    expect(controlled.methods).not.toContain("thread/rollback");
     expect(controlled.methods).not.toContain("turn/start");
-    expect(eventSink.alignConversationThread).toHaveBeenCalledWith(
+    expect(eventSink.alignConversationThread).not.toHaveBeenCalledWith(
       start.conversationId,
-      "thread-forked-1",
+      "thread-native-1",
     );
     await pool.closeAll();
   });
@@ -4306,6 +4353,34 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it("waits for native compaction completion instead of a snapshot crossing history replacement", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-compaction-read-race-"));
+    roots.push(root);
+    const compactTurn: CodexTurn = { id: "native-compact", status: "interrupted", error: null,
+      items: [{ id: "compact-item", type: "contextCompaction" }] };
+    const controlled = createControlledAppServer({
+      threadResumeModel: "source-model",
+      threadReadTurns: [{ id: "previous-turn", status: "completed", items: [], error: null }],
+      compactTurn, compactNotifications: "manual",
+    });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const input = { ...startOperationInput(), model: "target-model", codexThreadId: "source-thread",
+      modelTransitionSource: { model: "source-model", provider: { revision: 1,
+        baseUrl: "https://source.example.test/v1", protocolMode: "native_responses" as const, apiKey: "test-key" } } };
+    let settled = false;
+    const outcome = pool.startTurn(input).then(result => { settled = true; return { result }; },
+      (error: unknown) => { settled = true; return { error }; });
+    await waitForFast(() => expect(controlled.methods).toContain("thread/compact/start"));
+    await new Promise(resolve => setTimeout(resolve, 60));
+    expect(settled).toBe(false);
+    expect(controlled.methods).not.toContain("turn/start");
+    controlled.notify({ method: "turn/completed", params: { threadId: "source-thread", turn: { ...compactTurn, status: "completed" } } });
+    expect(await outcome).toHaveProperty("result");
+    expect(controlled.methods.filter(method => method === "thread/compact/start")).toHaveLength(1);
+    expect(controlled.methods.filter(method => method === "turn/start")).toHaveLength(1);
+    await pool.closeAll();
+  });
+
   it("interrupts model-switch preparation and never starts the cancelled user turn", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-stop-model-preparation-"));
     roots.push(root);
@@ -4338,6 +4413,7 @@ trust_level = "trusted"
       })));
     } finally {
       compactTurn.status = "interrupted";
+      controlled.notify({ method: "turn/completed", params: { threadId: "source-thread", turn: compactTurn } });
     }
     await waitForFast(async () => expect(await pool.getStartOperation(input.conversationId, input.projectionTurnId)).toMatchObject({ status: "failed", errorCode: "RUNNER_TURN_START_SEALED" }));
     expect(controlled.methods).not.toContain("turn/start");
@@ -4635,7 +4711,7 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("compacts the rolled-back source branch before changing models during regeneration", async () => {
+  it.each(["completed", "interrupted"] as const)("compacts the source branch before changing models during %s regeneration", async (status) => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-model-transition-regeneration-"),
     );
@@ -4648,7 +4724,7 @@ trust_level = "trusted"
     };
     const turnBeingRegenerated: CodexTurn = {
       id: "turn-being-regenerated",
-      status: "completed",
+      status,
       items: [],
       error: null,
     };
@@ -4671,8 +4747,7 @@ trust_level = "trusted"
       threadResumeModel: "model-b",
       threadReadTurns: sourceTurns,
       forkThreadIds: ["thread-model-b-branch", "thread-model-c-target"],
-      threadForkTurnsByCall: [sourceTurns, [turnBefore, compactTurn]],
-      threadRollbackTurns: [turnBefore],
+      threadForkTurnsByCall: [[turnBefore], [turnBefore, compactTurn]],
       threadReadById: {
         "thread-model-b-branch": { turns: [turnBefore] },
       },
@@ -4717,21 +4792,17 @@ trust_level = "trusted"
       expect.objectContaining({
         threadId: "thread-model-b",
         model: "model-b",
+        lastTurnId: turnBefore.id,
       }),
       expect.objectContaining({
         threadId: "thread-model-b-branch",
         model: "model-c",
       }),
     ]);
-    expect(
-      controlled.requests.find(
-        (request) => request.method === "thread/rollback",
-      )?.params,
-    ).toEqual({ threadId: "thread-model-b-branch", numTurns: 2 });
+    expect(controlled.methods).not.toContain("thread/rollback");
     const orderedMethods = [
       "thread/read",
       "thread/fork",
-      "thread/rollback",
       "thread/compact/start",
     ];
     for (let index = 1; index < orderedMethods.length; index += 1) {
@@ -6846,7 +6917,122 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("forks and rolls back through the selected terminal turn before starting", async () => {
+  it("starts a fresh native thread when editing the first interrupted turn", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-edit-first-interrupted-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({
+      threadReadTurns: [
+        { id: "turn-interrupted", status: "interrupted", items: [], error: null },
+      ],
+    });
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+    const onPrepared = vi.fn(async () => undefined);
+    const start = {
+      ...startOperationInput(),
+      codexThreadId: "thread-source",
+      forkFromCodexTurnId: "turn-interrupted",
+    };
+
+    await expect(pool.startTurn(start, onPrepared)).resolves.toEqual({
+      codexThreadId: "thread-native-1",
+      codexTurnId: "turn-native-1",
+    });
+    expect(controlled.methods).not.toContain("thread/fork");
+    expect(controlled.methods).not.toContain("thread/rollback");
+    expect(controlled.methods.indexOf("thread/start")).toBeLessThan(
+      controlled.methods.indexOf("turn/start"),
+    );
+    expect(onPrepared).toHaveBeenCalledWith({
+      codexThreadId: "thread-native-1",
+      baselineTurnIds: [],
+      operationKind: "turn",
+      preparedAt: expect.any(String),
+    });
+    expect(eventSink.alignConversationThread).toHaveBeenCalledWith(
+      start.conversationId,
+      "thread-native-1",
+    );
+    await pool.closeAll();
+  });
+
+  it("starts the selected model directly when editing the first interrupted turn", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-edit-first-model-switch-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({
+      threadResumeModel: "model-before",
+      threadReadTurns: [
+        { id: "turn-interrupted", status: "interrupted", items: [], error: null },
+      ],
+    });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+
+    await expect(pool.startTurn({
+      ...startOperationInput(),
+      codexThreadId: "thread-source",
+      forkFromCodexTurnId: "turn-interrupted",
+      model: "model-after",
+      modelTransitionSource: {
+        model: "model-before",
+        provider: {
+          revision: 7,
+          baseUrl: "https://source-model.example.test/v1",
+          protocolMode: "native_responses" as const,
+          apiKey: "source-model-key",
+        },
+      },
+    })).resolves.toEqual({
+      codexThreadId: "thread-native-1",
+      codexTurnId: "turn-native-1",
+    });
+    expect(controlled.requests.find((request) => request.method === "thread/start")?.params)
+      .toMatchObject({ model: "model-after" });
+    expect(controlled.methods).not.toContain("thread/fork");
+    expect(controlled.methods).not.toContain("thread/compact/start");
+    expect(controlled.requests.find((request) => request.method === "turn/start")?.params)
+      .toMatchObject({ threadId: "thread-native-1", model: "model-after" });
+    await pool.closeAll();
+  });
+
+  it("forks before the interrupted turn when earlier history exists", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-edit-later-interrupted-"));
+    roots.push(root);
+    const earlierTurn: CodexTurn = {
+      id: "turn-before",
+      status: "completed",
+      items: [],
+      error: null,
+    };
+    const controlled = createControlledAppServer({
+      threadReadTurns: [
+        earlierTurn,
+        { id: "turn-interrupted", status: "interrupted", items: [], error: null },
+      ],
+      threadForkTurns: [earlierTurn],
+    });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const onPrepared = vi.fn(async () => undefined);
+
+    await expect(pool.startTurn({
+      ...startOperationInput(),
+      codexThreadId: "thread-source",
+      forkFromCodexTurnId: "turn-interrupted",
+    }, onPrepared)).resolves.toEqual({
+      codexThreadId: "thread-forked-1",
+      codexTurnId: "turn-native-1",
+    });
+    expect(controlled.requests.find((request) => request.method === "thread/fork")?.params)
+      .toMatchObject({ threadId: "thread-source", lastTurnId: "turn-before" });
+    expect(controlled.methods).not.toContain("thread/rollback");
+    expect(onPrepared).toHaveBeenCalledWith({
+      codexThreadId: "thread-forked-1",
+      baselineTurnIds: ["turn-before"],
+      operationKind: "turn",
+      preparedAt: expect.any(String),
+    });
+    await pool.closeAll();
+  });
+
+  it("forks through the turn preceding the edited message before starting", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-fork-turn-"));
     roots.push(root);
     const sourceTurns: CodexTurn[] = [
@@ -6887,12 +7073,7 @@ trust_level = "trusted"
       codexTurnId: "turn-native-1",
     });
 
-    const orderedMethods = [
-      "thread/read",
-      "thread/fork",
-      "thread/rollback",
-      "turn/start",
-    ];
+    const orderedMethods = ["thread/read", "thread/fork", "turn/start"];
     for (let index = 1; index < orderedMethods.length; index += 1) {
       expect(
         controlled.methods.indexOf(orderedMethods[index - 1]!),
@@ -6903,6 +7084,7 @@ trust_level = "trusted"
         ?.params,
     ).toEqual({
       threadId: "thread-source",
+      lastTurnId: "turn-before",
       model: "test-model",
       modelProvider: "link-sense",
       cwd: join(root, "home", "workspace"),
@@ -6913,11 +7095,7 @@ trust_level = "trusted"
       approvalPolicy: linksenseApprovalPolicy,
       sandbox: "danger-full-access",
     });
-    expect(
-      controlled.requests.find(
-        (request) => request.method === "thread/rollback",
-      )?.params,
-    ).toEqual({ threadId: "thread-forked-1", numTurns: 2 });
+    expect(controlled.methods).not.toContain("thread/rollback");
     expect(
       controlled.requests.find((request) => request.method === "turn/start")
         ?.params,
@@ -10469,7 +10647,7 @@ trust_level = "trusted"
     expect(controlled.methods).not.toContain("turn/start");
   });
 
-  it("does not repeat fork, rollback, or turn start for a duplicate operation", async () => {
+  it("does not repeat fork or turn start for a duplicate operation", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-fork-operation-"));
     roots.push(root);
     const controlled = createControlledAppServer({
@@ -10503,7 +10681,7 @@ trust_level = "trusted"
     expect(first.status).toBe("starting");
     expect(duplicate.status).toBe("starting");
     await waitForFast(() => {
-      for (const method of ["thread/fork", "thread/rollback", "turn/start"]) {
+      for (const method of ["thread/fork", "turn/start"]) {
         expect(
           controlled.methods.filter((value) => value === method),
         ).toHaveLength(1);
@@ -10525,11 +10703,12 @@ trust_level = "trusted"
     await expect(pool.beginStartOperation(input)).resolves.toMatchObject({
       status: "succeeded",
     });
-    for (const method of ["thread/fork", "thread/rollback", "turn/start"]) {
+    for (const method of ["thread/fork", "turn/start"]) {
       expect(
         controlled.methods.filter((value) => value === method),
       ).toHaveLength(1);
     }
+    expect(controlled.methods).not.toContain("thread/rollback");
     await pool.closeAll();
   });
 
@@ -11344,6 +11523,7 @@ function createStartOperationPool(
     listKnowledgeDocuments: vi.fn(async () => ({})),
     getKnowledgeDocumentMarkdown: vi.fn(async () => ({})),
     getCurrentUserInfo: vi.fn(async () => ({})),
+    accessConnection: vi.fn(async () => ({ kind: "connections", items: [] })),
     alignConversationThread: vi.fn(async () => undefined),
   } satisfies RunnerEventSink;
   const capabilityRuntimeManager =
@@ -11609,6 +11789,7 @@ function createControlledAppServer(
     turnStartError?: { code: number; message: string };
     turnStartIds?: string[];
     compactTurn?: CodexTurn;
+    compactNotifications?: "manual";
     turnSteer?: "immediate" | "exit";
     initialGoal?: ControlledThreadGoal;
     threadReadTurns?: CodexTurn[];
@@ -11648,10 +11829,8 @@ function createControlledAppServer(
     forkThreadIds?: string[];
     threadForkModel?: string;
     threadForkModelProvider?: string;
-    threadRollbackModelProvider?: string;
     threadForkTurns?: CodexTurn[];
     threadForkTurnsByCall?: CodexTurn[][];
-    threadRollbackTurns?: CodexTurn[];
     rejectUnmaterializedThreadRead?: boolean;
     ignoreKill?: boolean;
   } = {},
@@ -11771,6 +11950,7 @@ function createControlledAppServer(
                             tools: {
                               convert_document_to_markdown: {},
                               get_current_user_info: {},
+                              microsoft_files: {},
                               request_user_form: {},
                               emit_application_event: {},
                               ...(options.mutationServicesAvailable === false
@@ -11852,6 +12032,12 @@ function createControlledAppServer(
             state.compactThreadId = String(
               message.params?.threadId ?? "thread-native-1",
             );
+            if (options.compactTurn && options.compactNotifications !== "manual") {
+              stdout.write(`${JSON.stringify({ method: "turn/started", params: { threadId: state.compactThreadId, turn: { ...options.compactTurn, status: "inProgress" } } })}\n`);
+              if (options.compactTurn.status !== "inProgress") {
+                stdout.write(`${JSON.stringify({ method: "turn/completed", params: { threadId: state.compactThreadId, turn: options.compactTurn } })}\n`);
+              }
+            }
             stdout.write(
               `${JSON.stringify({ id: message.id, result: {} })}\n`,
             );
@@ -11994,20 +12180,18 @@ function createControlledAppServer(
               options.forkThreadIds?.[forkIndex] ??
               options.forkThreadId ??
               "thread-forked-1";
+            const sourceTurns = options.threadReadTurns ?? [];
+            const lastTurnIndex = sourceTurns.findIndex(
+              (turn) => turn.id === message.params?.lastTurnId,
+            );
             const forkTurns =
               options.threadForkTurnsByCall?.[forkIndex] ??
               options.threadForkTurns ??
-              options.threadReadTurns ??
-              [];
+              (lastTurnIndex >= 0
+                ? sourceTurns.slice(0, lastTurnIndex + 1)
+                : sourceTurns);
             stdout.write(
               `${JSON.stringify({ id: message.id, result: { thread: { id: forkThreadId, modelProvider, turns: forkTurns }, model, modelProvider } })}\n`,
-            );
-          } else if (message.method === "thread/rollback") {
-            const forkTurns =
-              options.threadForkTurns ?? options.threadReadTurns ?? [];
-            const numTurns = Number(message.params?.numTurns ?? 0);
-            stdout.write(
-              `${JSON.stringify({ id: message.id, result: { thread: { id: String(message.params?.threadId ?? options.forkThreadId ?? "thread-forked-1"), modelProvider: options.threadRollbackModelProvider ?? "link-sense", turns: options.threadRollbackTurns ?? forkTurns.slice(0, Math.max(0, forkTurns.length - numTurns)) } } })}\n`,
             );
           } else if (message.method === "turn/steer") {
             if (options.turnSteer === "exit") {
@@ -12093,6 +12277,7 @@ function createControlledAppServer(
                 tools: {
                   convert_document_to_markdown: {},
                   get_current_user_info: {},
+                  microsoft_files: {},
                   request_user_form: {},
                   emit_application_event: {},
                   ...(options.mutationServicesAvailable === false

@@ -15,6 +15,12 @@ export type AuditEntry = AuditContext & {
 };
 
 const AUDIT_METADATA_KEYS: Readonly<Record<string, readonly string[]>> = {
+  connection_authorized: ["provider"],
+  connection_disconnected: ["provider"],
+  connection_enabled: ["provider"],
+  connection_disabled: ["provider"],
+  connection_used: ["provider", "operation"],
+
   application_embed_ticket_issued: [
     "application_id",
     "auth_mode",

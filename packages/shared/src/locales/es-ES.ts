@@ -1,6 +1,14 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages = {
+  CONNECTION_WRITE_REQUIRED: "Esta conexión solo permite leer. Activa la lectura y escritura en Centro de plugins → Conectores y autoriza de nuevo.",
+  CONNECTION_FILE_CONFLICT: "El archivo ha cambiado o ya existe otro con ese nombre. Consulta su estado actual antes de volver a intentarlo.",
+  CONNECTION_NOT_CONFIGURED: "Un administrador debe configurar esta conexión.",
+  CONNECTION_AUTH_FAILED: "La autorización falló o caducó. Vuelve a conectar.",
+  CONNECTION_REQUIRED: "Conecta este servicio en Centro de plugins → Conectores.",
+  CONNECTION_UNAVAILABLE: "Este servicio no está disponible temporalmente. Inténtalo más tarde.",
+  CONNECTION_ACCESS_DENIED: "Esta cuenta no puede acceder a este contenido. Revisa la cuenta y sus permisos.",
+  CONNECTION_FILE_TOO_LARGE: "El contenido o los adjuntos superan el tamaño permitido para esta acción. Reduce la solicitud o elige archivos más pequeños.",
   "SOCIAL_CLIENT_IN_USE": "Hay cuentas vinculadas a esta aplicación. No se puede cambiar su ID; puedes renovar su secreto o desactivar el acceso.",
   "SOCIAL_LAST_METHOD": "Establece una contraseña o vincula otro método de acceso activado antes de desvincular.",
   "SOCIAL_AUTH_FAILED": "No se pudo completar la verificación de la cuenta social. Inténtalo de nuevo.",
@@ -244,6 +252,12 @@ export const errorMessages = {
 
 export const auditMessages = {
   "actions": {
+    connection_authorized: "Conexión autorizada",
+    connection_disconnected: "Conexión desconectada",
+    connection_enabled: "Conexión activada",
+    connection_disabled: "Conexión desactivada",
+    connection_used: "Conexión utilizada",
+
     "social_authentication_settings_updated": "Ajustes de acceso con cuentas sociales actualizados",
     "social_account_linked": "Cuenta social vinculada",
     "social_account_unlinked": "Cuenta social desvinculada",
@@ -453,6 +467,7 @@ export const auditMessages = {
     "weixin_connection_updated": "Conexión de Weixin actualizada"
   },
   "targetTypes": {
+    connection: "Conexión personal",
     "web_site": "Sitio compartido",
     "application": "Aplicación",
     "application_distribution": "Uso compartido y publicación de aplicaciones",

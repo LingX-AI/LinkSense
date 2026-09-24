@@ -43,6 +43,7 @@
     "test:codex:integration": "tsx scripts/codex-thread-smoke.mts",
     "test:codex:upgrade": "pnpm --filter @linksense/runner exec tsx test/functional/codex-upgrade.ts",
     "test:codex:upgrade:postgres": "pnpm --filter @linksense/api exec tsx test/integration/async-user-input-postgres.ts",
+    "test:connections:postgres": "pnpm --filter @linksense/api exec tsx test/integration/connections-postgres.ts",
     "test:codex:model-gateway": "tsx scripts/codex-model-gateway-smoke.mts",
     "test:codex:model-switch": "tsx scripts/codex-model-switch-smoke.mts",
     "test:codex:native-plugin-refresh": "tsx scripts/codex-native-plugin-refresh-smoke.mts",
