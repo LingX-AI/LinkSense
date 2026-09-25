@@ -14,13 +14,8 @@ function cssRules(selector: string) {
 }
 
 describe("authentication page layout", () => {
-  it("keeps the login support links in one row at the page bottom right", () => {
-    const desktopRule = cssRules(".login-page-links")[0]
-
-    expect(desktopRule).toContain("position: fixed;")
-    expect(desktopRule).toContain("right:")
-    expect(desktopRule).toContain("bottom:")
-    expect(desktopRule).toContain("display: flex;")
-    expect(desktopRule).toContain("white-space: nowrap;")
+  it("keeps authentication content scrollable without a fixed login-link footer", () => {
+    expect(cssRules(".public-shell")[0]).toContain("overflow-y: auto;")
+    expect(cssRules(".login-page-links")).toHaveLength(0)
   })
 })
