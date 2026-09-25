@@ -1117,7 +1117,7 @@ export const ptBR = {
     sessionRestoreFailed:
       "Não foi possível restaurar sua sessão. Verifique sua conexão e tente novamente.",
     registration: {
-      createAccount: "Criar conta",
+      signUpPrompt: "Não tem uma conta? <register>Cadastre-se agora</register>",
       title: "Criar uma conta no {{productName}}",
       description:
         "Insira seu e-mail e enviaremos um link de ativação se ele for elegível.",

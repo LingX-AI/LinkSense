@@ -199,7 +199,8 @@ export const esES = {
     sessionRestoreFailed:
       "No se pudo restaurar tu sesión. Comprueba la conexión e inténtalo de nuevo.",
     registration: {
-      createAccount: "Crear cuenta",
+      signUpPrompt:
+        "¿No tienes una cuenta? <register>Regístrate ahora</register>",
       title: "Crear una cuenta de {{productName}}",
       description:
         "Introduce tu correo electrónico y, si cumple los requisitos, enviaremos un enlace de activación.",

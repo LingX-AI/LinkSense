@@ -100,18 +100,24 @@ describe("LinkSense application", () => {
     ).toHaveClass("h-11", "w-full")
   })
 
-  it("places account recovery and registration links together at the page bottom right", async () => {
+  it("places account recovery above sign-in and the registration prompt below login methods", async () => {
     installApiMock({ refreshFails: true, registrationEnabled: true })
     renderApp("/login")
 
     const forgotPassword = await screen.findByRole("link", {
       name: "忘记密码或首次设置密码",
     })
-    const createAccount = screen.getByRole("link", { name: "注册账号" })
-    const links = forgotPassword.parentElement
+    const signIn = screen.getByRole("button", { name: "登录" })
+    const register = screen.getByRole("link", { name: "立即注册" })
+    const form = signIn.closest("form")
 
-    expect(links).toHaveClass("login-page-links")
-    expect(links).toContainElement(createAccount)
+    expect(form).toContainElement(forgotPassword)
+    expect(forgotPassword.parentElement).toHaveClass("text-right")
+    expect(forgotPassword.compareDocumentPosition(signIn)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    )
+    expect(register.parentElement).toHaveTextContent("没有账号？立即注册")
+    expect(form?.parentElement?.lastElementChild).toBe(register.parentElement)
   })
 
   it("toggles the sign-in password visibility from the trailing eye button", async () => {

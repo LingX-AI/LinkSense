@@ -9,7 +9,7 @@ import {
 } from "react"
 import { useMutation } from "@tanstack/react-query"
 import { ArrowLeftIcon, LoaderCircleIcon } from "lucide-react"
-import { useTranslation } from "react-i18next"
+import { Trans, useTranslation } from "react-i18next"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import { z } from "zod"
 
@@ -293,6 +293,11 @@ export function LoginPage() {
             required
           />
         </FieldShell>
+        <div className="text-right">
+          <Link className="public-link" to="/forgot-password">
+            {t("auth.forgotPassword")}
+          </Link>
+        </div>
         <Button
           type="submit"
           size="xl"
@@ -317,16 +322,16 @@ export function LoginPage() {
           {t("auth.oidc")}
         </Button>
       )}
-      <div className="login-page-links">
-        <Link className="public-link" to="/forgot-password">
-          {t("auth.forgotPassword")}
-        </Link>
-        {bootstrap?.registration?.enabled && (
-          <Link className="public-link" to="/register">
-            {t("auth.registration.createAccount")}
-          </Link>
-        )}
-      </div>
+      {bootstrap?.registration?.enabled && (
+        <p className="text-center text-sm text-muted-foreground">
+          <Trans
+            i18nKey="auth.registration.signUpPrompt"
+            components={{
+              register: <Link className="public-link" to="/register" />,
+            }}
+          />
+        </p>
+      )}
     </PublicPanel>
   )
 }

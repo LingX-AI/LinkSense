@@ -1105,7 +1105,8 @@ export const jaJP = {
     sessionRestoreFailed:
       "ログインセッションを復元できませんでした。接続を確認して再試行してください。",
     registration: {
-      createAccount: "アカウントを作成",
+      signUpPrompt:
+        "アカウントをお持ちでない方は<register>今すぐ登録</register>",
       title: "{{productName}}アカウントを作成",
       description:
         "メールアドレスを入力してください。対象の場合はアカウント有効化リンクを送信します。",

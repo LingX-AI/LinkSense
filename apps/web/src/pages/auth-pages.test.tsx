@@ -221,17 +221,17 @@ describe("LoginPage session restoration", () => {
     renderLoginPageWithAuthStatus("anonymous")
 
     expect(
-      screen.queryByRole("link", { name: "注册账号" })
+      screen.queryByRole("link", { name: "立即注册" })
     ).not.toBeInTheDocument()
+    expect(screen.queryByText("没有账号？")).not.toBeInTheDocument()
   })
 
   it("shows the registration entry after an administrator enables it", () => {
     renderLoginPageWithAuthStatus("anonymous", true)
 
-    expect(screen.getByRole("link", { name: "注册账号" })).toHaveAttribute(
-      "href",
-      "/register"
-    )
+    const registerLink = screen.getByRole("link", { name: "立即注册" })
+    expect(registerLink).toHaveAttribute("href", "/register")
+    expect(registerLink.parentElement).toHaveTextContent("没有账号？立即注册")
   })
 })
 
