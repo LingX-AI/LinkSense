@@ -10255,23 +10255,6 @@ button.annotation-hover-file:focus-visible {
   width: min(100%, 480px);
 }
 
-.login-page-links {
-  position: fixed;
-  right: calc(24px + var(--app-safe-area-right));
-  bottom: calc(20px + var(--app-safe-area-bottom));
-  z-index: 10;
-  display: flex;
-  max-width: calc(100vw - 32px);
-  align-items: center;
-  justify-content: flex-end;
-  gap: 20px;
-  white-space: nowrap;
-}
-
-.login-page-links .public-link {
-  font-size: var(--app-font-12);
-}
-
 .product-logo {
   display: block;
   width: auto;
@@ -12140,13 +12123,6 @@ button.annotation-hover-file:focus-visible {
   .public-panel {
     margin-top: 5vh;
     padding: 18px 10px;
-  }
-
-  .login-page-links {
-    right: calc(12px + var(--app-safe-area-right));
-    bottom: calc(10px + var(--app-safe-area-bottom));
-    max-width: calc(100vw - 24px);
-    gap: 12px;
   }
 }
 

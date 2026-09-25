@@ -196,7 +196,8 @@ export const frFR = {
     sessionRestoreFailed:
       "Impossible de restaurer votre session. Vérifiez votre connexion et réessayez.",
     registration: {
-      createAccount: "Créer un compte",
+      signUpPrompt:
+        "Vous n’avez pas de compte ? <register>Inscrivez-vous maintenant</register>",
       title: "Créer un compte {{productName}}",
       description:
         "Saisissez votre e-mail ; nous enverrons un lien d’activation si l’adresse est admissible.",

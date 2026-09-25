@@ -54,6 +54,31 @@ function interpolationTokens(value: string): string[] {
 }
 
 describe("i18n resources", () => {
+  it.each([
+    ["zh-CN", "没有账号？<register>立即注册</register>"],
+    ["en-US", "Don't have an account? <register>Sign up now</register>"],
+    ["es-ES", "¿No tienes una cuenta? <register>Regístrate ahora</register>"],
+    ["pt-BR", "Não tem uma conta? <register>Cadastre-se agora</register>"],
+    [
+      "fr-FR",
+      "Vous n’avez pas de compte ? <register>Inscrivez-vous maintenant</register>",
+    ],
+    ["ja-JP", "アカウントをお持ちでない方は<register>今すぐ登録</register>"],
+  ])("localizes the sign-up prompt and link in %s", (locale, expected) => {
+    expect(i18n.t("auth.registration.signUpPrompt", { lng: locale })).toBe(
+      expected
+    )
+  })
+
+  it("falls back to Chinese for a missing sign-up prompt translation", () => {
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    fallback.removeResourceBundle("en-US", "translation")
+
+    expect(fallback.t("auth.registration.signUpPrompt", { lng: "en-US" })).toBe(
+      "没有账号？<register>立即注册</register>"
+    )
+  })
+
   it.each(supportedLanguages)(
     "localizes publisher-unlisted relisting guidance in %s with Chinese fallback",
     (locale) => {

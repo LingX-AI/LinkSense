@@ -815,7 +815,7 @@ export const zhCN = {
     sessionExpired: "登录会话已过期，请重新登录。",
     sessionRestoreFailed: "登录状态恢复失败，请检查网络后重试。",
     registration: {
-      createAccount: "注册账号",
+      signUpPrompt: "没有账号？<register>立即注册</register>",
       title: "注册 {{productName}}",
       description: "输入邮箱，我们会向符合条件的邮箱发送账号激活链接。",
       closed: "当前未开放注册。",

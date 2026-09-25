@@ -888,7 +888,7 @@ export const enUS = {
     sessionRestoreFailed:
       "Your sign-in session could not be restored. Check your connection and try again.",
     registration: {
-      createAccount: "Create account",
+      signUpPrompt: "Don't have an account? <register>Sign up now</register>",
       title: "Create a {{productName}} account",
       description:
         "Enter your email and we will send an account activation link when it is eligible.",
