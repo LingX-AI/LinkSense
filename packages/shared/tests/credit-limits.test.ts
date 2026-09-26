@@ -40,7 +40,7 @@ describe("credit quota contracts", () => {
     expect(quotaSettingsSchema.parse(settings)).toEqual(settings);
     expect(quotaSettingsSchema.parse(defaultQuotaSettings()).weekly_credit_limit).toBeNull();
     expect(
-      quotaSettingsSchema.safeParse({ ...settings, credit_price_cny: "0" })
+      quotaSettingsSchema.safeParse({ ...settings, credit_price_usd: "0" })
         .success,
     ).toBe(false);
   });

@@ -26,6 +26,13 @@ const simplifyLimitsSql = readFileSync(
   ),
   "utf8",
 );
+const usdMigrationSql = readFileSync(
+  new URL(
+    "../../../prisma/migrations/20260926120000_use_usd_as_currency/migration.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 describe("credit quota migration", () => {
   it("adds a nullable internal reset boundary without deleting or rewriting history", () => {
     const resetSql = readFileSync(
@@ -105,5 +112,48 @@ describe("credit quota migration", () => {
         /(?:token_usage_records|model_usage_records|billing_statements)/iu,
       );
     }
+  });
+
+  it("relabels existing monetary data as USD without changing amounts or credit usage", () => {
+    for (const table of ["token_usage_records", "model_usage_records"]) {
+      for (const column of [
+        "input_cost_pico",
+        "cached_input_cost_pico",
+        "output_cost_pico",
+        "total_cost_pico",
+        "credit_price_micros",
+      ]) {
+        expect(usdMigrationSql).toContain(
+          `ALTER TABLE "${table}"\n  RENAME COLUMN "${column}_cny" TO "${column}_usd"`,
+        );
+      }
+    }
+    expect(usdMigrationSql).toContain(
+      'ALTER TABLE "billing_statements"\n  RENAME COLUMN "total_cost_pico_cny" TO "total_cost_pico_usd"',
+    );
+    for (const column of [
+      "input_cost_pico",
+      "cached_input_cost_pico",
+      "output_cost_pico",
+      "total_cost_pico",
+    ]) {
+      expect(usdMigrationSql).toContain(
+        `ALTER TABLE "billing_statement_lines"\n  RENAME COLUMN "${column}_cny" TO "${column}_usd"`,
+      );
+    }
+    expect(usdMigrationSql).toContain("'credit_price_usd'");
+    expect(usdMigrationSql).toContain("'credit_price_cny'");
+    expect(usdMigrationSql).toContain('SET "currency" = \'USD\'');
+    expect(usdMigrationSql).toContain(
+      'ALTER COLUMN "currency" SET DEFAULT \'USD\'',
+    );
+    expect(usdMigrationSql).not.toMatch(
+      /\b(?:DROP\s+(?:TABLE|COLUMN)|TRUNCATE|DELETE\s+FROM)\b/iu,
+    );
+    expect(usdMigrationSql).not.toMatch(
+      /UPDATE\s+"(?:token_usage_records|model_usage_records|billing_statement_lines)"/iu,
+    );
+    expect(usdMigrationSql).not.toMatch(/SET\s+"used_credit_micros"\s*=/iu);
+    expect(schema).not.toMatch(/@map\("[^"]*cny"\)/iu);
   });
 });

@@ -103,10 +103,10 @@ export type UsagePriceAndCostSnapshot = {
   inputPriceMicrosPerMillion: bigint
   cachedInputPriceMicrosPerMillion: bigint
   outputPriceMicrosPerMillion: bigint
-  inputCostPicoCny: bigint
-  cachedInputCostPicoCny: bigint
-  outputCostPicoCny: bigint
-  totalCostPicoCny: bigint
+  inputCostPicoUsd: bigint
+  cachedInputCostPicoUsd: bigint
+  outputCostPicoUsd: bigint
+  totalCostPicoUsd: bigint
   unpricedTokens: bigint
 }
 
@@ -124,10 +124,10 @@ export function calculatePriceAndCostSnapshot(
       inputPriceMicrosPerMillion: 0n,
       cachedInputPriceMicrosPerMillion: 0n,
       outputPriceMicrosPerMillion: 0n,
-      inputCostPicoCny: 0n,
-      cachedInputCostPicoCny: 0n,
-      outputCostPicoCny: 0n,
-      totalCostPicoCny: 0n,
+      inputCostPicoUsd: 0n,
+      cachedInputCostPicoUsd: 0n,
+      outputCostPicoUsd: 0n,
+      totalCostPicoUsd: 0n,
       unpricedTokens: tokenUsage.totalTokens,
     }
   }
@@ -143,20 +143,20 @@ export function calculatePriceAndCostSnapshot(
   )
   const regularInputTokens =
     tokenUsage.inputTokens - tokenUsage.cachedInputTokens
-  const inputCostPicoCny = regularInputTokens * inputPriceMicrosPerMillion
-  const cachedInputCostPicoCny =
+  const inputCostPicoUsd = regularInputTokens * inputPriceMicrosPerMillion
+  const cachedInputCostPicoUsd =
     tokenUsage.cachedInputTokens * cachedInputPriceMicrosPerMillion
-  const outputCostPicoCny =
+  const outputCostPicoUsd =
     tokenUsage.outputTokens * outputPriceMicrosPerMillion
   return {
     inputPriceMicrosPerMillion,
     cachedInputPriceMicrosPerMillion,
     outputPriceMicrosPerMillion,
-    inputCostPicoCny,
-    cachedInputCostPicoCny,
-    outputCostPicoCny,
-    totalCostPicoCny:
-      inputCostPicoCny + cachedInputCostPicoCny + outputCostPicoCny,
+    inputCostPicoUsd,
+    cachedInputCostPicoUsd,
+    outputCostPicoUsd,
+    totalCostPicoUsd:
+      inputCostPicoUsd + cachedInputCostPicoUsd + outputCostPicoUsd,
     unpricedTokens: 0n,
   }
 }

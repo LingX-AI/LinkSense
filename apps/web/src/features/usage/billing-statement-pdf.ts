@@ -1,6 +1,6 @@
 import type { BillingStatementDetail } from "@/api/contracts"
 import type { SupportedLanguage } from "@/i18n"
-import { formatCnyCost, formatIntegerCount } from "@/lib/usage-number"
+import { formatUsdCost, formatIntegerCount } from "@/lib/usage-number"
 
 export type BillingPdfLabels = {
   statement: string
@@ -244,7 +244,7 @@ function buildPage(input: {
       formatIntegerCount(model.token_usage.output_tokens, input.language),
       formatIntegerCount(model.token_usage.total_tokens, input.language),
       price,
-      formatCnyCost(model.cost.total_cost, input.language),
+      formatUsdCost(model.cost.total_cost, input.language),
     ]
     values.forEach((value, index) =>
       row.append(
@@ -287,7 +287,7 @@ function buildPage(input: {
       }),
       textElement(
         "strong",
-        formatCnyCost(input.statement.total_cost, input.language),
+        formatUsdCost(input.statement.total_cost, input.language),
         { fontSize: "25px", fontWeight: "700" }
       )
     )
@@ -365,7 +365,7 @@ function formatPeriod(from: string, toExclusive: string, language: Language) {
 function formatPrice(value: string | null, language: Language) {
   return value === null
     ? "—"
-    : `¥${Number(value).toLocaleString(language, { maximumFractionDigits: 6 })}`
+    : `$${Number(value).toLocaleString(language, { maximumFractionDigits: 6 })}`
 }
 
 function paginateRows<T>(

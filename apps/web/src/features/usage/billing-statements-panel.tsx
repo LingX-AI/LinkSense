@@ -49,7 +49,7 @@ import {
 import { downloadBlob } from "@/lib/download-blob"
 import { dayjsLocaleFor, longMonthYearFormatFor } from "@/i18n/date"
 import {
-  formatCnyCost,
+  formatUsdCost,
   formatIntegerCount,
   formatTokenCount,
   type UsageNumberLanguage,
@@ -173,7 +173,7 @@ export function BillingStatementsPanel(props: {
                   </Button>
                   <div className="flex flex-wrap items-center justify-between gap-3 sm:justify-end">
                     <div className="text-sm font-semibold tabular-nums">
-                      {formatCnyCost(statement.total_cost, props.language)}
+                      {formatUsdCost(statement.total_cost, props.language)}
                     </div>
                     <div className="flex items-center gap-2">
                       <Button
@@ -260,7 +260,7 @@ export function BillingStatementsPanel(props: {
                     {t("usage.billing.total")}
                   </div>
                   <div className="text-xl font-semibold tabular-nums">
-                    {formatCnyCost(detailQuery.data.total_cost, props.language)}
+                    {formatUsdCost(detailQuery.data.total_cost, props.language)}
                   </div>
                 </div>
                 <Button
@@ -335,7 +335,7 @@ function StatementDetail(props: {
         />
         <BillingFact
           label={t("usage.billing.total")}
-          value={formatCnyCost(props.statement.total_cost, props.language)}
+          value={formatUsdCost(props.statement.total_cost, props.language)}
         />
         <BillingFact
           label={t("usage.billing.modelCount")}
@@ -408,7 +408,7 @@ function StatementDetail(props: {
                     : t("usage.billing.uniformPricing")}
                 </TableCell>
                 <TableCell className="px-2 py-2 text-right align-middle font-medium break-words whitespace-normal tabular-nums">
-                  {formatCnyCost(model.cost.total_cost, props.language)}
+                  {formatUsdCost(model.cost.total_cost, props.language)}
                 </TableCell>
               </TableRow>
             ))}
@@ -435,7 +435,7 @@ function StatementDetail(props: {
               <div className="flex justify-between gap-4">
                 <span>{t("usage.billing.columns.amount")}</span>
                 <span className="font-medium tabular-nums">
-                  {formatCnyCost(model.cost.total_cost, props.language)}
+                  {formatUsdCost(model.cost.total_cost, props.language)}
                 </span>
               </div>
             </CardContent>

@@ -37,7 +37,7 @@ export const creditLimitSettingsSchema = z.strictObject({
 });
 
 export const quotaSettingsSchema = z.strictObject({
-  credit_price_cny: creditLimitValueSchema,
+  credit_price_usd: creditLimitValueSchema,
   weekly_credit_limit: creditLimitValueSchema.nullable(),
 });
 
@@ -53,7 +53,7 @@ export const applyMemberCreditLimitsResultSchema =
 
 export function defaultQuotaSettings(): QuotaSettings {
   return {
-    credit_price_cny: "0.01",
+    credit_price_usd: "0.01",
     weekly_credit_limit: null,
   };
 }

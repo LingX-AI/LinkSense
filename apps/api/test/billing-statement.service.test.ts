@@ -17,9 +17,9 @@ describe("BillingStatementService", () => {
             inputTokens: 100n,
             totalTokens: 150n,
             outputTokens: 50n,
-            inputCostPicoCny: 100_000_000_000n,
-            outputCostPicoCny: 200_000_000_000n,
-            totalCostPicoCny: 300_000_000_000n,
+            inputCostPicoUsd: 100_000_000_000n,
+            outputCostPicoUsd: 200_000_000_000n,
+            totalCostPicoUsd: 300_000_000_000n,
           }),
         ]),
       },
@@ -29,8 +29,8 @@ describe("BillingStatementService", () => {
             model: "gpt-5",
             inputTokens: 20n,
             totalTokens: 20n,
-            inputCostPicoCny: 20_000_000_000n,
-            totalCostPicoCny: 20_000_000_000n,
+            inputCostPicoUsd: 20_000_000_000n,
+            totalCostPicoUsd: 20_000_000_000n,
           }),
           usageFact({
             model: "text-embedding-3-large",
@@ -57,8 +57,8 @@ describe("BillingStatementService", () => {
     expect(tx.billingStatement.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         statementNumber: "LS-202602",
-        currency: "CNY",
-        totalCostPicoCny: 320_000_000_000n,
+        currency: "USD",
+        totalCostPicoUsd: 320_000_000_000n,
         unpricedTokens: 300n,
       }),
     });
@@ -69,7 +69,7 @@ describe("BillingStatementService", () => {
           totalTokens: 170n,
           inputTokens: 120n,
           outputTokens: 50n,
-          totalCostPicoCny: 320_000_000_000n,
+          totalCostPicoUsd: 320_000_000_000n,
           mixedPricing: false,
           sortOrder: 0,
         }),
@@ -127,10 +127,10 @@ function usageFact(
     inputPriceMicrosPerMillion: bigint;
     cachedInputPriceMicrosPerMillion: bigint;
     outputPriceMicrosPerMillion: bigint;
-    inputCostPicoCny: bigint;
-    cachedInputCostPicoCny: bigint;
-    outputCostPicoCny: bigint;
-    totalCostPicoCny: bigint;
+    inputCostPicoUsd: bigint;
+    cachedInputCostPicoUsd: bigint;
+    outputCostPicoUsd: bigint;
+    totalCostPicoUsd: bigint;
     unpricedTokens: bigint;
   }> = {},
 ) {
@@ -144,10 +144,10 @@ function usageFact(
     inputPriceMicrosPerMillion: 1_000_000n,
     cachedInputPriceMicrosPerMillion: 500_000n,
     outputPriceMicrosPerMillion: 2_000_000n,
-    inputCostPicoCny: 0n,
-    cachedInputCostPicoCny: 0n,
-    outputCostPicoCny: 0n,
-    totalCostPicoCny: 0n,
+    inputCostPicoUsd: 0n,
+    cachedInputCostPicoUsd: 0n,
+    outputCostPicoUsd: 0n,
+    totalCostPicoUsd: 0n,
     unpricedTokens: 0n,
     ...overrides,
   };

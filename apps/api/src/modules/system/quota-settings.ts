@@ -45,14 +45,14 @@ export async function readQuotaSettings(
 /** Capture credits with the usage fact, so later changes cannot reprice consumption. */
 export async function creditUsageSnapshot(
   db: Pick<Prisma.TransactionClient, "systemSetting">,
-  costPicoCny: bigint,
-): Promise<{ creditPriceMicrosCny: bigint; usedCreditMicros: bigint }> {
+  costPicoUsd: bigint,
+): Promise<{ creditPriceMicrosUsd: bigint; usedCreditMicros: bigint }> {
   const settings = await readQuotaSettings(db);
-  const creditPriceMicrosCny = decimalToCreditMicros(settings.credit_price_cny);
-  // pico-CNY / micro-CNY per credit = microcredits. Round positive fractions up.
+  const creditPriceMicrosUsd = decimalToCreditMicros(settings.credit_price_usd);
+  // pico-USD / micro-USD per credit = microcredits. Round positive fractions up.
   const usedCreditMicros =
-    (costPicoCny + creditPriceMicrosCny - 1n) / creditPriceMicrosCny;
-  return { creditPriceMicrosCny, usedCreditMicros };
+    (costPicoUsd + creditPriceMicrosUsd - 1n) / creditPriceMicrosUsd;
+  return { creditPriceMicrosUsd, usedCreditMicros };
 }
 
 export class QuotaSettingsService {

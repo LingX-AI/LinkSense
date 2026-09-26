@@ -1,6 +1,7 @@
 import {
   billingStatementDetailSchema,
   billingStatementListSchema,
+  pricingCurrency,
   type BillingStatementDetail,
   type BillingStatementList,
   type ModelProviderSettings,
@@ -20,8 +21,8 @@ import { AppError } from "../../lib/errors.js";
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const PICO_CNY_PER_CNY = 1_000_000_000_000n;
-const MICROS_PER_CNY = 1_000_000n;
+const PICO_USD_PER_USD = 1_000_000_000_000n;
+const MICROS_PER_USD = 1_000_000n;
 
 type ModelCatalogReader = {
   getAdminSettings(): Promise<ModelProviderSettings>;
@@ -43,10 +44,10 @@ type UsageFact = {
   inputPriceMicrosPerMillion: bigint;
   cachedInputPriceMicrosPerMillion: bigint;
   outputPriceMicrosPerMillion: bigint;
-  inputCostPicoCny: bigint;
-  cachedInputCostPicoCny: bigint;
-  outputCostPicoCny: bigint;
-  totalCostPicoCny: bigint;
+  inputCostPicoUsd: bigint;
+  cachedInputCostPicoUsd: bigint;
+  outputCostPicoUsd: bigint;
+  totalCostPicoUsd: bigint;
   unpricedTokens: bigint;
 };
 
@@ -145,8 +146,8 @@ export class BillingStatementService {
       ]);
       const lines = aggregateUsageFacts([...tokenFacts, ...modelFacts]);
       const generatedAt = this.now();
-      const totalCostPicoCny = lines.reduce(
-        (sum, line) => sum + line.totalCostPicoCny,
+      const totalCostPicoUsd = lines.reduce(
+        (sum, line) => sum + line.totalCostPicoUsd,
         0n,
       );
       const unpricedTokens = lines.reduce(
@@ -159,9 +160,9 @@ export class BillingStatementService {
           periodStart: periodStartDate,
           periodEndExclusive: periodEndDate,
           timeZone: this.timeZone,
-          currency: "CNY",
+          currency: pricingCurrency,
           status: "generated",
-          totalCostPicoCny,
+          totalCostPicoUsd,
           unpricedTokens,
           generatedAt,
         },
@@ -186,10 +187,10 @@ export class BillingStatementService {
               line.inputPrices.size > 1 ||
               line.cachedInputPrices.size > 1 ||
               line.outputPrices.size > 1,
-            inputCostPicoCny: line.inputCostPicoCny,
-            cachedInputCostPicoCny: line.cachedInputCostPicoCny,
-            outputCostPicoCny: line.outputCostPicoCny,
-            totalCostPicoCny: line.totalCostPicoCny,
+            inputCostPicoUsd: line.inputCostPicoUsd,
+            cachedInputCostPicoUsd: line.cachedInputCostPicoUsd,
+            outputCostPicoUsd: line.outputCostPicoUsd,
+            totalCostPicoUsd: line.totalCostPicoUsd,
             unpricedTokens: line.unpricedTokens,
             sortOrder: index,
           })),
@@ -277,10 +278,10 @@ const usageFactSelect = {
   inputPriceMicrosPerMillion: true,
   cachedInputPriceMicrosPerMillion: true,
   outputPriceMicrosPerMillion: true,
-  inputCostPicoCny: true,
-  cachedInputCostPicoCny: true,
-  outputCostPicoCny: true,
-  totalCostPicoCny: true,
+  inputCostPicoUsd: true,
+  cachedInputCostPicoUsd: true,
+  outputCostPicoUsd: true,
+  totalCostPicoUsd: true,
   unpricedTokens: true,
 } satisfies Prisma.TokenUsageRecordSelect & Prisma.ModelUsageRecordSelect;
 
@@ -293,10 +294,10 @@ function aggregateUsageFacts(facts: UsageFact[]): MutableLine[] {
     line.cachedInputTokens += fact.cachedInputTokens;
     line.outputTokens += fact.outputTokens;
     line.reasoningOutputTokens += fact.reasoningOutputTokens;
-    line.inputCostPicoCny += fact.inputCostPicoCny;
-    line.cachedInputCostPicoCny += fact.cachedInputCostPicoCny;
-    line.outputCostPicoCny += fact.outputCostPicoCny;
-    line.totalCostPicoCny += fact.totalCostPicoCny;
+    line.inputCostPicoUsd += fact.inputCostPicoUsd;
+    line.cachedInputCostPicoUsd += fact.cachedInputCostPicoUsd;
+    line.outputCostPicoUsd += fact.outputCostPicoUsd;
+    line.totalCostPicoUsd += fact.totalCostPicoUsd;
     line.unpricedTokens += fact.unpricedTokens;
     line.inputPrices.add(fact.inputPriceMicrosPerMillion.toString());
     line.cachedInputPrices.add(
@@ -307,7 +308,7 @@ function aggregateUsageFacts(facts: UsageFact[]): MutableLine[] {
   }
   return [...lines.values()].sort(
     (left, right) =>
-      compareBigIntDescending(left.totalCostPicoCny, right.totalCostPicoCny) ||
+      compareBigIntDescending(left.totalCostPicoUsd, right.totalCostPicoUsd) ||
       left.model.localeCompare(right.model),
   );
 }
@@ -323,10 +324,10 @@ function emptyLine(model: string): MutableLine {
     inputPriceMicrosPerMillion: 0n,
     cachedInputPriceMicrosPerMillion: 0n,
     outputPriceMicrosPerMillion: 0n,
-    inputCostPicoCny: 0n,
-    cachedInputCostPicoCny: 0n,
-    outputCostPicoCny: 0n,
-    totalCostPicoCny: 0n,
+    inputCostPicoUsd: 0n,
+    cachedInputCostPicoUsd: 0n,
+    outputCostPicoUsd: 0n,
+    totalCostPicoUsd: 0n,
     unpricedTokens: 0n,
     inputPrices: new Set(),
     cachedInputPrices: new Set(),
@@ -354,9 +355,9 @@ function projectSummary(statement: BillingStatement) {
       to_exclusive: statement.periodEndExclusive.toISOString(),
       time_zone: statement.timeZone,
     },
-    currency: "CNY" as const,
+    currency: pricingCurrency,
     status: "generated" as const,
-    total_cost: picoCnyToDecimal(statement.totalCostPicoCny),
+    total_cost: picoUsdToDecimal(statement.totalCostPicoUsd),
     unpriced_tokens: statement.unpricedTokens.toString(),
     generated_at: statement.generatedAt.toISOString(),
   };
@@ -374,11 +375,11 @@ function projectLine(line: BillingStatementLine) {
       reasoning_output_tokens: line.reasoningOutputTokens.toString(),
     },
     cost: {
-      currency: "CNY" as const,
-      total_cost: picoCnyToDecimal(line.totalCostPicoCny),
-      input_cost: picoCnyToDecimal(line.inputCostPicoCny),
-      cached_input_cost: picoCnyToDecimal(line.cachedInputCostPicoCny),
-      output_cost: picoCnyToDecimal(line.outputCostPicoCny),
+      currency: pricingCurrency,
+      total_cost: picoUsdToDecimal(line.totalCostPicoUsd),
+      input_cost: picoUsdToDecimal(line.inputCostPicoUsd),
+      cached_input_cost: picoUsdToDecimal(line.cachedInputCostPicoUsd),
+      output_cost: picoUsdToDecimal(line.outputCostPicoUsd),
       unpriced_tokens: line.unpricedTokens.toString(),
     },
     pricing: {
@@ -394,12 +395,12 @@ function projectLine(line: BillingStatementLine) {
   };
 }
 
-function picoCnyToDecimal(value: bigint): string {
-  return integerToDecimal(value, PICO_CNY_PER_CNY, 12);
+function picoUsdToDecimal(value: bigint): string {
+  return integerToDecimal(value, PICO_USD_PER_USD, 12);
 }
 
 function microsToDecimal(value: bigint | null): string | null {
-  return value === null ? null : integerToDecimal(value, MICROS_PER_CNY, 6);
+  return value === null ? null : integerToDecimal(value, MICROS_PER_USD, 6);
 }
 
 function integerToDecimal(

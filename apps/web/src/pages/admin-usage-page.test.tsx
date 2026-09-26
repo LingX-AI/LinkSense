@@ -198,7 +198,7 @@ describe("administrator usage analytics page", () => {
     ).toBeVisible()
     expect(screen.queryByText("Token 数据覆盖范围")).not.toBeInTheDocument()
     expect(await screen.findByText("1.2K")).toBeVisible()
-    expect(screen.getByLabelText("¥1.20")).toBeVisible()
+    expect(screen.getByLabelText("$1.20")).toBeVisible()
     expect(screen.queryByText(/codex/iu)).not.toBeInTheDocument()
     expect(
       screen.getByRole("img", { name: "所选周期的 Token 使用趋势图" })
@@ -247,7 +247,7 @@ describe("administrator usage analytics page", () => {
     expect(within(globalModels).getByText("1K")).toBeVisible()
     expect(within(globalModels).getByText("缓存输入 Token")).toBeVisible()
     expect(within(globalModels).getByText("推理输出 Token")).toBeVisible()
-    expect(screen.getByText(/费用单位：人民币（元）。/u)).toBeVisible()
+    expect(screen.getByText(/费用单位：美元（USD）。/u)).toBeVisible()
     expect(
       globalModels.querySelectorAll('span[data-slot="currency-symbol"]').length
     ).toBe(0)
@@ -257,7 +257,7 @@ describe("administrator usage analytics page", () => {
     expect(within(workloadTable).getByText("文档向量化")).toBeVisible()
     expect(within(workloadTable).getByText("任务自动命名")).toBeVisible()
     expect(within(workloadTable).getByText("本地估算")).toBeVisible()
-    expect(workloadTable).not.toHaveTextContent("¥")
+    expect(workloadTable).not.toHaveTextContent("$")
 
     await interaction.click(screen.getByRole("tab", { name: "按模型" }))
 
@@ -295,7 +295,7 @@ describe("administrator usage analytics page", () => {
     )
     expect(screen.getAllByText("试点组").length).toBeGreaterThan(1)
     for (const table of screen.getAllByRole("table")) {
-      expect(table).not.toHaveTextContent("¥")
+      expect(table).not.toHaveTextContent("$")
     }
 
     await interaction.click(screen.getByRole("tab", { name: "按用户" }))
@@ -308,7 +308,7 @@ describe("administrator usage analytics page", () => {
     expect(within(userTable).getByText("wang@example.test")).toBeVisible()
     expect(screen.getAllByText("未分组用户").length).toBeGreaterThan(0)
     for (const table of screen.getAllByRole("table")) {
-      expect(table).not.toHaveTextContent("¥")
+      expect(table).not.toHaveTextContent("$")
     }
   })
 
@@ -470,7 +470,7 @@ describe("administrator usage analytics page", () => {
         /Costs retain full precision for storage and aggregation/
       )
     ).toBeVisible()
-    expect(screen.getByText(/Cost unit: CNY \(yuan\)\./u)).toBeVisible()
+    expect(screen.getByText(/Cost unit: USD \(dollars\)\./u)).toBeVisible()
   })
 
   it("allocates sub-cent differences so two-decimal details match their total", async () => {
@@ -551,7 +551,7 @@ describe("administrator usage analytics page", () => {
       expect(await screen.findByText("月度账单")).toBeVisible()
       expect(screen.getByText("账单将在自然月结束后自动生成。")).toBeVisible()
       expect(screen.getByText("2026年7月")).toBeVisible()
-      expect(screen.getByText("¥1.23")).toBeVisible()
+      expect(screen.getByText("$1.23")).toBeVisible()
       expect(screen.queryByText("已生成")).not.toBeInTheDocument()
       expect(screen.getByRole("button", { name: "在线预览" })).toBeVisible()
       await interaction.click(screen.getByRole("button", { name: "在线预览" }))
@@ -599,7 +599,7 @@ describe("administrator usage analytics page", () => {
       expect(footer).toContainElement(
         within(dialogElement).getByRole("button", { name: "导出 PDF" })
       )
-      expect(footer).toHaveTextContent("¥1.23")
+      expect(footer).toHaveTextContent("$1.23")
       await interaction.click(
         within(dialogElement).getByRole("button", { name: "导出 PDF" })
       )
@@ -635,7 +635,7 @@ function billingStatementFixture() {
       to_exclusive: "2026-07-31T16:00:00.000Z",
       time_zone: "Asia/Shanghai",
     },
-    currency: "CNY",
+    currency: "USD",
     status: "generated",
     total_cost: "1.23",
     unpriced_tokens: "0",
@@ -652,7 +652,7 @@ function billingStatementFixture() {
           reasoning_output_tokens: "100",
         },
         cost: {
-          currency: "CNY",
+          currency: "USD",
           total_cost: "1.23",
           input_cost: "0.4",
           cached_input_cost: "0.03",
@@ -720,7 +720,7 @@ function roundingReport() {
 
 function exactCost(totalCost: string) {
   return {
-    currency: "CNY" as const,
+    currency: "USD" as const,
     total_cost: totalCost,
     input_cost: totalCost,
     cached_input_cost: "0",
@@ -815,7 +815,7 @@ function costForTokens(totalTokens: string) {
     .replace(/0+$/u, "")
   const totalCost = fraction === "" ? whole.toString() : `${whole}.${fraction}`
   return {
-    currency: "CNY" as const,
+    currency: "USD" as const,
     total_cost: totalCost,
     input_cost: totalCost,
     cached_input_cost: "0",

@@ -1,7 +1,5 @@
 import { z } from "zod"
 
-export const modelPricingCurrency = "CNY" as const
-
 const modelTokenPricePattern = /^(?:0|[1-9]\d{0,9})(?:\.\d{1,6})?$/u
 
 export const modelTokenPricePerMillionSchema = z

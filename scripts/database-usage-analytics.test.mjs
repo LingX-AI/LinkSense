@@ -29,7 +29,7 @@ test("usage analytics schema stores an immutable start marker, cursors, and toke
   assert.match(schema, /codexThreadId\s+String\s+@id/u)
   assert.match(schema, /model TokenUsageRecord \{/u)
   assert.match(schema, /snapshotKey\s+String\s+@unique/u)
-  assert.match(schema, /totalCostPicoCny\s+BigInt/u)
+  assert.match(schema, /totalCostPicoUsd\s+BigInt/u)
   assert.match(schema, /unpricedTokens\s+BigInt/u)
   assert.match(schema, /model ModelUsageRecord \{/u)
   assert.match(schema, /requestId\s+String\s+@unique/u)

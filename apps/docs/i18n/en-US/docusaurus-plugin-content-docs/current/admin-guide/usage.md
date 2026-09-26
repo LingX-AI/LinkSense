@@ -32,7 +32,7 @@ A task and actual turn create one immutable activity fact each. Drafts, pending 
 
 ## Cost
 
-Usage stores the prices active at call time in CNY per million tokens. Cached input is part of input, and reasoning output is part of output, so neither is double charged.
+Usage stores the prices active at call time in USD per million tokens. Cached input is part of input, and reasoning output is part of output, so neither is double charged.
 
 Future price changes do not recalculate history. Zero is a valid price; older tokens without a reliable price remain **Unpriced tokens**.
 

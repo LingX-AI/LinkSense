@@ -145,7 +145,7 @@ describe("quota management", () => {
     const saved = vi.spyOn(notify, "success")
     const user = userEvent.setup()
     renderPage(true)
-    const price = screen.getByLabelText("1 credit 对应金额（人民币元）")
+    const price = screen.getByLabelText("1 credit 对应金额（美元）")
     const weekly = screen.getByLabelText("周额度（credits）")
 
     await user.clear(price)
@@ -157,14 +157,14 @@ describe("quota management", () => {
     await waitFor(() => expect(saved).toHaveBeenCalledTimes(1))
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
       ...defaultQuotaSettings(),
-      credit_price_cny: "0.02",
+      credit_price_usd: "0.02",
     })
     expect(weekly).toHaveValue("100")
 
     await user.click(saves[1]!)
     await waitFor(() => expect(saved).toHaveBeenCalledTimes(2))
     expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toEqual({
-      credit_price_cny: "0.02",
+      credit_price_usd: "0.02",
       weekly_credit_limit: "100",
     })
   })
@@ -179,7 +179,7 @@ describe("quota management", () => {
     vi.stubGlobal("fetch", fetch)
     const user = userEvent.setup()
     renderPage(true)
-    const price = screen.getByLabelText("1 credit 对应金额（人民币元）")
+    const price = screen.getByLabelText("1 credit 对应金额（美元）")
     const weekly = screen.getByLabelText("周额度（credits）")
 
     await user.clear(price)
@@ -200,7 +200,7 @@ describe("quota management", () => {
     vi.stubGlobal("fetch", fetch)
     const user = userEvent.setup()
     renderPage(true)
-    const price = screen.getByLabelText("1 credit 对应金额（人民币元）")
+    const price = screen.getByLabelText("1 credit 对应金额（美元）")
     const weekly = screen.getByLabelText("周额度（credits）")
     const saves = screen.getAllByRole("button", { name: "保存设置" })
 
@@ -317,7 +317,7 @@ describe("quota management", () => {
     const saved = vi.spyOn(notify, "success")
     const user = userEvent.setup()
     renderPage(true)
-    const price = screen.getByLabelText("1 credit 对应金额（人民币元）")
+    const price = screen.getByLabelText("1 credit 对应金额（美元）")
     const weekly = screen.getByLabelText("周额度（credits）")
     await user.clear(price)
     await user.type(price, "0.02")

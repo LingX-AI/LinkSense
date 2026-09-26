@@ -74,7 +74,7 @@ describe("usage analytics contracts", () => {
             reasoning_output_tokens: "20",
           },
           cost: {
-            currency: "CNY",
+            currency: "USD",
             total_cost: "12.345678901234",
             input_cost: "10",
             cached_input_cost: "0.345678901234",
@@ -94,7 +94,7 @@ describe("usage analytics contracts", () => {
                 reasoning_output_tokens: "20",
               },
               cost: {
-                currency: "CNY",
+                currency: "USD",
                 total_cost: "12.345678901234",
                 input_cost: "10",
                 cached_input_cost: "0.345678901234",
@@ -181,7 +181,7 @@ describe("usage analytics contracts", () => {
         metrics: {
           ...profile.metrics,
           cost: {
-            currency: "CNY",
+            currency: "USD",
             total_cost: "12.345678901234",
             input_cost: "10",
             cached_input_cost: "0.345678901234",
@@ -223,7 +223,7 @@ describe("usage analytics contracts", () => {
           reasoning_output_tokens: "100",
         },
         cost: {
-          currency: "CNY",
+          currency: "USD",
           total_cost: "1.2",
           input_cost: "0.7",
           cached_input_cost: "0.1",

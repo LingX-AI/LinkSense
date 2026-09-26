@@ -45,13 +45,13 @@ type QuotaAction =
   { kind: "reset" } | { kind: "apply"; limits: CreditLimitSettings }
 
 type QuotaDraft = {
-  credit_price_cny: string
+  credit_price_usd: string
   weekly_credit_limit: string
 }
 
 function quotaDraft(settings: QuotaSettings): QuotaDraft {
   return {
-    credit_price_cny: settings.credit_price_cny,
+    credit_price_usd: settings.credit_price_usd,
     weekly_credit_limit: settings.weekly_credit_limit ?? "",
   }
 }
@@ -203,8 +203,8 @@ export function QuotaSettingsForm({
       ...(queryClient.getQueryData<QuotaSettings>(quotaSettingsQueryKey) ??
         settings),
       [scope]:
-        scope === "credit_price_cny"
-          ? draft.credit_price_cny.trim()
+        scope === "credit_price_usd"
+          ? draft.credit_price_usd.trim()
           : draft.weekly_credit_limit.trim() || null,
     })
     if (!parsed.success) {
@@ -226,7 +226,7 @@ export function QuotaSettingsForm({
     <div className="flex min-w-0 flex-col gap-8">
       {error && <StatusBanner variant="error">{error}</StatusBanner>}
       <form
-        onSubmit={(event) => submit(event, "credit_price_cny")}
+        onSubmit={(event) => submit(event, "credit_price_usd")}
         noValidate
         aria-label={t("quotaManagement.conversionTitle")}
       >
@@ -244,22 +244,22 @@ export function QuotaSettingsForm({
               id={`${prefix}-price`}
               label={t("quotaManagement.creditPrice")}
               hint={t("quotaManagement.conversionExample")}
-              error={errors.credit_price_cny}
+              error={errors.credit_price_usd}
               layout="settings"
               controlWidth="compact"
             >
               <Input
                 id={`${prefix}-price`}
-                name="credit_price_cny"
+                name="credit_price_usd"
                 className="max-w-sm"
                 inputMode="decimal"
                 pattern={CREDIT_INPUT_PATTERN}
-                value={draft.credit_price_cny}
+                value={draft.credit_price_usd}
                 disabled={pending}
-                aria-invalid={Boolean(errors.credit_price_cny)}
+                aria-invalid={Boolean(errors.credit_price_usd)}
                 aria-describedby={`${prefix}-price-hint ${prefix}-price-error`}
                 onChange={(event) =>
-                  setDraft({ ...draft, credit_price_cny: event.target.value })
+                  setDraft({ ...draft, credit_price_usd: event.target.value })
                 }
               />
             </FieldShell>
@@ -270,12 +270,12 @@ export function QuotaSettingsForm({
               disabled={pending}
               aria-busy={
                 (mutation.isPending &&
-                  mutation.variables?.scope === "credit_price_cny") ||
+                  mutation.variables?.scope === "credit_price_usd") ||
                 undefined
               }
             >
               {mutation.isPending &&
-                mutation.variables?.scope === "credit_price_cny" && (
+                mutation.variables?.scope === "credit_price_usd" && (
                   <Spinner data-icon="inline-start" />
                 )}
               {t("quotaManagement.save")}

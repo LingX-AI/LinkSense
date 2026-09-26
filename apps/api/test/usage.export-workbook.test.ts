@@ -41,7 +41,7 @@ describe("usage analytics workbook export", () => {
     expect((summary?.getCell("B4").value as Date).toISOString()).toBe(
       "2026-07-29T00:00:00.000Z",
     );
-    expect(summary?.getCell("B15").numFmt).toBe('"¥"#,##0.00');
+    expect(summary?.getCell("B15").numFmt).toBe('"$"#,##0.00');
     expect(models?.getCell("I2").value).toBe(5);
     expect(models?.getCell("N2").value).toBe(0);
     expect(models?.getCell("N3").value).toBe(0.01);
@@ -89,7 +89,7 @@ describe("usage analytics workbook export", () => {
             reasoning_output_tokens: "0",
           },
           cost: {
-            currency: "CNY",
+            currency: "USD",
             total_cost: "0",
             input_cost: "0",
             cached_input_cost: "0",

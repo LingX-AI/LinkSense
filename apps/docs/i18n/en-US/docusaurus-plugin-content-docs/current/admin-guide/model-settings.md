@@ -24,7 +24,7 @@ Model IDs are unique across channels. Configure type, display name, provider, im
 - chat models: input, cached-input, and output prices;
 - embedding and ranker models: input price.
 
-Prices use CNY per million tokens and are snapshotted with future usage. A price change never recalculates history.
+Prices use USD per million tokens and are snapshotted with future usage. A price change never recalculates history.
 
 Set **Model context length** to a positive token count, or leave it empty for automatic detection. LinkSense uses this value for the context-window indicator and to let the runtime compact context before approaching the model limit. Enter the provider model's real capability; a larger number does not expand the upstream model.
 

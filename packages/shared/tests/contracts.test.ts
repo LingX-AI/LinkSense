@@ -514,7 +514,7 @@ describe("shared boundary contracts", () => {
         image_count: 1,
         unit_price: "0.12",
         total_cost: "0.12",
-        currency: "CNY",
+        currency: "USD",
         transparency: {
           requested: true,
           strategy: "chroma_key",

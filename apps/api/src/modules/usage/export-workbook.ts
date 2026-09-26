@@ -10,7 +10,7 @@ import type {
   UsageWorkload,
 } from "@linksense/shared";
 import {
-  CNY,
+  USD,
   add,
   allocate,
   dinero,
@@ -23,10 +23,10 @@ import ExcelJS from "exceljs";
 
 import { translateBackend } from "../../lib/i18n.js";
 
-const cnyTransportScale = 12n;
-const cnyDisplayScale = 2n;
-const cnyTransportFactor = 10n ** cnyTransportScale;
-const cnyNumberFormat = '"¥"#,##0.00';
+const usdTransportScale = 12n;
+const usdDisplayScale = 2n;
+const usdTransportFactor = 10n ** usdTransportScale;
+const usdNumberFormat = '"$"#,##0.00';
 const integerNumberFormat = "#,##0";
 const usageWorkloads: UsageWorkload[] = [
   "assistant_response",
@@ -199,7 +199,7 @@ function addSummarySheet(
     15,
     t(locale, "fields.totalCost"),
     costCellValue(roundCost(report.totals.cost.total_cost)),
-    cnyNumberFormat,
+    usdNumberFormat,
   );
   addSummarySection(
     worksheet,
@@ -248,7 +248,7 @@ function addTrendSheet(
     ...workloadFields.map((header, index) => ({
       header,
       width: 22,
-      numberFormat: index % 2 === 0 ? integerNumberFormat : cnyNumberFormat,
+      numberFormat: index % 2 === 0 ? integerNumberFormat : usdNumberFormat,
     })),
   ];
   const rows = report.token_trend.points.map((point, pointIndex) => {
@@ -690,22 +690,22 @@ function metricColumns(locale: Locale): ColumnDefinition[] {
     {
       header: t(locale, "fields.totalCost"),
       width: 16,
-      numberFormat: cnyNumberFormat,
+      numberFormat: usdNumberFormat,
     },
     {
       header: t(locale, "fields.inputCost"),
       width: 16,
-      numberFormat: cnyNumberFormat,
+      numberFormat: usdNumberFormat,
     },
     {
       header: t(locale, "fields.cachedInputCost"),
       width: 19,
-      numberFormat: cnyNumberFormat,
+      numberFormat: usdNumberFormat,
     },
     {
       header: t(locale, "fields.outputCost"),
       width: 16,
-      numberFormat: cnyNumberFormat,
+      numberFormat: usdNumberFormat,
     },
     {
       header: t(locale, "fields.unpricedTokens"),
@@ -817,14 +817,14 @@ function allocateCostValues(
   const preciseParts = parts.filter((part) => part !== null);
   const preciseSum = preciseParts.reduce(
     (sum, part) => add(sum, part),
-    dinero({ amount: 0n, currency: CNY, scale: cnyTransportScale }),
+    dinero({ amount: 0n, currency: USD, scale: usdTransportScale }),
   );
   if (!equal(preciseSum, total)) return values.map(roundCost);
 
   const roundedTotal =
     targetMinorUnits === undefined
-      ? transformScale(total, cnyDisplayScale, halfUp)
-      : dinero({ amount: targetMinorUnits, currency: CNY });
+      ? transformScale(total, usdDisplayScale, halfUp)
+      : dinero({ amount: targetMinorUnits, currency: USD });
   if (preciseParts.length === 0) return [];
   const ratios = preciseParts.map((part) => toSnapshot(part).amount);
   if (ratios.every((ratio) => ratio === 0n)) return ratios.map(() => 0n);
@@ -840,7 +840,7 @@ function roundCostBreakdown(cost: UsageCostBreakdown): AllocatedCosts {
 function roundCost(value: string): bigint {
   const parsed = parseCost(value);
   return parsed
-    ? toSnapshot(transformScale(parsed, cnyDisplayScale, halfUp)).amount
+    ? toSnapshot(transformScale(parsed, usdDisplayScale, halfUp)).amount
     : 0n;
 }
 
@@ -851,10 +851,10 @@ function parseCost(value: string) {
   const fraction = match[2] ?? "";
   return dinero({
     amount:
-      BigInt(whole) * cnyTransportFactor +
-      BigInt(fraction.padEnd(Number(cnyTransportScale), "0")),
-    currency: CNY,
-    scale: cnyTransportScale,
+      BigInt(whole) * usdTransportFactor +
+      BigInt(fraction.padEnd(Number(usdTransportScale), "0")),
+    currency: USD,
+    scale: usdTransportScale,
   });
 }
 

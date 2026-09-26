@@ -1,6 +1,6 @@
 ---
 title: Quota management
-description: Configure one member weekly quota and the CNY conversion price.
+description: Configure one member weekly quota and the USD conversion price.
 ---
 
 # Quota management
@@ -9,9 +9,9 @@ Administrators open **Settings → Quota management** to configure the credit co
 
 ## Credit conversion
 
-Set the CNY amount represented by one credit. The default is CNY 0.01 per credit: a CNY 0.25 call consumes 25 credits. The price must be positive, with up to six decimal places.
+Set the USD amount represented by one credit. The default is USD 0.01 per credit: a USD 0.25 call consumes 25 credits. The price must be positive, with up to six decimal places.
 
-Model prices remain in Model settings, in CNY per million tokens. Costs use measured usage and the model price snapshot; credit consumption uses the conversion price when that usage is recorded. Later conversion changes do not reprice recorded credits. Consumption is rounded up to six decimal places. Remaining credits are displayed as integers by discarding the fraction; actual balances and quota checks retain decimal precision.
+Model prices remain in Model settings, in USD per million tokens. Costs use measured usage and the model price snapshot; credit consumption uses the conversion price when that usage is recorded. Later conversion changes do not reprice recorded credits. Consumption is rounded up to six decimal places. Remaining credits are displayed as integers by discarding the fraction; actual balances and quota checks retain decimal precision.
 
 ## Member weekly quota
 
@@ -32,4 +32,4 @@ To give all members a new limit with 100% remaining, first apply the limit to al
 
 Reaching the weekly quota prevents new tasks and follow-up requests. Running tasks finish and may bring final consumption above the limit. Adjusting the quota does not delete or reprice recorded credits.
 
-Token and CNY cost statistics remain available. Quota management does not provide payments or top-ups.
+Token and USD cost statistics remain available. Quota management does not provide payments or top-ups.

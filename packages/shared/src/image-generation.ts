@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { modelIdentifierSchema } from "./model-provider.js"
+import { pricingCurrency } from "./pricing-currency.js"
 
 export const imageGenerationProviderValues = [
   "alibaba_bailian",
@@ -142,7 +143,7 @@ export const imageGenerationSettingsSchema = z.strictObject({
   api_key_configured: z.boolean(),
   model: modelIdentifierSchema.nullable(),
   price_per_image: imageGenerationPricePerImageSchema,
-  currency: z.literal("CNY"),
+  currency: z.literal(pricingCurrency),
   providers: z.array(imageGenerationProviderDefinitionSchema),
 })
 
@@ -252,7 +253,7 @@ export const imageGenerationInternalResultSchema = z.strictObject({
   image_count: z.number().int().positive().max(10),
   unit_price: imageGenerationPricePerImageSchema,
   total_cost: imageGenerationCostAmountSchema,
-  currency: z.literal("CNY"),
+  currency: z.literal(pricingCurrency),
   transparency: imageGenerationTransparencyResultSchema,
   images: z.array(generatedImagePayloadSchema).min(1).max(10),
 })
@@ -274,7 +275,7 @@ export const imageGenerationMcpSuccessSchema = z.strictObject({
   image_count: z.number().int().positive().max(10),
   unit_price: imageGenerationPricePerImageSchema,
   total_cost: imageGenerationCostAmountSchema,
-  currency: z.literal("CNY"),
+  currency: z.literal(pricingCurrency),
   transparency: imageGenerationTransparencyResultSchema,
   artifacts: z.array(imageGenerationArtifactSchema).min(1).max(10),
 })
