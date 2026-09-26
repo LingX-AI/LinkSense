@@ -1,20 +1,16 @@
 # Worker fonts / Worker 字体
 
-Worker 镜像安装微软雅黑、宋体（SimSun）、黑体（SimHei）、楷体（KaiTi）、Arial、Times New Roman 和 Calibri。微软雅黑包含常规、粗体、细体；英文字体包含常规、粗体、斜体、粗斜体，Calibri 还包含细体及细斜体。原有开源字体继续保留。
+Worker 镜像用开源字体替代此前打包的 Windows 字体：Liberation Sans、Liberation Serif、Carlito、Noto Sans CJK SC、Noto Serif CJK SC 和 AR PL UKai CN。它们分别用于替代 Arial、Times New Roman、Calibri、微软雅黑/黑体、宋体和楷体。Liberation、Carlito 和 Noto 使用 SIL Open Font License 1.1；AR PL UKai 使用 Arphic Public License。Debian 软件包会随镜像保留各自的版权与许可文件。
 
-`downloads.sha256` 记录下载文件、固定 Git 提交的 HTTPS 地址及 SHA-256。字体来自第三方 Windows 字体镜像，文件内的字体名称和厂商信息已核验，但这不等同于微软官方来源认证，也不授予额外的使用或再分发许可。字体文件不存入 Git。
+所有字体均由 Debian Bookworm 软件仓库的软件包安装，不再从第三方 Windows 字体镜像下载。`Dockerfile.runner` 在两个 worker 目标中安装相同的软件包。`families.tsv` 记录必须存在的字体文件、家族和字重；`replacements.conf` 将文档中原有的中文字体名称映射到相应开源字体，拉丁字体由 Debian 字体包映射。`verify.sh` 通过 fontconfig 校验文件和全部七项名称映射，防止字体缺失后被静默替代。
 
-`install.sh` 使用 curl 下载并验证全部文件后才安装。优先使用同一仓库、同一固定提交的 jsDelivr CDN，下载失败或校验失败时依次尝试 GitHub Raw 和 GitHub 文件 HTTPS 代理；无论来源如何，文件都必须通过清单中的 SHA-256 校验。不同来源不混用下载片段；续传后校验失败或服务器拒绝续传时，清除该来源片段并最多从头重下 1 次，仍失败则尝试下一来源。每次请求都有连接、总时长和低速超时限制。`verify.sh` 根据 `families.tsv` 检查每个字体与字形实际匹配的文件，拒绝静默替代字体。两个 worker 构建目标均在构建时以任务用户执行检查；开发与生产部署指纹均包含本目录。
+Liberation Sans、Liberation Serif 与 Carlito 分别与对应的英文字体字宽兼容；中文字体没有同等的版式兼容保证。预览已有文档时仍可能出现换行、分页和字形差异，应使用代表性文档核验。开发与生产部署指纹均包含本目录。
 
-字体下载位于独立的 `font-runtime-build` 阶段，不依赖应用源码。BuildKit 的 `linksense-microsoft-fonts` 缓存按 SHA-256 和文件名保存已验证文件；`.part` 下载进度还包含来源 URL 的 SHA-256，网络中断后重新构建可对同一来源断点续传。源码变更无需重新下载。缓存命中仍会校验文件，损坏文件不会被安装。首次构建或清除 Docker 构建缓存后仍需联网下载。下载日志显示当前字体名称及来源。
+The worker replaces the previously bundled Windows fonts with open-source fonts: Liberation Sans, Liberation Serif, Carlito, Noto Sans CJK SC, Noto Serif CJK SC, and AR PL UKai CN. They replace Arial, Times New Roman, Calibri, Microsoft YaHei/SimHei, SimSun, and KaiTi, respectively. Liberation, Carlito, and Noto use the SIL Open Font License 1.1; AR PL UKai uses the Arphic Public License. Debian package copyright and license files remain in the image.
 
-The worker installs Microsoft YaHei, SimSun, SimHei, KaiTi, Arial, Times New Roman and Calibri. YaHei includes regular, bold and light; the Latin families include regular, bold, italic and bold italic, with light and light italic also included for Calibri. Existing open-source fonts remain installed.
+All fonts come from Debian Bookworm packages. The worker no longer downloads font binaries from third-party Windows font mirrors. Both worker targets install the same packages. `families.tsv` records required files, families, and styles. `replacements.conf` maps existing CJK font names in documents to the open-source families; Debian font packages map the Latin names. `verify.sh` uses fontconfig to verify the font files and all seven name mappings, rejecting silent substitution.
 
-`downloads.sha256` pins each HTTPS download to a Git commit and SHA-256 checksum. Downloads come from third-party Windows font mirrors. Font names and vendor metadata have been checked; this is not official Microsoft provenance certification and grants no additional usage or redistribution rights. Font binaries are not stored in Git.
-
-`install.sh` downloads with curl and verifies every file before installation. It prefers jsDelivr for the same repository and pinned commit, then tries GitHub Raw and an HTTPS GitHub file proxy on transport or checksum failure. Every source must pass the manifest SHA-256 checksum. Sources never share partial bytes. A failed resumed checksum or rejected range causes at most one fresh download from that source before trying the next source. Each request has connection, total-time and low-speed timeouts. `verify.sh` checks each family, style and resolved file against `families.tsv`, rejecting font substitution. Both worker build targets run verification as the task user. Development and production image fingerprints include this directory.
-
-Downloads run in the independent `font-runtime-build` stage, without application source dependencies. The `linksense-microsoft-fonts` BuildKit cache stores verified files by SHA-256 and filename; partial downloads additionally include a hash of the source URL. Rebuilding after a transport failure resumes that source's `.part` file; application source changes do not trigger downloads. Cached files are checked again before installation. The first build, or a build after clearing Docker's build cache, still needs network access. Download logs identify the current font and source.
+Liberation Sans, Liberation Serif, and Carlito aim for metric compatibility with their Latin counterparts. The CJK replacements do not guarantee identical layout. Validate representative documents for line breaks, pagination, and glyph differences. Development and production image fingerprints include this directory.
 
 Verification / 验证：
 

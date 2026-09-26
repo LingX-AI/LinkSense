@@ -1,20 +1,17 @@
-arial.ttf	Arial	Regular
-arialbd.ttf	Arial	Bold
-arialbi.ttf	Arial	Bold Italic
-ariali.ttf	Arial	Italic
-calibri.ttf	Calibri	Regular
-calibrib.ttf	Calibri	Bold
-calibrii.ttf	Calibri	Italic
-calibril.ttf	Calibri	Light
-calibrili.ttf	Calibri	Light Italic
-calibriz.ttf	Calibri	Bold Italic
-msyh.ttc	Microsoft YaHei	Regular
-msyhbd.ttc	Microsoft YaHei	Bold
-msyhl.ttc	Microsoft YaHei	Light
-simhei.ttf	SimHei	Regular
-simkai.ttf	KaiTi	Regular
-simsun.ttc	SimSun	Regular
-times.ttf	Times New Roman	Regular
-timesbd.ttf	Times New Roman	Bold
-timesbi.ttf	Times New Roman	Bold Italic
-timesi.ttf	Times New Roman	Italic
+/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf	Liberation Sans	Regular
+/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf	Liberation Sans	Bold
+/usr/share/fonts/truetype/liberation2/LiberationSans-Italic.ttf	Liberation Sans	Italic
+/usr/share/fonts/truetype/liberation2/LiberationSans-BoldItalic.ttf	Liberation Sans	Bold Italic
+/usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf	Liberation Serif	Regular
+/usr/share/fonts/truetype/liberation2/LiberationSerif-Bold.ttf	Liberation Serif	Bold
+/usr/share/fonts/truetype/liberation2/LiberationSerif-Italic.ttf	Liberation Serif	Italic
+/usr/share/fonts/truetype/liberation2/LiberationSerif-BoldItalic.ttf	Liberation Serif	Bold Italic
+/usr/share/fonts/truetype/crosextra/Carlito-Regular.ttf	Carlito	Regular
+/usr/share/fonts/truetype/crosextra/Carlito-Bold.ttf	Carlito	Bold
+/usr/share/fonts/truetype/crosextra/Carlito-Italic.ttf	Carlito	Italic
+/usr/share/fonts/truetype/crosextra/Carlito-BoldItalic.ttf	Carlito	Bold Italic
+/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc	Noto Sans CJK SC	Regular
+/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc	Noto Sans CJK SC	Bold
+/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc	Noto Serif CJK SC	Regular
+/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc	Noto Serif CJK SC	Bold
+/usr/share/fonts/truetype/arphic/ukai.ttc	AR PL UKai CN	Book
