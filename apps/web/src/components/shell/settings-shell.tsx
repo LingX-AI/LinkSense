@@ -28,6 +28,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom"
 
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
+import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import { ProductLogo } from "@/components/brand/product-logo"
 import {
   resolveSettingsReturn,
@@ -329,6 +330,7 @@ export function SettingsShell() {
           )}
           <Outlet />
         </div>
+        <PoweredByLinkSense className="fixed right-7 bottom-[22px] z-30 max-md:right-3.5 max-md:bottom-3.5" />
       </main>
     </div>
   )

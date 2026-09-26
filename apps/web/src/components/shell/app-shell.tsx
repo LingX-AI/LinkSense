@@ -45,6 +45,7 @@ import {
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
+import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import { ProductLogo } from "@/components/brand/product-logo"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -1520,6 +1521,9 @@ export function AppShell() {
         </Button>
         <SystemUpdateNotice />
         <Outlet />
+        {!usesCompactTopBar && (
+          <PoweredByLinkSense className="fixed right-7 bottom-[22px] z-30 max-md:right-3.5 max-md:bottom-3.5" />
+        )}
       </main>
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent

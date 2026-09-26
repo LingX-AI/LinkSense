@@ -38,6 +38,9 @@ describe("InitializePage", () => {
   it("reports every invalid field inline and focuses the first one", async () => {
     const interaction = userEvent.setup()
     renderPage()
+    expect(
+      screen.getByRole("note", { name: "由 LinkSense 提供支持" })
+    ).toHaveClass("mr-3", "-mb-2.5", "max-md:mr-1", "max-md:mb-1")
 
     await interaction.click(
       screen.getByRole("button", { name: "创建管理员并完成初始化" })

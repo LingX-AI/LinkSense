@@ -375,6 +375,7 @@ export function migrationImageFingerprint(rootDirectory = repositoryRoot) {
   return sourceFingerprint(rootDirectory, [
     ".dockerignore",
     "Dockerfile.api",
+    "LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE",
     "apps/api/package.json",
     "apps/docs/package.json",
     "apps/runner/package.json",
@@ -393,7 +394,7 @@ export function migrationImageFingerprint(rootDirectory = repositoryRoot) {
 
 export function docsImageFingerprint(rootDirectory = repositoryRoot) {
   return sourceFingerprint(rootDirectory, [
-    ".dockerignore", "Dockerfile.web", "LICENSE", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches", "tsconfig.base.json",
+    ".dockerignore", "Dockerfile.web", "LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches", "tsconfig.base.json",
     "apps/api/package.json", "apps/runner/package.json", "apps/web/package.json", "packages/shared/package.json",
     "apps/docs/package.json", "apps/docs/docusaurus.config.ts", "apps/docs/sidebars.ts", "apps/docs/tsconfig.json",
     "apps/docs/docs", "apps/docs/i18n", "apps/docs/src", "apps/docs/static",
@@ -406,6 +407,7 @@ export function workerImageFingerprint(rootDirectory = repositoryRoot) {
     ".dockerignore",
     "Dockerfile.runner",
     "LICENSE",
+    "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE",
     "apps/api/package.json",
     "apps/docs/package.json",
     "apps/runner/package.json",

@@ -93,9 +93,15 @@ restore_pre_migration_upgrade() {
   [ "$UPGRADE_MIGRATION_STARTED" = false ] || return 0
   [ "$UPGRADE_PENDING_EXISTED" = false ] || return 0
   if [ "$UPGRADE_CONFIG_CHANGED" = true ] && [ -n "$UPGRADE_PREVIOUS_DIR" ]; then
-    for previous_file in .env LICENSE compose.common.yml "compose.$EDITION.yml" gateway.conf.template release-manifest.env release-manifest.env.sha256; do
+    for previous_file in .env LICENSE LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE THIRD-PARTY-NOTICES.md compose.common.yml "compose.$EDITION.yml" gateway.conf.template release-manifest.env release-manifest.env.sha256; do
       if [ -f "$UPGRADE_PREVIOUS_DIR/$previous_file" ]; then
         cp -p "$UPGRADE_PREVIOUS_DIR/$previous_file" "$INSTALL_DIR/$previous_file"
+      else
+        case "$previous_file" in
+          LICENSE-EXCEPTIONS.md|ATTRIBUTION.md|TRADEMARK.md|NOTICE|THIRD-PARTY-NOTICES.md)
+            rm -f "$INSTALL_DIR/$previous_file"
+            ;;
+        esac
       fi
     done
     if [ "$EDITION" = full ] && [ -n "$UPGRADE_PREVIOUS_TOKENIZER_REVISION" ]; then
@@ -482,7 +488,7 @@ fetch_manifest() {
   [ "${MIN_DOCKER_COMPOSE:-}" = "$REQUIRED_COMPOSE_VERSION" ] || fail "The release manifest has an inconsistent Docker Compose requirement."
   [ "${CORE_MIN_MEMORY_GIB:-}" = 8 ] || fail "The release manifest has inconsistent Core host requirements."
   [ "${FULL_MIN_MEMORY_GIB:-}" = 16 ] || fail "The release manifest has inconsistent Full host requirements."
-  for required_hash in RESOURCE_LICENSE_SHA256 RESOURCE_COMPOSE_COMMON_SHA256 RESOURCE_COMPOSE_CORE_SHA256 RESOURCE_COMPOSE_FULL_SHA256 RESOURCE_GATEWAY_SHA256 RESOURCE_CLI_SHA256 RESOURCE_INSTALLER_ENGINE_SHA256 RESOURCE_INSTALL_CORE_SHA256 RESOURCE_INSTALL_FULL_SHA256 RESOURCE_REPAIR_CORE_SHA256 RESOURCE_REPAIR_FULL_SHA256 RESOURCE_UPGRADE_SHA256; do
+  for required_hash in RESOURCE_LICENSE_SHA256 RESOURCE_LICENSE_EXCEPTIONS_SHA256 RESOURCE_ATTRIBUTION_SHA256 RESOURCE_TRADEMARK_SHA256 RESOURCE_NOTICE_SHA256 RESOURCE_THIRD_PARTY_NOTICES_SHA256 RESOURCE_COMPOSE_COMMON_SHA256 RESOURCE_COMPOSE_CORE_SHA256 RESOURCE_COMPOSE_FULL_SHA256 RESOURCE_GATEWAY_SHA256 RESOURCE_CLI_SHA256 RESOURCE_INSTALLER_ENGINE_SHA256 RESOURCE_INSTALL_CORE_SHA256 RESOURCE_INSTALL_FULL_SHA256 RESOURCE_REPAIR_CORE_SHA256 RESOURCE_REPAIR_FULL_SHA256 RESOURCE_UPGRADE_SHA256; do
     eval "hash_value=\${$required_hash:-}"
     printf '%s' "$hash_value" | grep -Eq '^[0-9a-f]{64}$' || fail "The release manifest is missing a valid $required_hash."
   done
@@ -528,9 +534,14 @@ fetch_release_resources() {
   RELEASE_RESOURCE_BASE=$base
   stage=$TMP_ROOT/resources
   mkdir "$stage"
-  for resource in LICENSE compose.common.yml "compose.$EDITION.yml" gateway.conf.template linksense-cli.sh "repair-$EDITION.sh" upgrade.sh; do
+  for resource in LICENSE LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE THIRD-PARTY-NOTICES.md compose.common.yml "compose.$EDITION.yml" gateway.conf.template linksense-cli.sh "repair-$EDITION.sh" upgrade.sh; do
     case "$resource" in
       LICENSE) expected=$RESOURCE_LICENSE_SHA256 ;;
+      LICENSE-EXCEPTIONS.md) expected=$RESOURCE_LICENSE_EXCEPTIONS_SHA256 ;;
+      ATTRIBUTION.md) expected=$RESOURCE_ATTRIBUTION_SHA256 ;;
+      TRADEMARK.md) expected=$RESOURCE_TRADEMARK_SHA256 ;;
+      NOTICE) expected=$RESOURCE_NOTICE_SHA256 ;;
+      THIRD-PARTY-NOTICES.md) expected=$RESOURCE_THIRD_PARTY_NOTICES_SHA256 ;;
       compose.common.yml) expected=$RESOURCE_COMPOSE_COMMON_SHA256 ;;
       compose.core.yml) expected=$RESOURCE_COMPOSE_CORE_SHA256 ;;
       compose.full.yml) expected=$RESOURCE_COMPOSE_FULL_SHA256 ;;
@@ -710,7 +721,7 @@ write_env() {
 }
 
 install_resources() {
-  for resource in LICENSE compose.common.yml "compose.$EDITION.yml" gateway.conf.template; do
+  for resource in LICENSE LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE THIRD-PARTY-NOTICES.md compose.common.yml "compose.$EDITION.yml" gateway.conf.template; do
     install -m 0644 "$TMP_ROOT/resources/$resource" "$INSTALL_DIR/$resource"
   done
   install -m 0644 "$TMP_ROOT/release-manifest.env" "$INSTALL_DIR/release-manifest.env"
@@ -1071,7 +1082,7 @@ write_upgrade_pending() {
 snapshot_upgrade_configuration() {
   UPGRADE_PREVIOUS_DIR=$TMP_ROOT/previous
   mkdir "$UPGRADE_PREVIOUS_DIR"
-  for current_file in .env LICENSE compose.common.yml "compose.$EDITION.yml" gateway.conf.template release-manifest.env release-manifest.env.sha256; do
+  for current_file in .env LICENSE LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE THIRD-PARTY-NOTICES.md compose.common.yml "compose.$EDITION.yml" gateway.conf.template release-manifest.env release-manifest.env.sha256; do
     [ ! -f "$INSTALL_DIR/$current_file" ] || cp -p "$INSTALL_DIR/$current_file" "$UPGRADE_PREVIOUS_DIR/$current_file"
   done
 }

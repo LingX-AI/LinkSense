@@ -7,12 +7,21 @@ import { Link, useParams } from "react-router-dom"
 import { apiRequest } from "@/api/client"
 import { useProductName } from "@/app/product-branding"
 import { ProductLogo } from "@/components/brand/product-logo"
+import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import { ErrorState, LoadingState } from "@/components/feedback/page-state"
 import { buttonVariants } from "@/components/ui/button"
 import { publicConversationShareSchema } from "@/features/conversations/conversation-share-contracts"
 import { projectConversationForSharing } from "@/features/conversations/conversation-share-content"
 import { ConversationThread } from "@/features/conversations/conversation-thread"
 import { cn } from "@/lib/utils"
+
+function SharedConversationFooter() {
+  return (
+    <footer className="flex shrink-0 justify-end px-7 pt-2 pb-[22px] max-md:px-3.5 max-md:pb-3.5">
+      <PoweredByLinkSense />
+    </footer>
+  )
+}
 
 export function SharedConversationPage() {
   const { shareId } = useParams()
@@ -41,15 +50,27 @@ export function SharedConversationPage() {
     }
   }, [productName, shareQuery.data])
 
-  if (shareQuery.isPending) return <LoadingState fullScreen />
+  if (shareQuery.isPending) {
+    return (
+      <div className="shared-conversation-page">
+        <main className="grid min-h-0 flex-1 place-items-center p-6">
+          <LoadingState />
+        </main>
+        <SharedConversationFooter />
+      </div>
+    )
+  }
   if (shareQuery.isError || !shareQuery.data) {
     return (
-      <main className="shared-conversation-state">
-        <ErrorState
-          message={t("conversation.share.unavailable")}
-          onRetry={() => void shareQuery.refetch()}
-        />
-      </main>
+      <div className="shared-conversation-page">
+        <main className="grid min-h-0 flex-1 place-items-center p-6">
+          <ErrorState
+            message={t("conversation.share.unavailable")}
+            onRetry={() => void shareQuery.refetch()}
+          />
+        </main>
+        <SharedConversationFooter />
+      </div>
     )
   }
 
@@ -81,6 +102,7 @@ export function SharedConversationPage() {
           embedded
         />
       </main>
+      <SharedConversationFooter />
     </div>
   )
 }

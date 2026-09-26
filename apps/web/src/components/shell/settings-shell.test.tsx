@@ -65,6 +65,14 @@ describe("SettingsShell administrator navigation", () => {
       </MemoryRouter>
     )
     expect(screen.getByRole("main")).toHaveAttribute("tabindex", "0")
+    expect(
+      screen.getByRole("note", { name: "由 LinkSense 提供支持" })
+    ).toHaveClass(
+      "right-7",
+      "bottom-[22px]",
+      "max-md:right-3.5",
+      "max-md:bottom-3.5"
+    )
     const content = screen
       .getByTestId("settings-page-content")
       .closest(".settings-content")

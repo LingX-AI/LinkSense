@@ -59,6 +59,9 @@ trap cleanup EXIT HUP INT TERM
 
 [ -f "$stage/AGENTS.md" ] || fail "AGENTS.md was not copied into the public snapshot."
 [ -f "$stage/LICENSE" ] || fail "LICENSE was not copied into the public snapshot."
+for legal_file in LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE THIRD-PARTY-NOTICES.md; do
+  [ -f "$stage/$legal_file" ] || fail "$legal_file was not copied into the public snapshot."
+done
 [ -f "$stage/README.md" ] || fail "README.md was not copied into the public snapshot."
 
 for forbidden in requirements training design-qa.md output outputs tmp .env; do

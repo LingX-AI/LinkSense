@@ -75,6 +75,7 @@ ENV PRISMA_ENGINES_MIRROR=${PRISMA_ENGINES_MIRROR}
 ARG MIGRATION_IMAGE_FINGERPRINT=unversioned
 LABEL com.linksense.migration.fingerprint=${MIGRATION_IMAGE_FINGERPRINT}
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
+COPY --chmod=0444 LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE /usr/share/licenses/linksense/
 COPY prisma prisma
 # The seed imports the generated Prisma client from the API source tree. The
 # migration image does not need the API bundle or its production deploy step.
@@ -86,6 +87,7 @@ FROM ${NODE_IMAGE} AS runtime
 ARG DEBIAN_MIRROR_URL
 ARG DEBIAN_SECURITY_MIRROR_URL
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
+COPY --chmod=0444 LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE /usr/share/licenses/linksense/
 COPY --chmod=0755 deploy/docker/configure-debian-apt.sh /usr/local/bin/configure-debian-apt
 COPY --from=uv /uv /usr/local/bin/uv
 RUN DEBIAN_MIRROR_URL="${DEBIAN_MIRROR_URL}" \

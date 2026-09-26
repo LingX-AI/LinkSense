@@ -23,6 +23,7 @@ import {
 import { useAuth } from "@/app/auth-state"
 import { useBootstrap } from "@/app/bootstrap-state"
 import { useProductName } from "@/app/product-branding"
+import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import { ProductLogo } from "@/components/brand/product-logo"
 import { NotificationToast } from "@/components/feedback/notification-toast"
 import { LoadingState } from "@/components/feedback/page-state"
@@ -41,10 +42,19 @@ import { passwordSchema } from "@/lib/password"
 
 const emailSchema = z.email()
 
-function PublicPanel({ children }: { children: React.ReactNode }) {
+function PublicPanel({
+  children,
+  showPoweredBy = true,
+}: {
+  children: React.ReactNode
+  showPoweredBy?: boolean
+}) {
   return (
-    <div className="public-shell">
-      <main className="public-panel">{children}</main>
+    <div className="public-shell flex flex-col">
+      <main className="public-panel shrink-0">{children}</main>
+      {showPoweredBy && (
+        <PoweredByLinkSense className="mt-auto mr-3 -mb-2.5 self-end max-md:mr-1 max-md:mb-1" />
+      )}
     </div>
   )
 }
@@ -170,7 +180,7 @@ export function LoginPage() {
   if (status === "authenticated") return null
 
   return (
-    <PublicPanel>
+    <PublicPanel showPoweredBy>
       <ProductLogo productName={productName} className="public-brand-logo" />
       <header>
         <h1>{t("auth.loginTitle", { productName })}</h1>
@@ -382,7 +392,7 @@ export function RegistrationPage() {
   }
 
   return (
-    <PublicPanel>
+    <PublicPanel showPoweredBy>
       <Link className="public-back-link" to="/login">
         <ArrowLeftIcon aria-hidden="true" /> {t("common.back")}
       </Link>
@@ -650,7 +660,7 @@ export function ForgotPasswordPage() {
   }
 
   return (
-    <PublicPanel>
+    <PublicPanel showPoweredBy>
       <Link className="public-back-link" to="/login">
         <ArrowLeftIcon aria-hidden="true" /> {t("common.back")}
       </Link>

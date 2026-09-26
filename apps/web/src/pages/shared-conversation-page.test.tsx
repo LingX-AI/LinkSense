@@ -109,6 +109,16 @@ describe("SharedConversationPage", () => {
       name: "Continue in LinkSense",
     })
     expect(continueLink).toHaveAttribute("href", "/")
+    const badge = screen.getByRole("note", {
+      name: "Powered by LinkSense",
+    })
+    expect(badge).toBeVisible()
+    expect(badge.parentElement).toHaveClass(
+      "px-7",
+      "pb-[22px]",
+      "max-md:px-3.5",
+      "max-md:pb-3.5"
+    )
     const messageRegion = screen.getByRole("log")
     expect(messageRegion).toHaveClass("conversation-scroll-embedded")
     expect(messageRegion.parentElement).toHaveClass("shared-conversation-main")
@@ -117,5 +127,35 @@ describe("SharedConversationPage", () => {
       `/shared-conversations/${SHARE_ID}`,
       expect.objectContaining({ skipRefresh: true })
     )
+  })
+
+  it("keeps the attribution on an unavailable shared entry", async () => {
+    vi.mocked(apiRequest).mockRejectedValueOnce(new Error("unavailable"))
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/share/${SHARE_ID}`]}>
+          <Routes>
+            <Route
+              path="/share/:shareId"
+              element={<SharedConversationPage />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+
+    expect(
+      await screen.findByText(
+        "This shared link doesn't exist or is no longer available."
+      )
+    ).toBeVisible()
+    const attribution = screen.getByRole("note", {
+      name: "Powered by LinkSense",
+    })
+    expect(attribution).toBeVisible()
+    expect(attribution.querySelector("a")).toBeNull()
   })
 })
