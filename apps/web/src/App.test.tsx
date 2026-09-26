@@ -100,6 +100,26 @@ describe("LinkSense application", () => {
     ).toHaveClass("h-11", "w-full")
   })
 
+  it("shows the LinkSense credit on login, registration, and password recovery", async () => {
+    installApiMock({ refreshFails: true, registrationEnabled: true })
+
+    for (const path of ["/login", "/register", "/forgot-password"]) {
+      const view = renderApp(path)
+      const badge = await screen.findByRole("note", {
+        name: "由 LinkSense 提供支持",
+      })
+      expect(badge).toBeVisible()
+      expect(badge).toHaveClass(
+        "mr-3",
+        "-mb-2.5",
+        "self-end",
+        "max-md:mr-1",
+        "max-md:mb-1"
+      )
+      view.unmount()
+    }
+  })
+
   it("places account recovery above sign-in and the registration prompt below login methods", async () => {
     installApiMock({ refreshFails: true, registrationEnabled: true })
     renderApp("/login")
@@ -300,7 +320,7 @@ describe("LinkSense application", () => {
     expect(
       await screen.findByRole("heading", { name: "设置新密码" })
     ).toBeVisible()
-    expect(screen.getByRole("img", { name: "LinkSense" })).toHaveClass(
+    expect(screen.getAllByRole("img", { name: "LinkSense" })[0]).toHaveClass(
       "public-brand-logo"
     )
     expect(

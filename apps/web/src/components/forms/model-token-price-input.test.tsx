@@ -8,7 +8,7 @@ describe("ModelTokenPriceInput", () => {
     render(
       <ModelTokenPriceInput
         aria-label="输入单价"
-        unitLabel="元 / 百万 Token"
+        unitLabel="美元 / 百万 Token"
         value="12.5"
         readOnly
       />
@@ -18,11 +18,11 @@ describe("ModelTokenPriceInput", () => {
     const group = input.closest('[data-slot="input-group"]')
     expect(group).not.toBeNull()
     expect(
-      within(group as HTMLElement).getByText("元 / 百万 Token")
+      within(group as HTMLElement).getByText("美元 / 百万 Token")
     ).toBeVisible()
     expect(
       input.compareDocumentPosition(
-        within(group as HTMLElement).getByText("元 / 百万 Token")
+        within(group as HTMLElement).getByText("美元 / 百万 Token")
       ) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
   })

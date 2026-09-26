@@ -108,7 +108,7 @@ describe("application usage page", () => {
     expectMetric("轮次数", "5")
     expectMetric("模型调用数", "6")
     expect(screen.getAllByText("1.2K").length).toBeGreaterThan(0)
-    expect(screen.getAllByText("¥1.20").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("$1.20").length).toBeGreaterThan(0)
     expect(
       screen.getByText("Token 与费用数据仅覆盖采集开始后的调用")
     ).toBeVisible()
@@ -222,7 +222,7 @@ function tokens(totalTokens: string) {
 
 function cost(totalCost: string) {
   return {
-    currency: "CNY",
+    currency: "USD",
     total_cost: totalCost,
     input_cost: "0.7",
     cached_input_cost: "0.1",

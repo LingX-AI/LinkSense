@@ -133,7 +133,7 @@ export const operationsResources = {
     modelsTitle: "Utilisation de tous les modèles",
     modelsDescription:
       "Appels, répartition des jetons et coûts de chaque modèle de génération, vectorisation et reclassement.",
-    tableCostUnit: "Unité des coûts : CNY (yuan).",
+    tableCostUnit: "Unité des coûts : USD (dollars).",
     modelsEmpty: "Aucune utilisation de modèle sur cette période.",
     workloadsTitle: "Utilisation par activité du modèle",
     workloadsDescription:

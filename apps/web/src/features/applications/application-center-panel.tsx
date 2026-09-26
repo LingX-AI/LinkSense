@@ -97,30 +97,29 @@ export function ApplicationsWorkspacePanel(
     )
   }
   return (
-    <Tabs
-      value={tab}
-      onValueChange={selectTab}
-      className="@container/application-workspace gap-6"
-    >
+    <Tabs value={tab} onValueChange={selectTab} className="gap-6">
       <div
         data-slot="application-catalog-toolbar"
-        className="flex min-w-0 flex-col gap-3 @3xl/application-workspace:flex-row @3xl/application-workspace:items-center @3xl/application-workspace:justify-between"
+        className="flex min-w-0 flex-col gap-3"
       >
         {organizationSharingEnabled && (
-          <TabsList aria-label={t("applications.scopeLabel")}>
-            <TabsTrigger value="owned">
+          <TabsList
+            aria-label={t("applications.scopeLabel")}
+            className="h-auto w-full flex-wrap justify-start overflow-visible"
+          >
+            <TabsTrigger value="owned" className="flex-none">
               {t("applications.distribution.myApplications")}
             </TabsTrigger>
-            <TabsTrigger value="shared">
+            <TabsTrigger value="shared" className="flex-none">
               {t("applications.distribution.sharedApplications")}
             </TabsTrigger>
-            <TabsTrigger value="center">
+            <TabsTrigger value="center" className="flex-none">
               {t("applications.distribution.center")}
             </TabsTrigger>
           </TabsList>
         )}
-        <div className="flex w-full min-w-0 items-center gap-2 @3xl/application-workspace:ml-auto @3xl/application-workspace:w-auto @3xl/application-workspace:shrink-0">
-          <InputGroup className="min-w-0 flex-1 @3xl/application-workspace:w-64">
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+          <InputGroup className="min-w-0 flex-1 basis-64">
             <SearchInput
               aria-label={t(
                 tab === "center"

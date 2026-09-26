@@ -187,7 +187,7 @@ describe("ModelProviderSettingsForm", () => {
       apiKeyConfigured: true,
       channelSummary:
         "当前渠道通过 OpenAI 兼容 / vLLM 接入，已添加 1 个模型，且密钥已配置",
-      priceUnit: "，价格单位为元 / 百万 Token。",
+      priceUnit: "，价格单位为美元 / 百万 Token。",
       priceHeader: "输入 / 输入命中缓存 / 输出单价",
     },
     {
@@ -198,7 +198,7 @@ describe("ModelProviderSettingsForm", () => {
       apiKeyConfigured: false,
       channelSummary:
         "This channel connects through OpenAI-compatible / vLLM and includes 1 model. No API key is configured yet",
-      priceUnit: ". Prices are shown in CNY / 1M tokens.",
+      priceUnit: ". Prices are shown in USD / 1M tokens.",
       priceHeader: "Input / cached input / output price",
     },
     {
@@ -209,7 +209,7 @@ describe("ModelProviderSettingsForm", () => {
       apiKeyConfigured: true,
       channelSummary:
         "当前渠道通过 OpenAI 兼容 / vLLM 接入，已添加 1 个模型，且密钥已配置",
-      priceUnit: "，价格单位为元 / 百万 Token。",
+      priceUnit: "，价格单位为美元 / 百万 Token。",
       priceHeader: "输入 / 输入命中缓存 / 输出单价",
     },
   ])(

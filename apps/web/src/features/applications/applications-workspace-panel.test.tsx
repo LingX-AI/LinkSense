@@ -1453,6 +1453,35 @@ describe("three application categories", () => {
     }
   )
 
+  it("wraps English application tabs and keeps the search and filter within the toolbar", async () => {
+    await i18n.changeLanguage("en-US")
+    mockCatalog()
+    show()
+
+    const tabs = screen.getByRole("tablist", {
+      name: i18n.t("applications.scopeLabel"),
+    })
+    const toolbar = tabs.closest('[data-slot="application-catalog-toolbar"]')
+    const search = screen.getByRole("textbox", {
+      name: i18n.t("applications.search"),
+    })
+    const filter = screen.getByRole("combobox", {
+      name: i18n.t("applicationDevelopment.catalog.filter"),
+    })
+
+    expect(tabs).toHaveClass("w-full", "flex-wrap", "overflow-visible")
+    expect(tabs).not.toHaveClass("overflow-x-auto")
+    for (const tab of within(tabs).getAllByRole("tab")) {
+      expect(tab).toHaveClass("flex-none")
+    }
+    expect(toolbar).toHaveClass("flex-col")
+    expect(search.closest('[data-slot="input-group"]')).toHaveClass(
+      "flex-1",
+      "basis-64"
+    )
+    expect(filter.parentElement).toHaveClass("flex-wrap")
+  })
+
   it.each(["shared", "center"])(
     "restores the %s category from the URL",
     async (tab) => {

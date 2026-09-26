@@ -726,7 +726,7 @@ describe("controller authentication and routing", () => {
       image_count: 1,
       unit_price: "0.12",
       total_cost: "0.12",
-      currency: "CNY",
+      currency: "USD",
       images: [],
     }
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(

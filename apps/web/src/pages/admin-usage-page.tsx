@@ -74,9 +74,9 @@ import {
   monthYearFormatFor,
 } from "@/i18n/date"
 import {
-  allocateCnyMinorUnits,
-  formatCnyCost,
-  formatCnyMinorUnits,
+  allocateUsdMinorUnits,
+  formatUsdCost,
+  formatUsdMinorUnits,
   formatIntegerCount,
   formatTokenCount,
 } from "@/lib/usage-number"
@@ -490,7 +490,7 @@ export function UsageAnalyticsPage() {
             />
             <MetricCard
               label={t("usage.totalCost")}
-              value={formatCnyCost(report.totals.cost.total_cost, language)}
+              value={formatUsdCost(report.totals.cost.total_cost, language)}
               currency
               detail={
                 report.totals.cost.unpriced_tokens === "0"
@@ -965,7 +965,7 @@ function UsageTrendTooltip({
     metric === "tokens" ? point.token_usage.total_tokens : point.cost.total_cost
   const allocatedCostMinorUnits =
     metric === "cost"
-      ? allocateCnyMinorUnits(
+      ? allocateUsdMinorUnits(
           rows.map((row) => row.value),
           point.cost.total_cost
         )
@@ -985,7 +985,7 @@ function UsageTrendTooltip({
             {metric === "tokens" ? (
               formatTokenCount(total, language)
             ) : (
-              <CurrencyAmount value={formatCnyCost(total, language)} />
+              <CurrencyAmount value={formatUsdCost(total, language)} />
             )}
           </dd>
         </div>
@@ -1013,8 +1013,8 @@ function UsageTrendTooltip({
                 <CurrencyAmount
                   value={
                     allocatedCostMinorUnits?.[index] === undefined
-                      ? formatCnyCost(value, language)
-                      : formatCnyMinorUnits(
+                      ? formatUsdCost(value, language)
+                      : formatUsdMinorUnits(
                           allocatedCostMinorUnits[index],
                           language
                         )
@@ -1147,8 +1147,8 @@ function UsageDetailCard({
               label={t("usage.totalCost")}
               value={
                 totalCostMinorUnits === undefined
-                  ? formatCnyCost(metrics.cost.total_cost, language)
-                  : formatCnyMinorUnits(totalCostMinorUnits, language)
+                  ? formatUsdCost(metrics.cost.total_cost, language)
+                  : formatUsdMinorUnits(totalCostMinorUnits, language)
               }
               currency
             />
@@ -1212,7 +1212,7 @@ function ModelUsageTable({
     [language, models, sort, t]
   )
   const allocatedModelCostMinorUnits = totalCost
-    ? allocateCnyMinorUnits(
+    ? allocateUsdMinorUnits(
         sortedModels.map((model) => model.cost.total_cost),
         totalCost,
         totalCostMinorUnits
@@ -1345,7 +1345,7 @@ function ModelUsageTable({
         <TableBody>
           {sortedModels.map((model, index) => {
             const displayedTotalCost = allocatedModelCostMinorUnits?.[index]
-            const allocatedComponentCostMinorUnits = allocateCnyMinorUnits(
+            const allocatedComponentCostMinorUnits = allocateUsdMinorUnits(
               [
                 model.cost.input_cost,
                 model.cost.cached_input_cost,
@@ -1878,7 +1878,7 @@ function WorkloadUsageTable({
       ),
     [language, sort, t, workloads]
   )
-  const allocatedCostMinorUnits = allocateCnyMinorUnits(
+  const allocatedCostMinorUnits = allocateUsdMinorUnits(
     sortedWorkloads.map((workload) => workload.cost.total_cost),
     totalCost
   )
@@ -2331,11 +2331,11 @@ function CostCell({
   const { t } = useTranslation()
   const formattedValue =
     minorUnits === undefined
-      ? formatCnyCost(value, language)
-      : formatCnyMinorUnits(minorUnits, language)
+      ? formatUsdCost(value, language)
+      : formatUsdMinorUnits(minorUnits, language)
   return (
     <TableCell className={cn("text-right font-medium tabular-nums", className)}>
-      <span className="block">{formattedValue.replace(/^¥/u, "")}</span>
+      <span className="block">{formattedValue.replace(/^\$/u, "")}</span>
       {unpricedTokens !== "0" && (
         <span className="block text-[11px] font-normal text-muted-foreground">
           {t("usage.unpricedShort", {
@@ -2348,7 +2348,7 @@ function CostCell({
 }
 
 function CurrencyAmount({ value }: { value: string }) {
-  if (!value.startsWith("¥")) return value
+  if (!value.startsWith("$")) return value
 
   return (
     <span data-slot="currency-amount" aria-label={value}>
@@ -2357,7 +2357,7 @@ function CurrencyAmount({ value }: { value: string }) {
         data-slot="currency-symbol"
         className="mr-px text-[0.72em] font-light text-muted-foreground/75"
       >
-        ¥
+        $
       </span>
       <span aria-hidden="true">{value.slice(1)}</span>
     </span>
@@ -2375,8 +2375,8 @@ function CurrencyYAxisTick({
   payload?: { value?: number | string }
   language: SupportedLanguage
 }) {
-  const value = formatCnyCost(payload?.value ?? 0, language)
-  if (!value.startsWith("¥")) {
+  const value = formatUsdCost(payload?.value ?? 0, language)
+  if (!value.startsWith("$")) {
     return (
       <text
         x={x}
@@ -2404,7 +2404,7 @@ function CurrencyYAxisTick({
         data-slot="currency-symbol"
         className="text-[9px] font-light opacity-75"
       >
-        ¥
+        $
       </tspan>
       <tspan aria-hidden="true">{value.slice(1)}</tspan>
     </text>
@@ -2472,7 +2472,7 @@ function allocateUserCostMinorUnits(
   report: UsageAnalyticsReport
 ): Map<string, bigint> {
   const result = new Map<string, bigint>()
-  const allocated = allocateCnyMinorUnits(
+  const allocated = allocateUsdMinorUnits(
     report.users.map((user) => user.metrics.cost.total_cost),
     report.totals.cost.total_cost
   )

@@ -63,7 +63,7 @@ import {
   monthYearFormatFor,
 } from "@/i18n/date"
 import {
-  formatCnyCost,
+  formatUsdCost,
   formatIntegerCount,
   formatTokenCount,
 } from "@/lib/usage-number"
@@ -203,7 +203,7 @@ export function ApplicationUsagePage() {
             />
             <MetricCard
               label={t("usage.totalCost")}
-              value={formatCnyCost(report.totals.cost.total_cost, language)}
+              value={formatUsdCost(report.totals.cost.total_cost, language)}
               detail={
                 report.totals.cost.unpriced_tokens === "0"
                   ? t("usage.costHint")
@@ -263,18 +263,18 @@ export function ApplicationUsagePage() {
               items={[
                 {
                   label: t("usage.inputCost"),
-                  value: formatCnyCost(report.totals.cost.input_cost, language),
+                  value: formatUsdCost(report.totals.cost.input_cost, language),
                 },
                 {
                   label: t("usage.cachedInputCost"),
-                  value: formatCnyCost(
+                  value: formatUsdCost(
                     report.totals.cost.cached_input_cost,
                     language
                   ),
                 },
                 {
                   label: t("usage.outputCost"),
-                  value: formatCnyCost(
+                  value: formatUsdCost(
                     report.totals.cost.output_cost,
                     language
                   ),
@@ -530,7 +530,7 @@ function UsageTrendCard({
                 tickFormatter={(value: number) =>
                   isTokens
                     ? formatTokenCount(value, language)
-                    : formatCnyCost(value, language)
+                    : formatUsdCost(value, language)
                 }
               />
               <ChartTooltip
@@ -542,7 +542,7 @@ function UsageTrendCard({
                   if (!active || !point) return null
                   const value = isTokens
                     ? formatTokenCount(point.token_usage.total_tokens, language)
-                    : formatCnyCost(point.cost.total_cost, language)
+                    : formatUsdCost(point.cost.total_cost, language)
                   return (
                     <div className="grid gap-1 rounded-xl bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg ring-1 ring-foreground/5">
                       <span className="font-medium">
@@ -683,7 +683,7 @@ function ModelUsageTable({ report }: { report: ApplicationUsageReport }) {
                 tokens
               />
               <TableCell className="text-right font-mono tabular-nums">
-                {formatCnyCost(model.cost.total_cost, language)}
+                {formatUsdCost(model.cost.total_cost, language)}
               </TableCell>
             </TableRow>
           ))}
@@ -732,7 +732,7 @@ function WorkloadUsageTable({ report }: { report: ApplicationUsageReport }) {
                 tokens
               />
               <TableCell className="text-right font-mono tabular-nums">
-                {formatCnyCost(workload.cost.total_cost, language)}
+                {formatUsdCost(workload.cost.total_cost, language)}
               </TableCell>
             </TableRow>
           ))}

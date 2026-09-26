@@ -417,7 +417,7 @@ export const adminMessages = {
       contextWindowPlaceholder: "Detectar automáticamente",
       contextWindowInvalid:
         "Introduce un entero mayor que 0 o deja en blanco para detectar automáticamente.",
-      priceUnit: "CNY / 1 millón de tokens",
+      priceUnit: "USD / 1 millón de tokens",
       priceUnitSummary: ". Los precios se muestran en {{unit}}.",
       showInComposer: "Disponible en conversaciones",
       saveModel: "Guardar el modelo {{name}}",
@@ -474,7 +474,7 @@ export const adminMessages = {
         "Introduce la dirección de conexión del modelo de clasificación de resultados facilitada por el proveedor.",
       modelId: "ID del modelo",
       inputPrice: "Precio de entrada",
-      priceUnit: "CNY / 1 millón de tokens",
+      priceUnit: "USD / 1 millón de tokens",
       embeddingApiKey: "Clave de API de embeddings",
       rerankApiKey: "Clave de API de reordenación",
       apiKeyConfiguredHint:
@@ -586,7 +586,7 @@ export const adminMessages = {
         "Introduce el nombre del modelo facilitado por el proveedor, como qwen-image-3.0.",
       pricePerImage: "Precio por imagen",
       pricePerImageHint:
-        "Se usa para registrar los costes de generación de imágenes. Unidad: CNY por imagen.",
+        "Se usa para registrar los costes de generación de imágenes. Unidad: USD por imagen.",
       save: "Guardar modelo de generación de imágenes",
       saving: "Guardando…",
       saved: "Ajustes del modelo de generación de imágenes actualizados.",

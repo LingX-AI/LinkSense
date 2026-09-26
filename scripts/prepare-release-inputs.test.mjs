@@ -34,7 +34,9 @@ function fixture(t) {
     path.join(source, "deploy/release"),
     { recursive: true },
   )
-  cpSync(path.join(root, "LICENSE"), path.join(source, "LICENSE"))
+  for (const file of ["LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE", "THIRD-PARTY-NOTICES.md"]) {
+    cpSync(path.join(root, file), path.join(source, file))
+  }
   const countFile = path.join(directory, "docker-count")
   writeFileSync(
     path.join(bin, "docker"),
@@ -121,6 +123,12 @@ test("preparation freezes all upstream digests, tokenizer bytes, entry scripts a
     readFileSync(path.join(output, "identity.env"), "utf8"),
     /RELEASE_BUILD_TIME=/u,
   )
+  for (const file of ["LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE", "THIRD-PARTY-NOTICES.md"]) {
+    assert.equal(
+      readFileSync(path.join(output, "release-assets", file), "utf8"),
+      readFileSync(path.join(root, file), "utf8"),
+    )
+  }
   const verified = spawnSync("sha256sum", ["-c", "SHA256SUMS"], {
     cwd: output,
     encoding: "utf8",

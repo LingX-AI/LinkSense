@@ -9,6 +9,7 @@ import {
   imageGenerationProviderSchema,
   imageGenerationRequestSchema,
   imageGenerationSettingsSchema,
+  pricingCurrency,
   updateImageGenerationSettingsSchema,
   type JsonValue,
   type ImageGenerationInternalResult,
@@ -319,7 +320,7 @@ export class ImageGenerationSettingsService {
       image_count: imageCount,
       unit_price: unitPrice,
       total_cost: totalCost,
-      currency: "CNY",
+      currency: pricingCurrency,
       transparency: projectTransparencyResult(transparencyStrategy),
       images: normalized,
     })
@@ -428,7 +429,7 @@ function projectAdminSettings(
     api_key_configured: stored?.apiKey !== null && stored?.apiKey !== undefined,
     model: stored?.model ?? null,
     price_per_image: stored?.pricePerImage ?? "0",
-    currency: "CNY",
+    currency: pricingCurrency,
     providers: imageGenerationProviderDefinitions,
   })
 }

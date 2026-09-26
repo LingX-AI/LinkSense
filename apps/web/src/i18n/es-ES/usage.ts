@@ -136,7 +136,7 @@ export const usageMessages = {
     modelsTitle: "Uso de todos los modelos",
     modelsDescription:
       "Llamadas, composición de tokens y costes de cada modelo de generación, representación vectorial y reordenación.",
-    tableCostUnit: "Unidad de coste: CNY (yuanes).",
+    tableCostUnit: "Unidad de coste: USD (dólares).",
     modelsEmpty: "No hay uso de modelos en el periodo seleccionado.",
     workloadsTitle: "Uso por finalidad del modelo",
     workloadsDescription:

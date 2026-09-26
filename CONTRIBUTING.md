@@ -63,7 +63,7 @@ Dockerfile 中的 BuildKit pnpm 缓存会复用已下载的包，只下载缓存
 - Use Prisma migrations for database schema changes, and clearly describe data-loss and compatibility risks in the pull request.
 - Before submitting, run the affected tests, type checks, linting, and build, and record the results in the pull request.
 
-By contributing, you agree to license your contribution under this repository's [CPAL-1.0](./LICENSE).
+By contributing, you agree to license your contribution under this repository's [CPAL-1.0](./LICENSE). Before an external pull request is merged, its contributor must also agree to the [Contributor License Agreement](./CLA.md). A maintainer will request and record that agreement on the pull request. You retain your copyright; the CLA permits the project to offer additional licensing terms while keeping the contribution available in the open-source edition.
 
 ## Contributor acknowledgements / 贡献者展示
 

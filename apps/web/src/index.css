@@ -3711,14 +3711,6 @@
   padding: 28px 0 96px;
 }
 
-.shared-conversation-state {
-  display: grid;
-  min-height: 100svh;
-  place-items: center;
-  padding: 24px;
-  background: var(--app-canvas);
-}
-
 @media (max-width: 720px) {
   .conversation-share-dialog {
     width: calc(100vw - 20px);

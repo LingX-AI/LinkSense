@@ -103,8 +103,8 @@ describe("UsageAnalyticsService token capture", () => {
           cachedInputTokens: 10n,
           outputTokens: 30n,
           reasoningOutputTokens: 8n,
-          totalCostPicoCny: 0n,
-          creditPriceMicrosCny: 10_000n,
+          totalCostPicoUsd: 0n,
+          creditPriceMicrosUsd: 10_000n,
           usedCreditMicros: 0n,
           unpricedTokens: 80n,
           observedAt: NOW,
@@ -127,17 +127,17 @@ describe("UsageAnalyticsService token capture", () => {
   it.each([
     {
       creditPrice: "0.01",
-      creditPriceMicrosCny: 10_000n,
+      creditPriceMicrosUsd: 10_000n,
       usedCreditMicros: 102_000n,
     },
     {
       creditPrice: "0.02",
-      creditPriceMicrosCny: 20_000n,
+      creditPriceMicrosUsd: 20_000n,
       usedCreditMicros: 51_000n,
     },
   ])(
-    "freezes prices, cost, and credits at CNY $creditPrice per credit on native usage",
-    async ({ creditPrice, creditPriceMicrosCny, usedCreditMicros }) => {
+    "freezes prices, cost, and credits at USD $creditPrice per credit on native usage",
+    async ({ creditPrice, creditPriceMicrosUsd, usedCreditMicros }) => {
       const fixture = captureFixture({ creditPrice });
       const modelCatalog = {
         getAdminSettings: vi.fn(async () => ({
@@ -179,11 +179,11 @@ describe("UsageAnalyticsService token capture", () => {
             inputPriceMicrosPerMillion: 10_000_000n,
             cachedInputPriceMicrosPerMillion: 2_000_000n,
             outputPriceMicrosPerMillion: 20_000_000n,
-            inputCostPicoCny: 400_000_000n,
-            cachedInputCostPicoCny: 20_000_000n,
-            outputCostPicoCny: 600_000_000n,
-            totalCostPicoCny: 1_020_000_000n,
-            creditPriceMicrosCny,
+            inputCostPicoUsd: 400_000_000n,
+            cachedInputCostPicoUsd: 20_000_000n,
+            outputCostPicoUsd: 600_000_000n,
+            totalCostPicoUsd: 1_020_000_000n,
+            creditPriceMicrosUsd,
             usedCreditMicros,
             unpricedTokens: 0n,
           }),
@@ -400,7 +400,7 @@ describe("UsageAnalyticsService reporting", () => {
         reasoning_output_tokens: "60",
       },
       cost: {
-        currency: "CNY",
+        currency: "USD",
         total_cost: "0.00813",
         input_cost: "0.00375",
         cached_input_cost: "0.00018",
@@ -519,7 +519,7 @@ describe("UsageAnalyticsService reporting", () => {
             reasoning_output_tokens: "60",
           },
           cost: {
-            currency: "CNY",
+            currency: "USD",
             total_cost: "0.00813",
             input_cost: "0.00375",
             cached_input_cost: "0.00018",
@@ -1134,17 +1134,17 @@ describe("UsageAnalyticsService knowledge model capture", () => {
   it.each([
     {
       creditPrice: "0.01",
-      creditPriceMicrosCny: 10_000n,
+      creditPriceMicrosUsd: 10_000n,
       usedCreditMicros: 6_600n,
     },
     {
       creditPrice: "0.02",
-      creditPriceMicrosCny: 20_000n,
+      creditPriceMicrosUsd: 20_000n,
       usedCreditMicros: 3_300n,
     },
   ])(
-    "persists idempotent model cost and credits at CNY $creditPrice per credit",
-    async ({ creditPrice, creditPriceMicrosCny, usedCreditMicros }) => {
+    "persists idempotent model cost and credits at USD $creditPrice per credit",
+    async ({ creditPrice, creditPriceMicrosUsd, usedCreditMicros }) => {
       const createMany = vi.fn(async () => ({ count: 1 }));
       const service = new UsageAnalyticsService(
         {
@@ -1153,7 +1153,7 @@ describe("UsageAnalyticsService knowledge model capture", () => {
               settingsJson: {
                 quota_settings: {
                   ...defaultQuotaSettings(),
-                  credit_price_cny: creditPrice,
+                  credit_price_usd: creditPrice,
                 },
               },
             })),
@@ -1192,11 +1192,11 @@ describe("UsageAnalyticsService knowledge model capture", () => {
             inputPriceMicrosPerMillion: 5_000_000n,
             cachedInputPriceMicrosPerMillion: 1_000_000n,
             outputPriceMicrosPerMillion: 8_000_000n,
-            inputCostPicoCny: 40_000_000n,
-            cachedInputCostPicoCny: 2_000_000n,
-            outputCostPicoCny: 24_000_000n,
-            totalCostPicoCny: 66_000_000n,
-            creditPriceMicrosCny,
+            inputCostPicoUsd: 40_000_000n,
+            cachedInputCostPicoUsd: 2_000_000n,
+            outputCostPicoUsd: 24_000_000n,
+            totalCostPicoUsd: 66_000_000n,
+            creditPriceMicrosUsd,
             usedCreditMicros,
             unpricedTokens: 0n,
             observedAt: NOW,
@@ -1258,7 +1258,7 @@ describe("UsageAnalyticsService knowledge model capture", () => {
           modelKind: "generation",
           model: "title-model",
           totalTokens: 21n,
-          totalCostPicoCny: 104_000_000n,
+          totalCostPicoUsd: 104_000_000n,
         }),
       ],
       skipDuplicates: true,
@@ -1287,7 +1287,7 @@ function captureFixture(options?: {
               settingsJson: {
                 quota_settings: {
                   ...defaultQuotaSettings(),
-                  credit_price_cny: options.creditPrice,
+                  credit_price_usd: options.creditPrice,
                 },
               },
             }
@@ -1775,12 +1775,12 @@ function postgresNumericTrendSumRow(
     reasoningOutputTokens: new Prisma.Decimal(
       row.reasoningOutputTokens.toString(),
     ),
-    inputCostPicoCny: new Prisma.Decimal(row.inputCostPicoCny.toString()),
-    cachedInputCostPicoCny: new Prisma.Decimal(
-      row.cachedInputCostPicoCny.toString(),
+    inputCostPicoUsd: new Prisma.Decimal(row.inputCostPicoUsd.toString()),
+    cachedInputCostPicoUsd: new Prisma.Decimal(
+      row.cachedInputCostPicoUsd.toString(),
     ),
-    outputCostPicoCny: new Prisma.Decimal(row.outputCostPicoCny.toString()),
-    totalCostPicoCny: new Prisma.Decimal(row.totalCostPicoCny.toString()),
+    outputCostPicoUsd: new Prisma.Decimal(row.outputCostPicoUsd.toString()),
+    totalCostPicoUsd: new Prisma.Decimal(row.totalCostPicoUsd.toString()),
     unpricedTokens: new Prisma.Decimal(row.unpricedTokens.toString()),
   };
 }
@@ -1793,15 +1793,15 @@ function usageCost(
   cachedInputPrice: bigint,
   outputPrice: bigint,
 ) {
-  const inputCostPicoCny = (inputTokens - cachedInputTokens) * inputPrice;
-  const cachedInputCostPicoCny = cachedInputTokens * cachedInputPrice;
-  const outputCostPicoCny = outputTokens * outputPrice;
+  const inputCostPicoUsd = (inputTokens - cachedInputTokens) * inputPrice;
+  const cachedInputCostPicoUsd = cachedInputTokens * cachedInputPrice;
+  const outputCostPicoUsd = outputTokens * outputPrice;
   return {
-    inputCostPicoCny,
-    cachedInputCostPicoCny,
-    outputCostPicoCny,
-    totalCostPicoCny:
-      inputCostPicoCny + cachedInputCostPicoCny + outputCostPicoCny,
+    inputCostPicoUsd,
+    cachedInputCostPicoUsd,
+    outputCostPicoUsd,
+    totalCostPicoUsd:
+      inputCostPicoUsd + cachedInputCostPicoUsd + outputCostPicoUsd,
     unpricedTokens: 0n,
   };
 }

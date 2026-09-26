@@ -117,7 +117,7 @@ function tokens(totalTokens: string) {
 
 function cost(totalCost: string) {
   return {
-    currency: "CNY" as const,
+    currency: "USD" as const,
     total_cost: totalCost,
     input_cost: totalCost,
     cached_input_cost: "0",

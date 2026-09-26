@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { modelTokenPricingSchema } from "../src/index.js"
 
 describe("model token pricing contract", () => {
-  it("normalizes three CNY prices per million tokens", () => {
+  it("normalizes three USD prices per million tokens", () => {
     expect(
       modelTokenPricingSchema.parse({
         input_price_per_million: "12.340000",

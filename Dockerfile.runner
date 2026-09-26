@@ -115,6 +115,7 @@ ARG PNPM_VERSION
 ARG DEBIAN_MIRROR_URL
 ARG DEBIAN_SECURITY_MIRROR_URL
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
+COPY --chmod=0444 LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE /usr/share/licenses/linksense/
 COPY --chmod=0755 deploy/docker/configure-debian-apt.sh /usr/local/bin/configure-debian-apt
 RUN DEBIAN_MIRROR_URL="${DEBIAN_MIRROR_URL}" \
     DEBIAN_SECURITY_MIRROR_URL="${DEBIAN_SECURITY_MIRROR_URL}" \
@@ -144,6 +145,7 @@ ARG DEBIAN_SECURITY_MIRROR_URL
 ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL
 ARG PLAYWRIGHT_DOWNLOAD_HOST
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
+COPY --chmod=0444 LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE /usr/share/licenses/linksense/
 RUN install -d -o root -g root -m 0755 /opt/linksense
 COPY --chmod=0444 apps/runner/src/codex/runtime-version.json /opt/linksense/codex-runtime-version.json
 ENV LANG=C.UTF-8

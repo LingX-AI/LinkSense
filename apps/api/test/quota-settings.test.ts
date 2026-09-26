@@ -44,10 +44,10 @@ function fixture(initial = defaultQuotaSettings()) {
 }
 
 describe("quota settings", () => {
-  it("starts with one unlimited weekly policy and CNY 0.01 per credit", () => {
+  it("starts with one unlimited weekly policy and USD 0.01 per credit", () => {
     expect(quotaSettingsFromJson({})).toEqual(defaultQuotaSettings());
     expect(() =>
-      quotaSettingsFromJson({ quota_settings: { credit_price_cny: "0" } }),
+      quotaSettingsFromJson({ quota_settings: { credit_price_usd: "0" } }),
     ).toThrow();
   });
 
@@ -98,7 +98,7 @@ describe("quota settings", () => {
     await expect(
       service.updateSettings(
         "admin",
-        { ...defaultQuotaSettings(), credit_price_cny: "0" },
+        { ...defaultQuotaSettings(), credit_price_usd: "0" },
         {},
       ),
     ).rejects.toThrow();
@@ -112,12 +112,12 @@ describe("quota settings", () => {
       250_000_000_000n,
     );
     expect(first).toEqual({
-      creditPriceMicrosCny: 10_000n,
+      creditPriceMicrosUsd: 10_000n,
       usedCreditMicros: 25_000_000n,
     });
     await service.updateSettings(
       "admin",
-      { ...defaultQuotaSettings(), credit_price_cny: "0.02" },
+      { ...defaultQuotaSettings(), credit_price_usd: "0.02" },
       {},
     );
     expect(
@@ -125,7 +125,7 @@ describe("quota settings", () => {
         prisma as unknown as PrismaClient,
         250_000_000_000n,
       ),
-    ).toEqual({ creditPriceMicrosCny: 20_000n, usedCreditMicros: 12_500_000n });
+    ).toEqual({ creditPriceMicrosUsd: 20_000n, usedCreditMicros: 12_500_000n });
     expect(first.usedCreditMicros).toBe(25_000_000n);
     expect(
       (await creditUsageSnapshot(prisma as unknown as PrismaClient, 1n))

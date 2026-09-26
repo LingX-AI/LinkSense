@@ -160,9 +160,11 @@ test("the installer checks the host before creating persistent state", async () 
   )
   assert.match(
     source,
-    /for resource in LICENSE compose\.common\.yml "compose\.\$EDITION\.yml" gateway\.conf\.template linksense-cli\.sh "repair-\$EDITION\.sh" upgrade\.sh/u,
+    /for resource in LICENSE LICENSE-EXCEPTIONS\.md ATTRIBUTION\.md TRADEMARK\.md NOTICE THIRD-PARTY-NOTICES\.md compose\.common\.yml "compose\.\$EDITION\.yml" gateway\.conf\.template linksense-cli\.sh "repair-\$EDITION\.sh" upgrade\.sh/u,
   )
   assert.match(source, /RESOURCE_LICENSE_SHA256/u)
+  assert.match(source, /LICENSE-EXCEPTIONS\.md\|ATTRIBUTION\.md\|TRADEMARK\.md\|NOTICE\|THIRD-PARTY-NOTICES\.md\)\s+rm -f "\$INSTALL_DIR\/\$previous_file"/u)
+  assert.match(source, /RESOURCE_THIRD_PARTY_NOTICES_SHA256/u)
   assert.match(source, /RESOURCE_CLI_SHA256/u)
   assert.match(source, /RESOURCE_UPGRADE_SHA256/u)
   assert.match(source, /activate_management_cli/u)
@@ -946,7 +948,7 @@ test("Full runs the official Docling image offline as a constrained non-root use
   assert.match(compose, /pids_limit: 512/u)
 })
 
-test("every LinkSense release image contains the CPAL license", async () => {
+test("every LinkSense release image contains the CPAL license and separate permissions", async () => {
   const [api, web, runner] = await Promise.all(
     ["Dockerfile.api", "Dockerfile.web", "Dockerfile.runner"].map((filename) =>
       readFile(path.join(root, filename), "utf8"),
@@ -957,6 +959,11 @@ test("every LinkSense release image contains the CPAL license", async () => {
   assert.equal((api.match(licenseCopy) ?? []).length, 2)
   assert.equal((web.match(licenseCopy) ?? []).length, 2)
   assert.equal((runner.match(licenseCopy) ?? []).length, 2)
+  const supplementalCopy =
+    /COPY --chmod=0444 LICENSE-EXCEPTIONS\.md ATTRIBUTION\.md TRADEMARK\.md NOTICE \/usr\/share\/licenses\/linksense\//gu
+  assert.equal((api.match(supplementalCopy) ?? []).length, 2)
+  assert.equal((web.match(supplementalCopy) ?? []).length, 2)
+  assert.equal((runner.match(supplementalCopy) ?? []).length, 2)
 })
 
 test("the private-source release workflow reuses verified main checks before promotion", async () => {
@@ -1077,6 +1084,9 @@ test("the release manifest generator records immutable images and artifact hashe
     const assetDirectory = path.join(directory, "assets")
     await cp(releaseDirectory, assetDirectory, { recursive: true })
     await cp(path.join(root, "LICENSE"), path.join(assetDirectory, "LICENSE"))
+    for (const file of ["LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE", "THIRD-PARTY-NOTICES.md"]) {
+      await cp(path.join(root, file), path.join(assetDirectory, file))
+    }
     execFileSync(
       process.execPath,
       [path.join(root, "scripts/bundle-release-installers.mjs"), assetDirectory],
@@ -1149,6 +1159,16 @@ test("the release manifest generator records immutable images and artifact hashe
         `RESOURCE_LICENSE_SHA256=${createHash("sha256").update(license).digest("hex")}`,
       ),
     )
+    for (const [key, file] of [
+      ["LICENSE_EXCEPTIONS", "LICENSE-EXCEPTIONS.md"],
+      ["ATTRIBUTION", "ATTRIBUTION.md"],
+      ["TRADEMARK", "TRADEMARK.md"],
+      ["NOTICE", "NOTICE"],
+      ["THIRD_PARTY_NOTICES", "THIRD-PARTY-NOTICES.md"],
+    ]) {
+      const content = await readFile(path.join(assetDirectory, file))
+      assert.ok(manifest.includes(`RESOURCE_${key}_SHA256=${createHash("sha256").update(content).digest("hex")}`))
+    }
     const commonCompose = await readFile(
       path.join(assetDirectory, "compose.common.yml"),
     )
@@ -1262,6 +1282,9 @@ test("the public snapshot keeps AGENTS.md and excludes private planning material
     await mkdir(path.join(source, "src"), { recursive: true })
     await writeFile(path.join(source, "AGENTS.md"), "public agent guidance\n")
     await writeFile(path.join(source, "LICENSE"), "CPAL-1.0\n")
+    for (const file of ["LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE", "THIRD-PARTY-NOTICES.md"]) {
+      await writeFile(path.join(source, file), `${file}\n`)
+    }
     await writeFile(path.join(source, "README.md"), "# LinkSense\n")
     await writeFile(path.join(source, "src/index.ts"), "export {}\n")
     await writeFile(path.join(source, "requirements/private.md"), "private\n")
@@ -1279,6 +1302,9 @@ test("the public snapshot keeps AGENTS.md and excludes private planning material
 
     await access(path.join(target, "AGENTS.md"))
     await access(path.join(target, "LICENSE"))
+    for (const file of ["LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE", "THIRD-PARTY-NOTICES.md"]) {
+      await access(path.join(target, file))
+    }
     await access(path.join(target, "README.md"))
     await access(path.join(target, "src/index.ts"))
     for (const forbidden of [

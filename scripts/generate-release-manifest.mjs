@@ -37,6 +37,11 @@ const imageKeys = [
 
 const resourcePaths = {
   LICENSE: "LICENSE",
+  LICENSE_EXCEPTIONS: "LICENSE-EXCEPTIONS.md",
+  ATTRIBUTION: "ATTRIBUTION.md",
+  TRADEMARK: "TRADEMARK.md",
+  NOTICE: "NOTICE",
+  THIRD_PARTY_NOTICES: "THIRD-PARTY-NOTICES.md",
   COMPOSE_COMMON: "compose.common.yml",
   COMPOSE_CORE: "compose.core.yml",
   COMPOSE_FULL: "compose.full.yml",

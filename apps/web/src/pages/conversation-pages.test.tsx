@@ -223,6 +223,16 @@ describe("archived conversation pagination", () => {
     vi.unstubAllGlobals()
   })
 
+  it("shows the LinkSense credit in the lower-right of the conversation workspace", async () => {
+    renderPrewarmPage()
+
+    const badge = await screen.findByRole("note", {
+      name: "由 LinkSense 提供支持",
+    })
+    expect(badge).toHaveClass("mr-1", "mb-1", "justify-self-end")
+    expect(badge.parentElement).toHaveClass("conversation-bottom-stack")
+  })
+
   it("prewarms again when the empty composer starts another new task", async () => {
     const fixture = renderPrewarmPage()
     await waitFor(() => expect(fixture.prewarms).toHaveLength(1))
@@ -628,13 +638,13 @@ describe("conversation knowledge base snapshots", () => {
   )
 
   it.each([
-    { development: true, role: null, hidden: true },
-    { development: false, role: "development", hidden: true },
-    { development: false, role: null, hidden: false },
-    { development: false, role: "preview", hidden: false },
+    { development: true, role: null, hidden: true, embedded: false },
+    { development: false, role: "development", hidden: true, embedded: true },
+    { development: false, role: null, hidden: false, embedded: true },
+    { development: false, role: "preview", hidden: false, embedded: true },
   ])(
-    "shows the knowledge button only outside application development: %j",
-    async ({ development, role, hidden }) => {
+    "hides attribution outside ordinary tasks and scopes the knowledge button: %j",
+    async ({ development, role, hidden, embedded }) => {
       const id = "knowledge-button-visibility"
       vi.stubGlobal(
         "fetch",
@@ -671,7 +681,7 @@ describe("conversation knowledge base snapshots", () => {
             <ConversationPage
               conversationId={id}
               development={development}
-              embedded
+              embedded={embedded}
             />
           </QueryClientProvider>
         </MemoryRouter>
@@ -686,6 +696,9 @@ describe("conversation knowledge base snapshots", () => {
         expect(screen.getByRole("button", { name: "添加知识库" })).toBeVisible()
       }
       expect(screen.getByRole("textbox", { name: "任务输入框" })).toBeVisible()
+      expect(
+        screen.queryByRole("note", { name: "由 LinkSense 提供支持" })
+      ).not.toBeInTheDocument()
       client.clear()
     }
   )
@@ -882,6 +895,9 @@ describe("conversation knowledge base snapshots", () => {
     )
 
     const composer = await screen.findByRole("textbox", { name: "任务输入框" })
+    expect(
+      screen.getByRole("note", { name: "由 LinkSense 提供支持" })
+    ).toBeVisible()
     expect(
       await screen.findByRole("button", { name: "移除附件 goal-brief.pdf" })
     ).toBeVisible()
@@ -3444,6 +3460,9 @@ describe("conversation knowledge base snapshots", () => {
       )
 
       expect(await screen.findByText(expectedLabel)).toBeVisible()
+      expect(
+        screen.queryByRole("note", { name: "由 LinkSense 提供支持" })
+      ).not.toBeInTheDocument()
       const managedLabel = "此任务由应用“AISG学校政策问答助手”管理"
       expect(screen.queryByText(managedLabel)).toBeNull()
       const managedInfoButton = screen.getByRole("button", {

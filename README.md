@@ -12,6 +12,8 @@ Built with the open-source Codex runtime — running inside your LinkSense deplo
 
 [Live Demo](https://explore.linksense.org/) · [Quick Start](#quick-start) · [Architecture](#architecture) · [Build with LinkSense](#build-with-linksense)
 
+![A Skill built in one workspace becomes available to the organization](./docs/demo/Hero.gif)
+
 ---
 
 ## Why LinkSense
@@ -34,27 +36,15 @@ Self-host LinkSense on your own infrastructure. Choose your models and integrati
 
 ### Real AI work
 
-```text
-Research → Browser → Code / Data → Spreadsheet → Report → Artifacts
-```
+![Research, browser, code, data, spreadsheets, reports and artifacts](./docs/diagrams/real-ai-work.svg)
 
 ### Individual Skill → Organizational Capability
 
-```text
-Create → Test → Release → Review → Publish → Install
-```
+![A personal Skill moves through testing, review, publication and installation](./docs/diagrams/organizational-capability-lifecycle.svg)
 
 ### Capabilities → Team Application
 
-```text
-Knowledge + Skills + MCP
-          ↓
-     Application
-          ↓
-    Users / Groups
-          ↓
-      User Tasks
-```
+![Knowledge, Skills and MCP services combine into an Application for teams](./docs/diagrams/capabilities-to-team-application.svg)
 
 ---
 
@@ -208,7 +198,7 @@ LinkSense does **not** fork Codex, patch its source, or reimplement the agent lo
 
 ## Open Source. Self-hosted. Under Your Control.
 
-The organizational capability layer itself is open source. Applications, Skills and Plugins, MCP management, Knowledge, identity and groups, governance, credentials, usage and audit, Runner, Workers, and the Core and Full deployment profiles are part of the open-source project.
+The organizational capability layer itself is open source. LinkSense-owned code for Applications, Skills and Plugins, MCP management, Knowledge, identity and groups, governance, credentials, usage and audit, Runner and Workers, together with the Core and Full deployment configurations, is part of the open-source project. The independent services used by those configurations retain their own licenses.
 
 Organizational features are not separated into a required closed enterprise runtime or LinkSense-operated cloud control plane.
 
@@ -346,6 +336,8 @@ For a Linux release installation accessed from another device, replace `localhos
 ## Architecture
 
 The diagram shows the published Full deployment. Core omits the Full Knowledge Stack, and host development uses local-process Workers instead of Docker Workers.
+
+![Full deployment system architecture](./docs/diagrams/system-architecture.svg)
 
 ```text
 Browser
@@ -599,13 +591,13 @@ See [SUPPORT.md](./SUPPORT.md).
 
 ## License
 
-LinkSense-owned source code in this repository is released under [CPAL-1.0](./LICENSE), including completed Attribution Information and additional permissions.
+LinkSense-owned source code is released under [CPAL-1.0](./LICENSE), an [OSI-approved](https://opensource.org/license/CPAL-1.0) open-source license. The completed exhibits specify a small attribution notice: `Powered by` and the full LinkSense mark. Its placement and exceptions are described in [ATTRIBUTION.md](./ATTRIBUTION.md).
 
-Read the complete license before using, modifying, distributing, or making LinkSense available over a network.
+The [additional permissions](./LICENSE-EXCEPTIONS.md) clarify that internal deployment does not itself require source disclosure, permit your own product branding, and preserve the terms of published versions. Graphical interfaces still display the attribution. CLI, headless and API-only use, full-screen modes, and generated documents and exports do not require it.
 
-Third-party components retain their respective licenses.
+The [trademark policy](./TRADEMARK.md) expressly permits use of the mark for this notice. [NOTICE](./NOTICE) records the project copyright. Third-party components retain their respective licenses; [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md) identifies the standalone images selected for Core and Full releases. The open-source scope here is LinkSense-owned source code, not a claim that every deployment image uses an open-source license. Contributors should read [CONTRIBUTING.md](./CONTRIBUTING.md) and the [CLA](./CLA.md).
 
-Commercial licensing or white-label arrangements may be available where the CPAL terms do not fit your deployment requirements.
+For licensing arrangements that remove the notice or use different terms, contact `licensing@linksense.org`.
 
 ## Contributors
 

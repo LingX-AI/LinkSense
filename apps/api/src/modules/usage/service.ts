@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   applicationUsageReportSchema,
   modelTokenPricingSchema,
+  pricingCurrency,
   personalUsageProfileQuerySchema,
   personalUsageProfileSchema,
   runnerCodexTokenUsageParamsSchema,
@@ -49,7 +50,7 @@ import {
 const USAGE_ANALYTICS_STATE_ID = "00000000-0000-4000-8000-000000000001";
 const UNKNOWN_USAGE_MODEL_ID = "__unknown__";
 const UNATTRIBUTED_APPLICATION_KEY = "__unattributed__";
-const PICO_CNY_PER_CNY = 1_000_000_000_000n;
+const PICO_USD_PER_USD = 1_000_000_000_000n;
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -63,10 +64,10 @@ type TokenFields = {
 };
 
 type CostFields = {
-  inputCostPicoCny: bigint;
-  cachedInputCostPicoCny: bigint;
-  outputCostPicoCny: bigint;
-  totalCostPicoCny: bigint;
+  inputCostPicoUsd: bigint;
+  cachedInputCostPicoUsd: bigint;
+  outputCostPicoUsd: bigint;
+  totalCostPicoUsd: bigint;
   unpricedTokens: bigint;
 };
 
@@ -136,10 +137,10 @@ type TokenTrendAggregateRow = {
   cachedInputTokens: DatabaseIntegerAggregate;
   outputTokens: DatabaseIntegerAggregate;
   reasoningOutputTokens: DatabaseIntegerAggregate;
-  inputCostPicoCny: DatabaseIntegerAggregate;
-  cachedInputCostPicoCny: DatabaseIntegerAggregate;
-  outputCostPicoCny: DatabaseIntegerAggregate;
-  totalCostPicoCny: DatabaseIntegerAggregate;
+  inputCostPicoUsd: DatabaseIntegerAggregate;
+  cachedInputCostPicoUsd: DatabaseIntegerAggregate;
+  outputCostPicoUsd: DatabaseIntegerAggregate;
+  totalCostPicoUsd: DatabaseIntegerAggregate;
   unpricedTokens: DatabaseIntegerAggregate;
   periodStart: string;
   workload: string;
@@ -308,7 +309,7 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
               model,
               ...delta,
               ...costSnapshot,
-              ...(await creditUsageSnapshot(tx, costSnapshot.totalCostPicoCny)),
+              ...(await creditUsageSnapshot(tx, costSnapshot.totalCostPicoUsd)),
               observedAt,
               createdAt: observedAt,
             },
@@ -406,7 +407,7 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
           measurementMethod: input.measurementMethod,
           ...tokens,
           ...costSnapshot,
-          ...(await creditUsageSnapshot(this.prisma, costSnapshot.totalCostPicoCny)),
+          ...(await creditUsageSnapshot(this.prisma, costSnapshot.totalCostPicoUsd)),
           observedAt,
           createdAt: observedAt,
         },
@@ -467,10 +468,10 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
           cachedInputTokens: true,
           outputTokens: true,
           reasoningOutputTokens: true,
-          inputCostPicoCny: true,
-          cachedInputCostPicoCny: true,
-          outputCostPicoCny: true,
-          totalCostPicoCny: true,
+          inputCostPicoUsd: true,
+          cachedInputCostPicoUsd: true,
+          outputCostPicoUsd: true,
+          totalCostPicoUsd: true,
           unpricedTokens: true,
         },
       }),
@@ -484,10 +485,10 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
           cachedInputTokens: true,
           outputTokens: true,
           reasoningOutputTokens: true,
-          inputCostPicoCny: true,
-          cachedInputCostPicoCny: true,
-          outputCostPicoCny: true,
-          totalCostPicoCny: true,
+          inputCostPicoUsd: true,
+          cachedInputCostPicoUsd: true,
+          outputCostPicoUsd: true,
+          totalCostPicoUsd: true,
           unpricedTokens: true,
         },
       }),
@@ -693,10 +694,10 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
           cachedInputTokens: true,
           outputTokens: true,
           reasoningOutputTokens: true,
-          inputCostPicoCny: true,
-          cachedInputCostPicoCny: true,
-          outputCostPicoCny: true,
-          totalCostPicoCny: true,
+          inputCostPicoUsd: true,
+          cachedInputCostPicoUsd: true,
+          outputCostPicoUsd: true,
+          totalCostPicoUsd: true,
           unpricedTokens: true,
         },
       }),
@@ -718,10 +719,10 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
           cachedInputTokens: true,
           outputTokens: true,
           reasoningOutputTokens: true,
-          inputCostPicoCny: true,
-          cachedInputCostPicoCny: true,
-          outputCostPicoCny: true,
-          totalCostPicoCny: true,
+          inputCostPicoUsd: true,
+          cachedInputCostPicoUsd: true,
+          outputCostPicoUsd: true,
+          totalCostPicoUsd: true,
           unpricedTokens: true,
         },
       }),
@@ -1018,10 +1019,10 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
             cachedInputTokens: true,
             outputTokens: true,
             reasoningOutputTokens: true,
-            inputCostPicoCny: true,
-            cachedInputCostPicoCny: true,
-            outputCostPicoCny: true,
-            totalCostPicoCny: true,
+            inputCostPicoUsd: true,
+            cachedInputCostPicoUsd: true,
+            outputCostPicoUsd: true,
+            totalCostPicoUsd: true,
             unpricedTokens: true,
           },
         }),
@@ -1041,10 +1042,10 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
             cachedInputTokens: true,
             outputTokens: true,
             reasoningOutputTokens: true,
-            inputCostPicoCny: true,
-            cachedInputCostPicoCny: true,
-            outputCostPicoCny: true,
-            totalCostPicoCny: true,
+            inputCostPicoUsd: true,
+            cachedInputCostPicoUsd: true,
+            outputCostPicoUsd: true,
+            totalCostPicoUsd: true,
             unpricedTokens: true,
           },
         }),
@@ -1150,10 +1151,10 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
           "cached_input_tokens",
           "output_tokens",
           "reasoning_output_tokens",
-          "input_cost_pico_cny",
-          "cached_input_cost_pico_cny",
-          "output_cost_pico_cny",
-          "total_cost_pico_cny",
+          "input_cost_pico_usd",
+          "cached_input_cost_pico_usd",
+          "output_cost_pico_usd",
+          "total_cost_pico_usd",
           "unpriced_tokens"
         FROM "token_usage_records"
         UNION ALL
@@ -1168,10 +1169,10 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
           "cached_input_tokens",
           "output_tokens",
           "reasoning_output_tokens",
-          "input_cost_pico_cny",
-          "cached_input_cost_pico_cny",
-          "output_cost_pico_cny",
-          "total_cost_pico_cny",
+          "input_cost_pico_usd",
+          "cached_input_cost_pico_usd",
+          "output_cost_pico_usd",
+          "total_cost_pico_usd",
           "unpriced_tokens"
         FROM "model_usage_records"
       )
@@ -1188,10 +1189,10 @@ export class UsageAnalyticsService implements ModelUsageRecorder {
         SUM("cached_input_tokens") AS "cachedInputTokens",
         SUM("output_tokens") AS "outputTokens",
         SUM("reasoning_output_tokens") AS "reasoningOutputTokens",
-        SUM("input_cost_pico_cny") AS "inputCostPicoCny",
-        SUM("cached_input_cost_pico_cny") AS "cachedInputCostPicoCny",
-        SUM("output_cost_pico_cny") AS "outputCostPicoCny",
-        SUM("total_cost_pico_cny") AS "totalCostPicoCny",
+        SUM("input_cost_pico_usd") AS "inputCostPicoUsd",
+        SUM("cached_input_cost_pico_usd") AS "cachedInputCostPicoUsd",
+        SUM("output_cost_pico_usd") AS "outputCostPicoUsd",
+        SUM("total_cost_pico_usd") AS "totalCostPicoUsd",
         SUM("unpriced_tokens") AS "unpricedTokens"
       FROM "all_usage"
       WHERE "observed_at" >= ${input.from}
@@ -1443,21 +1444,21 @@ function nullableTokenSum(value: {
 }
 
 function nullableCostSum(value: {
-  inputCostPicoCny: DatabaseIntegerAggregate;
-  cachedInputCostPicoCny: DatabaseIntegerAggregate;
-  outputCostPicoCny: DatabaseIntegerAggregate;
-  totalCostPicoCny: DatabaseIntegerAggregate;
+  inputCostPicoUsd: DatabaseIntegerAggregate;
+  cachedInputCostPicoUsd: DatabaseIntegerAggregate;
+  outputCostPicoUsd: DatabaseIntegerAggregate;
+  totalCostPicoUsd: DatabaseIntegerAggregate;
   unpricedTokens: DatabaseIntegerAggregate;
 }): CostFields {
   return {
-    inputCostPicoCny: normalizeDatabaseIntegerAggregate(value.inputCostPicoCny),
-    cachedInputCostPicoCny: normalizeDatabaseIntegerAggregate(
-      value.cachedInputCostPicoCny,
+    inputCostPicoUsd: normalizeDatabaseIntegerAggregate(value.inputCostPicoUsd),
+    cachedInputCostPicoUsd: normalizeDatabaseIntegerAggregate(
+      value.cachedInputCostPicoUsd,
     ),
-    outputCostPicoCny: normalizeDatabaseIntegerAggregate(
-      value.outputCostPicoCny,
+    outputCostPicoUsd: normalizeDatabaseIntegerAggregate(
+      value.outputCostPicoUsd,
     ),
-    totalCostPicoCny: normalizeDatabaseIntegerAggregate(value.totalCostPicoCny),
+    totalCostPicoUsd: normalizeDatabaseIntegerAggregate(value.totalCostPicoUsd),
     unpricedTokens: normalizeDatabaseIntegerAggregate(value.unpricedTokens),
   };
 }
@@ -1485,10 +1486,10 @@ function emptyTokens(): TokenFields {
 
 function emptyCost(): CostFields {
   return {
-    inputCostPicoCny: 0n,
-    cachedInputCostPicoCny: 0n,
-    outputCostPicoCny: 0n,
-    totalCostPicoCny: 0n,
+    inputCostPicoUsd: 0n,
+    cachedInputCostPicoUsd: 0n,
+    outputCostPicoUsd: 0n,
+    totalCostPicoUsd: 0n,
     unpricedTokens: 0n,
   };
 }
@@ -1699,10 +1700,10 @@ function addTokens(target: TokenFields, source: TokenFields): void {
 }
 
 function addCost(target: CostFields, source: CostFields): void {
-  target.inputCostPicoCny += source.inputCostPicoCny;
-  target.cachedInputCostPicoCny += source.cachedInputCostPicoCny;
-  target.outputCostPicoCny += source.outputCostPicoCny;
-  target.totalCostPicoCny += source.totalCostPicoCny;
+  target.inputCostPicoUsd += source.inputCostPicoUsd;
+  target.cachedInputCostPicoUsd += source.cachedInputCostPicoUsd;
+  target.outputCostPicoUsd += source.outputCostPicoUsd;
+  target.totalCostPicoUsd += source.totalCostPicoUsd;
   target.unpricedTokens += source.unpricedTokens;
 }
 
@@ -1885,18 +1886,18 @@ function projectTokens(tokens: TokenFields): UsageTokenBreakdown {
 
 function projectCost(cost: CostFields): UsageCostBreakdown {
   return {
-    currency: "CNY",
-    total_cost: picoCnyToDecimal(cost.totalCostPicoCny),
-    input_cost: picoCnyToDecimal(cost.inputCostPicoCny),
-    cached_input_cost: picoCnyToDecimal(cost.cachedInputCostPicoCny),
-    output_cost: picoCnyToDecimal(cost.outputCostPicoCny),
+    currency: pricingCurrency,
+    total_cost: picoUsdToDecimal(cost.totalCostPicoUsd),
+    input_cost: picoUsdToDecimal(cost.inputCostPicoUsd),
+    cached_input_cost: picoUsdToDecimal(cost.cachedInputCostPicoUsd),
+    output_cost: picoUsdToDecimal(cost.outputCostPicoUsd),
     unpriced_tokens: cost.unpricedTokens.toString(),
   };
 }
 
-function picoCnyToDecimal(value: bigint): string {
-  const whole = value / PICO_CNY_PER_CNY;
-  const fraction = (value % PICO_CNY_PER_CNY)
+function picoUsdToDecimal(value: bigint): string {
+  const whole = value / PICO_USD_PER_USD;
+  const fraction = (value % PICO_USD_PER_USD)
     .toString()
     .padStart(12, "0")
     .replace(/0+$/u, "");

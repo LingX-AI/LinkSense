@@ -3,9 +3,9 @@
 import { describe, expect, it } from "vitest"
 
 import {
-  allocateCnyMinorUnits,
-  formatCnyCost,
-  formatCnyMinorUnits,
+  allocateUsdMinorUnits,
+  formatUsdCost,
+  formatUsdMinorUnits,
   formatIntegerCount,
   formatTokenCount,
 } from "@/lib/usage-number"
@@ -66,19 +66,19 @@ describe("usage number formatting", () => {
     expect(formatTokenCount(Number.POSITIVE_INFINITY, "en-US")).toBe("—")
   })
 
-  it("formats all CNY costs with exactly two decimal places", () => {
-    expect(formatCnyCost("0", "zh-CN")).toBe("¥0.00")
-    expect(formatCnyCost("12.340000000001", "zh-CN")).toBe("¥12.34")
-    expect(formatCnyCost("0.004999999999", "en-US")).toBe("¥0.00")
-    expect(formatCnyCost("0.005", "en-US")).toBe("¥0.01")
-    expect(formatCnyCost("9007199254740993.125", "en-US")).toBe(
-      "¥9,007,199,254,740,993.13"
+  it("formats all USD costs with exactly two decimal places", () => {
+    expect(formatUsdCost("0", "zh-CN")).toBe("$0.00")
+    expect(formatUsdCost("12.340000000001", "zh-CN")).toBe("$12.34")
+    expect(formatUsdCost("0.004999999999", "en-US")).toBe("$0.00")
+    expect(formatUsdCost("0.005", "en-US")).toBe("$0.01")
+    expect(formatUsdCost("9007199254740993.125", "en-US")).toBe(
+      "$9,007,199,254,740,993.13"
     )
-    expect(formatCnyCost("invalid", "zh-CN")).toBe("—")
+    expect(formatUsdCost("invalid", "zh-CN")).toBe("—")
   })
 
   it("allocates rounding differences so displayed details equal the total", () => {
-    const allocated = allocateCnyMinorUnits(
+    const allocated = allocateUsdMinorUnits(
       ["0.005", "0.005", "0.002"],
       "0.012"
     )
@@ -86,11 +86,11 @@ describe("usage number formatting", () => {
     expect(allocated).toEqual([1n, 0n, 0n])
     expect(allocated?.reduce((sum, amount) => sum + amount, 0n)).toBe(1n)
     expect(
-      allocated?.map((amount) => formatCnyMinorUnits(amount, "zh-CN"))
-    ).toEqual(["¥0.01", "¥0.00", "¥0.00"])
+      allocated?.map((amount) => formatUsdMinorUnits(amount, "zh-CN"))
+    ).toEqual(["$0.01", "$0.00", "$0.00"])
   })
 
   it("rejects allocation when detail precision does not match its total", () => {
-    expect(allocateCnyMinorUnits(["0.004", "0.004"], "0.009")).toBeNull()
+    expect(allocateUsdMinorUnits(["0.004", "0.004"], "0.009")).toBeNull()
   })
 })

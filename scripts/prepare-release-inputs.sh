@@ -46,6 +46,11 @@ done
 install -m 0755 "$root/deploy/release/linksense-installer.sh" \
   "$root/deploy/release/linksense-cli.sh" "$output/release-assets/"
 install -m 0644 "$root/LICENSE" \
+  "$root/LICENSE-EXCEPTIONS.md" \
+  "$root/ATTRIBUTION.md" \
+  "$root/TRADEMARK.md" \
+  "$root/NOTICE" \
+  "$root/THIRD-PARTY-NOTICES.md" \
   "$root/deploy/release/compose.common.yml" \
   "$root/deploy/release/compose.core.yml" \
   "$root/deploy/release/compose.full.yml" \

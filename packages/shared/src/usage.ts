@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { localeSchema, timestampSchema, uuidSchema } from "./common.js";
+import { pricingCurrency } from "./pricing-currency.js";
 
 export const usageAnalyticsRangeValues = [
   "all",
@@ -76,7 +77,7 @@ export const usageTokenBreakdownSchema = z.strictObject({
 export const usageCostAmountSchema = z.string().regex(/^\d+(?:\.\d{1,12})?$/u);
 
 export const usageCostBreakdownSchema = z.strictObject({
-  currency: z.literal("CNY"),
+  currency: z.literal(pricingCurrency),
   total_cost: usageCostAmountSchema,
   input_cost: usageCostAmountSchema,
   cached_input_cost: usageCostAmountSchema,
@@ -312,7 +313,7 @@ export const billingStatementSummarySchema = z.strictObject({
   id: uuidSchema,
   statement_number: z.string().min(1).max(40),
   period: billingStatementPeriodSchema,
-  currency: z.literal("CNY"),
+  currency: z.literal(pricingCurrency),
   status: billingStatementStatusSchema,
   total_cost: usageCostAmountSchema,
   unpriced_tokens: usageTokenCountSchema,

@@ -30,6 +30,8 @@ export const enUS = {
       "This page could not be loaded. Check your connection and try again. If an update notice is shown, update the page first.",
   },
   common: {
+    poweredBy: "Powered by",
+    poweredByLinkSense: "Powered by LinkSense",
     dateRange: {
       label: "Date range",
       createdLabel: "Created date range",
@@ -387,9 +389,9 @@ export const enUS = {
     conversionTitle: "Credit conversion",
     conversionDescription:
       "Convert model usage costs into credits. Price changes apply only to subsequent consumption; existing charges stay unchanged.",
-    creditPrice: "Amount per credit (CNY)",
+    creditPrice: "Amount per credit (USD)",
     conversionExample:
-      "For example, at CNY 0.01 per credit, a CNY 0.25 charge consumes 25 credits.",
+      "For example, at USD 0.01 per credit, a USD 0.25 charge consumes 25 credits.",
     members: {
       actions: "Member quota actions",
       reset: "Reset quotas for all",
@@ -4106,7 +4108,7 @@ export const enUS = {
     modelsTitle: "All model usage",
     modelsDescription:
       "Calls, token composition, and cost for every generation, embedding, and rerank model.",
-    tableCostUnit: "Cost unit: CNY (yuan).",
+    tableCostUnit: "Cost unit: USD (dollars).",
     modelsEmpty: "No model usage in the selected period.",
     workloadsTitle: "Model workload usage",
     workloadsDescription:
@@ -4672,7 +4674,7 @@ export const enUS = {
       contextWindowPlaceholder: "Auto detect",
       contextWindowInvalid:
         "Enter an integer greater than 0, or leave blank to auto-detect.",
-      priceUnit: "CNY / 1M tokens",
+      priceUnit: "USD / 1M tokens",
       priceUnitSummary: ". Prices are shown in {{unit}}.",
       showInComposer: "Available in conversations",
       saveModel: "Save model {{name}}",
@@ -4728,7 +4730,7 @@ export const enUS = {
         "Enter the result-ranking model connection address supplied by the provider.",
       modelId: "Model ID",
       inputPrice: "Input price",
-      priceUnit: "CNY / 1M tokens",
+      priceUnit: "USD / 1M tokens",
       embeddingApiKey: "Embedding API key",
       rerankApiKey: "Rerank API key",
       apiKeyConfiguredHint:
@@ -4839,7 +4841,7 @@ export const enUS = {
         "Enter the model name supplied by the provider, such as qwen-image-3.0.",
       pricePerImage: "Price per image",
       pricePerImageHint:
-        "Used to track image generation costs. Unit: CNY per image.",
+        "Used to track image generation costs. Unit: USD per image.",
       save: "Save image generation model",
       saving: "Saving…",
       saved: "Image generation model settings updated.",

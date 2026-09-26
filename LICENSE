@@ -174,7 +174,8 @@ Display of Attribution Information is [required/not required] in Larger Works wh
 
 ===========================================================================
   Below are LinkSense's completed Exhibit A and Exhibit B under CPAL-1.0.
-  The license text above is the official SPDX text, reproduced unmodified.
+  The license text above is the official CPAL-1.0 text, reproduced
+  unmodified from vendor/CPAL-1.0.txt (SHA-256 recorded alongside it).
 ===========================================================================
 
 EXHIBIT A. Common Public Attribution License Version 1.0.
@@ -205,16 +206,16 @@ Copyright (c) 2026 Infocare Hong Kong Limited. All Rights Reserved.
 Contributor: ____________________.
 
 Attribution Copyright Notice:
-    Copyright (c) 2026 Infocare Hong Kong Limited. All Rights Reserved.
+    (not required)
 
 Attribution Phrase (not exceeding 10 words):
-    Powered by LinkSense
+    Powered by
 
 Attribution URL:
-    https://linksense.org
+    (none)
 
 Graphic Image as provided in the Covered Code:
-    apps/web/public/linksense-appicon.svg
+    apps/web/public/attribution/linksense-mark.svg
 
 Display of Attribution Information is required in Larger Works which are
 defined in the CPAL as a work which combines Covered Code or portions
@@ -223,112 +224,84 @@ thereof with code not governed by the terms of the CPAL.
 EXHIBIT B. Attribution Information
 
 Attribution Copyright Notice:
-    Copyright (c) 2026 Infocare Hong Kong Limited. All Rights Reserved.
+    (not required)
 
 Attribution Phrase (not exceeding 10 words):
-    Powered by LinkSense
+    Powered by
 
 Attribution URL:
-    https://linksense.org
+    (none)
 
 Graphic Image as provided in the Covered Code:
-    apps/web/public/linksense-appicon.svg
+    apps/web/public/attribution/linksense-mark.svg
 
-    The graphic image shall be displayed at a size consistent with the
-    other elements of the Attribution Information — approximately the
-    cap height of the accompanying text, and in no case taller than
-    24 CSS pixels (or the equivalent in the target display medium).
+    The graphic image is the full LinkSense horizontal lockup: the icon
+    together with the LinkSense wordmark. The name is carried by the wordmark
+    inside the image, which is why the Attribution Phrase is only "Powered by".
+
+    The image shall be displayed at a size consistent with the other elements
+    of the Attribution Information: not smaller than 18 and in no case taller
+    than 24 CSS pixels (or the equivalent in the target display medium).
+
+    When displayed as an HTML image, its alternative text shall read
+    "LinkSense", so that the notice remains readable if the image does not
+    load and is announced correctly by assistive technology.
+
+When and Where Displayed
+
+    The Attribution Information shall be displayed in a dedicated attribution
+    area on the user interface screens of the application, in the form used by
+    the Original Code: a single area, conventionally at the foot of the
+    interface, which persists as the user moves between the ordinary screens of
+    a session.
+
+    It shall be present on the interface through which the end user enters the
+    application - the sign-in screen, or the first screen presented where
+    sign-in is delegated or bypassed - and thereafter in that dedicated area.
+
+    Where the end user reaches the Covered Code through an entry point that
+    does not present the main interface, such as a standalone shared view or an
+    embedded window, the Attribution Information shall be displayed at the foot
+    of that entry point instead.
+
+Exceptions
+
+    The Attribution Information is NOT required:
+
+    (a) in dialogs, menus, popovers, tooltips, toasts and similar transient
+        elements layered over a screen that already carries it - it need not be
+        repeated;
+
+    (b) while a full-screen mode is active - full-screen editing, document
+        preview, presentation mode and the like - provided it returns when that
+        mode is exited;
+
+    (c) in documents, images, exports or other artifacts produced by the
+        application. No watermark or mark of any kind is required on generated
+        output;
+
+    (d) where the end user's access creates no graphical user interface, which
+        includes command-line, headless and API-only access;
+
+    (e) once a session is already open, it need not be presented again.
+
+    An implementation that displays the Attribution Information as described
+    above satisfies this requirement. Removing it from the ordinary screens of
+    the application, or confining it to a screen the user is not expected to
+    visit, does not.
 
 Display of Attribution Information is required in Larger Works which are
-defined in the CPAL as a work which combines Covered Code or portions
-thereof with code not governed by the terms of the CPAL.
+defined in the CPAL as a work which combines Covered Code or portions thereof
+with code not governed by the terms of the CPAL.
 
 ---------------------------------------------------------------------------
 Reference implementation of a compliant Attribution Notice
 
-    [LinkSense icon]  Powered by LinkSense
-                      Copyright (c) 2026 Infocare Hong Kong Limited. All Rights Reserved.
-                      https://linksense.org
+    Powered by  [LinkSense logo]
+
+    displayed as a non-interactive notice
 
 Per Section 14 of the License, this obligation applies only where the end
-user's access to the Covered Code creates a graphical user interface. It
-does not apply to command-line, headless, or API-only access.
+user's access to the Covered Code creates a graphical user interface. It does
+not apply to command-line, headless, or API-only access.
 ---------------------------------------------------------------------------
-
-
-===========================================================================
-  ADDITIONAL PERMISSIONS TO CPAL-1.0
-===========================================================================
-
-LinkSense is licensed under the Common Public Attribution License Version
-1.0 (CPAL-1.0). As the Original Developer and copyright holder of the
-Original Code, Infocare Hong Kong Limited grants the additional permissions
-set out below. These permissions only expand your rights. They never reduce
-the rights granted by CPAL-1.0.
-
-1. Internal Deployment Exception
-
-Deployment of the Covered Code, with or without Modifications, by an
-organization solely for use by that organization's own personnel — including
-its employees, contractors acting on its behalf, and entities that control,
-are controlled by, or are under common control with that organization — shall
-not be treated as an "External Deployment" within the meaning of Section 15
-of CPAL-1.0, and shall not, by itself, give rise to any obligation to make
-Source Code available under Section 3.2.
-
-For the avoidance of doubt, this exception does not apply where the Covered
-Code, or a service built on it, is made available to customers, users, or any
-other third parties outside the deploying organization, whether or not for a
-fee.
-
-This exception does not affect Section 14. The Attribution Information
-requirement is triggered by launch or initial run through a graphical user
-interface, not by distribution or External Deployment. Internal deployments
-with a graphical user interface remain subject to it, though a waiver is
-available on request as described in Section 5 below.
-
-2. Non-Graphical Interfaces
-
-Consistent with Section 14 of CPAL-1.0, the Attribution Information specified
-in Exhibit B is required only where the end user's access to the Covered Code
-creates a graphical user interface. Command-line interfaces, headless
-deployments, and API-only access carry no display obligation.
-
-3. Attribution Compliance Safe Harbor
-
-Any implementation that clearly displays the completed Attribution
-Information in Exhibit B, using the graphic image identified there at no more
-than 24 CSS pixels (or the equivalent in the target display medium), is deemed
-by Infocare Hong Kong Limited to satisfy Section 14 in full. You do not need to
-seek confirmation from us.
-
-4. Forward Relicensing Commitment (No Rug-Pull)
-
-Infocare Hong Kong Limited commits that:
-
-(a) Terms will never be tightened retroactively. Any version of LinkSense
-    released under CPAL-1.0 remains available under CPAL-1.0 permanently. If
-    the license changes for future versions, already-published versions keep
-    the terms under which they were released.
-
-(b) These additional permissions are irrevocable with respect to versions
-    already released under them.
-
-5. White-Labelling and Commercial Licensing
-
-If the Attribution Information display requirement does not fit your case,
-whether you are an enterprise standardizing internal tools under your own
-brand or shipping LinkSense inside your own product, a waiver is available.
-Write to licensing@linksense.org and describe what you need.
-
-For anything else CPAL-1.0 does not accommodate, a commercial license is
-available at the same address.
-
-6. Scope
-
-These additional permissions concern copyright only. They grant no rights in
-the LinkSense name, logo, or other trademarks beyond the narrow use required
-to satisfy the Attribution Information requirement.
-
-Copyright (c) 2026 Infocare Hong Kong Limited. This additional-permissions
-notice may be redistributed verbatim alongside the Covered Code.

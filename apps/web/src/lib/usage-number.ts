@@ -1,5 +1,5 @@
 import {
-  CNY,
+  USD,
   add,
   allocate,
   dinero,
@@ -13,9 +13,9 @@ import type { Locale } from "@linksense/shared"
 
 export type UsageNumberLanguage = Locale
 
-const cnyTransportScale = 12n
-const cnyDisplayScale = 2n
-const cnyTransportFactor = 10n ** cnyTransportScale
+const usdTransportScale = 12n
+const usdDisplayScale = 2n
+const usdTransportFactor = 10n ** usdTransportScale
 
 const tokenScales = [
   { exponent: 3n, suffix: "B" },
@@ -47,47 +47,47 @@ export function formatTokenCount(
   return formatScaledTokenCount(parsed, scaleIndex, language, base)
 }
 
-export function formatCnyCost(
+export function formatUsdCost(
   value: number | string,
   language: UsageNumberLanguage
 ): string {
-  const precise = parseCnyCost(value)
+  const precise = parseUsdCost(value)
   if (!precise) return "—"
-  const rounded = transformScale(precise, cnyDisplayScale, halfUp)
-  return formatCnyMinorUnits(toSnapshot(rounded).amount, language)
+  const rounded = transformScale(precise, usdDisplayScale, halfUp)
+  return formatUsdMinorUnits(toSnapshot(rounded).amount, language)
 }
 
-export function formatCnyMinorUnits(
+export function formatUsdMinorUnits(
   value: bigint,
   language: UsageNumberLanguage
 ): string {
   if (value < 0n) return "—"
-  const decimal = toDecimal(dinero({ amount: value, currency: CNY }))
+  const decimal = toDecimal(dinero({ amount: value, currency: USD }))
   const [whole = "0", fraction = "00"] = decimal.split(".")
-  return `¥${BigInt(whole).toLocaleString(language)}${decimalSeparator(language)}${fraction}`
+  return `$${BigInt(whole).toLocaleString(language)}${decimalSeparator(language)}${fraction}`
 }
 
-export function allocateCnyMinorUnits(
+export function allocateUsdMinorUnits(
   values: readonly string[],
   expectedTotal: string,
   targetMinorUnits?: bigint
 ): bigint[] | null {
   if (targetMinorUnits !== undefined && targetMinorUnits < 0n) return null
-  const parts = values.map(parseCnyCost)
-  const total = parseCnyCost(expectedTotal)
+  const parts = values.map(parseUsdCost)
+  const total = parseUsdCost(expectedTotal)
   if (!total || parts.some((part) => part === null)) return null
 
   const preciseParts = parts.filter((part) => part !== null)
   const preciseSum = preciseParts.reduce(
     (sum, part) => add(sum, part),
-    dinero({ amount: 0n, currency: CNY, scale: cnyTransportScale })
+    dinero({ amount: 0n, currency: USD, scale: usdTransportScale })
   )
   if (!equal(preciseSum, total)) return null
 
   const roundedTotal =
     targetMinorUnits === undefined
-      ? transformScale(total, cnyDisplayScale, halfUp)
-      : dinero({ amount: targetMinorUnits, currency: CNY })
+      ? transformScale(total, usdDisplayScale, halfUp)
+      : dinero({ amount: targetMinorUnits, currency: USD })
   if (preciseParts.length === 0) {
     return toSnapshot(roundedTotal).amount === 0n ? [] : null
   }
@@ -102,13 +102,13 @@ export function allocateCnyMinorUnits(
   )
 }
 
-function parseCnyCost(value: number | string) {
+function parseUsdCost(value: number | string) {
   const serialized =
     typeof value === "number"
       ? Number.isFinite(value) && value >= 0
         ? value.toLocaleString("en-US", {
             useGrouping: false,
-            maximumFractionDigits: Number(cnyTransportScale),
+            maximumFractionDigits: Number(usdTransportScale),
           })
         : null
       : value
@@ -120,10 +120,10 @@ function parseCnyCost(value: number | string) {
   const fraction = match[2] ?? ""
   return dinero({
     amount:
-      BigInt(whole) * cnyTransportFactor +
-      BigInt(fraction.padEnd(Number(cnyTransportScale), "0")),
-    currency: CNY,
-    scale: cnyTransportScale,
+      BigInt(whole) * usdTransportFactor +
+      BigInt(fraction.padEnd(Number(usdTransportScale), "0")),
+    currency: USD,
+    scale: usdTransportScale,
   })
 }
 

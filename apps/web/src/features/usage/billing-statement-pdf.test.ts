@@ -238,7 +238,7 @@ function pdfInput(
       reasoning_output_tokens: "5",
     },
     cost: {
-      currency: "CNY" as const,
+      currency: "USD" as const,
       total_cost: "0.1",
       input_cost: "0.04",
       cached_input_cost: "0.01",
@@ -262,7 +262,7 @@ function pdfInput(
         to_exclusive: "2026-07-31T16:00:00.000Z",
         time_zone: "Asia/Shanghai",
       },
-      currency: "CNY",
+      currency: "USD",
       status: "generated",
       total_cost: "1.1",
       unpriced_tokens: unpriced,

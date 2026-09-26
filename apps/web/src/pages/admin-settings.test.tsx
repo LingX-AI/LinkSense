@@ -180,7 +180,7 @@ const imageGenerationSettings = {
   api_key_configured: true,
   model: "qwen-image-3.0",
   price_per_image: "0.12",
-  currency: "CNY" as const,
+  currency: "USD" as const,
   providers: imageGenerationProviderDefinitions,
 }
 

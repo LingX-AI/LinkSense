@@ -157,9 +157,9 @@ export const settingsResources = {
     conversionTitle: "Conversion des crédits",
     conversionDescription:
       "Convertissez les coûts d’utilisation des modèles en crédits. Les changements de tarif ne s’appliquent qu’aux consommations futures ; les frais existants restent inchangés.",
-    creditPrice: "Montant par crédit (CNY)",
+    creditPrice: "Montant par crédit (USD)",
     conversionExample:
-      "Par exemple, à 0,01 CNY par crédit, des frais de 0,25 CNY consomment 25 crédits.",
+      "Par exemple, à 0,01 USD par crédit, des frais de 0,25 USD consomment 25 crédits.",
     members: {
       actions: "Actions sur les quotas des membres",
       reset: "Réinitialiser tous les quotas",

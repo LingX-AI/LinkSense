@@ -29,6 +29,8 @@ export const zhCN = {
       "页面暂时无法加载。请检查网络连接后重试；如有更新提示，请先更新页面。",
   },
   common: {
+    poweredBy: "Powered by",
+    poweredByLinkSense: "由 LinkSense 提供支持",
     dateRange: {
       label: "日期范围",
       createdLabel: "创建日期范围",
@@ -363,9 +365,9 @@ export const zhCN = {
     conversionTitle: "Credits 换算",
     conversionDescription:
       "按模型调用费用折算 credits。修改价格只影响之后的消费，已产生的消耗保持不变。",
-    creditPrice: "1 credit 对应金额（人民币元）",
+    creditPrice: "1 credit 对应金额（美元）",
     conversionExample:
-      "例如：1 credit = 0.01 元，消费 0.25 元会消耗 25 credits。",
+      "例如：1 credit = 0.01 美元，消费 0.25 美元会消耗 25 credits。",
     members: {
       actions: "成员额度操作",
       reset: "重置全员额度",
@@ -3810,7 +3812,7 @@ export const zhCN = {
     },
     modelsTitle: "全部模型用量",
     modelsDescription: "汇总每个生成、嵌入与重排模型的调用、Token 构成和费用。",
-    tableCostUnit: "费用单位：人民币（元）。",
+    tableCostUnit: "费用单位：美元（USD）。",
     modelsEmpty: "所选周期内暂无模型用量。",
     workloadsTitle: "模型用途用量",
     workloadsDescription:
@@ -4339,7 +4341,7 @@ export const zhCN = {
       contextWindow: "模型上下文长度",
       contextWindowPlaceholder: "自动探测",
       contextWindowInvalid: "请输入大于 0 的整数，或留空自动探测。",
-      priceUnit: "元 / 百万 Token",
+      priceUnit: "美元 / 百万 Token",
       priceUnitSummary: "，价格单位为{{unit}}。",
       showInComposer: "对话可选",
       saveModel: "保存模型 {{name}}",
@@ -4392,7 +4394,7 @@ export const zhCN = {
       rerankBaseUrlHint: "填写服务商提供的结果排序模型连接地址。",
       modelId: "模型 ID",
       inputPrice: "输入单价",
-      priceUnit: "元 / 百万 Token",
+      priceUnit: "美元 / 百万 Token",
       embeddingApiKey: "嵌入 API Key",
       rerankApiKey: "重排 API Key",
       apiKeyConfiguredHint: "密钥已配置；如需替换，请直接输入新密钥。",
@@ -4487,7 +4489,7 @@ export const zhCN = {
       model: "图片生成模型名称",
       modelHint: "填写服务商提供的模型名称，例如 qwen-image-3.0。",
       pricePerImage: "单张图片价格",
-      pricePerImageHint: "用于统计图片生成费用，单位为元 / 张。",
+      pricePerImageHint: "用于统计图片生成费用，单位为美元 / 张。",
       save: "保存图片生成模型",
       saving: "正在保存…",
       saved: "图片生成模型设置已更新。",

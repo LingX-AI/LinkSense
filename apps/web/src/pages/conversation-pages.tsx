@@ -56,6 +56,7 @@ import {
 import { z } from "zod"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
+import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import { requestTurnStart } from "@/features/conversations/turn-start-request"
 import {
   conversationInterruptPollIntervalMs,
@@ -6115,6 +6116,9 @@ export function ConversationPage({
             onClearAttachments={clearComposerAttachments}
             onError={setError}
           />
+        )}
+        {!embedded && !developmentRole && !isApplicationConversation && (
+          <PoweredByLinkSense className="mr-1 mb-1 justify-self-end" />
         )}
       </div>
 

@@ -1238,12 +1238,12 @@ model TokenUsageRecord {
   inputPriceMicrosPerMillion       BigInt   @default(0) @map("input_price_micros_per_million") @db.BigInt
   cachedInputPriceMicrosPerMillion BigInt   @default(0) @map("cached_input_price_micros_per_million") @db.BigInt
   outputPriceMicrosPerMillion      BigInt   @default(0) @map("output_price_micros_per_million") @db.BigInt
-  inputCostPicoCny                 BigInt   @default(0) @map("input_cost_pico_cny") @db.BigInt
-  cachedInputCostPicoCny           BigInt   @default(0) @map("cached_input_cost_pico_cny") @db.BigInt
-  outputCostPicoCny                BigInt   @default(0) @map("output_cost_pico_cny") @db.BigInt
-  totalCostPicoCny                 BigInt   @default(0) @map("total_cost_pico_cny") @db.BigInt
+  inputCostPicoUsd                 BigInt   @default(0) @map("input_cost_pico_usd") @db.BigInt
+  cachedInputCostPicoUsd           BigInt   @default(0) @map("cached_input_cost_pico_usd") @db.BigInt
+  outputCostPicoUsd                BigInt   @default(0) @map("output_cost_pico_usd") @db.BigInt
+  totalCostPicoUsd                 BigInt   @default(0) @map("total_cost_pico_usd") @db.BigInt
   unpricedTokens                   BigInt   @default(0) @map("unpriced_tokens") @db.BigInt
-  creditPriceMicrosCny             BigInt   @default(10000) @map("credit_price_micros_cny") @db.BigInt
+  creditPriceMicrosUsd             BigInt   @default(10000) @map("credit_price_micros_usd") @db.BigInt
   usedCreditMicros                 BigInt   @default(0) @map("used_credit_micros") @db.BigInt
   observedAt                       DateTime @map("observed_at") @db.Timestamptz(6)
   createdAt                        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1283,12 +1283,12 @@ model ModelUsageRecord {
   inputPriceMicrosPerMillion       BigInt   @default(0) @map("input_price_micros_per_million") @db.BigInt
   cachedInputPriceMicrosPerMillion BigInt   @default(0) @map("cached_input_price_micros_per_million") @db.BigInt
   outputPriceMicrosPerMillion      BigInt   @default(0) @map("output_price_micros_per_million") @db.BigInt
-  inputCostPicoCny                 BigInt   @default(0) @map("input_cost_pico_cny") @db.BigInt
-  cachedInputCostPicoCny           BigInt   @default(0) @map("cached_input_cost_pico_cny") @db.BigInt
-  outputCostPicoCny                BigInt   @default(0) @map("output_cost_pico_cny") @db.BigInt
-  totalCostPicoCny                 BigInt   @default(0) @map("total_cost_pico_cny") @db.BigInt
+  inputCostPicoUsd                 BigInt   @default(0) @map("input_cost_pico_usd") @db.BigInt
+  cachedInputCostPicoUsd           BigInt   @default(0) @map("cached_input_cost_pico_usd") @db.BigInt
+  outputCostPicoUsd                BigInt   @default(0) @map("output_cost_pico_usd") @db.BigInt
+  totalCostPicoUsd                 BigInt   @default(0) @map("total_cost_pico_usd") @db.BigInt
   unpricedTokens                   BigInt   @default(0) @map("unpriced_tokens") @db.BigInt
-  creditPriceMicrosCny             BigInt   @default(10000) @map("credit_price_micros_cny") @db.BigInt
+  creditPriceMicrosUsd             BigInt   @default(10000) @map("credit_price_micros_usd") @db.BigInt
   usedCreditMicros                 BigInt   @default(0) @map("used_credit_micros") @db.BigInt
   observedAt                       DateTime @map("observed_at") @db.Timestamptz(6)
   createdAt                        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1311,9 +1311,9 @@ model BillingStatement {
   periodStart        DateTime @map("period_start") @db.Timestamptz(6)
   periodEndExclusive DateTime @map("period_end_exclusive") @db.Timestamptz(6)
   timeZone           String   @map("time_zone") @db.VarChar(120)
-  currency           String   @default("CNY") @db.VarChar(3)
+  currency           String   @default("USD") @db.VarChar(3)
   status             String   @default("generated") @db.VarChar(24)
-  totalCostPicoCny   BigInt   @default(0) @map("total_cost_pico_cny") @db.BigInt
+  totalCostPicoUsd   BigInt   @default(0) @map("total_cost_pico_usd") @db.BigInt
   unpricedTokens     BigInt   @default(0) @map("unpriced_tokens") @db.BigInt
   generatedAt        DateTime @map("generated_at") @db.Timestamptz(6)
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1337,10 +1337,10 @@ model BillingStatementLine {
   cachedInputPriceMicrosPerMillion BigInt?  @map("cached_input_price_micros_per_million") @db.BigInt
   outputPriceMicrosPerMillion      BigInt?  @map("output_price_micros_per_million") @db.BigInt
   mixedPricing                     Boolean  @default(false) @map("mixed_pricing")
-  inputCostPicoCny                 BigInt   @default(0) @map("input_cost_pico_cny") @db.BigInt
-  cachedInputCostPicoCny           BigInt   @default(0) @map("cached_input_cost_pico_cny") @db.BigInt
-  outputCostPicoCny                BigInt   @default(0) @map("output_cost_pico_cny") @db.BigInt
-  totalCostPicoCny                 BigInt   @default(0) @map("total_cost_pico_cny") @db.BigInt
+  inputCostPicoUsd                 BigInt   @default(0) @map("input_cost_pico_usd") @db.BigInt
+  cachedInputCostPicoUsd           BigInt   @default(0) @map("cached_input_cost_pico_usd") @db.BigInt
+  outputCostPicoUsd                BigInt   @default(0) @map("output_cost_pico_usd") @db.BigInt
+  totalCostPicoUsd                 BigInt   @default(0) @map("total_cost_pico_usd") @db.BigInt
   unpricedTokens                   BigInt   @default(0) @map("unpriced_tokens") @db.BigInt
   sortOrder                        Int      @map("sort_order")
   createdAt                        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)

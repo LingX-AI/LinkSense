@@ -189,7 +189,7 @@ describe("quota settings API", () => {
     const { app, quotaSettings, settings } = await appFixture();
     try {
       for (const payload of [
-        { ...settings, credit_price_cny: "0" },
+        { ...settings, credit_price_usd: "0" },
         { ...settings, total_token_limit: "100" },
       ]) {
         expect(
