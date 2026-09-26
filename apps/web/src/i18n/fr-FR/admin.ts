@@ -404,7 +404,7 @@ export const admin = {
     contextWindowPlaceholder: "Détection automatique",
     contextWindowInvalid:
       "Saisissez un entier supérieur à 0, ou laissez vide pour détecter automatiquement.",
-    priceUnit: "CNY / million de jetons",
+    priceUnit: "USD / million de jetons",
     priceUnitSummary: ". Prix affichés en {{unit}}.",
     showInComposer: "Disponible dans les conversations",
     saveModel: "Enregistrer le modèle {{name}}",
@@ -460,7 +460,7 @@ export const admin = {
       "Saisissez l’adresse de connexion du modèle de reclassement fournie par le fournisseur.",
     modelId: "Identifiant du modèle",
     inputPrice: "Prix d’entrée",
-    priceUnit: "CNY / million de jetons",
+    priceUnit: "USD / million de jetons",
     embeddingApiKey: "Clé API de vectorisation",
     rerankApiKey: "Clé API de reclassement",
     apiKeyConfiguredHint:
@@ -572,7 +572,7 @@ export const admin = {
       "Saisissez le nom fourni par le fournisseur, par exemple qwen-image-3.0.",
     pricePerImage: "Prix par image",
     pricePerImageHint:
-      "Sert au suivi des coûts de génération. Unité : CNY par image.",
+      "Sert au suivi des coûts de génération. Unité : USD par image.",
     save: "Enregistrer le modèle de génération d’images",
     saving: "Enregistrement…",
     saved: "Paramètres de génération d’images mis à jour.",

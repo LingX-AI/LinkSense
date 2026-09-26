@@ -160,9 +160,9 @@ export const automationMessages = {
     conversionTitle: "Conversión de créditos",
     conversionDescription:
       "Convierte el coste de uso de los modelos en créditos. Los cambios de precio solo afectan al consumo posterior; los cargos existentes se conservan.",
-    creditPrice: "Importe por crédito (CNY)",
+    creditPrice: "Importe por crédito (USD)",
     conversionExample:
-      "Por ejemplo, con un precio de 0,01 CNY por crédito, un cargo de 0,25 CNY consume 25 créditos.",
+      "Por ejemplo, con un precio de 0,01 USD por crédito, un cargo de 0,25 USD consume 25 créditos.",
     members: {
       actions: "Acciones sobre las cuotas de miembros",
       reset: "Restablecer las cuotas de todos",

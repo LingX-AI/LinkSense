@@ -18,6 +18,8 @@ export const frFR = {
   connections: connectionMessages["fr-FR"],
   saml: samlfrFR,
   common: {
+    poweredBy: "Powered by",
+    poweredByLinkSense: "Propulsé par LinkSense",
     dateRange: {
       label: "Plage de dates",
       createdLabel: "Plage de dates de création",

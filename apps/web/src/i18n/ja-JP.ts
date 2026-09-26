@@ -248,6 +248,8 @@ export const jaJP = {
       "このページを読み込めませんでした。接続を確認して再試行してください。更新通知が表示されている場合は、先にページを更新してください。",
   },
   common: {
+    poweredBy: "Powered by",
+    poweredByLinkSense: "LinkSense が提供",
     dateRange: {
       label: "日付範囲",
       createdLabel: "作成日の範囲",
@@ -604,9 +606,9 @@ export const jaJP = {
     conversionTitle: "クレジット換算",
     conversionDescription:
       "モデルの利用料金をクレジットに換算します。単価の変更は変更後の使用分にのみ適用され、既存の消費量は変わりません。",
-    creditPrice: "1 クレジットあたりの金額（人民元）",
+    creditPrice: "1 クレジットあたりの金額（米ドル）",
     conversionExample:
-      "例えば 1 クレジットが 0.01 元の場合、0.25 元の利用で 25 クレジットを消費します。",
+      "例えば 1 クレジットが 0.01 米ドルの場合、0.25 米ドルの利用で 25 クレジットを消費します。",
     members: {
       actions: "メンバーの利用枠操作",
       reset: "全員の利用枠をリセット",
@@ -4352,7 +4354,7 @@ export const jaJP = {
     modelsTitle: "すべてのモデルの使用状況",
     modelsDescription:
       "生成、埋め込み、再ランキングの各モデルの呼び出し、トークン内訳、料金です。",
-    tableCostUnit: "料金の単位：人民元（CNY）。",
+    tableCostUnit: "料金の単位：米ドル（USD）。",
     modelsEmpty: "選択期間のモデル使用量はありません。",
     workloadsTitle: "モデルの用途別使用状況",
     workloadsDescription:
@@ -4917,7 +4919,7 @@ export const jaJP = {
       contextWindowPlaceholder: "自動検出",
       contextWindowInvalid:
         "0 より大きい整数を入力してください。空欄の場合は自動検出します。",
-      priceUnit: "人民元 / 100 万トークン",
+      priceUnit: "米ドル / 100 万トークン",
       priceUnitSummary: "。料金は {{unit}} で表示します。",
       showInComposer: "会話で利用可能",
       saveModel: "モデル {{name}} を保存",
@@ -4973,7 +4975,7 @@ export const jaJP = {
         "プロバイダーから提供された結果ランキングモデルの接続先アドレスを入力してください。",
       modelId: "モデル ID",
       inputPrice: "入力単価",
-      priceUnit: "人民元 / 100 万トークン",
+      priceUnit: "米ドル / 100 万トークン",
       embeddingApiKey: "埋め込みの API キー",
       rerankApiKey: "再ランキングの API キー",
       apiKeyConfiguredHint:
@@ -5084,7 +5086,7 @@ export const jaJP = {
         "qwen-image-3.0 など、プロバイダーから提供されたモデル名を入力してください。",
       pricePerImage: "画像 1 枚あたりの単価",
       pricePerImageHint:
-        "画像生成料金の集計に使用します。単位は画像 1 枚あたりの人民元です。",
+        "画像生成料金の集計に使用します。単位は画像 1 枚あたりの米ドルです。",
       save: "画像生成モデルを保存",
       saving: "保存中…",
       saved: "画像生成モデルの設定を更新しました。",

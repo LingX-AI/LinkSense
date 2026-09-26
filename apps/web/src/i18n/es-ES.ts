@@ -22,6 +22,8 @@ export const esES = {
   connections: connectionMessages["es-ES"],
   saml: samlesES,
   common: {
+    poweredBy: "Powered by",
+    poweredByLinkSense: "Con tecnología de LinkSense",
     dateRange: {
       label: "Rango de fechas",
       createdLabel: "Rango de fechas de creación",

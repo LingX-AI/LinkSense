@@ -247,6 +247,8 @@ export const ptBR = {
       "Não foi possível carregar esta página. Verifique sua conexão e tente novamente. Se houver um aviso de atualização, atualize a página primeiro.",
   },
   common: {
+    poweredBy: "Powered by",
+    poweredByLinkSense: "Tecnologia de LinkSense",
     dateRange: {
       label: "Intervalo de datas",
       createdLabel: "Intervalo de criação",
@@ -610,9 +612,9 @@ export const ptBR = {
     conversionTitle: "Conversão de créditos",
     conversionDescription:
       "Converta os custos de uso dos modelos em créditos. Mudanças de preço afetam apenas o consumo posterior; cobranças existentes permanecem inalteradas.",
-    creditPrice: "Valor por crédito (CNY)",
+    creditPrice: "Valor por crédito (USD)",
     conversionExample:
-      "Por exemplo, a CNY 0,01 por crédito, uma cobrança de CNY 0,25 consome 25 créditos.",
+      "Por exemplo, a USD 0,01 por crédito, uma cobrança de USD 0,25 consome 25 créditos.",
     members: {
       actions: "Ações sobre as cotas dos membros",
       reset: "Renovar cotas de todos",
@@ -4415,7 +4417,7 @@ export const ptBR = {
     modelsTitle: "Todo o uso de modelos",
     modelsDescription:
       "Chamadas, composição de tokens e custos de cada modelo de geração, embeddings e reordenação.",
-    tableCostUnit: "Unidade de custo: CNY (yuan).",
+    tableCostUnit: "Unidade de custo: USD (dólares).",
     modelsEmpty: "Nenhum uso de modelo no período selecionado.",
     workloadsTitle: "Uso por tipo de atividade do modelo",
     workloadsDescription:
@@ -4995,7 +4997,7 @@ export const ptBR = {
       contextWindowPlaceholder: "Detectar automaticamente",
       contextWindowInvalid:
         "Insira um número inteiro maior que 0 ou deixe em branco para detectar automaticamente.",
-      priceUnit: "CNY / 1 milhão de tokens",
+      priceUnit: "USD / 1 milhão de tokens",
       priceUnitSummary: ". Os preços são exibidos em {{unit}}.",
       showInComposer: "Disponível em conversas",
       saveModel: "Salvar modelo {{name}}",
@@ -5052,7 +5054,7 @@ export const ptBR = {
         "Insira o endereço de conexão do modelo de classificação de resultados fornecido pelo provedor.",
       modelId: "ID do modelo",
       inputPrice: "Preço de entrada",
-      priceUnit: "CNY / 1 milhão de tokens",
+      priceUnit: "USD / 1 milhão de tokens",
       embeddingApiKey: "Chave de API de embeddings",
       rerankApiKey: "Chave de API de reordenação",
       apiKeyConfiguredHint:
@@ -5164,7 +5166,7 @@ export const ptBR = {
         "Insira o nome do modelo fornecido pelo provedor, como qwen-image-3.0.",
       pricePerImage: "Preço por imagem",
       pricePerImageHint:
-        "Usado para acompanhar os custos de geração de imagens. Unidade: CNY por imagem.",
+        "Usado para acompanhar os custos de geração de imagens. Unidade: USD por imagem.",
       save: "Salvar modelo de geração de imagens",
       saving: "Salvando…",
       saved: "Configurações do modelo de geração de imagens atualizadas.",
