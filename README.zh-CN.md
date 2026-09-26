@@ -12,6 +12,8 @@ LinkSense 基于开源 Codex 运行时构建，Codex 在你部署的 LinkSense �
 
 [在线体验](https://explore.linksense.org/) · [快速开始](#快速开始) · [系统架构](#系统架构) · [基于-linksense-扩展](#基于-linksense-扩展)
 
+![个人工作空间中的技能经过发布后供组织使用](./docs/demo/Hero.gif)
+
 ---
 
 ## 为什么选择 LinkSense
@@ -34,27 +36,15 @@ LinkSense 基于开源 Codex 运行时构建，Codex 在你部署的 LinkSense �
 
 ### 完成实际工作
 
-```text
-调研 → 浏览器 → 代码 / 数据 → 电子表格 → 报告 → 交付成果
-```
+![从调研、浏览器、代码和数据到报告与交付成果](./docs/diagrams/real-ai-work.svg)
 
 ### 从个人技能到组织能力
 
-```text
-创建 → 测试 → 发布版本 → 审核 → 组织发布 → 安装
-```
+![个人技能经过测试、审核、组织发布和安装](./docs/diagrams/organizational-capability-lifecycle.svg)
 
 ### 从能力组合到团队应用
 
-```text
-知识库 + 技能 + MCP
-        ↓
-       应用
-        ↓
-   用户 / 用户组
-        ↓
-     用户任务
-```
+![知识库、技能和 MCP 服务组成供团队使用的应用](./docs/diagrams/capabilities-to-team-application.svg)
 
 ---
 
@@ -202,7 +192,7 @@ LinkSense 不分叉 Codex、不修改其源码，也不重新实现智能体执�
 
 ## 开源、自托管、自主掌控
 
-组织能力层本身也是开源的。应用、技能、插件、MCP 管理、知识库、身份与用户组、治理、凭据、用量与审计、Runner、Worker，以及 Core 和 Full 两种部署方案，均包含在开源项目中。
+组织能力层本身也是开源的。应用、技能、插件、MCP 管理、知识库、身份与用户组、治理、凭据、用量与审计、Runner、Worker 的 LinkSense 自有代码，以及 Core 和 Full 两种部署配置，均包含在开源项目中。部署配置使用的独立服务各自遵循其原有许可证。
 
 组织功能不依赖单独的闭源企业运行时，也无需连接 LinkSense 运营的云端控制平面。
 
@@ -326,6 +316,8 @@ macOS 使用相同命令，但不加 `sudo`。
 ## 系统架构
 
 下图展示正式发行版的 Full 部署。Core 不包含完整知识处理组件；宿主机开发模式使用本地进程 Worker，不创建 Docker Worker。
+
+![Full 方案的系统架构](./docs/diagrams/system-architecture.svg)
 
 ```text
 浏览器
@@ -563,9 +555,13 @@ pnpm dev:prod:stop
 
 ## 开源协议
 
-本仓库中由 LinkSense 持有权利的源码采用 [CPAL-1.0](./LICENSE) 发布，许可证包含已填写的 Attribution Information 和附加许可。使用、修改、分发 LinkSense 或通过网络提供服务前，请阅读完整许可证。
+本仓库中由 LinkSense 持有权利的源码采用 [CPAL-1.0](./LICENSE) 发布。已填写的附录要求在图形界面展示一行署名：`Powered by` 加完整 LinkSense 标志。具体位置和豁免情况见[署名说明](./ATTRIBUTION.md)。
 
-第三方组件各自适用其原有许可证。如果 CPAL 条款不适合你的部署需求，也可以咨询商业许可或白标合作。
+[附加许可](./LICENSE-EXCEPTIONS.md)明确：仅在组织内部部署不会因此产生源码公开义务，可使用自己的产品名称和品牌，已发布版本的许可条款不会被追溯收紧。图形界面仍需保留署名；命令行、无界面服务、仅 API 的使用方式、全屏模式及导出成果无需展示。
+
+[商标政策](./TRADEMARK.md)明确允许为履行署名要求使用标志。[NOTICE](./NOTICE)记录项目版权信息。第三方组件各自适用其原有许可证；[第三方组件清单](./THIRD-PARTY-NOTICES.md)列出 Core 和 Full 正式发行版选用的独立镜像。这里的开源范围是 LinkSense 自有源码，不表示部署所需的全部镜像都采用开源许可证。贡献代码前请阅读[贡献指南](./CONTRIBUTING.md)和[贡献者许可协议](./CLA.md)。
+
+如需去除署名或使用其他许可条款，请联系 `licensing@linksense.org`。
 
 ## 贡献者
 
