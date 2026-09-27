@@ -11,7 +11,7 @@ English | [简体中文](./README.zh-CN.md)
 Every employee gets a full AI workspace. What they build — Skills, Knowledge,
 Integrations — becomes capability the whole organization can share, govern and reuse.
 
-[Quick Start](#quick-start) · [How it works](#organizational-capabilities) · [Architecture](#architecture) · [Build with LinkSense](#build-with-linksense)
+[Live Demo](https://explore.linksense.org/) · [Quick Start](#quick-start) · [How it works](#organizational-capabilities) · [Architecture](#architecture) · [Build with LinkSense](#build-with-linksense)
 
 <p align="center">
   <img src="./docs/demo/Hero.gif" alt="An engineer builds a Skill in their own workspace, publishes it to the organization, and a colleague installs and runs it without rewriting anything." width="960" />
