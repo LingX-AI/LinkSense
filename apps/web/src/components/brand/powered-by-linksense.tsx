@@ -8,11 +8,13 @@ export function PoweredByLinkSense({ className }: { className?: string }) {
   const resolvedTheme = useResolvedTheme()
 
   return (
-    <div
-      role="note"
+    <a
+      href="https://linksense.org"
+      target="_blank"
+      rel="noopener noreferrer"
       aria-label={t("common.poweredByLinkSense")}
       className={cn(
-        "inline-flex h-5 shrink-0 items-center gap-1.5 text-xs leading-none whitespace-nowrap text-foreground",
+        "inline-flex h-5 shrink-0 items-center gap-1.5 text-xs leading-none whitespace-nowrap text-foreground no-underline visited:text-foreground hover:text-foreground hover:no-underline",
         className
       )}
     >
@@ -29,6 +31,6 @@ export function PoweredByLinkSense({ className }: { className?: string }) {
         height="94"
         decoding="async"
       />
-    </div>
+    </a>
   )
 }

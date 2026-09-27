@@ -105,7 +105,7 @@ describe("LinkSense application", () => {
 
     for (const path of ["/login", "/register", "/forgot-password"]) {
       const view = renderApp(path)
-      const badge = await screen.findByRole("note", {
+      const badge = await screen.findByRole("link", {
         name: "由 LinkSense 提供支持",
       })
       expect(badge).toBeVisible()
@@ -113,7 +113,8 @@ describe("LinkSense application", () => {
         "mr-3",
         "-mb-2.5",
         "self-end",
-        "max-md:mr-1",
+        "max-md:mr-0",
+        "max-md:self-center",
         "max-md:mb-1"
       )
       view.unmount()
