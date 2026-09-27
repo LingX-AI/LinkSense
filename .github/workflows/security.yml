@@ -1,6 +1,8 @@
 name: Security
 
 on:
+  public:
+  workflow_dispatch:
   push:
     branches:
       - main

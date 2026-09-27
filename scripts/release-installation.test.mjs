@@ -966,7 +966,7 @@ test("every LinkSense release image contains the CPAL license and separate permi
   assert.equal((runner.match(supplementalCopy) ?? []).length, 2)
 })
 
-test("the private-source release workflow reuses verified main checks before promotion", async () => {
+test("the release workflow reuses verified main checks before promotion", async () => {
   const workflow = await readFile(
     path.join(root, ".github/workflows/release.yml"),
     "utf8",
@@ -975,17 +975,20 @@ test("the private-source release workflow reuses verified main checks before pro
     assert.match(workflow, new RegExp(`name: ${image}`))
     assert.match(workflow, new RegExp(`linksense-\\$\\{\\{ matrix\\.name \\}\\}`))
   }
-  assert.match(workflow, /name: Publish private-source release/u)
+  assert.match(workflow, /name: Publish release/u)
   assert.match(workflow, /workflow_dispatch:/u)
   assert.doesNotMatch(workflow, /push:\n\s+tags:/u)
   assert.match(workflow, /LINKSENSE_RELEASE_ACTOR/u)
-  assert.match(workflow, /test "\$visibility" = private/u)
+  assert.match(workflow, /private\|public\)/u)
   assert.match(workflow, /actions: read/u)
   assert.match(workflow, /require_successful_workflow ci\.yml CI/u)
   assert.match(workflow, /require_successful_workflow security\.yml Security/u)
   assert.match(workflow, /\.head_sha == env\.TARGET_SHA/u)
   assert.match(workflow, /\.conclusion == "success"/u)
-  assert.match(workflow, /-f event=push/u)
+  assert.match(workflow, /require_successful_workflow ci\.yml CI push/u)
+  assert.match(workflow, /require_successful_workflow security\.yml Security push,public,workflow_dispatch,schedule/u)
+  assert.match(workflow, /env\.WORKFLOW_EVENTS \| split\(","\) \| index\(\$event\)/u)
+  assert.match(workflow, /\.name == "codeql" and \.conclusion == "success"/u)
   assert.match(workflow, /-f head_sha="\$GITHUB_SHA"/u)
   assert.match(workflow, /-f status=completed/u)
   assert.doesNotMatch(workflow, /^  verify:/mu)
@@ -1045,6 +1048,9 @@ test("private CI scans secrets and enables GitHub security gates only when publi
     ),
   )
   const combined = workflows.join("\n")
+  const securityTriggers = workflows[2].split("\npermissions:")[0]
+  assert.match(securityTriggers, /^  public:$/mu)
+  assert.match(securityTriggers, /^  workflow_dispatch:$/mu)
   assert.match(
     combined,
     /pnpm audit --registry=https:\/\/registry\.npmjs\.org --prod --audit-level high/u,

@@ -1,4 +1,4 @@
-name: Publish private-source release
+name: Publish release
 
 on:
   workflow_dispatch:
@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
-      - name: Verify private release authorization and identity
+      - name: Verify release authorization and identity
         id: release
         shell: bash
         env:
@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = main || {
-            echo "Private-source releases must be dispatched from main." >&2
+            echo "Releases must be dispatched from main." >&2
             exit 1
           }
           test -n "$RELEASE_ACTOR" || {
@@ -50,22 +50,21 @@ jobs:
             exit 1
           }
           visibility=$(gh api "repos/$GITHUB_REPOSITORY" --jq .visibility)
-          test "$visibility" = private || {
-            echo "This workflow is intentionally limited to the private-source phase." >&2
-            exit 1
-          }
+          case "$visibility" in
+            private|public) ;;
+            *) echo "Unsupported repository visibility: $visibility" >&2; exit 1 ;;
+          esac
           require_successful_workflow() {
             workflow_file=$1
             workflow_name=$2
             workflow_run=$(
-              TARGET_SHA="$GITHUB_SHA" gh api --method GET \
+              WORKFLOW_EVENTS="$3" TARGET_SHA="$GITHUB_SHA" gh api --method GET \
                 "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_file/runs" \
                 -f branch=main \
                 -f head_sha="$GITHUB_SHA" \
-                -f event=push \
                 -f status=completed \
                 -f per_page=100 \
-                --jq 'first(.workflow_runs[] | select(.head_sha == env.TARGET_SHA and .conclusion == "success")) | select(. != null) | [.id, .html_url] | @tsv'
+                --jq 'first(.workflow_runs[] | .event as $event | select(.head_sha == env.TARGET_SHA and .head_branch == "main" and .conclusion == "success" and (env.WORKFLOW_EVENTS | split(",") | index($event)))) | select(. != null) | [.id, .html_url] | @tsv'
             )
             test -n "$workflow_run" || {
               echo "$workflow_name must pass on main at $GITHUB_SHA before releasing." >&2
@@ -73,9 +72,20 @@ jobs:
               exit 1
             }
             printf '%s verified: %s\n' "$workflow_name" "$workflow_run"
+            verified_workflow_run_id=${workflow_run%%$'\t'*}
           }
-          require_successful_workflow ci.yml CI
-          require_successful_workflow security.yml Security
+          require_successful_workflow ci.yml CI push
+          require_successful_workflow security.yml Security push,public,workflow_dispatch,schedule
+          if [ "$visibility" = public ]; then
+            codeql_job=$(gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$verified_workflow_run_id/jobs?per_page=100" \
+              --jq '.jobs[] | select(.name == "codeql" and .conclusion == "success") | .id')
+            test -n "$codeql_job" || {
+              echo "CodeQL must pass on main at $GITHUB_SHA before a public release." >&2
+              echo "Run the Security workflow on main after making the repository public, then retry." >&2
+              exit 1
+            }
+          fi
           package_version=$(node -p 'require("./package.json").version')
           package_license=$(node -p 'require("./package.json").license')
           [[ "$package_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -470,7 +480,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
-      - name: Verify all draft assets before publishing the private GitHub Release
+      - name: Verify all draft assets before publishing the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
@@ -483,10 +493,10 @@ jobs:
           RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
         run: |
           {
-            echo "## LinkSense $RELEASE_VERSION prepared"
+            echo "## LinkSense $RELEASE_VERSION published"
             echo
-            echo "- Source repository and GitHub Release remain private."
+            echo "- GitHub Release access follows the repository's current visibility."
             echo "- Five GHCR images are public and anonymously pullable."
-            echo "- Installer assets are for authenticated internal testing."
-            echo "- Publishing source or public installer URLs requires separate approval."
+            echo "- Release assets have been downloaded and verified before publication."
+            echo "- Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_VERSION"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -128,6 +128,8 @@ test("release stays a draft until all uploaded assets have been downloaded and v
   assert.equal(state.release.draft, false)
   assert.equal(state.tag, options.sourceSha)
   assert.equal(state.assets.size, 3)
+  const create = state.calls.find((call) => call[1] === "create")
+  assert.equal(create[create.indexOf("--title") + 1], `LinkSense ${options.version}`)
 })
 
 test("an interrupted draft upload resumes only missing assets on the same workflow run", (t) => {
@@ -142,9 +144,10 @@ test("an interrupted draft upload resumes only missing assets on the same workfl
   assert.equal(state.calls.filter((call) => call[1] === "create").length, 1)
 })
 
-test("rechecking an already published release performs no writes", (t) => {
+test("rechecking a historical private-source release performs no writes", (t) => {
   const { options, state, run } = fixture(t)
   publishRelease(options, run)
+  state.release.name = `LinkSense ${options.version} (private source)`
   state.calls = []
   publishRelease(options, run)
   assert.ok(
