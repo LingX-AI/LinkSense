@@ -120,7 +120,7 @@ export function publishRelease(
       sourceSha,
       "--generate-notes",
       "--title",
-      `LinkSense ${version} (private source)`,
+      `LinkSense ${version}`,
     ])
     release = findRelease()
   }
