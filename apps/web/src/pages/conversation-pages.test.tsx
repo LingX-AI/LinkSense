@@ -223,7 +223,7 @@ describe("archived conversation pagination", () => {
     vi.unstubAllGlobals()
   })
 
-  it("shows the LinkSense credit in the lower-right of the conversation workspace", async () => {
+  it("positions the LinkSense credit at the lower-right on desktop and below the composer with extra spacing on mobile", async () => {
     renderPrewarmPage()
 
     const badge = await screen.findByRole("link", {
@@ -234,7 +234,8 @@ describe("archived conversation pagination", () => {
       "mb-1",
       "justify-self-end",
       "max-md:mr-0",
-      "max-md:justify-self-center"
+      "max-md:justify-self-center",
+      "max-md:mt-3"
     )
     expect(badge.parentElement).toHaveClass("conversation-bottom-stack")
   })
