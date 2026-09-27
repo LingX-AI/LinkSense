@@ -21,7 +21,7 @@ minio_network="${LINKSENSE_MINIO_NETWORK:-minio_default}"
 elasticsearch_admin_url="${LINKSENSE_ELASTICSEARCH_ADMIN_URL:-http://127.0.0.1:9200}"
 elasticsearch_admin_username="${LINKSENSE_ELASTICSEARCH_ADMIN_USERNAME:-elastic}"
 elasticsearch_admin_password="${LINKSENSE_ELASTICSEARCH_ADMIN_PASSWORD:?LINKSENSE_ELASTICSEARCH_ADMIN_PASSWORD is required}"
-minio_client_image="${LINKSENSE_MINIO_CLIENT_IMAGE:-minio/mc:RELEASE.2025-04-08T15-39-49Z}"
+minio_client_image="${LINKSENSE_MINIO_CLIENT_IMAGE:-ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z@sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9}"
 
 case "$public_base_url" in
   https://*) external_scheme="https" ;;

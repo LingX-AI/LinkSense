@@ -43,6 +43,7 @@ function fixture(t) {
     `#!${process.execPath}
 const fs = require('node:fs');
 const file = process.env.RELEASE_TEST_COUNT;
+fs.appendFileSync(file + '.images', process.argv.at(-1) + '\\n');
 const count = fs.existsSync(file) ? Number(fs.readFileSync(file, 'utf8')) + 1 : 1;
 fs.writeFileSync(file, String(count));
 if (count <= Number(process.env.RELEASE_TEST_FAILURES || 0)) process.exit(1);
@@ -98,18 +99,24 @@ test("preparation freezes all upstream digests, tokenizer bytes, entry scripts a
     path.join(root, "scripts/prepare-release-inputs.sh"),
     "utf8",
   )
-  assert.match(
-    source,
-    /resolve MINIO_CLIENT quay\.io\/minio\/mc:RELEASE\.2025-08-13T08-35-41Z/u,
-  )
-  assert.doesNotMatch(source, /resolve MINIO_CLIENT docker\.io\/minio\/mc:/u)
+  assert.doesNotMatch(source, /(?:quay\.io|docker\.io)\/minio\//u)
   const result = prepare()
   assert.equal(result.status, 0, result.stderr)
   assert.equal(Number(readFileSync(countFile, "utf8")), 8)
+  const requestedImages = readFileSync(`${countFile}.images`, "utf8")
+    .trim()
+    .split("\n")
+  const minioImage = "ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z"
+  assert.deepEqual(requestedImages.slice(2, 4), [minioImage, minioImage])
   const images = readFileSync(path.join(output, "upstream-images.env"), "utf8")
     .trim()
     .split("\n")
   assert.equal(images.length, 8)
+  for (const name of ["MINIO", "MINIO_CLIENT"]) {
+    assert.ok(images.some((line) =>
+      line.startsWith(`IMAGE_${name}=ghcr.io/coollabsio/minio@sha256:`),
+    ))
+  }
   assert.ok(
     images.every((line) =>
       /^IMAGE_[A-Z_]+=[a-z0-9./-]+@sha256:[0-9a-f]{64}$/u.test(line),

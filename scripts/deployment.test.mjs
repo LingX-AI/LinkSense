@@ -564,7 +564,9 @@ test("production bootstrap generates isolated credentials without replacing an e
   assert.match(script, /^umask 077$/mu);
   assert.match(script, /refusing to replace existing production environment/u);
   assert.match(script, /openssl rand -hex 32/u);
-  assert.match(script, /minio\/mc:RELEASE\.2025-04-08T15-39-49Z/u);
+  assert.match(script, /ghcr\.io\/coollabsio\/minio:RELEASE\.2025-10-15T17-29-55Z/u);
+  assert.doesNotMatch(script, /(?:quay\.io\/)?minio\/mc:/u);
+  assert.match(script, /--entrypoint \/bin\/sh/u);
   assert.match(script, /mc admin user add/u);
   assert.match(script, /mc admin policy attach/u);
   assert.match(script, /"cluster": \["monitor"\]/u);

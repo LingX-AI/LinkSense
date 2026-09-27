@@ -19,8 +19,10 @@ resolve() {
 }
 resolve POSTGRES docker.io/library/postgres:16.10-alpine3.22
 resolve REDIS docker.io/library/redis:7.4.5-alpine3.21
-resolve MINIO quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-resolve MINIO_CLIENT quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+# Coolify's source-built image includes both the server and the signed mc client.
+# Keep setup on the same distribution instead of the retired MinIO registries.
+resolve MINIO ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z
+resolve MINIO_CLIENT ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z
 resolve BUSYBOX docker.io/library/busybox:1.37.0
 resolve GATEWAY docker.io/library/nginx:1.28.0-alpine3.21
 resolve ELASTICSEARCH docker.elastic.co/elasticsearch/elasticsearch:8.19.2

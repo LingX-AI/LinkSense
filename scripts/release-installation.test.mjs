@@ -844,6 +844,30 @@ test("Core and Full compose models expose only the gateway on the configured por
   assert.match(full, /internal: true/u)
 })
 
+test("Core and Full use the selected MinIO images with bundled client readiness and initialization", () => {
+  for (const edition of ["core", "full"]) {
+    const environment = composeEnvironment(edition)
+    const image = `ghcr.io/coollabsio/minio@sha256:${"b".repeat(64)}`
+    environment.MINIO_IMAGE = image
+    environment.MINIO_CLIENT_IMAGE = image
+    const { services } = JSON.parse(
+      execFileSync("docker",
+        composeArguments(edition, ["config", "--format", "json"]),
+        { encoding: "utf8", env: environment },
+      ),
+    )
+    assert.equal(services.minio.image, image)
+    assert.equal(services["minio-init"].image, image)
+    assert.deepEqual(services.minio.healthcheck.test, ["CMD", "mc", "ready", "local"])
+    assert.deepEqual(services["minio-init"].entrypoint, ["/bin/sh", "-ec"])
+    assert.match(services["minio-init"].command.join("\n"), /mc mb --ignore-existing/u)
+    assert.match(
+      services["minio-init"].command.join("\n"),
+      /mc admin policy attach local readwrite/u,
+    )
+  }
+})
+
 test("release compose treats every persistent volume as externally managed", async () => {
   const docker = spawnSync("docker", ["compose", "version"], {
     encoding: "utf8",
