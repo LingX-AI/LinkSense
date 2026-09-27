@@ -4950,6 +4950,19 @@ export class AppServerProcessPool {
   ): Promise<SteerOperationState> {
     if (state.status === "succeeded" || state.status === "failed") return state;
     if (this.activeSteerOperations.has(key)) return state;
+    // A read can complete after the native response has been persisted and the
+    // active task removed. Refresh before recovery to preserve that result.
+    const refreshed = await this.readSteerOperation(
+      state.conversationId,
+      state.operationId,
+    );
+    if (
+      refreshed &&
+      (refreshed.status !== state.status ||
+        refreshed.updatedAt !== state.updatedAt)
+    ) {
+      return this.resolveExistingSteerOperation(key, refreshed);
+    }
     try {
       const { thread, managed } = await this.readThreadForRecovery({
         conversationId: state.conversationId,

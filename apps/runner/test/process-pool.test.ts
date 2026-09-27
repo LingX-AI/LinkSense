@@ -11368,6 +11368,38 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it("preserves a settled steer when a delayed read returns the earlier starting state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-steer-settlement-race-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, workspaceManager } = createStartOperationPool(root, controlled.factory);
+    const start = startOperationInput();
+    await pool.startTurn(start);
+    const steer = steerOperationInput(start);
+    const update = vi.spyOn(SteerOperationStore.prototype, "update");
+    const starting = await pool.beginSteerOperation(steer);
+    await waitForFast(() => {
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({ operationId: steer.operationId }),
+        { status: "succeeded", result: { codexTurnId: "turn-native-1" } },
+      );
+    });
+    const settlement = update.mock.results[0];
+    if (!settlement || settlement.type !== "return") throw new Error("Missing steer settlement");
+    await settlement.value;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const methodsBeforeRead = [...controlled.methods];
+    vi.spyOn(SteerOperationStore.prototype, "read").mockResolvedValueOnce(starting);
+
+    await expect(pool.getSteerOperation(steer.conversationId, steer.operationId)).resolves.toMatchObject({
+      status: "succeeded",
+      result: { codexTurnId: "turn-native-1" },
+    });
+    await expect(new SteerOperationStore(workspaceManager).read(steer.conversationId, steer.operationId)).resolves.toMatchObject({ status: "succeeded" });
+    expect(controlled.methods).toEqual(methodsBeforeRead);
+    await pool.closeAll();
+  });
+
   it("recovers an accepted steer after runner restart and never replays it", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-steer-crash-recovery-"),
