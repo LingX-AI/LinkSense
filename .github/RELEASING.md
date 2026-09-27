@@ -20,6 +20,10 @@
 
 发布清单中的 LinkSense 镜像和第三方服务镜像全部固定到不可变的 `sha256` 摘要。修复脚本只修复当前已安装版本，不会隐式升级，也不会自动重建丢失的数据卷。
 
+MinIO 使用 Coolify 团队在 GitHub GHCR 发布的第三方构建 `ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z`，不再依赖官方已失效的镜像地址，也不由 LinkSense 自托管。该镜像包含服务端和 `mc` 客户端，Core / Full 的安装与升级均从发布清单读取锁定摘要；存储桶初始化复用镜像内的 `mc`，健康检查使用 `mc ready local`。详见 [构建源码](https://github.com/coollabsio/minio) 和 [Coolify 使用配置](https://github.com/coollabsio/coolify/blob/main/templates/compose/minio-community-edition.yaml)。
+
+升级会保留原 MinIO 数据卷、存储桶和凭据。操作前应按现有升级流程备份；不能通过删除数据卷解决镜像拉取问题。旧 Release 的清单不会被篡改，修复旧版本仍使用该版本原有镜像；需要新镜像源时应升级到包含此变更的新 Release。
+
 ## GitHub Free 的实现边界
 
 私有组织仓库在 GitHub Free 下不使用以下能力：

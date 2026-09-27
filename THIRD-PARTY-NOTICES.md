@@ -11,8 +11,8 @@ describe the versions selected in `scripts/prepare-release-inputs.sh`.
 | --- | --- | --- | --- |
 | PostgreSQL | `docker.io/library/postgres:16.10-alpine3.22` | Core and Full | [PostgreSQL License](https://www.postgresql.org/about/licence/) |
 | Redis Community Edition | `docker.io/library/redis:7.4.5-alpine3.21` | Core and Full | [RSALv2 or SSPLv1](https://redis.io/legal/licenses/) |
-| MinIO server | `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` | Core and Full | [AGPLv3](https://github.com/minio/minio/blob/RELEASE.2025-09-07T16-13-09Z/LICENSE) |
-| MinIO client (`mc`) | `quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z` | Core and Full, setup | [AGPLv3](https://github.com/minio/mc/blob/master/LICENSE) |
+| MinIO server (Coolify build) | `ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z` | Core and Full | [AGPLv3](https://github.com/minio/minio/blob/RELEASE.2025-10-15T17-29-55Z/LICENSE) |
+| MinIO client (`mc`, bundled in the Coolify build) | `ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z` | Core and Full, setup | [AGPLv3](https://github.com/minio/mc/blob/master/LICENSE) |
 | BusyBox | `docker.io/library/busybox:1.37.0` | Core and Full, setup | [GPLv2](https://www.busybox.net/license.html) |
 | nginx | `docker.io/library/nginx:1.28.0-alpine3.21` | Core and Full | [BSD 2-Clause](https://nginx.org/LICENSE) |
 | Elasticsearch official distribution | `docker.elastic.co/elasticsearch/elasticsearch:8.19.2` | Full | [Elastic License 2.0](https://www.elastic.co/licensing/elastic-license) |
@@ -28,6 +28,13 @@ being run as separate services, change the license of LinkSense-owned source.
 The Full release also downloads the Qwen3-Embedding-4B tokenizer files pinned
 in the repository's `deploy/release/tokenizer.lock.json`, which records an
 Apache-2.0 license and the exact upstream revision.
+
+MinIO is obtained from the [Coolify team's build project](https://github.com/coollabsio/minio),
+not from the retired MinIO image repositories. Its published Dockerfile builds
+the server from the upstream release source and verifies the bundled `mc`
+binary's MinIO signature. This is a third-party distribution, not a LinkSense
+mirror or an official MinIO image. Both the server and setup services use the
+same image digest; setup explicitly invokes the bundled client through a shell.
 
 This list covers the top-level third-party images selected by the release
 scripts, not every package inside those images or the LinkSense images. Review
