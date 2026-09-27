@@ -28,7 +28,8 @@ test("the CPAL text is pinned and the 4.4 exhibits identify the shipped attribut
   assert.equal(definition.maxMarkHeightPx, 24)
   assert.match(license, /Attribution Phrase \(not exceeding 10 words\):\s+Powered by/u)
   assert.ok(license.includes(definition.graphicImage))
-  assert.doesNotMatch(component, /<a\b|href=/u)
+  assert.match(component, /<a\b/u)
+  assert.ok(component.includes('href="https://linksense.org"'))
   assert.ok(component.includes(definition.imageAltText))
   for (const mark of Object.values(definition.variants)) {
     await read(mark)

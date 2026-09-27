@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils"
 
 function SharedConversationFooter() {
   return (
-    <footer className="flex shrink-0 justify-end px-7 pt-2 pb-[22px] max-md:px-3.5 max-md:pb-3.5">
+    <footer className="flex shrink-0 justify-end px-7 pt-2 pb-[22px] max-md:justify-center max-md:px-3.5 max-md:pb-3.5">
       <PoweredByLinkSense />
     </footer>
   )

@@ -109,13 +109,14 @@ describe("SharedConversationPage", () => {
       name: "Continue in LinkSense",
     })
     expect(continueLink).toHaveAttribute("href", "/")
-    const badge = screen.getByRole("note", {
+    const badge = screen.getByRole("link", {
       name: "Powered by LinkSense",
     })
     expect(badge).toBeVisible()
     expect(badge.parentElement).toHaveClass(
       "px-7",
       "pb-[22px]",
+      "max-md:justify-center",
       "max-md:px-3.5",
       "max-md:pb-3.5"
     )
@@ -152,10 +153,10 @@ describe("SharedConversationPage", () => {
         "This shared link doesn't exist or is no longer available."
       )
     ).toBeVisible()
-    const attribution = screen.getByRole("note", {
+    const attribution = screen.getByRole("link", {
       name: "Powered by LinkSense",
     })
     expect(attribution).toBeVisible()
-    expect(attribution.querySelector("a")).toBeNull()
+    expect(attribution).toHaveAttribute("href", "https://linksense.org")
   })
 })

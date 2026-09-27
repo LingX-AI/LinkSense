@@ -1522,7 +1522,7 @@ export function AppShell() {
         <SystemUpdateNotice />
         <Outlet />
         {!usesCompactTopBar && (
-          <PoweredByLinkSense className="fixed right-7 bottom-[22px] z-30 max-md:right-3.5 max-md:bottom-3.5" />
+          <PoweredByLinkSense className="fixed right-7 bottom-[22px] z-30 max-md:right-auto max-md:bottom-3.5 max-md:left-1/2 max-md:-translate-x-1/2" />
         )}
       </main>
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>

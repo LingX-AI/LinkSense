@@ -264,7 +264,7 @@ export function InitializePage() {
           </Button>
         </form>
       </main>
-      <PoweredByLinkSense className="mt-auto mr-3 -mb-2.5 self-end max-md:mr-1 max-md:mb-1" />
+      <PoweredByLinkSense className="mt-auto mr-3 -mb-2.5 self-end max-md:mr-0 max-md:mb-1 max-md:self-center" />
     </div>
   )
 }

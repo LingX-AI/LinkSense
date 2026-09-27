@@ -226,10 +226,16 @@ describe("archived conversation pagination", () => {
   it("shows the LinkSense credit in the lower-right of the conversation workspace", async () => {
     renderPrewarmPage()
 
-    const badge = await screen.findByRole("note", {
+    const badge = await screen.findByRole("link", {
       name: "由 LinkSense 提供支持",
     })
-    expect(badge).toHaveClass("mr-1", "mb-1", "justify-self-end")
+    expect(badge).toHaveClass(
+      "mr-1",
+      "mb-1",
+      "justify-self-end",
+      "max-md:mr-0",
+      "max-md:justify-self-center"
+    )
     expect(badge.parentElement).toHaveClass("conversation-bottom-stack")
   })
 
@@ -697,7 +703,7 @@ describe("conversation knowledge base snapshots", () => {
       }
       expect(screen.getByRole("textbox", { name: "任务输入框" })).toBeVisible()
       expect(
-        screen.queryByRole("note", { name: "由 LinkSense 提供支持" })
+        screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
       ).not.toBeInTheDocument()
       client.clear()
     }
@@ -896,7 +902,7 @@ describe("conversation knowledge base snapshots", () => {
 
     const composer = await screen.findByRole("textbox", { name: "任务输入框" })
     expect(
-      screen.getByRole("note", { name: "由 LinkSense 提供支持" })
+      screen.getByRole("link", { name: "由 LinkSense 提供支持" })
     ).toBeVisible()
     expect(
       await screen.findByRole("button", { name: "移除附件 goal-brief.pdf" })
@@ -3461,7 +3467,7 @@ describe("conversation knowledge base snapshots", () => {
 
       expect(await screen.findByText(expectedLabel)).toBeVisible()
       expect(
-        screen.queryByRole("note", { name: "由 LinkSense 提供支持" })
+        screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
       ).not.toBeInTheDocument()
       const managedLabel = "此任务由应用“AISG学校政策问答助手”管理"
       expect(screen.queryByText(managedLabel)).toBeNull()

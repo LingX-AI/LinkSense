@@ -15,14 +15,23 @@ describe("PoweredByLinkSense", () => {
     delete document.documentElement.dataset.theme
   })
 
-  it("shows the required phrase and full mark without a click target", () => {
+  it("links the phrase and full mark to LinkSense without link decoration", () => {
     render(<PoweredByLinkSense className="custom-position" />)
 
-    const badge = screen.getByRole("note", { name: "由 LinkSense 提供支持" })
+    const badge = screen.getByRole("link", { name: "由 LinkSense 提供支持" })
     const logo = badge.querySelector("img")
     expect(badge).toHaveClass("custom-position", "h-5", "text-xs")
-    expect(badge).not.toHaveAttribute("href")
-    expect(badge.querySelector("a, button")).toBeNull()
+    expect(badge.tagName).toBe("A")
+    expect(badge).toHaveAttribute("href", "https://linksense.org")
+    expect(badge).toHaveAttribute("target", "_blank")
+    expect(badge).toHaveAttribute("rel", "noopener noreferrer")
+    expect(badge).toHaveClass(
+      "text-foreground",
+      "no-underline",
+      "visited:text-foreground",
+      "hover:text-foreground",
+      "hover:no-underline"
+    )
     expect(badge).toHaveTextContent("Powered by")
     expect(logo).toHaveAttribute("src", "/attribution/linksense-mark.svg")
     expect(logo).toHaveAttribute("alt", "LinkSense")
@@ -35,7 +44,7 @@ describe("PoweredByLinkSense", () => {
 
     expect(
       screen
-        .getByRole("note", { name: "由 LinkSense 提供支持" })
+        .getByRole("link", { name: "由 LinkSense 提供支持" })
         .querySelector("img")
     ).toHaveAttribute("src", "/attribution/linksense-mark-light.svg")
   })
@@ -54,7 +63,7 @@ describe("PoweredByLinkSense", () => {
       render(<PoweredByLinkSense />)
 
       expect(
-        screen.getByRole("note", { name: accessibleName })
+        screen.getByRole("link", { name: accessibleName })
       ).toHaveTextContent(label)
     }
   )

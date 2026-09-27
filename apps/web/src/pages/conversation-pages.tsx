@@ -6118,7 +6118,7 @@ export function ConversationPage({
           />
         )}
         {!embedded && !developmentRole && !isApplicationConversation && (
-          <PoweredByLinkSense className="mr-1 mb-1 justify-self-end" />
+          <PoweredByLinkSense className="mr-1 mb-1 justify-self-end max-md:mr-0 max-md:justify-self-center" />
         )}
       </div>
 
