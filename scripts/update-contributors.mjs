@@ -76,6 +76,14 @@ export function replaceContributors(source, block) {
 export async function updateContributors({ github, owner, repo, directory = root }) {
   const repository = repositorySchema.safeParse({ owner, repo })
   if (!repository.success) throw new Error("Invalid GitHub repository identity.")
+  const documents = await Promise.all(readmeFiles.map(async (file) => {
+    const filePath = path.join(directory, file)
+    return { file, filePath, before: await readFile(filePath, "utf8") }
+  }))
+  // A README layout without contributor sections does not opt into avatar updates.
+  if (documents.every(({ before }) => !before.includes(contributorStart) && !before.includes(contributorEnd))) {
+    return []
+  }
   const input = await github.paginate(github.rest.repos.listContributors, {
     ...repository.data,
     per_page: 100,
@@ -83,10 +91,9 @@ export async function updateContributors({ github, owner, repo, directory = root
   })
   const block = renderContributors(input)
   // Validate both documents before writing either; an API or marker error is not an empty list.
-  const updates = await Promise.all(readmeFiles.map(async (file) => {
-    const filePath = path.join(directory, file)
-    const before = await readFile(filePath, "utf8")
-    return { file, filePath, before, after: replaceContributors(before, block) }
+  const updates = documents.map((document) => ({
+    ...document,
+    after: replaceContributors(document.before, block),
   }))
   const changed = updates.filter(({ before, after }) => before !== after)
   for (const { filePath, after } of changed) await writeFile(filePath, after, "utf8")

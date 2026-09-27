@@ -165,6 +165,18 @@ test("the updater validates both READMEs before changing either one", async (t) 
   assert.deepEqual(await readBoth(directory), before)
 })
 
+test("READMEs without a contributor section are preserved without a GitHub request", async (t) => {
+  const directory = await fixture(t)
+  for (const file of readmeFiles) {
+    await writeFile(path.join(directory, file), "# LinkSense\n\n## License\nCPAL-1.0\n", "utf8")
+  }
+  const before = await readBoth(directory)
+  const github = client(new Error("GitHub should not be called"))
+  assert.deepEqual(await updateContributors({ github, owner: "example", repo: "project", directory }), [])
+  assert.deepEqual(github.calls, [])
+  assert.deepEqual(await readBoth(directory), before)
+})
+
 test("a missing translation file prevents writes to the other README", async (t) => {
   const directory = await fixture(t)
   await rm(path.join(directory, "README.zh-CN.md"))
