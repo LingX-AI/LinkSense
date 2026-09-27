@@ -1,8 +1,14 @@
-# LinkSense
+<p align="center">
+  <img src="apps/web/public/attribution/linksense-mark.svg" alt="LinkSense" width="180">
+</p>
+
+<p align="center">
+<strong>  Open-source AI workspace built for organizations. </strong>
+</p>
 
 English | [简体中文](./README.zh-CN.md)
 
-**Open-source AI workspace built for organizations.**
+
 
 **Bring frontier AI to every individual. Turn individual AI capabilities into organizational capabilities — on an open-source platform you control.**
 
