@@ -103,28 +103,6 @@ Already running LinkSense? Add your organization to [ADOPTERS.md](./ADOPTERS.md)
 
 ---
 
-## See LinkSense in Action
-
-### Real AI work
-
-<p align="center">
-  <img src="./docs/diagrams/real-ai-work.svg" alt="Research → Browser → Code / Data → Spreadsheet → Report → Artifacts." width="960" />
-</p>
-
-### Individual Skill → Organizational Capability
-
-<p align="center">
-  <img src="./docs/diagrams/skill-publishing-flow.svg" alt="Skill lifecycle: Create → Test → Release → Review → Publish → Install." width="960" />
-</p>
-
-### Capabilities → Team Application
-
-<p align="center">
-  <img src="./docs/diagrams/capabilities-to-team-application.svg" alt="Knowledge, Skills, and MCP combine into an Application, made available to Users / Groups for their User Tasks." width="960" />
-</p>
-
----
-
 ## Organizational Capabilities
 
 LinkSense gives every user their own AI workspace — and provides the organizational layer
