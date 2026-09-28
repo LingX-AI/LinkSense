@@ -13,9 +13,7 @@ Integrations — becomes capability the whole organization can share, govern and
 
 [Live Demo](https://explore.linksense.org/) · [Quick Start](#quick-start) · [How it works](#organizational-capabilities) · [Architecture](#architecture) · [Build with LinkSense](#build-with-linksense)
 
-<p align="center">
-  <img src="./docs/demo/Hero.gif" alt="An engineer builds a Skill in their own workspace, publishes it to the organization, and a colleague installs and runs it without rewriting anything." width="960" />
-</p>
+https://github.com/user-attachments/assets/5b61e639-e222-42eb-8e9a-536905d659e0
 
 <p align="center"><em>One person builds a Skill. The organization gets it.</em></p>
 
