@@ -333,7 +333,7 @@ Connect external systems and APIs through MCP, then package MCP declarations tog
 Skills and supporting resources.
 
 <p align="center">
-  <img src="./docs/diagrams/plugin-package-structure.svg" alt="Plugin contains Skills, MCP declarations, scripts / resources, and .codex-plugin/plugin.json." width="620" />
+  <img src="./docs/diagrams/plugin-package-structure.svg" alt="Plugin contains Skills, MCP declarations, scripts / resources, and .codex-plugin/plugin.json." width="339" />
 </p>
 
 For CRM, ERP, SaaS, monitoring systems, and internal APIs, MCP is generally the
