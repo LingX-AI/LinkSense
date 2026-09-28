@@ -322,7 +322,7 @@ Teach AI reusable methods, workflows, domain practices, scripts, references, and
 supporting resources using the native Codex Skill format.
 
 <p align="center">
-  <img src="./docs/diagrams/skill-directory-structure.svg" alt="my-skill/ contains SKILL.md, agents/openai.yaml, scripts/, references/, and assets/." width="480" />
+  <img src="./docs/diagrams/skill-directory-structure.svg" alt="my-skill/ contains SKILL.md, agents/openai.yaml, scripts/, references/, and assets/." width="600" />
 </p>
 
 Skills can be discovered natively by Codex or explicitly selected by users and Applications.
