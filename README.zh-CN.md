@@ -12,7 +12,7 @@
   <img src="./docs/demo/Hero.gif" alt="工程师在自己的工作空间中构建技能并发布到组织，同事无需重新编写即可安装和运行。" width="960" />
 </p>
 
-<p align="center"><em>一个人构建技能，整个组织都能使用。</em></p>
+<p align="center"><em>面向组织的开源 WorkBuddy 替代方案。</em></p>
 
 ---
 
