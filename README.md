@@ -8,7 +8,7 @@
 
 English | [简体中文](./README.zh-CN.md)
 
-Bring the Codex agentic experience to your entire organization — self-hosted, multi-model, and centrally managed.
+Give everyone in your organization a Codex-powered AI agent — deployed on your infrastructure, with the models you choose.
 
 [Live Demo](https://explore.linksense.org/) · [Quick Start](#quick-start) · [How it works](#organizational-capabilities) · [Architecture](#architecture) · [Build with LinkSense](#build-with-linksense)
 
