@@ -3,13 +3,12 @@
 </p>
 
 <p align="center">
-  <strong>Open-source AI workspace for organizations.</strong>
+  <strong>Open-source agentic work platform for organizations.</strong>
 </p>
 
 English | [简体中文](./README.zh-CN.md)
 
-Every employee gets a full AI workspace. What they build — Skills, Knowledge,
-Integrations — becomes capability the whole organization can share, govern and reuse.
+Bring the Codex agentic experience to your entire organization — self-hosted, multi-model, and centrally managed.
 
 [Live Demo](https://explore.linksense.org/) · [Quick Start](#quick-start) · [How it works](#organizational-capabilities) · [Architecture](#architecture) · [Build with LinkSense](#build-with-linksense)
 
