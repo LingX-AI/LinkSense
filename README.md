@@ -26,7 +26,7 @@ Give every user a full agentic workspace to research, browse, run code, analyze 
 ### Your infrastructure. Your models.
 Deploy LinkSense on your own servers or private cloud. Use OpenAI, Anthropic, Gemini, DeepSeek, Qwen, or your own local LLM.
 
-### Fully open source — including organizational capabilities
+### Fully open source — including enpterprise capabilities
 Users, groups, Knowledge, Skills, Plugins, MCP, Applications, governance, and more are part of the open-source platform — not locked behind an enterprise edition.
 
 ### Built for the whole organization
