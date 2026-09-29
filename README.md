@@ -14,7 +14,7 @@ Give everyone in your organization a Codex-powered AI agent — deployed on your
 
 https://github.com/user-attachments/assets/5b61e639-e222-42eb-8e9a-536905d659e0
 
-<p align="center"><em>One person builds a Skill. The organization gets it.</em></p>
+<p align="center"><em>Open-source, self-hosted WorkBuddy alternative for organizations.</em></p>
 
 ---
 
