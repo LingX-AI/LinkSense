@@ -20,21 +20,18 @@ https://github.com/user-attachments/assets/5b61e639-e222-42eb-8e9a-536905d659e0
 
 ## Why LinkSense
 
-### Real AI work for every individual
+### Codex-powered agents that get work done
+Give every user a full agentic workspace to research, browse, run code, analyze data, work with files, and create documents and artifacts.
 
-Give every user a capable agent workspace for real work — research, browsing, code,
-data, documents — not a reduced enterprise chatbot.
+### Your infrastructure. Your models.
+Deploy LinkSense on your own servers or private cloud. Use OpenAI, Anthropic, Gemini, DeepSeek, Qwen, or your own local LLM.
 
-### Organizational capability, not isolated personal setups
+### Fully open source — including organizational capabilities
+Users, groups, Knowledge, Skills, Plugins, MCP, Applications, governance, and more are part of the open-source platform — not locked behind an enterprise edition.
 
-Effective Skills, organizational Knowledge, system connections, and working AI setups
-become capabilities that can be shared, governed, and reused across the organization
-instead of living in one person's account.
+### Built for the whole organization
+Centrally manage access, models, knowledge, credentials, and capabilities. What works for one person can be shared, governed, and reused across teams.
 
-### Open source and under your control
-
-Self-host on your own infrastructure. Choose your models and integrations, inspect and
-modify the source, and operate without a required LinkSense cloud control plane.
 
 ---
 
