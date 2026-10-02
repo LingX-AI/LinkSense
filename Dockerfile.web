@@ -34,7 +34,7 @@ RUN NODE_OPTIONS="${DOCS_BUILD_NODE_OPTIONS}" TERSER_PARALLEL="${DOCS_BUILD_TERS
   pnpm --filter @linksense/docs build
 
 # Development serves exactly the same bilingual static build as production.
-FROM nginx:1.28-alpine AS docs-runtime
+FROM nginx:1.29-alpine AS docs-runtime
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
 COPY --chmod=0444 LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE /usr/share/licenses/linksense/
 COPY deploy/nginx/development-docs.conf /etc/nginx/conf.d/default.conf
@@ -59,7 +59,7 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN pnpm --filter @linksense/shared build \
   && LINKSENSE_BUILD_ID="$(cat /linksense-build-id)" pnpm --filter @linksense/web build
 
-FROM nginx:1.28-alpine AS runtime
+FROM nginx:1.29-alpine AS runtime
 ENV NGINX_ENVSUBST_FILTER=^NGINX_
 ENV NGINX_CLIENT_MAX_BODY_SIZE=110m
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
