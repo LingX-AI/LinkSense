@@ -2,7 +2,7 @@
 
 [English](./README.md) | 简体中文
 
-**面向组织的开源Agent工作平台**（开源WorkBuddy企业级替代方案）
+**面向组织的开源Agent工作平台**（企业级开源WorkBuddy替代方案）
 
 让组织中的每个人都拥有 Codex 级的 AI Agent——部署在您自己的基础设施上，并自由选择使用的模型。
 
