@@ -535,6 +535,8 @@ function isDefinitiveKnowledgeBaseSelectionError(error: unknown) {
 
 export function ConversationPage({
   headerActions,
+  showConversationActions = true,
+  showComposer = true,
   conversationId: embeddedConversationId,
   embedded = false,
   surfaceActive = true,
@@ -545,6 +547,8 @@ export function ConversationPage({
   onApplicationEvent,
 }: Readonly<{
   headerActions?: ReactNode
+  showConversationActions?: boolean
+  showComposer?: boolean
   conversationId?: string
   embedded?: boolean
   surfaceActive?: boolean
@@ -5436,6 +5440,7 @@ export function ConversationPage({
   const showApplicationUnavailableNotice =
     !readOnly && Boolean(applicationUnavailableMessage) && !blockingPanelActive
   const showConversationComposer =
+    showComposer &&
     !readOnly &&
     !applicationDeleted &&
     !applicationUnavailableMessage &&
@@ -5445,6 +5450,36 @@ export function ConversationPage({
   const composerInstanceId = isNewTaskPromotion
     ? newConversationPlaceholderId
     : displayConversation.id
+  const handleInterrupt = () => {
+    const pending = activePendingTurnSubmission
+    if (pending) {
+      setInterruptTarget({
+        conversationId: pending.conversationId,
+        turnId: pending.turnId,
+      })
+      updatePendingConversationTurnSubmission(
+        queryClient,
+        pending.conversationId,
+        (current) =>
+          current.idempotencyKey === pending.idempotencyKey
+            ? { ...current, interruptRequested: true }
+            : current
+      )
+      setPendingTurnSubmission((current) =>
+        current === pending ? { ...current, interruptRequested: true } : current
+      )
+      return
+    }
+    const turnId = conversation?.running_turn?.id
+    if (conversationId && turnId) {
+      if (dispatchedInterruptTurnIdsRef.current.has(turnId)) return
+      dispatchedInterruptTurnIdsRef.current.add(turnId)
+      interruptMutation.mutate({
+        targetConversationId: conversationId,
+        turnId,
+      })
+    }
+  }
 
   return (
     <ConversationOfficeLayout
@@ -5576,7 +5611,7 @@ export function ConversationPage({
               </HoverCardContent>
             </HoverCard>
           )}
-          {!isNew && (
+          {!isNew && showConversationActions && (
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
@@ -5677,7 +5712,7 @@ export function ConversationPage({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {!isNew && (
+          {!isNew && showConversationActions && (
             <Button
               type="button"
               variant="ghost"
@@ -5713,10 +5748,23 @@ export function ConversationPage({
             />
           )}
           {headerActions}
+          {!showComposer && !executionBlocked && visuallyRunning && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={interrupting}
+              onClick={handleInterrupt}
+            >
+              {t(
+                interrupting ? "conversation.interrupting" : "conversation.stop"
+              )}
+            </Button>
+          )}
         </div>
       </header>
 
-      {!isNew && (
+      {!isNew && showConversationActions && (
         <ConversationShareDialog
           conversation={displayConversation}
           open={shareOpen}
@@ -5934,7 +5982,8 @@ export function ConversationPage({
               }
             />
           )}
-        {!readOnly &&
+        {showComposer &&
+          !readOnly &&
           !blockingPanelActive &&
           !taskStartDisabledByCreditQuota &&
           !development &&
@@ -6076,38 +6125,7 @@ export function ConversationPage({
                 ? startApplicationFromComposerMutation.variables?.id
                 : undefined
             }
-            onInterrupt={() => {
-              const pending = activePendingTurnSubmission
-              if (pending) {
-                setInterruptTarget({
-                  conversationId: pending.conversationId,
-                  turnId: pending.turnId,
-                })
-                updatePendingConversationTurnSubmission(
-                  queryClient,
-                  pending.conversationId,
-                  (current) =>
-                    current.idempotencyKey === pending.idempotencyKey
-                      ? { ...current, interruptRequested: true }
-                      : current
-                )
-                setPendingTurnSubmission((current) =>
-                  current === pending
-                    ? { ...current, interruptRequested: true }
-                    : current
-                )
-                return
-              }
-              const turnId = conversation?.running_turn?.id
-              if (conversationId && turnId) {
-                if (dispatchedInterruptTurnIdsRef.current.has(turnId)) return
-                dispatchedInterruptTurnIdsRef.current.add(turnId)
-                interruptMutation.mutate({
-                  targetConversationId: conversationId,
-                  turnId,
-                })
-              }
-            }}
+            onInterrupt={handleInterrupt}
             onAttach={attachComposerFiles}
             currentConversationId={conversationId ?? undefined}
             onReferenceFile={referenceComposerFile}

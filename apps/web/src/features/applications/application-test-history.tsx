@@ -178,6 +178,8 @@ export function ApplicationTestHistory({
                 key={selected}
                 conversationId={selected}
                 embedded
+                showConversationActions={false}
+                showComposer={false}
                 readOnly={selected !== project.preview_conversation_id}
               />
             </div>
