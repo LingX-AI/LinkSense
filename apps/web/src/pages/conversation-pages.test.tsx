@@ -1,6 +1,8 @@
 import { createRef } from "react"
 import {
   APPLICATION_BUILDER_SKILL_NAME,
+  RUNNER_TURN_INTERRUPT_REQUESTED,
+  applicationDevelopmentSchema,
   builtInCapabilityId,
   type ApplicationAnnotationInput,
 } from "@linksense/shared"
@@ -19,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom"
 
 import { setAccessToken } from "@/api/session"
+import { ApplicationTestHistory } from "@/features/applications/application-test-history"
 import { writeLocalConversationDraft } from "@/features/conversations/conversation-local-draft"
 import { clearConversationAttachmentPreviewCacheForTests } from "@/features/conversations/conversation-attachment-preview-cache"
 import i18n from "@/i18n"
@@ -694,6 +697,15 @@ describe("conversation knowledge base snapshots", () => {
         </MemoryRouter>
       )
       expect(await screen.findByText("开发入口验证")).toBeVisible()
+      const header = within(screen.getByRole("banner"))
+      expect(
+        header.getByRole("button", { name: i18n.t("common.actions") })
+      ).toBeVisible()
+      expect(
+        header.getByRole("button", {
+          name: i18n.t("conversation.share.action"),
+        })
+      ).toBeVisible()
       await waitFor(() => expect(client.isFetching()).toBe(0))
       if (hidden) {
         expect(
@@ -710,19 +722,72 @@ describe("conversation knowledge base snapshots", () => {
     }
   )
 
-  it.each([false, true])(
-    "renders test history with composer readOnly=%s",
-    async (readOnly) => {
-      const id = "test-history-session"
+  it.each([
+    { readOnly: false, running: false },
+    { readOnly: true, running: false },
+    { readOnly: false, running: true },
+    { readOnly: true, running: true },
+  ])(
+    "opens test history without management, share or composer controls: %j",
+    async ({ readOnly, running }) => {
+      const id = "20000000-0000-4000-8000-000000000001"
+      const turnId = "20000000-0000-4000-8000-000000000002"
+      let interrupted = false
+      const project = applicationDevelopmentSchema.parse({
+        id: "10000000-0000-4000-8000-000000000001",
+        conversation_id: null,
+        name: "调试记录测试",
+        directory: "applications/history",
+        application_id: null,
+        preview_application_id: null,
+        preview_conversation_id: readOnly ? null : id,
+        preview_current: !readOnly,
+        revision: 1,
+        source_hash: null,
+        installed_source_hash: null,
+        source_error: null,
+        manifest: null,
+        diagnostics: [],
+        updated_at: "2026-09-17T00:00:00Z",
+      })
       vi.stubGlobal(
         "fetch",
-        vi.fn(async (input: RequestInfo | URL) => {
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
           const path = new URL(String(input), window.location.origin).pathname
+          if (
+            path.endsWith(`/turns/${turnId}/interrupt`) &&
+            init?.method === "POST"
+          ) {
+            interrupted = true
+            return envelope({ code: RUNNER_TURN_INTERRUPT_REQUESTED })
+          }
+          if (path.endsWith("/test-sessions"))
+            return envelope({
+              items: [
+                {
+                  id,
+                  current: !readOnly,
+                  version: "1.0.0",
+                  status: "completed",
+                  busy: false,
+                  turn_count: 1,
+                  created_at: project.updated_at,
+                  last_run_at: project.updated_at,
+                },
+              ],
+              next_cursor: null,
+            })
           if (path.endsWith(`/conversations/${id}`))
             return envelope({
               id,
               title: "历史测试内容",
               project_id: null,
+              execution_status:
+                running && !interrupted ? "running" : "completed",
+              running_turn:
+                running && !interrupted
+                  ? { id: turnId, status: "running" }
+                  : null,
               updated_at: "2026-09-17T00:00:00.000Z",
               messages: [],
               turns: [],
@@ -745,29 +810,64 @@ describe("conversation knowledge base snapshots", () => {
       render(
         <MemoryRouter>
           <QueryClientProvider client={client}>
-            <ConversationPage
-              conversationId={id}
-              embedded
-              readOnly={readOnly}
-            />
+            <ApplicationTestHistory project={project} />
           </QueryClientProvider>
         </MemoryRouter>
       )
+      await userEvent.click(
+        await screen.findByRole("button", {
+          name: i18n.t("applicationDevelopment.tests.view"),
+        })
+      )
       expect(await screen.findByText("历史测试内容")).toBeVisible()
-      if (readOnly) {
+      const dialog = within(
+        screen.getByRole("dialog", {
+          name: i18n.t("applicationDevelopment.tests.title"),
+        })
+      )
+      const header = within(dialog.getByRole("banner"))
+      expect(
+        header.queryByRole("button", { name: i18n.t("common.actions") })
+      ).not.toBeInTheDocument()
+      expect(
+        header.queryByRole("button", {
+          name: i18n.t("conversation.share.action"),
+        })
+      ).not.toBeInTheDocument()
+      expect(
+        header.getByRole("button", { name: /^(打开|关闭)任务概览$/u })
+      ).toBeVisible()
+      expect(
+        dialog.queryByRole("textbox", { name: "任务输入框" })
+      ).not.toBeInTheDocument()
+      expect(
+        dialog.queryByRole("button", { name: i18n.t("conversation.send") })
+      ).not.toBeInTheDocument()
+      expect(
+        dialog.queryByRole("button", { name: "选择模型与推理强度" })
+      ).not.toBeInTheDocument()
+      expect(
+        dialog.queryByRole("button", { name: "添加知识库" })
+      ).not.toBeInTheDocument()
+      if (!readOnly && running) {
+        await userEvent.click(
+          dialog.getByRole("button", { name: i18n.t("conversation.stop") })
+        )
+        await waitFor(() => expect(interrupted).toBe(true))
+      } else {
         expect(
-          screen.queryByRole("textbox", { name: "任务输入框" })
+          dialog.queryByRole("button", { name: i18n.t("conversation.stop") })
         ).not.toBeInTheDocument()
+      }
+      if (readOnly) {
         await waitFor(() => expect(client.isFetching()).toBe(0))
         expect(
           vi
             .mocked(fetch)
             .mock.calls.some(([url]) => String(url).includes("/prewarm"))
         ).toBe(false)
-      } else
-        expect(
-          await screen.findByRole("textbox", { name: "任务输入框" })
-        ).toBeVisible()
+      }
+      client.clear()
     }
   )
 

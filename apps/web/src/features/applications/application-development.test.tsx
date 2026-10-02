@@ -584,7 +584,7 @@ describe("application development interface", () => {
       testTask
     )
   })
-  it.each(["zh-CN", "en-US"])(
+  it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
     "shows current and historical tests, opens history in place and deletes old records in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)
@@ -632,11 +632,15 @@ describe("application development interface", () => {
         screen.getByText(i18n.t("applicationDevelopment.tests.submitted"))
       ).toBeVisible()
       expect(screen.getByTestId("runtime")).toBeInTheDocument()
-      await user.click(
-        screen.getAllByRole("button", {
-          name: i18n.t("applicationDevelopment.tests.view"),
-        })[1]!
-      )
+      const viewButtons = screen.getAllByRole("button", {
+        name: i18n.t("applicationDevelopment.tests.view"),
+      })
+      expect(viewButtons).toHaveLength(2)
+      for (const button of viewButtons) {
+        expect(button).toBeEnabled()
+        expect(button.querySelector("svg")).toBeNull()
+      }
+      await user.click(viewButtons[1]!)
       expect(await screen.findByTestId("test-history-detail")).toHaveAttribute(
         "data-read-only",
         "true"
