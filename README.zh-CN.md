@@ -2,7 +2,7 @@
 
 [English](./README.md) | 简体中文
 
-**面向组织的开源Agent工作平台**
+**面向组织的开源Agent工作平台**（开源WorkBuddy企业级替代方案）
 
 让组织中的每个人都拥有 Codex 级的 AI Agent——部署在您自己的基础设施上，并自由选择使用的模型。
 
@@ -89,28 +89,6 @@ Linux 将部署文件保存在 `/opt/linksense`，macOS 使用 `~/.linksense`。
 发起一条[讨论](../../discussions)，告诉我们你希望完成什么，我们会阅读每一条。如果你正在为组织评估 LinkSense，我们正在与少量早期设计合作伙伴协作，并会帮助你部署：`hello@linksense.org`。
 
 已经在使用 LinkSense？欢迎将你的组织添加到 [ADOPTERS.md](./ADOPTERS.md)。
-
----
-
-## 看看 LinkSense 如何工作
-
-### 完成实际工作
-
-<p align="center">
-  <img src="./docs/diagrams/real-ai-work.svg" alt="调研 → 浏览器 → 代码 / 数据 → 电子表格 → 报告 → 交付成果。" width="960" />
-</p>
-
-### 个人技能 → 组织能力
-
-<p align="center">
-  <img src="./docs/diagrams/skill-publishing-flow.svg" alt="技能生命周期：创建 → 测试 → 发布版本 → 审核 → 组织发布 → 安装。" width="960" />
-</p>
-
-### 能力 → 团队应用
-
-<p align="center">
-  <img src="./docs/diagrams/capabilities-to-team-application.svg" alt="知识、技能和 MCP 组合成应用，向用户 / 用户组开放，供他们在各自的任务中使用。" width="960" />
-</p>
 
 ---
 
