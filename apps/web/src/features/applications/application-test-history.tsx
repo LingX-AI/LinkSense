@@ -5,7 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
-import { FileTextIcon, Trash2Icon } from "lucide-react"
+import { Trash2Icon } from "lucide-react"
 import { z } from "zod"
 import {
   APPLICATION_DEVELOPMENT_POLL_MS,
@@ -129,7 +129,6 @@ export function ApplicationTestHistory({
               variant="outline"
               onClick={() => setSelected(item.id)}
             >
-              <FileTextIcon data-icon="inline-start" />
               {t("applicationDevelopment.tests.view")}
             </Button>
             {!item.current && (
