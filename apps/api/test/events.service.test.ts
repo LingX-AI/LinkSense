@@ -3895,6 +3895,97 @@ describe("ConversationEventService SSE replay privacy", () => {
     expect(subscriber.quit).toHaveBeenCalledOnce();
   });
 
+  it("replays a persisted terminal event on heartbeat when its Redis notification was lost", async () => {
+    const interval = vi.spyOn(globalThis, "setInterval");
+    const subscriber = Object.assign(new EventEmitter(), {
+      connect: vi.fn(async () => undefined),
+      subscribe: vi.fn(async () => undefined),
+      unsubscribe: vi.fn(async () => undefined),
+      quit: vi.fn(async () => undefined),
+    });
+    const terminalEvent = {
+      ...projectedEvent(1),
+      event_type: "turn/completed" as const,
+      payload: {
+        schema_version: 2 as const,
+        source: "codex_app_server" as const,
+        method: "turn/completed" as const,
+        params: {
+          threadId: "codex-thread-1",
+          turn: { id: "codex-turn-1", status: "completed" as const },
+        },
+      },
+    };
+    let persisted = false;
+    const historyPage = vi.fn(async (_ownerId: string, _conversationId: string, options: { afterSequence: bigint }) => ({
+      items: persisted && options.afterSequence === 0n ? [terminalEvent] : [],
+      next_cursor: null,
+      last_sequence: persisted ? 1n : 0n,
+      confirmed_sequence: persisted ? 1n : 0n,
+    }));
+    const app = Fastify();
+    apps.push(app);
+    app.decorate("authenticate", async (request: FastifyRequest) => {
+      request.authUser = {
+        id: OWNER_ID,
+        email: "owner@example.test",
+        name: "Owner",
+        role: "user",
+        status: "active",
+        preferredLocale: "zh-CN",
+        avatarObjectKey: null,
+        authValidAfter: new Date(0),
+      };
+    });
+    await app.register(sseRoutes, {
+      prefix: "/conversations",
+      services: {
+        config: { publicBaseUrl: "http://localhost:5173" },
+        events: { assertOwner: vi.fn(async () => undefined), historyPage },
+        redis: { duplicate: vi.fn(() => subscriber) },
+      } as unknown as AppServices,
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const address = app.server.address();
+    if (!address || typeof address === "string") throw new Error("test server address is unavailable");
+    const controller = new AbortController();
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/conversations/${CONVERSATION_ID}/events`,
+        { signal: controller.signal },
+      );
+      await vi.waitFor(() => expect(historyPage).toHaveBeenCalledTimes(1));
+      const heartbeat = interval.mock.calls.find(([, delay]) => delay === 15_000)?.[0];
+      if (typeof heartbeat !== "function") throw new Error("SSE heartbeat is unavailable");
+      persisted = true;
+      heartbeat();
+      await vi.waitFor(() => expect(historyPage).toHaveBeenCalledTimes(2));
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("SSE response body is unavailable");
+      let received = "";
+      while (!received.includes(`id: ${CONVERSATION_ID}:1`)) {
+        const chunk = await reader.read();
+        if (chunk.done) throw new Error("SSE closed before replaying the terminal event");
+        received += new TextDecoder().decode(chunk.value);
+      }
+      expect(received).toContain("event: turn/completed");
+      expect(received).toContain('"status":"completed"');
+      heartbeat();
+      await vi.waitFor(() => expect(historyPage).toHaveBeenCalledTimes(3));
+      expect(historyPage).toHaveBeenLastCalledWith(OWNER_ID, CONVERSATION_ID, {
+        afterSequence: 1n,
+        limit: 250,
+      });
+      controller.abort();
+      await vi.waitFor(() => expect(subscriber.quit).toHaveBeenCalledOnce());
+      heartbeat();
+      expect(historyPage).toHaveBeenCalledTimes(3);
+    } finally {
+      controller.abort();
+      interval.mockRestore();
+    }
+  });
+
   it("keeps the SSE connection open across filtered and transient projection gaps", async () => {
     const subscriber = Object.assign(new EventEmitter(), {
       connect: vi.fn(async () => undefined),

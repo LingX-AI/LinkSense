@@ -395,7 +395,19 @@ preflight() {
   else
     required_memory_kb=$((8 * 1024 * 1024))
   fi
-  [ "$memory_kb" -ge "$required_memory_kb" ] || fail "Insufficient memory: ${memory_kb} KiB detected, ${required_memory_kb} KiB required for $EDITION."
+  if [ "$memory_kb" -lt "$required_memory_kb" ]; then
+    memory_gib=$(awk -v bytes="$memory_bytes" 'BEGIN { printf "%.2f", bytes / 1024 / 1024 / 1024 }')
+    required_memory_gib=$((required_memory_kb / 1024 / 1024))
+    if [ "$HOST_OS" = Darwin ]; then
+      memory_help="Open Docker Desktop > Settings > Resources > Advanced > Memory limit, increase the VM allocation above ${required_memory_gib} GiB to allow for VM overhead, then apply the changes and restart Docker Desktop."
+    else
+      memory_help="Increase the memory available to the Docker Engine host or its virtual machine above ${required_memory_gib} GiB, then restart Docker if its allocation changed."
+    fi
+    fail "Insufficient Docker Engine memory: ${memory_gib} GiB (${memory_kb} KiB) available; $EDITION requires at least ${required_memory_gib} GiB (${required_memory_kb} KiB).
+This checks memory available to Docker Engine, not the host's physical memory when Docker runs in a virtual machine.
+$memory_help
+Verify the new allocation with: docker info --format '{{.MemTotal}}' (bytes), then retry the installer."
+  fi
   check_port
 }
 

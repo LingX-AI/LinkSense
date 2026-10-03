@@ -60,7 +60,7 @@
     "dingtalk-stream": "2.1.7-beta.1",
     "es-module-lexer": "2.3.0",
     "exceljs": "4.4.0",
-    "fastify": "^5.10.0",
+    "fastify": "^5.12.2",
     "fastify-plugin": "^5.1.0",
     "file-type": "^21.0.0",
     "gpt-tokenizer": "3.4.0",

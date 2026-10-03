@@ -700,7 +700,7 @@ describe("managed browser CLI", () => {
       mkdir(codexHome, { recursive: true }),
       writeFile(
         command,
-        `#!/bin/sh\nprintf '%s|%s|%s|%s|%s\\n' "$1" "$HOME" "$CODEX_HOME" "\${LINKSENSE_BROWSER_SESSION_ROOT-unset}" "\${LINKSENSE_BROWSER_SESSION_LIMIT-unset}" > '${log}'\n`,
+        `#!/bin/sh\nprintf '%s|%s|%s|%s|%s|%s|%s\\n' "$1" "$HOME" "$CODEX_HOME" "$LINKSENSE_CONVERSATION_ID" "$LINKSENSE_WORKSPACE_PATH" "\${LINKSENSE_BROWSER_SESSION_ROOT-unset}" "\${LINKSENSE_BROWSER_SESSION_LIMIT-unset}" > '${log}'\n`,
       ),
     ])
     await chmod(command, 0o755)
@@ -710,12 +710,170 @@ describe("managed browser CLI", () => {
       userHome,
       codexHome,
       workspace,
-      sourceEnvironment: { PATH: process.env.PATH },
+      conversationId: firstConversationId,
+      sourceEnvironment: {
+        PATH: process.env.PATH,
+        LINKSENSE_CONVERSATION_ID: secondConversationId,
+        LINKSENSE_WORKSPACE_PATH: path.join(userHome, "another-project"),
+        LINKSENSE_BROWSER_SESSION_ROOT: "/untrusted-sessions",
+        LINKSENSE_BROWSER_SESSION_LIMIT: "20",
+      },
     })
 
     expect(await readFile(log, "utf8")).toBe(
-      `__cleanup|${userHome}|${codexHome}|unset|unset\n`,
+      `__cleanup|${userHome}|${codexHome}|${firstConversationId}|${workspace}|unset|unset\n`,
     )
+  })
+
+  it("cleans only the requested task through the real wrapper with a shared HOME and project workspace", async () => {
+    const root = await temporaryRoot()
+    const userHome = path.join(root, "home")
+    const codexHome = path.join(userHome, ".codex")
+    const workspace = path.join(userHome, "projects", "research")
+    const browserRoot = path.join(
+      userHome, ".local", "share", "linksense", "browser",
+    )
+    const sessionRoot = path.join(root, "sessions")
+    const log = path.join(root, "cleanup.json")
+    const command = path.join(root, "cleanup-browser.mjs")
+    await Promise.all([
+      mkdir(codexHome, { recursive: true }),
+      mkdir(workspace, { recursive: true }),
+      ...[firstConversationId, secondConversationId].map(async (conversationId) => {
+        const stateRoot = path.join(browserRoot, conversationId)
+        await mkdir(stateRoot, { recursive: true })
+        await writeFile(path.join(stateRoot, "session-active"), "active")
+      }),
+    ])
+    const leases = new BrowserSessionLeaseStore(sessionRoot, 2)
+    await leases.acquire(firstConversationId)
+    await leases.acquire(secondConversationId)
+    const wrapperUrl = new URL("../src/browser/cli-wrapper.ts", import.meta.url)
+    await writeFile(
+      command,
+      [
+        `#!${process.execPath} --import=${import.meta.resolve("tsx")}`,
+        `import { writeFile } from "node:fs/promises";`,
+        `import { browserCliMain } from ${JSON.stringify(wrapperUrl.href)};`,
+        `process.exitCode = await browserCliMain(process.argv.slice(2), process.env, process.cwd(), {`,
+        `  policy: ${JSON.stringify({ sessionRoot, sessionLimit: 2 })},`,
+        `  runCli: async (input) => {`,
+        `    await writeFile(${JSON.stringify(log)}, JSON.stringify({`,
+        `      args: input.args, cwd: input.cwd,`,
+        `      home: input.environment.HOME, codexHome: input.environment.CODEX_HOME,`,
+        `      conversationId: input.environment.LINKSENSE_CONVERSATION_ID,`,
+        `      workspace: input.environment.LINKSENSE_WORKSPACE_PATH,`,
+        `    }));`,
+        `    return 0;`,
+        `  },`,
+        `});`,
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    )
+
+    await cleanupManagedBrowserSession({
+      command,
+      conversationId: firstConversationId,
+      userHome,
+      codexHome,
+      workspace,
+      sourceEnvironment: { PATH: process.env.PATH },
+    })
+
+    expect(JSON.parse(await readFile(log, "utf8"))).toEqual({
+      args: [`-s=linksense-${firstConversationId}`, "close"],
+      cwd: await realpath(workspace),
+      home: await realpath(userHome),
+      codexHome: await realpath(codexHome),
+      conversationId: firstConversationId,
+      workspace,
+    })
+    expect(await leases.has(firstConversationId)).toBe(false)
+    expect(await leases.has(secondConversationId)).toBe(true)
+    await expect(
+      stat(path.join(browserRoot, firstConversationId)),
+    ).rejects.toMatchObject({ code: "ENOENT" })
+    expect(
+      await readFile(path.join(browserRoot, secondConversationId, "session-active"), "utf8"),
+    ).toBe("active")
+  })
+
+  it.each(["conversation", "workspace"] as const)("rejects cleanup when the %s scope is missing", async (missingScope) => {
+    const root = await temporaryRoot()
+    const userHome = path.join(root, "home")
+    const codexHome = path.join(userHome, ".codex")
+    const workspace = path.join(userHome, "workspace")
+    await Promise.all([
+      mkdir(codexHome, { recursive: true }),
+      mkdir(workspace, { recursive: true }),
+    ])
+    const environment: NodeJS.ProcessEnv = {
+      HOME: userHome,
+      CODEX_HOME: codexHome,
+      LINKSENSE_CONVERSATION_ID: firstConversationId,
+      LINKSENSE_WORKSPACE_PATH: workspace,
+    }
+    delete environment[
+      missingScope === "conversation"
+        ? "LINKSENSE_CONVERSATION_ID"
+        : "LINKSENSE_WORKSPACE_PATH"
+    ]
+    const runCli = vi.fn<BrowserCliRunner>(async () => 0)
+
+    const cleanup = browserCliMain(["__cleanup"], environment, workspace, {
+      runCli,
+      policy: { sessionRoot: path.join(root, "sessions"), sessionLimit: 2 },
+    })
+    if (missingScope === "conversation") {
+      await expect(cleanup).rejects.toThrow("browser requires a conversation id")
+    } else {
+      await expect(cleanup).rejects.toMatchObject({
+        code: "ENOENT", syscall: "realpath", path: "",
+      })
+    }
+    expect(runCli).not.toHaveBeenCalled()
+  })
+
+  it("rejects cleanup when its assigned project workspace escapes the shared HOME", async () => {
+    const root = await temporaryRoot()
+    const userHome = path.join(root, "home")
+    const codexHome = path.join(userHome, ".codex")
+    const outsideWorkspace = path.join(root, "another-user", "workspace")
+    await Promise.all([
+      mkdir(codexHome, { recursive: true }),
+      mkdir(outsideWorkspace, { recursive: true }),
+    ])
+    const runCli = vi.fn<BrowserCliRunner>(async () => 0)
+
+    await expect(browserCliMain(["__cleanup"], {
+      HOME: userHome,
+      CODEX_HOME: codexHome,
+      LINKSENSE_CONVERSATION_ID: firstConversationId,
+      LINKSENSE_WORKSPACE_PATH: outsideWorkspace,
+    }, outsideWorkspace, {
+      runCli,
+      policy: { sessionRoot: path.join(root, "sessions"), sessionLimit: 2 },
+    })).rejects.toThrow("browser workspace must be inside the user HOME")
+    expect(runCli).not.toHaveBeenCalled()
+  })
+
+  it("propagates a failed cleanup process to the supervisor", async () => {
+    const root = await temporaryRoot()
+    const userHome = path.join(root, "home")
+    const workspace = path.join(userHome, "workspace")
+    const command = path.join(root, "cleanup-browser")
+    await mkdir(workspace, { recursive: true })
+    await writeFile(command, "#!/bin/sh\nexit 7\n", { mode: 0o755 })
+
+    await expect(cleanupManagedBrowserSession({
+      command,
+      conversationId: firstConversationId,
+      userHome,
+      codexHome: path.join(userHome, ".codex"),
+      workspace,
+      sourceEnvironment: { PATH: process.env.PATH },
+    })).rejects.toMatchObject({ code: 7 })
   })
 })
 

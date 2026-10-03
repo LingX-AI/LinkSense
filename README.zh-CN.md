@@ -44,6 +44,7 @@
 **Full** — Core + 完整的文档处理与知识检索
 
 Core 需要 4+ vCPU、8+ GiB 内存和 60+ GiB 可用 SSD 空间。Full 需要 8+ vCPU、16+ GiB 内存和 120+ GiB 可用 SSD 空间。要求 Docker Engine API v1.45+ 和 Docker Compose v2.24.4+。
+内存预检读取 Docker Engine 实际可用内存。使用 Docker Desktop 时，这指虚拟机分配的内存，而非宿主机总内存；标称分配 8 GB 时，实际可用值可能不足 8 GiB。请在 Settings → Resources → Advanced → Memory limit 调整分配，Core 建议至少 10–12 GB，Full 也应为 16 GiB 的实际可用要求留出余量，然后应用更改并重启 Docker Desktop。
 完整要求见[部署参考](#部署参考)。
 
 ### Linux
@@ -215,22 +216,26 @@ Codex 运行时由 OpenAI 以 Apache-2.0 许可发布，并以未修改的形式
 ## 系统架构
 
 <p align="center">
-  <img src="./docs/diagrams/system-architecture.svg" alt="浏览器 → 网关 / Nginx → Web 和 API。API 连接 PostgreSQL、Redis、MinIO、BullMQ 及完整知识处理组件，并通过经过身份验证的 HTTP 控制 Runner。Runner 通过 Docker Engine 管理每用户一个的 Worker，其中包括每任务独立的工作目录和 CODEX_HOME、官方 Codex app-server、模型网关、MCP，以及 Chromium / Playwright。" width="960" />
+  <img src="./docs/diagrams/system-architecture.svg" alt="浏览器 → 网关 / Nginx → Web 和 API。API 连接 PostgreSQL、Redis、MinIO、BullMQ 及完整知识处理组件，并通过经过身份验证的 HTTP 控制 Runner。Runner 通过 Docker Engine 管理每用户一个的 Worker，其中包括用户共享的工作区和 CODEX_HOME、官方 Codex app-server、模型网关、MCP，以及 Chromium / Playwright。" width="960" />
 </p>
 
 ### Worker 模型
 
 LinkSense 为每位活跃用户动态管理一个 Docker Worker。
 
-同一用户的多个任务可以复用该 Worker。每个任务都拥有独立的工作目录和 `CODEX_HOME`。
+同一用户的多个任务可以复用该 Worker，并共享用户的 `HOME` 和 `HOME/.codex`（`CODEX_HOME`）。无项目任务共享 `workspace`，同一项目的任务共享 `projects/<projectId>`；任务控制数据按任务分别存放。
 
-任务工作目录是相互隔离的目录，**不是独立的容器或内核边界**。
+**隔离边界是用户的 Worker，而非同一用户的任务目录**。同一用户的普通执行任务可以访问该用户的其他项目和任务文件。
 
 闲置 Worker 会被回收。每用户的软件包环境可以在回收后保留，生成的交付成果则独立持久化到对象存储中。
 
 Worker 控制包括可配置的 CPU / 内存 / PID 限制、只读根文件系统、`no-new-privileges`、移除 Linux capabilities、非特权容器、以非 root 身份运行任务进程，以及独立的控制网络和出站网络。
 
 Worker 不直接加入 PostgreSQL 或 Redis 的服务网络。目前允许互联网出站访问；LinkSense 不强制执行通用域名白名单或默认拒绝全部出站流量的策略。
+
+普通执行模式使用 Codex 的 `approvalPolicy: never` 和完全访问沙箱策略，不会逐条要求命令审批。网页、上传文件或工具返回内容中的提示词注入如果成功诱导任务执行命令，可能读取、修改或外传该用户的共享文件。Plan 模式使用只读且禁止网络的沙箱；它不改变普通执行模式的权限。
+
+当前应用没有默认屏蔽云元数据地址。云部署应在网络或实例配置中限制元数据访问并控制出站范围，实例角色只授予必要权限。控制器还持有 Docker socket，应视为可信管理组件；执行任务的 Worker 不挂载该 socket。详见[安全边界](./SECURITY.md#execution-boundaries)。
 
 ### 执行路径
 
@@ -326,7 +331,7 @@ linksense credential
 linksense logs api
 linksense doctor
 linksense repair
-linksense upgrade v0.3.0
+linksense upgrade
 ```
 
 不带参数运行 `linksense`，可打开交互式管理菜单。
