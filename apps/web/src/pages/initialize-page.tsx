@@ -63,10 +63,15 @@ export function InitializePage() {
         skipRefresh: true,
       }),
     onSuccess: async () => {
+      await queryClient.cancelQueries({
+        queryKey: ["system", "bootstrap"],
+        exact: true,
+      })
       await queryClient.fetchQuery({
         queryKey: ["system", "bootstrap"],
-        queryFn: () =>
-          apiRequest("/system/bootstrap", { schema: bootstrapSchema }),
+        staleTime: 0,
+        queryFn: ({ signal }) =>
+          apiRequest("/system/bootstrap", { schema: bootstrapSchema, signal }),
       })
       navigate("/login", { replace: true, state: { initialized: true } })
     },
