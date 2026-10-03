@@ -11,7 +11,7 @@ const readBoth = () => Promise.all([
   readFile(chinesePath, "utf8"),
 ])
 
-test("the bilingual READMEs follow the complete 4.4 section order", async () => {
+test("the bilingual READMEs follow the current public section order", async () => {
   const [english, chinese] = await readBoth()
   assert.match(chinese, /\[English\]\(\.\/README\.md\)/u)
   assert.match(english, /\[简体中文\]\(\.\/README\.zh-CN\.md\)/u)
@@ -19,7 +19,6 @@ test("the bilingual READMEs follow the complete 4.4 section order", async () => 
   const pairedHeadings = [
     ["Why LinkSense", "为什么选择 LinkSense"],
     ["Quick Start", "快速开始"],
-    ["See LinkSense in Action", "看看 LinkSense 如何工作"],
     ["Organizational Capabilities", "组织能力"],
     ["Built on the Open-source Codex Runtime", "基于开源 Codex 运行时"],
     ["Open Source. Self-hosted. Under Your Control.", "开源。自主部署。由你掌控。"],
@@ -52,19 +51,32 @@ test("the bilingual READMEs follow the complete 4.4 section order", async () => 
   }
 })
 
-test("the Chinese translation preserves every 4.4 command block and diagram", async () => {
+test("the bilingual READMEs preserve deployment commands and architectural diagrams", async () => {
   const [english, chinese] = await readBoth()
   const commands = (source) => [...source.matchAll(/```bash\n([\s\S]*?)```/gu)].map(([, block]) => block)
   assert.equal(commands(english).length, 12)
   assert.deepEqual(commands(chinese), commands(english))
-  const images = (source) => [...source.matchAll(/<img src="([^"]+)" alt="([^"]+)" width="(\d+)"\s*\/>/gu)]
-  assert.equal(images(english).length, 13)
-  assert.equal(images(chinese).length, 13)
-  assert.deepEqual(
-    images(chinese).map(([, src, , width]) => [src, width]),
-    images(english).map(([, src, , width]) => [src, width]),
-  )
-  for (const [, , alt] of images(chinese)) assert.match(alt, /\p{Script=Han}/u)
+  const diagrams = (source) => [...source.matchAll(/<img src="(\.\/docs\/diagrams\/[^"]+)" alt="([^"]+)" width="(\d+)"\s*\/>/gu)]
+  const expected = [
+    "organizational-capability-lifecycle",
+    "application-composition",
+    "finance-application",
+    "open-capability-layer",
+    "system-architecture",
+    "realtime-execution-path",
+    "event-delivery",
+    "skill-directory-structure",
+    "plugin-package-structure",
+  ].map((name) => `./docs/diagrams/${name}.svg`)
+  for (const source of [english, chinese]) {
+    const images = diagrams(source)
+    assert.deepEqual(images.map(([, src]) => src), expected)
+    for (const [, , alt, width] of images) {
+      assert.ok(alt.trim().length > 0)
+      assert.ok(Number(width) >= 200 && Number(width) <= 1280)
+    }
+  }
+  for (const [, , alt] of diagrams(chinese)) assert.match(alt, /\p{Script=Han}/u)
 })
 
 test("every local README link and HTML image resolves to a repository file", async () => {
