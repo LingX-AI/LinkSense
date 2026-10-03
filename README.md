@@ -46,6 +46,12 @@ Two deployment profiles ship from the same repository:
 
 Core needs 4+ vCPU, 8+ GiB memory, and 60+ GiB free SSD. Full needs 8+ vCPU, 16+ GiB,
 and 120+ GiB. Docker Engine API v1.45+ and Docker Compose v2.24.4+ are required.
+The memory check reads the memory actually available to Docker Engine. With Docker
+Desktop, this is the VM allocation, rather than the host's total RAM. An 8 GB
+allocation can report less than 8 GiB of usable memory. Adjust Settings → Resources
+→ Advanced → Memory limit, then apply the changes and restart Docker Desktop;
+allocate at least 10–12 GB for Core and leave room
+above Full's 16 GiB usable-memory requirement.
 See [Deployment reference](#deployment-reference) for the full list.
 
 ### Linux
@@ -285,17 +291,20 @@ entirely, that is a commercial arrangement: `licensing@linksense.org`.
 ## Architecture
 
 <p align="center">
-  <img src="./docs/diagrams/system-architecture.svg" alt="Browser → Gateway / Nginx → Web and API. API connects to PostgreSQL, Redis, MinIO, BullMQ, and the Full Knowledge Stack, and uses authenticated HTTP to control Runner. Runner uses Docker Engine to manage a per-user Worker with per-task workspace and CODEX_HOME, official Codex app-server, model gateway, MCP, and Chromium / Playwright." width="960" />
+  <img src="./docs/diagrams/system-architecture.svg" alt="Browser → Gateway / Nginx → Web and API. API connects to PostgreSQL, Redis, MinIO, BullMQ, and the Full Knowledge Stack, and uses authenticated HTTP to control Runner. Runner uses Docker Engine to manage a per-user Worker with shared user workspaces and CODEX_HOME, official Codex app-server, model gateway, MCP, and Chromium / Playwright." width="960" />
 </p>
 
 ### Worker model
 
 LinkSense dynamically manages one Docker Worker per active user.
 
-Multiple Tasks belonging to the same user may reuse that Worker. Each Task receives a
-separate workspace and `CODEX_HOME`.
+Multiple Tasks belonging to the same user may reuse that Worker and share the user's
+`HOME` and `HOME/.codex` (`CODEX_HOME`). Tasks without a project share `workspace`;
+Tasks in the same project share `projects/<projectId>`. Task control data is stored
+separately for each Task.
 
-Task workspaces are isolated directories, **not separate containers or kernel boundaries**.
+**The isolation boundary is the user's Worker, rather than individual Task directories.**
+Ordinary execution Tasks can access the same user's other project and Task files.
 
 Inactive Workers are reclaimed. Per-user package environments can persist across
 reclamation, while generated artifacts persist independently in object storage.
@@ -307,6 +316,18 @@ processes, and separate control and egress networks.
 Workers do not directly join PostgreSQL or Redis service networks. Internet egress is
 currently allowed; LinkSense does not enforce a universal domain allowlist or deny-all
 egress policy.
+
+Ordinary execution uses Codex's `approvalPolicy: never` and full-access sandbox policy,
+without per-command approval. If prompt injection in a webpage, uploaded file or tool
+response successfully induces command execution, it can lead to reading, modifying or
+exfiltrating that user's shared files. Plan mode uses a read-only sandbox with network
+access disabled; it does not change ordinary execution permissions.
+
+The application does not block cloud metadata addresses by default. Cloud deployments
+should restrict metadata access and outbound traffic through network or instance
+configuration, and grant instance roles only the permissions they need. The controller
+also holds the Docker socket and must be treated as a trusted management component;
+Task Workers do not mount that socket. See [Execution boundaries](./SECURITY.md#execution-boundaries).
 
 ### Execution path
 
@@ -410,7 +431,7 @@ linksense credential
 linksense logs api
 linksense doctor
 linksense repair
-linksense upgrade v0.3.0
+linksense upgrade
 ```
 
 Run `linksense` without arguments to open the interactive control menu.
