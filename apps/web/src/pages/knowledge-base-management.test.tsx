@@ -19,7 +19,8 @@ import { ThemeProvider } from "@/app/theme-context"
 import { notify } from "@/components/feedback/notification"
 import { NotificationCenter } from "@/components/feedback/notification-toast"
 import { knowledgeBaseQueryKeys } from "@/features/knowledge-bases/knowledge-base-api"
-import i18n from "@/i18n"
+import type { KnowledgeSearchCapability } from "@/features/knowledge-bases/knowledge-base-contracts"
+import i18n, { supportedLanguages } from "@/i18n"
 import {
   KnowledgeBaseDetailPage,
   KnowledgeBaseListPage,
@@ -216,6 +217,9 @@ function createFetchMock(options: {
   flatEntries?: unknown[]
   source?: ReturnType<typeof sourceFixture>
   sharePointEnabled?: boolean
+  searchCapability?: KnowledgeSearchCapability
+  searchCapabilityError?: boolean
+  knowledgeBaseListUnavailable?: boolean
   creationCapability?: {
     status: "ready" | "unready" | "not_installed"
     checks: null | {
@@ -242,12 +246,22 @@ function createFetchMock(options: {
       url.pathname === "/api/v1/knowledge-bases/search-capability" &&
       method === "GET"
     ) {
+      if (options.searchCapabilityError) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ success: false, error_code: "INTERNAL_ERROR" }),
+            { status: 500, headers: { "content-type": "application/json" } }
+          )
+        )
+      }
       return Promise.resolve(
-        envelope({
-          status: "available",
-          reason_code: null,
-          checked_at: "2026-07-22T01:00:00.000Z",
-        })
+        envelope(
+          options.searchCapability ?? {
+            status: "available",
+            reason_code: null,
+            checked_at: "2026-07-22T01:00:00.000Z",
+          }
+        )
       )
     }
     if (
@@ -283,6 +297,18 @@ function createFetchMock(options: {
       )
     }
     if (url.pathname === "/api/v1/knowledge-bases" && method === "GET") {
+      if (options.knowledgeBaseListUnavailable) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              message: "Route GET:/api/v1/knowledge-bases not found",
+              error: "Not Found",
+              statusCode: 404,
+            }),
+            { status: 404, headers: { "content-type": "application/json" } }
+          )
+        )
+      }
       return Promise.resolve(
         envelope({ items: knowledgeBases, next_cursor: null })
       )
@@ -529,6 +555,130 @@ describe("knowledge-base document and access management", () => {
     cleanup()
     setAccessToken(null)
     vi.unstubAllGlobals()
+  })
+
+  it.each(supportedLanguages)(
+    "shows the uninstalled knowledge state without unsupported requests or a false API error in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const fetchMock = createFetchMock({
+        searchCapability: {
+          status: "not_installed",
+          reason_code: "KNOWLEDGE_NOT_INSTALLED",
+          checked_at: "2026-07-22T01:00:00.000Z",
+        },
+        creationCapability: {
+          status: "not_installed",
+          checks: null,
+          checked_at: "2026-07-22T01:00:00.000Z",
+        },
+        knowledgeBaseListUnavailable: true,
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      renderListPage(adminUser)
+
+      expect(
+        await screen.findByText(
+          i18n.t("knowledge.searchCapability.notInstalledTitle")
+        )
+      ).toBeVisible()
+      expect(
+        screen.queryByText(i18n.t("errors.invalidResponse"))
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: i18n.t("common.retry") })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", {
+          name: i18n.t("knowledge.create.action"),
+        })
+      ).not.toBeInTheDocument()
+      expect(
+        fetchMock.mock.calls.some(
+          ([input]) =>
+            new URL(String(input), window.location.origin).pathname ===
+            "/api/v1/knowledge-bases"
+        )
+      ).toBe(false)
+    }
+  )
+
+  it("waits for the installed capability before reading the knowledge list", async () => {
+    let resolveCapability: ((response: Response) => void) | undefined
+    const capabilityResponse = new Promise<Response>((resolve) => {
+      resolveCapability = resolve
+    })
+    const knowledgeFetch = createFetchMock({})
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), window.location.origin).pathname
+      return path === "/api/v1/knowledge-bases/search-capability"
+        ? capabilityResponse
+        : knowledgeFetch(input, init)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    renderListPage(adminUser)
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    expect(
+      knowledgeFetch.mock.calls.some(
+        ([input]) =>
+          new URL(String(input), window.location.origin).pathname ===
+          "/api/v1/knowledge-bases"
+      )
+    ).toBe(false)
+    expect(screen.getByText(i18n.t("common.pageLoading"))).toBeVisible()
+
+    await act(async () => {
+      resolveCapability?.(
+        envelope({
+          status: "available",
+          reason_code: null,
+          checked_at: "2026-07-22T01:00:00.000Z",
+        })
+      )
+    })
+    expect(await screen.findByRole("link", { name: "产品制度" })).toBeVisible()
+  })
+
+  it("retries a failed capability check before requesting knowledge data", async () => {
+    const options = { searchCapabilityError: true }
+    const fetchMock = createFetchMock(options)
+    vi.stubGlobal("fetch", fetchMock)
+    renderListPage(adminUser)
+
+    expect(await screen.findByText(i18n.t("errors.unknown"))).toBeVisible()
+    expect(
+      fetchMock.mock.calls.some(
+        ([input]) =>
+          new URL(String(input), window.location.origin).pathname ===
+          "/api/v1/knowledge-bases"
+      )
+    ).toBe(false)
+
+    options.searchCapabilityError = false
+    await userEvent.click(
+      screen.getByRole("button", { name: i18n.t("common.retry") })
+    )
+    expect(await screen.findByRole("link", { name: "产品制度" })).toBeVisible()
+  })
+
+  it("keeps existing knowledge readable when search is temporarily unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      createFetchMock({
+        searchCapability: {
+          status: "unavailable",
+          reason_code: "KNOWLEDGE_SEARCH_UNAVAILABLE",
+          checked_at: "2026-07-22T01:00:00.000Z",
+        },
+      })
+    )
+    renderListPage(adminUser)
+
+    expect(await screen.findByRole("link", { name: "产品制度" })).toBeVisible()
+    expect(
+      screen.getByText(i18n.t("knowledge.searchCapability.unavailableTitle"))
+    ).toBeVisible()
   })
 
   it.each(["zh-CN", "en-US"])(

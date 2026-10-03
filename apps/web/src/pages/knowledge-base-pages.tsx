@@ -317,13 +317,20 @@ function KnowledgeBaseLibraryContent() {
   }
   const [createOpen, setCreateOpen] = useState(false)
   const deferredSearch = useDeferredValue(search.trim())
-  const query = useKnowledgeBaseList({
-    lifecycle,
-    scope,
-    search: deferredSearch,
-  })
   const searchCapability = useKnowledgeSearchCapability()
-  const creationCapability = useKnowledgeBaseCreationCapability()
+  const knowledgeInstalled =
+    searchCapability.data !== undefined &&
+    searchCapability.data.status !== "not_installed"
+  const query = useKnowledgeBaseList(
+    {
+      lifecycle,
+      scope,
+      search: deferredSearch,
+    },
+    { enabled: knowledgeInstalled }
+  )
+  const creationCapability =
+    useKnowledgeBaseCreationCapability(knowledgeInstalled)
   const creationReady =
     creationCapability.capability?.status === "ready" &&
     !creationCapability.isFetching &&
@@ -346,17 +353,27 @@ function KnowledgeBaseLibraryContent() {
     { value: "shared" as const, label: t("knowledge.scope.shared") },
   ]
 
-  const content = (
-    <KnowledgeBaseListContent
-      items={items}
-      loading={query.isLoading}
-      error={query.error}
-      hasNextPage={query.hasNextPage}
-      fetchingNextPage={query.isFetchingNextPage}
-      onRetry={() => void query.refetch()}
-      onLoadMore={() => void query.fetchNextPage()}
-    />
-  )
+  const content =
+    !searchCapability.data && searchCapability.isError ? (
+      <ErrorState
+        message={getErrorMessage(searchCapability.error, t)}
+        onRetry={() => void searchCapability.refetch()}
+      />
+    ) : (
+      <KnowledgeBaseListContent
+        items={items}
+        loading={searchCapability.isPending || query.isLoading}
+        error={query.error}
+        hasNextPage={query.hasNextPage}
+        fetchingNextPage={query.isFetchingNextPage}
+        onRetry={() => void query.refetch()}
+        onLoadMore={() => void query.fetchNextPage()}
+      />
+    )
+
+  if (searchCapability.data?.status === "not_installed") {
+    return <KnowledgeSearchStatusBanner capability={searchCapability.data} />
+  }
 
   return (
     <>
