@@ -13,11 +13,14 @@ const lockfile = parse(
 );
 
 // Security floors for GHSA-6mj3-qw4j-hgrw, GHSA-rgj7-g3m4-5g8c,
-// and GHSA-2x7j-588g-ccc2. Check every resolution, including transitive copies.
+// GHSA-2x7j-588g-ccc2, and the Fastify validation / not-found advisories
+// GHSA-9q9j-q6p8-xq58, GHSA-hwr6-493r-vm6h, GHSA-p68q-wchp-6fh7.
+// Check every resolution, including transitive copies.
 for (const [name, minimum] of [
   ["@xmldom/xmldom", "0.9.12"],
   ["sharp", "0.35.4"],
   ["nodemailer", "9.1.0"],
+  ["fastify", "5.12.2"],
 ]) {
   test(`the lockfile resolves ${name} only to security-patched versions`, () => {
     const versions = Object.keys(lockfile.packages)
