@@ -37,7 +37,7 @@ text() {
     zh-CN:health_failed) printf 'LinkSense 未能在端口 %s 上通过健康检查。' "$1" ;;
     zh-CN:doctor_ok) printf 'LinkSense 健康诊断通过。' ;;
     zh-CN:volume_missing) printf '持久化数据卷 %s 不存在。' "$1" ;;
-    zh-CN:volume_invalid) printf '持久化数据卷 %s 缺少可信的 LinkSense 数据标签。' "$1" ;;
+    zh-CN:volume_invalid) printf '持久化数据卷 %s 不符合本地存储配置和可信的 LinkSense 数据标签要求。' "$1" ;;
     zh-CN:service_invalid) printf '未知的 LinkSense 服务：%s' "$1" ;;
     zh-CN:port_prompt) printf '请输入新的 TCP 端口：' ;;
     zh-CN:port_invalid) printf '端口必须是 1 到 65535 之间的整数。' ;;
@@ -96,7 +96,7 @@ text() {
     en-US:health_failed) printf 'LinkSense did not pass its readiness check on port %s.' "$1" ;;
     en-US:doctor_ok) printf 'LinkSense diagnostics passed.' ;;
     en-US:volume_missing) printf 'Persistent data volume %s does not exist.' "$1" ;;
-    en-US:volume_invalid) printf 'Persistent data volume %s is missing trusted LinkSense data labels.' "$1" ;;
+    en-US:volume_invalid) printf 'Persistent data volume %s does not meet the required local storage configuration and trusted LinkSense data labels.' "$1" ;;
     en-US:service_invalid) printf 'Unknown LinkSense service: %s' "$1" ;;
     en-US:port_prompt) printf 'Enter the new TCP port: ' ;;
     en-US:port_invalid) printf 'The port must be an integer between 1 and 65535.' ;;
@@ -558,6 +558,19 @@ command_logs() {
   fi
 }
 
+validate_managed_volume() {
+  volume=$1
+  expected_role=$2
+  driver=$(docker volume inspect --format '{{.Driver}}' "$volume" 2>/dev/null || true)
+  options=$(docker volume inspect --format '{{json .Options}}' "$volume" 2>/dev/null | tr '[:upper:]' '[:lower:]')
+  managed=$(docker volume inspect --format '{{ index .Labels "com.linksense.managed-by" }}' "$volume" 2>/dev/null || true)
+  persistence=$(docker volume inspect --format '{{ index .Labels "com.linksense.persistence" }}' "$volume" 2>/dev/null || true)
+  role=$(docker volume inspect --format '{{ index .Labels "com.linksense.role" }}' "$volume" 2>/dev/null || true)
+  [ "$driver" = local ] || die volume_invalid "$volume"
+  { [ "$options" = null ] || [ "$options" = '{}' ]; } || die volume_invalid "$volume"
+  [ "$managed" = linksense-production ] && [ "$persistence" = critical ] && [ "$role" = "$expected_role" ] || die volume_invalid "$volume"
+}
+
 command_doctor() {
   ensure_docker
   compose config --quiet
@@ -568,11 +581,18 @@ command_doctor() {
   for volume in $volumes; do
     [ -z "$volume" ] && continue
     docker volume inspect "$volume" >/dev/null 2>&1 || die volume_missing "$volume"
-    managed=$(docker volume inspect --format '{{ index .Labels "com.linksense.managed-by" }}' "$volume" 2>/dev/null || true)
-    persistence=$(docker volume inspect --format '{{ index .Labels "com.linksense.persistence" }}' "$volume" 2>/dev/null || true)
-    [ "$managed" = linksense-production ] && [ "$persistence" = critical ] || die volume_invalid "$volume"
   done
   IFS=$old_ifs
+  # Match install, repair and upgrade: service data volumes must exist; the
+  # platform-managed user-data and backup volumes also require their identity
+  # labels and an unconfigured local driver. Diagnostics never mutate volumes.
+  user_data_volume=$(read_key "$ENV_FILE" LINKSENSE_USER_DATA_VOLUME 2>/dev/null || true)
+  backup_volume=$(read_key "$ENV_FILE" LINKSENSE_BACKUP_VOLUME 2>/dev/null || true)
+  [ -n "$user_data_volume" ] && [ -n "$backup_volume" ] || die invalid_install "$ENV_FILE"
+  case ",$volumes," in *",$user_data_volume,"*) ;; *) die invalid_install "$STATE_FILE" ;; esac
+  case ",$volumes," in *",$backup_volume,"*) ;; *) die invalid_install "$STATE_FILE" ;; esac
+  validate_managed_volume "$user_data_volume" user-data
+  validate_managed_volume "$backup_volume" backups
   ready "$HTTP_PORT" || die health_failed "$HTTP_PORT"
   compose ps --all
   say doctor_ok

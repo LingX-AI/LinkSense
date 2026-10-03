@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { spawn } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import {
   chmod,
   mkdir,
@@ -164,13 +164,135 @@ describe("release management CLI", { concurrency: 4 }, () => {
         assert.notEqual(invalidVolume.status, 0)
         assert.match(
           invalidVolume.stderr,
-          /missing trusted LinkSense data labels/u,
+          /trusted LinkSense data labels/u,
         )
       } finally {
         await fixture.cleanup()
       }
     },
   )
+
+  cliTest("doctor accepts the volumes created by the installer and preserves an existing installation", async () => {
+    const installer = await readFile(
+      path.join(root, "deploy/release/linksense-installer.sh"),
+      "utf8",
+    )
+    const mainPosition = installer.indexOf(
+      'log_stage "Stage 1: run the read-only host preflight."',
+    )
+    assert.ok(mainPosition > 0)
+    for (const edition of ["core", "full"]) {
+      const fixture = await createFixture({ edition })
+      try {
+        const volumeDirectory = path.join(fixture.directory, "volumes")
+        await mkdir(volumeDirectory)
+        const harness = path.join(fixture.directory, "create-volumes.sh")
+        await writeExecutable(
+          harness,
+          `${installer.slice(0, mainPosition)}create_install_volumes\n`,
+        )
+        const environment = {
+          PATH: `${fixture.bin}:/usr/bin:/bin:/usr/sbin:/sbin`,
+          MOCK_HOST_OS: fixture.hostOs,
+          MOCK_HOST_ARCH: fixture.hostArchitecture,
+          MOCK_UID: fixture.mockUid,
+          MOCK_DOCKER_LOG: fixture.dockerLog,
+          MOCK_VOLUME_DIRECTORY: volumeDirectory,
+          LINKSENSE_INSTALL_ACTION: "install",
+          LINKSENSE_INSTALL_EDITION: edition,
+          LINKSENSE_INSTALL_DIR: fixture.installDir,
+        }
+        const creation = spawnSync("/bin/sh", [harness], {
+          encoding: "utf8",
+          env: environment,
+        })
+        assert.equal(creation.status, 0, creation.stderr)
+        for (const volume of [
+          "linksense-postgres", "linksense-redis", "linksense-minio",
+        ]) {
+          assert.doesNotMatch(
+            await readFile(path.join(volumeDirectory, volume), "utf8"),
+            /com\.linksense\.managed-by/u,
+          )
+        }
+        await writeFile(fixture.dockerLog, "")
+        for (let run = 0; run < 2; run += 1) {
+          const doctor = await runCli(fixture, ["doctor"], {
+            environment: { MOCK_VOLUME_DIRECTORY: volumeDirectory },
+          })
+          assert.equal(doctor.status, 0, `${edition}: ${doctor.stderr}`)
+          assert.match(doctor.stdout, /LinkSense diagnostics passed/u)
+        }
+        await writeExecutable(
+          harness,
+          `${installer.slice(0, mainPosition)}verify_existing_volumes\n`,
+        )
+        const existing = spawnSync("/bin/sh", [harness], {
+          encoding: "utf8",
+          env: environment,
+        })
+        assert.equal(existing.status, 0, existing.stderr)
+        const dockerLog = await readFile(fixture.dockerLog, "utf8")
+        assert.doesNotMatch(
+          dockerLog,
+          /volume (?:create|rm)|prune|\b(?:up|run|stop|restart)\b/u,
+        )
+        assert.match(dockerLog, /compose .* ps --all/u)
+      } finally {
+        await fixture.cleanup()
+      }
+    }
+  })
+
+  cliTest("doctor rejects missing service data and invalid managed user-data or backup volumes", async () => {
+    const fixture = await createFixture()
+    try {
+      for (const volume of [
+        "linksense-postgres", "linksense-redis", "linksense-minio",
+        "linksense-user-data", "linksense-backups",
+        "linksense-elasticsearch", "linksense-tokenizer",
+      ]) {
+        const missing = await runCli(fixture, ["doctor"], {
+          environment: { MOCK_MISSING_VOLUME: volume },
+        })
+        assert.notEqual(missing.status, 0, volume)
+        assert.match(
+          missing.stderr,
+          new RegExp(`Persistent data volume ${volume} does not exist`, "u"),
+        )
+      }
+      for (const volume of ["linksense-user-data", "linksense-backups"]) {
+        for (const invalid of [
+          { MOCK_VOLUME_LABELS: "invalid" },
+          { MOCK_VOLUME_MANAGED_BY: "unrelated" },
+          { MOCK_VOLUME_PERSISTENCE: "temporary" },
+          { MOCK_VOLUME_ROLE: "unrelated" },
+          { MOCK_VOLUME_DRIVER: "nfs" },
+          { MOCK_VOLUME_OPTIONS: '{"device":"/untrusted"}' },
+        ]) {
+          const result = await runCli(fixture, ["doctor"], {
+            environment: { MOCK_INVALID_VOLUME: volume, ...invalid },
+          })
+          assert.notEqual(
+            result.status, 0, `${volume}: ${JSON.stringify(invalid)}`,
+          )
+          assert.ok(result.stderr.includes(volume), result.stderr)
+          assert.match(result.stderr, /trusted LinkSense data labels/u)
+        }
+      }
+      const failedHealth = await runCli(fixture, ["doctor"], {
+        environment: { MOCK_HEALTH_FAIL_PORT: "18081" },
+      })
+      assert.notEqual(failedHealth.status, 0)
+      assert.match(failedHealth.stderr, /readiness check/u)
+      assert.doesNotMatch(
+        await readFile(fixture.dockerLog, "utf8"),
+        /volume (?:create|rm)|prune/u,
+      )
+    } finally {
+      await fixture.cleanup()
+    }
+  })
 
   cliTest(
     "port migration updates runtime state, recreates only API and Gateway, and keeps backups",
@@ -428,18 +550,24 @@ async function createFixture(overrides = {}) {
   const statePlatform = overrides.statePlatform ?? "linux-amd64"
   const mockUid = overrides.mockUid ?? "0"
   const publicBaseUrl = overrides.publicBaseUrl ?? "http://127.0.0.1:18081"
+  const edition = overrides.edition ?? "full"
+  const dataVolumes = [
+    "linksense-postgres", "linksense-redis", "linksense-minio",
+    "linksense-user-data", "linksense-backups",
+    ...(edition === "full" ? ["linksense-elasticsearch", "linksense-tokenizer"] : []),
+  ]
   await mkdir(path.join(installDir, "bin"), { recursive: true })
   await writeFile(
     path.join(installDir, "install-state.env"),
     [
       "STATE_FORMAT=2",
-      "STATE_EDITION=full",
+      `STATE_EDITION=${edition}`,
       `STATE_PLATFORM=${statePlatform}`,
       "STATE_RELEASE_VERSION=v0.2.1",
       `STATE_INSTALL_DIR=${installDir}`,
       "STATE_HTTP_PORT=18081",
       "STATE_RELEASE_BASE_URL=https://downloads.example/linksense-v0.2.1",
-      "STATE_DATA_VOLUMES=linksense-postgres,linksense-user-data",
+      `STATE_DATA_VOLUMES=${dataVolumes.join(",")}`,
       "",
     ].join("\n"),
     { mode: 0o600 },
@@ -453,6 +581,7 @@ async function createFixture(overrides = {}) {
       "LINKSENSE_INITIALIZATION_TOKEN=test-initialization-credential",
       "LINKSENSE_WORKER_CONTROL_NETWORK=linksense-worker-control",
       "LINKSENSE_USER_DATA_VOLUME=linksense-user-data",
+      "LINKSENSE_BACKUP_VOLUME=linksense-backups",
       "",
     ].join("\n"),
     { mode: 0o600 },
@@ -461,7 +590,7 @@ async function createFixture(overrides = {}) {
     path.join(installDir, "compose.common.yml"),
     'services:\n  gateway:\n    ports:\n      - "0.0.0.0:${LINKSENSE_HTTP_PORT:?required}:80"\n',
   )
-  await writeFile(path.join(installDir, "compose.full.yml"), "services: {}\n")
+  await writeFile(path.join(installDir, `compose.${edition}.yml`), "services: {}\n")
   await writeExecutable(
     path.join(installDir, "bin", "repair-full.sh"),
     '#!/bin/sh\nprintf "repair install=%s base=%s\\n" "${LINKSENSE_INSTALL_DIR:-}" "${LINKSENSE_RELEASE_BASE_URL:-}" >> "$MOCK_COMMAND_LOG"\n',
@@ -595,15 +724,59 @@ case "$1:$2" in
     exit 0
     ;;
   volume:inspect)
+    for argument in "$@"; do volume=$argument; done
+    [ "$volume" != "\${MOCK_MISSING_VOLUME:-}" ] || exit 1
+    if [ -n "\${MOCK_VOLUME_DIRECTORY:-}" ]; then
+      file=$MOCK_VOLUME_DIRECTORY/$volume
+      [ -f "$file" ] || exit 1
+      [ "$3" = --format ] || exit 0
+      case "$4" in
+        '{{.Driver}}') key=driver ;;
+        '{{json .Options}}') key=options ;;
+        *com.linksense.managed-by*) key=com.linksense.managed-by ;;
+        *com.linksense.persistence*) key=com.linksense.persistence ;;
+        *com.linksense.role*) key=com.linksense.role ;;
+        *) exit 64 ;;
+      esac
+      awk -F= -v key="$key" '$1 == key { print $2 }' "$file"
+      exit 0
+    fi
     [ "$3" = --format ] || exit 0
+    case "$volume" in linksense-user-data) role=user-data ;; linksense-backups) role=backups ;; *) exit 0 ;; esac
+    if [ -n "\${MOCK_INVALID_VOLUME:-}" ] && [ "$MOCK_INVALID_VOLUME" != "$volume" ]; then
+      MOCK_VOLUME_LABELS=valid
+      MOCK_VOLUME_MANAGED_BY=linksense-production
+      MOCK_VOLUME_PERSISTENCE=critical
+      MOCK_VOLUME_ROLE=$role
+      MOCK_VOLUME_DRIVER=local
+      MOCK_VOLUME_OPTIONS=null
+    fi
     case "$4" in
+      '{{.Driver}}') printf '%s\\n' "\${MOCK_VOLUME_DRIVER:-local}" ;;
+      '{{json .Options}}') printf '%s\\n' "\${MOCK_VOLUME_OPTIONS:-null}" ;;
+      *com.linksense.role*) printf '%s\\n' "\${MOCK_VOLUME_ROLE:-$role}" ;;
       *com.linksense.managed-by*)
-        [ "\${MOCK_VOLUME_LABELS:-valid}" = valid ] && printf 'linksense-production\\n'
+        [ "\${MOCK_VOLUME_LABELS:-valid}" = valid ] && printf '%s\\n' "\${MOCK_VOLUME_MANAGED_BY:-linksense-production}"
         ;;
       *com.linksense.persistence*)
-        [ "\${MOCK_VOLUME_LABELS:-valid}" = valid ] && printf 'critical\\n'
+        [ "\${MOCK_VOLUME_LABELS:-valid}" = valid ] && printf '%s\\n' "\${MOCK_VOLUME_PERSISTENCE:-critical}"
         ;;
     esac
+    exit 0
+    ;;
+  volume:create)
+    [ -n "\${MOCK_VOLUME_DIRECTORY:-}" ] || exit 64
+    for argument in "$@"; do volume=$argument; done
+    file=$MOCK_VOLUME_DIRECTORY/$volume
+    printf 'driver=local\\noptions=null\\n' > "$file"
+    shift 2
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --label) printf '%s\\n' "$2" >> "$file"; shift 2 ;;
+        --driver) shift 2 ;;
+        *) shift ;;
+      esac
+    done
     exit 0
     ;;
 esac

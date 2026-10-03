@@ -13,6 +13,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
+import { createServer } from "node:net"
 import path from "node:path"
 import test from "node:test"
 
@@ -176,6 +177,73 @@ test("the installer checks the host before creating persistent state", async () 
   assert.match(source, /LINKSENSE_RELEASE_BASE_URL=/u)
   assert.doesNotMatch(source, /^\s*\. "\$INSTALL_DIR\/\.env"/mu)
   assert.doesNotMatch(source, /docker\s+(?:system\s+)?prune|compose\s+down\s+-v|volume\s+rm|reset --hard/iu)
+})
+
+test("memory preflight keeps Core and Full limits and explains Docker VM allocation on supported hosts", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "linksense-memory-"))
+  const socketPath = path.join(directory, "docker.sock")
+  const server = createServer()
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(socketPath, resolve)
+    })
+    const bin = path.join(directory, "bin")
+    await mkdir(bin)
+    await writeExecutable(path.join(bin, "uname"), '#!/bin/sh\ncase "$1" in -s) printf "%s\\n" "$LINKSENSE_TEST_OS" ;; -m) printf x86_64 ;; *) exit 64 ;; esac\n')
+    await writeExecutable(path.join(bin, "id"), '#!/bin/sh\nprintf "%s\\n" "$LINKSENSE_TEST_UID"\n')
+    await writeExecutable(path.join(bin, "docker"), `#!/bin/sh
+case "$1:$2:$3" in
+  info::) exit 0 ;;
+  info:--format:'{{.OSType}}') printf linux ;;
+  info:--format:'{{.Architecture}}') printf x86_64 ;;
+  info:--format:'{{.MemTotal}}') printf '%s' "$LINKSENSE_TEST_MEMORY_BYTES" ;;
+  version:--format:*) printf 1.45 ;;
+  compose:version:*) printf 2.24.4 ;;
+  context:inspect:*) printf 'unix://%s' "$LINKSENSE_TEST_SOCKET" ;;
+  *) exit 64 ;;
+esac
+`)
+    const installer = await readFile(path.join(releaseDirectory, "linksense-installer.sh"), "utf8")
+    const mainPosition = installer.indexOf('log_stage "Stage 1: run the read-only host preflight."')
+    assert.ok(mainPosition > 0)
+    const harness = path.join(directory, "memory-preflight.sh")
+    await writeExecutable(harness, `${installer.slice(0, mainPosition)}read_os_release() { OS_ID=ubuntu; }\ncheck_port() { :; }\npreflight\n`)
+    for (const hostOs of ["Darwin", "Linux"]) {
+      for (const [edition, requiredGiB] of [["core", 8], ["full", 16]]) {
+        const requiredKiB = requiredGiB * 1024 * 1024
+        for (const memoryKiB of [8124776, requiredKiB - 1, requiredKiB]) {
+          const result = spawnSync("/bin/sh", [harness], {
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`,
+              LINKSENSE_INSTALL_ACTION: "install",
+              LINKSENSE_INSTALL_EDITION: edition,
+              LINKSENSE_INSTALL_DIR: path.join(directory, "install"),
+              LINKSENSE_TEST_OS: hostOs,
+              LINKSENSE_TEST_UID: hostOs === "Linux" ? "0" : "501",
+              LINKSENSE_TEST_SOCKET: socketPath,
+              LINKSENSE_TEST_MEMORY_BYTES: String(memoryKiB * 1024),
+            },
+          })
+          assert.equal(result.status, memoryKiB < requiredKiB ? 1 : 0, result.stderr)
+          if (memoryKiB < requiredKiB) {
+            assert.match(result.stderr, /Insufficient Docker Engine memory/u)
+            assert.ok(result.stderr.includes(`${memoryKiB} KiB`), result.stderr)
+            assert.ok(result.stderr.includes(`${requiredGiB} GiB`), result.stderr)
+            assert.match(result.stderr, /not the host.*physical memory/u)
+            assert.match(result.stderr, /docker info --format '\{\{\.MemTotal\}\}'/u)
+            if (hostOs === "Darwin") assert.match(result.stderr, /Docker Desktop.*Settings.*Resources.*Memory/u)
+          }
+        }
+      }
+    }
+    await assert.rejects(access(path.join(directory, "install")))
+  } finally {
+    if (server.listening) await new Promise((resolve) => server.close(resolve))
+    await rm(directory, { recursive: true, force: true })
+  }
 })
 
 test("the generated Linux management launcher elevates before entering the protected install directory", async () => {
