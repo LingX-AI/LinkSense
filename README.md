@@ -1,39 +1,37 @@
-# LinkSense
+<p align="center">
+  <img src="apps/web/public/attribution/linksense-mark.svg" alt="LinkSense" width="180">
+</p>
+
+<p align="center">
+  <strong>Open-source agentic work platform for organizations.</strong>
+</p>
 
 English | [简体中文](./README.zh-CN.md)
 
-**Open-source AI workspace for organizations.**
-
-Every employee gets a full AI workspace. What they build — Skills, Knowledge,
-Integrations — becomes capability the whole organization can share, govern and reuse.
+Give everyone in your organization a Codex-powered AI agent — deployed on your infrastructure, with the models you choose.
 
 [Live Demo](https://explore.linksense.org/) · [Quick Start](#quick-start) · [How it works](#organizational-capabilities) · [Architecture](#architecture) · [Build with LinkSense](#build-with-linksense)
 
-<p align="center">
-  <img src="./docs/demo/Hero.gif" alt="An engineer builds a Skill in their own workspace, publishes it to the organization, and a colleague installs and runs it without rewriting anything." width="960" />
-</p>
+https://github.com/user-attachments/assets/5b61e639-e222-42eb-8e9a-536905d659e0
 
-<p align="center"><em>One person builds a Skill. The organization gets it.</em></p>
+<p align="center"><em>Open-source, self-hosted WorkBuddy alternative for organizations.</em></p>
 
 ---
 
 ## Why LinkSense
 
-### Real AI work for every individual
+### Codex-powered agents that get work done
+Give every user a full agentic workspace to research, browse, run code, analyze data, work with files, and create documents and artifacts.
 
-Give every user a capable agent workspace for real work — research, browsing, code,
-data, documents — not a reduced enterprise chatbot.
+### Your infrastructure. Your models.
+Deploy LinkSense on your own servers or private cloud. Use OpenAI, Anthropic, Gemini, DeepSeek, Qwen, or your own local LLM.
 
-### Organizational capability, not isolated personal setups
+### Fully open source — including enpterprise capabilities
+Users, groups, Knowledge, Skills, Plugins, MCP, Applications, governance, and more are part of the open-source platform — not locked behind an enterprise edition.
 
-Effective Skills, organizational Knowledge, system connections, and working AI setups
-become capabilities that can be shared, governed, and reused across the organization
-instead of living in one person's account.
+### Built for the whole organization
+Centrally manage access, models, knowledge, credentials, and capabilities. What works for one person can be shared, governed, and reused across teams.
 
-### Open source and under your control
-
-Self-host on your own infrastructure. Choose your models and integrations, inspect and
-modify the source, and operate without a required LinkSense cloud control plane.
 
 ---
 
@@ -102,28 +100,6 @@ all of them. If you are evaluating LinkSense for an organization, we are working
 small number of early design partners and will help you deploy: `hello@linksense.org`.
 
 Already running LinkSense? Add your organization to [ADOPTERS.md](./ADOPTERS.md).
-
----
-
-## See LinkSense in Action
-
-### Real AI work
-
-<p align="center">
-  <img src="./docs/diagrams/real-ai-work.svg" alt="Research → Browser → Code / Data → Spreadsheet → Report → Artifacts." width="960" />
-</p>
-
-### Individual Skill → Organizational Capability
-
-<p align="center">
-  <img src="./docs/diagrams/skill-publishing-flow.svg" alt="Skill lifecycle: Create → Test → Release → Review → Publish → Install." width="960" />
-</p>
-
-### Capabilities → Team Application
-
-<p align="center">
-  <img src="./docs/diagrams/capabilities-to-team-application.svg" alt="Knowledge, Skills, and MCP combine into an Application, made available to Users / Groups for their User Tasks." width="960" />
-</p>
 
 ---
 
@@ -361,7 +337,7 @@ Teach AI reusable methods, workflows, domain practices, scripts, references, and
 supporting resources using the native Codex Skill format.
 
 <p align="center">
-  <img src="./docs/diagrams/skill-directory-structure.svg" alt="my-skill/ contains SKILL.md, agents/openai.yaml, scripts/, references/, and assets/." width="480" />
+  <img src="./docs/diagrams/skill-directory-structure.svg" alt="my-skill/ contains SKILL.md, agents/openai.yaml, scripts/, references/, and assets/." width="600" />
 </p>
 
 Skills can be discovered natively by Codex or explicitly selected by users and Applications.
@@ -372,7 +348,7 @@ Connect external systems and APIs through MCP, then package MCP declarations tog
 Skills and supporting resources.
 
 <p align="center">
-  <img src="./docs/diagrams/plugin-package-structure.svg" alt="Plugin contains Skills, MCP declarations, scripts / resources, and .codex-plugin/plugin.json." width="620" />
+  <img src="./docs/diagrams/plugin-package-structure.svg" alt="Plugin contains Skills, MCP declarations, scripts / resources, and .codex-plugin/plugin.json." width="339" />
 </p>
 
 For CRM, ERP, SaaS, monitoring systems, and internal APIs, MCP is generally the

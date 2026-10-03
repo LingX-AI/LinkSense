@@ -129,7 +129,7 @@ In HTML that is:
 ```html
 <div role="note" aria-label="Powered by LinkSense">
   <span>Powered by</span>
-  <img src="/attribution/linksense-mark.svg" alt="LinkSense" height="20" />
+  <img src="/apps/web/public/attribution/linksense-mark.svg" alt="LinkSense" height="20" />
 </div>
 ```
 

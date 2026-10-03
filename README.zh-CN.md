@@ -2,9 +2,9 @@
 
 [English](./README.md) | 简体中文
 
-**面向组织的开源 AI 工作空间。**
+**面向组织的开源Agent工作平台**（企业级开源WorkBuddy替代方案）
 
-每位员工都拥有完整的 AI 工作空间。他们构建的技能、知识和集成，会成为整个组织可共享、可治理、可复用的能力。
+让组织中的每个人都拥有 Codex 级的 AI Agent——部署在您自己的基础设施上，并自由选择使用的模型。
 
 [在线体验](https://explore.linksense.org/) · [快速开始](#快速开始) · [工作方式](#组织能力) · [系统架构](#系统架构) · [基于 LinkSense 扩展](#基于-linksense-扩展)
 
@@ -12,23 +12,27 @@
   <img src="./docs/demo/Hero.gif" alt="工程师在自己的工作空间中构建技能并发布到组织，同事无需重新编写即可安装和运行。" width="960" />
 </p>
 
-<p align="center"><em>一个人构建技能，整个组织都能使用。</em></p>
+<p align="center"><em>面向组织的开源 WorkBuddy 替代方案。</em></p>
 
 ---
 
 ## 为什么选择 LinkSense
 
-### 让每个人都能用 AI 完成实际工作
+### 真正能完成工作的AI Agent
 
-为每位用户提供功能完整的智能体工作空间，完成调研、浏览、代码、数据和文档等实际工作，而不是功能受限的企业聊天机器人。
+为每位用户提供完整的 Agent 工作环境，可以进行研究、浏览网页、运行代码、分析数据、处理文件，并创建文档和其他工作成果。
 
-### 形成组织能力，而非各自独立的个人配置
+### 您的服务器，您的模型
 
-有效的技能、组织知识、系统连接和经过实践的 AI 配置，可以成为整个组织共享、治理和复用的能力，而不再局限于某个人的账号。
+将 LinkSense 部署在自己的服务器或私有云中。您可以自由选择 OpenAI、Anthropic、Gemini、DeepSeek、Qwen，或接入自己的本地大模型服务。
 
-### 开源，并由你掌控
+### 完全开源，包括企业级能力
 
-在自己的基础设施上部署。自主选择模型与集成服务，查看并修改源码，无需依赖 LinkSense 云端控制平面即可运行。
+用户、用户组、知识库、Skills、Plugins、MCP、Applications、治理等组织级能力都包含在开源版本中，而不是被锁在企业版之后。
+
+### 为整个组织而设计
+
+统一管理用户、模型、知识、MCP、凭据和访问权限。个人验证有效的 Skills 和 Applications，可以在组织内进行审核、发布、管理和复用。
 
 ---
 
@@ -86,28 +90,6 @@ Linux 将部署文件保存在 `/opt/linksense`，macOS 使用 `~/.linksense`。
 发起一条[讨论](../../discussions)，告诉我们你希望完成什么，我们会阅读每一条。如果你正在为组织评估 LinkSense，我们正在与少量早期设计合作伙伴协作，并会帮助你部署：`hello@linksense.org`。
 
 已经在使用 LinkSense？欢迎将你的组织添加到 [ADOPTERS.md](./ADOPTERS.md)。
-
----
-
-## 看看 LinkSense 如何工作
-
-### 完成实际工作
-
-<p align="center">
-  <img src="./docs/diagrams/real-ai-work.svg" alt="调研 → 浏览器 → 代码 / 数据 → 电子表格 → 报告 → 交付成果。" width="960" />
-</p>
-
-### 个人技能 → 组织能力
-
-<p align="center">
-  <img src="./docs/diagrams/skill-publishing-flow.svg" alt="技能生命周期：创建 → 测试 → 发布版本 → 审核 → 组织发布 → 安装。" width="960" />
-</p>
-
-### 能力 → 团队应用
-
-<p align="center">
-  <img src="./docs/diagrams/capabilities-to-team-application.svg" alt="知识、技能和 MCP 组合成应用，向用户 / 用户组开放，供他们在各自的任务中使用。" width="960" />
-</p>
 
 ---
 
