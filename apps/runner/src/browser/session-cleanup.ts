@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile)
 
 export type BrowserSessionCleanupInput = {
   command: string
+  conversationId: string
   userHome: string
   codexHome: string
   workspace: string
@@ -33,6 +34,8 @@ export async function cleanupManagedBrowserSession(
     env: {
       HOME: input.userHome,
       CODEX_HOME: input.codexHome,
+      LINKSENSE_CONVERSATION_ID: input.conversationId,
+      LINKSENSE_WORKSPACE_PATH: input.workspace,
       ...copyEnvironment(source, [
         "LANG",
         "LC_ALL",

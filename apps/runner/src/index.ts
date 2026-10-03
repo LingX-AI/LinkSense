@@ -328,12 +328,14 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     ...(managedBrowserEnabled && existsSync(browserCommand)
       ? {
           browserSessionCleanup: async ({
+            conversationId,
             userHome,
             codexHome,
             workspace,
           }) =>
             cleanupManagedBrowserSession({
               command: browserCommand,
+              conversationId,
               userHome,
               codexHome,
               workspace,
