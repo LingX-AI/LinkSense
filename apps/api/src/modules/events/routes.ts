@@ -372,9 +372,13 @@ export const sseRoutes: FastifyPluginAsync<{ services: AppServices }> = async (
       response.flushHeaders()
       streamReady = true
       heartbeat = setInterval(() => {
+        if (closed) return
         if (!response.writableNeedDrain && !response.destroyed) {
           response.write(": keepalive\n\n")
         }
+        // Redis fan-out is a wake-up signal, not the durable event source.
+        // Replay on heartbeat so a missed notification cannot stall an open stream.
+        void pump()
       }, 15_000)
       heartbeat.unref()
       response.once("close", cleanup)
