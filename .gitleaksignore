@@ -1,0 +1,4 @@
+# Verified synthetic JWT signing key used exclusively by the model provider
+# probe route test fixture in this historical commit. This fingerprint does not
+# exclude the file, a rule, or any subsequent commit from scanning.
+682f524738b8c0cb54e66e1c1a49bd6a3a6fa67e:apps/api/test/model-provider-probe.routes.test.ts:generic-api-key:18
