@@ -5,6 +5,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+test("the final Elasticsearch image removes replaced upstream jars before copying patched modules", () => {
+  const dockerfile = readFileSync("deploy/hardened/Dockerfile.elasticsearch", "utf8");
+  const runtime = dockerfile.split("FROM ${UPSTREAM_IMAGE}\n")[1];
+  assert.ok(runtime);
+  assert.match(runtime, /USER 0\nRUN find \/usr\/share\/elasticsearch -type f/u);
+  for (const name of ["jackson-core-2.21.6.jar", "jackson-databind-2.21.6.jar", "jsoup-1.21.2.jar"]) {
+    assert.ok(runtime.includes(`-name '${name}'`));
+  }
+  assert.match(runtime, /-delete\nUSER elasticsearch\nCOPY --from=patch/u);
+  assert.doesNotMatch(runtime, /rm -rf/u);
+});
+
 test("a failed Elasticsearch startup retains its crash logs until owned cleanup", (t) => {
   const directory = mkdtempSync(path.join(tmpdir(), "linksense-es-smoke-test-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));

@@ -15,4 +15,13 @@ RUN mkdir /patches \
     'b9d688df29faac621391d4f1a3391bbd756b74cdc3294ed15ae515eb9ae47eb81a8ec1ae3db4081c07a98129b03d3b24eba1dedce754328d8142c256a7ff0622  /patches/jsoup-1.23.2.jar' | sha512sum -c - \
   && python /patch-elasticsearch-jars.py /elasticsearch /patches
 FROM ${UPSTREAM_IMAGE}
+# COPY merges directories; remove only the superseded jars from the upstream
+# layer so Java never discovers two versions of the same named module.
+USER 0
+RUN find /usr/share/elasticsearch -type f \( \
+    -name 'jackson-core-2.21.6.jar' -o \
+    -name 'jackson-databind-2.21.6.jar' -o \
+    -name 'jsoup-1.21.2.jar' \
+  \) -delete
+USER elasticsearch
 COPY --from=patch --chown=elasticsearch:root /elasticsearch/ /usr/share/elasticsearch/
