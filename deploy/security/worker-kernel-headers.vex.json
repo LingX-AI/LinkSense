@@ -1,0 +1,2778 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/LingX-AI/LinkSense/blob/main/deploy/security/worker-kernel-headers.vex.json",
+  "author": "LinkSense release engineering",
+  "role": "Document Creator",
+  "timestamp": "2026-10-06T07:09:04Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "CVE-2024-35948"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2024-38581"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2024-40954"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2024-44964"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2024-57857"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-37906"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-38187"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-38563"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-38717"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-40025"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-40064"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-40075"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-40158"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-40190"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-68304"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-68360"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-71073"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2025-71315"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-23208"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-23240"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-23393"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-31536"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-31663"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-43009"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-43116"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-43263"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-43379"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-45850"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-46320"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-46330"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-52908"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-52909"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-52910"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53090"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53148"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53159"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53178"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53182"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53183"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53185"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53196"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53198"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53239"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53250"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53254"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53256"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53262"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53264"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53266"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53269"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53270"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53275"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53356"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53362"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53365"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53388"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53398"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-53399"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-63801"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-63809"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-63815"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-63823"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-63884"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-63917"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-63926"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-63940"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-63946"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-63954"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-63971"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-63974"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-63976"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64002"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64005"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64093"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64123"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64188"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64191"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64266"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64269"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64276"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64361"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64380"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64383"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64385"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64386"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64387"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64390"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64393"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64396"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64423"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64432"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64440"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64441"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64442"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64535"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64543"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64548"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64554"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64557"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64562"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64564"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64567"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-64597"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68085"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68098"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68117"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68121"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68147"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68162"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68189"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68196"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68198"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68199"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68204"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68236"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68257"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68284"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68323"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68329"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68399"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68442"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68446"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68451"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-68470"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-72024"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-72110"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-72111"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-72123"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-72124"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-72135"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-72195"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-72288"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-72338"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-72390"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-72472"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-72478"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74268"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74317"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74334"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74341"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74350"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74363"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74378"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74390"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74394"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74411"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74427"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74438"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74446"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74465"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74470"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74506"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74510"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74534"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74535"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80631"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80634"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80637"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80644"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80668"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80671"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80681"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80691"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80692"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80693"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80700"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80702"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80710"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80714"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80716"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80718"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80721"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-80725"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Applies only to the exact Ubuntu userspace development-header package, not a kernel image or runtime kernel. Its inventory contains non-executable UAPI headers and documentation, not the affected kernel, driver, filesystem or networking implementations. Every Worker build and native candidate smoke check verifies this inventory and rejects kernel image/module/header packages. Vendor file inventory: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    }
+  ]
+}

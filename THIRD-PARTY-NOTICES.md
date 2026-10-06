@@ -36,6 +36,11 @@ The distroless server uses its native health check; initialization uses a separa
 Alpine image containing the vendor's `mcli` binary. This is a third-party fork.
 
 LinkSense publishes six patched derivative images under its GHCR namespace.
+Its migration and Worker distributions also curate pnpm/npm bundled libraries
+from integrity-locked upstream packages: http-cache-semantics 4.3.0,
+brace-expansion 5.0.11 (with balanced-match 4.0.4), and undici 6.28.1.
+Complete code and upstream licenses are retained; the base CLI versions are
+unchanged. The reproducible build inputs are in `deploy/runtime/tooling-security`.
 Their Dockerfiles are in `deploy/hardened/`: system packages receive vendor
 security updates, PostgreSQL's gosu 1.19 is rebuilt with Go 1.27.1, Elasticsearch
 8.19.22 receives checksum-pinned Jackson 2.21.7 and jsoup 1.23.2 bytecode, and

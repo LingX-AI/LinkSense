@@ -32,6 +32,14 @@ COPY --chmod=0755 deploy/docker/bootstrap-ubuntu-node.sh /usr/local/bin/bootstra
 ARG SECURITY_REBUILD_ID=local
 RUN test -n "$SECURITY_REBUILD_ID" && UBUNTU_MIRROR_URL="${UBUNTU_MIRROR_URL}" UBUNTU_SECURITY_MIRROR_URL="${UBUNTU_SECURITY_MIRROR_URL}" /usr/local/bin/bootstrap-ubuntu-node
 
+FROM toolchain AS tooling-security-dependencies
+WORKDIR /tooling-security-dependencies
+COPY deploy/runtime/tooling-security/package.json deploy/runtime/tooling-security/pnpm-lock.yaml ./
+ARG TARGETARCH
+ARG TARGETVARIANT
+RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-root,target=/pnpm/store,sharing=locked \
+  pnpm install --prod --frozen-lockfile --ignore-workspace --node-linker=hoisted --prefer-offline --store-dir=/pnpm/store --package-import-method=copy
+
 FROM toolchain AS dependencies
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY patches patches
@@ -155,6 +163,8 @@ COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
 COPY --chmod=0444 LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE /usr/share/licenses/linksense/
 RUN install -d -o root -g root -m 0755 /opt/linksense
 COPY --chmod=0444 apps/runner/src/codex/runtime-version.json /opt/linksense/codex-runtime-version.json
+COPY --from=tooling-security-dependencies /tooling-security-dependencies /opt/linksense/tooling/security-dependencies
+COPY deploy/docker/patch-tooling-libraries.mjs deploy/docker/verify-tooling-libraries.mjs deploy/docker/verify-kernel-headers.mjs /opt/linksense/tooling/
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV PNPM_HOME=/pnpm
@@ -218,14 +228,19 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
   && install -d -o linksense-task -g node -m 0770 /home/linksense \
   && corepack enable pnpm \
   && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@${PNPM_VERSION} --activate \
+  && node /opt/linksense/tooling/patch-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "${COREPACK_HOME}/v1/pnpm/${PNPM_VERSION}" pnpm \
+  && node /opt/linksense/tooling/verify-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "${COREPACK_HOME}/v1/pnpm/${PNPM_VERSION}" pnpm \
   && pnpm add --global npm@12.2.0 \
+  && node /opt/linksense/tooling/patch-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "$(pnpm root --global)/npm" npm \
+  && node /opt/linksense/tooling/verify-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "$(pnpm root --global)/npm" npm \
   && rm -rf /usr/local/lib/node_modules/npm \
   && rm -f /usr/local/bin/npm /usr/local/bin/npx \
   && codex_version="$(node -e 'const { version } = require("/opt/linksense/codex-runtime-version.json"); if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error("Invalid pinned Codex version"); process.stdout.write(version)')" \
   && pnpm add --global "@openai/codex@${codex_version}" \
   && pnpm store prune \
   && installed_codex_version="$(codex --version)" \
-  && test "${installed_codex_version}" = "codex-cli ${codex_version}"
+  && test "${installed_codex_version}" = "codex-cli ${codex_version}" \
+  && node /opt/linksense/tooling/verify-kernel-headers.mjs > /opt/linksense/tooling/kernel-headers.evidence.json
 ENV LINKSENSE_PNPM_VERSION=${PNPM_VERSION}
 RUN mkdir -p /opt/linksense/tooling/pnpm \
   && cp -a "${COREPACK_HOME}/v1/pnpm/${PNPM_VERSION}/." /opt/linksense/tooling/pnpm/
@@ -350,14 +365,19 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
   && install -d -o linksense-task -g node -m 0770 /home/linksense \
   && corepack enable pnpm \
   && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@${PNPM_VERSION} --activate \
+  && node /opt/linksense/tooling/patch-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "${COREPACK_HOME}/v1/pnpm/${PNPM_VERSION}" pnpm \
+  && node /opt/linksense/tooling/verify-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "${COREPACK_HOME}/v1/pnpm/${PNPM_VERSION}" pnpm \
   && pnpm add --global npm@12.2.0 \
+  && node /opt/linksense/tooling/patch-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "$(pnpm root --global)/npm" npm \
+  && node /opt/linksense/tooling/verify-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "$(pnpm root --global)/npm" npm \
   && rm -rf /usr/local/lib/node_modules/npm \
   && rm -f /usr/local/bin/npm /usr/local/bin/npx \
   && codex_version="$(node -e 'const { version } = require("/opt/linksense/codex-runtime-version.json"); if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error("Invalid pinned Codex version"); process.stdout.write(version)')" \
   && pnpm add --global "@openai/codex@${codex_version}" \
   && pnpm store prune \
   && installed_codex_version="$(codex --version)" \
-  && test "${installed_codex_version}" = "codex-cli ${codex_version}"
+  && test "${installed_codex_version}" = "codex-cli ${codex_version}" \
+  && node /opt/linksense/tooling/verify-kernel-headers.mjs > /opt/linksense/tooling/kernel-headers.evidence.json
 ENV LINKSENSE_PNPM_VERSION=${PNPM_VERSION}
 RUN mkdir -p /opt/linksense/tooling/pnpm \
   && cp -a "${COREPACK_HOME}/v1/pnpm/${PNPM_VERSION}/." /opt/linksense/tooling/pnpm/

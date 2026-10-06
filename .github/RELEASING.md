@@ -60,7 +60,7 @@ GHCR 首次创建包时默认为私有。首次工作流生成候选镜像后，
 - `linksense-docling`
 - `linksense-minio-client`
 
-公开镜像意味着任何人都可以下载并保留副本，因此该步骤需要明确确认。最终发布任务会先退出 GHCR，再匿名检查五个候选镜像；未全部公开时任务会安全失败。完成可见性调整后，只需重新运行失败的 `release` job。
+公开镜像意味着任何人都可以下载并保留副本，因此该步骤需要明确确认。最终发布任务会先退出 GHCR，再匿名检查全部 11 个候选镜像；未全部公开时任务会安全失败。完成可见性调整后，只需重新运行失败的 `release` job。
 
 ## 首次导入时准备干净快照
 
@@ -91,7 +91,7 @@ test ! -e /absolute/path/to/linksense-github/design-qa.md
 5. `prepare` 在镜像构建前验证第三方镜像同时包含两个目标架构，下载固定提交的 tokenizer，生成并检查安装入口脚本。上游镜像摘要、资源内容、版本、源码提交和生成时间保存为带校验和的 `release-inputs` artifact；失败时不会启动后续镜像构建。
 6. GitHub 托管 Runner 分别构建 `api`、`web`、`migrate`、`runner`、`worker` 的两种架构。所有镜像先发布为本次运行唯一的候选标签，生成 SBOM 和最小 provenance，并验证镜像内基础命令或 Nginx 配置可以运行。此检查不是完整业务或安装验收。
 7. `image-indexes` 合并已验证架构镜像；`assets` 使用保存的发布输入和镜像摘要生成清单、许可证和资产校验和，不再重新解析上游标签或下载 tokenizer。同时，`image-security` 使用这些冻结摘要对全部镜像的两个架构执行漏洞扫描；发现 HIGH / CRITICAL 漏洞或扫描失败时，最终发布任务不会运行。
-8. 首次发布时，按上一节将五个 GHCR 包设为公开；如果最终 job 已失败，只重新运行失败 job。
+8. 首次发布时，按上一节将全部 11 个 GHCR 包设为公开；如果最终 job 已失败，只重新运行失败 job。
 9. 最终 job 匿名验证镜像后，按已验证摘要创建正式 `vMAJOR.MINOR.PATCH` 镜像标签。已存在的正式标签若指向不同摘要，流程会拒绝覆盖。
 10. 创建 GitHub Release 草稿并上传资产，下载全部资产逐字节核对后才发布 Release。仓库可见性保持不变：Private 仓库仅授权用户可访问；Public 仓库发布后允许匿名下载。维护者应完成 Core / Full 安装、修复、升级及业务验收，再对外宣布该版本可用于生产。
 
@@ -112,6 +112,10 @@ test ! -e /absolute/path/to/linksense-github/design-qa.md
 SILO 的 `CVE-2026-39414` 已由厂商在维护分支修复，但其保留的 MinIO Go 模块名会产生误报。`deploy/security/silo-fixed.vex.json` 以 OpenVEX `fixed` 状态记录厂商证据，仅匹配具体源版本 `v0.0.0-20260916155009-2a4d51406b7e`，仅用于存储服务端扫描，并随报告保存。其他版本与其他漏洞不受此记录影响；真实 HIGH/CRITICAL 命中仍然阻止发布。
 
 生产 Node 镜像使用经过安全更新的 Ubuntu 24.04 运行层，保留 Node 24、Python 3.12 与原有 UID/GID。可通过 `UBUNTU_MIRROR_URL`、`UBUNTU_SECURITY_MIRROR_URL` 配置运行层构建源；Debian 构建阶段仍使用现有 Debian 源参数。迁移镜像只包含专用锁定依赖、原有 Prisma 迁移和 seed，以及在构建时生成的客户端。
+
+工具链自带的依赖可能落后于独立发布版本。迁移镜像和 Worker 从 `deploy/runtime/tooling-security/pnpm-lock.yaml` 安装经过完整性校验的包，将完整代码和许可证替换进指定 pnpm/npm 分发目录；保留 CLI 基础版本，未知工具或依赖版本会拒绝构建。原有 v1 缓存对象、公开/私有缓存准入、brace-expansion 依赖闭包和 CLI 基础运行均有验证，不通过修改版本字段伪装修复。
+
+Worker 保留本地编译所需的 `linux-libc-dev`，而非删除编译能力。`verify-kernel-headers.mjs` 校验真实安装文件、包校验和与非可执行用户态头文件范围，并拒绝内核镜像、模块及内核构建头文件包。`worker-kernel-headers.vex.json` 仅校正已审查的 173 项 CVE 对 Ubuntu 24.04 `linux-libc-dev@6.8.0-146.146` 的归因，限定 amd64/arm64，仅用于 Worker 扫描。其他版本、未知 CVE、真正的运行库和内核包不会放行。该声明不评估宿主机内核；部署者仍必须维护宿主机内核的安全更新。
 
 无论扫描成功还是失败，工作流都会尝试保存 `image-security-reports-amd64` 和 `image-security-reports-arm64`，保留 30 天。先查看 `summary.json` 定位角色、索引摘要、架构 manifest 摘要和失败类型，再查看对应的 `<ROLE>.json` 漏洞报告与 `<ROLE>.log`；数据库版本元数据和安装日志也一并保存。扫描失败不会撤销已生成的候选镜像，但不会创建正式版本标签或发布 Release。
 
