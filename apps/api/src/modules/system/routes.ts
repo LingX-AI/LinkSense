@@ -16,6 +16,10 @@ import {
   updateRegistrationSettingsSchema,
   updateModelAvailabilitySchema,
   updateModelProviderSettingsSchema,
+  modelProviderProbeInputSchema,
+  testModelProviderConnectionInputSchema,
+  discoverModelProviderResultSchema,
+  testModelProviderConnectionResultSchema,
   updateOidcAuthenticationSettingsSchema,
   updateSmtpAuthenticationSettingsSchema,
   updateTeamsAuthenticationSettingsSchema,
@@ -359,6 +363,18 @@ export const adminSystemRoutes: FastifyPluginAsync<{
     return reply.send(
       ok({ code: "SYSTEM_SETTINGS_UPDATED", settings }, request.id)
     )
+  })
+
+  app.post("/model-provider-settings/discover", async (request, reply) => {
+    requireAdminModelManagement(services)
+    const result = await services.modelProviderSettings.discover(modelProviderProbeInputSchema.parse(request.body))
+    return reply.header("cache-control", "private, no-store").send(ok(discoverModelProviderResultSchema.parse(result), request.id))
+  })
+
+  app.post("/model-provider-settings/test-connection", async (request, reply) => {
+    requireAdminModelManagement(services)
+    const result = await services.modelProviderSettings.testConnection(testModelProviderConnectionInputSchema.parse(request.body))
+    return reply.header("cache-control", "private, no-store").send(ok(testModelProviderConnectionResultSchema.parse(result), request.id))
   })
 
   app.patch(

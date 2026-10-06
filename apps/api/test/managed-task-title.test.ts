@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { createProviderLanguageModel, generateText } = vi.hoisted(() => ({
-  createProviderLanguageModel: vi.fn(() => ({ modelId: "title-model" })),
+const { createTaskLanguageModel, generateText } = vi.hoisted(() => ({
+  createTaskLanguageModel: vi.fn(() => ({ modelId: "title-model" })),
   generateText: vi.fn(),
 }))
 
 vi.mock("ai", () => ({ generateText }))
-vi.mock("../src/adapters/provider-language-model.js", () => ({
-  createProviderLanguageModel,
+vi.mock("../src/adapters/task-language-model.js", () => ({
+  createTaskLanguageModel,
 }))
 
 import {
@@ -18,11 +18,11 @@ import {
 
 describe("ManagedTaskTitleGenerator", () => {
   beforeEach(() => {
-    createProviderLanguageModel.mockClear()
+    createTaskLanguageModel.mockClear()
     generateText.mockReset()
   })
 
-  it("calls the selected channel through the managed provider adapter", async () => {
+  it("calls the selected channel through the task protocol adapter", async () => {
     generateText.mockResolvedValue({
       text: "Managed title",
       usage: {
@@ -41,13 +41,10 @@ describe("ManagedTaskTitleGenerator", () => {
       generator.generate([{ role: "user", content: "name this task" }]),
     ).resolves.toMatchObject({ title: "Managed title", model: "title-model" })
 
-    expect(createProviderLanguageModel).toHaveBeenCalledWith({
-      provider: "openai_compatible",
+    expect(createTaskLanguageModel).toHaveBeenCalledWith({
       model: "title-model",
       apiKey: "secret",
       baseUrl: "https://models.example.test/v1",
-      project: null,
-      location: null,
       protocolMode: "chat_completions_bridge",
     })
     expect(generateText).toHaveBeenCalledWith(

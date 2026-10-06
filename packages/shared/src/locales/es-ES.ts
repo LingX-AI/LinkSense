@@ -1,6 +1,9 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages = {
+  MODEL_PROVIDER_CREDENTIAL_REQUIRED: "Introduce una clave de API. Debes introducir una nueva clave si cambias el proveedor, la dirección del servicio o el proyecto en la nube.",
+  MODEL_PROVIDER_DISCOVERY_FAILED: "No se pudo cargar la lista de modelos. Revisa la dirección del servicio y la clave, o introduce un modelo manualmente.",
+  MODEL_PROVIDER_CONNECTION_FAILED: "La prueba de conexión falló. Revisa la dirección del servicio, la clave y el modelo, y confirma que el servicio admite el método de conexión seleccionado.",
   CONNECTION_WRITE_REQUIRED: "Esta conexión solo permite leer. Activa la lectura y escritura en Centro de plugins → Conectores y autoriza de nuevo.",
   CONNECTION_FILE_CONFLICT: "El archivo ha cambiado o ya existe otro con ese nombre. Consulta su estado actual antes de volver a intentarlo.",
   CONNECTION_NOT_CONFIGURED: "Un administrador debe configurar esta conexión.",

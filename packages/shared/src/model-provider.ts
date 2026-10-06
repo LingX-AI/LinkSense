@@ -185,6 +185,74 @@ export const modelProviderBaseUrlSchema = z
   }, "model_provider_base_url_invalid")
   .transform((value) => value.replace(/\/+$/u, ""))
 
+export const modelProviderDiscoveryProtocolSchema = z.enum([
+  "openai_compatible",
+  "native",
+])
+
+// These presets describe the task gateway's Responses/Chat interfaces. Native
+// vendor APIs are not interchangeable with that execution contract.
+export const modelProviderPresets = {
+  openai: { base_url: "https://api.openai.com/v1", protocol_mode: "native_responses", discovery_supported: true, requires_compatible_endpoint: false, discovery_protocol: "openai_compatible" },
+  azure_openai: { base_url: null, protocol_mode: "responses_tool_compat", discovery_supported: false, requires_compatible_endpoint: true, discovery_protocol: "openai_compatible" },
+  anthropic: { base_url: null, protocol_mode: "chat_completions_bridge", discovery_supported: true, requires_compatible_endpoint: true, discovery_protocol: "openai_compatible" },
+  google: { base_url: "https://generativelanguage.googleapis.com/v1beta/openai", protocol_mode: "chat_completions_bridge", discovery_supported: true, requires_compatible_endpoint: false, discovery_protocol: "openai_compatible" },
+  google_vertex: { base_url: null, protocol_mode: "chat_completions_bridge", discovery_supported: false, requires_compatible_endpoint: true, discovery_protocol: "openai_compatible" },
+  alibaba: { base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", protocol_mode: "chat_completions_bridge", discovery_supported: true, requires_compatible_endpoint: false, discovery_protocol: "openai_compatible" },
+  deepseek: { base_url: "https://api.deepseek.com/v1", protocol_mode: "chat_completions_bridge", discovery_supported: true, requires_compatible_endpoint: false, discovery_protocol: "openai_compatible" },
+  openrouter: { base_url: "https://openrouter.ai/api/v1", protocol_mode: "chat_completions_bridge", discovery_supported: true, requires_compatible_endpoint: false, discovery_protocol: "openai_compatible" },
+  openai_compatible: { base_url: null, protocol_mode: "chat_completions_bridge", discovery_supported: true, requires_compatible_endpoint: false, discovery_protocol: "openai_compatible" },
+} as const satisfies Record<ModelServiceProvider, {
+  base_url: string | null
+  protocol_mode: ModelProviderProtocolMode
+  discovery_supported: boolean
+  requires_compatible_endpoint: boolean
+  discovery_protocol: z.infer<typeof modelProviderDiscoveryProtocolSchema>
+}>
+
+const modelProviderProbeShape = {
+  channel_id: modelProviderIdentifierSchema.optional(),
+  provider: modelServiceProviderSchema,
+  ...providerSpecificChannelShape,
+  base_url: modelProviderBaseUrlSchema,
+  protocol_mode: modelProviderProtocolModeSchema,
+  api_key: z.string().trim().min(1).max(16_384).optional(),
+  discovery_protocol: modelProviderDiscoveryProtocolSchema.default("openai_compatible"),
+} as const
+
+export const modelProviderProbeInputSchema = z.strictObject(modelProviderProbeShape)
+  .superRefine(validateProviderSpecificFields)
+
+export const testModelProviderConnectionInputSchema = z.strictObject({
+  ...modelProviderProbeShape,
+  model_id: modelIdentifierSchema,
+  kind: managedModelKindSchema.default("chat"),
+}).superRefine(validateProviderSpecificFields)
+
+export const discoveredProviderModelSchema = z.strictObject({
+  id: modelIdentifierSchema,
+  display_name: z.string().trim().min(1).max(120),
+  context_window: modelContextWindowSchema.nullable(),
+  supports_image_input: z.boolean().nullable(),
+})
+
+export const discoverModelProviderResultSchema = z.strictObject({
+  status: z.enum(["supported", "manual_required"]),
+  models: z.array(discoveredProviderModelSchema).max(100),
+  truncated: z.boolean(),
+})
+
+export const testModelProviderConnectionResultSchema = z.strictObject({
+  status: z.enum(["success", "unsupported"]),
+  model_id: modelIdentifierSchema,
+})
+
+export type ModelProviderProbeInput = z.input<typeof modelProviderProbeInputSchema>
+export type TestModelProviderConnectionInput = z.input<typeof testModelProviderConnectionInputSchema>
+export type DiscoverModelProviderResult = z.infer<typeof discoverModelProviderResultSchema>
+export type DiscoveredProviderModel = z.infer<typeof discoveredProviderModelSchema>
+export type TestModelProviderConnectionResult = z.infer<typeof testModelProviderConnectionResultSchema>
+
 const legacyManagedConversationModelSchema = z
   .strictObject({
     ...managedModelSchema.shape,
