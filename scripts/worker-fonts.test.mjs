@@ -12,7 +12,7 @@ const requiredPackages = [
   "fontconfig",
   "fonts-arphic-ukai",
   "fonts-crosextra-carlito",
-  "fonts-liberation2",
+  "fonts-liberation",
   "fonts-noto-cjk",
 ];
 
@@ -24,6 +24,7 @@ test("both worker targets install and verify the open-source font packages", asy
 
   assert.equal(workers.length, 2);
   for (const worker of workers) {
+    assert.match(worker, /corepack enable pnpm/u);
     for (const packageName of requiredPackages) {
       assert.match(worker, new RegExp(`^    ${packageName} \\\\`, "mu"));
     }
@@ -42,7 +43,7 @@ test("both worker targets install and verify the open-source font packages", asy
   assert.ok(development.split("export function workerImageFingerprint(")[1].split("\n}")[0].includes('"deploy/runtime/fonts"'));
 });
 
-test("font manifest covers the expected open-source families and real Debian font paths", async () => {
+test("font manifest covers the expected open-source families and real Ubuntu font paths", async () => {
   const entries = (await readFile(path.join(root, "families.tsv"), "utf8"))
     .trim()
     .split("\n")
@@ -57,6 +58,9 @@ test("font manifest covers the expected open-source families and real Debian fon
   for (const [file, family, style] of entries) {
     assert.match(file, /^\/usr\/share\/fonts\/(?:truetype|opentype)\/[\w/-]+\.(?:ttf|ttc)$/u);
     assert.ok(family.length > 0 && style.length > 0);
+    if (family.startsWith("Liberation ")) {
+      assert.match(file, /^\/usr\/share\/fonts\/truetype\/liberation\/Liberation/u);
+    }
   }
   for (const family of ["Liberation Sans", "Liberation Serif", "Carlito"]) {
     const styles = entries.filter(([, name]) => name === family).map(([, , style]) => style);

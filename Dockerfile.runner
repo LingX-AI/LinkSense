@@ -189,7 +189,7 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
     fonts-arphic-ukai \
     fonts-crosextra-carlito \
     fonts-dejavu-core \
-    fonts-liberation2 \
+    fonts-liberation \
     fonts-noto-cjk \
     fonts-noto-color-emoji \
     git \
@@ -321,7 +321,7 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
     fonts-arphic-ukai \
     fonts-crosextra-carlito \
     fonts-dejavu-core \
-    fonts-liberation2 \
+    fonts-liberation \
     fonts-noto-cjk \
     fonts-noto-color-emoji \
     git \
@@ -348,7 +348,7 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
   && fc-cache -f \
   && useradd --uid 1001 --gid node --no-create-home --home-dir /home/linksense --shell /usr/sbin/nologin linksense-task \
   && install -d -o linksense-task -g node -m 0770 /home/linksense \
-  && corepack enable \
+  && corepack enable pnpm \
   && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@${PNPM_VERSION} --activate \
   && pnpm add --global npm@12.2.0 \
   && rm -rf /usr/local/lib/node_modules/npm \
