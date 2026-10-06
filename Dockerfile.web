@@ -34,7 +34,7 @@ RUN NODE_OPTIONS="${DOCS_BUILD_NODE_OPTIONS}" TERSER_PARALLEL="${DOCS_BUILD_TERS
   pnpm --filter @linksense/docs build
 
 # Development serves exactly the same bilingual static build as production.
-FROM nginx:1.30-alpine AS docs-runtime
+FROM nginx:1.31-alpine AS docs-runtime
 ARG SECURITY_REBUILD_ID=local
 RUN test -n "$SECURITY_REBUILD_ID" && apk upgrade --no-cache
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
@@ -61,7 +61,7 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN pnpm --filter @linksense/shared build \
   && LINKSENSE_BUILD_ID="$(cat /linksense-build-id)" pnpm --filter @linksense/web build
 
-FROM nginx:1.30-alpine AS runtime
+FROM nginx:1.31-alpine AS runtime
 ARG SECURITY_REBUILD_ID=local
 RUN test -n "$SECURITY_REBUILD_ID" && apk upgrade --no-cache
 ENV NGINX_ENVSUBST_FILTER=^NGINX_
