@@ -10,23 +10,18 @@ mkdir -p "$output"
 output=$(CDPATH= cd -- "$output" && pwd)
 mkdir "$output/tokenizer" "$output/release-assets"
 
-resolve() {
-  key=$1
-  tag=$2
-  # Resolve separately: printf would hide a failed command substitution.
-  immutable_reference=$("$root/scripts/resolve-release-image.sh" "$tag" linux/amd64 linux/arm64)
-  printf 'IMAGE_%s=%s\n' "$key" "$immutable_reference" >> "$output/upstream-images.env"
-}
-resolve POSTGRES docker.io/library/postgres:16-alpine
-resolve REDIS docker.io/library/redis:7.4-alpine
-# The maintained fork preserves the MinIO wire protocol and data layout.
-# Its distroless server omits unused OS utilities; setup gets a separate client.
-resolve MINIO docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z-distroless
-resolve MINIO_CLIENT docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
-resolve BUSYBOX docker.io/library/busybox:1.37.0
-resolve GATEWAY docker.io/library/nginx:1.30-alpine
-resolve ELASTICSEARCH docker.elastic.co/elasticsearch/elasticsearch-wolfi:8.19.22
-resolve DOCLING quay.io/docling-project/docling-serve:v1.36.0
+baseline="$root/deploy/baselines/images.lock.json"
+baseline_tool="$root/deploy/baselines/tools/baseline-images.mjs"
+node "$root/scripts/baseline-adoption.mjs" --check
+node "$baseline_tool" verify-proof "$baseline"
+node "$baseline_tool" service-env "$baseline" > "$output/upstream-images.env"
+node "$baseline_tool" runtime-env "$baseline" > "$output/runtime-images.env"
+install -m 0644 "$baseline" "$output/images.lock.json"
+# Validate every already-frozen index without resolving mutable vendor tags.
+jq -r '.runtimes[], .services[]' "$baseline" | while IFS= read -r reference; do
+  resolved=$("$root/scripts/resolve-release-image.sh" "$reference" linux/amd64 linux/arm64)
+  test "$resolved" = "$reference" || { echo "Baseline index digest changed." >&2; exit 1; }
+done
 
 lock="$root/deploy/release/tokenizer.lock.json"
 jq -e '

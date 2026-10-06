@@ -1051,12 +1051,16 @@ test("every LinkSense release image contains the CPAL license and separate permi
     /COPY --chmod=0444 LICENSE \/usr\/share\/licenses\/linksense\/LICENSE/gu
   assert.equal((api.match(licenseCopy) ?? []).length, 2)
   assert.equal((web.match(licenseCopy) ?? []).length, 2)
-  assert.equal((runner.match(licenseCopy) ?? []).length, 2)
+  assert.equal((runner.match(licenseCopy) ?? []).length, 1)
+  const baseline = await readFile(path.join(root, "deploy/baselines/Dockerfile.runtime"), "utf8")
+  assert.equal((baseline.match(licenseCopy) ?? []).length, 4)
+  assert.match(runner, /FROM \$\{BASELINE_WORKER_IMAGE\} AS worker/u)
   const supplementalCopy =
     /COPY --chmod=0444 LICENSE-EXCEPTIONS\.md ATTRIBUTION\.md TRADEMARK\.md NOTICE \/usr\/share\/licenses\/linksense\//gu
   assert.equal((api.match(supplementalCopy) ?? []).length, 2)
   assert.equal((web.match(supplementalCopy) ?? []).length, 2)
-  assert.equal((runner.match(supplementalCopy) ?? []).length, 2)
+  assert.equal((runner.match(supplementalCopy) ?? []).length, 1)
+  assert.equal((baseline.match(supplementalCopy) ?? []).length, 4)
 })
 
 test("the release workflow reuses verified main checks before promotion", async () => {
@@ -1109,7 +1113,7 @@ test("the release workflow reuses verified main checks before promotion", async 
     workflow.match(
       /docker\/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772/gu,
     )?.length,
-    7,
+    6,
   )
   assert.match(workflow, /sh scripts\/prepare-release-inputs\.sh release-inputs/u)
   assert.match(workflow, /cd release-inputs && sha256sum -c SHA256SUMS/u)
@@ -1118,8 +1122,10 @@ test("the release workflow reuses verified main checks before promotion", async 
   assert.match(workflow, /fail-fast: false/u)
   assert.doesNotMatch(workflow, /fail-fast: true/u)
   assert.match(workflow, /type=gha,scope=migrate-\{0\}/u)
-  assert.equal((workflow.match(/timeout=2m,ignore-error=true/gu) ?? []).length, 3)
-  assert.equal((workflow.match(/overwrite: true/gu) ?? []).length, 7)
+  assert.equal((workflow.match(/timeout=2m,ignore-error=true/gu) ?? []).length, 2)
+  assert.equal((workflow.match(/overwrite: true/gu) ?? []).length, 6)
+  assert.doesNotMatch(workflow, /hardened-images:/u)
+  assert.match(workflow, /pnpm --dir deploy\/baselines\/tools install --prod --frozen-lockfile --ignore-workspace/u)
   assert.doesNotMatch(workflow, /full-installation-smoke:/u)
   assert.doesNotMatch(workflow, /self-hosted|linksense-full-release/u)
   assert.match(workflow, /docker buildx imagetools create/u)
@@ -1441,7 +1447,7 @@ test("the public snapshot applies exclusions before the tar file list", async ()
 test("workflows that install dependencies use the resolvable pinned pnpm setup action", async () => {
   const expectedReference =
     "pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1"
-  for (const workflow of ["ci.yml", "security.yml"]) {
+  for (const workflow of ["ci.yml", "security.yml", "release.yml", "maintain-baselines.yml", "verify-application-images.yml"]) {
     const source = await readFile(
       path.join(root, ".github/workflows", workflow),
       "utf8",
@@ -1452,11 +1458,6 @@ test("workflows that install dependencies use the resolvable pinned pnpm setup a
       /pnpm\/action-setup@a7487c7e89a18df4991f222e4898a00d66ddda/u,
     )
   }
-  const releaseWorkflow = await readFile(
-    path.join(root, ".github/workflows/release.yml"),
-    "utf8",
-  )
-  assert.doesNotMatch(releaseWorkflow, /pnpm\/action-setup/u)
 })
 
 test("hosted workflows install the Redis runtime required by API tests", async () => {

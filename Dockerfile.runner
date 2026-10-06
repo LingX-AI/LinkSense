@@ -1,44 +1,18 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_IMAGE=node:24-trixie-slim@sha256:9aa7037f0da5b7578ba0d9974d6970da91017e019929ec85eb4e7da22af83b1b
-ARG PYTHON_IMAGE=python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3
-ARG UBUNTU_IMAGE=ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
-ARG UV_VERSION=0.9.13
+ARG BASELINE_NODE_IMAGE=ghcr.io/lingx-ai/linksense-runtime-node@sha256:7d1272bfa1191bc661a204565388d4dd4096ef211a6993d6a520be789cd78ebc
+ARG BASELINE_WORKER_IMAGE=ghcr.io/lingx-ai/linksense-runtime-worker@sha256:dc29d735a56430c1418045c59b00b022e4429dd2ee18f3b9db060767b41e004d
 ARG PNPM_VERSION=10.34.6
-ARG DEBIAN_MIRROR_URL=http://deb.debian.org/debian
-ARG DEBIAN_SECURITY_MIRROR_URL=http://security.debian.org/debian-security
-ARG LINKSENSE_PYTHON_PACKAGE_INDEX_URL=https://pypi.org/simple/
 ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL=https://registry.npmjs.org/
-ARG PLAYWRIGHT_DOWNLOAD_HOST=
-ARG LINKSENSE_BROWSER_RUNTIME_CACHE_IMAGE=linksense-runner-worker:pro-latest
 
-FROM ${NODE_IMAGE} AS toolchain
+FROM ${BASELINE_NODE_IMAGE} AS toolchain
 ARG PNPM_VERSION
 ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL
 ENV PNPM_HOME=/pnpm
 ENV COREPACK_HOME=/pnpm/corepack
 ENV PATH=${PNPM_HOME}:${PATH}
 ENV NPM_CONFIG_REGISTRY=${LINKSENSE_NODE_PACKAGE_REGISTRY_URL}
-RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
-  && corepack enable pnpm \
-  && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@${PNPM_VERSION} --activate
 WORKDIR /workspace
-
-FROM ${UBUNTU_IMAGE} AS node-runtime
-ARG UBUNTU_MIRROR_URL
-ARG UBUNTU_SECURITY_MIRROR_URL
-COPY --from=toolchain /usr/local/ /usr/local/
-COPY --chmod=0755 deploy/docker/bootstrap-ubuntu-node.sh /usr/local/bin/bootstrap-ubuntu-node
-ARG SECURITY_REBUILD_ID=local
-RUN test -n "$SECURITY_REBUILD_ID" && UBUNTU_MIRROR_URL="${UBUNTU_MIRROR_URL}" UBUNTU_SECURITY_MIRROR_URL="${UBUNTU_SECURITY_MIRROR_URL}" /usr/local/bin/bootstrap-ubuntu-node
-
-FROM toolchain AS tooling-security-dependencies
-WORKDIR /tooling-security-dependencies
-COPY deploy/runtime/tooling-security/package.json deploy/runtime/tooling-security/pnpm-lock.yaml ./
-ARG TARGETARCH
-ARG TARGETVARIANT
-RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-root,target=/pnpm/store,sharing=locked \
-  pnpm install --prod --frozen-lockfile --ignore-workspace --node-linker=hoisted --prefer-offline --store-dir=/pnpm/store --package-import-method=copy
 
 FROM toolchain AS dependencies
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -69,75 +43,12 @@ RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-ro
   && setpriv --reuid=1001 --regid=1000 --clear-groups \
     env NODE_OPTIONS= node /tmp/runner-runtime-smoke.mjs /opt/linksense-runner
 
-FROM ${PYTHON_IMAGE} AS python-runtime-build
-ARG UV_VERSION
-ARG LINKSENSE_PYTHON_PACKAGE_INDEX_URL
-ENV PIP_INDEX_URL=${LINKSENSE_PYTHON_PACKAGE_INDEX_URL}
-RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}" \
-  && uv --version
-WORKDIR /runtime-python
-COPY deploy/runtime/python/pyproject.toml deploy/runtime/python/uv.lock ./
-COPY deploy/runtime/python/smoke.py ./smoke.py
-ENV UV_PROJECT_ENVIRONMENT=/opt/linksense/runtime/python
-# uv also uses install concurrency for bytecode compiler workers. Keep it
-# bounded so high-core production builders do not exhaust their descriptor cap.
-ENV UV_CONCURRENT_INSTALLS=8
-RUN uv sync --frozen --no-dev --no-install-project --compile-bytecode \
-  && /opt/linksense/runtime/python/bin/python /runtime-python/smoke.py \
-  && uv cache clean
-
-FROM toolchain AS node-runtime-build
-WORKDIR /opt/linksense/runtime/node
-COPY deploy/runtime/node/package.json deploy/runtime/node/pnpm-lock.yaml ./
-ARG TARGETARCH
-ARG TARGETVARIANT
-RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-root,target=/pnpm/store,sharing=locked \
-  pnpm install --prod --frozen-lockfile --ignore-workspace --prefer-offline --store-dir=/pnpm/store --package-import-method=copy
-COPY --chmod=0644 deploy/runtime/node/register-hooks.mjs deploy/runtime/node/plan-stop-hook.mjs deploy/runtime/node/smoke.mjs ./
-COPY --chmod=0644 deploy/runtime/node/user-package.json ./user-package.json
-RUN NODE_OPTIONS=--import=/opt/linksense/runtime/node/register-hooks.mjs \
-    node /opt/linksense/runtime/node/smoke.mjs \
-  && node --check /opt/linksense/runtime/node/plan-stop-hook.mjs
-
-FROM toolchain AS browser-runtime-build
-WORKDIR /opt/linksense/runtime/browser
-COPY deploy/runtime/browser/package.json deploy/runtime/browser/pnpm-lock.yaml ./
-ARG TARGETARCH
-ARG TARGETVARIANT
-RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-root,target=/pnpm/store,sharing=locked \
-  pnpm install --prod --frozen-lockfile --ignore-workspace --prefer-offline --store-dir=/pnpm/store --package-import-method=copy
-# Browser downloads must not hold the package-store lock needed by other builds.
-ARG PLAYWRIGHT_DOWNLOAD_HOST
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/linksense/runtime/browser-browsers
-ENV PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST}
-RUN --mount=type=cache,id=linksense-playwright-${TARGETARCH}${TARGETVARIANT},target=/var/cache/linksense-playwright,sharing=locked \
-    export PLAYWRIGHT_BROWSERS_PATH=/var/cache/linksense-playwright \
-    && if ! pnpm exec playwright-cli install-browser chromium; then \
-      if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then \
-        echo "Playwright mirror download failed; retrying with the default upstream." >&2; \
-        PLAYWRIGHT_DOWNLOAD_HOST= pnpm exec playwright-cli install-browser chromium; \
-      else \
-        exit 1; \
-      fi; \
-    fi \
-    && mkdir -p /opt/linksense/runtime/browser-browsers \
-    && cp -a "${PLAYWRIGHT_BROWSERS_PATH}/." /opt/linksense/runtime/browser-browsers/
-
-FROM ${LINKSENSE_BROWSER_RUNTIME_CACHE_IMAGE} AS browser-runtime-cache
-
 # The controller is trusted infrastructure. It owns the Docker Engine socket
 # and never executes Codex, skill scripts, or user package managers.
-FROM node-runtime AS controller
+FROM ${BASELINE_NODE_IMAGE} AS controller
 ARG PNPM_VERSION
-ARG DEBIAN_MIRROR_URL
-ARG DEBIAN_SECURITY_MIRROR_URL
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
 COPY --chmod=0444 LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE /usr/share/licenses/linksense/
-RUN apt-get update \
-  && apt-get install --yes --no-install-recommends ca-certificates curl \
-  && rm -rf /usr/local/lib/node_modules/npm \
-  && rm -f /usr/local/bin/npm /usr/local/bin/npx \
-  && rm -rf /var/lib/apt/lists/*
 ENV LINKSENSE_PNPM_VERSION=${PNPM_VERSION}
 WORKDIR /app
 COPY --from=build --chown=root:root /opt/linksense-runner ./
@@ -153,102 +64,8 @@ CMD ["node", "dist/index.js"]
 # required to launch tasks and normalize task-owned files on bind mounts.
 # Codex and every task-side child then run as linksense-task (1001:1000) after
 # clearing inherited capabilities.
-FROM node-runtime AS worker-base
-ARG PNPM_VERSION
-ARG DEBIAN_MIRROR_URL
-ARG DEBIAN_SECURITY_MIRROR_URL
-ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL
-ARG PLAYWRIGHT_DOWNLOAD_HOST
-COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
-COPY --chmod=0444 LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE /usr/share/licenses/linksense/
-RUN install -d -o root -g root -m 0755 /opt/linksense
-COPY --chmod=0444 apps/runner/src/codex/runtime-version.json /opt/linksense/codex-runtime-version.json
-COPY --from=tooling-security-dependencies /tooling-security-dependencies /opt/linksense/tooling/security-dependencies
-COPY deploy/docker/patch-tooling-libraries.mjs deploy/docker/verify-tooling-libraries.mjs deploy/docker/verify-kernel-headers.mjs /opt/linksense/tooling/
-ENV LANG=C.UTF-8
-ENV LC_ALL=C.UTF-8
-ENV PNPM_HOME=/pnpm
-ENV COREPACK_HOME=/pnpm/corepack
-ENV NPM_CONFIG_REGISTRY=${LINKSENSE_NODE_PACKAGE_REGISTRY_URL}
-ENV PATH=/home/linksense/.local/share/linksense/python/.venv/bin:/home/linksense/.local/share/linksense/node/node_modules/.bin:/opt/linksense/bin:/opt/linksense/runtime/python/bin:/opt/linksense/runtime/node/node_modules/.bin:${PNPM_HOME}:${PATH}
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/linksense/runtime/browser-browsers
-ENV PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST}
-
-FROM worker-base AS worker-browser-build-input
-COPY --from=browser-runtime-build /opt/linksense/runtime/browser /opt/linksense/runtime/browser
-COPY --from=browser-runtime-build /opt/linksense/runtime/browser-browsers /opt/linksense/runtime/browser-browsers
-
-FROM worker-base AS worker-browser-cache-input
-COPY --from=browser-runtime-cache /opt/linksense/runtime/browser /opt/linksense/runtime/browser
-COPY --from=browser-runtime-cache /opt/linksense/runtime/browser-browsers /opt/linksense/runtime/browser-browsers
-
-FROM worker-browser-build-input AS worker
-ARG PNPM_VERSION
-ARG DEBIAN_MIRROR_URL
-ARG DEBIAN_SECURITY_MIRROR_URL
-ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL
-ARG PLAYWRIGHT_DOWNLOAD_HOST
-RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
-  && apt-get update \
-  && apt-get install --yes --no-install-recommends \
-    ca-certificates \
-    build-essential \
-    curl \
-    file \
-    fontconfig \
-    fonts-arphic-ukai \
-    fonts-crosextra-carlito \
-    fonts-dejavu-core \
-    fonts-liberation \
-    fonts-noto-cjk \
-    fonts-noto-color-emoji \
-    git \
-    jq \
-    libreoffice-calc \
-    libreoffice-core \
-    libreoffice-impress \
-    libreoffice-writer \
-    poppler-utils \
-    pkg-config \
-    ripgrep \
-    unzip \
-    util-linux \
-    zip \
-  && if ! node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --with-deps; then \
-      if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then \
-        echo "Playwright mirror dependency install failed; retrying with the default upstream." >&2; \
-        PLAYWRIGHT_DOWNLOAD_HOST= node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --with-deps; \
-      else \
-        exit 1; \
-      fi; \
-    fi \
-  && rm -rf /var/lib/apt/lists/* \
-  && fc-cache -f \
-  && useradd --uid 1001 --gid node --no-create-home --home-dir /home/linksense --shell /usr/sbin/nologin linksense-task \
-  && install -d -o linksense-task -g node -m 0770 /home/linksense \
-  && corepack enable pnpm \
-  && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@${PNPM_VERSION} --activate \
-  && node /opt/linksense/tooling/patch-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "${COREPACK_HOME}/v1/pnpm/${PNPM_VERSION}" pnpm \
-  && node /opt/linksense/tooling/verify-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "${COREPACK_HOME}/v1/pnpm/${PNPM_VERSION}" pnpm \
-  && pnpm add --global npm@12.2.0 \
-  && node /opt/linksense/tooling/patch-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "$(pnpm root --global)/npm" npm \
-  && node /opt/linksense/tooling/verify-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "$(pnpm root --global)/npm" npm \
-  && rm -rf /usr/local/lib/node_modules/npm \
-  && rm -f /usr/local/bin/npm /usr/local/bin/npx \
-  && codex_version="$(node -e 'const { version } = require("/opt/linksense/codex-runtime-version.json"); if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error("Invalid pinned Codex version"); process.stdout.write(version)')" \
-  && pnpm add --global "@openai/codex@${codex_version}" \
-  && pnpm store prune \
-  && installed_codex_version="$(codex --version)" \
-  && test "${installed_codex_version}" = "codex-cli ${codex_version}" \
-  && node /opt/linksense/tooling/verify-kernel-headers.mjs > /opt/linksense/tooling/kernel-headers.evidence.json
-ENV LINKSENSE_PNPM_VERSION=${PNPM_VERSION}
-RUN mkdir -p /opt/linksense/tooling/pnpm \
-  && cp -a "${COREPACK_HOME}/v1/pnpm/${PNPM_VERSION}/." /opt/linksense/tooling/pnpm/
-ENV PATH=/opt/linksense/bin:/home/linksense/.local/share/linksense/python/.venv/bin:/home/linksense/.local/share/linksense/node/node_modules/.bin:/home/linksense/.local/share/linksense/pnpm-home:/opt/linksense/runtime/node/node_modules/.bin:/opt/linksense/runtime/python/bin:/pnpm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+FROM ${BASELINE_WORKER_IMAGE} AS worker
 ENV BASH_ENV=/opt/linksense/runtime/shell/linksense-bash-env.sh
-COPY --from=python-runtime-build /usr/local/ /usr/local/
-COPY --from=python-runtime-build /opt/linksense/runtime/python /opt/linksense/runtime/python
-COPY --from=node-runtime-build /opt/linksense/runtime/node /opt/linksense/runtime/node
 RUN install -d -o root -g root -m 0755 /etc/codex
 COPY --chown=root:root --chmod=0444 deploy/codex-system/requirements.toml /etc/codex/requirements.toml
 RUN test -r /etc/codex/requirements.toml \
@@ -309,147 +126,7 @@ RUN uv venv --python /opt/linksense/runtime/python/bin/python /tmp/linksense-use
   && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="$user_home/.codex" LINKSENSE_CONVERSATION_ID="$conversation_id" LINKSENSE_WORKSPACE_PATH="$user_home/workspace" /usr/bin/bash -lc 'linksense-browser close' \
   && cd /app \
   && rm -rf /tmp/browser-smoke
-COPY deploy/runtime/fonts /opt/linksense/runtime/fonts
-COPY --chmod=0644 deploy/runtime/fonts/replacements.conf /etc/fonts/conf.d/99-linksense-replacements.conf
-RUN fc-cache -f \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups sh /opt/linksense/runtime/fonts/verify.sh
-ARG WORKER_IMAGE_FINGERPRINT=unversioned
-LABEL com.linksense.worker.fingerprint=${WORKER_IMAGE_FINGERPRINT}
-USER 0:1000
-EXPOSE 4010
-CMD ["/usr/bin/setpriv", "--reuid=1000", "--regid=1000", "--keep-groups", "--inh-caps=+setuid,+kill,+dac_override,+fowner,+chown", "--ambient-caps=+setuid,+kill,+dac_override,+fowner,+chown", "node", "dist/index.js"]
-
-FROM worker-browser-cache-input AS worker-cached-browser
-ARG PNPM_VERSION
-ARG DEBIAN_MIRROR_URL
-ARG DEBIAN_SECURITY_MIRROR_URL
-ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL
-ARG PLAYWRIGHT_DOWNLOAD_HOST
-RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
-  && apt-get update \
-  && apt-get install --yes --no-install-recommends \
-    ca-certificates \
-    build-essential \
-    curl \
-    file \
-    fontconfig \
-    fonts-arphic-ukai \
-    fonts-crosextra-carlito \
-    fonts-dejavu-core \
-    fonts-liberation \
-    fonts-noto-cjk \
-    fonts-noto-color-emoji \
-    git \
-    jq \
-    libreoffice-calc \
-    libreoffice-core \
-    libreoffice-impress \
-    libreoffice-writer \
-    poppler-utils \
-    pkg-config \
-    ripgrep \
-    unzip \
-    util-linux \
-    zip \
-  && if ! node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --with-deps; then \
-      if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then \
-        echo "Playwright mirror dependency install failed; retrying with the default upstream." >&2; \
-        PLAYWRIGHT_DOWNLOAD_HOST= node /opt/linksense/runtime/browser/node_modules/@playwright/cli/playwright-cli.js install-browser chromium --with-deps; \
-      else \
-        exit 1; \
-      fi; \
-    fi \
-  && rm -rf /var/lib/apt/lists/* \
-  && fc-cache -f \
-  && useradd --uid 1001 --gid node --no-create-home --home-dir /home/linksense --shell /usr/sbin/nologin linksense-task \
-  && install -d -o linksense-task -g node -m 0770 /home/linksense \
-  && corepack enable pnpm \
-  && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@${PNPM_VERSION} --activate \
-  && node /opt/linksense/tooling/patch-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "${COREPACK_HOME}/v1/pnpm/${PNPM_VERSION}" pnpm \
-  && node /opt/linksense/tooling/verify-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "${COREPACK_HOME}/v1/pnpm/${PNPM_VERSION}" pnpm \
-  && pnpm add --global npm@12.2.0 \
-  && node /opt/linksense/tooling/patch-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "$(pnpm root --global)/npm" npm \
-  && node /opt/linksense/tooling/verify-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies "$(pnpm root --global)/npm" npm \
-  && rm -rf /usr/local/lib/node_modules/npm \
-  && rm -f /usr/local/bin/npm /usr/local/bin/npx \
-  && codex_version="$(node -e 'const { version } = require("/opt/linksense/codex-runtime-version.json"); if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error("Invalid pinned Codex version"); process.stdout.write(version)')" \
-  && pnpm add --global "@openai/codex@${codex_version}" \
-  && pnpm store prune \
-  && installed_codex_version="$(codex --version)" \
-  && test "${installed_codex_version}" = "codex-cli ${codex_version}" \
-  && node /opt/linksense/tooling/verify-kernel-headers.mjs > /opt/linksense/tooling/kernel-headers.evidence.json
-ENV LINKSENSE_PNPM_VERSION=${PNPM_VERSION}
-RUN mkdir -p /opt/linksense/tooling/pnpm \
-  && cp -a "${COREPACK_HOME}/v1/pnpm/${PNPM_VERSION}/." /opt/linksense/tooling/pnpm/
-ENV PATH=/opt/linksense/bin:/home/linksense/.local/share/linksense/python/.venv/bin:/home/linksense/.local/share/linksense/node/node_modules/.bin:/home/linksense/.local/share/linksense/pnpm-home:/opt/linksense/runtime/node/node_modules/.bin:/opt/linksense/runtime/python/bin:/pnpm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ENV BASH_ENV=/opt/linksense/runtime/shell/linksense-bash-env.sh
-COPY --from=python-runtime-build /usr/local/ /usr/local/
-COPY --from=python-runtime-build /opt/linksense/runtime/python /opt/linksense/runtime/python
-COPY --from=node-runtime-build /opt/linksense/runtime/node /opt/linksense/runtime/node
-RUN install -d -o root -g root -m 0755 /etc/codex
-COPY --chown=root:root --chmod=0444 deploy/codex-system/requirements.toml /etc/codex/requirements.toml
-RUN test -r /etc/codex/requirements.toml \
-  && test "$(stat -c %a /etc/codex/requirements.toml)" = 444 \
-  && test "$(stat -c %a /opt/linksense/runtime/node/plan-stop-hook.mjs)" = 644
-RUN install -d -o root -g root -m 0755 /opt/linksense/runtime/shell
-COPY --chown=root:root --chmod=0444 deploy/runtime/shell/linksense-bash-env.sh /opt/linksense/runtime/shell/linksense-bash-env.sh
-COPY --chmod=0644 deploy/runtime/browser/init-page.ts /opt/linksense/runtime/browser/init-page.ts
-COPY --chmod=0644 deploy/runtime/browser/generate-user-agent.mjs /opt/linksense/runtime/browser/generate-user-agent.mjs
-RUN node /opt/linksense/runtime/browser/generate-user-agent.mjs
-COPY --chmod=0755 deploy/runtime/browser/linksense-browser /opt/linksense/bin/linksense-browser
-COPY --chmod=0755 deploy/runtime/node/pnpm /opt/linksense/bin/pnpm
-COPY --chmod=0755 deploy/runtime/node/linksense-pnpm /opt/linksense/bin/linksense-pnpm
-COPY --chmod=0755 deploy/runtime/node/linksense-plugin-stdio /opt/linksense/bin/linksense-plugin-stdio
-COPY --chmod=0755 deploy/runtime/node/linksense-connection-mcp /opt/linksense/bin/linksense-connection-mcp
-COPY --chmod=0755 deploy/runtime/python/linksense-uv /opt/linksense/bin/linksense-uv
-RUN ln -s /opt/linksense/bin/linksense-browser /usr/local/bin/linksense-browser \
-  && ln -s /opt/linksense/bin/linksense-pnpm /usr/local/bin/linksense-pnpm \
-  && ln -s /opt/linksense/bin/linksense-plugin-stdio /usr/local/bin/linksense-plugin-stdio \
-  && ln -s /opt/linksense/bin/linksense-connection-mcp /usr/local/bin/linksense-connection-mcp \
-  && ln -s /opt/linksense/bin/linksense-uv /usr/local/bin/linksense-uv
-RUN install -d -o root -g root -m 0755 /opt/linksense/codex-home-template
-COPY --chown=root:root --chmod=0444 deploy/codex-home-template/config.toml /opt/linksense/codex-home-template/config.toml
-RUN setpriv --reuid=1000 --regid=1000 --clear-groups \
-  test -r /opt/linksense/codex-home-template/config.toml
-COPY --from=build --chown=root:root /opt/linksense-runner /app/
-WORKDIR /app
-ENV NODE_ENV=production
-ENV HOME=/home/linksense
-ENV CODEX_HOME=/home/linksense/.codex
-ENV PYTHON_BASE_VENV=/opt/linksense/runtime/python
-ENV LINKSENSE_PYTHON_BASE_SITE_PACKAGES=/opt/linksense/runtime/python/lib/python3.12/site-packages
-ENV LINKSENSE_USER_PYTHON_VENV=/home/linksense/.local/share/linksense/python/.venv
-ENV LINKSENSE_USER_NODE_PROJECT=/home/linksense/.local/share/linksense/node
-ENV LINKSENSE_CODEX_HOME_TEMPLATE=/opt/linksense/codex-home-template
-ENV NODE_PATH=/home/linksense/.local/share/linksense/node/node_modules:/opt/linksense/runtime/node/node_modules
-ENV NODE_OPTIONS=--import=/opt/linksense/runtime/node/register-hooks.mjs
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV MPLCONFIGDIR=/tmp/matplotlib
-ENV XDG_CACHE_HOME=/tmp/cache
-RUN uv venv --python /opt/linksense/runtime/python/bin/python /tmp/linksense-user-python-smoke \
-  && printf '%s\n' "$LINKSENSE_PYTHON_BASE_SITE_PACKAGES" > /tmp/linksense-user-python-smoke/lib/python3.12/site-packages/linksense-public-runtime.pth \
-  && /tmp/linksense-user-python-smoke/bin/python -c "import bs4, docx, httpx, jinja2, lxml, matplotlib, numpy, openpyxl, pandas, pdfplumber, PIL, pptx, pypdf, reportlab, requests, xlsxwriter, yaml" \
-  && rm -rf /tmp/linksense-user-python-smoke \
-  && node /opt/linksense/runtime/node/smoke.mjs \
-  && conversation_id=019f45dd-a318-7d02-b03b-eaece8887865 \
-  && user_home="/tmp/browser-smoke/home" \
-  && mkdir -p "$user_home/.codex" "/tmp/browser-smoke/home/workspace/artifacts" "/tmp/browser-smoke/home/workspace/attachments" "/tmp/browser-smoke/home/workspace/temp" \
-  && printf '%s\n' '<!doctype html><html><head><title>LinkSense Chromium smoke</title></head><body><main>managed workspace HTML preview</main></body></html>' > "/tmp/browser-smoke/home/workspace/artifacts/browser-smoke.html" \
-  && chown -R linksense-task:node /tmp/browser-smoke \
-  && test "$(stat -c %a /opt/linksense/runtime/shell)" = 755 \
-  && test "$(stat -c %a /opt/linksense/runtime/shell/linksense-bash-env.sh)" = 444 \
-  && cd "/tmp/browser-smoke/home/workspace" \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="$user_home/.codex" LINKSENSE_CONVERSATION_ID="$conversation_id" LINKSENSE_WORKSPACE_PATH="$user_home/workspace" /usr/bin/bash -lc 'test "$(command -v linksense-browser)" = /opt/linksense/bin/linksense-browser && test "$(command -v linksense-pnpm)" = /opt/linksense/bin/linksense-pnpm && test "$(command -v linksense-plugin-stdio)" = /opt/linksense/bin/linksense-plugin-stdio && test "$(command -v linksense-connection-mcp)" = /opt/linksense/bin/linksense-connection-mcp && test "$(command -v linksense-uv)" = /opt/linksense/bin/linksense-uv' \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="$user_home/.codex" LINKSENSE_CONVERSATION_ID="$conversation_id" LINKSENSE_WORKSPACE_PATH="$user_home/workspace" /usr/bin/bash -lc 'linksense-browser open-workspace-html artifacts/browser-smoke.html' \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="$user_home/.codex" LINKSENSE_CONVERSATION_ID="$conversation_id" LINKSENSE_WORKSPACE_PATH="$user_home/workspace" /usr/bin/bash -lc 'linksense-browser screenshot --filename=chromium-smoke.png' \
-  && test -s "/tmp/browser-smoke/home/workspace/temp/browser/chromium-smoke.png" \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups env HOME="/tmp/browser-smoke/home" CODEX_HOME="$user_home/.codex" LINKSENSE_CONVERSATION_ID="$conversation_id" LINKSENSE_WORKSPACE_PATH="$user_home/workspace" /usr/bin/bash -lc 'linksense-browser close' \
-  && cd /app \
-  && rm -rf /tmp/browser-smoke
-COPY deploy/runtime/fonts /opt/linksense/runtime/fonts
-COPY --chmod=0644 deploy/runtime/fonts/replacements.conf /etc/fonts/conf.d/99-linksense-replacements.conf
-RUN fc-cache -f \
-  && setpriv --reuid=1001 --regid=1000 --clear-groups sh /opt/linksense/runtime/fonts/verify.sh
+RUN setpriv --reuid=1001 --regid=1000 --clear-groups sh /opt/linksense/runtime/fonts/verify.sh
 ARG WORKER_IMAGE_FINGERPRINT=unversioned
 LABEL com.linksense.worker.fingerprint=${WORKER_IMAGE_FINGERPRINT}
 USER 0:1000

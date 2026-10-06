@@ -72,8 +72,6 @@ services:
       target: migration
       args:
         MIGRATION_IMAGE_FINGERPRINT: ${LINKSENSE_MIGRATION_IMAGE_FINGERPRINT:-unversioned}
-        DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}
-        DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
         LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
         PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-https://binaries.prisma.sh}
     restart: "no"
@@ -88,16 +86,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.runner
-      target: ${LINKSENSE_WORKER_BUILD_TARGET:-worker}
+      target: worker
       args:
-        PNPM_VERSION: ${PNPM_VERSION:-10.6.4}
         WORKER_IMAGE_FINGERPRINT: ${LINKSENSE_WORKER_IMAGE_FINGERPRINT:-unversioned}
-        DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}
-        DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
-        LINKSENSE_PYTHON_PACKAGE_INDEX_URL: ${LINKSENSE_PYTHON_PACKAGE_INDEX_URL:-https://pypi.org/simple/}
         LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
-        PLAYWRIGHT_DOWNLOAD_HOST: ${PLAYWRIGHT_DOWNLOAD_HOST:-}
-        LINKSENSE_BROWSER_RUNTIME_CACHE_IMAGE: ${LINKSENSE_BROWSER_RUNTIME_CACHE_IMAGE:-linksense-runner-worker:pro-latest}
     restart: "no"
     networks:
       - worker-egress
@@ -111,9 +103,6 @@ services:
       dockerfile: Dockerfile.runner
       target: controller
       args:
-        PNPM_VERSION: ${PNPM_VERSION:-10.6.4}
-        DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}
-        DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
         LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
     init: true
     restart: unless-stopped
@@ -194,8 +183,6 @@ services:
       dockerfile: Dockerfile.api
       target: runtime
       args:
-        DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}
-        DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
         LINKSENSE_NODE_PACKAGE_REGISTRY_URL: ${LINKSENSE_NODE_PACKAGE_REGISTRY_URL:-https://registry.npmjs.org/}
         PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-https://binaries.prisma.sh}
     init: true

@@ -31,8 +31,8 @@ Environment:
   LINKSENSE_REUSE_PREVIOUS_WORKER_IMAGE=1
                       Retag the previously deployed worker image as the fixed
                       production worker tag when worker runtime inputs did not
-                      change. This is intended for one-time fixed-tag
-                      transitions or build-host browser-download incidents.
+                      change. This preserves an unchanged application image
+                      during a fixed-tag deployment transition.
 EOF
 }
 
@@ -1216,14 +1216,12 @@ initialize_migration_target_volumes() {
 worker_source_fingerprint() {
   {
     printf '%s\n' "linksense-worker-image-inputs-v1"
-    printf 'PNPM_VERSION=%s\n' "$(environment_value PNPM_VERSION 10.34.6)"
     printf 'LINKSENSE_NODE_PACKAGE_REGISTRY_URL=%s\n' \
       "$(environment_value LINKSENSE_NODE_PACKAGE_REGISTRY_URL https://registry.npmjs.org/)"
-    printf 'PLAYWRIGHT_DOWNLOAD_HOST=%s\n' \
-      "$(environment_value PLAYWRIGHT_DOWNLOAD_HOST "")"
     git ls-tree -r "$target_revision" -- \
       .dockerignore \
       Dockerfile.runner \
+      deploy/baselines/images.lock.json \
       package.json \
       pnpm-lock.yaml \
       pnpm-workspace.yaml \
@@ -1253,6 +1251,7 @@ worker_source_fingerprint() {
 worker_runtime_changed_paths() {
   worker_runtime_base="$1"
   git diff --name-only "$worker_runtime_base" "$target_revision" -- \
+    deploy/baselines/images.lock.json \
     package.json \
     pnpm-lock.yaml \
     pnpm-workspace.yaml \
@@ -1281,6 +1280,7 @@ worker_rebuild_changed_paths() {
   git diff --name-only "$worker_rebuild_base" "$target_revision" -- \
     .dockerignore \
     Dockerfile.runner \
+    deploy/baselines/images.lock.json \
     package.json \
     pnpm-lock.yaml \
     pnpm-workspace.yaml \
@@ -1304,12 +1304,6 @@ worker_rebuild_changed_paths() {
     deploy/runtime/node \
     deploy/runtime/python \
     deploy/runtime/shell
-}
-
-worker_browser_runtime_changed_paths() {
-  worker_browser_runtime_base="$1"
-  git diff --name-only "$worker_browser_runtime_base" "$target_revision" -- \
-    deploy/runtime/browser
 }
 
 capture_previous_image_ids() {
@@ -1922,8 +1916,6 @@ existing_worker_fingerprint="$(
     "$worker_image" 2>/dev/null || true
 )"
 build_worker_image=0
-worker_build_target="worker"
-browser_runtime_cache_image="$worker_image"
 if [ "$reuse_previous_worker_image" -eq 1 ]; then
   if [ -z "$deployed_revision" ] ||
     ! git cat-file -e "${deployed_revision}^{commit}" 2>/dev/null; then
@@ -1975,19 +1967,6 @@ else
   fi
 fi
 
-if [ "$build_worker_image" -eq 1 ] &&
-  [ -n "$existing_worker_image_id" ] &&
-  [ -n "$deployed_revision" ] &&
-  git cat-file -e "${deployed_revision}^{commit}" 2>/dev/null; then
-  changed_browser_runtime_paths="$(
-    worker_browser_runtime_changed_paths "$deployed_revision"
-  )"
-  if [ -z "$changed_browser_runtime_paths" ]; then
-    worker_build_target="worker-cached-browser"
-    echo "Reusing browser runtime from ${browser_runtime_cache_image}; browser runtime inputs did not change."
-  fi
-fi
-
 capture_previous_image_ids
 begin_environment_update
 set_environment_key LINKSENSE_IMAGE_TAG "$image_tag"
@@ -1995,8 +1974,6 @@ set_environment_key LINKSENSE_WORKER_IMAGE "$worker_image"
 set_environment_key LINKSENSE_WORKER_IMAGE_REVISION "$worker_fingerprint"
 set_environment_key LINKSENSE_WORKER_IMAGE_FINGERPRINT "$worker_fingerprint"
 set_environment_key LINKSENSE_MIGRATION_IMAGE_FINGERPRINT "$target_revision"
-set_environment_key LINKSENSE_WORKER_BUILD_TARGET "$worker_build_target"
-set_environment_key LINKSENSE_BROWSER_RUNTIME_CACHE_IMAGE "$browser_runtime_cache_image"
 commit_environment_file
 environment_changed=1
 

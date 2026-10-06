@@ -22,6 +22,10 @@ jobs:
       candidate_tag: ${{ steps.release.outputs.candidate_tag }}
       source_sha: ${{ steps.release.outputs.source_sha }}
       license: ${{ steps.release.outputs.license }}
+      baseline_node: ${{ steps.baseline.outputs.BASELINE_NODE_IMAGE }}
+      baseline_api: ${{ steps.baseline.outputs.BASELINE_API_IMAGE }}
+      baseline_web: ${{ steps.baseline.outputs.BASELINE_WEB_IMAGE }}
+      baseline_worker: ${{ steps.baseline.outputs.BASELINE_WORKER_IMAGE }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -114,12 +118,21 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.34.6
+          run_install: false
       - name: Validate and freeze release inputs before building images
+        id: baseline
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ steps.release.outputs.release_version }}
           SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
           RELEASE_WORKFLOW_ID: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: sh scripts/prepare-release-inputs.sh release-inputs
+        run: |
+          pnpm --dir deploy/baselines/tools install --prod --frozen-lockfile --ignore-workspace --registry=https://registry.npmjs.org/
+          sh scripts/prepare-release-inputs.sh release-inputs
+          cat release-inputs/runtime-images.env >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-inputs
@@ -204,7 +217,11 @@ jobs:
           file: ${{ matrix.dockerfile }}
           target: ${{ matrix.target }}
           platforms: ${{ matrix.platform }}
-          build-args: SECURITY_REBUILD_ID=${{ needs.prepare.outputs.candidate_tag }}
+          build-args: |
+            BASELINE_NODE_IMAGE=${{ needs.prepare.outputs.baseline_node }}
+            BASELINE_API_IMAGE=${{ needs.prepare.outputs.baseline_api }}
+            BASELINE_WEB_IMAGE=${{ needs.prepare.outputs.baseline_web }}
+            BASELINE_WORKER_IMAGE=${{ needs.prepare.outputs.baseline_worker }}
           push: true
           tags: ghcr.io/lingx-ai/linksense-${{ matrix.name }}:${{ needs.prepare.outputs.candidate_tag }}-${{ matrix.architecture }}
           labels: |
@@ -248,98 +265,6 @@ jobs:
           retention-days: 3
           overwrite: true
 
-  hardened-images:
-    needs: prepare
-    runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 40
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        component:
-          - { name: postgres, role: POSTGRES, license: PostgreSQL }
-          - { name: redis, role: REDIS, license: "LicenseRef-RSALv2 OR SSPL-1.0" }
-          - { name: gateway, role: GATEWAY, license: BSD-2-Clause }
-          - { name: elasticsearch, role: ELASTICSEARCH, license: Elastic-2.0 }
-          - { name: docling, role: DOCLING, license: MIT }
-          - { name: minio-client, role: MINIO_CLIENT, license: AGPL-3.0-or-later }
-        platform:
-          - { architecture: amd64, os: linux/amd64, runner: ubuntu-24.04 }
-          - { architecture: arm64, os: linux/arm64, runner: ubuntu-24.04-arm }
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: release-inputs
-          path: release-inputs
-      - name: Select the frozen vendor image
-        env:
-          UPSTREAM_ROLE: ${{ matrix.component.role }}
-        run: |
-          (cd release-inputs && sha256sum -c SHA256SUMS)
-          upstream=$(sed -n "s/^IMAGE_${UPSTREAM_ROLE}=//p" release-inputs/upstream-images.env)
-          test -n "$upstream"
-          echo "UPSTREAM_IMAGE=$upstream" >> "$GITHUB_ENV"
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build the patched vendor candidate
-        id: build
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
-        with:
-          context: .
-          file: deploy/hardened/Dockerfile.${{ matrix.component.name }}
-          platforms: ${{ matrix.platform.os }}
-          build-args: |
-            UPSTREAM_IMAGE=${{ env.UPSTREAM_IMAGE }}
-            SECURITY_REBUILD_ID=${{ needs.prepare.outputs.candidate_tag }}
-          push: true
-          tags: ghcr.io/lingx-ai/linksense-${{ matrix.component.name }}:${{ needs.prepare.outputs.candidate_tag }}-${{ matrix.platform.architecture }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ needs.prepare.outputs.source_sha }}
-            org.opencontainers.image.version=${{ needs.prepare.outputs.release_version }}
-            org.opencontainers.image.licenses=${{ matrix.component.license }}
-            org.linksense.upstream.reference=${{ env.UPSTREAM_IMAGE }}
-          provenance: mode=min
-          sbom: true
-          cache-from: type=gha,scope=hardened-${{ matrix.component.name }}-${{ matrix.platform.architecture }}
-          cache-to: type=gha,mode=min,scope=hardened-${{ matrix.component.name }}-${{ matrix.platform.architecture }},timeout=2m,ignore-error=true
-      - name: Verify the patched component entrypoint
-        env:
-          COMPONENT: ${{ matrix.component.name }}
-          IMAGE: ghcr.io/lingx-ai/linksense-${{ matrix.component.name }}@${{ steps.build.outputs.digest }}
-        run: |
-          docker pull "$IMAGE"
-          case "$COMPONENT" in
-            postgres) docker run --rm --entrypoint gosu "$IMAGE" --version; docker run --rm --entrypoint postgres "$IMAGE" --version ;;
-            redis) docker run --rm --entrypoint redis-server "$IMAGE" --version ;;
-            gateway) docker run --rm --entrypoint nginx "$IMAGE" -t ;;
-            elasticsearch) node scripts/elasticsearch-image-smoke.mjs "$IMAGE" ;;
-            docling) docker run --rm --network none --env DOCLING_SERVE_ENG_KIND=rq --env DOCLING_SERVE_ENG_RQ_REDIS_URL=redis://127.0.0.1:6379/0 --entrypoint /opt/app-root/bin/python "$IMAGE" -c 'import docling_serve.app; import docling_jobkit.orchestrators.rq.orchestrator' ;;
-            minio-client) docker run --rm --entrypoint mcli "$IMAGE" --version ;;
-          esac
-      - name: Record immutable patched candidate
-        env:
-          COMPONENT: ${{ matrix.component.name }}
-          ARCHITECTURE: ${{ matrix.platform.architecture }}
-          IMAGE: ghcr.io/lingx-ai/linksense-${{ matrix.component.name }}@${{ steps.build.outputs.digest }}
-        run: |
-          mkdir image-reference
-          printf '%s\n' "$IMAGE" > "image-reference/$COMPONENT-$ARCHITECTURE"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: image-platform-${{ matrix.component.name }}-${{ matrix.platform.architecture }}
-          path: image-reference/
-          if-no-files-found: error
-          retention-days: 3
-          overwrite: true
-
   worker-image:
     needs: prepare
     runs-on: ${{ matrix.runner }}
@@ -374,7 +299,11 @@ jobs:
           file: Dockerfile.runner
           target: worker
           platforms: ${{ matrix.platform }}
-          build-args: SECURITY_REBUILD_ID=${{ needs.prepare.outputs.candidate_tag }}
+          build-args: |
+            BASELINE_NODE_IMAGE=${{ needs.prepare.outputs.baseline_node }}
+            BASELINE_API_IMAGE=${{ needs.prepare.outputs.baseline_api }}
+            BASELINE_WEB_IMAGE=${{ needs.prepare.outputs.baseline_web }}
+            BASELINE_WORKER_IMAGE=${{ needs.prepare.outputs.baseline_worker }}
           push: true
           tags: ghcr.io/lingx-ai/linksense-worker:${{ needs.prepare.outputs.candidate_tag }}-${{ matrix.architecture }}
           labels: |
@@ -412,7 +341,7 @@ jobs:
           overwrite: true
 
   image-indexes:
-    needs: [prepare, images, worker-image, hardened-images]
+    needs: [prepare, images, worker-image]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -487,7 +416,7 @@ jobs:
         run: |
           (cd release-inputs && sha256sum -c SHA256SUMS)
           server=$(sed -n 's/^IMAGE_MINIO=//p' release-inputs/upstream-images.env)
-          client=$(cat image-references/minio-client)
+          client=$(sed -n 's/^IMAGE_MINIO_CLIENT=//p' release-inputs/upstream-images.env)
           node scripts/storage-image-upgrade-smoke.mjs "$server" "$client"
 
   image-security:
@@ -549,7 +478,7 @@ jobs:
           test "$(sed -n 's/^SOURCE_SHA=//p' release-inputs/identity.env)" = "$SOURCE_SHA"
           test "$(sed -n 's/^RELEASE_WORKFLOW_ID=//p' release-inputs/identity.env)" = "$RELEASE_WORKFLOW_ID"
           mkdir verified-inputs
-          node scripts/release-image-inventory.mjs upstream-env image-references release-inputs/upstream-images.env > verified-inputs/upstream-images.env
+          node scripts/release-image-inventory.mjs upstream-env release-inputs/upstream-images.env > verified-inputs/upstream-images.env
           sh scripts/scan-release-images.sh image-references verified-inputs image-security-reports "$SCAN_PLATFORM"
       - name: Save image vulnerability reports and failure diagnostics
         if: always()
@@ -593,7 +522,7 @@ jobs:
           test "$(sed -n 's/^SOURCE_SHA=//p' release-inputs/identity.env)" = "$RELEASE_GIT_COMMIT"
           test "$(sed -n 's/^RELEASE_WORKFLOW_ID=//p' release-inputs/identity.env)" = "$RELEASE_WORKFLOW_ID"
           export RELEASE_BUILD_TIME="$(sed -n 's/^RELEASE_BUILD_TIME=//p' release-inputs/identity.env)"
-          node scripts/release-image-inventory.mjs upstream-env image-references release-inputs/upstream-images.env > final-upstream-images.env
+          node scripts/release-image-inventory.mjs upstream-env release-inputs/upstream-images.env > final-upstream-images.env
           while IFS='=' read -r key value; do
             export "$key=$value"
           done < final-upstream-images.env
@@ -642,10 +571,10 @@ jobs:
         run: |
           set -euo pipefail
           docker logout ghcr.io >/dev/null 2>&1 || true
-          for name in $(node scripts/release-image-inventory.mjs names); do
-            reference=$(cat "image-references/$name")
-            docker buildx imagetools inspect "$reference" >/dev/null || {
-              echo "Make GHCR package linksense-$name public, then rerun this failed job." >&2
+          (cd release-assets && sha256sum -c release-manifest.env.sha256)
+          grep '^IMAGE_' release-assets/release-manifest.env | cut -d= -f2- | sort -u | while IFS= read -r reference; do
+            timeout --kill-after=30s 120 docker buildx imagetools inspect "$reference" >/dev/null || {
+              echo "Every application and baseline image must be anonymously available: $reference" >&2
               exit 1
             }
           done

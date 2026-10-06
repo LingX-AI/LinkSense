@@ -36,6 +36,12 @@ node deploy/baselines/tools/baseline-images.mjs verify /absolute/empty/directory
 node deploy/baselines/tools/baseline-images.mjs verify-proof /absolute/empty/directory/images.lock.json
 ```
 
+When adopting that verified descriptor, save it as
+`deploy/baselines/images.lock.json`, then run
+`node scripts/baseline-adoption.mjs --write` and commit both the descriptor and
+the mechanically synchronized Docker defaults. `--check` verifies that direct
+source builds and daily release build arguments refer to the same images.
+
 Never adopt an unverified candidate, use mutable `latest` references, overwrite
 a product release, or remove runtime functionality to make a baseline pass.
 Temporary registry failures can use **Re-run failed jobs** while intermediate

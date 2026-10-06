@@ -1,17 +1,15 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_IMAGE=node:24-trixie-slim@sha256:9aa7037f0da5b7578ba0d9974d6970da91017e019929ec85eb4e7da22af83b1b
+ARG BASELINE_NODE_IMAGE=ghcr.io/lingx-ai/linksense-runtime-node@sha256:7d1272bfa1191bc661a204565388d4dd4096ef211a6993d6a520be789cd78ebc
+ARG BASELINE_WEB_IMAGE=ghcr.io/lingx-ai/linksense-runtime-web@sha256:2c96b83564074e67fb1c6c20383217ddcb1b59992db7b3ce6b8f8d779dfb2125
 ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL=https://registry.npmjs.org/
 
-FROM ${NODE_IMAGE} AS dependencies
+FROM ${BASELINE_NODE_IMAGE} AS dependencies
 ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL
 ENV PNPM_HOME=/pnpm
 ENV COREPACK_HOME=/pnpm/corepack
 ENV PATH=${PNPM_HOME}:${PATH}
 ENV NPM_CONFIG_REGISTRY=${LINKSENSE_NODE_PACKAGE_REGISTRY_URL}
-RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
-  && corepack enable \
-  && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@10.34.6 --activate
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY patches patches
@@ -34,9 +32,7 @@ RUN NODE_OPTIONS="${DOCS_BUILD_NODE_OPTIONS}" TERSER_PARALLEL="${DOCS_BUILD_TERS
   pnpm --filter @linksense/docs build
 
 # Development serves exactly the same bilingual static build as production.
-FROM nginx:1.30-alpine AS docs-runtime
-ARG SECURITY_REBUILD_ID=local
-RUN test -n "$SECURITY_REBUILD_ID" && apk upgrade --no-cache
+FROM ${BASELINE_WEB_IMAGE} AS docs-runtime
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
 COPY --chmod=0444 LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE /usr/share/licenses/linksense/
 COPY deploy/nginx/development-docs.conf /etc/nginx/conf.d/default.conf
@@ -61,9 +57,7 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN pnpm --filter @linksense/shared build \
   && LINKSENSE_BUILD_ID="$(cat /linksense-build-id)" pnpm --filter @linksense/web build
 
-FROM nginx:1.30-alpine AS runtime
-ARG SECURITY_REBUILD_ID=local
-RUN test -n "$SECURITY_REBUILD_ID" && apk upgrade --no-cache
+FROM ${BASELINE_WEB_IMAGE} AS runtime
 ENV NGINX_ENVSUBST_FILTER=^NGINX_
 ENV NGINX_CLIENT_MAX_BODY_SIZE=110m
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE

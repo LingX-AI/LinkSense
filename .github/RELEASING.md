@@ -20,7 +20,7 @@
 
 发布清单中的 LinkSense 镜像和第三方服务镜像全部固定到不可变的 `sha256` 摘要。修复脚本只修复当前已安装版本，不会隐式升级，也不会自动重建丢失的数据卷。
 
-MinIO 使用 Coolify 团队在 GitHub GHCR 发布的第三方构建 `ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z`，不再依赖官方已失效的镜像地址，也不由 LinkSense 自托管。该镜像包含服务端和 `mc` 客户端，Core / Full 的安装与升级均从发布清单读取锁定摘要；存储桶初始化复用镜像内的 `mc`，健康检查使用 `mc ready local`。详见 [构建源码](https://github.com/coollabsio/minio) 和 [Coolify 使用配置](https://github.com/coollabsio/coolify/blob/main/templates/compose/minio-community-edition.yaml)。
+MinIO 使用维护中的 [PGSTY SILO](https://github.com/pgsty/silo) 分发：服务端为 distroless 镜像，初始化使用独立的安全更新客户端镜像。Core / Full 安装、升级及健康检查从发布清单读取各自固定摘要，不解析 `latest`，也不混用服务端与客户端。基线维护保留既有对象、用户与策略的升级测试。
 
 升级会保留原 MinIO 数据卷、存储桶和凭据。操作前应按现有升级流程备份；不能通过删除数据卷解决镜像拉取问题。旧 Release 的清单不会被篡改，修复旧版本仍使用该版本原有镜像；需要新镜像源时应升级到包含此变更的新 Release。
 
@@ -32,7 +32,7 @@ MinIO 使用 Coolify 团队在 GitHub GHCR 发布的第三方构建 `ghcr.io/coo
 - GitHub 原生私有仓库 artifact attestations
 - 私有仓库 CodeQL 和 Dependency Review
 
-发布流程仍生成 BuildKit SBOM 和最小 provenance，并要求待发布提交已通过 CI 和 Security。CI 执行生产依赖审计和部署测试，Security 执行 Gitleaks 历史扫描。发布还独立扫描全部最终镜像，两个架构均通过后才创建正式镜像标签和发布 Release。PostgreSQL、Redis、网关、Elasticsearch、Docling 和存储客户端会从已冻结的厂商摘要构建安全更新衍生镜像；安装清单与扫描使用相同的最终摘要。仓库公开时，`public` 事件自动触发 Security 并运行 CodeQL；公开仓库的 PR 还会运行 Dependency Review。Security 也支持在 Actions 页面手动运行。
+发布流程仍生成 BuildKit SBOM 和最小 provenance，并要求待发布提交已通过 CI 和 Security。CI 执行生产依赖审计和部署测试，Security 执行 Gitleaks 历史扫描。发布还独立扫描全部最终镜像，两个架构均通过后才创建正式镜像标签和发布 Release。Node、API 转换工具、Nginx、Worker 环境以及六个厂商衍生镜像由独立的 `Maintain image baselines` 工作流维护；日常发布只复用已验证的固定摘要，不重新安装基础环境或构建厂商镜像。安装清单与扫描使用相同的最终摘要。仓库公开时，`public` 事件自动触发 Security 并运行 CodeQL；公开仓库的 PR 还会运行 Dependency Review。Security 也支持在 Actions 页面手动运行。
 
 公开仓库发版时，会进一步确认选中的 Security 运行中 `codeql` job 已成功。私有阶段跳过 CodeQL 的成功记录不能用于公开发版；须等待公开后的 Security 通过，或在 `main` 上手动运行 Security。CI 必须来自同一提交的成功 `push` 运行；Security 可以来自同一提交、`main` 分支的 `push`、`public`、`workflow_dispatch` 或 `schedule` 运行，不接受 PR 检查替代。
 
@@ -46,7 +46,7 @@ MinIO 使用 Coolify 团队在 GitHub GHCR 发布的第三方构建 `ghcr.io/coo
 6. Core / Full 的完整安装、修复和升级验收由维护者在独立测试主机上手动完成，不在发布工作流中启动整套 Full 服务。安装主机要求见 README，不等同于构建 Runner 要求。
 7. 通过 PR 审核合入 `main`。发布准备任务强制检查同一提交的 CI 和 Security 结果；如仓库套餐支持，再配置相应分支保护或规则集。
 
-GHCR 首次创建包时默认为私有。首次工作流生成候选镜像后，组织所有者需要把下列五个包改为公开：
+GHCR 包必须允许匿名拉取。首次生成候选镜像后，组织所有者需检查下列包的可见性，并将尚未公开的包设为 Public：
 
 - `linksense-api`
 - `linksense-web`
@@ -59,8 +59,26 @@ GHCR 首次创建包时默认为私有。首次工作流生成候选镜像后，
 - `linksense-elasticsearch`
 - `linksense-docling`
 - `linksense-minio-client`
+- `linksense-runtime-node`
+- `linksense-runtime-api`
+- `linksense-runtime-web`
+- `linksense-runtime-worker`
 
-公开镜像意味着任何人都可以下载并保留副本，因此该步骤需要明确确认。最终发布任务会先退出 GHCR，再匿名检查全部 11 个候选镜像；未全部公开时任务会安全失败。完成可见性调整后，只需重新运行失败的 `release` job。
+公开镜像意味着任何人都可以下载并保留副本，因此该步骤需要明确确认。基线接受任务和最终产品发布任务都会先退出 GHCR，再检查各自全部引用是否可匿名拉取；未全部公开时安全失败。完成可见性调整后，仅重跑失败任务。
+
+## 独立维护基础环境
+
+维护位置仍是本仓库的 GitHub Actions 和 GHCR，无需额外服务器。维护任务只有手动入口，不会因为日常代码推送或产品发版自动重建环境，也不会创建产品 Release。
+
+1. 修改 `deploy/baselines/Dockerfile.runtime`、运行时锁文件、Codex pin 或 `deploy/hardened/` 配方，合入 main 后等待 CI 和 Security（公开仓库包括 CodeQL）成功。
+2. 由 `LINKSENSE_RELEASE_ACTOR` 运行 `Maintain image baselines`。它冻结厂商源摘要，原生构建四个运行环境和六个安全更新衍生镜像的两种架构，生成 SBOM/provenance，执行双架构扫描、存储升级测试和匿名可用性校验。
+3. 仅下载成功任务的 `verified-baseline` artifact，将 `images.lock.json` 放入 `deploy/baselines/`。用 `node deploy/baselines/tools/baseline-images.mjs verify-proof deploy/baselines/images.lock.json` 确认来源成功，再用 `node scripts/baseline-adoption.mjs --write` 同步三个应用 Dockerfile 的默认摘要。
+4. 提交清单和机械生成的 Docker 默认参数，运行相关测试后合入 main。清单是权威来源，部署测试会拒绝未同步的 Docker 默认值。直接 Docker/Compose 构建、开发启动和发布使用同一基线；无需在本地环境文件重复维护摘要。
+5. 业务代码修改与版本号更新复用已有基线。环境配方变化却未维护基线时，发布和开发启动会在构建前明确失败，不隐藏地回退或重建。定期主动维护安全更新；固定摘要不意味着可以永久不升级。
+
+首次接入或调整基线后，可手动运行 `Verify application images`，在两种原生架构上构建全部五个应用镜像并检查关键命令、Codex pin 与 Web/API 共同构建标识。这个验证工作流不会推送镜像、创建标签或发布 Release；它不替代正式发版时的 SBOM/provenance 和最终镜像安全扫描。
+
+基线采用 `baseline-RUN_ID-ATTEMPT` 标签，与 `vMAJOR.MINOR.PATCH` 产品标签分离。基线扫描不代替产品发布时对最终 13 个镜像角色的重新扫描。详细边界见 [基线说明](../deploy/baselines/README.md)。
 
 ## 首次导入时准备干净快照
 
@@ -88,11 +106,11 @@ test ! -e /absolute/path/to/linksense-github/design-qa.md
 2. 确认待发布代码已经推送到 GitHub 仓库的 `main`。
 3. 等待该 `main` 提交的 `CI` 和 `Security` 全部成功；公开仓库还须确认 Security 中的 CodeQL 成功。发布工作流会复用这些结果，不再重复安装依赖、运行测试、扫描密钥、执行类型检查、Lint 和源码构建。
 4. 从 GitHub Actions 手动运行 `Publish release`。工作流会核对目标提交的检查结果，并拒绝非 `main`、非 Private/Public 仓库、未授权发版人、已存在版本或非 CPAL-1.0 的输入。检查尚未结束或失败时，发布会在准备阶段快速停止，不会创建标签、镜像正式版本或 Release。
-5. `prepare` 在镜像构建前验证第三方镜像同时包含两个目标架构，下载固定提交的 tokenizer，生成并检查安装入口脚本。上游镜像摘要、资源内容、版本、源码提交和生成时间保存为带校验和的 `release-inputs` artifact；失败时不会启动后续镜像构建。
+5. `prepare` 在构建前检查基线配方指纹、已成功的维护任务及固定镜像索引的两种架构，下载固定提交的 tokenizer，生成并检查安装入口脚本。基线清单、运行环境/服务摘要、资源内容、版本、源码提交和生成时间保存为带校验和的 `release-inputs` artifact；失败时不会启动后续镜像构建，不重新解析厂商标签。
 6. GitHub 托管 Runner 分别构建 `api`、`web`、`migrate`、`runner`、`worker` 的两种架构。所有镜像先发布为本次运行唯一的候选标签，生成 SBOM 和最小 provenance，并验证镜像内基础命令或 Nginx 配置可以运行。此检查不是完整业务或安装验收。
 7. `image-indexes` 合并已验证架构镜像；`assets` 使用保存的发布输入和镜像摘要生成清单、许可证和资产校验和，不再重新解析上游标签或下载 tokenizer。同时，`image-security` 使用这些冻结摘要对全部镜像的两个架构执行漏洞扫描；发现 HIGH / CRITICAL 漏洞或扫描失败时，最终发布任务不会运行。
-8. 首次发布时，按上一节将全部 11 个 GHCR 包设为公开；如果最终 job 已失败，只重新运行失败 job。
-9. 最终 job 匿名验证镜像后，按已验证摘要创建正式 `vMAJOR.MINOR.PATCH` 镜像标签。已存在的正式标签若指向不同摘要，流程会拒绝覆盖。
+8. 首次发布时检查所有引用包均为公开；如果最终 job 已失败，只重新运行失败 job。
+9. 最终 job 匿名验证全部安装镜像后，只为五个应用镜像按已验证摘要创建正式 `vMAJOR.MINOR.PATCH` 标签；服务镜像继续使用独立基线摘要，不重复打产品版本标签。已存在的正式标签若指向不同摘要，流程会拒绝覆盖。
 10. 创建 GitHub Release 草稿并上传资产，下载全部资产逐字节核对后才发布 Release。仓库可见性保持不变：Private 仓库仅授权用户可访问；Public 仓库发布后允许匿名下载。维护者应完成 Core / Full 安装、修复、升级及业务验收，再对外宣布该版本可用于生产。
 
 不要删除或替换已发布标签，也不要复用版本号。错误版本应通过新版本修正。
@@ -111,7 +129,7 @@ test ! -e /absolute/path/to/linksense-github/design-qa.md
 
 SILO 的 `CVE-2026-39414` 已由厂商在维护分支修复，但其保留的 MinIO Go 模块名会产生误报。`deploy/security/silo-fixed.vex.json` 以 OpenVEX `fixed` 状态记录厂商证据，仅匹配具体源版本 `v0.0.0-20260916155009-2a4d51406b7e`，仅用于存储服务端扫描，并随报告保存。其他版本与其他漏洞不受此记录影响；真实 HIGH/CRITICAL 命中仍然阻止发布。
 
-生产 Node 镜像使用经过安全更新的 Ubuntu 24.04 运行层，保留 Node 24、Python 3.12 与原有 UID/GID。可通过 `UBUNTU_MIRROR_URL`、`UBUNTU_SECURITY_MIRROR_URL` 配置运行层构建源；Debian 构建阶段仍使用现有 Debian 源参数。迁移镜像只包含专用锁定依赖、原有 Prisma 迁移和 seed，以及在构建时生成的客户端。
+生产 Node 镜像继承经过安全更新的 Ubuntu 24.04 基线，保留 Node 24、Python 3.12 与原有 UID/GID。运行环境维护时可通过 `UBUNTU_MIRROR_URL`、`UBUNTU_SECURITY_MIRROR_URL` 配置源；日常应用构建不执行 apt/apk 更新。迁移镜像只增加专用锁定依赖、原有 Prisma 迁移和 seed，以及在构建时生成的客户端。
 
 工具链自带的依赖可能落后于独立发布版本。迁移镜像和 Worker 从 `deploy/runtime/tooling-security/pnpm-lock.yaml` 安装经过完整性校验的包，将完整代码和许可证替换进指定 pnpm/npm 分发目录；保留 CLI 基础版本，未知工具或依赖版本会拒绝构建。原有 v1 缓存对象、公开/私有缓存准入、brace-expansion 依赖闭包和 CLI 基础运行均有验证，不通过修改版本字段伪装修复。
 

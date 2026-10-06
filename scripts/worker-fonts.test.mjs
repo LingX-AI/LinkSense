@@ -16,13 +16,13 @@ const requiredPackages = [
   "fonts-noto-cjk",
 ];
 
-test("both worker targets install and verify the open-source font packages", async () => {
-  const dockerfile = await readFile("Dockerfile.runner", "utf8");
+test("the worker baseline installs verified fonts and the application rechecks them without reinstalling", async () => {
+  const dockerfile = await readFile("deploy/baselines/Dockerfile.runtime", "utf8");
   const workers = dockerfile
-    .split(/FROM worker-browser-(?:build|cache)-input AS worker(?:-cached-browser)?\n/u)
+    .split(/FROM worker-base AS worker\n/u)
     .slice(1);
 
-  assert.equal(workers.length, 2);
+  assert.equal(workers.length, 1);
   for (const worker of workers) {
     assert.match(worker, /corepack enable pnpm/u);
     for (const packageName of requiredPackages) {
@@ -33,6 +33,10 @@ test("both worker targets install and verify the open-source font packages", asy
     assert.match(worker, /fc-cache -f[\s\S]*setpriv --reuid=1001 --regid=1000 --clear-groups sh \/opt\/linksense\/runtime\/fonts\/verify.sh/u);
   }
   assert.doesNotMatch(dockerfile, /font-runtime-build|linksense-microsoft|downloads\.sha256|install\.sh/u);
+  const application = await readFile("Dockerfile.runner", "utf8");
+  assert.match(application, /FROM \$\{BASELINE_WORKER_IMAGE\} AS worker/u);
+  assert.match(application, /setpriv --reuid=1001 --regid=1000 --clear-groups sh \/opt\/linksense\/runtime\/fonts\/verify.sh/u);
+  assert.doesNotMatch(application, /apt-get|worker-cached-browser/u);
 
   const production = await readFile("deploy/production/deploy-production.sh", "utf8");
   for (const name of ["worker_source_fingerprint", "worker_runtime_changed_paths", "worker_rebuild_changed_paths"]) {
