@@ -15,6 +15,7 @@ export const applicationBuildInputs = [
   "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "tsconfig.base.json",
   "prisma/schema.prisma", "prisma/migrations", "patches",
   "Dockerfile.api", "Dockerfile.web", "deploy/nginx",
+  "deploy/baselines/images.lock.json",
   "scripts/application-build.mjs", "scripts/source-fingerprint.mjs",
 ];
 

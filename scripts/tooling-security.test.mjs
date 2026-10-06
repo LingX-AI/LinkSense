@@ -56,11 +56,14 @@ test("header-only evidence permits only a complete non-executable userspace head
   assert.throws(() => validateHeaderInventory(files.slice(0, 5), () => regular, []));
 });
 
-test("migration and both worker distributions use pinned real library replacements and verify headers", () => {
+test("migration and worker inherit baselines with pinned real library replacements and verified headers", () => {
   const api = readFileSync("Dockerfile.api", "utf8");
   const runner = readFileSync("Dockerfile.runner", "utf8");
-  assert.match(api, /FROM toolchain AS tooling-security-dependencies/u);
-  assert.match(api, /patch-tooling-libraries\.mjs[^\n]+pnpm/u);
-  assert.equal((runner.match(/patch-tooling-libraries\.mjs[^\n]+ npm \\/gu) ?? []).length, 2);
-  assert.equal((runner.match(/node \/opt\/linksense\/tooling\/verify-kernel-headers\.mjs > \/opt\/linksense\/tooling\/kernel-headers\.evidence\.json/gu) ?? []).length, 2);
+  const baseline = readFileSync("deploy/baselines/Dockerfile.runtime", "utf8");
+  assert.match(api, /FROM \$\{BASELINE_NODE_IMAGE\} AS migration/u);
+  assert.match(runner, /FROM \$\{BASELINE_WORKER_IMAGE\} AS worker/u);
+  assert.match(baseline, /FROM toolchain AS tooling-security-dependencies/u);
+  assert.match(baseline, /patch-tooling-libraries\.mjs[^\n]+pnpm/u);
+  assert.equal((baseline.match(/patch-tooling-libraries\.mjs[^\n]+ npm \\/gu) ?? []).length, 1);
+  assert.equal((baseline.match(/node \/opt\/linksense\/tooling\/verify-kernel-headers\.mjs > \/opt\/linksense\/tooling\/kernel-headers\.evidence\.json/gu) ?? []).length, 1);
 });
