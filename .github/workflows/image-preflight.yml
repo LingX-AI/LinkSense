@@ -5,14 +5,30 @@ on:
     inputs:
       images_json:
         description: JSON object mapping all 13 release image roles to candidate references
-        required: true
+        required: false
+        type: string
+      elasticsearch_image:
+        description: Immutable amd64 Elasticsearch candidate for an isolated startup check
+        required: false
         type: string
 
 permissions:
   contents: read
 
 jobs:
+  elasticsearch-startup:
+    if: inputs.elasticsearch_image != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Reproduce the candidate startup without publishing anything
+        env:
+          IMAGE: ${{ inputs.elasticsearch_image }}
+        run: node scripts/elasticsearch-image-smoke.mjs "$IMAGE"
+
   freeze:
+    if: inputs.images_json != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

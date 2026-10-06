@@ -10,6 +10,26 @@ const root = path.resolve(import.meta.dirname, "..")
 const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
 const { parse } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml")
 
+test("isolated Elasticsearch startup diagnostics remain read-only and do not require rescanning all images", () => {
+  const preflight = parse(readFileSync(path.join(root, ".github/workflows/image-preflight.yml"), "utf8"))
+  assert.deepEqual(preflight.permissions, { contents: "read" })
+  assert.equal(preflight.on.workflow_dispatch.inputs.images_json.required, false)
+  assert.equal(preflight.jobs.freeze.if, "inputs.images_json != ''")
+  const smoke = preflight.jobs["elasticsearch-startup"]
+  assert.equal(smoke.if, "inputs.elasticsearch_image != ''")
+  assert.equal(smoke["timeout-minutes"], 10)
+  assert.match(smoke.steps.at(-1).run, /node scripts\/elasticsearch-image-smoke\.mjs/u)
+  assert.doesNotMatch(JSON.stringify(smoke), /packages: write|publish-release|docker push/u)
+})
+
+test("Docling import checks configure its RQ backend without accessing external services", () => {
+  const dockerfile = readFileSync(path.join(root, "deploy/hardened/Dockerfile.docling"), "utf8")
+  assert.match(dockerfile, /DOCLING_SERVE_ENG_KIND=rq DOCLING_SERVE_ENG_RQ_REDIS_URL=redis:\/\/127\.0\.0\.1:6379\/0/u)
+  const { jobs } = parse(workflow)
+  const smoke = jobs["hardened-images"].steps.find((step) => step.name === "Verify the patched component entrypoint")
+  assert.match(smoke.run, /docling\) docker run --rm --network none --env DOCLING_SERVE_ENG_KIND=rq --env DOCLING_SERVE_ENG_RQ_REDIS_URL=redis:\/\/127\.0\.0\.1:6379\/0/u)
+})
+
 test("formal image tags and GitHub Release publication require every architecture security scan", () => {
   const { jobs } = parse(workflow)
   assert.ok(jobs.release.needs.includes("image-security"))

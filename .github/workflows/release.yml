@@ -321,7 +321,7 @@ jobs:
             redis) docker run --rm --entrypoint redis-server "$IMAGE" --version ;;
             gateway) docker run --rm --entrypoint nginx "$IMAGE" -t ;;
             elasticsearch) node scripts/elasticsearch-image-smoke.mjs "$IMAGE" ;;
-            docling) docker run --rm --entrypoint /opt/app-root/bin/python "$IMAGE" -c 'import docling_serve.app; import docling_jobkit.orchestrators.rq.orchestrator' ;;
+            docling) docker run --rm --network none --env DOCLING_SERVE_ENG_KIND=rq --env DOCLING_SERVE_ENG_RQ_REDIS_URL=redis://127.0.0.1:6379/0 --entrypoint /opt/app-root/bin/python "$IMAGE" -c 'import docling_serve.app; import docling_jobkit.orchestrators.rq.orchestrator' ;;
             minio-client) docker run --rm --entrypoint mcli "$IMAGE" --version ;;
           esac
       - name: Record immutable patched candidate
