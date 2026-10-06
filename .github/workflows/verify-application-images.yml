@@ -90,7 +90,7 @@ jobs:
               docker run --rm --network none --entrypoint nginx "$IMAGE" -t
               docker run --rm --network none --entrypoint cat "$IMAGE" /usr/share/nginx/html/build-info.json > "build-identities/web-$ARCHITECTURE.json"
               ;;
-            migrate) docker run --rm --network none --entrypoint pnpm "$IMAGE" exec prisma --version ;;
+            migrate) docker run --rm --network none --env DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build --entrypoint pnpm "$IMAGE" exec prisma --version ;;
             runner) docker run --rm --network none --entrypoint node "$IMAGE" --version ;;
             worker)
               docker run --rm --network none --user 1001:1000 --entrypoint node "$IMAGE" --input-type=module \
