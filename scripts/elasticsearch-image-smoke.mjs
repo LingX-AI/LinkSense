@@ -9,7 +9,7 @@ const name = `linksense-elasticsearch-smoke-${randomUUID()}`;
 const docker = (...args) => execFileSync("docker", args, { encoding: "utf8", timeout: 30_000 }).trim();
 let id;
 try {
-  id = docker("run", "--detach", "--rm", "--name", name, "--label", "org.linksense.release-smoke=elasticsearch", "--publish", "127.0.0.1::9200", "--env", "discovery.type=single-node", "--env", "xpack.security.enabled=false", "--env", "node.store.allow_mmap=false", "--env", "ES_JAVA_OPTS=-Xms256m -Xmx256m", "--memory", "1536m", image);
+  id = docker("run", "--detach", "--name", name, "--label", "org.linksense.release-smoke=elasticsearch", "--publish", "127.0.0.1::9200", "--env", "discovery.type=single-node", "--env", "xpack.security.enabled=false", "--env", "node.store.allow_mmap=false", "--env", "ES_JAVA_OPTS=-Xms256m -Xmx256m", "--memory", "1536m", image);
   assert.match(id, /^[0-9a-f]{64}$/u);
   const port = docker("port", id, "9200/tcp").split(":").at(-1);
   assert.match(port, /^\d+$/u);
