@@ -694,7 +694,7 @@ jobs:
             echo "## LinkSense $RELEASE_VERSION published"
             echo
             echo "- GitHub Release access follows the repository's current visibility."
-            echo "- Five GHCR images are public and anonymously pullable."
+            echo "- Eleven GHCR images are public and anonymously pullable."
             echo "- Release assets have been downloaded and verified before publication."
             echo "- Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_VERSION"
           } >> "$GITHUB_STEP_SUMMARY"
