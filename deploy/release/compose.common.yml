@@ -55,7 +55,7 @@ services:
     volumes:
       - minio-data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "/usr/bin/silo", "healthcheck", "ready"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -78,12 +78,12 @@ services:
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
-        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
-        mc mb --ignore-existing "local/$$MINIO_BUCKET"
-        mc mb --ignore-existing "local/$$MINIO_KNOWLEDGE_BUCKET"
-        mc admin user info local "$$MINIO_ACCESS_KEY" >/dev/null 2>&1 || \
-          mc admin user add local "$$MINIO_ACCESS_KEY" "$$MINIO_SECRET_KEY"
-        mc admin policy attach local readwrite --user "$$MINIO_ACCESS_KEY"
+        mcli alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mcli mb --ignore-existing "local/$$MINIO_BUCKET"
+        mcli mb --ignore-existing "local/$$MINIO_KNOWLEDGE_BUCKET"
+        mcli admin user info local "$$MINIO_ACCESS_KEY" >/dev/null 2>&1 || \
+          mcli admin user add local "$$MINIO_ACCESS_KEY" "$$MINIO_SECRET_KEY"
+        mcli admin policy attach local readwrite --user "$$MINIO_ACCESS_KEY"
     logging: *default-logging
 
   user-data-init:

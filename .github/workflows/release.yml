@@ -204,6 +204,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           target: ${{ matrix.target }}
           platforms: ${{ matrix.platform }}
+          build-args: SECURITY_REBUILD_ID=${{ needs.prepare.outputs.candidate_tag }}
           push: true
           tags: ghcr.io/lingx-ai/linksense-${{ matrix.name }}:${{ needs.prepare.outputs.candidate_tag }}-${{ matrix.architecture }}
           labels: |
@@ -247,6 +248,98 @@ jobs:
           retention-days: 3
           overwrite: true
 
+  hardened-images:
+    needs: prepare
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        component:
+          - { name: postgres, role: POSTGRES, license: PostgreSQL }
+          - { name: redis, role: REDIS, license: "LicenseRef-RSALv2 OR SSPL-1.0" }
+          - { name: gateway, role: GATEWAY, license: BSD-2-Clause }
+          - { name: elasticsearch, role: ELASTICSEARCH, license: Elastic-2.0 }
+          - { name: docling, role: DOCLING, license: MIT }
+          - { name: minio-client, role: MINIO_CLIENT, license: AGPL-3.0-or-later }
+        platform:
+          - { architecture: amd64, os: linux/amd64, runner: ubuntu-24.04 }
+          - { architecture: arm64, os: linux/arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-inputs
+          path: release-inputs
+      - name: Select the frozen vendor image
+        env:
+          UPSTREAM_ROLE: ${{ matrix.component.role }}
+        run: |
+          (cd release-inputs && sha256sum -c SHA256SUMS)
+          upstream=$(sed -n "s/^IMAGE_${UPSTREAM_ROLE}=//p" release-inputs/upstream-images.env)
+          test -n "$upstream"
+          echo "UPSTREAM_IMAGE=$upstream" >> "$GITHUB_ENV"
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build the patched vendor candidate
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: .
+          file: deploy/hardened/Dockerfile.${{ matrix.component.name }}
+          platforms: ${{ matrix.platform.os }}
+          build-args: |
+            UPSTREAM_IMAGE=${{ env.UPSTREAM_IMAGE }}
+            SECURITY_REBUILD_ID=${{ needs.prepare.outputs.candidate_tag }}
+          push: true
+          tags: ghcr.io/lingx-ai/linksense-${{ matrix.component.name }}:${{ needs.prepare.outputs.candidate_tag }}-${{ matrix.platform.architecture }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.prepare.outputs.source_sha }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.release_version }}
+            org.opencontainers.image.licenses=${{ matrix.component.license }}
+            org.linksense.upstream.reference=${{ env.UPSTREAM_IMAGE }}
+          provenance: mode=min
+          sbom: true
+          cache-from: type=gha,scope=hardened-${{ matrix.component.name }}-${{ matrix.platform.architecture }}
+          cache-to: type=gha,mode=min,scope=hardened-${{ matrix.component.name }}-${{ matrix.platform.architecture }},timeout=2m,ignore-error=true
+      - name: Verify the patched component entrypoint
+        env:
+          COMPONENT: ${{ matrix.component.name }}
+          IMAGE: ghcr.io/lingx-ai/linksense-${{ matrix.component.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          docker pull "$IMAGE"
+          case "$COMPONENT" in
+            postgres) docker run --rm --entrypoint gosu "$IMAGE" --version; docker run --rm --entrypoint postgres "$IMAGE" --version ;;
+            redis) docker run --rm --entrypoint redis-server "$IMAGE" --version ;;
+            gateway) docker run --rm --entrypoint nginx "$IMAGE" -t ;;
+            elasticsearch) node scripts/elasticsearch-image-smoke.mjs "$IMAGE" ;;
+            docling) docker run --rm --entrypoint /opt/app-root/bin/python "$IMAGE" -c 'import docling_serve.app; import docling_jobkit.orchestrators.rq.orchestrator' ;;
+            minio-client) docker run --rm --entrypoint mcli "$IMAGE" --version ;;
+          esac
+      - name: Record immutable patched candidate
+        env:
+          COMPONENT: ${{ matrix.component.name }}
+          ARCHITECTURE: ${{ matrix.platform.architecture }}
+          IMAGE: ghcr.io/lingx-ai/linksense-${{ matrix.component.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          mkdir image-reference
+          printf '%s\n' "$IMAGE" > "image-reference/$COMPONENT-$ARCHITECTURE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-platform-${{ matrix.component.name }}-${{ matrix.platform.architecture }}
+          path: image-reference/
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
+
   worker-image:
     needs: prepare
     runs-on: ${{ matrix.runner }}
@@ -281,6 +374,7 @@ jobs:
           file: Dockerfile.runner
           target: worker
           platforms: ${{ matrix.platform }}
+          build-args: SECURITY_REBUILD_ID=${{ needs.prepare.outputs.candidate_tag }}
           push: true
           tags: ghcr.io/lingx-ai/linksense-worker:${{ needs.prepare.outputs.candidate_tag }}-${{ matrix.architecture }}
           labels: |
@@ -317,7 +411,7 @@ jobs:
           overwrite: true
 
   image-indexes:
-    needs: [prepare, images, worker-image]
+    needs: [prepare, images, worker-image, hardened-images]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -343,7 +437,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir image-references
-          for name in api web migrate runner worker; do
+          for name in $(node scripts/release-image-inventory.mjs names); do
             amd64_reference=$(cat "image-platform-references/$name-amd64")
             arm64_reference=$(cat "image-platform-references/$name-arm64")
             candidate_reference="ghcr.io/lingx-ai/linksense-${name}:${CANDIDATE_TAG}"
@@ -362,6 +456,38 @@ jobs:
           if-no-files-found: error
           retention-days: 3
           overwrite: true
+
+  storage-upgrade:
+    needs: [prepare, image-indexes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: image-indexes
+          path: image-references
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-inputs
+          path: release-inputs
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify legacy object and identity preservation
+        run: |
+          (cd release-inputs && sha256sum -c SHA256SUMS)
+          server=$(sed -n 's/^IMAGE_MINIO=//p' release-inputs/upstream-images.env)
+          client=$(cat image-references/minio-client)
+          node scripts/storage-image-upgrade-smoke.mjs "$server" "$client"
 
   image-security:
     needs: [prepare, image-indexes]
@@ -421,7 +547,9 @@ jobs:
           test "$(sed -n 's/^RELEASE_VERSION=//p' release-inputs/identity.env)" = "$RELEASE_VERSION"
           test "$(sed -n 's/^SOURCE_SHA=//p' release-inputs/identity.env)" = "$SOURCE_SHA"
           test "$(sed -n 's/^RELEASE_WORKFLOW_ID=//p' release-inputs/identity.env)" = "$RELEASE_WORKFLOW_ID"
-          sh scripts/scan-release-images.sh image-references release-inputs image-security-reports "$SCAN_PLATFORM"
+          mkdir verified-inputs
+          node scripts/release-image-inventory.mjs upstream-env image-references release-inputs/upstream-images.env > verified-inputs/upstream-images.env
+          sh scripts/scan-release-images.sh image-references verified-inputs image-security-reports "$SCAN_PLATFORM"
       - name: Save image vulnerability reports and failure diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -464,9 +592,10 @@ jobs:
           test "$(sed -n 's/^SOURCE_SHA=//p' release-inputs/identity.env)" = "$RELEASE_GIT_COMMIT"
           test "$(sed -n 's/^RELEASE_WORKFLOW_ID=//p' release-inputs/identity.env)" = "$RELEASE_WORKFLOW_ID"
           export RELEASE_BUILD_TIME="$(sed -n 's/^RELEASE_BUILD_TIME=//p' release-inputs/identity.env)"
+          node scripts/release-image-inventory.mjs upstream-env image-references release-inputs/upstream-images.env > final-upstream-images.env
           while IFS='=' read -r key value; do
             export "$key=$value"
-          done < release-inputs/upstream-images.env
+          done < final-upstream-images.env
           for name in api web migrate runner worker; do
             key=$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')
             export "IMAGE_LINKSENSE_${key}=$(cat "image-references/$name")"
@@ -488,7 +617,7 @@ jobs:
           overwrite: true
 
   release:
-    needs: [prepare, image-indexes, assets, image-security]
+    needs: [prepare, image-indexes, assets, image-security, storage-upgrade]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -512,7 +641,7 @@ jobs:
         run: |
           set -euo pipefail
           docker logout ghcr.io >/dev/null 2>&1 || true
-          for name in api web migrate runner worker; do
+          for name in $(node scripts/release-image-inventory.mjs names); do
             reference=$(cat "image-references/$name")
             docker buildx imagetools inspect "$reference" >/dev/null || {
               echo "Make GHCR package linksense-$name public, then rerun this failed job." >&2
@@ -530,7 +659,7 @@ jobs:
           RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
         run: |
           set -euo pipefail
-          for name in api web migrate runner worker; do
+          for name in $(node scripts/release-image-inventory.mjs names); do
             tested_reference=$(cat "image-references/$name")
             tested_digest=${tested_reference##*@}
             release_reference="ghcr.io/lingx-ai/linksense-${name}:${RELEASE_VERSION}"

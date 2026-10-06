@@ -17,16 +17,16 @@ resolve() {
   immutable_reference=$("$root/scripts/resolve-release-image.sh" "$tag" linux/amd64 linux/arm64)
   printf 'IMAGE_%s=%s\n' "$key" "$immutable_reference" >> "$output/upstream-images.env"
 }
-resolve POSTGRES docker.io/library/postgres:16.10-alpine3.22
-resolve REDIS docker.io/library/redis:7.4.5-alpine3.21
-# Coolify's source-built image includes both the server and the signed mc client.
-# Keep setup on the same distribution instead of the retired MinIO registries.
-resolve MINIO ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z
-resolve MINIO_CLIENT ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z
+resolve POSTGRES docker.io/library/postgres:16-alpine
+resolve REDIS docker.io/library/redis:7.4-alpine
+# The maintained fork preserves the MinIO wire protocol and data layout.
+# Its distroless server omits unused OS utilities; setup gets a separate client.
+resolve MINIO docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z-distroless
+resolve MINIO_CLIENT docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
 resolve BUSYBOX docker.io/library/busybox:1.37.0
-resolve GATEWAY docker.io/library/nginx:1.28.0-alpine3.21
-resolve ELASTICSEARCH docker.elastic.co/elasticsearch/elasticsearch:8.19.2
-resolve DOCLING quay.io/docling-project/docling-serve:v1.27.0
+resolve GATEWAY docker.io/library/nginx:1.30-alpine
+resolve ELASTICSEARCH docker.elastic.co/elasticsearch/elasticsearch-wolfi:8.19.22
+resolve DOCLING quay.io/docling-project/docling-serve:v1.36.0
 
 lock="$root/deploy/release/tokenizer.lock.json"
 jq -e '

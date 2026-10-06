@@ -912,12 +912,13 @@ test("Core and Full compose models expose only the gateway on the configured por
   assert.match(full, /internal: true/u)
 })
 
-test("Core and Full use the selected MinIO images with bundled client readiness and initialization", () => {
+test("Core and Full keep distinct immutable server and client images with native readiness and initialization", () => {
   for (const edition of ["core", "full"]) {
     const environment = composeEnvironment(edition)
-    const image = `ghcr.io/coollabsio/minio@sha256:${"b".repeat(64)}`
+    const image = `docker.io/pgsty/silo@sha256:${"b".repeat(64)}`
+    const client = `ghcr.io/lingx-ai/linksense-minio-client@sha256:${"c".repeat(64)}`
     environment.MINIO_IMAGE = image
-    environment.MINIO_CLIENT_IMAGE = image
+    environment.MINIO_CLIENT_IMAGE = client
     const { services } = JSON.parse(
       execFileSync("docker",
         composeArguments(edition, ["config", "--format", "json"]),
@@ -925,13 +926,13 @@ test("Core and Full use the selected MinIO images with bundled client readiness 
       ),
     )
     assert.equal(services.minio.image, image)
-    assert.equal(services["minio-init"].image, image)
-    assert.deepEqual(services.minio.healthcheck.test, ["CMD", "mc", "ready", "local"])
+    assert.equal(services["minio-init"].image, client)
+    assert.deepEqual(services.minio.healthcheck.test, ["CMD", "/usr/bin/silo", "healthcheck", "ready"])
     assert.deepEqual(services["minio-init"].entrypoint, ["/bin/sh", "-ec"])
-    assert.match(services["minio-init"].command.join("\n"), /mc mb --ignore-existing/u)
+    assert.match(services["minio-init"].command.join("\n"), /mcli mb --ignore-existing/u)
     assert.match(
       services["minio-init"].command.join("\n"),
-      /mc admin policy attach local readwrite/u,
+      /mcli admin policy attach local readwrite/u,
     )
   }
 })
@@ -1108,7 +1109,7 @@ test("the release workflow reuses verified main checks before promotion", async 
     workflow.match(
       /docker\/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772/gu,
     )?.length,
-    5,
+    6,
   )
   assert.match(workflow, /sh scripts\/prepare-release-inputs\.sh release-inputs/u)
   assert.match(workflow, /cd release-inputs && sha256sum -c SHA256SUMS/u)
@@ -1117,8 +1118,8 @@ test("the release workflow reuses verified main checks before promotion", async 
   assert.match(workflow, /fail-fast: false/u)
   assert.doesNotMatch(workflow, /fail-fast: true/u)
   assert.match(workflow, /type=gha,scope=migrate-\{0\}/u)
-  assert.equal((workflow.match(/timeout=2m,ignore-error=true/gu) ?? []).length, 2)
-  assert.equal((workflow.match(/overwrite: true/gu) ?? []).length, 6)
+  assert.equal((workflow.match(/timeout=2m,ignore-error=true/gu) ?? []).length, 3)
+  assert.equal((workflow.match(/overwrite: true/gu) ?? []).length, 7)
   assert.doesNotMatch(workflow, /full-installation-smoke:/u)
   assert.doesNotMatch(workflow, /self-hosted|linksense-full-release/u)
   assert.match(workflow, /docker buildx imagetools create/u)
