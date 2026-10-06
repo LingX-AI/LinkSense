@@ -1,0 +1,10 @@
+{
+  "POSTGRES": "docker.io/library/postgres:16-alpine",
+  "REDIS": "docker.io/library/redis:7.4-alpine",
+  "MINIO": "docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z-distroless",
+  "MINIO_CLIENT": "docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z",
+  "BUSYBOX": "docker.io/library/busybox:1.37.0",
+  "GATEWAY": "docker.io/library/nginx:1.30-alpine",
+  "ELASTICSEARCH": "docker.elastic.co/elasticsearch/elasticsearch-wolfi:8.19.22",
+  "DOCLING": "quay.io/docling-project/docling-serve:v1.36.0"
+}
