@@ -1,0 +1,320 @@
+name: Maintain image baselines
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linksense-baseline-maintenance
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      baseline_id: ${{ steps.identity.outputs.baseline_id }}
+      fingerprint: ${{ steps.identity.outputs.fingerprint }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.34.6
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - name: Authorize baseline maintenance and freeze source inputs
+        id: identity
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ACTOR: ${{ vars.LINKSENSE_RELEASE_ACTOR }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = main
+          test -n "$RELEASE_ACTOR" && test "$GITHUB_ACTOR" = "$RELEASE_ACTOR"
+          for workflow in ci.yml security.yml; do
+            passed=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs" \
+              -f head_sha="$GITHUB_SHA" -f branch=main -f status=completed -f per_page=100 \
+              --jq 'first(.workflow_runs[] | select(.head_sha == env.GITHUB_SHA and .head_branch == "main" and .conclusion == "success" and (.event == "push" or .event == "public" or .event == "workflow_dispatch" or .event == "schedule"))) | select(. != null) | .id')
+            test -n "$passed" || { echo "$workflow must pass on the maintenance source commit." >&2; exit 1; }
+          done
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY" --jq .visibility)" = public ]; then
+            codeql=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$passed/jobs?per_page=100" \
+              --jq '.jobs[] | select(.name == "codeql" and .conclusion == "success") | .id')
+            test -n "$codeql" || { echo "CodeQL must pass before public baseline maintenance." >&2; exit 1; }
+          fi
+          pnpm --dir deploy/baselines/tools install --prod --frozen-lockfile --ignore-workspace --registry=https://registry.npmjs.org/
+          node deploy/baselines/tools/baseline-images.mjs freeze baseline-inputs
+          echo "baseline_id=baseline-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+          echo "fingerprint=$(node deploy/baselines/tools/baseline-images.mjs fingerprint)" >> "$GITHUB_OUTPUT"
+          date -u '+%Y-%m-%dT%H:%M:%SZ' > baseline-inputs/built-at
+          (cd baseline-inputs && sha256sum * > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: baseline-inputs
+          path: baseline-inputs/
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
+
+  build:
+    needs: prepare
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        component:
+          - { name: runtime-node, target: "node", file: deploy/baselines/Dockerfile.runtime, role: "", license: "CPAL-1.0" }
+          - { name: runtime-api, target: "api", file: deploy/baselines/Dockerfile.runtime, role: "", license: "CPAL-1.0" }
+          - { name: runtime-web, target: "web", file: deploy/baselines/Dockerfile.runtime, role: "GATEWAY", license: "CPAL-1.0" }
+          - { name: runtime-worker, target: "worker", file: deploy/baselines/Dockerfile.runtime, role: "", license: "CPAL-1.0" }
+          - { name: postgres, target: "", file: deploy/hardened/Dockerfile.postgres, role: "POSTGRES", license: "PostgreSQL" }
+          - { name: redis, target: "", file: deploy/hardened/Dockerfile.redis, role: "REDIS", license: "LicenseRef-RSALv2 OR SSPL-1.0" }
+          - { name: gateway, target: "", file: deploy/hardened/Dockerfile.gateway, role: "GATEWAY", license: "BSD-2-Clause" }
+          - { name: elasticsearch, target: "", file: deploy/hardened/Dockerfile.elasticsearch, role: "ELASTICSEARCH", license: "Elastic-2.0" }
+          - { name: docling, target: "", file: deploy/hardened/Dockerfile.docling, role: "DOCLING", license: "MIT" }
+          - { name: minio-client, target: "", file: deploy/hardened/Dockerfile.minio-client, role: "MINIO_CLIENT", license: "AGPL-3.0-or-later" }
+        platform:
+          - { architecture: amd64, os: linux/amd64, runner: ubuntu-24.04 }
+          - { architecture: arm64, os: linux/arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: baseline-inputs
+          path: baseline-inputs
+      - name: Select the frozen vendor image
+        if: matrix.component.role != ''
+        env:
+          UPSTREAM_ROLE: ${{ matrix.component.role }}
+        run: |
+          (cd baseline-inputs && sha256sum -c SHA256SUMS)
+          upstream=$(sed -n "s/^IMAGE_${UPSTREAM_ROLE}=//p" baseline-inputs/upstream-images.env)
+          test -n "$upstream"
+          echo "UPSTREAM_IMAGE=$upstream" >> "$GITHUB_ENV"
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build the runtime or patched vendor candidate
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: .
+          file: ${{ matrix.component.file }}
+          target: ${{ matrix.component.target }}
+          platforms: ${{ matrix.platform.os }}
+          build-args: |
+            UPSTREAM_IMAGE=${{ env.UPSTREAM_IMAGE }}
+            NGINX_IMAGE=${{ env.UPSTREAM_IMAGE }}
+            SECURITY_REBUILD_ID=${{ needs.prepare.outputs.baseline_id }}
+          push: true
+          tags: ghcr.io/lingx-ai/linksense-${{ matrix.component.name }}:${{ needs.prepare.outputs.baseline_id }}-${{ matrix.platform.architecture }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.baseline_id }}
+            org.opencontainers.image.licenses=${{ matrix.component.license }}
+            com.linksense.baseline.recipe=${{ needs.prepare.outputs.fingerprint }}
+            org.linksense.upstream.reference=${{ env.UPSTREAM_IMAGE }}
+          provenance: mode=min
+          sbom: true
+          cache-from: type=gha,scope=hardened-${{ matrix.component.name }}-${{ matrix.platform.architecture }}
+          cache-to: type=gha,mode=min,scope=hardened-${{ matrix.component.name }}-${{ matrix.platform.architecture }},timeout=2m,ignore-error=true
+      - name: Verify the patched component entrypoint
+        env:
+          COMPONENT: ${{ matrix.component.name }}
+          IMAGE: ghcr.io/lingx-ai/linksense-${{ matrix.component.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE"
+          case "$COMPONENT" in
+            runtime-node) docker run --rm --network none --entrypoint pnpm "$IMAGE" --version ;;
+            runtime-api) docker run --rm --network none --entrypoint /opt/linksense/unoserver/bin/python "$IMAGE" -c 'import uno, unoserver' ;;
+            runtime-web) docker run --rm --network none --entrypoint nginx "$IMAGE" -t ;;
+            runtime-worker) docker run --rm --network none --entrypoint node "$IMAGE" /opt/linksense/tooling/verify-kernel-headers.mjs; docker run --rm --network none --entrypoint codex "$IMAGE" --version ;;
+            postgres) docker run --rm --entrypoint gosu "$IMAGE" --version; docker run --rm --entrypoint postgres "$IMAGE" --version ;;
+            redis) docker run --rm --entrypoint redis-server "$IMAGE" --version ;;
+            gateway) docker run --rm --entrypoint nginx "$IMAGE" -t ;;
+            elasticsearch) node scripts/elasticsearch-image-smoke.mjs "$IMAGE" ;;
+            docling) docker run --rm --network none --env DOCLING_SERVE_ENG_KIND=rq --env DOCLING_SERVE_ENG_RQ_REDIS_URL=redis://127.0.0.1:6379/0 --entrypoint /opt/app-root/bin/python "$IMAGE" -c 'import docling_serve.app; import docling_jobkit.orchestrators.rq.orchestrator' ;;
+            minio-client) docker run --rm --entrypoint mcli "$IMAGE" --version ;;
+          esac
+      - name: Record immutable patched candidate
+        env:
+          COMPONENT: ${{ matrix.component.name }}
+          ARCHITECTURE: ${{ matrix.platform.architecture }}
+          IMAGE: ghcr.io/lingx-ai/linksense-${{ matrix.component.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          mkdir image-reference
+          printf '%s\n' "$IMAGE" > "image-reference/$COMPONENT-$ARCHITECTURE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: baseline-platform-${{ matrix.component.name }}-${{ matrix.platform.architecture }}
+          path: image-reference/
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
+
+  assemble:
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.34.6
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: baseline-platform-*
+          path: image-platform-references
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: baseline-inputs
+          path: baseline-inputs
+      - name: Merge verified architecture candidates and assemble the baseline descriptor
+        env:
+          BASELINE_ID: ${{ needs.prepare.outputs.baseline_id }}
+          BASELINE_WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          pnpm --dir deploy/baselines/tools install --prod --frozen-lockfile --ignore-workspace --registry=https://registry.npmjs.org/
+          (cd baseline-inputs && sha256sum -c SHA256SUMS)
+          export BASELINE_BUILD_TIME="$(cat baseline-inputs/built-at)"
+          mkdir image-references
+          for name in $(node deploy/baselines/tools/baseline-images.mjs names); do
+            reference="ghcr.io/lingx-ai/linksense-${name}:${BASELINE_ID}"
+            docker buildx imagetools create --tag "$reference" \
+              "$(cat image-platform-references/$name-amd64)" "$(cat image-platform-references/$name-arm64)"
+            sh scripts/resolve-release-image.sh "$reference" linux/amd64 linux/arm64 > "image-references/$name"
+          done
+          node deploy/baselines/tools/baseline-images.mjs assemble image-references baseline-inputs/upstream-images.env baseline-candidate
+          (cd baseline-candidate && find . -type f ! -name SHA256SUMS | sort | xargs sha256sum > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: baseline-candidate
+          path: baseline-candidate/
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
+
+  security:
+    needs: assemble
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: baseline-candidate
+          path: baseline-candidate
+      - name: Install checksum-pinned Trivy and scan all baseline components
+        run: |
+          set -euo pipefail
+          (cd baseline-candidate && sha256sum -c SHA256SUMS)
+          mkdir -p baseline-reports "$RUNNER_TEMP/trivy"
+          curl --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 15 --max-time 300 -fsSL \
+            https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz -o "$RUNNER_TEMP/trivy/archive.tar.gz"
+          printf 'c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f  %s\n' "$RUNNER_TEMP/trivy/archive.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/trivy/archive.tar.gz" -C "$RUNNER_TEMP/trivy" trivy
+          export PATH="$RUNNER_TEMP/trivy:$PATH"
+          sh scripts/scan-release-images.sh baseline-candidate/image-references baseline-candidate/release-inputs baseline-reports "linux/${{ matrix.architecture }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: baseline-security-${{ matrix.architecture }}
+          path: baseline-reports/
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
+  storage-upgrade:
+    needs: assemble
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: baseline-candidate
+          path: baseline-candidate
+      - name: Verify existing object and identity preservation
+        run: |
+          (cd baseline-candidate && sha256sum -c SHA256SUMS)
+          server=$(node -p 'require("./baseline-candidate/images.lock.json").services.MINIO')
+          client=$(node -p 'require("./baseline-candidate/images.lock.json").services.MINIO_CLIENT')
+          node scripts/storage-image-upgrade-smoke.mjs "$server" "$client"
+
+  verified:
+    needs: [assemble, security, storage-upgrade]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: baseline-candidate
+          path: baseline-candidate
+      - name: Verify anonymous availability before accepting the new baseline
+        run: |
+          set -euo pipefail
+          (cd baseline-candidate && sha256sum -c SHA256SUMS)
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          node -e 'const b=require("./baseline-candidate/images.lock.json"); for(const ref of new Set([...Object.values(b.runtimes),...Object.values(b.services)])) require("child_process").execFileSync("docker",["buildx","imagetools","inspect",ref],{stdio:"inherit",timeout:120000})'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: verified-baseline
+          path: baseline-candidate/images.lock.json
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true
