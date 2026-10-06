@@ -60,6 +60,7 @@ jobs:
         run: |
           pnpm --filter @linksense/shared build
           pnpm test:deployment
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_patch_elasticsearch_jars.py
           pnpm --filter @linksense/shared test
           pnpm --filter @linksense/api test
           pnpm --filter @linksense/runner test
