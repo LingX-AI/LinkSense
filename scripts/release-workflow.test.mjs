@@ -20,6 +20,9 @@ test("native application verification builds every thin image without publishing
   assert.equal(build.with.load, true)
   assert.deepEqual(verification.jobs.build.permissions, { contents: "read", packages: "read" })
   assert.equal(verification.jobs.identities.needs, "build")
+  const smoke = verification.jobs.build.steps.find(step => step.name?.startsWith("Check inherited tools"))
+  assert.match(smoke.run, /migrate\) docker run --rm --network none --env DATABASE_URL=postgresql:\/\/build:build@127\.0\.0\.1:5432\/build --entrypoint pnpm "\$IMAGE" exec prisma --version/u)
+  assert.doesNotMatch(smoke.run, /db:migrate:deploy|migrate deploy|db:seed/u)
   assert.doesNotMatch(JSON.stringify(verification), /packages":"write|contents":"write|gh release|publish-release\.mjs/u)
 })
 
