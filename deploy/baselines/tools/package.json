@@ -1,0 +1,10 @@
+{
+  "name": "@linksense/baseline-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "CPAL-1.0",
+  "packageManager": "pnpm@10.34.6",
+  "dependencies": { "zod": "4.4.3" },
+  "pnpm": { "onlyBuiltDependencies": [] }
+}
