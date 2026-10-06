@@ -370,13 +370,13 @@ macOS 使用相同命令，但不加 `sudo`。
 
 ## 本地开发
 
-需要 Node.js 24+、pnpm 10.6.4、Docker Engine / Compose 和 rsync。
+需要 Node.js 24+、pnpm 10.34.6、Docker Engine / Compose 和 rsync。
 
 应用及其依赖在 Linux 容器中运行，宿主机上的 rsync 仅用于同步源码。
 
 ```bash
 corepack enable
-corepack prepare pnpm@10.6.4 --activate
+corepack prepare pnpm@10.34.6 --activate
 pnpm install --frozen-lockfile
 pnpm dev:prepare
 pnpm dev

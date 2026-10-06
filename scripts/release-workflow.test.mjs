@@ -13,6 +13,7 @@ const { parse } = createRequire(new URL("../apps/api/package.json", import.meta.
 test("formal image tags and GitHub Release publication require every architecture security scan", () => {
   const { jobs } = parse(workflow)
   assert.ok(jobs.release.needs.includes("image-security"))
+  assert.ok(jobs.release.needs.includes("storage-upgrade"))
   const gate = jobs["image-security"]
   assert.deepEqual(gate.needs, ["prepare", "image-indexes"])
   assert.deepEqual(gate.strategy.matrix.architecture, ["amd64", "arm64"])
@@ -24,7 +25,10 @@ test("formal image tags and GitHub Release publication require every architectur
   const scan = gate.steps.find((step) => step.run?.includes("scripts/scan-release-images.sh"))
   assert.match(scan.run, /sha256sum -c SHA256SUMS/u)
   assert.match(scan.run, /release-inputs\/identity\.env/u)
-  assert.match(scan.run, /image-references release-inputs image-security-reports/u)
+  assert.match(scan.run, /image-references verified-inputs image-security-reports/u)
+  assert.match(scan.run, /release-image-inventory\.mjs upstream-env/u)
+  assert.ok(jobs["image-indexes"].needs.includes("hardened-images"))
+  assert.equal(jobs["hardened-images"].strategy.matrix.component.length, 6)
   assert.equal(scan.env.RELEASE_VERSION, "${{ needs.prepare.outputs.release_version }}")
   assert.equal(scan.env.SOURCE_SHA, "${{ needs.prepare.outputs.source_sha }}")
   assert.equal(scan.env.SCAN_PLATFORM, "linux/${{ matrix.architecture }}")

@@ -216,3 +216,17 @@ test("unsupported target platforms fail before touching a registry", (t) => {
   assert.notEqual(scan("linux/ppc64le").status, 0)
   assert.equal(commands().length, 0)
 })
+
+test("vendor VEX corrects only the specific fixed SILO revision and is confined to its server role", () => {
+  const vex = JSON.parse(readFileSync(path.join(root, "deploy/security/silo-fixed.vex.json"), "utf8"))
+  assert.equal(vex.statements.length, 1)
+  const statement = vex.statements[0]
+  assert.equal(statement.status, "fixed")
+  assert.equal(statement.vulnerability.name, "CVE-2026-39414")
+  assert.deepEqual(statement.products, [{ "@id": "pkg:golang/github.com/minio/minio@v0.0.0-20260916155009-2a4d51406b7e" }])
+  assert.match(statement.status_notes, /SIMD/u)
+  assert.match(statement.status_notes, /https:\/\/silo\.pgsty\.com/u)
+  const scriptSource = readFileSync(script, "utf8")
+  assert.match(scriptSource, /\[ "\$role" = MINIO \]/u)
+  assert.match(scriptSource, /set -- --vex "\$vex_file"/u)
+})

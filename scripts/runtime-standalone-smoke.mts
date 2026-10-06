@@ -22,7 +22,7 @@ try {
     baseNodeProject: publicRuntime.nodeProject,
     nodeRegisterHook: publicRuntime.nodeRegisterHook,
     runtimeToolBin: publicRuntime.toolBin,
-    pnpmVersion: "10.6.4",
+    pnpmVersion: "10.34.6",
   })
   const result = await execFileAsync(
     process.execPath,

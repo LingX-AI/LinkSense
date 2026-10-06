@@ -106,15 +106,17 @@ test("preparation freezes all upstream digests, tokenizer bytes, entry scripts a
   const requestedImages = readFileSync(`${countFile}.images`, "utf8")
     .trim()
     .split("\n")
-  const minioImage = "ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z"
-  assert.deepEqual(requestedImages.slice(2, 4), [minioImage, minioImage])
+  assert.deepEqual(requestedImages.slice(2, 4), [
+    "docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z-distroless",
+    "docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z",
+  ])
   const images = readFileSync(path.join(output, "upstream-images.env"), "utf8")
     .trim()
     .split("\n")
   assert.equal(images.length, 8)
   for (const name of ["MINIO", "MINIO_CLIENT"]) {
     assert.ok(images.some((line) =>
-      line.startsWith(`IMAGE_${name}=ghcr.io/coollabsio/minio@sha256:`),
+      line.startsWith(`IMAGE_${name}=docker.io/pgsty/silo@sha256:`),
     ))
   }
   assert.ok(

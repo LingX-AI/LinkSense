@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1.7
+ARG UPSTREAM_IMAGE=quay.io/docling-project/docling-serve:v1.36.0
+FROM ghcr.io/astral-sh/uv:0.9.13 AS uv
+FROM ${UPSTREAM_IMAGE}
+USER 0
+COPY --from=uv /uv /usr/local/bin/uv
+# LinkSense runs the vendor's RQ backend exclusively. Ray is an optional engine
+# with unrelated Java dependencies; do not ship an unused backend in this image.
+RUN uv pip uninstall --python /opt/app-root/bin/python ray \
+  && DOCLING_SERVE_ENG_KIND=rq HF_HUB_OFFLINE=1 /opt/app-root/bin/python -c 'import importlib.util; import docling_serve.app; import docling_jobkit.orchestrators.rq.orchestrator; assert importlib.util.find_spec("ray") is None'
+USER 1001:0

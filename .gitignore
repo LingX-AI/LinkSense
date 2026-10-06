@@ -34,3 +34,5 @@ deploy/codex-home-template/*.credentials.json
 apps/web/public/flyfish-viewer-assets.json
 apps/web/public/vendor/
 apps/web/dummy-non-existing-folder/
+**/__pycache__/
+**/.venv/

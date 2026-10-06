@@ -4,8 +4,9 @@ import { basename, resolve } from "node:path";
 
 export function sourceFingerprint(rootDirectory, relativePaths, excludedPaths = []) {
   const hash = createHash("sha256");
+  const dependencyCaches = new Set(["node_modules", ".venv", "__pycache__"]);
   function visit(relativePath) {
-    if (excludedPaths.includes(relativePath) || basename(relativePath) === ".DS_Store") return;
+    if (excludedPaths.includes(relativePath) || basename(relativePath) === ".DS_Store" || dependencyCaches.has(basename(relativePath))) return;
     const absolutePath = resolve(rootDirectory, relativePath);
     if (statSync(absolutePath).isDirectory()) {
       for (const entry of readdirSync(absolutePath).sort()) visit(`${relativePath}/${entry}`);

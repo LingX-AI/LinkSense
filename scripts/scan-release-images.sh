@@ -102,6 +102,13 @@ while IFS="$tab" read -r role reference; do
   index_file="$report_directory/$role.index.json"
   log_file="$report_directory/$role.log"
   report_file="$report_directory/$role.json"
+  set --
+  if [ "$role" = MINIO ]; then
+    vex_file="$(dirname "$0")/../deploy/security/silo-fixed.vex.json"
+    test -f "$vex_file" || fail 'Missing version-scoped SILO vendor fix evidence.'
+    cp "$vex_file" "$report_directory/silo-fixed.vex.json"
+    set -- --vex "$vex_file"
+  fi
   if ! timeout --kill-after=30s 120 docker buildx imagetools inspect --raw "$reference" > "$index_file" 2> "$log_file"; then
     record error 'Registry lookup failed; see the role log.'
     failed=1
@@ -147,7 +154,7 @@ while IFS="$tab" read -r role reference; do
     --skip-db-update --skip-java-db-update \
     --image-src remote --platform "$platform" --scanners vuln --pkg-types os,library \
     --severity HIGH,CRITICAL --ignore-unfixed=false --ignorefile '' \
-    --format json --exit-code 1 --output "$report_file" "$manifest_reference" \
+    --format json --exit-code 1 --output "$report_file" "$@" "$manifest_reference" \
     >> "$log_file" 2>&1 || scan_status=$?
   if ! jq -e --arg reference "$manifest_reference" --arg architecture "$architecture" '
     .SchemaVersion == 2 and .Trivy.Version == "0.75.0" and

@@ -32,7 +32,7 @@ MinIO 使用 Coolify 团队在 GitHub GHCR 发布的第三方构建 `ghcr.io/coo
 - GitHub 原生私有仓库 artifact attestations
 - 私有仓库 CodeQL 和 Dependency Review
 
-发布流程仍生成 BuildKit SBOM 和最小 provenance，并要求待发布提交已通过 CI 和 Security。CI 执行生产依赖审计和部署测试，Security 执行 Gitleaks 历史扫描。发布还独立扫描全部候选镜像和第三方镜像，两个架构均通过后才创建正式镜像标签和发布 Release。仓库公开时，`public` 事件自动触发 Security 并运行 CodeQL；公开仓库的 PR 还会运行 Dependency Review。Security 也支持在 Actions 页面手动运行。
+发布流程仍生成 BuildKit SBOM 和最小 provenance，并要求待发布提交已通过 CI 和 Security。CI 执行生产依赖审计和部署测试，Security 执行 Gitleaks 历史扫描。发布还独立扫描全部最终镜像，两个架构均通过后才创建正式镜像标签和发布 Release。PostgreSQL、Redis、网关、Elasticsearch、Docling 和存储客户端会从已冻结的厂商摘要构建安全更新衍生镜像；安装清单与扫描使用相同的最终摘要。仓库公开时，`public` 事件自动触发 Security 并运行 CodeQL；公开仓库的 PR 还会运行 Dependency Review。Security 也支持在 Actions 页面手动运行。
 
 公开仓库发版时，会进一步确认选中的 Security 运行中 `codeql` job 已成功。私有阶段跳过 CodeQL 的成功记录不能用于公开发版；须等待公开后的 Security 通过，或在 `main` 上手动运行 Security。CI 必须来自同一提交的成功 `push` 运行；Security 可以来自同一提交、`main` 分支的 `push`、`public`、`workflow_dispatch` 或 `schedule` 运行，不接受 PR 检查替代。
 
@@ -53,6 +53,12 @@ GHCR 首次创建包时默认为私有。首次工作流生成候选镜像后，
 - `linksense-migrate`
 - `linksense-runner`
 - `linksense-worker`
+- `linksense-postgres`
+- `linksense-redis`
+- `linksense-gateway`
+- `linksense-elasticsearch`
+- `linksense-docling`
+- `linksense-minio-client`
 
 公开镜像意味着任何人都可以下载并保留副本，因此该步骤需要明确确认。最终发布任务会先退出 GHCR，再匿名检查五个候选镜像；未全部公开时任务会安全失败。完成可见性调整后，只需重新运行失败的 `release` job。
 
@@ -100,6 +106,12 @@ test ! -e /absolute/path/to/linksense-github/design-qa.md
 覆盖 `api`、`web`、`migrate`、`runner`、`worker`，以及清单中的 PostgreSQL、Redis、MinIO 服务端、MinIO 客户端、BusyBox、Nginx 网关、Elasticsearch、Docling，共 13 个镜像角色。MinIO 服务端和客户端即使复用同一摘要，仍分别记录扫描结果。扫描包含操作系统和语言依赖包；HIGH / CRITICAL 漏洞即使尚无修复版本也会阻断发布，不加载 `.trivyignore` 或环境变量中的扫描策略覆盖。
 
 每次运行使用新的缓存目录，从官方 GHCR 下载漏洞数据库和 Java 索引数据库。数据库、镜像或网络下载失败、进程超时、缺失镜像或架构、报告缺失或不匹配都属于失败，不得通过跳过扫描续发。外部进程超时后会先请求终止，30 秒内仍未退出则强制结束，避免下载卡住时无限等待。正式镜像标签和 GitHub Release 发布都依赖整个扫描矩阵成功。
+
+`Release image preflight` 支持在完整构建前对候选厂商镜像进行相同策略的双架构检查，输入为全部 13 个角色的 JSON 映射。此工作流只读取和扫描镜像，不发布版本。
+
+SILO 的 `CVE-2026-39414` 已由厂商在维护分支修复，但其保留的 MinIO Go 模块名会产生误报。`deploy/security/silo-fixed.vex.json` 以 OpenVEX `fixed` 状态记录厂商证据，仅匹配具体源版本 `v0.0.0-20260916155009-2a4d51406b7e`，仅用于存储服务端扫描，并随报告保存。其他版本与其他漏洞不受此记录影响；真实 HIGH/CRITICAL 命中仍然阻止发布。
+
+生产 Node 镜像使用经过安全更新的 Ubuntu 24.04 运行层，保留 Node 24、Python 3.12 与原有 UID/GID。可通过 `UBUNTU_MIRROR_URL`、`UBUNTU_SECURITY_MIRROR_URL` 配置运行层构建源；Debian 构建阶段仍使用现有 Debian 源参数。迁移镜像只包含专用锁定依赖、原有 Prisma 迁移和 seed，以及在构建时生成的客户端。
 
 无论扫描成功还是失败，工作流都会尝试保存 `image-security-reports-amd64` 和 `image-security-reports-arm64`，保留 30 天。先查看 `summary.json` 定位角色、索引摘要、架构 manifest 摘要和失败类型，再查看对应的 `<ROLE>.json` 漏洞报告与 `<ROLE>.log`；数据库版本元数据和安装日志也一并保存。扫描失败不会撤销已生成的候选镜像，但不会创建正式版本标签或发布 Release。
 

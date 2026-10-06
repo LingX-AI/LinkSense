@@ -1,0 +1,10 @@
+# syntax=docker/dockerfile:1.7
+ARG UPSTREAM_IMAGE=docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
+FROM ${UPSTREAM_IMAGE} AS upstream
+FROM alpine:3.23
+ARG SECURITY_REBUILD_ID=local
+RUN test -n "$SECURITY_REBUILD_ID" && apk upgrade --no-cache && apk add --no-cache ca-certificates
+COPY --from=upstream --chmod=0755 /usr/bin/mcli /usr/bin/mcli
+COPY --from=upstream /licenses/ /licenses/
+ENV MC_CONFIG_DIR=/tmp/.mc
+ENTRYPOINT ["/usr/bin/mcli"]

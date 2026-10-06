@@ -1,0 +1,18 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/LingX-AI/LinkSense/blob/main/deploy/security/silo-fixed.vex.json",
+  "author": "LinkSense release engineering",
+  "role": "Document Creator",
+  "timestamp": "2026-10-06T04:00:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": { "name": "CVE-2026-39414" },
+      "products": [
+        { "@id": "pkg:golang/github.com/minio/minio@v0.0.0-20260916155009-2a4d51406b7e" }
+      ],
+      "status": "fixed",
+      "status_notes": "PGSTY SILO RELEASE.2026-09-16 contains the complete June 18 fix, including the SIMD bypass correction. The fork intentionally retains the upstream Go module path. Vendor evidence: https://silo.pgsty.com/zh/about/security-advisories/ and https://silo.pigsty.cc/blog/security/cve-2026-39414/. Applies only to this exact source revision, not upstream MinIO or any other release."
+    }
+  ]
+}

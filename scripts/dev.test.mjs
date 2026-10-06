@@ -993,7 +993,7 @@ test("changing the repository Codex pin rebuilds the development worker", async 
       "apps/runner/package.json", "apps/runner/src", "apps/runner/tsconfig.json",
       "apps/runner/tsconfig.build.json", "packages/shared/package.json",
       "packages/shared/src", "packages/shared/tsconfig.json", "deploy/codex-home-template",
-      "deploy/codex-system", "deploy/docker/configure-debian-apt.sh",
+      "deploy/codex-system", "deploy/docker/configure-debian-apt.sh", "deploy/docker/bootstrap-ubuntu-node.sh",
       "deploy/docker/runner-runtime-smoke.mjs", "deploy/runtime/browser",
       "deploy/runtime/fonts", "deploy/runtime/node", "deploy/runtime/python", "deploy/runtime/shell",
     ]) {

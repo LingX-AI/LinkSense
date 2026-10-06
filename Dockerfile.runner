@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_IMAGE=node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
-ARG PYTHON_IMAGE=python:3.12-slim-bookworm
+ARG NODE_IMAGE=node:24-trixie-slim@sha256:9aa7037f0da5b7578ba0d9974d6970da91017e019929ec85eb4e7da22af83b1b
+ARG PYTHON_IMAGE=python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3
+ARG UBUNTU_IMAGE=ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
 ARG UV_VERSION=0.9.13
-ARG PNPM_VERSION=10.6.4
+ARG PNPM_VERSION=10.34.6
 ARG DEBIAN_MIRROR_URL=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR_URL=http://security.debian.org/debian-security
 ARG LINKSENSE_PYTHON_PACKAGE_INDEX_URL=https://pypi.org/simple/
@@ -19,9 +20,17 @@ ENV COREPACK_HOME=/pnpm/corepack
 ENV PATH=${PNPM_HOME}:${PATH}
 ENV NPM_CONFIG_REGISTRY=${LINKSENSE_NODE_PACKAGE_REGISTRY_URL}
 RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
-  && corepack enable \
+  && corepack enable pnpm \
   && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@${PNPM_VERSION} --activate
 WORKDIR /workspace
+
+FROM ${UBUNTU_IMAGE} AS node-runtime
+ARG UBUNTU_MIRROR_URL
+ARG UBUNTU_SECURITY_MIRROR_URL
+COPY --from=toolchain /usr/local/ /usr/local/
+COPY --chmod=0755 deploy/docker/bootstrap-ubuntu-node.sh /usr/local/bin/bootstrap-ubuntu-node
+ARG SECURITY_REBUILD_ID=local
+RUN test -n "$SECURITY_REBUILD_ID" && UBUNTU_MIRROR_URL="${UBUNTU_MIRROR_URL}" UBUNTU_SECURITY_MIRROR_URL="${UBUNTU_SECURITY_MIRROR_URL}" /usr/local/bin/bootstrap-ubuntu-node
 
 FROM toolchain AS dependencies
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -110,18 +119,16 @@ FROM ${LINKSENSE_BROWSER_RUNTIME_CACHE_IMAGE} AS browser-runtime-cache
 
 # The controller is trusted infrastructure. It owns the Docker Engine socket
 # and never executes Codex, skill scripts, or user package managers.
-FROM ${NODE_IMAGE} AS controller
+FROM node-runtime AS controller
 ARG PNPM_VERSION
 ARG DEBIAN_MIRROR_URL
 ARG DEBIAN_SECURITY_MIRROR_URL
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
 COPY --chmod=0444 LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE /usr/share/licenses/linksense/
-COPY --chmod=0755 deploy/docker/configure-debian-apt.sh /usr/local/bin/configure-debian-apt
-RUN DEBIAN_MIRROR_URL="${DEBIAN_MIRROR_URL}" \
-    DEBIAN_SECURITY_MIRROR_URL="${DEBIAN_SECURITY_MIRROR_URL}" \
-    /usr/local/bin/configure-debian-apt \
-  && apt-get update \
+RUN apt-get update \
   && apt-get install --yes --no-install-recommends ca-certificates curl \
+  && rm -rf /usr/local/lib/node_modules/npm \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx \
   && rm -rf /var/lib/apt/lists/*
 ENV LINKSENSE_PNPM_VERSION=${PNPM_VERSION}
 WORKDIR /app
@@ -138,7 +145,7 @@ CMD ["node", "dist/index.js"]
 # required to launch tasks and normalize task-owned files on bind mounts.
 # Codex and every task-side child then run as linksense-task (1001:1000) after
 # clearing inherited capabilities.
-FROM ${NODE_IMAGE} AS worker-base
+FROM node-runtime AS worker-base
 ARG PNPM_VERSION
 ARG DEBIAN_MIRROR_URL
 ARG DEBIAN_SECURITY_MIRROR_URL
@@ -171,11 +178,7 @@ ARG DEBIAN_MIRROR_URL
 ARG DEBIAN_SECURITY_MIRROR_URL
 ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL
 ARG PLAYWRIGHT_DOWNLOAD_HOST
-COPY --chmod=0755 deploy/docker/configure-debian-apt.sh /usr/local/bin/configure-debian-apt
 RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
-  && DEBIAN_MIRROR_URL="${DEBIAN_MIRROR_URL}" \
-    DEBIAN_SECURITY_MIRROR_URL="${DEBIAN_SECURITY_MIRROR_URL}" \
-    /usr/local/bin/configure-debian-apt \
   && apt-get update \
   && apt-get install --yes --no-install-recommends \
     ca-certificates \
@@ -213,8 +216,11 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
   && fc-cache -f \
   && useradd --uid 1001 --gid node --no-create-home --home-dir /home/linksense --shell /usr/sbin/nologin linksense-task \
   && install -d -o linksense-task -g node -m 0770 /home/linksense \
-  && corepack enable \
+  && corepack enable pnpm \
   && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@${PNPM_VERSION} --activate \
+  && pnpm add --global npm@12.2.0 \
+  && rm -rf /usr/local/lib/node_modules/npm \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx \
   && codex_version="$(node -e 'const { version } = require("/opt/linksense/codex-runtime-version.json"); if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error("Invalid pinned Codex version"); process.stdout.write(version)')" \
   && pnpm add --global "@openai/codex@${codex_version}" \
   && pnpm store prune \
@@ -304,11 +310,7 @@ ARG DEBIAN_MIRROR_URL
 ARG DEBIAN_SECURITY_MIRROR_URL
 ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL
 ARG PLAYWRIGHT_DOWNLOAD_HOST
-COPY --chmod=0755 deploy/docker/configure-debian-apt.sh /usr/local/bin/configure-debian-apt
 RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
-  && DEBIAN_MIRROR_URL="${DEBIAN_MIRROR_URL}" \
-    DEBIAN_SECURITY_MIRROR_URL="${DEBIAN_SECURITY_MIRROR_URL}" \
-    /usr/local/bin/configure-debian-apt \
   && apt-get update \
   && apt-get install --yes --no-install-recommends \
     ca-certificates \
@@ -348,6 +350,9 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
   && install -d -o linksense-task -g node -m 0770 /home/linksense \
   && corepack enable \
   && COREPACK_NPM_REGISTRY="${corepack_registry}" corepack prepare pnpm@${PNPM_VERSION} --activate \
+  && pnpm add --global npm@12.2.0 \
+  && rm -rf /usr/local/lib/node_modules/npm \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx \
   && codex_version="$(node -e 'const { version } = require("/opt/linksense/codex-runtime-version.json"); if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error("Invalid pinned Codex version"); process.stdout.write(version)')" \
   && pnpm add --global "@openai/codex@${codex_version}" \
   && pnpm store prune \

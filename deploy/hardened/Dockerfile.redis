@@ -1,0 +1,4 @@
+ARG UPSTREAM_IMAGE=redis:7.4-alpine
+FROM ${UPSTREAM_IMAGE}
+ARG SECURITY_REBUILD_ID=local
+RUN test -n "$SECURITY_REBUILD_ID" && apk upgrade --no-cache

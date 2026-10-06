@@ -1,0 +1,18 @@
+# syntax=docker/dockerfile:1.7
+ARG UPSTREAM_IMAGE=docker.elastic.co/elasticsearch/elasticsearch-wolfi:8.19.22
+FROM ${UPSTREAM_IMAGE} AS upstream
+FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3 AS patch
+RUN apt-get update && apt-get install --yes --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=upstream /usr/share/elasticsearch /elasticsearch
+COPY scripts/patch-elasticsearch-jars.py /patch-elasticsearch-jars.py
+RUN mkdir /patches \
+  && curl --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 15 --max-time 120 -fsSL https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/2.21.7/jackson-core-2.21.7.jar -o /patches/jackson-core-2.21.7.jar \
+  && curl --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 15 --max-time 120 -fsSL https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.21.7/jackson-databind-2.21.7.jar -o /patches/jackson-databind-2.21.7.jar \
+  && curl --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 15 --max-time 120 -fsSL https://repo.maven.apache.org/maven2/org/jsoup/jsoup/1.23.2/jsoup-1.23.2.jar -o /patches/jsoup-1.23.2.jar \
+  && printf '%s\n' \
+    'a4f38908ebf7cb3da776955c398c7b55b0c056ae7265a511b4a2a37ef5a4c6fed433d611ee4f3a1071aa966cc5d16b1fcb95a0e7d672002ece9d89367a4f8f85  /patches/jackson-core-2.21.7.jar' \
+    '3485a31a4815ef2577b91667768eebb10bea7ece6b1b7cc0fa3c06f2746c003f4f32c19c52cc30ad13813eff9941ae212caffa9353c717d00947ab80ecc76bd3  /patches/jackson-databind-2.21.7.jar' \
+    'b9d688df29faac621391d4f1a3391bbd756b74cdc3294ed15ae515eb9ae47eb81a8ec1ae3db4081c07a98129b03d3b24eba1dedce754328d8142c256a7ff0622  /patches/jsoup-1.23.2.jar' | sha512sum -c - \
+  && python /patch-elasticsearch-jars.py /elasticsearch /patches
+FROM ${UPSTREAM_IMAGE}
+COPY --from=patch --chown=elasticsearch:root /elasticsearch/ /usr/share/elasticsearch/

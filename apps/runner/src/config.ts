@@ -104,7 +104,7 @@ const runnerConfigSchema = z
       .string()
       .trim()
       .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u)
-      .default("10.6.4"),
+      .default("10.34.6"),
     LINKSENSE_PYTHON_PACKAGE_INDEX_URL: securePackageRepositoryUrl.default(
       DEFAULT_PYTHON_PACKAGE_INDEX_URL,
     ),
