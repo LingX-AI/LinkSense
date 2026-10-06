@@ -1237,6 +1237,11 @@ worker_source_fingerprint() {
       deploy/codex-home-template/config.toml \
       deploy/codex-system/requirements.toml \
       deploy/docker/configure-debian-apt.sh \
+      deploy/docker/bootstrap-ubuntu-node.sh \
+      deploy/docker/patch-tooling-libraries.mjs \
+      deploy/docker/verify-tooling-libraries.mjs \
+      deploy/docker/verify-kernel-headers.mjs \
+      deploy/runtime/tooling-security \
       deploy/runtime/browser \
       deploy/runtime/fonts \
       deploy/runtime/node \
@@ -1260,6 +1265,10 @@ worker_runtime_changed_paths() {
     packages/shared \
     deploy/codex-home-template/config.toml \
     deploy/codex-system/requirements.toml \
+    deploy/docker/patch-tooling-libraries.mjs \
+    deploy/docker/verify-tooling-libraries.mjs \
+    deploy/docker/verify-kernel-headers.mjs \
+    deploy/runtime/tooling-security \
     deploy/runtime/browser \
     deploy/runtime/fonts \
     deploy/runtime/node \
@@ -1285,6 +1294,11 @@ worker_rebuild_changed_paths() {
     deploy/codex-home-template/config.toml \
     deploy/codex-system/requirements.toml \
     deploy/docker/configure-debian-apt.sh \
+    deploy/docker/bootstrap-ubuntu-node.sh \
+    deploy/docker/patch-tooling-libraries.mjs \
+    deploy/docker/verify-tooling-libraries.mjs \
+    deploy/docker/verify-kernel-headers.mjs \
+    deploy/runtime/tooling-security \
     deploy/runtime/browser \
     deploy/runtime/fonts \
     deploy/runtime/node \

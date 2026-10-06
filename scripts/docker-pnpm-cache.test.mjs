@@ -4,8 +4,8 @@ import test from "node:test";
 
 for (const [file, expectedInstalls, user] of [
   ["Dockerfile.dev", 1, "node"],
-  ["Dockerfile.api", 2, "root"],
-  ["Dockerfile.runner", 3, "root"],
+  ["Dockerfile.api", 3, "root"],
+  ["Dockerfile.runner", 4, "root"],
   ["Dockerfile.web", 1, "root"],
 ]) {
   test(`${file} reuses pnpm downloads after dependency layers change`, async () => {

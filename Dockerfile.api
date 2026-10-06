@@ -40,6 +40,14 @@ RUN DEBIAN_MIRROR_URL="${DEBIAN_MIRROR_URL}" \
   && apt-get install --yes --no-install-recommends ca-certificates openssl \
   && rm -rf /var/lib/apt/lists/*
 
+FROM toolchain AS tooling-security-dependencies
+WORKDIR /tooling-security-dependencies
+COPY deploy/runtime/tooling-security/package.json deploy/runtime/tooling-security/pnpm-lock.yaml ./
+ARG TARGETARCH
+ARG TARGETVARIANT
+RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-root,target=/pnpm/store,sharing=locked \
+  pnpm install --prod --frozen-lockfile --ignore-workspace --node-linker=hoisted --prefer-offline --store-dir=/pnpm/store --package-import-method=copy
+
 FROM toolchain AS dependencies
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml prisma.config.ts tsconfig.base.json ./
 COPY patches patches
@@ -102,7 +110,12 @@ ENV COREPACK_HOME=/pnpm/corepack
 ENV PATH=${PNPM_HOME}:${PATH}
 WORKDIR /workspace
 COPY --from=toolchain /pnpm/corepack /pnpm/corepack
-RUN corepack enable pnpm
+COPY --from=tooling-security-dependencies /tooling-security-dependencies /opt/linksense/tooling/security-dependencies
+COPY deploy/docker/patch-tooling-libraries.mjs deploy/docker/verify-tooling-libraries.mjs /opt/linksense/tooling/
+RUN node /opt/linksense/tooling/patch-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies /pnpm/corepack/v1/pnpm/10.34.6 pnpm \
+  && node /opt/linksense/tooling/verify-tooling-libraries.mjs /opt/linksense/tooling/security-dependencies /pnpm/corepack/v1/pnpm/10.34.6 pnpm \
+  && corepack enable pnpm \
+  && pnpm --version
 ARG MIGRATION_IMAGE_FINGERPRINT=unversioned
 LABEL com.linksense.migration.fingerprint=${MIGRATION_IMAGE_FINGERPRINT}
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE

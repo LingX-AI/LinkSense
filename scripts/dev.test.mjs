@@ -995,6 +995,8 @@ test("changing the repository Codex pin rebuilds the development worker", async 
       "packages/shared/src", "packages/shared/tsconfig.json", "deploy/codex-home-template",
       "deploy/codex-system", "deploy/docker/configure-debian-apt.sh", "deploy/docker/bootstrap-ubuntu-node.sh",
       "deploy/docker/runner-runtime-smoke.mjs", "deploy/runtime/browser",
+      "deploy/docker/patch-tooling-libraries.mjs", "deploy/docker/verify-kernel-headers.mjs", "deploy/runtime/tooling-security",
+      "deploy/docker/verify-tooling-libraries.mjs",
       "deploy/runtime/fonts", "deploy/runtime/node", "deploy/runtime/python", "deploy/runtime/shell",
     ]) {
       await cp(resolve(input), resolve(root, input), {
