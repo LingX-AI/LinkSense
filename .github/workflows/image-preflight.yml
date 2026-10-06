@@ -25,7 +25,12 @@ jobs:
       - name: Reproduce the candidate startup without publishing anything
         env:
           IMAGE: ${{ inputs.elasticsearch_image }}
-        run: node scripts/elasticsearch-image-smoke.mjs "$IMAGE"
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE" =~ ^ghcr\.io/lingx-ai/linksense-elasticsearch@sha256:[0-9a-f]{64}$ ]]
+          timeout --kill-after=30s 300 docker pull "$IMAGE"
+          node scripts/elasticsearch-image-smoke.mjs "$IMAGE"
 
   freeze:
     if: inputs.images_json != ''

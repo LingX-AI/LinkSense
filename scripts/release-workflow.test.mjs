@@ -19,6 +19,8 @@ test("isolated Elasticsearch startup diagnostics remain read-only and do not req
   assert.equal(smoke.if, "inputs.elasticsearch_image != ''")
   assert.equal(smoke["timeout-minutes"], 10)
   assert.match(smoke.steps.at(-1).run, /node scripts\/elasticsearch-image-smoke\.mjs/u)
+  assert.match(smoke.steps.at(-1).run, /timeout --kill-after=30s 300 docker pull/u)
+  assert.ok(smoke.steps.at(-1).run.indexOf("docker pull") < smoke.steps.at(-1).run.indexOf("node scripts/"))
   assert.doesNotMatch(JSON.stringify(smoke), /packages: write|publish-release|docker push/u)
 })
 
