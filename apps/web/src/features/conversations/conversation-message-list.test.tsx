@@ -387,10 +387,12 @@ describe("virtual conversation messages", () => {
           screen.getByTestId("scroller").scrollTop
       ).toBe(0)
     })
-    // Let the virtualizer finish its index-based navigation before changing
-    // the row indices. The prepend should then preserve the reading anchor.
+    // Measurement can retarget the first frame. Let the following frame
+    // establish a stable landing before changing the message indices.
     await act(async () => {
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      )
     })
     const before = screen.getByTestId("scroller").scrollTop
     view.rerender(
@@ -415,8 +417,19 @@ describe("virtual conversation messages", () => {
         />
       </div>
     )
-    expect(screen.getByText("message-60")).toBeInTheDocument()
-    expect(screen.queryByText("message-100")).not.toBeInTheDocument()
+    // Appending schedules asynchronous scroll/measurement reconciliation.
+    // Check its completed result, not the intermediate virtual range.
+    await waitFor(() => {
+      const target = screen
+        .getByText("message-60")
+        .closest<HTMLElement>("[data-conversation-row]")
+      expect(target).toBeInTheDocument()
+      expect(
+        Number.parseFloat(target?.style.top ?? "NaN") -
+          screen.getByTestId("scroller").scrollTop
+      ).toBe(0)
+      expect(screen.queryByText("message-100")).not.toBeInTheDocument()
+    })
   })
 
   it.each(["zh-CN", "en-US", "de-DE"])(
