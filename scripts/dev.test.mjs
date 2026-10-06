@@ -988,6 +988,7 @@ test("changing the repository Codex pin rebuilds the development worker", async 
     // Use real build inputs; only the repository pin changes between checks.
     for (const input of [
       ".dockerignore", "Dockerfile.runner", "LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE", "package.json",
+      "deploy/baselines/images.lock.json",
       "pnpm-lock.yaml", "pnpm-workspace.yaml", "tsconfig.base.json", "patches",
       "apps/api/package.json", "apps/docs/package.json", "apps/web/package.json",
       "apps/runner/package.json", "apps/runner/src", "apps/runner/tsconfig.json",
