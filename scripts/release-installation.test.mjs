@@ -1109,7 +1109,7 @@ test("the release workflow reuses verified main checks before promotion", async 
     workflow.match(
       /docker\/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772/gu,
     )?.length,
-    6,
+    7,
   )
   assert.match(workflow, /sh scripts\/prepare-release-inputs\.sh release-inputs/u)
   assert.match(workflow, /cd release-inputs && sha256sum -c SHA256SUMS/u)
