@@ -119,7 +119,7 @@ jobs:
           platforms: ${{ matrix.platform.os }}
           build-args: |
             UPSTREAM_IMAGE=${{ env.UPSTREAM_IMAGE }}
-            NGINX_IMAGE=${{ env.UPSTREAM_IMAGE }}
+            ${{ matrix.component.name == 'runtime-web' && format('NGINX_IMAGE={0}', env.UPSTREAM_IMAGE) || '' }}
             SECURITY_REBUILD_ID=${{ needs.prepare.outputs.baseline_id }}
           push: true
           tags: ghcr.io/lingx-ai/linksense-${{ matrix.component.name }}:${{ needs.prepare.outputs.baseline_id }}-${{ matrix.platform.architecture }}
