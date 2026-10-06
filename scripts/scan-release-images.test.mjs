@@ -230,3 +230,20 @@ test("vendor VEX corrects only the specific fixed SILO revision and is confined 
   assert.match(scriptSource, /\[ "\$role" = MINIO \]/u)
   assert.match(scriptSource, /set -- --vex "\$vex_file"/u)
 })
+
+test("header VEX covers only reviewed CVEs for exact userspace packages and never claims host kernel safety", () => {
+  const vex = JSON.parse(readFileSync(path.join(root, "deploy/security/worker-kernel-headers.vex.json"), "utf8"))
+  assert.equal(vex.statements.length, 173)
+  assert.equal(new Set(vex.statements.map(({ vulnerability }) => vulnerability.name)).size, 173)
+  for (const statement of vex.statements) {
+    assert.match(statement.vulnerability.name, /^CVE-\d{4}-\d+$/u)
+    assert.equal(statement.status, "not_affected")
+    assert.equal(statement.justification, "vulnerable_code_not_present")
+    assert.deepEqual(statement.products, ["amd64", "arm64"].map((architecture) => ({ "@id": `pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=${architecture}&distro=ubuntu-24.04` })))
+    assert.match(statement.impact_statement, /host kernel is NOT assessed/u)
+    assert.match(statement.impact_statement, /New CVEs and other package versions are not covered/u)
+  }
+  const source = readFileSync(script, "utf8")
+  assert.match(source, /elif \[ "\$role" = LINKSENSE_WORKER \]/u)
+  assert.match(source, /worker-kernel-headers\.vex\.json/u)
+})

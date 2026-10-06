@@ -108,6 +108,11 @@ while IFS="$tab" read -r role reference; do
     test -f "$vex_file" || fail 'Missing version-scoped SILO vendor fix evidence.'
     cp "$vex_file" "$report_directory/silo-fixed.vex.json"
     set -- --vex "$vex_file"
+  elif [ "$role" = LINKSENSE_WORKER ]; then
+    vex_file="$(dirname "$0")/../deploy/security/worker-kernel-headers.vex.json"
+    test -f "$vex_file" || fail 'Missing exact userspace-header inventory evidence.'
+    cp "$vex_file" "$report_directory/worker-kernel-headers.vex.json"
+    set -- --vex "$vex_file"
   fi
   if ! timeout --kill-after=30s 120 docker buildx imagetools inspect --raw "$reference" > "$index_file" 2> "$log_file"; then
     record error 'Registry lookup failed; see the role log.'
