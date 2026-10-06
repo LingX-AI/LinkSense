@@ -160,9 +160,8 @@ export const accountMessages = {
     },
   },
   support: {
-    menuLabel: "Comentarios y ayuda",
     feedback: "Comentarios",
-    help: "Ayuda",
+    help: "Guía de uso",
     feedbackTitle: "Enviar comentarios",
     feedbackDescription:
       "Cuéntanos un problema que hayas encontrado o algo que podamos mejorar.",

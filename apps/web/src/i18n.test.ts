@@ -55,6 +55,28 @@ function interpolationTokens(value: string): string[] {
 
 describe("i18n resources", () => {
   it.each([
+    ["zh-CN", "使用帮助", "反馈"],
+    ["en-US", "User guide", "Feedback"],
+    ["es-ES", "Guía de uso", "Comentarios"],
+    ["pt-BR", "Guia de uso", "Feedback"],
+    ["fr-FR", "Guide d’utilisation", "Donner un avis"],
+    ["ja-JP", "使い方ガイド", "フィードバック"],
+  ])(
+    "localizes account help and feedback in %s with Chinese fallback",
+    (locale, help, feedback) => {
+      expect(i18n.t("support.help", { lng: locale })).toBe(help)
+      expect(i18n.t("support.feedback", { lng: locale })).toBe(feedback)
+
+      if (locale !== "zh-CN") {
+        const fallback = i18n.cloneInstance({ forkResourceStore: true })
+        fallback.removeResourceBundle(locale, "translation")
+        expect(fallback.t("support.help", { lng: locale })).toBe("使用帮助")
+        expect(fallback.t("support.feedback", { lng: locale })).toBe("反馈")
+      }
+    }
+  )
+
+  it.each([
     ["zh-CN", "没有账号？<register>立即注册</register>"],
     ["en-US", "Don't have an account? <register>Sign up now</register>"],
     ["es-ES", "¿No tienes una cuenta? <register>Regístrate ahora</register>"],
@@ -1137,12 +1159,12 @@ describe("i18n resources", () => {
     expect(zhCN.nav.helpCenterNewTab).toBe("在新标签页打开帮助中心")
     expect(enUS.nav.helpCenter).toBe("Help Center")
     expect(enUS.nav.helpCenterNewTab).toBe("Open Help Center in a new tab")
-    expect(zhCN.support.menuLabel).toBe("反馈与帮助")
+    expect(zhCN.support.help).toBe("使用帮助")
     expect(zhCN.support.feedbackTitle).toBe("提交反馈")
     expect(zhCN.support.feedbackPlaceholder).toBe(
       "描述你的反馈，或直接粘贴文本及图片…"
     )
-    expect(enUS.support.menuLabel).toBe("Feedback and help")
+    expect(enUS.support.help).toBe("User guide")
     expect(enUS.support.feedbackTitle).toBe("Submit feedback")
     expect(enUS.support.feedbackPlaceholder).toBe(
       "Describe your feedback or paste text and images…"

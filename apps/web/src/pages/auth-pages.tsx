@@ -39,6 +39,7 @@ import {
   setAppLanguage,
 } from "@/i18n"
 import { passwordSchema } from "@/lib/password"
+import { LanguageSwitcher } from "@/features/onboarding/language-switcher"
 
 const emailSchema = z.email()
 
@@ -51,6 +52,9 @@ function PublicPanel({
 }) {
   return (
     <div className="public-shell flex flex-col">
+      <div className="flex shrink-0 justify-end">
+        <LanguageSwitcher />
+      </div>
       <main className="public-panel shrink-0">{children}</main>
       {showPoweredBy && (
         <PoweredByLinkSense className="mt-auto mr-3 -mb-2.5 self-end max-md:mr-0 max-md:mb-1 max-md:self-center" />

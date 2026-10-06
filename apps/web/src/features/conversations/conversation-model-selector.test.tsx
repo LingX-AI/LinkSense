@@ -1,4 +1,7 @@
 import { useState } from "react"
+import { MemoryRouter } from "react-router-dom"
+import { userSchema } from "@/api/contracts"
+import { AuthContext } from "@/app/auth-state"
 import {
   cleanup,
   fireEvent,
@@ -794,6 +797,54 @@ const modelContextUsage = {
   usedTokens: 155_000,
   modelContextWindow: 258_000,
 } as const
+
+describe("unconfigured model guidance", () => {
+  afterEach(cleanup)
+  it.each(["admin", "user"] as const)(
+    "offers configuration only to an active %s",
+    async (role) => {
+      await i18n.changeLanguage("zh-CN")
+      const user = userSchema.parse({
+        id: "account",
+        name: "Account",
+        email: "account@example.test",
+        role,
+        status: "active",
+        registration_source: "organization_invitation",
+      })
+      render(
+        <MemoryRouter>
+          <AuthContext.Provider
+            value={{
+              user,
+              status: "authenticated",
+              acceptSession: vi.fn(),
+              refreshUser: vi.fn(),
+              signOut: vi.fn(),
+            }}
+          >
+            <ConversationModelSelector
+              preference={{ ...modelPreference, configured: false }}
+              pending={false}
+              onChange={vi.fn()}
+            />
+          </AuthContext.Provider>
+        </MemoryRouter>
+      )
+      if (role === "admin")
+        expect(screen.getByRole("link", { name: "配置模型" })).toHaveAttribute(
+          "href",
+          "/admin/models"
+        )
+      else {
+        expect(screen.queryByRole("link")).not.toBeInTheDocument()
+        expect(
+          screen.getByRole("button", { name: "模型服务未配置" })
+        ).toBeDisabled()
+      }
+    }
+  )
+})
 
 function ControlledModelSelector({
   onChange,

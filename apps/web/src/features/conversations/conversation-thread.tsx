@@ -4246,6 +4246,7 @@ export function ConversationThread({
   forkingDisabled = false,
   editingDisabled = false,
   showNewTaskWelcome = false,
+  newTaskGuide,
   onStarterQuestionSelect,
   suppressEmptyState = false,
   emptyStateContent,
@@ -4291,6 +4292,7 @@ export function ConversationThread({
   forkingDisabled?: boolean
   editingDisabled?: boolean
   showNewTaskWelcome?: boolean
+  newTaskGuide?: ReactNode
   onStarterQuestionSelect?: (prompt: string) => void
   suppressEmptyState?: boolean
   emptyStateContent?: ReactNode
@@ -5211,6 +5213,7 @@ export function ConversationThread({
               {emptyNotice && (
                 <ConversationEmptyNotice>{emptyNotice}</ConversationEmptyNotice>
               )}
+              {newTaskGuide}
               {onStarterQuestionSelect && (
                 <NewTaskStarterQuestions onSelect={onStarterQuestionSelect} />
               )}

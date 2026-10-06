@@ -1115,6 +1115,7 @@ describe("administrator authentication settings", () => {
     expect(within(connection).getByLabelText("Base URL")).toHaveValue(
       "https://models.example.test/v1"
     )
+
     expect(
       within(connection).getByRole("combobox", { name: "协议兼容模式" })
     ).toHaveTextContent("原生 Responses")
@@ -1135,6 +1136,7 @@ describe("administrator authentication settings", () => {
       within(model).getByLabelText("显示名称").closest('[data-slot="field"]')
         ?.parentElement
     ).toBe(modelIdField?.parentElement)
+
     expect(
       within(model).getByRole("switch", { name: "支持图片理解" })
     ).toBeVisible()
@@ -1708,6 +1710,10 @@ describe("administrator authentication settings", () => {
     )
     const dialog = await screen.findByRole("dialog", { name: "添加模型" })
     expect(dialog).toHaveAttribute("data-slot", "dialog-content")
+    expect(within(dialog).queryByLabelText("模型 ID")).not.toBeInTheDocument()
+    await interaction.click(
+      within(dialog).getByRole("button", { name: "手动输入模型" })
+    )
     expect(within(dialog).getByLabelText("模型 ID")).toHaveValue("")
     expect(within(dialog).getByLabelText("显示名称")).toHaveValue("")
     expect(
@@ -2085,7 +2091,11 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
 
-    await openChannelEditor(interaction)
+    const dialog = await openChannelEditor(interaction)
+
+    expect(
+      within(dialog).getByRole("combobox", { name: "协议兼容模式" })
+    ).toBeVisible()
     await interaction.click(
       await screen.findByRole("combobox", { name: "协议兼容模式" })
     )
@@ -2741,6 +2751,7 @@ describe("administrator authentication settings", () => {
       within(secondProvider).getByLabelText("API_KEY"),
       "provider-2-secret"
     )
+
     await interaction.click(
       within(secondProvider).getByRole("combobox", {
         name: "协议兼容模式",
@@ -3018,6 +3029,7 @@ describe("administrator authentication settings", () => {
 
     const model = await openModelEditor(interaction, "GPT-5.6-Sol")
     expect(within(model).queryByText(/可选档位由/u)).not.toBeInTheDocument()
+
     const supportedEfforts = within(model).getByRole("button", {
       name: "支持的推理强度",
     })
@@ -3106,6 +3118,7 @@ describe("administrator authentication settings", () => {
     renderSettings("models")
 
     const model = await openModelEditor(interaction, "Model A")
+
     const supportedEfforts = within(model).getByRole("button", {
       name: "支持的推理强度",
     })
@@ -3353,7 +3366,9 @@ describe("administrator authentication settings", () => {
     let dialog = await screen.findByRole("dialog", {
       name: "删除模型“Model A”？",
     })
-    expect(model).toBeInTheDocument()
+    expect(
+      screen.getByRole("row", { name: "Model A", hidden: true })
+    ).toBeInTheDocument()
     expect(dialog).toHaveTextContent(
       "确认后模型将立即删除；历史任务和用量记录不会受影响。"
     )

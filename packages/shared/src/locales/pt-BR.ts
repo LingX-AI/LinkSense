@@ -1,6 +1,9 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  MODEL_PROVIDER_CREDENTIAL_REQUIRED: "Informe uma chave de API. Informe uma nova chave após alterar o provedor, o endereço do serviço ou o projeto na nuvem.",
+  MODEL_PROVIDER_DISCOVERY_FAILED: "Não foi possível carregar a lista de modelos. Confira o endereço do serviço e a chave ou informe um modelo manualmente.",
+  MODEL_PROVIDER_CONNECTION_FAILED: "O teste de conexão falhou. Confira o endereço do serviço, a chave e o modelo e confirme que o serviço aceita o método de conexão selecionado.",
   CONNECTION_WRITE_REQUIRED: "Esta conexão permite apenas leitura. Ative a leitura e gravação em Central de plugins → Conectores e autorize novamente.",
   CONNECTION_FILE_CONFLICT: "O arquivo mudou ou já existe outro com esse nome. Consulte o estado atual antes de tentar novamente.",
   CONNECTION_NOT_CONFIGURED: "Um administrador precisa configurar esta conexão.",

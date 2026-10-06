@@ -1,4 +1,3 @@
-import { useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { systemUpdateStatusSchema } from "@linksense/shared"
 import {
@@ -6,22 +5,17 @@ import {
   ExternalLinkIcon,
   RefreshCwIcon,
   ShieldCheckIcon,
-  SparklesIcon,
-  XIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { NavLink } from "react-router-dom"
+import ReactMarkdown from "react-markdown"
+import rehypeRaw from "rehype-raw"
+import rehypeSanitize from "rehype-sanitize"
+import remarkGfm from "remark-gfm"
 
 import { apiRequest } from "@/api/client"
 import { getErrorMessage } from "@/api/error-message"
-import { useAuth } from "@/app/auth-state"
 import { ErrorState, LoadingState } from "@/components/feedback/page-state"
-import {
-  Alert,
-  AlertAction,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -36,88 +30,10 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
-import { cn } from "@/lib/utils"
 import {
   systemUpdateQueryKey,
   useSystemUpdateStatus,
 } from "@/features/admin/system-update-query"
-
-const UPDATE_NOTICE_STORAGE_PREFIX = "linksense.system-update.dismissed."
-
-export function SystemUpdateNotice({
-  placement = "app",
-}: {
-  placement?: "app" | "settings"
-}) {
-  const { t } = useTranslation()
-  const { user } = useAuth()
-  const query = useSystemUpdateStatus()
-  const version =
-    query.data?.status === "update_available"
-      ? query.data.latest_release.version
-      : null
-  const storageKey = version
-    ? `${UPDATE_NOTICE_STORAGE_PREFIX}${user?.id ?? "unknown"}.${version}`
-    : null
-  const [dismissedKey, setDismissedKey] = useState<string | null>(null)
-  const dismissed =
-    storageKey !== null &&
-    (dismissedKey === storageKey || isStoredUpdateNoticeDismissed(storageKey))
-
-  if (!version || dismissed) return null
-  return (
-    <Alert
-      appearance="soft"
-      className={cn(
-        "system-update-notice z-60 shadow-lg",
-        placement === "app"
-          ? "absolute top-16 left-1/2 w-[min(calc(100%-1.5rem),48rem)] -translate-x-1/2"
-          : "mx-auto mt-4 w-[calc(100%-2rem)]"
-      )}
-    >
-      <SparklesIcon aria-hidden="true" />
-      <AlertTitle>{t("systemUpdate.notice.title", { version })}</AlertTitle>
-      <AlertDescription className="flex flex-wrap items-center gap-3">
-        <span>{t("systemUpdate.notice.description")}</span>
-        <Button
-          size={placement === "settings" ? "default" : "sm"}
-          variant="outline"
-          render={<NavLink to="/admin/system-update" />}
-        >
-          {t("systemUpdate.notice.action")}
-        </Button>
-      </AlertDescription>
-      <AlertAction>
-        <Button
-          type="button"
-          size={placement === "settings" ? "icon" : "icon-xs"}
-          variant="ghost"
-          aria-label={t("systemUpdate.notice.dismiss")}
-          onClick={() => {
-            if (storageKey) {
-              try {
-                window.localStorage.setItem(storageKey, "true")
-              } catch {
-                // Dismissal remains effective for this page when storage fails.
-              }
-            }
-            setDismissedKey(storageKey)
-          }}
-        >
-          <XIcon aria-hidden="true" />
-        </Button>
-      </AlertAction>
-    </Alert>
-  )
-}
-
-function isStoredUpdateNoticeDismissed(storageKey: string): boolean {
-  try {
-    return window.localStorage.getItem(storageKey) === "true"
-  } catch {
-    return false
-  }
-}
 
 export function SystemUpdateSettings() {
   const { t, i18n } = useTranslation()
@@ -179,7 +95,7 @@ export function SystemUpdateSettings() {
           <CardAction>
             <Badge
               variant={
-                status.status === "update_available" ? "default" : "secondary"
+                status.status === "update_available" ? "success" : "secondary"
               }
             >
               {statusLabel}
@@ -247,9 +163,32 @@ export function SystemUpdateSettings() {
             <CardDescription>{t("systemUpdate.releaseNotes")}</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="max-h-80 overflow-auto text-sm whitespace-pre-wrap text-muted-foreground">
-              {release.release_notes}
-            </div>
+            <article
+              aria-label={t("systemUpdate.releaseNotes")}
+              className="assistant-markdown max-h-80 min-w-0 overflow-auto text-sm leading-6 wrap-anywhere [&_img]:h-auto [&_img]:max-w-full"
+            >
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw, rehypeSanitize]}
+                components={{
+                  a: ({ children, href, title }) =>
+                    href ? (
+                      <a
+                        href={href}
+                        title={title}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {children}
+                      </a>
+                    ) : (
+                      <span>{children}</span>
+                    ),
+                }}
+              >
+                {release.release_notes}
+              </ReactMarkdown>
+            </article>
           </CardContent>
         </Card>
       )}
@@ -263,7 +202,7 @@ export function SystemUpdateSettings() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-5">
-            <Alert appearance="borderless">
+            <Alert appearance="soft">
               <ShieldCheckIcon aria-hidden="true" />
               <AlertTitle>{t("systemUpdate.tutorial.safetyTitle")}</AlertTitle>
               <AlertDescription>
@@ -310,7 +249,7 @@ function TutorialCommand({
   return (
     <section className="flex min-w-0 flex-col gap-2">
       <h3 className="font-medium">{title}</h3>
-      <pre className="overflow-x-auto rounded-xl bg-background p-3 text-sm">
+      <pre className="overflow-x-auto rounded-xl bg-muted/60 p-3 text-sm">
         <code>{command}</code>
       </pre>
     </section>

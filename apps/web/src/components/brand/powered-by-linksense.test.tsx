@@ -1,7 +1,10 @@
 import { cleanup, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
+import {
+  PoweredByLinkSense,
+  PoweredByLinkSenseFooter,
+} from "@/components/brand/powered-by-linksense"
 import i18n from "@/i18n"
 
 describe("PoweredByLinkSense", () => {
@@ -47,6 +50,27 @@ describe("PoweredByLinkSense", () => {
         .getByRole("link", { name: "由 LinkSense 提供支持" })
         .querySelector("img")
     ).toHaveAttribute("src", "/attribution/linksense-mark-light.svg")
+  })
+
+  it("reserves a non-shrinking footer with centered mobile and right-aligned desktop attribution", () => {
+    render(<PoweredByLinkSenseFooter />)
+
+    const footer = screen.getByRole("contentinfo")
+    const attribution = screen.getByRole("link", {
+      name: "由 LinkSense 提供支持",
+    })
+    expect(footer).toHaveClass(
+      "flex",
+      "h-12",
+      "shrink-0",
+      "items-center",
+      "justify-center",
+      "md:h-16",
+      "md:justify-end",
+      "md:px-7"
+    )
+    expect(attribution.parentElement).toBe(footer)
+    expect(attribution).not.toHaveClass("fixed")
   })
 
   it.each([

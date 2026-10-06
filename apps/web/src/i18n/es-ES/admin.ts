@@ -999,8 +999,9 @@ export const adminMessages = {
     notice: {
       title: "LinkSense {{version}} está disponible",
       description:
-        "Los administradores pueden revisar la versión y seguir el proceso guiado de actualización.",
+        "Ya está disponible una nueva versión. Consulta las novedades y la guía de actualización.",
       action: "Ver actualización",
+      later: "Más tarde",
       dismiss: "Descartar el aviso de actualización de esta versión",
     },
     status: {

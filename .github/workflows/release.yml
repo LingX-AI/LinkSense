@@ -363,6 +363,75 @@ jobs:
           retention-days: 3
           overwrite: true
 
+  image-security:
+    needs: [prepare, image-indexes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - name: Initialize scan diagnostics
+        run: |
+          mkdir image-security-reports
+          printf '%s\n' 'Image security setup started.' > image-security-reports/setup.log
+      - name: Install checksum-pinned Trivy
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/linksense-trivy"
+          curl --proto '=https' --tlsv1.2 --retry 3 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 15 --max-time 300 -fsSL \
+            https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz \
+            -o "$RUNNER_TEMP/linksense-trivy/trivy.tar.gz" 2>> image-security-reports/setup.log
+          printf 'c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f  %s\n' \
+            "$RUNNER_TEMP/linksense-trivy/trivy.tar.gz" | sha256sum -c - >> image-security-reports/setup.log 2>&1
+          tar -xzf "$RUNNER_TEMP/linksense-trivy/trivy.tar.gz" -C "$RUNNER_TEMP/linksense-trivy" trivy \
+            >> image-security-reports/setup.log 2>&1
+          echo "$RUNNER_TEMP/linksense-trivy" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: image-indexes
+          path: image-references
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-inputs
+          path: release-inputs
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Scan every frozen image digest before release promotion
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          RELEASE_WORKFLOW_ID: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SCAN_PLATFORM: linux/${{ matrix.architecture }}
+        run: |
+          set -euo pipefail
+          (cd release-inputs && sha256sum -c SHA256SUMS) >> image-security-reports/setup.log 2>&1
+          test "$(sed -n 's/^RELEASE_VERSION=//p' release-inputs/identity.env)" = "$RELEASE_VERSION"
+          test "$(sed -n 's/^SOURCE_SHA=//p' release-inputs/identity.env)" = "$SOURCE_SHA"
+          test "$(sed -n 's/^RELEASE_WORKFLOW_ID=//p' release-inputs/identity.env)" = "$RELEASE_WORKFLOW_ID"
+          sh scripts/scan-release-images.sh image-references release-inputs image-security-reports "$SCAN_PLATFORM"
+      - name: Save image vulnerability reports and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-security-reports-${{ matrix.architecture }}
+          path: image-security-reports/
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
   assets:
     needs: [prepare, image-indexes]
     runs-on: ubuntu-24.04
@@ -419,7 +488,7 @@ jobs:
           overwrite: true
 
   release:
-    needs: [prepare, image-indexes, assets]
+    needs: [prepare, image-indexes, assets, image-security]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

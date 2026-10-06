@@ -32,7 +32,7 @@ MinIO 使用 Coolify 团队在 GitHub GHCR 发布的第三方构建 `ghcr.io/coo
 - GitHub 原生私有仓库 artifact attestations
 - 私有仓库 CodeQL 和 Dependency Review
 
-发布流程仍生成 BuildKit SBOM 和最小 provenance，并要求待发布提交已通过 CI 和 Security。CI 执行生产依赖审计和部署测试，Security 执行 Gitleaks 历史扫描。仓库公开时，`public` 事件自动触发 Security 并运行 CodeQL；公开仓库的 PR 还会运行 Dependency Review。Security 也支持在 Actions 页面手动运行。
+发布流程仍生成 BuildKit SBOM 和最小 provenance，并要求待发布提交已通过 CI 和 Security。CI 执行生产依赖审计和部署测试，Security 执行 Gitleaks 历史扫描。发布还独立扫描全部候选镜像和第三方镜像，两个架构均通过后才创建正式镜像标签和发布 Release。仓库公开时，`public` 事件自动触发 Security 并运行 CodeQL；公开仓库的 PR 还会运行 Dependency Review。Security 也支持在 Actions 页面手动运行。
 
 公开仓库发版时，会进一步确认选中的 Security 运行中 `codeql` job 已成功。私有阶段跳过 CodeQL 的成功记录不能用于公开发版；须等待公开后的 Security 通过，或在 `main` 上手动运行 Security。CI 必须来自同一提交的成功 `push` 运行；Security 可以来自同一提交、`main` 分支的 `push`、`public`、`workflow_dispatch` 或 `schedule` 运行，不接受 PR 检查替代。
 
@@ -41,7 +41,7 @@ MinIO 使用 Coolify 团队在 GitHub GHCR 发布的第三方构建 `ghcr.io/coo
 1. 在 `LingX-AI/linksense` 仓库启用 Issues 和 Discussions。仓库公开与否由维护者单独设置，发布工作流不执行此操作。
 2. 创建仓库变量 `LINKSENSE_RELEASE_ACTOR`，值为唯一允许手动发版的 GitHub 用户名。发布工作流只接受该用户从 `main` 分支发起的 `workflow_dispatch`。
 3. 在 Actions 设置中允许仓库工作流运行，并允许 `GITHUB_TOKEN` 创建 Release 和写入 Packages。无需保存长期 Personal Access Token 到仓库 Secrets。
-4. 将 Actions artifact 保留期设为 3 天。建议为 Actions 设置预算和告警，并禁止意外超额计费。
+4. 将 Actions artifact 最大保留期设为至少 30 天；工作流将发布输入和构建中间产物单独设为 3 天，镜像扫描报告设为 30 天。建议为 Actions 设置预算和告警，并禁止意外超额计费。
 5. 使用 `ubuntu-24.04` 和 `ubuntu-24.04-arm` GitHub 托管 Runner，无需配置自托管 Runner。
 6. Core / Full 的完整安装、修复和升级验收由维护者在独立测试主机上手动完成，不在发布工作流中启动整套 Full 服务。安装主机要求见 README，不等同于构建 Runner 要求。
 7. 通过 PR 审核合入 `main`。发布准备任务强制检查同一提交的 CI 和 Security 结果；如仓库套餐支持，再配置相应分支保护或规则集。
@@ -84,12 +84,26 @@ test ! -e /absolute/path/to/linksense-github/design-qa.md
 4. 从 GitHub Actions 手动运行 `Publish release`。工作流会核对目标提交的检查结果，并拒绝非 `main`、非 Private/Public 仓库、未授权发版人、已存在版本或非 CPAL-1.0 的输入。检查尚未结束或失败时，发布会在准备阶段快速停止，不会创建标签、镜像正式版本或 Release。
 5. `prepare` 在镜像构建前验证第三方镜像同时包含两个目标架构，下载固定提交的 tokenizer，生成并检查安装入口脚本。上游镜像摘要、资源内容、版本、源码提交和生成时间保存为带校验和的 `release-inputs` artifact；失败时不会启动后续镜像构建。
 6. GitHub 托管 Runner 分别构建 `api`、`web`、`migrate`、`runner`、`worker` 的两种架构。所有镜像先发布为本次运行唯一的候选标签，生成 SBOM 和最小 provenance，并验证镜像内基础命令或 Nginx 配置可以运行。此检查不是完整业务或安装验收。
-7. `image-indexes` 合并已验证架构镜像；`assets` 使用保存的发布输入和镜像摘要生成清单、许可证和资产校验和，不再重新解析上游标签或下载 tokenizer。
+7. `image-indexes` 合并已验证架构镜像；`assets` 使用保存的发布输入和镜像摘要生成清单、许可证和资产校验和，不再重新解析上游标签或下载 tokenizer。同时，`image-security` 使用这些冻结摘要对全部镜像的两个架构执行漏洞扫描；发现 HIGH / CRITICAL 漏洞或扫描失败时，最终发布任务不会运行。
 8. 首次发布时，按上一节将五个 GHCR 包设为公开；如果最终 job 已失败，只重新运行失败 job。
 9. 最终 job 匿名验证镜像后，按已验证摘要创建正式 `vMAJOR.MINOR.PATCH` 镜像标签。已存在的正式标签若指向不同摘要，流程会拒绝覆盖。
 10. 创建 GitHub Release 草稿并上传资产，下载全部资产逐字节核对后才发布 Release。仓库可见性保持不变：Private 仓库仅授权用户可访问；Public 仓库发布后允许匿名下载。维护者应完成 Core / Full 安装、修复、升级及业务验收，再对外宣布该版本可用于生产。
 
 不要删除或替换已发布标签，也不要复用版本号。错误版本应通过新版本修正。
+
+## 镜像漏洞门禁
+
+扫描使用 [Trivy v0.75.0](https://github.com/aquasecurity/trivy/releases/tag/v0.75.0) 的 Linux 二进制，下载地址和 SHA256 均固定在工作流中；先校验归档再解包执行，不读取上游的安装脚本或 `latest` 标签。升级扫描器时须同时更新固定版本、官方归档校验和和回归测试。
+
+两个扫描任务均从本次运行的 `image-indexes` 和带校验和的 `release-inputs` 读取摘要，逐项检查索引内容与冻结摘要一致，并确认索引恰好包含一个 `linux/amd64` 和一个 `linux/arm64` 镜像。扫描对象是索引中对应架构的实际 manifest 摘要，不重新解析可变标签。
+
+覆盖 `api`、`web`、`migrate`、`runner`、`worker`，以及清单中的 PostgreSQL、Redis、MinIO 服务端、MinIO 客户端、BusyBox、Nginx 网关、Elasticsearch、Docling，共 13 个镜像角色。MinIO 服务端和客户端即使复用同一摘要，仍分别记录扫描结果。扫描包含操作系统和语言依赖包；HIGH / CRITICAL 漏洞即使尚无修复版本也会阻断发布，不加载 `.trivyignore` 或环境变量中的扫描策略覆盖。
+
+每次运行使用新的缓存目录，从官方 GHCR 下载漏洞数据库和 Java 索引数据库。数据库、镜像或网络下载失败、进程超时、缺失镜像或架构、报告缺失或不匹配都属于失败，不得通过跳过扫描续发。外部进程超时后会先请求终止，30 秒内仍未退出则强制结束，避免下载卡住时无限等待。正式镜像标签和 GitHub Release 发布都依赖整个扫描矩阵成功。
+
+无论扫描成功还是失败，工作流都会尝试保存 `image-security-reports-amd64` 和 `image-security-reports-arm64`，保留 30 天。先查看 `summary.json` 定位角色、索引摘要、架构 manifest 摘要和失败类型，再查看对应的 `<ROLE>.json` 漏洞报告与 `<ROLE>.log`；数据库版本元数据和安装日志也一并保存。扫描失败不会撤销已生成的候选镜像，但不会创建正式版本标签或发布 Release。
+
+有漏洞时修复自有镜像依赖，或更换受影响的第三方镜像版本，经 CI / Security 验证后从新提交重新运行发布流程；不要重试同一摘要来绕过真实漏洞。仅网络、数据库可用性等临时故障可在输入 artifact 有效期内重跑失败任务。当前没有漏洞豁免机制；引入任何例外必须单独审核具体漏洞、镜像、架构、到期时间和测试，不得添加无期限忽略列表或宽泛放行。
 
 ## 节约 Runner 用量与失败恢复
 

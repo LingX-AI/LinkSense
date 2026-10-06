@@ -1,5 +1,6 @@
 import type { enUS } from "../en-US"
 import type { TranslationResource } from "../types"
+import { localizedErrorMessage } from "@linksense/shared"
 
 export const errorMessages = {
   errors: {
@@ -328,6 +329,18 @@ export const errorMessages = {
     modelProvider: {
       inUseBySystemSetting:
         "Un ajuste del sistema utiliza este modelo. Cambia o borra esa selección antes de eliminarlo.",
+      credentialRequired: localizedErrorMessage(
+        "MODEL_PROVIDER_CREDENTIAL_REQUIRED",
+        "es-ES"
+      ),
+      discoveryFailed: localizedErrorMessage(
+        "MODEL_PROVIDER_DISCOVERY_FAILED",
+        "es-ES"
+      ),
+      connectionFailed: localizedErrorMessage(
+        "MODEL_PROVIDER_CONNECTION_FAILED",
+        "es-ES"
+      ),
       managementDisabled:
         "La configuración de modelos está bloqueada por el entorno de despliegue y es de solo lectura.",
     },

@@ -1908,6 +1908,27 @@ export const errorCatalog = {
       "en-US": "An administrator has not configured the model service yet.",
     },
   },
+  MODEL_PROVIDER_CREDENTIAL_REQUIRED: {
+    message_key: "errors.modelProvider.credentialRequired", http_status: 400,
+    messages: {
+      "zh-CN": "请填写 API 密钥；更换供应商、服务地址或云项目后，需要重新填写。",
+      "en-US": "Enter an API key. Enter a new key after changing the provider, service address or cloud project.",
+    },
+  },
+  MODEL_PROVIDER_DISCOVERY_FAILED: {
+    message_key: "errors.modelProvider.discoveryFailed", http_status: 502,
+    messages: {
+      "zh-CN": "无法获取模型列表。请检查服务地址和密钥，或手动填写模型。",
+      "en-US": "Could not load the model list. Check the service address and key, or enter a model manually.",
+    },
+  },
+  MODEL_PROVIDER_CONNECTION_FAILED: {
+    message_key: "errors.modelProvider.connectionFailed", http_status: 502,
+    messages: {
+      "zh-CN": "连接测试未通过。请检查服务地址、密钥和模型，并确认服务支持所选连接方式。",
+      "en-US": "Connection test failed. Check the service address, key and model, and confirm that the service supports the selected connection method.",
+    },
+  },
   MODEL_MANAGEMENT_DISABLED: {
     message_key: "errors.modelProvider.managementDisabled",
     http_status: 403,

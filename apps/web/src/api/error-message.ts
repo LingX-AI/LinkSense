@@ -152,6 +152,12 @@ const errorCodeToKey: Record<string, string> = {
   CREDIT_LIMIT_EXCEEDED: "errors.creditLimitExceeded",
   LAST_ENABLED_ADMIN_REQUIRED: "errors.lastAdminRequired",
   MODEL_IN_USE_BY_SYSTEM_SETTING: "errors.modelProvider.inUseBySystemSetting",
+  MODEL_PROVIDER_CREDENTIAL_REQUIRED:
+    errorCatalog.MODEL_PROVIDER_CREDENTIAL_REQUIRED.message_key,
+  MODEL_PROVIDER_DISCOVERY_FAILED:
+    errorCatalog.MODEL_PROVIDER_DISCOVERY_FAILED.message_key,
+  MODEL_PROVIDER_CONNECTION_FAILED:
+    errorCatalog.MODEL_PROVIDER_CONNECTION_FAILED.message_key,
   MODEL_MANAGEMENT_DISABLED: "errors.modelProvider.managementDisabled",
   LAST_ENABLED_MODEL_REQUIRED: "errors.lastModelRequired",
   ADMIN_SELF_PRIVILEGE_CHANGE_FORBIDDEN: "errors.adminSelfChangeForbidden",

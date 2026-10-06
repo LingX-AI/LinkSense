@@ -440,6 +440,7 @@ function installApiMock(options?: {
   refreshFails?: boolean
   initialLanguage?: SupportedLanguage
   languagePatchFails?: boolean
+  languagePatchStart?: Promise<void>
   conversationOverride?: Record<string, unknown>
   conversationGetResponse?: (callIndex: number) => Promise<Response>
   conversationDetailResponse?: (
@@ -452,6 +453,7 @@ function installApiMock(options?: {
   newTaskEventStreamBody?: string
   newTaskEventStreamStart?: Promise<void>
   newTaskModelPreferenceStart?: Promise<void>
+  newTaskModelPreferenceResponse?: () => Response | Promise<Response>
   modelPreferenceStart?: (conversationId: string) => Promise<void>
   newTaskTurnStart?: Promise<void>
   eventStreamUnavailable?: boolean
@@ -650,6 +652,12 @@ function installApiMock(options?: {
         )
       }
       if (path.endsWith("/model-preference")) {
+        if (
+          path === "/api/v1/me/model-preference" &&
+          method === "GET" &&
+          options?.newTaskModelPreferenceResponse
+        )
+          return options.newTaskModelPreferenceResponse()
         const scopedPreference = path.match(
           /^\/api\/v1\/conversations\/([^/]+)\/model-preference$/u
         )
@@ -786,6 +794,7 @@ function installApiMock(options?: {
             )
           }
           if (isLocale(body.preferred_locale)) {
+            await options?.languagePatchStart
             currentLanguage = body.preferred_locale
           }
           if (body.running_message_action)

@@ -1,10 +1,28 @@
 import { beforeEach, describe, expect, it } from "vitest"
+import { localizedErrorMessage, supportedLocales } from "@linksense/shared"
 
 import { ApiError } from "@/api/client"
 import { getErrorMessage } from "@/api/error-message"
 import i18n from "@/i18n"
 
 describe("getErrorMessage", () => {
+  it.each(supportedLocales)(
+    "localizes model discovery and connection errors in %s",
+    (locale) => {
+      for (const code of [
+        "MODEL_PROVIDER_CREDENTIAL_REQUIRED",
+        "MODEL_PROVIDER_DISCOVERY_FAILED",
+        "MODEL_PROVIDER_CONNECTION_FAILED",
+      ] as const) {
+        expect(
+          getErrorMessage(
+            new ApiError({ status: 502, errorCode: code }),
+            i18n.getFixedT(locale)
+          )
+        ).toBe(localizedErrorMessage(code, locale))
+      }
+    }
+  )
   it("distinguishes a closed submission in Chinese, English, and fallback translations", () => {
     const error = new ApiError({ status: 409, errorCode: "TURN_START_CLOSED" })
     expect(getErrorMessage(error, i18n.getFixedT("zh-CN"))).toBe(

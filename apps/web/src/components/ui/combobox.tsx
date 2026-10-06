@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils"
 
 const Combobox = ComboboxPrimitive.Root
+const useComboboxFilter = ComboboxPrimitive.useFilter
 
 function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props) {
   return <ComboboxPrimitive.Value data-slot="combobox-value" {...props} />
@@ -305,4 +306,5 @@ export {
   ComboboxTrigger,
   ComboboxValue,
   useComboboxAnchor,
+  useComboboxFilter,
 }

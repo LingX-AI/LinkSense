@@ -9,7 +9,7 @@ import type {
   ResolvedManagedModelRuntime,
   TaskTitleModelSettingsReader,
 } from "../modules/system/model-provider-settings.js"
-import { createProviderLanguageModel } from "./provider-language-model.js"
+import { createTaskLanguageModel } from "./task-language-model.js"
 
 const DEFAULT_TIMEOUT_MS = 20_000
 const MAX_SOURCE_CHARACTERS = 6_000
@@ -134,13 +134,10 @@ async function callTaskTitleModel(input: {
     throw new Error("task title model credential is unavailable")
   }
   const result = await generateText({
-    model: createProviderLanguageModel({
-      provider: input.runtime.channel.provider,
+    model: createTaskLanguageModel({
       model: input.runtime.model.id,
       apiKey: input.runtime.channel.apiKey,
       baseUrl: input.runtime.channel.baseUrl,
-      project: input.runtime.channel.providerProject,
-      location: input.runtime.channel.providerLocation,
       protocolMode: input.runtime.channel.protocolMode,
     }),
     system: input.system,

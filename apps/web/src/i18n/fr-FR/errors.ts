@@ -1,3 +1,5 @@
+import { localizedErrorMessage } from "@linksense/shared"
+
 export const errors = {
   socialClientInUse:
     "Des comptes sont associés à cette application. Son identifiant ne peut pas être modifié ; vous pouvez renouveler son secret ou désactiver la connexion.",
@@ -316,6 +318,18 @@ export const errors = {
   modelProvider: {
     inUseBySystemSetting:
       "Ce modèle est utilisé par un paramètre système. Modifiez ou effacez ce choix avant de le supprimer.",
+    credentialRequired: localizedErrorMessage(
+      "MODEL_PROVIDER_CREDENTIAL_REQUIRED",
+      "fr-FR"
+    ),
+    discoveryFailed: localizedErrorMessage(
+      "MODEL_PROVIDER_DISCOVERY_FAILED",
+      "fr-FR"
+    ),
+    connectionFailed: localizedErrorMessage(
+      "MODEL_PROVIDER_CONNECTION_FAILED",
+      "fr-FR"
+    ),
     managementDisabled:
       "La configuration des modèles est verrouillée par le déploiement et accessible en lecture seule.",
   },

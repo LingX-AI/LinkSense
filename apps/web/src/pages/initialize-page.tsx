@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { passwordSchema } from "@/lib/password"
+import { LanguageSwitcher } from "@/features/onboarding/language-switcher"
 
 type InitializationField =
   "credential" | "name" | "email" | "password" | "confirmation"
@@ -123,6 +124,9 @@ export function InitializePage() {
 
   return (
     <div className="public-shell flex flex-col">
+      <div className="flex shrink-0 justify-end">
+        <LanguageSwitcher />
+      </div>
       <main className="public-panel public-panel-wide shrink-0">
         <ProductLogo productName={productName} className="public-brand-logo" />
         <header>

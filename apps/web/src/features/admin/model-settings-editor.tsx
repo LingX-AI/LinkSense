@@ -72,10 +72,12 @@ export function ModelSettingsEditor({
               {error && <StatusBanner variant="error">{error}</StatusBanner>}
               <fieldset
                 disabled={pending}
-                className="flex min-w-0 flex-col gap-6"
+                className="min-w-0"
                 aria-label={title}
               >
-                {children}
+                {/* Keep query containers out of the fieldset's anonymous layout
+                    box: Chromium can lose their child boxes on form updates. */}
+                <div className="flex min-w-0 flex-col gap-6">{children}</div>
               </fieldset>
             </div>
             <DialogFooter className="shrink-0">

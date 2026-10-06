@@ -17,6 +17,8 @@ import {
   modelProviderProtocolModeSchema,
   modelServiceProviderSchema,
   modelProviderSettingsSchema,
+  modelProviderProbeInputSchema,
+  testModelProviderConnectionInputSchema,
   reasoningEffortSchema,
   reasoningEffortValues,
   updateModelAvailabilitySchema,
@@ -37,6 +39,10 @@ import {
   type UpdateModelAvailability,
   type UpdateModelPreference,
   type UpdateModelProviderSettings,
+  type ModelProviderProbeInput,
+  type TestModelProviderConnectionInput,
+  type DiscoverModelProviderResult,
+  type TestModelProviderConnectionResult,
 } from "@linksense/shared"
 import { z } from "zod"
 
@@ -45,6 +51,7 @@ import type { PrismaClient } from "../../generated/prisma/client.js"
 import { decryptJson, encryptJson } from "../../lib/crypto.js"
 import { AppError } from "../../lib/errors.js"
 import type { AuditContext } from "../audit/service.js"
+import { createModelProviderProbeClient, createBoundedModelProviderFetch, type ModelProviderProbeClient, type ResolvedProviderProbe } from "./model-provider-probe.js"
 
 const SYSTEM_SETTINGS_ID = "00000000-0000-4000-8000-000000000001"
 const ENCRYPTED_SETTINGS_KEY = "model_provider_settings_encrypted"
@@ -363,7 +370,8 @@ export class ModelProviderSettingsService
     private readonly prisma: PrismaClient,
     private readonly config: AppConfig,
     private readonly modelMetadataClient: ModelProviderMetadataClient =
-      defaultModelProviderMetadataClient
+      defaultModelProviderMetadataClient,
+    private readonly probeClient: ModelProviderProbeClient = createModelProviderProbeClient(),
   ) {}
 
   registerReferenceReader(reader: ManagedModelReferenceReader): void {
@@ -373,6 +381,44 @@ export class ModelProviderSettingsService
   async getAdminSettings(): Promise<ModelProviderSettings> {
     const stored = await this.readStoredSettings()
     return projectAdminSettings(stored)
+  }
+
+  async discover(rawInput: ModelProviderProbeInput): Promise<DiscoverModelProviderResult> {
+    this.assertProbeManagementEnabled()
+    return this.probeClient.discover(await this.resolveProbeCredentials(modelProviderProbeInputSchema.parse(rawInput)))
+  }
+
+  async testConnection(rawInput: TestModelProviderConnectionInput): Promise<TestModelProviderConnectionResult> {
+    this.assertProbeManagementEnabled()
+    const input = testModelProviderConnectionInputSchema.parse(rawInput)
+    const channel = await this.resolveProbeCredentials(input)
+    return this.probeClient.testConnection({ ...channel, model_id: input.model_id, kind: input.kind })
+  }
+
+  private assertProbeManagementEnabled(): void {
+    if (!this.config.adminModelManagementEnabled) throw new AppError("MODEL_MANAGEMENT_DISABLED")
+  }
+
+  private async resolveProbeCredentials(input: z.infer<typeof modelProviderProbeInputSchema>): Promise<ResolvedProviderProbe> {
+    let apiKey = input.api_key
+    if (!apiKey && input.channel_id) {
+      // Use the read-only decoder: discovery must not migrate or persist settings.
+      const stored = await this.readStoredSettingsForMetadata()
+      const channel = stored?.providers.find((provider) => provider.id === input.channel_id)
+      if (channel && matchesProviderCredentialTarget(channel, input)) {
+        apiKey = channel.apiKey ?? undefined
+      }
+    }
+    if (!apiKey) throw new AppError("MODEL_PROVIDER_CREDENTIAL_REQUIRED")
+    return {
+      provider: input.provider,
+      base_url: input.base_url,
+      protocol_mode: input.protocol_mode,
+      provider_project: input.provider_project,
+      provider_location: input.provider_location,
+      discovery_protocol: input.discovery_protocol,
+      api_key: apiKey,
+    }
   }
 
   async update(
@@ -434,6 +480,7 @@ export class ModelProviderSettingsService
           const currentProvider = current?.providers.find(
             (candidate) => candidate.id === provider.id
           )
+          assertSafeStoredCredentialReuse(currentProvider, provider)
           const apiKey = provider.api_key ?? currentProvider?.apiKey
           if (
             !apiKey &&
@@ -1073,6 +1120,9 @@ export class ModelProviderSettingsService
     providers: ParsedManagedModelProviderUpdate[],
     current: StoredModelProviderSettings | null
   ): Promise<ParsedManagedModelProviderUpdate[]> {
+    for (const provider of providers) {
+      assertSafeStoredCredentialReuse(current?.providers.find((candidate) => candidate.id === provider.id), provider)
+    }
     return await Promise.all(
       providers.map(async (provider) => {
         const currentProvider = current?.providers.find(
@@ -1423,13 +1473,14 @@ function migrateVersion6Settings(
 const defaultModelProviderMetadataClient: ModelProviderMetadataClient = {
   async readContextWindows(input) {
     try {
-      const response = await fetch(modelListUrl(input.baseUrl), {
+      const signal = AbortSignal.timeout(MODEL_METADATA_REQUEST_TIMEOUT_MS)
+      const response = await createBoundedModelProviderFetch(input.baseUrl, fetch, signal)(modelListUrl(input.baseUrl), {
         method: "GET",
         headers: {
           authorization: `Bearer ${input.apiKey}`,
           accept: "application/json",
         },
-        signal: AbortSignal.timeout(MODEL_METADATA_REQUEST_TIMEOUT_MS),
+        signal,
       })
       if (!response.ok) return new Map()
       return parseOpenAiCompatibleModelContextWindows(await response.json())
@@ -1459,6 +1510,25 @@ export function parseOpenAiCompatibleModelContextWindows(
 
 function modelListUrl(baseUrl: string): URL {
   return new URL("models", `${baseUrl.replace(/\/+$/u, "")}/`)
+}
+
+function matchesProviderCredentialTarget(
+  current: z.infer<typeof storedModelProviderSchema>,
+  draft: Pick<z.infer<typeof modelProviderProbeInputSchema>, "provider" | "base_url" | "provider_project" | "provider_location">,
+): boolean {
+  return current.provider === draft.provider &&
+    new URL(current.baseUrl).href === new URL(draft.base_url).href &&
+    current.providerProject === draft.provider_project &&
+    current.providerLocation === draft.provider_location
+}
+
+function assertSafeStoredCredentialReuse(
+  current: z.infer<typeof storedModelProviderSchema> | undefined,
+  draft: ParsedManagedModelProviderUpdate,
+): void {
+  if (current?.apiKey && draft.api_key === undefined && !matchesProviderCredentialTarget(current, draft)) {
+    throw new AppError("MODEL_PROVIDER_CREDENTIAL_REQUIRED")
+  }
 }
 
 function legacyV6SplitChannelId(

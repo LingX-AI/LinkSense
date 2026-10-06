@@ -1,6 +1,9 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  MODEL_PROVIDER_CREDENTIAL_REQUIRED: "API キーを入力してください。プロバイダー、サービスのアドレス、クラウドプロジェクトを変更した場合は、新しいキーの入力が必要です。",
+  MODEL_PROVIDER_DISCOVERY_FAILED: "モデル一覧を取得できませんでした。サービスのアドレスとキーを確認するか、モデルを手動で入力してください。",
+  MODEL_PROVIDER_CONNECTION_FAILED: "接続テストに失敗しました。サービスのアドレス、キー、モデルを確認し、選択した接続方法にサービスが対応していることを確かめてください。",
   CONNECTION_WRITE_REQUIRED: "この接続は読み取り専用です。プラグインセンターの「コネクター」で書き込みを許可し、再認証してください。",
   CONNECTION_FILE_CONFLICT: "ファイルが変更されたか、同じ名前のファイルが存在します。最新の状態を確認してから再試行してください。",
   CONNECTION_NOT_CONFIGURED: "管理者による接続設定が必要です。",

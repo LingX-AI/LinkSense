@@ -1108,7 +1108,7 @@ test("the release workflow reuses verified main checks before promotion", async 
     workflow.match(
       /docker\/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772/gu,
     )?.length,
-    4,
+    5,
   )
   assert.match(workflow, /sh scripts\/prepare-release-inputs\.sh release-inputs/u)
   assert.match(workflow, /cd release-inputs && sha256sum -c SHA256SUMS/u)
@@ -1118,7 +1118,7 @@ test("the release workflow reuses verified main checks before promotion", async 
   assert.doesNotMatch(workflow, /fail-fast: true/u)
   assert.match(workflow, /type=gha,scope=migrate-\{0\}/u)
   assert.equal((workflow.match(/timeout=2m,ignore-error=true/gu) ?? []).length, 2)
-  assert.equal((workflow.match(/overwrite: true/gu) ?? []).length, 5)
+  assert.equal((workflow.match(/overwrite: true/gu) ?? []).length, 6)
   assert.doesNotMatch(workflow, /full-installation-smoke:/u)
   assert.doesNotMatch(workflow, /self-hosted|linksense-full-release/u)
   assert.match(workflow, /docker buildx imagetools create/u)

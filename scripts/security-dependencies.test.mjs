@@ -28,6 +28,9 @@ for (const [name, minimum] of [
   ["brace-expansion", "5.0.11"],
   ["fast-uri", "3.1.7"],
   ["undici", "6.28.1"],
+  ["proxy-addr", "2.0.8"],
+  ["source-map-js", "1.2.2"],
+  ["prosemirror-view", "1.42.3"],
 ]) {
   test(`the lockfile resolves ${name} only to security-patched versions`, () => {
     const versions = Object.keys(lockfile.packages)

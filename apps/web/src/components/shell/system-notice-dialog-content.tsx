@@ -38,8 +38,8 @@ export function SystemNoticeDialogContent({
         <MaintenanceNoticeHero icon={heroIcon} />
         <div className="flex flex-col items-center gap-6 px-6 py-7 sm:px-10 sm:py-8">
           {notice}
-          <DialogHeader className="items-center gap-3 text-center">
-            <DialogTitle className="text-xl leading-snug font-semibold tracking-tight sm:text-2xl">
+          <DialogHeader className="w-full min-w-0 items-center gap-3 text-center">
+            <DialogTitle className="max-w-full text-xl leading-snug font-semibold tracking-tight break-words sm:text-2xl">
               {title}
             </DialogTitle>
             <DialogDescription className="max-w-md leading-relaxed">

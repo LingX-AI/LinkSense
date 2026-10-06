@@ -34,3 +34,11 @@ export function PoweredByLinkSense({ className }: { className?: string }) {
     </a>
   )
 }
+
+export function PoweredByLinkSenseFooter() {
+  return (
+    <footer className="flex h-12 shrink-0 items-center justify-center px-4 md:h-16 md:justify-end md:px-7">
+      <PoweredByLinkSense />
+    </footer>
+  )
+}

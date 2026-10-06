@@ -3,7 +3,11 @@ import { samljaJP } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
 import type { TranslationResource } from "@/i18n/types"
 
+import { modelSetupMessages } from "@/features/admin/model-setup-messages"
+import { localizedErrorMessage } from "@linksense/shared"
+
 export const jaJP = {
+  modelSetup: modelSetupMessages["ja-JP"],
   connections: connectionMessages["ja-JP"],
   saml: samljaJP,
   social: {
@@ -426,9 +430,8 @@ export const jaJP = {
     creditQuotaUnlimited: "無制限",
   },
   support: {
-    menuLabel: "フィードバックとヘルプ",
     feedback: "フィードバック",
-    help: "ヘルプ",
+    help: "使い方ガイド",
     feedbackTitle: "フィードバックを送信",
     feedbackDescription: "発生した問題や改善のご要望をお知らせください。",
     feedbackLabel: "フィードバック",
@@ -4465,8 +4468,9 @@ export const jaJP = {
     notice: {
       title: "LinkSense {{version}} が利用可能です",
       description:
-        "管理者はリリース内容を確認し、手順に沿ってアップグレードできます。",
+        "新しいバージョンが公開されました。更新内容とアップグレード手順をご確認ください。",
       action: "更新を表示",
+      later: "後で",
       dismiss: "このバージョンの更新通知を閉じる",
     },
     status: {
@@ -5823,6 +5827,9 @@ export const jaJP = {
     modelProvider: {
       inUseBySystemSetting:
         "このモデルはシステム設定で使用中です。削除する前に、その選択を変更または解除してください。",
+      credentialRequired: localizedErrorMessage("MODEL_PROVIDER_CREDENTIAL_REQUIRED", "ja-JP"),
+      discoveryFailed: localizedErrorMessage("MODEL_PROVIDER_DISCOVERY_FAILED", "ja-JP"),
+      connectionFailed: localizedErrorMessage("MODEL_PROVIDER_CONNECTION_FAILED", "ja-JP"),
       managementDisabled:
         "モデル設定はデプロイ環境で固定されており、読み取り専用です。",
     },

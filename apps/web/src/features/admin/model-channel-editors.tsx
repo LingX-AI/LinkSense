@@ -5,12 +5,18 @@ import { useTranslation } from "react-i18next"
 import {
   modelServiceProviderValues,
   modelProviderProtocolModeValues,
+  modelProviderPresets,
+  type DiscoveredProviderModel,
+  type ModelProviderProbeInput,
   type ManagedPricedModel,
 } from "@linksense/shared"
 import type { ModelProviderSettings } from "@/api/contracts"
 import { FieldShell } from "@/components/forms/form-field"
 import { FieldGroup } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { ModelAdvancedSettings } from "./model-advanced-settings"
+import { ModelConnectionTest, ModelDiscovery } from "./model-provider-probe"
 import { ModelSettingsEditor } from "./model-settings-editor"
 import {
   ModelSettingsFields,
@@ -46,6 +52,10 @@ export function ModelEditor({
   const { t } = useTranslation()
   const [initial] = useState(() => initialModel ?? newModel())
   const [model, setModel] = useState(initial)
+  const [manual, setManual] = useState(initialModel !== null)
+  const [discovered, setDiscovered] = useState<DiscoveredProviderModel | null>(
+    null
+  )
   const [contextInput, setContextInput] = useState(
     initial.kind === "chat" && initial.context_window !== null
       ? String(initial.context_window)
@@ -75,6 +85,14 @@ export function ModelEditor({
     otherModels.some(
       (saved) => saved.display_name.trim() === model.display_name.trim()
     )
+  const probe: ModelProviderProbeInput = {
+    channel_id: channel.id,
+    provider: channel.provider,
+    provider_project: channel.provider_project,
+    provider_location: channel.provider_location,
+    base_url: channel.base_url,
+    protocol_mode: channel.protocol_mode,
+  }
   return (
     <ModelSettingsEditor
       title={
@@ -106,6 +124,65 @@ export function ModelEditor({
       {...actions}
       onSave={() => actions.onSave(draft)}
     >
+      {!initialModel && (
+        <>
+          <ModelDiscovery
+            key={JSON.stringify(probe)}
+            input={probe}
+            credentialsReady={channel.api_key_configured}
+            disabled={actions.pending}
+            selectedId={model.id}
+            onSelect={(selected) => {
+              setManual(true)
+              setDiscovered(selected)
+              setModel({
+                ...newModel(),
+                id: selected.id,
+                display_name: selected.display_name,
+                context_window: selected.context_window,
+                supports_image_input: selected.supports_image_input ?? false,
+              })
+              setContextInput(
+                selected.context_window === null
+                  ? ""
+                  : String(selected.context_window)
+              )
+            }}
+          />
+          {!manual && !model.id && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="self-start"
+              onClick={() => setManual(true)}
+            >
+              {t("modelSetup.manual")}
+            </Button>
+          )}
+          {discovered && discovered.id === model.id && (
+            <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+              <p>
+                {discovered.context_window === null
+                  ? t("modelSetup.contextUnknown")
+                  : t("modelSetup.contextKnown", {
+                      count: discovered.context_window,
+                    })}
+              </p>
+              <p>
+                {discovered.supports_image_input === null
+                  ? t("modelSetup.imagesUnknown")
+                  : t("modelSetup.imagesKnown", {
+                      value: t(
+                        discovered.supports_image_input
+                          ? "modelSetup.yes"
+                          : "modelSetup.no"
+                      ),
+                    })}
+              </p>
+            </div>
+          )}
+        </>
+      )}
       <ModelSettingsFields
         model={model}
         modelIdError={
@@ -119,6 +196,13 @@ export function ModelEditor({
         onChange={setModel}
         contextInput={contextInput}
         onContextChange={setContextInput}
+        showIdentity={manual || Boolean(model.id)}
+      />
+      <ModelConnectionTest
+        key={JSON.stringify({ probe, value })}
+        input={{ ...probe, model_id: model.id, kind: model.kind }}
+        credentialsReady={channel.api_key_configured}
+        disabled={actions.pending}
       />
     </ModelSettingsEditor>
   )
@@ -150,12 +234,15 @@ export function ChannelEditor({
           provider_project: null,
           provider_location: null,
           base_url: "",
-          protocol_mode: "native_responses",
+          protocol_mode: modelProviderPresets.openai_compatible.protocol_mode,
           models: [],
         }
   )
   const [value, setValue] = useState(initial)
   const [apiKey, setApiKey] = useState("")
+  const [testModelId, setTestModelId] = useState(
+    channel?.models.find((model) => model.kind === "chat")?.id ?? ""
+  )
   const draft = replaceChannel(actions.settings, {
     ...value,
     ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
@@ -168,14 +255,33 @@ export function ChannelEditor({
       (saved) =>
         saved.id !== channel?.id && saved.name?.trim() === value.name?.trim()
     )
+  const savedTargetMatches =
+    channel !== null &&
+    channel.provider === value.provider &&
+    channel.base_url === value.base_url &&
+    channel.provider_project === value.provider_project &&
+    channel.provider_location === value.provider_location
   const keyRequired =
     !channel ||
+    (channel.api_key_configured && !savedTargetMatches) ||
     (!channel.api_key_configured &&
       value.models.some(
         (model) =>
           (model.kind === "chat" && model.enabled) ||
           model.id === actions.settings.title_model
       ))
+  const credentialsReady =
+    Boolean(apiKey.trim()) ||
+    Boolean(channel?.api_key_configured && savedTargetMatches)
+  const probe: ModelProviderProbeInput = {
+    ...(channel ? { channel_id: channel.id } : {}),
+    provider: value.provider,
+    base_url: value.base_url,
+    protocol_mode: value.protocol_mode ?? "native_responses",
+    provider_project: value.provider_project,
+    provider_location: value.provider_location,
+    ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+  }
   return (
     <ModelSettingsEditor
       title={
@@ -230,18 +336,29 @@ export function ChannelEditor({
             label: t(`admin.imageUnderstanding.providers.${provider}`),
             icon: <ModelServiceProviderLogo provider={provider} />,
           }))}
-          onChange={(provider) =>
+          onChange={(provider) => {
+            const preset = modelProviderPresets[provider]
             setValue({
               ...value,
               provider,
+              base_url: preset.base_url ?? "",
+              protocol_mode: preset.protocol_mode,
               provider_project:
                 provider === "google_vertex" ? value.provider_project : null,
               provider_location:
                 provider === "google_vertex" ? value.provider_location : null,
             })
-          }
+          }}
         />
-        <FieldShell id={`${id}-url`} label={t("admin.modelProvider.baseUrl")}>
+        <FieldShell
+          id={`${id}-url`}
+          label={t("admin.modelProvider.baseUrl")}
+          hint={
+            modelProviderPresets[value.provider].requires_compatible_endpoint
+              ? t("modelSetup.compatibleEndpoint")
+              : undefined
+          }
+        >
           <Input
             id={`${id}-url`}
             name={`${id}-url`}
@@ -258,7 +375,7 @@ export function ChannelEditor({
           id={`${id}-key`}
           label={t("admin.modelProvider.apiKey")}
           hint={t(
-            channel?.api_key_configured
+            channel?.api_key_configured && savedTargetMatches
               ? "admin.modelProvider.apiKeyConfiguredHint"
               : keyRequired
                 ? "admin.modelProvider.apiKeyRequiredHint"
@@ -279,15 +396,6 @@ export function ChannelEditor({
             onChange={(event) => setApiKey(event.target.value)}
           />
         </FieldShell>
-        <ModelSettingsSelect
-          label={t("admin.modelProvider.protocolMode")}
-          value={value.protocol_mode ?? "native_responses"}
-          options={modelProviderProtocolModeValues.map((mode) => ({
-            value: mode,
-            label: t(`admin.modelProvider.protocolModes.${mode}`),
-          }))}
-          onChange={(protocol_mode) => setValue({ ...value, protocol_mode })}
-        />
         {value.provider === "google_vertex" && (
           <>
             <FieldShell
@@ -321,11 +429,43 @@ export function ChannelEditor({
           </>
         )}
       </FieldGroup>
-      <p className="text-xs text-muted-foreground">
-        {t(
-          `admin.modelProvider.protocolModeHints.${value.protocol_mode ?? "native_responses"}`
+      <ModelAdvancedSettings>
+        <ModelSettingsSelect
+          label={t("admin.modelProvider.protocolMode")}
+          value={value.protocol_mode ?? "native_responses"}
+          options={modelProviderProtocolModeValues.map((mode) => ({
+            value: mode,
+            label: t(`admin.modelProvider.protocolModes.${mode}`),
+          }))}
+          onChange={(protocol_mode) => setValue({ ...value, protocol_mode })}
+        />
+        <p className="text-xs text-muted-foreground">
+          {t(
+            `admin.modelProvider.protocolModeHints.${value.protocol_mode ?? "native_responses"}`
+          )}
+        </p>
+      </ModelAdvancedSettings>
+      <ModelDiscovery
+        key={JSON.stringify(probe)}
+        input={probe}
+        credentialsReady={credentialsReady}
+        disabled={actions.pending}
+        selectedId={testModelId}
+        onSelect={(model) => setTestModelId(model.id)}
+        manualEntry={{
+          label: t("modelSetup.testModel"),
+          onChange: setTestModelId,
+        }}
+      />
+      <ModelConnectionTest
+        key={JSON.stringify({ probe, value, testModelId })}
+        input={{ ...probe, model_id: testModelId }}
+        credentialsReady={credentialsReady}
+        credentialsChanged={Boolean(
+          channel?.api_key_configured && !savedTargetMatches && !apiKey.trim()
         )}
-      </p>
+        disabled={actions.pending}
+      />
     </ModelSettingsEditor>
   )
 }

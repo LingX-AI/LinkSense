@@ -14,6 +14,37 @@ const CONVERSATION_A_ID = "00000000-0000-4000-8000-0000000000a1"
 const CONVERSATION_B_ID = "00000000-0000-4000-8000-0000000000b1"
 
 describe("ModelProviderSettingsService", () => {
+  it("requires a replacement key before a saved channel can send credentials to a changed target", async () => {
+    const database = inMemoryDatabase()
+    const readContextWindows = vi.fn(async () => new Map<string, number>())
+    const service = new ModelProviderSettingsService(database.prisma, testConfig(), { readContextWindows })
+    const saved = provider("saved", "https://saved.example.test/v1", [pricedModel("saved-model", ["medium"], "medium")], "native_responses", "saved-synthetic-key")
+    await service.update(ACTOR_ID, { expected_revision: 0, providers: [saved], default_model: "saved-model" }, {})
+    readContextWindows.mockClear()
+    const withoutNewKey = provider("saved", "https://changed.example.test/v1", saved.models)
+    await expect(service.update(ACTOR_ID, { expected_revision: 1, providers: [withoutNewKey], default_model: "saved-model" }, {})).rejects.toMatchObject({ code: "MODEL_PROVIDER_CREDENTIAL_REQUIRED" })
+    expect(readContextWindows).not.toHaveBeenCalled()
+    expect((await service.getAdminSettings()).providers[0]?.base_url).toBe(saved.base_url)
+    await service.update(ACTOR_ID, { expected_revision: 1, providers: [{ ...withoutNewKey, api_key: "replacement-synthetic-key" }], default_model: "saved-model" }, {})
+    expect(readContextWindows).toHaveBeenCalledWith({ baseUrl: withoutNewKey.base_url, apiKey: "replacement-synthetic-key" })
+  })
+
+  it.each([
+    { provider: "openai" as const },
+    { provider_project: "changed-project" },
+    { provider_location: "changed-location" },
+  ])("does not reuse a saved channel key after provider or cloud scope changes: %j", async (changedTarget) => {
+    const database = inMemoryDatabase()
+    const readContextWindows = vi.fn(async () => new Map<string, number>())
+    const service = new ModelProviderSettingsService(database.prisma, testConfig(), { readContextWindows })
+    const saved = provider("saved", "https://saved.example.test/v1", [pricedModel("saved-model", ["medium"], "medium")], "native_responses", "saved-synthetic-key")
+    await service.update(ACTOR_ID, { expected_revision: 0, providers: [saved], default_model: "saved-model" }, {})
+    readContextWindows.mockClear()
+    const edit = { ...provider("saved", saved.base_url, saved.models), ...changedTarget }
+    await expect(service.update(ACTOR_ID, { expected_revision: 1, providers: [edit], default_model: "saved-model" }, {})).rejects.toMatchObject({ code: "MODEL_PROVIDER_CREDENTIAL_REQUIRED" })
+    expect(readContextWindows).not.toHaveBeenCalled()
+  })
+
   it("keeps existing version 9 settings usable with task-model extraction at the lowest supported effort", async () => {
     const config = testConfig();
     const database = inMemoryDatabase({
@@ -231,7 +262,7 @@ describe("ModelProviderSettingsService", () => {
     )
   })
 
-  it("encrypts channel keys, preserves them by provider id, and routes each model through its channel", async () => {
+  it("encrypts channel keys, preserves them for unchanged targets, and routes each model through its channel", async () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
@@ -317,7 +348,7 @@ describe("ModelProviderSettingsService", () => {
         providers: [
           provider(
             "provider-a",
-            "https://models-a-2.example.test/v1",
+            "https://models-a.example.test/v1",
             [
               pricedModel("model-a", ["medium", "high"], "high", {
                 input_price_per_million: "10",
@@ -344,7 +375,7 @@ describe("ModelProviderSettingsService", () => {
       reasoningEffort: "high",
       provider: {
         revision: 2,
-        baseUrl: "https://models-a-2.example.test/v1",
+        baseUrl: "https://models-a.example.test/v1",
         protocolMode: "responses_tool_compat",
         apiKey: "provider-a-secret",
       },
@@ -358,7 +389,7 @@ describe("ModelProviderSettingsService", () => {
         output_price_per_million: "20",
       },
       channel: {
-        baseUrl: "https://models-a-2.example.test/v1",
+        baseUrl: "https://models-a.example.test/v1",
         apiKey: "provider-a-secret",
       },
     })
