@@ -11,7 +11,11 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import { createHash } from "node:crypto"
+import { createRequire } from "node:module"
 import test from "node:test"
+import { baselineInputs, baselineFingerprint, runtimeNames, serviceNames, vendorComponents } from "../deploy/baselines/tools/baseline-images.mjs"
+import { baselineDockerfileDefaults } from "./baseline-adoption.mjs"
 
 const root = path.resolve(import.meta.dirname, "..")
 function fixture(t) {
@@ -27,8 +31,22 @@ function fixture(t) {
     "prepare-release-inputs.sh",
     "resolve-release-image.sh",
     "bundle-release-installers.mjs",
+    "baseline-adoption.mjs",
   ])
     cpSync(path.join(root, "scripts", file), path.join(source, "scripts", file))
+  for (const input of baselineInputs) cpSync(path.join(root, input), path.join(source, input), { recursive: true, filter: file => !file.split(/[\\/]/u).includes("node_modules") })
+  const require = createRequire(import.meta.url)
+  cpSync(path.dirname(require.resolve("zod/package.json")), path.join(source, "node_modules/zod"), { recursive: true })
+  const rawIndex = JSON.stringify({ schemaVersion: 2, manifests: ["amd64", "arm64"].map(architecture => ({ digest: "sha256:" + "a".repeat(64), platform: { os: "linux", architecture } })) })
+  const indexHash = createHash("sha256").update(rawIndex).digest("hex")
+  const reference = name => `ghcr.io/lingx-ai/linksense-${name}@sha256:${indexHash}`
+  const baseline = { schemaVersion: 1, id: "baseline-123-1", recipeFingerprint: baselineFingerprint(source), sourceCommit: "b".repeat(40), workflowUrl: "https://github.com/LingX-AI/LinkSense/actions/runs/123", builtAt: "2026-10-06T00:00:00Z", runtimes: Object.fromEntries(runtimeNames.map(name => [name, reference(`runtime-${name}`)])), services: Object.fromEntries(serviceNames.map(name => [name, vendorComponents[name] ? reference(vendorComponents[name]) : `docker.io/${name === "MINIO" ? "pgsty/silo" : "library/busybox"}@sha256:${indexHash}`])) }
+  writeFileSync(path.join(source, "deploy/baselines/images.lock.json"), JSON.stringify(baseline))
+  for (const name of ["Dockerfile.api", "Dockerfile.web", "Dockerfile.runner"]) writeFileSync(path.join(source, name), baselineDockerfileDefaults(baseline, name, readFileSync(path.join(root, name), "utf8")))
+  writeFileSync(path.join(bin, "gh"), `#!${process.execPath}
+if (process.env.RELEASE_TEST_PROOF_FAILURE) process.exit(1);
+process.stdout.write(JSON.stringify({id:123,run_attempt:1,head_sha:'b'.repeat(40),head_branch:'main',event:'workflow_dispatch',conclusion:'success',path:'.github/workflows/maintain-baselines.yml',repository:{full_name:'LingX-AI/LinkSense'}}));
+`, { mode: 0o755 })
   cpSync(
     path.join(root, "deploy/release"),
     path.join(source, "deploy/release"),
@@ -93,7 +111,7 @@ require('node:fs').writeFileSync(process.argv[process.argv.indexOf('-o')+1], 'lo
   return { source, output, env, countFile, prepare, resolve }
 }
 
-test("preparation freezes all upstream digests, tokenizer bytes, entry scripts and identity", (t) => {
+test("preparation reuses verified immutable baselines and freezes tokenizer bytes, entry scripts and identity", (t) => {
   const { output, countFile, prepare } = fixture(t)
   const source = readFileSync(
     path.join(root, "scripts/prepare-release-inputs.sh"),
@@ -102,23 +120,24 @@ test("preparation freezes all upstream digests, tokenizer bytes, entry scripts a
   assert.doesNotMatch(source, /(?:quay\.io|docker\.io)\/minio\//u)
   const result = prepare()
   assert.equal(result.status, 0, result.stderr)
-  assert.equal(Number(readFileSync(countFile, "utf8")), 8)
+  assert.equal(Number(readFileSync(countFile, "utf8")), 12)
   const requestedImages = readFileSync(`${countFile}.images`, "utf8")
     .trim()
     .split("\n")
-  assert.deepEqual(requestedImages.slice(2, 4), [
-    "docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z-distroless",
-    "docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z",
-  ])
+  assert.ok(requestedImages.every(reference => reference.includes("@sha256:")))
+  assert.ok(requestedImages.some(reference => reference.startsWith("ghcr.io/lingx-ai/linksense-runtime-worker@sha256:")))
   const images = readFileSync(path.join(output, "upstream-images.env"), "utf8")
     .trim()
     .split("\n")
   assert.equal(images.length, 8)
-  for (const name of ["MINIO", "MINIO_CLIENT"]) {
+  for (const name of ["MINIO"]) {
     assert.ok(images.some((line) =>
       line.startsWith(`IMAGE_${name}=docker.io/pgsty/silo@sha256:`),
     ))
   }
+  assert.ok(images.some(line => line.startsWith("IMAGE_MINIO_CLIENT=ghcr.io/lingx-ai/linksense-minio-client@sha256:")))
+  assert.equal(readFileSync(path.join(output, "runtime-images.env"), "utf8").trim().split("\n").length, 4)
+  assert.ok(existsSync(path.join(output, "images.lock.json")))
   assert.ok(
     images.every((line) =>
       /^IMAGE_[A-Z_]+=[a-z0-9./-]+@sha256:[0-9a-f]{64}$/u.test(line),
@@ -158,7 +177,18 @@ test("missing upstream architecture fails before publishing any frozen identity"
   assert.match(result.stderr, /exactly one linux\/arm64/u)
   assert.equal(Number(readFileSync(countFile, "utf8")), 1)
   assert.equal(existsSync(path.join(output, "identity.env")), false)
-  assert.equal(existsSync(path.join(output, "upstream-images.env")), false)
+  assert.equal(existsSync(path.join(output, "SHA256SUMS")), false)
+})
+
+test("an unsuccessful maintenance proof or changed runtime recipe blocks all release image operations", (t) => {
+  for (const changedRecipe of [false, true]) {
+    const { source, output, env, countFile, prepare } = fixture(t)
+    if (changedRecipe) writeFileSync(path.join(source, "deploy/runtime/node/package.json"), "changed environment")
+    else env.RELEASE_TEST_PROOF_FAILURE = "1"
+    assert.notEqual(prepare().status, 0)
+    assert.equal(existsSync(countFile), false)
+    assert.equal(existsSync(path.join(output, "identity.env")), false)
+  }
 })
 
 test("a tokenizer download failure stops preflight before it records trusted inputs", (t) => {

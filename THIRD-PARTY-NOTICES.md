@@ -6,7 +6,10 @@ licenses. LinkSense does not relicense them under CPAL-1.0. The release installe
 pulls the upstream server and BusyBox images and the LinkSense-hardened
 derivatives of the other components; the immutable image digests
 in each release manifest identify the exact images installed. The tags below
-describe the versions selected in `scripts/prepare-release-inputs.sh`.
+describe the versions selected in `deploy/baselines/upstream-images.json`.
+The independently maintained environment and service baselines are frozen in
+`deploy/baselines/images.lock.json`; daily application releases reuse their
+verified digests without rebuilding the third-party components.
 
 | Component | Release image tag | Profile | Upstream license |
 | --- | --- | --- | --- |

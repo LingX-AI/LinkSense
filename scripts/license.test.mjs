@@ -64,12 +64,12 @@ test("the separate 4.4 permissions and trademark grant resolve from both READMEs
 })
 
 test("the third-party notice matches every pinned release image and is linked by both READMEs", async () => {
-  const [english, chinese, notice, projectNotice, preparation] = await Promise.all([
+  const [english, chinese, notice, projectNotice, baselineSources] = await Promise.all([
     read("README.md"),
     read("README.zh-CN.md"),
     read("THIRD-PARTY-NOTICES.md"),
     read("NOTICE"),
-    read("scripts/prepare-release-inputs.sh"),
+    read("deploy/baselines/upstream-images.json"),
   ])
 
   for (const readme of [english, chinese]) {
@@ -77,9 +77,9 @@ test("the third-party notice matches every pinned release image and is linked by
   }
   assert.ok(projectNotice.includes("THIRD-PARTY-NOTICES.md"))
 
-  const pinnedImages = [...preparation.matchAll(/^resolve (\w+) (\S+)$/gmu)]
+  const pinnedImages = Object.values(JSON.parse(baselineSources))
   assert.equal(pinnedImages.length, 8)
-  for (const [, , image] of pinnedImages) {
+  for (const image of pinnedImages) {
     assert.ok(notice.includes(`\`${image}\``), `${image} is absent from the third-party notice`)
   }
   assert.match(notice, /Redis 7\.4 is source-available under RSALv2 or SSPLv1/u)

@@ -1,0 +1,121 @@
+name: Verify application images
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linksense-application-image-verification
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.34.6
+          run_install: false
+      - name: Verify the adopted environment without publishing a product
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = main
+          pnpm --dir deploy/baselines/tools install --prod --frozen-lockfile --ignore-workspace --registry=https://registry.npmjs.org/
+          node scripts/baseline-adoption.mjs --check
+          node deploy/baselines/tools/baseline-images.mjs verify-proof deploy/baselines/images.lock.json
+
+  build:
+    needs: prepare
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        application:
+          - { name: api, dockerfile: Dockerfile.api, target: runtime }
+          - { name: web, dockerfile: Dockerfile.web, target: runtime }
+          - { name: migrate, dockerfile: Dockerfile.api, target: migration }
+          - { name: runner, dockerfile: Dockerfile.runner, target: controller }
+          - { name: worker, dockerfile: Dockerfile.runner, target: worker }
+        platform:
+          - { architecture: amd64, os: linux/amd64, runner: ubuntu-24.04 }
+          - { architecture: arm64, os: linux/arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - name: Build the application on its native architecture
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: .
+          file: ${{ matrix.application.dockerfile }}
+          target: ${{ matrix.application.target }}
+          platforms: ${{ matrix.platform.os }}
+          push: false
+          load: true
+          # Local smoke images are not release artifacts. Formal releases still
+          # require SBOM and provenance before promoting registry digests.
+          provenance: false
+          sbom: false
+          tags: linksense-preflight-${{ matrix.application.name }}:local
+          cache-from: type=gha,scope=${{ matrix.application.name }}-${{ matrix.platform.architecture }}
+      - name: Check inherited tools, native libraries and packaged application identity
+        env:
+          ROLE: ${{ matrix.application.name }}
+          ARCHITECTURE: ${{ matrix.platform.architecture }}
+          IMAGE: linksense-preflight-${{ matrix.application.name }}:local
+        run: |
+          set -euo pipefail
+          mkdir build-identities
+          case "$ROLE" in
+            api)
+              docker run --rm --network none --entrypoint /opt/linksense/unoserver/bin/python "$IMAGE" -c 'import uno, unoserver'
+              docker run --rm --network none --entrypoint cat "$IMAGE" /app/dist/build-info.json > "build-identities/api-$ARCHITECTURE.json"
+              ;;
+            web)
+              docker run --rm --network none --entrypoint nginx "$IMAGE" -t
+              docker run --rm --network none --entrypoint cat "$IMAGE" /usr/share/nginx/html/build-info.json > "build-identities/web-$ARCHITECTURE.json"
+              ;;
+            migrate) docker run --rm --network none --entrypoint pnpm "$IMAGE" exec prisma --version ;;
+            runner) docker run --rm --network none --entrypoint node "$IMAGE" --version ;;
+            worker)
+              docker run --rm --network none --user 1001:1000 --entrypoint node "$IMAGE" --input-type=module \
+                --eval "import { assertCodexRuntimeVersion } from './dist/codex/runtime-version.js'; await assertCodexRuntimeVersion({ command: 'codex' })"
+              docker run --rm --network none --entrypoint node "$IMAGE" /opt/linksense/tooling/verify-kernel-headers.mjs
+              ;;
+          esac
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: matrix.application.name == 'api' || matrix.application.name == 'web'
+        with:
+          name: application-identity-${{ matrix.application.name }}-${{ matrix.platform.architecture }}
+          path: build-identities/
+          if-no-files-found: error
+          retention-days: 3
+
+  identities:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: application-identity-*
+          path: build-identities
+          merge-multiple: true
+      - name: Require the same Web and API source identity on both architectures
+        run: |
+          node -e 'const fs=require("fs"); const files=fs.readdirSync("build-identities"); if(files.length!==4) throw Error("Missing native application identity"); const ids=files.map(file=>JSON.parse(fs.readFileSync("build-identities/"+file)).build_id); if(ids.some(id=>!/^[a-f0-9]{64}$/.test(id))||new Set(ids).size!==1) throw Error("Web/API build identities do not match")'

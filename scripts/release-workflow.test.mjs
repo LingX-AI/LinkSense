@@ -10,6 +10,19 @@ const root = path.resolve(import.meta.dirname, "..")
 const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
 const { parse } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml")
 
+test("native application verification builds every thin image without publishing images or product Releases", () => {
+  const verification = parse(readFileSync(path.join(root, ".github/workflows/verify-application-images.yml"), "utf8"))
+  assert.deepEqual(Object.keys(verification.on), ["workflow_dispatch"])
+  assert.equal(verification.jobs.build.strategy.matrix.application.length, 5)
+  assert.deepEqual(verification.jobs.build.strategy.matrix.platform.map(p => p.runner), ["ubuntu-24.04", "ubuntu-24.04-arm"])
+  const build = verification.jobs.build.steps.find(step => step.uses?.startsWith("docker/build-push-action@"))
+  assert.equal(build.with.push, false)
+  assert.equal(build.with.load, true)
+  assert.deepEqual(verification.jobs.build.permissions, { contents: "read", packages: "read" })
+  assert.equal(verification.jobs.identities.needs, "build")
+  assert.doesNotMatch(JSON.stringify(verification), /packages":"write|contents":"write|gh release|publish-release\.mjs/u)
+})
+
 test("isolated Elasticsearch startup diagnostics remain read-only and do not require rescanning all images", () => {
   const preflight = parse(readFileSync(path.join(root, ".github/workflows/image-preflight.yml"), "utf8"))
   assert.deepEqual(preflight.permissions, { contents: "read" })
@@ -27,8 +40,8 @@ test("isolated Elasticsearch startup diagnostics remain read-only and do not req
 test("Docling import checks configure its RQ backend without accessing external services", () => {
   const dockerfile = readFileSync(path.join(root, "deploy/hardened/Dockerfile.docling"), "utf8")
   assert.match(dockerfile, /DOCLING_SERVE_ENG_KIND=rq DOCLING_SERVE_ENG_RQ_REDIS_URL=redis:\/\/127\.0\.0\.1:6379\/0/u)
-  const { jobs } = parse(workflow)
-  const smoke = jobs["hardened-images"].steps.find((step) => step.name === "Verify the patched component entrypoint")
+  const { jobs } = parse(readFileSync(path.join(root, ".github/workflows/maintain-baselines.yml"), "utf8"))
+  const smoke = jobs.build.steps.find((step) => step.name === "Verify the patched component entrypoint")
   assert.match(smoke.run, /docling\) docker run --rm --network none --env DOCLING_SERVE_ENG_KIND=rq --env DOCLING_SERVE_ENG_RQ_REDIS_URL=redis:\/\/127\.0\.0\.1:6379\/0/u)
 })
 
@@ -49,8 +62,10 @@ test("formal image tags and GitHub Release publication require every architectur
   assert.match(scan.run, /release-inputs\/identity\.env/u)
   assert.match(scan.run, /image-references verified-inputs image-security-reports/u)
   assert.match(scan.run, /release-image-inventory\.mjs upstream-env/u)
-  assert.ok(jobs["image-indexes"].needs.includes("hardened-images"))
-  assert.equal(jobs["hardened-images"].strategy.matrix.component.length, 6)
+  assert.deepEqual(jobs["image-indexes"].needs, ["prepare", "images", "worker-image"])
+  assert.equal(jobs["hardened-images"], undefined)
+  assert.doesNotMatch(workflow, /SECURITY_REBUILD_ID|deploy\/hardened\//u)
+  assert.match(workflow, /BASELINE_WORKER_IMAGE=\$\{\{ needs\.prepare\.outputs\.baseline_worker \}\}/u)
   assert.equal(scan.env.RELEASE_VERSION, "${{ needs.prepare.outputs.release_version }}")
   assert.equal(scan.env.SOURCE_SHA, "${{ needs.prepare.outputs.source_sha }}")
   assert.equal(scan.env.SCAN_PLATFORM, "linux/${{ matrix.architecture }}")
