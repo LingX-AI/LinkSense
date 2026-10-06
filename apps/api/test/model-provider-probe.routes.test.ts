@@ -15,7 +15,7 @@ async function fixture(role: "admin" | "user" = "admin", enabled = true, status 
   const app = Fastify()
   const user = { id: userId, email: "admin@example.test", name: "Admin", role, status, preferredLocale: "zh-CN", avatarObjectKey: null, authValidAfter: new Date(0) }
   const prisma = { user: { findUnique: vi.fn().mockResolvedValue(user) } } as unknown as PrismaClient
-  await app.register(jwt, { secret: "synthetic-probe-jwt-secret-at-least-32-chars", sign: { expiresIn: "5m" } })
+  await app.register(jwt, { secret: "test".repeat(8), sign: { expiresIn: "5m" } })
   await app.register(authenticationPlugin, { prisma })
   app.setErrorHandler((error, _request, reply) => {
     const normalized = normalizeError(error)
