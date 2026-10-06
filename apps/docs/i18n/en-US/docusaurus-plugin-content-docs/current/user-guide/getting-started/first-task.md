@@ -7,6 +7,19 @@ description: Submit a request and review the LinkSense execution and result.
 
 A task is a workspace that keeps related messages, files, context, and deliverables together.
 
+## First-time setup
+
+Choose an interface language in the top-right corner of the login or initialization page. After signing in, change it in **Settings → General**. LinkSense supports Simplified Chinese, English, Spanish, Brazilian Portuguese, French, and Japanese.
+
+When an administrator first uses LinkSense before configuring a model, the **New task** page shows the **Get started** guide and the sidebar account menu offers a guide shortcut. Both disappear once the account and model are ready. Other members do not see these guides.
+
+- Administrators can choose **Configure model** to open [Model settings](../../admin-guide/model-settings.md), add a model, test its connection, and save.
+- If the model status fails to load, choose **Retry**. You cannot send a new task until model configuration is ready and its status has loaded successfully.
+
+If no model is available, other members should ask an administrator to configure one, then refresh the **New task** page.
+
+You can dismiss the guide. This browser remembers that choice separately for each account. Administrators can reopen it through **Getting started guide** in the sidebar account menu while model setup is still incomplete.
+
 ## Submit work
 
 1. Select **New task** in the sidebar.
