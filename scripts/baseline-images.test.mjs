@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -86,4 +87,12 @@ test("only successful maintenance of the exact main source can prove a baseline"
   const proof = { id: 123, run_attempt: 1, head_sha: baseline.sourceCommit, head_branch: "main", event: "workflow_dispatch", conclusion: "success", path: ".github/workflows/maintain-baselines.yml", repository: { full_name: "LingX-AI/LinkSense" } };
   assert.equal(validateMaintenanceProof(baseline, proof).id, 123);
   for (const override of [{ id: 124 }, { run_attempt: 0 }, { head_sha: "c".repeat(40) }, { head_branch: "develop" }, { conclusion: "failure" }, { conclusion: null }, { path: ".github/workflows/release.yml" }, { repository: { full_name: "other/repo" } }]) assert.throws(() => validateMaintenanceProof(baseline, { ...proof, ...override }));
+});
+test("the baseline CLI still validates inputs when invoked through a symlink", t => {
+  const { directory } = fixture(t);
+  const link = join(directory, "baseline-cli.mjs");
+  symlinkSync(resolve("deploy/baselines/tools/baseline-images.mjs"), link);
+  const result = spawnSync(process.execPath, [link, "verify", join(directory, "missing-lock.json")], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /ENOENT/u);
 });

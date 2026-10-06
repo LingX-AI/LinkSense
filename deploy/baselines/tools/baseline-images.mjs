@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { sourceFingerprint } from "../../../scripts/source-fingerprint.mjs";
@@ -82,7 +82,7 @@ export function writeScanInputs(baseline, directory) {
   writeFileSync(join(directory, "release-inputs/upstream-images.env"), serviceEnvironment(baseline));
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const [command, ...args] = process.argv.slice(2);
   if (command === "fingerprint") console.log(baselineFingerprint(args[0]));
   else if (command === "names") console.log(baselineBuildNames.join(" "));
