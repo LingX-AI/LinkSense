@@ -68,6 +68,9 @@ test("baseline maintenance builds all components natively and only accepts scann
   assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
   assert.deepEqual(Object.keys(workflow.jobs), ["prepare", "build", "assemble", "security", "storage-upgrade", "verified"]);
   assert.equal(workflow.jobs.build.strategy.matrix.component.length, 10);
+  const build = workflow.jobs.build.steps.find(s => s.id === "build");
+  assert.match(build.with["build-args"], /matrix\.component\.name == 'runtime-web' && format\('NGINX_IMAGE=\{0\}', env\.UPSTREAM_IMAGE\)/u);
+  assert.doesNotMatch(build.with["build-args"], /^\s*NGINX_IMAGE=\$\{\{ env\.UPSTREAM_IMAGE \}\}$/mu);
   assert.deepEqual(workflow.jobs.build.strategy.matrix.platform.map(p => p.runner), ["ubuntu-24.04", "ubuntu-24.04-arm"]);
   assert.deepEqual(workflow.jobs.security.strategy.matrix.architecture, ["amd64", "arm64"]);
   assert.deepEqual(workflow.jobs.verified.needs, ["assemble", "security", "storage-upgrade"]);
