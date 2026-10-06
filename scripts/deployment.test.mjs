@@ -1282,7 +1282,6 @@ test("Docker builds configure a fast Debian mirror with bounded network retries"
   for (const dockerfile of [
     developmentDockerfile,
     apiDockerfile,
-    runnerDockerfile,
   ]) {
     const configureIndex = dockerfile.indexOf(
       "deploy/docker/configure-debian-apt.sh",
@@ -1294,6 +1293,16 @@ test("Docker builds configure a fast Debian mirror with bounded network retries"
     assert.match(dockerfile, /ARG DEBIAN_MIRROR_URL=/u);
     assert.match(dockerfile, /ARG DEBIAN_SECURITY_MIRROR_URL=/u);
   }
+  for (const dockerfile of [apiDockerfile, runnerDockerfile]) {
+    assert.match(dockerfile, /deploy\/docker\/bootstrap-ubuntu-node\.sh/u);
+    assert.match(dockerfile, /ARG UBUNTU_MIRROR_URL/u);
+    assert.match(dockerfile, /ARG UBUNTU_SECURITY_MIRROR_URL/u);
+    assert.match(dockerfile, /FROM \$\{UBUNTU_IMAGE\} AS node-runtime/u);
+  }
+  const ubuntuBootstrap = await readFile(new URL("../deploy/docker/bootstrap-ubuntu-node.sh", import.meta.url), "utf8");
+  assert.match(ubuntuBootstrap, /Acquire::Retries "3"/u);
+  assert.match(ubuntuBootstrap, /Acquire::http::Timeout "30"/u);
+  assert.match(ubuntuBootstrap, /Acquire::https::Timeout "30"/u);
 
   const installIndex = developmentDockerfile.indexOf(
     "pnpm install --frozen-lockfile",
@@ -1814,10 +1823,10 @@ test("runner image separates the trusted controller from unprivileged task worke
   );
   const controller = section(
     dockerfile,
-    "FROM ${NODE_IMAGE} AS controller",
-    "FROM ${NODE_IMAGE} AS worker",
+    "FROM node-runtime AS controller",
+    "FROM node-runtime AS worker",
   );
-  const worker = section(dockerfile, "FROM ${NODE_IMAGE} AS worker");
+  const worker = section(dockerfile, "FROM node-runtime AS worker");
 
   assert.match(controller, /^USER root$/mu);
   assert.doesNotMatch(controller, /pnpm add --global|uv sync|runtime\/python/u);
@@ -1982,7 +1991,7 @@ test("shared Python and Node runtimes are lockfile-driven and smoke tested", asy
     assert.match(pythonLock, new RegExp(`name = "${packageName}"`, "u"));
   }
   assert.deepEqual(Object.keys(nodeProject.dependencies).sort(), nodePackages);
-  assert.equal(nodeProject.packageManager, "pnpm@10.6.4");
+  assert.equal(nodeProject.packageManager, "pnpm@10.34.6");
   for (const packageName of nodePackages) {
     assert.match(nodeLock, new RegExp(`      ${packageName}:`, "u"));
   }
@@ -2071,7 +2080,7 @@ test("worker full Chromium capability is pinned, broad by default, Plan-read-onl
     "FROM toolchain AS browser-runtime-build",
     "# The controller is trusted infrastructure.",
   );
-  const workerStage = section(dockerfile, "FROM ${NODE_IMAGE} AS worker", null);
+  const workerStage = section(dockerfile, "FROM node-runtime AS worker", null);
 
   assert.equal(browserProject.dependencies["@playwright/cli"], "0.1.17");
   assert.match(browserLock, /'@playwright\/cli@0\.1\.17'/u);
@@ -2173,7 +2182,7 @@ test("worker shell bootstrap restores managed PATH after a login profile", async
     readFile(runnerDockerfilePath, "utf8"),
     readFile(bashEnvironmentBootstrapPath, "utf8"),
   ]);
-  const workerStage = section(dockerfile, "FROM ${NODE_IMAGE} AS worker", null);
+  const workerStage = section(dockerfile, "FROM node-runtime AS worker", null);
   const managedPath = bootstrap.match(/^PATH=(.+)$/mu)?.[1];
   assert.ok(managedPath);
 
@@ -2363,7 +2372,7 @@ test("per-user package managers serialize writes and preserve immutable fallback
     nodePnpmLauncher,
     /\/usr\/local\/bin\/node \/opt\/linksense\/tooling\/pnpm\/bin\/pnpm\.cjs/u,
   );
-  assert.equal(userNodePackage.packageManager, "pnpm@10.6.4");
+  assert.equal(userNodePackage.packageManager, "pnpm@10.34.6");
 
   const normalResolution = nodeHook.indexOf(
     "return nextResolve(specifier, context)",

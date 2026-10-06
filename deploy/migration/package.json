@@ -1,0 +1,28 @@
+{
+  "name": "@linksense/migration-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "license": "CPAL-1.0",
+  "type": "module",
+  "packageManager": "pnpm@10.34.6",
+  "scripts": {
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.8.0",
+    "@prisma/client": "7.8.0",
+    "dotenv": "17.3.1",
+    "pg": "8.16.3",
+    "prisma": "7.8.0",
+    "tsx": "4.21.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "deepmerge-ts@<8.0.2": "8.0.2",
+      "mysql2@<3.22.0": "3.22.0",
+      "source-map-js@<1.2.2": "1.2.2"
+    },
+    "onlyBuiltDependencies": []
+  }
+}

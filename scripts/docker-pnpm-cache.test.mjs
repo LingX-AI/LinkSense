@@ -4,7 +4,7 @@ import test from "node:test";
 
 for (const [file, expectedInstalls, user] of [
   ["Dockerfile.dev", 1, "node"],
-  ["Dockerfile.api", 1, "root"],
+  ["Dockerfile.api", 2, "root"],
   ["Dockerfile.runner", 3, "root"],
   ["Dockerfile.web", 1, "root"],
 ]) {
