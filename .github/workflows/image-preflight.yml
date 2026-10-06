@@ -1,0 +1,86 @@
+name: Release image preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      images_json:
+        description: JSON object mapping all 13 release image roles to candidate references
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  freeze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - name: Validate and freeze both candidate architectures
+        env:
+          IMAGES_JSON: ${{ inputs.images_json }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process';
+          import { mkdirSync, writeFileSync } from 'node:fs';
+          const own = ['api', 'web', 'migrate', 'runner', 'worker'];
+          const upstream = ['POSTGRES', 'REDIS', 'MINIO', 'MINIO_CLIENT', 'BUSYBOX', 'GATEWAY', 'ELASTICSEARCH', 'DOCLING'];
+          const roles = [...own.map(name => `LINKSENSE_${name.toUpperCase()}`), ...upstream];
+          const images = JSON.parse(process.env.IMAGES_JSON);
+          if (!images || typeof images !== 'object' || Array.isArray(images) || Object.keys(images).length !== roles.length) throw new Error('Provide all 13 image roles.');
+          for (const role of roles) if (typeof images[role] !== 'string' || images[role].length > 512 || !/^[a-zA-Z0-9./:@_-]+$/.test(images[role])) throw new Error(`Invalid reference for ${role}.`);
+          mkdirSync('preflight/image-references', { recursive: true });
+          mkdirSync('preflight/release-inputs', { recursive: true });
+          const frozen = new Map();
+          for (const role of roles) {
+            const image = images[role];
+            if (!frozen.has(image)) frozen.set(image, execFileSync('sh', ['scripts/resolve-release-image.sh', image, 'linux/amd64', 'linux/arm64'], { encoding: 'utf8', timeout: 120000 }).trim());
+            images[role] = frozen.get(image);
+          }
+          for (const name of own) writeFileSync(`preflight/image-references/${name}`, images[`LINKSENSE_${name.toUpperCase()}`] + '\n');
+          writeFileSync('preflight/release-inputs/upstream-images.env', upstream.map(role => `IMAGE_${role}=${images[role]}`).join('\n') + '\n');
+          writeFileSync('preflight/candidates.json', JSON.stringify({ source: process.env.GITHUB_SHA, images }, null, 2));
+          NODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preflight-inputs
+          path: preflight/
+          retention-days: 3
+
+  scan:
+    needs: freeze
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: preflight-inputs
+          path: preflight
+      - name: Install checksum-pinned Trivy
+        run: |
+          mkdir -p reports "$RUNNER_TEMP/trivy"
+          curl --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 15 --max-time 300 -fsSL \
+            https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz \
+            -o "$RUNNER_TEMP/trivy/archive.tar.gz"
+          printf 'c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f  %s\n' "$RUNNER_TEMP/trivy/archive.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/trivy/archive.tar.gz" -C "$RUNNER_TEMP/trivy" trivy
+          echo "$RUNNER_TEMP/trivy" >> "$GITHUB_PATH"
+      - name: Run the unchanged release vulnerability gate
+        env:
+          SCAN_PLATFORM: linux/${{ matrix.architecture }}
+        run: sh scripts/scan-release-images.sh preflight/image-references preflight/release-inputs reports "$SCAN_PLATFORM"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: preflight-reports-${{ matrix.architecture }}
+          path: reports/
+          retention-days: 30
+          if-no-files-found: error
