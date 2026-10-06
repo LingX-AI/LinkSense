@@ -4,7 +4,7 @@
   "private": true,
   "license": "CPAL-1.0",
   "type": "module",
-  "packageManager": "pnpm@10.6.4",
+  "packageManager": "pnpm@10.34.6",
   "description": "Locked Chromium automation runtime for LinkSense task workers",
   "dependencies": {
     "@playwright/cli": "0.1.17"

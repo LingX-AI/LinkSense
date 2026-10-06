@@ -60,7 +60,7 @@ Local objects are persisted under
 
 ```bash
 corepack enable
-corepack prepare pnpm@10.6.4 --activate
+corepack prepare pnpm@10.34.6 --activate
 pnpm install --frozen-lockfile
 pnpm dev:host
 ```

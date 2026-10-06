@@ -12,7 +12,7 @@
     "url": "https://github.com/LingX-AI/linksense/issues"
   },
   "homepage": "https://github.com/LingX-AI/linksense#readme",
-  "packageManager": "pnpm@10.6.4",
+  "packageManager": "pnpm@10.34.6",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:host": "LINKSENSE_ENV_FILE=.env.host node scripts/dev-host.mjs",

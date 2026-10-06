@@ -4,6 +4,6 @@
   "private": true,
   "license": "CPAL-1.0",
   "type": "module",
-  "packageManager": "pnpm@10.6.4",
+  "packageManager": "pnpm@10.34.6",
   "dependencies": {}
 }

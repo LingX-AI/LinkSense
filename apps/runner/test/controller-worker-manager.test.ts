@@ -1754,7 +1754,7 @@ describe("dynamic worker container contract", () => {
     expect(spec.Env).toContain(
       "LINKSENSE_CODEX_HOME_TEMPLATE=/opt/linksense/codex-home-template",
     )
-    expect(spec.Env).toContain("LINKSENSE_PNPM_VERSION=10.6.4")
+    expect(spec.Env).toContain("LINKSENSE_PNPM_VERSION=10.34.6")
     expect(spec.Env).toContain("LINKSENSE_BROWSER_SESSION_LIMIT=2")
     expect(spec.Env).toContain("LINKSENSE_MANAGED_BROWSER_ENABLED=true")
     expect(spec.Env).toContain("LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS=200000")

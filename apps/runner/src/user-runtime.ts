@@ -204,7 +204,7 @@ export async function initializeUserRuntime(
 
   await ensureUserNodePackage(
     path.join(paths.nodeProject, "package.json"),
-    options.pnpmVersion ?? "10.6.4",
+    options.pnpmVersion ?? "10.34.6",
     runCommand,
     options.processIdentity?.uid,
   )

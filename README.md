@@ -452,14 +452,14 @@ Third-party components keep their own licenses; exact versions are recorded in
 
 ## Local Development
 
-Requires Node.js 24+, pnpm 10.6.4, Docker Engine/Compose, and rsync.
+Requires Node.js 24+, pnpm 10.34.6, Docker Engine/Compose, and rsync.
 
 Applications and dependencies run in Linux containers; host rsync only synchronizes source
 files.
 
 ```bash
 corepack enable
-corepack prepare pnpm@10.6.4 --activate
+corepack prepare pnpm@10.34.6 --activate
 pnpm install --frozen-lockfile
 pnpm dev:prepare
 pnpm dev

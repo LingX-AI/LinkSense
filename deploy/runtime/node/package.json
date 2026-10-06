@@ -4,26 +4,31 @@
   "private": true,
   "license": "CPAL-1.0",
   "type": "module",
-  "packageManager": "pnpm@10.6.4",
+  "packageManager": "pnpm@10.34.6",
   "description": "Locked shared Node.js runtime for LinkSense task workers",
   "dependencies": {
     "archiver": "8.0.0",
-    "axios": "1.18.1",
+    "axios": "1.20.0",
     "cheerio": "1.2.0",
     "csv-parse": "7.0.1",
     "csv-stringify": "6.8.1",
     "dayjs": "1.11.21",
     "docx": "9.7.1",
     "exceljs": "4.4.0",
-    "fast-xml-parser": "5.10.0",
+    "fast-xml-parser": "5.10.1",
     "glob": "13.0.6",
     "pdf-lib": "1.17.1",
     "pptxgenjs": "4.0.1",
-    "sharp": "0.35.3",
+    "sharp": "0.35.4",
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
   "pnpm": {
+    "overrides": {
+      "brace-expansion@<5.0.11": "5.0.11",
+      "image-size@<2.0.3": "2.0.3",
+      "undici@>=7.0.0 <7.29.1": "7.29.1"
+    },
     "onlyBuiltDependencies": [
       "sharp"
     ]

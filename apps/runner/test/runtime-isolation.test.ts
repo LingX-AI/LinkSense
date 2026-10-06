@@ -150,7 +150,7 @@ describe("persistent user runtime", () => {
       nodeRegisterHook: "/opt/linksense/runtime/node/register-hooks.mjs",
       bashEnvironmentFile,
       runtimeToolBin,
-      pnpmVersion: "10.6.4",
+      pnpmVersion: "10.34.6",
       pythonPackageIndexUrl: "https://packages.example/pypi/simple/",
       nodePackageRegistryUrl: "https://packages.example/npm/",
       runCommand: async (command, args) => {
@@ -233,7 +233,7 @@ describe("persistent user runtime", () => {
       JSON.parse(
         await readFile(path.join(result.paths.nodeProject, "package.json"), "utf8"),
       ),
-    ).toMatchObject({ packageManager: "pnpm@10.6.4" })
+    ).toMatchObject({ packageManager: "pnpm@10.34.6" })
     await expect(
       access(path.join(result.paths.nodeBin, "linksense-uv")),
     ).rejects.toThrow()

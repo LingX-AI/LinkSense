@@ -25,7 +25,7 @@ describe("parseRunnerConfig", () => {
 
     expect(config.LINKSENSE_AGENTS_TEMPLATE_VERSION).toBe("7")
     expect(config).not.toHaveProperty("LINKSENSE_CODEX_MODEL")
-    expect(config.LINKSENSE_PNPM_VERSION).toBe("10.6.4")
+    expect(config.LINKSENSE_PNPM_VERSION).toBe("10.34.6")
     expect(config.LINKSENSE_PYTHON_PACKAGE_INDEX_URL).toBe(
       DEFAULT_PYTHON_PACKAGE_INDEX_URL,
     )
