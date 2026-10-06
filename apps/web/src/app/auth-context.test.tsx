@@ -85,11 +85,17 @@ function AuthProbe() {
   )
 }
 
-function AuthRefreshProbe({ onRender }: { onRender: () => void }) {
+function AuthRefreshProbe({
+  onRender,
+  signal,
+}: {
+  onRender: () => void
+  signal?: AbortSignal
+}) {
   const { refreshUser } = useAuth()
   onRender()
   return (
-    <button type="button" onClick={() => void refreshUser()}>
+    <button type="button" onClick={() => void refreshUser({ signal })}>
       refresh user
     </button>
   )
@@ -183,6 +189,38 @@ describe("AuthProvider session restoration", () => {
     })
 
     await expectAuthStatus("authenticated")
+  })
+
+  it("does not apply a late profile or language after an abortable refresh is cancelled", async () => {
+    sessionState.token = "persisted-access-token"
+    vi.mocked(apiRequest).mockResolvedValueOnce(user)
+    const controller = new AbortController()
+    let finish!: (value: User) => void
+    const nextProfile = new Promise<User>((resolve) => {
+      finish = resolve
+    })
+    renderAuthProvider(
+      createAuthQueryClient(),
+      <>
+        <AuthProbe />
+        <AuthRefreshProbe onRender={vi.fn()} signal={controller.signal} />
+      </>
+    )
+    await expectAuthStatus("authenticated")
+    vi.mocked(setAppLanguage).mockClear()
+    vi.mocked(apiRequest).mockImplementationOnce(async () => nextProfile)
+    fireEvent.click(screen.getByRole("button", { name: "refresh user" }))
+    expect(apiRequest).toHaveBeenLastCalledWith(
+      "/me",
+      expect.objectContaining({ signal: controller.signal })
+    )
+    controller.abort()
+    await act(async () => {
+      finish({ ...user, email: "other@example.test", language: "en-US" })
+      await nextProfile
+    })
+    expect(screen.getByTestId("auth-user")).toHaveTextContent(user.email)
+    expect(setAppLanguage).not.toHaveBeenCalled()
   })
 
   it("keeps the browser-detected language when the account has no preference", async () => {

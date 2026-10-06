@@ -1,5 +1,6 @@
 import type { ApplicationAnnotationSubmit } from "@/features/applications/application-annotation-submission"
 import { SiteShareButton } from "@/features/web-sites/site-share-button"
+import { FirstUseGuide } from "@/features/onboarding/first-use-guide"
 
 import { responseLatency } from "@/features/conversations/response-latency"
 import {
@@ -5863,6 +5864,34 @@ export function ConversationPage({
           visiblePendingRequests.length > 0
         }
         showNewTaskWelcome={isNew}
+        newTaskGuide={
+          isNew &&
+          !embedded &&
+          !development &&
+          !readOnly &&
+          user?.role === "admin" &&
+          user.status === "active" ? (
+            <FirstUseGuide
+              key={user.id}
+              userId={user.id}
+              isAdmin={user.role === "admin" && user.status === "active"}
+              preference={modelPreferenceQuery.data}
+              loading={modelPreferenceQuery.isPending}
+              failed={modelPreferenceQuery.isError}
+              force={new URLSearchParams(location.search).get("setup") === "1"}
+              onRetry={() => void modelPreferenceQuery.refetch()}
+              onDismiss={() => {
+                const params = new URLSearchParams(location.search)
+                if (params.get("setup") !== "1") return
+                params.delete("setup")
+                navigate(
+                  { pathname: location.pathname, search: params.toString() },
+                  { replace: true }
+                )
+              }}
+            />
+          ) : undefined
+        }
         onStarterQuestionSelect={handleStarterQuestionSelect}
         suppressEmptyState={suppressEmptyState}
         emptyNotice={emptyCreditQuotaNotice}
@@ -6087,6 +6116,9 @@ export function ConversationPage({
               attachmentOperationPending ||
               (isApplicationConversation && applicationDetailQuery.isLoading) ||
               modelPreferenceQuery.isLoading ||
+              (isNew &&
+                !isApplicationConversation &&
+                modelPreferenceQuery.isError) ||
               modelPreferenceMutation.isPending
             }
             modelContextUsage={modelContextUsage}
@@ -6136,7 +6168,8 @@ export function ConversationPage({
           />
         )}
         {!embedded && !developmentRole && !isApplicationConversation && (
-          <PoweredByLinkSense className="mr-1 mb-1 justify-self-end max-md:mt-3 max-md:mr-0 max-md:justify-self-center" />
+          // 76rem leaves room for the mark beside the centered composer.
+          <PoweredByLinkSense className="mr-1 mb-1 hidden justify-self-end md:inline-flex @min-[76rem]/conversation-workspace:absolute @min-[76rem]/conversation-workspace:right-1 @min-[76rem]/conversation-workspace:bottom-1 @min-[76rem]/conversation-workspace:m-0" />
         )}
       </div>
 

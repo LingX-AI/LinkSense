@@ -14,7 +14,6 @@ import {
   feedbackSubmissionResultSchema,
 } from "@linksense/shared"
 import {
-  CircleHelpIcon,
   ImagePlusIcon,
   LifeBuoyIcon,
   MessageSquareTextIcon,
@@ -37,13 +36,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Spinner } from "@/components/ui/spinner"
@@ -51,8 +44,13 @@ import { normalizeLanguage } from "@/i18n"
 import { buildHelpCenterHref } from "@/lib/help-center"
 import { shouldAutoFocusOnDesktop } from "@/lib/responsive"
 
-type SupportMenuProps = {
-  className?: string
+type SupportMenuItemsProps = {
+  onFeedback: () => void
+}
+
+type FeedbackDialogProps = {
+  open: boolean
+  onOpenChange: (open: boolean) => void
 }
 
 type SelectedFeedbackImage = {
@@ -67,20 +65,53 @@ const acceptedFeedbackImageTypes = new Set([
   "image/gif",
 ])
 
-export function SupportMenu({ className }: SupportMenuProps) {
+export function SupportMenuItems({ onFeedback }: SupportMenuItemsProps) {
   const { t, i18n } = useTranslation()
   const location = useLocation()
+  const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
+  const helpCenterHref = buildHelpCenterHref(
+    location.pathname,
+    language,
+    location.search
+  )
+
+  return (
+    <>
+      <DropdownMenuItem
+        className="text-[length:var(--app-ui-font-size)]"
+        render={
+          <a
+            href={helpCenterHref}
+            target="_blank"
+            rel="noreferrer noopener"
+            aria-label={t("nav.helpCenterNewTab")}
+          />
+        }
+      >
+        <LifeBuoyIcon aria-hidden="true" />
+        {t("support.help")}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="text-[length:var(--app-ui-font-size)]"
+        onClick={onFeedback}
+      >
+        <MessageSquareTextIcon aria-hidden="true" />
+        {t("support.feedback")}
+      </DropdownMenuItem>
+    </>
+  )
+}
+
+export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const feedbackId = useId()
   const feedbackImagesId = useId()
   const imageInputRef = useRef<HTMLInputElement | null>(null)
   const nextImageIdRef = useRef(0)
-  const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedback, setFeedback] = useState("")
   const [images, setImages] = useState<SelectedFeedbackImage[]>([])
   const [imageError, setImageError] = useState<string | null>(null)
-  const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
-  const helpCenterHref = buildHelpCenterHref(location.pathname, language)
   const normalizedFeedback = feedback.trim()
   const submission = useMutation({
     mutationFn: async () => {
@@ -111,7 +142,7 @@ export function SupportMenu({ className }: SupportMenuProps) {
       await submission.mutateAsync()
       await queryClient.invalidateQueries({ queryKey: feedbackKeys.all })
       resetFeedback()
-      setFeedbackOpen(false)
+      onOpenChange(false)
       notify.success(t("support.feedbackSubmitted"), {
         id: "support-feedback-submitted",
       })
@@ -155,199 +186,155 @@ export function SupportMenu({ className }: SupportMenuProps) {
   }
 
   return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className={className}
-              aria-label={t("support.menuLabel")}
-            />
-          }
+    <Dialog
+      open={open}
+      onOpenChange={(open) => {
+        if (!open && submission.isPending) return
+        onOpenChange(open)
+        if (!open) resetFeedback()
+      }}
+    >
+      <DialogContent
+        closeLabel={t("common.close")}
+        className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
+      >
+        <DialogHeader className="shrink-0 px-6 pt-6 pr-14 pb-5">
+          <DialogTitle>{t("support.feedbackTitle")}</DialogTitle>
+          <DialogDescription>
+            {t("support.feedbackDescription")}
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          onSubmit={(event) => void handleFeedbackSubmit(event)}
         >
-          <CircleHelpIcon aria-hidden="true" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          side="top"
-          align="start"
-          sideOffset={8}
-          className="min-w-40"
-        >
-          <DropdownMenuGroup>
-            <DropdownMenuItem onClick={() => setFeedbackOpen(true)}>
-              <MessageSquareTextIcon aria-hidden="true" />
-              {t("support.feedback")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
+          <div
+            data-slot="feedback-dialog-body"
+            className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain px-6 pb-6"
+          >
+            <FieldShell id={feedbackId} label={t("support.feedbackLabel")}>
+              <Textarea
+                id={feedbackId}
+                value={feedback}
+                rows={6}
+                maxLength={2_000}
+                autoFocus={shouldAutoFocusOnDesktop()}
+                placeholder={t("support.feedbackPlaceholder")}
+                aria-invalid={submission.isError || undefined}
+                disabled={submission.isPending}
+                onChange={(event) => {
+                  setFeedback(event.target.value)
+                  submission.reset()
+                }}
+                onPaste={(event) => {
+                  const clipboardImages = getClipboardImages(event)
+                  if (clipboardImages.length === 0) return
+
+                  addImages(clipboardImages)
+                  const includesText = Array.from(
+                    event.clipboardData.items
+                  ).some(
+                    (item) =>
+                      item.kind === "string" && item.type === "text/plain"
+                  )
+                  if (!includesText) event.preventDefault()
+                }}
+              />
+            </FieldShell>
+            <FieldShell
+              id={feedbackImagesId}
+              label={t("support.feedbackImagesLabel")}
+              hint={t("support.feedbackImagesHint", {
+                count: FEEDBACK_MAX_IMAGES,
+                size: FEEDBACK_MAX_IMAGE_SIZE_BYTES / 1024 / 1024,
+              })}
+              error={imageError ?? undefined}
+            >
+              <Input
+                ref={imageInputRef}
+                id={feedbackImagesId}
+                className="sr-only"
+                type="file"
+                multiple
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                disabled={
+                  submission.isPending || images.length >= FEEDBACK_MAX_IMAGES
+                }
+                onChange={(event) => addImages(event.target.files)}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="w-fit"
+                disabled={
+                  submission.isPending || images.length >= FEEDBACK_MAX_IMAGES
+                }
+                onClick={() => imageInputRef.current?.click()}
+              >
+                <ImagePlusIcon data-icon="inline-start" />
+                {t("support.addFeedbackImages")}
+              </Button>
+              {images.length > 0 && (
+                <ul
+                  className="grid grid-cols-3 gap-3 sm:grid-cols-5"
+                  aria-label={t("support.selectedFeedbackImages")}
+                >
+                  {images.map((image) => (
+                    <FeedbackImageSelection
+                      key={image.id}
+                      image={image}
+                      disabled={submission.isPending}
+                      removeLabel={t("support.removeFeedbackImage", {
+                        name: image.file.name,
+                      })}
+                      onRemove={() => {
+                        setImages((current) =>
+                          current.filter(
+                            (candidate) => candidate.id !== image.id
+                          )
+                        )
+                        setImageError(null)
+                        submission.reset()
+                      }}
+                    />
+                  ))}
+                </ul>
+              )}
+            </FieldShell>
+            {submission.isError && (
+              <StatusBanner variant="error">
+                {getErrorMessage(submission.error, t)}
+              </StatusBanner>
+            )}
+          </div>
+          <DialogFooter className="shrink-0 border-t border-divider px-6 py-4">
+            <DialogClose
               render={
-                <a
-                  href={helpCenterHref}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  aria-label={t("nav.helpCenterNewTab")}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={submission.isPending}
                 />
               }
             >
-              <LifeBuoyIcon aria-hidden="true" />
-              {t("support.help")}
-            </DropdownMenuItem>
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <Dialog
-        open={feedbackOpen}
-        onOpenChange={(open) => {
-          if (!open && submission.isPending) return
-          setFeedbackOpen(open)
-          if (!open) resetFeedback()
-        }}
-      >
-        <DialogContent
-          closeLabel={t("common.close")}
-          className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
-        >
-          <DialogHeader className="shrink-0 px-6 pt-6 pr-14 pb-5">
-            <DialogTitle>{t("support.feedbackTitle")}</DialogTitle>
-            <DialogDescription>
-              {t("support.feedbackDescription")}
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="flex min-h-0 flex-1 flex-col overflow-hidden"
-            onSubmit={(event) => void handleFeedbackSubmit(event)}
-          >
-            <div
-              data-slot="feedback-dialog-body"
-              className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain px-6 pb-6"
+              {t("common.cancel")}
+            </DialogClose>
+            <Button
+              type="submit"
+              disabled={!normalizedFeedback || submission.isPending}
+              aria-busy={submission.isPending || undefined}
             >
-              <FieldShell id={feedbackId} label={t("support.feedbackLabel")}>
-                <Textarea
-                  id={feedbackId}
-                  value={feedback}
-                  rows={6}
-                  maxLength={2_000}
-                  autoFocus={shouldAutoFocusOnDesktop()}
-                  placeholder={t("support.feedbackPlaceholder")}
-                  aria-invalid={submission.isError || undefined}
-                  disabled={submission.isPending}
-                  onChange={(event) => {
-                    setFeedback(event.target.value)
-                    submission.reset()
-                  }}
-                  onPaste={(event) => {
-                    const clipboardImages = getClipboardImages(event)
-                    if (clipboardImages.length === 0) return
-
-                    addImages(clipboardImages)
-                    const includesText = Array.from(
-                      event.clipboardData.items
-                    ).some(
-                      (item) =>
-                        item.kind === "string" && item.type === "text/plain"
-                    )
-                    if (!includesText) event.preventDefault()
-                  }}
-                />
-              </FieldShell>
-              <FieldShell
-                id={feedbackImagesId}
-                label={t("support.feedbackImagesLabel")}
-                hint={t("support.feedbackImagesHint", {
-                  count: FEEDBACK_MAX_IMAGES,
-                  size: FEEDBACK_MAX_IMAGE_SIZE_BYTES / 1024 / 1024,
-                })}
-                error={imageError ?? undefined}
-              >
-                <Input
-                  ref={imageInputRef}
-                  id={feedbackImagesId}
-                  className="sr-only"
-                  type="file"
-                  multiple
-                  accept="image/png,image/jpeg,image/webp,image/gif"
-                  disabled={
-                    submission.isPending || images.length >= FEEDBACK_MAX_IMAGES
-                  }
-                  onChange={(event) => addImages(event.target.files)}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-fit"
-                  disabled={
-                    submission.isPending || images.length >= FEEDBACK_MAX_IMAGES
-                  }
-                  onClick={() => imageInputRef.current?.click()}
-                >
-                  <ImagePlusIcon data-icon="inline-start" />
-                  {t("support.addFeedbackImages")}
-                </Button>
-                {images.length > 0 && (
-                  <ul
-                    className="grid grid-cols-3 gap-3 sm:grid-cols-5"
-                    aria-label={t("support.selectedFeedbackImages")}
-                  >
-                    {images.map((image) => (
-                      <FeedbackImageSelection
-                        key={image.id}
-                        image={image}
-                        disabled={submission.isPending}
-                        removeLabel={t("support.removeFeedbackImage", {
-                          name: image.file.name,
-                        })}
-                        onRemove={() => {
-                          setImages((current) =>
-                            current.filter(
-                              (candidate) => candidate.id !== image.id
-                            )
-                          )
-                          setImageError(null)
-                          submission.reset()
-                        }}
-                      />
-                    ))}
-                  </ul>
-                )}
-              </FieldShell>
-              {submission.isError && (
-                <StatusBanner variant="error">
-                  {getErrorMessage(submission.error, t)}
-                </StatusBanner>
+              {submission.isPending && <Spinner data-icon="inline-start" />}
+              {t(
+                submission.isPending
+                  ? "support.submittingFeedback"
+                  : "support.submitFeedback"
               )}
-            </div>
-            <DialogFooter className="shrink-0 border-t border-divider px-6 py-4">
-              <DialogClose
-                render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    disabled={submission.isPending}
-                  />
-                }
-              >
-                {t("common.cancel")}
-              </DialogClose>
-              <Button
-                type="submit"
-                disabled={!normalizedFeedback || submission.isPending}
-                aria-busy={submission.isPending || undefined}
-              >
-                {submission.isPending && <Spinner data-icon="inline-start" />}
-                {t(
-                  submission.isPending
-                    ? "support.submittingFeedback"
-                    : "support.submitFeedback"
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </>
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 

@@ -18,7 +18,10 @@ import { conversationMessages } from "@/i18n/es-ES/conversation"
 import { adminMessages } from "@/i18n/es-ES/admin"
 import { knowledgeMessages } from "@/i18n/es-ES/knowledge"
 
+import { modelSetupMessages } from "@/features/admin/model-setup-messages"
+
 export const esES = {
+  modelSetup: modelSetupMessages["es-ES"],
   connections: connectionMessages["es-ES"],
   saml: samlesES,
   common: {

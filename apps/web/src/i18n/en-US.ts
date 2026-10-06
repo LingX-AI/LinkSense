@@ -3,9 +3,12 @@ import { samlenUS } from "@/features/saml/messages"
 import { webSitesEnUS } from "@/features/web-sites/messages"
 import { socialEnUS } from "@/features/social-auth/messages"
 import { personalQuotaEnUS } from "@/features/usage/personal-quota-messages"
-import { errorCatalog } from "@linksense/shared"
+import { errorCatalog, localizedErrorMessage } from "@linksense/shared"
+
+import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const enUS = {
+  modelSetup: modelSetupMessages["en-US"],
   connections: connectionMessages["en-US"],
   saml: samlenUS,
   social: socialEnUS,
@@ -205,9 +208,8 @@ export const enUS = {
     creditQuotaUnlimited: "Unlimited",
   },
   support: {
-    menuLabel: "Feedback and help",
     feedback: "Feedback",
-    help: "Help",
+    help: "User guide",
     feedbackTitle: "Submit feedback",
     feedbackDescription:
       "Tell us about a problem you encountered or something we could improve.",
@@ -4218,8 +4220,9 @@ export const enUS = {
     notice: {
       title: "LinkSense {{version}} is available",
       description:
-        "Administrators can review the release and follow the guided upgrade process.",
+        "A new version is available. View what's new and the upgrade guide.",
       action: "View update",
+      later: "Maybe later",
       dismiss: "Dismiss the update notice for this version",
     },
     status: {
@@ -5569,6 +5572,9 @@ export const enUS = {
     modelProvider: {
       inUseBySystemSetting:
         "This model is used by a system setting. Change or clear that selection before deleting it.",
+      credentialRequired: localizedErrorMessage("MODEL_PROVIDER_CREDENTIAL_REQUIRED", "en-US"),
+      discoveryFailed: localizedErrorMessage("MODEL_PROVIDER_DISCOVERY_FAILED", "en-US"),
+      connectionFailed: localizedErrorMessage("MODEL_PROVIDER_CONNECTION_FAILED", "en-US"),
       managementDisabled:
         "Model configuration is locked by the deployment environment and is read-only.",
     },

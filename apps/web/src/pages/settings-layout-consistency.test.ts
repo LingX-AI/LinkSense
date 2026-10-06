@@ -172,4 +172,14 @@ describe("settings center layout consistency", () => {
       "overflow-y: auto;"
     )
   })
+
+  it("lets the mobile drawer navigation fill its height without the old dropdown limit", () => {
+    const navigationRules = cssRules(".settings-navigation-body").join("\n")
+    expect(navigationRules).toContain("height: 100%;")
+    expect(navigationRules).not.toContain("height: auto;")
+    expect(navigationRules).not.toContain("max-height:")
+    expect(
+      firstCssRule('.settings-navigation-body[data-mobile-open="false"]')
+    ).toBeUndefined()
+  })
 })

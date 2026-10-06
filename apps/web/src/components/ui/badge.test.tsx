@@ -3,6 +3,15 @@ import { describe, expect, it } from "vitest"
 import { Badge } from "./badge"
 
 describe("Badge sizing", () => {
+  it("renders success badges with a green background and white text", () => {
+    render(<Badge variant="success">Update available</Badge>)
+
+    const badge = screen.getByText("Update available")
+    expect(badge).toHaveAttribute("data-variant", "success")
+    expect(badge).toHaveClass("bg-success", "text-white")
+    expect(badge).not.toHaveClass("bg-primary", "text-primary-foreground")
+  })
+
   it("keeps existing badges unchanged and offers a smaller, lighter status label", () => {
     const { rerender } = render(<Badge variant="secondary">Status</Badge>)
     expect(screen.getByText("Status")).toHaveClass(

@@ -1,4 +1,6 @@
-import { memo, useState } from "react"
+import { memo, useContext, useState } from "react"
+import { Link } from "react-router-dom"
+import { AuthContext } from "@/app/auth-state"
 import { ChevronDownIcon, ChevronRightIcon, RotateCcwIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
@@ -53,12 +55,27 @@ export const ConversationModelSelector = memo(
     contextUsage?: ConversationModelContextUsage | null
   }) {
     const { t } = useTranslation()
+    const auth = useContext(AuthContext)
     const selectedModel = preference.models.find(
       (model) => model.id === preference.selected_model
     )
     const selectedReasoningEffort = preference.selected_reasoning_effort
 
     if (!preference.configured || !selectedModel || !selectedReasoningEffort) {
+      if (auth?.user?.role === "admin" && auth.user.status === "active") {
+        return (
+          <Button
+            nativeButton={false}
+            role="link"
+            variant="secondary"
+            size="sm"
+            className="h-8 rounded-full px-3 text-xs"
+            render={<Link to="/admin/models" />}
+          >
+            {t("onboarding.configureModel")}
+          </Button>
+        )
+      }
       return (
         <Button
           type="button"

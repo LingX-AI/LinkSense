@@ -3,9 +3,11 @@ import { samlzhCN } from "@/features/saml/messages"
 import { webSitesZhCN } from "@/features/web-sites/messages"
 import { socialZhCN } from "@/features/social-auth/messages"
 import { personalQuotaZhCN } from "@/features/usage/personal-quota-messages"
-import { errorCatalog } from "@linksense/shared"
+import { errorCatalog, localizedErrorMessage } from "@linksense/shared"
+import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const zhCN = {
+  modelSetup: modelSetupMessages["zh-CN"],
   connections: connectionMessages["zh-CN"],
   saml: samlzhCN,
   social: socialZhCN,
@@ -198,9 +200,8 @@ export const zhCN = {
     creditQuotaUnlimited: "不限",
   },
   support: {
-    menuLabel: "反馈与帮助",
     feedback: "反馈",
-    help: "帮助",
+    help: "使用帮助",
     feedbackTitle: "提交反馈",
     feedbackDescription: "告诉我们你遇到的问题或希望改进的地方。",
     feedbackLabel: "反馈内容",
@@ -3919,8 +3920,9 @@ export const zhCN = {
   systemUpdate: {
     notice: {
       title: "LinkSense {{version}} 已发布",
-      description: "管理员可以查看发布说明，并按安全升级流程完成更新。",
+      description: "新版本已发布，查看更新内容和升级指引。",
       action: "查看更新",
+      later: "稍后再说",
       dismiss: "暂时关闭此版本的更新提示",
     },
     status: {
@@ -5106,6 +5108,9 @@ export const zhCN = {
     modelProvider: {
       inUseBySystemSetting:
         "该模型正在被系统设置使用，请先切换或取消相关选择后再删除。",
+      credentialRequired: localizedErrorMessage("MODEL_PROVIDER_CREDENTIAL_REQUIRED", "zh-CN"),
+      discoveryFailed: localizedErrorMessage("MODEL_PROVIDER_DISCOVERY_FAILED", "zh-CN"),
+      connectionFailed: localizedErrorMessage("MODEL_PROVIDER_CONNECTION_FAILED", "zh-CN"),
       managementDisabled: "模型配置已由部署环境锁定，当前只能查看。",
     },
     adminSelfChangeForbidden: "管理员不能禁用自己或降低自己的角色。",

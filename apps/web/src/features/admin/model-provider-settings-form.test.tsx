@@ -432,6 +432,9 @@ describe("ModelProviderSettingsForm", () => {
       screen.queryByRole("combobox", { name: "Conversation default model" })
     ).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Add model" }))
+    await user.click(
+      screen.getByRole("button", { name: "Enter a model manually" })
+    )
     await user.type(screen.getByLabelText("Model ID"), "model-a")
     await user.type(screen.getByLabelText("Display name"), "Model A")
     await user.click(screen.getByRole("button", { name: "Save model Model A" }))
@@ -475,6 +478,10 @@ describe("ModelProviderSettingsForm", () => {
     expect(within(panel).queryByLabelText("Model ID")).not.toBeInTheDocument()
     await user.clear(baseUrl)
     await user.type(baseUrl, "https://models-2.example.test/v1")
+    expect(
+      within(panel).getByRole("button", { name: "Save model channel Primary" })
+    ).toBeDisabled()
+    await user.type(within(panel).getByLabelText("API_KEY"), "replacement-key")
     expect(requests).toHaveLength(0)
     await user.click(
       within(panel).getByRole("button", { name: "Save model channel Primary" })
@@ -489,6 +496,7 @@ describe("ModelProviderSettingsForm", () => {
         {
           id: "provider-1",
           base_url: "https://models-2.example.test/v1",
+          api_key: "replacement-key",
           models: [{ id: "model-a" }],
         },
       ],
@@ -525,6 +533,9 @@ describe("ModelProviderSettingsForm", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     )
     await user.click(screen.getByRole("button", { name: "Add model" }))
+    await user.click(
+      screen.getByRole("button", { name: "Enter a model manually" })
+    )
     await user.type(screen.getByLabelText("Model ID"), "model-b")
     await user.type(screen.getByLabelText("Display name"), "Model B")
     await user.click(screen.getByRole("button", { name: "Save model Model B" }))
@@ -570,6 +581,7 @@ describe("ModelProviderSettingsForm", () => {
       await user.click(
         screen.getByRole("button", { name: "Edit model Model A" })
       )
+
       await user.type(screen.getByLabelText("Model context length"), value)
       expect(
         screen.getByText(

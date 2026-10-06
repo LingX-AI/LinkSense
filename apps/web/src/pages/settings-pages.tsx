@@ -12,7 +12,6 @@ import {
   resetMemoriesResultSchema,
   userSchema,
   type RunningMessageAction,
-  type SupportedLanguage,
 } from "@/api/contracts"
 import {
   MAX_CUSTOM_INSTRUCTIONS_LENGTH,
@@ -82,75 +81,30 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { ProfileOverview } from "@/features/profile/profile-overview"
 import { BrowserNotificationSettings } from "@/features/browser-notifications/browser-notification-settings"
-import { normalizeLanguage, setAppLanguage, supportedLanguages } from "@/i18n"
+import { normalizeLanguage, supportedLanguages } from "@/i18n"
+import { useLanguageSelection } from "@/features/onboarding/use-language-selection"
 import { passwordSchema } from "@/lib/password"
 import { shouldAutoFocusOnDesktop } from "@/lib/responsive"
 import { cn } from "@/lib/utils"
+import { languageLabelKey } from "@/features/onboarding/language-labels"
 
 const personalizationQueryKey = ["me", "personalization"] as const
 const resetMemoriesNotificationId = "personalization-memories-reset"
-const languageLabelKeys = {
-  "zh-CN": "common.chinese",
-  "en-US": "common.english",
-  "es-ES": "common.spanish",
-  "pt-BR": "common.portuguese",
-  "fr-FR": "common.french",
-  "ja-JP": "common.japanese",
-} as const satisfies Record<SupportedLanguage, string>
-
-function languageLabelKey(language: SupportedLanguage) {
-  return languageLabelKeys[language]
-}
-
 export function SettingsGeneralPage() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { user, refreshUser } = useAuth()
-  const initialLanguage =
-    user?.language ?? normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
-  const [language, setLanguage] = useState<SupportedLanguage>(initialLanguage)
-  const [savedLanguage, setSavedLanguage] =
-    useState<SupportedLanguage>(initialLanguage)
+  const {
+    language,
+    pending: languagePending,
+    error: languageError,
+    change: changeLanguage,
+  } = useLanguageSelection({ notifyErrors: false })
   const currentRunningMessageAction = user?.running_message_action ?? "queue"
   const [runningMessageAction, setRunningMessageAction] =
     useState<RunningMessageAction>(currentRunningMessageAction)
   const [savedRunningMessageAction, setSavedRunningMessageAction] =
     useState<RunningMessageAction>(currentRunningMessageAction)
   const [error, setError] = useState<string | null>(null)
-  const mutation = useMutation({
-    mutationFn: (nextLanguage: SupportedLanguage) =>
-      apiRequest("/me", {
-        method: "PATCH",
-        body: { preferred_locale: nextLanguage },
-        schema: userSchema,
-      }),
-    onSuccess: async (_nextUser, nextLanguage) => {
-      await setAppLanguage(nextLanguage)
-      setSavedLanguage(nextLanguage)
-      await refreshUser()
-      setError(null)
-    },
-    onError: async (nextError) => {
-      setLanguage(savedLanguage)
-      await setAppLanguage(savedLanguage, { persist: false })
-      setError(getErrorMessage(nextError, i18n.getFixedT(savedLanguage)))
-    },
-  })
-
-  const changeLanguage = async (value: string | null) => {
-    const nextLanguage = normalizeLanguage(value)
-    if (!nextLanguage) return
-    setLanguage(nextLanguage)
-    setError(null)
-    try {
-      await setAppLanguage(nextLanguage, { persist: false })
-      mutation.mutate(nextLanguage)
-    } catch {
-      setLanguage(savedLanguage)
-      await setAppLanguage(savedLanguage, { persist: false })
-      setError(i18n.getFixedT(savedLanguage)("errors.unknown"))
-    }
-  }
-
   const runningMessageActionMutation = useMutation({
     mutationFn: (nextAction: RunningMessageAction) =>
       apiRequest("/me", {
@@ -174,7 +128,9 @@ export function SettingsGeneralPage() {
       title={t("settings.general")}
       description={t("settings.generalPageDescription")}
     >
-      {error && <StatusBanner variant="error">{error}</StatusBanner>}
+      {(languageError || error) && (
+        <StatusBanner variant="error">{languageError || error}</StatusBanner>
+      )}
       <Card className="gap-0 px-4 py-0 sm:px-5">
         <section
           className="py-4 sm:py-5"
@@ -190,13 +146,13 @@ export function SettingsGeneralPage() {
               <Select
                 value={language}
                 onValueChange={changeLanguage}
-                disabled={mutation.isPending}
+                disabled={languagePending}
               >
                 <SelectTrigger
                   id="settings-language"
                   aria-labelledby="interface-language-heading"
                   aria-describedby="interface-language-description"
-                  className="w-44"
+                  className="w-44 rounded-md"
                 >
                   <SelectValue>{t(languageLabelKey(language))}</SelectValue>
                 </SelectTrigger>

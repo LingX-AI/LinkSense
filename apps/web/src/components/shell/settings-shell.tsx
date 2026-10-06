@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ElementType } from "react"
+import { useEffect, useMemo, useRef, useState, type ElementType } from "react"
 import {
   ArrowLeftIcon,
   ArchiveIcon,
@@ -6,12 +6,12 @@ import {
   BookOpenCheckIcon,
   BrainIcon,
   ChartNoAxesCombinedIcon,
-  ChevronDownIcon,
   FileKey2Icon,
   GaugeIcon,
   HeartPulseIcon,
   MessageSquareTextIcon,
   MessagesSquareIcon,
+  PanelLeftIcon,
   RefreshCwIcon,
   SearchIcon,
   ServerCogIcon,
@@ -28,7 +28,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom"
 
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
-import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
+import { PoweredByLinkSenseFooter } from "@/components/brand/powered-by-linksense"
 import { ProductLogo } from "@/components/brand/product-logo"
 import {
   resolveSettingsReturn,
@@ -36,7 +36,15 @@ import {
 } from "@/components/shell/settings-return-navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { SystemUpdateNotice } from "@/features/admin/system-update"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
+import { SystemUpdateNotice } from "@/features/admin/system-update-notice"
+import { desktopViewportQuery } from "@/lib/responsive"
 import { cn } from "@/lib/utils"
 
 type SettingsNavigationItem = {
@@ -200,6 +208,8 @@ export function SettingsShell() {
   const location = useLocation()
   const [search, setSearch] = useState("")
   const [mobileOpen, setMobileOpen] = useState(false)
+  const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null)
+  const mainRef = useRef<HTMLElement>(null)
   const normalizedSearch = search.trim().toLocaleLowerCase()
   const isActiveAdmin = user?.role === "admin" && user.status === "active"
   const settingsReturnTo = resolveSettingsReturn(location.state)
@@ -227,111 +237,139 @@ export function SettingsShell() {
 
   useEffect(() => {
     if (!mobileOpen) return
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMobileOpen(false)
+    const desktopViewport = window.matchMedia(desktopViewportQuery)
+    const closeOnDesktop = (event: MediaQueryListEvent) => {
+      if (event.matches) setMobileOpen(false)
     }
-    window.addEventListener("keydown", closeOnEscape)
-    return () => window.removeEventListener("keydown", closeOnEscape)
+    desktopViewport.addEventListener("change", closeOnDesktop)
+    return () => desktopViewport.removeEventListener("change", closeOnDesktop)
   }, [mobileOpen])
+
+  const navigation = (
+    <div className="settings-navigation-body">
+      <div className="settings-navigation-header">
+        <NavLink
+          to={appReturnTo}
+          className="settings-back-link font-semibold max-md:mr-10"
+        >
+          <ArrowLeftIcon aria-hidden="true" />
+          <span>{t("settings.backToApp", { productName })}</span>
+        </NavLink>
+        <div className="settings-search-field">
+          <SearchIcon aria-hidden="true" />
+          <Input
+            aria-label={t("settings.search")}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t("settings.search")}
+            className="font-medium"
+          />
+        </div>
+      </div>
+      <div className="settings-navigation-scroll">
+        <SettingsNavigationGroup
+          title={t("settings.personalGroup")}
+          items={personalItems}
+          currentPath={location.pathname}
+          navigationState={settingsNavigationState}
+          onNavigate={() => setMobileOpen(false)}
+        />
+        {isActiveAdmin && (
+          <SettingsNavigationGroup
+            title={t("settings.administrationGroup")}
+            items={adminItems}
+            currentPath={location.pathname}
+            navigationState={settingsNavigationState}
+            onNavigate={() => setMobileOpen(false)}
+          />
+        )}
+        {personalItems.length === 0 &&
+          (!isActiveAdmin || adminItems.length === 0) && (
+            <p className="settings-navigation-empty font-medium">
+              {t("settings.noResults")}
+            </p>
+          )}
+      </div>
+    </div>
+  )
 
   return (
     <div className="settings-shell">
-      <aside
-        className="settings-sidebar"
-        aria-label={t("settings.navigationLabel", { productName })}
-      >
-        <div className="settings-mobile-header">
-          <NavLink
-            to={appReturnTo}
-            className="settings-back-link font-semibold"
-          >
-            <ArrowLeftIcon aria-hidden="true" />
-            <ProductLogo
-              productName={productName}
-              className="settings-brand-logo"
-            />
-          </NavLink>
-          <Button
-            type="button"
-            variant="ghost"
-            size="default"
-            className="font-semibold"
-            aria-expanded={mobileOpen}
-            aria-controls="settings-navigation-body"
-            onClick={() => setMobileOpen((value) => !value)}
-          >
-            {t("settings.navigation")}
-            <ChevronDownIcon
-              className={cn("transition-transform", mobileOpen && "rotate-180")}
-              aria-hidden="true"
-            />
-          </Button>
-        </div>
-        <div
-          id="settings-navigation-body"
-          className="settings-navigation-body"
-          data-mobile-open={mobileOpen ? "true" : "false"}
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <aside
+          className="settings-sidebar"
+          aria-label={t("settings.navigationLabel", { productName })}
         >
-          <div className="settings-navigation-header">
+          <div className="settings-mobile-header">
             <NavLink
               to={appReturnTo}
-              className="settings-back-link settings-desktop-back-link font-semibold"
+              className="settings-back-link font-semibold"
             >
               <ArrowLeftIcon aria-hidden="true" />
-              <span>{t("settings.backToApp", { productName })}</span>
+              <ProductLogo
+                productName={productName}
+                className="settings-brand-logo"
+              />
             </NavLink>
-            <div className="settings-search-field">
-              <SearchIcon aria-hidden="true" />
-              <Input
-                aria-label={t("settings.search")}
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder={t("settings.search")}
-                className="font-medium"
-              />
-            </div>
+            <SheetTrigger
+              ref={mobileNavigationTriggerRef}
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="default"
+                  className="min-w-0 shrink"
+                />
+              }
+              aria-expanded={mobileOpen}
+            >
+              <PanelLeftIcon data-icon="inline-start" aria-hidden="true" />
+              <span className="truncate">{t("settings.navigation")}</span>
+            </SheetTrigger>
           </div>
-          <div className="settings-navigation-scroll">
-            <SettingsNavigationGroup
-              title={t("settings.personalGroup")}
-              items={personalItems}
-              currentPath={location.pathname}
-              navigationState={settingsNavigationState}
-              onNavigate={() => setMobileOpen(false)}
-            />
-            {isActiveAdmin && (
-              <SettingsNavigationGroup
-                title={t("settings.administrationGroup")}
-                items={adminItems}
-                currentPath={location.pathname}
-                navigationState={settingsNavigationState}
-                onNavigate={() => setMobileOpen(false)}
-              />
-            )}
-            {personalItems.length === 0 &&
-              (!isActiveAdmin || adminItems.length === 0) && (
-                <p className="settings-navigation-empty font-medium">
-                  {t("settings.noResults")}
-                </p>
-              )}
-          </div>
-        </div>
-      </aside>
-      <main className="settings-main" id="main-content" tabIndex={0}>
-        <div
-          className={cn(
-            "settings-content",
-            location.pathname.startsWith("/admin/") &&
-              "settings-content-administration"
-          )}
+          <div className="hidden h-full md:block">{navigation}</div>
+        </aside>
+        <SheetContent
+          side="left"
+          closeLabel={t("common.close")}
+          finalFocus={() =>
+            window.matchMedia(desktopViewportQuery).matches
+              ? mainRef.current
+              : mobileNavigationTriggerRef.current
+          }
+          closeButtonClassName="top-[calc(var(--app-safe-area-top)+1rem)] bg-transparent"
+          className="mobile-navigation-sheet bg-[var(--app-sidebar)] p-0 pt-[var(--app-safe-area-top)] pb-[var(--app-safe-area-bottom)] pl-[var(--app-safe-area-left)] data-[side=left]:w-[min(88vw,296px)]"
         >
-          {location.pathname !== "/admin/system-update" && (
-            <SystemUpdateNotice placement="settings" />
-          )}
-          <Outlet />
-        </div>
-        <PoweredByLinkSense className="fixed right-7 bottom-[22px] z-30 max-md:right-auto max-md:bottom-3.5 max-md:left-1/2 max-md:-translate-x-1/2" />
-      </main>
+          <SheetHeader className="sr-only">
+            <SheetTitle>
+              {t("settings.navigationLabel", { productName })}
+            </SheetTitle>
+          </SheetHeader>
+          {navigation}
+        </SheetContent>
+      </Sheet>
+      <div className="flex min-h-0 min-w-0 flex-col">
+        <main
+          ref={mainRef}
+          className="settings-main min-h-0 flex-1"
+          id="main-content"
+          tabIndex={0}
+        >
+          <div
+            className={cn(
+              "settings-content",
+              location.pathname.startsWith("/admin/") &&
+                "settings-content-administration"
+            )}
+          >
+            {location.pathname !== "/admin/system-update" && (
+              <SystemUpdateNotice />
+            )}
+            <Outlet />
+          </div>
+        </main>
+        <PoweredByLinkSenseFooter />
+      </div>
     </div>
   )
 }

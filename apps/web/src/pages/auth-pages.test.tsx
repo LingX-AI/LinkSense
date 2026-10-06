@@ -138,6 +138,15 @@ function renderLoginPageWithAuthStatus(
 }
 
 describe("LoginPage session restoration", () => {
+  it("places the language selector at the page top right outside the login form", () => {
+    renderLoginPageWithAuthStatus("anonymous")
+    const selector = screen.getByRole("combobox", { name: "界面语言" })
+    expect(selector.closest("main")).toBeNull()
+    expect(selector.parentElement).toHaveClass("justify-end", "shrink-0")
+    expect(selector.parentElement?.parentElement).toHaveClass("public-shell")
+    expect(selector).toHaveClass("rounded-md")
+    expect(selector).not.toHaveClass("rounded-lg", "rounded-full")
+  })
   beforeEach(async () => {
     teamsAdapterMocks.detectTeamsHost.mockClear()
     teamsAdapterMocks.getTeamsSsoToken.mockClear()

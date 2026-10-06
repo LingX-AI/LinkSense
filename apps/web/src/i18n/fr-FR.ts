@@ -14,7 +14,10 @@ import { operationsResources } from "./fr-FR/operations"
 import { admin } from "./fr-FR/admin"
 import { errors } from "./fr-FR/errors"
 
+import { modelSetupMessages } from "@/features/admin/model-setup-messages"
+
 export const frFR = {
+  modelSetup: modelSetupMessages["fr-FR"],
   connections: connectionMessages["fr-FR"],
   saml: samlfrFR,
   common: {

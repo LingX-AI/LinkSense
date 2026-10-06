@@ -1610,19 +1610,6 @@ describe("LinkSense application", () => {
     expect(automationLink).toHaveAttribute("href", "/automations")
     expect(pluginLink).toHaveAttribute("href", "/capabilities")
     expect(knowledgeBaseLink).toHaveAttribute("href", "/knowledge-bases")
-    await interaction.click(
-      within(sidebar).getByRole("button", { name: "反馈与帮助" })
-    )
-    expect(await screen.findByRole("menuitem", { name: "反馈" })).toBeVisible()
-    const helpCenterLink = await screen.findByRole("menuitem", {
-      name: "在新标签页打开帮助中心",
-    })
-    expect(helpCenterLink).toHaveAttribute(
-      "href",
-      "/help/user-guide/tasks/create-and-run/"
-    )
-    expect(helpCenterLink).toHaveAttribute("target", "_blank")
-    expect(helpCenterLink).toHaveAttribute("rel", "noreferrer noopener")
     expect(
       newTaskLink.compareDocumentPosition(automationLink) &
         Node.DOCUMENT_POSITION_FOLLOWING
@@ -1679,7 +1666,7 @@ describe("LinkSense application", () => {
       name: "设置",
     })
     expect(screen.getByRole("menu")).toHaveClass(
-      "w-[calc(var(--anchor-width)+2.25rem)]",
+      "w-(--anchor-width)",
       "max-w-[calc(100vw-24px)]"
     )
     expect(settingsMenuItem).toHaveClass(

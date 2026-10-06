@@ -10,8 +10,169 @@ import {
   renderApp,
 } from "./fixture"
 
+function unconfiguredModels() {
+  return json({
+    success: true,
+    data: {
+      configured: false,
+      default_model: null,
+      selected_model: null,
+      selected_reasoning_effort: null,
+      models: [],
+    },
+  })
+}
+
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it.each(["/conversations/new", "/conversations/new?setup=1"])(
+    "hides completed administrator onboarding at %s without changing the draft",
+    async (route) => {
+      const { requests } = installApiMock()
+      renderApp(route)
+      const input = await screen.findByRole("textbox", { name: "任务输入框" })
+      const user = userEvent.setup()
+      await user.type(input, "已有任务草稿")
+      await user.click(screen.getByRole("button", { name: "林晓" }))
+      await screen.findByRole("menuitem", { name: "设置" })
+      expect(
+        screen.queryByRole("menuitem", { name: "开始使用引导" })
+      ).not.toBeInTheDocument()
+      expect(screen.queryByLabelText("开始使用")).not.toBeInTheDocument()
+      expect(input).toHaveTextContent("已有任务草稿")
+      expect(
+        requests.some(
+          (request) =>
+            request.method === "POST" &&
+            (request.path === "/api/v1/conversations" ||
+              request.path.endsWith("/turns"))
+        )
+      ).toBe(false)
+    }
+  )
+
+  it("reopens a dismissed guide only while the administrator has not configured a model", async () => {
+    installApiMock({ newTaskModelPreferenceResponse: unconfiguredModels })
+    window.localStorage.setItem("linksense.first-use.user-1", "dismissed")
+    renderApp("/conversations/new")
+    await screen.findByRole("textbox", { name: "任务输入框" })
+    expect(screen.queryByLabelText("开始使用")).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await user.click(screen.getByRole("button", { name: "林晓" }))
+      await user.click(
+        await screen.findByRole("menuitem", { name: "开始使用引导" })
+      )
+      expect(await screen.findByLabelText("开始使用")).toBeVisible()
+      await user.click(screen.getByRole("button", { name: "关闭引导" }))
+    }
+  })
+
+  it("hides the setup menu and guide for members even without a configured model", async () => {
+    installApiMock({
+      userOverride: { role: "user" },
+      newTaskModelPreferenceResponse: unconfiguredModels,
+    })
+    renderApp("/conversations/new?setup=1")
+    await screen.findByRole("textbox", { name: "任务输入框" })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("button", { name: "林晓" }))
+    await screen.findByRole("menuitem", { name: "设置" })
+    expect(
+      screen.queryByRole("menuitem", { name: "开始使用引导" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("开始使用")).not.toBeInTheDocument()
+  })
+
+  it("does not flash onboarding while the administrator model status loads", async () => {
+    let finish!: (response: Response) => void
+    const preference = new Promise<Response>((resolve) => {
+      finish = resolve
+    })
+    installApiMock({ newTaskModelPreferenceResponse: () => preference })
+    renderApp("/conversations/new?setup=1")
+    await screen.findByRole("textbox", { name: "任务输入框" })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("button", { name: "林晓" }))
+    await screen.findByRole("menuitem", { name: "设置" })
+    expect(
+      screen.queryByRole("menuitem", { name: "开始使用引导" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("开始使用")).not.toBeInTheDocument()
+    await act(async () => {
+      finish(
+        json({
+          success: true,
+          data: {
+            configured: true,
+            default_model: "model-ready",
+            selected_model: "model-ready",
+            selected_reasoning_effort: "medium",
+            models: [
+              {
+                id: "model-ready",
+                display_name: "Ready Model",
+                enabled: true,
+                context_window: null,
+                supported_reasoning_efforts: ["medium"],
+                default_reasoning_effort: "medium",
+              },
+            ],
+          },
+        })
+      )
+      await preference
+    })
+    await screen.findByText("Ready Model")
+    expect(
+      screen.queryByRole("menuitem", { name: "开始使用引导" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("开始使用")).not.toBeInTheDocument()
+  })
+
+  it.each(["failed", "unconfigured"])(
+    "prevents task creation while model readiness is %s",
+    async (status) => {
+      const { requests } = installApiMock({
+        newTaskModelPreferenceResponse: () =>
+          status === "failed"
+            ? json({ success: false, error_code: "SERVICE_UNAVAILABLE" }, 503)
+            : json({
+                success: true,
+                data: {
+                  configured: false,
+                  default_model: null,
+                  selected_model: null,
+                  selected_reasoning_effort: null,
+                  models: [],
+                },
+              }),
+      })
+      renderApp("/conversations/new")
+      const user = userEvent.setup()
+      await user.type(
+        await screen.findByRole("textbox", { name: "任务输入框" }),
+        "测试任务"
+      )
+      if (status === "unconfigured")
+        expect(
+          (await screen.findAllByRole("link", { name: "配置模型" }))[0]
+        ).toBeVisible()
+      else
+        expect(
+          await screen.findByRole("button", { name: "重试" })
+        ).toBeVisible()
+      expect(screen.getByRole("button", { name: "发送" })).toBeDisabled()
+      expect(
+        requests.some(
+          (request) =>
+            request.method === "POST" &&
+            request.path === "/api/v1/conversations"
+        )
+      ).toBe(false)
+    }
+  )
+
   it("prewarms a new task once without creating a sidebar task on focus changes", async () => {
     const { requests } = installApiMock()
     renderApp("/conversations/new")

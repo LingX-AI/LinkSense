@@ -6,7 +6,7 @@ export type AuthContextValue = {
   status: "loading" | "authenticated" | "anonymous" | "error"
   user: User | null
   acceptSession: (session: AccessSession) => Promise<void>
-  refreshUser: () => Promise<void>
+  refreshUser: (options?: { signal?: AbortSignal }) => Promise<void>
   signOut: () => Promise<void>
 }
 

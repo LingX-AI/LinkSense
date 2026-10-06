@@ -77,6 +77,7 @@ export function useModelSettings(initial: ModelProviderSettings) {
       }
       savedRef.current = next
       setSettings(next)
+      queryClient.setQueryData(["admin", "model-provider-settings"], next)
       setError(null)
       if (action.kind !== "availability") {
         action.onSaved?.()

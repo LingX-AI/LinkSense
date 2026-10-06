@@ -1,4 +1,4 @@
-import { StrictMode } from "react"
+import { StrictMode, useState } from "react"
 import {
   cleanup,
   fireEvent,
@@ -11,7 +11,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter } from "react-router-dom"
 
 import { notify } from "@/components/feedback/notification"
-import { SupportMenu } from "@/components/shell/support-menu"
+import {
+  FeedbackDialog,
+  SupportMenuItems,
+} from "@/components/shell/support-menu"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import i18n from "@/i18n"
 
 describe("support menu", () => {
@@ -29,7 +39,7 @@ describe("support menu", () => {
     const interaction = userEvent.setup()
     renderSupportMenu()
 
-    await interaction.click(screen.getByRole("button", { name: "反馈与帮助" }))
+    await interaction.click(screen.getByRole("button", { name: "账户菜单" }))
 
     expect(await screen.findByRole("menuitem", { name: "反馈" })).toBeVisible()
     expect(screen.getByRole("menu")).toHaveAttribute("data-side", "top")
@@ -37,7 +47,7 @@ describe("support menu", () => {
     const helpLink = screen.getByRole("menuitem", {
       name: "在新标签页打开帮助中心",
     })
-    expect(helpLink).toHaveTextContent("帮助")
+    expect(helpLink).toHaveTextContent("使用帮助")
     expect(helpLink).toHaveAttribute(
       "href",
       "/help/user-guide/tasks/create-and-run/"
@@ -46,10 +56,42 @@ describe("support menu", () => {
     expect(helpLink).toHaveAttribute("rel", "noreferrer noopener")
   })
 
+  it.each([
+    ["zh-CN", "使用帮助", "反馈"],
+    ["en-US", "User guide", "Feedback"],
+    ["es-ES", "Guía de uso", "Comentarios"],
+    ["pt-BR", "Guia de uso", "Feedback"],
+    ["fr-FR", "Guide d’utilisation", "Donner un avis"],
+    ["ja-JP", "使い方ガイド", "フィードバック"],
+  ])(
+    "localizes both support actions and contextual help in %s",
+    async (locale, help, feedback) => {
+      await i18n.changeLanguage(locale)
+      const interaction = userEvent.setup()
+      renderSupportMenu("/knowledge-bases?tab=sites")
+
+      await interaction.click(screen.getByRole("button", { name: "账户菜单" }))
+      const menu = await screen.findByRole("menu")
+      expect(
+        within(menu)
+          .getAllByRole("menuitem")
+          .map((item) => item.textContent)
+      ).toEqual([help, feedback])
+      expect(
+        within(menu).getByRole("menuitem", {
+          name: i18n.t("nav.helpCenterNewTab"),
+        })
+      ).toHaveAttribute(
+        "href",
+        `/help/${locale === "zh-CN" ? "" : "en-US/"}user-guide/tasks/publish-websites/`
+      )
+    }
+  )
+
   it("keeps feedback submission actions and heading outside the scrolling fields", async () => {
     const interaction = userEvent.setup()
     renderSupportMenu()
-    await interaction.click(screen.getByRole("button", { name: "反馈与帮助" }))
+    await interaction.click(screen.getByRole("button", { name: "账户菜单" }))
     await interaction.click(
       await screen.findByRole("menuitem", { name: "反馈" })
     )
@@ -100,7 +142,7 @@ describe("support menu", () => {
 
     renderSupportMenu()
 
-    await interaction.click(screen.getByRole("button", { name: "反馈与帮助" }))
+    await interaction.click(screen.getByRole("button", { name: "账户菜单" }))
     await interaction.click(
       await screen.findByRole("menuitem", { name: "反馈" })
     )
@@ -160,7 +202,7 @@ describe("support menu", () => {
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined)
 
     renderSupportMenu()
-    await interaction.click(screen.getByRole("button", { name: "反馈与帮助" }))
+    await interaction.click(screen.getByRole("button", { name: "账户菜单" }))
     await interaction.click(
       await screen.findByRole("menuitem", { name: "反馈" })
     )
@@ -199,7 +241,7 @@ describe("support menu", () => {
     const interaction = userEvent.setup()
 
     renderSupportMenu()
-    await interaction.click(screen.getByRole("button", { name: "反馈与帮助" }))
+    await interaction.click(screen.getByRole("button", { name: "账户菜单" }))
     await interaction.click(
       await screen.findByRole("menuitem", { name: "反馈" })
     )
@@ -227,7 +269,7 @@ describe("support menu", () => {
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined)
 
     renderSupportMenu()
-    await interaction.click(screen.getByRole("button", { name: "反馈与帮助" }))
+    await interaction.click(screen.getByRole("button", { name: "账户菜单" }))
     await interaction.click(
       await screen.findByRole("menuitem", { name: "反馈" })
     )
@@ -268,7 +310,7 @@ describe("support menu", () => {
       .mockImplementation(() => undefined)
 
     renderSupportMenu()
-    await interaction.click(screen.getByRole("button", { name: "反馈与帮助" }))
+    await interaction.click(screen.getByRole("button", { name: "账户菜单" }))
     await interaction.click(
       await screen.findByRole("menuitem", { name: "反馈" })
     )
@@ -305,7 +347,7 @@ describe("support menu", () => {
     )
     renderSupportMenu()
 
-    await interaction.click(screen.getByRole("button", { name: "反馈与帮助" }))
+    await interaction.click(screen.getByRole("button", { name: "账户菜单" }))
     await interaction.click(
       await screen.findByRole("menuitem", { name: "反馈" })
     )
@@ -325,15 +367,33 @@ describe("support menu", () => {
   })
 })
 
-function renderSupportMenu() {
+function SupportMenuTestHarness() {
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<Button />}>账户菜单</DropdownMenuTrigger>
+        <DropdownMenuContent side="top" align="start">
+          <DropdownMenuGroup>
+            <SupportMenuItems onFeedback={() => setFeedbackOpen(true)} />
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+    </>
+  )
+}
+
+function renderSupportMenu(pathname = "/conversations/task-1") {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   })
   return render(
     <StrictMode>
-      <MemoryRouter initialEntries={["/conversations/task-1"]}>
+      <MemoryRouter initialEntries={[pathname]}>
         <QueryClientProvider client={queryClient}>
-          <SupportMenu />
+          <SupportMenuTestHarness />
         </QueryClientProvider>
       </MemoryRouter>
     </StrictMode>

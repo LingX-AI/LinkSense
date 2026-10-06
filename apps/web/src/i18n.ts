@@ -12,6 +12,7 @@ import { frFR } from "@/i18n/fr-FR"
 import { jaJP } from "@/i18n/ja-JP"
 import { ptBR } from "@/i18n/pt-BR"
 import { zhCN } from "@/i18n/zh-CN"
+import { onboardingMessages } from "@/features/onboarding/messages"
 
 export const supportedLanguages = supportedLocales
 export type SupportedLanguage = Locale
@@ -65,36 +66,42 @@ void i18n.use(initReactI18next).init({
     "zh-CN": {
       translation: {
         ...zhCN,
+        onboarding: onboardingMessages["zh-CN"],
         auditValues: auditTranslationResource("zh-CN"),
       },
     },
     "en-US": {
       translation: {
         ...enUS,
+        onboarding: onboardingMessages["en-US"],
         auditValues: auditTranslationResource("en-US"),
       },
     },
     "es-ES": {
       translation: {
         ...esES,
+        onboarding: onboardingMessages["es-ES"],
         auditValues: auditTranslationResource("es-ES"),
       },
     },
     "pt-BR": {
       translation: {
         ...ptBR,
+        onboarding: onboardingMessages["pt-BR"],
         auditValues: auditTranslationResource("pt-BR"),
       },
     },
     "fr-FR": {
       translation: {
         ...frFR,
+        onboarding: onboardingMessages["fr-FR"],
         auditValues: auditTranslationResource("fr-FR"),
       },
     },
     "ja-JP": {
       translation: {
         ...jaJP,
+        onboarding: onboardingMessages["ja-JP"],
         auditValues: auditTranslationResource("ja-JP"),
       },
     },

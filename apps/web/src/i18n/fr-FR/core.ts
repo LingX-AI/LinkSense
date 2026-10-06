@@ -289,9 +289,8 @@ export const core = {
     },
   },
   support: {
-    menuLabel: "Avis et aide",
     feedback: "Donner un avis",
-    help: "Aide",
+    help: "Guide d’utilisation",
     feedbackTitle: "Envoyer un avis",
     feedbackDescription:
       "Décrivez un problème rencontré ou une amélioration souhaitée.",

@@ -69,12 +69,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return resetPromise
   }, [queryClient])
 
-  const refreshUser = useCallback(async () => {
-    const nextUser = await apiRequest("/me", { schema: userSchema })
-    if (nextUser.language) await setAppLanguage(nextUser.language)
-    setUser((currentUser) => replaceEqualDeep(currentUser, nextUser))
-    setStatus("authenticated")
-  }, [])
+  const refreshUser = useCallback(
+    async (options?: { signal?: AbortSignal }) => {
+      const nextUser = await apiRequest("/me", {
+        schema: userSchema,
+        signal: options?.signal,
+      })
+      if (options?.signal?.aborted) return
+      if (nextUser.language) await setAppLanguage(nextUser.language)
+      if (options?.signal?.aborted) return
+      setUser((currentUser) => replaceEqualDeep(currentUser, nextUser))
+      setStatus("authenticated")
+    },
+    []
+  )
 
   const acceptSession = useCallback(
     async (session: AccessSession) => {

@@ -3,7 +3,11 @@ import { samlptBR } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
 import type { TranslationResource } from "@/i18n/types"
 
+import { modelSetupMessages } from "@/features/admin/model-setup-messages"
+import { localizedErrorMessage } from "@linksense/shared"
+
 export const ptBR = {
+  modelSetup: modelSetupMessages["pt-BR"],
   connections: connectionMessages["pt-BR"],
   saml: samlptBR,
   social: {
@@ -426,9 +430,8 @@ export const ptBR = {
     creditQuotaUnlimited: "Ilimitado",
   },
   support: {
-    menuLabel: "Feedback e ajuda",
     feedback: "Feedback",
-    help: "Ajuda",
+    help: "Guia de uso",
     feedbackTitle: "Enviar feedback",
     feedbackDescription:
       "Conte-nos sobre um problema que encontrou ou algo que podemos melhorar.",
@@ -4530,8 +4533,9 @@ export const ptBR = {
     notice: {
       title: "LinkSense {{version}} está disponível",
       description:
-        "Administradores podem revisar a versão e seguir o processo guiado de atualização.",
+        "Uma nova versão está disponível. Confira as novidades e as orientações de atualização.",
       action: "Ver atualização",
+      later: "Mais tarde",
       dismiss: "Dispensar o aviso de atualização desta versão",
     },
     status: {
@@ -5926,6 +5930,9 @@ export const ptBR = {
     modelProvider: {
       inUseBySystemSetting:
         "Este modelo é usado por uma configuração do sistema. Altere ou limpe essa seleção antes de excluí-lo.",
+      credentialRequired: localizedErrorMessage("MODEL_PROVIDER_CREDENTIAL_REQUIRED", "pt-BR"),
+      discoveryFailed: localizedErrorMessage("MODEL_PROVIDER_DISCOVERY_FAILED", "pt-BR"),
+      connectionFailed: localizedErrorMessage("MODEL_PROVIDER_CONNECTION_FAILED", "pt-BR"),
       managementDisabled:
         "A configuração de modelos está bloqueada pelo ambiente de implantação e é somente leitura.",
     },

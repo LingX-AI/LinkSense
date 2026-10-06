@@ -356,8 +356,9 @@ export const miscResources = {
     notice: {
       title: "LinkSense {{version}} est disponible",
       description:
-        "Les administrateurs peuvent consulter la version et suivre la procédure de mise à niveau.",
+        "Une nouvelle version est disponible. Consultez les nouveautés et le guide de mise à niveau.",
       action: "Voir la mise à jour",
+      later: "Plus tard",
       dismiss: "Masquer l’avis de mise à jour pour cette version",
     },
     status: {

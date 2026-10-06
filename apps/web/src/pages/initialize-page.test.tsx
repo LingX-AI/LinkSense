@@ -53,6 +53,16 @@ describe("InitializePage", () => {
     vi.unstubAllGlobals()
   })
 
+  it("places the language selector at the page top right with the shared compact radius", () => {
+    renderPage()
+    const selector = screen.getByRole("combobox", { name: "界面语言" })
+    expect(selector.closest("main")).toBeNull()
+    expect(selector.parentElement).toHaveClass("justify-end", "shrink-0")
+    expect(selector.parentElement?.parentElement).toHaveClass("public-shell")
+    expect(selector).toHaveClass("rounded-md")
+    expect(selector).not.toHaveClass("rounded-lg", "rounded-full")
+  })
+
   it("reports every invalid field inline and focuses the first one", async () => {
     const interaction = userEvent.setup()
     renderPage()

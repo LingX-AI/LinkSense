@@ -34,7 +34,8 @@ const authMock = vi.hoisted(() => ({
   runningMessageAction: "queue" as "queue" | "steer",
 }))
 
-vi.mock("@/app/auth-state", () => ({
+vi.mock("@/app/auth-state", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/app/auth-state")>()),
   useAuth: () => ({
     user: {
       id: "user-1",
@@ -226,7 +227,7 @@ describe("archived conversation pagination", () => {
     vi.unstubAllGlobals()
   })
 
-  it("positions the LinkSense credit at the lower-right on desktop and below the composer with extra spacing on mobile", async () => {
+  it("positions the LinkSense credit at the lower-right on desktop and hides it without extra spacing on mobile", async () => {
     renderPrewarmPage()
 
     const badge = await screen.findByRole("link", {
@@ -236,6 +237,10 @@ describe("archived conversation pagination", () => {
       "mr-1",
       "mb-1",
       "justify-self-end",
+      "hidden",
+      "md:inline-flex"
+    )
+    expect(badge).not.toHaveClass(
       "max-md:mr-0",
       "max-md:justify-self-center",
       "max-md:mt-3"

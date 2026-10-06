@@ -1,10 +1,24 @@
-import { cleanup, render, screen, within } from "@testing-library/react"
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 
 import { SettingsShell } from "@/components/shell/settings-shell"
-import i18n from "@/i18n"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import i18n, { supportedLanguages } from "@/i18n"
+import { desktopViewportQuery } from "@/lib/responsive"
 
 vi.mock("@/app/auth-state", () => ({
   useAuth: () => ({
@@ -12,7 +26,7 @@ vi.mock("@/app/auth-state", () => ({
   }),
 }))
 
-vi.mock("@/features/admin/system-update", () => ({
+vi.mock("@/features/admin/system-update-notice", () => ({
   SystemUpdateNotice: () => null,
 }))
 
@@ -23,6 +37,36 @@ describe("SettingsShell administrator navigation", () => {
 
   afterEach(() => {
     cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it("renders a page dialog backdrop independently of the closed mobile navigation sheet", () => {
+    render(
+      <MemoryRouter initialEntries={["/admin/models"]}>
+        <Routes>
+          <Route element={<SettingsShell />}>
+            <Route
+              path="*"
+              element={
+                <Dialog open>
+                  <DialogContent closeLabel="关闭">
+                    <DialogTitle>添加模型</DialogTitle>
+                    <DialogDescription>配置模型</DialogDescription>
+                  </DialogContent>
+                </Dialog>
+              }
+            />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    )
+    expect(document.querySelector('[data-slot="dialog-overlay"]')).toBeVisible()
+    expect(
+      screen.getByRole("dialog", { name: "添加模型" })
+    ).not.toHaveAttribute("data-nested")
+    expect(
+      document.querySelector('[data-slot="sheet-overlay"]')
+    ).not.toBeInTheDocument()
   })
 
   it.each([
@@ -65,15 +109,13 @@ describe("SettingsShell administrator navigation", () => {
       </MemoryRouter>
     )
     expect(screen.getByRole("main")).toHaveAttribute("tabindex", "0")
-    expect(
-      screen.getByRole("link", { name: "由 LinkSense 提供支持" })
-    ).toHaveClass(
-      "right-7",
-      "bottom-[22px]",
-      "max-md:right-auto",
-      "max-md:left-1/2",
-      "max-md:-translate-x-1/2",
-      "max-md:bottom-3.5"
+    expect(screen.getByRole("contentinfo")).toHaveClass(
+      "h-12",
+      "shrink-0",
+      "justify-center",
+      "md:h-16",
+      "md:justify-end",
+      "md:px-7"
     )
     const content = screen
       .getByTestId("settings-page-content")
@@ -82,6 +124,32 @@ describe("SettingsShell administrator navigation", () => {
     expect(content?.classList.contains("settings-content-administration")).toBe(
       path.startsWith("/admin/")
     )
+  })
+
+  it("keeps attribution in a bottom footer outside the settings scroll area", () => {
+    render(
+      <MemoryRouter initialEntries={["/admin/system-update"]}>
+        <Routes>
+          <Route element={<SettingsShell />}>
+            <Route path="*" element={<div>System update content</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    )
+    const main = screen.getByRole("main")
+    const footer = screen.getByRole("contentinfo")
+    const attribution = screen.getByRole("link", {
+      name: "由 LinkSense 提供支持",
+    })
+
+    expect(main).toHaveClass("min-h-0", "flex-1")
+    expect(main.parentElement).toHaveClass("flex", "min-h-0", "flex-col")
+    expect(main.nextElementSibling).toBe(footer)
+    expect(main).not.toContainElement(footer)
+    expect(main).toContainElement(screen.getByText("System update content"))
+    expect(footer).toContainElement(attribution)
+    expect(footer).toHaveClass("h-12", "shrink-0", "md:h-16")
+    expect(attribution).not.toHaveClass("fixed")
   })
 
   it("places personal quota immediately after the profile", () => {
@@ -320,5 +388,238 @@ describe("SettingsShell administrator navigation", () => {
     expect(
       within(navigation).queryByRole("link", { name: "用户" })
     ).not.toBeInTheDocument()
+  })
+
+  describe("mobile navigation", () => {
+    function renderSettingsPages() {
+      render(
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: "/settings/general",
+              state: { settingsReturnTo: "/conversations/c1" },
+            },
+          ]}
+        >
+          <Routes>
+            <Route element={<SettingsShell />}>
+              <Route
+                path="/settings/general"
+                element={<h1>General page content</h1>}
+              />
+              <Route
+                path="/settings/profile"
+                element={<h1>Profile page content</h1>}
+              />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      )
+    }
+
+    it("opens a left drawer outside the page layout and closes after changing sections", async () => {
+      const interaction = userEvent.setup()
+      renderSettingsPages()
+      const main = screen.getByRole("main")
+      const trigger = screen.getByRole("button", { name: "设置导航" })
+      const sidebar = screen.getByRole("complementary", {
+        name: "LinkSense 设置导航",
+      })
+
+      expect(trigger).toHaveAttribute("aria-expanded", "false")
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      expect(
+        sidebar.querySelector(".settings-navigation-body")?.parentElement
+      ).toHaveClass("hidden", "md:block")
+
+      await interaction.click(trigger)
+
+      const drawer = await screen.findByRole("dialog", {
+        name: "LinkSense 设置导航",
+      })
+      expect(drawer).toHaveAttribute("data-side", "left")
+      expect(drawer.closest(".settings-shell")).toBeNull()
+      expect(drawer.closest(".settings-sidebar")).toBeNull()
+      expect(trigger).toHaveAttribute("aria-controls", drawer.id)
+      expect(trigger).toHaveAttribute("aria-expanded", "true")
+      expect(main).toContainElement(screen.getByText("General page content"))
+      expect(
+        within(drawer).getByRole("textbox", { name: "搜索设置" })
+      ).toBeVisible()
+      expect(
+        within(drawer).getByRole("link", { name: "常规" })
+      ).toHaveAttribute("aria-current", "page")
+      expect(
+        within(drawer).getByRole("link", { name: "返回 LinkSense" })
+      ).toHaveAttribute("href", "/conversations/c1")
+
+      await interaction.click(
+        within(drawer).getByRole("link", { name: "个人资料" })
+      )
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      expect(trigger).toHaveAttribute("aria-expanded", "false")
+      expect(main).toContainElement(
+        screen.getByRole("heading", { name: "Profile page content" })
+      )
+
+      await interaction.click(trigger)
+      const reopenedDrawer = await screen.findByRole("dialog")
+      expect(
+        within(reopenedDrawer).getByRole("link", { name: "个人资料" })
+      ).toHaveAttribute("aria-current", "page")
+      expect(
+        within(reopenedDrawer).getByRole("link", { name: "返回 LinkSense" })
+      ).toHaveAttribute("href", "/conversations/c1")
+    })
+
+    it("filters drawer links and shows an empty state without changing the page", async () => {
+      const interaction = userEvent.setup()
+      renderSettingsPages()
+      await interaction.click(screen.getByRole("button", { name: "设置导航" }))
+      const drawer = await screen.findByRole("dialog")
+      const search = within(drawer).getByRole("textbox", { name: "搜索设置" })
+
+      await interaction.type(search, "个人资料")
+      expect(
+        within(drawer).getByRole("link", { name: "个人资料" })
+      ).toBeVisible()
+      expect(
+        within(drawer).queryByRole("link", { name: "常规" })
+      ).not.toBeInTheDocument()
+      expect(
+        within(drawer).queryByRole("navigation", { name: "管理" })
+      ).not.toBeInTheDocument()
+
+      await interaction.clear(search)
+      await interaction.type(search, "no-matching-setting")
+      expect(
+        within(drawer).getByText(i18n.t("settings.noResults"))
+      ).toBeVisible()
+      expect(within(drawer).queryByRole("navigation")).not.toBeInTheDocument()
+      expect(screen.getByText("General page content")).toBeInTheDocument()
+
+      await interaction.clear(search)
+      expect(
+        within(drawer).getByRole("navigation", { name: "个人" })
+      ).toBeVisible()
+      expect(
+        within(drawer).getByRole("navigation", { name: "管理" })
+      ).toBeVisible()
+    })
+
+    it.each(["escape", "close button", "backdrop"])(
+      "closes with %s and restores focus to the menu trigger",
+      async (dismissal) => {
+        const interaction = userEvent.setup()
+        renderSettingsPages()
+        const trigger = screen.getByRole("button", { name: "设置导航" })
+        await interaction.click(trigger)
+        const drawer = await screen.findByRole("dialog")
+
+        if (dismissal === "escape") {
+          await interaction.keyboard("{Escape}")
+        } else if (dismissal === "close button") {
+          await interaction.click(
+            within(drawer).getByRole("button", { name: "关闭" })
+          )
+        } else {
+          // JSDOM does not read preventScroll when focusing an element.
+          const nativeFocus = HTMLElement.prototype.focus
+          vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (
+            this: HTMLElement,
+            options
+          ) {
+            void options?.preventScroll
+            nativeFocus.call(this, options)
+          })
+          const backdrop = document.querySelector('[data-slot="sheet-overlay"]')
+          expect(backdrop).toBeInTheDocument()
+          if (!backdrop)
+            throw new Error("The navigation drawer backdrop is missing")
+          await interaction.click(backdrop)
+        }
+
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+        expect(trigger).toHaveAttribute("aria-expanded", "false")
+        await waitFor(() => expect(trigger).toHaveFocus())
+      }
+    )
+
+    it("dismisses the drawer when the viewport changes to desktop", async () => {
+      type ViewportListener =
+        | EventListenerOrEventListenerObject
+        | ((event: MediaQueryListEvent) => void)
+      const viewportListeners = new Set<ViewportListener>()
+      let desktopMatches = false
+      vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+        matches: query === desktopViewportQuery && desktopMatches,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(
+          (_type: string, listener: ViewportListener | null) => {
+            if (query === desktopViewportQuery && listener)
+              viewportListeners.add(listener)
+          }
+        ),
+        removeEventListener: vi.fn(
+          (_type: string, listener: ViewportListener | null) => {
+            if (query === desktopViewportQuery && listener)
+              viewportListeners.delete(listener)
+          }
+        ),
+        dispatchEvent: vi.fn(),
+      }))
+      const interaction = userEvent.setup()
+      renderSettingsPages()
+      const trigger = screen.getByRole("button", { name: "设置导航" })
+      await interaction.click(trigger)
+      expect(await screen.findByRole("dialog")).toBeVisible()
+      expect(window.matchMedia).toHaveBeenCalledWith(desktopViewportQuery)
+
+      act(() => {
+        desktopMatches = true
+        const event = Object.assign(new Event("change"), {
+          matches: true,
+          media: desktopViewportQuery,
+        })
+        for (const listener of viewportListeners) {
+          if (typeof listener === "function") listener(event)
+          else listener.handleEvent(event)
+        }
+      })
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      expect(trigger).toHaveAttribute("aria-expanded", "false")
+      await waitFor(() => expect(screen.getByRole("main")).toHaveFocus())
+      expect(viewportListeners.size).toBe(0)
+    })
+
+    it.each(supportedLanguages)(
+      "localizes the drawer controls in %s",
+      async (locale) => {
+        await i18n.changeLanguage(locale)
+        const interaction = userEvent.setup()
+        renderSettingsPages()
+        await interaction.click(
+          screen.getByRole("button", { name: i18n.t("settings.navigation") })
+        )
+        const drawer = await screen.findByRole("dialog", {
+          name: i18n.t("settings.navigationLabel", {
+            productName: "LinkSense",
+          }),
+        })
+        expect(
+          within(drawer).getByRole("textbox", {
+            name: i18n.t("settings.search"),
+          })
+        ).toBeVisible()
+        expect(
+          within(drawer).getByRole("button", { name: i18n.t("common.close") })
+        ).toBeVisible()
+      }
+    )
   })
 })

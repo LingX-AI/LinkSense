@@ -11448,29 +11448,6 @@ button.annotation-hover-file:focus-visible {
     padding: 8px 10px;
   }
 
-  .settings-desktop-back-link {
-    display: none;
-  }
-
-  .settings-navigation-body {
-    height: auto;
-    max-height: min(70svh, 500px);
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  .settings-navigation-header {
-    padding: 4px 10px 8px;
-  }
-
-  .settings-navigation-scroll {
-    padding: 8px 10px 14px;
-  }
-
-  .settings-navigation-body[data-mobile-open="false"] {
-    display: none;
-  }
-
   .settings-main {
     height: auto;
   }
