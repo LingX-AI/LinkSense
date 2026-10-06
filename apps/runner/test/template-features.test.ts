@@ -53,7 +53,14 @@ describe("Codex template feature policy", () => {
     expect(dockerfile).toContain(
       "COPY --chown=root:root --chmod=0444 deploy/codex-system/requirements.toml /etc/codex/requirements.toml",
     )
-    expect(dockerfile).toContain(
+    const baseline = await readFile(
+      fileURLToPath(
+        new URL("../../../deploy/baselines/Dockerfile.runtime", import.meta.url),
+      ),
+      "utf8",
+    )
+    expect(dockerfile).toContain("FROM ${BASELINE_WORKER_IMAGE} AS worker")
+    expect(baseline).toContain(
       "node --check /opt/linksense/runtime/node/plan-stop-hook.mjs",
     )
   })
