@@ -4,9 +4,43 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
+import { createRequire } from "node:module"
 
 const root = path.resolve(import.meta.dirname, "..")
 const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
+const { parse } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml")
+
+test("formal image tags and GitHub Release publication require every architecture security scan", () => {
+  const { jobs } = parse(workflow)
+  assert.ok(jobs.release.needs.includes("image-security"))
+  const gate = jobs["image-security"]
+  assert.deepEqual(gate.needs, ["prepare", "image-indexes"])
+  assert.deepEqual(gate.strategy.matrix.architecture, ["amd64", "arm64"])
+  assert.equal(gate.strategy["fail-fast"], false)
+  assert.deepEqual(gate.permissions, { contents: "read", packages: "read" })
+  assert.equal(gate["continue-on-error"], undefined)
+  assert.equal(jobs.release.if, undefined)
+  assert.ok(gate.steps.every((step) => !step["continue-on-error"]))
+  const scan = gate.steps.find((step) => step.run?.includes("scripts/scan-release-images.sh"))
+  assert.match(scan.run, /sha256sum -c SHA256SUMS/u)
+  assert.match(scan.run, /release-inputs\/identity\.env/u)
+  assert.match(scan.run, /image-references release-inputs image-security-reports/u)
+  assert.equal(scan.env.RELEASE_VERSION, "${{ needs.prepare.outputs.release_version }}")
+  assert.equal(scan.env.SOURCE_SHA, "${{ needs.prepare.outputs.source_sha }}")
+  assert.equal(scan.env.SCAN_PLATFORM, "linux/${{ matrix.architecture }}")
+  const upload = gate.steps.find((step) => step.uses?.startsWith("actions/upload-artifact@"))
+  assert.equal(upload.if, "always()")
+  assert.equal(upload.with["if-no-files-found"], "error")
+  assert.equal(upload.with.path, "image-security-reports/")
+  assert.equal(upload.with.name, "image-security-reports-${{ matrix.architecture }}")
+  assert.equal(upload.with["retention-days"], 30)
+  const install = gate.steps.find((step) => step.name === "Install checksum-pinned Trivy")
+  assert.match(install.run, /releases\/download\/v0\.75\.0\/trivy_0\.75\.0_Linux-64bit\.tar\.gz/u)
+  const verify = install.run.indexOf("c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f")
+  assert.ok(verify > 0)
+  assert.ok(verify < install.run.indexOf("tar -xzf"))
+  assert.doesNotMatch(install.run, /install\.sh|\/latest\//u)
+})
 const preflight = workflow
   .split(/      - name: Verify (?:private )?release authorization and identity\n/u)[1]
   ?.split("        run: |\n")[1]
