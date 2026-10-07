@@ -40,6 +40,10 @@ describe("conversation rename input", () => {
       const input = screen.getByRole("textbox", {
         name: i18n.t("conversation.title"),
       })
+      const label = document.querySelector(`label[for="${input.id}"]`)
+      expect(label?.lastElementChild).toHaveTextContent("*")
+      expect(label?.lastElementChild).toHaveClass("text-destructive")
+      expect(input).toBeRequired()
       await waitFor(() => expect(input).toHaveFocus())
       await interaction.type(input, title)
       expect(input).toHaveFocus()

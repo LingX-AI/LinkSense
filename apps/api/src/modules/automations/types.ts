@@ -138,11 +138,6 @@ export interface AutomationRepository {
     conversationId: string;
     completedAt: Date;
   } | null>;
-  markCompletionNotificationsRead(
-    ownerId: string,
-    through: Date,
-    readAt: Date,
-  ): Promise<void>;
   claimOccurrence(input: {
     automationId: string;
     scheduledFor: Date;

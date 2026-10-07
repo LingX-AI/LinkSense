@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
+import type { ReactElement } from "react"
+import { supportedLocales } from "@linksense/shared"
 
 import { bootstrapSchema } from "@/api/contracts"
 import { setAccessToken } from "@/api/session"
@@ -14,8 +16,10 @@ import { NotificationCenter } from "@/components/feedback/notification-toast"
 import i18n from "@/i18n"
 import {
   CompleteRegistrationPage,
+  ForgotPasswordPage,
   LoginPage,
   RegistrationPage,
+  ResetPasswordPage,
 } from "@/pages/auth-pages"
 
 const teamsAdapterMocks = vi.hoisted(() => ({
@@ -49,9 +53,11 @@ const bootstrap = bootstrapSchema.parse({
 
 function renderRegistrationPage({
   complete = false,
+  page,
   acceptSession = vi.fn(async () => undefined),
 }: {
   complete?: boolean
+  page?: ReactElement
   acceptSession?: AuthContextValue["acceptSession"]
 } = {}) {
   const queryClient = new QueryClient({
@@ -81,7 +87,10 @@ function renderRegistrationPage({
               initialEntries={[complete ? "/register/activate" : "/register"]}
             >
               <Routes>
-                <Route path="/register" element={<RegistrationPage />} />
+                <Route
+                  path="/register"
+                  element={page ?? <RegistrationPage />}
+                />
                 <Route
                   path="/register/activate"
                   element={<CompleteRegistrationPage />}
@@ -138,6 +147,26 @@ function renderLoginPageWithAuthStatus(
 }
 
 describe("LoginPage session restoration", () => {
+  it.each(supportedLocales)(
+    "marks both login fields as required without changing their accessible names in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      renderLoginPageWithAuthStatus("anonymous")
+      for (const id of ["login-email", "login-password"]) {
+        const label = document.querySelector(`label[for="${id}"]`)
+        expect(label?.lastElementChild).toHaveTextContent("*")
+        expect(label?.lastElementChild).toHaveClass("text-destructive")
+        expect(label?.lastElementChild).toHaveAttribute("aria-hidden", "true")
+      }
+      expect(
+        screen.getByRole("textbox", { name: i18n.t("common.email") })
+      ).toBeRequired()
+      expect(document.getElementById("login-password")).toHaveAccessibleName(
+        i18n.t("auth.password")
+      )
+    }
+  )
+
   it("places the language selector at the page top right outside the login form", () => {
     renderLoginPageWithAuthStatus("anonymous")
     const selector = screen.getByRole("combobox", { name: "界面语言" })
@@ -162,8 +191,10 @@ describe("LoginPage session restoration", () => {
     renderLoginPageWithAuthStatus("loading")
 
     expect(screen.getByRole("status")).toHaveTextContent("正在加载")
-    expect(screen.queryByLabelText("邮箱")).not.toBeInTheDocument()
-    expect(screen.queryByLabelText("密码")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("textbox", { name: "邮箱" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/^密码\s*\*?$/u)).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "登录" })
     ).not.toBeInTheDocument()
@@ -173,7 +204,9 @@ describe("LoginPage session restoration", () => {
   it("keeps the password form hidden after the session has already been restored", () => {
     renderLoginPageWithAuthStatus("authenticated")
 
-    expect(screen.queryByLabelText("邮箱")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("textbox", { name: "邮箱" })
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "登录" })
     ).not.toBeInTheDocument()
@@ -187,8 +220,8 @@ describe("LoginPage session restoration", () => {
     )
     const { container } = renderLoginPageWithAuthStatus("anonymous")
 
-    expect(screen.getByLabelText("邮箱")).toBeVisible()
-    expect(screen.getByLabelText("密码")).toBeVisible()
+    expect(screen.getByRole("textbox", { name: "邮箱" })).toBeVisible()
+    expect(screen.getByLabelText(/^密码\s*\*?$/u)).toBeVisible()
     expect(screen.getByRole("button", { name: "登录" })).toBeEnabled()
     expect(container.querySelectorAll('[data-slot="spinner"]')).toHaveLength(0)
   })
@@ -198,8 +231,8 @@ describe("LoginPage session restoration", () => {
     renderLoginPageWithAuthStatus("anonymous")
 
     await interaction.click(screen.getByRole("button", { name: "登录" }))
-    const email = screen.getByLabelText("邮箱")
-    const password = screen.getByLabelText("密码")
+    const email = screen.getByRole("textbox", { name: "邮箱" })
+    const password = screen.getByLabelText(/^密码\s*\*?$/u)
     expect(email).toHaveFocus()
     expect(email).toHaveAttribute("aria-invalid", "true")
     expect(password).toHaveAttribute("aria-invalid", "true")
@@ -217,8 +250,11 @@ describe("LoginPage session restoration", () => {
     const interaction = userEvent.setup()
     renderLoginPageWithAuthStatus("anonymous")
 
-    await interaction.type(screen.getByLabelText("邮箱"), "owner@example.com")
-    await interaction.type(screen.getByLabelText("密码"), "secret")
+    await interaction.type(
+      screen.getByRole("textbox", { name: "邮箱" }),
+      "owner@example.com"
+    )
+    await interaction.type(screen.getByLabelText(/^密码\s*\*?$/u), "secret")
     await interaction.click(screen.getByRole("button", { name: "登录" }))
 
     const submit = screen.getByRole("button", { name: "登录" })
@@ -245,6 +281,25 @@ describe("LoginPage session restoration", () => {
 })
 
 describe("open registration pages", () => {
+  it.each([
+    ["registration", <RegistrationPage />, ["registration-email"]],
+    [
+      "activation",
+      <CompleteRegistrationPage />,
+      ["registration-password", "registration-password-confirmation"],
+    ],
+    ["recovery", <ForgotPasswordPage />, ["forgot-email"]],
+    ["reset", <ResetPasswordPage />, ["new-password", "confirm-password"]],
+  ] as const)("marks every required field in the %s form", (_, page, ids) => {
+    renderRegistrationPage({ page })
+    for (const id of ids) {
+      const label = document.querySelector(`label[for="${id}"]`)
+      expect(label?.lastElementChild).toHaveTextContent("*")
+      expect(label?.lastElementChild).toHaveClass("text-destructive")
+      expect(label?.lastElementChild).toHaveAttribute("aria-hidden", "true")
+    }
+  })
+
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
     window.history.replaceState(null, "", "/")
@@ -277,7 +332,7 @@ describe("open registration pages", () => {
     renderRegistrationPage()
 
     await interaction.type(
-      screen.getByLabelText("邮箱"),
+      screen.getByRole("textbox", { name: "邮箱" }),
       "  New.Person@Example.com  "
     )
     await interaction.click(
@@ -287,7 +342,9 @@ describe("open registration pages", () => {
     expect(
       await screen.findByText("如果该邮箱可以注册，系统将发送账号激活邮件。")
     ).toBeVisible()
-    expect(screen.queryByLabelText("邮箱")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("textbox", { name: "邮箱" })
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "发送激活邮件" })
     ).not.toBeInTheDocument()
@@ -334,8 +391,14 @@ describe("open registration pages", () => {
     renderRegistrationPage({ complete: true, acceptSession })
 
     expect(window.location.hash).toBe("")
-    await interaction.type(screen.getByLabelText("新密码"), "Valid123!")
-    await interaction.type(screen.getByLabelText("确认新密码"), "Valid123!")
+    await interaction.type(
+      screen.getByLabelText(/^新密码\s*\*?$/u),
+      "Valid123!"
+    )
+    await interaction.type(
+      screen.getByLabelText(/^确认新密码\s*\*?$/u),
+      "Valid123!"
+    )
     await interaction.click(
       screen.getByRole("button", { name: "激活账号并登录" })
     )

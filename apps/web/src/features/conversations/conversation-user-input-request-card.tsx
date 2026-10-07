@@ -17,6 +17,7 @@ import remarkGfm from "remark-gfm"
 import type { ConversationUserInputResponse } from "@linksense/shared"
 
 import type { ConversationUserInputRequest } from "@/api/contracts"
+import { RequiredIndicator } from "@/components/forms/required-indicator"
 import { Badge } from "@/components/ui/badge"
 import {
   Card,
@@ -384,13 +385,15 @@ function QuestionUserInputForm({
                       {question.header}
                     </span>
                   )}
-                  <span className="mt-0.5 block text-sm leading-5 text-[var(--app-text)]">
+                  <span className="mt-0.5 flex items-start gap-2 text-sm leading-5 text-[var(--app-text)]">
                     {question.question}
+                    <RequiredIndicator />
                   </span>
                 </FieldLegend>
 
                 {options.length > 0 && (
                   <RadioGroup
+                    aria-required="true"
                     disabled={fieldsDisabled}
                     value={selection ?? ""}
                     onValueChange={(value) =>
@@ -455,6 +458,7 @@ function QuestionUserInputForm({
                     </FieldLabel>
                     <Input
                       id={`${inputId}-answer`}
+                      aria-required="true"
                       type={question.is_secret ? "password" : "text"}
                       autoComplete="off"
                       disabled={fieldsDisabled}

@@ -944,8 +944,9 @@ function TransferOwnerDialog({
           </DialogDescription>
         </DialogHeader>
         <FieldShell
-          id="knowledge-owner-search"
+          id="knowledge-owner-selection"
           label={t("adminKnowledge.transfer.owner")}
+          required
         >
           <InputGroup>
             <InputGroupAddon>
@@ -953,39 +954,46 @@ function TransferOwnerDialog({
             </InputGroupAddon>
             <InputGroupInput
               id="knowledge-owner-search"
+              aria-label={t("adminKnowledge.transfer.search")}
               value={search}
               placeholder={t("adminKnowledge.transfer.search")}
               onChange={(event) => onSearchChange(event.currentTarget.value)}
             />
           </InputGroup>
+          {loading && <LoadingState />}
+          {Boolean(error) && (
+            <ErrorState message={getErrorMessage(error, t)} onRetry={onRetry} />
+          )}
+          {!loading && !error && (
+            <Select
+              items={owners.map((owner) => ({
+                value: owner.id,
+                label: owner.name,
+              }))}
+              value={ownerId || undefined}
+              onValueChange={(value) => onOwnerChange(value ?? "")}
+            >
+              <SelectTrigger
+                id="knowledge-owner-selection"
+                aria-label={t("adminKnowledge.transfer.owner")}
+                aria-required="true"
+              >
+                <SelectValue
+                  placeholder={t("adminKnowledge.transfer.select")}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {owners.map((owner) => (
+                    <SelectItem key={owner.id} value={owner.id}>
+                      {owner.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          )}
         </FieldShell>
-        {loading && <LoadingState />}
-        {Boolean(error) && (
-          <ErrorState message={getErrorMessage(error, t)} onRetry={onRetry} />
-        )}
-        {!loading && !error && (
-          <Select
-            items={owners.map((owner) => ({
-              value: owner.id,
-              label: owner.name,
-            }))}
-            value={ownerId || undefined}
-            onValueChange={(value) => onOwnerChange(value ?? "")}
-          >
-            <SelectTrigger aria-label={t("adminKnowledge.transfer.owner")}>
-              <SelectValue placeholder={t("adminKnowledge.transfer.select")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {owners.map((owner) => (
-                  <SelectItem key={owner.id} value={owner.id}>
-                    {owner.name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        )}
         <ReasonField value={reason} onChange={onReasonChange} />
         <DialogFooter>
           <DialogClose render={<Button type="button" variant="ghost" />}>
@@ -1023,6 +1031,7 @@ function ReasonField({
     <FieldShell
       id="knowledge-governance-reason"
       label={t("adminKnowledge.reason")}
+      required
       hint={t("adminKnowledge.reasonHint")}
     >
       <Textarea

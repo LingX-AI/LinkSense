@@ -159,6 +159,7 @@ export function VoiceTranscriptionSettingsForm({
               id={`${idPrefix}-provider`}
               controlWidth="medium"
               label={t("admin.voiceTranscription.provider")}
+              required={enabled}
               hint={t("admin.voiceTranscription.providerHint")}
             >
               <Select
@@ -180,7 +181,11 @@ export function VoiceTranscriptionSettingsForm({
                   setApiKey("")
                 }}
               >
-                <SelectTrigger id={`${idPrefix}-provider`} className="w-full">
+                <SelectTrigger
+                  id={`${idPrefix}-provider`}
+                  className="w-full"
+                  aria-required={enabled || undefined}
+                >
                   {provider && selectedProviderItem ? (
                     <SelectValue>
                       <VoiceTranscriptionProviderLogo provider={provider} />
@@ -212,6 +217,7 @@ export function VoiceTranscriptionSettingsForm({
               id={`${idPrefix}-base-url`}
               controlWidth="wide"
               label={t("admin.voiceTranscription.baseUrl")}
+              required={enabled}
               hint={t("admin.voiceTranscription.baseUrlHint")}
             >
               <Input
@@ -229,6 +235,7 @@ export function VoiceTranscriptionSettingsForm({
                 id={`${idPrefix}-api-version`}
                 controlWidth="medium"
                 label={t("admin.voiceTranscription.apiVersion")}
+                required={enabled}
                 hint={t("admin.voiceTranscription.apiVersionHint")}
               >
                 <Input
@@ -247,6 +254,7 @@ export function VoiceTranscriptionSettingsForm({
               id={`${idPrefix}-api-key`}
               controlWidth="wide"
               label={t("admin.voiceTranscription.apiKey")}
+              required={enabled && !apiKeyConfiguredForProvider}
               hint={
                 apiKeyConfiguredForProvider
                   ? t("admin.voiceTranscription.apiKeyConfiguredHint")
@@ -271,6 +279,7 @@ export function VoiceTranscriptionSettingsForm({
               id={`${idPrefix}-model`}
               controlWidth="medium"
               label={t("admin.voiceTranscription.model")}
+              required={enabled}
               hint={t("admin.voiceTranscription.modelHint")}
             >
               <Input

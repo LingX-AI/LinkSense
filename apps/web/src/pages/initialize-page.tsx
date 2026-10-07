@@ -138,6 +138,7 @@ export function InitializePage() {
           {bootstrap?.initialization_credential_required && (
             <FieldShell
               id="initialization-credential"
+              required
               label={t("initialize.credential")}
               hint={t("initialize.credentialHint")}
               error={fieldErrors.credential}
@@ -165,6 +166,7 @@ export function InitializePage() {
           )}
           <FieldShell
             id="admin-name"
+            required
             label={t("initialize.adminName")}
             error={fieldErrors.name}
           >
@@ -188,6 +190,7 @@ export function InitializePage() {
           </FieldShell>
           <FieldShell
             id="admin-email"
+            required
             label={t("common.email")}
             error={fieldErrors.email}
           >
@@ -214,6 +217,7 @@ export function InitializePage() {
           </FieldShell>
           <FieldShell
             id="admin-password"
+            required
             label={t("auth.newPassword")}
             hint={t("auth.passwordPolicy")}
             error={fieldErrors.password}
@@ -238,6 +242,7 @@ export function InitializePage() {
           </FieldShell>
           <FieldShell
             id="admin-password-confirm"
+            required
             label={t("auth.confirmPassword")}
             error={fieldErrors.confirmation}
           >

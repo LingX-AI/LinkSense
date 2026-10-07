@@ -489,13 +489,14 @@ function ClawHubInstallPreviewDialog({
               >
                 <Checkbox
                   id="clawhub-risk-confirm"
+                  aria-required="true"
                   checked={riskConfirmed}
                   disabled={pending}
                   onCheckedChange={(checked) =>
                     onRiskConfirmedChange(Boolean(checked))
                   }
                 />
-                <FieldLabel htmlFor="clawhub-risk-confirm">
+                <FieldLabel htmlFor="clawhub-risk-confirm" required>
                   {t("capability.riskConfirm")}
                 </FieldLabel>
               </Field>

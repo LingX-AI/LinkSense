@@ -100,11 +100,13 @@ export function FeedbackReplyForm({
         <FieldGroup>
           <FieldShell
             id={contentId}
+            required={images.length === 0}
             label={t("myFeedback.writeReply")}
             hint={t("myFeedback.replyHint")}
           >
             <Textarea
               id={contentId}
+              aria-required={images.length === 0 || undefined}
               value={content}
               disabled={reply.isPending}
               maxLength={FEEDBACK_MAX_CONTENT_LENGTH}

@@ -7,6 +7,10 @@ import { MemoryRouter } from "react-router-dom"
 import { setAccessToken } from "@/api/session"
 import i18n, { type SupportedLanguage } from "@/i18n"
 import { AdminPages } from "@/pages/admin-pages"
+import {
+  expectRequiredLabel,
+  formLabelPattern,
+} from "@/features/admin/required-field-label.test-helper"
 
 const checkedAt = "2026-07-11T08:43:00.000Z"
 const healthStatus = {
@@ -332,7 +336,9 @@ describe("administrator health page", () => {
       expect(screen.getByText(memoryValue)).toBeVisible()
       expect(screen.getByText(containers)).toBeVisible()
       expect(
-        within(screen.getByLabelText(overall)).getByText(unavailable)
+        within(screen.getByLabelText(formLabelPattern(overall))).getByText(
+          unavailable
+        )
       ).toBeVisible()
 
       for (const hiddenLabel of hidden) {
@@ -384,19 +390,18 @@ describe("administrator health page", () => {
 
     renderHealth()
 
-    expect(await screen.findByLabelText("CPU 13%")).toHaveAttribute(
-      "data-usage-level",
-      "low"
-    )
-    expect(screen.getByLabelText("CPU 65%")).toHaveAttribute(
+    expect(
+      await screen.findByLabelText(formLabelPattern("CPU 13%"))
+    ).toHaveAttribute("data-usage-level", "low")
+    expect(screen.getByLabelText(formLabelPattern("CPU 65%"))).toHaveAttribute(
       "data-usage-level",
       "medium"
     )
-    expect(screen.getByLabelText("CPU 88%")).toHaveAttribute(
+    expect(screen.getByLabelText(formLabelPattern("CPU 88%"))).toHaveAttribute(
       "data-usage-level",
       "high"
     )
-    expect(screen.getByLabelText("CPU —")).toHaveAttribute(
+    expect(screen.getByLabelText(formLabelPattern("CPU —"))).toHaveAttribute(
       "data-usage-level",
       "unknown"
     )
@@ -533,7 +538,11 @@ describe("administrator health page", () => {
       name: "确认并开始重建",
     })
     expect(confirm).toBeDisabled()
-    await interaction.type(screen.getByLabelText("操作原因"), "嵌入模型已更换")
+    expectRequiredLabel(screen.getByRole("textbox", { name: "操作原因" }))
+    await interaction.type(
+      screen.getByLabelText(formLabelPattern("操作原因")),
+      "嵌入模型已更换"
+    )
     expect(confirm).toBeEnabled()
     await interaction.click(confirm)
 

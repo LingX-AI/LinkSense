@@ -164,6 +164,8 @@ function ApplicationCenterReviewDialog({
     },
   })
   const current = detail.data?.release
+  const commentRequired =
+    current?.listing_status === "published" && current.status !== "pending"
   const error = detail.error ?? mutation.error
   return (
     <Dialog
@@ -242,11 +244,15 @@ function ApplicationCenterReviewDialog({
           )}
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor="application-review-comment">
+              <FieldLabel
+                htmlFor="application-review-comment"
+                required={commentRequired}
+              >
                 {t("applications.distribution.reviewComment")}
               </FieldLabel>
               <Textarea
                 id="application-review-comment"
+                aria-required={commentRequired || undefined}
                 value={comment}
                 maxLength={4000}
                 onChange={(event) => setComment(event.target.value)}

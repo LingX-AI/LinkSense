@@ -6,7 +6,6 @@ import {
   errorCodeSchema,
   type Automation,
   type AutomationCompletionNotification,
-  type AutomationCompletionNotificationReadInput,
   type AutomationCreateInput,
   type AutomationRunNowResult,
   type AutomationSchedule,
@@ -98,18 +97,6 @@ export class AutomationService {
           }
         : null,
     };
-  }
-
-  async markCompletionNotificationsRead(
-    ownerId: string,
-    input: AutomationCompletionNotificationReadInput,
-  ): Promise<AutomationCompletionNotification> {
-    await this.repository.markCompletionNotificationsRead(
-      ownerId,
-      new Date(input.through),
-      this.now(),
-    );
-    return this.completionNotifications(ownerId);
   }
 
   async create(

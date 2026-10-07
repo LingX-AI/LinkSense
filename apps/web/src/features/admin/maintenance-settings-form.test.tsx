@@ -1,3 +1,4 @@
+import { formLabelPattern } from "@/features/admin/required-field-label.test-helper"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   act,
@@ -85,9 +86,9 @@ describe("maintenance settings form", () => {
           name: t("admin.maintenance.enabled"),
         })
       ).toBeChecked()
-      expect(screen.getByLabelText(t("admin.maintenance.reason"))).toHaveValue(
-        "Upgrade"
-      )
+      expect(
+        screen.getByLabelText(formLabelPattern(t("admin.maintenance.reason")))
+      ).toHaveValue("Upgrade")
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5_000)
@@ -97,7 +98,7 @@ describe("maintenance settings form", () => {
         screen.getByText(t("admin.maintenance.status.disabled"))
       ).toBeVisible()
       expect(
-        screen.queryByLabelText(t("admin.maintenance.reason"))
+        screen.queryByLabelText(formLabelPattern(t("admin.maintenance.reason")))
       ).not.toBeInTheDocument()
       expect(
         queryClient.getQueryData(["admin", "maintenance-settings"])
@@ -110,11 +111,11 @@ describe("maintenance settings form", () => {
       })
 
       fireEvent.click(screen.getByRole("switch"))
-      expect(screen.getByLabelText(t("admin.maintenance.reason"))).toHaveValue(
-        ""
-      )
       expect(
-        screen.getByLabelText(t("admin.maintenance.duration"))
+        screen.getByLabelText(formLabelPattern(t("admin.maintenance.reason")))
+      ).toHaveValue("")
+      expect(
+        screen.getByLabelText(formLabelPattern(t("admin.maintenance.duration")))
       ).toHaveValue(null)
       expect(
         screen.getAllByText(t("admin.maintenance.datePlaceholder"))
@@ -150,13 +151,18 @@ describe("maintenance settings form", () => {
       defaultOptions: { queries: { retry: false } },
     })
     renderForm(queryClient)
-    fireEvent.change(await screen.findByLabelText("维护原因"), {
-      target: { value: "Draft" },
-    })
+    fireEvent.change(
+      await screen.findByLabelText(formLabelPattern("维护原因")),
+      {
+        target: { value: "Draft" },
+      }
+    )
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000)
     })
-    expect(screen.getByLabelText("维护原因")).toHaveValue("Draft")
+    expect(screen.getByLabelText(formLabelPattern("维护原因"))).toHaveValue(
+      "Draft"
+    )
     queryClient.clear()
   })
 
@@ -176,9 +182,12 @@ describe("maintenance settings form", () => {
       defaultOptions: { queries: { retry: false } },
     })
     renderForm(queryClient)
-    fireEvent.change(await screen.findByLabelText("维护原因"), {
-      target: { value: "Draft" },
-    })
+    fireEvent.change(
+      await screen.findByLabelText(formLabelPattern("维护原因")),
+      {
+        target: { value: "Draft" },
+      }
+    )
     fetch.mockRejectedValueOnce(new Error("Network unavailable"))
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000)
@@ -188,7 +197,9 @@ describe("maintenance settings form", () => {
         queryClient.getQueryState(["admin", "maintenance-settings"])?.status
       ).toBe("error")
     )
-    expect(screen.getByLabelText("维护原因")).toHaveValue("Draft")
+    expect(screen.getByLabelText(formLabelPattern("维护原因"))).toHaveValue(
+      "Draft"
+    )
     queryClient.clear()
   })
 
@@ -272,15 +283,17 @@ describe("maintenance settings form", () => {
     )
     expect(maintenanceTitleRow).not.toBeNull()
     expect(within(maintenanceTitleRow!).getByText("未开启")).toBeVisible()
-    expect(screen.queryByLabelText("维护原因")).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText(formLabelPattern("维护原因"))
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "保存维护设置" })
     ).not.toBeInTheDocument()
     expect(document.querySelector('input[type="datetime-local"]')).toBeNull()
 
     await interaction.click(maintenanceSwitch)
-    expect(screen.getByLabelText("维护原因")).toBeVisible()
-    expect(screen.getByLabelText("维护原因")).toHaveAttribute(
+    expect(screen.getByLabelText(formLabelPattern("维护原因"))).toBeVisible()
+    expect(screen.getByLabelText(formLabelPattern("维护原因"))).toHaveAttribute(
       "placeholder",
       "可选：说明本次维护的原因和对用户的影响…"
     )
@@ -372,9 +385,12 @@ describe("maintenance settings form", () => {
       await screen.findByRole("switch", { name: "开启计划维护" })
     )
     await interaction.click(screen.getByRole("button", { name: "2 小时" }))
-    expect(screen.getByLabelText("维护时长")).toHaveValue(2)
+    expect(screen.getByLabelText(formLabelPattern("维护时长"))).toHaveValue(2)
 
-    await interaction.type(screen.getByLabelText("维护原因"), "系统升级")
+    await interaction.type(
+      screen.getByLabelText(formLabelPattern("维护原因")),
+      "系统升级"
+    )
     await interaction.click(
       screen.getByRole("button", { name: "保存维护设置" })
     )
@@ -444,11 +460,14 @@ describe("maintenance settings form", () => {
     await interaction.click(
       await screen.findByRole("switch", { name: "开启计划维护" })
     )
-    const durationInput = screen.getByLabelText("维护时长")
+    const durationInput = screen.getByLabelText(formLabelPattern("维护时长"))
     await interaction.clear(durationInput)
     await interaction.type(durationInput, "45")
 
-    await interaction.type(screen.getByLabelText("维护原因"), "系统升级")
+    await interaction.type(
+      screen.getByLabelText(formLabelPattern("维护原因")),
+      "系统升级"
+    )
     await interaction.click(
       screen.getByRole("button", { name: "保存维护设置" })
     )
@@ -505,13 +524,18 @@ describe("maintenance settings form", () => {
     )
 
     expect(
-      screen.getByLabelText("维护原因").closest('[data-layout="settings"]')
+      screen
+        .getByLabelText(formLabelPattern("维护原因"))
+        .closest('[data-layout="settings"]')
     ).toHaveAttribute("data-multiline", "true")
     const fields = screen.getByTestId("maintenance-fields")
     expect(
       fields.querySelectorAll(':scope > [data-layout="settings"]')
     ).toHaveLength(5)
-    await interaction.type(screen.getByLabelText("维护原因"), "数据库升级")
+    await interaction.type(
+      screen.getByLabelText(formLabelPattern("维护原因")),
+      "数据库升级"
+    )
     await interaction.click(
       screen.getByRole("button", { name: "保存维护设置" })
     )
@@ -578,7 +602,9 @@ describe("maintenance settings form", () => {
       start_at: null,
       end_at: null,
     })
-    expect(screen.queryByLabelText("维护原因")).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText(formLabelPattern("维护原因"))
+    ).not.toBeInTheDocument()
     await waitFor(() =>
       expect(successNotification).toHaveBeenCalledWith(
         "系统维护已关闭",
@@ -628,7 +654,10 @@ describe("maintenance settings form", () => {
     await interaction.click(
       await screen.findByRole("switch", { name: "开启计划维护" })
     )
-    await interaction.type(screen.getByLabelText("维护原因"), "数据库升级")
+    await interaction.type(
+      screen.getByLabelText(formLabelPattern("维护原因")),
+      "数据库升级"
+    )
     await interaction.click(
       screen.getByRole("button", { name: "保存维护设置" })
     )

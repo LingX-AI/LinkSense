@@ -1339,6 +1339,35 @@ describe("knowledge-base document and access management", () => {
     expect(screen.queryByText("所有者：周宁（我）")).not.toBeInTheDocument()
   })
 
+  it("marks a knowledge base name as required while leaving its description optional on edit", async () => {
+    vi.stubGlobal("fetch", createFetchMock({}))
+    renderDetailPage()
+    await userEvent.click(
+      await screen.findByRole("button", { name: i18n.t("common.edit") })
+    )
+    const dialog = await screen.findByRole("dialog", {
+      name: i18n.t("knowledge.edit.title"),
+    })
+    expect(
+      document.querySelector(
+        "label[for='knowledge-base-edit-name'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
+    expect(
+      document.querySelector(
+        "label[for='knowledge-base-edit-description'] span.text-destructive"
+      )
+    ).not.toBeInTheDocument()
+    const name = within(dialog).getByRole("textbox", {
+      name: i18n.t("knowledge.create.name"),
+    })
+    expect(name).toHaveAttribute("aria-required", "true")
+    fireEvent.change(name, { target: { value: "" } })
+    expect(
+      within(dialog).getByRole("button", { name: i18n.t("common.save") })
+    ).toBeDisabled()
+  })
+
   it("selects the knowledge source with cards and preserves the SharePoint create payload", async () => {
     const interaction = userEvent.setup()
     const fetchMock = createFetchMock({})
@@ -1355,6 +1384,16 @@ describe("knowledge-base document and access management", () => {
     const sourceGroup = within(dialog).getByRole("group", {
       name: "数据来源",
     })
+    expect(
+      document.querySelector(
+        "label[for='knowledge-base-name'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
+    expect(
+      document.querySelector(
+        "label[for='knowledge-base-description'] span.text-destructive"
+      )
+    ).not.toBeInTheDocument()
     const localSource = within(sourceGroup).getByRole("button", {
       name: /本地上传/,
     })
@@ -1373,6 +1412,11 @@ describe("knowledge-base document and access management", () => {
     await waitFor(() => expect(sharePointSource).toBeEnabled())
 
     await interaction.click(sharePointSource)
+    expect(
+      document.querySelector(
+        "label[for='knowledge-base-sharepoint-url'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
 
     expect(sharePointSource).toHaveAttribute("aria-pressed", "true")
     expect(localSource).toHaveAttribute("aria-pressed", "false")
@@ -1381,11 +1425,11 @@ describe("knowledge-base document and access management", () => {
     )
 
     await interaction.type(
-      within(dialog).getByLabelText("知识库名称"),
+      within(dialog).getByLabelText(/^知识库名称\s*\*?$/),
       "SharePoint 政策库"
     )
     await interaction.type(
-      within(dialog).getByLabelText("SharePoint 目录 URL"),
+      within(dialog).getByLabelText(/^SharePoint 目录 URL\s*\*?$/),
       "https://contoso.sharepoint.com/:f:/s/policy/share-token"
     )
     await interaction.click(
@@ -1780,6 +1824,11 @@ describe("knowledge-base document and access management", () => {
       )
       const dialog = await screen.findByRole("dialog", { name: "重命名文档" })
       const input = within(dialog).getByRole("textbox", { name: "文档名称" })
+      expect(
+        document.querySelector(
+          "label[for='knowledge-document-display-name'] span.text-destructive[aria-hidden='true']"
+        )
+      ).toHaveTextContent("*")
       fireEvent.change(input, { target: { value: "新方案.pdf" } })
       fireEvent.keyDown(input, { key: "Enter", ...keyboardEvent })
       await act(async () => {})

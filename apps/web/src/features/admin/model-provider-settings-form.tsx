@@ -441,6 +441,7 @@ function ModelDefaultSelections({
             <ModelSettingsSelect
               layout="settings"
               label={t("admin.modelProvider.defaultModel")}
+              required={chats.length > 0}
               value={defaultModel}
               disabled={disabled || !chats.length}
               options={chats

@@ -13,116 +13,154 @@ import {
 describe("LinkSense application", () => {
   setupApplicationTests()
 
-  it("opens the first generated file after the completed turn detail arrives", async () => {
-    const turnId = "30000000-0000-4000-8000-000000000091"
-    const later = {
-      id: "artifact-1",
-      filename: "later.pdf",
-      mime_type: "application/pdf",
-      kind: "artifact",
-      turn_id: turnId,
-      downloadable: true,
-      created_at: "2026-09-23T10:01:00.000Z",
-    }
-    const first = {
-      ...later,
-      id: "first-artifact",
-      filename: "first.pdf",
-      created_at: "2026-09-23T10:00:00.000Z",
-    }
-    let completed = false
-    let releaseCompletion!: () => void
-    const completion = new Promise<void>((resolve) => {
-      releaseCompletion = resolve
-    })
-    let releaseDetail!: () => void
-    const detail = new Promise<void>((resolve) => {
-      releaseDetail = resolve
-    })
-    const { requests } = installApiMock({
-      conversationGetResponse: async (callIndex) => {
-        if (callIndex > 1) await detail
-        return json({
-          success: true,
-          data: {
-            ...conversation,
-            execution_status: completed ? "completed" : "running",
-            turns: [
-              { id: turnId, status: completed ? "completed" : "running" },
-            ],
-            running_turn: completed ? null : { id: turnId, status: "running" },
-            artifacts: [later],
-            messages: completed
-              ? [
-                  ...conversation.messages,
-                  {
-                    id: "completed-message",
-                    role: "assistant",
-                    turn_id: turnId,
-                    phase: "final_answer",
-                    content: "文件已生成。",
-                    artifacts: [first],
-                  },
-                ]
-              : conversation.messages,
-          },
-        })
-      },
-      eventStreamStart: completion,
-      eventStreamBody: `id: c1:91\nevent: turn/completed\ndata: ${JSON.stringify(
-        {
-          id: "61000000-0000-4000-8000-000000000091",
-          conversation_id: "20000000-0000-4000-8000-000000000001",
-          turn_id: turnId,
-          sequence_no: 91,
-          event_type: "turn/completed",
-          visibility: "user_visible",
-          payload: {
-            schema_version: 2,
-            source: "codex_app_server",
-            method: "turn/completed",
-            params: {
-              threadId: "native-thread",
-              turn: { id: "native-turn", status: "completed" },
+  it.each([
+    { delivery: "final file", deliversFile: true },
+    { delivery: "text-only final answer", deliversFile: false },
+  ])(
+    "auto-previews only a delivered file after completion: $delivery",
+    async ({ deliversFile }) => {
+      const turnId = "30000000-0000-4000-8000-000000000091"
+      const later = {
+        id: "artifact-1",
+        filename: "later.pdf",
+        mime_type: "application/pdf",
+        kind: "artifact",
+        turn_id: turnId,
+        downloadable: true,
+        created_at: "2026-09-23T10:01:00.000Z",
+      }
+      const first = {
+        ...later,
+        id: "first-artifact",
+        filename: "first.pdf",
+        created_at: "2026-09-23T10:00:00.000Z",
+      }
+      const processImage = {
+        ...later,
+        id: "30000000-0000-4000-8000-000000000092",
+        filename: "process-screenshot.png",
+        mime_type: "image/png",
+        created_at: "2026-09-23T09:59:00.000Z",
+      }
+      const finalContent = deliversFile
+        ? "报告已生成：[first.pdf](artifacts/first.pdf)。"
+        : "排查完成，本轮没有需要交付的文件。"
+      let completed = false
+      let releaseCompletion!: () => void
+      const completion = new Promise<void>((resolve) => {
+        releaseCompletion = resolve
+      })
+      let releaseDetail!: () => void
+      const detail = new Promise<void>((resolve) => {
+        releaseDetail = resolve
+      })
+      const { requests } = installApiMock({
+        conversationGetResponse: async (callIndex) => {
+          if (callIndex > 1) await detail
+          return json({
+            success: true,
+            data: {
+              ...conversation,
+              execution_status: completed ? "completed" : "running",
+              turns: [
+                { id: turnId, status: completed ? "completed" : "running" },
+              ],
+              running_turn: completed
+                ? null
+                : { id: turnId, status: "running" },
+              artifacts: deliversFile ? [processImage, later] : [processImage],
+              messages: completed
+                ? [
+                    ...conversation.messages,
+                    {
+                      id: "process-message",
+                      role: "assistant",
+                      turn_id: turnId,
+                      phase: "commentary",
+                      content: `正在检查截图：![过程截图](linksense-artifact:${processImage.id})`,
+                    },
+                    {
+                      id: "completed-message",
+                      role: "assistant",
+                      turn_id: turnId,
+                      phase: "final_answer",
+                      content: finalContent,
+                      artifacts: deliversFile ? [first] : [],
+                    },
+                  ]
+                : conversation.messages,
             },
-          },
-          sse_event_id: "c1:91",
-          created_at: "2026-09-23T10:02:00.000Z",
-        }
-      )}\n\n`,
-    })
-    renderApp()
+          })
+        },
+        eventStreamStart: completion,
+        eventStreamBody: `id: c1:91\nevent: turn/completed\ndata: ${JSON.stringify(
+          {
+            id: "61000000-0000-4000-8000-000000000091",
+            conversation_id: "20000000-0000-4000-8000-000000000001",
+            turn_id: turnId,
+            sequence_no: 91,
+            event_type: "turn/completed",
+            visibility: "user_visible",
+            payload: {
+              schema_version: 2,
+              source: "codex_app_server",
+              method: "turn/completed",
+              params: {
+                threadId: "native-thread",
+                turn: { id: "native-turn", status: "completed" },
+              },
+            },
+            sse_event_id: "c1:91",
+            created_at: "2026-09-23T10:02:00.000Z",
+          }
+        )}\n\n`,
+      })
+      renderApp()
 
-    await screen.findByRole("button", { name: "停止" })
-    await waitFor(() =>
-      expect(
-        requests.some(
-          (request) => request.path === "/api/v1/conversations/c1/events"
-        )
-      ).toBe(true)
-    )
-    expect(screen.queryByRole("region", { name: /预览文档/u })).toBeNull()
-    await act(async () => {
-      completed = true
-      releaseCompletion()
-    })
-    await waitFor(() =>
-      expect(
-        requests.filter(
-          (request) => request.path === "/api/v1/conversations/c1"
-        ).length
-      ).toBeGreaterThan(1)
-    )
-    expect(screen.queryByRole("region", { name: /预览文档/u })).toBeNull()
+      await screen.findByRole("button", { name: "停止" })
+      await waitFor(() =>
+        expect(
+          requests.some(
+            (request) => request.path === "/api/v1/conversations/c1/events"
+          )
+        ).toBe(true)
+      )
+      expect(screen.queryByRole("region", { name: /预览文档/u })).toBeNull()
+      await act(async () => {
+        completed = true
+        releaseCompletion()
+      })
+      await waitFor(() =>
+        expect(
+          requests.filter(
+            (request) => request.path === "/api/v1/conversations/c1"
+          ).length
+        ).toBeGreaterThan(1)
+      )
+      expect(screen.queryByRole("region", { name: /预览文档/u })).toBeNull()
 
-    await act(async () => releaseDetail())
-    expect(
-      await screen.findByRole("region", { name: "预览文档 first.pdf" })
-    ).toBeVisible()
-    expect(
-      screen.queryByRole("region", { name: "预览文档 later.pdf" })
-    ).toBeNull()
-  })
+      await act(async () => releaseDetail())
+      if (deliversFile) {
+        expect(
+          await screen.findByRole("region", { name: "预览文档 first.pdf" })
+        ).toBeVisible()
+      } else {
+        await screen.findByText(finalContent)
+        await act(async () => {
+          await new Promise((resolve) => window.setTimeout(resolve, 0))
+        })
+        expect(screen.queryByRole("region", { name: /预览文档/u })).toBeNull()
+      }
+      expect(
+        screen.queryByRole("region", { name: "预览文档 later.pdf" })
+      ).toBeNull()
+      expect(
+        screen.queryByRole("region", {
+          name: "预览文档 process-screenshot.png",
+        })
+      ).toBeNull()
+    }
+  )
 
   it("does not open a generated file from a turn completed before the page loaded", async () => {
     installApiMock({

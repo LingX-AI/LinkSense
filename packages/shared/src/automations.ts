@@ -178,10 +178,6 @@ export const automationCompletionNotificationSchema = z.strictObject({
     .nullable(),
 });
 
-export const automationCompletionNotificationReadInputSchema = z.strictObject({
-  through: timestampSchema,
-});
-
 export const automationRunNowInputSchema = z.strictObject({
   request_id: uuidSchema,
 });
@@ -213,9 +209,6 @@ export type AutomationRunStatus = z.infer<typeof automationRunStatusSchema>;
 export type Automation = z.infer<typeof automationSchema>;
 export type AutomationCompletionNotification = z.infer<
   typeof automationCompletionNotificationSchema
->;
-export type AutomationCompletionNotificationReadInput = z.infer<
-  typeof automationCompletionNotificationReadInputSchema
 >;
 export type AutomationRunNowInput = z.infer<typeof automationRunNowInputSchema>;
 export type AutomationRunNowResult = z.infer<

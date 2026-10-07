@@ -11,7 +11,13 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldContent,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field"
+import { RequiredIndicator } from "@/components/forms/required-indicator"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { updateApplicationDevelopmentMetadata } from "./application-development-api"
 
@@ -195,10 +201,14 @@ export function ApplicationDevelopmentMetadata({
             },
           }
           return editing.field === "name" ? (
-            <Input
-              {...props}
-              className="h-auto w-full max-w-72 min-w-0 border-[color:var(--app-border)] px-2 py-1 text-sm leading-5 font-semibold md:text-sm"
-            />
+            <FieldContent className="flex-row items-center gap-2">
+              <Input
+                {...props}
+                aria-required="true"
+                className="h-auto w-full max-w-72 min-w-0 border-[color:var(--app-border)] px-2 py-1 text-sm leading-5 font-semibold md:text-sm"
+              />
+              <RequiredIndicator />
+            </FieldContent>
           ) : (
             <Textarea
               {...props}

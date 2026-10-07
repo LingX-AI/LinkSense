@@ -620,7 +620,7 @@ export function WeixinChannelPage() {
                   verificationMutation.mutate()
                 }}
               >
-                <Label htmlFor="weixin-verification-code">
+                <Label htmlFor="weixin-verification-code" required>
                   {t("channelAccess.weixin.verificationLabel")}
                 </Label>
                 <div>

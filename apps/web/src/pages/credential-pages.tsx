@@ -826,7 +826,7 @@ export function CredentialManagementPage() {
             {editorError && (
               <StatusBanner variant="error">{editorError}</StatusBanner>
             )}
-            <FieldShell id="credential-name" label={t("common.name")}>
+            <FieldShell id="credential-name" label={t("common.name")} required>
               <Input
                 id="credential-name"
                 name="credential-name"
@@ -843,6 +843,7 @@ export function CredentialManagementPage() {
             <FieldShell
               id="credential-provider"
               label={t("credential.providerType")}
+              required
               hint={t("credential.providerTypeHint")}
               error={providerTypeError}
             >
@@ -884,11 +885,13 @@ export function CredentialManagementPage() {
                     <FieldShell
                       id={`credential-secret-key-${entry.id}`}
                       label={t("credential.secretKey")}
+                      required
                       hint={t("credential.secretKeyHint")}
                       error={secretKeyError}
                     >
                       <Input
                         id={`credential-secret-key-${entry.id}`}
+                        aria-required="true"
                         name={`credential-secret-fields[${index}].key`}
                         spellCheck={false}
                         autoComplete="off"
@@ -915,6 +918,7 @@ export function CredentialManagementPage() {
                     <FieldShell
                       id={`credential-secret-${entry.id}`}
                       label={t("credential.secret")}
+                      required={!entry.savedKey}
                       hint={
                         index === 0
                           ? t(
@@ -927,6 +931,7 @@ export function CredentialManagementPage() {
                     >
                       <Input
                         id={`credential-secret-${entry.id}`}
+                        aria-required={!entry.savedKey}
                         name={`credential-secret-fields[${index}].value`}
                         className="h-9"
                         type="password"
@@ -1035,7 +1040,11 @@ export function CredentialManagementPage() {
               submitBindingMappings()
             }}
           >
-            <FieldShell id="binding-capability" label={t("credential.plugin")}>
+            <FieldShell
+              id="binding-capability"
+              label={t("credential.plugin")}
+              required
+            >
               <Select
                 name="binding-capability"
                 value={capabilityId || null}

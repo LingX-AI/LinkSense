@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils"
 type FieldShellProps = {
   id: string
   label: string
+  required?: boolean
   hint?: ReactNode
   error?: string
   children: ReactNode
@@ -32,6 +33,7 @@ const settingsControlWidths = {
 export function FieldShell({
   id,
   label,
+  required,
   hint,
   error,
   children,
@@ -55,7 +57,7 @@ export function FieldShell({
         data-multiline={multiline || undefined}
       >
         <FieldContent className="min-w-0 gap-1">
-          <FieldLabel htmlFor={id} className="form-label">
+          <FieldLabel htmlFor={id} className="form-label" required={required}>
             {label}
           </FieldLabel>
           {hint && (
@@ -86,7 +88,7 @@ export function FieldShell({
       className={cn("form-field gap-1.5", className)}
       data-invalid={error ? true : undefined}
     >
-      <FieldLabel htmlFor={id} className="form-label">
+      <FieldLabel htmlFor={id} className="form-label" required={required}>
         {label}
       </FieldLabel>
       {children}
@@ -121,6 +123,7 @@ export function SettingsFieldGroup({
 export function SettingsFieldRow({
   id,
   label,
+  required,
   hint,
   children,
   className,
@@ -136,7 +139,7 @@ export function SettingsFieldRow({
       data-layout="settings"
     >
       <FieldContent className="min-w-0 gap-1">
-        <FieldLabel htmlFor={id} className="form-label">
+        <FieldLabel htmlFor={id} className="form-label" required={required}>
           {label}
         </FieldLabel>
         {hint && (

@@ -38,6 +38,7 @@ describe("visible conversation range", () => {
 
   it("updates multiple highlights on scroll and loads only visible placeholders", async () => {
     const onVisible = vi.fn()
+    const onVisibleUnloadedTurnChange = vi.fn()
     const loadTurn = vi.fn(async () => undefined)
     let offset = 0
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
@@ -59,6 +60,7 @@ describe("visible conversation range", () => {
       useVisibleConversationMessages({
         hostRef,
         onVisibleMessageChange: onVisible,
+        onVisibleUnloadedTurnChange,
         loadTurn,
       })
       return (
@@ -97,9 +99,11 @@ describe("visible conversation range", () => {
     render(<Harness />)
     await waitFor(() => expect(onVisible).toHaveBeenLastCalledWith(["a", "b"]))
     expect(loadTurn).not.toHaveBeenCalled()
+    expect(onVisibleUnloadedTurnChange).toHaveBeenLastCalledWith(null)
     offset = 400
     fireEvent.scroll(screen.getByTestId("scroll"))
     await waitFor(() => expect(onVisible).toHaveBeenLastCalledWith(["c"]))
     expect(loadTurn).toHaveBeenCalledWith("turn-d")
+    expect(onVisibleUnloadedTurnChange).toHaveBeenLastCalledWith("turn-d")
   })
 })

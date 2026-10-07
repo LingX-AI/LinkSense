@@ -2,6 +2,31 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+test("development prepares a writable Corepack cache before installing dependencies as node", async () => {
+  const source = await readFile(new URL("../Dockerfile.dev", import.meta.url), "utf8");
+  const instructions = source.replace(/\\\r?\n/g, " ").split(/\r?\n/);
+  const prepare = instructions.findIndex((line) => line.startsWith("RUN ") && line.includes("corepack prepare"));
+  const transfer = instructions.findIndex((line) => line.startsWith("RUN ") && /chown\s+-R\s+node:node\s+"\$\{COREPACK_HOME\}"/u.test(line));
+  const user = instructions.indexOf("USER node");
+  const install = instructions.findIndex((line) => line.startsWith("RUN ") && line.includes("pnpm install"));
+  assert.ok(prepare >= 0, "Corepack must prepare the pinned package manager");
+  assert.ok(transfer > prepare && transfer < user, "the entire prepared cache must belong to node before dropping privileges");
+  assert.ok(user < install, "dependency installation must still run as node");
+});
+
+test("development Compose pnpm defaults match the workspace package manager", async () => {
+  const [manifest, dockerfile, compose] = await Promise.all([
+    readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../Dockerfile.dev", import.meta.url), "utf8"),
+    readFile(new URL("../docker-compose.dev.yml", import.meta.url), "utf8"),
+  ]);
+  const version = JSON.parse(manifest).packageManager.replace(/^pnpm@/u, "");
+  assert.equal(/^ARG PNPM_VERSION=(.+)$/mu.exec(dockerfile)?.[1], version);
+  const defaults = [...compose.matchAll(/PNPM_VERSION:\s*\$\{PNPM_VERSION:-([^}]+)\}/gu)];
+  assert.equal(defaults.length, 3);
+  for (const [, configured] of defaults) assert.equal(configured, version);
+});
+
 for (const [file, expectedInstalls, user] of [
   ["Dockerfile.dev", 1, "node"],
   ["Dockerfile.api", 2, "root"],

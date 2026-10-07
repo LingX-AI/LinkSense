@@ -40,6 +40,21 @@ test("isolated Elasticsearch startup diagnostics remain read-only and do not req
   assert.doesNotMatch(JSON.stringify(smoke), /packages: write|publish-release|docker push/u)
 })
 
+test("both native worker gates verify the production supervisor-to-task capability boundary", () => {
+  const release = parse(workflow)
+  const verification = parse(readFileSync(path.join(root, ".github/workflows/verify-application-images.yml"), "utf8"))
+  const checks = [
+    release.jobs["worker-image"].steps.find(step => step.name === "Smoke-test worker candidate"),
+    verification.jobs.build.steps.find(step => step.name?.startsWith("Check inherited tools")),
+  ]
+  for (const check of checks) {
+    assert.match(check.run, /node scripts\/worker-isolation-smoke\.mjs "\$(?:image|IMAGE)"/u)
+    assert.doesNotMatch(check.run, /--user 1001:1000|assertCodexRuntimeVersion/u)
+    assert.equal(check["continue-on-error"], undefined)
+  }
+  assert.deepEqual(release.jobs["worker-image"].strategy.matrix.include.map(platform => platform.architecture), ["amd64", "arm64"])
+})
+
 test("Docling import checks configure its RQ backend without accessing external services", () => {
   const dockerfile = readFileSync(path.join(root, "deploy/hardened/Dockerfile.docling"), "utf8")
   assert.match(dockerfile, /DOCLING_SERVE_ENG_KIND=rq DOCLING_SERVE_ENG_RQ_REDIS_URL=redis:\/\/127\.0\.0\.1:6379\/0/u)

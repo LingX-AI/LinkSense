@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  automationCompletionNotificationReadInputSchema,
   automationCompletionNotificationSchema,
   automationCreateInputSchema,
   automationModelPreferenceSchema,
@@ -135,7 +134,7 @@ describe("automation contracts", () => {
     expect(automationUpdateInputSchema.safeParse({}).success).toBe(false);
   });
 
-  it("validates completion notification state and its read cursor", () => {
+  it("validates completion notification state and rejects invalid timestamps", () => {
     const completedAt = "2026-07-31T01:02:03.000Z";
     const conversationId = "30000000-0000-4000-8000-000000000001";
     expect(
@@ -155,13 +154,19 @@ describe("automation contracts", () => {
       automationCompletionNotificationSchema.parse({ latest_unread: null }),
     ).toEqual({ latest_unread: null });
     expect(
-      automationCompletionNotificationReadInputSchema.parse({
-        through: completedAt,
-      }),
-    ).toEqual({ through: completedAt });
+      automationCompletionNotificationSchema.safeParse({
+        latest_unread: {
+          conversation_id: conversationId,
+          completed_at: "not-a-timestamp",
+        },
+      }).success,
+    ).toBe(false);
     expect(
-      automationCompletionNotificationReadInputSchema.safeParse({
-        through: "not-a-timestamp",
+      automationCompletionNotificationSchema.safeParse({
+        latest_unread: {
+          conversation_id: "not-a-task-id",
+          completed_at: completedAt,
+        },
       }).success,
     ).toBe(false);
   });

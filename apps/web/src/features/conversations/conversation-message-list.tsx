@@ -95,6 +95,9 @@ function VirtualMessageList({
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null)
   const [scrollMargin, setScrollMargin] = useState(0)
   const [scrollPaddingStart, setScrollPaddingStart] = useState(0)
+  const [historyFeedbackTurnId, setHistoryFeedbackTurnId] = useState<
+    string | null
+  >(null)
   const getItemKey = useCallback((index: number) => rows[index].key, [rows])
   const pinnedIndex = pinnedMessageId
     ? rows.findIndex((row) => row.messageIds.includes(pinnedMessageId))
@@ -196,6 +199,7 @@ function VirtualMessageList({
   useVisibleConversationMessages({
     hostRef,
     onVisibleMessageChange,
+    onVisibleUnloadedTurnChange: setHistoryFeedbackTurnId,
     loadTurn: history?.loadTurn,
   })
   return (
@@ -227,6 +231,7 @@ function VirtualMessageList({
                 <ConversationHistoryPlaceholder
                   turnId={row.turnId}
                   history={history}
+                  showFeedback={row.turnId === historyFeedbackTurnId}
                 />
               ) : (
                 row.render()
@@ -242,30 +247,36 @@ function VirtualMessageList({
 function ConversationHistoryPlaceholder({
   turnId,
   history,
+  showFeedback,
 }: {
   turnId: string
   history: ConversationHistoryControl
+  showFeedback: boolean
 }) {
   const { t } = useTranslation()
   const failed = history.failedTurnIds.has(turnId)
   return (
     <div className="flex h-[420px] flex-col gap-6 py-8" aria-busy={!failed}>
-      <Skeleton className="h-10 w-2/5 self-end" />
-      <Skeleton className="h-5 w-4/5" />
-      <Skeleton className="h-5 w-3/5" />
-      <div className="flex justify-center" role="status">
-        {failed ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void history.loadTurn(turnId, true)}
-          >
-            {t("conversation.historyRetry")}
-          </Button>
-        ) : (
-          t("conversation.historyLoading")
-        )}
-      </div>
+      {showFeedback && (
+        <>
+          <Skeleton className="h-10 w-2/5 self-end" />
+          <Skeleton className="h-5 w-4/5" />
+          <Skeleton className="h-5 w-3/5" />
+          <div className="flex justify-center" role="status">
+            {failed ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void history.loadTurn(turnId, true)}
+              >
+                {t("conversation.historyRetry")}
+              </Button>
+            ) : (
+              t("conversation.historyLoading")
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }

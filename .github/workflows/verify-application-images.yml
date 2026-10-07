@@ -93,8 +93,7 @@ jobs:
             migrate) docker run --rm --network none --env DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build --entrypoint pnpm "$IMAGE" exec prisma --version ;;
             runner) docker run --rm --network none --entrypoint node "$IMAGE" --version ;;
             worker)
-              docker run --rm --network none --user 1001:1000 --entrypoint node "$IMAGE" --input-type=module \
-                --eval "import { assertCodexRuntimeVersion } from './dist/codex/runtime-version.js'; await assertCodexRuntimeVersion({ command: 'codex' })"
+              node scripts/worker-isolation-smoke.mjs "$IMAGE"
               docker run --rm --network none --entrypoint node "$IMAGE" /opt/linksense/tooling/verify-kernel-headers.mjs
               ;;
           esac

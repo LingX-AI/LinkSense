@@ -282,6 +282,18 @@ describe("website management", () => {
       screen.queryByRole("combobox", { name: "发布方式" })
     ).not.toBeInTheDocument()
     expect(screen.getByRole("radio", { name: "新建站点" })).toBeChecked()
+    const nameInput = screen.getByRole("textbox", { name: "站点名称" })
+    expect(
+      document.querySelector(
+        `label[for='${nameInput.id}'] span.text-destructive[aria-hidden='true']`
+      )
+    ).toHaveTextContent("*")
+    const slugInput = screen.getByRole("textbox", { name: "链接名称" })
+    expect(
+      document.querySelector(
+        `label[for='${slugInput.id}'] span.text-destructive`
+      )
+    ).not.toBeInTheDocument()
     await userEvent.type(
       screen.getByRole("textbox", { name: "链接名称" }),
       "../bad"
@@ -315,6 +327,14 @@ describe("website management", () => {
       <SiteDialog action={{ kind: "edit", site }} onClose={close} />
     )
     expect(screen.getByRole("dialog", { name: "Edit site" })).toBeVisible()
+    for (const key of ["webSites.name", "webSites.slug"]) {
+      const input = screen.getByRole("textbox", { name: i18n.t(key) })
+      expect(
+        document.querySelector(
+          `label[for='${input.id}'] span.text-destructive[aria-hidden='true']`
+        )
+      ).toHaveTextContent("*")
+    }
     expect(
       view.container.ownerDocument.querySelector(
         '[data-slot="site-dialog-hero"]'
@@ -374,6 +394,12 @@ describe("website management", () => {
         />
       )
       expect(screen.getByRole("button", { name: "更新站点" })).toBeDisabled()
+      const source = await screen.findByRole("combobox")
+      expect(
+        document.querySelector(
+          `label[for='${source.id}'] span.text-destructive[aria-hidden='true']`
+        )
+      ).toHaveTextContent("*")
       await userEvent.click(await screen.findByRole("combobox"))
       const options = await screen.findAllByRole("option")
       expect(options[0]).toHaveTextContent("最新")
@@ -547,7 +573,14 @@ describe("website management", () => {
       />
     )
     await choosePublishMode("updateExisting")
-    await userEvent.click(screen.getByRole("combobox", { name: "选择站点" }))
+    const target = screen.getByRole("combobox", { name: "选择站点" })
+    expect(
+      document.querySelector(
+        `label[for='${target.id}'] span.text-destructive[aria-hidden='true']`
+      )
+    ).toHaveTextContent("*")
+    expect(target).toHaveAttribute("aria-required", "true")
+    await userEvent.click(target)
     await userEvent.click(
       await screen.findByRole("button", { name: "加载更多" })
     )

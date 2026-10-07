@@ -23,6 +23,10 @@ import { SocialAccounts } from "./social-accounts"
 import { SocialCallbackPage } from "./social-callback-page"
 import { socialEnUS, socialZhCN } from "./messages"
 import microsoftLogo from "./assets/microsoft.svg"
+import {
+  expectRequiredLabel,
+  formLabelPattern,
+} from "@/features/admin/required-field-label.test-helper"
 
 const settings: SocialProviderSettings[] = socialProviderSchema.options.map(
   (provider) => ({
@@ -83,6 +87,58 @@ afterEach(() => {
 })
 
 describe("social sign-in UI", () => {
+  it.each(socialProviderSchema.options)(
+    "updates %s required credential markers when enabling an unsaved provider",
+    async (provider) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          response(
+            settings.map((item) => ({
+              ...item,
+              enabled: false,
+              secret_configured: false,
+            }))
+          )
+        )
+      )
+      mount(<AdminSocialSettings />)
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: i18n.t("social.configureProvider", {
+            provider: i18n.t(`social.providers.${provider}`),
+          }),
+        })
+      )
+      const dialog = within(await screen.findByRole("dialog"))
+      const client = dialog.getByRole("textbox", {
+        name: i18n.t("social.clientId"),
+      })
+      const secret = document.getElementById(`social-${provider}-secret`)
+      if (!secret) throw new Error("Missing provider secret")
+      expectRequiredLabel(client, false)
+      expectRequiredLabel(secret, false)
+      fireEvent.click(
+        dialog.getByRole("switch", { name: i18n.t("social.enabled") })
+      )
+      expectRequiredLabel(client)
+      expectRequiredLabel(secret)
+      for (const key of provider === "apple"
+        ? ["teamId", "keyId"]
+        : provider === "facebook"
+          ? ["graphVersion"]
+          : []) {
+        expectRequiredLabel(
+          dialog.getByRole("textbox", { name: i18n.t(`social.${key}`) })
+        )
+      }
+      expectRequiredLabel(
+        dialog.getByRole("textbox", { name: i18n.t("social.redirectUri") }),
+        false
+      )
+    }
+  )
+
   it.each(["zh-CN", "en-US", "de-DE"])(
     "configures GitHub credentials and starts sign-in in %s",
     async (language) => {
@@ -105,6 +161,15 @@ describe("social sign-in UI", () => {
         })
       )
       const dialog = await screen.findByRole("dialog")
+      expectRequiredLabel(
+        within(dialog).getByRole("textbox", { name: i18n.t("social.clientId") })
+      )
+      expectRequiredLabel(
+        within(dialog).getByLabelText(
+          formLabelPattern(i18n.t("social.clientSecret"))
+        ),
+        false
+      )
       expect(
         within(dialog).getByText(i18n.t("social.githubHelp"))
       ).toBeVisible()
@@ -112,16 +177,22 @@ describe("social sign-in UI", () => {
         within(dialog).getByRole("link", { name: i18n.t("social.guide") })
       ).toHaveAttribute("href", "https://github.com/settings/developers")
       expect(
-        within(dialog).getByLabelText(i18n.t("social.redirectUri"))
+        within(dialog).getByLabelText(
+          formLabelPattern(i18n.t("social.redirectUri"))
+        )
       ).toHaveValue(
         "https://app.example.test/api/v1/auth/social/github/callback"
       )
       fireEvent.change(
-        within(dialog).getByLabelText(i18n.t("social.clientId")),
+        within(dialog).getByLabelText(
+          formLabelPattern(i18n.t("social.clientId"))
+        ),
         { target: { value: "github-client" } }
       )
       fireEvent.change(
-        within(dialog).getByLabelText(i18n.t("social.clientSecret")),
+        within(dialog).getByLabelText(
+          formLabelPattern(i18n.t("social.clientSecret"))
+        ),
         { target: { value: "github-secret" } }
       )
       fireEvent.click(
@@ -285,14 +356,18 @@ describe("social sign-in UI", () => {
     })
     expect(screen.getAllByRole("button", { name: /^配置 / })).toHaveLength(5)
     expect(screen.queryByRole("switch")).not.toBeInTheDocument()
-    expect(screen.queryByLabelText("应用密钥")).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText(formLabelPattern("应用密钥"))
+    ).not.toBeInTheDocument()
     fireEvent.click(within(row).getByRole("button", { name: "配置 Google" }))
     const google = await screen.findByRole("dialog", { name: "配置 Google" })
     expect(within(google).getAllByRole("switch")).toHaveLength(1)
-    expect(within(google).getByLabelText("应用密钥")).toHaveValue("")
-    expect(within(google).getByLabelText("授权回调地址")).toHaveAttribute(
-      "readonly"
-    )
+    expect(
+      within(google).getByLabelText(formLabelPattern("应用密钥"))
+    ).toHaveValue("")
+    expect(
+      within(google).getByLabelText(formLabelPattern("授权回调地址"))
+    ).toHaveAttribute("readonly")
     fireEvent.click(within(google).getByRole("button", { name: "保存" }))
     await waitFor(() =>
       expect(fetch.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(
@@ -413,20 +488,30 @@ describe("social sign-in UI", () => {
     mount(<AdminSocialSettings />)
     fireEvent.click(await screen.findByRole("button", { name: "配置 Google" }))
     const dialog = await screen.findByRole("dialog")
-    fireEvent.change(within(dialog).getByLabelText("应用 ID"), {
-      target: { value: "unsaved-app" },
-    })
-    fireEvent.change(within(dialog).getByLabelText("应用密钥"), {
-      target: { value: "unsaved-secret" },
-    })
+    fireEvent.change(
+      within(dialog).getByLabelText(formLabelPattern("应用 ID")),
+      {
+        target: { value: "unsaved-app" },
+      }
+    )
+    fireEvent.change(
+      within(dialog).getByLabelText(formLabelPattern("应用密钥")),
+      {
+        target: { value: "unsaved-secret" },
+      }
+    )
     fireEvent.click(within(dialog).getByRole("button", { name: "取消" }))
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     )
     fireEvent.click(screen.getByRole("button", { name: "配置 Google" }))
     const reopened = await screen.findByRole("dialog")
-    expect(within(reopened).getByLabelText("应用 ID")).toHaveValue("google-app")
-    expect(within(reopened).getByLabelText("应用密钥")).toHaveValue("")
+    expect(
+      within(reopened).getByLabelText(formLabelPattern("应用 ID"))
+    ).toHaveValue("google-app")
+    expect(
+      within(reopened).getByLabelText(formLabelPattern("应用密钥"))
+    ).toHaveValue("")
     expect(fetch).toHaveBeenCalledTimes(1)
   })
   it("keeps configuration open on save failure and disables actions while saving", async () => {
@@ -464,7 +549,9 @@ describe("social sign-in UI", () => {
       i18n.t("errors.socialAuthFailed")
     )
     expect(within(dialog).getByRole("button", { name: "保存" })).toBeEnabled()
-    expect(within(dialog).getByLabelText("应用 ID")).toHaveValue("google-app")
+    expect(
+      within(dialog).getByLabelText(formLabelPattern("应用 ID"))
+    ).toHaveValue("google-app")
   })
   it("shows linked providers even after an admin disables them, requiring confirmation before unlink", async () => {
     const fetch = vi.fn(async (url: string, init?: RequestInit) => {
@@ -513,9 +600,15 @@ describe("social sign-in UI", () => {
       vi.fn(async () => response({ sent: true }))
     )
     mount(<SocialCallbackPage />)
-    fireEvent.change(screen.getByLabelText(i18n.t("common.email")), {
-      target: { value: "member@example.test" },
-    })
+    expectRequiredLabel(
+      screen.getByRole("textbox", { name: i18n.t("common.email") })
+    )
+    fireEvent.change(
+      screen.getByLabelText(formLabelPattern(i18n.t("common.email"))),
+      {
+        target: { value: "member@example.test" },
+      }
+    )
     fireEvent.click(screen.getByRole("button", { name: "发送验证邮件" }))
     expect(await screen.findByRole("status")).toHaveTextContent(
       i18n.t("social.emailSent")

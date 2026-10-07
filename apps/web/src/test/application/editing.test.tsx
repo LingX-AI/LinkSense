@@ -119,6 +119,11 @@ describe("LinkSense application", () => {
     const editor = within(userMessage).getByRole("textbox", {
       name: "编辑消息内容",
     })
+    const editLabel = document.querySelector(`label[for="${editor.id}"]`)
+    expect(editLabel?.lastElementChild).toHaveTextContent("*")
+    expect(editLabel?.lastElementChild).toHaveClass("text-destructive")
+    expect(editLabel?.closest(".sr-only")).toBeNull()
+    expect(editor).toBeRequired()
     await interaction.clear(editor)
     await interaction.type(editor, "请重新评估活动风险，并补充雨天预案")
     await interaction.click(

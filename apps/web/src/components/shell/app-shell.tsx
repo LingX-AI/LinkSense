@@ -42,7 +42,6 @@ import {
   conversationOrderResultSchema,
   conversationSchema,
   paginatedSchema,
-  type AutomationCompletionNotification,
   type Conversation,
   type Paginated,
 } from "@/api/contracts"
@@ -419,6 +418,7 @@ function AppSidebarContent({
     () => new Set<string>()
   )
   const completionReadInFlightIdsRef = useRef(new Set<string>())
+  const completionReadFailureVersionsRef = useRef(new Map<string, string>())
   const projectsQuery = useProjects()
   const [projectAction, setProjectAction] = useState<ProjectAction | null>(null)
   const [renameTarget, setRenameTarget] = useState<Conversation>()
@@ -577,22 +577,6 @@ function AppSidebarContent({
     onError: (error) => setActionError(getErrorMessage(error, t)),
   })
 
-  const markAutomationNotificationsReadMutation = useMutation({
-    mutationFn: (through: string) =>
-      apiRequest("/automations/completion-notifications/read", {
-        method: "POST",
-        body: { through },
-        schema: automationCompletionNotificationSchema,
-      }),
-    onSuccess: (notification) => {
-      queryClient.setQueryData<AutomationCompletionNotification>(
-        automationNotificationQueryKey,
-        notification
-      )
-    },
-    onError: (error) => setActionError(getErrorMessage(error, t)),
-  })
-
   const showArchiveNotification = useConversationArchiveNotification()
   const archiveMutation = useMutation({
     mutationFn: (conversation: Conversation) =>
@@ -732,6 +716,7 @@ function AppSidebarContent({
       }),
     onMutate: (conversation) => {
       setActionError(undefined)
+      completionReadFailureVersionsRef.current.delete(conversation.id)
       setLocallyReadConversationIds((current) => {
         const next = new Set(current)
         next.add(conversation.id)
@@ -740,6 +725,25 @@ function AppSidebarContent({
     },
     onSuccess: async (nextConversation) => {
       completionReadInFlightIdsRef.current.delete(nextConversation.id)
+      queryClient.setQueryData<InfiniteData<Paginated<Conversation>>>(
+        ["conversations", "sidebar"],
+        (current) => {
+          const cached = current?.pages
+            .flatMap((page) => page.items)
+            .find((item) => item.id === nextConversation.id)
+          return patchSidebarConversationExecutionStatus(
+            current,
+            nextConversation.id,
+            cached?.execution_status,
+            { hasUnreadCompletion: nextConversation.has_unread_completion }
+          )
+        }
+      )
+      setLocallyReadConversationIds((current) => {
+        const next = new Set(current)
+        next.delete(nextConversation.id)
+        return next
+      })
       // PATCH returns task metadata, not a detail snapshot with an SSE cursor.
       // Seeding the detail cache here would start replay before GET completes.
       queryClient.setQueryData<Conversation>(
@@ -759,6 +763,10 @@ function AppSidebarContent({
     },
     onError: (error, conversation) => {
       completionReadInFlightIdsRef.current.delete(conversation.id)
+      completionReadFailureVersionsRef.current.set(
+        conversation.id,
+        conversation.updated_at
+      )
       setLocallyReadConversationIds((current) => {
         const next = new Set(current)
         next.delete(conversation.id)
@@ -769,11 +777,14 @@ function AppSidebarContent({
   })
 
   const markCompletionRead = useCallback(
-    (conversation: Conversation) => {
+    (conversation: Conversation, retry = false) => {
       if (
         !conversation.has_unread_completion ||
         locallyReadConversationIds.has(conversation.id) ||
-        completionReadInFlightIdsRef.current.has(conversation.id)
+        completionReadInFlightIdsRef.current.has(conversation.id) ||
+        (!retry &&
+          completionReadFailureVersionsRef.current.get(conversation.id) ===
+            conversation.updated_at)
       ) {
         return
       }
@@ -833,6 +844,18 @@ function AppSidebarContent({
 
   const latestAutomationNotification =
     automationNotificationsQuery.data?.latest_unread
+  const latestAutomationNotificationId =
+    latestAutomationNotification?.conversation_id
+  const latestAutomationCompletedAt = latestAutomationNotification?.completed_at
+  useEffect(() => {
+    if (!latestAutomationNotificationId || !latestAutomationCompletedAt) return
+    // A scheduled task can finish without a mounted conversation event stream.
+    // Refresh task metadata whenever polling discovers a different completion.
+    void queryClient.invalidateQueries({
+      queryKey: ["conversations", "sidebar"],
+      exact: true,
+    })
+  }, [latestAutomationNotificationId, latestAutomationCompletedAt, queryClient])
   const latestAutomationConversation = latestAutomationNotification
     ? conversations.find(
         (conversation) =>
@@ -851,12 +874,10 @@ function AppSidebarContent({
     const latestUnread = visibleAutomationNotification
     if (!latestUnread) return
 
-    if (!markAutomationNotificationsReadMutation.isPending) {
-      markAutomationNotificationsReadMutation.mutate(latestUnread.completed_at)
-    }
     const conversation = conversations.find(
       (item) => item.id === latestUnread.conversation_id
     )
+    if (conversation) markCompletionRead(conversation, true)
     navigate(
       conversation
         ? conversationPath(conversation)
@@ -1123,7 +1144,7 @@ function AppSidebarContent({
                               <NavLink
                                 to={to}
                                 onClick={() => {
-                                  markCompletionRead(conversation)
+                                  markCompletionRead(conversation, true)
                                   onNavigate?.()
                                 }}
                                 onKeyDown={(event) => {

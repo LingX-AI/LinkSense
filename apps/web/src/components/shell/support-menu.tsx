@@ -212,9 +212,14 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
             data-slot="feedback-dialog-body"
             className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain px-6 pb-6"
           >
-            <FieldShell id={feedbackId} label={t("support.feedbackLabel")}>
+            <FieldShell
+              id={feedbackId}
+              label={t("support.feedbackLabel")}
+              required
+            >
               <Textarea
                 id={feedbackId}
+                aria-required="true"
                 value={feedback}
                 rows={6}
                 maxLength={2_000}

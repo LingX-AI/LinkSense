@@ -232,6 +232,7 @@ export function ImageGenerationSettingsForm({
               id={`${idPrefix}-provider`}
               controlWidth="medium"
               label={t("admin.imageGeneration.provider")}
+              required={enabled}
               hint={t("admin.imageGeneration.providerHint")}
             >
               <Select
@@ -251,7 +252,11 @@ export function ImageGenerationSettingsForm({
                   setApiKey("")
                 }}
               >
-                <SelectTrigger id={`${idPrefix}-provider`} className="w-full">
+                <SelectTrigger
+                  id={`${idPrefix}-provider`}
+                  className="w-full"
+                  aria-required={enabled || undefined}
+                >
                   {provider && selectedProviderItem ? (
                     <SelectValue
                       placeholder={t(
@@ -304,6 +309,7 @@ export function ImageGenerationSettingsForm({
                   id={`${idPrefix}-workspace-id`}
                   controlWidth="medium"
                   label={t("admin.imageGeneration.workspaceId")}
+                  required={enabled}
                   hint={t("admin.imageGeneration.workspaceIdHint")}
                 >
                   <Input
@@ -320,6 +326,7 @@ export function ImageGenerationSettingsForm({
                   id={`${idPrefix}-region`}
                   controlWidth="medium"
                   label={t("admin.imageGeneration.region")}
+                  required={enabled}
                   hint={t("admin.imageGeneration.regionHint")}
                 >
                   <Input
@@ -339,6 +346,7 @@ export function ImageGenerationSettingsForm({
               id={`${idPrefix}-api-key`}
               controlWidth="wide"
               label={t("admin.imageGeneration.apiKey")}
+              required={enabled && !apiKeyConfiguredForProvider}
               hint={
                 apiKeyConfiguredForProvider
                   ? t("admin.imageGeneration.apiKeyConfiguredHint")
@@ -363,6 +371,7 @@ export function ImageGenerationSettingsForm({
               id={`${idPrefix}-model`}
               controlWidth="medium"
               label={t("admin.imageGeneration.model")}
+              required={enabled}
               hint={t("admin.imageGeneration.modelHint")}
             >
               <Input
@@ -379,6 +388,7 @@ export function ImageGenerationSettingsForm({
               id={`${idPrefix}-price-per-image`}
               controlWidth="compact"
               label={t("admin.imageGeneration.pricePerImage")}
+              required
               hint={t("admin.imageGeneration.pricePerImageHint")}
             >
               <Input

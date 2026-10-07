@@ -243,6 +243,7 @@ export function QuotaSettingsForm({
             <FieldShell
               id={`${prefix}-price`}
               label={t("quotaManagement.creditPrice")}
+              required
               hint={t("quotaManagement.conversionExample")}
               error={errors.credit_price_usd}
               layout="settings"
@@ -251,6 +252,7 @@ export function QuotaSettingsForm({
               <Input
                 id={`${prefix}-price`}
                 name="credit_price_usd"
+                aria-required
                 className="max-w-sm"
                 inputMode="decimal"
                 pattern={CREDIT_INPUT_PATTERN}

@@ -209,12 +209,17 @@ function SkillUpdateForm({
           >
             <FieldGroup>
               <FieldSet>
-                <FieldLegend id="skill-update-mode-label" variant="label">
+                <FieldLegend
+                  id="skill-update-mode-label"
+                  variant="label"
+                  required
+                >
                   {t("skillUpdate.mode")}
                 </FieldLegend>
                 <RadioGroup
                   name="skill-update-mode"
                   aria-labelledby="skill-update-mode-label"
+                  aria-required="true"
                   value={mode}
                   disabled={pending}
                   onValueChange={(next) => {
@@ -284,6 +289,7 @@ function SkillUpdateForm({
                   <FieldShell
                     id="skill-update-content"
                     label={t("skillUpdate.content")}
+                    required
                     error={
                       content.trim()
                         ? undefined
@@ -292,6 +298,7 @@ function SkillUpdateForm({
                   >
                     <Textarea
                       id="skill-update-content"
+                      aria-required="true"
                       value={content}
                       disabled={pending}
                       aria-invalid={!content.trim() || undefined}
@@ -315,6 +322,7 @@ function SkillUpdateForm({
                 <FieldShell
                   id="skill-update-package"
                   label={t("marketplace.zipSkillPackage")}
+                  required
                   hint={
                     file
                       ? t("skillUpdate.selectedFile", { name: file.name })
@@ -323,6 +331,7 @@ function SkillUpdateForm({
                 >
                   <Input
                     id="skill-update-package"
+                    aria-required="true"
                     type="file"
                     accept=".zip,application/zip"
                     disabled={pending}
@@ -492,9 +501,10 @@ function SkillUpdatePreview({
           </StatusBanner>
         )}
         {changes.deleted.length > 0 && (
-          <Label className="flex items-start gap-3">
+          <Label className="flex items-start gap-3" required>
             <Checkbox
               checked={deletionsConfirmed}
+              aria-required="true"
               disabled={disabled}
               onCheckedChange={(checked) =>
                 onDeletionsConfirmed(Boolean(checked))
@@ -517,9 +527,10 @@ function SkillUpdatePreview({
         content={preview.skill_content_preview ?? ""}
         truncated={preview.skill_content_truncated}
       />
-      <Label className="flex items-start gap-3">
+      <Label className="flex items-start gap-3" required>
         <Checkbox
           checked={riskConfirmed}
+          aria-required="true"
           disabled={disabled}
           onCheckedChange={(checked) => onRiskConfirmed(Boolean(checked))}
         />

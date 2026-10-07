@@ -161,6 +161,7 @@ export function KnowledgeModelSettingsForm({
               controlWidth="medium"
               id={`${idPrefix}-embedding-model`}
               label={t("admin.knowledgeModels.selectEmbeddingModel")}
+              required
               hint={
                 <span className="grid gap-1">
                   <span>
@@ -187,6 +188,7 @@ export function KnowledgeModelSettingsForm({
               >
                 <SelectTrigger
                   id={`${idPrefix}-embedding-model`}
+                  aria-required
                   className="w-full"
                   disabled={readOnly}
                 >
@@ -212,6 +214,7 @@ export function KnowledgeModelSettingsForm({
               controlWidth="medium"
               id={`${idPrefix}-rerank-model`}
               label={t("admin.knowledgeModels.selectRerankerModel")}
+              required={rerankEnabled}
               hint={
                 <span className="grid gap-1">
                   <span>
@@ -238,6 +241,7 @@ export function KnowledgeModelSettingsForm({
               >
                 <SelectTrigger
                   id={`${idPrefix}-rerank-model`}
+                  aria-required={rerankEnabled || undefined}
                   className="w-full"
                   disabled={readOnly || !rerankEnabled}
                 >

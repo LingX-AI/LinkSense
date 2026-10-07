@@ -47,6 +47,13 @@ function mockDesktopSplitLayout() {
   )
 }
 
+function expectRequiredField(id: string) {
+  const label = document.querySelector(`label[for="${id}"]`)
+  expect(label?.lastElementChild).toHaveTextContent("*")
+  expect(label?.lastElementChild).toHaveClass("text-destructive")
+  expect(label?.lastElementChild).toHaveAttribute("aria-hidden", "true")
+}
+
 beforeEach(async () => {
   setAccessToken("automation-page-access-token")
   await i18n.changeLanguage("zh-CN")
@@ -60,6 +67,75 @@ afterEach(() => {
 })
 
 describe("AutomationPage", () => {
+  it("marks yearly schedule fields and only shows required model fields while the override is enabled", async () => {
+    const automation = automationFixture({
+      frequency: "yearly",
+      interval: 1,
+      month_of_year: 5,
+      day_of_month: 10,
+      time: "09:00",
+      time_zone: "Asia/Shanghai",
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        if (path === "/api/v1/automations")
+          return envelope({ items: [automation] })
+        if (path === "/api/v1/automations/pinned-tasks")
+          return envelope({ items: [automation.conversation] })
+        if (path === "/api/v1/me/model-preference")
+          return envelope({
+            configured: true,
+            models: [
+              {
+                id: "configured-chat-model",
+                display_name: "Chat model",
+                enabled: true,
+                supported_reasoning_efforts: ["medium"],
+                default_reasoning_effort: "medium",
+              },
+            ],
+            default_model: "configured-chat-model",
+            selected_model: "configured-chat-model",
+            selected_reasoning_effort: "medium",
+          })
+        throw new Error(`Unexpected request: ${path}`)
+      })
+    )
+    const interaction = userEvent.setup()
+    renderPage()
+    await screen.findByText(automation.title)
+    await openAutomationEditor(interaction, automation.title)
+    const editor = await screen.findByRole("complementary", {
+      name: "编辑自动化",
+    })
+    expectRequiredField("automation-month-of-year")
+    expectRequiredField("automation-year-day")
+    expect(
+      document.getElementById("automation-model-id")
+    ).not.toBeInTheDocument()
+    const override = within(editor).getByRole("checkbox", {
+      name: /指定模型和推理强度/u,
+    })
+    expect(
+      override.closest("label")?.querySelector(".text-destructive")
+    ).not.toBeInTheDocument()
+    await interaction.click(override)
+    await within(editor).findByRole("button", {
+      name: i18n.t("automation.modelLabel"),
+    })
+    expectRequiredField("automation-model-id")
+    expectRequiredField("automation-reasoning-effort")
+    await interaction.click(override)
+    expect(
+      document.getElementById("automation-model-id")
+    ).not.toBeInTheDocument()
+    expect(
+      document.getElementById("automation-reasoning-effort")
+    ).not.toBeInTheDocument()
+  })
+
   it.each([
     {
       buttonName: "使用“每日简报”模板",
@@ -137,10 +213,12 @@ describe("AutomationPage", () => {
       const editor = await screen.findByRole("complementary", {
         name: "新建自动化",
       })
-      expect(within(editor).getByLabelText("自动化标题")).toHaveValue(title)
-      expect(within(editor).getByLabelText("自动化指令")).toHaveValue(
-        instruction
-      )
+      expect(
+        within(editor).getByRole("textbox", { name: "自动化标题" })
+      ).toHaveValue(title)
+      expect(
+        within(editor).getByRole("textbox", { name: "自动化指令" })
+      ).toHaveValue(instruction)
       expect(
         within(editor).getByRole("button", { name: "新建任务" })
       ).toHaveAttribute("aria-pressed", "true")
@@ -253,6 +331,20 @@ describe("AutomationPage", () => {
     expect(editor).toHaveClass("office-preview-pane", "automation-editor-pane")
     expect(editor).toHaveAttribute("data-mode", "create")
     expect(editor.parentElement).toBe(splitLayout)
+    for (const id of [
+      "automation-title",
+      "automation-instruction",
+      "automation-task",
+      "automation-frequency",
+    ]) {
+      expectRequiredField(id)
+    }
+    expect(
+      document.getElementById("automation-time-label")?.lastElementChild
+    ).toHaveTextContent("*")
+    expect(
+      within(editor).getByText("运行于").lastElementChild
+    ).toHaveTextContent("*")
     expect(splitLayout).toHaveAttribute("data-has-office-preview", "true")
     expect(
       screen.getByRole("separator", {
@@ -260,11 +352,11 @@ describe("AutomationPage", () => {
       })
     ).toBeVisible()
     await interaction.type(
-      within(editor).getByLabelText("自动化标题"),
+      within(editor).getByRole("textbox", { name: "自动化标题" }),
       "每小时简报"
     )
     await interaction.type(
-      within(editor).getByLabelText("自动化指令"),
+      within(editor).getByRole("textbox", { name: "自动化指令" }),
       "总结最近的重要更新。"
     )
     expect(document.querySelector('input[type="time"]')).toBeNull()
@@ -282,6 +374,7 @@ describe("AutomationPage", () => {
       within(editor).getByRole("combobox", { name: "重复" })
     )
     await interaction.click(await screen.findByRole("option", { name: "每周" }))
+    expectRequiredField("automation-weekday")
     await interaction.click(
       within(editor).getByRole("button", { name: "开启于" })
     )
@@ -303,6 +396,7 @@ describe("AutomationPage", () => {
       within(editor).getByRole("combobox", { name: "重复" })
     )
     await interaction.click(await screen.findByRole("option", { name: "每月" }))
+    expectRequiredField("automation-day-of-month")
     expect(
       within(editor).getByRole("combobox", { name: "日期" })
     ).toHaveTextContent("1 日")
@@ -326,6 +420,10 @@ describe("AutomationPage", () => {
     expect(within(editor).queryByText("选择到期日期")).not.toBeInTheDocument()
     await interaction.click(expiresCheckbox)
     expect(expiresCheckbox).toBeChecked()
+    expectRequiredField("automation-expires-on")
+    expect(
+      expiresCheckbox.closest("label")?.querySelector(".text-destructive")
+    ).not.toBeInTheDocument()
     expect(within(editor).getByText("选择到期日期")).toBeVisible()
     await interaction.click(expiresCheckbox)
     expect(expiresCheckbox).not.toBeChecked()
@@ -347,9 +445,15 @@ describe("AutomationPage", () => {
       screen.queryByRole("option", { name: "每年" })
     ).not.toBeInTheDocument()
     await interaction.click(hourlyOption)
+    expectRequiredField("automation-minute")
     expect(within(editor).queryByLabelText("每隔")).not.toBeInTheDocument()
-    await interaction.clear(within(editor).getByLabelText("在第几分钟"))
-    await interaction.type(within(editor).getByLabelText("在第几分钟"), "15")
+    await interaction.clear(
+      within(editor).getByRole("spinbutton", { name: "在第几分钟" })
+    )
+    await interaction.type(
+      within(editor).getByRole("spinbutton", { name: "在第几分钟" }),
+      "15"
+    )
     await interaction.click(
       within(editor).getByRole("button", { name: "创建" })
     )

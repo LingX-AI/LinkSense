@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter } from "react-router-dom"
+import { supportedLocales } from "@linksense/shared"
 
 import { bootstrapSchema } from "@/api/contracts"
 import { BootstrapContext } from "@/app/bootstrap-state"
@@ -44,6 +45,26 @@ function json(body: unknown, status = 200) {
 }
 
 describe("InitializePage", () => {
+  it.each(supportedLocales)(
+    "marks all required initialization fields with red indicators in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      renderPage()
+      for (const id of [
+        "initialization-credential",
+        "admin-name",
+        "admin-email",
+        "admin-password",
+        "admin-password-confirm",
+      ]) {
+        const label = document.querySelector(`label[for="${id}"]`)
+        expect(label?.lastElementChild).toHaveTextContent("*")
+        expect(label?.lastElementChild).toHaveClass("text-destructive")
+        expect(label?.lastElementChild).toHaveAttribute("aria-hidden", "true")
+      }
+    }
+  )
+
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
   })
@@ -80,22 +101,22 @@ describe("InitializePage", () => {
       screen.getByRole("button", { name: "创建管理员并完成初始化" })
     )
 
-    const credential = screen.getByLabelText("一次性初始化凭据")
+    const credential = screen.getByLabelText(/^一次性初始化凭据\s*\*?$/u)
     expect(credential).toHaveFocus()
     expect(credential).toHaveAttribute("aria-invalid", "true")
-    expect(screen.getByLabelText("管理员姓名")).toHaveAttribute(
+    expect(screen.getByRole("textbox", { name: "管理员姓名" })).toHaveAttribute(
       "aria-invalid",
       "true"
     )
-    expect(screen.getByLabelText("邮箱")).toHaveAttribute(
+    expect(screen.getByRole("textbox", { name: "邮箱" })).toHaveAttribute(
       "aria-invalid",
       "true"
     )
-    expect(screen.getByLabelText("新密码")).toHaveAttribute(
+    expect(screen.getByLabelText(/^新密码\s*\*?$/u)).toHaveAttribute(
       "aria-invalid",
       "true"
     )
-    expect(screen.getByLabelText("确认新密码")).toHaveAttribute(
+    expect(screen.getByLabelText(/^确认新密码\s*\*?$/u)).toHaveAttribute(
       "aria-invalid",
       "true"
     )
@@ -130,13 +151,25 @@ describe("InitializePage", () => {
     renderPage()
 
     await interaction.type(
-      screen.getByLabelText("一次性初始化凭据"),
+      screen.getByLabelText(/^一次性初始化凭据\s*\*?$/u),
       "initialization-credential"
     )
-    await interaction.type(screen.getByLabelText("管理员姓名"), "Administrator")
-    await interaction.type(screen.getByLabelText("邮箱"), "admin@example.com")
-    await interaction.type(screen.getByLabelText("新密码"), "Password1!")
-    await interaction.type(screen.getByLabelText("确认新密码"), "Password1!")
+    await interaction.type(
+      screen.getByRole("textbox", { name: "管理员姓名" }),
+      "Administrator"
+    )
+    await interaction.type(
+      screen.getByRole("textbox", { name: "邮箱" }),
+      "admin@example.com"
+    )
+    await interaction.type(
+      screen.getByLabelText(/^新密码\s*\*?$/u),
+      "Password1!"
+    )
+    await interaction.type(
+      screen.getByLabelText(/^确认新密码\s*\*?$/u),
+      "Password1!"
+    )
     await interaction.click(
       screen.getByRole("button", { name: "创建管理员并完成初始化" })
     )
@@ -200,10 +233,16 @@ describe("InitializePage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       i18n.t("errors.unknown")
     )
-    expect(screen.getByLabelText("管理员姓名")).toHaveValue("Administrator")
-    expect(screen.getByLabelText("邮箱")).toHaveValue("admin@example.com")
-    expect(screen.getByLabelText("新密码")).toHaveValue("Password1!")
-    expect(screen.getByLabelText("确认新密码")).toHaveValue("Password1!")
+    expect(screen.getByRole("textbox", { name: "管理员姓名" })).toHaveValue(
+      "Administrator"
+    )
+    expect(screen.getByRole("textbox", { name: "邮箱" })).toHaveValue(
+      "admin@example.com"
+    )
+    expect(screen.getByLabelText(/^新密码\s*\*?$/u)).toHaveValue("Password1!")
+    expect(screen.getByLabelText(/^确认新密码\s*\*?$/u)).toHaveValue(
+      "Password1!"
+    )
   })
 
   it("replaces an in-flight pre-initialization bootstrap read with a fresh successful read", async () => {
@@ -270,13 +309,22 @@ async function fillValidInitializationForm(
   interaction: ReturnType<typeof userEvent.setup>
 ) {
   await interaction.type(
-    screen.getByLabelText("一次性初始化凭据"),
+    screen.getByLabelText(/^一次性初始化凭据\s*\*?$/u),
     "initialization-credential"
   )
-  await interaction.type(screen.getByLabelText("管理员姓名"), "Administrator")
-  await interaction.type(screen.getByLabelText("邮箱"), "admin@example.com")
-  await interaction.type(screen.getByLabelText("新密码"), "Password1!")
-  await interaction.type(screen.getByLabelText("确认新密码"), "Password1!")
+  await interaction.type(
+    screen.getByRole("textbox", { name: "管理员姓名" }),
+    "Administrator"
+  )
+  await interaction.type(
+    screen.getByRole("textbox", { name: "邮箱" }),
+    "admin@example.com"
+  )
+  await interaction.type(screen.getByLabelText(/^新密码\s*\*?$/u), "Password1!")
+  await interaction.type(
+    screen.getByLabelText(/^确认新密码\s*\*?$/u),
+    "Password1!"
+  )
 }
 
 function renderPage(

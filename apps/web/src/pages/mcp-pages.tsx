@@ -616,7 +616,11 @@ export function McpManagementPage() {
               if (canSave) saveMutation.mutate()
             }}
           >
-            <FieldShell id="mcp-transport" label={t("mcp.transportLabel")}>
+            <FieldShell
+              id="mcp-transport"
+              label={t("mcp.transportLabel")}
+              required
+            >
               <Select
                 name="mcp-transport"
                 value={transport}
@@ -625,7 +629,11 @@ export function McpManagementPage() {
                   if (isMcpTransport(value)) setTransport(value)
                 }}
               >
-                <SelectTrigger id="mcp-transport" className="w-full">
+                <SelectTrigger
+                  id="mcp-transport"
+                  className="w-full"
+                  aria-required="true"
+                >
                   <SelectValue>{t(`mcp.transport.${transport}`)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -640,7 +648,7 @@ export function McpManagementPage() {
                 </SelectContent>
               </Select>
             </FieldShell>
-            <FieldShell id="mcp-name" label={t("mcp.name")}>
+            <FieldShell id="mcp-name" label={t("mcp.name")} required>
               <Input
                 id="mcp-name"
                 name="mcp-name"
@@ -656,6 +664,7 @@ export function McpManagementPage() {
                 <FieldShell
                   id="mcp-url"
                   label={t("mcp.url")}
+                  required
                   hint={t("mcp.urlHint")}
                 >
                   <Input
@@ -686,19 +695,24 @@ export function McpManagementPage() {
                     >
                       <Checkbox
                         id="mcp-http-acknowledgement"
+                        aria-required="true"
                         name="mcp-http-acknowledgement"
                         checked={httpAcknowledged}
                         onCheckedChange={(checked) =>
                           setHttpAcknowledged(checked === true)
                         }
                       />
-                      <FieldLabel htmlFor="mcp-http-acknowledgement">
+                      <FieldLabel htmlFor="mcp-http-acknowledgement" required>
                         {t("mcp.httpAcknowledgement")}
                       </FieldLabel>
                     </Field>
                   </Alert>
                 )}
-                <FieldShell id="mcp-auth" label={t("mcp.authentication")}>
+                <FieldShell
+                  id="mcp-auth"
+                  label={t("mcp.authentication")}
+                  required
+                >
                   <Select
                     name="mcp-authentication"
                     value={authType}
@@ -706,7 +720,11 @@ export function McpManagementPage() {
                       if (isMcpAuthType(value)) setAuthType(value)
                     }}
                   >
-                    <SelectTrigger id="mcp-auth" className="w-full">
+                    <SelectTrigger
+                      id="mcp-auth"
+                      className="w-full"
+                      aria-required="true"
+                    >
                       <SelectValue>{t(`mcp.auth.${authType}`)}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
@@ -728,6 +746,7 @@ export function McpManagementPage() {
                   <FieldShell
                     id="mcp-api-key-header"
                     label={t("mcp.apiKeyHeader")}
+                    required
                   >
                     <Input
                       id="mcp-api-key-header"
@@ -743,12 +762,18 @@ export function McpManagementPage() {
                   <FieldShell
                     id="mcp-credential"
                     label={t("mcp.credential")}
+                    required={
+                      !editing?.has_credential || editing.auth_type === "none"
+                    }
                     hint={t(
                       editing ? "mcp.keepCredentialHint" : "mcp.credentialHint"
                     )}
                   >
                     <Input
                       id="mcp-credential"
+                      aria-required={
+                        !editing?.has_credential || editing.auth_type === "none"
+                      }
                       name="mcp-credential"
                       type="password"
                       value={credential}
@@ -763,6 +788,7 @@ export function McpManagementPage() {
               <FieldShell
                 id="mcp-stdio-configuration"
                 label={t("mcp.stdioConfiguration")}
+                required
                 hint={
                   <>
                     {t(
@@ -790,6 +816,7 @@ export function McpManagementPage() {
               >
                 <Textarea
                   id="mcp-stdio-configuration"
+                  aria-required="true"
                   name="mcp-stdio-configuration"
                   className="min-h-64 min-w-0 font-mono"
                   value={stdioConfigurationJson}
@@ -811,6 +838,7 @@ export function McpManagementPage() {
               <FieldShell
                 id="mcp-startup-timeout"
                 label={t("mcp.startupTimeout")}
+                required
               >
                 <Input
                   id="mcp-startup-timeout"
@@ -823,7 +851,11 @@ export function McpManagementPage() {
                   required
                 />
               </FieldShell>
-              <FieldShell id="mcp-tool-timeout" label={t("mcp.toolTimeout")}>
+              <FieldShell
+                id="mcp-tool-timeout"
+                label={t("mcp.toolTimeout")}
+                required
+              >
                 <Input
                   id="mcp-tool-timeout"
                   name="mcp-tool-timeout"

@@ -8,7 +8,10 @@ import {
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { applicationCenterReleaseSchema } from "@linksense/shared"
+import {
+  applicationCenterReleaseSchema,
+  supportedLocales,
+} from "@linksense/shared"
 import { apiRequest } from "@/api/client"
 import i18n from "@/i18n"
 import { ApplicationCenterAdminItem } from "./application-center-admin-item"
@@ -81,6 +84,56 @@ function show() {
 }
 
 describe("application approval cards", () => {
+  it.each(supportedLocales)(
+    "requires a comment for removal and keeps approval and restoration comments optional in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      for (const [status, listingStatus, required] of [
+        ["pending", "draft", false],
+        ["approved", "published", true],
+        ["approved", "suspended", false],
+      ] as const) {
+        const current = { ...release, status, listing_status: listingStatus }
+        vi.mocked(apiRequest).mockImplementation(async (path) =>
+          path === "/admin/application-center"
+            ? { items: [current] }
+            : {
+                release: current,
+                instructions: "Review instructions",
+                capabilities: [],
+                knowledge_base_count: 0,
+                mcp_server_count: 0,
+                interactive_files: [],
+              }
+        )
+        const view = show()
+        await userEvent.click(
+          await screen.findByRole("button", {
+            name: i18n.t("applications.distribution.review"),
+          })
+        )
+        const dialog = await screen.findByRole("dialog")
+        await within(dialog).findByText("Review instructions")
+        const comment = within(dialog).getByRole("textbox", {
+          name: i18n.t("applications.distribution.reviewComment"),
+        })
+        const label = comment
+          .closest('[data-slot="field"]')
+          ?.querySelector('[data-slot="field-label"]')
+        if (required) {
+          const indicator = label?.querySelector('span[aria-hidden="true"]')
+          expect(indicator).toHaveTextContent("*")
+          expect(indicator).toHaveClass("text-destructive")
+          expect(comment).toHaveAttribute("aria-required", "true")
+        } else {
+          expect(label).not.toHaveTextContent("*")
+          expect(comment).not.toHaveAttribute("aria-required", "true")
+        }
+        view.unmount()
+      }
+    }
+  )
+
   it("localizes listing actions with Chinese fallback for missing resources", () => {
     const fallback = i18n.cloneInstance({ forkResourceStore: true })
     fallback.removeResourceBundle("en-US", "translation")
@@ -227,9 +280,9 @@ describe("application approval cards", () => {
     expect(body).not.toContainElement(header)
     expect(body).not.toContainElement(footer)
     expect(body).toContainElement(
-      within(dialog).getByLabelText(
-        i18n.t("applications.distribution.reviewComment")
-      )
+      within(dialog).getByRole("textbox", {
+        name: i18n.t("applications.distribution.reviewComment"),
+      })
     )
     expect(
       await within(dialog).findByText(selected.release_notes.trim())
@@ -332,9 +385,9 @@ describe("application approval cards", () => {
       }
       const dialog = await openReview()
       await userEvent.type(
-        within(dialog).getByLabelText(
-          i18n.t("applications.distribution.reviewComment")
-        ),
+        within(dialog).getByRole("textbox", {
+          name: i18n.t("applications.distribution.reviewComment"),
+        }),
         "Review required"
       )
       await userEvent.click(

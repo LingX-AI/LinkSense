@@ -197,7 +197,7 @@ export function KnowledgeShareDialog({
         {canCreateGrant && (
           <FieldGroup>
             <FieldSet>
-              <FieldLegend variant="label">
+              <FieldLegend variant="label" required>
                 {t("knowledge.share.targetType")}
               </FieldLegend>
               <FieldDescription>
@@ -229,7 +229,7 @@ export function KnowledgeShareDialog({
             </FieldSet>
 
             <FieldSet>
-              <FieldLegend variant="label">
+              <FieldLegend variant="label" required>
                 {t("knowledge.share.selectTarget")}
               </FieldLegend>
               <Combobox
@@ -281,6 +281,7 @@ export function KnowledgeShareDialog({
                   </ComboboxValue>
                   <ComboboxChipsInput
                     aria-label={t("knowledge.share.selectTarget")}
+                    aria-required="true"
                     disabled={shareMutation.isPending}
                     placeholder={t(
                       targetType === "user"

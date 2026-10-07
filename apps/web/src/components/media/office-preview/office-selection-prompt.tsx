@@ -22,6 +22,7 @@ import type {
 } from "@/components/media/office-preview/office-preview.types"
 import { useOfficePreviewFullscreen } from "@/components/media/office-preview/office-preview-fullscreen-context"
 import { Button } from "@/components/ui/button"
+import { Field, FieldLabel } from "@/components/ui/field"
 import {
   InputGroup,
   InputGroupAddon,
@@ -77,6 +78,7 @@ export function OfficeSelectionPrompt<TSelection>({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const disabledReasonId = useId()
   const errorMessageId = useId()
+  const promptInputId = useId()
   const fullScreen = useOfficePreviewFullscreen()
   const latestValueRef = useRef("")
   const voiceBaseValueRef = useRef("")
@@ -315,10 +317,7 @@ export function OfficeSelectionPrompt<TSelection>({
         side="right"
         sideOffset={10}
         align="center"
-        className={cn(
-          "w-[min(26rem,calc(100vw-2rem))] gap-1.5 p-1.5",
-          errorMessage || isMultiline ? "rounded-2xl" : "rounded-full"
-        )}
+        className="w-[min(26rem,calc(100vw-2rem))] gap-1.5 rounded-2xl p-1.5"
       >
         <PopoverTitle className="sr-only">{action.promptLabel}</PopoverTitle>
         <form
@@ -327,138 +326,149 @@ export function OfficeSelectionPrompt<TSelection>({
             void submit()
           }}
         >
-          <InputGroup
-            className={cn(
-              "min-h-11 border-0 bg-transparent has-[[data-slot=input-group-control]:focus-visible]:bg-transparent",
-              isMultiline ? "rounded-2xl" : "rounded-full"
-            )}
-            aria-busy={submitting || voiceBusy}
-          >
-            <InputGroupTextarea
-              ref={textareaRef}
-              autoFocus={shouldAutoFocusOnDesktop()}
-              rows={1}
-              value={value}
-              aria-label={action.promptLabel}
-              aria-describedby={errorMessage ? errorMessageId : undefined}
-              aria-invalid={Boolean(errorMessage)}
-              placeholder={action.placeholder}
-              disabled={submitting}
-              className={cn(
-                "max-h-[7.5rem] min-h-11 w-full overflow-y-auto px-3 pr-[5.75rem] text-sm leading-6 font-medium",
-                isMultiline ? "pt-2 pb-10" : "py-2"
-              )}
-              onKeyDown={(event) => {
-                if (
-                  event.key !== "Enter" ||
-                  event.shiftKey ||
-                  event.nativeEvent.isComposing
-                ) {
-                  return
-                }
-                event.preventDefault()
-                void submit()
-              }}
-              onChange={(event) => {
-                handleValueChange(event.currentTarget.value)
-              }}
-            />
-            <InputGroupAddon
-              align="inline-end"
-              className={cn(
-                "absolute right-1 z-10 h-8 cursor-default gap-1.5 p-0",
-                isMultiline ? "top-auto bottom-1" : "top-1/2 -translate-y-1/2"
-              )}
-              data-testid="office-selection-prompt-actions"
+          <Field className="gap-1.5">
+            <FieldLabel
+              htmlFor={promptInputId}
+              className="px-2.5 pt-1"
+              required
             >
-              {voice.phase === "idle" && (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <span
-                        className="inline-flex"
-                        role="group"
-                        tabIndex={voiceAvailable ? undefined : 0}
-                        aria-label={
-                          voiceAvailable ? undefined : t(voiceTooltipKey)
-                        }
-                      />
-                    }
-                  >
-                    <InputGroupButton
-                      type="button"
-                      size="icon-sm"
-                      aria-label={t("conversation.voice")}
-                      disabled={
-                        !voiceAvailable || submitting || action.disabled
-                      }
-                      className={cn(
-                        "rounded-full text-muted-foreground",
-                        !voiceAvailable && "opacity-50"
-                      )}
-                      data-testid="office-selection-voice-button"
-                      onClick={startVoiceRecognition}
-                    >
-                      <MicIcon className="size-4" aria-hidden="true" />
-                    </InputGroupButton>
-                  </TooltipTrigger>
-                  <TooltipContent>{t(voiceTooltipKey)}</TooltipContent>
-                </Tooltip>
+              {action.promptLabel}
+            </FieldLabel>
+            <InputGroup
+              className={cn(
+                "min-h-11 border-0 bg-transparent has-[[data-slot=input-group-control]:focus-visible]:bg-transparent",
+                isMultiline ? "rounded-2xl" : "rounded-full"
               )}
-              {voice.phase === "recording" && (
-                <InputGroupButton
-                  type="button"
-                  variant="secondary"
-                  size="icon-sm"
-                  aria-label={t("conversation.voiceStop")}
-                  disabled={submitting}
-                  className="rounded-full"
-                  data-testid="office-selection-voice-button"
-                  onClick={voice.stopRecording}
-                >
-                  <SquareIcon
-                    className="size-3.5 fill-current"
-                    aria-hidden="true"
-                  />
-                </InputGroupButton>
-              )}
-              {voice.phase !== "idle" && voice.phase !== "recording" && (
-                <InputGroupButton
-                  type="button"
-                  size="icon-sm"
-                  aria-label={t(
-                    voice.phase === "transcribing"
-                      ? "conversation.voiceTranscribing"
-                      : "conversation.voiceRecording"
-                  )}
-                  disabled
-                  className="rounded-full text-muted-foreground"
-                  data-testid="office-selection-voice-button"
-                >
-                  <LoaderCircleIcon
-                    className="size-3.5 animate-spin"
-                    aria-hidden="true"
-                  />
-                </InputGroupButton>
-              )}
-              <InputGroupButton
-                type="submit"
-                size="icon-sm"
-                aria-label={action.submitLabel}
-                disabled={!value.trim() || submitting || voiceBusy}
-                className="send-button rounded-full"
-              >
-                {submitting ? (
-                  <LoaderCircleIcon
-                    className="size-3.5 animate-spin"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <ListPlusIcon className="size-3.5" aria-hidden="true" />
+              aria-busy={submitting || voiceBusy}
+            >
+              <InputGroupTextarea
+                id={promptInputId}
+                aria-required="true"
+                ref={textareaRef}
+                autoFocus={shouldAutoFocusOnDesktop()}
+                rows={1}
+                value={value}
+                aria-label={action.promptLabel}
+                aria-describedby={errorMessage ? errorMessageId : undefined}
+                aria-invalid={Boolean(errorMessage)}
+                placeholder={action.placeholder}
+                disabled={submitting}
+                className={cn(
+                  "max-h-[7.5rem] min-h-11 w-full overflow-y-auto px-3 pr-[5.75rem] text-sm leading-6 font-medium",
+                  isMultiline ? "pt-2 pb-10" : "py-2"
                 )}
-              </InputGroupButton>
-            </InputGroupAddon>
-          </InputGroup>
+                onKeyDown={(event) => {
+                  if (
+                    event.key !== "Enter" ||
+                    event.shiftKey ||
+                    event.nativeEvent.isComposing
+                  ) {
+                    return
+                  }
+                  event.preventDefault()
+                  void submit()
+                }}
+                onChange={(event) => {
+                  handleValueChange(event.currentTarget.value)
+                }}
+              />
+              <InputGroupAddon
+                align="inline-end"
+                className={cn(
+                  "absolute right-1 z-10 h-8 cursor-default gap-1.5 p-0",
+                  isMultiline ? "top-auto bottom-1" : "top-1/2 -translate-y-1/2"
+                )}
+                data-testid="office-selection-prompt-actions"
+              >
+                {voice.phase === "idle" && (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <span
+                          className="inline-flex"
+                          role="group"
+                          tabIndex={voiceAvailable ? undefined : 0}
+                          aria-label={
+                            voiceAvailable ? undefined : t(voiceTooltipKey)
+                          }
+                        />
+                      }
+                    >
+                      <InputGroupButton
+                        type="button"
+                        size="icon-sm"
+                        aria-label={t("conversation.voice")}
+                        disabled={
+                          !voiceAvailable || submitting || action.disabled
+                        }
+                        className={cn(
+                          "rounded-full text-muted-foreground",
+                          !voiceAvailable && "opacity-50"
+                        )}
+                        data-testid="office-selection-voice-button"
+                        onClick={startVoiceRecognition}
+                      >
+                        <MicIcon className="size-4" aria-hidden="true" />
+                      </InputGroupButton>
+                    </TooltipTrigger>
+                    <TooltipContent>{t(voiceTooltipKey)}</TooltipContent>
+                  </Tooltip>
+                )}
+                {voice.phase === "recording" && (
+                  <InputGroupButton
+                    type="button"
+                    variant="secondary"
+                    size="icon-sm"
+                    aria-label={t("conversation.voiceStop")}
+                    disabled={submitting}
+                    className="rounded-full"
+                    data-testid="office-selection-voice-button"
+                    onClick={voice.stopRecording}
+                  >
+                    <SquareIcon
+                      className="size-3.5 fill-current"
+                      aria-hidden="true"
+                    />
+                  </InputGroupButton>
+                )}
+                {voice.phase !== "idle" && voice.phase !== "recording" && (
+                  <InputGroupButton
+                    type="button"
+                    size="icon-sm"
+                    aria-label={t(
+                      voice.phase === "transcribing"
+                        ? "conversation.voiceTranscribing"
+                        : "conversation.voiceRecording"
+                    )}
+                    disabled
+                    className="rounded-full text-muted-foreground"
+                    data-testid="office-selection-voice-button"
+                  >
+                    <LoaderCircleIcon
+                      className="size-3.5 animate-spin"
+                      aria-hidden="true"
+                    />
+                  </InputGroupButton>
+                )}
+                <InputGroupButton
+                  type="submit"
+                  size="icon-sm"
+                  aria-label={action.submitLabel}
+                  disabled={!value.trim() || submitting || voiceBusy}
+                  className="send-button rounded-full"
+                >
+                  {submitting ? (
+                    <LoaderCircleIcon
+                      className="size-3.5 animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <ListPlusIcon className="size-3.5" aria-hidden="true" />
+                  )}
+                </InputGroupButton>
+              </InputGroupAddon>
+            </InputGroup>
+          </Field>
         </form>
         {errorMessage && (
           <p

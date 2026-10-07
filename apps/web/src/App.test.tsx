@@ -20,7 +20,9 @@ describe("LinkSense application", () => {
     expect(
       await screen.findByRole("heading", { name: "初始化 LinkSense" })
     ).toBeInTheDocument()
-    expect(screen.getByLabelText("管理员姓名")).toBeInTheDocument()
+    expect(
+      screen.getByRole("textbox", { name: "管理员姓名" })
+    ).toBeInTheDocument()
     expect(screen.queryByLabelText("系统名称")).not.toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "创建管理员并完成初始化" })
@@ -35,7 +37,9 @@ describe("LinkSense application", () => {
     })
     renderApp("/login")
 
-    expect(await screen.findByLabelText("一次性初始化凭据")).toBeInTheDocument()
+    expect(
+      await screen.findByLabelText(/^一次性初始化凭据\s*\*?$/u)
+    ).toBeInTheDocument()
     expect(screen.getByText(/安装成功时终端显示的一次性凭据/u)).toBeVisible()
   })
 
@@ -44,8 +48,8 @@ describe("LinkSense application", () => {
     const interaction = userEvent.setup()
     renderApp("/login")
 
-    const passwordInput = await screen.findByLabelText("新密码")
-    const confirmationInput = screen.getByLabelText("确认新密码")
+    const passwordInput = await screen.findByLabelText(/^新密码\s*\*?$/u)
+    const confirmationInput = screen.getByLabelText(/^确认新密码\s*\*?$/u)
     await interaction.type(passwordInput, "ValidPass1!")
     await interaction.type(confirmationInput, "ValidPass1!")
 
@@ -146,7 +150,7 @@ describe("LinkSense application", () => {
     const interaction = userEvent.setup()
     renderApp("/login")
 
-    const passwordInput = await screen.findByLabelText("密码")
+    const passwordInput = await screen.findByLabelText(/^密码\s*\*?$/u)
     await interaction.type(passwordInput, "Password1!")
 
     expect(passwordInput).toHaveAttribute("type", "password")
@@ -179,10 +183,10 @@ describe("LinkSense application", () => {
     expect(window.localStorage.getItem("linksense.language")).toBeNull()
     expect(document.documentElement.lang).toBe("zh-CN")
     await interaction.type(
-      await screen.findByLabelText("邮箱"),
+      await screen.findByRole("textbox", { name: "邮箱" }),
       "person@example.com"
     )
-    await interaction.type(screen.getByLabelText("密码"), "Password1!")
+    await interaction.type(screen.getByLabelText(/^密码\s*\*?$/u), "Password1!")
     await interaction.click(screen.getByRole("button", { name: "登录" }))
 
     expect(
@@ -213,7 +217,7 @@ describe("LinkSense application", () => {
     renderApp("/forgot-password")
 
     await interaction.type(
-      await screen.findByLabelText("邮箱"),
+      await screen.findByRole("textbox", { name: "邮箱" }),
       "person@example.com"
     )
     await interaction.click(
@@ -253,7 +257,7 @@ describe("LinkSense application", () => {
     renderApp("/forgot-password")
 
     await interaction.type(
-      await screen.findByLabelText("邮箱"),
+      await screen.findByRole("textbox", { name: "邮箱" }),
       "person@example.com"
     )
     await interaction.click(
@@ -284,8 +288,14 @@ describe("LinkSense application", () => {
     expect(window.location.search).toBe("")
     expect(window.location.hash).toBe("")
 
-    await interaction.type(screen.getByLabelText("新密码"), "ValidPass1!")
-    await interaction.type(screen.getByLabelText("确认新密码"), "ValidPass1!")
+    await interaction.type(
+      screen.getByLabelText(/^新密码\s*\*?$/u),
+      "ValidPass1!"
+    )
+    await interaction.type(
+      screen.getByLabelText(/^确认新密码\s*\*?$/u),
+      "ValidPass1!"
+    )
     await interaction.click(screen.getByRole("button", { name: "保存新密码" }))
 
     await waitFor(() =>
@@ -329,8 +339,14 @@ describe("LinkSense application", () => {
     ).not.toBeInTheDocument()
     expect(window.location.hash).toBe("")
 
-    await interaction.type(screen.getByLabelText("新密码"), "ValidPass1!")
-    await interaction.type(screen.getByLabelText("确认新密码"), "ValidPass1!")
+    await interaction.type(
+      screen.getByLabelText(/^新密码\s*\*?$/u),
+      "ValidPass1!"
+    )
+    await interaction.type(
+      screen.getByLabelText(/^确认新密码\s*\*?$/u),
+      "ValidPass1!"
+    )
     await interaction.click(screen.getByRole("button", { name: "保存新密码" }))
 
     await waitFor(() =>
@@ -430,10 +446,10 @@ describe("LinkSense application", () => {
     )
 
     await interaction.type(
-      await screen.findByLabelText("邮箱"),
+      await screen.findByRole("textbox", { name: "邮箱" }),
       "person@example.com"
     )
-    await interaction.type(screen.getByLabelText("密码"), "Password1!")
+    await interaction.type(screen.getByLabelText(/^密码\s*\*?$/u), "Password1!")
     await interaction.click(screen.getByRole("button", { name: "登录" }))
 
     expect(

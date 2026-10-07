@@ -119,6 +119,7 @@ export function ProjectDialog({
               <FieldShell
                 id={inputId}
                 label={t("projects.name")}
+                required
                 hint={
                   fixedName
                     ? t("errors.applicationDevelopment.projectNameFixed")
@@ -128,6 +129,7 @@ export function ProjectDialog({
                 <InputGroup className="h-12 rounded-xl">
                   <InputGroupInput
                     id={inputId}
+                    aria-required="true"
                     value={name}
                     maxLength={80}
                     disabled={mutation.isPending}

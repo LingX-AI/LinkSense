@@ -115,6 +115,7 @@ export function ImageUnderstandingSettingsForm({
               controlWidth="medium"
               id={`${idPrefix}-model`}
               label={t("admin.imageUnderstanding.selectModel")}
+              required={enabled}
               hint={t("admin.imageUnderstanding.selectModelHint")}
             >
               <Select
@@ -129,6 +130,7 @@ export function ImageUnderstandingSettingsForm({
               >
                 <SelectTrigger
                   id={`${idPrefix}-model`}
+                  aria-required={enabled || undefined}
                   className="w-full"
                   disabled={readOnly}
                 >

@@ -63,7 +63,7 @@ export function SiteTargetPicker({
   const more = current.hasNextPage ? current : all
 
   return (
-    <FieldShell id={id} label={t("webSites.existingSite")}>
+    <FieldShell id={id} label={t("webSites.existingSite")} required>
       <Combobox
         items={items}
         value={value}
@@ -90,6 +90,7 @@ export function SiteTargetPicker({
         <ComboboxTrigger
           id={id}
           aria-label={t("webSites.existingSite")}
+          aria-required="true"
           render={<Button variant="input" className="w-full justify-between" />}
         >
           <span className="min-w-0 truncate text-left">

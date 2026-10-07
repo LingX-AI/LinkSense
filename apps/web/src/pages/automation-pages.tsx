@@ -940,7 +940,7 @@ function AutomationFormFields({
 
   return (
     <FieldGroup>
-      <FieldShell id="automation-title" label={t("automation.name")}>
+      <FieldShell id="automation-title" label={t("automation.name")} required>
         <Input
           id="automation-title"
           value={form.title}
@@ -953,6 +953,7 @@ function AutomationFormFields({
 
       <FieldShell
         id="automation-instruction"
+        required
         label={t("automation.instruction")}
         hint={t("automation.instructionHint")}
       >
@@ -966,7 +967,7 @@ function AutomationFormFields({
       </FieldShell>
 
       <Field className="gap-2">
-        <FieldLabel>{t("automation.runIn")}</FieldLabel>
+        <FieldLabel required>{t("automation.runIn")}</FieldLabel>
         <ToggleGroup
           value={[form.targetMode]}
           variant="outline"
@@ -998,6 +999,7 @@ function AutomationFormFields({
       {form.targetMode === "existing_task" && (
         <FieldShell
           id="automation-task"
+          required
           label={t("automation.task")}
           hint={
             taskItems.length === 0 && !pinnedTasksLoading
@@ -1010,7 +1012,11 @@ function AutomationFormFields({
             value={form.conversationId || null}
             onValueChange={(value) => updateForm("conversationId", value ?? "")}
           >
-            <SelectTrigger id="automation-task" className="w-full">
+            <SelectTrigger
+              id="automation-task"
+              className="w-full"
+              aria-required="true"
+            >
               <SelectValue placeholder={t("automation.selectTask")} />
             </SelectTrigger>
             <SelectContent>
@@ -1028,7 +1034,11 @@ function AutomationFormFields({
 
       <div className="rounded-[min(var(--radius-4xl),24px)] border border-[color:var(--app-border)] p-4">
         <FieldGroup className="gap-4">
-          <FieldShell id="automation-frequency" label={t("automation.repeat")}>
+          <FieldShell
+            id="automation-frequency"
+            label={t("automation.repeat")}
+            required
+          >
             <Select
               items={frequencyItems}
               value={form.frequency}
@@ -1036,7 +1046,11 @@ function AutomationFormFields({
                 if (isFrequency(value)) updateForm("frequency", value)
               }}
             >
-              <SelectTrigger id="automation-frequency" className="w-full">
+              <SelectTrigger
+                id="automation-frequency"
+                className="w-full"
+                aria-required="true"
+              >
                 <SelectValue>
                   {t(`automation.frequency.${form.frequency}`)}
                 </SelectValue>
@@ -1056,6 +1070,7 @@ function AutomationFormFields({
           {form.frequency === "hourly" && (
             <FieldShell
               id="automation-minute"
+              required
               label={t("automation.minuteOfHour")}
               hint={t("automation.minuteOfHourHint")}
             >
@@ -1075,6 +1090,7 @@ function AutomationFormFields({
           {form.frequency === "weekly" && (
             <FieldShell
               id="automation-weekday"
+              required
               label={t("automation.weekdays")}
             >
               <DropdownMenu>
@@ -1132,6 +1148,7 @@ function AutomationFormFields({
           {form.frequency === "monthly" && (
             <FieldShell
               id="automation-day-of-month"
+              required
               label={t("automation.dayOfMonth")}
               hint={t("automation.invalidMonthDayHint")}
             >
@@ -1142,7 +1159,11 @@ function AutomationFormFields({
                   updateForm("dayOfMonth", value ?? "1")
                 }
               >
-                <SelectTrigger id="automation-day-of-month" className="w-full">
+                <SelectTrigger
+                  id="automation-day-of-month"
+                  className="w-full"
+                  aria-required="true"
+                >
                   <SelectValue>
                     {t("automation.dayOption", {
                       day: Number(form.dayOfMonth),
@@ -1166,6 +1187,7 @@ function AutomationFormFields({
             <div className="grid gap-4 sm:grid-cols-2">
               <FieldShell
                 id="automation-month-of-year"
+                required
                 label={t("automation.monthOfYear")}
               >
                 <Select
@@ -1177,6 +1199,7 @@ function AutomationFormFields({
                 >
                   <SelectTrigger
                     id="automation-month-of-year"
+                    aria-required="true"
                     className="w-full"
                   >
                     <SelectValue>
@@ -1198,6 +1221,7 @@ function AutomationFormFields({
               </FieldShell>
               <FieldShell
                 id="automation-year-day"
+                required
                 label={t("automation.dayOfMonth")}
               >
                 <Select
@@ -1207,7 +1231,11 @@ function AutomationFormFields({
                     updateForm("dayOfMonth", value ?? "1")
                   }
                 >
-                  <SelectTrigger id="automation-year-day" className="w-full">
+                  <SelectTrigger
+                    id="automation-year-day"
+                    className="w-full"
+                    aria-required="true"
+                  >
                     <SelectValue>
                       {t("automation.dayOption", {
                         day: Number(form.dayOfMonth),
@@ -1230,7 +1258,11 @@ function AutomationFormFields({
 
           {form.frequency !== "hourly" && (
             <Field className="form-field gap-1.5">
-              <FieldLabel id="automation-time-label" className="form-label">
+              <FieldLabel
+                id="automation-time-label"
+                className="form-label"
+                required
+              >
                 {t("automation.time")}
               </FieldLabel>
               <TimePicker
@@ -1281,6 +1313,7 @@ function AutomationFormFields({
         {form.expiresEnabled && (
           <FieldShell
             id="automation-expires-on"
+            required
             label={t("automation.expiresOn")}
           >
             <DatePicker
@@ -1396,6 +1429,7 @@ function AutomationModelPreferenceFields({
     <div className="grid gap-4 sm:grid-cols-2">
       <FieldShell
         id="automation-model-id"
+        required
         label={t("automation.modelLabel")}
         hint={
           modelPreferenceLoading
@@ -1464,6 +1498,7 @@ function AutomationModelPreferenceFields({
 
       <FieldShell
         id="automation-reasoning-effort"
+        required
         label={t("automation.reasoningEffortLabel")}
       >
         <DropdownMenu>

@@ -170,6 +170,7 @@ export function ConversationGoalBar({
           </DialogHeader>
           <form className="form-stack" onSubmit={submitEdit}>
             <Label
+              required
               className="text-sm font-medium text-[var(--app-text)]"
               htmlFor={objectiveId}
             >
@@ -177,6 +178,7 @@ export function ConversationGoalBar({
             </Label>
             <Textarea
               id={objectiveId}
+              aria-required="true"
               value={objective}
               maxLength={4_000}
               autoFocus={shouldAutoFocusOnDesktop()}

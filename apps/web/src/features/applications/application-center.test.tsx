@@ -555,9 +555,9 @@ describe("application center review", () => {
       )
       expect(reject).toBeDisabled()
       await userEvent.type(
-        within(dialog).getByLabelText(
-          i18n.t("applications.distribution.reviewComment")
-        ),
+        within(dialog).getByRole("textbox", {
+          name: i18n.t("applications.distribution.reviewComment"),
+        }),
         "Reviewed"
       )
       await userEvent.click(

@@ -163,7 +163,7 @@ export function ConversationPlanDecisionCard({
           >
             <FieldGroup className="gap-3">
               <Field data-disabled={busy || undefined}>
-                <FieldLabel htmlFor={revisionInputId}>
+                <FieldLabel htmlFor={revisionInputId} required>
                   {t("conversation.planDecision.revisionLabel")}
                 </FieldLabel>
                 <FieldDescription>
@@ -171,6 +171,7 @@ export function ConversationPlanDecisionCard({
                 </FieldDescription>
                 <Textarea
                   id={revisionInputId}
+                  aria-required="true"
                   autoFocus={shouldAutoFocusOnDesktop()}
                   value={revisionFeedback}
                   disabled={busy}

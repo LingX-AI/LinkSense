@@ -92,6 +92,7 @@ COPY --chown=root:root --chmod=0444 deploy/codex-home-template/config.toml /opt/
 RUN setpriv --reuid=1000 --regid=1000 --clear-groups \
   test -r /opt/linksense/codex-home-template/config.toml
 COPY --from=build --chown=root:root /opt/linksense-runner /app/
+COPY --chown=root:root --chmod=0444 deploy/docker/worker-isolation-smoke.mjs /opt/linksense/worker-isolation-smoke.mjs
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOME=/home/linksense
@@ -131,4 +132,4 @@ ARG WORKER_IMAGE_FINGERPRINT=unversioned
 LABEL com.linksense.worker.fingerprint=${WORKER_IMAGE_FINGERPRINT}
 USER 0:1000
 EXPOSE 4010
-CMD ["/usr/bin/setpriv", "--reuid=1000", "--regid=1000", "--keep-groups", "--inh-caps=+setuid,+kill,+dac_override,+fowner,+chown", "--ambient-caps=+setuid,+kill,+dac_override,+fowner,+chown", "node", "dist/index.js"]
+CMD ["/usr/bin/setpriv", "--reuid=1000", "--regid=1000", "--keep-groups", "--inh-caps=+setuid,+kill,+dac_override,+fowner,+chown,+setpcap", "--ambient-caps=+setuid,+kill,+dac_override,+fowner,+chown,+setpcap", "node", "dist/index.js"]

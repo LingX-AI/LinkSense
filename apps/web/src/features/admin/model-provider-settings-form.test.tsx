@@ -1,3 +1,7 @@
+import {
+  expectRequiredLabel,
+  formLabelPattern,
+} from "@/features/admin/required-field-label.test-helper"
 import { updateModelProviderSettingsSchema } from "@linksense/shared"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
@@ -118,6 +122,47 @@ function installSaveMock(initial = settings, detectContext = false) {
 }
 
 describe("ModelProviderSettingsForm", () => {
+  it.each([true, false])(
+    "requires a default model only when conversation models exist (%s)",
+    (hasModels) => {
+      renderModels(
+        hasModels
+          ? settings
+          : {
+              ...settings,
+              default_model: null,
+              title_model: null,
+              providers: settings.providers.map((provider) => ({
+                ...provider,
+                models: [],
+              })),
+            }
+      )
+      if (!hasModels) {
+        expect(
+          screen.queryByRole("combobox", {
+            name: i18n.t("admin.modelProvider.defaultModel"),
+          })
+        ).not.toBeInTheDocument()
+        return
+      }
+      expectRequiredLabel(
+        screen.getByRole("combobox", {
+          name: i18n.t("admin.modelProvider.defaultModel"),
+        }),
+        hasModels
+      )
+      for (const key of ["titleModel", "memoryExtractionModel"]) {
+        expectRequiredLabel(
+          screen.getByRole("combobox", {
+            name: i18n.t(`admin.modelProvider.${key}`),
+          }),
+          false
+        )
+      }
+    }
+  )
+
   it.each(["zh-CN", "en-US", "de-DE"])(
     "saves and clears the extraction model in %s",
     async (language) => {
@@ -274,7 +319,9 @@ describe("ModelProviderSettingsForm", () => {
       )
       expect(within(catalog).getByText("model-a")).toBeVisible()
       expect(within(catalog).queryByRole("textbox")).not.toBeInTheDocument()
-      expect(screen.queryByLabelText("Base URL")).not.toBeInTheDocument()
+      expect(
+        screen.queryByLabelText(formLabelPattern("Base URL"))
+      ).not.toBeInTheDocument()
       await userEvent.setup().click(screen.getByRole("button", { name: edit }))
       expect(screen.getByRole("dialog", { name: edit })).toBeVisible()
     }
@@ -391,9 +438,11 @@ describe("ModelProviderSettingsForm", () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole("button", { name: "Add model channel" }))
     const dialog = screen.getByRole("dialog", { name: "Add model channel" })
-    expect(within(dialog).queryByLabelText("Model ID")).not.toBeInTheDocument()
     expect(
-      within(dialog).queryByLabelText("Display name")
+      within(dialog).queryByLabelText(formLabelPattern("Model ID"))
+    ).not.toBeInTheDocument()
+    expect(
+      within(dialog).queryByLabelText(formLabelPattern("Display name"))
     ).not.toBeInTheDocument()
     expect(
       within(dialog).queryByRole("combobox", { name: "Model type" })
@@ -401,12 +450,18 @@ describe("ModelProviderSettingsForm", () => {
     expect(
       within(dialog).queryByText("Add the first model")
     ).not.toBeInTheDocument()
-    await user.type(within(dialog).getByLabelText("Channel name"), "Primary")
     await user.type(
-      within(dialog).getByLabelText("Base URL"),
+      within(dialog).getByLabelText(formLabelPattern("Channel name")),
+      "Primary"
+    )
+    await user.type(
+      within(dialog).getByLabelText(formLabelPattern("Base URL")),
       "https://models.example.test/v1"
     )
-    await user.type(within(dialog).getByLabelText("API_KEY"), "test-key")
+    await user.type(
+      within(dialog).getByLabelText(formLabelPattern("API_KEY")),
+      "test-key"
+    )
     await user.click(
       within(dialog).getByRole("button", { name: "Save model channel Primary" })
     )
@@ -435,8 +490,14 @@ describe("ModelProviderSettingsForm", () => {
     await user.click(
       screen.getByRole("button", { name: "Enter a model manually" })
     )
-    await user.type(screen.getByLabelText("Model ID"), "model-a")
-    await user.type(screen.getByLabelText("Display name"), "Model A")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Model ID")),
+      "model-a"
+    )
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Display name")),
+      "Model A"
+    )
     await user.click(screen.getByRole("button", { name: "Save model Model A" }))
     expect(await screen.findByRole("row", { name: "Model A" })).toBeVisible()
     expect(requests[1]).toMatchObject({
@@ -469,19 +530,24 @@ describe("ModelProviderSettingsForm", () => {
     const provider = within(panel).getByRole("combobox", {
       name: "Model provider",
     })
-    const baseUrl = within(panel).getByLabelText("Base URL")
+    const baseUrl = within(panel).getByLabelText(formLabelPattern("Base URL"))
     const providerField = provider.closest('[data-slot="field"]')
     expect(providerField?.parentElement).toBe(
       baseUrl.closest('[data-slot="field"]')?.parentElement
     )
     expect(providerField?.parentElement).toHaveClass("sm:grid-cols-2")
-    expect(within(panel).queryByLabelText("Model ID")).not.toBeInTheDocument()
+    expect(
+      within(panel).queryByLabelText(formLabelPattern("Model ID"))
+    ).not.toBeInTheDocument()
     await user.clear(baseUrl)
     await user.type(baseUrl, "https://models-2.example.test/v1")
     expect(
       within(panel).getByRole("button", { name: "Save model channel Primary" })
     ).toBeDisabled()
-    await user.type(within(panel).getByLabelText("API_KEY"), "replacement-key")
+    await user.type(
+      within(panel).getByLabelText(formLabelPattern("API_KEY")),
+      "replacement-key"
+    )
     expect(requests).toHaveLength(0)
     await user.click(
       within(panel).getByRole("button", { name: "Save model channel Primary" })
@@ -536,8 +602,14 @@ describe("ModelProviderSettingsForm", () => {
     await user.click(
       screen.getByRole("button", { name: "Enter a model manually" })
     )
-    await user.type(screen.getByLabelText("Model ID"), "model-b")
-    await user.type(screen.getByLabelText("Display name"), "Model B")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Model ID")),
+      "model-b"
+    )
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Display name")),
+      "Model B"
+    )
     await user.click(screen.getByRole("button", { name: "Save model Model B" }))
     expect(await screen.findByRole("row", { name: "Model B" })).toBeVisible()
     expect(requests[1]).toMatchObject({
@@ -550,7 +622,9 @@ describe("ModelProviderSettingsForm", () => {
     renderModels()
     const user = userEvent.setup()
     await user.click(screen.getByRole("button", { name: "Edit model Model A" }))
-    expect(screen.getByLabelText("Model context length")).toHaveValue("")
+    expect(
+      screen.getByLabelText(formLabelPattern("Model context length"))
+    ).toHaveValue("")
     await user.click(screen.getByRole("button", { name: "Save model Model A" }))
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
@@ -559,7 +633,9 @@ describe("ModelProviderSettingsForm", () => {
       providers: [{ models: [{ context_window: null }] }],
     })
     await user.click(screen.getByRole("button", { name: "Edit model Model A" }))
-    const context = screen.getByLabelText("Model context length")
+    const context = screen.getByLabelText(
+      formLabelPattern("Model context length")
+    )
     expect(context).toHaveValue("150000")
     await user.clear(context)
     await user.type(context, "128000")
@@ -582,7 +658,10 @@ describe("ModelProviderSettingsForm", () => {
         screen.getByRole("button", { name: "Edit model Model A" })
       )
 
-      await user.type(screen.getByLabelText("Model context length"), value)
+      await user.type(
+        screen.getByLabelText(formLabelPattern("Model context length")),
+        value
+      )
       expect(
         screen.getByText(
           "Enter an integer greater than 0, or leave blank to auto-detect."
@@ -599,7 +678,10 @@ describe("ModelProviderSettingsForm", () => {
     renderModels()
     const user = userEvent.setup()
     await user.click(screen.getByRole("button", { name: "Edit model Model A" }))
-    await user.type(screen.getByLabelText("Display name"), " changed")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Display name")),
+      " changed"
+    )
     await user.click(screen.getByRole("button", { name: "Cancel" }))
     expect(
       screen.getByRole("dialog", { name: "Discard unsaved changes?" })
@@ -609,7 +691,9 @@ describe("ModelProviderSettingsForm", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     )
     await user.click(screen.getByRole("button", { name: "Edit model Model A" }))
-    expect(screen.getByLabelText("Display name")).toHaveValue("Model A")
+    expect(screen.getByLabelText(formLabelPattern("Display name"))).toHaveValue(
+      "Model A"
+    )
   })
 
   it("does not submit unsaved global selections when saving one model", async () => {
@@ -633,7 +717,10 @@ describe("ModelProviderSettingsForm", () => {
     )
     await user.click(await screen.findByRole("option", { name: "Model B" }))
     await user.click(screen.getByRole("button", { name: "Edit model Model A" }))
-    await user.type(screen.getByLabelText("Display name"), " updated")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Display name")),
+      " updated"
+    )
     await user.click(
       screen.getByRole("button", { name: "Save model Model A updated" })
     )

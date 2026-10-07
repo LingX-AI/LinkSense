@@ -134,6 +134,7 @@ function SamlEditor({ settings }: { settings: SamlSettings }) {
             key={key}
             id={`saml-${key}`}
             label={t(`saml.${label}`)}
+            required={key !== "name_attribute"}
             hint={
               key === "email_attribute" || key === "name_attribute"
                 ? t("saml.attributeHelp")
@@ -152,6 +153,7 @@ function SamlEditor({ settings }: { settings: SamlSettings }) {
                 maxLength={16384}
                 disabled={mutation.isPending}
                 aria-invalid={invalid || undefined}
+                aria-required
               />
             ) : (
               <Input
@@ -167,6 +169,7 @@ function SamlEditor({ settings }: { settings: SamlSettings }) {
                 }
                 disabled={mutation.isPending}
                 aria-invalid={invalid || undefined}
+                aria-required={key !== "name_attribute" || undefined}
               />
             )}
           </FieldShell>
@@ -192,11 +195,13 @@ function SamlEditor({ settings }: { settings: SamlSettings }) {
               multiline
               id="saml-sign-cert"
               label={t("saml.signingCertificate")}
+              required
               layout="settings"
               controlWidth="full"
             >
               <Textarea
                 id="saml-sign-cert"
+                aria-required
                 value={draft.signing_certificate}
                 onChange={(event) =>
                   setDraft({
@@ -212,12 +217,16 @@ function SamlEditor({ settings }: { settings: SamlSettings }) {
               multiline
               id="saml-private-key"
               label={t("saml.signingKey")}
+              required={!settings.signing_private_key_configured}
               hint={t("saml.signingHelp")}
               layout="settings"
               controlWidth="full"
             >
               <Textarea
                 id="saml-private-key"
+                aria-required={
+                  !settings.signing_private_key_configured || undefined
+                }
                 value={privateKey}
                 onChange={(event) => setPrivateKey(event.target.value)}
                 placeholder={t(

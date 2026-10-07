@@ -1,3 +1,4 @@
+import { formLabelPattern } from "@/features/admin/required-field-label.test-helper"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
@@ -118,10 +119,16 @@ describe("model setup", () => {
       renderChannel(saved)
       const user = userEvent.setup()
       if (!saved) {
-        await user.type(screen.getByLabelText("Base URL"), channel.base_url)
-        await user.type(screen.getByLabelText("API_KEY"), "draft-test-key")
+        await user.type(
+          screen.getByLabelText(formLabelPattern("Base URL")),
+          channel.base_url
+        )
+        await user.type(
+          screen.getByLabelText(formLabelPattern("API_KEY")),
+          "draft-test-key"
+        )
       }
-      const model = screen.getByLabelText("Model ID to test")
+      const model = screen.getByLabelText(formLabelPattern("Model ID to test"))
       await user.type(model, "first-manual-id")
       await user.click(
         screen.getByRole("button", { name: "Get available models" })
@@ -208,7 +215,10 @@ describe("model setup", () => {
               : /does not offer an available model list/
           )
         ).toBeVisible()
-      await user.type(screen.getByLabelText("Model ID to test"), "manual-model")
+      await user.type(
+        screen.getByLabelText(formLabelPattern("Model ID to test")),
+        "manual-model"
+      )
       await user.click(
         screen.getByRole("button", { name: "Test model connection" })
       )
@@ -235,20 +245,31 @@ describe("model setup", () => {
     expect(
       screen.getByRole("button", { name: "Getting models…" })
     ).toBeDisabled()
-    await user.type(screen.getByLabelText("Model ID to test"), "manual-model")
-    await user.type(screen.getByLabelText("Base URL"), "/changed")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Model ID to test")),
+      "manual-model"
+    )
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Base URL")),
+      "/changed"
+    )
     expect(
       screen.getByRole("button", { name: "Get available models" })
     ).toBeDisabled()
     finish?.(
       response({ status: "supported", models: [foundModel], truncated: false })
     )
-    await user.click(screen.getByLabelText("Model ID to test"))
-    expect(screen.queryByRole("option")).not.toBeInTheDocument()
-    expect(screen.getByLabelText("Model ID to test")).toHaveValue(
-      "manual-model"
+    await user.click(
+      screen.getByLabelText(formLabelPattern("Model ID to test"))
     )
-    await user.type(screen.getByLabelText("API_KEY"), "new-test-key")
+    expect(screen.queryByRole("option")).not.toBeInTheDocument()
+    expect(
+      screen.getByLabelText(formLabelPattern("Model ID to test"))
+    ).toHaveValue("manual-model")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("API_KEY")),
+      "new-test-key"
+    )
     await user.click(
       screen.getByRole("button", { name: "Get available models" })
     )
@@ -256,7 +277,7 @@ describe("model setup", () => {
     finish?.(
       response({ status: "supported", models: [foundModel], truncated: false })
     )
-    const model = screen.getByLabelText("Model ID to test")
+    const model = screen.getByLabelText(formLabelPattern("Model ID to test"))
     await user.clear(model)
     await user.click(model)
     expect(
@@ -286,10 +307,14 @@ describe("model setup", () => {
           Node.DOCUMENT_POSITION_FOLLOWING
       ).toBeTruthy()
       expect(
-        screen.getByLabelText(i18n.t("admin.modelProvider.inputPrice"))
+        screen.getByLabelText(
+          formLabelPattern(i18n.t("admin.modelProvider.inputPrice"))
+        )
       ).toBeVisible()
       expect(
-        screen.getByLabelText(i18n.t("admin.modelProvider.contextWindow"))
+        screen.getByLabelText(
+          formLabelPattern(i18n.t("admin.modelProvider.contextWindow"))
+        )
       ).toBeVisible()
       expect(
         screen.queryByRole("button", { name: i18n.t("modelSetup.advanced") })
@@ -359,9 +384,18 @@ describe("model setup", () => {
     )
     const user = userEvent.setup()
     await user.click(screen.getByRole("button", { name: "Add model channel" }))
-    await user.type(screen.getByLabelText("Channel name"), "Primary")
-    await user.type(screen.getByLabelText("Base URL"), channel.base_url)
-    await user.type(screen.getByLabelText("API_KEY"), "test-key")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Channel name")),
+      "Primary"
+    )
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Base URL")),
+      channel.base_url
+    )
+    await user.type(
+      screen.getByLabelText(formLabelPattern("API_KEY")),
+      "test-key"
+    )
     await user.click(
       screen.getByRole("button", { name: "Save model channel Primary" })
     )
@@ -370,8 +404,10 @@ describe("model setup", () => {
     )
     expect(writes[0]).toMatchObject({ default_model: null, title_model: null })
     await user.click(screen.getByRole("button", { name: "Add model" }))
-    expect(screen.queryByLabelText("Model ID")).not.toBeInTheDocument()
-    expect(screen.getByLabelText("Input price")).toBeVisible()
+    expect(
+      screen.queryByLabelText(formLabelPattern("Model ID"))
+    ).not.toBeInTheDocument()
+    expect(screen.getByLabelText(formLabelPattern("Input price"))).toBeVisible()
     await user.click(
       screen.getByRole("button", { name: "Get available models" })
     )
@@ -384,8 +420,12 @@ describe("model setup", () => {
     await user.click(
       await screen.findByRole("option", { name: "Remote model (remote-model)" })
     )
-    expect(screen.getByLabelText("Model ID")).toHaveValue("remote-model")
-    expect(screen.getByLabelText("Display name")).toHaveValue("Remote model")
+    expect(screen.getByLabelText(formLabelPattern("Model ID"))).toHaveValue(
+      "remote-model"
+    )
+    expect(screen.getByLabelText(formLabelPattern("Display name"))).toHaveValue(
+      "Remote model"
+    )
     expect(screen.getByText("Context length: 128000 tokens")).toBeVisible()
     expect(screen.queryByText(/responded successfully/)).not.toBeInTheDocument()
     await user.click(
@@ -480,8 +520,14 @@ describe("model setup", () => {
     await user.click(
       screen.getByRole("button", { name: "Enter a model manually" })
     )
-    await user.type(screen.getByLabelText("Model ID"), "manual-model")
-    await user.type(screen.getByLabelText("Display name"), "Manual model")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Model ID")),
+      "manual-model"
+    )
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Display name")),
+      "Manual model"
+    )
     expect(
       screen.getByRole("button", { name: "Save model Manual model" })
     ).toBeEnabled()
@@ -530,7 +576,10 @@ describe("model setup", () => {
     await user.click(
       screen.getByRole("button", { name: "Enter a model manually" })
     )
-    await user.type(screen.getByLabelText("Model ID"), "manual-model")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Model ID")),
+      "manual-model"
+    )
     await user.click(
       screen.getByRole("button", { name: "Test model connection" })
     )
@@ -540,7 +589,10 @@ describe("model setup", () => {
       screen.getByRole("button", { name: "Test model connection" })
     )
     expect(await screen.findByText(/responded successfully/)).toBeVisible()
-    await user.type(screen.getByLabelText("Display name"), "Changed")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Display name")),
+      "Changed"
+    )
     expect(screen.queryByText(/responded successfully/)).not.toBeInTheDocument()
   })
 
@@ -558,15 +610,21 @@ describe("model setup", () => {
     await user.click(
       screen.getByRole("button", { name: "Enter a model manually" })
     )
-    await user.type(screen.getByLabelText("Model ID"), "old-model")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Model ID")),
+      "old-model"
+    )
     await user.click(
       screen.getByRole("button", { name: "Test model connection" })
     )
     expect(
       screen.getByRole("button", { name: "Testing model…" })
     ).toBeDisabled()
-    await user.clear(screen.getByLabelText("Model ID"))
-    await user.type(screen.getByLabelText("Model ID"), "new-model")
+    await user.clear(screen.getByLabelText(formLabelPattern("Model ID")))
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Model ID")),
+      "new-model"
+    )
     finish?.(response({ status: "success", model_id: "old-model" }))
     await waitFor(() =>
       expect(
@@ -590,7 +648,10 @@ describe("model setup", () => {
     await user.click(
       screen.getByRole("button", { name: "Enter a model manually" })
     )
-    await user.type(screen.getByLabelText("Model ID"), "embedding-model")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Model ID")),
+      "embedding-model"
+    )
     await user.click(screen.getByRole("combobox", { name: "Model type" }))
     await user.click(
       await screen.findByRole("option", { name: "Embedding model" })
@@ -624,12 +685,18 @@ describe("model setup", () => {
       </QueryClientProvider>
     )
     const user = userEvent.setup()
-    await user.type(screen.getByLabelText("Model ID to test"), "model-a")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Model ID to test")),
+      "model-a"
+    )
     await user.click(
       screen.getByRole("button", { name: "Test model connection" })
     )
     expect(await screen.findByText(/responded successfully/)).toBeVisible()
-    await user.type(screen.getByLabelText("Base URL"), "/other")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Base URL")),
+      "/other"
+    )
     expect(screen.queryByText(/responded successfully/)).not.toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Test model connection" })
@@ -640,7 +707,10 @@ describe("model setup", () => {
     expect(
       screen.getByText(/The address or provider has changed/)
     ).toBeVisible()
-    await user.type(screen.getByLabelText("API_KEY"), "new-key")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("API_KEY")),
+      "new-key"
+    )
     expect(
       screen.getByRole("button", { name: "Save model channel Primary" })
     ).toBeEnabled()
@@ -655,7 +725,10 @@ describe("model setup", () => {
       base_url: `${channel.base_url}/other`,
     })
     expect(await screen.findByText(/responded successfully/)).toBeVisible()
-    await user.type(screen.getByLabelText("Channel name"), " renamed")
+    await user.type(
+      screen.getByLabelText(formLabelPattern("Channel name")),
+      " renamed"
+    )
     expect(screen.queryByText(/responded successfully/)).not.toBeInTheDocument()
   })
 })

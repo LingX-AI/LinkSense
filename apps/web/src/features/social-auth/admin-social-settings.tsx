@@ -217,7 +217,7 @@ function ProviderSettings({ settings }: { settings: SocialProviderSettings }) {
               </Field>
               <FieldDescription>{t("social.disableHelp")}</FieldDescription>
               <Field>
-                <FieldLabel htmlFor={id("client")}>
+                <FieldLabel htmlFor={id("client")} required={enabled}>
                   {t("social.clientId")}
                 </FieldLabel>
                 <Input
@@ -233,7 +233,7 @@ function ProviderSettings({ settings }: { settings: SocialProviderSettings }) {
               {settings.provider === "apple" && (
                 <>
                   <Field>
-                    <FieldLabel htmlFor={id("team")}>
+                    <FieldLabel htmlFor={id("team")} required={enabled}>
                       {t("social.teamId")}
                     </FieldLabel>
                     <Input
@@ -245,7 +245,7 @@ function ProviderSettings({ settings }: { settings: SocialProviderSettings }) {
                     />
                   </Field>
                   <Field>
-                    <FieldLabel htmlFor={id("key")}>
+                    <FieldLabel htmlFor={id("key")} required={enabled}>
                       {t("social.keyId")}
                     </FieldLabel>
                     <Input
@@ -260,7 +260,7 @@ function ProviderSettings({ settings }: { settings: SocialProviderSettings }) {
               )}
               {settings.provider === "facebook" && (
                 <Field>
-                  <FieldLabel htmlFor={id("version")}>
+                  <FieldLabel htmlFor={id("version")} required={enabled}>
                     {t("social.graphVersion")}
                   </FieldLabel>
                   <Input
@@ -273,7 +273,10 @@ function ProviderSettings({ settings }: { settings: SocialProviderSettings }) {
                 </Field>
               )}
               <Field>
-                <FieldLabel htmlFor={id("secret")}>
+                <FieldLabel
+                  htmlFor={id("secret")}
+                  required={enabled && !settings.secret_configured}
+                >
                   {t(
                     settings.provider === "apple"
                       ? "social.privateKey"
@@ -283,6 +286,9 @@ function ProviderSettings({ settings }: { settings: SocialProviderSettings }) {
                 {settings.provider === "apple" ? (
                   <Textarea
                     id={id("secret")}
+                    aria-required={
+                      (enabled && !settings.secret_configured) || undefined
+                    }
                     value={secret}
                     onChange={(event) => setSecret(event.target.value)}
                     placeholder={t(
@@ -297,6 +303,9 @@ function ProviderSettings({ settings }: { settings: SocialProviderSettings }) {
                 ) : (
                   <Input
                     id={id("secret")}
+                    aria-required={
+                      (enabled && !settings.secret_configured) || undefined
+                    }
                     type="password"
                     autoComplete="new-password"
                     value={secret}

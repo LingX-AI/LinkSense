@@ -206,19 +206,18 @@ describe("AutomationService", () => {
     );
   });
 
-  it("marks only completions through the observed cursor as read", async () => {
+  it("does not report notifications when every task is already read", async () => {
     const fixture = automationFixture();
-    const through = "2026-07-29T23:50:00.000Z";
     fixture.repository.latestUnreadCompletion.mockResolvedValueOnce(null);
 
     await expect(
-      fixture.service.markCompletionNotificationsRead(OWNER_ID, { through }),
+      fixture.service.completionNotifications(OWNER_ID),
     ).resolves.toEqual({
       latest_unread: null,
     });
     expect(
-      fixture.repository.markCompletionNotificationsRead,
-    ).toHaveBeenCalledWith(OWNER_ID, new Date(through), NOW);
+      fixture.repository.latestUnreadCompletion,
+    ).toHaveBeenCalledWith(OWNER_ID);
   });
 
   it.each([
@@ -589,7 +588,6 @@ function automationFixture() {
         completedAt: Date;
       } | null>
     >(async () => null),
-    markCompletionNotificationsRead: vi.fn(async () => undefined),
     claimOccurrence: vi.fn(),
     claimManualRun: vi.fn(),
     markRunStarted: vi.fn(async () => undefined),

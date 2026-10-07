@@ -31,7 +31,7 @@ services:
         com.linksense.development.owner: ${LINKSENSE_DEV_RESOURCE_OWNER:-unmanaged}
         com.linksense.development.role: dependencies
       args:
-        PNPM_VERSION: ${PNPM_VERSION:-10.6.4}
+        PNPM_VERSION: ${PNPM_VERSION:-10.34.6}
         DEV_IMAGE_FINGERPRINT: ${LINKSENSE_DEV_IMAGE_FINGERPRINT:-unversioned}
         DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}
         DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
@@ -105,7 +105,7 @@ services:
         com.linksense.development.owner: ${LINKSENSE_DEV_RESOURCE_OWNER:-unmanaged}
         com.linksense.development.role: dependencies
       args:
-        PNPM_VERSION: ${PNPM_VERSION:-10.6.4}
+        PNPM_VERSION: ${PNPM_VERSION:-10.34.6}
         DEV_IMAGE_FINGERPRINT: ${LINKSENSE_DEV_IMAGE_FINGERPRINT:-unversioned}
         DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}
         DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}
@@ -159,7 +159,7 @@ services:
         com.linksense.development.owner: ${LINKSENSE_DEV_RESOURCE_OWNER:-unmanaged}
         com.linksense.development.role: dependencies
       args:
-        PNPM_VERSION: ${PNPM_VERSION:-10.6.4}
+        PNPM_VERSION: ${PNPM_VERSION:-10.34.6}
         DEV_IMAGE_FINGERPRINT: ${LINKSENSE_DEV_IMAGE_FINGERPRINT:-unversioned}
         DEBIAN_MIRROR_URL: ${DEBIAN_MIRROR_URL:-http://deb.debian.org/debian}
         DEBIAN_SECURITY_MIRROR_URL: ${DEBIAN_SECURITY_MIRROR_URL:-http://security.debian.org/debian-security}

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { Prisma } from "../src/generated/prisma/client.js";
 
 import { PrismaAutomationRepository } from "../src/modules/automations/repository.js";
 import { AutomationTargetCollaborationModeError } from "../src/modules/automations/types.js";
@@ -29,7 +30,6 @@ describe("PrismaAutomationRepository completion notifications", () => {
         ownerId: OWNER_ID,
         conversationId: { in: [CONVERSATION_ID] },
         completedAt: { not: null },
-        completionReadAt: null,
       },
       select: { conversationId: true, completedAt: true },
       orderBy: [{ completedAt: "desc" }, { id: "desc" }],
@@ -49,25 +49,38 @@ describe("PrismaAutomationRepository completion notifications", () => {
     expect(fixture.automationRun.findFirst).not.toHaveBeenCalled();
   });
 
-  it("acknowledges only unread completions at or before the observed cursor", async () => {
-    const through = new Date("2026-07-31T01:02:03.000Z");
-    const readAt = new Date("2026-07-31T01:02:04.000Z");
+  it.each([null, new Date("2026-07-31T02:00:00.000Z")])(
+    "reports an unread task after an earlier bulk acknowledgment set its run read time to %s",
+    async (completionReadAt) => {
+      const fixture = repositoryFixture();
+      const storedRun = {
+        conversationId: CONVERSATION_ID,
+        completedAt: NOW,
+        completionReadAt,
+      };
+      fixture.automationRun.findFirst.mockImplementation(
+        async ({ where }: { where: Prisma.AutomationRunWhereInput }) =>
+          where.completionReadAt === null && storedRun.completionReadAt !== null
+            ? null
+            : storedRun,
+      );
+
+      await expect(
+        fixture.repository.latestUnreadCompletion(OWNER_ID),
+      ).resolves.toEqual({ conversationId: CONVERSATION_ID, completedAt: NOW });
+    },
+  );
+
+  it("does not report a notification before its run has completed", async () => {
     const fixture = repositoryFixture();
-
-    await fixture.repository.markCompletionNotificationsRead(
-      OWNER_ID,
-      through,
-      readAt,
-    );
-
-    expect(fixture.automationRun.updateMany).toHaveBeenCalledWith({
-      where: {
-        ownerId: OWNER_ID,
-        completedAt: { not: null, lte: through },
-        completionReadAt: null,
-      },
-      data: { completionReadAt: readAt },
+    fixture.automationRun.findFirst.mockResolvedValueOnce({
+      conversationId: CONVERSATION_ID,
+      completedAt: null,
     });
+
+    await expect(
+      fixture.repository.latestUnreadCompletion(OWNER_ID),
+    ).resolves.toBeNull();
   });
 });
 
@@ -260,7 +273,6 @@ describe("PrismaAutomationRepository manual runs", () => {
 function repositoryFixture(options?: { unreadConversationIds?: string[] }) {
   const automationRun = {
     findFirst: vi.fn(),
-    updateMany: vi.fn(async () => ({ count: 0 })),
   };
   const conversation = {
     findMany: vi.fn(async () =>

@@ -17,6 +17,10 @@ import {
 import i18n from "@/i18n"
 import appStyles from "@/index.css?raw"
 import { BotChannelCards } from "./bot-channel-cards"
+import {
+  expectRequiredLabel,
+  formLabelPattern,
+} from "@/features/admin/required-field-label.test-helper"
 
 const ID = "10000000-0000-4000-8000-000000000001"
 const GUID = "11111111-1111-4111-8111-111111111111"
@@ -100,17 +104,28 @@ describe.each<[BotChannelProvider, string]>([
     await waitFor(() => expect(connect).toBeEnabled())
     await user.click(connect)
     const dialog = within(await screen.findByRole("dialog"))
+    for (const control of document.querySelectorAll<HTMLElement>(
+      "[role=dialog] input[required]"
+    )) {
+      expectRequiredLabel(control)
+    }
+    expect(
+      document.querySelector(`label[for="${provider}-groups"]`)
+    ).not.toHaveTextContent("*")
     await user.type(
       dialog.getByLabelText(
-        provider === "wecom" ? "机器人 ID" : "应用 Client ID"
+        formLabelPattern(provider === "wecom" ? "机器人 ID" : "应用 Client ID")
       ),
       provider === "teams" ? GUID : "app-test"
     )
-    await user.type(dialog.getByLabelText("应用密钥"), "test-secret")
-    if (provider === "teams")
-      await user.type(dialog.getByLabelText("租户 ID"), GUID)
     await user.type(
-      dialog.getByLabelText("允许使用的成员 ID"),
+      dialog.getByLabelText(formLabelPattern("应用密钥")),
+      "test-secret"
+    )
+    if (provider === "teams")
+      await user.type(dialog.getByLabelText(formLabelPattern("租户 ID")), GUID)
+    await user.type(
+      dialog.getByLabelText(formLabelPattern("允许使用的成员 ID")),
       provider === "teams" ? GUID : "member"
     )
     await user.click(dialog.getByRole("checkbox"))
@@ -130,9 +145,13 @@ describe.each<[BotChannelProvider, string]>([
       screen.getByText(provider === "teams" ? "等待消息验证" : "连接中")
     ).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "查看配置" }))
-    expect(screen.queryByLabelText("应用密钥")).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText(formLabelPattern("应用密钥"))
+    ).not.toBeInTheDocument()
     if (provider === "teams")
-      expect(screen.getByLabelText("消息接收地址")).toHaveValue(
+      expect(
+        screen.getByLabelText(formLabelPattern("消息接收地址"))
+      ).toHaveValue(
         `https://example.test/api/v1/bot-channels/teams/${ID}/messages`
       )
     await user.click(screen.getByRole("button", { name: "关闭" }))
@@ -210,7 +229,7 @@ it("rejects malformed Teams IDs without submitting credentials", async () => {
     "租户 ID",
     "允许使用的成员 ID",
   ])
-    await user.type(screen.getByLabelText(label), "invalid")
+    await user.type(screen.getByLabelText(formLabelPattern(label)), "invalid")
   await user.click(screen.getByRole("button", { name: "保存配置" }))
   expect(screen.getByRole("alert")).toBeInTheDocument()
   expect(

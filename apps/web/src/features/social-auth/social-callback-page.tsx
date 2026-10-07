@@ -122,7 +122,7 @@ export function SocialCallbackPage() {
               >
                 <FieldGroup>
                   <Field>
-                    <FieldLabel htmlFor="social-email">
+                    <FieldLabel htmlFor="social-email" required>
                       {t("common.email")}
                     </FieldLabel>
                     <Input

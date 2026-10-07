@@ -1321,7 +1321,7 @@ describe("three application categories", () => {
         })
       )
       const packageInput = screen.getByLabelText(
-        i18n.t("applications.applicationPackage")
+        new RegExp(`^${i18n.t("applications.applicationPackage")}\\s*\\*?$`)
       )
       const file = new File(["application package"], "my-app.zip", {
         type: "application/zip",
@@ -1355,7 +1355,9 @@ describe("three application categories", () => {
         })
       ).toBeVisible()
       expect(
-        screen.getByLabelText(i18n.t("applications.applicationPackage"))
+        screen.getByLabelText(
+          new RegExp(`^${i18n.t("applications.applicationPackage")}\\s*\\*?$`)
+        )
       ).toBe(packageInput)
       expect(packageInput).toBeInstanceOf(HTMLInputElement)
       if (!(packageInput instanceof HTMLInputElement))
