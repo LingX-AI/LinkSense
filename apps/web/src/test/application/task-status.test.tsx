@@ -653,6 +653,64 @@ describe("LinkSense application", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("does not acknowledge the same completion again when a list refresh returns an older unread snapshot", async () => {
+    let listReads = 0
+    let acknowledged = false
+    const target = { ...conversations[1], has_unread_completion: true }
+    const { requests } = installApiMock({
+      conversationListResponse: () => {
+        listReads += 1
+        return json({
+          success: true,
+          data: {
+            items: [
+              conversations[0],
+              {
+                ...target,
+                // One in-flight read can finish with its pre-PATCH snapshot.
+                has_unread_completion: listReads <= 2 || !acknowledged,
+              },
+            ],
+            next_cursor: null,
+          },
+        })
+      },
+      conversationPatchResponse: (_id, body) => {
+        if (body.completion_read) acknowledged = true
+        return json({
+          success: true,
+          data: { ...target, has_unread_completion: false },
+        })
+      },
+    })
+    renderApp()
+    const sidebar = await screen.findByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+    await userEvent
+      .setup()
+      .click(
+        await within(sidebar).findByRole("link", {
+          name: new RegExp(target.title),
+        })
+      )
+    await waitFor(() => expect(listReads).toBeGreaterThanOrEqual(2))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+    expect(
+      requests.filter(
+        (request) =>
+          request.path === `/api/v1/conversations/${target.id}` &&
+          request.method === "PATCH" &&
+          (request.body as { completion_read?: boolean }).completion_read
+      )
+    ).toHaveLength(1)
+    expect(
+      within(sidebar).queryByRole("status", { name: "任务已完成，尚未查看" })
+    ).not.toBeInTheDocument()
+  })
+
   it("shows an unread failure icon until the user opens the failed task", async () => {
     const interaction = userEvent.setup()
     const failedConversation = {
