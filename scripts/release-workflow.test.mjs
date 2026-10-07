@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
@@ -9,6 +10,64 @@ import { createRequire } from "node:module"
 const root = path.resolve(import.meta.dirname, "..")
 const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
 const { parse } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml")
+
+function verifyAnonymousImages(t, deniedReference) {
+  const directory = mkdtempSync(path.join(tmpdir(), "linksense-anonymous-images-"))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const assets = path.join(directory, "release-assets")
+  const bin = path.join(directory, "bin")
+  mkdirSync(assets)
+  mkdirSync(bin)
+  const roles = ["LINKSENSE_API", "LINKSENSE_WEB", "LINKSENSE_MIGRATE", "LINKSENSE_RUNNER", "LINKSENSE_WORKER", "POSTGRES", "REDIS", "MINIO", "MINIO_CLIENT", "BUSYBOX", "GATEWAY", "ELASTICSEARCH", "DOCLING"]
+  const references = roles.map(role => `registry.example/${role.toLowerCase()}@sha256:${createHash("sha256").update(role).digest("hex")}`)
+  const manifest = references.map((reference, index) => `IMAGE_${roles[index]}=${reference}\nIMAGE_${roles[index]}_DIGEST=${reference.split("@")[1]}`).join("\n") + "\n"
+  writeFileSync(path.join(assets, "release-manifest.env"), manifest)
+  writeFileSync(path.join(assets, "release-manifest.env.sha256"), `${createHash("sha256").update(manifest).digest("hex")}  release-manifest.env\n`)
+  const calls = path.join(directory, "docker-calls")
+  writeFileSync(path.join(bin, "docker"), `#!${process.execPath}
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.ANONYMOUS_TEST_CALLS, JSON.stringify(args) + '\\n');
+if (args[0] === 'logout') {
+  assert.deepEqual(args, ['logout', 'ghcr.io']);
+  process.exit(0);
+}
+assert.deepEqual(args.slice(0, 3), ['buildx', 'imagetools', 'inspect']);
+assert.equal(args.length, 4);
+assert.match(args[3], /^registry\\.example\\/[a-z_]+@sha256:[0-9a-f]{64}$/u);
+if (args[3] === process.env.ANONYMOUS_TEST_DENIED) process.exit(1);
+`, { mode: 0o755 })
+  const step = parse(workflow).jobs.release.steps.find(item => item.name === "Verify anonymous access to every LinkSense image candidate")
+  assert.equal(step["continue-on-error"], undefined)
+  const result = spawnSync("bash", ["-c", step.run], {
+    cwd: directory,
+    encoding: "utf8",
+    timeout: 10_000,
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      ANONYMOUS_TEST_CALLS: calls,
+      ANONYMOUS_TEST_DENIED: deniedReference ? references[3] : "",
+    },
+  })
+  const commands = readFileSync(calls, "utf8").trim().split("\n").map(line => JSON.parse(line))
+  assert.deepEqual(commands[0], ["logout", "ghcr.io"])
+  return { ...result, references, inspected: commands.slice(1).map(args => args[3]) }
+}
+
+test("anonymous verification checks all thirteen image references without treating digest metadata as repositories", t => {
+  const result = verifyAnonymousImages(t, false)
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(result.inspected, [...result.references].sort())
+})
+
+test("an image that cannot be read anonymously still blocks release publication", t => {
+  const result = verifyAnonymousImages(t, true)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /Every application and baseline image must be anonymously available/u)
+  assert.ok(result.inspected.includes(result.references[3]))
+})
 
 test("native application verification builds every thin image without publishing images or product Releases", () => {
   const verification = parse(readFileSync(path.join(root, ".github/workflows/verify-application-images.yml"), "utf8"))
