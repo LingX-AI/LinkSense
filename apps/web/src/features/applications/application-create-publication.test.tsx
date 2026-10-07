@@ -6,6 +6,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { supportedLocales } from "@linksense/shared"
 
 import { ApiError, apiRequest } from "@/api/client"
 import i18n from "@/i18n"
@@ -61,9 +62,23 @@ async function openStandardApplication() {
   return { user, feedback }
 }
 
-function mockRequests() {
+function mockRequests(withModel = false) {
   vi.mocked(apiRequest).mockImplementation(async (path) => {
-    if (path === "/me/model-preference") return { models: [] }
+    if (path === "/me/model-preference")
+      return {
+        models: withModel
+          ? [
+              {
+                id: "test-model",
+                display_name: "Test Model",
+                enabled: true,
+                context_window: null,
+                supported_reasoning_efforts: ["medium", "high"],
+                default_reasoning_effort: "medium",
+              },
+            ]
+          : [],
+      }
     if (path === "/applications" || path === `/applications/${id}`)
       return { id }
     if (path.endsWith("/publish"))
@@ -73,6 +88,44 @@ function mockRequests() {
 }
 
 describe("create and publish a standard application", () => {
+  it.each(supportedLocales)(
+    "requires reasoning effort only when a fixed model is selected in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      mockRequests(true)
+      const { user } = await openStandardApplication()
+      const reasoning = screen.getByRole("combobox", {
+        name: i18n.t("applications.reasoningEffort"),
+      })
+      const label = reasoning
+        .closest('[data-slot="field"]')
+        ?.querySelector('[data-slot="field-label"]')
+      expect(label).not.toHaveTextContent("*")
+      expect(reasoning).not.toHaveAttribute("aria-required", "true")
+
+      const model = screen.getByRole("combobox", {
+        name: i18n.t("applications.model"),
+      })
+      await user.click(model)
+      await user.click(
+        await screen.findByRole("option", { name: "Test Model" })
+      )
+      const indicator = label?.querySelector('span[aria-hidden="true"]')
+      expect(indicator).toHaveTextContent("*")
+      expect(indicator).toHaveClass("text-destructive")
+      expect(reasoning).toHaveAttribute("aria-required", "true")
+
+      await user.click(model)
+      await user.click(
+        await screen.findByRole("option", {
+          name: i18n.t("applications.userSelectedModel"),
+        })
+      )
+      expect(label).not.toHaveTextContent("*")
+      expect(reasoning).not.toHaveAttribute("aria-required", "true")
+    }
+  )
+
   it.each([
     ["zh-CN", "创建"],
     ["en-US", "Create"],

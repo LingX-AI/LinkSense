@@ -59,9 +59,10 @@ export function ConversationRenameDialog({
               {error}
             </p>
           )}
-          <FieldShell id={inputId} label={t("conversation.title")}>
+          <FieldShell id={inputId} label={t("conversation.title")} required>
             <Input
               id={inputId}
+              aria-required="true"
               name="conversation-title"
               className="h-9 font-medium"
               value={value}

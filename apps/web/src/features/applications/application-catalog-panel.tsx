@@ -295,13 +295,14 @@ export function InteractiveApplicationImportDialog({
         </DialogHeader>
         <FieldGroup className={dialogBodyStyles()}>
           <Field data-invalid={Boolean(error) || undefined}>
-            <FieldLabel htmlFor="interactive-application-package">
+            <FieldLabel htmlFor="interactive-application-package" required>
               {t("applications.applicationPackage")}
             </FieldLabel>
             <Input
               ref={inputRef}
               id="interactive-application-package"
               type="file"
+              aria-required="true"
               accept=".zip,application/zip"
               disabled={
                 mutation.isPending ||
@@ -1747,7 +1748,10 @@ export function ApplicationEditorDialog({
                     </FieldDescription>
                   </Field>
                   <Field>
-                    <FieldLabel htmlFor="application-reasoning-effort">
+                    <FieldLabel
+                      htmlFor="application-reasoning-effort"
+                      required={Boolean(form.model)}
+                    >
                       {t("applications.reasoningEffort")}
                     </FieldLabel>
                     <Select
@@ -1764,6 +1768,7 @@ export function ApplicationEditorDialog({
                       <SelectTrigger
                         id="application-reasoning-effort"
                         aria-label={t("applications.reasoningEffort")}
+                        aria-required={Boolean(form.model) || undefined}
                       >
                         <SelectValue placeholder={t("common.select")} />
                       </SelectTrigger>

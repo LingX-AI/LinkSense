@@ -591,6 +591,11 @@ describe("ClawHubSkillRepositoryPanel", () => {
       expect(securityWarning).toHaveClass("border-[color:var(--app-border)]")
       expect(within(dialog).getByText("# Alice Browser Skill")).toBeVisible()
       const confirm = within(dialog).getByRole("button", { name: "确认安装" })
+      expect(
+        document.querySelector(
+          "label[for='clawhub-risk-confirm'] span.text-destructive[aria-hidden='true']"
+        )
+      ).toHaveTextContent("*")
       expect(confirm).toBeDisabled()
       await interaction.click(
         within(dialog).getByRole("checkbox", {

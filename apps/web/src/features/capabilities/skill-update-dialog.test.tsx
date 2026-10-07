@@ -154,6 +154,26 @@ describe("SkillUpdateDialog", () => {
     setup()
     const user = userEvent.setup()
     const name = await screen.findByRole("textbox", { name: "技能标识" })
+    expect(
+      document.querySelector(
+        "label[for='skill-update-name'] span.text-destructive"
+      )
+    ).not.toBeInTheDocument()
+    expect(
+      document.querySelector(
+        "label[for='skill-update-content'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
+    expect(
+      document.querySelector(
+        "label[for='skill-update-display-name'] span.text-destructive"
+      )
+    ).not.toBeInTheDocument()
+    expect(
+      document.querySelector(
+        "label[for='skill-update-description'] span.text-destructive"
+      )
+    ).not.toBeInTheDocument()
     const updateMethod = screen.getByRole("radiogroup", { name: "更新方式" })
     expect(updateMethod).toHaveClass("flex", "flex-wrap", "gap-2")
     for (const option of within(updateMethod).getAllByRole("radio")) {
@@ -175,22 +195,29 @@ describe("SkillUpdateDialog", () => {
     expect(name).toHaveAttribute("readonly")
     expect(screen.getByLabelText("展示名称（选填）")).toHaveValue("报告助手")
     expect(screen.getByLabelText("说明")).toHaveValue("报告说明")
-    expect(screen.getByLabelText("技能正文")).toHaveValue("# Original\n")
+    expect(screen.getByLabelText(/^技能正文\s*\*?$/)).toHaveValue(
+      "# Original\n"
+    )
     expect(
       screen.getByText(/原有脚本、模板、图片及其他附带文件都会保留/)
     ).toBeVisible()
     expect(
       screen.getByRole("button", { name: "查看变更与风险" })
     ).toBeDisabled()
-    await user.click(screen.getByLabelText("技能正文"))
+    await user.click(screen.getByLabelText(/^技能正文\s*\*?$/))
     await user.paste("Additional instructions")
     await chooseUpdateMode(user, "替换完整技能包")
+    expect(
+      document.querySelector(
+        "label[for='skill-update-package'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
     expect(screen.getByText(/未包含在新包内的文件将被删除/)).toBeVisible()
     await user.keyboard("{ArrowLeft}")
     expect(
       within(updateMethod).getByRole("radio", { name: "编辑技能内容" })
     ).toBeChecked()
-    expect(screen.getByLabelText("技能正文")).toHaveValue(
+    expect(screen.getByLabelText(/^技能正文\s*\*?$/)).toHaveValue(
       "# Original\nAdditional instructions"
     )
     expect(screen.getByRole("button", { name: "查看变更与风险" })).toBeEnabled()
@@ -221,7 +248,7 @@ describe("SkillUpdateDialog", () => {
     vi.stubGlobal("fetch", fetchMock)
     const { onClose, onCompleted } = setup()
     const user = userEvent.setup()
-    await user.clear(await screen.findByLabelText("技能正文"))
+    await user.clear(await screen.findByLabelText(/^技能正文\s*\*?$/))
     await user.paste("# Updated")
     await user.click(screen.getByRole("button", { name: "查看变更与风险" }))
     expect(
@@ -244,7 +271,7 @@ describe("SkillUpdateDialog", () => {
     expect(await screen.findByText(/此技能已发生变化/)).toBeVisible()
     expect(onClose).not.toHaveBeenCalled()
     await user.click(screen.getByRole("button", { name: "返回" }))
-    expect(screen.getByLabelText("技能正文")).toHaveValue("# Updated")
+    expect(screen.getByLabelText(/^技能正文\s*\*?$/)).toHaveValue("# Updated")
     await user.click(screen.getByRole("button", { name: "查看变更与风险" }))
     await screen.findByRole("region", { name: "本次文件变更" })
     expect(
@@ -280,9 +307,17 @@ describe("SkillUpdateDialog", () => {
     setup()
     await chooseUpdateMode(user, "替换完整技能包")
     const file = new File(["zip"], "reports.zip", { type: "application/zip" })
-    await user.upload(screen.getByLabelText("ZIP 技能包"), file)
+    await user.upload(screen.getByLabelText(/^ZIP 技能包\s*\*?$/), file)
     await user.click(screen.getByRole("button", { name: "查看变更与风险" }))
     await screen.findByText("将删除的文件")
+    for (const checkbox of screen.getAllByRole("checkbox")) {
+      expect(checkbox).toHaveAttribute("aria-required", "true")
+      expect(
+        checkbox
+          .closest("label")
+          ?.querySelector("span.text-destructive[aria-hidden='true']")
+      ).toHaveTextContent("*")
+    }
     const body = vi.mocked(apiUploadRequest).mock.calls[0]?.[1].body
     expect(body?.get("base_revision")).toBe(detail.revision)
     expect(body?.get("file")).toBe(file)
@@ -332,7 +367,9 @@ describe("SkillUpdateDialog", () => {
     resolveRead(failure())
     expect(await screen.findByText("无法加载当前技能，请重试。")).toBeVisible()
     await userEvent.setup().click(screen.getByRole("button", { name: "重试" }))
-    expect(await screen.findByLabelText("技能正文")).toHaveValue(detail.content)
+    expect(await screen.findByLabelText(/^技能正文\s*\*?$/)).toHaveValue(
+      detail.content
+    )
   })
 
   it("downloads the current package through the authenticated API and exposes download failures", async () => {
@@ -375,7 +412,7 @@ describe("SkillUpdateDialog", () => {
     await user.click(editOption)
     expect(screen.getByRole("radio", { name: "替换完整技能包" })).toBeChecked()
     expect(screen.queryByLabelText("技能正文")).not.toBeInTheDocument()
-    expect(screen.getByLabelText("ZIP 技能包")).toBeVisible()
+    expect(screen.getByLabelText(/^ZIP 技能包\s*\*?$/)).toBeVisible()
     expect(screen.getByRole("button", { name: "下载完整技能包" })).toBeEnabled()
   })
 

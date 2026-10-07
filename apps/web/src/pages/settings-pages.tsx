@@ -372,7 +372,7 @@ export function SettingsProfilePage() {
             {nameError && (
               <StatusBanner variant="error">{nameError}</StatusBanner>
             )}
-            <FieldShell id="profile-name" label={t("common.name")}>
+            <FieldShell id="profile-name" label={t("common.name")} required>
               <Input
                 id="profile-name"
                 className="h-9"
@@ -985,6 +985,7 @@ export function SettingsSecurityPage() {
             <SettingsFieldGroup>
               <FieldShell
                 id="current-password"
+                required
                 label={t("auth.currentPassword")}
                 layout="settings"
                 controlWidth="medium"
@@ -1000,6 +1001,7 @@ export function SettingsSecurityPage() {
               </FieldShell>
               <FieldShell
                 id="profile-new-password"
+                required
                 label={t("auth.newPassword")}
                 hint={t("auth.passwordPolicy")}
                 layout="settings"
@@ -1016,6 +1018,7 @@ export function SettingsSecurityPage() {
               </FieldShell>
               <FieldShell
                 id="profile-confirm-password"
+                required
                 label={t("auth.confirmPassword")}
                 layout="settings"
                 controlWidth="medium"

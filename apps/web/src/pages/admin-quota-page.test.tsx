@@ -14,6 +14,10 @@ import { setAccessToken } from "@/api/session"
 import { notify } from "@/components/feedback/notification"
 import i18n from "@/i18n"
 import { AdminQuotaPage, QuotaSettingsForm } from "@/pages/admin-quota-page"
+import {
+  expectRequiredLabel,
+  formLabelPattern,
+} from "@/features/admin/required-field-label.test-helper"
 
 const { refreshUser } = vi.hoisted(() => ({
   refreshUser: vi.fn(async () => undefined),
@@ -67,6 +71,20 @@ afterEach(() => {
 })
 
 describe("quota management", () => {
+  it("marks the credit conversion price while leaving an inherited weekly limit optional", () => {
+    renderPage(true)
+    expectRequiredLabel(
+      screen.getByRole("textbox", {
+        name: i18n.t("quotaManagement.creditPrice"),
+      })
+    )
+    expectRequiredLabel(
+      screen.getByRole("textbox", {
+        name: i18n.t("quotaManagement.weekly_credit_limit"),
+      }),
+      false
+    )
+  })
   it.each(["zh-CN", "en-US", "de-DE"])(
     "renders the unified member quota controls and fallback for %s",
     async (language) => {
@@ -145,8 +163,10 @@ describe("quota management", () => {
     const saved = vi.spyOn(notify, "success")
     const user = userEvent.setup()
     renderPage(true)
-    const price = screen.getByLabelText("1 credit 对应金额（美元）")
-    const weekly = screen.getByLabelText("周额度（credits）")
+    const price = screen.getByLabelText(
+      formLabelPattern("1 credit 对应金额（美元）")
+    )
+    const weekly = screen.getByLabelText(formLabelPattern("周额度（credits）"))
 
     await user.clear(price)
     await user.type(price, "0.02")
@@ -179,8 +199,10 @@ describe("quota management", () => {
     vi.stubGlobal("fetch", fetch)
     const user = userEvent.setup()
     renderPage(true)
-    const price = screen.getByLabelText("1 credit 对应金额（美元）")
-    const weekly = screen.getByLabelText("周额度（credits）")
+    const price = screen.getByLabelText(
+      formLabelPattern("1 credit 对应金额（美元）")
+    )
+    const weekly = screen.getByLabelText(formLabelPattern("周额度（credits）"))
 
     await user.clear(price)
     await user.type(price, "0")
@@ -200,8 +222,10 @@ describe("quota management", () => {
     vi.stubGlobal("fetch", fetch)
     const user = userEvent.setup()
     renderPage(true)
-    const price = screen.getByLabelText("1 credit 对应金额（美元）")
-    const weekly = screen.getByLabelText("周额度（credits）")
+    const price = screen.getByLabelText(
+      formLabelPattern("1 credit 对应金额（美元）")
+    )
+    const weekly = screen.getByLabelText(formLabelPattern("周额度（credits）"))
     const saves = screen.getAllByRole("button", { name: "保存设置" })
 
     await user.clear(price)
@@ -227,7 +251,7 @@ describe("quota management", () => {
     vi.stubGlobal("fetch", fetch)
     const user = userEvent.setup()
     renderPage(true)
-    const weekly = screen.getByLabelText("周额度（credits）")
+    const weekly = screen.getByLabelText(formLabelPattern("周额度（credits）"))
     await user.type(weekly, "123")
     const save = screen.getAllByRole("button", { name: "保存设置" })[1]!
 
@@ -274,7 +298,7 @@ describe("quota management", () => {
     const saved = vi.spyOn(notify, "success")
     const user = userEvent.setup()
     renderPage(true)
-    const weekly = screen.getByLabelText("周额度（credits）")
+    const weekly = screen.getByLabelText(formLabelPattern("周额度（credits）"))
     await user.type(weekly, "123")
 
     await chooseMemberQuotaAction(user, "重置全员额度")
@@ -317,8 +341,10 @@ describe("quota management", () => {
     const saved = vi.spyOn(notify, "success")
     const user = userEvent.setup()
     renderPage(true)
-    const price = screen.getByLabelText("1 credit 对应金额（美元）")
-    const weekly = screen.getByLabelText("周额度（credits）")
+    const price = screen.getByLabelText(
+      formLabelPattern("1 credit 对应金额（美元）")
+    )
+    const weekly = screen.getByLabelText(formLabelPattern("周额度（credits）"))
     await user.clear(price)
     await user.type(price, "0.02")
     await user.type(weekly, "150.5")
@@ -351,7 +377,7 @@ describe("quota management", () => {
     vi.stubGlobal("fetch", fetch)
     const user = userEvent.setup()
     renderPage(true)
-    const weekly = screen.getByLabelText("周额度（credits）")
+    const weekly = screen.getByLabelText(formLabelPattern("周额度（credits）"))
     await user.type(weekly, "-1")
 
     await chooseMemberQuotaAction(user, "应用限额到全员")
@@ -370,7 +396,7 @@ describe("quota management", () => {
     )
     const user = userEvent.setup()
     renderPage(true)
-    const weekly = screen.getByLabelText("周额度（credits）")
+    const weekly = screen.getByLabelText(formLabelPattern("周额度（credits）"))
     await user.type(weekly, "99")
     const trigger = screen.getByRole("button", { name: "成员额度操作" })
 

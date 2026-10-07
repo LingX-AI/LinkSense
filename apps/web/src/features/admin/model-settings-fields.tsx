@@ -41,6 +41,7 @@ export function ModelSettingsSelect<T extends string>({
   disabled = false,
   layout = "default",
   actions,
+  required = false,
 }: {
   label: string
   value: T | null
@@ -49,6 +50,7 @@ export function ModelSettingsSelect<T extends string>({
   disabled?: boolean
   layout?: "default" | "settings"
   actions?: ReactNode
+  required?: boolean
 }) {
   const id = useId()
   const select = (
@@ -64,6 +66,7 @@ export function ModelSettingsSelect<T extends string>({
     >
       <SelectTrigger
         id={id}
+        aria-required={required || undefined}
         className={actions ? "w-full min-w-0 flex-1" : "w-full"}
       >
         <SelectValue>
@@ -87,6 +90,7 @@ export function ModelSettingsSelect<T extends string>({
     <FieldShell
       id={id}
       label={label}
+      required={required}
       layout={layout}
       controlWidth={layout === "settings" && !actions ? "medium" : "full"}
     >
@@ -134,6 +138,7 @@ export function ModelSettingsFields({
             <FieldShell
               id={`${id}-model-id`}
               label={t("admin.modelProvider.modelId")}
+              required
               error={modelIdError}
             >
               <Input
@@ -158,6 +163,7 @@ export function ModelSettingsFields({
             <FieldShell
               id={`${id}-model-name`}
               label={t("admin.modelProvider.displayName")}
+              required
               hint={
                 modelNameHint ? (
                   <span
@@ -190,6 +196,7 @@ export function ModelSettingsFields({
             </FieldShell>
             <ModelSettingsSelect
               label={t("admin.modelProvider.modelKind")}
+              required
               value={model.kind}
               options={managedModelKindValues.map((value) => ({
                 value,
@@ -218,6 +225,7 @@ export function ModelSettingsFields({
             <FieldShell
               id={`${id}-input-price`}
               label={t("admin.modelProvider.inputPrice")}
+              required
             >
               <ModelTokenPriceInput
                 id={`${id}-input-price`}
@@ -239,6 +247,7 @@ export function ModelSettingsFields({
                 <FieldShell
                   id={`${id}-cached-price`}
                   label={t("admin.modelProvider.cachedInputPrice")}
+                  required
                 >
                   <ModelTokenPriceInput
                     id={`${id}-cached-price`}
@@ -258,6 +267,7 @@ export function ModelSettingsFields({
                 <FieldShell
                   id={`${id}-output-price`}
                   label={t("admin.modelProvider.outputPrice")}
+                  required
                 >
                   <ModelTokenPriceInput
                     id={`${id}-output-price`}
@@ -308,6 +318,7 @@ export function ModelSettingsFields({
               <FieldShell
                 id={`${id}-efforts`}
                 label={t("admin.modelProvider.supportedEfforts")}
+                required
               >
                 <DropdownMenu>
                   <DropdownMenuTrigger
@@ -370,6 +381,7 @@ export function ModelSettingsFields({
               </FieldShell>
               <ModelSettingsSelect
                 label={t("admin.modelProvider.defaultEffort")}
+                required
                 value={model.default_reasoning_effort}
                 options={efforts.map((value) => ({
                   value,

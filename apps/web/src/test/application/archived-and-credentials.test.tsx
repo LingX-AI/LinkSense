@@ -407,11 +407,23 @@ describe("LinkSense application", () => {
     await interaction.click(
       await screen.findByRole("button", { name: "新增凭据" })
     )
-    await interaction.type(screen.getByLabelText("名称"), "业务系统")
-    await interaction.type(screen.getByLabelText("服务标识"), "service_api")
-    await interaction.clear(screen.getByLabelText("配置项名称"))
-    await interaction.type(screen.getByLabelText("配置项名称"), "API_KEY")
-    await interaction.type(screen.getByLabelText("授权信息"), "secret-one")
+    await interaction.type(
+      screen.getByRole("textbox", { name: "名称" }),
+      "业务系统"
+    )
+    await interaction.type(
+      screen.getByRole("textbox", { name: "服务标识" }),
+      "service_api"
+    )
+    await interaction.clear(screen.getByRole("textbox", { name: "配置项名称" }))
+    await interaction.type(
+      screen.getByRole("textbox", { name: "配置项名称" }),
+      "API_KEY"
+    )
+    await interaction.type(
+      screen.getByLabelText(/^授权信息\s*\*?$/u),
+      "secret-one"
+    )
     await interaction.click(screen.getByRole("button", { name: "添加配置项" }))
     const credentialDialog = screen.getByRole("dialog", { name: "新增凭据" })
     expect(credentialDialog).toHaveClass(
@@ -427,8 +439,8 @@ describe("LinkSense application", () => {
         name: "移除此配置项",
       })
     ).toHaveLength(2)
-    const keyInputs = screen.getAllByLabelText("配置项名称")
-    const valueInputs = screen.getAllByLabelText("授权信息")
+    const keyInputs = screen.getAllByRole("textbox", { name: "配置项名称" })
+    const valueInputs = screen.getAllByLabelText(/^授权信息\s*\*?$/u)
     expect(valueInputs[0]).toHaveAttribute("autocomplete", "new-password")
     await interaction.clear(keyInputs[1]!)
     await interaction.type(keyInputs[1]!, "API_SECRET")

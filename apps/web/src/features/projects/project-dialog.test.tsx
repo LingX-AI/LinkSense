@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { APPLICATION_DEVELOPMENT_PROJECT_NAME } from "@linksense/shared"
-import i18n from "@/i18n"
+import i18n, { supportedLanguages } from "@/i18n"
 import { ProjectDialog } from "./project-dialog"
 import { saveProject } from "./project-api"
 
@@ -26,6 +26,28 @@ afterEach(() => {
 })
 
 describe("dedicated development project editing", () => {
+  it.each(supportedLanguages)(
+    "marks the project name as required in %s without changing its accessible name",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const client = new QueryClient()
+      render(
+        <QueryClientProvider client={client}>
+          <ProjectDialog action={{ mode: "create" }} onClose={vi.fn()} />
+        </QueryClientProvider>
+      )
+      const input = screen.getByRole("textbox", {
+        name: i18n.t("projects.name"),
+      })
+      const label = document.querySelector(`label[for="${input.id}"]`)
+      expect(
+        label?.querySelector("span.text-destructive[aria-hidden='true']")
+      ).toHaveTextContent("*")
+      expect(input).toHaveAttribute("aria-required", "true")
+      client.clear()
+    }
+  )
+
   it.each([APPLICATION_DEVELOPMENT_PROJECT_NAME, "Work"])(
     "only locks the dedicated project name: %s",
     async (name) => {
@@ -46,6 +68,11 @@ describe("dedicated development project editing", () => {
         </QueryClientProvider>
       )
       const input = screen.getByRole("textbox")
+      expect(
+        document.querySelector(
+          `label[for="${input.id}"] span.text-destructive[aria-hidden='true']`
+        )
+      ).toHaveTextContent("*")
       if (name === APPLICATION_DEVELOPMENT_PROJECT_NAME) {
         expect(input).toHaveAttribute("readonly")
         expect(

@@ -249,7 +249,7 @@ function BotChannelCard({
             >
               <FieldGroup>
                 <Field data-invalid={invalid}>
-                  <FieldLabel htmlFor={`${provider}-app`}>
+                  <FieldLabel htmlFor={`${provider}-app`} required>
                     {t(
                       provider === "wecom"
                         ? "botChannels.botId"
@@ -267,7 +267,7 @@ function BotChannelCard({
                   />
                 </Field>
                 <Field data-invalid={invalid}>
-                  <FieldLabel htmlFor={`${provider}-secret`}>
+                  <FieldLabel htmlFor={`${provider}-secret`} required>
                     {t("botChannels.secret")}
                   </FieldLabel>
                   <Input
@@ -284,7 +284,7 @@ function BotChannelCard({
                 </Field>
                 {provider === "teams" && (
                   <Field data-invalid={invalid}>
-                    <FieldLabel htmlFor="teams-tenant">
+                    <FieldLabel htmlFor="teams-tenant" required>
                       {t("botChannels.tenantId")}
                     </FieldLabel>
                     <Input
@@ -298,7 +298,7 @@ function BotChannelCard({
                   </Field>
                 )}
                 <Field data-invalid={invalid}>
-                  <FieldLabel htmlFor={`${provider}-sender`}>
+                  <FieldLabel htmlFor={`${provider}-sender`} required>
                     {t("botChannels.sender")}
                   </FieldLabel>
                   <Input

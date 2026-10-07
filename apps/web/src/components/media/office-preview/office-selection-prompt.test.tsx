@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { OfficeSelectionPrompt } from "@/components/media/office-preview/office-selection-prompt"
 import { OfficePreviewShell } from "@/components/media/office-preview/office-preview-shell"
-import i18n from "@/i18n"
+import i18n, { supportedLanguages } from "@/i18n"
 
 const voiceInput = vi.hoisted(() => ({
   phase: "idle" as
@@ -46,6 +46,7 @@ function PromptFixture({
   mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   onSubmit = vi.fn().mockResolvedValue(undefined),
   voiceTranscriptionAvailability = "available",
+  promptLabel = "Describe the requested change",
 }: Readonly<{
   anchor?: Readonly<{ left: number; top: number }>
   disabled?: boolean
@@ -55,6 +56,7 @@ function PromptFixture({
   onSubmit?: (selection: { id: string }, description: string) => Promise<void>
   voiceTranscriptionAvailability?:
     "checking" | "available" | "not_configured" | "unavailable"
+  promptLabel?: string
 }>) {
   const scopeRef = useRef<HTMLElement>(null)
   const prompt = (
@@ -68,7 +70,7 @@ function PromptFixture({
         shortcutLabel: "⌘I",
         disabled,
         disabledReason: "Wait for the current task to finish.",
-        promptLabel: "Describe the requested change",
+        promptLabel,
         placeholder: "Change the selection",
         submitLabel: "Send",
         errorMessage: "Unable to send",
@@ -114,6 +116,35 @@ describe("OfficeSelectionPrompt", () => {
     cleanup()
     vi.restoreAllMocks()
   })
+
+  it.each(supportedLanguages)(
+    "shows a visible required selection description label in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const promptLabel = i18n.t("officePreview.selectionPromptLabel", {
+        productName: "LinkSense",
+      })
+      const user = userEvent.setup()
+      render(<PromptFixture promptLabel={promptLabel} />)
+      await user.click(screen.getByRole("button", { name: /Ask LinkSense/u }))
+      const input = screen.getByRole("textbox", { name: promptLabel })
+      const label = document.querySelector(`label[for="${input.id}"]`)
+      expect(label).toBeVisible()
+      expect(label).not.toHaveClass("sr-only")
+      const indicator = label?.querySelector(
+        "span.text-destructive[aria-hidden='true']"
+      )
+      expect(indicator).toBeVisible()
+      expect(indicator).toHaveTextContent("*")
+      expect(input).toHaveAttribute("aria-required", "true")
+      expect(input).not.toHaveAttribute("required")
+      const send = screen.getByRole("button", { name: "Send" })
+      expect(send).toBeDisabled()
+      await user.type(input, "Update the selection")
+      expect(send).toBeEnabled()
+      expect(indicator).toBeVisible()
+    }
+  )
 
   it("submits the reusable selection payload and trimmed request", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined)

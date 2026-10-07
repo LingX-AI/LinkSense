@@ -438,7 +438,7 @@ export function KnowledgeUploadDialog({
 
         <Field orientation="horizontal" className="items-center">
           <FieldContent>
-            <FieldLabel>{t("knowledge.upload.sourceType")}</FieldLabel>
+            <FieldLabel required>{t("knowledge.upload.sourceType")}</FieldLabel>
             <FieldDescription>
               {t("knowledge.upload.sourceTypeDescription")}
             </FieldDescription>
@@ -469,6 +469,7 @@ export function KnowledgeUploadDialog({
 
         <FieldShell
           id="knowledge-upload-files"
+          required
           label={t(
             uploadMode === "folder"
               ? "knowledge.upload.chooseFolder"
@@ -492,6 +493,7 @@ export function KnowledgeUploadDialog({
           <Input
             ref={fileInputRef}
             id="knowledge-upload-files"
+            aria-required="true"
             type="file"
             accept={uploadMode === "folder" ? undefined : knowledgeUploadAccept}
             multiple

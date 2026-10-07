@@ -2015,7 +2015,7 @@ describe("capability marketplace pages", () => {
       within(pluginImportDialog).queryByLabelText("类型")
     ).not.toBeInTheDocument()
     expect(
-      within(pluginImportDialog).getByLabelText("ZIP 插件包")
+      within(pluginImportDialog).getByLabelText(/^ZIP 插件包\s*\*?$/)
     ).toBeVisible()
     expect(
       within(pluginImportDialog).queryByText("手动创建 Skill")
@@ -3780,22 +3780,43 @@ describe("capability marketplace pages", () => {
       })
       expect(local).toBeChecked()
       expect(manual).not.toBeChecked()
+      expect(
+        document.querySelector(
+          "label[for='capability-package'] span.text-destructive[aria-hidden='true']"
+        )
+      ).toHaveTextContent("*")
       await interaction.click(manual)
+      for (const id of ["capability-name", "capability-skill-markdown"]) {
+        expect(
+          document.querySelector(
+            `label[for='${id}'] span.text-destructive[aria-hidden='true']`
+          )
+        ).toHaveTextContent("*")
+      }
+      for (const id of ["capability-display-name", "capability-description"]) {
+        expect(
+          document.querySelector(`label[for='${id}'] span.text-destructive`)
+        ).not.toBeInTheDocument()
+      }
       expect(manual).toBeChecked()
       expect(local).not.toBeChecked()
-      const instructions = within(dialog).getByLabelText(
-        i18n.t("marketplace.skillMarkdown")
-      )
+      const instructions = within(dialog).getByRole("textbox", {
+        name: i18n.t("marketplace.skillMarkdown"),
+      })
       await interaction.click(instructions)
       await interaction.paste("# Saved draft")
       await interaction.click(local)
       expect(
-        within(dialog).getByLabelText(i18n.t("marketplace.zipSkillPackage"))
+        within(dialog).getByLabelText(i18n.t("marketplace.zipSkillPackage"), {
+          exact: false,
+        })
       ).toBeVisible()
       await interaction.keyboard("{ArrowRight}")
       expect(manual).toBeChecked()
       expect(
-        within(dialog).getByLabelText(i18n.t("marketplace.skillMarkdown"))
+        within(dialog).getByRole("textbox", {
+          name: i18n.t("marketplace.skillMarkdown"),
+        })
       ).toHaveValue("# Saved draft")
     }
   )
@@ -4229,9 +4250,19 @@ describe("capability marketplace pages", () => {
       const dialog = await screen.findByRole("dialog", {
         name: i18n.t("marketplace.publishNew"),
       })
-      const source = within(dialog).getByLabelText(
-        i18n.t("marketplace.sourceCapability")
-      )
+      const source = within(dialog).getByRole("combobox", {
+        name: i18n.t("marketplace.sourceCapability"),
+      })
+      expect(
+        document.querySelector(
+          "label[for='marketplace-publish-source'] span.text-destructive[aria-hidden='true']"
+        )
+      ).toHaveTextContent("*")
+      expect(
+        document.querySelector(
+          "label[for='marketplace-release-notes'] span.text-destructive"
+        )
+      ).not.toBeInTheDocument()
       const label = `${displayName} · Skill · ${i18n.t("capability.sourceTypes.local")}`
       expect(source.closest('[data-slot="field"]')).toHaveClass("min-w-0")
       expect(source).toHaveClass("w-full", "min-w-0")
@@ -4426,7 +4457,7 @@ describe("capability marketplace pages", () => {
     expect(within(importSource).getAllByRole("radio")).toHaveLength(2)
 
     await interaction.upload(
-      within(importDialog).getByLabelText("ZIP 技能包"),
+      within(importDialog).getByLabelText(/^ZIP 技能包\s*\*?$/),
       new File(["skill archive"], "uploaded-skill.zip", {
         type: "application/zip",
       })
@@ -4447,7 +4478,9 @@ describe("capability marketplace pages", () => {
     expect(
       within(importSource).getByRole("radio", { name: "本地 ZIP 包" })
     ).toBeChecked()
-    expect(within(importDialog).getByLabelText("ZIP 技能包")).toBeVisible()
+    expect(
+      within(importDialog).getByLabelText(/^ZIP 技能包\s*\*?$/)
+    ).toBeVisible()
 
     const uploadRequest = ControllableUploadRequest.latest
     expect(uploadRequest).not.toBeNull()
@@ -4503,9 +4536,9 @@ describe("capability marketplace pages", () => {
     const updateDialog = await screen.findByRole("dialog", {
       name: "更新个人技能",
     })
-    expect(await within(updateDialog).findByLabelText("技能正文")).toHaveValue(
-      "# Current instructions"
-    )
+    expect(
+      await within(updateDialog).findByLabelText(/^技能正文\s*\*?$/)
+    ).toHaveValue("# Current instructions")
     expect(within(updateDialog).getByLabelText("技能标识")).toHaveValue(
       "frontend-slides"
     )
@@ -4533,7 +4566,7 @@ describe("capability marketplace pages", () => {
     expect(
       await screen.findByRole("heading", { name: "申请上架新插件/技能" })
     ).toBeVisible()
-    const publishSource = screen.getByLabelText("个人插件/技能来源")
+    const publishSource = screen.getByLabelText(/^个人插件\/技能来源\s*\*?$/)
     expect(publishSource).toHaveTextContent(
       "Frontend Slides · Skill · 本地导入"
     )
@@ -4666,7 +4699,7 @@ describe("capability marketplace pages", () => {
     await interaction.click(screen.getByRole("button", { name: "添加技能" }))
     const dialog = await screen.findByRole("dialog", { name: "添加技能" })
     await interaction.upload(
-      within(dialog).getByLabelText("ZIP 技能包"),
+      within(dialog).getByLabelText(/^ZIP 技能包\s*\*?$/),
       new File(["archive"], "blocked-skill.zip", {
         type: "application/zip",
       })
@@ -4828,9 +4861,9 @@ describe("capability marketplace pages", () => {
       )
       const managementDialog = await screen.findByRole("dialog")
       await userEvent.type(
-        within(managementDialog).getByLabelText(
-          i18n.t("applications.distribution.reviewComment")
-        ),
+        within(managementDialog).getByRole("textbox", {
+          name: i18n.t("applications.distribution.reviewComment"),
+        }),
         "Needs review"
       )
       await userEvent.click(
@@ -5113,7 +5146,14 @@ describe("capability marketplace pages", () => {
           .getByRole("button", { name: actionLabel })
           .querySelector("svg")
       ).toHaveClass(actionIcon)
-      if (!suspended) expect(screen.getByLabelText("下架原因")).toBeVisible()
+      if (!suspended) {
+        expect(screen.getByLabelText(/^下架原因\s*\*?$/)).toBeVisible()
+        expect(
+          document.querySelector(
+            "label[for='marketplace-suspension-reason'] span.text-destructive[aria-hidden='true']"
+          )
+        ).toHaveTextContent("*")
+      }
     }
   )
 
@@ -5395,6 +5435,39 @@ describe("capability marketplace pages", () => {
     expect(commentField).not.toBeNull()
     expect(decisionField?.parentElement).toBe(commentField?.parentElement)
     expect(decisionField?.parentElement).toHaveClass("items-start")
+    expect(
+      decisionField?.querySelector(
+        "label span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
+    expect(
+      commentField?.querySelector("label span.text-destructive")
+    ).not.toBeInTheDocument()
+    await interaction.click(
+      screen.getByRole("combobox", {
+        name: i18n.t("marketplace.reviewDecision"),
+      })
+    )
+    await interaction.click(
+      await screen.findByRole("option", { name: i18n.t("marketplace.reject") })
+    )
+    expect(
+      commentField?.querySelector(
+        "label span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
+    expect(screen.getByRole("button", { name: "提交审核结论" })).toBeDisabled()
+    await interaction.click(
+      screen.getByRole("combobox", {
+        name: i18n.t("marketplace.reviewDecision"),
+      })
+    )
+    await interaction.click(
+      await screen.findByRole("option", { name: i18n.t("marketplace.approve") })
+    )
+    expect(
+      commentField?.querySelector("label span.text-destructive")
+    ).not.toBeInTheDocument()
     await interaction.click(
       screen.getByRole("button", { name: "提交审核结论" })
     )

@@ -192,6 +192,16 @@ describe("knowledge share dialog", () => {
 
     const userToggle = await screen.findByRole("tab", { name: "用户" })
     const groupToggle = screen.getByRole("tab", { name: "用户组" })
+    expect(
+      document.querySelectorAll(
+        "[data-slot='field-legend'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveLength(2)
+    expect(
+      screen.getByRole("combobox", {
+        name: i18n.t("knowledge.share.selectTarget"),
+      })
+    ).toHaveAttribute("aria-required", "true")
     const targetTypeSelector = userToggle.closest(
       ".knowledge-share-type-options"
     )

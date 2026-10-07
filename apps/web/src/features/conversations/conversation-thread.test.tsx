@@ -28,7 +28,7 @@ import {
   assistantHtmlPreviewShellReadyMessageType,
   assistantHtmlPreviewWheelMessageType,
 } from "@/features/conversations/assistant-html-preview-document"
-import i18n from "@/i18n"
+import i18n, { supportedLanguages } from "@/i18n"
 import { AssistantKnowledgeImage } from "@/features/conversations/assistant-knowledge-image"
 
 const knowledgeBaseApiMocks = vi.hoisted(() => ({
@@ -838,9 +838,7 @@ describe("conversation turn responses", () => {
       }),
       "*"
     )
-    expect(postMessage.mock.calls[0]?.[0].html).toContain(
-      "cdn.jsdelivr.net"
-    )
+    expect(postMessage.mock.calls[0]?.[0].html).toContain("cdn.jsdelivr.net")
 
     act(() => {
       window.dispatchEvent(
@@ -1081,7 +1079,8 @@ describe("conversation turn responses", () => {
     ).toBeNull()
     expect(container.querySelector('[data-slot="skeleton"]')).toBeNull()
 
-    const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    const bounds = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
       .mockReturnValue(new DOMRect(0, 0, 384, 256))
     fireEvent.click(screen.getByRole("status", { name: "正在生成交互组件…" }))
     bounds.mockRestore()
@@ -4222,111 +4221,122 @@ describe("conversation turn responses", () => {
     expect(within(summary).getByText("正在运行一个命令")).toBeVisible()
   })
 
-  it.each(["completed", "failed", "interrupted"] as const)("keeps the image generation surface last and removes its game when generation is %s", (outcome) => {
-    const runningTurn = {
-      id: "turn-1",
-      status: "running" as const,
-      started_at: "2026-07-11T08:00:00.000Z",
-      completed_at: null,
+  it.each(["completed", "failed", "interrupted"] as const)(
+    "keeps the image generation surface last and removes its game when generation is %s",
+    (outcome) => {
+      const runningTurn = {
+        id: "turn-1",
+        status: "running" as const,
+        started_at: "2026-07-11T08:00:00.000Z",
+        completed_at: null,
+      }
+      const imageCallStarted = {
+        id: "image-generation-call",
+        type: "mcpToolCall" as const,
+        server: "linksense_core",
+        tool: "generate_image",
+        status: "inProgress" as const,
+      } satisfies NativeCodexItem
+      const imageCallCompleted = {
+        ...imageCallStarted,
+        status: "completed" as const,
+        durationMs: 86_500,
+      } satisfies NativeCodexItem
+      const messages = [
+        completedConversation.messages![0]!,
+        {
+          id: "image-generation-commentary",
+          role: "assistant" as const,
+          turn_id: "turn-1",
+          phase: "commentary" as const,
+          event_sequence_no: 4,
+          content: "图像正在生成中，我会保留关键构图。",
+          created_at: "2026-07-11T08:00:04.000Z",
+          streaming: true,
+        },
+      ]
+      const startedEvent = nativeItemLifecycleEvent({
+        id: "image-generation-started",
+        sequence: 3,
+        item: imageCallStarted,
+        method: "item/started",
+      })
+      const { rerender } = render(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            messages,
+            turns: [runningTurn],
+            running_turn: runningTurn,
+            events: [startedEvent],
+          }}
+          onDownload={vi.fn()}
+        />
+      )
+
+      const summary = screen.getByTestId("turn-summary-turn-1")
+      const loading = within(summary).getByRole("status", {
+        name: "正在生成图片…",
+      })
+      expect(loading).toBeVisible()
+      expect(loading).toHaveClass(
+        "assistant-html-preview-loading-surface",
+        "turn-image-generation-loading",
+        "aspect-square",
+        "min-h-0",
+        "max-w-[20rem]"
+      )
+      expect(loading).not.toHaveClass("min-h-80")
+      expect(
+        loading.querySelector(".assistant-html-preview-loading-canvas")
+      ).toBeVisible()
+      expect(
+        loading.querySelector(".assistant-html-preview-loading-glow")
+      ).toBeVisible()
+      expect(summary.lastElementChild).toBe(loading)
+
+      const bounds = vi
+        .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+        .mockReturnValue(new DOMRect(0, 0, 384, 256))
+      fireEvent.click(loading)
+      bounds.mockRestore()
+      expect(screen.getByRole("application", { name: "贪吃蛇" })).toBeVisible()
+
+      rerender(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            messages,
+            turns: [
+              outcome === "completed"
+                ? runningTurn
+                : { ...runningTurn, status: outcome },
+            ],
+            running_turn: outcome === "completed" ? runningTurn : null,
+            events:
+              outcome === "completed"
+                ? [
+                    startedEvent,
+                    nativeItemLifecycleEvent({
+                      id: "image-generation-completed",
+                      sequence: 5,
+                      item: imageCallCompleted,
+                      method: "item/completed",
+                    }),
+                  ]
+                : [startedEvent],
+          }}
+          onDownload={vi.fn()}
+        />
+      )
+
+      expect(
+        within(summary).queryByRole("status", { name: "正在生成图片…" })
+      ).toBeNull()
+      expect(summary.querySelector(".turn-image-generation-loading")).toBeNull()
+      expect(screen.queryByRole("application", { name: "贪吃蛇" })).toBeNull()
     }
-    const imageCallStarted = {
-      id: "image-generation-call",
-      type: "mcpToolCall" as const,
-      server: "linksense_core",
-      tool: "generate_image",
-      status: "inProgress" as const,
-    } satisfies NativeCodexItem
-    const imageCallCompleted = {
-      ...imageCallStarted,
-      status: "completed" as const,
-      durationMs: 86_500,
-    } satisfies NativeCodexItem
-    const messages = [
-      completedConversation.messages![0]!,
-      {
-        id: "image-generation-commentary",
-        role: "assistant" as const,
-        turn_id: "turn-1",
-        phase: "commentary" as const,
-        event_sequence_no: 4,
-        content: "图像正在生成中，我会保留关键构图。",
-        created_at: "2026-07-11T08:00:04.000Z",
-        streaming: true,
-      },
-    ]
-    const startedEvent = nativeItemLifecycleEvent({
-      id: "image-generation-started",
-      sequence: 3,
-      item: imageCallStarted,
-      method: "item/started",
-    })
-    const { rerender } = render(
-      <ConversationThread
-        conversation={{
-          ...completedConversation,
-          messages,
-          turns: [runningTurn],
-          running_turn: runningTurn,
-          events: [startedEvent],
-        }}
-        onDownload={vi.fn()}
-      />
-    )
-
-    const summary = screen.getByTestId("turn-summary-turn-1")
-    const loading = within(summary).getByRole("status", {
-      name: "正在生成图片…",
-    })
-    expect(loading).toBeVisible()
-    expect(loading).toHaveClass(
-      "assistant-html-preview-loading-surface",
-      "turn-image-generation-loading",
-      "aspect-square",
-      "min-h-0",
-      "max-w-[20rem]"
-    )
-    expect(loading).not.toHaveClass("min-h-80")
-    expect(
-      loading.querySelector(".assistant-html-preview-loading-canvas")
-    ).toBeVisible()
-    expect(
-      loading.querySelector(".assistant-html-preview-loading-glow")
-    ).toBeVisible()
-    expect(summary.lastElementChild).toBe(loading)
-
-    const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockReturnValue(new DOMRect(0, 0, 384, 256))
-    fireEvent.click(loading)
-    bounds.mockRestore()
-    expect(screen.getByRole("application", { name: "贪吃蛇" })).toBeVisible()
-
-    rerender(
-      <ConversationThread
-        conversation={{
-          ...completedConversation,
-          messages,
-          turns: [outcome === "completed" ? runningTurn : { ...runningTurn, status: outcome }],
-          running_turn: outcome === "completed" ? runningTurn : null,
-          events: outcome === "completed" ? [
-            startedEvent,
-            nativeItemLifecycleEvent({
-              id: "image-generation-completed",
-              sequence: 5,
-              item: imageCallCompleted,
-              method: "item/completed",
-            }),
-          ] : [startedEvent],
-        }}
-        onDownload={vi.fn()}
-      />
-    )
-
-    expect(
-      within(summary).queryByRole("status", { name: "正在生成图片…" })
-    ).toBeNull()
-    expect(summary.querySelector(".turn-image-generation-loading")).toBeNull()
-    expect(screen.queryByRole("application", { name: "贪吃蛇" })).toBeNull()
-  })
+  )
 
   it("shows thinking without a tool disclosure while a plan is running", () => {
     vi.useFakeTimers()
@@ -7645,6 +7655,43 @@ describe("conversation turn responses", () => {
     expect(document.querySelector(".clipboard-copy-fallback")).toBeNull()
     expect(document.activeElement).toBe(copyButton)
   })
+
+  it.each(supportedLanguages)(
+    "shows a visible required label for message editing in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
+      const onRegenerateMessage = vi.fn().mockResolvedValue(undefined)
+      render(
+        <ConversationThread
+          conversation={completedConversation}
+          onDownload={vi.fn()}
+          onRegenerateMessage={onRegenerateMessage}
+        />
+      )
+      await interaction.click(
+        screen.getByRole("button", { name: i18n.t("conversation.editMessage") })
+      )
+      const textbox = screen.getByRole("textbox", {
+        name: i18n.t("conversation.editMessageInput"),
+      })
+      const label = document.querySelector(`label[for="${textbox.id}"]`)
+      expect(label).toBeVisible()
+      expect(label).not.toHaveClass("sr-only")
+      const indicator = label?.querySelector(
+        "span.text-destructive[aria-hidden='true']"
+      )
+      expect(indicator).toBeVisible()
+      expect(indicator).toHaveTextContent("*")
+      expect(textbox).toHaveAttribute("aria-required", "true")
+      expect(textbox).not.toHaveAttribute("required")
+      await interaction.clear(textbox)
+      expect(
+        screen.getByRole("button", { name: i18n.t("conversation.send") })
+      ).toBeDisabled()
+      expect(onRegenerateMessage).not.toHaveBeenCalled()
+    }
+  )
 
   it("edits a user message in place and sends non-blank content", async () => {
     const interaction = userEvent.setup()

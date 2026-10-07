@@ -69,9 +69,9 @@ describe("application installation", () => {
           onInstalled={installed}
         />
       )
-      const input = screen.getByLabelText(
-        i18n.t("applications.distribution.installationName")
-      )
+      const input = screen.getByRole("textbox", {
+        name: i18n.t("applications.distribution.installationName"),
+      })
       await userEvent.clear(input)
       await userEvent.type(input, "My reports")
       await userEvent.click(
@@ -114,7 +114,9 @@ describe("application installation", () => {
     )
     await userEvent.click(screen.getByRole("button", { name: "安装应用" }))
     expect(await screen.findByRole("alert")).toBeVisible()
-    expect(screen.getByLabelText("安装后的应用名称")).toHaveValue("My reports")
+    expect(
+      screen.getByRole("textbox", { name: "安装后的应用名称" })
+    ).toHaveValue("My reports")
     expect(installed).not.toHaveBeenCalled()
   })
 })

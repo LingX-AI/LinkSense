@@ -755,6 +755,7 @@ function CreateKnowledgeBaseDialog({
             <FieldShell
               id="knowledge-base-source-type"
               label={t("knowledge.create.sourceType")}
+              required
             >
               <ToggleGroup
                 id="knowledge-base-source-type"
@@ -811,11 +812,13 @@ function CreateKnowledgeBaseDialog({
           <FieldShell
             id="knowledge-base-name"
             label={t("knowledge.create.name")}
+            required
             error={nameError}
           >
             <InputGroup>
               <InputGroupInput
                 id="knowledge-base-name"
+                aria-required="true"
                 value={name}
                 maxLength={160}
                 autoFocus={shouldAutoFocusOnDesktop()}
@@ -834,11 +837,13 @@ function CreateKnowledgeBaseDialog({
               <FieldShell
                 id="knowledge-base-sharepoint-url"
                 label={t("knowledge.create.sharePointUrl")}
+                required
                 hint={t("knowledge.create.sharePointUrlHint")}
               >
                 <InputGroup>
                   <InputGroupInput
                     id="knowledge-base-sharepoint-url"
+                    aria-required="true"
                     type="url"
                     value={sharePointUrl}
                     placeholder={t("knowledge.create.sharePointUrlPlaceholder")}
@@ -948,10 +953,12 @@ function EditKnowledgeBaseDialog({
           <FieldShell
             id="knowledge-base-edit-name"
             label={t("knowledge.create.name")}
+            required
           >
             <InputGroup>
               <InputGroupInput
                 id="knowledge-base-edit-name"
+                aria-required="true"
                 value={name}
                 maxLength={160}
                 autoFocus={shouldAutoFocusOnDesktop()}
@@ -2608,10 +2615,12 @@ function RenameKnowledgeDocumentDialog({
         <FieldShell
           id="knowledge-document-display-name"
           label={t("knowledge.document.displayName")}
+          required
         >
           <InputGroup>
             <InputGroupInput
               id="knowledge-document-display-name"
+              aria-required="true"
               value={displayName}
               maxLength={260}
               autoFocus={shouldAutoFocusOnDesktop()}

@@ -81,7 +81,11 @@ describe("ConversationGoalBar", () => {
 
     await interaction.click(screen.getByRole("button", { name: "编辑目标" }))
     const dialog = screen.getByRole("dialog", { name: "编辑目标" })
-    const objective = within(dialog).getByLabelText("目标")
+    const objective = within(dialog).getByRole("textbox", { name: "目标" })
+    const label = document.querySelector(`label[for="${objective.id}"]`)
+    expect(label?.lastElementChild).toHaveTextContent("*")
+    expect(label?.lastElementChild).toHaveClass("text-destructive")
+    expect(objective).toBeRequired()
     expect(within(dialog).queryByLabelText("Token 预算")).toBeNull()
     await interaction.clear(objective)
     await interaction.type(objective, "交付完整的目标功能")

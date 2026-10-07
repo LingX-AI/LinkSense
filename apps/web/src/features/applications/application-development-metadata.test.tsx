@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   applicationDevelopmentSchema,
   interactiveApplicationManifestSchema,
+  supportedLocales,
   type ApplicationDevelopment,
 } from "@linksense/shared"
 import { ApiError, apiRequest } from "@/api/client"
@@ -100,6 +101,45 @@ afterEach(() => {
   vi.resetAllMocks()
 })
 describe("development metadata autosave", () => {
+  it.each(supportedLocales)(
+    "exposes the required name while preserving optional description editing in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const view = show()
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: i18n.t("applicationDevelopment.metadata.editName"),
+        })
+      )
+      const name = screen.getByRole("textbox", {
+        name: i18n.t("applicationDevelopment.metadata.name"),
+      })
+      expect(name).toHaveAttribute("aria-required", "true")
+      const indicator = name.parentElement?.querySelector(".text-destructive")
+      expect(indicator).toHaveTextContent("*")
+      expect(indicator).toHaveAttribute("aria-hidden", "true")
+      expect(indicator?.closest(".sr-only")).toBeNull()
+      expect(name.parentElement?.lastElementChild).toBe(indicator)
+      view.unmount()
+
+      show()
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: i18n.t("applicationDevelopment.metadata.editDescription"),
+        })
+      )
+      const description = screen.getByRole("textbox", {
+        name: i18n.t("applicationDevelopment.metadata.description"),
+      })
+      expect(description).not.toHaveAttribute("aria-required", "true")
+      expect(
+        description
+          .closest('[data-slot="field"]')
+          ?.querySelector('[data-slot="field-label"]')
+      ).not.toHaveTextContent("*")
+    }
+  )
+
   it("truncates the display to one line while preserving the complete description for editing and saving", async () => {
     const description =
       "输入一个主题，选择调研类型与关注重点，由 LinkSense 任务完成调研并回显分段结论。".repeat(

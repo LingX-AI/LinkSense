@@ -300,9 +300,32 @@ export function ChannelEditor({
       onSave={() => actions.onSave(draft)}
     >
       <FieldGroup className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <ModelSettingsSelect
+          label={t("admin.modelProvider.serviceProvider")}
+          value={value.provider}
+          options={modelServiceProviderValues.map((provider) => ({
+            value: provider,
+            label: t(`admin.imageUnderstanding.providers.${provider}`),
+            icon: <ModelServiceProviderLogo provider={provider} />,
+          }))}
+          onChange={(provider) => {
+            const preset = modelProviderPresets[provider]
+            setValue({
+              ...value,
+              provider,
+              base_url: preset.base_url ?? "",
+              protocol_mode: preset.protocol_mode,
+              provider_project:
+                provider === "google_vertex" ? value.provider_project : null,
+              provider_location:
+                provider === "google_vertex" ? value.provider_location : null,
+            })
+          }}
+        />
         <FieldShell
           id={`${id}-name`}
           label={t("admin.modelProvider.providerName")}
+          required
           hint={
             nameConflict ? (
               <span id={`${id}-name-hint`} className="text-destructive">
@@ -328,31 +351,10 @@ export function ChannelEditor({
             }
           />
         </FieldShell>
-        <ModelSettingsSelect
-          label={t("admin.modelProvider.serviceProvider")}
-          value={value.provider}
-          options={modelServiceProviderValues.map((provider) => ({
-            value: provider,
-            label: t(`admin.imageUnderstanding.providers.${provider}`),
-            icon: <ModelServiceProviderLogo provider={provider} />,
-          }))}
-          onChange={(provider) => {
-            const preset = modelProviderPresets[provider]
-            setValue({
-              ...value,
-              provider,
-              base_url: preset.base_url ?? "",
-              protocol_mode: preset.protocol_mode,
-              provider_project:
-                provider === "google_vertex" ? value.provider_project : null,
-              provider_location:
-                provider === "google_vertex" ? value.provider_location : null,
-            })
-          }}
-        />
         <FieldShell
           id={`${id}-url`}
           label={t("admin.modelProvider.baseUrl")}
+          required
           hint={
             modelProviderPresets[value.provider].requires_compatible_endpoint
               ? t("modelSetup.compatibleEndpoint")
@@ -374,6 +376,7 @@ export function ChannelEditor({
         <FieldShell
           id={`${id}-key`}
           label={t("admin.modelProvider.apiKey")}
+          required={keyRequired}
           hint={t(
             channel?.api_key_configured && savedTargetMatches
               ? "admin.modelProvider.apiKeyConfiguredHint"
@@ -401,6 +404,7 @@ export function ChannelEditor({
             <FieldShell
               id={`${id}-project`}
               label={t("admin.imageUnderstanding.project")}
+              required
             >
               <Input
                 id={`${id}-project`}
@@ -415,6 +419,7 @@ export function ChannelEditor({
             <FieldShell
               id={`${id}-location`}
               label={t("admin.imageUnderstanding.location")}
+              required
             >
               <Input
                 id={`${id}-location`}

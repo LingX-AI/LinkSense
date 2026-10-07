@@ -365,6 +365,7 @@ function AdminSelect({
   onValueChange,
   disabled,
   icon: Icon,
+  required = false,
 }: {
   id: string
   value: string
@@ -372,6 +373,7 @@ function AdminSelect({
   onValueChange: (value: string) => void
   disabled?: boolean
   icon?: LucideIcon
+  required?: boolean
 }) {
   const encodedValue = value || emptySelectValue
   const selectedLabel = options.find((option) => option.value === value)?.label
@@ -384,7 +386,11 @@ function AdminSelect({
         onValueChange(nextValue === emptySelectValue ? "" : (nextValue ?? ""))
       }
     >
-      <SelectTrigger id={id} className="h-9! w-full">
+      <SelectTrigger
+        id={id}
+        className="h-9! w-full"
+        aria-required={required || undefined}
+      >
         {Icon && <Icon aria-hidden="true" />}
         <SelectValue>
           <span className="truncate">{selectedLabel ?? ""}</span>
@@ -1450,7 +1456,7 @@ function UserManagementPage() {
               className={dialogBodyStyles("flex flex-col gap-3.5 py-1 pl-1")}
             >
               <div className="form-grid">
-                <FieldShell id="user-name" label={t("common.name")}>
+                <FieldShell id="user-name" label={t("common.name")} required>
                   <Input
                     id="user-name"
                     className="h-9"
@@ -1459,7 +1465,7 @@ function UserManagementPage() {
                     required
                   />
                 </FieldShell>
-                <FieldShell id="user-email" label={t("common.email")}>
+                <FieldShell id="user-email" label={t("common.email")} required>
                   <Input
                     id="user-email"
                     className="h-9"
@@ -2325,7 +2331,7 @@ function UserGroupManagementPage() {
               saveMutation.mutate()
             }}
           >
-            <FieldShell id="group-name" label={t("common.name")}>
+            <FieldShell id="group-name" label={t("common.name")} required>
               <Input
                 id="group-name"
                 className="h-9"
@@ -3705,6 +3711,7 @@ function ProductSettingsEditor({
               <FieldShell
                 id="system-name"
                 label={t("admin.systemName")}
+                required
                 controlWidth="medium"
                 layout="settings"
               >
@@ -4268,12 +4275,14 @@ function AuthenticationModeField({
     <FieldShell
       id={id}
       label={t("admin.authSettings.modeLabel")}
+      required
       controlWidth="medium"
       layout="settings"
     >
       <AdminSelect
         id={id}
         value={value}
+        required
         disabled={disabled}
         onValueChange={(next) => onValueChange(next as AuthenticationMode)}
         options={[
@@ -4456,6 +4465,7 @@ function SmtpAuthenticationSettingsForm({
                 layout="settings"
                 id="smtp-host"
                 label={t("admin.authSettings.smtpHost")}
+                required
                 controlWidth="wide"
               >
                 <Input
@@ -4470,6 +4480,7 @@ function SmtpAuthenticationSettingsForm({
                 layout="settings"
                 id="smtp-port"
                 label={t("admin.authSettings.smtpPort")}
+                required
                 controlWidth="compact"
               >
                 <Input
@@ -4487,10 +4498,12 @@ function SmtpAuthenticationSettingsForm({
                 layout="settings"
                 id="smtp-security"
                 label={t("admin.authSettings.smtpSecurity")}
+                required
                 controlWidth="medium"
               >
                 <AdminSelect
                   id="smtp-security"
+                  required
                   value={security}
                   onValueChange={(next) =>
                     setSecurity(next as "tls" | "starttls")
@@ -4508,6 +4521,7 @@ function SmtpAuthenticationSettingsForm({
                 layout="settings"
                 id="smtp-from"
                 label={t("admin.authSettings.smtpFrom")}
+                required
                 controlWidth="wide"
               >
                 <Input
@@ -4537,6 +4551,7 @@ function SmtpAuthenticationSettingsForm({
                 layout="settings"
                 id="smtp-password"
                 label={t("admin.authSettings.smtpPassword")}
+                required={Boolean(username.trim()) && !secretCanBePreserved}
                 controlWidth="wide"
                 hint={t(
                   secretCanBePreserved
@@ -4546,6 +4561,10 @@ function SmtpAuthenticationSettingsForm({
               >
                 <Input
                   id="smtp-password"
+                  aria-required={
+                    (Boolean(username.trim()) && !secretCanBePreserved) ||
+                    undefined
+                  }
                   className="h-9 placeholder:text-foreground placeholder:opacity-100"
                   type="password"
                   autoComplete="new-password"
@@ -4694,6 +4713,7 @@ function OidcAuthenticationSettingsForm({
                 layout="settings"
                 id="oidc-issuer-url"
                 label={t("admin.authSettings.oidcIssuer")}
+                required
                 controlWidth="wide"
               >
                 <Input
@@ -4709,6 +4729,7 @@ function OidcAuthenticationSettingsForm({
                 layout="settings"
                 id="oidc-client-id"
                 label={t("admin.authSettings.oidcClientId")}
+                required
                 controlWidth="medium"
               >
                 <Input
@@ -4723,6 +4744,7 @@ function OidcAuthenticationSettingsForm({
                 layout="settings"
                 id="oidc-client-secret"
                 label={t("admin.authSettings.oidcClientSecret")}
+                required={!secretCanBePreserved}
                 controlWidth="wide"
                 hint={t(
                   secretCanBePreserved
@@ -4732,6 +4754,7 @@ function OidcAuthenticationSettingsForm({
               >
                 <Input
                   id="oidc-client-secret"
+                  aria-required={!secretCanBePreserved || undefined}
                   className="h-9 placeholder:text-foreground placeholder:opacity-100"
                   type="password"
                   autoComplete="new-password"
@@ -4881,6 +4904,7 @@ function TeamsAuthenticationSettingsForm({
                 layout="settings"
                 id="teams-tenant-id"
                 label={t("admin.authSettings.teamsTenantId")}
+                required
                 controlWidth="medium"
               >
                 <Input
@@ -4895,6 +4919,7 @@ function TeamsAuthenticationSettingsForm({
                 layout="settings"
                 id="teams-client-id"
                 label={t("admin.authSettings.teamsClientId")}
+                required
                 controlWidth="medium"
                 hint={t("admin.authSettings.teamsExternalHint")}
               >
@@ -5079,6 +5104,7 @@ function HealthPage() {
           <FieldShell
             id="knowledge-rebuild-reason"
             label={t("health.knowledgeRebuild.reason")}
+            required
             hint={t("health.knowledgeRebuild.reasonHint")}
           >
             <Textarea

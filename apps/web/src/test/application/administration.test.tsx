@@ -744,10 +744,10 @@ describe("LinkSense application", () => {
         "pr-6"
       )
       expect(content).toContainElement(
-        within(dialog).getByLabelText(i18n.t("common.name"))
+        within(dialog).getByRole("textbox", { name: i18n.t("common.name") })
       )
       expect(content).toContainElement(
-        within(dialog).getByLabelText(i18n.t("common.email"))
+        within(dialog).getByRole("textbox", { name: i18n.t("common.email") })
       )
       if (editing) {
         expect(content).toContainElement(

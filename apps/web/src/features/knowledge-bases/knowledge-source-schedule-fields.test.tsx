@@ -50,6 +50,16 @@ describe("KnowledgeSourceSyncScheduleFields", () => {
     render(<TestForm />)
 
     const frequency = screen.getByRole("combobox", { name: "同步频率" })
+    expect(
+      document.querySelector(
+        "label[for='knowledge-base-sync-frequency'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
+    expect(
+      document.querySelector(
+        "#knowledge-base-sync-time-label span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
     expect(frequency).toHaveTextContent("每天")
     await interaction.click(frequency)
     await interaction.click(await screen.findByRole("option", { name: "每周" }))
@@ -63,6 +73,11 @@ describe("KnowledgeSourceSyncScheduleFields", () => {
     )
 
     const weekday = screen.getByRole("combobox", { name: "星期" })
+    expect(
+      document.querySelector(
+        "label[for='knowledge-base-sync-weekday'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
     expect(weekday).toHaveTextContent("周一")
     await interaction.click(weekday)
     await interaction.click(await screen.findByRole("option", { name: "周三" }))
@@ -101,6 +116,11 @@ describe("KnowledgeSourceSyncScheduleFields", () => {
     )
 
     const day = screen.getByRole("combobox", { name: "日期" })
+    expect(
+      document.querySelector(
+        "label[for='knowledge-base-sync-day-of-month'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
     await interaction.click(day)
     await interaction.click(
       await screen.findByRole("option", { name: "31 日" })

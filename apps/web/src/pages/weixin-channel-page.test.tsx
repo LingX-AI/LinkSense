@@ -1,3 +1,4 @@
+import { formLabelPattern } from "@/features/admin/required-field-label.test-helper"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   cleanup,
@@ -117,6 +118,15 @@ describe("WeixinChannelPage", () => {
     const pairingCode = await screen.findByRole("textbox", {
       name: "手机微信显示的配对码",
     })
+    const pairingLabel = document.querySelector(
+      'label[for="weixin-verification-code"]'
+    )
+    expect(
+      pairingLabel?.querySelector('span[aria-hidden="true"]')
+    ).toHaveTextContent("*")
+    expect(pairingLabel?.querySelector('span[aria-hidden="true"]')).toHaveClass(
+      "text-destructive"
+    )
     await new Promise((resolve) => setTimeout(resolve, 1_100))
     expect(loginPolls).toBe(1)
     await user.type(pairingCode, "123456")
@@ -171,7 +181,7 @@ describe("WeixinChannelPage", () => {
       await screen.findByRole("region", { name: "可接入渠道" })
     ).toBeVisible()
     expect(screen.getByRole("heading", { name: "微信" })).toBeVisible()
-    expect(screen.getByLabelText("微信图标")).toBeVisible()
+    expect(screen.getByLabelText(formLabelPattern("微信图标"))).toBeVisible()
     expect(
       screen.getByRole("heading", { name: "Microsoft Teams" })
     ).toBeVisible()

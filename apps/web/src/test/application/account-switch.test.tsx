@@ -146,8 +146,14 @@ describe("account switching", () => {
       currentUser.email = "second@example.test"
       const requestCountBeforeLogin = requests.length
 
-      await interaction.type(screen.getByLabelText("邮箱"), currentUser.email)
-      await interaction.type(screen.getByLabelText("密码"), "Password1!")
+      await interaction.type(
+        screen.getByRole("textbox", { name: "邮箱" }),
+        currentUser.email
+      )
+      await interaction.type(
+        screen.getByLabelText(/^密码\s*\*?$/u),
+        "Password1!"
+      )
       await interaction.click(screen.getByRole("button", { name: "登录" }))
 
       await screen.findByRole("button", { name: currentUser.name })

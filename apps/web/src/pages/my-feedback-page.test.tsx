@@ -426,6 +426,11 @@ describe("administrator replies", () => {
       const submit = await within(dialog).findByRole("button", {
         name: "发送回复",
       })
+      const content = within(dialog).getByRole("textbox", { name: "回复用户" })
+      const label = document.querySelector(`label[for="${content.id}"]`)
+      expect(label?.lastElementChild).toHaveTextContent("*")
+      expect(label?.lastElementChild).toHaveClass("text-destructive")
+      expect(content).toBeRequired()
       expect(submit).toBeDisabled()
       if (kind !== "image")
         await interaction.type(
@@ -437,6 +442,25 @@ describe("administrator replies", () => {
           within(dialog).getByLabelText("回复图片"),
           new File(["png"], "reply.png", { type: "image/png" })
         )
+      if (kind !== "text") {
+        expect(label).toHaveTextContent(/^回复用户$/)
+        expect(content).not.toBeRequired()
+      }
+      if (kind === "image") {
+        await interaction.click(
+          within(dialog).getByRole("button", {
+            name: i18n.t("support.removeFeedbackImage", { name: "reply.png" }),
+          })
+        )
+        expect(label?.lastElementChild).toHaveTextContent("*")
+        expect(content).toBeRequired()
+        expect(submit).toBeDisabled()
+        await interaction.upload(
+          within(dialog).getByLabelText("回复图片"),
+          new File(["png"], "reply.png", { type: "image/png" })
+        )
+        expect(label).toHaveTextContent(/^回复用户$/)
+      }
       await interaction.click(submit)
       await waitFor(() =>
         expect(

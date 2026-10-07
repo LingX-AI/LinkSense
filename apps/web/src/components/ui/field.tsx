@@ -2,6 +2,7 @@ import { useMemo } from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
+import { RequiredIndicator } from "@/components/forms/required-indicator"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 
@@ -20,19 +21,28 @@ function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
 
 function FieldLegend({
   className,
+  children,
   variant = "legend",
+  required = false,
   ...props
-}: React.ComponentProps<"legend"> & { variant?: "legend" | "label" }) {
+}: React.ComponentProps<"legend"> & {
+  variant?: "legend" | "label"
+  required?: boolean
+}) {
   return (
     <legend
       data-slot="field-legend"
       data-variant={variant}
       className={cn(
         "mb-3 font-medium data-[variant=label]:text-sm data-[variant=legend]:text-base",
+        required && "inline-flex items-center gap-2",
         className
       )}
       {...props}
-    />
+    >
+      {children}
+      {required && <RequiredIndicator />}
+    </legend>
   )
 }
 

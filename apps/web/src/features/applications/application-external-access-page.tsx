@@ -757,7 +757,7 @@ function StarterQuestionsEditor({
             const inputId = `starter-question-${question.id}`
             return (
               <Field key={question.id} data-invalid={invalid || undefined}>
-                <FieldLabel htmlFor={inputId}>
+                <FieldLabel htmlFor={inputId} required>
                   {t("applications.externalAccess.starterQuestionLabel", {
                     index: index + 1,
                   })}
@@ -765,6 +765,7 @@ function StarterQuestionsEditor({
                 <div className="flex items-start gap-2">
                   <Textarea
                     id={inputId}
+                    aria-required="true"
                     value={question.text}
                     maxLength={MAX_STARTER_QUESTION_LENGTH}
                     rows={2}

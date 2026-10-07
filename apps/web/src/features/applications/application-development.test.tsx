@@ -903,7 +903,7 @@ describe("application development interface", () => {
     )
     show(<ApplicationDevelopmentCreateDialog onClose={vi.fn()} />)
     expect(screen.getByRole("button", { name: "开始开发" })).toBeDisabled()
-    fireEvent.change(screen.getByLabelText("应用名称"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "应用名称" }), {
       target: { value: "  Example  " },
     })
     fireEvent.click(screen.getByRole("button", { name: "开始开发" }))

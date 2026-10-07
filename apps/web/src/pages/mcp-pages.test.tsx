@@ -140,18 +140,47 @@ describe("McpManagementPage", () => {
       (await screen.findAllByRole("button", { name: "添加服务器" }))[0]!
     )
     expect(screen.queryByText("必须连接")).not.toBeInTheDocument()
-    await interaction.type(screen.getByLabelText("名称"), "Issue tracker")
+    for (const id of [
+      "mcp-name",
+      "mcp-url",
+      "mcp-startup-timeout",
+      "mcp-tool-timeout",
+    ]) {
+      expect(
+        document.querySelector(
+          `label[for='${id}'] span.text-destructive[aria-hidden='true']`
+        )
+      ).toHaveTextContent("*")
+    }
     await interaction.type(
-      screen.getByLabelText("服务器地址"),
+      screen.getByLabelText(/^名称\s*\*?$/),
+      "Issue tracker"
+    )
+    await interaction.type(
+      screen.getByLabelText(/^服务器地址\s*\*?$/),
       "http://mcp.example.test:8080/mcp"
     )
     await interaction.click(screen.getByRole("combobox", { name: "认证方式" }))
     await interaction.click(
       await screen.findByRole("option", { name: "Bearer Token" })
     )
+    expect(
+      document.querySelector(
+        "label[for='mcp-credential'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
     await interaction.type(
-      screen.getByLabelText("认证凭据"),
+      screen.getByLabelText(/^认证凭据\s*\*?$/),
       "  bearer-page-secret  "
+    )
+    expect(
+      document.querySelector(
+        "label[for='mcp-credential'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
+    expect(screen.getByLabelText(/^认证凭据\s*\*?$/)).toHaveAttribute(
+      "aria-required",
+      "true"
     )
 
     expect(screen.getByText("HTTP 连接不安全")).toBeVisible()
@@ -251,7 +280,17 @@ describe("McpManagementPage", () => {
     await interaction.click(
       await screen.findByRole("menuitem", { name: "编辑" })
     )
-    expect(screen.getByLabelText("认证凭据")).toHaveValue("")
+    expect(screen.getByLabelText(/^认证凭据\s*\*?$/)).toHaveValue("")
+    expect(
+      document.querySelector(
+        "label[for='mcp-credential'] span.text-destructive"
+      )
+    ).not.toBeInTheDocument()
+    expect(
+      document.querySelector(
+        "label[for='mcp-api-key-header'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
     expect(screen.getByText("留空以保留当前凭据。")).toBeVisible()
   })
 
@@ -357,7 +396,12 @@ describe("McpManagementPage", () => {
       "overflow-x-hidden",
       "overflow-y-auto"
     )
-    const configuration = screen.getByLabelText("STDIO 配置（JSON）")
+    const configuration = screen.getByLabelText(/^STDIO 配置（JSON）\s*\*?$/)
+    expect(
+      document.querySelector(
+        "label[for='mcp-stdio-configuration'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
     expect(configuration).toHaveClass("min-w-0")
     fireEvent.change(configuration, {
       target: {
@@ -388,7 +432,9 @@ describe("McpManagementPage", () => {
     fireEvent.change(configuration, {
       target: { value: json },
     })
-    expect(screen.getByLabelText("名称")).toHaveValue("mcp-server-weread")
+    expect(screen.getByLabelText(/^名称\s*\*?$/)).toHaveValue(
+      "mcp-server-weread"
+    )
     await interaction.click(screen.getByRole("button", { name: "保存" }))
 
     await waitFor(() =>
@@ -447,7 +493,7 @@ describe("McpManagementPage", () => {
       await screen.findByRole("menuitem", { name: "编辑" })
     )
 
-    const configuration = screen.getByLabelText("STDIO 配置（JSON）")
+    const configuration = screen.getByLabelText(/^STDIO 配置（JSON）\s*\*?$/)
     expect(configuration).toHaveValue(
       JSON.stringify(
         {
@@ -483,7 +529,7 @@ describe("McpManagementPage", () => {
     await interaction.click(
       await screen.findByRole("menuitem", { name: "编辑" })
     )
-    fireEvent.change(screen.getByLabelText("STDIO 配置（JSON）"), {
+    fireEvent.change(screen.getByLabelText(/^STDIO 配置（JSON）\s*\*?$/), {
       target: {
         value: JSON.stringify({
           command: "npx",

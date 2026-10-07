@@ -16,6 +16,10 @@ import { samlSettingsFixture } from "./test-fixture"
 import { samlKeys } from "./api"
 import { createInstance } from "i18next"
 import { samlzhCN, samlenUS } from "./messages"
+import {
+  expectRequiredLabel,
+  formLabelPattern,
+} from "@/features/admin/required-field-label.test-helper"
 
 const configured = {
   ...samlSettingsFixture,
@@ -62,6 +66,51 @@ afterEach(() => {
 })
 
 describe("SAML login and settings", () => {
+  it.each([true, false])(
+    "marks required SAML fields and requires a signing key only when no saved key exists (%s)",
+    async (keyConfigured) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          response({
+            ...configured,
+            enabled: false,
+            signing_private_key_configured: keyConfigured,
+          })
+        )
+      )
+      mount(<SamlSettingsForm />)
+      await screen.findByRole("textbox", { name: i18n.t("saml.idpEntityId") })
+      for (const key of [
+        "idpEntityId",
+        "idpSsoUrl",
+        "idpCertificate",
+        "emailAttribute",
+        "signingCertificate",
+      ]) {
+        expectRequiredLabel(
+          screen.getByRole("textbox", { name: i18n.t(`saml.${key}`) })
+        )
+      }
+      expectRequiredLabel(
+        screen.getByRole("textbox", { name: i18n.t("saml.signingKey") }),
+        !keyConfigured
+      )
+      for (const key of ["nameAttribute", "spEntityId", "acsUrl"]) {
+        expectRequiredLabel(
+          screen.getByRole("textbox", { name: i18n.t(`saml.${key}`) }),
+          false
+        )
+      }
+      fireEvent.click(
+        screen.getByRole("switch", { name: i18n.t("saml.signRequests") })
+      )
+      expect(
+        screen.queryByRole("textbox", { name: i18n.t("saml.signingKey") })
+      ).not.toBeInTheDocument()
+    }
+  )
+
   it("falls back to Chinese when an English SAML key is missing", async () => {
     const isolated = createInstance()
     await isolated.init({
@@ -85,7 +134,9 @@ describe("SAML login and settings", () => {
       vi.stubGlobal("fetch", fetch)
       mount(<SamlSettingsForm />)
       expect(
-        await screen.findByLabelText(i18n.t("saml.idpEntityId"))
+        await screen.findByLabelText(
+          formLabelPattern(i18n.t("saml.idpEntityId"))
+        )
       ).toHaveValue(configured.idp_entity_id)
       expect(
         screen.getByRole("heading", { name: i18n.t("saml.title") })
@@ -101,9 +152,9 @@ describe("SAML login and settings", () => {
           .getByRole("heading", { name: i18n.t("saml.title") })
           .closest('[data-slot="card"]')
       ).toBeNull()
-      expect(screen.getByLabelText(i18n.t("saml.spEntityId"))).toHaveAttribute(
-        "readonly"
-      )
+      expect(
+        screen.getByLabelText(formLabelPattern(i18n.t("saml.spEntityId")))
+      ).toHaveAttribute("readonly")
       expect(
         screen.getByRole("link", { name: i18n.t("saml.metadata") })
       ).toHaveAttribute("href", configured.metadata_url)
@@ -113,9 +164,9 @@ describe("SAML login and settings", () => {
       expect(await screen.findByRole("alert")).toHaveTextContent(
         i18n.t("errors.validation")
       )
-      expect(screen.getByLabelText(i18n.t("saml.idpEntityId"))).toHaveValue(
-        configured.idp_entity_id
-      )
+      expect(
+        screen.getByLabelText(formLabelPattern(i18n.t("saml.idpEntityId")))
+      ).toHaveValue(configured.idp_entity_id)
     }
   )
   it("preserves stored keys by omission, sends only settings and refreshes provider availability", async () => {
@@ -127,9 +178,9 @@ describe("SAML login and settings", () => {
     vi.stubGlobal("fetch", fetch)
     const { client } = mount(<SamlSettingsForm />)
     client.setQueryData(samlKeys.status, { enabled: false })
-    expect(await screen.findByLabelText(i18n.t("saml.signingKey"))).toHaveValue(
-      ""
-    )
+    expect(
+      await screen.findByLabelText(formLabelPattern(i18n.t("saml.signingKey")))
+    ).toHaveValue("")
     fireEvent.click(screen.getByRole("button", { name: i18n.t("common.save") }))
     await waitFor(() =>
       expect(client.getQueryData(samlKeys.settings)).toMatchObject({
@@ -234,7 +285,9 @@ describe("SAML login and settings", () => {
     )
     vi.stubGlobal("fetch", fetch)
     mount(<SamlSettingsForm />)
-    const input = await screen.findByLabelText(i18n.t("saml.idpEntityId"))
+    const input = await screen.findByLabelText(
+      formLabelPattern(i18n.t("saml.idpEntityId"))
+    )
     fireEvent.change(input, { target: { value: "urn:edited" } })
     const save = screen.getByRole("button", { name: i18n.t("common.save") })
     fireEvent.click(save)

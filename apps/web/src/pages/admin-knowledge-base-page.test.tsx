@@ -11,6 +11,7 @@ import {
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter } from "react-router-dom"
+import { supportedLocales } from "@linksense/shared"
 
 import { setAccessToken } from "@/api/session"
 import { ThemeProvider } from "@/app/theme-context"
@@ -105,6 +106,154 @@ function createFetchMock() {
 }
 
 describe("administrator knowledge-base governance", () => {
+  describe.each([...supportedLocales, "de-DE"])(
+    "required governance fields (%s)",
+    (locale) => {
+      it.each([
+        {
+          knowledgeBase: activeKnowledgeBase,
+          menuAction: "disable",
+          action: "disable",
+        },
+        {
+          knowledgeBase: archivedKnowledgeBase,
+          menuAction: "enable",
+          action: "enable",
+        },
+        {
+          knowledgeBase: activeKnowledgeBase,
+          menuAction: "archive",
+          action: "archive",
+        },
+        {
+          knowledgeBase: archivedKnowledgeBase,
+          menuAction: "delete",
+          action: "delete",
+        },
+        {
+          knowledgeBase: archivedKnowledgeBase,
+          menuAction: "retryCleanup",
+          action: "cleanup_retry",
+        },
+      ] as const)(
+        "marks the audit reason for $action as required",
+        async ({ knowledgeBase, menuAction, action }) => {
+          await i18n.changeLanguage(locale)
+          vi.stubGlobal("fetch", createFetchMock())
+          renderPage()
+          const user = userEvent.setup()
+          await user.click(
+            await screen.findByRole("button", {
+              name: i18n.t("adminKnowledge.actionsFor", {
+                name: knowledgeBase.name,
+              }),
+            })
+          )
+          await user.click(
+            await screen.findByRole("menuitem", {
+              name: i18n.t(`adminKnowledge.actions.${menuAction}`),
+            })
+          )
+          const reason = screen.getByRole("textbox", {
+            name: i18n.t("adminKnowledge.reason"),
+          })
+          const indicator = reason
+            .closest('[data-slot="field"]')
+            ?.querySelector(
+              '[data-slot="field-label"] span[aria-hidden="true"]'
+            )
+          expect(indicator).toHaveTextContent("*")
+          expect(indicator).toHaveClass("text-destructive")
+          expect(reason).toBeRequired()
+          expect(
+            screen.getByRole("button", {
+              name: i18n.t(`adminKnowledge.confirm.${action}.action`),
+            })
+          ).toBeDisabled()
+        }
+      )
+
+      it("marks the new owner and reason as required without making the owner search mandatory", async () => {
+        await i18n.changeLanguage(locale)
+        const baseFetch = createFetchMock()
+        vi.stubGlobal(
+          "fetch",
+          vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+            const url = new URL(String(input), window.location.origin)
+            if (url.pathname === "/api/v1/admin/users") {
+              return Promise.resolve(
+                envelope({
+                  items: [
+                    {
+                      id: "10000000-0000-4000-8000-000000000101",
+                      name: "New owner",
+                      email: "owner@example.test",
+                      role: "user",
+                      status: "active",
+                      registration_source: "organization_invitation",
+                    },
+                  ],
+                  next_cursor: null,
+                })
+              )
+            }
+            return baseFetch(input, init)
+          })
+        )
+        renderPage()
+        const user = userEvent.setup()
+        await user.click(
+          await screen.findByRole("button", {
+            name: i18n.t("adminKnowledge.actionsFor", {
+              name: activeKnowledgeBase.name,
+            }),
+          })
+        )
+        await user.click(
+          await screen.findByRole("menuitem", {
+            name: i18n.t("adminKnowledge.actions.transferOwner"),
+          })
+        )
+        const dialog = screen.getByRole("dialog")
+        const owner = await within(dialog).findByRole("combobox", {
+          name: i18n.t("adminKnowledge.transfer.owner"),
+        })
+        const ownerIndicator = owner
+          .closest('[data-slot="field"]')
+          ?.querySelector('[data-slot="field-label"] span[aria-hidden="true"]')
+        expect(ownerIndicator).toHaveTextContent("*")
+        expect(ownerIndicator).toHaveClass("text-destructive")
+        expect(owner).toHaveAttribute("aria-required", "true")
+        const search = within(dialog).getByRole("textbox", {
+          name: i18n.t("adminKnowledge.transfer.search"),
+        })
+        expect(search).not.toBeRequired()
+        expect(search).not.toHaveAttribute("aria-required", "true")
+        const reason = within(dialog).getByRole("textbox", {
+          name: i18n.t("adminKnowledge.reason"),
+        })
+        expect(
+          reason
+            .closest('[data-slot="field"]')
+            ?.querySelector(
+              '[data-slot="field-label"] span[aria-hidden="true"]'
+            )
+        ).toHaveTextContent("*")
+        const confirm = within(dialog).getByRole("button", {
+          name: i18n.t("adminKnowledge.transfer.action"),
+        })
+        expect(confirm).toBeDisabled()
+        await user.type(reason, "Transfer responsibility")
+        expect(confirm).toBeDisabled()
+        await user.click(owner)
+        await user.click(
+          await screen.findByRole("option", { name: "New owner" })
+        )
+        expect(confirm).toBeEnabled()
+      })
+    }
+  )
+
   it("waits for Chinese composition before searching knowledge bases", async () => {
     const fetchMock = createFetchMock()
     vi.stubGlobal("fetch", fetchMock)
@@ -320,7 +469,10 @@ describe("administrator knowledge-base governance", () => {
     const confirm = screen.getByRole("button", { name: "确认停用" })
     expect(confirm).toHaveClass("bg-destructive", "text-destructive-foreground")
     expect(confirm).toBeDisabled()
-    await interaction.type(screen.getByLabelText("操作原因"), "内容需要复核")
+    await interaction.type(
+      screen.getByRole("textbox", { name: "操作原因" }),
+      "内容需要复核"
+    )
     expect(confirm).toBeEnabled()
     await interaction.click(confirm)
 
@@ -358,7 +510,10 @@ describe("administrator knowledge-base governance", () => {
       "bg-destructive",
       "text-destructive-foreground"
     )
-    await interaction.type(screen.getByLabelText("操作原因"), "授权范围调整")
+    await interaction.type(
+      screen.getByRole("textbox", { name: "操作原因" }),
+      "授权范围调整"
+    )
     await interaction.click(screen.getByRole("button", { name: "确认撤销" }))
 
     await waitFor(() => {
@@ -394,7 +549,10 @@ describe("administrator knowledge-base governance", () => {
     expect(screen.getByRole("button", { name: "确认重试" })).not.toHaveClass(
       "bg-destructive"
     )
-    await interaction.type(screen.getByLabelText("操作原因"), "修复清理任务")
+    await interaction.type(
+      screen.getByRole("textbox", { name: "操作原因" }),
+      "修复清理任务"
+    )
     await interaction.click(screen.getByRole("button", { name: "确认重试" }))
 
     await waitFor(() => {

@@ -1130,9 +1130,10 @@ function CapabilityImportDialog({
                 />
               </section>
             )}
-            <Label className="flex items-start gap-3 text-sm">
+            <Label className="flex items-start gap-3 text-sm" required>
               <Checkbox
                 checked={riskConfirmed}
+                aria-required="true"
                 onCheckedChange={(checked) =>
                   setRiskConfirmed(Boolean(checked))
                 }
@@ -1149,12 +1150,17 @@ function CapabilityImportDialog({
             }}
           >
             <FieldSet>
-              <FieldLegend id="capability-import-source-label" variant="label">
+              <FieldLegend
+                id="capability-import-source-label"
+                variant="label"
+                required
+              >
                 {t("capability.source")}
               </FieldLegend>
               <RadioGroup
                 name="capability-import-source"
                 aria-labelledby="capability-import-source-label"
+                aria-required="true"
                 value={source}
                 disabled={previewMutation.isPending}
                 onValueChange={(value) => {
@@ -1181,10 +1187,12 @@ function CapabilityImportDialog({
                 <FieldShell
                   id="capability-package"
                   label={t(zipPackageLabelKey(importType))}
+                  required
                   hint={t(zipPackageHintKey(importType))}
                 >
                   <Input
                     id="capability-package"
+                    aria-required="true"
                     type="file"
                     accept=".zip,application/zip"
                     disabled={previewMutation.isPending}
@@ -1227,6 +1235,7 @@ function CapabilityImportDialog({
                 <FieldShell
                   id="capability-name"
                   label={t("marketplace.skillIdentifier")}
+                  required
                   error={nameError}
                   hint={
                     <span id="capability-name-hint">
@@ -1236,6 +1245,7 @@ function CapabilityImportDialog({
                 >
                   <Input
                     id="capability-name"
+                    aria-required="true"
                     aria-invalid={nameError ? true : undefined}
                     aria-describedby={
                       nameError
@@ -1291,9 +1301,11 @@ function CapabilityImportDialog({
                 <FieldShell
                   id="capability-skill-markdown"
                   label={t("marketplace.skillMarkdown")}
+                  required
                 >
                   <Textarea
                     id="capability-skill-markdown"
+                    aria-required="true"
                     value={skillMarkdown}
                     className="max-h-96 min-h-56 overflow-y-auto font-mono"
                     onChange={(event) => setSkillMarkdown(event.target.value)}
@@ -2970,6 +2982,7 @@ function PublishDialog({
         <FieldShell
           id="marketplace-publish-source"
           label={t("marketplace.sourceCapability")}
+          required
           className="min-w-0"
         >
           <Select
@@ -2979,6 +2992,7 @@ function PublishDialog({
           >
             <SelectTrigger
               id="marketplace-publish-source"
+              aria-required="true"
               className="w-full min-w-0"
             >
               <SelectValue className="min-w-0">
@@ -3845,6 +3859,7 @@ function ReviewDialog({
           <FieldShell
             id="marketplace-review-decision"
             label={t("marketplace.reviewDecision")}
+            required
           >
             <Select
               items={reviewDecisionItems}
@@ -3855,6 +3870,7 @@ function ReviewDialog({
             >
               <SelectTrigger
                 id="marketplace-review-decision"
+                aria-required="true"
                 className="w-full"
               >
                 <SelectValue />
@@ -3873,6 +3889,7 @@ function ReviewDialog({
           <FieldShell
             id="marketplace-review-comment"
             label={t("marketplace.reviewComment")}
+            required={decision === "rejected"}
             hint={
               decision === "rejected"
                 ? t("marketplace.rejectionCommentRequired")
@@ -3881,6 +3898,7 @@ function ReviewDialog({
           >
             <Textarea
               id="marketplace-review-comment"
+              aria-required={decision === "rejected"}
               value={comment}
               maxLength={4_000}
               onChange={(event) => setComment(event.target.value)}
@@ -3991,9 +4009,11 @@ function GovernanceDialog({
           <FieldShell
             id="marketplace-suspension-reason"
             label={t("marketplace.suspensionReason")}
+            required
           >
             <Textarea
               id="marketplace-suspension-reason"
+              aria-required="true"
               value={reason}
               maxLength={4_000}
               onChange={(event) => setReason(event.target.value)}

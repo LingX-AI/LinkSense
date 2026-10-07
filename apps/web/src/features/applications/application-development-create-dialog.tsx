@@ -49,11 +49,12 @@ export function ApplicationDevelopmentCreateDialog({
         >
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor="development-name">
+              <FieldLabel htmlFor="development-name" required>
                 {t("applicationDevelopment.name")}
               </FieldLabel>
               <Input
                 id="development-name"
+                aria-required="true"
                 value={name}
                 maxLength={160}
                 autoFocus

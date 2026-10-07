@@ -9,6 +9,7 @@ import {
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
+import { supportedLocales } from "@linksense/shared"
 
 import { setAccessToken } from "@/api/session"
 import { ThemeProvider } from "@/app/theme-context"
@@ -165,6 +166,68 @@ describe("application external access page", () => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
+
+  it.each(supportedLocales)(
+    "marks every added starter question as required while allowing no questions in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          const url = new URL(String(input), window.location.origin)
+          return Promise.resolve(
+            envelope(
+              url.pathname.endsWith("/external-access")
+                ? externalAccessFixture()
+                : applicationFixture()
+            )
+          )
+        })
+      )
+      const user = userEvent.setup()
+      renderExternalAccessPage()
+      const section = await screen.findByRole("region", {
+        name: i18n.t("applications.externalAccess.starterQuestionsSection"),
+      })
+      const questionLabel = i18n.t(
+        "applications.externalAccess.starterQuestionLabel",
+        { index: 1 }
+      )
+      const first = await within(section).findByRole("textbox", {
+        name: questionLabel,
+      })
+      const indicator = first
+        .closest('[data-slot="field"]')
+        ?.querySelector('[data-slot="field-label"] span[aria-hidden="true"]')
+      expect(indicator).toHaveTextContent("*")
+      expect(indicator).toHaveClass("text-destructive")
+      expect(first).toHaveAttribute("aria-required", "true")
+      const save = screen.getByRole("button", { name: i18n.t("common.save") })
+      await user.click(
+        within(section).getByRole("button", {
+          name: i18n.t("applications.externalAccess.addStarterQuestion"),
+        })
+      )
+      const third = within(section).getByRole("textbox", {
+        name: i18n.t("applications.externalAccess.starterQuestionLabel", {
+          index: 3,
+        }),
+      })
+      expect(third).toHaveAttribute("aria-required", "true")
+      expect(save).toBeDisabled()
+      for (const index of [3, 2, 1]) {
+        await user.click(
+          within(section).getByRole("button", {
+            name: i18n.t("applications.externalAccess.removeStarterQuestion", {
+              index,
+            }),
+          })
+        )
+      }
+      expect(within(section).queryByRole("textbox")).not.toBeInTheDocument()
+      expect(save).toBeEnabled()
+    }
+  )
 
   it("opens external access from the application menu as a page", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {

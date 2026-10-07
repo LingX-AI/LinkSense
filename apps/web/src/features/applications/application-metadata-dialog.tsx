@@ -150,7 +150,9 @@ export function ApplicationMetadataDialog({
               disabled={save.isPending}
             />
             <Field>
-              <FieldLabel htmlFor={`${id}-name`}>{t("common.name")}</FieldLabel>
+              <FieldLabel htmlFor={`${id}-name`} required>
+                {t("common.name")}
+              </FieldLabel>
               <Input
                 id={`${id}-name`}
                 value={name}

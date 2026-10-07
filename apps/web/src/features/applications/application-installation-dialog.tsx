@@ -113,11 +113,12 @@ export function ApplicationInstallationDialog({
         {target.mode !== "service" && (
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor="application-install-name">
+              <FieldLabel htmlFor="application-install-name" required>
                 {t("applications.distribution.installationName")}
               </FieldLabel>
               <Input
                 id="application-install-name"
+                aria-required="true"
                 value={name}
                 maxLength={160}
                 onChange={(event) => setName(event.target.value)}

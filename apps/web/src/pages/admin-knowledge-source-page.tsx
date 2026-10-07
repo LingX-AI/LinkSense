@@ -93,6 +93,10 @@ function SharePointSettingsForm({
   const [message, setMessage] = useState<string>()
   const [error, setError] = useState<string>()
   const normalizedClientSecret = clientSecret.trim()
+  const identityChanged =
+    (tenantId.trim() || null) !== settings.tenant_id ||
+    (clientId.trim() || null) !== settings.client_id
+  const secretRequired = enabled && (!secretConfigured || identityChanged)
   const mutation = useMutation({
     mutationFn: () =>
       updateSharePointSettings({
@@ -162,11 +166,13 @@ function SharePointSettingsForm({
           <FieldShell
             id="sharepoint-tenant-id"
             label={t("knowledgeSources.sharepoint.tenantId")}
+            required={enabled}
             layout="settings"
             controlWidth="medium"
           >
             <Input
               id="sharepoint-tenant-id"
+              aria-required={enabled || undefined}
               value={tenantId}
               disabled={!enabled}
               onChange={(event) => setTenantId(event.currentTarget.value)}
@@ -175,11 +181,13 @@ function SharePointSettingsForm({
           <FieldShell
             id="sharepoint-client-id"
             label={t("knowledgeSources.sharepoint.clientId")}
+            required={enabled}
             layout="settings"
             controlWidth="medium"
           >
             <Input
               id="sharepoint-client-id"
+              aria-required={enabled || undefined}
               value={clientId}
               disabled={!enabled}
               onChange={(event) => setClientId(event.currentTarget.value)}
@@ -188,12 +196,14 @@ function SharePointSettingsForm({
           <FieldShell
             id="sharepoint-tenant-domain"
             label={t("knowledgeSources.sharepoint.tenantDomain")}
+            required={enabled}
             hint={t("knowledgeSources.sharepoint.tenantDomainDescription")}
             layout="settings"
             controlWidth="wide"
           >
             <Input
               id="sharepoint-tenant-domain"
+              aria-required={enabled || undefined}
               value={tenantDomain}
               disabled={!enabled}
               placeholder="contoso.sharepoint.com"
@@ -203,12 +213,14 @@ function SharePointSettingsForm({
           <FieldShell
             id="sharepoint-client-secret"
             label={t("knowledgeSources.sharepoint.clientSecret")}
+            required={secretRequired}
             hint={t("knowledgeSources.sharepoint.secretDescription")}
             layout="settings"
             controlWidth="wide"
           >
             <PasswordInput
               id="sharepoint-client-secret"
+              aria-required={secretRequired || undefined}
               fieldLabel={t("knowledgeSources.sharepoint.clientSecret")}
               value={clientSecret}
               disabled={!enabled}

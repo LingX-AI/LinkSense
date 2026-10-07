@@ -181,7 +181,17 @@ describe("knowledge document upload queue", () => {
     })
     const interaction = userEvent.setup()
     renderUploadExperience()
-    const fileInput = screen.getByLabelText("选择文档")
+    expect(
+      document.querySelector(
+        "label[for='knowledge-upload-files'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
+    expect(
+      document.querySelector(
+        "label[for='knowledge-upload-ocr'] span.text-destructive"
+      )
+    ).not.toBeInTheDocument()
+    const fileInput = screen.getByLabelText(/^选择文档\s*\*?$/)
     await waitFor(() => expect(fileInput).toBeEnabled())
     await interaction.upload(
       fileInput,
@@ -208,7 +218,7 @@ describe("knowledge document upload queue", () => {
 
     await interaction.click(screen.getByRole("button", { name: "查看详情" }))
     expect(screen.getByRole("dialog", { name: "上传文档" })).toBeVisible()
-    expect(screen.getByLabelText("选择文档")).toBeDisabled()
+    expect(screen.getByLabelText(/^选择文档\s*\*?$/)).toBeDisabled()
   })
 
   it("uploads a selected directory with relative paths and lists unsupported files", async () => {
@@ -218,9 +228,16 @@ describe("knowledge document upload queue", () => {
     })
     const interaction = userEvent.setup()
     renderDialog()
-    await waitFor(() => expect(screen.getByLabelText("选择文档")).toBeEnabled())
+    await waitFor(() =>
+      expect(screen.getByLabelText(/^选择文档\s*\*?$/)).toBeEnabled()
+    )
     await interaction.click(screen.getByRole("button", { name: "目录" }))
-    const directoryInput = screen.getByLabelText("选择本地目录")
+    const directoryInput = screen.getByLabelText(/^选择本地目录\s*\*?$/)
+    expect(
+      document.querySelector(
+        "label[for='knowledge-upload-files'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
     expect(directoryInput).toHaveAttribute("webkitdirectory")
     const supported = new File(["content"], "制度.pdf", {
       type: "application/pdf",
@@ -269,7 +286,7 @@ describe("knowledge document upload queue", () => {
       type: "application/pdf",
     })
 
-    const fileInput = screen.getByLabelText("选择文档")
+    const fileInput = screen.getByLabelText(/^选择文档\s*\*?$/)
     await waitFor(() => expect(fileInput).toBeEnabled())
     const ocrSwitch = screen.getByRole("switch", { name: "启用 OCR" })
     expect(ocrSwitch).not.toBeChecked()
@@ -341,7 +358,7 @@ describe("knowledge document upload queue", () => {
     })
     const interaction = userEvent.setup()
     renderDialog()
-    const fileInput = screen.getByLabelText("选择文档")
+    const fileInput = screen.getByLabelText(/^选择文档\s*\*?$/)
     const ocrSwitch = screen.getByRole("switch", { name: "启用 OCR" })
     await waitFor(() => expect(fileInput).toBeEnabled())
 
@@ -367,7 +384,7 @@ describe("knowledge document upload queue", () => {
     })
     const interaction = userEvent.setup()
     renderDialog()
-    const fileInput = screen.getByLabelText("选择文档")
+    const fileInput = screen.getByLabelText(/^选择文档\s*\*?$/)
     await waitFor(() => expect(fileInput).toBeEnabled())
 
     await interaction.upload(
@@ -407,7 +424,7 @@ describe("knowledge document upload queue", () => {
   it("does not recommend OCR when the selected batch has no image files", async () => {
     const interaction = userEvent.setup()
     renderDialog()
-    const fileInput = screen.getByLabelText("选择文档")
+    const fileInput = screen.getByLabelText(/^选择文档\s*\*?$/)
     await waitFor(() => expect(fileInput).toBeEnabled())
 
     await interaction.upload(
@@ -427,7 +444,7 @@ describe("knowledge document upload queue", () => {
     })
     const interaction = userEvent.setup()
     const rendered = renderDialog()
-    const fileInput = screen.getByLabelText("选择文档")
+    const fileInput = screen.getByLabelText(/^选择文档\s*\*?$/)
     await waitFor(() => expect(fileInput).toBeEnabled())
     await interaction.upload(
       fileInput,
@@ -478,7 +495,7 @@ describe("knowledge document upload queue", () => {
     const interaction = userEvent.setup()
     const rendered = renderDialog()
 
-    const fileInput = screen.getByLabelText("选择文档")
+    const fileInput = screen.getByLabelText(/^选择文档\s*\*?$/)
     await waitFor(() => expect(fileInput).toBeEnabled())
     await interaction.upload(
       fileInput,
@@ -522,7 +539,7 @@ describe("knowledge document upload queue", () => {
       type: "application/pdf",
     })
 
-    const fileInput = screen.getByLabelText("选择文档")
+    const fileInput = screen.getByLabelText(/^选择文档\s*\*?$/)
     await waitFor(() => expect(fileInput).toBeEnabled())
     await interaction.upload(fileInput, file)
     await interaction.click(
@@ -578,7 +595,7 @@ describe("knowledge document upload queue", () => {
     const interaction = userEvent.setup()
     renderDialog()
 
-    const fileInput = screen.getByLabelText("选择文档")
+    const fileInput = screen.getByLabelText(/^选择文档\s*\*?$/)
     await waitFor(() => expect(fileInput).toBeEnabled())
     await interaction.upload(
       fileInput,
@@ -592,7 +609,7 @@ describe("knowledge document upload queue", () => {
     )
 
     await waitFor(() =>
-      expect(screen.getByLabelText("选择文档")).toBeDisabled()
+      expect(screen.getByLabelText(/^选择文档\s*\*?$/)).toBeDisabled()
     )
     expect(uploadKnowledgeDocument.mock.calls[1]?.[0]).toMatchObject({
       knowledgeBaseId,
@@ -605,7 +622,7 @@ describe("knowledge document upload queue", () => {
 
     resolveReplacement?.({ status: "accepted", document: readyDocument })
     expect(await screen.findByText("处理完成")).toBeVisible()
-    expect(screen.getByLabelText("选择文档")).toBeEnabled()
+    expect(screen.getByLabelText(/^选择文档\s*\*?$/)).toBeEnabled()
   })
 
   it("uses the deployment batch limit instead of assuming 100 files", async () => {
@@ -616,7 +633,7 @@ describe("knowledge document upload queue", () => {
     })
     const interaction = userEvent.setup()
     renderDialog()
-    const fileInput = screen.getByLabelText("选择文档")
+    const fileInput = screen.getByLabelText(/^选择文档\s*\*?$/)
     await waitFor(() => expect(fileInput).toBeEnabled())
 
     await interaction.upload(fileInput, [

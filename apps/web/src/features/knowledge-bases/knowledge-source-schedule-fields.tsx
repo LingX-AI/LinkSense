@@ -56,6 +56,7 @@ export function KnowledgeSourceSyncScheduleFields({
       <FieldShell
         id="knowledge-base-sync-frequency"
         label={t("knowledge.create.syncFrequencyLabel")}
+        required
       >
         <Select
           items={frequencyItems}
@@ -64,7 +65,11 @@ export function KnowledgeSourceSyncScheduleFields({
             if (isFrequency(frequency)) update("frequency", frequency)
           }}
         >
-          <SelectTrigger id="knowledge-base-sync-frequency" className="w-full">
+          <SelectTrigger
+            id="knowledge-base-sync-frequency"
+            className="w-full"
+            aria-required="true"
+          >
             <SelectValue>
               {t(`knowledge.create.syncFrequency.${value.frequency}`)}
             </SelectValue>
@@ -85,13 +90,18 @@ export function KnowledgeSourceSyncScheduleFields({
         <FieldShell
           id="knowledge-base-sync-weekday"
           label={t("knowledge.create.syncWeekdayLabel")}
+          required
         >
           <Select
             items={weekdayItems}
             value={value.weekday}
             onValueChange={(weekday) => update("weekday", weekday ?? "1")}
           >
-            <SelectTrigger id="knowledge-base-sync-weekday" className="w-full">
+            <SelectTrigger
+              id="knowledge-base-sync-weekday"
+              className="w-full"
+              aria-required="true"
+            >
               <SelectValue>
                 {t(`knowledge.create.syncWeekday.${value.weekday}`)}
               </SelectValue>
@@ -113,6 +123,7 @@ export function KnowledgeSourceSyncScheduleFields({
         <FieldShell
           id="knowledge-base-sync-day-of-month"
           label={t("knowledge.create.syncDayOfMonth")}
+          required
           hint={t("knowledge.create.syncInvalidMonthDayHint")}
         >
           <Select
@@ -122,6 +133,7 @@ export function KnowledgeSourceSyncScheduleFields({
           >
             <SelectTrigger
               id="knowledge-base-sync-day-of-month"
+              aria-required="true"
               className="w-full"
             >
               <SelectValue>
@@ -144,7 +156,11 @@ export function KnowledgeSourceSyncScheduleFields({
       )}
 
       <Field className="form-field gap-1.5">
-        <FieldLabel id="knowledge-base-sync-time-label" className="form-label">
+        <FieldLabel
+          id="knowledge-base-sync-time-label"
+          className="form-label"
+          required
+        >
           {t("knowledge.create.syncTime")}
         </FieldLabel>
         <TimePicker

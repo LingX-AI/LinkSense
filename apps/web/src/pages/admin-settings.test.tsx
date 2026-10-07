@@ -22,6 +22,10 @@ import { NotificationCenter } from "@/components/feedback/notification-toast"
 import i18n from "@/i18n"
 import { samlSettingsFixture } from "@/features/saml/test-fixture"
 import { AdminPages } from "@/pages/admin-pages"
+import {
+  expectRequiredLabel,
+  formLabelPattern,
+} from "@/features/admin/required-field-label.test-helper"
 
 const productSettings = {
   organization_display_name: "LinkSense",
@@ -322,6 +326,311 @@ async function waitForModelProviderSettingsPut(requests: RecordedRequest[]) {
 }
 
 describe("administrator authentication settings", () => {
+  it("marks the system name while keeping the optional logo and concurrency overrides unmarked", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        return envelope(settingsPayload(path))
+      })
+    )
+    const user = userEvent.setup()
+    renderSettings()
+    expectRequiredLabel(
+      await screen.findByRole("textbox", { name: i18n.t("admin.systemName") })
+    )
+    const logo = document.getElementById("system-logo")
+    if (!logo) throw new Error("Missing logo upload")
+    expectRequiredLabel(logo, false)
+    await user.click(screen.getByRole("tab", { name: "任务并发" }))
+    for (const input of await screen.findAllByRole("spinbutton"))
+      expectRequiredLabel(input, false)
+  })
+
+  it("marks managed SMTP fields and requires the password only when a new credential is needed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        return envelope(
+          path.endsWith("/authentication-settings")
+            ? {
+                ...authenticationSettings,
+                smtp: {
+                  ...authenticationSettings.smtp,
+                  mode: "managed",
+                  host: "smtp.example.test",
+                  port: 587,
+                  security: "tls",
+                  from: "mailer@example.test",
+                  username: "mailer",
+                  password_configured: false,
+                },
+              }
+            : settingsPayload(path)
+        )
+      })
+    )
+    const user = userEvent.setup()
+    renderSettings("settings", "/admin/settings?section=smtp")
+    const host = await screen.findByRole("textbox", {
+      name: i18n.t("admin.authSettings.smtpHost"),
+    })
+    expectRequiredLabel(
+      screen.getByRole("combobox", {
+        name: i18n.t("admin.authSettings.modeLabel"),
+      })
+    )
+    expectRequiredLabel(host)
+    expectRequiredLabel(
+      screen.getByRole("spinbutton", {
+        name: i18n.t("admin.authSettings.smtpPort"),
+      })
+    )
+    expectRequiredLabel(
+      screen.getByRole("textbox", {
+        name: i18n.t("admin.authSettings.smtpFrom"),
+      })
+    )
+    expectRequiredLabel(
+      screen.getByRole("combobox", {
+        name: i18n.t("admin.authSettings.smtpSecurity"),
+      })
+    )
+    const username = screen.getByRole("textbox", {
+      name: i18n.t("admin.authSettings.smtpUsername"),
+    })
+    expectRequiredLabel(username, false)
+    const password = document.getElementById("smtp-password")
+    if (!password) throw new Error("Missing SMTP password")
+    expectRequiredLabel(password)
+    await user.clear(username)
+    expectRequiredLabel(password, false)
+  })
+
+  it.each([true, false])(
+    "marks managed OIDC and Teams fields and keeps saved credentials optional (%s)",
+    async (secretConfigured) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          return envelope(
+            path.endsWith("/authentication-settings")
+              ? {
+                  ...authenticationSettings,
+                  oidc: {
+                    ...authenticationSettings.oidc,
+                    client_secret_configured: secretConfigured,
+                  },
+                  teams: { ...authenticationSettings.teams, mode: "managed" },
+                }
+              : settingsPayload(path)
+          )
+        })
+      )
+      renderSettings("settings", "/admin/settings?section=login")
+      await screen.findByRole("textbox", {
+        name: i18n.t("admin.authSettings.oidcIssuer"),
+      })
+      for (const control of screen.getAllByRole("combobox", {
+        name: i18n.t("admin.authSettings.modeLabel"),
+      }))
+        expectRequiredLabel(control)
+      for (const key of [
+        "oidcIssuer",
+        "oidcClientId",
+        "teamsTenantId",
+        "teamsClientId",
+      ]) {
+        expectRequiredLabel(
+          screen.getByRole("textbox", {
+            name: i18n.t(`admin.authSettings.${key}`),
+          })
+        )
+      }
+      const secret = document.getElementById("oidc-client-secret")
+      if (!secret) throw new Error("Missing OIDC secret")
+      expectRequiredLabel(secret, !secretConfigured)
+      expectRequiredLabel(
+        screen.getByRole("textbox", {
+          name: i18n.t("admin.authSettings.oidcRedirectUri"),
+        }),
+        false
+      )
+    }
+  )
+
+  it("marks the maintenance start and end dates while leaving its reason and duration shortcuts optional", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        return envelope(settingsPayload(path))
+      })
+    )
+    const user = userEvent.setup()
+    renderSettings("settings", "/admin/settings?section=maintenance")
+    await user.click(
+      await screen.findByRole("switch", { name: "开启计划维护" })
+    )
+    for (const id of ["maintenance-start-at", "maintenance-end-at"]) {
+      const control = document.getElementById(id)
+      if (!control) throw new Error(`Missing ${id}`)
+      expectRequiredLabel(control)
+    }
+    expectRequiredLabel(
+      screen.getByRole("textbox", { name: i18n.t("admin.maintenance.reason") }),
+      false
+    )
+    expectRequiredLabel(
+      screen.getByRole("spinbutton", {
+        name: i18n.t("admin.maintenance.duration"),
+      }),
+      false
+    )
+  })
+
+  it("marks the embedding model and updates the reranker and image-understanding markers with their switches", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        return envelope(
+          path.endsWith("/model-provider-settings")
+            ? retrievalModelProviderSettings
+            : settingsPayload(path)
+        )
+      })
+    )
+    const user = userEvent.setup()
+    renderSettings("models")
+    await user.click(await screen.findByRole("tab", { name: "知识检索模型" }))
+    expectRequiredLabel(
+      await screen.findByRole("combobox", {
+        name: i18n.t("admin.knowledgeModels.selectEmbeddingModel"),
+      })
+    )
+    const rerank = screen.getByRole("combobox", {
+      name: i18n.t("admin.knowledgeModels.selectRerankerModel"),
+    })
+    expectRequiredLabel(rerank, false)
+    await user.click(
+      screen.getByRole("switch", {
+        name: i18n.t("admin.knowledgeModels.enabled"),
+      })
+    )
+    expectRequiredLabel(rerank)
+    const image = await screen.findByRole("combobox", {
+      name: i18n.t("admin.imageUnderstanding.selectModel"),
+    })
+    expectRequiredLabel(image, false)
+    await user.click(
+      screen.getByRole("switch", {
+        name: i18n.t("admin.imageUnderstanding.enabled"),
+      })
+    )
+    expectRequiredLabel(image)
+  })
+
+  it.each([
+    { domain: "imageGeneration", keyConfigured: true },
+    { domain: "imageGeneration", keyConfigured: false },
+    { domain: "voiceTranscription", keyConfigured: true },
+    { domain: "voiceTranscription", keyConfigured: false },
+  ] as const)(
+    "marks enabled $domain settings and handles saved credentials ($keyConfigured)",
+    async ({ domain, keyConfigured }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          const settings = settingsPayload(path)
+          return envelope(
+            path.endsWith(
+              domain === "imageGeneration"
+                ? "/image-generation-settings"
+                : "/voice-transcription-settings"
+            )
+              ? { ...settings, api_key_configured: keyConfigured }
+              : settings
+          )
+        })
+      )
+      const user = userEvent.setup()
+      renderSettings("models")
+      await user.click(
+        await screen.findByRole("tab", {
+          name: i18n.t(`admin.modelTabs.${domain}`),
+        })
+      )
+      const provider = await screen.findByRole("combobox", {
+        name: i18n.t(`admin.${domain}.provider`),
+      })
+      expectRequiredLabel(provider)
+      const model = screen.getByRole("textbox", {
+        name: i18n.t(`admin.${domain}.model`),
+      })
+      expectRequiredLabel(model)
+      const secret = document.querySelector<HTMLElement>(
+        `input[name="${domain === "imageGeneration" ? "image-generation" : "voice-transcription"}-api-key"]`
+      )
+      if (!secret) throw new Error("Missing model secret")
+      expectRequiredLabel(secret, !keyConfigured)
+      if (domain === "imageGeneration") {
+        for (const key of ["workspaceId", "region"])
+          expectRequiredLabel(
+            screen.getByRole("textbox", {
+              name: i18n.t(`admin.imageGeneration.${key}`),
+            })
+          )
+        expectRequiredLabel(
+          screen.getByRole("spinbutton", {
+            name: i18n.t("admin.imageGeneration.pricePerImage"),
+          })
+        )
+        expectRequiredLabel(
+          screen.getByRole("textbox", {
+            name: i18n.t("admin.imageGeneration.baseUrl"),
+          }),
+          false
+        )
+      } else {
+        expectRequiredLabel(
+          screen.getByRole("textbox", {
+            name: i18n.t("admin.voiceTranscription.baseUrl"),
+          })
+        )
+        await user.click(provider)
+        await user.click(
+          await screen.findByRole("option", {
+            name: i18n.t("admin.voiceTranscription.providers.azure_openai"),
+          })
+        )
+        expectRequiredLabel(
+          screen.getByRole("textbox", {
+            name: i18n.t("admin.voiceTranscription.apiVersion"),
+          })
+        )
+        expectRequiredLabel(secret)
+      }
+      await user.click(
+        screen.getByRole("switch", { name: i18n.t(`admin.${domain}.enabled`) })
+      )
+      expectRequiredLabel(provider, false)
+      expectRequiredLabel(model, false)
+      expectRequiredLabel(secret, false)
+      if (domain === "voiceTranscription") {
+        expectRequiredLabel(
+          screen.getByRole("textbox", {
+            name: i18n.t("admin.voiceTranscription.apiVersion"),
+          }),
+          false
+        )
+      }
+    }
+  )
+
   it("uses the SAML standard button size for every save action across system settings", async () => {
     vi.stubGlobal(
       "fetch",
@@ -571,7 +880,7 @@ describe("administrator authentication settings", () => {
       screen.queryByText("允许访客通过邮箱激活链接自行创建普通用户账号。")
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByLabelText("每位注册用户的总 Token 额度")
+      screen.queryByLabelText(formLabelPattern("每位注册用户的总 Token 额度"))
     ).not.toBeInTheDocument()
     expect(toggle).not.toBeChecked()
     await interaction.click(toggle)
@@ -718,8 +1027,12 @@ describe("administrator authentication settings", () => {
     await interaction.click(
       await screen.findByRole("tab", { name: "任务并发" })
     )
-    const globalLimit = screen.getByLabelText("系统同时运行任务数上限")
-    const processLimit = screen.getByLabelText("单用户任务进程数上限")
+    const globalLimit = screen.getByLabelText(
+      formLabelPattern("系统同时运行任务数上限")
+    )
+    const processLimit = screen.getByLabelText(
+      formLabelPattern("单用户任务进程数上限")
+    )
     expect(globalLimit).toHaveValue(null)
     expect(processLimit).toHaveValue(null)
     expect(
@@ -787,15 +1100,16 @@ describe("administrator authentication settings", () => {
     expect(
       screen.getByRole("heading", { name: "可编辑产品设置" })
     ).toBeVisible()
-    expect(screen.getByLabelText("系统 Logo")).toHaveAttribute(
-      "accept",
-      "image/png,image/jpeg,image/webp,image/gif"
-    )
+    expect(
+      screen.getByLabelText(formLabelPattern("系统 Logo"))
+    ).toHaveAttribute("accept", "image/png,image/jpeg,image/webp,image/gif")
     expect(screen.getByRole("button", { name: "上传 Logo" })).toBeVisible()
     expect(
       screen.getByText("用于登录页、侧边栏和系统维护页的品牌标识。")
     ).toBeVisible()
-    expect(screen.queryByLabelText("系统默认语言")).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText(formLabelPattern("系统默认语言"))
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("tab", { name: "模型设置" })
     ).not.toBeInTheDocument()
@@ -834,7 +1148,7 @@ describe("administrator authentication settings", () => {
     const oidcSection = oidcHeading.closest("section")
     expect(oidcSection).not.toBeNull()
     const oidcClientSecretInput = within(oidcSection!).getByLabelText(
-      "Client secret"
+      formLabelPattern("Client secret")
     )
     expect(oidcClientSecretInput).toHaveValue("")
     expect(oidcClientSecretInput).toHaveAttribute("placeholder", "••••••••••••")
@@ -899,7 +1213,9 @@ describe("administrator authentication settings", () => {
       .getByRole("heading", { name: "认证邮件功能" })
       .closest("section")
     expect(smtpSection).not.toBeNull()
-    const passwordInput = within(smtpSection!).getByLabelText("密码")
+    const passwordInput = within(smtpSection!).getByLabelText(
+      formLabelPattern("密码")
+    )
     expect(passwordInput).toHaveValue("")
     expect(passwordInput).toHaveAttribute("placeholder", "••••••••••••")
     expect(passwordInput).toHaveAttribute("type", "password")
@@ -942,7 +1258,9 @@ describe("administrator authentication settings", () => {
       default_language: "zh-CN",
     })
 
-    const nameInput = await screen.findByLabelText("系统显示名称")
+    const nameInput = await screen.findByLabelText(
+      formLabelPattern("系统显示名称")
+    )
     const card = nameInput.closest('[data-slot="card"]')
     expect(card).toHaveClass("rounded-card", "border")
     const saveButton = screen.getByRole("button", { name: "保存" })
@@ -1007,7 +1325,9 @@ describe("administrator authentication settings", () => {
       logo_updated_at: null,
     })
 
-    const logoInput = await screen.findByLabelText("系统 Logo")
+    const logoInput = await screen.findByLabelText(
+      formLabelPattern("系统 Logo")
+    )
     await interaction.upload(
       logoInput,
       new File(["logo"], "logo.png", { type: "image/png" })
@@ -1108,13 +1428,15 @@ describe("administrator authentication settings", () => {
     expect(within(catalog).getByRole("row", { name: "Model A" })).toBeVisible()
     expect(within(catalog).queryByRole("textbox")).not.toBeInTheDocument()
     const connection = await openChannelEditor(interaction)
-    const apiKeyInput = within(connection).getByLabelText("API_KEY")
+    const apiKeyInput = within(connection).getByLabelText(
+      formLabelPattern("API_KEY")
+    )
     expect(apiKeyInput).toHaveValue("")
     expect(apiKeyInput).toHaveAttribute("placeholder", "••••••••••••")
     expect(apiKeyInput).toHaveAttribute("type", "password")
-    expect(within(connection).getByLabelText("Base URL")).toHaveValue(
-      "https://models.example.test/v1"
-    )
+    expect(
+      within(connection).getByLabelText(formLabelPattern("Base URL"))
+    ).toHaveValue("https://models.example.test/v1")
 
     expect(
       within(connection).getByRole("combobox", { name: "协议兼容模式" })
@@ -1129,12 +1451,13 @@ describe("administrator authentication settings", () => {
     expect(model).toHaveAttribute("data-slot", "dialog-content")
     expect(model).toHaveClass("top-1/2", "left-1/2", "sm:max-w-2xl")
     const modelIdField = within(model)
-      .getByLabelText("模型 ID")
+      .getByLabelText(formLabelPattern("模型 ID"))
       .closest('[data-slot="field"]')
     expect(modelIdField?.parentElement).toHaveClass("grid", "sm:grid-cols-2")
     expect(
-      within(model).getByLabelText("显示名称").closest('[data-slot="field"]')
-        ?.parentElement
+      within(model)
+        .getByLabelText(formLabelPattern("显示名称"))
+        .closest('[data-slot="field"]')?.parentElement
     ).toBe(modelIdField?.parentElement)
 
     expect(
@@ -1224,13 +1547,17 @@ describe("administrator authentication settings", () => {
     expect(rankModelField).toHaveClass(
       "md:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)]"
     )
-    expect(screen.queryByLabelText("嵌入 API Key")).not.toBeInTheDocument()
-    expect(screen.queryByLabelText("重排 API Key")).not.toBeInTheDocument()
     expect(
-      within(knowledgeSection!).queryByLabelText("API Key")
+      screen.queryByLabelText(formLabelPattern("嵌入 API Key"))
     ).not.toBeInTheDocument()
     expect(
-      within(knowledgeSection!).queryByLabelText("Base URL")
+      screen.queryByLabelText(formLabelPattern("重排 API Key"))
+    ).not.toBeInTheDocument()
+    expect(
+      within(knowledgeSection!).queryByLabelText(formLabelPattern("API Key"))
+    ).not.toBeInTheDocument()
+    expect(
+      within(knowledgeSection!).queryByLabelText(formLabelPattern("Base URL"))
     ).not.toBeInTheDocument()
     expect(screen.getByText(/还没有可供知识库使用的嵌入模型/u)).toBeVisible()
     expect(
@@ -1465,7 +1792,7 @@ describe("administrator authentication settings", () => {
     expect(
       within(
         screen.getByRole("group", { name: "模型渠道 1" })
-      ).queryByLabelText("Base URL")
+      ).queryByLabelText(formLabelPattern("Base URL"))
     ).not.toBeInTheDocument()
     expect(
       screen.getByRole("switch", { name: "对话可选：Model A" })
@@ -1710,12 +2037,18 @@ describe("administrator authentication settings", () => {
     )
     const dialog = await screen.findByRole("dialog", { name: "添加模型" })
     expect(dialog).toHaveAttribute("data-slot", "dialog-content")
-    expect(within(dialog).queryByLabelText("模型 ID")).not.toBeInTheDocument()
+    expect(
+      within(dialog).queryByLabelText(formLabelPattern("模型 ID"))
+    ).not.toBeInTheDocument()
     await interaction.click(
       within(dialog).getByRole("button", { name: "手动输入模型" })
     )
-    expect(within(dialog).getByLabelText("模型 ID")).toHaveValue("")
-    expect(within(dialog).getByLabelText("显示名称")).toHaveValue("")
+    expect(
+      within(dialog).getByLabelText(formLabelPattern("模型 ID"))
+    ).toHaveValue("")
+    expect(
+      within(dialog).getByLabelText(formLabelPattern("显示名称"))
+    ).toHaveValue("")
     expect(
       within(dialog).getByRole("button", { name: /保存模型/u })
     ).toBeDisabled()
@@ -1777,13 +2110,13 @@ describe("administrator authentication settings", () => {
       })
     ).toHaveTextContent("Ranker Model")
     expect(
-      within(knowledgeSection!).queryByLabelText("输入单价")
+      within(knowledgeSection!).queryByLabelText(formLabelPattern("输入单价"))
     ).not.toBeInTheDocument()
     expect(
-      within(knowledgeSection!).queryByLabelText("API Key")
+      within(knowledgeSection!).queryByLabelText(formLabelPattern("API Key"))
     ).not.toBeInTheDocument()
     expect(
-      within(knowledgeSection!).queryByLabelText("Base URL")
+      within(knowledgeSection!).queryByLabelText(formLabelPattern("Base URL"))
     ).not.toBeInTheDocument()
     await interaction.click(
       screen.getByRole("button", { name: "保存知识库检索模型" })
@@ -2331,18 +2664,18 @@ describe("administrator authentication settings", () => {
     expect(
       within(section!).getByRole("combobox", { name: "模型服务商" })
     ).toHaveTextContent("OpenAI")
-    expect(within(section!).getByLabelText("Base URL")).toHaveValue(
-      "https://api.openai.com/v1"
-    )
-    expect(within(section!).getByLabelText("语音转文字模型名称")).toHaveValue(
-      "gpt-4o-mini-transcribe"
-    )
+    expect(
+      within(section!).getByLabelText(formLabelPattern("Base URL"))
+    ).toHaveValue("https://api.openai.com/v1")
+    expect(
+      within(section!).getByLabelText(formLabelPattern("语音转文字模型名称"))
+    ).toHaveValue("gpt-4o-mini-transcribe")
 
     await interaction.clear(
-      within(section!).getByLabelText("语音转文字模型名称")
+      within(section!).getByLabelText(formLabelPattern("语音转文字模型名称"))
     )
     await interaction.type(
-      within(section!).getByLabelText("语音转文字模型名称"),
+      within(section!).getByLabelText(formLabelPattern("语音转文字模型名称")),
       "gpt-4o-transcribe"
     )
     await interaction.click(
@@ -2489,17 +2822,25 @@ describe("administrator authentication settings", () => {
     ])
     await interaction.keyboard("{Escape}")
     expect(
-      within(imageGenerationSection!).getByLabelText("Base URL")
+      within(imageGenerationSection!).getByLabelText(
+        formLabelPattern("Base URL")
+      )
     ).toHaveValue(imageGenerationSettings.base_url)
     expect(
-      within(imageGenerationSection!).getByLabelText("百炼 Workspace ID")
+      within(imageGenerationSection!).getByLabelText(
+        formLabelPattern("百炼 Workspace ID")
+      )
     ).toHaveValue("dashscope-workspace")
 
     await interaction.clear(
-      within(imageGenerationSection!).getByLabelText("单张图片价格")
+      within(imageGenerationSection!).getByLabelText(
+        formLabelPattern("单张图片价格")
+      )
     )
     await interaction.type(
-      within(imageGenerationSection!).getByLabelText("单张图片价格"),
+      within(imageGenerationSection!).getByLabelText(
+        formLabelPattern("单张图片价格")
+      ),
       "0.18"
     )
     await interaction.click(
@@ -2575,7 +2916,9 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     await selectChannel(interaction, "任务命名渠道")
     const titleProvider = await openChannelEditor(interaction)
-    expect(within(titleProvider).getByLabelText("API_KEY")).toBeRequired()
+    expect(
+      within(titleProvider).getByLabelText(formLabelPattern("API_KEY"))
+    ).toBeRequired()
     expect(
       within(titleProvider).getByRole("button", {
         name: "保存模型渠道 任务命名渠道",
@@ -2618,7 +2961,7 @@ describe("administrator authentication settings", () => {
     await interaction.type(
       within(
         await screen.findByRole("dialog", { name: "编辑渠道" })
-      ).getByLabelText("API_KEY"),
+      ).getByLabelText(formLabelPattern("API_KEY")),
       "replacement-secret"
     )
     await interaction.click(
@@ -2668,7 +3011,9 @@ describe("administrator authentication settings", () => {
     renderSettings("models")
 
     const dialog = await openChannelEditor(interaction)
-    const nameInput = within(dialog).getByLabelText("渠道名称")
+    const nameInput = within(dialog).getByLabelText(
+      formLabelPattern("渠道名称")
+    )
     await interaction.clear(nameInput)
     await interaction.type(nameInput, "  生产模型渠道  ")
     await interaction.click(
@@ -2734,21 +3079,21 @@ describe("administrator authentication settings", () => {
     )
     const secondProvider = screen.getByRole("dialog", { name: "添加模型渠道" })
     await interaction.type(
-      within(secondProvider).getByLabelText("渠道名称"),
+      within(secondProvider).getByLabelText(formLabelPattern("渠道名称")),
       "模型渠道 2"
     )
     expect(
-      within(secondProvider).queryByLabelText("模型 ID")
+      within(secondProvider).queryByLabelText(formLabelPattern("模型 ID"))
     ).not.toBeInTheDocument()
     expect(
       within(secondProvider).queryByText("添加第一个模型")
     ).not.toBeInTheDocument()
     await interaction.type(
-      within(secondProvider).getByLabelText("Base URL"),
+      within(secondProvider).getByLabelText(formLabelPattern("Base URL")),
       "https://models-2.example.test/v1"
     )
     await interaction.type(
-      within(secondProvider).getByLabelText("API_KEY"),
+      within(secondProvider).getByLabelText(formLabelPattern("API_KEY")),
       "provider-2-secret"
     )
 
@@ -3044,7 +3389,9 @@ describe("administrator authentication settings", () => {
     await interaction.click(ultra)
     expect(supportedEfforts).toHaveTextContent("已选择 5 项")
     await interaction.keyboard("{Escape}")
-    expect(within(model).getByLabelText("模型 ID")).toHaveValue("gpt-5.6-sol")
+    expect(
+      within(model).getByLabelText(formLabelPattern("模型 ID"))
+    ).toHaveValue("gpt-5.6-sol")
     const defaultEffort = within(model).getByRole("combobox", {
       name: "默认推理强度",
     })
@@ -3221,7 +3568,9 @@ describe("administrator authentication settings", () => {
     await waitFor(() => expect(save).toHaveAttribute("aria-busy", "true"))
     expect(save).toBeDisabled()
     expect(within(modelA).getByRole("button", { name: "取消" })).toBeDisabled()
-    expect(within(modelA).getByLabelText("显示名称")).toBeDisabled()
+    expect(
+      within(modelA).getByLabelText(formLabelPattern("显示名称"))
+    ).toBeDisabled()
     await interaction.click(save)
     expect(saveRequests).toHaveLength(1)
     resolveSave(
@@ -3351,7 +3700,10 @@ describe("administrator authentication settings", () => {
     )
 
     await openModelEditor(interaction, "Model B")
-    await interaction.type(screen.getByLabelText("显示名称"), "未保存")
+    await interaction.type(
+      screen.getByLabelText(formLabelPattern("显示名称")),
+      "未保存"
+    )
     await interaction.click(screen.getByRole("button", { name: "取消" }))
     expect(screen.getByRole("button", { name: "放弃修改" })).toHaveClass(
       "bg-destructive",
@@ -3594,7 +3946,10 @@ describe("administrator authentication settings", () => {
       )
     )
     const editor = await openModelEditor(interaction, "Model B")
-    await interaction.type(within(editor).getByLabelText("显示名称"), " Stable")
+    await interaction.type(
+      within(editor).getByLabelText(formLabelPattern("显示名称")),
+      " Stable"
+    )
     await interaction.click(
       within(editor).getByRole("button", { name: "保存模型 Model B Stable" })
     )
@@ -3643,16 +3998,16 @@ describe("administrator authentication settings", () => {
       await screen.findByRole("option", { name: "由系统设置管理" })
     )
     await interaction.type(
-      within(smtpSection!).getByLabelText("SMTP 主机"),
+      within(smtpSection!).getByLabelText(formLabelPattern("SMTP 主机")),
       "draft.smtp.example.com"
     )
 
     await interaction.click(screen.getByRole("tab", { name: "登录方式" }))
     await interaction.click(screen.getByRole("tab", { name: "认证邮件" }))
 
-    expect(within(smtpSection!).getByLabelText("SMTP 主机")).toHaveValue(
-      "draft.smtp.example.com"
-    )
+    expect(
+      within(smtpSection!).getByLabelText(formLabelPattern("SMTP 主机"))
+    ).toHaveValue("draft.smtp.example.com")
   })
 
   it("trims and clears an OIDC client secret replacement after saving", async () => {
@@ -3690,7 +4045,9 @@ describe("administrator authentication settings", () => {
       .getByRole("heading", { name: "企业统一登录（OIDC）" })
       .closest("section")
     expect(oidcSection).not.toBeNull()
-    const secretInput = within(oidcSection!).getByLabelText("Client secret")
+    const secretInput = within(oidcSection!).getByLabelText(
+      formLabelPattern("Client secret")
+    )
     await interaction.type(secretInput, "  replacement~secret+value=  ")
     await interaction.click(
       within(oidcSection!).getByRole("button", { name: "保存" })
@@ -3774,18 +4131,20 @@ describe("administrator authentication settings", () => {
       await screen.findByRole("option", { name: "由系统设置管理" })
     )
     await interaction.type(
-      within(smtpSection!).getByLabelText("SMTP 主机"),
+      within(smtpSection!).getByLabelText(formLabelPattern("SMTP 主机")),
       "smtp.example.com"
     )
     await interaction.type(
-      within(smtpSection!).getByLabelText("发件人"),
+      within(smtpSection!).getByLabelText(formLabelPattern("发件人")),
       "LinkSense <no-reply@example.com>"
     )
     await interaction.type(
-      within(smtpSection!).getByLabelText("用户名"),
+      within(smtpSection!).getByLabelText(formLabelPattern("用户名")),
       "mailer@example.com"
     )
-    const passwordInput = within(smtpSection!).getByLabelText("密码")
+    const passwordInput = within(smtpSection!).getByLabelText(
+      formLabelPattern("密码")
+    )
     await interaction.type(passwordInput, "smtp-secret")
     await interaction.click(
       within(smtpSection!).getByRole("button", { name: "保存" })

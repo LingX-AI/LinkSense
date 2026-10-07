@@ -1,9 +1,40 @@
-import { render, screen } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import { cleanup, render, screen } from "@testing-library/react"
+import { afterEach, describe, expect, it } from "vitest"
 
 import { FieldShell, SettingsFieldGroup, SettingsFieldRow } from "./form-field"
 
+afterEach(cleanup)
+
 describe("settings form fields", () => {
+  it.each(["default", "settings", "row"] as const)(
+    "marks required %s fields and removes the indicator when they become optional",
+    (layout) => {
+      const renderField = (required: boolean) => {
+        const props = { id: "required-name", label: "Name", required }
+        return layout === "row" ? (
+          <SettingsFieldRow {...props}>
+            <input id={props.id} />
+          </SettingsFieldRow>
+        ) : (
+          <FieldShell {...props} layout={layout}>
+            <input id={props.id} />
+          </FieldShell>
+        )
+      }
+      const { rerender } = render(renderField(true))
+      const input = screen.getByRole("textbox", { name: "Name" })
+      const label = document.querySelector('label[for="required-name"]')
+      expect(label?.lastElementChild).toHaveTextContent("*")
+      expect(label?.lastElementChild).toHaveClass("text-destructive")
+      expect(label?.lastElementChild).toHaveAttribute("aria-hidden", "true")
+      expect(input).toBeInTheDocument()
+
+      rerender(renderField(false))
+      expect(screen.queryByText("*")).not.toBeInTheDocument()
+      expect(screen.getByLabelText("Name")).toBeInTheDocument()
+    }
+  )
+
   it("renders page fields with labels and hints in the left column", () => {
     render(
       <SettingsFieldGroup data-testid="group">

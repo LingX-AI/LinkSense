@@ -62,9 +62,14 @@ describe("CredentialManagementPage", () => {
       await screen.findByRole("menuitem", { name: "管理关联" })
     )
     const dialog = screen.getByRole("dialog", { name: "管理关联" })
-    expect(within(dialog).getByLabelText("插件")).toHaveTextContent(
+    expect(within(dialog).getByLabelText(/^插件\s*\*?$/)).toHaveTextContent(
       "ManageBac Connector"
     )
+    expect(
+      document.querySelector(
+        "label[for='binding-capability'] span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveTextContent("*")
     expect(within(dialog).getByText("已选择 2 / 2 项信息")).toBeVisible()
     await interaction.click(
       within(dialog).getByRole("button", { name: "选择或调整对应信息" })
@@ -245,11 +250,26 @@ describe("CredentialManagementPage", () => {
     await interaction.click(
       await screen.findByRole("button", { name: "新增凭据" })
     )
-    expect(screen.getByLabelText("配置项名称")).toHaveValue("")
-    await interaction.type(screen.getByLabelText("名称"), "测试")
-    await interaction.type(screen.getByLabelText("服务标识"), "测试")
-    await interaction.type(screen.getByLabelText("配置项名称"), "API_KEY")
-    await interaction.type(screen.getByLabelText("授权信息"), "12345")
+    for (const id of ["credential-name", "credential-provider"]) {
+      expect(
+        document.querySelector(
+          `label[for='${id}'] span.text-destructive[aria-hidden='true']`
+        )
+      ).toHaveTextContent("*")
+    }
+    expect(
+      document.querySelectorAll(
+        "[data-slot='credential-secret-row'] label span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveLength(2)
+    expect(screen.getByLabelText(/^配置项名称\s*\*?$/)).toHaveValue("")
+    await interaction.type(screen.getByLabelText(/^名称\s*\*?$/), "测试")
+    await interaction.type(screen.getByLabelText(/^服务标识\s*\*?$/), "测试")
+    await interaction.type(
+      screen.getByLabelText(/^配置项名称\s*\*?$/),
+      "API_KEY"
+    )
+    await interaction.type(screen.getByLabelText(/^授权信息\s*\*?$/), "12345")
 
     expect(
       screen.getByText(
@@ -259,8 +279,11 @@ describe("CredentialManagementPage", () => {
     expect(screen.getByRole("button", { name: "确认新增" })).toBeDisabled()
     expect(hasCredentialPost(requests)).toBe(false)
 
-    await interaction.clear(screen.getByLabelText("服务标识"))
-    await interaction.type(screen.getByLabelText("服务标识"), "test_api")
+    await interaction.clear(screen.getByLabelText(/^服务标识\s*\*?$/))
+    await interaction.type(
+      screen.getByLabelText(/^服务标识\s*\*?$/),
+      "test_api"
+    )
     await interaction.click(screen.getByRole("button", { name: "确认新增" }))
 
     await waitFor(() =>
@@ -342,16 +365,37 @@ describe("CredentialManagementPage", () => {
     expect(
       await screen.findByText("留空保留原有信息；填写新值后会替换原有信息。")
     ).toBeVisible()
-    const keyInputs = screen.getAllByLabelText("配置项名称")
+    const keyInputs = screen.getAllByLabelText(/^配置项名称\s*\*?$/)
     expect(keyInputs.map((input) => (input as HTMLInputElement).value)).toEqual(
       ["API_KEY", "API_SECRET"]
     )
-    const valueInputs = screen.getAllByLabelText("授权信息")
+    const valueInputs = screen.getAllByLabelText(/^授权信息\s*\*?$/)
+    expect(
+      document.querySelectorAll(
+        "[data-slot='credential-secret-row'] label span.text-destructive[aria-hidden='true']"
+      )
+    ).toHaveLength(2)
     expect(valueInputs).toHaveLength(2)
     for (const input of valueInputs) {
       expect(input).toHaveValue("")
       expect(input).toHaveAttribute("placeholder", "••••••••")
+      expect(input).toHaveAttribute("aria-required", "false")
     }
+    await interaction.click(
+      screen.getByRole("button", { name: i18n.t("credential.addSecretField") })
+    )
+    const newValue = screen.getAllByLabelText(/^授权信息\s*\*?$/)[2]!
+    expect(newValue).toHaveAttribute("aria-required", "true")
+    expect(
+      document.querySelector(
+        `label[for='${newValue.id}'] span.text-destructive[aria-hidden='true']`
+      )
+    ).toHaveTextContent("*")
+    await interaction.click(
+      screen.getAllByRole("button", {
+        name: i18n.t("credential.removeSecretField"),
+      })[2]!
+    )
 
     await interaction.click(screen.getByRole("button", { name: "确认更新" }))
 
@@ -430,7 +474,7 @@ describe("CredentialManagementPage", () => {
     await interaction.click(
       await screen.findByRole("menuitem", { name: "编辑" })
     )
-    const valueInputs = screen.getAllByLabelText("授权信息")
+    const valueInputs = screen.getAllByLabelText(/^授权信息\s*\*?$/)
     await interaction.type(valueInputs[1]!, "rotated-secret")
     await interaction.click(screen.getByRole("button", { name: "确认更新" }))
 
@@ -557,7 +601,9 @@ describe("CredentialManagementPage", () => {
     await screen.findByText("ManageBac 凭据")
     await interaction.click(screen.getByRole("button", { name: "关联插件" }))
     const bindingDialog = screen.getByRole("dialog", { name: "关联插件" })
-    await interaction.click(within(bindingDialog).getByLabelText("插件"))
+    await interaction.click(
+      within(bindingDialog).getByLabelText(/^插件\s*\*?$/)
+    )
     await interaction.click(
       await screen.findByRole("option", { name: "ManageBac Connector" })
     )

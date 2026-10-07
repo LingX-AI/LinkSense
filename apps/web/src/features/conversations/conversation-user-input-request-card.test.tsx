@@ -1,6 +1,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { supportedLocales } from "@linksense/shared"
 
 import type { ConversationUserInputRequest } from "@/api/contracts"
 import { ConversationUserInputRequestCard } from "@/features/conversations/conversation-user-input-request-card"
@@ -161,6 +162,61 @@ function getStructuredField(card: HTMLElement, label: string): HTMLElement {
 }
 
 describe("ConversationUserInputRequestCard", () => {
+  it.each(["questions", "async_questions"] as const)(
+    "marks each required %s answer after the question text",
+    (kind) => {
+      const prompt: ConversationUserInputRequest =
+        kind === "questions"
+          ? request
+          : { ...request, kind, response_content: null }
+      render(
+        <ConversationUserInputRequestCard
+          request={prompt}
+          submitting={false}
+          onSubmit={vi.fn()}
+        />
+      )
+      for (const legend of document.querySelectorAll("legend")) {
+        const indicator = legend.querySelector(".text-destructive")
+        expect(indicator).toHaveTextContent("*")
+        expect(indicator).toHaveAttribute("aria-hidden", "true")
+        expect(indicator?.parentElement).toHaveClass("flex", "gap-2")
+      }
+      expect(document.querySelector('input[type="password"]')).toBeRequired()
+      expect(screen.getByRole("radiogroup")).toBeRequired()
+    }
+  )
+
+  it.each(supportedLocales)(
+    "shows an indicator only for schema-required fields in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      render(
+        <ConversationUserInputRequestCard
+          request={{
+            ...formRequest,
+            requested_schema: {
+              ...formRequest.requested_schema,
+              required: ["title"],
+            },
+          }}
+          submitting={false}
+          onSubmit={vi.fn()}
+        />
+      )
+      const card = screen.getByTestId("conversation-user-input-request")
+      const titleLabel = getStructuredField(card, "标题").querySelector("label")
+      expect(titleLabel?.lastElementChild).toHaveTextContent("*")
+      expect(titleLabel?.lastElementChild).toHaveClass("text-destructive")
+      expect(titleLabel?.lastElementChild).toHaveAttribute(
+        "aria-hidden",
+        "true"
+      )
+      const notesLabel = getStructuredField(card, "说明").querySelector("label")
+      expect(notesLabel).toHaveTextContent(/^说明$/)
+    }
+  )
+
   it.each(["zh-CN", "en-US", "de-DE"])(
     "shows nonblocking questions in %s and submits only after an explicit click",
     async (locale) => {

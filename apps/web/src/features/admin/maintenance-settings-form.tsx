@@ -392,6 +392,7 @@ function MaintenanceSettingsEditor({
                 controlWidth="medium"
                 id="maintenance-start-at"
                 label={t("admin.maintenance.startAt")}
+                required
               >
                 <DateTimePicker
                   id="maintenance-start-at"
@@ -409,6 +410,7 @@ function MaintenanceSettingsEditor({
                 controlWidth="medium"
                 id="maintenance-end-at"
                 label={t("admin.maintenance.endAt")}
+                required
               >
                 <DateTimePicker
                   id="maintenance-end-at"

@@ -198,13 +198,12 @@ function StructuredField({
       data-invalid={invalid || undefined}
       data-disabled={disabled || undefined}
     >
-      <FieldLabel htmlFor={inputId} className="text-sm font-medium">
+      <FieldLabel
+        htmlFor={inputId}
+        className="text-sm font-medium"
+        required={required}
+      >
         {label}
-        {required && (
-          <span className="text-destructive" aria-hidden="true">
-            *
-          </span>
-        )}
       </FieldLabel>
       {field.description && (
         <FieldDescription id={descriptionId} size="sm" className="leading-4">

@@ -333,12 +333,17 @@ export function SiteDialog({
               <FieldGroup className="gap-4">
                 {action.kind === "share" && !existingSite && (
                   <FieldSet>
-                    <FieldLegend id={`${id}-mode-label`} variant="label">
+                    <FieldLegend
+                      id={`${id}-mode-label`}
+                      variant="label"
+                      required
+                    >
                       {t("webSites.publishMode")}
                     </FieldLegend>
                     <RadioGroup
                       name={`${id}-mode`}
                       aria-labelledby={`${id}-mode-label`}
+                      aria-required="true"
                       value={publishMode}
                       disabled={mutation.isPending}
                       onValueChange={(value) => {
@@ -402,9 +407,14 @@ export function SiteDialog({
                 {(action.kind === "edit" ||
                   (action.kind === "share" && publishMode === "new")) && (
                   <>
-                    <FieldShell id={`${id}-name`} label={t("webSites.name")}>
+                    <FieldShell
+                      id={`${id}-name`}
+                      label={t("webSites.name")}
+                      required
+                    >
                       <Input
                         id={`${id}-name`}
+                        aria-required="true"
                         value={name}
                         maxLength={240}
                         disabled={mutation.isPending}
@@ -428,6 +438,7 @@ export function SiteDialog({
                     <FieldShell
                       id={`${id}-slug`}
                       label={t("webSites.slug")}
+                      required={action.kind === "edit"}
                       error={
                         slug && !webSiteSlugSchema.safeParse(slug).success
                           ? t("webSites.invalidSlug")
@@ -436,6 +447,7 @@ export function SiteDialog({
                     >
                       <Input
                         id={`${id}-slug`}
+                        aria-required={action.kind === "edit"}
                         value={slug}
                         maxLength={80}
                         placeholder={t("webSites.slugPlaceholder")}
@@ -458,6 +470,7 @@ export function SiteDialog({
                   <FieldShell
                     id={`${id}-source`}
                     label={t("webSites.sourceFile")}
+                    required
                   >
                     {sources.isPending ? (
                       <Spinner />
@@ -471,7 +484,11 @@ export function SiteDialog({
                         onValueChange={(value) => value && setFileId(value)}
                         items={sourceItems}
                       >
-                        <SelectTrigger id={`${id}-source`} className="w-full">
+                        <SelectTrigger
+                          id={`${id}-source`}
+                          className="w-full"
+                          aria-required="true"
+                        >
                           <SelectValue
                             placeholder={t("webSites.selectSource")}
                           />

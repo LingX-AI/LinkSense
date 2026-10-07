@@ -142,7 +142,9 @@ describe.each(["zh-CN", "en-US"])("interactive dependencies (%s)", (locale) => {
       />
     )
     await user.upload(
-      screen.getByLabelText(i18n.t("applications.applicationPackage")),
+      screen.getByLabelText(
+        new RegExp(`^${i18n.t("applications.applicationPackage")}\\s*\\*?$`)
+      ),
       new File(["test-zip"], "app.zip", { type: "application/zip" })
     )
     await user.click(
@@ -278,7 +280,9 @@ describe.each(["zh-CN", "en-US"])("interactive dependencies (%s)", (locale) => {
         />
       )
       await user.upload(
-        screen.getByLabelText(i18n.t("applications.applicationPackage")),
+        screen.getByLabelText(
+          new RegExp(`^${i18n.t("applications.applicationPackage")}\\s*\\*?$`)
+        ),
         new File(["zip"], "app.zip", { type: "application/zip" })
       )
       await user.click(
@@ -674,7 +678,9 @@ it("keeps the import open and displays a preview error", async () => {
     />
   )
   await user.upload(
-    screen.getByLabelText(i18n.t("applications.applicationPackage")),
+    screen.getByLabelText(
+      new RegExp(`^${i18n.t("applications.applicationPackage")}\\s*\\*?$`)
+    ),
     new File(["zip"], "app.zip", { type: "application/zip" })
   )
   await user.click(
@@ -710,7 +716,7 @@ it("retries publication with corrected resources without importing a duplicate a
     />
   )
   const fileInput = screen.getByLabelText(
-    i18n.t("applications.applicationPackage")
+    new RegExp(`^${i18n.t("applications.applicationPackage")}\\s*\\*?$`)
   )
   await user.upload(
     fileInput,
@@ -758,7 +764,7 @@ it("clears the previous package information when choosing another file", async (
     />
   )
   const fileInput = screen.getByLabelText(
-    i18n.t("applications.applicationPackage")
+    new RegExp(`^${i18n.t("applications.applicationPackage")}\\s*\\*?$`)
   )
   await user.upload(
     fileInput,
@@ -805,7 +811,9 @@ it("shows an empty description and prevents publishing a package with a non-rele
     />
   )
   await user.upload(
-    screen.getByLabelText(i18n.t("applications.applicationPackage")),
+    screen.getByLabelText(
+      new RegExp(`^${i18n.t("applications.applicationPackage")}\\s*\\*?$`)
+    ),
     new File(["zip"], "first.zip", { type: "application/zip" })
   )
   await user.click(

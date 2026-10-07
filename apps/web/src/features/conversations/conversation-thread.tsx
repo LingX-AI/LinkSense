@@ -111,6 +111,7 @@ import { getNativeCodexPayload } from "@/api/contracts"
 import { CapabilityIcon } from "@/components/capabilities/capability-icon"
 import { capabilityPresentation } from "@/features/capabilities/built-in-presentation"
 import { EmptyState } from "@/components/feedback/page-state"
+import { FieldShell } from "@/components/forms/form-field"
 import { FileTypeIcon } from "@/components/media/file-type-icon"
 import {
   ImagePreviewDialog,
@@ -2479,6 +2480,7 @@ const Message = memo(function Message({
     "idle"
   )
   const editButtonRef = useRef<HTMLButtonElement>(null)
+  const editInputId = useId()
   const nextContent = editValue.trim()
   const canSubmit = nextContent.length > 0 && !submitting && !editingDisabled
   const displayedUserContent = optimisticContent ?? persistedUserContent
@@ -2774,28 +2776,36 @@ const Message = memo(function Message({
                   void submitEdit()
                 }}
               >
-                <Textarea
-                  autoFocus={shouldAutoFocusOnDesktop()}
-                  className="message-edit-textarea"
-                  aria-label={t("conversation.editMessageInput")}
-                  value={editValue}
-                  disabled={submitting || editingDisabled}
-                  onChange={(event) => setEditValue(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape" && !submitting) {
-                      event.preventDefault()
-                      finishEditing()
-                    }
-                    if (
-                      event.key === "Enter" &&
-                      !event.shiftKey &&
-                      !event.nativeEvent.isComposing
-                    ) {
-                      event.preventDefault()
-                      event.currentTarget.form?.requestSubmit()
-                    }
-                  }}
-                />
+                <FieldShell
+                  id={editInputId}
+                  label={t("conversation.editMessageInput")}
+                  required
+                >
+                  <Textarea
+                    id={editInputId}
+                    aria-required="true"
+                    autoFocus={shouldAutoFocusOnDesktop()}
+                    className="message-edit-textarea"
+                    aria-label={t("conversation.editMessageInput")}
+                    value={editValue}
+                    disabled={submitting || editingDisabled}
+                    onChange={(event) => setEditValue(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape" && !submitting) {
+                        event.preventDefault()
+                        finishEditing()
+                      }
+                      if (
+                        event.key === "Enter" &&
+                        !event.shiftKey &&
+                        !event.nativeEvent.isComposing
+                      ) {
+                        event.preventDefault()
+                        event.currentTarget.form?.requestSubmit()
+                      }
+                    }}
+                  />
+                </FieldShell>
                 {editError && (
                   <p className="message-edit-error" role="alert">
                     {editError}
