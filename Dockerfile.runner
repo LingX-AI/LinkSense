@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
-ARG BASELINE_NODE_IMAGE=ghcr.io/lingx-ai/linksense-runtime-node@sha256:7d1272bfa1191bc661a204565388d4dd4096ef211a6993d6a520be789cd78ebc
-ARG BASELINE_WORKER_IMAGE=ghcr.io/lingx-ai/linksense-runtime-worker@sha256:dc29d735a56430c1418045c59b00b022e4429dd2ee18f3b9db060767b41e004d
+ARG BASELINE_NODE_IMAGE=ghcr.io/lingx-ai/linksense-runtime-node@sha256:c051d417b73027a493e25379e939807ea748532ad64ac4747d7b6bb05a02ffb4
+ARG BASELINE_WORKER_IMAGE=ghcr.io/lingx-ai/linksense-runtime-worker@sha256:e770f7bef0ece6602e2d9fe97e90e9a0f7bdaba31e8ed90dde0331f938403ee9
 ARG PNPM_VERSION=10.34.6
 ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL=https://registry.npmjs.org/
 
