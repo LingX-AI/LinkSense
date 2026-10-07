@@ -273,7 +273,7 @@ function isNodeError(
 const artifactTool = {
   name: "register_artifact",
   description:
-    "Register an existing file from the current task as a downloadable artifact. For a webpage with local JS, CSS, images, fonts, or data, put all public files in a dedicated directory and set web_root_relative_path to that directory; workspace_relative_path is its HTML entry. This snapshots the complete website for link sharing. Use relative resource URLs, including runtime fetch URLs. Do not include secrets, dotfiles, node_modules, source maps, or source projects; use their built static output. Single self-contained HTML needs no web_root_relative_path.",
+    "Register an existing file from the current task as a downloadable artifact. To deliver a registered file, include a Markdown link in the final answer using the returned display_name as its relative target, for example [report.pdf](report.pdf). Link only final deliverables there; keep process images, temporary outputs, and reference files in commentary. For a webpage with local JS, CSS, images, fonts, or data, put all public files in a dedicated directory and set web_root_relative_path to that directory; workspace_relative_path is its HTML entry. This snapshots the complete website for link sharing. Use relative resource URLs, including runtime fetch URLs. Do not include secrets, dotfiles, node_modules, source maps, or source projects; use their built static output. Single self-contained HTML needs no web_root_relative_path.",
   inputSchema: {
     type: "object",
     properties: {

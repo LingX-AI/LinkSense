@@ -85,6 +85,16 @@ describe("Core MCP module registry", () => {
     })
   })
 
+  it("guides file delivery through explicit final-answer links without promoting process files", () => {
+    const registry = createCoreMcpRegistry({ mode: "default", environment: defaultEnvironment() })
+    const description = registry.tools.find((tool) => tool.name === "register_artifact")?.description
+
+    expect(description).toContain("final answer")
+    expect(description).toContain("[report.pdf](report.pdf)")
+    expect(description).toContain("returned display_name")
+    expect(description).toContain("process images, temporary outputs, and reference files in commentary")
+  })
+
   it("loads only read-only modules in Plan mode", () => {
     const registry = createCoreMcpRegistry({
       mode: "plan",
