@@ -49,6 +49,14 @@ artifacts are valid. A new recipe or a real vulnerability requires a new
 source commit and baseline maintenance; it cannot be silently rebuilt during
 an application release.
 
+Recipe maintenance is a two-phase change. Source CI first checks that the
+committed Docker defaults still match the recorded baseline, and tests the
+strict recipe-admission checks with isolated fixtures. It does not require a
+new baseline before the maintenance workflow can build it. Application builds
+and release preparation still require `baseline-adoption.mjs --check` and the
+exact current recipe fingerprint: maintain the new images, adopt their verified
+descriptor, pass CI and Security again, and only then publish the product.
+
 Worker supervisor capability changes are application changes, not environment
 recipe changes. Rebuild both the Runner controller and Worker application
 images, and recreate existing Worker containers so their creation-time

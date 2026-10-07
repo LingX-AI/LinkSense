@@ -22,13 +22,21 @@ export function baselineDockerfileDefaults(baseline, name, source) {
   return source;
 }
 
-export function checkBaselineAdoption(directory = resolve(import.meta.dirname, "..")) {
-  const baseline = readBaseline(resolve(directory, "deploy/baselines/images.lock.json"), directory);
+// Source CI runs before a new recipe can be maintained. It must still reject
+// unreviewed image defaults, but an older recorded recipe is a valid input to
+// that maintenance phase, never to an application build or product release.
+export function checkBaselineDockerDefaults(directory = resolve(import.meta.dirname, "..")) {
+  const baseline = readBaseline(resolve(directory, "deploy/baselines/images.lock.json"), directory, false);
   for (const name of Object.keys(baselineDockerfiles)) {
     const source = readFileSync(resolve(directory, name), "utf8");
     if (source !== baselineDockerfileDefaults(baseline, name, source)) throw new Error(`Adopt the verified baseline in ${name} before building`);
   }
   return baseline;
+}
+
+export function checkBaselineAdoption(directory = resolve(import.meta.dirname, "..")) {
+  checkBaselineDockerDefaults(directory);
+  return readBaseline(resolve(directory, "deploy/baselines/images.lock.json"), directory);
 }
 
 if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {
