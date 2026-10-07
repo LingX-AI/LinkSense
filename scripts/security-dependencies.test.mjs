@@ -16,11 +16,13 @@ const lockfile = parse(
 // GHSA-2x7j-588g-ccc2, and the Fastify validation / not-found advisories
 // GHSA-9q9j-q6p8-xq58, GHSA-hwr6-493r-vm6h, GHSA-p68q-wchp-6fh7,
 // GHSA-v53p-9fqp-m79j, GHSA-c475-qrg2-pj4r, GHSA-qhr7-859c-m2p7,
-// GHSA-xjh9-v7x6-24jw, GHSA-qw65-cvwx-89v3 and GHSA-rfgv-xxqx-mfg5.
+// GHSA-xjh9-v7x6-24jw, GHSA-qw65-cvwx-89v3, GHSA-rfgv-xxqx-mfg5,
+// GHSA-wq5f-xc86-pv6w and GHSA-6qxp-vccf-f47h.
 // Check every resolution, including transitive copies.
 for (const [name, minimum] of [
   ["@xmldom/xmldom", "0.9.12"],
-  ["sharp", "0.35.4"],
+  ["sharp", "0.35.5"],
+  ["@modelcontextprotocol/sdk", "1.31.0"],
   ["nodemailer", "10.0.6"],
   ["fastify", "5.12.2"],
   ["@fastify/busboy", "3.2.1"],
@@ -55,6 +57,15 @@ for (const [name, minimum] of [
     }
   });
 }
+
+test("the shared Worker Node runtime also pins the patched SVG decoder", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../deploy/runtime/node/package.json", import.meta.url), "utf8"));
+  const workerLock = parse(readFileSync(new URL("../deploy/runtime/node/pnpm-lock.yaml", import.meta.url), "utf8"));
+  assert.equal(manifest.dependencies.sharp, "0.35.5");
+  const versions = Object.keys(workerLock.packages).filter(key => key.startsWith("sharp@"));
+  assert.ok(versions.length > 0);
+  for (const key of versions) assert.ok(gte(key.slice("sharp@".length), "0.35.5"));
+});
 
 test("the component generator is a build dependency rather than a production dependency", () => {
   const manifest = JSON.parse(
