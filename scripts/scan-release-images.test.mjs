@@ -233,8 +233,13 @@ test("vendor VEX corrects only the specific fixed SILO revision and is confined 
 
 test("header VEX covers only reviewed CVEs for exact userspace packages and never claims host kernel safety", () => {
   const vex = JSON.parse(readFileSync(path.join(root, "deploy/security/worker-kernel-headers.vex.json"), "utf8"))
-  assert.equal(vex.statements.length, 173)
-  assert.equal(new Set(vex.statements.map(({ vulnerability }) => vulnerability.name)).size, 173)
+  assert.equal(vex.statements.length, 175)
+  assert.equal(new Set(vex.statements.map(({ vulnerability }) => vulnerability.name)).size, 175)
+  for (const cve of ["CVE-2024-46742", "CVE-2024-46833"]) {
+    const statement = vex.statements.find(({ vulnerability }) => vulnerability.name === cve)
+    assert.ok(statement, `The reviewed kernel-only finding ${cve} must have exact header-package evidence`)
+    assert.ok(statement.impact_statement.includes(`https://ubuntu.com/security/${cve}`))
+  }
   for (const statement of vex.statements) {
     assert.match(statement.vulnerability.name, /^CVE-\d{4}-\d+$/u)
     assert.equal(statement.status, "not_affected")

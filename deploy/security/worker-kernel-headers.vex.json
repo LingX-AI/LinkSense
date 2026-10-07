@@ -3,9 +3,41 @@
   "@id": "https://github.com/LingX-AI/LinkSense/blob/main/deploy/security/worker-kernel-headers.vex.json",
   "author": "LinkSense release engineering",
   "role": "Document Creator",
-  "timestamp": "2026-10-06T07:09:04Z",
-  "version": 1,
+  "timestamp": "2026-10-07T08:05:51Z",
+  "version": 2,
   "statements": [
+    {
+      "vulnerability": {
+        "name": "CVE-2024-46742"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "CVE-2024-46742 affects the Linux kernel SMB server smb2_open implementation, not userspace UAPI declarations: https://ubuntu.com/security/CVE-2024-46742 . This statement applies only to the exact Ubuntu userspace development-header package, whose inventory contains non-executable UAPI headers and documentation and no SMB server implementation. Every Worker build and native candidate smoke check verifies that inventory and rejects kernel image/module/header packages. Vendor inventories: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist and https://packages.ubuntu.com/noble-updates/arm64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2024-46833"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=amd64&distro=ubuntu-24.04"
+        },
+        {
+          "@id": "pkg:deb/ubuntu/linux-libc-dev@6.8.0-146.146?arch=arm64&distro=ubuntu-24.04"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "CVE-2024-46833 affects the Linux kernel HNS3 network driver when reading hardware register information, not userspace UAPI declarations: https://ubuntu.com/security/CVE-2024-46833 . This statement applies only to the exact Ubuntu userspace development-header package, whose inventory contains non-executable UAPI headers and documentation and no HNS3 driver implementation. Every Worker build and native candidate smoke check verifies that inventory and rejects kernel image/module/header packages. Vendor inventories: https://packages.ubuntu.com/noble-updates/amd64/linux-libc-dev/filelist and https://packages.ubuntu.com/noble-updates/arm64/linux-libc-dev/filelist . The deployment host kernel is NOT assessed by this statement and must receive its own security updates. New CVEs and other package versions are not covered."
+    },
     {
       "vulnerability": {
         "name": "CVE-2024-35948"
