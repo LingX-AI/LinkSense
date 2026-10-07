@@ -27,19 +27,36 @@ export function getVisibleConversationRows(
 export function useVisibleConversationMessages({
   hostRef,
   onVisibleMessageChange,
+  onVisibleUnloadedTurnChange,
   loadTurn,
 }: {
   hostRef: RefObject<HTMLDivElement | null>
   onVisibleMessageChange?: (ids: string[]) => void
+  onVisibleUnloadedTurnChange?: (turnId: string | null) => void
   loadTurn?: (turnId: string) => Promise<void>
 }): void {
-  const report = useEffectEvent((rows: ReadingRow[]) => {
-    onVisibleMessageChange?.(
-      rows.filter((row) => row.loaded).flatMap((row) => row.messageIds)
-    )
-    for (const row of rows)
-      if (!row.loaded && row.turnId) void loadTurn?.(row.turnId)
-  })
+  const report = useEffectEvent(
+    (rows: ReadingRow[], viewport: VerticalRange) => {
+      onVisibleMessageChange?.(
+        rows.filter((row) => row.loaded).flatMap((row) => row.messageIds)
+      )
+      // Keep shared feedback in the most visible row rather than a clipped edge.
+      let feedbackTurnId: string | null = null
+      let feedbackHeight = 0
+      for (const row of rows) {
+        if (row.loaded || !row.turnId) continue
+        const visibleHeight =
+          Math.min(row.bottom, viewport.bottom) -
+          Math.max(row.top, viewport.top)
+        if (visibleHeight > feedbackHeight) {
+          feedbackTurnId = row.turnId
+          feedbackHeight = visibleHeight
+        }
+        void loadTurn?.(row.turnId)
+      }
+      onVisibleUnloadedTurnChange?.(feedbackTurnId)
+    }
+  )
   useEffect(() => {
     const host = hostRef.current
     const scroller = host?.closest<HTMLElement>(".conversation-scroll")
@@ -78,7 +95,7 @@ export function useVisibleConversationMessages({
           bottom: rect.bottom,
         }
       })
-      report(getVisibleConversationRows(rows, readable))
+      report(getVisibleConversationRows(rows, readable), readable)
     }
     const schedule = () => {
       frame ??= requestAnimationFrame(update)

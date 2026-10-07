@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { supportedLocales } from "@linksense/shared"
 import {
   ConversationMessageList,
   type ConversationMessageRow,
@@ -21,6 +22,40 @@ function rows(start: number, count: number): ConversationMessageRow[] {
     const id = `message-${start + index}`
     return { key: id, messageIds: [id], render: () => <p>{id}</p> }
   })
+}
+
+function mockHistoryLayout(): void {
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(
+    function (this: HTMLElement) {
+      return this.hasAttribute("data-conversation-row")
+        ? this.dataset.loaded === "false"
+          ? 420
+          : 100
+        : 600
+    }
+  )
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: HTMLElement) {
+      const isRow = this.hasAttribute("data-conversation-row")
+      return DOMRect.fromRect({
+        y: isRow
+          ? Number.parseFloat(this.style.top || "0") -
+            (this.closest(".conversation-scroll")?.scrollTop ?? 0)
+          : 0,
+        height: this.offsetHeight,
+        width: 900,
+      })
+    }
+  )
+}
+
+const historyLoadingLabels = {
+  "zh-CN": "正在加载消息…",
+  "en-US": "Loading messages…",
+  "es-ES": "Cargando mensajes…",
+  "pt-BR": "Carregando mensagens…",
+  "fr-FR": "Chargement des messages…",
+  "ja-JP": "メッセージを読み込み中…",
 }
 
 const originalScrollTo = Object.getOwnPropertyDescriptor(
@@ -432,7 +467,79 @@ describe("virtual conversation messages", () => {
     })
   })
 
-  it.each(["zh-CN", "en-US", "de-DE"])(
+  it("shows one loading placeholder while navigating and scrolling through unloaded history", async () => {
+    await i18n.changeLanguage("zh-CN")
+    mockHistoryLayout()
+    const navigation = createRef<ConversationThreadNavigation>()
+    const loadTurn = vi.fn(async () => undefined)
+    const history = { failedTurnIds: new Set<string>(), loadTurn }
+    const historyRows = rows(0, 200).map((row, index) => ({
+      ...row,
+      turnId: row.key,
+      loaded: index >= 180,
+    }))
+    const view = render(
+      <div className="conversation-scroll" data-testid="scroller">
+        <ConversationMessageList
+          rows={historyRows}
+          navigationRef={navigation}
+          history={history}
+        />
+      </div>
+    )
+    act(() => {
+      expect(navigation.current?.scrollToMessage("message-80")).toBe(true)
+    })
+    await waitFor(() => {
+      expect(loadTurn).toHaveBeenCalledWith("message-80")
+      expect(loadTurn).toHaveBeenCalledWith("message-81")
+      expect(screen.getAllByRole("status")).toHaveLength(1)
+    })
+    expect(screen.getByRole("status")).toHaveTextContent("正在加载消息…")
+    expect(
+      view.container.querySelectorAll('[data-slot="skeleton"]')
+    ).toHaveLength(3)
+    expect(
+      screen.getByRole("status").closest("[data-conversation-row]")
+    ).toHaveAttribute("data-turn-id", "message-80")
+
+    act(() => navigation.current?.cancelScroll())
+    const scroller = screen.getByTestId("scroller")
+    scroller.scrollTop += 300
+    fireEvent.scroll(scroller)
+    await waitFor(() => {
+      expect(screen.getAllByRole("status")).toHaveLength(1)
+      expect(
+        screen.getByRole("status").closest("[data-conversation-row]")
+      ).toHaveAttribute("data-turn-id", "message-81")
+    })
+    expect(
+      view.container.querySelectorAll('[data-slot="skeleton"]')
+    ).toHaveLength(3)
+
+    view.rerender(
+      <div className="conversation-scroll" data-testid="scroller">
+        <ConversationMessageList
+          rows={historyRows.map((row, index) => ({
+            ...row,
+            loaded: row.loaded || (index >= 80 && index < 100),
+          }))}
+          navigationRef={navigation}
+          history={history}
+        />
+      </div>
+    )
+    await waitFor(() => {
+      expect(screen.getByText("message-81")).toBeInTheDocument()
+      expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    })
+    expect(
+      view.container.querySelector('[data-loaded="false"]')
+    ).toBeInTheDocument()
+    expect(view.container.querySelector('[data-slot="skeleton"]')).toBeNull()
+  })
+
+  it.each([...supportedLocales, "de-DE"] as const)(
     "provides localized loading feedback in %s including fallback",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -451,8 +558,11 @@ describe("virtual conversation messages", () => {
           />
         </div>
       )
-      const label = language === "en-US" ? "Loading messages…" : "正在加载消息…"
-      expect(screen.getAllByRole("status")[0]).toHaveTextContent(label)
+      const label =
+        historyLoadingLabels[language === "de-DE" ? "zh-CN" : language]
+      await waitFor(() =>
+        expect(screen.getByRole("status")).toHaveTextContent(label)
+      )
       await i18n.changeLanguage("zh-CN")
     }
   )
@@ -491,22 +601,32 @@ describe("virtual conversation messages", () => {
 
   it("shows an inline retry for a failed page", async () => {
     await i18n.changeLanguage("en-US")
+    mockHistoryLayout()
     const loadTurn = vi.fn(async () => undefined)
-    render(
+    const view = render(
       <div className="conversation-scroll">
         <ConversationMessageList
-          rows={rows(0, 1).map((row) => ({
+          rows={rows(0, 3).map((row) => ({
             ...row,
             turnId: row.key,
             loaded: false,
           }))}
-          history={{ failedTurnIds: new Set(["message-0"]), loadTurn }}
+          history={{
+            failedTurnIds: new Set(["message-0", "message-1", "message-2"]),
+            loadTurn,
+          }}
         />
       </div>
     )
-    fireEvent.click(
-      screen.getByRole("button", { name: "Couldn’t load messages. Retry" })
-    )
+    const retry = await screen.findByRole("button", {
+      name: "Couldn’t load messages. Retry",
+    })
+    expect(screen.getAllByRole("status")).toHaveLength(1)
+    expect(retry.closest("[aria-busy]")).toHaveAttribute("aria-busy", "false")
+    expect(
+      view.container.querySelectorAll('[data-slot="skeleton"]')
+    ).toHaveLength(3)
+    fireEvent.click(retry)
     expect(loadTurn).toHaveBeenCalledWith("message-0", true)
     await i18n.changeLanguage("zh-CN")
   })
