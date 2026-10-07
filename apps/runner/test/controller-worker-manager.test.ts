@@ -1462,7 +1462,7 @@ describe("controller worker lifecycle", () => {
       ReadonlyRootfs: true,
       Init: true,
       CapDrop: ["ALL"],
-      CapAdd: ["SETUID", "KILL", "DAC_OVERRIDE", "FOWNER", "CHOWN"],
+      CapAdd: ["SETUID", "KILL", "DAC_OVERRIDE", "FOWNER", "CHOWN", "SETPCAP"],
       SecurityOpt: ["no-new-privileges:true"],
       Binds: [],
     })
@@ -1714,7 +1714,7 @@ describe("dynamic worker container contract", () => {
       ReadonlyRootfs: true,
       Init: true,
       CapDrop: ["ALL"],
-      CapAdd: ["SETUID", "KILL", "DAC_OVERRIDE", "FOWNER", "CHOWN"],
+      CapAdd: ["SETUID", "KILL", "DAC_OVERRIDE", "FOWNER", "CHOWN", "SETPCAP"],
       SecurityOpt: ["no-new-privileges:true"],
       Binds: [],
     })

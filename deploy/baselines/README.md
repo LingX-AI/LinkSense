@@ -48,3 +48,12 @@ Temporary registry failures can use **Re-run failed jobs** while intermediate
 artifacts are valid. A new recipe or a real vulnerability requires a new
 source commit and baseline maintenance; it cannot be silently rebuilt during
 an application release.
+
+Worker supervisor capability changes are application changes, not environment
+recipe changes. Rebuild both the Runner controller and Worker application
+images, and recreate existing Worker containers so their creation-time
+capability policy is updated. Keep all user data volumes. The supervisor needs
+`SETPCAP` in the container allowance and its inheritable/ambient sets to clear
+task capability bounding sets; tasks must still have all five sets cleared.
+The release and native image gates exercise this actual supervisor-to-task
+chain using `pnpm test:runtime:worker-isolation <local-worker-image>`.

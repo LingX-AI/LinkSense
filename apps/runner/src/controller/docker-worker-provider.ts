@@ -55,6 +55,8 @@ const TRUSTED_WORKER_SUPERVISOR_CAPABILITIES = [
   "DAC_OVERRIDE",
   "FOWNER",
   "CHOWN",
+  // setpriv needs this in the supervisor to clear task capability bounding sets.
+  "SETPCAP",
 ] as const
 
 const observedComposeServices = new Set([

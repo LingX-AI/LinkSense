@@ -1675,7 +1675,9 @@ test("Codex installation and its adapter share a repository pin with no deployme
     assert.match(stage, /pnpm add --global "@openai\/codex@\$\{codex_version\}"/u);
     assert.match(stage, /test "\$\{installed_codex_version\}" = "codex-cli \$\{codex_version\}"/u);
   }
-  assert.match(release, /await assertCodexRuntimeVersion\(\{ command: 'codex' \}\)/u);
+  assert.match(release, /node scripts\/worker-isolation-smoke\.mjs "\$image"/u);
+  const workerIsolation = await readFile(resolve("deploy/docker/worker-isolation-smoke.mjs"), "utf8");
+  assert.match(workerIsolation, /await assertCodexRuntimeVersion\(\{ command: "codex", processIdentity: identity \}\)/u);
 });
 
 test("production worker reuse follows the committed Codex pin and ignores old environment versions", async () => {
@@ -1727,6 +1729,15 @@ worker_rebuild_changed_paths "$2"
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("the packaged isolation proof invalidates every source-deployment Worker reuse path", async () => {
+  const deployment = await readFile(productionDeployPath, "utf8");
+  for (const name of ["worker_source_fingerprint", "worker_runtime_changed_paths", "worker_rebuild_changed_paths"]) {
+    assert.ok(extractShellFunction(deployment, name).includes("deploy/docker/worker-isolation-smoke.mjs"));
+  }
+  const dockerfile = await readFile(runnerDockerfilePath, "utf8");
+  assert.match(dockerfile, /COPY --chown=root:root --chmod=0444 deploy\/docker\/worker-isolation-smoke\.mjs \/opt\/linksense\/worker-isolation-smoke\.mjs/u);
 });
 
 test("native plugin refresh smoke projects the current managed capability layout", async () => {
@@ -2097,7 +2108,7 @@ test("worker full Chromium capability is pinned, broad by default, Plan-read-onl
   );
   assert.match(
     workerStage,
-    /CMD \["\/usr\/bin\/setpriv", "--reuid=1000", "--regid=1000", "--keep-groups", "--inh-caps=\+setuid,\+kill,\+dac_override,\+fowner,\+chown", "--ambient-caps=\+setuid,\+kill,\+dac_override,\+fowner,\+chown", "node", "dist\/index\.js"\]/u,
+    /CMD \["\/usr\/bin\/setpriv", "--reuid=1000", "--regid=1000", "--keep-groups", "--inh-caps=\+setuid,\+kill,\+dac_override,\+fowner,\+chown,\+setpcap", "--ambient-caps=\+setuid,\+kill,\+dac_override,\+fowner,\+chown,\+setpcap", "node", "dist\/index\.js"\]/u,
   );
   assert.match(
     workerStage,

@@ -982,7 +982,7 @@ test("development fingerprints are deterministic and include dependency changes"
   ]);
 });
 
-test("changing the repository Codex pin rebuilds the development worker", async () => {
+test("changing the repository Codex pin or isolation smoke rebuilds the development worker", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "linksense-codex-fingerprint-"));
   try {
     // Use real build inputs; only the repository pin changes between checks.
@@ -995,7 +995,7 @@ test("changing the repository Codex pin rebuilds the development worker", async 
       "apps/runner/tsconfig.build.json", "packages/shared/package.json",
       "packages/shared/src", "packages/shared/tsconfig.json", "deploy/codex-home-template",
       "deploy/codex-system", "deploy/docker/configure-debian-apt.sh", "deploy/docker/bootstrap-ubuntu-node.sh",
-      "deploy/docker/runner-runtime-smoke.mjs", "deploy/runtime/browser",
+      "deploy/docker/runner-runtime-smoke.mjs", "deploy/docker/worker-isolation-smoke.mjs", "deploy/runtime/browser",
       "deploy/docker/patch-tooling-libraries.mjs", "deploy/docker/verify-kernel-headers.mjs", "deploy/runtime/tooling-security",
       "deploy/docker/verify-tooling-libraries.mjs",
       "deploy/runtime/fonts", "deploy/runtime/node", "deploy/runtime/python", "deploy/runtime/shell",
@@ -1014,6 +1014,9 @@ test("changing the repository Codex pin rebuilds the development worker", async 
 
     await writeFile(versionPath, JSON.stringify({ version: "0.155.0" }));
     assert.equal(workerImageNeedsRebuild(previous, workerImageFingerprint(root)), true);
+    const beforeSmokeChange = workerImageFingerprint(root);
+    await writeFile(resolve(root, "deploy/docker/worker-isolation-smoke.mjs"), "changed isolation proof");
+    assert.equal(workerImageNeedsRebuild(beforeSmokeChange, workerImageFingerprint(root)), true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

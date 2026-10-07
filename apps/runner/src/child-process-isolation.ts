@@ -12,7 +12,8 @@ export const SETPRIV_COMMAND = "/usr/bin/setpriv"
 
 /**
  * Runs a task-side child through setpriv instead of Node's uid/gid spawn
- * options. The worker supervisor deliberately retains ambient SETUID/KILL;
+ * options. The worker supervisor deliberately retains ambient capabilities,
+ * including SETPCAP so setpriv can clear the task's capability bounding set;
  * an ordinary Node spawn would pass those capabilities through exec.
  */
 export function isolatedChildInvocation(

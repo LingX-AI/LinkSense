@@ -428,6 +428,7 @@ export function workerImageFingerprint(rootDirectory = repositoryRoot) {
     "deploy/docker/configure-debian-apt.sh",
     "deploy/docker/bootstrap-ubuntu-node.sh",
     "deploy/docker/runner-runtime-smoke.mjs",
+    "deploy/docker/worker-isolation-smoke.mjs",
     "deploy/docker/patch-tooling-libraries.mjs",
     "deploy/docker/verify-tooling-libraries.mjs",
     "deploy/docker/verify-kernel-headers.mjs",
