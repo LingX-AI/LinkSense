@@ -1343,8 +1343,10 @@ describe("LinkSense application", () => {
             running_turn: null,
           },
         }),
-      conversationPatchResponse: async (_conversationId, body) =>
-        json({
+      conversationPatchResponse: async (_conversationId, body) => {
+        if (body.completion_read)
+          targetConversation.has_unread_completion = false
+        return json({
           success: true,
           data: {
             ...targetConversation,
@@ -1352,7 +1354,8 @@ describe("LinkSense application", () => {
               ? false
               : targetConversation.has_unread_completion,
           },
-        }),
+        })
+      },
       automationCompletionNotification: {
         latest_unread: {
           conversation_id: targetConversation.id,
@@ -1387,11 +1390,9 @@ describe("LinkSense application", () => {
           (request) =>
             request.path ===
               "/api/v1/automations/completion-notifications/read" &&
-            request.method === "POST" &&
-            JSON.stringify(request.body) ===
-              JSON.stringify({ through: completedAt })
+            request.method === "POST"
         )
-      ).toBe(true)
+      ).toBe(false)
       expect(
         requests.some(
           (request) =>

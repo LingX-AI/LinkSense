@@ -221,6 +221,8 @@ export class PrismaAutomationRepository implements AutomationRepository {
     });
     if (unreadConversations.length === 0) return null;
 
+    // The task's unread state is authoritative. Earlier bulk acknowledgments
+    // could mark run timestamps without the user opening the task.
     const latest = await this.prisma.automationRun.findFirst({
       where: {
         ownerId,
@@ -228,7 +230,6 @@ export class PrismaAutomationRepository implements AutomationRepository {
           in: unreadConversations.map((conversation) => conversation.id),
         },
         completedAt: { not: null },
-        completionReadAt: null,
       },
       select: { conversationId: true, completedAt: true },
       orderBy: [{ completedAt: "desc" }, { id: "desc" }],
@@ -238,21 +239,6 @@ export class PrismaAutomationRepository implements AutomationRepository {
       conversationId: latest.conversationId,
       completedAt: latest.completedAt,
     };
-  }
-
-  async markCompletionNotificationsRead(
-    ownerId: string,
-    through: Date,
-    readAt: Date,
-  ): Promise<void> {
-    await this.prisma.automationRun.updateMany({
-      where: {
-        ownerId,
-        completedAt: { not: null, lte: through },
-        completionReadAt: null,
-      },
-      data: { completionReadAt: readAt },
-    });
   }
 
   claimOccurrence(input: {

@@ -2,7 +2,6 @@ import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import {
-  automationCompletionNotificationReadInputSchema,
   automationCreateInputSchema,
   automationRunNowInputSchema,
   automationUpdateInputSchema,
@@ -40,19 +39,6 @@ export const automationRoutes: FastifyPluginAsync<{
     return reply.send(
       ok(
         await services.automations.completionNotifications(user.id),
-        request.id,
-      ),
-    );
-  });
-
-  app.post("/completion-notifications/read", async (request, reply) => {
-    const user = (request as AuthenticatedRequest).authUser;
-    return reply.send(
-      ok(
-        await services.automations.markCompletionNotificationsRead(
-          user.id,
-          automationCompletionNotificationReadInputSchema.parse(request.body),
-        ),
         request.id,
       ),
     );

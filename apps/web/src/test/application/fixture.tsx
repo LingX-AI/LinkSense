@@ -545,7 +545,7 @@ function installApiMock(options?: {
     ...(options?.modelPreferenceByConversation ?? {}),
   }
   let newTaskModel = "test-model"
-  let automationCompletionNotification =
+  const automationCompletionNotification =
     options?.automationCompletionNotification ?? {
       latest_unread: null,
     }
@@ -754,18 +754,6 @@ function installApiMock(options?: {
         path === "/api/v1/automations/completion-notifications" &&
         method === "GET"
       ) {
-        return json({
-          success: true,
-          data: automationCompletionNotification,
-        })
-      }
-      if (
-        path === "/api/v1/automations/completion-notifications/read" &&
-        method === "POST"
-      ) {
-        automationCompletionNotification = {
-          latest_unread: null,
-        }
         return json({
           success: true,
           data: automationCompletionNotification,

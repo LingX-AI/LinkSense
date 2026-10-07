@@ -41,7 +41,7 @@ describe("automation routes", () => {
     expect(automations.listPinnedConversations).toHaveBeenCalledWith(OWNER_ID);
   });
 
-  it("reads and acknowledges completion notifications for the current user", async () => {
+  it("reads completion notifications for the current user", async () => {
     const { app, automations } = await automationRouteFixture();
     const completedAt = "2026-07-31T01:02:03.000Z";
     automations.completionNotifications.mockResolvedValueOnce({
@@ -50,46 +50,42 @@ describe("automation routes", () => {
         completed_at: completedAt,
       },
     });
-    automations.markCompletionNotificationsRead.mockResolvedValueOnce({
-      latest_unread: null,
-    });
-
     const notification = await app.inject({
       method: "GET",
       url: "/automations/completion-notifications",
       headers: { authorization: "Bearer member" },
     });
-    const read = await app.inject({
-      method: "POST",
-      url: "/automations/completion-notifications/read",
-      headers: { authorization: "Bearer member" },
-      payload: { through: completedAt },
-    });
-
     expect(notification.statusCode, notification.body).toBe(200);
     expect(notification.json().data).toMatchObject({
       latest_unread: { conversation_id: CONVERSATION_ID },
     });
-    expect(read.statusCode, read.body).toBe(200);
     expect(automations.completionNotifications).toHaveBeenCalledWith(OWNER_ID);
-    expect(automations.markCompletionNotificationsRead).toHaveBeenCalledWith(
-      OWNER_ID,
-      { through: completedAt },
-    );
   });
 
-  it("rejects an invalid completion notification cursor", async () => {
+  it("requires authentication before reading completion notifications", async () => {
+    const { app, automations } = await automationRouteFixture();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/automations/completion-notifications",
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(automations.completionNotifications).not.toHaveBeenCalled();
+  });
+
+  it("does not expose the obsolete bulk notification read endpoint", async () => {
     const { app, automations } = await automationRouteFixture();
 
     const response = await app.inject({
       method: "POST",
       url: "/automations/completion-notifications/read",
       headers: { authorization: "Bearer member" },
-      payload: { through: "not-a-timestamp" },
+      payload: { through: "2026-07-31T01:02:03.000Z" },
     });
 
-    expect(response.statusCode).toBe(400);
-    expect(automations.markCompletionNotificationsRead).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(404);
+    expect(automations.completionNotifications).not.toHaveBeenCalled();
   });
 
   it("creates a custom hourly automation without a notification policy", async () => {
@@ -269,7 +265,6 @@ async function automationRouteFixture() {
     >(async () => ({
       latest_unread: null,
     })),
-    markCompletionNotificationsRead: vi.fn(),
     create: vi.fn(),
     get: vi.fn(),
     runNow: vi.fn(),
