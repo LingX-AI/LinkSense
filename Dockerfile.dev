@@ -56,6 +56,10 @@ RUN corepack_registry="${LINKSENSE_NODE_PACKAGE_REGISTRY_URL%/}" \
   && mkdir -p /workspace /pnpm \
   && chown node:node /workspace /pnpm
 
+# Corepack prepares nested cache directories as root. The non-root build must
+# be able to write there when resolving the workspace's pinned pnpm version.
+RUN chown -R node:node "${COREPACK_HOME}"
+
 WORKDIR /workspace
 USER node
 
