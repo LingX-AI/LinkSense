@@ -571,7 +571,8 @@ jobs:
           set -euo pipefail
           docker logout ghcr.io >/dev/null 2>&1 || true
           (cd release-assets && sha256sum -c release-manifest.env.sha256)
-          grep '^IMAGE_' release-assets/release-manifest.env | cut -d= -f2- | sort -u | while IFS= read -r reference; do
+          # Digest metadata is not an OCI reference and must not be inspected as a repository.
+          grep '^IMAGE_' release-assets/release-manifest.env | grep -v '^IMAGE_.*_DIGEST=' | cut -d= -f2- | sort -u | while IFS= read -r reference; do
             timeout --kill-after=30s 120 docker buildx imagetools inspect "$reference" >/dev/null || {
               echo "Every application and baseline image must be anonymously available: $reference" >&2
               exit 1
