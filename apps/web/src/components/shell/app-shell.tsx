@@ -414,9 +414,8 @@ function AppSidebarContent({
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false)
   const [signOutPending, setSignOutPending] = useState(false)
-  const [locallyReadConversationIds, setLocallyReadConversationIds] = useState(
-    () => new Set<string>()
-  )
+  const [locallyReadConversationVersions, setLocallyReadConversationVersions] =
+    useState(() => new Map<string, string>())
   const completionReadInFlightIdsRef = useRef(new Set<string>())
   const completionReadFailureVersionsRef = useRef(new Map<string, string>())
   const projectsQuery = useProjects()
@@ -475,6 +474,19 @@ function AppSidebarContent({
   const conversations = useMemo(
     () => conversationsData?.pages.flatMap((page) => page.items) ?? [],
     [conversationsData]
+  )
+  const locallyReadConversationIds = useMemo(
+    () =>
+      new Set(
+        conversations
+          .filter(
+            (conversation) =>
+              locallyReadConversationVersions.get(conversation.id) ===
+              conversation.updated_at
+          )
+          .map((conversation) => conversation.id)
+      ),
+    [conversations, locallyReadConversationVersions]
   )
   const handleTaskSortModeChange = useCallback(
     (scope: SidebarTaskSortScope, mode: SidebarTaskSortMode) => {
@@ -717,9 +729,9 @@ function AppSidebarContent({
     onMutate: (conversation) => {
       setActionError(undefined)
       completionReadFailureVersionsRef.current.delete(conversation.id)
-      setLocallyReadConversationIds((current) => {
-        const next = new Set(current)
-        next.add(conversation.id)
+      setLocallyReadConversationVersions((current) => {
+        const next = new Map(current)
+        next.set(conversation.id, conversation.updated_at)
         return next
       })
     },
@@ -739,11 +751,8 @@ function AppSidebarContent({
           )
         }
       )
-      setLocallyReadConversationIds((current) => {
-        const next = new Set(current)
-        next.delete(nextConversation.id)
-        return next
-      })
+      // Keep the accepted version acknowledged if a list request replays its
+      // pre-PATCH snapshot. A different updated_at is not locally acknowledged.
       // PATCH returns task metadata, not a detail snapshot with an SSE cursor.
       // Seeding the detail cache here would start replay before GET completes.
       queryClient.setQueryData<Conversation>(
@@ -767,8 +776,8 @@ function AppSidebarContent({
         conversation.id,
         conversation.updated_at
       )
-      setLocallyReadConversationIds((current) => {
-        const next = new Set(current)
+      setLocallyReadConversationVersions((current) => {
+        const next = new Map(current)
         next.delete(conversation.id)
         return next
       })
