@@ -14,6 +14,9 @@ permissions:
   issues: read
   pull-requests: read
 
+imports:
+  - shared/codex-model-pricing.md
+
 engine:
   id: codex
   env:
@@ -32,6 +35,10 @@ network:
     - codex-lb.lingx-ai.com
 
 safe-outputs:
+  threat-detection:
+    engine:
+      id: codex
+      model: ${{ vars.GH_AW_MODEL_AGENT_CODEX || vars.GH_AW_DEFAULT_MODEL_CODEX || 'gpt-5.4' }}
   add-labels:
     allowed:
       - bug
