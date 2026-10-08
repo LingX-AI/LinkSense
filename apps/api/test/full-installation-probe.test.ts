@@ -1,10 +1,23 @@
 import { Readable } from "node:stream"
 
+import sharp from "sharp"
 import { describe, expect, it, vi } from "vitest"
 
 import { runFullInstallationProbe } from "../src/release/full-installation-probe.js"
 
 describe("runFullInstallationProbe", () => {
+  it("submits a PNG that a real image decoder can read", async () => {
+    const client = probeClient("LinkSense OPEN SOURCE 中文测试")
+    await runFullInstallationProbe(client, "/models/tokenizer", 768)
+    const [file] = client.submitConversion.mock.calls[0]!
+    const chunks: Buffer[] = []
+    for await (const chunk of await file.openStream()) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+    }
+
+    await expect(sharp(Buffer.concat(chunks)).png().toBuffer()).resolves.toBeInstanceOf(Buffer)
+  })
+
   it("runs contract, RapidOCR, result, and Hybrid Chunker probes", async () => {
     const client = probeClient("LinkSense OPEN SOURCE 中文测试")
 

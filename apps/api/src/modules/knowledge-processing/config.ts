@@ -2,11 +2,18 @@ import { createHash } from "node:crypto"
 
 import type { FullAppConfig } from "../../config.js"
 
+export const doclingRuntimeVersions = {
+  serve: "1.36.0",
+  core: "2.99.0",
+  jobkit: "3.8.1",
+  documentSchema: "1.10.0",
+} as const
+
 const parserContract = {
-  doclingServe: "1.27.0",
-  doclingCore: "2.87.1",
-  doclingJobkit: "2.1.0",
-  doclingDocumentSchema: "1.10.0",
+  doclingServe: doclingRuntimeVersions.serve,
+  doclingCore: doclingRuntimeVersions.core,
+  doclingJobkit: doclingRuntimeVersions.jobkit,
+  doclingDocumentSchema: doclingRuntimeVersions.documentSchema,
   outputs: ["md", "json"],
   target: "zip",
   imageExportMode: "referenced",

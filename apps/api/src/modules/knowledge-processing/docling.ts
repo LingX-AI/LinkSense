@@ -11,6 +11,7 @@ import { basename, dirname, join, posix } from "node:path"
 import { Readable, Transform } from "node:stream"
 import type { ReadableStream as NodeReadableStream } from "node:stream/web"
 import { pipeline } from "node:stream/promises"
+import { setTimeout as delay } from "node:timers/promises"
 
 import unzipper from "unzipper"
 import { z } from "zod"
@@ -24,6 +25,7 @@ import {
   requiredHybridMultipartFields,
 } from "./docling-hybrid.js"
 import { KnowledgeProcessingError } from "./errors.js"
+import { doclingRuntimeVersions } from "./config.js"
 
 const failureCategorySchema = z.enum([
   "policy",
@@ -124,7 +126,7 @@ const openApiSchema = z.object({
     .default({ schemas: {} }),
 })
 
-const supportedDoclingServeVersion = "1.27.0"
+const supportedDoclingServeVersion = doclingRuntimeVersions.serve
 
 const taskNotFoundResponseSchema = z
   .object({
@@ -1047,23 +1049,15 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
+async function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  try {
+    await delay(milliseconds, undefined, { signal })
+  } catch (error) {
     if (signal?.aborted) {
-      reject(new KnowledgeProcessingError("KNOWLEDGE_PROCESSING_CANCELLED"))
-      return
+      throw new KnowledgeProcessingError("KNOWLEDGE_PROCESSING_CANCELLED")
     }
-    const timeout = setTimeout(resolve, milliseconds)
-    timeout.unref()
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timeout)
-        reject(new KnowledgeProcessingError("KNOWLEDGE_PROCESSING_CANCELLED"))
-      },
-      { once: true },
-    )
-  })
+    throw error
+  }
 }
 
 function toFetchBody(stream: Readable): BodyInit {

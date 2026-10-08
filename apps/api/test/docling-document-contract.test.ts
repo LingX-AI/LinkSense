@@ -2,6 +2,8 @@ import { createHash } from "node:crypto"
 
 import { describe, expect, it } from "vitest"
 
+import { doclingRuntimeVersions } from "../src/modules/knowledge-processing/config.js"
+
 import {
   DOCLING_CORE_CONTRACT_COMMIT,
   DOCLING_CORE_CONTRACT_TAG,
@@ -13,9 +15,9 @@ import {
 
 describe("pinned DoclingDocument contract", () => {
   it("keeps the vendored official schema byte-stable at runtime", () => {
-    expect(DOCLING_CORE_CONTRACT_TAG).toBe("v2.87.1")
+    expect(DOCLING_CORE_CONTRACT_TAG).toBe(`v${doclingRuntimeVersions.core}`)
     expect(DOCLING_CORE_CONTRACT_COMMIT).toBe(
-      "0215808e9b406f8b11ae02cacb1abb3c822df48b",
+      "4298364897b7914b3ae66862fc1aa2cd955f54fe",
     )
     expect(
       createHash("sha256")
