@@ -6,6 +6,8 @@ import {
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
+import type { KnowledgeUploadBatchStatus } from "@/features/knowledge-bases/knowledge-upload-session"
+
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -20,14 +22,6 @@ import {
   ProgressLabel,
   ProgressValue,
 } from "@/components/ui/progress"
-
-export type KnowledgeUploadBatchStatus = {
-  totalCount: number
-  completedCount: number
-  issueCount: number
-  progressPercent: number
-  phase: "running" | "attention" | "completed"
-}
 
 export function KnowledgeUploadBatchProgress({
   status,

@@ -2,6 +2,7 @@ import { useState } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   cleanup,
+  act,
   render,
   screen,
   waitFor,
@@ -9,12 +10,12 @@ import {
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { Link, MemoryRouter, Route, Routes, useParams } from "react-router-dom"
 
 import { KnowledgeUploadDialog } from "@/features/knowledge-bases/knowledge-upload-dialog"
-import {
-  KnowledgeUploadBatchProgress,
-  type KnowledgeUploadBatchStatus,
-} from "@/features/knowledge-bases/knowledge-upload-batch-progress"
+import { KnowledgeUploadBatchProgress } from "@/features/knowledge-bases/knowledge-upload-batch-progress"
+import { useKnowledgeUploadBatchStatus } from "@/features/knowledge-bases/knowledge-upload-session"
+import { KnowledgeUploadSessionProvider } from "@/features/knowledge-bases/knowledge-upload-session-provider"
 import i18n from "@/i18n"
 
 const uploadKnowledgeDocument = vi.hoisted(() => vi.fn())
@@ -94,7 +95,9 @@ function renderDialog(documents: ReturnType<typeof documentFixture>[] = []) {
   }
   const rendered = render(
     <QueryClientProvider client={queryClient}>
-      <KnowledgeUploadDialog {...props} />
+      <KnowledgeUploadSessionProvider>
+        <KnowledgeUploadDialog {...props} />
+      </KnowledgeUploadSessionProvider>
     </QueryClientProvider>
   )
   return {
@@ -102,7 +105,9 @@ function renderDialog(documents: ReturnType<typeof documentFixture>[] = []) {
     rerenderWithDocuments(nextDocuments: ReturnType<typeof documentFixture>[]) {
       rendered.rerender(
         <QueryClientProvider client={queryClient}>
-          <KnowledgeUploadDialog {...props} documents={nextDocuments} />
+          <KnowledgeUploadSessionProvider>
+            <KnowledgeUploadDialog {...props} documents={nextDocuments} />
+          </KnowledgeUploadSessionProvider>
         </QueryClientProvider>
       )
     },
@@ -114,12 +119,20 @@ function renderUploadExperience() {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
 
-  function UploadExperience() {
-    const [open, setOpen] = useState(true)
-    const [batchStatus, setBatchStatus] =
-      useState<KnowledgeUploadBatchStatus | null>(null)
+  const onUploaded = vi.fn()
+  function UploadExperience({
+    documents,
+  }: {
+    documents: ReturnType<typeof documentFixture>[]
+  }) {
+    const { knowledgeBaseId: currentKnowledgeBaseId = knowledgeBaseId } =
+      useParams()
+    const [open, setOpen] = useState(false)
+    const batchStatus = useKnowledgeUploadBatchStatus(currentKnowledgeBaseId)
     return (
       <>
+        <Link to="/knowledge-bases">返回知识库列表</Link>
+        <button onClick={() => setOpen(true)}>上传文档</button>
         {batchStatus && (
           <KnowledgeUploadBatchProgress
             status={batchStatus}
@@ -129,20 +142,77 @@ function renderUploadExperience() {
         <KnowledgeUploadDialog
           open={open}
           onOpenChange={setOpen}
-          knowledgeBaseId={knowledgeBaseId}
-          documents={[]}
-          onUploaded={vi.fn()}
+          knowledgeBaseId={currentKnowledgeBaseId}
+          documents={documents}
+          onUploaded={onUploaded}
           onLocateDocument={vi.fn()}
-          onBatchStatusChange={setBatchStatus}
         />
       </>
     )
   }
 
-  return render(
+  const view = (
+    documents: ReturnType<typeof documentFixture>[],
+    accountId = "owner"
+  ) => (
     <QueryClientProvider client={queryClient}>
-      <UploadExperience />
+      <KnowledgeUploadSessionProvider key={accountId}>
+        <MemoryRouter initialEntries={[`/knowledge-bases/${knowledgeBaseId}`]}>
+          <Routes>
+            <Route
+              path="/knowledge-bases/:knowledgeBaseId"
+              element={<UploadExperience documents={documents} />}
+            />
+            <Route
+              path="/knowledge-bases"
+              element={
+                <>
+                  <Link to={`/knowledge-bases/${knowledgeBaseId}`}>
+                    重新进入知识库
+                  </Link>
+                  <Link to="/knowledge-bases/00000000-0000-4000-8000-000000000099">
+                    进入其他知识库
+                  </Link>
+                </>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </KnowledgeUploadSessionProvider>
     </QueryClientProvider>
+  )
+  const rendered = render(view([]))
+  return {
+    ...rendered,
+    onUploaded,
+    rerenderWithDocuments(documents: ReturnType<typeof documentFixture>[]) {
+      rendered.rerender(view(documents))
+    },
+    switchAccount(accountId: string) {
+      rendered.rerender(view([], accountId))
+    },
+  }
+}
+
+async function startUploadExperience(
+  interaction: ReturnType<typeof userEvent.setup>,
+  fileCount = 1
+) {
+  await interaction.click(screen.getByRole("button", { name: "上传文档" }))
+  const fileInput = screen.getByLabelText(/^选择文档\s*\*?$/)
+  await waitFor(() => expect(fileInput).toBeEnabled())
+  await interaction.upload(
+    fileInput,
+    Array.from(
+      { length: fileCount },
+      (_, index) =>
+        new File(["content"], index === 0 ? "制度.pdf" : `制度 ${index}.pdf`, {
+          type: "application/pdf",
+        })
+    )
+  )
+  await interaction.click(
+    screen.getByRole("button", { name: `开始上传（${fileCount}）` })
   )
 }
 
@@ -181,6 +251,7 @@ describe("knowledge document upload queue", () => {
     })
     const interaction = userEvent.setup()
     renderUploadExperience()
+    await interaction.click(screen.getByRole("button", { name: "上传文档" }))
     expect(
       document.querySelector(
         "label[for='knowledge-upload-files'] span.text-destructive[aria-hidden='true']"
@@ -219,6 +290,208 @@ describe("knowledge document upload queue", () => {
     await interaction.click(screen.getByRole("button", { name: "查看详情" }))
     expect(screen.getByRole("dialog", { name: "上传文档" })).toBeVisible()
     expect(screen.getByLabelText(/^选择文档\s*\*?$/)).toBeDisabled()
+  })
+
+  it("restores an in-flight upload and its details after returning from the knowledge-base list", async () => {
+    let finishUpload: (result: {
+      status: string
+      document: ReturnType<typeof documentFixture>
+    }) => void = () => undefined
+    uploadKnowledgeDocument.mockImplementation(
+      ({ onProgress }: { onProgress: (progress: number) => void }) => {
+        onProgress(4)
+        return new Promise((resolve) => {
+          finishUpload = resolve
+        })
+      }
+    )
+    const interaction = userEvent.setup()
+    renderUploadExperience()
+    await startUploadExperience(interaction)
+
+    const progress = () =>
+      screen.getByRole("progressbar", { name: "正在上传和处理文档" })
+    await waitFor(() =>
+      expect(progress()).toHaveAttribute("aria-valuenow", "4")
+    )
+    await interaction.click(
+      screen.getByRole("link", { name: "返回知识库列表" })
+    )
+    await interaction.click(
+      screen.getByRole("link", { name: "重新进入知识库" })
+    )
+
+    expect(progress()).toHaveAttribute("aria-valuenow", "4")
+    await interaction.click(screen.getByRole("button", { name: "查看详情" }))
+    const dialog = screen.getByRole("dialog", { name: "上传文档" })
+    expect(
+      within(dialog).getByText("制度.pdf", { selector: ".truncate" })
+    ).toBeVisible()
+    expect(within(dialog).getByText("正在上传")).toBeVisible()
+    expect(within(dialog).getByLabelText(/^选择文档\s*\*?$/)).toBeDisabled()
+    await interaction.keyboard("{Escape}")
+    await act(async () => {
+      finishUpload({ status: "accepted", document: documentFixture() })
+    })
+    await waitFor(() =>
+      expect(progress()).toHaveAttribute("aria-valuenow", "40")
+    )
+    expect(uploadKnowledgeDocument).toHaveBeenCalledOnce()
+  })
+
+  it("restores parsing progress, synchronizes document updates, and keeps knowledge-base batches separate", async () => {
+    uploadKnowledgeDocument.mockResolvedValue({
+      status: "accepted",
+      document: documentFixture(),
+    })
+    const interaction = userEvent.setup()
+    const rendered = renderUploadExperience()
+    await startUploadExperience(interaction)
+    await waitFor(() =>
+      expect(
+        screen.getByRole("progressbar", { name: "正在上传和处理文档" })
+      ).toHaveAttribute("aria-valuenow", "40")
+    )
+    await interaction.click(
+      screen.getByRole("link", { name: "返回知识库列表" })
+    )
+    await interaction.click(
+      screen.getByRole("link", { name: "进入其他知识库" })
+    )
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+    await interaction.click(
+      screen.getByRole("link", { name: "返回知识库列表" })
+    )
+    rendered.rerenderWithDocuments([
+      documentFixture({
+        processing: {
+          ...documentFixture().processing,
+          stage: "parenting",
+          progress_percent: 70,
+          revision: 3,
+        },
+      }),
+    ])
+    await interaction.click(
+      screen.getByRole("link", { name: "重新进入知识库" })
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole("progressbar", { name: "正在上传和处理文档" })
+      ).toHaveAttribute("aria-valuenow", "70")
+    )
+    expect(screen.getByText("已处理 0 / 1 个文档")).toBeVisible()
+    await interaction.click(screen.getByRole("button", { name: "查看详情" }))
+    const dialog = screen.getByRole("dialog", { name: "上传文档" })
+    expect(
+      within(dialog).getByText("制度.pdf", { selector: ".truncate" })
+    ).toBeVisible()
+    expect(within(dialog).getByText("正在构建父切片")).toBeVisible()
+    await interaction.keyboard("{Escape}")
+
+    rendered.rerenderWithDocuments([readyDocument])
+    await waitFor(() =>
+      expect(screen.getByText("已处理 1 / 1 个文档")).toBeVisible()
+    )
+    expect(
+      screen.getByRole("progressbar", { name: "本批文档处理已结束" })
+    ).toHaveAttribute("aria-valuenow", "100")
+    expect(uploadKnowledgeDocument).toHaveBeenCalledOnce()
+  })
+
+  it("continues waiting uploads while the detail page is unmounted without replaying completed uploads", async () => {
+    const pendingUploads: Array<() => void> = []
+    uploadKnowledgeDocument.mockImplementation(
+      ({
+        file,
+        onProgress,
+      }: {
+        file: File
+        onProgress: (progress: number) => void
+      }) => {
+        onProgress(4)
+        return new Promise((resolve) => {
+          pendingUploads.push(() =>
+            resolve({
+              status: "accepted",
+              document: documentFixture({ display_name: file.name }),
+            })
+          )
+        })
+      }
+    )
+    const interaction = userEvent.setup()
+    renderUploadExperience()
+    await startUploadExperience(interaction, 4)
+    expect(uploadKnowledgeDocument).toHaveBeenCalledTimes(3)
+    await interaction.click(
+      screen.getByRole("link", { name: "返回知识库列表" })
+    )
+
+    await act(async () => {
+      for (const finishUpload of pendingUploads.slice(0, 3)) finishUpload()
+    })
+    expect(uploadKnowledgeDocument).toHaveBeenCalledTimes(4)
+    await interaction.click(
+      screen.getByRole("link", { name: "重新进入知识库" })
+    )
+    expect(
+      screen.getByRole("progressbar", { name: "正在上传和处理文档" })
+    ).toHaveAttribute("aria-valuenow", "31")
+    await act(async () => pendingUploads[3]?.())
+    await waitFor(() =>
+      expect(
+        screen.getByRole("progressbar", { name: "正在上传和处理文档" })
+      ).toHaveAttribute("aria-valuenow", "40")
+    )
+    expect(uploadKnowledgeDocument).toHaveBeenCalledTimes(4)
+  })
+
+  it("clears the previous account's batch and ignores late upload results after the account changes", async () => {
+    let finishUpload: () => void = () => undefined
+    let uploadSignal: AbortSignal | undefined
+    uploadKnowledgeDocument.mockImplementation(
+      ({ signal }: { signal: AbortSignal }) => {
+        uploadSignal = signal
+        return new Promise((resolve) => {
+          finishUpload = () =>
+            resolve({ status: "accepted", document: documentFixture() })
+        })
+      }
+    )
+    const interaction = userEvent.setup()
+    const rendered = renderUploadExperience()
+    await startUploadExperience(interaction)
+
+    rendered.switchAccount("another-account")
+    expect(uploadSignal?.aborted).toBe(true)
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+    await act(async () => finishUpload())
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+    expect(rendered.onUploaded).not.toHaveBeenCalled()
+  })
+
+  it("cancels outstanding requests and stops waiting uploads when the upload session is disposed", async () => {
+    const signals: AbortSignal[] = []
+    uploadKnowledgeDocument.mockImplementation(
+      ({ signal }: { signal: AbortSignal }) => {
+        signals.push(signal)
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () =>
+            reject(new DOMException("Cancelled", "AbortError"))
+          )
+        })
+      }
+    )
+    const interaction = userEvent.setup()
+    const rendered = renderUploadExperience()
+    await startUploadExperience(interaction, 4)
+    expect(uploadKnowledgeDocument).toHaveBeenCalledTimes(3)
+
+    await act(async () => rendered.unmount())
+
+    expect(signals.every((signal) => signal.aborted)).toBe(true)
+    expect(uploadKnowledgeDocument).toHaveBeenCalledTimes(3)
   })
 
   it("uploads a selected directory with relative paths and lists unsupported files", async () => {

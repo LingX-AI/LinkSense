@@ -19,6 +19,7 @@ import { ThemeProvider } from "@/app/theme-context"
 import { notify } from "@/components/feedback/notification"
 import { NotificationCenter } from "@/components/feedback/notification-toast"
 import { knowledgeBaseQueryKeys } from "@/features/knowledge-bases/knowledge-base-api"
+import { KnowledgeUploadSessionProvider } from "@/features/knowledge-bases/knowledge-upload-session-provider"
 import type { KnowledgeSearchCapability } from "@/features/knowledge-bases/knowledge-base-contracts"
 import i18n, { supportedLanguages } from "@/i18n"
 import {
@@ -158,14 +159,16 @@ function renderDetailPage() {
     <ThemeProvider>
       <MemoryRouter initialEntries={[`/knowledge-bases/${knowledgeBaseId}`]}>
         <QueryClientProvider client={queryClient}>
-          <Routes>
-            <Route
-              path="/knowledge-bases/:knowledgeBaseId"
-              element={<KnowledgeBaseDetailPage />}
-            />
-            <Route path="/knowledge-bases" element={<div>知识库列表</div>} />
-            <Route path="/capabilities" element={<div>应用中心</div>} />
-          </Routes>
+          <KnowledgeUploadSessionProvider>
+            <Routes>
+              <Route
+                path="/knowledge-bases/:knowledgeBaseId"
+                element={<KnowledgeBaseDetailPage />}
+              />
+              <Route path="/knowledge-bases" element={<div>知识库列表</div>} />
+              <Route path="/capabilities" element={<div>应用中心</div>} />
+            </Routes>
+          </KnowledgeUploadSessionProvider>
         </QueryClientProvider>
       </MemoryRouter>
       <NotificationCenter />

@@ -178,10 +178,8 @@ import {
   createDefaultKnowledgeSourceSyncScheduleDraft,
   knowledgeSourceSyncScheduleFromDraft,
 } from "@/features/knowledge-bases/knowledge-source-schedule"
-import {
-  KnowledgeUploadBatchProgress,
-  type KnowledgeUploadBatchStatus,
-} from "@/features/knowledge-bases/knowledge-upload-batch-progress"
+import { KnowledgeUploadBatchProgress } from "@/features/knowledge-bases/knowledge-upload-batch-progress"
+import { useKnowledgeUploadBatchStatus } from "@/features/knowledge-bases/knowledge-upload-session"
 import { KnowledgeUploadDialog } from "@/features/knowledge-bases/knowledge-upload-dialog"
 import {
   canCancelKnowledgeDocument,
@@ -1165,8 +1163,7 @@ function KnowledgeBaseDetailContent({
     [entriesQuery.data]
   )
   const [uploadOpen, setUploadOpen] = useState(false)
-  const [uploadBatchStatus, setUploadBatchStatus] =
-    useState<KnowledgeUploadBatchStatus | null>(null)
+  const uploadBatchStatus = useKnowledgeUploadBatchStatus(knowledgeBaseId ?? "")
   const [shareOpen, setShareOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [renameDocumentTarget, setRenameDocumentTarget] =
@@ -1495,7 +1492,6 @@ function KnowledgeBaseDetailContent({
         knowledgeBaseId={knowledgeBase.id}
         documents={documents}
         onUploaded={invalidate}
-        onBatchStatusChange={setUploadBatchStatus}
         onLocateDocument={(documentId) => {
           window.document
             .getElementById(`knowledge-document-${documentId}`)
