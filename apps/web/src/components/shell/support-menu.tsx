@@ -88,14 +88,14 @@ export function SupportMenuItems({ onFeedback }: SupportMenuItemsProps) {
           />
         }
       >
-        <LifeBuoyIcon aria-hidden="true" />
+        <LifeBuoyIcon className="size-3.5" aria-hidden="true" />
         {t("support.help")}
       </DropdownMenuItem>
       <DropdownMenuItem
         className="text-[length:var(--app-ui-font-size)]"
         onClick={onFeedback}
       >
-        <MessageSquareTextIcon aria-hidden="true" />
+        <MessageSquareTextIcon className="size-3.5" aria-hidden="true" />
         {t("support.feedback")}
       </DropdownMenuItem>
     </>
