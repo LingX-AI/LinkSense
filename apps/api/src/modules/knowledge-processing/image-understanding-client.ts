@@ -125,7 +125,7 @@ async function generateDescription(
     temperature: 0,
     maxOutputTokens: 300,
     maxRetries: 1,
-    timeout: { totalMs: 60_000 },
+    timeout: { totalMs: 300_000 },
     ...(signal ? { abortSignal: signal } : {}),
   })
   if (

@@ -10,6 +10,7 @@ import { ErrorState, LoadingState } from "@/components/feedback/page-state"
 import { MaintenancePage } from "@/pages/maintenance-page"
 import { MaintenanceIndicator } from "@/components/shell/maintenance-indicator"
 import { MaintenanceNoticeDialog } from "@/components/shell/maintenance-notice-dialog"
+import { KnowledgeUploadSessionProvider } from "@/features/knowledge-bases/knowledge-upload-session-provider"
 
 const maintenanceAdminAuthPaths = new Set([
   "/login",
@@ -92,10 +93,10 @@ export function ProtectedRoute() {
     return <MaintenancePage maintenance={bootstrap.maintenance} />
   }
   return (
-    <>
+    <KnowledgeUploadSessionProvider key={user?.id}>
       <Outlet />
       <MaintenanceIndicator />
-    </>
+    </KnowledgeUploadSessionProvider>
   )
 }
 

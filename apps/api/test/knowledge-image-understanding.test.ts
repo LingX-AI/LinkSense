@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 
 import sharp from "sharp"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createAssetReferenceId } from "../src/modules/knowledge-processing/asset-processor.js"
 import {
@@ -167,6 +167,96 @@ describe("image-model configuration probe", () => {
       ),
     ).rejects.toMatchObject({ code: "KNOWLEDGE_IMAGE_MODEL_OUTPUT_INVALID" })
     expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe("image-model request timeout", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    // Node's native AbortSignal timer needs to use the controllable test clock.
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((milliseconds) => {
+      const controller = new AbortController()
+      setTimeout(
+        () => controller.abort(new DOMException("Timed out", "TimeoutError")),
+        milliseconds,
+      )
+      return controller.signal
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it("accepts an image description returned just before the five-minute deadline", async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async (_input, init) =>
+        new Promise<Response>((resolve, reject) => {
+          setTimeout(
+            () =>
+              resolve(
+                imageModelResponse(
+                  JSON.stringify({ description: "A document image." }),
+                ),
+              ),
+            299_999,
+          )
+          init?.signal?.addEventListener("abort", () =>
+            reject(init.signal?.reason),
+          )
+        }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const result = new VercelAiImageUnderstandingClient()
+      .describe(
+        imageUnderstandingInput(),
+        runtime("openai_compatible", "qwen3.8-flash", "vllm_qwen_disabled"),
+      )
+      .then(
+        (description) => ({ description }),
+        (error: unknown) => ({ error }),
+      )
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(false)
+    await vi.advanceTimersByTimeAsync(239_999)
+
+    await expect(result).resolves.toEqual({
+      description: { description: "A document image." },
+    })
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it("aborts a pending image request at five minutes and reports model unavailability", async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(init.signal?.reason),
+          )
+        }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const result = expect(
+      new VercelAiImageUnderstandingClient().describe(
+        imageUnderstandingInput(),
+        runtime("openai_compatible", "qwen3.8-flash", "vllm_qwen_disabled"),
+      ),
+    ).rejects.toMatchObject({
+      code: "KNOWLEDGE_IMAGE_MODEL_UNAVAILABLE",
+      retryable: true,
+    })
+
+    await vi.advanceTimersByTimeAsync(299_999)
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+
+    await result
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
+    expect(fetchMock).toHaveBeenCalledOnce()
   })
 })
 
