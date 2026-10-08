@@ -768,7 +768,7 @@ function CreateKnowledgeBaseDialog({
                 }}
                 variant="outline"
                 aria-label={t("knowledge.create.sourceType")}
-                className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2"
+                className="grid w-full auto-rows-fr grid-cols-1 items-stretch gap-3 sm:grid-cols-2"
               >
                 {sourceTypeItems.map((item) => {
                   const SourceIcon = item.icon
