@@ -126,7 +126,7 @@ describe("PrismaMinioKnowledgePipelineWorkspace immutable artifacts", () => {
     await fixture.workspace.saveHybridChunks(job(), valid)
 
     expect(fixture.state.version).toMatchObject({
-      chunkerVersion: "docling-serve-1.27.0-hybrid",
+      chunkerVersion: "docling-serve-1.36.0-hybrid",
       chunkingConfigDigest: job().chunking.configDigest,
       childCount: 1,
       retrievalManifestObjectId: null,

@@ -13,9 +13,9 @@ export const DOCLING_DOCUMENT_SCHEMA_UPSTREAM_SHA256 =
   "ea0bdb4974e234ca4854335e5191f8cf9437fa26c35b4ea3e1eebf273f664a60"
 export const DOCLING_DOCUMENT_SCHEMA_CANONICAL_SHA256 =
   "13a66c1b6a2717cc3e3f5490b02723aa20217224d5ed9f7a52e299000ff92769"
-export const DOCLING_CORE_CONTRACT_TAG = "v2.87.1"
+export const DOCLING_CORE_CONTRACT_TAG = "v2.99.0"
 export const DOCLING_CORE_CONTRACT_COMMIT =
-  "0215808e9b406f8b11ae02cacb1abb3c822df48b"
+  "4298364897b7914b3ae66862fc1aa2cd955f54fe"
 
 export type DoclingImageBearingCollection = Readonly<{
   propertyName: string

@@ -25,6 +25,7 @@ import {
   type IndexedParentDocument,
 } from "./elasticsearch.js"
 import { KnowledgeProcessingError } from "./errors.js"
+import { doclingRuntimeVersions } from "./config.js"
 import {
   buildKnowledgeObjectKey,
   KnowledgeObjectStore,
@@ -42,7 +43,7 @@ const STORAGE_OBJECT_NAMESPACE = "48dbd36f-f00a-4d39-97d7-cf71d9d8d109"
 const STORAGE_RESERVATION_LEASE_MS = 60_000
 const STORAGE_RESERVATION_HEARTBEAT_MS = 20_000
 const STORAGE_RESERVATION_RETENTION_MS = 24 * 60 * 60_000
-const CHUNKER_VERSION = "docling-serve-1.27.0-hybrid"
+const CHUNKER_VERSION = `docling-serve-${doclingRuntimeVersions.serve}-hybrid`
 
 const hybridChunkSchema = z.strictObject({
   chunkIndex: z.number().int().nonnegative(),

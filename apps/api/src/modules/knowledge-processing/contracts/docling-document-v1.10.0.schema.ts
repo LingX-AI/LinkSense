@@ -1,8 +1,8 @@
 /**
  * Vendored DoclingDocument JSON Schema.
  *
- * Source: docling-core v2.87.1, docs/DoclingDocument.json
- * Source commit: 0215808e9b406f8b11ae02cacb1abb3c822df48b
+ * Source: docling-core v2.99.0, docs/DoclingDocument.json
+ * Source commit: 4298364897b7914b3ae66862fc1aa2cd955f54fe
  * DoclingDocument version: 1.10.0
  * Upstream file SHA-256: ea0bdb4974e234ca4854335e5191f8cf9437fa26c35b4ea3e1eebf273f664a60
  * Runtime JSON.stringify SHA-256: 13a66c1b6a2717cc3e3f5490b02723aa20217224d5ed9f7a52e299000ff92769

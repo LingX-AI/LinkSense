@@ -1,3 +1,6 @@
+import { spawnSync } from "node:child_process"
+import path from "node:path"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { DoclingServeClient } from "../src/modules/knowledge-processing/docling.js"
@@ -101,6 +104,30 @@ describe("Docling Serve HTTP error classification", () => {
 })
 
 describe("Docling Serve pinned OpenAPI contract", () => {
+  it("accepts the deployed Docling Serve 1.36.0 contract", async () => {
+    const contract = openApiFixture()
+    contract.info.version = "1.36.0"
+    const client = new DoclingServeClient(
+      baseConfig,
+      vi.fn<typeof fetch>().mockResolvedValue(Response.json(contract)),
+    )
+
+    await expect(client.verifyContract()).resolves.toBeUndefined()
+  })
+
+  it("rejects the previous Docling Serve 1.27.0 contract", async () => {
+    const contract = openApiFixture()
+    contract.info.version = "1.27.0"
+    const client = new DoclingServeClient(
+      baseConfig,
+      vi.fn<typeof fetch>().mockResolvedValue(Response.json(contract)),
+    )
+
+    await expect(client.verifyContract()).rejects.toMatchObject({
+      code: "KNOWLEDGE_DOCLING_CONTRACT_INCOMPATIBLE",
+    })
+  })
+
   it("requires both async conversion and async Hybrid chunking", async () => {
     const client = new DoclingServeClient(
       baseConfig,
@@ -143,6 +170,18 @@ describe("Docling Serve pinned OpenAPI contract", () => {
 })
 
 describe("Docling Serve Hybrid capability probe", () => {
+  it("keeps a standalone poller alive until a pending task succeeds", () => {
+    const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", `
+import { DoclingServeClient } from "./src/modules/knowledge-processing/docling.ts";
+let polls = 0;
+const client = new DoclingServeClient({ baseUrl: "https://docling.example.test", apiKey: "fixture-key", pollIntervalMs: 20 }, async () => Response.json({ task_id: "fixture-task", task_type: "convert", task_status: ++polls === 1 ? "pending" : "success" }));
+client.waitForSuccess({ taskId: "fixture-task", deadlineEpochMs: Date.now() + 5_000 }).then(() => process.stdout.write("poll completed\\n"), () => { process.exitCode = 1; });
+`], { cwd: path.resolve(import.meta.dirname, ".."), encoding: "utf8", timeout: 10_000 })
+
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain("poll completed")
+  })
+
   it("runs a real non-empty Hybrid request and caches a successful probe", async () => {
     const fetcher = hybridProbeFetcher(hybridProbeResult())
     const client = new DoclingServeClient(
@@ -322,7 +361,7 @@ function openApiFixture() {
   })
   return {
     openapi: "3.1.0",
-    info: { version: "1.27.0" },
+    info: { version: "1.36.0" },
     paths: {
       "/v1/convert/file/async": {
         post: operation("#/components/schemas/ConvertBody"),

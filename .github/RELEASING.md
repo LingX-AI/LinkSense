@@ -43,7 +43,7 @@ MinIO 使用维护中的 [PGSTY SILO](https://github.com/pgsty/silo) 分发：�
 3. 在 Actions 设置中允许仓库工作流运行，并允许 `GITHUB_TOKEN` 创建 Release 和写入 Packages。无需保存长期 Personal Access Token 到仓库 Secrets。
 4. 将 Actions artifact 最大保留期设为至少 30 天；工作流将发布输入和构建中间产物单独设为 3 天，镜像扫描报告设为 30 天。建议为 Actions 设置预算和告警，并禁止意外超额计费。
 5. 使用 `ubuntu-24.04` 和 `ubuntu-24.04-arm` GitHub 托管 Runner，无需配置自托管 Runner。
-6. Core / Full 的完整安装、修复和升级验收由维护者在独立测试主机上手动完成，不在发布工作流中启动整套 Full 服务。安装主机要求见 README，不等同于构建 Runner 要求。
+6. 发布工作流在 amd64 / arm64 上分别执行 Core / Full 的真实安装、修复和升级验收。验收机的 Docker 可用内存至少为 10 GiB；当前公开仓库的标准托管 Runner 满足内存要求。私有仓库的标准机器内存不足时，通过仓库变量 `LINKSENSE_INSTALLATION_RUNNER_AMD64` 和 `LINKSENSE_INSTALLATION_RUNNER_ARM64` 指定对应架构的专用 Runner 标签，必须使用空的 Docker 环境，不能跳过验收。安装主机的其他资源要求见 README。
 7. 通过 PR 审核合入 `main`。发布准备任务强制检查同一提交的 CI 和 Security 结果；如仓库套餐支持，再配置相应分支保护或规则集。
 
 GHCR 包必须允许匿名拉取。首次生成候选镜像后，组织所有者需检查下列包的可见性，并将尚未公开的包设为 Public：
@@ -108,12 +108,31 @@ test ! -e /absolute/path/to/linksense-github/design-qa.md
 4. 从 GitHub Actions 手动运行 `Publish release`。工作流会核对目标提交的检查结果，并拒绝非 `main`、非 Private/Public 仓库、未授权发版人、已存在版本或非 CPAL-1.0 的输入。检查尚未结束或失败时，发布会在准备阶段快速停止，不会创建标签、镜像正式版本或 Release。
 5. `prepare` 在构建前检查基线配方指纹、已成功的维护任务及固定镜像索引的两种架构，下载固定提交的 tokenizer，生成并检查安装入口脚本。基线清单、运行环境/服务摘要、资源内容、版本、源码提交和生成时间保存为带校验和的 `release-inputs` artifact；失败时不会启动后续镜像构建，不重新解析厂商标签。
 6. GitHub 托管 Runner 分别构建 `api`、`web`、`migrate`、`runner`、`worker` 的两种架构。所有镜像先发布为本次运行唯一的候选标签，生成 SBOM 和最小 provenance，并验证镜像内基础命令或 Nginx 配置可以运行。此检查不是完整业务或安装验收。
-7. `image-indexes` 合并已验证架构镜像；`assets` 使用保存的发布输入和镜像摘要生成清单、许可证和资产校验和，不再重新解析上游标签或下载 tokenizer。同时，`image-security` 使用这些冻结摘要对全部镜像的两个架构执行漏洞扫描；发现 HIGH / CRITICAL 漏洞或扫描失败时，最终发布任务不会运行。
+7. `image-indexes` 合并已验证架构镜像；`assets` 使用保存的发布输入和镜像摘要生成清单、许可证和资产校验和，不再重新解析上游标签或下载 tokenizer。`installation-smoke` 使用这套确切产物执行双架构 Core / Full 安装验收；`image-security` 使用冻结摘要执行双架构漏洞扫描。任一验收失败、HIGH / CRITICAL 漏洞或扫描失败都会阻止正式镜像标签和 Release 发布。
 8. 首次发布时检查所有引用包均为公开；如果最终 job 已失败，只重新运行失败 job。
 9. 最终 job 匿名验证全部安装镜像后，只为五个应用镜像按已验证摘要创建正式 `vMAJOR.MINOR.PATCH` 标签；服务镜像继续使用独立基线摘要，不重复打产品版本标签。已存在的正式标签若指向不同摘要，流程会拒绝覆盖。
-10. 创建 GitHub Release 草稿并上传资产，下载全部资产逐字节核对后才发布 Release。仓库可见性保持不变：Private 仓库仅授权用户可访问；Public 仓库发布后允许匿名下载。维护者应完成 Core / Full 安装、修复、升级及业务验收，再对外宣布该版本可用于生产。
+10. 创建 GitHub Release 草稿并上传资产，下载全部资产逐字节核对后才发布 Release。仓库可见性保持不变：Private 仓库仅授权用户可访问；Public 仓库发布后允许匿名下载。维护者仍应使用自己的模型服务和业务数据完成业务验收，再对外宣布该版本可用于生产。
 
 不要删除或替换已发布标签，也不要复用版本号。错误版本应通过新版本修正。
+
+## 安装、修复和升级门禁
+
+`installation-smoke` 的四个任务分别在原生 amd64 / arm64 上验证 Core / Full。任务只读取本次候选镜像和安装附件，不创建 Release 或正式镜像标签。它通过本地 HTTPS 服务提供未经修改的候选附件，保留证书验证、清单校验和、真实 Docker Compose、数据库迁移和依赖服务。测试从仓库中的一键入口进入，实际下载并执行附件中的安装器，不以模拟 Docker 或 curl 代替安装。
+
+验收包括：全新安装、管理员初始化和登录、未授权访问拒绝、重复安装、停止服务后的修复、损坏 tokenizer 权限后的修复、同版本升级不重启，以及上一已发布版本的数据升级。Full 还执行真实中英文 OCR、Hybrid Chunker、Elasticsearch 关键词和向量检索。修复及升级前后核对管理员身份、MinIO 对象、Redis 数据、用户文件、数据卷身份和密钥；升级产生的 PostgreSQL 备份必须可被 `pg_restore --list` 读取。
+
+准备阶段固定上一正式版本。升级夹具使用该版本未经修改的镜像、配置、数据库迁移和状态写入函数，建立管理员与持久化测试数据，再通过本次真实 `upgrade.sh` 升级。夹具初始化不执行旧版有缺陷的 Full readiness / OCR 判断，因此它用于验证既有状态的升级，不代表旧版一键安装通过。目标版本的全新安装、升级和修复始终执行全部原生检查。首次发布没有上一正式版本时仅无升级夹具，其他检查照常执行。
+
+Docling Serve 1.36.0、Core 2.99.0、Jobkit 3.8.1 必须与后端契约配套。既有已索引文档保留原有索引与切块来源；显式重试或重新处理遇到解析器摘要变化时从原文件重新解析，不能把旧解析结果冒充新版本结果。索引重建沿用文档自身已保存的来源信息。
+
+失败报告保存在 `installation-<edition>-<architecture>` artifact 中，包含阶段结果和脱敏输出，不上传 `.env`、初始化凭据、数据库备份或用户数据。验收程序仅允许空的专用 Docker daemon，并清理自己创建的测试资源。独立测试主机可复用相同入口：
+
+```bash
+sudo env PATH="$PATH" node scripts/release-installation-smoke.mjs \
+  /path/to/candidate-assets full /path/to/reports /path/to/previous-release-assets
+```
+
+候选附件必须包含完整 `SHA256SUMS`、发布清单及所引用的可拉取镜像。不要在运行其他业务的 Docker daemon 上执行此命令。
 
 ## 镜像漏洞门禁
 
