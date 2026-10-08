@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from "vitest"
 
 import type { KnowledgeProcessingCommand } from "../src/modules/knowledge/types.js"
 import type { KnowledgeProcessingConfig } from "../src/modules/knowledge-processing/config.js"
+import { projectKnowledgeProcessingConfig } from "../src/modules/knowledge-processing/config.js"
+import { requireFullAppConfig } from "../src/config.js"
+import { testConfig } from "./test-config.js"
 import {
   PrismaKnowledgePipelineStateStore,
   PrismaKnowledgeProcessingJobFactory,
@@ -490,6 +493,26 @@ describe("PrismaKnowledgeProcessingJobFactory", () => {
       startStage: "parsing",
     })
     expect(fixture.prisma.knowledgeBaseObject.findFirst).not.toHaveBeenCalled()
+  })
+
+  it.each(["retry", "rebuild_index"] as const)("preserves v0.3.5 document provenance during %s after the Docling runtime upgrade", async operation => {
+    // Actual parser contract digest from v0.3.5 (Serve 1.27 / Core 2.87.1).
+    const previousParserDigest = "2af73350c7c22d76db968c278924b46004353a353ca375a623ee5ab5e9990ae7"
+    const config = projectKnowledgeProcessingConfig(requireFullAppConfig(testConfig({ LINKSENSE_EDITION: "full" })))
+    expect(config.parserConfigDigest).not.toBe(previousParserDigest)
+    const fixture = factoryFixture({ operation, failedStage: "embedding", parserConfigDigest: previousParserDigest })
+    fixture.version.chunkingConfigDigest = config.chunkingConfigDigest
+    const factory = new PrismaKnowledgeProcessingJobFactory(
+      fixture.prisma as never, config, fixture.objectStore,
+      imageUnderstandingSettingsReader(), knowledgeModelSettingsReader(),
+    )
+
+    await expect(factory.create(fixture.command)).resolves.toMatchObject({
+      startStage: operation === "retry" ? "parsing" : "embedding",
+      chunking: { configDigest: config.chunkingConfigDigest },
+    })
+    expect(fixture.version.parserConfigDigest).toBe(previousParserDigest)
+    expect(fixture.prisma.knowledgeBaseDocumentVersion.updateMany).not.toHaveBeenCalled()
   })
 
   it("restarts parsing when zero-asset retry artifacts belong to an older processing generation", async () => {

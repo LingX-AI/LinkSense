@@ -65,7 +65,7 @@ services:
       DOCLING_SERVE_ENG_KIND: rq
       DOCLING_SERVE_ENG_RQ_REDIS_URL: ${DOCLING_REDIS_URL}
       DOCLING_SERVE_ENABLE_UI: "false"
-      DOCLING_SERVE_LOG_FORMAT: json
+      DOCLING_SERVE_LOG_FORMAT: text
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
     depends_on:
@@ -98,7 +98,7 @@ services:
     environment:
       DOCLING_SERVE_ENG_KIND: rq
       DOCLING_SERVE_ENG_RQ_REDIS_URL: ${DOCLING_REDIS_URL}
-      DOCLING_SERVE_LOG_FORMAT: json
+      DOCLING_SERVE_LOG_FORMAT: text
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
     volumes:

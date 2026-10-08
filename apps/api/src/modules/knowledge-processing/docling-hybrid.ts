@@ -232,10 +232,8 @@ export function parseHybridChunkResponse(
     throw invalidHybridResult()
   }
   if (parsed.data.chunks.length === 0) {
-    // docling-jobkit 2.1.0 catches HybridChunker exceptions without changing
-    // the task/document success status or exposing an error item. An empty
-    // chunk list is therefore the only reliable signal that the configured
-    // tokenizer/chunker is unavailable for a non-empty LinkSense document.
+    // A successful task status alone does not establish usable chunking.
+    // A non-empty LinkSense document must produce at least one chunk.
     throw new KnowledgeProcessingError(
       "KNOWLEDGE_DOCLING_CHUNKER_UNAVAILABLE",
       { retryable: true },

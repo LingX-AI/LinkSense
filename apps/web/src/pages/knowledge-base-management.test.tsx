@@ -1458,6 +1458,65 @@ describe("knowledge-base document and access management", () => {
     })
   })
 
+  it.each(
+    supportedLanguages.flatMap((language) =>
+      [true, false].map((sharePointEnabled) => ({
+        language,
+        sharePointEnabled,
+      }))
+    )
+  )(
+    "uses an equal-height responsive source grid in $language when SharePoint enabled=$sharePointEnabled",
+    async ({ language, sharePointEnabled }) => {
+      await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
+      vi.stubGlobal("fetch", createFetchMock({ sharePointEnabled }))
+      renderListPage(adminUser)
+
+      const createButton = await screen.findByRole("button", {
+        name: i18n.t("knowledge.create.action"),
+      })
+      await waitFor(() => expect(createButton).toBeEnabled())
+      await interaction.click(createButton)
+
+      const dialog = screen.getByRole("dialog", {
+        name: i18n.t("knowledge.create.title"),
+      })
+      const sourceGroup = within(dialog).getByRole("group", {
+        name: i18n.t("knowledge.create.sourceType"),
+      })
+      const sharePointSource = within(sourceGroup).getByRole("button", {
+        name: (name) =>
+          name.includes(i18n.t("knowledge.create.sourceSharePoint")),
+      })
+
+      if (sharePointEnabled) {
+        await waitFor(() => expect(sharePointSource).toBeEnabled())
+      } else {
+        expect(
+          await within(sharePointSource).findByText(
+            i18n.t("knowledge.create.sourceUnavailable")
+          )
+        ).toBeVisible()
+        expect(sharePointSource).toBeDisabled()
+      }
+
+      expect(sourceGroup).toHaveClass(
+        "grid",
+        "grid-cols-1",
+        "sm:grid-cols-2",
+        "auto-rows-fr",
+        "items-stretch"
+      )
+      expect(sourceGroup).not.toHaveClass("items-center")
+      const sourceCards = within(sourceGroup).getAllByRole("button")
+      expect(sourceCards).toHaveLength(2)
+      for (const sourceCard of sourceCards) {
+        expect(sourceCard).toHaveClass("h-auto", "min-h-24", "items-start")
+      }
+    }
+  )
+
   it("keeps the SharePoint source card unavailable when the source is not enabled", async () => {
     const interaction = userEvent.setup()
     vi.stubGlobal("fetch", createFetchMock({ sharePointEnabled: false }))

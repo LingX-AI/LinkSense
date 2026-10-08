@@ -8,6 +8,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  stat,
   rm,
   symlink,
   writeFile,
@@ -210,7 +211,7 @@ esac
     const harness = path.join(directory, "memory-preflight.sh")
     await writeExecutable(harness, `${installer.slice(0, mainPosition)}read_os_release() { OS_ID=ubuntu; }\ncheck_port() { :; }\npreflight\n`)
     for (const hostOs of ["Darwin", "Linux"]) {
-      for (const [edition, requiredGiB] of [["core", 8], ["full", 16]]) {
+      for (const [edition, requiredGiB] of [["core", 8], ["full", 10]]) {
         const requiredKiB = requiredGiB * 1024 * 1024
         for (const memoryKiB of [8124776, requiredKiB - 1, requiredKiB]) {
           const result = spawnSync("/bin/sh", [harness], {
@@ -462,6 +463,126 @@ printf '%s\\n' "$HTTP_PORT"
     assert.notEqual(changed.status, 0)
     assert.match(changed.stderr, /dedicated port migration/u)
   } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+for (const scenario of [
+  { name: "Full installation accepts the public readiness response without private health details", edition: "full", apiReady: true, elasticsearchReady: true, doclingReady: true, success: true },
+  { name: "Core installation accepts the public readiness response without checking Full services", edition: "core", apiReady: true, elasticsearchReady: false, doclingReady: false, success: true },
+  { name: "Full installation rejects an API readiness failure before probing dependent services", edition: "full", apiReady: false, elasticsearchReady: true, doclingReady: true, success: false },
+  { name: "Full installation rejects an unavailable Elasticsearch service despite a ready API", edition: "full", apiReady: true, elasticsearchReady: false, doclingReady: true, success: false },
+  { name: "Full installation rejects an unavailable Docling service despite a ready API", edition: "full", apiReady: true, elasticsearchReady: true, doclingReady: false, success: false },
+]) {
+  test(scenario.name, async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "linksense-readiness-"))
+    try {
+      const bin = path.join(directory, "bin")
+      const runtime = path.join(directory, "runtime")
+      const trace = path.join(directory, "trace")
+      await mkdir(bin)
+      await mkdir(runtime)
+      await writeFile(trace, "")
+      await writeExecutable(path.join(bin, "id"), "#!/bin/sh\nprintf '%s\\n' 0\n")
+      await writeExecutable(path.join(bin, "uname"), '#!/bin/sh\ncase "$1" in -s) printf "%s\\n" Linux ;; -m) printf "%s\\n" x86_64 ;; *) exit 1 ;; esac\n')
+      await writeExecutable(path.join(bin, "sleep"), "#!/bin/sh\nexit 0\n")
+      await writeExecutable(path.join(bin, "curl"), `#!/bin/sh
+printf 'curl %s\\n' "$*" >> "$LINKSENSE_TEST_TRACE"
+[ "$LINKSENSE_TEST_API_READY" = true ] || exit 22
+output=
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = -o ]; then output=$2; shift; fi
+  shift
+done
+if [ -n "$output" ]; then
+  printf '%s\\n' '{"success":true,"data":{"status":"available","readiness":"ready","checked_at":"2026-10-07T00:00:00Z"}}' > "$output"
+else
+  printf '%s\\n' '{"success":true,"data":{"status":"available","readiness":"ready","checked_at":"2026-10-07T00:00:00Z"}}'
+fi
+`)
+      const installer = await readFile(path.join(releaseDirectory, "linksense-installer.sh"), "utf8")
+      const mainPosition = installer.indexOf('log_stage "Stage 1: run the read-only host preflight."')
+      assert.ok(mainPosition > 0)
+      const harness = path.join(directory, "readiness.sh")
+      await writeExecutable(harness, `${installer.slice(0, mainPosition)}
+TMP_ROOT=$LINKSENSE_TEST_RUNTIME
+compose() {
+  printf 'compose %s\\n' "$*" >> "$LINKSENSE_TEST_TRACE"
+  case "$1:\${2:-}:\${3:-}" in
+    exec:-T:elasticsearch) [ "$LINKSENSE_TEST_ELASTICSEARCH_READY" = true ] ;;
+    exec:-T:docling-api) [ "$LINKSENSE_TEST_DOCLING_READY" = true ] ;;
+    ps::) return 0 ;;
+    *) return 64 ;;
+  esac
+}
+wait_for_health
+`)
+      const result = spawnSync("/bin/sh", [harness], {
+        encoding: "utf8",
+        timeout: 10_000,
+        env: {
+          ...process.env,
+          LINKSENSE_INSTALL_ACTION: "install",
+          LINKSENSE_INSTALL_EDITION: scenario.edition,
+          LINKSENSE_INSTALL_DIR: path.join(directory, "install"),
+          LINKSENSE_TEST_TRACE: trace,
+          LINKSENSE_TEST_RUNTIME: runtime,
+          LINKSENSE_TEST_API_READY: String(scenario.apiReady),
+          LINKSENSE_TEST_ELASTICSEARCH_READY: String(scenario.elasticsearchReady),
+          LINKSENSE_TEST_DOCLING_READY: String(scenario.doclingReady),
+          ELASTICSEARCH_ROOT_PASSWORD: "fixture-elasticsearch-password",
+          PATH: `${bin}:/usr/bin:/bin`,
+        },
+      })
+      if (scenario.success) assert.equal(result.status, 0, result.stderr)
+      else {
+        assert.equal(result.status, 1, result.stderr)
+        assert.match(result.stderr, /The stack did not become ready/u)
+      }
+      const recorded = await readFile(trace, "utf8")
+      assert.match(recorded, /\/api\/v1\/system\/health\/ready/u)
+      assert.equal((recorded.match(/^curl /gmu) ?? []).length, scenario.success ? 1 : 60)
+      if (scenario.edition === "full" && scenario.apiReady) {
+        assert.match(recorded, /compose exec -T elasticsearch/u)
+        if (scenario.elasticsearchReady) assert.match(recorded, /compose exec -T docling-api/u)
+        else assert.doesNotMatch(recorded, /compose exec -T docling-api/u)
+      } else {
+        assert.doesNotMatch(recorded, /compose exec -T/u)
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+}
+
+test("tokenizer publication makes privately downloaded model files readable and immutable for non-root services", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "linksense-tokenizer-permissions-"))
+  try {
+    const sourceDirectory = path.join(directory, "source")
+    const volumeDirectory = path.join(directory, "volume")
+    await mkdir(sourceDirectory, { mode: 0o700 })
+    await mkdir(volumeDirectory, { mode: 0o755 })
+    await writeFile(path.join(sourceDirectory, "config.json"), '{"model_type":"qwen3"}', { mode: 0o600 })
+    const installer = await readFile(path.join(releaseDirectory, "linksense-installer.sh"), "utf8")
+    const publisher = installer.match(/publish_tokenizer\(\)[\s\S]*?sh -ec '([\s\S]*?)' sh "\$TOKENIZER_REVISION"/u)
+    assert.ok(publisher)
+    const script = publisher[1]
+      .replaceAll("/tokenizer", volumeDirectory)
+      .replaceAll("/source", sourceDirectory)
+      .replace("mv -Tf", "mv -f")
+    execFileSync("/bin/sh", ["-ec", script, "sh", "fixture-revision"])
+
+    const file = path.join(volumeDirectory, "current", "config.json")
+    assert.equal(await readFile(file, "utf8"), '{"model_type":"qwen3"}')
+    assert.equal((await stat(file)).mode & 0o777, 0o444)
+    assert.equal((await stat(path.dirname(file))).mode & 0o777, 0o555)
+  } finally {
+    const publishedDirectory = path.join(directory, "volume", "releases", "fixture-revision")
+    try {
+      await chmod(publishedDirectory, 0o700)
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error
+    }
     await rm(directory, { recursive: true, force: true })
   }
 })
@@ -1026,6 +1147,15 @@ test("release API receives the immutable installed LinkSense version", () => {
   }
 })
 
+test("Full Docling logging excludes private task arguments from vendor JSON extras", () => {
+  const compose = JSON.parse(execFileSync("docker", composeArguments("full", ["config", "--format", "json"]), {
+    encoding: "utf8", env: composeEnvironment("full"),
+  }))
+  for (const name of ["docling-api", "docling-worker"]) {
+    assert.equal(compose.services[name].environment.DOCLING_SERVE_LOG_FORMAT, "text")
+  }
+})
+
 test("Full runs the official Docling image offline as a constrained non-root user", async () => {
   const compose = await readFile(
     path.join(releaseDirectory, "compose.full.yml"),
@@ -1123,15 +1253,15 @@ test("the release workflow reuses verified main checks before promotion", async 
   assert.doesNotMatch(workflow, /fail-fast: true/u)
   assert.match(workflow, /type=gha,scope=migrate-\{0\}/u)
   assert.equal((workflow.match(/timeout=2m,ignore-error=true/gu) ?? []).length, 2)
-  assert.equal((workflow.match(/overwrite: true/gu) ?? []).length, 6)
+  assert.equal((workflow.match(/overwrite: true/gu) ?? []).length, 7)
   assert.doesNotMatch(workflow, /hardened-images:/u)
   assert.match(workflow, /pnpm --dir deploy\/baselines\/tools install --prod --frozen-lockfile --ignore-workspace/u)
-  assert.doesNotMatch(workflow, /full-installation-smoke:/u)
+  assert.match(workflow, /installation-smoke:/u)
   assert.doesNotMatch(workflow, /self-hosted|linksense-full-release/u)
   assert.match(workflow, /docker buildx imagetools create/u)
   assert.match(workflow, /node scripts\/publish-release\.mjs release-assets/u)
   assert.doesNotMatch(workflow, /gh release (?:create|upload|edit)/u)
-  const assetsJob = workflow.split("\n  assets:")[1].split("\n  release:")[0]
+  const assetsJob = workflow.split("\n  assets:")[1].split("\n  installation-smoke:")[0]
   assert.doesNotMatch(assetsJob, /curl |resolve-release-image\.sh/u)
   assert.doesNotMatch(workflow, /environment: public-release/u)
   assert.doesNotMatch(workflow, /attestations: write/u)
@@ -1247,6 +1377,8 @@ test("the release manifest generator records immutable images and artifact hashe
     )
     const manifest = await readFile(output, "utf8")
     assert.match(manifest, /^MANIFEST_FORMAT=2$/mu)
+    assert.match(manifest, /^CORE_MIN_MEMORY_GIB=8$/mu)
+    assert.match(manifest, /^FULL_MIN_MEMORY_GIB=10$/mu)
     assert.match(manifest, /RELEASE_VERSION=v0\.1\.0/u)
     assert.doesNotMatch(manifest, /^(?:CORE|FULL)_MIN_DISK_GIB=/mu)
     assert.doesNotMatch(manifest, /^(?:CORE|FULL)_MIN_FREE_INODES=/mu)
@@ -1297,6 +1429,34 @@ test("the release manifest generator records immutable images and artifact hashe
         `RESOURCE_CLI_SHA256=${createHash("sha256").update(cli).digest("hex")}`,
       ),
     )
+    const installer = await readFile(path.join(releaseDirectory, "linksense-installer.sh"), "utf8")
+    const functions = ["fail", "sha256_file", "verify_file", "load_strict_env", "require_loaded_keys", "fetch_manifest", "tokenizer_value"].map(name => {
+      const match = installer.match(new RegExp(`^${name}\\(\\) \\{\\n[\\s\\S]*?^\\}`, "mu"))
+      assert.ok(match)
+      return match[0]
+    }).join("\n")
+    const manifestCheck = path.join(directory, "manifest-check")
+    await mkdir(manifestCheck)
+    for (const [required, available, accepted] of [["10", 10, true], ["10", 9, false], ["16", 16, true], ["16", 10, false], ["9", 16, false], ["", 16, false], ["010", 16, false]]) {
+      const fixture = manifest.replace(/^FULL_MIN_MEMORY_GIB=.*$/mu, `FULL_MIN_MEMORY_GIB=${required}`)
+      await writeFile(output, fixture)
+      await writeFile(`${output}.sha256`, `${createHash("sha256").update(fixture).digest("hex")}  release-manifest.env\n`)
+      const result = spawnSync("sh", ["-c", `
+set -eu
+${functions}
+download() { cp "$FIXTURE_SOURCE/\$(basename "$1")" "$2"; }
+docker() { printf '%s\\n' "$FIXTURE_MEMORY"; }
+TMP_ROOT=$FIXTURE_TARGET
+EDITION=full
+LINKSENSE_PLATFORM=linux-amd64
+REQUIRED_DOCKER_API=1.45
+REQUIRED_COMPOSE_VERSION=2.24.4
+RELEASE_SELECTOR=latest
+fetch_manifest https://release.example
+`], { encoding: "utf8", env: { ...process.env, FIXTURE_SOURCE: directory, FIXTURE_TARGET: manifestCheck, FIXTURE_MEMORY: String(available * 1024 ** 3) } })
+      assert.equal(result.status, accepted ? 0 : 1, `Full minimum ${required}, available ${available}: ${result.stderr}`)
+      if (!accepted) assert.match(result.stderr, required === "" ? /Unsafe value for FULL_MIN_MEMORY_GIB/u : /host requirements|Docker Engine memory/u)
+    }
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

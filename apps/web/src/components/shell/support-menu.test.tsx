@@ -56,6 +56,22 @@ describe("support menu", () => {
     expect(helpLink).toHaveAttribute("rel", "noreferrer noopener")
   })
 
+  it("renders help and feedback with compact decorative icons", async () => {
+    const interaction = userEvent.setup()
+    renderSupportMenu()
+
+    await interaction.click(screen.getByRole("button", { name: "账户菜单" }))
+    const menu = await screen.findByRole("menu")
+    const items = within(menu).getAllByRole("menuitem")
+
+    expect(items).toHaveLength(2)
+    for (const item of items) {
+      const icon = item.querySelector("svg")
+      expect(icon).toHaveClass("size-3.5")
+      expect(icon).toHaveAttribute("aria-hidden", "true")
+    }
+  })
+
   it.each([
     ["zh-CN", "使用帮助", "反馈"],
     ["en-US", "User guide", "Feedback"],

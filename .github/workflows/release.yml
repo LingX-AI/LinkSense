@@ -22,6 +22,7 @@ jobs:
       candidate_tag: ${{ steps.release.outputs.candidate_tag }}
       source_sha: ${{ steps.release.outputs.source_sha }}
       license: ${{ steps.release.outputs.license }}
+      previous_version: ${{ steps.upgrade.outputs.version }}
       baseline_node: ${{ steps.baseline.outputs.BASELINE_NODE_IMAGE }}
       baseline_api: ${{ steps.baseline.outputs.BASELINE_API_IMAGE }}
       baseline_web: ${{ steps.baseline.outputs.BASELINE_WEB_IMAGE }}
@@ -116,6 +117,18 @@ jobs:
             echo "source_sha=$GITHUB_SHA"
             echo "license=$package_license"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Freeze the published upgrade baseline
+        id: upgrade
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          previous=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""')
+          if [ -n "$previous" ]; then
+            printf '%s' "$previous" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'
+          fi
+          echo "version=$previous" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
@@ -545,8 +558,78 @@ jobs:
           retention-days: 3
           overwrite: true
 
+  installation-smoke:
+    needs: [prepare, assets]
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: [core, full]
+        platform:
+          - architecture: amd64
+            runner: ${{ vars.LINKSENSE_INSTALLATION_RUNNER_AMD64 || 'ubuntu-24.04' }}
+          - architecture: arm64
+            runner: ${{ vars.LINKSENSE_INSTALLATION_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - name: Check memory and free space on the disposable hosted runner
+        run: |
+          mkdir installation-reports
+          test "$(docker info --format '{{.MemTotal}}')" -ge 10737418240 || {
+            echo 'Installation verification requires at least 10 GiB available to Docker. Use a sufficiently sized runner; this gate cannot be skipped.' >&2
+            exit 1
+          }
+          # These preinstalled SDKs are unused in this fresh hosted VM. Retain
+          # Docker, Node, Git, curl and OpenSSL; never prune shared Docker data.
+          if [ "$RUNNER_ENVIRONMENT" = github-hosted ]; then
+            sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          fi
+          df -h / > installation-reports/disk.txt
+          sudo sysctl -w vm.max_map_count=262144
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-assets
+          path: release-assets
+      - name: Download the frozen previous release for upgrade verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_VERSION: ${{ needs.prepare.outputs.previous_version }}
+        run: |
+          if [ -n "$PREVIOUS_VERSION" ]; then
+            gh release download "$PREVIOUS_VERSION" --repo "$GITHUB_REPOSITORY" --dir previous-release-assets
+          fi
+      - name: Verify installation, repair, and upgrade with the exact candidate assets
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          RELEASE_WORKFLOW_ID: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EDITION: ${{ matrix.edition }}
+          PREVIOUS_VERSION: ${{ needs.prepare.outputs.previous_version }}
+        run: |
+          set -eu
+          set -- release-assets "$EDITION" installation-reports
+          if [ -n "$PREVIOUS_VERSION" ]; then set -- "$@" previous-release-assets; fi
+          sudo env "PATH=$PATH" "RELEASE_VERSION=$RELEASE_VERSION" "SOURCE_SHA=$SOURCE_SHA" \
+            "RELEASE_WORKFLOW_ID=$RELEASE_WORKFLOW_ID" node scripts/release-installation-smoke.mjs "$@"
+      - name: Save redacted installation verification reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: installation-${{ matrix.edition }}-${{ matrix.platform.architecture }}
+          path: installation-reports/
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
   release:
-    needs: [prepare, image-indexes, assets, image-security, storage-upgrade]
+    needs: [prepare, image-indexes, assets, image-security, storage-upgrade, installation-smoke]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -626,5 +709,6 @@ jobs:
             echo "- GitHub Release access follows the repository's current visibility."
             echo "- Eleven GHCR images are public and anonymously pullable."
             echo "- Release assets have been downloaded and verified before publication."
+            echo "- Core and Full installation, repair, and available prior-release upgrade checks passed on amd64 and arm64."
             echo "- Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_VERSION"
           } >> "$GITHUB_STEP_SUMMARY"
