@@ -43,8 +43,8 @@
 **Core** — AI 工作空间 + 组织能力平台
 **Full** — Core + 完整的文档处理与知识检索
 
-Core 需要 4+ vCPU、8+ GiB 内存和 60+ GiB 可用 SSD 空间。Full 需要 8+ vCPU、16+ GiB 内存和 120+ GiB 可用 SSD 空间。要求 Docker Engine API v1.45+ 和 Docker Compose v2.24.4+。
-内存预检读取 Docker Engine 实际可用内存。使用 Docker Desktop 时，这指虚拟机分配的内存，而非宿主机总内存；标称分配 8 GB 时，实际可用值可能不足 8 GiB。请在 Settings → Resources → Advanced → Memory limit 调整分配，Core 建议至少 10–12 GB，Full 也应为 16 GiB 的实际可用要求留出余量，然后应用更改并重启 Docker Desktop。
+Core 需要 4+ vCPU、8+ GiB 内存和 60+ GiB 可用 SSD 空间。Full 需要 8+ vCPU、10+ GiB 内存和 120+ GiB 可用 SSD 空间。要求 Docker Engine API v1.45+ 和 Docker Compose v2.24.4+。
+内存预检读取 Docker Engine 实际可用内存。使用 Docker Desktop 时，这指虚拟机分配的内存，而非宿主机总内存；标称分配 8 GB 时，实际可用值可能不足 8 GiB。请在 Settings → Resources → Advanced → Memory limit 调整分配，Core 建议至少 10–12 GB，Full 也应为 10 GiB 的实际可用要求留出余量，然后应用更改并重启 Docker Desktop。
 完整要求见[部署参考](#部署参考)。
 
 ### Linux
@@ -302,7 +302,7 @@ LinkSense 提供三种主要扩展方式，无需修改 LinkSense 源码。
 | 方案 | CPU | 内存 | 可用 SSD 空间 |
 | --- | ---: | ---: | ---: |
 | Core | 4+ vCPU | 8+ GiB | 60+ GiB |
-| Full | 8+ vCPU | 16+ GiB | 120+ GiB |
+| Full | 8+ vCPU | 10+ GiB | 120+ GiB |
 
 - Linux：x86_64 或 ARM64 架构上的 Ubuntu、Debian、Fedora、RHEL、Rocky Linux、AlmaLinux 或 CentOS
 - macOS：配备 Docker Desktop 的 Intel 或 Apple Silicon 设备

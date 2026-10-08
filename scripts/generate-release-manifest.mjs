@@ -74,7 +74,7 @@ const lines = [
   "MIN_DOCKER_API=1.45",
   "MIN_DOCKER_COMPOSE=2.24.4",
   "CORE_MIN_MEMORY_GIB=8",
-  "FULL_MIN_MEMORY_GIB=16",
+  "FULL_MIN_MEMORY_GIB=10",
 ]
 
 for (const imageKey of imageKeys) {

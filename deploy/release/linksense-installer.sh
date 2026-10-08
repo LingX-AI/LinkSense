@@ -238,8 +238,8 @@ print_initialization_credential() {
 }
 
 version_ge() {
-  current=$1
-  required=$2
+  current=${1#v}
+  required=${2#v}
   awk -v current="$current" -v required="$required" 'BEGIN {
     current_parts = split(current, current_values, ".")
     required_parts = split(required, required_values, ".")
@@ -296,7 +296,7 @@ check_port() {
   if [ -n "$occupied_container" ]; then
     container_id=$(printf '%s' "$occupied_container" | awk '{print $1}')
     project=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$container_id" 2>/dev/null || true)
-    if { [ "$ACTION" = repair ] || [ "$ACTION" = upgrade ] || [ -f "$INSTALL_DIR/install.pending" ]; } && [ "$project" = linksense ]; then
+    if { [ "$ACTION" = repair ] || [ "$ACTION" = upgrade ] || [ -f "$INSTALL_DIR/install.pending" ] || [ -f "$INSTALL_DIR/install-state.env" ]; } && [ "$project" = linksense ]; then
       own_container=true
     else
       fail "TCP $HTTP_PORT is published by another container: $occupied_container. Stop or reconfigure it manually, then retry."
@@ -391,7 +391,7 @@ preflight() {
   printf '%s' "$memory_bytes" | grep -Eq '^[1-9][0-9]*$' || fail "Could not determine memory available to the Docker Engine."
   memory_kb=$((memory_bytes / 1024))
   if [ "$EDITION" = full ]; then
-    required_memory_kb=$((16 * 1024 * 1024))
+    required_memory_kb=$((10 * 1024 * 1024))
   else
     required_memory_kb=$((8 * 1024 * 1024))
   fi
@@ -499,7 +499,11 @@ fetch_manifest() {
   [ "${MIN_DOCKER_API:-}" = "$REQUIRED_DOCKER_API" ] || fail "The release manifest has an inconsistent Docker API requirement."
   [ "${MIN_DOCKER_COMPOSE:-}" = "$REQUIRED_COMPOSE_VERSION" ] || fail "The release manifest has an inconsistent Docker Compose requirement."
   [ "${CORE_MIN_MEMORY_GIB:-}" = 8 ] || fail "The release manifest has inconsistent Core host requirements."
-  [ "${FULL_MIN_MEMORY_GIB:-}" = 16 ] || fail "The release manifest has inconsistent Full host requirements."
+  printf '%s' "${FULL_MIN_MEMORY_GIB:-}" | grep -Eq '^[1-9][0-9]{0,3}$' && [ "$FULL_MIN_MEMORY_GIB" -ge 10 ] || fail "The release manifest has invalid Full host requirements."
+  if [ "$EDITION" = full ]; then
+    manifest_memory_bytes=$(docker info --format '{{.MemTotal}}')
+    [ "$manifest_memory_bytes" -ge "$((FULL_MIN_MEMORY_GIB * 1024 * 1024 * 1024))" ] || fail "This release requires at least $FULL_MIN_MEMORY_GIB GiB of Docker Engine memory."
+  fi
   for required_hash in RESOURCE_LICENSE_SHA256 RESOURCE_LICENSE_EXCEPTIONS_SHA256 RESOURCE_ATTRIBUTION_SHA256 RESOURCE_TRADEMARK_SHA256 RESOURCE_NOTICE_SHA256 RESOURCE_THIRD_PARTY_NOTICES_SHA256 RESOURCE_COMPOSE_COMMON_SHA256 RESOURCE_COMPOSE_CORE_SHA256 RESOURCE_COMPOSE_FULL_SHA256 RESOURCE_GATEWAY_SHA256 RESOURCE_CLI_SHA256 RESOURCE_INSTALLER_ENGINE_SHA256 RESOURCE_INSTALL_CORE_SHA256 RESOURCE_INSTALL_FULL_SHA256 RESOURCE_REPAIR_CORE_SHA256 RESOURCE_REPAIR_FULL_SHA256 RESOURCE_UPGRADE_SHA256; do
     eval "hash_value=\${$required_hash:-}"
     printf '%s' "$hash_value" | grep -Eq '^[0-9a-f]{64}$' || fail "The release manifest is missing a valid $required_hash."
@@ -903,7 +907,7 @@ publish_tokenizer() {
       rm -rf /tokenizer/releases/.staging /tokenizer/releases/.previous
       mkdir /tokenizer/releases/.staging
       cp -R /source/. /tokenizer/releases/.staging/
-      chmod -R a-w /tokenizer/releases/.staging
+      chmod -R a=rX /tokenizer/releases/.staging
       if [ -d "/tokenizer/releases/$revision" ]; then
         mv "/tokenizer/releases/$revision" /tokenizer/releases/.previous
       fi
@@ -1103,15 +1107,8 @@ wait_for_health() {
   attempts=0
   local_health_url="http://127.0.0.1:$HTTP_PORT/api/v1/system/health/ready"
   while [ "$attempts" -lt 60 ]; do
-    health_response=$TMP_ROOT/health.json
-    if curl -fsS "$local_health_url" -o "$health_response" 2>/dev/null; then
+    if curl -fsS "$local_health_url" >/dev/null 2>&1; then
       if [ "$EDITION" = full ]; then
-        if ! grep -Eq '"document_parsing":\{"status":"available"' "$health_response" || \
-          ! grep -Eq '"knowledge_search_and_indexing":\{"status":"available"' "$health_response"; then
-          attempts=$((attempts + 1))
-          sleep 5
-          continue
-        fi
         if ! compose exec -T elasticsearch curl -fsS -u "$ELASTICSEARCH_ROOT_USERNAME:$ELASTICSEARCH_ROOT_PASSWORD" http://127.0.0.1:9200/_cluster/health >/dev/null 2>&1 || \
           ! compose exec -T docling-api python -c 'import os,urllib.request; r=urllib.request.Request("http://127.0.0.1:5001/ready",headers={"X-Api-Key":os.environ["DOCLING_SERVE_API_KEY"]}); urllib.request.urlopen(r,timeout=5).read()' >/dev/null 2>&1; then
           attempts=$((attempts + 1))
@@ -1130,7 +1127,12 @@ wait_for_health() {
 
 run_full_release_probe() {
   [ "$EDITION" = full ] || return 0
-  compose exec -T api node dist/release/full-installation-probe.js
+  probe_output=$TMP_ROOT/full-release-probe.log
+  if ! compose exec -T api node dist/release/full-installation-probe.js >"$probe_output" 2>&1; then
+    fail "Full release probe failed. Inspect the Docling and API service logs."
+  fi
+  grep -Fx 'Full release probe passed.' "$probe_output" >/dev/null || fail "Full release probe exited without completing its checks."
+  log "Full release probe passed."
 }
 
 write_pending_state() {

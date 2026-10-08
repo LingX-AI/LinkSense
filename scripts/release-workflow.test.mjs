@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
@@ -122,6 +122,45 @@ test("Docling import checks configure its RQ backend without accessing external 
   assert.match(smoke.run, /docling\) docker run --rm --network none --env DOCLING_SERVE_ENG_KIND=rq --env DOCLING_SERVE_ENG_RQ_REDIS_URL=redis:\/\/127\.0\.0\.1:6379\/0/u)
 })
 
+test("publication requires real Core and Full installations on both native architectures", () => {
+  const { jobs } = parse(workflow)
+  assert.ok(jobs.release.needs.includes("installation-smoke"))
+  const gate = jobs["installation-smoke"]
+  assert.deepEqual(gate.needs, ["prepare", "assets"])
+  assert.deepEqual(gate.strategy.matrix.edition, ["core", "full"])
+  assert.deepEqual(gate.strategy.matrix.platform.map(value => value.architecture), ["amd64", "arm64"])
+  assert.equal(gate.strategy["fail-fast"], false)
+  assert.deepEqual(gate.permissions, { contents: "read", packages: "read" })
+  assert.equal(gate.if, undefined)
+  assert.equal(gate["continue-on-error"], undefined)
+  assert.ok(gate.steps.every(step => !step["continue-on-error"]))
+  const smoke = gate.steps.find(step => step.run?.includes("scripts/release-installation-smoke.mjs"))
+  assert.ok(smoke)
+  assert.match(smoke.run, /previous-release-assets/u)
+  assert.equal(smoke.env.RELEASE_VERSION, "${{ needs.prepare.outputs.release_version }}")
+  assert.equal(smoke.env.SOURCE_SHA, "${{ needs.prepare.outputs.source_sha }}")
+  const upload = gate.steps.find(step => step.uses?.startsWith("actions/upload-artifact@"))
+  assert.equal(upload.if, "always()")
+  assert.equal(upload.with.path, "installation-reports/")
+  assert.doesNotMatch(JSON.stringify(gate), /packages":"write|contents":"write|publish-release\.mjs|docker push/u)
+})
+
+for (const [version, apiStatus, accepted] of [["v0.3.5", 0, true], ["", 0, true], ["", 1, false], ["invalid-tag", 0, false]]) {
+  test(`upgrade baseline discovery handles ${JSON.stringify(version)} with API status ${apiStatus}`, t => {
+    const directory = mkdtempSync(path.join(tmpdir(), "linksense-upgrade-baseline-"))
+    t.after(() => rmSync(directory, { recursive: true, force: true }))
+    const output = path.join(directory, "output")
+    const step = parse(workflow).jobs.prepare.steps.find(item => item.id === "upgrade")
+    assert.match(step.run, /--exclude-drafts --exclude-pre-releases/u)
+    const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", `gh() { printf '%s' "$FIXTURE_VERSION"; return "$FIXTURE_API_STATUS"; }\n${step.run}`], {
+      encoding: "utf8", env: { ...process.env, GITHUB_REPOSITORY: "example/linksense", GITHUB_OUTPUT: output, FIXTURE_VERSION: version, FIXTURE_API_STATUS: String(apiStatus) },
+    })
+    assert.equal(result.status, accepted ? 0 : 1, result.stderr)
+    if (accepted) assert.equal(readFileSync(output, "utf8"), `version=${version}\n`)
+    else assert.equal(existsSync(output), false, "Discovery failures must not silently skip upgrade verification")
+  })
+}
+
 test("formal image tags and GitHub Release publication require every architecture security scan", () => {
   const { jobs } = parse(workflow)
   assert.ok(jobs.release.needs.includes("image-security"))
@@ -159,11 +198,7 @@ test("formal image tags and GitHub Release publication require every architectur
   assert.ok(verify < install.run.indexOf("tar -xzf"))
   assert.doesNotMatch(install.run, /install\.sh|\/latest\//u)
 })
-const preflight = workflow
-  .split(/      - name: Verify (?:private )?release authorization and identity\n/u)[1]
-  ?.split("        run: |\n")[1]
-  .split("\n      - uses:")[0]
-  .replace(/^          /gmu, "")
+const preflight = parse(workflow).jobs.prepare.steps.find(step => step.name === "Verify release authorization and identity")?.run
 
 function check(t, overrides = {}) {
   assert.ok(preflight, "Release authorization step must be present")

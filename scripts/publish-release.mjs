@@ -12,13 +12,9 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 
-// GitHub CLI owns authentication and uploads. This module only coordinates
-// resumable publication; no dependency installation is needed on the runner.
-export function publishRelease(
-  { repository, version, sourceSha, workflowUrl, assetDirectory },
-  run = runGh,
-) {
-  assert.match(repository, /^[\w.-]+\/[\w.-]+$/u)
+// Shared by publication and the real installation gate: both consume exactly
+// the same checksummed assets, with no dependency installation on the runner.
+export function verifyReleaseAssets({ version, sourceSha, workflowUrl, assetDirectory }) {
   assert.match(version, /^v\d+\.\d+\.\d+$/u)
   assert.match(sourceSha, /^[0-9a-f]{40}$/u)
   assert.match(
@@ -70,6 +66,16 @@ export function publishRelease(
     )
   }
 
+  return { directory, files }
+}
+
+// GitHub CLI owns authentication and uploads.
+export function publishRelease(
+  { repository, version, sourceSha, workflowUrl, assetDirectory },
+  run = runGh,
+) {
+  assert.match(repository, /^[\w.-]+\/[\w.-]+$/u)
+  const { directory, files } = verifyReleaseAssets({ version, sourceSha, workflowUrl, assetDirectory })
   const endpoint = `repos/${repository}`
   const api = (route) => JSON.parse(run(["api", `${endpoint}/${route}`]))
   const pages = (route) => {

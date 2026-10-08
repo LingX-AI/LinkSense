@@ -42,14 +42,14 @@ Two deployment profiles ship from the same repository:
 **Core** — AI workspace + organizational capability platform
 **Full** — Core + complete document processing and Knowledge retrieval
 
-Core needs 4+ vCPU, 8+ GiB memory, and 60+ GiB free SSD. Full needs 8+ vCPU, 16+ GiB,
+Core needs 4+ vCPU, 8+ GiB memory, and 60+ GiB free SSD. Full needs 8+ vCPU, 10+ GiB,
 and 120+ GiB. Docker Engine API v1.45+ and Docker Compose v2.24.4+ are required.
 The memory check reads the memory actually available to Docker Engine. With Docker
 Desktop, this is the VM allocation, rather than the host's total RAM. An 8 GB
 allocation can report less than 8 GiB of usable memory. Adjust Settings → Resources
 → Advanced → Memory limit, then apply the changes and restart Docker Desktop;
 allocate at least 10–12 GB for Core and leave room
-above Full's 16 GiB usable-memory requirement.
+above Full's 10 GiB usable-memory requirement.
 See [Deployment reference](#deployment-reference) for the full list.
 
 ### Linux
@@ -378,7 +378,7 @@ configuration and capability-composition objects.
 | Profile | CPU | Memory | Free SSD |
 | --- | ---: | ---: | ---: |
 | Core | 4+ vCPU | 8+ GiB | 60+ GiB |
-| Full | 8+ vCPU | 16+ GiB | 120+ GiB |
+| Full | 8+ vCPU | 10+ GiB | 120+ GiB |
 
 - Linux: Ubuntu, Debian, Fedora, RHEL, Rocky Linux, AlmaLinux, or CentOS on x86_64 or ARM64
 - macOS: Intel or Apple Silicon with Docker Desktop
