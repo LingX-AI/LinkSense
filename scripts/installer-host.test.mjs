@@ -61,6 +61,14 @@ for (const locale of ["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"]) {
   })
 }
 
+test("CentOS 7 Docker guidance explains the unsupported distribution instead of suggesting unavailable dnf or the latest install script", () => {
+  const result = run(`${fn("docker_help")}\nHOST_OS=Linux\nOS_ID=centos\nOS_VERSION_ID=7\ndocker_help`)
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /CentOS 7/u)
+  assert.match(result.stdout, /https:\/\/docs\.docker\.com\/engine\/install\/centos\//u)
+  assert.doesNotMatch(result.stdout, /sudo dnf|sudo yum|https:\/\/get\.docker\.com/u)
+})
+
 test("HTTP/2 download failure retries with HTTP/1.1 and keeps TLS/redirect checks and a total request timeout", t => {
   const dir = directory(t)
   const result = run(`

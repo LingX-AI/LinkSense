@@ -361,6 +361,15 @@ version_ge() {
   }'
 }
 
+check_docker_api() {
+  api_version=$1
+  [ -n "$api_version" ] || fail "Could not read the Docker Engine API version."
+  version_ge "$api_version" "$REQUIRED_DOCKER_API" || {
+    docker_help >&2
+    host_fail engine "$api_version" "$REQUIRED_DOCKER_API"
+  }
+}
+
 docker_help() {
   if [ "$HOST_OS" = Darwin ]; then
     printf '%s\n' \
@@ -369,6 +378,14 @@ docker_help() {
     return
   fi
   os_id=${OS_ID:-linux}
+  if [ "$os_id" = centos ]; then
+    case "${OS_VERSION_ID:-}" in
+      7|7.*|8|8.*)
+        host_text legacy_docker_os "CentOS $OS_VERSION_ID" https://docs.docker.com/engine/install/centos/
+        return
+        ;;
+    esac
+  fi
   case "$os_id" in
     ubuntu|debian)
       printf '%s\n' \
@@ -388,8 +405,10 @@ docker_help() {
 
 read_os_release() {
   OS_ID=linux
+  OS_VERSION_ID=
   if [ -r /etc/os-release ]; then
     OS_ID=$(sed -n 's/^ID=//p' /etc/os-release | head -n 1 | tr -d '"')
+    OS_VERSION_ID=$(sed -n 's/^VERSION_ID=//p' /etc/os-release | head -n 1 | tr -d '"')
   fi
 }
 
@@ -459,6 +478,11 @@ preflight() {
   fi
 
   command -v curl >/dev/null 2>&1 || fail "curl is required. Install it with your operating system package manager."
+  host_use_saved_tools
+  if [ -n "$DOCKER_CLI" ]; then
+    detected_api=$(docker version --format '{{.Server.APIVersion}}' 2>/dev/null || true)
+    [ -z "$detected_api" ] || check_docker_api "$detected_api"
+  fi
   host_prepare_tools
 
   if ! docker info >/dev/null 2>&1; then
@@ -485,11 +509,7 @@ preflight() {
   [ "$docker_platform" = "$LINKSENSE_PLATFORM" ] || fail "The active Docker Engine platform is $docker_platform, but this host requires $LINKSENSE_PLATFORM."
 
   api_version=$(docker version --format '{{.Server.APIVersion}}' 2>/dev/null || true)
-  [ -n "$api_version" ] || fail "Could not read the Docker Engine API version."
-  version_ge "$api_version" "$REQUIRED_DOCKER_API" || {
-    docker_help >&2
-    fail "Docker Engine API $api_version is too old; API $REQUIRED_DOCKER_API or newer is required."
-  }
+  check_docker_api "$api_version"
 
   compose_version=$(host_compose version --short 2>/dev/null | sed 's/^v//' || true)
   [ -n "$compose_version" ] || {

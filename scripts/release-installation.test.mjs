@@ -938,6 +938,7 @@ test(
           { name: "docker-missing", docker: null, message: /LS_HOST_tools/u },
           { name: "daemon-stopped", docker: "daemon-stopped", message: /Docker Desktop is stopped/u },
           { name: "engine-old", docker: "engine-old", message: /API 1\.44 is too old/u },
+          { name: "engine-client-old", docker: "engine-client-old", os: "Linux", message: /(?:API 1\.43 is too old|LS_HOST_engine)/u },
           { name: "compose-missing", docker: "compose-missing", message: /LS_HOST_download/u },
           { name: "compose-old", docker: "compose-old", message: /LS_HOST_download/u },
         ].map(async (scenario) => {
@@ -951,11 +952,11 @@ test(
             await mkdir(bin)
             await writeExecutable(
               path.join(bin, "id"),
-              "#!/bin/sh\nprintf '%s\\n' 501\n",
+              `#!/bin/sh\nprintf '%s\\n' ${scenario.os === "Linux" ? "0" : "501"}\n`,
             )
             await writeExecutable(
               path.join(bin, "uname"),
-              "#!/bin/sh\ncase \"$1\" in -s) printf '%s\\n' Darwin ;; -m) printf '%s\\n' x86_64 ;; *) exit 1 ;; esac\n",
+              `#!/bin/sh\ncase "$1" in -s) printf '%s\\n' ${scenario.os || "Darwin"} ;; -m) printf '%s\\n' x86_64 ;; *) exit 1 ;; esac\n`,
             )
             await writeExecutable(
               path.join(bin, "curl"),
@@ -1807,6 +1808,7 @@ case "${scenario}:$1:$2:$3" in
   *:info:--format:'{{.OSType}}') printf '%s\\n' linux ;;
   *:info:--format:'{{.Architecture}}') printf '%s\\n' x86_64 ;;
   engine-old:version:--format:'{{.Server.APIVersion}}') printf '%s\\n' 1.44 ;;
+  engine-client-old:version:--format:*) printf '%s\\n' 1.43 ;;
   *:version:--format:*) printf '%s\\n' 1.45 ;;
   compose-missing:compose:version:*) exit 1 ;;
   compose-old:compose:version:*) printf '%s\\n' 2.23.0 ;;

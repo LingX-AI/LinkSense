@@ -14,6 +14,13 @@ Linux admission depends on architecture and actual Docker/kernel capabilities,
 not a distribution whitelist. Deepin can pass when its capabilities meet the
 selected policy. Missing memory or PID limits always block deployment.
 
+When an existing client can report an Engine API below 1.45, preflight stops
+before downloading private clients or Compose. A client update cannot upgrade
+the shared daemon. Diagnostics for CentOS Linux 7/8 point to Docker's maintained
+OS requirements instead of suggesting unavailable `dnf` commands or the current
+Docker convenience installer. This guidance does not introduce a distribution
+whitelist; admission still depends on the actual Engine and kernel capabilities.
+
 If the Linux Docker client is missing or too old, the installer prepares a
 private Docker 26.1.4 client. Missing/old Compose uses a private Compose 2.40.3.
 Downloads have fixed SHA-256 values for each supported platform; only the client

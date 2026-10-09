@@ -12,6 +12,18 @@ host_text() {
     ja*|JA*) host_locale=ja-JP ;; *) host_locale=zh-CN ;;
   esac
   case "$host_key:$host_locale" in
+    engine:zh-CN) host_message='Docker Engine API %s 过旧；需要 API %s 或更新版本。请先安排服务端升级；更新客户端不能升级 Docker Engine。' ;;
+    engine:en-US) host_message='Docker Engine API %s is too old; API %s or newer is required. Arrange a server upgrade first; updating the client does not upgrade Docker Engine.' ;;
+    engine:es-ES) host_message='La API %s de Docker Engine es demasiado antigua; se requiere la API %s o posterior. Planifique primero la actualización del servidor; actualizar el cliente no actualiza Docker Engine.' ;;
+    engine:pt-BR) host_message='A API %s do Docker Engine é antiga demais; é necessária a API %s ou posterior. Planeje primeiro a atualização do servidor; atualizar o cliente não atualiza o Docker Engine.' ;;
+    engine:fr-FR) host_message='L’API %s de Docker Engine est trop ancienne ; l’API %s ou ultérieure est requise. Planifiez d’abord la mise à niveau du serveur ; mettre à jour le client ne met pas à niveau Docker Engine.' ;;
+    engine:ja-JP) host_message='Docker Engine API %s は古すぎます。API %s 以降が必要です。先にサーバーの更新を計画してください。クライアントの更新では Docker Engine は更新されません。' ;;
+    legacy_docker_os:zh-CN) host_message='%s 已不在 Docker 官方维护的 CentOS 安装范围内。请规划迁移到受支持的系统后再升级 Docker Engine；不要直接运行当前的一键 Docker 安装命令。官方要求：%s' ;;
+    legacy_docker_os:en-US) host_message='%s is outside the maintained CentOS versions supported by Docker installation packages. Plan a migration to a supported OS before upgrading Docker Engine; do not run the current Docker convenience installer directly. Official requirements: %s' ;;
+    legacy_docker_os:es-ES) host_message='%s no está entre las versiones de CentOS mantenidas que admiten los paquetes de instalación de Docker. Planifique la migración a un sistema compatible antes de actualizar Docker Engine; no ejecute directamente el instalador automatizado actual de Docker. Requisitos oficiales: %s' ;;
+    legacy_docker_os:pt-BR) host_message='%s está fora das versões mantidas do CentOS compatíveis com os pacotes de instalação do Docker. Planeje a migração para um sistema compatível antes de atualizar o Docker Engine; não execute diretamente o instalador automático atual do Docker. Requisitos oficiais: %s' ;;
+    legacy_docker_os:fr-FR) host_message='%s ne fait pas partie des versions maintenues de CentOS prises en charge par les paquets Docker. Planifiez une migration vers un système pris en charge avant de mettre à niveau Docker Engine ; n’exécutez pas directement le script d’installation automatisée actuel de Docker. Conditions officielles : %s' ;;
+    legacy_docker_os:ja-JP) host_message='%s は Docker のインストールパッケージが対応する保守中の CentOS バージョンに含まれません。Docker Engine の更新前に対応 OS への移行を計画し、現在の Docker 自動インストールスクリプトをそのまま実行しないでください。公式要件：%s' ;;
     cpu_required:zh-CN) host_message='主机不支持 CPU 配额。修复内核，或显式设置 LINKSENSE_CPU_QUOTA_MODE=compatible 接受取消 CPU 配额。' ;;
     cpu_required:en-US) host_message='CPU quotas are unavailable. Repair the kernel or explicitly set LINKSENSE_CPU_QUOTA_MODE=compatible to accept unrestricted CPU use.' ;;
     cpu_required:es-ES) host_message='Las cuotas de CPU no están disponibles. Repare el kernel o establezca explícitamente LINKSENSE_CPU_QUOTA_MODE=compatible para aceptar el uso de CPU sin límite.' ;;
