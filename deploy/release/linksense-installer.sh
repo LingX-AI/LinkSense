@@ -1,9 +1,11 @@
 #!/bin/sh
 set -eu
+. "$(dirname "$0")/linksense-host.sh"
 
 EDITION=${LINKSENSE_INSTALL_EDITION:-}
 ACTION=${LINKSENSE_INSTALL_ACTION:-}
 REQUESTED_HTTP_PORT=${LINKSENSE_HTTP_PORT:-}
+REQUESTED_CPU_QUOTA_MODE=${LINKSENSE_CPU_QUOTA_MODE:-}
 HTTP_PORT=${REQUESTED_HTTP_PORT:-18081}
 ELASTICSEARCH_ROOT_USERNAME=elastic
 REQUIRED_DOCKER_API=1.45
@@ -82,9 +84,114 @@ fi
 
 TMP_ROOT=""
 cleanup() {
+  host_unlock_installation
+  if [ -n "${HOST_PROBE_ID:-}" ]; then docker rm -f "$HOST_PROBE_ID" >/dev/null 2>&1 || true; fi
   if [ -n "$TMP_ROOT" ] && [ -d "$TMP_ROOT" ]; then
     rm -r "$TMP_ROOT"
   fi
+}
+
+check_release_storage() {
+  disk_gib=20
+  inode_reserve=100000
+  if [ "$EDITION" = full ]; then disk_gib=60; inode_reserve=200000; fi
+  cached_images=true
+  for disk_image in "$IMAGE_LINKSENSE_API" "$IMAGE_LINKSENSE_WEB" "$IMAGE_LINKSENSE_MIGRATE" "$IMAGE_LINKSENSE_RUNNER" "$IMAGE_LINKSENSE_WORKER" "$IMAGE_POSTGRES" "$IMAGE_REDIS" "$IMAGE_MINIO" "$IMAGE_MINIO_CLIENT" "$IMAGE_BUSYBOX" "$IMAGE_GATEWAY"; do
+    docker image inspect "$disk_image" >/dev/null 2>&1 || cached_images=false
+  done
+  if [ "$EDITION" = full ]; then
+    docker image inspect "$IMAGE_DOCLING" >/dev/null 2>&1 || cached_images=false
+    docker image inspect "$IMAGE_ELASTICSEARCH" >/dev/null 2>&1 || cached_images=false
+  fi
+  if [ "$cached_images" = true ]; then disk_gib=2; inode_reserve=10000; fi
+  docker_root=$(docker info --format '{{.DockerRootDir}}')
+  if [ "$HOST_OS" = Linux ] && [ -d "$docker_root" ]; then
+    host_storage "$docker_root" "$((disk_gib * 1024 * 1024))" "$inode_reserve"
+    if [ -d /var/lib/containerd ]; then host_storage /var/lib/containerd "$((disk_gib * 1024 * 1024))" "$inode_reserve"; fi
+  else
+    pull_image "$IMAGE_BUSYBOX"
+    disk_stats=$(docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges:true --memory 64m --pids-limit 16 "$IMAGE_BUSYBOX" sh -ec 'df -Pk /; df -Pi /') || host_fail storage Docker_VM
+    disk_free_kb=$(printf '%s\n' "$disk_stats" | awk 'NR == 2 {print $4}')
+    disk_free_inodes=$(printf '%s\n' "$disk_stats" | awk 'NR == 4 {print $4}')
+    printf '%s' "$disk_free_kb" | grep -Eq '^[0-9]+$' || host_fail storage Docker_VM_space_unknown
+    [ "$disk_free_kb" -ge "$((disk_gib * 1024 * 1024))" ] || host_fail storage "Docker_VM available_kib=$disk_free_kb required_gib=$disk_gib"
+    case "$disk_free_inodes" in ''|-|*[!0-9]*) ;; *) [ "$disk_free_inodes" -ge "$inode_reserve" ] || host_fail storage "Docker_VM available_inodes=$disk_free_inodes required_inodes=$inode_reserve" ;; esac
+  fi
+}
+
+probe_host_runtime() {
+  host_capabilities
+  probe_cpu=1
+  [ "${LINKSENSE_CPU_QUOTA_MODE:-strict}" != compatible ] || probe_cpu=0
+  HOST_PROBE_ID=$(docker create --label com.linksense.host-probe=true --network none \
+    --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+    --memory 128m --memory-swap 128m --pids-limit 32 --cpus "$probe_cpu" \
+    -e "PROBE_CPU=$probe_cpu" \
+    --tmpfs /tmp:rw,nosuid,nodev,noexec,size=16m "$IMAGE_BUSYBOX" sh -ec '
+      ! touch /linksense-readonly-probe 2>/dev/null
+      echo test >/tmp/linksense-probe
+      grep -Eq "^NoNewPrivs:[[:space:]]*1$" /proc/self/status
+      for probe_cap in CapInh CapPrm CapEff CapBnd CapAmb; do grep -Eq "^$probe_cap:[[:space:]]*0+$" /proc/self/status; done
+      test "$(ls /sys/class/net)" = lo
+      if [ -f /sys/fs/cgroup/memory.max ]; then
+        test "$(cat /sys/fs/cgroup/memory.max)" = 134217728
+        test "$(cat /sys/fs/cgroup/pids.max)" = 32
+        if [ -f /sys/fs/cgroup/memory.swap.max ]; then test "$(cat /sys/fs/cgroup/memory.swap.max)" = 0
+        else test "$(wc -l </proc/swaps)" -le 1; fi
+        if [ "$PROBE_CPU" = 1 ]; then test "$(cat /sys/fs/cgroup/cpu.max)" = "100000 100000"; fi
+      else
+        test "$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)" = 134217728
+        test "$(cat /sys/fs/cgroup/pids/pids.max)" = 32
+        if [ -f /sys/fs/cgroup/memory/memory.memsw.limit_in_bytes ]; then test "$(cat /sys/fs/cgroup/memory/memory.memsw.limit_in_bytes)" = 134217728
+        else test "$(wc -l </proc/swaps)" -le 1; fi
+        if [ "$PROBE_CPU" = 1 ]; then
+          test "$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us)" = 100000
+          test "$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us)" = 100000
+        fi
+      fi
+      cat /proc/sys/vm/max_map_count
+    ' 2>"$TMP_ROOT/host-probe.log") || host_fail probe create
+  if ! host_bounded 30 "$DOCKER_CLI" start --attach "$HOST_PROBE_ID" >"$TMP_ROOT/host-probe.out" 2>"$TMP_ROOT/host-probe.log"; then host_fail probe runtime; fi
+  probe_map_count=$(cat "$TMP_ROOT/host-probe.out")
+  docker rm "$HOST_PROBE_ID" >/dev/null
+  HOST_PROBE_ID=
+  if [ "$EDITION" = full ]; then
+    printf '%s' "$probe_map_count" | grep -Eq '^[0-9]+$' || host_fail sysctl unknown
+    if [ "$probe_map_count" -lt 262144 ]; then
+      if [ "$HOST_OS" != Linux ] || [ "$(id -u)" != 0 ]; then host_fail sysctl "current=$probe_map_count"; fi
+      sysctl_file=/etc/sysctl.d/90-linksense.conf
+      [ ! -L "$sysctl_file" ] || host_fail sysctl symlink
+      if [ -f "$sysctl_file" ]; then grep -Fx '# LinkSense managed vm.max_map_count' "$sysctl_file" >/dev/null || host_fail sysctl existing_unmanaged_file; fi
+      sysctl -w vm.max_map_count=262144 >/dev/null 2>&1 || host_fail sysctl "current=$probe_map_count"
+      install -d -m 0755 /etc/sysctl.d
+      printf '%s\n' '# LinkSense managed vm.max_map_count' 'vm.max_map_count=262144' > "$TMP_ROOT/linksense-sysctl.conf"
+      install -m 0644 "$TMP_ROOT/linksense-sysctl.conf" "$sysctl_file"
+    fi
+  fi
+}
+
+compose_bounded() {
+  compose_seconds=$1
+  shift
+  if [ -n "$COMPOSE_CLI" ]; then
+    host_bounded "$compose_seconds" "$COMPOSE_CLI" --project-directory "$INSTALL_DIR" --env-file "$INSTALL_DIR/.env" -f "$INSTALL_DIR/compose.common.yml" -f "$INSTALL_DIR/compose.$EDITION.yml" "$@"
+  else
+    host_bounded "$compose_seconds" "$DOCKER_CLI" compose --project-directory "$INSTALL_DIR" --env-file "$INSTALL_DIR/.env" -f "$INSTALL_DIR/compose.common.yml" -f "$INSTALL_DIR/compose.$EDITION.yml" "$@"
+  fi
+}
+
+service_snapshot() {
+  host_service_snapshot
+}
+
+verify_service_stability() {
+  service_snapshot > "$TMP_ROOT/services.before"
+  stability_deadline=$(($(date +%s) + 30))
+  while [ "$(date +%s)" -lt "$stability_deadline" ]; do
+    sleep 5
+    service_snapshot > "$TMP_ROOT/services.after"
+    cmp -s "$TMP_ROOT/services.before" "$TMP_ROOT/services.after" || host_fail stability container_state_changed
+  done
 }
 
 restore_pre_migration_upgrade() {
@@ -284,10 +391,36 @@ read_os_release() {
   if [ -r /etc/os-release ]; then
     OS_ID=$(sed -n 's/^ID=//p' /etc/os-release | head -n 1 | tr -d '"')
   fi
-  case "$OS_ID" in
-    ubuntu|debian|fedora|rhel|rocky|almalinux|centos) ;;
-    *) fail "Unsupported Linux distribution: $OS_ID." ;;
-  esac
+}
+
+resolve_cpu_mode() {
+  CPU_MODE_CHANGED=false
+  HOST_CPU_QUOTA_MODE=${REQUESTED_CPU_QUOTA_MODE:-strict}
+  if [ -f "$INSTALL_DIR/install-state.env" ] || [ -f "$INSTALL_DIR/install.pending" ]; then
+    verify_private_file "$INSTALL_DIR/.env" "The protected environment file"
+    installed_cpu_mode=$(awk -F= '$1 == "LINKSENSE_CPU_QUOTA_MODE" {print $2}' "$INSTALL_DIR/.env")
+    installed_cpu_mode=${installed_cpu_mode:-strict}
+    if [ -n "$REQUESTED_CPU_QUOTA_MODE" ] && [ "$REQUESTED_CPU_QUOTA_MODE" != "$installed_cpu_mode" ]; then CPU_MODE_CHANGED=true; fi
+    if [ -n "$REQUESTED_CPU_QUOTA_MODE" ] && [ "$REQUESTED_CPU_QUOTA_MODE" != "$installed_cpu_mode" ] && [ "$ACTION" != upgrade ]; then
+      host_fail invalid_config CPU_mode_change_requires_upgrade
+    fi
+    HOST_CPU_QUOTA_MODE=${REQUESTED_CPU_QUOTA_MODE:-$installed_cpu_mode}
+  fi
+  LINKSENSE_CPU_QUOTA_MODE=$HOST_CPU_QUOTA_MODE
+  host_cpu_mode
+}
+
+select_available_port() {
+  if [ "$ACTION" = install ] && [ -z "$REQUESTED_HTTP_PORT" ] && [ -z "${LINKSENSE_PUBLIC_BASE_URL:-}" ] && [ ! -d "$INSTALL_DIR" ]; then
+    original_port=$HTTP_PORT
+    while ! (trap - EXIT HUP INT TERM; check_port) >/dev/null 2>&1; do
+      HTTP_PORT=$((HTTP_PORT + 1))
+      [ "$HTTP_PORT" -lt "$((original_port + 20))" ] || { HTTP_PORT=$original_port; check_port; }
+    done
+    [ "$HTTP_PORT" = "$original_port" ] || host_text port "$HTTP_PORT"
+  else
+    check_port
+  fi
 }
 
 check_port() {
@@ -326,10 +459,7 @@ preflight() {
   fi
 
   command -v curl >/dev/null 2>&1 || fail "curl is required. Install it with your operating system package manager."
-  command -v docker >/dev/null 2>&1 || {
-    docker_help >&2
-    fail "Docker CLI is not installed. Run the command above, then retry."
-  }
+  host_prepare_tools
 
   if ! docker info >/dev/null 2>&1; then
     if [ "$HOST_OS" = Darwin ]; then
@@ -361,7 +491,7 @@ preflight() {
     fail "Docker Engine API $api_version is too old; API $REQUIRED_DOCKER_API or newer is required."
   }
 
-  compose_version=$(docker compose version --short 2>/dev/null | sed 's/^v//' || true)
+  compose_version=$(host_compose version --short 2>/dev/null | sed 's/^v//' || true)
   [ -n "$compose_version" ] || {
     docker_help >&2
     fail "Docker Compose V2 is not installed."
@@ -392,6 +522,7 @@ preflight() {
   memory_kb=$((memory_bytes / 1024))
   if [ "$EDITION" = full ]; then
     required_memory_kb=$((10 * 1024 * 1024))
+    if [ ! -f "$INSTALL_DIR/install-state.env" ] && [ ! -f "$INSTALL_DIR/install.pending" ]; then required_memory_kb=$((24 * 1024 * 1024)); fi
   else
     required_memory_kb=$((8 * 1024 * 1024))
   fi
@@ -408,7 +539,8 @@ This checks memory available to Docker Engine, not the host's physical memory wh
 $memory_help
 Verify the new allocation with: docker info --format '{{.MemTotal}}' (bytes), then retry the installer."
   fi
-  check_port
+  host_capabilities
+  select_available_port
 }
 
 sha256_file() {
@@ -420,9 +552,7 @@ sha256_file() {
 }
 
 download() {
-  url=$1
-  target=$2
-  curl --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 15 -fsSL "$url" -o "$target"
+  host_download "$@"
 }
 
 verify_file() {
@@ -430,6 +560,26 @@ verify_file() {
   expected=$2
   actual=$(sha256_file "$file")
   [ "$actual" = "$expected" ] || fail "Checksum mismatch for $(basename "$file"): expected $expected, got $actual."
+}
+
+download_verified() {
+  verified_url=$1
+  verified_target=$2
+  verified_sha=$3
+  verified_cache=$TMP_ROOT/cache
+  if [ -f "$INSTALL_DIR/install.pending" ] || [ -f "$INSTALL_DIR/install-state.env" ]; then
+    verified_cache=$INSTALL_DIR/cache
+  fi
+  [ ! -L "$verified_cache" ] || host_fail invalid_config cache_symlink
+  mkdir -p "$verified_cache"
+  chmod 0700 "$verified_cache"
+  verified_entry=$verified_cache/$verified_sha
+  [ ! -L "$verified_entry" ] && [ ! -L "$verified_entry.part" ] || host_fail invalid_config cache_entry_symlink
+  if [ ! -f "$verified_entry" ] || [ "$(sha256_file "$verified_entry")" != "$verified_sha" ]; then
+    host_download "$verified_url" "$verified_entry" resume
+    verify_file "$verified_entry" "$verified_sha"
+  fi
+  cp "$verified_entry" "$verified_target"
 }
 
 load_strict_env() {
@@ -445,7 +595,9 @@ load_strict_env() {
     printf '%s' "$value" | tr -d '[]' | grep -Eq '^[A-Za-z0-9_./:@?&=+,-]*$' || fail "Unsafe value for $key in $(basename "$file")."
     case "$loaded_keys" in *"|$key|"*) fail "Duplicate key $key in $(basename "$file")." ;; esac
     case "$scope:$key" in
-      manifest:MANIFEST_FORMAT|manifest:RELEASE_VERSION|manifest:RELEASE_EDITION_SUPPORT|manifest:RELEASE_PLATFORMS|manifest:RELEASE_GIT_COMMIT|manifest:RELEASE_BUILD_TIME|manifest:RELEASE_WORKFLOW_ID|manifest:RELEASE_ASSET_BASE_URL|manifest:MIN_DOCKER_API|manifest:MIN_DOCKER_COMPOSE|manifest:CORE_MIN_MEMORY_GIB|manifest:CORE_MIN_DISK_GIB|manifest:CORE_MIN_FREE_INODES|manifest:FULL_MIN_MEMORY_GIB|manifest:FULL_MIN_DISK_GIB|manifest:FULL_MIN_FREE_INODES|manifest:IMAGE_*|manifest:RESOURCE_*|manifest:TOKENIZER_*) ;;
+      manifest:MANIFEST_FORMAT|manifest:RESOURCE_HOST_ADAPTATION_FORMAT|manifest:RELEASE_VERSION|manifest:RELEASE_EDITION_SUPPORT|manifest:RELEASE_PLATFORMS|manifest:RELEASE_GIT_COMMIT|manifest:RELEASE_BUILD_TIME|manifest:RELEASE_WORKFLOW_ID|manifest:RELEASE_ASSET_BASE_URL|manifest:MIN_DOCKER_API|manifest:MIN_DOCKER_COMPOSE|manifest:CORE_MIN_MEMORY_GIB|manifest:CORE_MIN_DISK_GIB|manifest:CORE_MIN_FREE_INODES|manifest:FULL_MIN_MEMORY_GIB|manifest:FULL_MIN_DISK_GIB|manifest:FULL_MIN_FREE_INODES|manifest:IMAGE_*|manifest:RESOURCE_*|manifest:TOKENIZER_*) ;;
+      runtime:LINKSENSE_ELASTICSEARCH_MEMORY_MB) ;;
+      runtime:LINKSENSE_CPU_QUOTA_MODE|runtime:LINKSENSE_API_MEMORY_MB|runtime:LINKSENSE_API_NODE_OPTIONS|runtime:LINKSENSE_RUNNER_MEMORY_MB|runtime:LINKSENSE_RUNNER_NODE_OPTIONS|runtime:LINKSENSE_POSTGRES_MEMORY_MB|runtime:LINKSENSE_REDIS_MEMORY_MB|runtime:LINKSENSE_MINIO_MEMORY_MB|runtime:LINKSENSE_KB_PARSING_CONCURRENCY|runtime:LINKSENSE_KB_CHUNKING_CONCURRENCY|runtime:LINKSENSE_KB_PARENTING_CONCURRENCY|runtime:LINKSENSE_KB_EMBEDDING_CONCURRENCY|runtime:LINKSENSE_KB_INDEXING_CONCURRENCY|runtime:LINKSENSE_KB_ACTIVATION_CONCURRENCY|runtime:LINKSENSE_DOCLING_API_CPUS|runtime:LINKSENSE_DOCLING_WORKER_CPUS) ;;
       state:STATE_*) ;;
       upgrade:UPGRADE_*) ;;
       runtime:COMPOSE_PROJECT_NAME|runtime:LINKSENSE_EDITION|runtime:LINKSENSE_VERSION|runtime:LINKSENSE_PLATFORM|runtime:LINKSENSE_DOCKER_SOCKET_SOURCE|runtime:LINKSENSE_DOCKER_SOCKET_PATH|runtime:LINKSENSE_PUBLIC_BASE_URL|runtime:LINKSENSE_PUBLIC_SCHEME|runtime:LINKSENSE_HTTP_PORT|runtime:POSTGRES_DB|runtime:POSTGRES_USER|runtime:POSTGRES_PASSWORD|runtime:DATABASE_URL|runtime:REDIS_PASSWORD|runtime:REDIS_URL|runtime:DOCLING_REDIS_URL|runtime:LINKSENSE_JWT_SECRET|runtime:LINKSENSE_INITIALIZATION_TOKEN|runtime:LINKSENSE_LOGIN_RATE_LIMIT_HMAC_SECRET|runtime:LINKSENSE_PASSWORD_RESET_RATE_LIMIT_HMAC_SECRET|runtime:LINKSENSE_CREDENTIAL_MASTER_KEY|runtime:LINKSENSE_CREDENTIAL_KEY_ID|runtime:LINKSENSE_RUNNER_SHARED_SECRET|runtime:MINIO_ROOT_USER|runtime:MINIO_ROOT_PASSWORD|runtime:MINIO_ACCESS_KEY|runtime:MINIO_SECRET_KEY|runtime:MINIO_BUCKET|runtime:MINIO_KNOWLEDGE_BUCKET|runtime:MINIO_ENDPOINT|runtime:MINIO_PORT|runtime:MINIO_USE_SSL|runtime:MINIO_PUBLIC_URL|runtime:MINIO_REGION|runtime:LINKSENSE_MAX_CONCURRENT_CONVERSATIONS|runtime:LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT|runtime:LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS|runtime:LINKSENSE_WORKER_IDLE_TTL_SECONDS|runtime:LINKSENSE_WORKER_READY_TIMEOUT_SECONDS|runtime:LINKSENSE_WORKER_MEMORY_MB|runtime:LINKSENSE_WORKER_CPUS|runtime:LINKSENSE_WORKER_PIDS_LIMIT|runtime:LINKSENSE_WORKER_TMPFS_MB|runtime:LINKSENSE_WORKER_SHM_MB|runtime:LINKSENSE_BROWSER_SESSION_LIMIT|runtime:LINKSENSE_API_IMAGE|runtime:LINKSENSE_WEB_IMAGE|runtime:LINKSENSE_MIGRATE_IMAGE|runtime:LINKSENSE_RUNNER_IMAGE|runtime:LINKSENSE_WORKER_IMAGE|runtime:LINKSENSE_WORKER_IMAGE_REVISION|runtime:POSTGRES_IMAGE|runtime:REDIS_IMAGE|runtime:MINIO_IMAGE|runtime:MINIO_CLIENT_IMAGE|runtime:BUSYBOX_IMAGE|runtime:GATEWAY_IMAGE|runtime:ELASTICSEARCH_IMAGE|runtime:DOCLING_IMAGE|runtime:LINKSENSE_POSTGRES_VOLUME|runtime:LINKSENSE_REDIS_VOLUME|runtime:LINKSENSE_MINIO_VOLUME|runtime:LINKSENSE_USER_DATA_VOLUME|runtime:LINKSENSE_BACKUP_VOLUME|runtime:LINKSENSE_ELASTICSEARCH_VOLUME|runtime:LINKSENSE_TOKENIZER_VOLUME|runtime:LINKSENSE_INTERNAL_NETWORK|runtime:LINKSENSE_WORKER_CONTROL_NETWORK|runtime:LINKSENSE_WORKER_EGRESS_NETWORK|runtime:LINKSENSE_KNOWLEDGE_NETWORK|runtime:ELASTICSEARCH_ROOT_PASSWORD|runtime:ELASTICSEARCH_USERNAME|runtime:ELASTICSEARCH_PASSWORD|runtime:DOCLING_SERVE_API_KEY|runtime:LINKSENSE_KB_HYBRID_TOKENIZER|runtime:LINKSENSE_TOKENIZER_MOUNT_PATH) ;;
@@ -486,9 +638,11 @@ fetch_manifest() {
   verify_file "$manifest" "$expected"
   MANIFEST_SHA256=$expected
   export MANIFEST_SHA256
+  unset RESOURCE_HOST_ADAPTATION_FORMAT RESOURCE_FULL_FRESH_MIN_MEMORY_GIB
   load_strict_env "$manifest" manifest
   require_loaded_keys MANIFEST_FORMAT RELEASE_VERSION RELEASE_EDITION_SUPPORT RELEASE_PLATFORMS RELEASE_ASSET_BASE_URL
   [ "${MANIFEST_FORMAT:-}" = 2 ] || fail "Unsupported release manifest format."
+  case "${RESOURCE_HOST_ADAPTATION_FORMAT:-0}" in 0|1) ;; *) host_fail invalid_config RESOURCE_HOST_ADAPTATION_FORMAT ;; esac
   printf '%s' "${RELEASE_VERSION:-}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || fail "The release manifest version is invalid."
   [ "${RELEASE_EDITION_SUPPORT:-}" = core-full ] || fail "This manifest does not support Core and Full."
   [ "${RELEASE_PLATFORMS:-}" = linux-amd64,linux-arm64 ] || fail "This manifest does not contain the required amd64 and ARM64 platforms."
@@ -500,9 +654,16 @@ fetch_manifest() {
   [ "${MIN_DOCKER_COMPOSE:-}" = "$REQUIRED_COMPOSE_VERSION" ] || fail "The release manifest has an inconsistent Docker Compose requirement."
   [ "${CORE_MIN_MEMORY_GIB:-}" = 8 ] || fail "The release manifest has inconsistent Core host requirements."
   printf '%s' "${FULL_MIN_MEMORY_GIB:-}" | grep -Eq '^[1-9][0-9]{0,3}$' && [ "$FULL_MIN_MEMORY_GIB" -ge 10 ] || fail "The release manifest has invalid Full host requirements."
-  if [ "$EDITION" = full ]; then
+  if [ -n "${RESOURCE_FULL_FRESH_MIN_MEMORY_GIB:-}" ]; then
+    printf '%s' "$RESOURCE_FULL_FRESH_MIN_MEMORY_GIB" | grep -Eq '^[1-9][0-9]{0,3}$' && [ "$RESOURCE_FULL_FRESH_MIN_MEMORY_GIB" -ge 24 ] || host_fail invalid_config RESOURCE_FULL_FRESH_MIN_MEMORY_GIB
+  fi
+  if [ "${LINKSENSE_CPU_QUOTA_MODE:-strict}" = compatible ] && [ "${RESOURCE_HOST_ADAPTATION_FORMAT:-}" != 1 ]; then
+    host_fail invalid_config release_has_no_CPU_compatibility_support
+  fi
+  if [ "$EDITION" = full ] && [ ! -f "$INSTALL_DIR/install-state.env" ] && [ ! -f "$INSTALL_DIR/install.pending" ]; then
     manifest_memory_bytes=$(docker info --format '{{.MemTotal}}')
-    [ "$manifest_memory_bytes" -ge "$((FULL_MIN_MEMORY_GIB * 1024 * 1024 * 1024))" ] || fail "This release requires at least $FULL_MIN_MEMORY_GIB GiB of Docker Engine memory."
+    manifest_fresh_memory_gib=${RESOURCE_FULL_FRESH_MIN_MEMORY_GIB:-$FULL_MIN_MEMORY_GIB}
+    [ "$manifest_memory_bytes" -ge "$((manifest_fresh_memory_gib * 1024 * 1024 * 1024))" ] || fail "This release requires at least $manifest_fresh_memory_gib GiB of Docker Engine memory."
   fi
   for required_hash in RESOURCE_LICENSE_SHA256 RESOURCE_LICENSE_EXCEPTIONS_SHA256 RESOURCE_ATTRIBUTION_SHA256 RESOURCE_TRADEMARK_SHA256 RESOURCE_NOTICE_SHA256 RESOURCE_THIRD_PARTY_NOTICES_SHA256 RESOURCE_COMPOSE_COMMON_SHA256 RESOURCE_COMPOSE_CORE_SHA256 RESOURCE_COMPOSE_FULL_SHA256 RESOURCE_GATEWAY_SHA256 RESOURCE_CLI_SHA256 RESOURCE_INSTALLER_ENGINE_SHA256 RESOURCE_INSTALL_CORE_SHA256 RESOURCE_INSTALL_FULL_SHA256 RESOURCE_REPAIR_CORE_SHA256 RESOURCE_REPAIR_FULL_SHA256 RESOURCE_UPGRADE_SHA256; do
     eval "hash_value=\${$required_hash:-}"
@@ -567,8 +728,7 @@ fetch_release_resources() {
       repair-full.sh) expected=$RESOURCE_REPAIR_FULL_SHA256 ;;
       upgrade.sh) expected=$RESOURCE_UPGRADE_SHA256 ;;
     esac
-    download "$base/$resource" "$stage/$resource"
-    verify_file "$stage/$resource" "$expected"
+    download_verified "$base/$resource" "$stage/$resource" "$expected"
   done
 }
 
@@ -632,6 +792,14 @@ write_runtime_env() {
       "LINKSENSE_PUBLIC_BASE_URL=$LINKSENSE_PUBLIC_BASE_URL" \
       "LINKSENSE_PUBLIC_SCHEME=$LINKSENSE_PUBLIC_SCHEME" \
       "LINKSENSE_HTTP_PORT=$HTTP_PORT" \
+      "LINKSENSE_CPU_QUOTA_MODE=${LINKSENSE_CPU_QUOTA_MODE:-strict}" \
+      "LINKSENSE_API_MEMORY_MB=${LINKSENSE_API_MEMORY_MB:-0}" \
+      "LINKSENSE_API_NODE_OPTIONS=${LINKSENSE_API_NODE_OPTIONS:-}" \
+      "LINKSENSE_RUNNER_MEMORY_MB=${LINKSENSE_RUNNER_MEMORY_MB:-0}" \
+      "LINKSENSE_RUNNER_NODE_OPTIONS=${LINKSENSE_RUNNER_NODE_OPTIONS:-}" \
+      "LINKSENSE_POSTGRES_MEMORY_MB=${LINKSENSE_POSTGRES_MEMORY_MB:-0}" \
+      "LINKSENSE_REDIS_MEMORY_MB=${LINKSENSE_REDIS_MEMORY_MB:-0}" \
+      "LINKSENSE_MINIO_MEMORY_MB=${LINKSENSE_MINIO_MEMORY_MB:-0}" \
       "POSTGRES_DB=linksense" \
       "POSTGRES_USER=linksense" \
       "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" \
@@ -656,17 +824,17 @@ write_runtime_env() {
       "MINIO_USE_SSL=false" \
       "MINIO_PUBLIC_URL=$LINKSENSE_PUBLIC_BASE_URL" \
       "MINIO_REGION=us-east-1" \
-      "LINKSENSE_MAX_CONCURRENT_CONVERSATIONS=500" \
-      "LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT=20" \
-      "LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS=900" \
-      "LINKSENSE_WORKER_IDLE_TTL_SECONDS=900" \
-      "LINKSENSE_WORKER_READY_TIMEOUT_SECONDS=90" \
-      "LINKSENSE_WORKER_MEMORY_MB=4096" \
-      "LINKSENSE_WORKER_CPUS=2" \
-      "LINKSENSE_WORKER_PIDS_LIMIT=4096" \
-      "LINKSENSE_WORKER_TMPFS_MB=4096" \
-      "LINKSENSE_WORKER_SHM_MB=2048" \
-      "LINKSENSE_BROWSER_SESSION_LIMIT=2" \
+      "LINKSENSE_MAX_CONCURRENT_CONVERSATIONS=${LINKSENSE_MAX_CONCURRENT_CONVERSATIONS:-500}" \
+      "LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT=${LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT:-20}" \
+      "LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS=${LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS:-900}" \
+      "LINKSENSE_WORKER_IDLE_TTL_SECONDS=${LINKSENSE_WORKER_IDLE_TTL_SECONDS:-900}" \
+      "LINKSENSE_WORKER_READY_TIMEOUT_SECONDS=${LINKSENSE_WORKER_READY_TIMEOUT_SECONDS:-90}" \
+      "LINKSENSE_WORKER_MEMORY_MB=${LINKSENSE_WORKER_MEMORY_MB:-4096}" \
+      "LINKSENSE_WORKER_CPUS=${LINKSENSE_WORKER_CPUS:-2}" \
+      "LINKSENSE_WORKER_PIDS_LIMIT=${LINKSENSE_WORKER_PIDS_LIMIT:-4096}" \
+      "LINKSENSE_WORKER_TMPFS_MB=${LINKSENSE_WORKER_TMPFS_MB:-4096}" \
+      "LINKSENSE_WORKER_SHM_MB=${LINKSENSE_WORKER_SHM_MB:-2048}" \
+      "LINKSENSE_BROWSER_SESSION_LIMIT=${LINKSENSE_BROWSER_SESSION_LIMIT:-2}" \
       "LINKSENSE_API_IMAGE=$IMAGE_LINKSENSE_API" \
       "LINKSENSE_WEB_IMAGE=$IMAGE_LINKSENSE_WEB" \
       "LINKSENSE_MIGRATE_IMAGE=$IMAGE_LINKSENSE_MIGRATE" \
@@ -688,7 +856,23 @@ write_runtime_env() {
       "LINKSENSE_WORKER_CONTROL_NETWORK=linksense-worker-control" \
       "LINKSENSE_WORKER_EGRESS_NETWORK=linksense-worker-egress"
     if [ "$EDITION" = full ]; then
+      if [ "${LINKSENSE_CPU_QUOTA_MODE:-strict}" = compatible ]; then
+        LINKSENSE_DOCLING_API_CPUS=0
+        LINKSENSE_DOCLING_WORKER_CPUS=0
+      else
+        [ "${LINKSENSE_DOCLING_API_CPUS:-1}" != 0 ] || LINKSENSE_DOCLING_API_CPUS=1
+        [ "${LINKSENSE_DOCLING_WORKER_CPUS:-4}" != 0 ] || LINKSENSE_DOCLING_WORKER_CPUS=4
+      fi
       printf '%s\n' \
+        "LINKSENSE_ELASTICSEARCH_MEMORY_MB=${LINKSENSE_ELASTICSEARCH_MEMORY_MB:-0}" \
+        "LINKSENSE_DOCLING_API_CPUS=${LINKSENSE_DOCLING_API_CPUS:-1}" \
+        "LINKSENSE_DOCLING_WORKER_CPUS=${LINKSENSE_DOCLING_WORKER_CPUS:-4}" \
+        "LINKSENSE_KB_PARSING_CONCURRENCY=${LINKSENSE_KB_PARSING_CONCURRENCY:-4}" \
+        "LINKSENSE_KB_CHUNKING_CONCURRENCY=${LINKSENSE_KB_CHUNKING_CONCURRENCY:-8}" \
+        "LINKSENSE_KB_PARENTING_CONCURRENCY=${LINKSENSE_KB_PARENTING_CONCURRENCY:-8}" \
+        "LINKSENSE_KB_EMBEDDING_CONCURRENCY=${LINKSENSE_KB_EMBEDDING_CONCURRENCY:-8}" \
+        "LINKSENSE_KB_INDEXING_CONCURRENCY=${LINKSENSE_KB_INDEXING_CONCURRENCY:-8}" \
+        "LINKSENSE_KB_ACTIVATION_CONCURRENCY=${LINKSENSE_KB_ACTIVATION_CONCURRENCY:-16}" \
         "DOCLING_REDIS_URL=redis://:$REDIS_PASSWORD@redis:6379/2" \
         "ELASTICSEARCH_ROOT_PASSWORD=$ELASTICSEARCH_ROOT_PASSWORD" \
         "ELASTICSEARCH_USERNAME=linksense" \
@@ -703,6 +887,19 @@ write_runtime_env() {
         "LINKSENSE_KNOWLEDGE_NETWORK=linksense-knowledge-internal"
     fi
   } > "$env_tmp"
+  if [ -f "$INSTALL_DIR/.env" ]; then
+    # Preserve every validated installed setting except release-owned image/identity fields.
+    awk -F= '
+      NR == FNR { if ($0 !~ /^#/ && index($0, "=")) old[$1]=substr($0,index($0,"=")+1); next }
+      {
+        key=$1; seen[key]=1
+        if (key in old && key !~ /_IMAGE$/ && key != "LINKSENSE_WORKER_IMAGE_REVISION" && key !~ /^LINKSENSE_(VERSION|EDITION|PLATFORM|DOCKER_SOCKET_SOURCE|DOCKER_SOCKET_PATH|CPU_QUOTA_MODE|DOCLING_API_CPUS|DOCLING_WORKER_CPUS)$/) print key "=" old[key]
+        else print
+      }
+      END {for (key in old) if (!(key in seen)) print key "=" old[key]}
+    ' "$INSTALL_DIR/.env" "$env_tmp" > "$env_tmp.merged"
+    mv "$env_tmp.merged" "$env_tmp"
+  fi
   chmod 0600 "$env_tmp"
   mv "$env_tmp" "$INSTALL_DIR/.env"
 }
@@ -713,6 +910,42 @@ write_and_activate_runtime_env() {
 }
 
 write_env() {
+  api_default_memory=1536
+  api_default_heap=1024
+  runner_default_memory=512
+  minio_default_memory=512
+  redis_default_memory=256
+  postgres_default_memory=512
+  if [ "$EDITION" = full ]; then
+    api_default_memory=2048; api_default_heap=1536; redis_default_memory=512; postgres_default_memory=768
+    LINKSENSE_ELASTICSEARCH_MEMORY_MB=${LINKSENSE_ELASTICSEARCH_MEMORY_MB:-2048}
+  elif [ "$(host_available_memory_mib)" -lt 8192 ]; then
+    api_default_memory=1280; api_default_heap=896; runner_default_memory=384
+    postgres_default_memory=384; redis_default_memory=192; minio_default_memory=384
+  fi
+  LINKSENSE_API_MEMORY_MB=${LINKSENSE_API_MEMORY_MB:-$api_default_memory}
+  LINKSENSE_API_NODE_OPTIONS=${LINKSENSE_API_NODE_OPTIONS:---max-old-space-size=$api_default_heap}
+  LINKSENSE_RUNNER_MEMORY_MB=${LINKSENSE_RUNNER_MEMORY_MB:-$runner_default_memory}
+  LINKSENSE_RUNNER_NODE_OPTIONS=${LINKSENSE_RUNNER_NODE_OPTIONS:---max-old-space-size=256}
+  LINKSENSE_POSTGRES_MEMORY_MB=${LINKSENSE_POSTGRES_MEMORY_MB:-$postgres_default_memory}
+  LINKSENSE_REDIS_MEMORY_MB=${LINKSENSE_REDIS_MEMORY_MB:-$redis_default_memory}
+  LINKSENSE_MINIO_MEMORY_MB=${LINKSENSE_MINIO_MEMORY_MB:-$minio_default_memory}
+  LINKSENSE_MAX_CONCURRENT_CONVERSATIONS=${LINKSENSE_MAX_CONCURRENT_CONVERSATIONS:-1}
+  LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT=${LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT:-2}
+  LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS=${LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS:-60}
+  LINKSENSE_WORKER_IDLE_TTL_SECONDS=${LINKSENSE_WORKER_IDLE_TTL_SECONDS:-60}
+  cpu_count=$(docker info --format '{{.NCPU}}')
+  case "$cpu_count" in ''|*[!0-9]*|0) host_fail invalid_config Docker_NCPU ;; esac
+  worker_cpus=2
+  [ "$cpu_count" -ge 2 ] || worker_cpus=1
+  LINKSENSE_WORKER_CPUS=${LINKSENSE_WORKER_CPUS:-$worker_cpus}
+  docling_cpus=4
+  [ "$cpu_count" -ge 4 ] || docling_cpus=$cpu_count
+  LINKSENSE_DOCLING_WORKER_CPUS=${LINKSENSE_DOCLING_WORKER_CPUS:-$docling_cpus}
+  for concurrency_key in PARSING CHUNKING PARENTING EMBEDDING INDEXING ACTIVATION; do
+    eval "LINKSENSE_KB_${concurrency_key}_CONCURRENCY=\${LINKSENSE_KB_${concurrency_key}_CONCURRENCY:-1}"
+  done
+  validate_resource_budget fresh
   LINKSENSE_PUBLIC_BASE_URL=$(detect_public_url)
   case "$LINKSENSE_PUBLIC_BASE_URL" in
     https://*) LINKSENSE_PUBLIC_SCHEME=https ;;
@@ -734,6 +967,52 @@ write_env() {
     ELASTICSEARCH_PASSWORD=$(random_hex)
   fi
   write_and_activate_runtime_env
+}
+
+host_available_memory_mib() {
+  available_engine_bytes=$(docker info --format '{{.MemTotal}}')
+  printf '%s' "$available_engine_bytes" | grep -Eq '^[1-9][0-9]*$' || host_fail memory Docker_memory_unknown
+  available_mib=$((available_engine_bytes / 1024 / 1024))
+  if [ "$HOST_OS" = Linux ]; then
+    available_host_mib=$(awk '/^MemAvailable:/ {print int($2 / 1024)}' /proc/meminfo)
+    if [ -n "$available_host_mib" ] && [ "$available_host_mib" -lt "$available_mib" ]; then available_mib=$available_host_mib; fi
+  fi
+  printf '%s\n' "$available_mib"
+}
+
+validate_resource_budget() {
+  budget_kind=${1:-existing}
+  budget_mib=768
+  budget_keys='LINKSENSE_API_MEMORY_MB LINKSENSE_RUNNER_MEMORY_MB LINKSENSE_POSTGRES_MEMORY_MB LINKSENSE_REDIS_MEMORY_MB LINKSENSE_MINIO_MEMORY_MB'
+  if [ "$EDITION" = full ]; then budget_keys="$budget_keys LINKSENSE_ELASTICSEARCH_MEMORY_MB"; fi
+  for budget_key in $budget_keys; do
+    eval "budget_value=\${$budget_key:-0}"
+    printf '%s' "$budget_value" | grep -Eq '^(0|[1-9][0-9]{0,6})$' || host_fail invalid_config "$budget_key"
+    if [ "$budget_kind" = fresh ]; then [ "$budget_value" -gt 0 ] || host_fail invalid_config "$budget_key/zero"; fi
+    budget_mib=$((budget_mib + budget_value))
+  done
+  printf '%s' "${LINKSENSE_WORKER_MEMORY_MB:-4096}" | grep -Eq '^[1-9][0-9]{0,6}$' || host_fail invalid_config LINKSENSE_WORKER_MEMORY_MB
+  # shortcut: budget one Worker; guaranteed multi-user capacity needs runtime admission control.
+  budget_mib=$((budget_mib + ${LINKSENSE_WORKER_MEMORY_MB:-4096}))
+  if [ "$EDITION" = full ]; then
+    budget_mib=$((budget_mib + 10240))
+    budget_es_limit=${LINKSENSE_ELASTICSEARCH_MEMORY_MB:-0}
+    if [ "$budget_es_limit" -ne 0 ]; then
+      [ 1024 -le "$((budget_es_limit * 3 / 4))" ] || host_fail memory "Elasticsearch heap_mib=1024 limit_mib=$budget_es_limit"
+    fi
+  fi
+  for budget_service in API RUNNER; do
+    eval "budget_limit=\${LINKSENSE_${budget_service}_MEMORY_MB:-0}"
+    eval "budget_options=\${LINKSENSE_${budget_service}_NODE_OPTIONS:-}"
+    if [ -n "$budget_options" ]; then
+      printf '%s' "$budget_options" | grep -Eq '^--max-old-space-size=[1-9][0-9]{0,6}$' || host_fail invalid_config "LINKSENSE_${budget_service}_NODE_OPTIONS"
+      budget_heap=${budget_options#*=}
+      if [ "$budget_limit" -ne 0 ]; then [ "$budget_heap" -le "$((budget_limit * 3 / 4))" ] || host_fail memory "$budget_service heap_mib=$budget_heap limit_mib=$budget_limit"; fi
+    fi
+  done
+  budget_available_mib=$(($(docker info --format '{{.MemTotal}}') / 1024 / 1024))
+  if [ "$budget_kind" = fresh ]; then budget_available_mib=$(host_available_memory_mib); fi
+  [ "$budget_available_mib" -ge "$budget_mib" ] || host_fail memory "available_mib=$budget_available_mib required_mib=$budget_mib"
 }
 
 install_resources() {
@@ -840,7 +1119,7 @@ create_install_volumes() {
 }
 
 compose() {
-  docker compose --project-directory "$INSTALL_DIR" \
+  host_compose --project-directory "$INSTALL_DIR" \
     --env-file "$INSTALL_DIR/.env" \
     -f "$INSTALL_DIR/compose.common.yml" \
     -f "$INSTALL_DIR/compose.$EDITION.yml" "$@"
@@ -848,19 +1127,38 @@ compose() {
 
 pull_images() {
   compose config --quiet
-  compose pull --policy always
+  pull_release_images
+}
+
+pull_image() {
+  pull_reference=$1
+  if docker image inspect "$pull_reference" >/dev/null 2>&1; then return 0; fi
+  pull_attempt=0
+  pull_log=$TMP_ROOT/image-pull.log
+  while [ "$pull_attempt" -lt 3 ]; do
+    pull_attempt=$((pull_attempt + 1))
+    pull_remaining=$((pull_deadline - $(date +%s)))
+    [ "$pull_remaining" -gt 0 ] || host_fail pull deadline
+    [ "$pull_remaining" -le 1200 ] || pull_remaining=1200
+    if host_bounded "$pull_remaining" "$DOCKER_CLI" pull "$pull_reference" >"$pull_log" 2>&1; then return 0; fi
+    grep -Eiq 'timeout|timed out|connection reset|connection refused|TLS handshake|unexpected EOF|no such host|429|502|503|504|http2' "$pull_log" || break
+    [ "$pull_attempt" -ge 3 ] || sleep "$pull_attempt"
+  done
+  host_fail pull "image=$pull_reference attempts=$pull_attempt"
 }
 
 pull_release_images() {
+  pull_deadline=$(($(date +%s) + 2700))
+  check_release_storage
   for release_image in \
     "$IMAGE_LINKSENSE_API" "$IMAGE_LINKSENSE_WEB" "$IMAGE_LINKSENSE_MIGRATE" \
     "$IMAGE_LINKSENSE_RUNNER" "$IMAGE_LINKSENSE_WORKER" "$IMAGE_POSTGRES" \
     "$IMAGE_REDIS" "$IMAGE_MINIO" "$IMAGE_MINIO_CLIENT" "$IMAGE_BUSYBOX" "$IMAGE_GATEWAY"; do
-    docker pull "$release_image"
+    pull_image "$release_image"
   done
   if [ "$EDITION" = full ]; then
-    docker pull "$IMAGE_ELASTICSEARCH"
-    docker pull "$IMAGE_DOCLING"
+    pull_image "$IMAGE_ELASTICSEARCH"
+    pull_image "$IMAGE_DOCLING"
   fi
 }
 
@@ -882,7 +1180,7 @@ download_tokenizer() {
     expected=$(tokenizer_value "$index" SHA256)
     expected_size=$(tokenizer_value "$index" SIZE)
     printf '%s' "$path" | grep -Eq '^[A-Za-z0-9._-]+$' || fail "Unsafe tokenizer filename in release manifest."
-    download "$url" "$token_stage/$path"
+    download_verified "$url" "$token_stage/$path" "$expected"
     verify_file "$token_stage/$path" "$expected"
     printf '%s' "$expected_size" | grep -Eq '^[0-9]+$' || fail "Invalid tokenizer file size in release manifest."
     actual_size=$(wc -c < "$token_stage/$path" | tr -d ' ')
@@ -907,11 +1205,11 @@ publish_tokenizer() {
       rm -rf /tokenizer/releases/.staging /tokenizer/releases/.previous
       mkdir /tokenizer/releases/.staging
       cp -R /source/. /tokenizer/releases/.staging/
-      chmod -R a=rX /tokenizer/releases/.staging
       if [ -d "/tokenizer/releases/$revision" ]; then
         mv "/tokenizer/releases/$revision" /tokenizer/releases/.previous
       fi
       mv /tokenizer/releases/.staging "/tokenizer/releases/$revision"
+      chmod -R a=rX "/tokenizer/releases/$revision"
       ln -sfn "releases/$revision" /tokenizer/.current
       mv -Tf /tokenizer/.current /tokenizer/current
       rm -rf /tokenizer/releases/.previous
@@ -1026,6 +1324,22 @@ stop_upgrade_runtime() {
   [ "$active_count" = 0 ] || fail "$active_count active conversation operation(s) remained after stopping API and Runner."
 }
 
+check_upgrade_backup_storage() {
+  backup_database_bytes=$(compose_bounded 30 exec -T postgres sh -ec 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT pg_database_size(current_database())"')
+  printf '%s' "$backup_database_bytes" | grep -Eq '^[0-9]{1,15}$' || host_fail storage PostgreSQL_size_unknown
+  # Both the temporary dump and final backup may share Docker's data filesystem.
+  backup_required_kb=$((backup_database_bytes / 1024 * 2 + 262144))
+  backup_temporary_kb=$(compose_bounded 30 exec -T postgres sh -ec "df -Pk /tmp | awk 'END {print \$4}'")
+  backup_volume_kb=$(docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges:true --memory 64m --pids-limit 16 \
+    --mount "type=volume,src=$LINKSENSE_BACKUP_VOLUME,dst=/backups,readonly" \
+    "$IMAGE_BUSYBOX" sh -ec "df -Pk /backups | awk 'END {print \$4}'")
+  for backup_free_kb in "$backup_temporary_kb" "$backup_volume_kb"; do
+    printf '%s' "$backup_free_kb" | grep -Eq '^[0-9]+$' || host_fail storage backup_space_unknown
+    [ "$backup_free_kb" -ge "$backup_required_kb" ] || host_fail storage "backup_available_kib=$backup_free_kb required_kib=$backup_required_kb"
+  done
+}
+
 create_upgrade_backup() {
   validate_managed_volume "$LINKSENSE_BACKUP_VOLUME" backups
   backup_timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
@@ -1105,30 +1419,32 @@ snapshot_upgrade_configuration() {
 
 wait_for_health() {
   attempts=0
+  health_deadline=$(($(date +%s) + 400))
   local_health_url="http://127.0.0.1:$HTTP_PORT/api/v1/system/health/ready"
-  while [ "$attempts" -lt 60 ]; do
-    if curl -fsS "$local_health_url" >/dev/null 2>&1; then
+  while [ "$attempts" -lt 60 ] && [ "$(date +%s)" -lt "$health_deadline" ]; do
+    if curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "$local_health_url" >/dev/null 2>&1; then
       if [ "$EDITION" = full ]; then
-        if ! compose exec -T elasticsearch curl -fsS -u "$ELASTICSEARCH_ROOT_USERNAME:$ELASTICSEARCH_ROOT_PASSWORD" http://127.0.0.1:9200/_cluster/health >/dev/null 2>&1 || \
-          ! compose exec -T docling-api python -c 'import os,urllib.request; r=urllib.request.Request("http://127.0.0.1:5001/ready",headers={"X-Api-Key":os.environ["DOCLING_SERVE_API_KEY"]}); urllib.request.urlopen(r,timeout=5).read()' >/dev/null 2>&1; then
+        if ! compose_bounded 10 exec -T elasticsearch curl --max-time 5 -fsS -u "$ELASTICSEARCH_ROOT_USERNAME:$ELASTICSEARCH_ROOT_PASSWORD" http://127.0.0.1:9200/_cluster/health >/dev/null 2>&1 || \
+          ! compose_bounded 10 exec -T docling-api python -c 'import os,urllib.request; r=urllib.request.Request("http://127.0.0.1:5001/ready",headers={"X-Api-Key":os.environ["DOCLING_SERVE_API_KEY"]}); urllib.request.urlopen(r,timeout=5).read()' >/dev/null 2>&1; then
           attempts=$((attempts + 1))
           sleep 5
           continue
         fi
       fi
+      verify_service_stability
       return 0
     fi
     attempts=$((attempts + 1))
     sleep 5
   done
   compose ps >&2 || true
-  fail "The stack did not become ready. Run the matching repair script after reviewing the service logs."
+  host_fail stability readiness_deadline
 }
 
 run_full_release_probe() {
   [ "$EDITION" = full ] || return 0
   probe_output=$TMP_ROOT/full-release-probe.log
-  if ! compose exec -T api node dist/release/full-installation-probe.js >"$probe_output" 2>&1; then
+  if ! compose_bounded 600 exec -T api node dist/release/full-installation-probe.js >"$probe_output" 2>&1; then
     fail "Full release probe failed. Inspect the Docling and API service logs."
   fi
   grep -Fx 'Full release probe passed.' "$probe_output" >/dev/null || fail "Full release probe exited without completing its checks."
@@ -1221,6 +1537,10 @@ load_runtime_env() {
   runtime_state_format=${1:-2}
   verify_private_file "$INSTALL_DIR/.env" "The protected environment file"
   load_strict_env "$INSTALL_DIR/.env" runtime
+  runtime_cpu_mode=${LINKSENSE_CPU_QUOTA_MODE:-strict}
+  LINKSENSE_CPU_QUOTA_MODE=${HOST_CPU_QUOTA_MODE:-${LINKSENSE_CPU_QUOTA_MODE:-strict}}
+  if [ "$runtime_cpu_mode" != "$LINKSENSE_CPU_QUOTA_MODE" ]; then unset LINKSENSE_DOCLING_API_CPUS LINKSENSE_DOCLING_WORKER_CPUS; fi
+  host_cpu_mode
   require_loaded_keys LINKSENSE_EDITION LINKSENSE_VERSION LINKSENSE_PUBLIC_BASE_URL LINKSENSE_PUBLIC_SCHEME POSTGRES_PASSWORD REDIS_PASSWORD LINKSENSE_JWT_SECRET LINKSENSE_INITIALIZATION_TOKEN LINKSENSE_LOGIN_RATE_LIMIT_HMAC_SECRET LINKSENSE_PASSWORD_RESET_RATE_LIMIT_HMAC_SECRET LINKSENSE_CREDENTIAL_MASTER_KEY LINKSENSE_RUNNER_SHARED_SECRET MINIO_ROOT_PASSWORD MINIO_SECRET_KEY
   if [ "$runtime_state_format" = 1 ]; then
     [ "$HOST_OS:$docker_platform" = Linux:linux-amd64 ] || fail "Legacy v0.1.0 installations can only be upgraded on their original Linux amd64 platform."
@@ -1270,7 +1590,7 @@ install_action() {
     [ "$STATE_RELEASE_VERSION" = "$RELEASE_VERSION" ] || fail "Version $STATE_RELEASE_VERSION is already installed; install scripts do not upgrade or downgrade."
     [ "$STATE_MANIFEST_SHA256" = "$MANIFEST_SHA256" ] || fail "The installed manifest does not match the requested immutable release."
     load_runtime_env
-    if curl -fsS "http://127.0.0.1:$HTTP_PORT/api/v1/system/health/ready" >/dev/null 2>&1; then
+    if curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "http://127.0.0.1:$HTTP_PORT/api/v1/system/health/ready" >/dev/null 2>&1; then
       log "$EDITION $RELEASE_VERSION is already installed and healthy at $LINKSENSE_PUBLIC_BASE_URL."
       return
     fi
@@ -1301,10 +1621,12 @@ install_action() {
     installed_at=$STATE_STARTED_AT
     load_runtime_env
   fi
+  fetch_release_resources
   install_resources
   log_stage "Stage 4/7: pull immutable container images."
   pull_images
   log_stage "Stage 5/7: prepare persistent volumes and edition assets."
+  probe_host_runtime
   create_install_volumes
   prepare_tokenizer
   log_stage "Stage 6/7: start services and run readiness checks."
@@ -1313,8 +1635,10 @@ install_action() {
   run_full_release_probe
   log_stage "Stage 7/7: record the verified installation state."
   activate_management_cli
+  host_save_tools
   write_success_state "$installed_at"
   log "Installed LinkSense $EDITION $RELEASE_VERSION successfully."
+  host_text baseline
   log "Install directory: $INSTALL_DIR"
   log "Diagnostics: cd $INSTALL_DIR && docker compose --env-file .env -f compose.common.yml -f compose.$EDITION.yml ps"
   print_initialization_credential
@@ -1335,6 +1659,7 @@ repair_action() {
   [ "$STATE_INSTALL_DIR" = "$INSTALL_DIR" ] || fail "The installation state belongs to $STATE_INSTALL_DIR, not $INSTALL_DIR."
   load_runtime_env
   [ "$LINKSENSE_EDITION" = "$EDITION" ] || fail "The environment edition does not match the trusted installation state."
+  validate_resource_budget
   [ "$LINKSENSE_VERSION" = "$state_release" ] || fail "The environment version does not match the trusted installation state."
   log_stage "Stage 3/7: verify persistent data and immutable release metadata."
   verify_existing_volumes
@@ -1349,14 +1674,17 @@ repair_action() {
   pull_images
   log_stage "Stage 5/7: repair edition assets without replacing data volumes."
   prepare_tokenizer
+  probe_host_runtime
   log_stage "Stage 6/7: recreate services and run readiness checks."
   start_stack
   wait_for_health
   run_full_release_probe
   log_stage "Stage 7/7: record the verified repair state."
   activate_management_cli
+  host_save_tools
   write_success_state "$STATE_INSTALLED_AT"
   log "Repaired LinkSense $EDITION $state_release successfully without changing secrets or data volumes."
+  host_text baseline
   log "Open: $LINKSENSE_PUBLIC_BASE_URL"
 }
 
@@ -1424,20 +1752,25 @@ upgrade_action() {
     version_ge "$RELEASE_VERSION" "$UPGRADE_FROM_VERSION" || fail "Refusing to downgrade from $UPGRADE_FROM_VERSION to $RELEASE_VERSION."
     if [ "$RELEASE_VERSION" = "$UPGRADE_FROM_VERSION" ]; then
       [ "$MANIFEST_SHA256" = "$current_manifest_sha" ] || fail "The published manifest for installed release $RELEASE_VERSION changed unexpectedly."
-      if curl -fsS "http://127.0.0.1:$HTTP_PORT/api/v1/system/health/ready" >/dev/null 2>&1; then
+    fi
+    if [ "$RELEASE_VERSION" = "$UPGRADE_FROM_VERSION" ] && [ "${CPU_MODE_CHANGED:-false}" = false ]; then
+      if curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "http://127.0.0.1:$HTTP_PORT/api/v1/system/health/ready" >/dev/null 2>&1; then
         log "LinkSense $EDITION is already running the latest release $RELEASE_VERSION. No backup or restart was needed."
         return
       fi
       fail "The latest release is installed but unhealthy. Run repair-$EDITION.sh."
     fi
   fi
+  validate_resource_budget
   fetch_release_resources
 
   log_stage "Stage 4/9: pull and verify target images and edition assets."
   pull_release_images
+  probe_host_runtime
   download_tokenizer
 
   if [ "$UPGRADE_PENDING_EXISTED" = false ]; then
+    check_upgrade_backup_storage
     snapshot_upgrade_configuration
     log_stage "Stage 5/9: drain active work and stop write-producing services."
     stop_upgrade_runtime
@@ -1469,22 +1802,25 @@ upgrade_action() {
   run_full_release_probe
   log_stage "Stage 9/9: record the verified upgrade state."
   activate_management_cli
+  host_save_tools
   write_success_state "$UPGRADE_INSTALLED_AT"
   log "Upgraded LinkSense $EDITION from $UPGRADE_FROM_VERSION to $RELEASE_VERSION successfully."
+  host_text baseline
   log "Pre-upgrade database backup: $UPGRADE_BACKUP_URI"
   log "Open: $LINKSENSE_PUBLIC_BASE_URL"
 }
 
 log_stage "Stage 1: run the read-only host preflight."
 validate_install_dir
-resolve_http_port
-preflight
 TMP_ROOT=$(mktemp -d)
+host_lock_installation
+resolve_http_port
+resolve_cpu_mode
+preflight
 
 if [ "$ACTION" = install ]; then
   log_stage "Stage 2/7: verify immutable release inputs and download configuration."
   fetch_manifest "$(release_base)"
-  fetch_release_resources
   install_action
 elif [ "$ACTION" = repair ]; then
   repair_action

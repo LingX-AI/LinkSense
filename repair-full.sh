@@ -20,5 +20,11 @@ else
 fi
 tmp=$(mktemp -d)
 trap 'rm -r "$tmp"' EXIT HUP INT TERM
-curl --proto '=https' --tlsv1.2 -fsSL "$base/repair-full.sh" -o "$tmp/repair-full.sh"
+download_status=0
+curl --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 --retry-max-time 300 --connect-timeout 15 --max-time 300 -fsSL "$base/repair-full.sh" -o "$tmp/repair-full.sh" || download_status=$?
+case "$download_status" in
+  0) ;;
+  16|92) curl --http1.1 --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 -fsSL "$base/repair-full.sh" -o "$tmp/repair-full.sh" ;;
+  *) exit "$download_status" ;;
+esac
 sh "$tmp/repair-full.sh"
