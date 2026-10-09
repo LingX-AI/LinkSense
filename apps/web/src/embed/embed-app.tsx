@@ -1,3 +1,4 @@
+import { createUuid } from "@/lib/uuid"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { z } from "zod"
@@ -1031,7 +1032,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
       return
     }
     submissionInFlightRef.current = true
-    const idempotencyKey = crypto.randomUUID()
+    const idempotencyKey = createUuid()
     const submittedAttachments = attachments
     const optimistic: EmbedOptimisticSubmission = {
       id: idempotencyKey,
@@ -1150,7 +1151,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
     )
       return false
     const batch = files.map((file) => ({
-      id: crypto.randomUUID(),
+      id: createUuid(),
       name: file.name,
       size: file.size,
       mimeType: file.type || undefined,

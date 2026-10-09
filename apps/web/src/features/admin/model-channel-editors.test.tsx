@@ -48,7 +48,10 @@ const settings: ModelProviderSettings = {
   title_model: "model-a",
 }
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 function render(element: ReactElement) {
   return renderComponent(
@@ -63,6 +66,67 @@ function render(element: ReactElement) {
 }
 
 describe("model editor conflict feedback", () => {
+  it.each(supportedLanguages)(
+    "opens and saves a new channel without crypto.randomUUID in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      vi.stubGlobal("crypto", {
+        getRandomValues: crypto.getRandomValues.bind(crypto),
+      })
+      const user = userEvent.setup()
+      const onSave = vi.fn()
+      render(
+        <ChannelEditor
+          channel={null}
+          settings={settings}
+          pending={false}
+          error={null}
+          onClose={vi.fn()}
+          onSave={onSave}
+        />
+      )
+      await user.type(
+        screen.getByLabelText(
+          formLabelPattern(i18n.t("admin.modelProvider.providerName"))
+        ),
+        "LAN channel"
+      )
+      await user.type(
+        screen.getByLabelText(
+          formLabelPattern(i18n.t("admin.modelProvider.baseUrl"))
+        ),
+        "https://models.example.test/v1"
+      )
+      await user.type(
+        screen.getByLabelText(
+          formLabelPattern(i18n.t("admin.modelProvider.apiKey"))
+        ),
+        "test-key"
+      )
+      await user.click(
+        screen.getByRole("button", {
+          name: i18n.t("admin.modelProvider.saveProvider", {
+            name: "LAN channel",
+          }),
+        })
+      )
+      expect(onSave).toHaveBeenCalledOnce()
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providers: expect.arrayContaining([
+            expect.objectContaining({
+              id: expect.stringMatching(
+                /^provider-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+              ),
+              name: "LAN channel",
+              api_key: "test-key",
+            }),
+          ]),
+        })
+      )
+    }
+  )
+
   it.each(
     supportedLanguages.flatMap((language) => [
       { language, mode: "new", editedChannel: null },

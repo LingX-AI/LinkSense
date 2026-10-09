@@ -1,3 +1,4 @@
+import { createUuid } from "@/lib/uuid"
 import { z } from "zod"
 import { isLocale } from "@linksense/shared"
 
@@ -422,7 +423,7 @@ export class EmbedSessionClient {
         "External session renewal expired"
       )
     }
-    const renewalRequestId = crypto.randomUUID()
+    const renewalRequestId = createUuid()
     const retryDelays = [0, 1_000, 3_000, 8_000]
     let lastError: unknown
     for (const delay of retryDelays) {

@@ -1,3 +1,4 @@
+import { createUuid } from "@/lib/uuid"
 import type { QueryClient } from "@tanstack/react-query"
 import dayjs from "dayjs"
 import type {
@@ -110,11 +111,11 @@ export function createInteractiveApplicationSubmitter({
         fingerprint,
         accepted: false,
         idempotencyKey:
-          input.idempotency_key ?? `interactive:${crypto.randomUUID()}`,
+          input.idempotency_key ?? `interactive:${createUuid()}`,
       }
     }
     const idempotencyKey = attempt.idempotencyKey
-    const optimisticId = crypto.randomUUID()
+    const optimisticId = createUuid()
     const capabilities = new Map(
       conversation?.available_capabilities?.map((item) => [item.id, item])
     )

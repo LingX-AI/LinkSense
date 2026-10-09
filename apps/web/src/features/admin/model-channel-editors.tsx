@@ -1,3 +1,4 @@
+import { createUuid } from "@/lib/uuid"
 import { ModelServiceProviderLogo } from "./model-service-provider-logo"
 import type { ModelSettingsDraft } from "./model-settings-draft"
 import { useId, useState } from "react"
@@ -228,7 +229,7 @@ export function ChannelEditor({
             }),
         }
       : {
-          id: `provider-${crypto.randomUUID()}`,
+          id: `provider-${createUuid()}`,
           name: "",
           provider: "openai_compatible",
           provider_project: null,
