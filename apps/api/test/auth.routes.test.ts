@@ -1,5 +1,6 @@
 import Fastify from "fastify"
 import { authSessionSchema, authUserSchema } from "@linksense/shared"
+import { CompactSign } from "jose"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { AppError } from "../src/lib/errors.js"
@@ -25,6 +26,60 @@ afterEach(async () => {
 })
 
 describe("authentication Fastify integration", () => {
+  it("rejects a signed JSON array at the JWT verification boundary", async () => {
+    const app = Fastify()
+    apps.push(app)
+    const secret = "s".repeat(32)
+    await registerAuthentication(app, { jwtSecret: secret })
+    const token = await new CompactSign(
+      Buffer.from(JSON.stringify(["attacker", "role:admin"])),
+    )
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .sign(Buffer.from(secret))
+
+    expect(() => app.jwt.verify(token)).toThrow()
+  })
+
+  it("authenticates an existing HS256 session without issuing a replacement token", async () => {
+    const app = Fastify()
+    apps.push(app)
+    const secret = "s".repeat(32)
+    await registerAuthentication(app, { jwtSecret: secret })
+    const user = makeUser()
+    await app.register(authenticationPlugin, {
+      prisma: { user: { findUnique: vi.fn(async () => user) } } as never,
+    })
+    app.get("/me", {
+      preHandler: app.authenticate,
+      handler: async (request) => ({
+        id: request.authUser?.id,
+        role: request.authUser?.role,
+      }),
+    })
+    const now = Math.floor(Date.now() / 1_000)
+    const token = await new CompactSign(
+      Buffer.from(JSON.stringify({
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+        auth_valid_after: user.authValidAfter.toISOString(),
+        iat: now - 600,
+        exp: now + 600,
+      })),
+    )
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .sign(Buffer.from(secret))
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/me",
+      headers: { authorization: `Bearer ${token}` },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ id: user.id, role: user.role })
+  })
+
   it("invalidates a token whose role claim no longer matches the database", async () => {
     const app = Fastify()
     apps.push(app)
