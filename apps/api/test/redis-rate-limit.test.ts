@@ -80,13 +80,11 @@ describe("Redis atomic protection", () => {
     try {
       await client.hset("linksense:upgrade:legacy-hash", "owner", "existing-owner")
       await upgraded.connect()
-      expect(await upgraded.client.call("HELLO")).toEqual(
-        expect.arrayContaining(["proto", 2]),
-      )
+      expect(await upgraded.client.call("CLIENT", "INFO")).toMatch(/\bresp=2\b/u)
       expect(await upgraded.client.hgetall("linksense:upgrade:legacy-hash"))
         .toEqual({ owner: "existing-owner" })
       await subscriber.connect()
-      expect(await subscriber.call("HELLO")).toEqual(expect.arrayContaining(["proto", 2]))
+      expect(await subscriber.call("CLIENT", "INFO")).toMatch(/\bresp=2\b/u)
       const channel = "linksense:conversation-events:upgrade"
       await subscriber.subscribe(channel)
       const message = once(subscriber, "message", { signal: AbortSignal.timeout(2_000) })
