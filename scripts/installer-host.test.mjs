@@ -406,6 +406,20 @@ verify_service_stability`, { DIR: dir })
   assert.match(result.stderr, /container_state_changed/u)
 })
 
+test("service snapshots tolerate Docker inspect states without a healthcheck", () => {
+  const result = run(`
+EDITION=full
+compose() { for service in "$@"; do :; done; echo "$service-1"; }
+docker() {
+  # Docker templates use missingkey=error; accessing absent State.Health fails.
+  case "$3" in *'.State.Health'*) echo 'map has no entry for key "Health"' >&2; return 1 ;; esac
+  echo "$4 started 0 true false none"
+}
+host_service_snapshot`)
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /docling-worker docling-worker-1 started 0 true false none/u)
+})
+
 for (const [edition, available, api, heap, budget] of [["core", 7680, 1280, 896, 7488], ["core", 12288, 1536, 1024, 8192], ["full", 24576, 2048, 1536, 21504]]) {
   test(`${edition} fresh profile fits ${available} MiB while preserving a 4 GiB Worker and a bounded Node heap`, () => {
     const result = run(`

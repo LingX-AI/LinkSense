@@ -316,7 +316,7 @@ host_service_snapshot() {
     host_ids=$(compose ps --all -q "$host_service")
     [ -n "$host_ids" ] || host_fail stability "$host_service/missing"
     for host_id in $host_ids; do
-      host_state=$(docker inspect --format '{{.Id}} {{.State.StartedAt}} {{.RestartCount}} {{.State.Running}} {{.State.OOMKilled}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$host_id")
+      host_state=$(docker inspect --format '{{.Id}} {{.State.StartedAt}} {{.RestartCount}} {{.State.Running}} {{.State.OOMKilled}} {{with index .State "Health"}}{{.Status}}{{else}}none{{end}}' "$host_id")
       case "$host_state" in *' true false healthy'|*' true false none') ;; *) host_fail stability "$host_service/unready" ;; esac
       printf '%s %s\n' "$host_service" "$host_state"
     done
