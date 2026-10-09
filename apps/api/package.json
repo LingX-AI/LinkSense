@@ -65,7 +65,7 @@
     "file-type": "^22.1.1",
     "gpt-tokenizer": "3.4.0",
     "i18next": "^25.7.4",
-    "ioredis": "^5.11.1",
+    "ioredis": "^6.0.0",
     "ipaddr.js": "^2.2.0",
     "jose": "^6.1.0",
     "jszip": "^3.10.1",

@@ -1048,7 +1048,7 @@ export class RedisKnowledgeIndexingExecutor implements KnowledgeIndexingExecutor
     if (!Number.isSafeInteger(maximumConcurrency) || maximumConcurrency <= 0) {
       throw new Error("invalid knowledge indexing concurrency");
     }
-    this.redis = redis ?? new Redis(redisUrl, { maxRetriesPerRequest: null });
+    this.redis = redis ?? new Redis(redisUrl, { protocol: 2, maxRetriesPerRequest: null });
     this.keyPrefix = `linksense:knowledge:indexing-slot:${createHash("sha256")
       .update(namespace)
       .digest("hex")
@@ -1193,7 +1193,7 @@ export class RedisKnowledgeDocumentLock implements KnowledgeDocumentLock {
     } = {},
     redis?: Redis,
   ) {
-    this.redis = redis ?? new Redis(redisUrl, { maxRetriesPerRequest: null });
+    this.redis = redis ?? new Redis(redisUrl, { protocol: 2, maxRetriesPerRequest: null });
   }
 
   async runExclusive<T>(

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process"
+import { once } from "node:events"
 import { access, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -68,6 +69,33 @@ describe("Redis atomic protection", () => {
   beforeEach(async () => {
     await client.flushdb()
     await setSuccessfulRecoveryBaseline(client)
+  })
+
+  it("keeps RESP2 replies, subscriptions and existing hash data after the client upgrade", async () => {
+    const upgraded = new LinkSenseRedis({
+      ...testConfig(),
+      redisUrl: join(directory, "redis.sock"),
+    })
+    const subscriber = upgraded.client.duplicate()
+    try {
+      await client.hset("linksense:upgrade:legacy-hash", "owner", "existing-owner")
+      await upgraded.connect()
+      expect(await upgraded.client.call("HELLO")).toEqual(
+        expect.arrayContaining(["proto", 2]),
+      )
+      expect(await upgraded.client.hgetall("linksense:upgrade:legacy-hash"))
+        .toEqual({ owner: "existing-owner" })
+      await subscriber.connect()
+      expect(await subscriber.call("HELLO")).toEqual(expect.arrayContaining(["proto", 2]))
+      const channel = "linksense:conversation-events:upgrade"
+      await subscriber.subscribe(channel)
+      const message = once(subscriber, "message", { signal: AbortSignal.timeout(2_000) })
+      await upgraded.publishConversationEvent("upgrade", { id: "existing-event" })
+      expect(await message).toEqual([channel, JSON.stringify({ id: "existing-event" })])
+    } finally {
+      subscriber.disconnect()
+      await upgraded.close()
+    }
   })
 
   it("allows concurrent runtime preparation and submission while lifecycle changes wait", async () => {
