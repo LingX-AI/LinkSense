@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   operationAttemptId,
@@ -8,6 +8,8 @@ import {
   stableOperationId,
   type OperationReference,
 } from "@/features/conversations/operation-id"
+
+afterEach(() => vi.unstubAllGlobals())
 
 function storageFixture(): Pick<Storage, "getItem" | "setItem"> {
   const entries = new Map<string, string>()
@@ -25,6 +27,36 @@ describe("stableOperationId", () => {
     conversation_id: "c1",
     input_text: "same message",
   }
+
+  it.each(["same message", "上传文件并分析风险", ""])(
+    "preserves the same operation and retry IDs without crypto.subtle for %j",
+    async (inputText) => {
+      const input = { ...payload, input_text: inputText }
+      const secureReference: OperationReference = { current: null }
+      const secureId = await stableOperationId(secureReference, input)
+      retireOperationId(secureReference, secureId)
+      const secureNext = await stableOperationId(secureReference, input)
+      vi.stubGlobal("crypto", {
+        getRandomValues: crypto.getRandomValues.bind(crypto),
+      })
+      const storage = storageFixture()
+      const reference: OperationReference = { current: null }
+      expect(await stableOperationId(reference, input, storage)).toBe(secureId)
+      retireOperationId(reference, secureId, storage)
+      expect(await stableOperationId(reference, input, storage)).toBe(
+        secureNext
+      )
+      expect(await stableOperationId({ current: null }, input, storage)).toBe(
+        secureNext
+      )
+      const attempt = { current: null }
+      const attemptId = operationAttemptId(attempt)
+      expect(attemptId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+      )
+      expect(operationAttemptId(attempt)).toBe(attemptId)
+    }
+  )
 
   it("keeps the same ID across retries and reloads until that exact submission is closed", async () => {
     const storage = storageFixture()
