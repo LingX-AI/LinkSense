@@ -85,7 +85,7 @@ fi
 TMP_ROOT=""
 cleanup() {
   host_unlock_installation
-  if [ -n "${HOST_PROBE_ID:-}" ]; then docker rm -f "$HOST_PROBE_ID" >/dev/null 2>&1 || true; fi
+  if [ -n "${HOST_PROBE_ID:-}" ]; then docker rm -f -v "$HOST_PROBE_ID" >/dev/null 2>&1 || true; fi
   if [ -n "$TMP_ROOT" ] && [ -d "$TMP_ROOT" ]; then
     rm -r "$TMP_ROOT"
   fi
@@ -117,6 +117,25 @@ check_release_storage() {
     [ "$disk_free_kb" -ge "$((disk_gib * 1024 * 1024))" ] || host_fail storage "Docker_VM available_kib=$disk_free_kb required_gib=$disk_gib"
     case "$disk_free_inodes" in ''|-|*[!0-9]*) ;; *) [ "$disk_free_inodes" -ge "$inode_reserve" ] || host_fail storage "Docker_VM available_inodes=$disk_free_inodes required_inodes=$inode_reserve" ;; esac
   fi
+}
+
+probe_postgres_runtime() {
+  HOST_PROBE_ID=$(docker create --label com.linksense.host-probe=true \
+    --network none --read-only --user postgres --cap-drop ALL \
+    --security-opt no-new-privileges=true \
+    --memory 256m --memory-swap 256m --pids-limit 64 \
+    --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m \
+    --entrypoint sh "$IMAGE_POSTGRES" -ec '
+      initdb -D /tmp/linksense-pg-probe -U linksense_probe --auth=trust >/tmp/init.log 2>&1
+      pg_ctl -D /tmp/linksense-pg-probe -o "-c listen_addresses= -k /tmp" -l /tmp/server.log -w start
+      psql -h /tmp -U linksense_probe -d postgres -Atc "SELECT 1"
+      pg_ctl -D /tmp/linksense-pg-probe -m fast -w stop
+    ' 2>"$TMP_ROOT/postgres-probe.log") || host_fail postgres_runtime create
+  if ! host_bounded 60 "$DOCKER_CLI" start --attach "$HOST_PROBE_ID" >"$TMP_ROOT/postgres-probe.out" 2>"$TMP_ROOT/postgres-probe.log"; then
+    host_fail postgres_runtime runtime
+  fi
+  docker rm -v "$HOST_PROBE_ID" >/dev/null
+  HOST_PROBE_ID=
 }
 
 probe_host_runtime() {
@@ -155,6 +174,7 @@ probe_host_runtime() {
   probe_map_count=$(cat "$TMP_ROOT/host-probe.out")
   docker rm "$HOST_PROBE_ID" >/dev/null
   HOST_PROBE_ID=
+  probe_postgres_runtime
   if [ "$EDITION" = full ]; then
     printf '%s' "$probe_map_count" | grep -Eq '^[0-9]+$' || host_fail sysctl unknown
     if [ "$probe_map_count" -lt 262144 ]; then

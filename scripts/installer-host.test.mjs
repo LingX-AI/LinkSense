@@ -69,6 +69,45 @@ test("CentOS 7 Docker guidance explains the unsupported distribution instead of 
   assert.doesNotMatch(result.stdout, /sudo dnf|sudo yum|https:\/\/get\.docker\.com/u)
 })
 
+for (const [mode, succeeds] of [["strict", true], ["strict", false], ["compatible", false]]) {
+  test(`the PostgreSQL runtime probe ${succeeds ? "passes" : "blocks startup"} in ${mode} mode and cleans up without touching existing data`, t => {
+    const dir = directory(t)
+    const executable = path.join(dir, "docker")
+    writeFileSync(executable, `#!/bin/sh
+echo "$*" >> "$DIR/calls"
+case "$1" in
+  create) echo postgres-probe ;;
+  start) echo 'Operation not permitted private-diagnostic'; exit "$PROBE_EXIT" ;;
+  rm) : ;;
+  *) exit 9 ;;
+esac
+`, { mode: 0o755 })
+    const result = run(`
+${fn("cleanup")}
+${fn("probe_postgres_runtime")}
+DOCKER_CLI=$DIR/docker
+TMP_ROOT=$DIR/tmp
+mkdir "$TMP_ROOT"
+trap cleanup EXIT
+host_bounded() { echo "deadline=$1" >> "$DIR/calls"; shift; "$@"; }
+probe_postgres_runtime
+touch "$DIR/started"
+`, { DIR: dir, PROBE_EXIT: succeeds ? "0" : "1", LINKSENSE_CPU_QUOTA_MODE: mode, IMAGE_POSTGRES: "registry.example/postgres@sha256:fixture" })
+    assert.equal(result.status, succeeds ? 0 : 1, result.stderr)
+    assert.equal(existsSync(path.join(dir, "started")), succeeds)
+    const calls = readFileSync(path.join(dir, "calls"), "utf8")
+    assert.match(calls, /--network none --read-only --user postgres --cap-drop ALL/u)
+    assert.match(calls, /--security-opt no-new-privileges=true/u)
+    assert.match(calls, /--memory 256m --memory-swap 256m --pids-limit 64/u)
+    assert.match(calls, /initdb.*\/tmp\/linksense-pg-probe/su)
+    assert.match(calls, /deadline=60/u)
+    assert.match(calls, /rm (?:-f )?-v postgres-probe/u)
+    assert.doesNotMatch(calls, /--privileged|seccomp=unconfined|--volume|^create .* -v /mu)
+    assert.doesNotMatch(result.stdout + result.stderr, /private-diagnostic/u)
+    if (!succeeds) assert.match(result.stderr, /LS_HOST_postgres_runtime/u)
+  })
+}
+
 test("HTTP/2 download failure retries with HTTP/1.1 and keeps TLS/redirect checks and a total request timeout", t => {
   const dir = directory(t)
   const result = run(`

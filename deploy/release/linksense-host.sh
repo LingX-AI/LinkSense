@@ -12,6 +12,12 @@ host_text() {
     ja*|JA*) host_locale=ja-JP ;; *) host_locale=zh-CN ;;
   esac
   case "$host_key:$host_locale" in
+    postgres_runtime:zh-CN) host_message='发布版 PostgreSQL 的隔离初始化检查失败。请检查主机容器运行时及 libseccomp 的兼容性，并保留 seccomp 隔离。阶段：%s' ;;
+    postgres_runtime:en-US) host_message='The release PostgreSQL image failed its isolated initialization test. Check the host container runtime and libseccomp compatibility; keep seccomp enabled. Phase: %s' ;;
+    postgres_runtime:es-ES) host_message='La imagen publicada de PostgreSQL no superó la prueba de inicialización aislada. Compruebe la compatibilidad del entorno de ejecución de contenedores y libseccomp del servidor; mantenga seccomp activado. Fase: %s' ;;
+    postgres_runtime:pt-BR) host_message='A imagem publicada do PostgreSQL falhou no teste de inicialização isolada. Verifique a compatibilidade do runtime de contêineres e do libseccomp do host; mantenha o seccomp ativado. Etapa: %s' ;;
+    postgres_runtime:fr-FR) host_message='L’image publiée de PostgreSQL a échoué au test d’initialisation isolée. Vérifiez la compatibilité du moteur d’exécution des conteneurs et de libseccomp sur l’hôte ; conservez seccomp activé. Étape : %s' ;;
+    postgres_runtime:ja-JP) host_message='リリース版 PostgreSQL イメージの隔離初期化テストに失敗しました。ホストのコンテナランタイムと libseccomp の互換性を確認し、seccomp は有効のままにしてください。段階：%s' ;;
     engine:zh-CN) host_message='Docker Engine API %s 过旧；需要 API %s 或更新版本。请先安排服务端升级；更新客户端不能升级 Docker Engine。' ;;
     engine:en-US) host_message='Docker Engine API %s is too old; API %s or newer is required. Arrange a server upgrade first; updating the client does not upgrade Docker Engine.' ;;
     engine:es-ES) host_message='La API %s de Docker Engine es demasiado antigua; se requiere la API %s o posterior. Planifique primero la actualización del servidor; actualizar el cliente no actualiza Docker Engine.' ;;

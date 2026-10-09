@@ -155,6 +155,13 @@ settings that cannot be safely changed are reported for host/VM administration.
 
 A real disposable container verifies effective cgroup v1/v2 memory/PID limits,
 strict CPU quotas, read-only root, writable tmpfs and restricted privileges.
+The release PostgreSQL image must also initialize a disposable database and
+complete a SQL roundtrip under seccomp before persistent volumes are prepared
+or an upgrade stops the existing services. The probe uses isolated temporary
+storage, cleans up its container and anonymous volumes, and never reads the
+installed database. An old runtime/libseccomp can incorrectly return `EPERM`
+for newer syscalls even when the basic isolation probe passes; repair the host
+runtime rather than disabling seccomp.
 Runner startup retains its native task-Worker creation and Codex app-server
 handshake. Readiness checks cover each edition, then observe **every service
 replica** for 30 seconds and reject restarts, OOM or unhealthy/missing containers.
