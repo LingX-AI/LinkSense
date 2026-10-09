@@ -17,6 +17,7 @@ overrides:
   deepmerge-ts@<8.0.2: 8.0.2
   fast-uri@>=3.0.0 <3.1.7: 3.1.7
   fast-uri@>=4.0.0 <4.1.4: 4.1.4
+  fast-jwt@<6.3.1: 6.3.1
   fast-xml-parser@>=5.9.3 <5.10.1: 5.10.1
   find-my-way@<9.9.0: 9.9.0
   hono@<4.13.5: 4.13.5
@@ -6840,8 +6841,8 @@ packages:
   fast-json-stringify@7.0.1:
     resolution: {integrity: sha512-eRSayARSbbwlBjpP4vnTTIRD5QPcIrmihPxDeN1DtKnHPg66UuJLx+8hlK1kaFdjvzyQ/dzALoi4vwAQ+T+iZA==}
 
-  fast-jwt@6.2.4:
-    resolution: {integrity: sha512-IoQa53wI6TbARU2yelb0L44ggFQnP2qVcwswCSYHbCAWuwpr70icDb3QjG0v01I8Tt01rVGDkN/rRvpk0lKFTA==}
+  fast-jwt@6.3.1:
+    resolution: {integrity: sha512-9LFiA4oIx7CjPjep7G5zrfM+UiA+60lIsYH/6I5kCwGBa06WUtdwJ3F3m8Z79bxdUVz/lW30A/NsWWStqoJKrw==}
     engines: {node: '>=20'}
 
   fast-levenshtein@2.0.6:
@@ -14755,7 +14756,7 @@ snapshots:
     dependencies:
       '@fastify/error': 4.2.0
       '@lukeed/ms': 2.0.2
-      fast-jwt: 6.2.4
+      fast-jwt: 6.3.1
       fastify-plugin: 6.0.0
       steed: 1.1.3
 
@@ -19227,7 +19228,7 @@ snapshots:
       json-schema-ref-resolver: 3.0.0
       rfdc: 1.4.1
 
-  fast-jwt@6.2.4:
+  fast-jwt@6.3.1:
     dependencies:
       '@lukeed/ms': 2.0.2
       asn1.js: 5.4.1
