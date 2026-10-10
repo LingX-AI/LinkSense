@@ -72,6 +72,42 @@ test("agent-ready is maintainer-gated and creates only a draft PR", async () => 
   assert.doesNotMatch(workflow, /^\s+(close-issue|merge-pull-request):/mu)
 })
 
+for (const workflow of ["issue-triage", "agent-ready"]) {
+  test(`${workflow} supplies GPT-6.1 Sol pricing to both guarded API proxies`, async () => {
+    const lock = await read(`.github/workflows/${workflow}.lock.yml`)
+    const configs = [
+      ...lock.matchAll(/printf '%s\\n' "(\{.+)" > "\$\{RUNNER_TEMP\}\/gh-aw\/awf-config\.json"/gu),
+    ]
+    assert.equal(configs.length, 2, "both the agent and detection proxy must be covered")
+
+    for (const [, escaped] of configs) {
+      const config = JSON.parse(
+        escaped
+          .replaceAll('\\"', '"')
+          .replaceAll('\\$', '$')
+          .replaceAll('${GH_AW_MAX_AI_CREDITS}', '1000'),
+      )
+      assert.deepEqual(config.apiProxy.providers?.openai?.models?.["gpt-6.1-sol"]?.cost, {
+        input: "2e-06",
+        output: "1e-05",
+        cache_read: "1e-07",
+        cache_write: "2.5e-06",
+      })
+      assert.ok(config.apiProxy.maxAiCredits > 0, "the spend guard must stay enabled")
+      assert.equal(config.apiProxy.modelFallback.enabled, false)
+      assert.equal(
+        config.apiProxy.defaultAiCreditsPricing,
+        undefined,
+        "unknown models must still fail closed",
+      )
+    }
+    const agentModel = lock.match(/^\s+GH_AW_MODEL_AGENT_CODEX: (.+)$/mu)?.[1]
+    const detectionModel = lock.match(/^\s+GH_AW_MODEL_DETECTION_CODEX: (.+)$/mu)?.[1]
+    assert.match(agentModel, /^\$\{\{ vars\.GH_AW_MODEL_AGENT_CODEX/u)
+    assert.equal(detectionModel, agentModel, "detection must use the priced model, not an unresolved alias")
+  })
+}
+
 test("label manifest includes status, area, priority, and approval labels", async () => {
   const labels = await read(".github/labels.yml")
   for (const label of [

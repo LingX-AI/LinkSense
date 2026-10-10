@@ -16,6 +16,9 @@ permissions:
   issues: read
   pull-requests: read
 
+imports:
+  - shared/codex-model-pricing.md
+
 engine:
   id: codex
   env:
@@ -37,6 +40,10 @@ network:
     - python
 
 safe-outputs:
+  threat-detection:
+    engine:
+      id: codex
+      model: ${{ vars.GH_AW_MODEL_AGENT_CODEX || vars.GH_AW_DEFAULT_MODEL_CODEX || 'gpt-5.4' }}
   create-pull-request:
     title-prefix: "[agent] "
     labels:
