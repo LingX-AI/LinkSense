@@ -395,8 +395,6 @@ export class LinkSenseRedis {
     this.client =
       client ??
       new Redis(config.redisUrl, {
-        // Preserve the wire protocol used by existing deployments and subscribers.
-        protocol: 2,
         maxRetriesPerRequest: 1,
         enableOfflineQueue: false,
         connectTimeout: 2_000,

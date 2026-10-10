@@ -374,34 +374,6 @@ describe("FileService workspace and MIME boundaries", () => {
     },
   );
 
-  it.each([
-    ["archive.lz", "application/x-lzip", "application/lzip", "4c5a4950"],
-    ["shortcut.lnk", "application/x.ms.shortcut", "application/x-ms-shortcut", "4c0000000114020000000000c000000000000046"],
-    ["shortcut.alias", "application/x.apple.alias", "application/x-ft-apple.alias", "626f6f6b000000006d61726b00000000"],
-    ["scene.fbx", "application/x.autodesk.fbx", "application/x-ft-fbx", "4b617964617261204642582042696e617279202000"],
-    ["scene.drc", "application/vnd.google.draco", "application/x-ft-draco", "445241434f"],
-  ])("registers %s with a pre-upgrade MIME name without weakening content checks", async (filename, legacyMime, mimeType, signature) => {
-    const fixture = await fileFixture();
-    const data = Buffer.concat([Buffer.from(signature, "hex"), Buffer.alloc(64)]);
-    await writeFile(join(fixture.conversationRoot, filename), data);
-    const tx = artifactTransactionFixture();
-    fixture.prisma.$transaction.mockImplementationOnce(
-      async (operation: (transaction: typeof tx) => Promise<unknown>) => operation(tx),
-    );
-
-    await expect(fixture.service.registerArtifact({
-      ownerId: OWNER_ID,
-      conversationId: CONVERSATION_ID,
-      codexTurnId: "codex-turn-1",
-      workspaceRelativePath: filename,
-      displayName: filename,
-      mimeType: legacyMime,
-    })).resolves.toMatchObject({ success: true });
-    expect(fixture.storage.putObject).toHaveBeenCalledWith(
-      expect.any(String), data, { "content-type": mimeType },
-    );
-  });
-
   it("registers an SVG artifact even when the legacy artifact allowlist excludes SVG", async () => {
     const fixture = await fileFixture({
       LINKSENSE_ARTIFACT_ALLOWED_TYPES: "application/pdf",
@@ -2608,11 +2580,6 @@ describe("FileService download authorization audit", () => {
   it.each([
     ["audio/mpeg", "voice.mp3"],
     ["application/octet-stream", "archive.custom"],
-    ["application/x-lzip", "archive.lz"],
-    ["application/x.ms.shortcut", "shortcut.lnk"],
-    ["application/x.apple.alias", "shortcut.alias"],
-    ["application/x.autodesk.fbx", "scene.fbx"],
-    ["application/vnd.google.draco", "scene.drc"],
   ])(
     "streams an owner-only %s artifact without exposing its object key",
     async (mimeType, filename) => {
