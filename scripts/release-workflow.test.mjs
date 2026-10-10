@@ -178,6 +178,8 @@ test("formal image tags and GitHub Release publication require every architectur
   assert.match(scan.run, /release-inputs\/identity\.env/u)
   assert.match(scan.run, /image-references verified-inputs image-security-reports/u)
   assert.match(scan.run, /release-image-inventory\.mjs upstream-env/u)
+  assert.match(scan.run, /cp release-inputs\/runtime-images\.env verified-inputs\/runtime-images\.env/u)
+  assert.match(scan.run, /"\$SCAN_PLATFORM" application/u)
   assert.deepEqual(jobs["image-indexes"].needs, ["prepare", "images", "worker-image"])
   assert.equal(jobs["hardened-images"], undefined)
   assert.doesNotMatch(workflow, /SECURITY_REBUILD_ID|deploy\/hardened\//u)
@@ -197,6 +199,18 @@ test("formal image tags and GitHub Release publication require every architectur
   assert.ok(verify > 0)
   assert.ok(verify < install.run.indexOf("tar -xzf"))
   assert.doesNotMatch(install.run, /install\.sh|\/latest\//u)
+})
+
+test("release, baseline maintenance and preflight select the intended vulnerability scope", () => {
+  const maintenance = parse(readFileSync(path.join(root, ".github/workflows/maintain-baselines.yml"), "utf8"))
+  const maintenanceScan = maintenance.jobs.security.steps.find(step => step.run?.includes("scripts/scan-release-images.sh"))
+  assert.match(maintenanceScan.run, /"linux\/\$\{\{ matrix\.architecture \}\}" baseline/u)
+  const preflight = parse(readFileSync(path.join(root, ".github/workflows/image-preflight.yml"), "utf8"))
+  const freeze = preflight.jobs.freeze.steps.find(step => step.run?.includes("preflight/candidates.json"))
+  assert.match(freeze.run, /deploy\/baselines\/images\.lock\.json/u)
+  assert.match(freeze.run, /preflight\/release-inputs\/runtime-images\.env/u)
+  const preflightScan = preflight.jobs.scan.steps.find(step => step.run?.includes("scripts/scan-release-images.sh"))
+  assert.match(preflightScan.run, /"\$SCAN_PLATFORM" application/u)
 })
 const preflight = parse(workflow).jobs.prepare.steps.find(step => step.name === "Verify release authorization and identity")?.run
 

@@ -444,6 +444,9 @@ jobs:
         architecture: [amd64, arm64]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
       - name: Initialize scan diagnostics
         run: |
@@ -491,7 +494,8 @@ jobs:
           test "$(sed -n 's/^RELEASE_WORKFLOW_ID=//p' release-inputs/identity.env)" = "$RELEASE_WORKFLOW_ID"
           mkdir verified-inputs
           node scripts/release-image-inventory.mjs upstream-env release-inputs/upstream-images.env > verified-inputs/upstream-images.env
-          sh scripts/scan-release-images.sh image-references verified-inputs image-security-reports "$SCAN_PLATFORM"
+          cp release-inputs/runtime-images.env verified-inputs/runtime-images.env
+          sh scripts/scan-release-images.sh image-references verified-inputs image-security-reports "$SCAN_PLATFORM" application
       - name: Save image vulnerability reports and failure diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

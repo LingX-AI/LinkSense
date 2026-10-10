@@ -38,6 +38,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
       - name: Validate and freeze both candidate architectures
         env:
@@ -45,7 +48,7 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import { execFileSync } from 'node:child_process';
-          import { mkdirSync, writeFileSync } from 'node:fs';
+          import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
           const own = ['api', 'web', 'migrate', 'runner', 'worker'];
           const upstream = ['POSTGRES', 'REDIS', 'MINIO', 'MINIO_CLIENT', 'BUSYBOX', 'GATEWAY', 'ELASTICSEARCH', 'DOCLING'];
           const roles = [...own.map(name => `LINKSENSE_${name.toUpperCase()}`), ...upstream];
@@ -62,6 +65,8 @@ jobs:
           }
           for (const name of own) writeFileSync(`preflight/image-references/${name}`, images[`LINKSENSE_${name.toUpperCase()}`] + '\n');
           writeFileSync('preflight/release-inputs/upstream-images.env', upstream.map(role => `IMAGE_${role}=${images[role]}`).join('\n') + '\n');
+          const runtimes = JSON.parse(readFileSync('deploy/baselines/images.lock.json', 'utf8')).runtimes;
+          writeFileSync('preflight/release-inputs/runtime-images.env', Object.entries(runtimes).map(([name, image]) => `BASELINE_${name.toUpperCase()}_IMAGE=${image}`).join('\n') + '\n');
           writeFileSync('preflight/candidates.json', JSON.stringify({ source: process.env.GITHUB_SHA, images }, null, 2));
           NODE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -80,6 +85,9 @@ jobs:
         architecture: [amd64, arm64]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -94,10 +102,10 @@ jobs:
           printf 'c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f  %s\n' "$RUNNER_TEMP/trivy/archive.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/trivy/archive.tar.gz" -C "$RUNNER_TEMP/trivy" trivy
           echo "$RUNNER_TEMP/trivy" >> "$GITHUB_PATH"
-      - name: Run the unchanged release vulnerability gate
+      - name: Run the application-scoped release vulnerability gate
         env:
           SCAN_PLATFORM: linux/${{ matrix.architecture }}
-        run: sh scripts/scan-release-images.sh preflight/image-references preflight/release-inputs reports "$SCAN_PLATFORM"
+        run: sh scripts/scan-release-images.sh preflight/image-references preflight/release-inputs reports "$SCAN_PLATFORM" application
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
