@@ -779,7 +779,7 @@ describe("AppServerProcessPool", () => {
         'model_auto_compact_token_limit_scope="total"',
         `mcp_servers.linksense_core.command=${JSON.stringify(process.execPath)}`,
         "mcp_servers.linksense_core.enabled=true",
-        "mcp_servers.linksense_core.required=true",
+        "mcp_servers.linksense_core.required=false",
         "mcp_servers.linksense_managed_browser.enabled=false",
         "mcp_servers.linksense_managed_browser.required=false",
       ]),
@@ -2049,7 +2049,7 @@ trust_level = "trusted"
       "features.hooks=true",
       "features.use_legacy_landlock=true",
       "mcp_servers.linksense_managed_browser.enabled=true",
-      "mcp_servers.linksense_managed_browser.required=true",
+      "mcp_servers.linksense_managed_browser.required=false",
     ]) {
       const index = controlled.args?.indexOf(override) ?? -1;
       expect(controlled.args?.slice(index - 1, index + 1)).toEqual([
@@ -2314,7 +2314,7 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("fails Plan startup when the managed browser MCP is unavailable", async () => {
+  it("starts Plan when the managed browser MCP is unavailable", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-plan-browser-mcp-missing-"),
     );
@@ -2329,8 +2329,9 @@ trust_level = "trusted"
         ...startOperationInput(),
         collaborationMode: "plan",
       }),
-    ).rejects.toThrow("LinkSense Managed Browser MCP is unavailable");
-    expect(controlled.methods).not.toContain("turn/start");
+    ).resolves.toMatchObject({ codexTurnId: "turn-native-1" });
+    expect(controlled.methods).toContain("turn/start");
+    expect(controlled.methods).not.toContain("mcpServerStatus/list");
     await pool.closeAll();
   });
 
@@ -3844,7 +3845,7 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("runs independent skill and MCP startup checks concurrently", async () => {
+  it("waits for skill authorization without waiting for MCP discovery on resume", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-parallel-startup-"));
     roots.push(root);
     const controlled = createControlledAppServer({
@@ -3866,17 +3867,17 @@ trust_level = "trusted"
     });
 
     await waitForFast(() => {
-      expect(controlled.methods).toEqual(
-        expect.arrayContaining(["skills/list", "mcpServerStatus/list"]),
-      );
+      expect(controlled.methods).toContain("skills/list");
     });
     expect(controlled.methods).not.toContain("thread/resume");
-    controlled.completeInitializationChecks();
+    expect(controlled.methods).not.toContain("mcpServerStatus/list");
+    controlled.completeSkillAuthorization();
 
     await expect(starting).resolves.toMatchObject({
       codexThreadId: "thread-native-1",
       codexTurnId: "turn-native-1",
     });
+    expect(controlled.methods).not.toContain("mcpServerStatus/list");
     await pool.closeAll();
   });
 
@@ -5133,6 +5134,97 @@ trust_level = "trusted"
     expect(pool.size).toBe(1);
 
     await pool.closeAll();
+  });
+
+  describe.each(["start", "prewarm", "recovery"] as const)("optional MCP during %s", (operation) => {
+    it.each(["all-unavailable", "browser-unavailable", "plugin-unavailable", "pending"] as const)(
+      "continues with %s MCP discovery while retaining authorization checks",
+      async (availability) => {
+        const root = await mkdtemp(join(tmpdir(), "linksense-optional-mcp-"));
+        roots.push(root);
+        const controlled = createControlledAppServer({
+          fileServiceAvailable: availability !== "all-unavailable",
+          managedBrowserAvailable: availability !== "browser-unavailable",
+          mcpStatus: availability === "pending" ? "manual" : "immediate",
+          threadReadTurns: operation === "recovery"
+            ? [{ id: "turn-native-1", status: "inProgress", items: [], error: null }]
+            : [],
+        });
+        const { pool, nativePluginManager, capabilityRuntimeManager } =
+          createStartOperationPool(root, controlled.factory);
+        if (availability === "plugin-unavailable") {
+          nativePluginManager.verifyAfterStart.mockResolvedValueOnce([{
+            name: "authorized-plugin",
+            pluginId: "authorized-plugin@linksense-personal",
+            version: "1.0.0",
+            mentionPath: "plugin://authorized-plugin@linksense-personal",
+            cacheRoot: join(taskRuntimeHome(root), ".codex", "plugins", "cache"),
+            skills: [],
+            mcpServers: ["unavailable_plugin_server"],
+          }]);
+        }
+        const input: StartTurnInput = {
+          ...startOperationInput(),
+          collaborationMode: availability === "browser-unavailable" ? "plan" : "default",
+          capabilities: availability === "plugin-unavailable"
+            ? [{ id: "01900000-0000-7000-8000-000000000014", name: "authorized-plugin", type: "plugin", revision: capabilityRevision }]
+            : [],
+        };
+        try {
+          if (operation === "start") {
+            await expect(pool.startTurn(input)).resolves.toMatchObject({ codexTurnId: "turn-native-1" });
+          } else if (operation === "prewarm") {
+            await expect(pool.prewarmConversation(input)).resolves.toMatchObject({ codexThreadId: "thread-native-1" });
+            await expect(pool.inspectPrewarmedConversation(input.conversationId, input.ownerId))
+              .resolves.toMatchObject({ codexThreadId: "thread-native-1" });
+          } else {
+            await expect(pool.reconcile({
+              ...input,
+              codexThreadId: "thread-native-1",
+              codexTurnId: "turn-native-1",
+              taskKind: "turn",
+            })).resolves.toMatchObject({ thread: { id: "thread-native-1" } });
+            expect(controlled.methods).toContain("thread/resume");
+          }
+          expect(controlled.methods).not.toContain("mcpServerStatus/list");
+          expect(controlled.methods).toContain("skills/list");
+          expect(capabilityRuntimeManager.resolvePublished).toHaveBeenCalled();
+          if (input.collaborationMode === "default") {
+            expect(nativePluginManager.verifyAfterStart).toHaveBeenCalled();
+          }
+          expect(controlled.methods.filter((method) => method === "turn/start"))
+            .toHaveLength(operation === "start" ? 1 : 0);
+          expect(controlled.kill).not.toHaveBeenCalled();
+        } finally {
+          await pool.closeAll();
+        }
+      },
+    );
+
+    it("still rejects unauthorized skills when MCP is pending", async () => {
+      const root = await mkdtemp(join(tmpdir(), "linksense-optional-mcp-auth-"));
+      roots.push(root);
+      const controlled = createControlledAppServer({
+        mcpStatus: "manual",
+        skills: [{ name: "unauthorized", path: join(root, "outside", "SKILL.md"), scope: "user", enabled: true }],
+      });
+      const { pool } = createStartOperationPool(root, controlled.factory);
+      const input = startOperationInput();
+      try {
+        const result = operation === "start"
+          ? pool.startTurn(input)
+          : operation === "prewarm"
+            ? pool.prewarmConversation(input)
+            : pool.reconcile({ ...input, codexThreadId: "thread-native-1", codexTurnId: "turn-native-1", taskKind: "turn" });
+        await expect(result).rejects.toThrow("Codex skill catalog violates the LinkSense capability runtime");
+        expect(controlled.methods).not.toContain("turn/start");
+        expect(controlled.methods).not.toContain("mcpServerStatus/list");
+        expect(pool.size).toBe(0);
+        expect(controlled.kill).toHaveBeenCalledOnce();
+      } finally {
+        await pool.closeAll();
+      }
+    });
   });
 
   it("prewarms a native thread without starting a turn and reuses it on submit", async () => {
@@ -8047,7 +8139,6 @@ trust_level = "trusted"
     expect(controlled.methods).toEqual(
       expect.arrayContaining([
         "initialize",
-        "mcpServerStatus/list",
         "thread/resume",
         "thread/read",
       ]),
@@ -9557,7 +9648,7 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("closes a secret-bearing process when MCP preflight fails", async () => {
+  it("keeps an authorized process usable when all MCP servers are unavailable", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-pool-preflight-"));
     roots.push(root);
     const controlled = createControlledAppServer({
@@ -9608,11 +9699,13 @@ trust_level = "trusted"
         capabilities: [],
         environment: { SERVICE_API_KEY: "must-be-cleared" },
       }),
-    ).rejects.toThrow("LinkSense Core MCP is unavailable");
+    ).resolves.toMatchObject({ codexTurnId: "turn-native-1" });
 
-    expect(pool.size).toBe(0);
-    expect(controlled.kill).toHaveBeenCalledTimes(1);
+    expect(pool.size).toBe(1);
+    expect(controlled.kill).not.toHaveBeenCalled();
+    expect(controlled.methods).not.toContain("mcpServerStatus/list");
     expect(capabilityRuntimeManager.resolvePublished).toHaveBeenCalledOnce();
+    await pool.closeAll();
   });
 
   it("reloads and validates the stable skill runtime before starting a native thread", async () => {
@@ -10325,7 +10418,7 @@ trust_level = "trusted"
     await pool.beginStartOperation(input);
     await waitForFast(() => {
       expect(controlled.methods).toContain("skills/list");
-      expect(controlled.methods).toContain("mcpServerStatus/list");
+      expect(controlled.methods).not.toContain("mcpServerStatus/list");
     });
     const runtimeGeneration = await workspaceManager.readRuntimeGeneration(input.conversationId);
     if (!runtimeGeneration) throw new Error("missing runtime generation");
@@ -10334,7 +10427,7 @@ trust_level = "trusted"
       ownerId: input.ownerId, expectedRuntimeGeneration: runtimeGeneration,
     })).resolves.toBe("requested");
     expect(controlled.methods).not.toContain("turn/start");
-    controlled.completeInitializationChecks();
+    controlled.completeSkillAuthorization();
     await waitForFast(async () => expect(await pool.getStartOperation(input.conversationId, input.projectionTurnId)).toMatchObject({
       status: "failed", errorCode: "RUNNER_TURN_START_SEALED",
     }));
@@ -10401,7 +10494,7 @@ trust_level = "trusted"
       if (recovery === "locked-startup") {
         await waitForFast(() => {
           expect(recovered.methods).toContain("skills/list");
-          expect(recovered.methods).toContain("mcpServerStatus/list");
+          expect(recovered.methods).not.toContain("mcpServerStatus/list");
         });
         await expect(second.interruptStartOperation({
           conversationId: input.conversationId,
@@ -10409,7 +10502,7 @@ trust_level = "trusted"
           ownerId: input.ownerId,
           expectedRuntimeGeneration: input.expectedRuntimeGeneration,
         })).resolves.toBe("requested");
-        recovered.completeInitializationChecks();
+        recovered.completeSkillAuthorization();
       }
       await expect(recovering).resolves.toMatchObject({
         status: "succeeded", result: { codexTurnId: "turn-native-after-stop" },
@@ -11877,7 +11970,7 @@ function createControlledAppServer(
   requests: Array<Record<string, unknown>>;
   args: string[] | undefined;
   completeInitialize: () => void;
-  completeInitializationChecks: () => void;
+  completeSkillAuthorization: () => void;
   completeTurnStart: () => void;
 } {
   const state: {
@@ -11886,7 +11979,6 @@ function createControlledAppServer(
     args?: string[];
     initializeRequestId?: number;
     skillsListRequestId?: number;
-    mcpStatusRequestId?: number;
     turnStartRequestId?: number;
     turnStartCount: number;
     forkCount: number;
@@ -11966,7 +12058,6 @@ function createControlledAppServer(
             );
           } else if (message.method === "mcpServerStatus/list") {
             if (options.mcpStatus === "manual") {
-              state.mcpStatusRequestId = message.id;
               continue;
             }
             stdout.write(
@@ -12282,14 +12373,9 @@ function createControlledAppServer(
         `${JSON.stringify({ id: state.initializeRequestId, result: {} })}\n`,
       );
     },
-    completeInitializationChecks: () => {
-      if (
-        state.skillsListRequestId === undefined ||
-        state.mcpStatusRequestId === undefined
-      ) {
-        throw new Error(
-          "parallel initialization checks have not all been received",
-        );
+    completeSkillAuthorization: () => {
+      if (state.skillsListRequestId === undefined) {
+        throw new Error("skill authorization request has not been received");
       }
       const skillsRequest = requests.find(
         (request) =>
@@ -12298,49 +12384,6 @@ function createControlledAppServer(
       );
       state.stdout?.write(
         `${JSON.stringify({ id: state.skillsListRequestId, result: { data: [{ cwd: String(((skillsRequest?.params as { cwds?: string[] } | undefined)?.cwds ?? [""])[0] ?? ""), skills: [], errors: [] }] } })}\n`,
-      );
-      state.stdout?.write(
-        `${JSON.stringify({
-          id: state.mcpStatusRequestId,
-          result: {
-            data: [
-              {
-                name: "linksense_core",
-                tools: {
-                  convert_document_to_markdown: {},
-                  get_current_user_info: {},
-                  microsoft_files: {},
-                  request_user_form: {},
-                  emit_application_event: {},
-                  ...(options.mutationServicesAvailable === false
-                    ? {}
-                    : {
-                        register_artifact: {},
-                        open_application_development: {},
-                        inspect_application_development: {},
-                        inspect_application_tests: {},
-                        update_application_metadata: {},
-                        generate_image: {},
-                        preview_skill_zip: {},
-                        install_skill: {},
-                      }),
-                  search_knowledge_base: {},
-                  list_knowledge_documents: {},
-                  get_knowledge_document_markdown: {},
-                },
-              },
-              ...(options.managedBrowserAvailable === false
-                ? []
-                : [
-                    {
-                      name: "linksense_managed_browser",
-                      tools: { run_browser_command: {} },
-                    },
-                  ]),
-            ],
-            nextCursor: null,
-          },
-        })}\n`,
       );
     },
     completeTurnStart: () => {
