@@ -1939,7 +1939,7 @@ describe("KnowledgeService", () => {
     });
   });
 
-  it("detects processing documents across the whole knowledge base", async () => {
+  it("detects active processing across the whole knowledge base without excluding searchable documents", async () => {
     const findFirst = vi
       .fn()
       .mockResolvedValueOnce({ id: DOCUMENT_ID })
@@ -1951,7 +1951,11 @@ describe("KnowledgeService", () => {
     await expect(store.hasProcessingDocuments(BASE_ID)).resolves.toBe(true);
     await expect(store.hasProcessingDocuments(BASE_ID)).resolves.toBe(false);
     expect(findFirst).toHaveBeenCalledWith({
-      where: { knowledgeBaseId: BASE_ID, status: "processing" },
+      where: {
+        knowledgeBaseId: BASE_ID,
+        status: { not: "deleted" },
+        activeProcessingVersionId: { not: null },
+      },
       select: { id: true },
     });
   });

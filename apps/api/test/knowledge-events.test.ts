@@ -16,7 +16,7 @@ const documentVersionId = "40000000-0000-4000-8000-000000000001";
 const generation = "50000000-0000-4000-8000-000000000001";
 
 describe("knowledge processing event fan-out", () => {
-  it("publishes only the committed safe projection", async () => {
+  it.each(["processing", "ready"])("publishes safe progress with status %s", async (status) => {
     const publish = vi.fn(async (channel: string, payload: string) => {
       expect(channel).toBeTypeOf("string");
       expect(payload).toBeTypeOf("string");
@@ -26,7 +26,7 @@ describe("knowledge processing event fan-out", () => {
       {
         knowledgeBaseDocument: {
           findFirst: vi.fn(async () => ({
-            status: "processing",
+            status,
             updatedAt: new Date("2026-07-22T01:00:00.000Z"),
           })),
         },
@@ -57,7 +57,7 @@ describe("knowledge processing event fan-out", () => {
       knowledge_base_id: knowledgeBaseId,
       document_id: documentId,
       processing_generation: generation,
-      status: "processing",
+      status,
       stage: "embedding",
       progress_percent: 80,
       revision: 7,

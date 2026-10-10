@@ -1,5 +1,9 @@
 import type { ReactNode } from "react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import {
+  QueryClient,
+  QueryClientProvider,
+  type InfiniteData,
+} from "@tanstack/react-query"
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -10,6 +14,8 @@ import {
   knowledgeBaseSchema,
   knowledgeDocumentSchema,
   type KnowledgeBaseEvent,
+  type KnowledgeBaseEntryPage,
+  type KnowledgeDocument,
 } from "@/features/knowledge-bases/knowledge-base-contracts"
 import { useKnowledgeBaseEvents } from "@/features/knowledge-bases/knowledge-base-hooks"
 
@@ -166,6 +172,153 @@ describe("knowledge base event lifecycle", () => {
   })
 
   afterEach(() => cleanup())
+
+  it("updates reprocessing progress in every loaded view without refetching each ready event", async () => {
+    const queryClient = createQueryClient()
+    const fixture = documentFixture()
+    const document = knowledgeDocumentSchema.parse({
+      ...fixture,
+      status: "ready",
+      searchable: true,
+      processing: { ...fixture.processing, operation: "reprocess" },
+    })
+    const documentsKey = knowledgeBaseQueryKeys.documents(knowledgeBaseId)
+    const documentKey = knowledgeBaseQueryKeys.document(
+      knowledgeBaseId,
+      documentId
+    )
+    const entriesKey = knowledgeBaseQueryKeys.entryDirectory(knowledgeBaseId)
+    queryClient.setQueryData(documentsKey, {
+      pages: [
+        {
+          items: [document],
+          next_cursor: null,
+          has_processing_documents: true,
+        },
+      ],
+      pageParams: [undefined],
+    })
+    queryClient.setQueryData(documentKey, document)
+    queryClient.setQueryData<InfiniteData<KnowledgeBaseEntryPage>>(entriesKey, {
+      pages: [
+        {
+          breadcrumbs: [],
+          items: [
+            {
+              id: documentId,
+              knowledge_base_id: knowledgeBaseId,
+              parent_entry_id: null,
+              entry_type: "document",
+              name: document.display_name,
+              document,
+              updated_at: document.updated_at,
+            },
+          ],
+          next_cursor: null,
+        },
+      ],
+      pageParams: [undefined],
+    })
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries")
+    renderHook(() => useKnowledgeBaseEvents(knowledgeBaseId, true), {
+      wrapper: wrapper(queryClient),
+    })
+    await waitFor(() => expect(handlers).toBeDefined())
+
+    act(() =>
+      handlers?.onEvent(
+        knowledgeBaseEventSchema.parse({
+          ...terminalEvent(),
+          stage: "embedding",
+          progress_percent: 84,
+          revision: 9,
+        })
+      )
+    )
+
+    const expected = {
+      status: "ready",
+      searchable: true,
+      processing: { stage: "embedding", progress_percent: 84, revision: 9 },
+    }
+    expect(
+      queryClient.getQueryData<InfiniteData<{ items: KnowledgeDocument[] }>>(
+        documentsKey
+      )?.pages[0]?.items[0]
+    ).toMatchObject(expected)
+    expect(
+      queryClient.getQueryData<KnowledgeDocument>(documentKey)
+    ).toMatchObject(expected)
+    const entry =
+      queryClient.getQueryData<InfiniteData<KnowledgeBaseEntryPage>>(entriesKey)
+        ?.pages[0]?.items[0]
+    expect(entry?.document).toMatchObject(expected)
+    expect(invalidateQueries).not.toHaveBeenCalled()
+
+    act(() =>
+      handlers?.onEvent(
+        knowledgeBaseEventSchema.parse({
+          ...terminalEvent(),
+          stage: "completed",
+        })
+      )
+    )
+
+    expect(
+      queryClient.getQueryData<KnowledgeDocument>(documentKey)?.processing
+    ).toBeNull()
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: documentsKey })
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: knowledgeBaseQueryKeys.entries(knowledgeBaseId),
+    })
+  })
+
+  it("fetches the processing snapshot when a ready progress event starts a previously idle document", async () => {
+    const queryClient = createQueryClient()
+    queryClient.setQueryData(
+      knowledgeBaseQueryKeys.documents(knowledgeBaseId),
+      {
+        pages: [
+          {
+            items: [
+              knowledgeDocumentSchema.parse({
+                ...documentFixture(),
+                status: "ready",
+                searchable: true,
+                processing: null,
+              }),
+            ],
+            next_cursor: null,
+            has_processing_documents: false,
+          },
+        ],
+        pageParams: [undefined],
+      }
+    )
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries")
+    renderHook(() => useKnowledgeBaseEvents(knowledgeBaseId, true), {
+      wrapper: wrapper(queryClient),
+    })
+    await waitFor(() => expect(handlers).toBeDefined())
+
+    act(() =>
+      handlers?.onEvent(
+        knowledgeBaseEventSchema.parse({
+          ...terminalEvent(),
+          stage: "embedding",
+          progress_percent: 80,
+        })
+      )
+    )
+
+    for (const queryKey of [
+      knowledgeBaseQueryKeys.detail(knowledgeBaseId),
+      knowledgeBaseQueryKeys.documents(knowledgeBaseId),
+      knowledgeBaseQueryKeys.entries(knowledgeBaseId),
+    ]) {
+      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey })
+    }
+  })
 
   it("replays newer SSE events after a stale reconnect snapshot finishes", async () => {
     const queryClient = createQueryClient()
