@@ -178,6 +178,7 @@ const runnerConfigSchema = z
       .default("linksense-worker-egress"),
     LINKSENSE_WORKER_MEMORY_MB: positiveInteger(4096),
     LINKSENSE_WORKER_CPUS: z.coerce.number().positive().max(64).default(2),
+    LINKSENSE_CPU_QUOTA_MODE: z.enum(["strict", "compatible"]).default("strict"),
     LINKSENSE_WORKER_PIDS_LIMIT: positiveInteger(4096),
     LINKSENSE_WORKER_TMPFS_MB: positiveInteger(4096),
     LINKSENSE_WORKER_SHM_MB: positiveInteger(2048),
