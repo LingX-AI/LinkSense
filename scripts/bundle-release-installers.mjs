@@ -14,10 +14,16 @@ if (!/^v\d+\.\d+\.\d+$/u.test(releaseVersion)) {
 }
 
 const root = path.resolve(import.meta.dirname, "..")
-const engine = await readFile(
+const hostHelpers = await readFile(path.join(root, "deploy/release/linksense-host.sh"), "utf8")
+const helperImport = '. "$(dirname "$0")/linksense-host.sh"'
+const engine = (await readFile(
   path.join(root, "deploy/release/linksense-installer.sh"),
   "utf8",
-)
+)).replace(helperImport, () => hostHelpers)
+const cli = (await readFile(path.join(root, "deploy/release/linksense-cli.sh"), "utf8")).replace(helperImport, () => hostHelpers)
+for (const [filename, source] of [["linksense-installer.sh", engine], ["linksense-cli.sh", cli]]) {
+  await writeFile(path.join(outputDirectory, filename), source, { mode: 0o755 })
+}
 
 for (const entry of [
   { filename: "install-core.sh", action: "install", edition: "core" },

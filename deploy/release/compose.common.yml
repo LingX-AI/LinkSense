@@ -10,6 +10,7 @@ services:
   postgres:
     image: ${POSTGRES_IMAGE:?release manifest did not provide POSTGRES_IMAGE}
     restart: unless-stopped
+    mem_limit: ${LINKSENSE_POSTGRES_MEMORY_MB:-0}m
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -27,6 +28,7 @@ services:
   redis:
     image: ${REDIS_IMAGE:?release manifest did not provide REDIS_IMAGE}
     restart: unless-stopped
+    mem_limit: ${LINKSENSE_REDIS_MEMORY_MB:-0}m
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     command:
@@ -48,6 +50,7 @@ services:
   minio:
     image: ${MINIO_IMAGE:?release manifest did not provide MINIO_IMAGE}
     restart: unless-stopped
+    mem_limit: ${LINKSENSE_MINIO_MEMORY_MB:-0}m
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -121,12 +124,14 @@ services:
     image: ${LINKSENSE_RUNNER_IMAGE:?release manifest did not provide LINKSENSE_RUNNER_IMAGE}
     init: true
     restart: unless-stopped
+    mem_limit: ${LINKSENSE_RUNNER_MEMORY_MB:-0}m
     user: "0:0"
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: ${LINKSENSE_RUNNER_NODE_OPTIONS:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       HOME: /home/node
       CODEX_BIN: codex
@@ -159,6 +164,7 @@ services:
       LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS: ${LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS:-200000}
       LINKSENSE_WORKER_MEMORY_MB: ${LINKSENSE_WORKER_MEMORY_MB:-4096}
       LINKSENSE_WORKER_CPUS: ${LINKSENSE_WORKER_CPUS:-2}
+      LINKSENSE_CPU_QUOTA_MODE: ${LINKSENSE_CPU_QUOTA_MODE:-strict}
       LINKSENSE_WORKER_PIDS_LIMIT: ${LINKSENSE_WORKER_PIDS_LIMIT:-4096}
       LINKSENSE_WORKER_TMPFS_MB: ${LINKSENSE_WORKER_TMPFS_MB:-4096}
       LINKSENSE_WORKER_SHM_MB: ${LINKSENSE_WORKER_SHM_MB:-2048}
@@ -190,11 +196,13 @@ services:
     image: ${LINKSENSE_API_IMAGE:?release manifest did not provide LINKSENSE_API_IMAGE}
     init: true
     restart: unless-stopped
+    mem_limit: ${LINKSENSE_API_MEMORY_MB:-0}m
     read_only: true
     tmpfs:
       - /tmp:size=4g,mode=1777
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: ${LINKSENSE_API_NODE_OPTIONS:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       HOST: 0.0.0.0
       PORT: 4000

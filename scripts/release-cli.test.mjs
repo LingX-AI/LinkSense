@@ -658,6 +658,8 @@ function runCli(fixture, arguments_, options = {}) {
 }
 
 async function writeExecutable(file, source) {
+  const helpers = await readFile(path.join(root, "deploy/release/linksense-host.sh"), "utf8")
+  source = source.replace('. "$(dirname "$0")/linksense-host.sh"', () => helpers)
   await writeFile(file, source, { mode: 0o755 })
   await chmod(file, 0o755)
 }
@@ -706,7 +708,9 @@ esac
     `#!/bin/sh
 printf '%s\\n' "$*" >> "$MOCK_DOCKER_LOG"
 case "$1:$2" in
-  info:) exit 0 ;;
+  info:*)
+    case "$3" in '{{.MemoryLimit}}'|'{{.PidsLimit}}'|'{{.CPUCfsQuota}}'|'{{.CPUCfsPeriod}}') printf true ;; esac
+    exit 0 ;;
   compose:version) printf '2.40.3\\n'; exit 0 ;;
   ps:*)
     case "$*" in
@@ -716,6 +720,7 @@ case "$1:$2" in
     ;;
   inspect:*)
     case "$*" in
+      *StartedAt*) printf 'mock-id started 0 true false healthy\\n' ;;
       *State.Health*) printf '%s\\n' "\${MOCK_SERVICE_STATE:-healthy}" ;;
       *State.Running*) printf '%s\\n' "\${MOCK_GATEWAY_RUNNING:-true}" ;;
       *runner.managed*) printf 'true\\n' ;;
@@ -784,6 +789,7 @@ case "$*" in
   *"config --services"*) printf '%s\\n' api web runner gateway postgres redis minio ;;
   *"ps -q gateway"*) printf 'gateway-id\\n' ;;
   *"ps -q api"*) printf 'api-id\\n' ;;
+  *"ps -q "*) printf 'service-id\\n' ;;
   *"ps --all"*) printf 'mock compose status\\n' ;;
   *"logs --tail"*) printf 'mock logs\\n' ;;
 esac
