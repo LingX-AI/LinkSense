@@ -214,6 +214,38 @@ describe("authenticated API recovery", () => {
     expect(getAccessToken()).toBe("newer-tab-access-token")
   })
 
+  it("coalesces refresh requests over HTTP without Web Locks or native UUIDs", async () => {
+    const getRandomValues = vi.fn(crypto.getRandomValues.bind(crypto))
+    vi.stubGlobal("crypto", { getRandomValues })
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: undefined,
+    })
+    window.localStorage.setItem(
+      "linksense.auth.refresh-lease.v1",
+      JSON.stringify({ ownerId: "old-timestamp-tab-owner", expiresAt: 0 })
+    )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        json({ success: true, data: authSession(refreshedAccessToken) })
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const [first, second] = await Promise.all([
+      refreshSession("stale-access-token"),
+      refreshSession("stale-access-token"),
+    ])
+
+    expect(first.access_token).toBe(refreshedAccessToken)
+    expect(second.access_token).toBe(refreshedAccessToken)
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(getRandomValues).toHaveBeenCalledOnce()
+    expect(
+      window.localStorage.getItem("linksense.auth.refresh-lease.v1")
+    ).toBeNull()
+  })
+
   it("keeps the refreshed token when the retried request has a network failure", async () => {
     const fetchMock = vi
       .fn()

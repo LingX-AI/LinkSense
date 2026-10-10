@@ -1,3 +1,4 @@
+import { createRandomUuid } from "@/lib/random-uuid"
 import type {
   ArchivePreviewItem,
   ArchivePreviewManifest,
@@ -40,8 +41,7 @@ function loadArchivePreviewWorker(
   if (signal.aborted) return Promise.reject(createAbortError())
 
   return new Promise((resolve, reject) => {
-    const requestId = globalThis.crypto?.randomUUID?.() ??
-      `archive-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const requestId = createRandomUuid()
     let worker: Worker
     try {
       worker = new Worker(

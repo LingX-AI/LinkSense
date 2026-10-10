@@ -1,4 +1,6 @@
+import { sha256 } from "@noble/hashes/sha2.js"
 import { z } from "zod"
+import { createRandomUuid } from "@/lib/random-uuid"
 
 type StableOperation = {
   fingerprint: string
@@ -57,7 +59,7 @@ export function retireOperationId(
 export function operationAttemptId(reference: {
   current: string | null
 }): string {
-  reference.current ??= crypto.randomUUID()
+  reference.current ??= createRandomUuid()
   return reference.current
 }
 
@@ -80,9 +82,7 @@ export async function stableOperationId(
 }
 
 async function digestOperationId(value: string): Promise<string> {
-  const digest = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
-  )
+  const digest = sha256(new TextEncoder().encode(value))
   digest[6] = (digest[6]! & 0x0f) | 0x50
   digest[8] = (digest[8]! & 0x3f) | 0x80
   const hex = Array.from(digest.subarray(0, 16), (value) =>

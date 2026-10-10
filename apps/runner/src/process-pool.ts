@@ -47,7 +47,6 @@ import {
   conversationFormResponseSemanticsSchema,
   conversationFormUiHintsSchema,
   coreMcpServerKey,
-  managedBrowserMcpServerKey,
   modelIdentifierSchema,
   reasoningEffortSchema,
   runnerCodexPreviewLimits,
@@ -140,7 +139,6 @@ import { KnowledgeSearchRequestError } from "./knowledge-search-error.js";
 import { KnowledgeServiceRequestError } from "./knowledge-service-error.js";
 import { SkillCreatorRequestError } from "./skill-creator-error.js";
 import { DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS } from "./knowledge-search-timeout.js";
-import { coreMcpToolNamesFor } from "./mcp/core-service-registry.js";
 import type { UserMcpProxyTarget } from "./mcp/http-egress-proxy.js";
 import { encodePersonalStdioDescriptor } from "./mcp/personal-stdio-launcher.js";
 import { probePersonalStdioMcp } from "./mcp/personal-stdio-probe.js";
@@ -5759,72 +5757,24 @@ export class AppServerProcessPool {
           await startNativeThread();
         };
 
-        const validateMcpRuntime = async (): Promise<void> => {
-          const mcpStatus = await client.request<{
-            data: Array<{ name: string; tools: Record<string, unknown> }>;
-          }>("mcpServerStatus/list", {
-            detail: "toolsAndAuthOnly",
-            limit: 100,
-          });
-          const coreService = mcpStatus.data.find(
-            (server) => server.name === coreMcpServerKey,
-          );
-          const requiredCoreTools = coreMcpToolNamesFor(
-            input.collaborationMode,
-          );
-          if (
-            !coreService ||
-            requiredCoreTools.some((toolName) => !coreService.tools[toolName])
-          ) {
-            throw new CodexProtocolError(
-              "LinkSense Core MCP is unavailable",
-            );
-          }
-          if (
-            input.collaborationMode === "plan" &&
-            this.options.managedBrowserMcpArgs !== undefined
-          ) {
-            const managedBrowserService = mcpStatus.data.find(
-              (server) => server.name === managedBrowserMcpServerKey,
-            );
-            if (!managedBrowserService?.tools.run_browser_command) {
-              throw new CodexProtocolError(
-                "LinkSense Managed Browser MCP is unavailable",
-              );
-            }
-          }
-          for (const plugin of managed.authorizedPlugins) {
-            for (const serverName of plugin.mcpServers) {
-              if (
-                !mcpStatus.data.some((server) => server.name === serverName)
-              ) {
-                throw new CodexProtocolError(
-                  "native plugin MCP server is unavailable",
-                );
-              }
-            }
-          }
-        };
-
         if (skipsCapabilityRuntime) {
           managed.authorizedSkills = [];
         } else {
-          const [authorizedSkills] = await Promise.all([
-            this.authorizedSkillCatalog(
-              client,
-              paths.workspace,
-              paths.home,
-              capabilityRuntime,
-              managed.authorizedPlugins,
-              new Set(
-                input.capabilities
-                  .filter((capability) => capability.type === "skill")
-                  .map((capability) => capability.name),
-              ),
+          // Authorization must finish before starting or resuming a thread.
+          // MCP discovery is owned by Codex; an unavailable server must only
+          // affect its tools, not gate startup, prewarm, or recovery.
+          managed.authorizedSkills = await this.authorizedSkillCatalog(
+            client,
+            paths.workspace,
+            paths.home,
+            capabilityRuntime,
+            managed.authorizedPlugins,
+            new Set(
+              input.capabilities
+                .filter((capability) => capability.type === "skill")
+                .map((capability) => capability.name),
             ),
-            validateMcpRuntime(),
-          ]);
-          managed.authorizedSkills = authorizedSkills;
+          );
         }
         if (isControl) {
           if (!managed.codexThreadId) {
@@ -7764,7 +7714,7 @@ export function planRuntimeConfigOverrides(
     ...(managedBrowserEnabled
       ? [
           "mcp_servers.linksense_managed_browser.enabled=true",
-          "mcp_servers.linksense_managed_browser.required=true",
+          "mcp_servers.linksense_managed_browser.required=false",
         ]
       : []),
   ];

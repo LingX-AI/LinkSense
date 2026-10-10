@@ -57,9 +57,7 @@ function manifest() {
   ])
 }
 
-function requestFor(
-  worker: ArchiveWorkerMock
-): ArchivePreviewWorkerRequest {
+function requestFor(worker: ArchiveWorkerMock): ArchivePreviewWorkerRequest {
   return worker.postMessage.mock.calls[0]?.[0] as ArchivePreviewWorkerRequest
 }
 
@@ -82,11 +80,43 @@ describe("archive preview loader", () => {
   })
 
   afterEach(() => {
+    vi.unstubAllGlobals()
     if (originalWorker) {
       Object.defineProperty(globalThis, "Worker", originalWorker)
       return
     }
     Reflect.deleteProperty(globalThis, "Worker")
+  })
+
+  it("correlates worker replies with a secure UUID over ordinary HTTP", async () => {
+    const getRandomValues = vi.fn((bytes: Uint8Array): Uint8Array => {
+      bytes.fill(9)
+      return bytes
+    })
+    vi.stubGlobal("crypto", { getRandomValues })
+    const pending = loadArchivePreviewManifest(
+      new Uint8Array([1, 2, 3]),
+      new AbortController().signal
+    )
+    const worker = latestWorker()
+    const request = requestFor(worker)
+    const expected = manifest()
+    expect(request.requestId).toBe("09090909-0909-4909-8909-090909090909")
+    worker.emitMessage({
+      type: "success",
+      requestId: "another-worker-request",
+      manifest: manifest(),
+    })
+    expect(worker.terminate).not.toHaveBeenCalled()
+    worker.emitMessage({
+      type: "success",
+      requestId: request.requestId,
+      manifest: expected,
+    })
+
+    await expect(pending).resolves.toBe(expected)
+    expect(getRandomValues).toHaveBeenCalledOnce()
+    expect(worker.terminate).toHaveBeenCalledOnce()
   })
 
   it("asks the worker to parse the archive and cleans it up after success", async () => {

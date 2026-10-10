@@ -20,15 +20,24 @@ import { notify } from "@/components/feedback/notification"
 import { NotificationCenter } from "@/components/feedback/notification-toast"
 import { knowledgeBaseQueryKeys } from "@/features/knowledge-bases/knowledge-base-api"
 import { KnowledgeUploadSessionProvider } from "@/features/knowledge-bases/knowledge-upload-session-provider"
-import type { KnowledgeSearchCapability } from "@/features/knowledge-bases/knowledge-base-contracts"
+import {
+  knowledgeBaseEventSchema,
+  type KnowledgeSearchCapability,
+} from "@/features/knowledge-bases/knowledge-base-contracts"
 import i18n, { supportedLanguages } from "@/i18n"
 import {
   KnowledgeBaseDetailPage,
   KnowledgeBaseListPage,
 } from "@/pages/knowledge-base-pages"
 
+const connectKnowledgeBaseEvents = vi.hoisted(() =>
+  vi.fn<
+    typeof import("@/features/knowledge-bases/knowledge-base-events").connectKnowledgeBaseEvents
+  >()
+)
+
 vi.mock("@/features/knowledge-bases/knowledge-base-events", () => ({
-  connectKnowledgeBaseEvents: () => () => undefined,
+  connectKnowledgeBaseEvents,
 }))
 
 const knowledgeBaseId = "00000000-0000-4000-8000-000000000001"
@@ -549,6 +558,9 @@ describe("knowledge-base document and access management", () => {
   )
 
   beforeEach(async () => {
+    connectKnowledgeBaseEvents
+      .mockReset()
+      .mockImplementation(() => () => undefined)
     await i18n.changeLanguage("zh-CN")
     setAccessToken("knowledge-management-token")
   })
@@ -1868,6 +1880,72 @@ describe("knowledge-base document and access management", () => {
     )
     expect(screen.getByText("84%")).toBeVisible()
   })
+
+  it.each(supportedLanguages)(
+    "keeps reprocessing progress mounted between ready SSE updates in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const document = documentFixture({
+        processing: {
+          operation: "reprocess",
+          processing_generation: candidateGenerationId,
+          stage: "embedding",
+          progress_percent: 72,
+          revision: 2,
+          stable_error_code: null,
+          retry_at: null,
+          retry_attempt: 0,
+          cancellable: true,
+        },
+      })
+      const fetchMock = createFetchMock({ documents: [document] })
+      vi.stubGlobal("fetch", fetchMock)
+      renderDetailPage()
+
+      const progressLabel = i18n.t("knowledge.document.stage.embedding")
+      const progress = await screen.findByRole("progressbar", {
+        name: progressLabel,
+      })
+      const row = progress.closest("tr")
+      expect(row).not.toBeNull()
+      const handlers = connectKnowledgeBaseEvents.mock.calls.at(-1)?.[1]
+      expect(handlers).toBeDefined()
+
+      for (const [percent, revision] of [
+        [76, 3],
+        [84, 4],
+      ] as const) {
+        act(() =>
+          handlers?.onEvent(
+            knowledgeBaseEventSchema.parse({
+              type: "knowledge_document_processing_updated",
+              knowledge_base_id: knowledgeBaseId,
+              document_id: documentId,
+              processing_generation: candidateGenerationId,
+              status: "ready",
+              stage: "embedding",
+              progress_percent: percent,
+              revision,
+              retry_at: null,
+              retry_attempt: 0,
+              stable_error_code: null,
+              updated_at: "2026-07-22T01:02:00.000Z",
+            })
+          )
+        )
+
+        await waitFor(() =>
+          expect(progress).toHaveAttribute("aria-valuenow", String(percent))
+        )
+        expect(screen.getByRole("progressbar", { name: progressLabel })).toBe(
+          progress
+        )
+        expect(row).not.toHaveTextContent(
+          i18n.t("knowledge.document.status.ready")
+        )
+      }
+    }
+  )
 
   it.each([
     { isComposing: true, keyCode: 13 },

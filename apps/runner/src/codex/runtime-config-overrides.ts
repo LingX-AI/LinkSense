@@ -121,7 +121,7 @@ export function builtInMcpConfigOverrides(input: {
     `${corePrefix}.args=${JSON.stringify(input.args)}`,
     `${corePrefix}.env_vars=${JSON.stringify(coreMcpEnvironmentVariables)}`,
     `${corePrefix}.enabled=true`,
-    `${corePrefix}.required=true`,
+    `${corePrefix}.required=false`,
     `${corePrefix}.startup_timeout_sec=10`,
     `${corePrefix}.tool_timeout_sec=${String(coreToolTimeoutSeconds)}`,
     ...(input.managedBrowserArgs

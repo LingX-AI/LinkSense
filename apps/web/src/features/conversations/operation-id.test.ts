@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   operationAttemptId,
@@ -8,6 +8,8 @@ import {
   stableOperationId,
   type OperationReference,
 } from "@/features/conversations/operation-id"
+
+afterEach(() => vi.unstubAllGlobals())
 
 function storageFixture(): Pick<Storage, "getItem" | "setItem"> {
   const entries = new Map<string, string>()
@@ -25,6 +27,41 @@ describe("stableOperationId", () => {
     conversation_id: "c1",
     input_text: "same message",
   }
+
+  it.each([
+    {
+      input: "same message",
+      original: "9c1d6815-d1a2-5906-b481-301745978a5e",
+      next: "ccfea3fa-8228-5ab8-8c62-89b2835a2087",
+    },
+    {
+      input: "普通 HTTP 的安全随机 ID 🔐",
+      original: "6cc02104-a096-5a41-99ff-36cee9cdfceb",
+      next: "402ca364-7c14-59f2-a005-736366ffe394",
+    },
+  ])(
+    "preserves pre-change submission and stored retirement IDs over HTTP for $input",
+    async ({ input, original, next }) => {
+      vi.stubGlobal("crypto", {
+        getRandomValues: crypto.getRandomValues.bind(crypto),
+      })
+      const submission = { ...payload, input_text: input }
+      const reference: OperationReference = { current: null }
+      const storage = storageFixture()
+      expect(await stableOperationId(reference, submission, storage)).toBe(
+        original
+      )
+      storage.setItem(`linksense.closed-operation.v1:${original}`, original)
+      expect(
+        await stableOperationId({ current: null }, submission, storage)
+      ).toBe(next)
+      expect(await stableOperationId(reference, submission, storage)).toBe(
+        original
+      )
+      retireOperationId(reference, original, storage)
+      expect(await stableOperationId(reference, submission, storage)).toBe(next)
+    }
+  )
 
   it("keeps the same ID across retries and reloads until that exact submission is closed", async () => {
     const storage = storageFixture()
@@ -115,6 +152,18 @@ describe("stableOperationId", () => {
 })
 
 describe("operationAttemptId", () => {
+  it("creates a stable secure attempt ID without native randomUUID", () => {
+    vi.stubGlobal("crypto", {
+      getRandomValues: crypto.getRandomValues.bind(crypto),
+    })
+    const reference: { current: string | null } = { current: null }
+    const first = operationAttemptId(reference)
+    expect(first).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    )
+    expect(operationAttemptId(reference)).toBe(first)
+  })
+
   it("stays stable for retries and rotates after a successful operation resets it", () => {
     const reference: { current: string | null } = { current: null }
     const first = operationAttemptId(reference)

@@ -1,3 +1,4 @@
+import { createRandomUuid } from "@/lib/random-uuid"
 import { useEffect, useMemo, useRef } from "react"
 import {
   CircleAlertIcon,
@@ -345,7 +346,7 @@ export function KnowledgeUploadDialog({
         maxFileSizeLabel,
       })
       return {
-        id: `${crypto.randomUUID?.() ?? Date.now()}-${index}`,
+        id: `${createRandomUuid()}-${index}`,
         file,
         ...(uploadMode === "folder"
           ? {

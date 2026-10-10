@@ -56,6 +56,22 @@ describe("knowledge document reconnect polling", () => {
     expect(knowledgeDocumentRefetchInterval(data, true)).toBe(5_000)
   })
 
+  it("continues polling while a searchable document is being reprocessed", () => {
+    const document = processingDocument()
+    const data = page(
+      knowledgeDocumentSchema.parse({
+        ...document,
+        status: "ready",
+        searchable: true,
+        processing: { ...document.processing, operation: "reprocess" },
+      })
+    )
+
+    expect(data.pages[0].has_processing_documents).toBe(false)
+    expect(hasActiveKnowledgeDocumentProcessing(data)).toBe(true)
+    expect(knowledgeDocumentRefetchInterval(data, true)).toBe(5_000)
+  })
+
   it.each(["ready", "failed"] as const)(
     "stops polling after documents reach the %s terminal state",
     (status) => {
@@ -225,6 +241,70 @@ function event(overrides: Record<string, unknown> = {}) {
 }
 
 describe("knowledge base SSE reconciliation", () => {
+  it.each(["reprocess", "replace", "rebuild"])(
+    "keeps %s progress when the current document stays searchable",
+    (operation) => {
+      const document = processingDocument()
+      let current = knowledgeDocumentSchema.parse({
+        ...document,
+        status: "ready",
+        current_version_id: "00000000-0000-4000-8000-000000000031",
+        searchable: true,
+        processing: { ...document.processing, operation },
+      })
+
+      for (const [stage, progress, revision] of [
+        ["embedding", 90, 9],
+        ["indexing", 95, 10],
+        ["activating", 98, 11],
+      ] as const) {
+        current = applyEventToDocument(
+          current,
+          event({
+            status: "ready",
+            stage,
+            progress_percent: progress,
+            revision,
+          })
+        )
+
+        expect(current).toMatchObject({
+          status: "ready",
+          searchable: true,
+          processing: {
+            operation,
+            processing_generation: generationId,
+            stage,
+            progress_percent: progress,
+            revision,
+          },
+        })
+      }
+    }
+  )
+
+  it.each(["completed", "failed", null])(
+    "clears reprocessing progress when a searchable document reaches stage %s",
+    (stage) => {
+      const document = processingDocument()
+      const current = knowledgeDocumentSchema.parse({
+        ...document,
+        status: "ready",
+        searchable: true,
+        processing: { ...document.processing, operation: "reprocess" },
+      })
+
+      const next = applyEventToDocument(
+        current,
+        event({ status: "ready", stage, revision: 12 })
+      )
+
+      expect(next.processing).toBeNull()
+      expect(next.searchable).toBe(true)
+      expect(next.event_revision).toBe(12)
+    }
+  )
+
   it("ignores a late event whose revision is not newer", () => {
     const document = processingDocument()
     expect(

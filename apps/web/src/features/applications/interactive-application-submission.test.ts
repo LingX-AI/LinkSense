@@ -37,6 +37,7 @@ const input = interactiveApplicationTaskInputSchema.parse({
 afterEach(() => {
   vi.restoreAllMocks()
   vi.clearAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe("interactive application submission", () => {
@@ -246,6 +247,9 @@ describe("interactive application submission", () => {
   })
 
   it("keeps the same idempotency key when the user resubmits after a lost response, without automatically replaying", async () => {
+    vi.stubGlobal("crypto", {
+      getRandomValues: crypto.getRandomValues.bind(crypto),
+    })
     const queryClient = new QueryClient()
     const submit = createInteractiveApplicationSubmitter({
       queryClient,

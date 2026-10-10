@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ModelProviderSettings } from "@/api/contracts"
 import { ModelProviderSettingsForm } from "@/features/admin/model-provider-settings-form"
-import i18n from "@/i18n"
+import i18n, { supportedLanguages } from "@/i18n"
 
 const settings: ModelProviderSettings = {
   management_enabled: true,
@@ -122,6 +122,63 @@ function installSaveMock(initial = settings, detectContext = false) {
 }
 
 describe("ModelProviderSettingsForm", () => {
+  it.each(supportedLanguages)(
+    "creates and saves a channel over ordinary HTTP in %s without changing existing channels",
+    async (language) => {
+      const getRandomValues = vi.fn(crypto.getRandomValues.bind(crypto))
+      vi.stubGlobal("crypto", { getRandomValues })
+      await i18n.changeLanguage(language)
+      const requests = installSaveMock()
+      renderModels()
+      const user = userEvent.setup()
+
+      await user.click(
+        screen.getByRole("button", {
+          name: i18n.t("admin.modelProvider.addProvider"),
+        })
+      )
+      const dialog = screen.getByRole("dialog", {
+        name: i18n.t("admin.modelProvider.addProvider"),
+      })
+      const channelName = "Local network channel"
+      await user.type(
+        within(dialog).getByRole("textbox", {
+          name: formLabelPattern(i18n.t("admin.modelProvider.providerName")),
+        }),
+        channelName
+      )
+      await user.type(
+        within(dialog).getByRole("textbox", {
+          name: formLabelPattern(i18n.t("admin.modelProvider.baseUrl")),
+        }),
+        "https://models.example.test/v1"
+      )
+      await user.type(
+        within(dialog).getByLabelText(formLabelPattern("API_KEY")),
+        "synthetic-http-regression-key"
+      )
+      await user.click(
+        within(dialog).getByRole("button", {
+          name: i18n.t("admin.modelProvider.saveProvider", {
+            name: channelName,
+          }),
+        })
+      )
+
+      await waitFor(() => expect(requests).toHaveLength(1))
+      const saved = updateModelProviderSettingsSchema.parse(requests[0])
+      expect(saved.expected_revision).toBe(settings.revision)
+      expect(saved.providers[0]?.id).toBe(settings.providers[0]?.id)
+      expect(saved.default_model).toBe(settings.default_model)
+      expect(saved.providers[1]?.id).toMatch(
+        /^provider-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+      )
+      expect(saved.providers[1]?.name).toBe(channelName)
+      expect(getRandomValues).toHaveBeenCalled()
+      await waitFor(() => expect(dialog).not.toBeInTheDocument())
+    }
+  )
+
   it.each([true, false])(
     "requires a default model only when conversation models exist (%s)",
     (hasModels) => {

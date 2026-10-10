@@ -1,3 +1,4 @@
+import { createRandomUuid } from "@/lib/random-uuid"
 import {
   useEffect,
   useEffectEvent,
@@ -331,7 +332,7 @@ export function ApplicationAnnotationPreview({
                 setDrafts((items) => [
                   ...items,
                   {
-                    id: crypto.randomUUID(),
+                    id: createRandomUuid(),
                     officeSelection: { kind: "html", selection: selected },
                     request,
                   },

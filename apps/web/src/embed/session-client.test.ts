@@ -173,8 +173,12 @@ describe("EmbedSessionClient", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
     vi.stubGlobal("crypto", {
-      ...crypto,
-      randomUUID: vi.fn(() => "80000000-0000-4000-8000-000000000001"),
+      getRandomValues: vi.fn((bytes: Uint8Array): Uint8Array => {
+        bytes.fill(0)
+        bytes[0] = 128
+        bytes[15] = 1
+        return bytes
+      }),
     })
     const client = new EmbedSessionClient(ORIGIN, {
       onAuthenticationRequired: vi.fn(),

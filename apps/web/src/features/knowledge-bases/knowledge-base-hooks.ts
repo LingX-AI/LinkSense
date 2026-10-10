@@ -199,7 +199,10 @@ export function hasActiveKnowledgeDocumentProcessing(
     data?.pages.some(
       (page) =>
         page.has_processing_documents ||
-        page.items.some((document) => document.status === "processing")
+        page.items.some(
+          (document) =>
+            document.status === "processing" || document.processing !== null
+        )
     )
   )
 }
@@ -337,16 +340,14 @@ export function useKnowledgeBaseEvents(
   const reconciliationGenerationRef = useRef(0)
   const bufferedEventsRef = useRef(new Map<string, KnowledgeBaseEvent>())
   const applyDocumentEvent = useEffectEvent((event: KnowledgeBaseEvent) => {
+    const hasActiveProcessing = isActiveKnowledgeDocumentProcessingEvent(event)
     let needsReconciliation =
-      event.status === "ready" ||
-      event.status === "failed" ||
-      event.status === "deleted" ||
-      event.stable_error_code !== null
+      !hasActiveProcessing || event.stable_error_code !== null
     queryClient.setQueryData<InfiniteData<KnowledgeDocumentPage>>(
       knowledgeBaseQueryKeys.documents(event.knowledge_base_id),
       (current) => {
         if (
-          event.status === "processing" &&
+          hasActiveProcessing &&
           !current?.pages.some((page) =>
             page.items.some(
               (document) =>
@@ -686,7 +687,9 @@ export function applyEventToDocument(
   )
 
   const processing =
-    event.status === "ready" || event.status === "deleted"
+    event.status === "deleted" ||
+    (event.status === "ready" &&
+      !isActiveKnowledgeDocumentProcessingEvent(event))
       ? null
       : document.processing
         ? {
@@ -721,4 +724,17 @@ export function applyEventToDocument(
       event.status === "deleted" ? false : document.rebuild_required,
     updated_at: event.updated_at,
   }
+}
+
+function isActiveKnowledgeDocumentProcessingEvent(
+  event: KnowledgeBaseEvent
+): boolean {
+  // The current version stays ready while a replacement or rebuild is running.
+  return (
+    event.status !== "deleted" &&
+    event.status !== "failed" &&
+    event.stage !== null &&
+    event.stage !== "completed" &&
+    event.stage !== "failed"
+  )
 }

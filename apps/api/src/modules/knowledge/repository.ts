@@ -156,7 +156,11 @@ export class PrismaKnowledgeStore implements KnowledgeStore {
 
   async hasProcessingDocuments(knowledgeBaseId: string): Promise<boolean> {
     const document = await this.#database.knowledgeBaseDocument.findFirst({
-      where: { knowledgeBaseId, status: "processing" },
+      where: {
+        knowledgeBaseId,
+        status: { not: "deleted" },
+        activeProcessingVersionId: { not: null },
+      },
       select: { id: true },
     });
     return document !== null;
