@@ -1,3 +1,4 @@
+import { createRandomUuid } from "@/lib/random-uuid"
 import { useRef } from "react"
 import {
   useMutation,
@@ -110,7 +111,7 @@ export function useStartApplicationOpening() {
     mutate: (input: OpeningInput) => {
       if (!user || pending.current) return
       pending.current = true
-      const id = crypto.randomUUID()
+      const id = createRandomUuid()
       // Start only from user actions; loading-page remounts must not create tasks.
       mutation.mutate({ id, userId: user.id, input })
       void navigate(`/applications/open/${id}`)
