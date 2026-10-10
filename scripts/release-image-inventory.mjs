@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 
 export const applicationImages = ["api", "web", "migrate", "runner", "worker"];
 export const managedImages = applicationImages;
-const upstreamRoles = ["POSTGRES", "REDIS", "MINIO", "MINIO_CLIENT", "BUSYBOX", "GATEWAY", "ELASTICSEARCH", "DOCLING"];
+export const upstreamRoles = ["POSTGRES", "REDIS", "MINIO", "MINIO_CLIENT", "BUSYBOX", "GATEWAY", "ELASTICSEARCH", "DOCLING"];
 const immutableReference = /^[a-z0-9./-]+@sha256:[0-9a-f]{64}$/u;
 
 /** @param {string} frozenInventory @returns {Record<string,string>} */

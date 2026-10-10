@@ -151,6 +151,7 @@ prisma/
 
 ## Security and Privacy
 
+- Follow `deploy/security/README.md` for image vulnerability admission: external service images and proven inherited runtime layers are report-only; application-introduced HIGH/CRITICAL findings, scan errors, and functional verification failures remain blocking. Do not upgrade external images solely to unblock their vulnerability findings.
 - Follow the principle of least privilege. Enforce authentication, authorization, resource ownership, input validation, and output redaction on the server; do not rely on hiding frontend entry points.
 - Read passwords, tokens, keys, credentials, connection strings, and master keys only from controlled configuration. Do not store them in source code, plaintext database fields, logs, audit records, error responses, or test snapshots.
 - Validate environment variables centrally at startup. Fail fast when critical configuration is missing instead of silently using insecure defaults.

@@ -238,6 +238,9 @@ jobs:
         architecture: [amd64, arm64]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
       - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
         with:
@@ -258,7 +261,7 @@ jobs:
           printf 'c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f  %s\n' "$RUNNER_TEMP/trivy/archive.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/trivy/archive.tar.gz" -C "$RUNNER_TEMP/trivy" trivy
           export PATH="$RUNNER_TEMP/trivy:$PATH"
-          sh scripts/scan-release-images.sh baseline-candidate/image-references baseline-candidate/release-inputs baseline-reports "linux/${{ matrix.architecture }}"
+          sh scripts/scan-release-images.sh baseline-candidate/image-references baseline-candidate/release-inputs baseline-reports "linux/${{ matrix.architecture }}" baseline
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

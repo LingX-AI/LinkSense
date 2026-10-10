@@ -27,6 +27,7 @@ function fixture(t, options = {}) {
   writeFileSync(path.join(directory, "index.json"), index)
   for (const name of ownImages) writeFileSync(path.join(images, name), `ghcr.io/lingx-ai/linksense-${name}@${indexDigest}\n`)
   writeFileSync(path.join(inputs, "upstream-images.env"), upstreamImages.map((name) => `IMAGE_${name}=registry.example/${name.toLowerCase().replaceAll("_", "-")}@${indexDigest}`).join("\n") + "\n")
+  writeFileSync(path.join(inputs, "runtime-images.env"), ["node", "api", "web", "worker"].map(name => `BASELINE_${name.toUpperCase()}_IMAGE=ghcr.io/lingx-ai/linksense-runtime-${name}@${indexDigest}`).join("\n") + "\n")
   const calls = path.join(directory, "calls.jsonl")
   const timeoutCalls = path.join(directory, "timeouts.log")
   const mock = `#!${process.execPath}
@@ -38,6 +39,13 @@ const mode = process.env.IMAGE_TEST_MODE;
 fs.appendFileSync(process.env.IMAGE_TEST_CALLS, JSON.stringify({command,args,trivyEnvironment:Object.keys(process.env).filter(k=>k.startsWith('TRIVY_'))})+'\\n');
 if(command==='docker') {
   if(mode==='registry-failure') { process.stderr.write('registry unavailable'); process.exit(1); }
+  if(args.includes('--format')) {
+    if(mode==='base-config-failure') process.exit(1);
+    if(mode==='invalid-base-config') { process.stdout.write('not json'); process.exit(0); }
+    const baseLayer = 'sha256:'+ (mode==='wrong-base-layers'?'c':'a').repeat(64);
+    process.stdout.write(JSON.stringify(Object.fromEntries(['amd64','arm64'].map(architecture=>['linux/'+architecture,{os:'linux',architecture,rootfs:{type:'layers',diff_ids:[baseLayer]}}]))));
+    process.exit(0);
+  }
   process.stdout.write(fs.readFileSync(process.env.IMAGE_TEST_INDEX));
 } else if(args.includes('--version')) {
   process.stdout.write('Version: '+(mode==='wrong-version'?'0.68.2':'0.75.0')+'\\n');
@@ -55,10 +63,14 @@ if(command==='docker') {
   if(mode==='scan-failure') { process.stderr.write('layer download failed'); process.exit(1); }
   if(mode==='missing-report') process.exit(0);
   if(mode==='invalid-report') { fs.writeFileSync(output,'not json'); process.exit(0); }
-  const severity = mode==='critical'?'CRITICAL':mode==='high' || mode==='silent-high'?'HIGH':mode==='medium'?'MEDIUM':undefined;
-  const report={SchemaVersion:2,Trivy:{Version:'0.75.0'},ArtifactName:mode==='wrong-image'?'registry.example/other@sha256:'+'a'.repeat(64):reference,ArtifactType:'container_image',Metadata:{ImageConfig:{os:'linux',architecture:mode==='wrong-platform'?'ppc64le':platform.split('/')[1]}},Results:[{Target:'fixture',Class:'os-pkgs',Type:'alpine',...(severity?{Vulnerabilities:[{VulnerabilityID:'CVE-fixture',Severity:severity,PkgName:'fixture',InstalledVersion:'1',FixedVersion:''}]}:{})}]};
+  const inheritedModes = ['base-high','base-config-failure','invalid-base-config','wrong-base-layers'];
+  const external = !reference.startsWith('ghcr.io/lingx-ai/linksense-');
+  const severity = mode==='critical'?'CRITICAL':mode==='high' || mode==='silent-high' || inheritedModes.includes(mode) || (mode==='external-only-high' && external)?'HIGH':mode==='medium'?'MEDIUM':undefined;
+  const baseLayer = 'sha256:'+'a'.repeat(64);
+  const applicationLayer = 'sha256:'+'b'.repeat(64);
+  const report={SchemaVersion:2,Trivy:{Version:'0.75.0'},ArtifactName:mode==='wrong-image'?'registry.example/other@sha256:'+'a'.repeat(64):reference,ArtifactType:'container_image',Metadata:{DiffIDs:[baseLayer,applicationLayer],ImageConfig:{os:'linux',architecture:mode==='wrong-platform'?'ppc64le':platform.split('/')[1]}},Results:[{Target:'fixture',Class:'os-pkgs',Type:'alpine',...(severity?{Vulnerabilities:[{VulnerabilityID:'CVE-fixture',Severity:severity,PkgName:'fixture',InstalledVersion:'1',FixedVersion:'',Layer:{DiffID:inheritedModes.includes(mode)?baseLayer:applicationLayer}}]}:{})}]};
   fs.writeFileSync(output,JSON.stringify(report));
-  if(mode==='high'||mode==='critical') process.exit(1);
+  if(mode==='high'||mode==='critical'||mode==='base-high'||(mode==='external-only-high'&&external)) process.exit(1);
   if(mode==='exit-failure') process.exit(2);
 }
 `
@@ -66,7 +78,7 @@ if(command==='docker') {
   writeFileSync(path.join(bin, "timeout"), '#!/bin/sh\nprintf "%s %s\\n" "$1" "$2" >> "$IMAGE_TEST_TIMEOUTS"\ncase "$1" in --kill-after=*) shift ;; esac\nshift\nexec "$@"\n', { mode: 0o755 })
   const report = path.join(directory, "reports")
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, IMAGE_TEST_CALLS: calls, IMAGE_TEST_TIMEOUTS: timeoutCalls, IMAGE_TEST_INDEX: path.join(directory, "index.json"), IMAGE_TEST_MODE: options.mode ?? "clean" }
-  const scan = (platform = "linux/amd64") => spawnSync("sh", [script, images, inputs, report, platform], { env, encoding: "utf8", timeout: 20_000 })
+  const scan = (platform = "linux/amd64", scope = "application") => spawnSync("sh", [script, images, inputs, report, platform, scope], { env, encoding: "utf8", timeout: 20_000 })
   const commands = () => existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n").map(JSON.parse) : []
   const timeouts = () => existsSync(timeoutCalls) ? readFileSync(timeoutCalls, "utf8").trim().split("\n") : []
   return { directory, images, inputs, report, indexDigest, env, scan, commands, timeouts }
@@ -119,11 +131,61 @@ for (const mode of ["high", "critical", "silent-high"]) {
     assert.notEqual(scan().status, 0)
     const summary = JSON.parse(readFileSync(path.join(report, "summary.json"), "utf8"))
     assert.equal(summary.status, "failed")
-    assert.ok(summary.images.every(({ status }) => status === "vulnerabilities"))
+    assert.ok(summary.images.filter(({ role }) => role.startsWith("LINKSENSE_")).every(({ status }) => status === "vulnerabilities"))
+    assert.ok(summary.images.filter(({ role }) => !role.startsWith("LINKSENSE_")).every(({ status }) => status === "external_risks_recorded"))
     assert.equal(commands().filter(({ args }) => args.includes("--output")).length, 13)
     assert.equal(summary.images.length, 13)
   })
 }
+
+for (const platform of ["linux/amd64", "linux/arm64"]) {
+  for (const mode of ["external-only-high", "base-high"]) {
+    test(`${mode} is reported without blocking application release on ${platform}`, (t) => {
+      const context = fixture(t, { mode })
+      const result = context.scan(platform)
+      assert.equal(result.status, 0, result.stderr)
+      const summary = JSON.parse(readFileSync(path.join(context.report, "summary.json"), "utf8"))
+      assert.equal(summary.status, "passed_with_external_risks")
+      assert.equal(summary.policy, "application-owned-v1")
+      assert.equal(summary.images.length, 13)
+      assert.equal(summary.images.filter(({ status }) => status === "external_risks_recorded").length, mode === "base-high" ? 13 : 8)
+      assert.equal(context.commands().filter(({ args }) => args.includes("--output")).length, 13)
+      if (mode === "base-high") {
+        assert.equal(context.commands().filter(({ command, args }) => command === "docker" && args.includes("--format")).length, 4)
+        assert.equal(context.timeouts().length, 33)
+        assert.ok(context.timeouts().every(entry => entry.startsWith("--kill-after=30s ")))
+      }
+    })
+  }
+}
+
+test("baseline maintenance records environment vulnerabilities without application exemptions", (t) => {
+  const { scan, report, commands } = fixture(t, { mode: "critical" })
+  const result = scan("linux/amd64", "baseline")
+  assert.equal(result.status, 0, result.stderr)
+  const summary = JSON.parse(readFileSync(path.join(report, "summary.json"), "utf8"))
+  assert.equal(summary.status, "passed_with_external_risks")
+  assert.ok(summary.images.every(({ status }) => status === "external_risks_recorded"))
+  assert.equal(commands().filter(({ args }) => args.includes("--output")).length, 13)
+  assert.equal(commands().filter(({ command, args }) => command === "docker" && args.includes("--format")).length, 0)
+})
+
+for (const mode of ["base-config-failure", "invalid-base-config", "wrong-base-layers"]) {
+  test(`${mode} cannot turn an application finding into an inherited warning`, (t) => {
+    const { scan, report } = fixture(t, { mode })
+    assert.notEqual(scan().status, 0)
+    const summary = JSON.parse(readFileSync(path.join(report, "summary.json"), "utf8"))
+    assert.equal(summary.status, "failed")
+    assert.ok(summary.images.filter(({ role }) => role.startsWith("LINKSENSE_")).every(({ status }) => status === "error"))
+  })
+}
+
+test("a missing frozen runtime inventory cannot authorize inherited vulnerability exemptions", (t) => {
+  const { scan, inputs, commands } = fixture(t, { mode: "base-high" })
+  rmSync(path.join(inputs, "runtime-images.env"))
+  assert.notEqual(scan().status, 0)
+  assert.equal(commands().length, 0)
+})
 
 test("findings below HIGH do not block the configured gate", (t) => {
   const { scan } = fixture(t, { mode: "medium" })

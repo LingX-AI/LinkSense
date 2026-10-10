@@ -20,6 +20,13 @@ scans the runtime images using the existing 13-role gate: API/Web/Worker map to
 their runtimes, and Migrate/Runner map to the Node runtime. These are baseline
 scans, not a replacement for scanning the final application images at release.
 
+Vulnerability admission follows [the image security policy](../security/README.md).
+External vendor and environment findings remain in the reports but do not block
+maintenance or product publication. Final application findings are attributed
+to immutable baseline layers; HIGH/CRITICAL findings introduced by application
+layers still block. Invalid scans, unavailable images, functional failures and
+storage preservation failures remain blocking.
+
 Only a successful maintenance run produces `verified-baseline/images.lock.json`.
 Commit that descriptor when adopting the baseline. It records immutable image
 references, source commit, maintenance run and the complete environment recipe
@@ -45,9 +52,9 @@ source builds and daily release build arguments refer to the same images.
 Never adopt an unverified candidate, use mutable `latest` references, overwrite
 a product release, or remove runtime functionality to make a baseline pass.
 Temporary registry failures can use **Re-run failed jobs** while intermediate
-artifacts are valid. A new recipe or a real vulnerability requires a new
-source commit and baseline maintenance; it cannot be silently rebuilt during
-an application release.
+artifacts are valid. A new environment recipe requires a new source commit and
+baseline maintenance; it cannot be silently rebuilt during an application
+release. External vulnerability findings alone do not require maintenance.
 
 Recipe maintenance is a two-phase change. Source CI first checks that the
 committed Docker defaults still match the recorded baseline, and tests the

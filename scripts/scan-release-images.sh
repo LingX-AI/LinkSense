@@ -1,14 +1,18 @@
 #!/bin/sh
 set -eu
 
-[ "$#" -eq 4 ] || {
-  printf '%s\n' 'usage: scan-release-images.sh <image-references> <release-inputs> <reports> <linux/amd64|linux/arm64>' >&2
+[ "$#" -eq 5 ] || {
+  printf '%s\n' 'usage: scan-release-images.sh <image-references> <release-inputs> <reports> <linux/amd64|linux/arm64> <application|baseline>' >&2
   exit 64
 }
 image_directory=$1
 input_directory=$2
 report_directory=$3
 platform=$4
+scope=$5
+case "$scope" in application|baseline) ;; *) printf 'Unsupported scan scope: %s\n' "$scope" >&2; exit 64 ;; esac
+policy_script="$(dirname "$0")/release-image-policy.mjs"
+policy_name=$(node "$policy_script" name)
 case "$platform" in
   linux/amd64|linux/arm64) architecture=${platform#linux/} ;;
   *) printf 'Unsupported release scan platform: %s\n' "$platform" >&2; exit 64 ;;
@@ -20,8 +24,8 @@ inventory="$report_directory/inventory.tsv"
 records="$report_directory/images.jsonl"
 : > "$inventory"
 : > "$records"
-jq -n --arg platform "$platform" \
-  '{status:"incomplete", scanner:"Trivy 0.75.0", platform:$platform, images:[]}' \
+jq -n --arg platform "$platform" --arg policy "$policy_name" \
+  '{status:"incomplete", policy:$policy, scanner:"Trivy 0.75.0", platform:$platform, images:[]}' \
   > "$report_directory/summary.json"
 
 fail() {
@@ -52,6 +56,18 @@ for name in POSTGRES REDIS MINIO MINIO_CLIENT BUSYBOX GATEWAY ELASTICSEARCH DOCL
 done
 [ "$(wc -l < "$input_directory/upstream-images.env" | tr -d ' ')" -eq 8 ] ||
   fail 'Frozen upstream inventory must contain exactly the eight release image roles.'
+if [ "$scope" = application ]; then
+  test -f "$input_directory/runtime-images.env" || fail 'Missing frozen runtime image inventory.'
+  for runtime in node api web worker; do
+    key=$(printf '%s' "$runtime" | tr '[:lower:]' '[:upper:]')
+    baseline_reference=$(sed -n "s/^BASELINE_${key}_IMAGE=//p" "$input_directory/runtime-images.env")
+    jq -en --arg reference "$baseline_reference" --arg runtime "$runtime" \
+      '$reference | test("^ghcr[.]io/lingx-ai/linksense-runtime-" + $runtime + "@sha256:[0-9a-f]{64}$")' >/dev/null ||
+      fail 'Runtime provenance requires an immutable LinkSense baseline reference.'
+  done
+  [ "$(wc -l < "$input_directory/runtime-images.env" | tr -d ' ')" -eq 4 ] ||
+    fail 'Frozen runtime inventory must contain exactly four runtime roles.'
+fi
 
 # Do not inherit policy overrides, remote scanner settings or local ignore files.
 # Registry authentication is read from Docker's existing credential configuration.
@@ -96,6 +112,7 @@ record() {
 }
 
 failed=0
+resolved_runtimes=
 tab=$(printf '\t')
 while IFS="$tab" read -r role reference; do
   manifest_reference=
@@ -171,21 +188,61 @@ while IFS="$tab" read -r role reference; do
   ' "$report_file" >/dev/null 2>> "$log_file"; then
     record error 'Missing, invalid or mismatched scan report; see the role log.'
     failed=1
-  elif jq -e 'any((.Results // [])[] | (.Vulnerabilities // [])[]; .Severity == "HIGH" or .Severity == "CRITICAL")' "$report_file" >/dev/null; then
-    record vulnerabilities 'HIGH or CRITICAL vulnerabilities block release, including unfixed vulnerabilities.'
-    failed=1
-  elif [ "$scan_status" -ne 0 ]; then
+  elif [ "$scan_status" -ne 0 ] && [ "$scan_status" -ne 1 ]; then
     record error "Scanner failed with exit status $scan_status; see the role log."
     failed=1
   else
-    record passed 'No HIGH or CRITICAL vulnerabilities.'
+    finding_count=$(jq '[((.Results // [])[] | (.Vulnerabilities // [])[]) | select(.Severity == "HIGH" or .Severity == "CRITICAL")] | length' "$report_file")
+    if [ "$scan_status" -eq 1 ] && [ "$finding_count" -eq 0 ]; then
+      record error 'Scanner failed without a corresponding vulnerability finding.'
+      failed=1
+      continue
+    fi
+    baseline_config=-
+    runtime=$(node "$policy_script" runtime "$role") || fail 'Invalid image policy role.'
+    if [ "$scope" = application ] && [ "$finding_count" -gt 0 ] && [ -n "$runtime" ]; then
+      key=$(printf '%s' "$runtime" | tr '[:lower:]' '[:upper:]')
+      baseline_config="$report_directory/BASELINE_${key}.image-config.json"
+      case " $resolved_runtimes " in
+        *" $runtime "*) ;;
+        *)
+          baseline_reference=$(sed -n "s/^BASELINE_${key}_IMAGE=//p" "$input_directory/runtime-images.env")
+          if ! timeout --kill-after=30s 120 docker buildx imagetools inspect "$baseline_reference" --format '{{json .Image}}' > "$baseline_config" 2>> "$log_file"; then
+            record error 'Cannot verify frozen baseline layer provenance.'
+            failed=1
+            continue
+          fi
+          resolved_runtimes="$resolved_runtimes $runtime"
+          ;;
+      esac
+    fi
+    policy_file="$report_directory/$role.policy.json"
+    if ! node "$policy_script" classify "$role" "$scope" "$report_file" "$baseline_config" "$architecture" > "$policy_file" 2>> "$log_file"; then
+      record error 'Invalid or unverified image vulnerability provenance; see the role log.'
+      failed=1
+    else
+      policy_status=$(jq -r .status "$policy_file")
+      case "$policy_status" in
+        vulnerabilities)
+          record vulnerabilities 'Application-introduced HIGH or CRITICAL vulnerabilities block release.'
+          failed=1
+          ;;
+        external_risks_recorded)
+          record external_risks_recorded 'External image or verified inherited-baseline vulnerabilities are recorded and do not block release.'
+          ;;
+        passed) record passed 'No HIGH or CRITICAL vulnerabilities.' ;;
+        *) fail 'Invalid image policy outcome.' ;;
+      esac
+    fi
   fi
 done < "$inventory"
 
 status=passed
-[ "$failed" -eq 0 ] || status=failed
-jq -sn --arg status "$status" --arg platform "$platform" --slurpfile images "$records" \
-  '{status:$status,scanner:"Trivy 0.75.0",platform:$platform,images:$images}' \
+if [ "$failed" -ne 0 ]; then status=failed
+elif jq -se 'any(.[]; .status == "external_risks_recorded")' "$records" >/dev/null; then status=passed_with_external_risks
+fi
+jq -sn --arg status "$status" --arg platform "$platform" --arg policy "$policy_name" --slurpfile images "$records" \
+  '{status:$status,policy:$policy,scanner:"Trivy 0.75.0",platform:$platform,images:$images}' \
   > "$report_directory/summary.json"
 printf 'Release image security gate: %s (%s); reports: %s\n' "$status" "$platform" "$report_directory"
 exit "$failed"
