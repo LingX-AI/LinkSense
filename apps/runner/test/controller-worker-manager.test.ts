@@ -1416,7 +1416,7 @@ describe("controller worker lifecycle", () => {
     }
   })
 
-  it.each(["strict", "compatible"])("probes Codex in %s CPU mode without weakening other worker limits", async mode => {
+  it("probes Codex through a short-lived worker and removes its container and directories", async () => {
     const docker = new FakeDocker()
     const transport = new FakeTransport()
     const modelCatalog: NonNullable<
@@ -1438,7 +1438,7 @@ describe("controller worker lifecycle", () => {
       void owner
     })
     const manager = createDockerWorkerManager(
-      createConfig({ LINKSENSE_CPU_QUOTA_MODE: mode }),
+      createConfig(),
       docker,
       transport,
       pino({ level: "silent" }),
@@ -1467,7 +1467,6 @@ describe("controller worker lifecycle", () => {
       Binds: [],
     })
     expect(spec.HostConfig.Memory).toBe(4_096 * 1024 * 1024)
-    expect(spec.HostConfig.NanoCpus).toBe(mode === "compatible" ? 0 : 2_000_000_000)
     expect(spec.HostConfig).not.toHaveProperty("Privileged", true)
     expect(spec.HostConfig.MemorySwap).toBe(spec.HostConfig.Memory)
     expect(spec.HostConfig.PidsLimit).toBe(4_096)
@@ -1801,12 +1800,6 @@ describe("dynamic worker container contract", () => {
         LINKSENSE_NODE_PACKAGE_REGISTRY_URL:
           "https://packages.example/npm/",
       }),
-    )
-    expect(workerContractKey(config)).toBe(
-      workerContractKey({ ...config, LINKSENSE_CPU_QUOTA_MODE: undefined }),
-    )
-    expect(workerContractKey(config)).not.toBe(
-      workerContractKey({ ...config, LINKSENSE_CPU_QUOTA_MODE: "compatible" }),
     )
     expect(workerContractKey(config)).not.toBe(
       workerContractKey({

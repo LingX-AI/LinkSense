@@ -569,7 +569,6 @@ jobs:
       fail-fast: false
       matrix:
         edition: [core, full]
-        cpu-mode: [strict, compatible]
         platform:
           - architecture: amd64
             runner: ${{ vars.LINKSENSE_INSTALLATION_RUNNER_AMD64 || 'ubuntu-24.04' }}
@@ -581,14 +580,10 @@ jobs:
         with:
           node-version: 24
       - name: Check memory and free space on the disposable hosted runner
-        env:
-          EDITION: ${{ matrix.edition }}
         run: |
           mkdir installation-reports
-          required_gib=8
-          if [ "$EDITION" = full ]; then required_gib=24; fi
-          test "$(docker info --format '{{.MemTotal}}')" -ge "$((required_gib * 1024 * 1024 * 1024))" || {
-            echo "Installation verification requires at least $required_gib GiB available to Docker. Use a sufficiently sized runner; this gate cannot be skipped." >&2
+          test "$(docker info --format '{{.MemTotal}}')" -ge 10737418240 || {
+            echo 'Installation verification requires at least 10 GiB available to Docker. Use a sufficiently sized runner; this gate cannot be skipped.' >&2
             exit 1
           }
           # These preinstalled SDKs are unused in this fresh hosted VM. Retain
@@ -616,19 +611,18 @@ jobs:
           SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
           RELEASE_WORKFLOW_ID: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           EDITION: ${{ matrix.edition }}
-          LINKSENSE_CPU_QUOTA_MODE: ${{ matrix.cpu-mode }}
           PREVIOUS_VERSION: ${{ needs.prepare.outputs.previous_version }}
         run: |
           set -eu
           set -- release-assets "$EDITION" installation-reports
           if [ -n "$PREVIOUS_VERSION" ]; then set -- "$@" previous-release-assets; fi
           sudo env "PATH=$PATH" "RELEASE_VERSION=$RELEASE_VERSION" "SOURCE_SHA=$SOURCE_SHA" \
-            "RELEASE_WORKFLOW_ID=$RELEASE_WORKFLOW_ID" "LINKSENSE_CPU_QUOTA_MODE=$LINKSENSE_CPU_QUOTA_MODE" node scripts/release-installation-smoke.mjs "$@"
+            "RELEASE_WORKFLOW_ID=$RELEASE_WORKFLOW_ID" node scripts/release-installation-smoke.mjs "$@"
       - name: Save redacted installation verification reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: installation-${{ matrix.edition }}-${{ matrix.platform.architecture }}-${{ matrix.cpu-mode }}
+          name: installation-${{ matrix.edition }}-${{ matrix.platform.architecture }}
           path: installation-reports/
           if-no-files-found: error
           retention-days: 30

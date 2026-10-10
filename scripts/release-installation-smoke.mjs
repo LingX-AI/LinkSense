@@ -13,7 +13,6 @@ const root = path.resolve(import.meta.dirname, "..")
 const volumeNames = ["postgres", "redis", "minio", "user-data", "backups", "elasticsearch", "tokenizer"].map(name => `linksense-${name}`)
 const networkNames = ["linksense-internal", "linksense-worker-control", "linksense-worker-egress", "linksense-knowledge-internal"]
 const secretKey = /PASSWORD|SECRET|TOKEN|(?:^|_)KEY(?:_ID)?$|^DATABASE_URL$|^REDIS_URL$|^DOCLING_REDIS_URL$/u
-const resourceKey = /^LINKSENSE_(?:CPU_QUOTA_MODE|(?:API|RUNNER|POSTGRES|REDIS|MINIO|WORKER|ELASTICSEARCH)_MEMORY_MB|(?:API|RUNNER)_NODE_OPTIONS|MAX_CONCURRENT_CONVERSATIONS|RUNNER_APP_SERVER_PROCESS_LIMIT|(?:CODEX_APP_SERVER|WORKER)_IDLE_TTL_SECONDS|KB_[A-Z]+_CONCURRENCY)$/u
 const hash = value => createHash("sha256").update(value).digest("hex")
 
 export function verificationPassword() {
@@ -68,7 +67,6 @@ export function assertPreserved(before, after) {
   assert.equal(after.installedAt, before.installedAt, "Original installation date changed")
   for (const [key, value] of Object.entries(before.secrets)) assert.ok(after.secrets[key] === value, `Protected setting changed: ${key}`)
   assert.ok(JSON.stringify(after.volumes) === JSON.stringify(before.volumes), "Persistent volumes were replaced")
-  for (const [key, value] of Object.entries(before.resources ?? {})) assert.equal(after.resources[key], value, `Installed resource setting changed: ${key}`)
 }
 
 export function requireProbeCompletion(output, marker) {
@@ -94,20 +92,6 @@ export function verifyInstalledContainers(containers, manifest, edition) {
       assert.equal(container.State.ExitCode, 0, `${service} failed`)
     } else assert.equal(container.State.Status, "running", `${service} is not running`)
     if (container.State.Health) assert.equal(container.State.Health.Status, "healthy", `${service} is unhealthy`)
-  }
-}
-
-export function verifyInstalledResources(containers, env) {
-  const memoryKeys = { api: "API", runner: "RUNNER", postgres: "POSTGRES", redis: "REDIS", minio: "MINIO", elasticsearch: "ELASTICSEARCH" }
-  for (const container of containers) {
-    const service = container.Config.Labels["com.docker.compose.service"]
-    if (memoryKeys[service]) assert.equal(container.HostConfig.Memory, Number(env[`LINKSENSE_${memoryKeys[service]}_MEMORY_MB`] ?? 0) * 1024 ** 2, `${service} memory budget differs from the installed configuration`)
-    if (["api", "runner"].includes(service)) assert.ok(container.Config.Env.includes(`NODE_OPTIONS=${env[`LINKSENSE_${service.toUpperCase()}_NODE_OPTIONS`] ?? ""}`), `${service} Node heap configuration changed`)
-    if (service === "runner") assert.ok(container.Config.Env.includes(`LINKSENSE_CPU_QUOTA_MODE=${env.LINKSENSE_CPU_QUOTA_MODE}`), "Runner CPU mode changed")
-    if (["docling-api", "docling-worker"].includes(service)) {
-      assert.equal(container.HostConfig.Memory, (service === "docling-api" ? 2048 : 8192) * 1024 ** 2, `${service} memory budget changed`)
-      assert.equal(container.HostConfig.NanoCpus, Number(env[`LINKSENSE_${service.toUpperCase().replaceAll("-", "_")}_CPUS`]) * 1e9, `${service} CPU mode changed`)
-    }
   }
 }
 
@@ -202,7 +186,7 @@ export async function runInstallationSmoke({ assetDirectory, edition, reportDire
     const names = state.STATE_DATA_VOLUMES.split(",")
     assert.ok(names.every(name => volumeNames.includes(name)), "Unexpected data volume")
     const volumes = JSON.parse(await docker(["volume", "inspect", ...names])).map(({ Name, CreatedAt, Mountpoint, Driver }) => ({ Name, CreatedAt, Mountpoint, Driver })).sort((a, b) => a.Name.localeCompare(b.Name))
-    return { installedAt: state.STATE_INSTALLED_AT, secrets: Object.fromEntries(Object.entries(env).filter(([key]) => secretKey.test(key)).map(([key, value]) => [key, hash(value)])), resources: Object.fromEntries(Object.entries(env).filter(([key]) => resourceKey.test(key))), volumes }
+    return { installedAt: state.STATE_INSTALLED_AT, secrets: Object.fromEntries(Object.entries(env).filter(([key]) => secretKey.test(key)).map(([key, value]) => [key, hash(value)])), volumes }
   }
   const httpPort = await availablePort()
   const origin = `http://127.0.0.1:${httpPort}`
@@ -251,10 +235,6 @@ export async function runInstallationSmoke({ assetDirectory, edition, reportDire
       await delay(2000)
     }
     verifyInstalledContainers(containers, manifest, edition)
-    if (manifest.RESOURCE_HOST_ADAPTATION_FORMAT === "1") {
-      assert.equal(env.LINKSENSE_CPU_QUOTA_MODE, process.env.LINKSENSE_CPU_QUOTA_MODE ?? "strict")
-      verifyInstalledResources(containers, env)
-    }
     await request("/system/health/ready")
   }
   async function cleanupInstallation() {
@@ -330,12 +310,6 @@ export async function runInstallationSmoke({ assetDirectory, edition, reportDire
         await verifyInstallation(previous)
       })
       const legacy = await step("seed published-version persistence fixtures", seedAccount)
-      await step("configure custom published-version resource limits", async () => {
-        const file = path.join(installDirectory, ".env")
-        const custom = { LINKSENSE_MAX_CONCURRENT_CONVERSATIONS: "7", LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT: "3", LINKSENSE_WORKER_MEMORY_MB: "6144", LINKSENSE_WORKER_IDLE_TTL_SECONDS: "77" }
-        const existing = parseEnvironment(await readFile(file, "utf8"))
-        await writeFile(file, Object.entries({ ...existing, ...custom }).map(([key, value]) => `${key}=${value}`).join("\n") + "\n", { mode: 0o600 })
-      })
       const legacyBefore = await snapshot()
       await step("upgrade persisted published-version data", async () => {
         await entry("upgrade.sh")

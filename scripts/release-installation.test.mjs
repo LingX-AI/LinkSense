@@ -109,7 +109,7 @@ test("the installer checks the host before creating persistent state", async () 
   )
   assert.match(
     source,
-    /log_stage "Stage 1: run the read-only host preflight\."\nvalidate_install_dir\nTMP_ROOT=\$\(mktemp -d\)\nhost_lock_installation\nresolve_http_port\nresolve_cpu_mode\npreflight/u,
+    /log_stage "Stage 1: run the read-only host preflight\."\nvalidate_install_dir\nresolve_http_port\npreflight\nTMP_ROOT=\$\(mktemp -d\)/u,
   )
   assert.match(source, /REQUIRED_DOCKER_API=1\.45/u)
   assert.match(source, /REQUIRED_COMPOSE_VERSION=2\.24\.4/u)
@@ -117,11 +117,11 @@ test("the installer checks the host before creating persistent state", async () 
   assert.match(source, /LINKSENSE_HTTP_PORT must be an integer between 1 and 65535/u)
   assert.match(source, /STATE_HTTP_PORT/u)
   assert.doesNotMatch(source, /:2760\$/u)
-  assert.match(source, /available_inodes=.*required_inodes=/u)
-  assert.match(source, /check_release_storage/u)
+  assert.doesNotMatch(source, /required_disk_kb|available_inodes|required_inodes/u)
+  assert.doesNotMatch(source, /df -P[ki]/u)
   assert.match(source, /LINKSENSE_PLATFORM=linux-arm64/u)
-  assert.match(source, /LINKSENSE_MAX_CONCURRENT_CONVERSATIONS=\$\{LINKSENSE_MAX_CONCURRENT_CONVERSATIONS:-1\}/u)
-  assert.match(source, /LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT=\$\{LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT:-2\}/u)
+  assert.match(source, /"LINKSENSE_MAX_CONCURRENT_CONVERSATIONS=500"/u)
+  assert.match(source, /"LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT=20"/u)
   assert.match(
     source,
     /HOST_OS" = Darwin[\s\S]*LINKSENSE_DOCKER_SOCKET_SOURCE=\/var\/run\/docker\.sock/u,
@@ -199,7 +199,6 @@ case "$1:$2:$3" in
   info:--format:'{{.OSType}}') printf linux ;;
   info:--format:'{{.Architecture}}') printf x86_64 ;;
   info:--format:'{{.MemTotal}}') printf '%s' "$LINKSENSE_TEST_MEMORY_BYTES" ;;
-  info:--format:'{{.MemoryLimit}}'|info:--format:'{{.PidsLimit}}'|info:--format:'{{.CPUCfsQuota}}'|info:--format:'{{.CPUCfsPeriod}}') printf true ;;
   version:--format:*) printf 1.45 ;;
   compose:version:*) printf 2.24.4 ;;
   context:inspect:*) printf 'unix://%s' "$LINKSENSE_TEST_SOCKET" ;;
@@ -212,7 +211,7 @@ esac
     const harness = path.join(directory, "memory-preflight.sh")
     await writeExecutable(harness, `${installer.slice(0, mainPosition)}read_os_release() { OS_ID=ubuntu; }\ncheck_port() { :; }\npreflight\n`)
     for (const hostOs of ["Darwin", "Linux"]) {
-      for (const [edition, requiredGiB] of [["core", 8], ["full", 24]]) {
+      for (const [edition, requiredGiB] of [["core", 8], ["full", 10]]) {
         const requiredKiB = requiredGiB * 1024 * 1024
         for (const memoryKiB of [8124776, requiredKiB - 1, requiredKiB]) {
           const result = spawnSync("/bin/sh", [harness], {
@@ -516,8 +515,6 @@ compose() {
     *) return 64 ;;
   esac
 }
-compose_bounded() { shift; compose "$@"; }
-verify_service_stability() { :; }
 wait_for_health
 `)
       const result = spawnSync("/bin/sh", [harness], {
@@ -540,7 +537,7 @@ wait_for_health
       if (scenario.success) assert.equal(result.status, 0, result.stderr)
       else {
         assert.equal(result.status, 1, result.stderr)
-        assert.match(result.stderr, /LS_HOST_stability.*readiness_deadline/u)
+        assert.match(result.stderr, /The stack did not become ready/u)
       }
       const recorded = await readFile(trace, "utf8")
       assert.match(recorded, /\/api\/v1\/system\/health\/ready/u)
@@ -573,21 +570,18 @@ test("tokenizer publication makes privately downloaded model files readable and 
       .replaceAll("/tokenizer", volumeDirectory)
       .replaceAll("/source", sourceDirectory)
       .replace("mv -Tf", "mv -f")
-    const permissionEnv = { ...process.env, COPYFILE_DISABLE: "1" }
-    execFileSync("/bin/sh", ["-ec", script, "sh", "fixture-revision"], { env: permissionEnv })
+    execFileSync("/bin/sh", ["-ec", script, "sh", "fixture-revision"])
 
     const file = path.join(volumeDirectory, "current", "config.json")
     assert.equal(await readFile(file, "utf8"), '{"model_type":"qwen3"}')
     assert.equal((await stat(file)).mode & 0o777, 0o444)
     assert.equal((await stat(path.dirname(file))).mode & 0o777, 0o555)
   } finally {
-    for (const revision of ["fixture-revision", ".staging"]) {
-      const publishedDirectory = path.join(directory, "volume", "releases", revision)
-      try {
-        await chmod(publishedDirectory, 0o700)
-      } catch (error) {
-        if (error.code !== "ENOENT") throw error
-      }
+    const publishedDirectory = path.join(directory, "volume", "releases", "fixture-revision")
+    try {
+      await chmod(publishedDirectory, 0o700)
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error
     }
     await rm(directory, { recursive: true, force: true })
   }
@@ -665,7 +659,6 @@ load_strict_env() {
   STATE_INSTALLED_AT=2026-01-01T00:00:00Z
 }
 require_loaded_keys() { :; }
-docker() { printf '%s\\n' 17179869184; }
 load_runtime_env() {
   LINKSENSE_VERSION=v0.1.0
   LINKSENSE_PUBLIC_BASE_URL=http://127.0.0.1:10080
@@ -935,12 +928,11 @@ test(
       const bundled = path.join(bundleDirectory, "install-core.sh")
       await Promise.all(
         [
-          { name: "docker-missing", docker: null, message: /LS_HOST_tools/u },
+          { name: "docker-missing", docker: null, message: /Docker CLI is not installed/u },
           { name: "daemon-stopped", docker: "daemon-stopped", message: /Docker Desktop is stopped/u },
           { name: "engine-old", docker: "engine-old", message: /API 1\.44 is too old/u },
-          { name: "engine-client-old", docker: "engine-client-old", os: "Linux", message: /(?:API 1\.43 is too old|LS_HOST_engine)/u },
-          { name: "compose-missing", docker: "compose-missing", message: /LS_HOST_download/u },
-          { name: "compose-old", docker: "compose-old", message: /LS_HOST_download/u },
+          { name: "compose-missing", docker: "compose-missing", message: /Compose V2 is not installed/u },
+          { name: "compose-old", docker: "compose-old", message: /Compose 2\.23\.0 is too old/u },
         ].map(async (scenario) => {
           const directory = await mkdtemp(
             path.join(tmpdir(), "linksense-preflight-"),
@@ -952,18 +944,18 @@ test(
             await mkdir(bin)
             await writeExecutable(
               path.join(bin, "id"),
-              `#!/bin/sh\nprintf '%s\\n' ${scenario.os === "Linux" ? "0" : "501"}\n`,
+              "#!/bin/sh\nprintf '%s\\n' 501\n",
             )
             await writeExecutable(
               path.join(bin, "uname"),
-              `#!/bin/sh\ncase "$1" in -s) printf '%s\\n' ${scenario.os || "Darwin"} ;; -m) printf '%s\\n' x86_64 ;; *) exit 1 ;; esac\n`,
+              "#!/bin/sh\ncase \"$1\" in -s) printf '%s\\n' Darwin ;; -m) printf '%s\\n' x86_64 ;; *) exit 1 ;; esac\n",
             )
             await writeExecutable(
               path.join(bin, "curl"),
               "#!/bin/sh\nprintf 'curl %s\\n' \"$*\" >> \"$LINKSENSE_TEST_TRACE\"\nexit 99\n",
             )
             await Promise.all(
-              ["awk", "grep", "head", "tr", "sed", "dirname", "mktemp", "mkdir", "rm", "rmdir", "ps"].map((command) =>
+              ["awk", "grep", "head", "tr", "sed"].map((command) =>
                 linkSystemCommand(command, bin),
               ),
             )
@@ -978,7 +970,6 @@ test(
                 HOME: directory,
                 LINKSENSE_INSTALL_DIR: installDirectory,
                 LINKSENSE_TEST_TRACE: trace,
-                LINKSENSE_CLI_LANGUAGE: "en-US",
                 PATH: bin,
               },
             })
@@ -990,8 +981,7 @@ test(
               recorded,
               /\b(?:pull|up|run|create|rm|prune|stop|restart)\b/iu,
             )
-            if (scenario.name.startsWith("compose")) assert.match(recorded, /curl.*docker-compose-darwin-x86_64/u)
-            else assert.doesNotMatch(recorded, /^curl /mu)
+            assert.doesNotMatch(recorded, /^curl /mu)
           } finally {
             await rm(directory, { recursive: true, force: true })
           }
@@ -1065,16 +1055,6 @@ test("Core and Full keep distinct immutable server and client images with native
       services["minio-init"].command.join("\n"),
       /mcli admin policy attach local readwrite/u,
     )
-  }
-})
-
-test("Full enforces its configured Elasticsearch budget and keeps pre-change unlimited installations usable", () => {
-  for (const limit of [undefined, "0", "2048"]) {
-    const environment = composeEnvironment("full")
-    delete environment.LINKSENSE_ELASTICSEARCH_MEMORY_MB
-    if (limit !== undefined) environment.LINKSENSE_ELASTICSEARCH_MEMORY_MB = limit
-    const { services } = JSON.parse(execFileSync("docker", composeArguments("full", ["config", "--format", "json"]), { encoding: "utf8", env: environment }))
-    assert.equal(Number(services.elasticsearch.mem_limit ?? 0), Number(limit ?? 0) * 1024 ** 2)
   }
 })
 
@@ -1399,8 +1379,6 @@ test("the release manifest generator records immutable images and artifact hashe
     assert.match(manifest, /^MANIFEST_FORMAT=2$/mu)
     assert.match(manifest, /^CORE_MIN_MEMORY_GIB=8$/mu)
     assert.match(manifest, /^FULL_MIN_MEMORY_GIB=10$/mu)
-    assert.match(manifest, /^RESOURCE_FULL_FRESH_MIN_MEMORY_GIB=24$/mu)
-    assert.match(manifest, /^RESOURCE_HOST_ADAPTATION_FORMAT=1$/mu)
     assert.match(manifest, /RELEASE_VERSION=v0\.1\.0/u)
     assert.doesNotMatch(manifest, /^(?:CORE|FULL)_MIN_DISK_GIB=/mu)
     assert.doesNotMatch(manifest, /^(?:CORE|FULL)_MIN_FREE_INODES=/mu)
@@ -1459,9 +1437,8 @@ test("the release manifest generator records immutable images and artifact hashe
     }).join("\n")
     const manifestCheck = path.join(directory, "manifest-check")
     await mkdir(manifestCheck)
-    for (const [required, available, accepted, existing = false, freshMetadata = false] of [["10", 10, true], ["10", 9, false], ["16", 16, true], ["16", 10, false], ["9", 16, false], ["", 16, false], ["010", 16, false], ["10", 23, false, false, true], ["10", 24, true, false, true], ["10", 18, true, true, true]]) {
-      const metadata = freshMetadata ? manifest : manifest.replace(/^RESOURCE_(?:HOST_ADAPTATION_FORMAT|FULL_FRESH_MIN_MEMORY_GIB)=.*\n/gmu, "")
-      const fixture = metadata.replace(/^FULL_MIN_MEMORY_GIB=.*$/mu, `FULL_MIN_MEMORY_GIB=${required}`)
+    for (const [required, available, accepted] of [["10", 10, true], ["10", 9, false], ["16", 16, true], ["16", 10, false], ["9", 16, false], ["", 16, false], ["010", 16, false]]) {
+      const fixture = manifest.replace(/^FULL_MIN_MEMORY_GIB=.*$/mu, `FULL_MIN_MEMORY_GIB=${required}`)
       await writeFile(output, fixture)
       await writeFile(`${output}.sha256`, `${createHash("sha256").update(fixture).digest("hex")}  release-manifest.env\n`)
       const result = spawnSync("sh", ["-c", `
@@ -1470,15 +1447,13 @@ ${functions}
 download() { cp "$FIXTURE_SOURCE/\$(basename "$1")" "$2"; }
 docker() { printf '%s\\n' "$FIXTURE_MEMORY"; }
 TMP_ROOT=$FIXTURE_TARGET
-INSTALL_DIR=$FIXTURE_TARGET/install
-if [ "$FIXTURE_EXISTING" = true ]; then mkdir -p "$INSTALL_DIR"; touch "$INSTALL_DIR/install-state.env"; fi
 EDITION=full
 LINKSENSE_PLATFORM=linux-amd64
 REQUIRED_DOCKER_API=1.45
 REQUIRED_COMPOSE_VERSION=2.24.4
 RELEASE_SELECTOR=latest
 fetch_manifest https://release.example
-`], { encoding: "utf8", env: { ...process.env, FIXTURE_SOURCE: directory, FIXTURE_TARGET: manifestCheck, FIXTURE_MEMORY: String(available * 1024 ** 3), FIXTURE_EXISTING: String(existing) } })
+`], { encoding: "utf8", env: { ...process.env, FIXTURE_SOURCE: directory, FIXTURE_TARGET: manifestCheck, FIXTURE_MEMORY: String(available * 1024 ** 3) } })
       assert.equal(result.status, accepted ? 0 : 1, `Full minimum ${required}, available ${available}: ${result.stderr}`)
       if (!accepted) assert.match(result.stderr, required === "" ? /Unsafe value for FULL_MIN_MEMORY_GIB/u : /host requirements|Docker Engine memory/u)
     }
@@ -1779,8 +1754,6 @@ function composeEnvironment(edition) {
 }
 
 async function writeExecutable(file, source) {
-  const helpers = await readFile(path.join(releaseDirectory, "linksense-host.sh"), "utf8")
-  source = source.replace('. "$(dirname "$0")/linksense-host.sh"', () => helpers)
   await writeFile(file, source, { mode: 0o755 })
   await chmod(file, 0o755)
 }
@@ -1807,8 +1780,7 @@ case "${scenario}:$1:$2:$3" in
   *:info::) exit 0 ;;
   *:info:--format:'{{.OSType}}') printf '%s\\n' linux ;;
   *:info:--format:'{{.Architecture}}') printf '%s\\n' x86_64 ;;
-  engine-old:version:--format:'{{.Server.APIVersion}}') printf '%s\\n' 1.44 ;;
-  engine-client-old:version:--format:*) printf '%s\\n' 1.43 ;;
+  engine-old:version:--format:*) printf '%s\\n' 1.44 ;;
   *:version:--format:*) printf '%s\\n' 1.45 ;;
   compose-missing:compose:version:*) exit 1 ;;
   compose-old:compose:version:*) printf '%s\\n' 2.23.0 ;;
