@@ -1,4 +1,3 @@
-import { createUuid } from "@/lib/uuid"
 import {
   useMemo,
   useState,
@@ -670,7 +669,7 @@ export function AutomationPage() {
                                       onClick={() =>
                                         runNowMutation.mutate({
                                           automation,
-                                          requestId: createUuid(),
+                                          requestId: crypto.randomUUID(),
                                         })
                                       }
                                     >

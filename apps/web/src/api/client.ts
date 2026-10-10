@@ -1,4 +1,3 @@
-import { createUuid } from "@/lib/uuid"
 import { z } from "zod"
 import {
   CLIENT_BUILD_HEADER,
@@ -163,7 +162,8 @@ export function isRetryableApiError(error: unknown) {
 }
 
 function createRefreshOwnerId() {
-  return createUuid()
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID()
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 function readRefreshLease() {

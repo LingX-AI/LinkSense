@@ -1,4 +1,3 @@
-import { createUuid } from "@/lib/uuid"
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeftIcon, CopyIcon, PlusIcon, Trash2Icon } from "lucide-react"
@@ -830,7 +829,7 @@ function StarterQuestionsEditor({
           size="sm"
           disabled={questions.length >= MAX_STARTER_QUESTIONS_PER_ORIGIN}
           onClick={() =>
-            onChange([...questions, { id: createUuid(), text: "" }])
+            onChange([...questions, { id: crypto.randomUUID(), text: "" }])
           }
         >
           <PlusIcon data-icon="inline-start" aria-hidden="true" />
@@ -847,7 +846,7 @@ function editableStarterQuestions(
   return Object.fromEntries(
     sets.map((set) => [
       set.origin,
-      set.questions.map((text) => ({ id: createUuid(), text })),
+      set.questions.map((text) => ({ id: crypto.randomUUID(), text })),
     ])
   )
 }

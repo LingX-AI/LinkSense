@@ -1,5 +1,3 @@
-import { createUuid } from "@/lib/uuid"
-import { sha256 } from "@noble/hashes/sha2.js"
 import { z } from "zod"
 
 type StableOperation = {
@@ -59,7 +57,7 @@ export function retireOperationId(
 export function operationAttemptId(reference: {
   current: string | null
 }): string {
-  reference.current ??= createUuid()
+  reference.current ??= crypto.randomUUID()
   return reference.current
 }
 
@@ -82,10 +80,9 @@ export async function stableOperationId(
 }
 
 async function digestOperationId(value: string): Promise<string> {
-  const data = new TextEncoder().encode(value)
-  const digest = crypto.subtle
-    ? new Uint8Array(await crypto.subtle.digest("SHA-256", data))
-    : sha256(data)
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
+  )
   digest[6] = (digest[6]! & 0x0f) | 0x50
   digest[8] = (digest[8]! & 0x3f) | 0x80
   const hex = Array.from(digest.subarray(0, 16), (value) =>

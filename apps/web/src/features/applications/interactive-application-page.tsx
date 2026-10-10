@@ -1,4 +1,3 @@
-import { createUuid } from "@/lib/uuid"
 import { LoadingState } from "@/components/feedback/page-state"
 import {
   useInteractiveTaskState,
@@ -117,7 +116,7 @@ function InteractiveApplicationRuntime({
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const pendingCustomEventsRef = useRef<Array<Record<string, unknown>>>([])
   const seenCustomEventIdsRef = useRef(new Set<string>())
-  const [instanceId] = useState(() => createUuid())
+  const [instanceId] = useState(() => crypto.randomUUID())
   const [chatOpen, setChatOpen] = useState(
     () => !onDiagnostic && !window.matchMedia("(max-width: 767px)").matches
   )

@@ -1,4 +1,3 @@
-import { createUuid } from "@/lib/uuid"
 import type { ApplicationAnnotationSubmit } from "@/features/applications/application-annotation-submission"
 import { SiteShareButton } from "@/features/web-sites/site-share-button"
 import { FirstUseGuide } from "@/features/onboarding/first-use-guide"
@@ -4741,7 +4740,7 @@ export function ConversationPage({
       return
     }
     if (!turnExecutionActive) {
-      const optimisticId = createUuid()
+      const optimisticId = crypto.randomUUID()
       const optimisticConversationId =
         conversationId ?? newConversationPlaceholderId
       const selectedCapabilities = new Map(
