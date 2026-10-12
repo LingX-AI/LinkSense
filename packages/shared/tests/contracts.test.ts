@@ -416,6 +416,7 @@ describe("shared boundary contracts", () => {
     ).toEqual([
       "alibaba_bailian",
       "openai",
+      "openai_compatible",
       "google_gemini",
       "stability",
       "fal",

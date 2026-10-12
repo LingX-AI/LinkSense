@@ -1,11 +1,15 @@
 import { z } from "zod"
 
-import { modelIdentifierSchema } from "./model-provider.js"
+import {
+  modelIdentifierSchema,
+  modelProviderBaseUrlSchema,
+} from "./model-provider.js"
 import { pricingCurrency } from "./pricing-currency.js"
 
 export const imageGenerationProviderValues = [
   "alibaba_bailian",
   "openai",
+  "openai_compatible",
   "google_gemini",
   "stability",
   "fal",
@@ -30,6 +34,15 @@ export const imageGenerationProviderDefinitions = [
   },
   {
     key: "openai",
+    default_model: "gpt-image-2",
+    base_url: "https://api.openai.com/v1",
+    requires_workspace_id: false,
+    requires_region: false,
+    default_region: null,
+    max_images: 10,
+  },
+  {
+    key: "openai_compatible",
     default_model: "gpt-image-2",
     base_url: "https://api.openai.com/v1",
     requires_workspace_id: false,
@@ -156,6 +169,7 @@ export const updateImageGenerationSettingsSchema = z
       workspace_id: null,
       region: null,
     }),
+    base_url: modelProviderBaseUrlSchema.nullable().optional(),
     api_key: z.string().trim().min(1).max(16_384).optional(),
     model: modelIdentifierSchema.nullable(),
     price_per_image: imageGenerationPricePerImageSchema.default("0"),

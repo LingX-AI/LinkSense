@@ -9,6 +9,7 @@ import {
   imageGenerationProviderSchema,
   imageGenerationRequestSchema,
   imageGenerationSettingsSchema,
+  modelProviderBaseUrlSchema,
   pricingCurrency,
   updateImageGenerationSettingsSchema,
   type JsonValue,
@@ -102,6 +103,7 @@ const storedImageGenerationSettingsSchema = z.strictObject({
   enabled: z.boolean(),
   provider: imageGenerationProviderSchema.nullable(),
   providerOptions: imageGenerationProviderOptionsSchema,
+  baseUrl: modelProviderBaseUrlSchema.nullable().optional(),
   apiKey: z.string().min(1).max(16_384).nullable(),
   model: z.string().trim().min(1).max(240).nullable(),
   pricePerImage: imageGenerationPricePerImageSchema,
@@ -335,7 +337,11 @@ export class ImageGenerationSettingsService {
       revision: stored.revision,
       provider: stored.provider,
       providerOptions: stored.providerOptions,
-      baseUrl: resolveProviderBaseUrl(stored.provider, stored.providerOptions),
+      baseUrl: resolveProviderBaseUrl(
+        stored.provider,
+        stored.providerOptions,
+        stored.baseUrl,
+      ),
       apiKey: stored.apiKey,
       model: stored.model,
       pricePerImage: stored.pricePerImage,
@@ -368,6 +374,7 @@ function createStoredSettings(
       input.provider,
       input.provider_options,
     ),
+    baseUrl: input.base_url ?? null,
     apiKey: input.api_key ?? current?.apiKey ?? null,
     model: input.model,
     pricePerImage: input.price_per_image,
@@ -420,12 +427,13 @@ function projectAdminSettings(
     provider: stored?.provider ?? null,
     provider_options:
       stored?.providerOptions ?? imageGenerationProviderOptionsSchema.parse({}),
-    base_url:
-      stored?.provider && stored.enabled
-        ? resolveProviderBaseUrl(stored.provider, stored.providerOptions)
-        : stored?.provider
-          ? resolveProviderBaseUrl(stored.provider, stored.providerOptions)
-          : null,
+    base_url: stored?.provider
+      ? resolveProviderBaseUrl(
+          stored.provider,
+          stored.providerOptions,
+          stored.baseUrl,
+        )
+      : null,
     api_key_configured: stored?.apiKey !== null && stored?.apiKey !== undefined,
     model: stored?.model ?? null,
     price_per_image: stored?.pricePerImage ?? "0",
@@ -437,7 +445,9 @@ function projectAdminSettings(
 export function resolveProviderBaseUrl(
   provider: ImageGenerationProvider,
   options: ImageGenerationProviderOptions,
+  customBaseUrl?: string | null,
 ): string {
+  if (customBaseUrl) return modelProviderBaseUrlSchema.parse(customBaseUrl)
   const definition = imageGenerationProviderDefinitions.find(
     (candidate) => candidate.key === provider,
   )
@@ -474,7 +484,12 @@ function resolveTransparencyStrategy(
 function supportsNativeTransparency(
   runtime: ResolvedImageGenerationRuntime,
 ): boolean {
-  if (runtime.provider !== "openai") return false
+  if (
+    runtime.provider !== "openai" &&
+    runtime.provider !== "openai_compatible"
+  ) {
+    return false
+  }
   return /^gpt-image-(?:1(?:\.5)?|1-mini)(?:$|-)/u.test(runtime.model)
 }
 
@@ -520,6 +535,7 @@ async function generateWithProvider(
     case "alibaba_bailian":
       return generateWithAlibaba(runtime, request, fetchImpl, signal)
     case "openai":
+    case "openai_compatible":
       return generateWithOpenAI(
         runtime,
         request,
@@ -614,6 +630,12 @@ async function generateWithOpenAI(
           prompt: request.prompt,
           n: request.count,
           ...(request.size ? { size: request.size } : {}),
+          ...(runtime.provider === "openai_compatible" && request.negative_prompt
+            ? { negative_prompt: request.negative_prompt }
+            : {}),
+          ...(runtime.provider === "openai_compatible" && request.seed !== undefined
+            ? { seed: request.seed }
+            : {}),
           ...(openAiUsesImplicitBase64(runtime.model)
             ? {}
             : { response_format: "b64_json" }),
@@ -670,8 +692,7 @@ async function generateWithGoogle(
   signal?: AbortSignal,
 ): Promise<ProviderImage[]> {
   const endpoint = new URL(
-    `/v1/models/${encodeURIComponent(runtime.model)}:generateContent`,
-    runtime.baseUrl,
+    `${runtime.baseUrl}/v1/models/${encodeURIComponent(runtime.model)}:generateContent`,
   )
   const aspectRatio = closestAspectRatio(
     request.size,
@@ -1243,7 +1264,12 @@ function providerMaxImages(
   provider: ImageGenerationProvider,
   model: string,
 ): number {
-  if (provider === "openai" && model.startsWith("dall-e-3")) return 1
+  if (
+    (provider === "openai" || provider === "openai_compatible") &&
+    model.startsWith("dall-e-3")
+  ) {
+    return 1
+  }
   return (
     imageGenerationProviderDefinitions.find((candidate) => candidate.key === provider)
       ?.max_images ?? 1

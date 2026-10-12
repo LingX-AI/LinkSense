@@ -2,6 +2,7 @@ import { useId, useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   imageGenerationPricePerImageSchema,
+  modelProviderBaseUrlSchema,
   type ImageGenerationProvider,
 } from "@linksense/shared"
 import type { IconType } from "react-icons"
@@ -46,6 +47,7 @@ const imageGenerationProviderIcons: Partial<
 > = {
   alibaba_bailian: SiAlibabacloud,
   openai: TbBrandOpenai,
+  openai_compatible: TbBrandOpenai,
   google_gemini: SiGooglegemini,
   replicate: SiReplicate,
 }
@@ -56,6 +58,7 @@ const imageGenerationProviderLogoClasses: Record<
 > = {
   alibaba_bailian: "text-provider-alibaba",
   openai: "text-provider-openai",
+  openai_compatible: "text-provider-openai",
   google_gemini: "text-provider-google-gemini",
   stability: "bg-foreground text-background",
   fal: "bg-foreground text-background",
@@ -119,6 +122,9 @@ export function ImageGenerationSettingsForm({
     settings.provider_options.workspace_id ?? ""
   )
   const [region, setRegion] = useState(settings.provider_options.region ?? "")
+  const [baseUrlOverride, setBaseUrlOverride] = useState<string | null>(() =>
+    resolveBaseUrlOverride(settings)
+  )
   const [apiKey, setApiKey] = useState("")
   const [model, setModel] = useState(settings.model ?? "")
   const [pricePerImage, setPricePerImage] = useState(settings.price_per_image)
@@ -135,18 +141,25 @@ export function ImageGenerationSettingsForm({
   const providerChanged = provider !== (settings.provider ?? "")
   const apiKeyConfiguredForProvider =
     settings.api_key_configured && !providerChanged
-  const baseUrlPreview = providerDefinition
+  const defaultBaseUrl = providerDefinition
     ? resolveBaseUrlPreview(providerDefinition.base_url, workspaceId, region)
     : ""
+  const baseUrl = baseUrlOverride ?? defaultBaseUrl
+  const customBaseUrlValid =
+    baseUrlOverride === null ||
+    !baseUrlOverride.trim() ||
+    modelProviderBaseUrlSchema.safeParse(baseUrlOverride.trim()).success
   const formValid =
-    !enabled ||
-    (provider !== "" &&
-      Boolean(model.trim()) &&
-      imageGenerationPricePerImageSchema.safeParse(pricePerImage).success &&
-      (!providerDefinition?.requires_workspace_id ||
-        Boolean(workspaceId.trim())) &&
-      (!providerDefinition?.requires_region || Boolean(region.trim())) &&
-      (apiKeyConfiguredForProvider || Boolean(apiKey.trim())))
+    customBaseUrlValid &&
+    (!enabled ||
+      (provider !== "" &&
+        modelProviderBaseUrlSchema.safeParse(baseUrl.trim()).success &&
+        Boolean(model.trim()) &&
+        imageGenerationPricePerImageSchema.safeParse(pricePerImage).success &&
+        (!providerDefinition?.requires_workspace_id ||
+          Boolean(workspaceId.trim())) &&
+        (!providerDefinition?.requires_region || Boolean(region.trim())) &&
+        (apiKeyConfiguredForProvider || Boolean(apiKey.trim()))))
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -160,6 +173,7 @@ export function ImageGenerationSettingsForm({
             workspace_id: workspaceId.trim() || null,
             region: region.trim() || null,
           },
+          base_url: baseUrlOverride?.trim() || null,
           ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
           model: model.trim() || null,
           price_per_image: pricePerImage.trim() || "0",
@@ -173,6 +187,7 @@ export function ImageGenerationSettingsForm({
       setProvider(result.settings.provider ?? "")
       setWorkspaceId(result.settings.provider_options.workspace_id ?? "")
       setRegion(result.settings.provider_options.region ?? "")
+      setBaseUrlOverride(resolveBaseUrlOverride(result.settings))
       setApiKey("")
       setModel(result.settings.model ?? "")
       setPricePerImage(result.settings.price_per_image)
@@ -248,6 +263,7 @@ export function ImageGenerationSettingsForm({
                   setProvider(nextProvider)
                   setModel(definition?.default_model ?? "")
                   setRegion(definition?.default_region ?? "")
+                  setBaseUrlOverride(null)
                   if (nextProvider !== "alibaba_bailian") setWorkspaceId("")
                   setApiKey("")
                 }}
@@ -293,13 +309,21 @@ export function ImageGenerationSettingsForm({
               controlWidth="wide"
               label={t("admin.imageGeneration.baseUrl")}
               hint={t("admin.imageGeneration.baseUrlHint")}
+              required={enabled}
             >
               <Input
                 id={`${idPrefix}-base-url`}
                 name="image-generation-base-url"
-                value={baseUrlPreview}
-                readOnly
-                disabled
+                value={baseUrl}
+                disabled={readOnly}
+                onChange={(event) =>
+                  setBaseUrlOverride(
+                    event.target.value === defaultBaseUrl
+                      ? null
+                      : event.target.value
+                  )
+                }
+                required={enabled}
               />
             </FieldShell>
             {providerDefinition?.requires_workspace_id && (
@@ -445,4 +469,19 @@ function resolveBaseUrlPreview(
   return template
     .replace("{workspace_id}", workspaceId.trim() || "{workspace_id}")
     .replace("{region}", region.trim() || "{region}")
+}
+
+function resolveBaseUrlOverride(
+  settings: ImageGenerationSettings
+): string | null {
+  const definition = settings.providers.find(
+    (candidate) => candidate.key === settings.provider
+  )
+  if (!definition || !settings.base_url) return null
+  const defaultBaseUrl = resolveBaseUrlPreview(
+    definition.base_url,
+    settings.provider_options.workspace_id ?? "",
+    settings.provider_options.region ?? ""
+  )
+  return settings.base_url === defaultBaseUrl ? null : settings.base_url
 }

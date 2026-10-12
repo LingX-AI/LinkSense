@@ -98,9 +98,9 @@ Ranker 未配置或调用失败时，系统使用等权 RRF 结果，不会阻�
 
 ## 图片生成模型
 
-启用后，用户可以在任务中调用内置图片生成能力。选择服务商、填写模型和 API Key，并配置单张图片价格；该价格按实际生成张数记录到用量与 credits。Base URL 由服务商自动确定，不在页面中自由修改。
+启用后，用户可以在任务中调用内置图片生成能力。选择服务商、填写模型和 API Key，并配置单张图片价格；该价格按实际生成张数记录到用量与 credits。选择服务商会填入默认 Base URL，所有服务商都可以改为自己使用的服务地址。
 
-支持阿里云百炼、OpenAI、Google Gemini、Stability AI、fal.ai、Replicate 和 Together AI。阿里云百炼还需要 Workspace ID 与区域。各服务商和模型允许的最大生成张数不同，单次请求最多 10 张；运行时会按当前模型上限截取。
+支持阿里云百炼、OpenAI、OpenAI 兼容服务、Google Gemini、Stability AI、fal.ai、Replicate 和 Together AI。OpenAI 兼容服务使用图片生成接口，请填写服务提供的 Base URL、API Key 和模型名称。阿里云百炼还需要 Workspace ID 与区域。各服务商和模型允许的最大生成张数不同，单次请求最多 10 张；运行时会按当前模型上限截取。
 
 透明背景可以由模型原生生成，或在适合清晰边缘的场景下自动处理。复杂的头发、毛发、玻璃、烟雾、发光和半透明边缘应选择原生支持透明输出的模型。
 

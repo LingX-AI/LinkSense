@@ -5065,6 +5065,7 @@ export const jaJP = {
       providers: {
         alibaba_bailian: "Alibaba Cloud Bailian",
         openai: "OpenAI",
+        openai_compatible: "OpenAI 互換",
         google_gemini: "Google Gemini",
         stability: "Stability AI",
         fal: "fal.ai",
@@ -5073,7 +5074,7 @@ export const jaJP = {
       },
       baseUrl: "ベース URL",
       baseUrlHint:
-        "選択したプロバイダーに応じて自動入力されます。手動編集は不要です。",
+        "プロバイダーを選ぶと既定のアドレスが入力されます。利用するサービスのアドレスに変更できます。",
       workspaceId: "Bailian ワークスペース ID",
       workspaceIdHint:
         "Alibaba Cloud Bailian の専用ワークスペースに接続します。",

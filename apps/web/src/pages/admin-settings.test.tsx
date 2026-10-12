@@ -12,6 +12,7 @@ import { MemoryRouter } from "react-router-dom"
 import {
   imageGenerationProviderDefinitions,
   socialProviderSchema,
+  updateImageGenerationSettingsSchema,
   voiceTranscriptionProviderDefinitions,
 } from "@linksense/shared"
 
@@ -592,8 +593,7 @@ describe("administrator authentication settings", () => {
         expectRequiredLabel(
           screen.getByRole("textbox", {
             name: i18n.t("admin.imageGeneration.baseUrl"),
-          }),
-          false
+          })
         )
       } else {
         expectRequiredLabel(
@@ -2715,17 +2715,9 @@ describe("administrator authentication settings", () => {
           path.endsWith("/image-generation-settings") &&
           init?.method === "PUT"
         ) {
-          const body = JSON.parse(String(init.body)) as {
-            enabled: boolean
-            provider: "alibaba_bailian"
-            provider_options: {
-              workspace_id: string
-              region: string
-            }
-            api_key?: string
-            model: string
-            price_per_image: string
-          }
+          const body = updateImageGenerationSettingsSchema.parse(
+            JSON.parse(String(init.body))
+          )
           return Promise.resolve(
             envelope({
               code: "SYSTEM_SETTINGS_UPDATED",
@@ -2735,6 +2727,7 @@ describe("administrator authentication settings", () => {
                 enabled: body.enabled,
                 provider: body.provider,
                 provider_options: body.provider_options,
+                base_url: body.base_url ?? imageGenerationSettings.base_url,
                 api_key_configured:
                   imageGenerationSettings.api_key_configured ||
                   Boolean(body.api_key),
@@ -2782,7 +2775,7 @@ describe("administrator authentication settings", () => {
         /选择你已开通并准备使用的图片生成服务/u
       ),
       within(imageGenerationSection!).getByText(
-        /系统会根据所选服务商自动填写/u
+        i18n.t("admin.imageGeneration.baseUrlHint")
       ),
       within(imageGenerationSection!).getByText(/用于统计图片生成费用/u),
     ]) {
@@ -2814,6 +2807,7 @@ describe("administrator authentication settings", () => {
     ).toEqual([
       "alibaba_bailian",
       "openai",
+      "openai_compatible",
       "google_gemini",
       "stability",
       "fal",
@@ -2821,11 +2815,15 @@ describe("administrator authentication settings", () => {
       "together",
     ])
     await interaction.keyboard("{Escape}")
-    expect(
-      within(imageGenerationSection!).getByLabelText(
-        formLabelPattern("Base URL")
-      )
-    ).toHaveValue(imageGenerationSettings.base_url)
+    const baseUrl = within(imageGenerationSection!).getByLabelText(
+      formLabelPattern("Base URL")
+    )
+    expect(baseUrl).toHaveValue(imageGenerationSettings.base_url)
+    expect(baseUrl).toBeEnabled()
+    expect(baseUrl).not.toHaveAttribute("readonly")
+    const customBaseUrl = "https://images.example.test/generation"
+    await interaction.clear(baseUrl)
+    await interaction.type(baseUrl, customBaseUrl)
     expect(
       within(imageGenerationSection!).getByLabelText(
         formLabelPattern("百炼 Workspace ID")
@@ -2870,6 +2868,7 @@ describe("administrator authentication settings", () => {
         workspace_id: "dashscope-workspace",
         region: "cn-beijing",
       },
+      base_url: customBaseUrl,
       model: "qwen-image-3.0",
       price_per_image: "0.18",
     })
