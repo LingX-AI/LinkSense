@@ -1567,11 +1567,6 @@ function workspaceEntry(
 }
 
 const CANONICAL_MIME_TYPES = new Map<string, string>([
-  ["application/x-lzip", "application/lzip"],
-  ["application/x.ms.shortcut", "application/x-ms-shortcut"],
-  ["application/x.apple.alias", "application/x-ft-apple.alias"],
-  ["application/x.autodesk.fbx", "application/x-ft-fbx"],
-  ["application/vnd.google.draco", "application/x-ft-draco"],
   ["application/x-zip-compressed", "application/zip"],
   ["application/zip-compressed", "application/zip"],
   ["application/x-compressed", "application/zip"],
