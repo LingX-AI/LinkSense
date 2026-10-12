@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
   MAX_VOICE_AUDIO_BYTES,
+  MAX_VOICE_RECORDING_DURATION_MS,
   voiceTranscriptionStreamEventSchema,
   type VoiceTranscriptionRequest,
   type VoiceTranscriptionStreamEvent,
@@ -24,7 +25,6 @@ import {
 import type { SupportedLanguage } from "@/i18n"
 
 export const MIN_VOICE_RECORDING_DURATION_MS = 1_000
-export const MAX_VOICE_RECORDING_DURATION_MS = 5 * 60 * 1_000
 export const VOICE_TRANSCRIPTION_TIMEOUT_MS = 30_000
 
 const RECORDER_STOP_TIMEOUT_MS = 10_000

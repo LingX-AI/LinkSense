@@ -174,7 +174,9 @@ describe("voice transcription provider adapter", () => {
         return Response.json({ text: "LinkSense transcription" })
       },
     )
-    const runner = createVoiceTranscriptionRunner(fetchMock)
+    const runner = createVoiceTranscriptionRunner(fetchMock, async () =>
+      Buffer.from("normalized WAV"),
+    )
 
     await expect(
       runner(
@@ -183,7 +185,7 @@ describe("voice transcription provider adapter", () => {
           providerOptions: { api_version: null },
           baseUrl: "https://speech.example.test/v1",
           apiKey: "compatible-secret",
-          model: "whisper-1",
+          model: "Qwen3-ASR-1.7B",
         },
         {
           audioDataUrl: AUDIO_DATA_URL,
@@ -200,6 +202,14 @@ describe("voice transcription provider adapter", () => {
     )
     expect(init?.body).toBeInstanceOf(FormData)
     expect((init?.body as FormData).get("language")).toBe("en")
+    expect((init?.body as FormData).get("response_format")).toBe("json")
+    expect((init?.body as FormData).has("timestamp_granularities[]")).toBe(false)
+    const file = (init?.body as FormData).get("file")
+    expect(file).toBeInstanceOf(File)
+    if (!(file instanceof File)) throw new Error("missing audio file")
+    expect(file.name).toBe("audio.wav")
+    expect(file.type).toBe("audio/wav")
+    expect(await file.text()).toBe("normalized WAV")
   })
 
   it("rewrites fixed provider endpoints to the administrator Base URL", async () => {
@@ -221,7 +231,9 @@ describe("voice transcription provider adapter", () => {
         })
       },
     )
-    const runner = createVoiceTranscriptionRunner(fetchMock)
+    const runner = createVoiceTranscriptionRunner(fetchMock, async () =>
+      Buffer.from("normalized WAV"),
+    )
 
     await expect(
       runner(
