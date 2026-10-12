@@ -50,11 +50,11 @@ describe("ManagedTaskTitleGenerator", () => {
     expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
         model: { modelId: "title-model" },
-        maxOutputTokens: 128,
         maxRetries: 0,
         timeout: { totalMs: 20_000 },
       }),
     )
+    expect(generateText.mock.calls[0]?.[0]).not.toHaveProperty("maxOutputTokens")
     expect(generateText.mock.calls[0]?.[0]).not.toHaveProperty("temperature")
   })
 

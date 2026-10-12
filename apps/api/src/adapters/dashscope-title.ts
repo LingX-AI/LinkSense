@@ -142,7 +142,6 @@ async function callTaskTitleModel(input: {
     }),
     system: input.system,
     prompt: input.prompt,
-    maxOutputTokens: 128,
     maxRetries: 0,
     timeout: { totalMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS },
   })
