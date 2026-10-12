@@ -4472,6 +4472,7 @@ export const zhCN = {
       providers: {
         alibaba_bailian: "阿里云百炼",
         openai: "OpenAI",
+        openai_compatible: "OpenAI 兼容",
         google_gemini: "Google Gemini",
         stability: "Stability AI",
         fal: "fal.ai",
@@ -4479,7 +4480,8 @@ export const zhCN = {
         together: "Together AI",
       },
       baseUrl: "Base URL",
-      baseUrlHint: "系统会根据所选服务商自动填写，无需手动修改。",
+      baseUrlHint:
+        "选择服务商后会填入默认地址，你可以修改为自己使用的服务地址。",
       workspaceId: "百炼 Workspace ID",
       workspaceIdHint: "用于连接你在阿里云百炼中的专属工作空间。",
       region: "百炼区域",

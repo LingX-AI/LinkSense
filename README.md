@@ -457,6 +457,13 @@ Requires Node.js 24+, pnpm 10.34.6, Docker Engine/Compose, and rsync.
 Applications and dependencies run in Linux containers; host rsync only synchronizes source
 files.
 
+The API and development images include FFmpeg for voice transcription. Recordings
+are normalized to 16 kHz mono PCM WAV before being sent to the configured service;
+OpenAI-compatible services receive `response_format=json` without timestamps.
+Host-based API development requires `ffmpeg` on `PATH`. After upgrading, deploy the
+new API image; existing model settings and gateway credentials remain usable.
+Run `pnpm --filter @linksense/api test:voice:audio` for native audio-format checks.
+
 ```bash
 corepack enable
 corepack prepare pnpm@10.34.6 --activate

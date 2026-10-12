@@ -374,6 +374,8 @@ macOS 使用相同命令，但不加 `sudo`。
 
 应用及其依赖在 Linux 容器中运行，宿主机上的 rsync 仅用于同步源码。
 
+API 和开发镜像内置 FFmpeg，录音提交到所配置的服务前会统一转换为 16 kHz、单声道 PCM WAV；OpenAI 兼容语音服务使用 `response_format=json`，不请求时间戳。直接在宿主机运行 API 时，需要确保 `PATH` 中可以找到 `ffmpeg`。升级时需部署新的 API 镜像，已有模型配置和网关密钥继续使用。可运行 `pnpm --filter @linksense/api test:voice:audio` 验证实际音频格式转换。
+
 ```bash
 corepack enable
 corepack prepare pnpm@10.34.6 --activate

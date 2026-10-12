@@ -87,6 +87,13 @@ COPY --from=migration-dependencies /migration-runtime/apps/api/src/generated ./a
 CMD ["sh", "-c", "pnpm db:migrate:deploy && pnpm db:seed"]
 
 FROM ${BASELINE_API_IMAGE} AS runtime
+# Audio conversion is an application dependency; keep it in a separately
+# scanned application layer without changing the frozen runtime baseline.
+USER root
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends ffmpeg \
+  && ffmpeg -version \
+  && rm -rf /var/lib/apt/lists/*
 COPY --chmod=0444 LICENSE /usr/share/licenses/linksense/LICENSE
 COPY --chmod=0444 LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE /usr/share/licenses/linksense/
 WORKDIR /app

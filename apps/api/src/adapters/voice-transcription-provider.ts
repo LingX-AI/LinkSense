@@ -16,6 +16,8 @@ import type {
 
 import type { VoiceTranscriptionInput } from "../modules/voice/service.js"
 import { DashScopeAsrClient, DashScopeAsrError } from "./dashscope-asr.js"
+import { transcribeOpenAICompatibleAudio } from "./openai-compatible-asr.js"
+import { normalizeVoiceAudio, VoiceAudioNormalizationError, type VoiceAudioNormalizer } from "./voice-audio-normalizer.js"
 
 const TRANSCRIPTION_TIMEOUT_MS = 30_000
 
@@ -43,20 +45,9 @@ export type VoiceTranscriptionRunner = (
 
 export function createVoiceTranscriptionRunner(
   fetchImpl: typeof fetch = fetch,
+  normalizeAudio: VoiceAudioNormalizer = normalizeVoiceAudio,
 ): VoiceTranscriptionRunner {
   return async (runtime, input) => {
-    if (runtime.provider === "dashscope") {
-      let text = ""
-      const client = new DashScopeAsrClient({
-        apiKey: runtime.apiKey,
-        baseUrl: runtime.baseUrl,
-        model: runtime.model,
-        fetchImpl,
-      })
-      for await (const delta of client.streamTranscription(input)) text += delta
-      return text.trim()
-    }
-
     const requestController = new AbortController()
     let timedOut = false
     const abortFromCaller = () => requestController.abort()
@@ -69,23 +60,54 @@ export function createVoiceTranscriptionRunner(
     timeout.unref()
 
     try {
+      requestController.signal.throwIfAborted()
+      const audio = await normalizeAudio({ ...input, signal: requestController.signal })
+      requestController.signal.throwIfAborted()
+      if (runtime.provider === "openai_compatible") {
+        return await transcribeOpenAICompatibleAudio({
+          baseUrl: runtime.baseUrl,
+          apiKey: runtime.apiKey,
+          model: runtime.model,
+          audio,
+          ...(input.language ? { language: input.language.split("-", 1)[0]! } : {}),
+          signal: requestController.signal,
+        }, fetchImpl)
+      }
+      if (runtime.provider === "dashscope") {
+        let text = ""
+        const client = new DashScopeAsrClient({
+          apiKey: runtime.apiKey,
+          baseUrl: runtime.baseUrl,
+          model: runtime.model,
+          fetchImpl,
+        })
+        for await (const delta of client.streamTranscription({
+          ...input,
+          audioDataUrl: `data:audio/wav;base64,${Buffer.from(audio).toString("base64")}`,
+          signal: requestController.signal,
+        })) text += delta
+        return text.trim()
+      }
       const providerOptions = createProviderOptions(
         runtime.provider,
         input.language,
       )
       const result = await transcribe({
         model: createTranscriptionModel(runtime, fetchImpl),
-        audio: decodeAudioDataUrl(input.audioDataUrl),
+        audio,
         ...(providerOptions ? { providerOptions } : {}),
         maxRetries: 0,
         abortSignal: requestController.signal,
       })
       return result.text.trim()
     } catch (error) {
-      if (timedOut) throw new VoiceTranscriptionProviderError("timeout")
+      if (timedOut || (error instanceof VoiceAudioNormalizationError && error.reason === "timeout")) {
+        throw new VoiceTranscriptionProviderError("timeout")
+      }
       if (input.signal?.aborted) {
         throw new VoiceTranscriptionProviderError("aborted")
       }
+      if (error instanceof DashScopeAsrError) throw error
       throw new VoiceTranscriptionProviderError("upstream", { cause: error })
     } finally {
       clearTimeout(timeout)
@@ -124,12 +146,7 @@ function createTranscriptionModel(
         fetch: fetchImpl,
       }).transcription(runtime.model)
     case "openai_compatible":
-      return createOpenAI({
-        ...common,
-        baseURL: runtime.baseUrl,
-        name: "openai-compatible",
-        fetch: fetchImpl,
-      }).transcription(runtime.model)
+      throw new VoiceTranscriptionProviderError("upstream")
     case "azure_openai":
       return createAzure({
         ...common,
@@ -231,12 +248,6 @@ function createProviderOptions(
     case "fal":
       return { fal: { language } }
   }
-}
-
-function decodeAudioDataUrl(dataUrl: string): Uint8Array {
-  const separator = dataUrl.indexOf(",")
-  if (separator < 0) throw new VoiceTranscriptionProviderError("upstream")
-  return Buffer.from(dataUrl.slice(separator + 1), "base64")
 }
 
 function rewriteProviderFetch(

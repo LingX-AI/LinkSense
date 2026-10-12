@@ -29,7 +29,7 @@ afterEach(async () => {
 });
 
 describe("LinkSense Core MCP image generation module", () => {
-  it("generates images, saves them under artifacts, and registers them", async () => {
+  it.each(["alibaba_bailian", "openai_compatible"] as const)("generates images with %s, saves them under artifacts, and registers them", async (provider) => {
     const workspace = await mkdtemp(join(tmpdir(), "linksense-image-mcp-"));
     roots.push(workspace);
     const requests: Array<{
@@ -53,7 +53,7 @@ describe("LinkSense Core MCP image generation module", () => {
           response.end(
             JSON.stringify({
               success: true,
-              provider: "alibaba_bailian",
+              provider,
               model: "qwen-image-3.0",
               image_count: 1,
               unit_price: "0.12",
@@ -135,7 +135,7 @@ describe("LinkSense Core MCP image generation module", () => {
       .text;
     expect(JSON.parse(text)).toMatchObject({
       success: true,
-      provider: "alibaba_bailian",
+      provider,
       model: "qwen-image-3.0",
       artifacts: [
         {

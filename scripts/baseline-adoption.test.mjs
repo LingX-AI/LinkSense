@@ -42,10 +42,16 @@ test("baseline adoption mechanically updates only Docker defaults and rejects mi
   assert.equal(baselineDockerfileDefaults(baseline, "Dockerfile.runner", expected), expected);
   for (const invalid of [source.replace("ARG BASELINE_WORKER_IMAGE\n", ""), source + "ARG BASELINE_NODE_IMAGE=duplicate\n"]) assert.throws(() => baselineDockerfileDefaults(baseline, "Dockerfile.runner", invalid));
 });
-test("daily application images contain no environment installation or cached-browser fallback", () => {
+test("application images inherit frozen environments and API installs only its FFmpeg feature dependency", () => {
   for (const name of ["Dockerfile.api", "Dockerfile.web", "Dockerfile.runner"]) {
     const source = readFileSync(name, "utf8");
-    assert.doesNotMatch(source, /apt-get|apk upgrade|uv sync|pip install|pnpm add --global|corepack prepare|install-browser|worker-cached-browser|SECURITY_REBUILD_ID/u);
+    const audioDependency = "RUN apt-get update \\\n  && apt-get install --yes --no-install-recommends ffmpeg \\\n  && ffmpeg -version \\\n  && rm -rf /var/lib/apt/lists/*";
+    if (name === "Dockerfile.api") {
+      assert.equal(source.split(audioDependency).length - 1, 1);
+      assert.ok(source.indexOf(audioDependency) > source.indexOf("FROM ${BASELINE_API_IMAGE} AS runtime"));
+    }
+    const environmentSource = name === "Dockerfile.api" ? source.replace(audioDependency, "") : source;
+    assert.doesNotMatch(environmentSource, /apt-get|apk upgrade|uv sync|pip install|pnpm add --global|corepack prepare|install-browser|worker-cached-browser|SECURITY_REBUILD_ID/u);
     assert.match(source, /FROM \$\{BASELINE_NODE_IMAGE\}/u);
   }
   const worker = readFileSync("Dockerfile.runner", "utf8");

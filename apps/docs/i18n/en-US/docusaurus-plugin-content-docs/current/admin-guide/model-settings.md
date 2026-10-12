@@ -92,9 +92,9 @@ After saving, use [Voice input](../user-guide/tasks/voice-input.md) to test a sh
 
 ## Image-generation model
 
-When enabled, users can call the built-in image-generation capability from a task. Select a provider, enter the model and API key, and configure a per-image price. LinkSense records that price against the number of images actually produced for usage and credits. The provider determines the Base URL; it is not freely editable in the page.
+When enabled, users can call the built-in image-generation capability from a task. Select a provider, enter the model and API key, and configure a per-image price. LinkSense records that price against the number of images actually produced for usage and credits. Selecting a provider fills in its default Base URL, which you can change to your own service address for any provider.
 
-Supported providers are Alibaba Cloud Model Studio, OpenAI, Google Gemini, Stability AI, fal.ai, Replicate, and Together AI. Alibaba Cloud Model Studio also requires a Workspace ID and region. Provider and model limits vary; one request can ask for no more than 10 images, and runtime output is capped by the current model limit.
+Supported providers are Alibaba Cloud Model Studio, OpenAI, OpenAI-compatible services, Google Gemini, Stability AI, fal.ai, Replicate, and Together AI. For OpenAI-compatible image generation, enter the Base URL, API key, and model name supplied by the service. Alibaba Cloud Model Studio also requires a Workspace ID and region. Provider and model limits vary; one request can ask for no more than 10 images, and runtime output is capped by the current model limit.
 
 Transparent output can be generated natively or handled automatically for suitable clean-edged subjects. Choose a model with native transparency for complex hair, fur, glass, smoke, glow, and translucent edges.
 

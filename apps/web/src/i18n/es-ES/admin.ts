@@ -561,6 +561,7 @@ export const adminMessages = {
       providers: {
         alibaba_bailian: "Alibaba Cloud Bailian",
         openai: "OpenAI",
+        openai_compatible: "Compatible con OpenAI",
         google_gemini: "Google Gemini",
         stability: "Stability AI",
         fal: "fal.ai",
@@ -569,7 +570,7 @@ export const adminMessages = {
       },
       baseUrl: "URL base",
       baseUrlHint:
-        "Se rellena automáticamente para el proveedor seleccionado. No es necesario editarlo manualmente.",
+        "Al seleccionar un proveedor, se rellena su dirección predeterminada. Puedes cambiarla por la dirección del servicio que usas.",
       workspaceId: "ID del espacio de trabajo de Bailian",
       workspaceIdHint:
         "Conecta con tu espacio de trabajo dedicado de Alibaba Cloud Bailian.",

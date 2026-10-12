@@ -4819,6 +4819,7 @@ export const enUS = {
       providers: {
         alibaba_bailian: "Alibaba Cloud Bailian",
         openai: "OpenAI",
+        openai_compatible: "OpenAI compatible",
         google_gemini: "Google Gemini",
         stability: "Stability AI",
         fal: "fal.ai",
@@ -4827,7 +4828,7 @@ export const enUS = {
       },
       baseUrl: "Base URL",
       baseUrlHint:
-        "Filled automatically for the selected provider. No manual editing is needed.",
+        "Selecting a provider fills in its default address. You can change it to the service address you use.",
       workspaceId: "Bailian Workspace ID",
       workspaceIdHint:
         "Connects to your dedicated workspace in Alibaba Cloud Bailian.",

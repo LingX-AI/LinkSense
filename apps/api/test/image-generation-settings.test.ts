@@ -1,8 +1,12 @@
 import sharp from "sharp"
 import { describe, expect, it, vi } from "vitest"
 
-import type { ImageGenerationProvider } from "@linksense/shared"
+import {
+  imageGenerationProviderDefinitions,
+  type ImageGenerationProvider,
+} from "@linksense/shared"
 import type { PrismaClient } from "../src/generated/prisma/client.js"
+import { encryptJson } from "../src/lib/crypto.js"
 import {
   ImageGenerationSettingsService,
   resolveProviderBaseUrl,
@@ -20,6 +24,209 @@ const ONE_PIXEL_PNG = Buffer.from(
 )
 
 describe("ImageGenerationSettingsService", () => {
+  it("saves and reloads a custom address without exposing the encrypted connection key", async () => {
+    const database = inMemoryDatabase()
+    const service = new ImageGenerationSettingsService(
+      database.prisma,
+      testConfig(),
+      usageRecorder(),
+    )
+    const settings = await service.update(
+      ACTOR_ID,
+      {
+        expected_revision: 0,
+        enabled: true,
+        provider: "openai_compatible",
+        base_url: "http://images.example.test:8080/custom/v1///",
+        api_key: "synthetic-compatible-secret",
+        model: "custom-image-model",
+        price_per_image: "0.25",
+      },
+      {},
+    )
+    expect(settings).toMatchObject({
+      provider: "openai_compatible",
+      base_url: "http://images.example.test:8080/custom/v1",
+      api_key_configured: true,
+      model: "custom-image-model",
+    })
+    await expect(service.getAdminSettings()).resolves.toEqual(settings)
+    expect(JSON.stringify(settings)).not.toContain("synthetic-compatible-secret")
+    expect(JSON.stringify(database.settingsJson())).not.toContain("synthetic-compatible-secret")
+    expect(JSON.stringify(database.settingsJson())).not.toContain("images.example.test")
+
+    const updated = await service.update(
+      ACTOR_ID,
+      {
+        expected_revision: 1,
+        enabled: true,
+        provider: "openai_compatible",
+        base_url: "https://replacement.example.test/v1",
+        model: "custom-image-model",
+        price_per_image: "0.25",
+      },
+      {},
+    )
+    expect(updated).toMatchObject({
+      revision: 2,
+      base_url: "https://replacement.example.test/v1",
+      api_key_configured: true,
+    })
+  })
+
+  it.each([
+    ["alibaba_bailian", "qwen-image-3.0", ""],
+    ["openai", "gpt-image-2", "/images/generations"],
+    ["openai_compatible", "custom-image-model", "/images/generations"],
+    ["google_gemini", "gemini-3.1-flash-image", "/v1/models/gemini-3.1-flash-image:generateContent"],
+    ["stability", "stable-image-core", "/v2beta/stable-image/generate/core"],
+    ["fal", "fal-ai/flux/dev", "/fal-ai/flux/dev"],
+    ["replicate", "black-forest-labs/flux-schnell", "/models/black-forest-labs/flux-schnell/predictions"],
+    ["together", "black-forest-labs/FLUX.1-schnell", "/images/generations"],
+  ] satisfies Array<[ImageGenerationProvider, string, string]>)(
+    "generates images with the saved custom address and preserves the base path for %s",
+    async (provider, model, endpointPath) => {
+      const fetchMock = vi.fn<typeof fetch>(async () => providerGenerationResponse(provider))
+      const { service, recorder } = await configuredProviderHarness(
+        provider,
+        model,
+        fetchMock as unknown as typeof fetch,
+        "http://images.example.test:8080/custom/",
+      )
+      const result = await service.generate({
+        ownerId: USER_ID,
+        conversationId: CONVERSATION_ID,
+        turnId: TURN_ID,
+        request: { prompt: "A test image", count: 1 },
+      })
+      expect(result).toMatchObject({
+        provider,
+        model,
+        image_count: 1,
+        images: [{ data_base64: ONE_PIXEL_PNG.toString("base64"), mime_type: "image/png" }],
+      })
+      expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+        `http://images.example.test:8080/custom${endpointPath}`,
+      )
+      expect(recorder.recordModelUsage).toHaveBeenCalledOnce()
+    },
+  )
+
+  it.each(imageGenerationProviderDefinitions.filter(({ key }) => key !== "openai_compatible"))(
+    "keeps pre-change encrypted $key settings usable without a stored custom address",
+    async (definition) => {
+      const config = testConfig()
+      const providerOptions = {
+        workspace_id: definition.key === "alibaba_bailian" ? "workspace" : null,
+        region: definition.default_region,
+      }
+      const database = inMemoryDatabase({
+        image_generation_settings_key_id: config.credentialKeyId,
+        image_generation_settings_encrypted: encryptJson(
+          {
+            version: 1,
+            revision: 2,
+            enabled: true,
+            provider: definition.key,
+            providerOptions,
+            apiKey: "synthetic-existing-secret",
+            model: definition.default_model,
+            pricePerImage: "0.25",
+          },
+          config.credentialMasterKey,
+          config.credentialKeyId,
+          "linksense:image-generation-settings:v1",
+        ),
+      })
+      const fetchMock = vi.fn<typeof fetch>(async () => providerGenerationResponse(definition.key))
+      const service = new ImageGenerationSettingsService(
+        database.prisma,
+        config,
+        usageRecorder(),
+        fetchMock as unknown as typeof fetch,
+      )
+      database.setActiveTurn({ id: TURN_ID, conversationId: CONVERSATION_ID, ownerId: USER_ID })
+      const expectedBaseUrl = definition.base_url
+        .replace("{workspace_id}", "workspace")
+        .replace("{region}", definition.default_region ?? "")
+      await expect(service.getAdminSettings()).resolves.toMatchObject({
+        revision: 2,
+        base_url: expectedBaseUrl,
+        api_key_configured: true,
+      })
+      await service.update(ACTOR_ID, {
+        expected_revision: 2,
+        enabled: true,
+        provider: definition.key,
+        provider_options: providerOptions,
+        model: definition.default_model,
+        price_per_image: "0.25",
+      }, {})
+      await expect(service.generate({
+        ownerId: USER_ID,
+        conversationId: CONVERSATION_ID,
+        turnId: TURN_ID,
+        request: { prompt: "A test image" },
+      })).resolves.toMatchObject({ image_count: 1, provider: definition.key })
+      expect(String(fetchMock.mock.calls[0]?.[0])).toContain(expectedBaseUrl)
+    },
+  )
+
+  it("forwards compatible image options and downloads URL outputs without sending the API key", async () => {
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/images/generations")) {
+        return new Response(JSON.stringify({ data: [{ url: "https://output.example.test/image.png" }] }), {
+          headers: { "content-type": "application/json" },
+        })
+      }
+      expect(init?.headers).toBeUndefined()
+      return new Response(ONE_PIXEL_PNG, { headers: { "content-type": "image/png" } })
+    })
+    const { service } = await configuredProviderHarness(
+      "openai_compatible",
+      "qwen-image",
+      fetchMock as unknown as typeof fetch,
+      "https://images.example.test/v1",
+    )
+    await expect(service.generate({
+      ownerId: USER_ID,
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      request: { prompt: "A test image", size: "1024x768", seed: 42, negative_prompt: "blur" },
+    })).resolves.toMatchObject({ provider: "openai_compatible", image_count: 1 })
+    expect(requestJsonBody(fetchMock)).toEqual({
+      model: "qwen-image",
+      prompt: "A test image",
+      size: "1024x768",
+      n: 1,
+      seed: 42,
+      negative_prompt: "blur",
+      response_format: "b64_json",
+    })
+    expect(fetchMock).toHaveBeenCalledWith("https://images.example.test/v1/images/generations", expect.objectContaining({
+      headers: expect.objectContaining({ authorization: "Bearer openai_compatible-secret" }),
+    }))
+    expect(fetchMock).toHaveBeenCalledWith("https://output.example.test/image.png", expect.anything())
+  })
+
+  it("rejects a different owner before calling a compatible provider", async () => {
+    const fetchMock = vi.fn()
+    const { service, recorder } = await configuredProviderHarness(
+      "openai_compatible",
+      "custom-image-model",
+      fetchMock as unknown as typeof fetch,
+      "https://images.example.test/v1",
+    )
+    await expect(service.generate({
+      ownerId: ACTOR_ID,
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      request: { prompt: "A test image" },
+    })).rejects.toMatchObject({ code: "IMAGE_GENERATION_TURN_INACTIVE" })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(recorder.recordModelUsage).not.toHaveBeenCalled()
+  })
+
   it("stores encrypted provider settings and projects built-in provider metadata", async () => {
     const database = inMemoryDatabase()
     const service = new ImageGenerationSettingsService(
@@ -206,7 +413,7 @@ describe("ImageGenerationSettingsService", () => {
     )
   })
 
-  it("uses OpenAI native transparency when the configured model supports it", async () => {
+  it.each(["openai", "openai_compatible"] as const)("uses %s native transparency when the configured model supports it", async (provider) => {
     const pngBytes = await testRgbaPng(
       [0, 0, 0, 0],
       [40, 80, 220, 255],
@@ -221,7 +428,7 @@ describe("ImageGenerationSettingsService", () => {
         ),
     )
     const { service } = await configuredProviderHarness(
-      "openai",
+      provider,
       "gpt-image-1.5",
       fetchMock as unknown as typeof fetch,
     )
@@ -898,7 +1105,7 @@ describe("ImageGenerationSettingsService", () => {
     })
   })
 
-  it("classifies provider throttling as retryable unavailability", async () => {
+  it.each(["together", "openai_compatible"] as const)("classifies %s throttling as retryable unavailability without retrying the request", async (provider) => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
@@ -919,7 +1126,7 @@ describe("ImageGenerationSettingsService", () => {
         ),
     )
     const { service } = await configuredProviderHarness(
-      "together",
+      provider,
       "black-forest-labs/FLUX.1-schnell",
       fetchMock as unknown as typeof fetch,
     )
@@ -939,9 +1146,10 @@ describe("ImageGenerationSettingsService", () => {
         provider_request_id: "rate-limit-request-1",
       },
     })
+    expect(fetchMock).toHaveBeenCalledOnce()
   })
 
-  it("rejects non-image bytes returned as a successful image payload", async () => {
+  it.each(["openai", "openai_compatible"] as const)("rejects non-image bytes returned as a successful %s image payload", async (provider) => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
@@ -954,7 +1162,7 @@ describe("ImageGenerationSettingsService", () => {
         ),
     )
     const { service } = await configuredProviderHarness(
-      "openai",
+      provider,
       "gpt-image-2",
       fetchMock as unknown as typeof fetch,
     )
@@ -1000,6 +1208,7 @@ async function configuredProviderHarness(
   provider: ImageGenerationProvider,
   model: string,
   fetchImpl: typeof fetch,
+  baseUrl?: string,
 ): Promise<{
   service: ImageGenerationSettingsService
   recorder: ModelUsageRecorder
@@ -1018,6 +1227,7 @@ async function configuredProviderHarness(
       expected_revision: 0,
       enabled: true,
       provider,
+      ...(baseUrl ? { base_url: baseUrl } : {}),
       provider_options:
         provider === "alibaba_bailian"
           ? { workspace_id: "dashscope-workspace", region: "cn-beijing" }
@@ -1076,7 +1286,7 @@ async function testRgbaPng(
     .toBuffer()
 }
 
-function inMemoryDatabase(): {
+function inMemoryDatabase(initialSettings: Record<string, unknown> = {}): {
   prisma: PrismaClient
   settingsJson: () => Record<string, unknown>
   setActiveTurn: (turn: {
@@ -1085,7 +1295,7 @@ function inMemoryDatabase(): {
     ownerId: string
   }) => void
 } {
-  let settingsJson: Record<string, unknown> = {}
+  let settingsJson: Record<string, unknown> = initialSettings
   let activeTurn:
     | { id: string; conversationId: string; ownerId: string }
     | null = null
@@ -1124,4 +1334,17 @@ function inMemoryDatabase(): {
       activeTurn = turn
     },
   }
+}
+
+function providerGenerationResponse(provider: ImageGenerationProvider): Response {
+  if (provider === "stability") {
+    return new Response(ONE_PIXEL_PNG, { headers: { "content-type": "image/png" } })
+  }
+  const image = { b64_json: ONE_PIXEL_PNG.toString("base64") }
+  const body = provider === "google_gemini"
+    ? { candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: image.b64_json } }] } }] }
+    : provider === "replicate"
+      ? { status: "succeeded", output: [image] }
+      : { data: [image] }
+  return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } })
 }

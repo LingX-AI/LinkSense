@@ -10,7 +10,10 @@ import {
   within,
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { MAX_VOICE_AUDIO_BYTES } from "@linksense/shared"
+import {
+  MAX_VOICE_AUDIO_BYTES,
+  MAX_VOICE_RECORDING_DURATION_MS,
+} from "@linksense/shared"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -18,10 +21,7 @@ import {
   type ConversationComposerHandle,
 } from "@/features/conversations/conversation-composer"
 import type { CapabilitySummary } from "@/api/contracts"
-import {
-  MAX_VOICE_RECORDING_DURATION_MS,
-  VOICE_TRANSCRIPTION_TIMEOUT_MS,
-} from "@/features/conversations/use-voice-transcription"
+import { VOICE_TRANSCRIPTION_TIMEOUT_MS } from "@/features/conversations/use-voice-transcription"
 import i18n from "@/i18n"
 
 const editorRender = vi.hoisted(() => vi.fn())

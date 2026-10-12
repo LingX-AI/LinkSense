@@ -547,6 +547,7 @@ export const admin = {
     providers: {
       alibaba_bailian: "Alibaba Cloud Bailian",
       openai: "OpenAI",
+      openai_compatible: "Compatible OpenAI",
       google_gemini: "Google Gemini",
       stability: "Stability AI",
       fal: "fal.ai",
@@ -555,7 +556,7 @@ export const admin = {
     },
     baseUrl: "URL de base",
     baseUrlHint:
-      "Renseignée automatiquement selon le fournisseur. Aucune modification manuelle nécessaire.",
+      "Le choix d’un fournisseur renseigne son adresse par défaut. Vous pouvez la remplacer par l’adresse du service que vous utilisez.",
     workspaceId: "Identifiant de l’espace Bailian",
     workspaceIdHint:
       "Connexion à votre espace dédié dans Alibaba Cloud Bailian.",

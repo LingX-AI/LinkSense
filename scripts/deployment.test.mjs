@@ -1316,7 +1316,9 @@ test("Docker builds configure a fast Debian mirror with bounded network retries"
   );
   assert.match(runnerDockerfile, /FROM \$\{BASELINE_WORKER_IMAGE\} AS worker/u);
   assert.doesNotMatch(runnerDockerfile, /worker-cached-browser|browser-runtime-cache|install-browser/u);
-  assert.doesNotMatch(apiDockerfile, /apt-get/u);
+  assert.match(apiDockerfile, /FROM \$\{BASELINE_API_IMAGE\} AS runtime[\s\S]*apt-get install --yes --no-install-recommends ffmpeg/u);
+  assert.doesNotMatch(apiDockerfile, /apt-get[^\n]*dist-upgrade/u);
+  assert.match(developmentDockerfile, /apt-get install --yes --no-install-recommends[\s\S]*\n\s+ffmpeg \\/u);
 });
 
 test("development exposes Debian build mirrors while production inherits maintained runtime baselines", async () => {

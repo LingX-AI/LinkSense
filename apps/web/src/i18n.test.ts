@@ -54,6 +54,26 @@ function interpolationTokens(value: string): string[] {
 }
 
 describe("i18n resources", () => {
+  it.each(supportedLanguages)(
+    "localizes editable image service addresses and the compatible provider in %s with Chinese fallback",
+    (locale) => {
+      const keys = [
+        "admin.imageGeneration.baseUrlHint",
+        "admin.imageGeneration.providers.openai_compatible",
+      ]
+      for (const key of keys) {
+        const translation = i18n.t(key, { lng: locale })
+        const chinese = i18n.t(key, { lng: "zh-CN" })
+        expect(translation).not.toBe(key)
+        if (locale !== "zh-CN") expect(translation).not.toBe(chinese)
+        const fallback = i18n.cloneInstance({ forkResourceStore: true })
+        if (locale !== "zh-CN")
+          fallback.removeResourceBundle(locale, "translation")
+        expect(fallback.t(key, { lng: locale })).toBe(chinese)
+      }
+    }
+  )
+
   it.each([
     ["zh-CN", "使用帮助", "反馈"],
     ["en-US", "User guide", "Feedback"],

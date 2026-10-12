@@ -5145,6 +5145,7 @@ export const ptBR = {
       providers: {
         alibaba_bailian: "Alibaba Cloud Bailian",
         openai: "OpenAI",
+        openai_compatible: "Compatível com OpenAI",
         google_gemini: "Google Gemini",
         stability: "Stability AI",
         fal: "fal.ai",
@@ -5153,7 +5154,7 @@ export const ptBR = {
       },
       baseUrl: "URL base",
       baseUrlHint:
-        "Preenchido automaticamente para o provedor selecionado. Não é necessário editar manualmente.",
+        "Ao selecionar um provedor, o endereço padrão é preenchido. Você pode alterá-lo para o endereço do serviço que usa.",
       workspaceId: "ID do espaço de trabalho Bailian",
       workspaceIdHint:
         "Conecta ao seu espaço de trabalho dedicado no Alibaba Cloud Bailian.",

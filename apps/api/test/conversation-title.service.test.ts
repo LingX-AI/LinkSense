@@ -71,6 +71,46 @@ describe("ConversationTitleService", () => {
     })
   })
 
+  it("replaces the first message's temporary title with a generated name and keeps it for the second message", async () => {
+    const fixture = titleFixture("fallback", undefined, { title: "你好" })
+    fixture.generator.generate.mockResolvedValueOnce(generatedTitle("友好问候"))
+
+    await fixture.service.refresh(CONVERSATION_ID, undefined, [
+      { role: "user", content: "你好" },
+    ])
+
+    expect(fixture.tx.conversation.updateMany).toHaveBeenCalledExactlyOnceWith({
+      where: { id: CONVERSATION_ID, titleSource: "fallback" },
+      data: { title: "友好问候", titleSource: "generated" },
+    })
+    expect(fixture.redis.publishConversationEvent).toHaveBeenCalledWith(
+      CONVERSATION_ID,
+      expect.objectContaining({
+        event_type: "conversation.title.updated",
+        payload: expect.objectContaining({ title: "友好问候" }),
+      }),
+    )
+    fixture.prisma.conversation.findUnique.mockResolvedValue({
+      ownerId: OWNER_ID,
+      codexThreadId: "codex-thread-1",
+      title: "友好问候",
+      titleSource: "generated",
+      applicationId: null,
+      applicationNameSnapshot: null,
+    })
+
+    await fixture.service.refresh(CONVERSATION_ID, undefined, [
+      { role: "user", content: "你可以做什么" },
+    ])
+    await fixture.service.refresh(CONVERSATION_ID)
+
+    expect(fixture.generator.generate).toHaveBeenCalledExactlyOnceWith([
+      { role: "user", content: "你好" },
+    ])
+    expect(fixture.tx.conversation.updateMany).toHaveBeenCalledOnce()
+    expect(fixture.redis.publishConversationEvent).toHaveBeenCalledOnce()
+  })
+
   it("sends only the user request from an Office annotation prompt to the title provider", async () => {
     const display = {
       kind: "spreadsheet_annotation",

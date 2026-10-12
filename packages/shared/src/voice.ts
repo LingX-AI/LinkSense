@@ -4,6 +4,7 @@ import { localeSchema } from "./common.js";
 import { apiSuccessEnvelopeSchema } from "./errors.js";
 
 export const MAX_VOICE_AUDIO_DATA_URL_BYTES = 10 * 1024 * 1024;
+export const MAX_VOICE_RECORDING_DURATION_MS = 5 * 60 * 1_000;
 const VOICE_AUDIO_DATA_URL_HEADER_BUDGET_BYTES = 256;
 export const MAX_VOICE_AUDIO_BYTES =
   Math.floor(
