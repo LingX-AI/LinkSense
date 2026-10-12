@@ -70,7 +70,6 @@ ${shellFunction("run_full_release_probe")}
 fail() { printf '%s\\n' "$*" >&2; exit 1; }
 log() { printf '%s\\n' "$*"; }
 compose() { printf '%s\\n' "$PROBE_OUTPUT"; return "$PROBE_EXIT"; }
-compose_bounded() { shift; compose "$@"; }
 EDITION=full
 TMP_ROOT=$1
 run_full_release_probe

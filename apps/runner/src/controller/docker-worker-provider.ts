@@ -592,9 +592,7 @@ export function buildWorkerContainerSpec(
       // Equal memory and memory+swap limits disable additional container swap,
       // so the configured worker ceiling is not silently doubled by Docker.
       MemorySwap: config.LINKSENSE_WORKER_MEMORY_MB * 1024 * 1024,
-      NanoCpus: config.LINKSENSE_CPU_QUOTA_MODE === "compatible"
-        ? 0
-        : Math.round(config.LINKSENSE_WORKER_CPUS * 1_000_000_000),
+      NanoCpus: Math.round(config.LINKSENSE_WORKER_CPUS * 1_000_000_000),
       Tmpfs: {
         "/tmp": `rw,nosuid,nodev,noexec,size=${config.LINKSENSE_WORKER_TMPFS_MB}m,uid=1000,gid=1000,mode=1777`,
         "/run": "rw,nosuid,nodev,noexec,size=16m,uid=0,gid=1000,mode=770",

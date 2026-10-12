@@ -24,7 +24,6 @@ export type ControllerStorageDomain = {
 }
 
 export type WorkerContractDomain = {
-  LINKSENSE_CPU_QUOTA_MODE?: "strict" | "compatible" | undefined
   LINKSENSE_PYTHON_PACKAGE_INDEX_URL: string
   LINKSENSE_NODE_PACKAGE_REGISTRY_URL: string
   LINKSENSE_WORKER_IMAGE_REVISION: string
@@ -50,8 +49,6 @@ export function workerContractKey(domain: WorkerContractDomain): string {
         domain.LINKSENSE_BROWSER_SESSION_LIMIT,
         domain.LINKSENSE_MANAGED_BROWSER_ENABLED,
         domain.LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS,
-        // Preserve existing strict contracts; compatibility workers must not be reused in strict mode.
-        ...(domain.LINKSENSE_CPU_QUOTA_MODE === "compatible" ? ["cpu-compatible"] : []),
       ]),
     )
     .digest("hex")

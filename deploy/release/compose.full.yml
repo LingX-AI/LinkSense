@@ -2,7 +2,6 @@ services:
   elasticsearch:
     image: ${ELASTICSEARCH_IMAGE:?release manifest did not provide ELASTICSEARCH_IMAGE}
     restart: unless-stopped
-    mem_limit: ${LINKSENSE_ELASTICSEARCH_MEMORY_MB:-0}m
     environment:
       discovery.type: single-node
       xpack.security.enabled: "true"
@@ -57,7 +56,7 @@ services:
     security_opt:
       - no-new-privileges:true
     mem_limit: 2g
-    cpus: ${LINKSENSE_DOCLING_API_CPUS:-1}
+    cpus: 1
     pids_limit: 256
     tmpfs:
       - /tmp:size=2g,mode=1777
@@ -92,7 +91,7 @@ services:
     security_opt:
       - no-new-privileges:true
     mem_limit: 8g
-    cpus: ${LINKSENSE_DOCLING_WORKER_CPUS:-4}
+    cpus: 4
     pids_limit: 512
     tmpfs:
       - /tmp:size=4g,mode=1777
@@ -120,12 +119,6 @@ services:
       org.linksense.edition: full
     environment:
       LINKSENSE_KB_HYBRID_TOKENIZER: ${LINKSENSE_KB_HYBRID_TOKENIZER}
-      LINKSENSE_KB_PARSING_CONCURRENCY: ${LINKSENSE_KB_PARSING_CONCURRENCY:-4}
-      LINKSENSE_KB_CHUNKING_CONCURRENCY: ${LINKSENSE_KB_CHUNKING_CONCURRENCY:-8}
-      LINKSENSE_KB_PARENTING_CONCURRENCY: ${LINKSENSE_KB_PARENTING_CONCURRENCY:-8}
-      LINKSENSE_KB_EMBEDDING_CONCURRENCY: ${LINKSENSE_KB_EMBEDDING_CONCURRENCY:-8}
-      LINKSENSE_KB_INDEXING_CONCURRENCY: ${LINKSENSE_KB_INDEXING_CONCURRENCY:-8}
-      LINKSENSE_KB_ACTIVATION_CONCURRENCY: ${LINKSENSE_KB_ACTIVATION_CONCURRENCY:-16}
       LINKSENSE_KB_HYBRID_MAX_TOKENS: "768"
       LINKSENSE_KB_PARENT_MAX_TOKENS: "3000"
       LINKSENSE_KB_EMBEDDING_DIMENSIONS: "2560"
