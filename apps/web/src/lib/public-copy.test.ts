@@ -36,4 +36,38 @@ describe("public copy safeguards", () => {
       getPublicRuntimeMessage("Model quota exceeded", "Execution failed")
     ).toBe("Model quota exceeded")
   })
+
+  it("localizes historical gateway JSON instead of showing its body", () => {
+    const body = JSON.stringify({
+      error: {
+        type: "model_gateway_error",
+        code: "model_provider_error",
+        message: "private-diagnostic",
+      },
+    })
+    expect(
+      getPublicRuntimeMessage(
+        body,
+        "Execution failed",
+        (key) => `translated:${key}`
+      )
+    ).toBe("translated:errors.modelGateway.model_provider_error")
+    expect(
+      getPublicRuntimeMessage(
+        `HTTP 502: ${body}`,
+        "Execution failed",
+        (key) => `translated:${key}`
+      )
+    ).toBe("translated:errors.modelGateway.model_provider_error")
+  })
+
+  it.each([
+    '{"error":{"message":"private-diagnostic"}}',
+    '{"error":',
+    '[{"token":"private-diagnostic"}]',
+  ])("hides unknown or malformed structured errors: %s", (value) => {
+    expect(getPublicRuntimeMessage(value, "Execution failed")).toBe(
+      "Execution failed"
+    )
+  })
 })

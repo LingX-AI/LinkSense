@@ -1,6 +1,7 @@
 import type { enUS } from "../en-US"
 import type { TranslationResource } from "../types"
 import { localizedErrorMessage } from "@linksense/shared"
+import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 
 export const errorMessages = {
   errors: {
@@ -358,6 +359,7 @@ export const errorMessages = {
       "El acceso con Teams falló. Reintenta o usa otro método de acceso.",
     codexTurnFailed:
       "Esta ejecución falló. Puedes ajustar la entrada e intentarlo de nuevo.",
+    modelGateway: modelGatewayMessages["es-ES"],
     turnCompletedWithoutOutput:
       "Esta ejecución terminó sin resultados que se puedan mostrar. Ejecútala de nuevo.",
     automation: {

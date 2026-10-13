@@ -1,4 +1,5 @@
 import { localizedErrorMessage } from "@linksense/shared"
+import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 
 export const errors = {
   socialClientInUse:
@@ -348,6 +349,7 @@ export const errors = {
     "Échec de la connexion Teams. Réessayez ou utilisez une autre méthode de connexion.",
   codexTurnFailed:
     "Cette exécution a échoué. Vous pouvez ajuster la saisie et réessayer.",
+  modelGateway: modelGatewayMessages["fr-FR"],
   turnCompletedWithoutOutput:
     "L’exécution s’est terminée sans produire de résultat affichable. Relancez-la.",
   automation: {

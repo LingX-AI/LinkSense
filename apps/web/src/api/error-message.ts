@@ -220,7 +220,8 @@ export function getErrorMessage(
       return withReason(
         getPublicRuntimeMessage(
           error.message,
-          t("errors.unknown", translationParams)
+          t("errors.unknown", translationParams),
+          (key) => t(key)
         ),
         reason,
         t
