@@ -17,7 +17,19 @@ download_status=0
 curl --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 --retry-max-time 300 --connect-timeout 15 --max-time 300 -fsSL "$base/upgrade.sh" -o "$tmp/upgrade.sh" || download_status=$?
 case "$download_status" in
   0) ;;
-  16|92) curl --http1.1 --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 -fsSL "$base/upgrade.sh" -o "$tmp/upgrade.sh" ;;
+  16|92) curl --http1.1 --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 --retry-max-time 300 --connect-timeout 15 --max-time 300 -fsSL "$base/upgrade.sh" -o "$tmp/upgrade.sh" ;;
   *) exit "$download_status" ;;
 esac
-sh "$tmp/upgrade.sh"
+if [ "${1:-}" = --check-network ] && ! grep -q -- '--check-network)' "$tmp/upgrade.sh"; then
+  case "${LINKSENSE_CLI_LANGUAGE:-${LANG:-zh-CN}}" in
+    en*) message='This release does not support --check-network. Use a release with network diagnostics.' ;;
+    es*) message='Esta versión no admite --check-network. Use una versión con diagnóstico de red.' ;;
+    pt*) message='Esta versão não oferece --check-network. Use uma versão com diagnóstico de rede.' ;;
+    fr*) message='Cette version ne prend pas en charge --check-network. Utilisez une version avec le diagnostic réseau.' ;;
+    ja*) message='このリリースは --check-network に対応していません。ネットワーク診断に対応するリリースを使用してください。' ;;
+    *) message='此发布版不支持 --check-network，请使用包含网络诊断的新发布版。' ;;
+  esac
+  printf '%s\n' "$message" >&2
+  exit 64
+fi
+sh "$tmp/upgrade.sh" "$@"

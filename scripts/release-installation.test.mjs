@@ -21,6 +21,42 @@ import test from "node:test"
 const root = path.resolve(import.meta.dirname, "..")
 const releaseDirectory = path.join(root, "deploy/release")
 
+test("bootstrap forwards diagnostics and refuses older releases instead of starting an installation", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "linksense-bootstrap-diagnostics-"))
+  try {
+    const bin = path.join(directory, "bin")
+    await mkdir(bin)
+    await writeFile(path.join(bin, "curl"), `#!/bin/sh
+target=
+while [ "$#" -gt 0 ]; do
+  case "$1" in -o) target=$2; shift 2 ;; *) shift ;; esac
+done
+cp "$MOCK_DOWNLOADED_INSTALLER" "$target"
+`, { mode: 0o755 })
+    const downloaded = path.join(directory, "downloaded.sh")
+    for (const [source, expected] of [
+      ['#!/bin/sh\nprintf "%s\\n" "$*" > "$MOCK_EXECUTED"\n# --check-network)\n', 0],
+      ['#!/bin/sh\ntouch "$MOCK_EXECUTED"\n', 64],
+    ]) {
+      await writeFile(downloaded, source)
+      for (const entry of ["install-core.sh", "install-full.sh", "repair-core.sh", "repair-full.sh", "upgrade.sh"]) {
+        const marker = path.join(directory, `${entry}.executed`)
+        const result = spawnSync("sh", [path.join(root, entry), "--check-network"], { encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, MOCK_DOWNLOADED_INSTALLER: downloaded, MOCK_EXECUTED: marker } })
+        assert.equal(result.status, expected, result.stderr)
+        if (expected === 0) {
+          assert.equal(await readFile(marker, "utf8"), "--check-network\n")
+          await rm(marker)
+        } else {
+          await assert.rejects(access(marker))
+          assert.match(result.stderr, /--check-network/u)
+        }
+      }
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("the five release entry scripts download only their matching release entry", async () => {
   const entries = [
     "install-core.sh",
@@ -102,6 +138,99 @@ test("release entry scripts are self-contained and pinned to one mode and versio
   }
 })
 
+test("bundled network diagnostics work before installation without creating state or starting containers", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "linksense-network-bundle-"))
+  try {
+    execFileSync(
+      process.execPath,
+      [path.join(root, "scripts/bundle-release-installers.mjs"), directory],
+      { env: { ...process.env, RELEASE_VERSION: "v0.1.0" } },
+    )
+    const bin = path.join(directory, "bin")
+    await mkdir(bin)
+    const manifest = `IMAGE_BUSYBOX=docker.io/library/busybox@sha256:${"a".repeat(64)}\nIMAGE_LINKSENSE_API=ghcr.io/lingx-ai/linksense-api@sha256:${"b".repeat(64)}\n`
+    await writeFile(path.join(directory, "manifest"), manifest)
+    await writeFile(path.join(directory, "checksum"), `${createHash("sha256").update(manifest).digest("hex")}  release-manifest.env\n`)
+    await writeExecutable(path.join(bin, "uname"), `#!/bin/sh
+case "$1" in -s) echo "$MOCK_OS" ;; -m) echo arm64 ;; *) exit 1 ;; esac
+`)
+    await writeExecutable(path.join(bin, "id"), '#!/bin/sh\necho 501\n')
+    await writeExecutable(path.join(bin, "curl"), `#!/bin/sh
+printf 'curl %s\\n' "$*" >> "$MOCK_TRACE"
+echo 'https://user:private-proxy-value@proxy.example' >&2
+[ "$MOCK_CURL_STATUS" = 0 ] || exit "$MOCK_CURL_STATUS"
+target=
+while [ "$#" -gt 0 ]; do
+  case "$1" in -o) target=$2; shift 2 ;; *) url=$1; shift ;; esac
+done
+case "$url" in *.sha256) cp "$MOCK_CHECKSUM" "$target" ;; *) cp "$MOCK_MANIFEST" "$target" ;; esac
+`)
+    await writeExecutable(path.join(bin, "docker"), `#!/bin/sh
+printf 'docker %s\\n' "$*" >> "$MOCK_TRACE"
+case "$1:$2" in pull:ghcr.io/*) exit "$MOCK_GHCR_STATUS" ;; info:*|pull:*) exit "$MOCK_DOCKER_STATUS" ;; *) exit 99 ;; esac
+`)
+    for (const scenario of [
+      { os: "Darwin", curl: 0, docker: 0 },
+      { os: "Linux", curl: 0, docker: 0 },
+      { os: "Darwin", curl: 0, docker: 0, entry: "upgrade.sh" },
+      { os: "Darwin", curl: 28, docker: 0 },
+      { os: "Darwin", curl: 0, docker: 1 },
+      { os: "Darwin", curl: 0, docker: 0, ghcr: 1 },
+      { os: "Darwin", curl: 0, docker: 0, invalid: "checksum" },
+      { os: "Darwin", curl: 0, docker: 0, invalid: "image" },
+      { os: "Darwin", curl: 0, docker: 0, invalid: "duplicate" },
+    ]) {
+      const manifestSource = scenario.invalid === "image"
+        ? manifest.replace(/IMAGE_LINKSENSE_API=.*/u, "IMAGE_LINKSENSE_API=--all-tags")
+        : scenario.invalid === "duplicate"
+          ? `${manifest}IMAGE_LINKSENSE_API=ghcr.io/untrusted/api@sha256:${"c".repeat(64)}\n`
+          : manifest
+      await writeFile(path.join(directory, "manifest"), manifestSource)
+      const checksum = scenario.invalid === "checksum" ? "0".repeat(64) : createHash("sha256").update(manifestSource).digest("hex")
+      await writeFile(path.join(directory, "checksum"), `${checksum}  release-manifest.env\n`)
+      const trace = path.join(directory, "trace")
+      const installDirectory = path.join(directory, "installation")
+      const result = spawnSync("/bin/sh", [path.join(directory, scenario.entry ?? "install-core.sh"), "--check-network"], {
+        encoding: "utf8",
+        timeout: 10000,
+        env: {
+          ...process.env,
+          HOME: directory,
+          DOCKER_CONFIG: directory,
+          PATH: `${bin}:/usr/bin:/bin`,
+          LINKSENSE_INSTALL_DIR: installDirectory,
+          LINKSENSE_RELEASE_BASE_URL: "https://downloads.example/v0.1.0",
+          LINKSENSE_CLI_LANGUAGE: "en-US",
+          MOCK_OS: scenario.os,
+          MOCK_CURL_STATUS: String(scenario.curl),
+          MOCK_DOCKER_STATUS: String(scenario.docker),
+          MOCK_GHCR_STATUS: String(scenario.ghcr ?? 0),
+          MOCK_MANIFEST: path.join(directory, "manifest"),
+          MOCK_CHECKSUM: path.join(directory, "checksum"),
+          MOCK_TRACE: trace,
+        },
+      })
+      assert.equal(result.status, scenario.curl || scenario.docker || scenario.ghcr || scenario.invalid ? 1 : 0, result.stderr)
+      assert.match(result.stdout, /(?:PASS|FAIL) terminal-release/u)
+      assert.match(result.stdout, /(?:PASS|FAIL) docker-engine/u)
+      assert.doesNotMatch(result.stdout + result.stderr, /private-proxy-value/u)
+      await assert.rejects(access(installDirectory))
+      const calls = await readFile(trace, "utf8")
+      assert.match(calls, /https:\/\/downloads.example\/v0\.1\.0\/release-manifest.env/u)
+      assert.doesNotMatch(calls, /raw.githubusercontent.com|docker (?:run|create|start|stop|compose|volume)/u)
+      if (scenario.docker === 0 && scenario.curl === 0 && !scenario.invalid) {
+        assert.match(calls, /docker pull docker.io\/library\/busybox@sha256:/u)
+        assert.match(calls, /docker pull ghcr.io\/lingx-ai\/linksense-api@sha256:/u)
+      } else if (scenario.docker === 0) assert.match(calls, /docker pull hello-world:latest/u)
+      else assert.doesNotMatch(calls, /docker pull/u)
+      assert.doesNotMatch(calls, /docker pull --all-tags|docker pull ghcr.io\/untrusted/u)
+      await rm(trace)
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("the installer checks the host before creating persistent state", async () => {
   const source = await readFile(
     path.join(releaseDirectory, "linksense-installer.sh"),
@@ -173,7 +302,7 @@ test("the installer checks the host before creating persistent state", async () 
   assert.match(source, /STATE_RELEASE_BASE_URL=\$RELEASE_RESOURCE_BASE/u)
   assert.match(source, /\/usr\/local\/bin\/linksense/u)
   assert.match(source, /\$HOME\/\.local\/bin\/linksense/u)
-  assert.match(source, /exec sudo env LINKSENSE_INSTALL_DIR=/u)
+  assert.match(source, /exec sudo --preserve-env=[^ ]+ env LINKSENSE_INSTALL_DIR=/u)
   assert.match(source, /LINKSENSE_CLI_LANGUAGE=/u)
   assert.match(source, /LINKSENSE_RELEASE_BASE_URL=/u)
   assert.doesNotMatch(source, /^\s*\. "\$INSTALL_DIR\/\.env"/mu)
@@ -315,7 +444,7 @@ activate_management_cli
     })
     assert.equal(userResult.status, 0, userResult.stderr)
     const userTrace = await readFile(trace, "utf8")
-    assert.match(userTrace, /^sudo env LINKSENSE_INSTALL_DIR=/mu)
+    assert.match(userTrace, /^sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_INSTALL_DIR=/mu)
     assert.match(userTrace, /LINKSENSE_CLI_LANGUAGE=zh-CN/u)
     assert.match(userTrace, /LINKSENSE_RELEASE_BASE_URL=https:\/\/downloads\.example\/linksense-v0\.3\.0/u)
     assert.match(userTrace, /linksense-cli\.sh upgrade v0\.3\.0/u)

@@ -1,4 +1,13 @@
 # Shared by the installer and management CLI; release bundles inline this file.
+host_discover_docker_tools() {
+  [ "${HOST_OS:-$(uname -s)}" = Darwin ] || return 0
+  for host_bin in "${HOME:-}/.docker/bin" /Applications/Docker.app/Contents/Resources/bin "${HOME:-}/Applications/Docker.app/Contents/Resources/bin" /usr/local/bin; do
+    [ -d "$host_bin" ] || continue
+    case ":$PATH:" in *":$host_bin:"*) ;; *) PATH=$PATH:$host_bin ;; esac
+  done
+  export PATH
+}
+host_discover_docker_tools
 SYSTEM_DOCKER_CLI=$(command -v docker || true)
 DOCKER_CLI=$SYSTEM_DOCKER_CLI
 COMPOSE_CLI=
@@ -12,6 +21,42 @@ host_text() {
     ja*|JA*) host_locale=ja-JP ;; *) host_locale=zh-CN ;;
   esac
   case "$host_key:$host_locale" in
+    credential:zh-CN) host_message='Docker 凭证助手不可用：%s。macOS 请启动 Docker Desktop，并执行 export PATH="/Applications/Docker.app/Contents/Resources/bin:$HOME/.docker/bin:$PATH" 后重试。保留 Docker 登录配置。' ;;
+    credential:en-US) host_message='Docker credential helper is unavailable: %s. On macOS, start Docker Desktop and run export PATH="/Applications/Docker.app/Contents/Resources/bin:$HOME/.docker/bin:$PATH", then retry. Keep the Docker login configuration.' ;;
+    credential:es-ES) host_message='El asistente de credenciales de Docker no está disponible: %s. En macOS, inicie Docker Desktop y ejecute export PATH="/Applications/Docker.app/Contents/Resources/bin:$HOME/.docker/bin:$PATH"; vuelva a intentarlo. Conserve la configuración de acceso de Docker.' ;;
+    credential:pt-BR) host_message='O auxiliar de credenciais do Docker está indisponível: %s. No macOS, inicie o Docker Desktop e execute export PATH="/Applications/Docker.app/Contents/Resources/bin:$HOME/.docker/bin:$PATH"; tente novamente. Preserve a configuração de login do Docker.' ;;
+    credential:fr-FR) host_message='L’assistant d’identification Docker est indisponible : %s. Sur macOS, démarrez Docker Desktop et exécutez export PATH="/Applications/Docker.app/Contents/Resources/bin:$HOME/.docker/bin:$PATH", puis réessayez. Conservez la configuration de connexion Docker.' ;;
+    credential:ja-JP) host_message='Docker 認証ヘルパーを利用できません：%s。macOS では Docker Desktop を起動し、export PATH="/Applications/Docker.app/Contents/Resources/bin:$HOME/.docker/bin:$PATH" を実行して再試行してください。Docker のログイン設定は保持してください。' ;;
+    network_pass:zh-CN) host_message='PASS %s：检查通过。' ;;
+    network_pass:en-US) host_message='PASS %s: check passed.' ;;
+    network_pass:es-ES) host_message='PASS %s: comprobación correcta.' ;;
+    network_pass:pt-BR) host_message='PASS %s: verificação concluída.' ;;
+    network_pass:fr-FR) host_message='PASS %s : vérification réussie.' ;;
+    network_pass:ja-JP) host_message='PASS %s：チェック成功。' ;;
+    network_fail:zh-CN) host_message='FAIL %s：检查失败，其他项目继续检查。' ;;
+    network_fail:en-US) host_message='FAIL %s: check failed; remaining checks continue.' ;;
+    network_fail:es-ES) host_message='FAIL %s: falló la comprobación; las demás continúan.' ;;
+    network_fail:pt-BR) host_message='FAIL %s: a verificação falhou; as demais continuam.' ;;
+    network_fail:fr-FR) host_message='FAIL %s : échec ; les autres vérifications continuent.' ;;
+    network_fail:ja-JP) host_message='FAIL %s：チェック失敗。他の項目の確認は続行します。' ;;
+    docker_engine_help:zh-CN) host_message='Docker CLI 或引擎不可用。macOS 请安装并启动 Docker Desktop；Linux 请检查 Docker Engine 服务和当前账号的访问权限。确认 docker info 成功后重试。' ;;
+    docker_engine_help:en-US) host_message='Docker CLI or Engine is unavailable. On macOS, install and start Docker Desktop. On Linux, check the Docker Engine service and current account permissions. Retry after docker info succeeds.' ;;
+    docker_engine_help:es-ES) host_message='Docker CLI o Engine no está disponible. En macOS, instale e inicie Docker Desktop. En Linux, compruebe el servicio Docker Engine y los permisos de la cuenta actual. Vuelva a intentarlo cuando docker info funcione.' ;;
+    docker_engine_help:pt-BR) host_message='Docker CLI ou Engine está indisponível. No macOS, instale e inicie o Docker Desktop. No Linux, verifique o serviço Docker Engine e as permissões da conta atual. Tente novamente após docker info funcionar.' ;;
+    docker_engine_help:fr-FR) host_message='Docker CLI ou Engine est indisponible. Sur macOS, installez et démarrez Docker Desktop. Sur Linux, vérifiez le service Docker Engine et les permissions du compte actuel. Réessayez après le succès de docker info.' ;;
+    docker_engine_help:ja-JP) host_message='Docker CLI または Engine を利用できません。macOS では Docker Desktop をインストールして起動してください。Linux では Docker Engine サービスと現在のアカウントのアクセス権限を確認してください。docker info が成功してから再試行してください。' ;;
+    terminal_help:zh-CN) host_message='检查终端的 https_proxy / ALL_PROXY、代理监听端口和协议。SOCKS5 可用 socks5h:// 让代理解析域名。两步安装与网络配置：https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
+    terminal_help:en-US) host_message='Check terminal https_proxy / ALL_PROXY, the listening port and proxy scheme. socks5h:// resolves names through the proxy. Download instructions: https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
+    terminal_help:es-ES) host_message='Compruebe https_proxy / ALL_PROXY, el puerto y el protocolo del proxy en la terminal. socks5h:// resuelve nombres mediante el proxy. Instrucciones: https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
+    terminal_help:pt-BR) host_message='Verifique https_proxy / ALL_PROXY, a porta e o protocolo do proxy no terminal. socks5h:// resolve nomes pelo proxy. Instruções: https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
+    terminal_help:fr-FR) host_message='Vérifiez https_proxy / ALL_PROXY, le port et le protocole du proxy dans le terminal. socks5h:// résout les noms via le proxy. Instructions : https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
+    terminal_help:ja-JP) host_message='ターミナルの https_proxy / ALL_PROXY、待受ポート、プロキシの方式を確認してください。socks5h:// はプロキシ側で名前を解決します。手順：https://github.com/LingX-AI/linksense/blob/main/deploy/release/HOST-ADAPTATION.md#network-and-proxies' ;;
+    docker_network_help:zh-CN) host_message='macOS：Docker Desktop → Settings → Resources → Proxies 单独配置代理；SOCKS5 需要 Business 订阅，可改用代理软件的 HTTP 端口。Linux：检查 daemon 代理。保留已有 Engine 配置，仅使用可信 registry-mirrors；镜像仓库的认证或限流也会导致拉取失败。' ;;
+    docker_network_help:en-US) host_message='macOS: configure Docker Desktop → Settings → Resources → Proxies separately. SOCKS5 requires Business; use an HTTP proxy port otherwise. Linux: check the daemon proxy. Preserve Engine settings and use trusted registry-mirrors only; registry authentication or rate limits can also block pulls.' ;;
+    docker_network_help:es-ES) host_message='macOS: configure por separado Docker Desktop → Settings → Resources → Proxies. SOCKS5 requiere Business; puede usar un puerto de proxy HTTP. Linux: compruebe el proxy del daemon. Conserve la configuración del Engine y use solo registry-mirrors de confianza; la autenticación o los límites del registro también pueden impedir descargas.' ;;
+    docker_network_help:pt-BR) host_message='macOS: configure separadamente Docker Desktop → Settings → Resources → Proxies. SOCKS5 exige Business; use uma porta de proxy HTTP como alternativa. Linux: verifique o proxy do daemon. Preserve as configurações do Engine e use apenas registry-mirrors confiáveis; autenticação ou limites do registro também podem impedir downloads.' ;;
+    docker_network_help:fr-FR) host_message='macOS : configurez séparément Docker Desktop → Settings → Resources → Proxies. SOCKS5 exige Business ; utilisez sinon un port de proxy HTTP. Linux : vérifiez le proxy du daemon. Conservez les réglages Engine et utilisez uniquement des registry-mirrors fiables ; l’authentification ou les limites du registre peuvent aussi bloquer les téléchargements.' ;;
+    docker_network_help:ja-JP) host_message='macOS：Docker Desktop → Settings → Resources → Proxies で別途設定してください。SOCKS5 には Business が必要です。代わりに HTTP プロキシのポートを利用できます。Linux：daemon のプロキシを確認してください。Engine の設定を保持し、信頼できる registry-mirrors のみを使ってください。レジストリの認証や利用制限でも取得が失敗します。' ;;
     postgres_runtime:zh-CN) host_message='发布版 PostgreSQL 的隔离初始化检查失败。请检查主机容器运行时及 libseccomp 的兼容性，并保留 seccomp 隔离。阶段：%s' ;;
     postgres_runtime:en-US) host_message='The release PostgreSQL image failed its isolated initialization test. Check the host container runtime and libseccomp compatibility; keep seccomp enabled. Phase: %s' ;;
     postgres_runtime:es-ES) host_message='La imagen publicada de PostgreSQL no superó la prueba de inicialización aislada. Compruebe la compatibilidad del entorno de ejecución de contenedores y libseccomp del servidor; mantenga seccomp activado. Fase: %s' ;;
@@ -133,6 +178,117 @@ host_fail() {
   exit 1
 }
 
+host_check_docker_credentials() (
+  [ "${HOST_OS:-$(uname -s)}" = Darwin ] || return 0
+  host_config=${DOCKER_CONFIG:-${HOME:-}/.docker}/config.json
+  [ -f "$host_config" ] || return 0
+  # Registry-specific helpers override credsStore; let each pull select its helper.
+  host_helpers=$(plutil -extract credHelpers raw -expect dictionary -o - "$host_config" 2>/dev/null || true)
+  [ -z "$host_helpers" ] || return 0
+  if ! host_store=$(plutil -extract credsStore raw -expect string -o - "$host_config" 2>/dev/null); then return 0; fi
+  [ -n "$host_store" ] || return 0
+  case "$host_store" in *[!A-Za-z0-9_.-]*) host_fail invalid_config Docker_credsStore ;; esac
+  command -v "docker-credential-$host_store" >/dev/null 2>&1 || host_fail credential "docker-credential-$host_store"
+)
+
+read_key() {
+  file=$1
+  expected=$2
+  awk -F= -v expected="$expected" '
+    $1 == expected {
+      count += 1
+      value = substr($0, length($1) + 2)
+    }
+    END {
+      if (count != 1) exit 1
+      print value
+    }
+  ' "$file"
+}
+
+host_network_request() (
+  host_network_url=$1
+  host_network_target=${2:-/dev/null}
+  host_network_status=0
+  curl --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 -fsSL -o "$host_network_target" "$host_network_url" >/dev/null 2>&1 || host_network_status=$?
+  case "$host_network_status" in
+    0) return 0 ;;
+    16|92) curl --http1.1 --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 -fsSL -o "$host_network_target" "$host_network_url" >/dev/null 2>&1 ;;
+    *) return "$host_network_status" ;;
+  esac
+)
+
+host_network_diagnostics() (
+  host_network_base=${1%/}
+  shift
+  host_network_failed=0
+  host_network_tmp=$(mktemp -d)
+  trap 'rm -r "$host_network_tmp"' EXIT
+  host_network_release_ok=false
+  if host_network_request "$host_network_base/release-manifest.env" "$host_network_tmp/manifest"; then
+    host_network_release_ok=true
+    host_text network_pass terminal-release
+  else
+    host_text network_fail terminal-release
+    host_text terminal_help
+    host_network_failed=1
+  fi
+  case "$host_network_base" in
+    https://github.com/LingX-AI/linksense/releases/*)
+      if host_network_request https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh; then
+        host_text network_pass terminal-bootstrap
+      else
+        host_text network_fail terminal-bootstrap
+        host_text terminal_help
+        host_network_failed=1
+      fi ;;
+  esac
+  if [ "$#" -eq 0 ]; then
+    host_network_images_valid=false
+    if [ "$host_network_release_ok" = true ] && host_network_request "$host_network_base/release-manifest.env.sha256" "$host_network_tmp/checksum"; then
+      host_network_expected=$(awk 'NF { print $1; exit }' "$host_network_tmp/checksum")
+      host_network_busybox=$(read_key "$host_network_tmp/manifest" IMAGE_BUSYBOX 2>/dev/null || true)
+      host_network_api=$(read_key "$host_network_tmp/manifest" IMAGE_LINKSENSE_API 2>/dev/null || true)
+      if printf '%s' "$host_network_expected" | grep -Eq '^[0-9a-f]{64}$' &&
+        [ "$(host_sha256 "$host_network_tmp/manifest")" = "$host_network_expected" ] &&
+        printf '%s' "$host_network_busybox" | grep -Eq '^[a-z0-9./-]+@sha256:[0-9a-f]{64}$' &&
+        printf '%s' "$host_network_api" | grep -Eq '^[a-z0-9./-]+@sha256:[0-9a-f]{64}$'; then
+        set -- "$host_network_busybox" "$host_network_api"
+        host_network_images_valid=true
+        host_text network_pass release-images
+      fi
+    fi
+    if [ "$host_network_images_valid" != true ]; then
+      host_text network_fail release-images
+      host_text terminal_help
+      host_network_failed=1
+      set -- hello-world:latest
+    fi
+  fi
+  if [ -z "$DOCKER_CLI" ] || ! docker info >/dev/null 2>&1; then
+    host_text network_fail docker-engine
+    host_text docker_engine_help
+    return 1
+  fi
+  host_text network_pass docker-engine
+  host_text network_pass "docker-cli:$DOCKER_CLI"
+  if (host_check_docker_credentials); then
+    host_text network_pass docker-credentials
+  else
+    host_network_failed=1
+  fi
+  for host_network_image in "$@"; do
+    if host_bounded 120 "$DOCKER_CLI" pull "$host_network_image" >/dev/null 2>&1; then
+      host_text network_pass "docker-pull:$host_network_image"
+    else
+      host_text network_fail "docker-pull:$host_network_image"
+      host_text docker_network_help
+      host_network_failed=1
+    fi
+  done
+  return "$host_network_failed"
+)
+
 host_sha256() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
   else shasum -a 256 "$1" | awk '{print $1}'; fi
@@ -198,6 +354,7 @@ host_download() (
   done
   [ "$host_resume" = resume ] || rm -f "$host_target.part"
   rm -f "$host_target.error"
+  host_text terminal_help >&2
   host_fail download "curl_exit=$host_result attempts=$host_attempt"
 )
 

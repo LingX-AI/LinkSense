@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
 import { spawn, spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import {
+  appendFile,
   chmod,
   mkdir,
   mkdtemp,
@@ -53,6 +55,56 @@ function cliTest(name, run) {
 }
 
 describe("release management CLI", { concurrency: 4 }, () => {
+  cliTest("local service management remains usable when a registry credential helper is missing", async () => {
+    const fixture = await createFixture({ hostOs: "Darwin", mockUid: "501" })
+    try {
+      const bin = path.join(fixture.directory, "bin")
+      await mkdir(bin)
+      await writeExecutable(path.join(bin, "plutil"), '#!/bin/sh\necho fixture-missing\n')
+      await writeFile(path.join(fixture.directory, "config.json"), '{"credsStore":"fixture-missing"}\n')
+      for (const command of ["status", "stop"]) {
+        const result = await runCli(fixture, [command], {
+          environment: {
+            DOCKER_CONFIG: fixture.directory,
+            PATH: `${bin}:${fixture.bin}:/usr/bin:/bin`,
+          },
+        })
+        assert.equal(result.status, 0, result.stderr)
+      }
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  cliTest("doctor --network diagnoses downloads and Docker pulls independently without restarting services", async () => {
+    const fixture = await createFixture()
+    try {
+      const before = await readFile(path.join(fixture.installDir, ".env"))
+      const result = await runCli(fixture, ["doctor", "--network"], { environment: { MOCK_NETWORK_OK: "true" } })
+      assert.equal(result.status, 0, result.stderr)
+      assert.match(result.stdout, /PASS.*terminal-release/u)
+      assert.match(result.stdout, /PASS.*docker-pull/u)
+      assert.deepEqual(await readFile(path.join(fixture.installDir, ".env")), before)
+      const calls = await readFile(fixture.dockerLog, "utf8")
+      assert.match(calls, /pull docker.io\/library\/busybox@sha256:/u)
+      assert.match(calls, /pull ghcr.io\/lingx-ai\/linksense-api@sha256:/u)
+      assert.doesNotMatch(calls, /compose|volume.*(?:create|rm)|restart/u)
+      const partial = await runCli(fixture, ["doctor", "--network"])
+      assert.equal(partial.status, 1)
+      assert.match(partial.stdout, /FAIL.*terminal-release/u)
+      assert.match(partial.stdout, /PASS.*docker-pull/u)
+      assert.notEqual((await runCli(fixture, ["doctor", "--invalid"])).status, 0)
+      const runtimeFile = path.join(fixture.installDir, ".env")
+      await appendFile(runtimeFile, `BUSYBOX_IMAGE=docker.io/library/busybox@sha256:${"d".repeat(64)}\nLINKSENSE_API_IMAGE=registry.example/application/api@sha256:${"c".repeat(64)}\n`)
+      const configured = await readFile(runtimeFile)
+      const installed = await runCli(fixture, ["doctor", "--network"], { environment: { MOCK_NETWORK_OK: "true" } })
+      assert.equal(installed.status, 0, installed.stderr)
+      assert.match(await readFile(fixture.dockerLog, "utf8"), /pull registry.example\/application\/api@sha256:/u)
+      assert.deepEqual(await readFile(runtimeFile), configured)
+    } finally {
+      await fixture.cleanup()
+    }
+  })
   cliTest(
     "the management CLI supports Linux amd64, Linux ARM64, and both macOS architectures",
     async () => {
@@ -506,10 +558,14 @@ describe("release management CLI", { concurrency: 4 }, () => {
             LINKSENSE_RELEASE_BASE_URL:
               "https://downloads.example/linksense-v0.3.0",
             MOCK_SUDO_EXIT: "73",
+            https_proxy: "http://user:private-proxy-value@proxy.example:8080",
           },
         })
         assert.equal(result.status, 73)
         const sudoLog = await readFile(linux.sudoLog, "utf8")
+        assert.match(sudoLog, /--preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy/u)
+        assert.doesNotMatch(sudoLog, /(?:^|\s)-E(?:\s|$)/u)
+        assert.doesNotMatch(sudoLog, /private-proxy-value/u)
         assert.match(sudoLog, /LINKSENSE_INSTALL_DIR=/u)
         assert.match(
           sudoLog,
@@ -669,6 +725,8 @@ function escapeRegularExpression(value) {
 }
 
 async function createCommandStubs(bin) {
+  const networkManifest = `IMAGE_BUSYBOX=docker.io/library/busybox@sha256:${"a".repeat(64)}\nIMAGE_LINKSENSE_API=ghcr.io/lingx-ai/linksense-api@sha256:${"b".repeat(64)}\n`
+  const networkChecksum = createHash("sha256").update(networkManifest).digest("hex")
   await writeExecutable(
     path.join(bin, "uname"),
     '#!/bin/sh\ncase "$1" in -s) printf "%s\\n" "$MOCK_HOST_OS" ;; -m) printf "%s\\n" "$MOCK_HOST_ARCH" ;; *) exit 1 ;; esac\n',
@@ -694,11 +752,16 @@ async function createCommandStubs(bin) {
     path.join(bin, "curl"),
     `#!/bin/sh
 url=
-for argument in "$@"; do url=$argument; done
+target=/dev/stdout
+while [ "$#" -gt 0 ]; do
+  case "$1" in -o) target=$2; shift 2 ;; *) url=$1; shift ;; esac
+done
 case "$url" in
   */api/v1/system/bootstrap) printf '%s\\n' "\${MOCK_BOOTSTRAP_RESPONSE:-{\\"success\\":true,\\"data\\":{\\"initialized\\":false,\\"initialization_credential_required\\":true}}}" ;;
   *:\${MOCK_HEALTH_FAIL_PORT:-none}/api/v1/system/health/ready) exit 22 ;;
   */api/v1/system/health/ready) printf '%s\\n' '{"success":true,"data":{"status":"available"}}' ;;
+  */release-manifest.env.sha256) [ "\${MOCK_NETWORK_OK:-}" = true ] && printf '%s\\n' '${networkChecksum}  release-manifest.env' > "$target" ;;
+  */release-manifest.env) [ "\${MOCK_NETWORK_OK:-}" = true ] && printf '%s' '${networkManifest}' > "$target" ;;
   *) exit 22 ;;
 esac
 `,
@@ -708,6 +771,7 @@ esac
     `#!/bin/sh
 printf '%s\\n' "$*" >> "$MOCK_DOCKER_LOG"
 case "$1:$2" in
+  pull:*) exit 0 ;;
   info:*)
     case "$3" in '{{.MemoryLimit}}'|'{{.PidsLimit}}'|'{{.CPUCfsQuota}}'|'{{.CPUCfsPeriod}}') printf true ;; esac
     exit 0 ;;

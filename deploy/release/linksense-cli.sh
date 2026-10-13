@@ -73,7 +73,7 @@ text() {
     zh-CN:menu_prompt) printf '请输入命令编号：' ;;
     zh-CN:usage) printf '%s\n' \
       '用法：linksense [命令]' \
-      '命令：status、start、stop、restart、address、port <端口>、credential、logs [服务]、doctor、version、repair、upgrade [版本]' ;;
+      '命令：status、start、stop、restart、address、port <端口>、credential、logs [服务]、doctor [--network]、version、repair、upgrade [版本]' ;;
     en-US:unsupported_host) printf 'Unsupported host operating system: %s.' "$1" ;;
     en-US:run_without_sudo) printf 'Run linksense from the current macOS account without sudo.' ;;
     en-US:sudo_missing) printf 'Managing LinkSense requires root privileges, but sudo is not installed.' ;;
@@ -132,7 +132,7 @@ text() {
     en-US:menu_prompt) printf 'Select a command: ' ;;
     en-US:usage) printf '%s\n' \
       'Usage: linksense [command]' \
-      'Commands: status, start, stop, restart, address, port <port>, credential, logs [service], doctor, version, repair, upgrade [version]' ;;
+      'Commands: status, start, stop, restart, address, port <port>, credential, logs [service], doctor [--network], version, repair, upgrade [version]' ;;
     *) printf 'Unknown message: %s' "$key" ;;
   esac
 }
@@ -158,13 +158,13 @@ case "$HOST_OS" in
     if [ "$CURRENT_UID" -ne 0 ]; then
       command -v sudo >/dev/null 2>&1 || die sudo_missing
       if [ -n "${LINKSENSE_RELEASE_BASE_URL:-}" ]; then
-        exec sudo env \
+        exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env \
           "LINKSENSE_INSTALL_DIR=${LINKSENSE_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}" \
           "LINKSENSE_CLI_LANGUAGE=$CLI_LANGUAGE" \
           "LINKSENSE_RELEASE_BASE_URL=$LINKSENSE_RELEASE_BASE_URL" \
           "$0" "$@"
       fi
-      exec sudo env \
+      exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env \
         "LINKSENSE_INSTALL_DIR=${LINKSENSE_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}" \
         "LINKSENSE_CLI_LANGUAGE=$CLI_LANGUAGE" \
         "$0" "$@"
@@ -199,21 +199,6 @@ validate_installation_file() {
   [ -f "$file" ] && [ ! -L "$file" ] || die install_missing "$INSTALL_DIR"
   [ "$(file_owner_uid "$file" 2>/dev/null || true)" = "$CURRENT_UID" ] || die invalid_install "$file"
   [ "$(file_mode "$file" 2>/dev/null || true)" = 600 ] || die invalid_install "$file"
-}
-
-read_key() {
-  file=$1
-  expected=$2
-  awk -F= -v expected="$expected" '
-    $1 == expected {
-      count += 1
-      value = substr($0, length($1) + 2)
-    }
-    END {
-      if (count != 1) exit 1
-      print value
-    }
-  ' "$file"
 }
 
 validate_port() {
@@ -597,6 +582,19 @@ validate_managed_volume() {
 }
 
 command_doctor() {
+  if [ "${1:-}" = --network ]; then
+    host_use_saved_tools
+    network_base=${LINKSENSE_RELEASE_BASE_URL:-$(read_key "$STATE_FILE" STATE_RELEASE_BASE_URL 2>/dev/null || true)}
+    network_base=${network_base:-https://github.com/LingX-AI/linksense/releases/download/$VERSION}
+    network_busybox=$(read_key "$ENV_FILE" BUSYBOX_IMAGE 2>/dev/null || true)
+    network_api=$(read_key "$ENV_FILE" LINKSENSE_API_IMAGE 2>/dev/null || true)
+    if [ -n "$network_busybox" ] && [ -n "$network_api" ]; then
+      host_network_diagnostics "$network_base" "$network_busybox" "$network_api"
+    else
+      host_network_diagnostics "$network_base"
+    fi
+    return
+  fi
   ensure_docker
   host_capabilities
   compose config --quiet
@@ -703,7 +701,9 @@ case "$command" in
   port) shift; command_port "${1:-}" ;;
   credential) command_credential false ;;
   logs) shift; command_logs "${1:-}" ;;
-  doctor) command_doctor ;;
+  doctor)
+    shift
+    case "$#:${1:-}" in 0:|1:--network) command_doctor "${1:-}" ;; *) die invalid_command doctor ;; esac ;;
   version) printf '%s (%s, %s)\n' "$VERSION" "$EDITION" "$PLATFORM" ;;
   repair) command_repair ;;
   upgrade) shift; command_upgrade "${1:-}" ;;

@@ -51,12 +51,12 @@ For a host with broken CPU quota support:
 
 ```sh
 curl -fsSL -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh
-sudo env LINKSENSE_CPU_QUOTA_MODE=compatible sh install-full.sh
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_CPU_QUOTA_MODE=compatible sh install-full.sh
 ```
 
 The mode is saved in `.env` and reused by repair, start, doctor, and upgrade.
 Changing an installed mode requires an explicit upgrade invocation, for example
-`sudo env LINKSENSE_CPU_QUOTA_MODE=strict sh upgrade.sh` after downloading the
+`sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_CPU_QUOTA_MODE=strict sh upgrade.sh` after downloading the
 current root `upgrade.sh` bootstrap. It verifies the host, drains work, creates a
 backup, and updates the runtime even for the same release. A target release
 without `RESOURCE_HOST_ADAPTATION_FORMAT=1` cannot be used in compatible mode.
@@ -111,7 +111,7 @@ cannot retroactively gain the new preservation checks:
 
 ```sh
 curl -fsSL -o upgrade.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh
-sudo env LINKSENSE_INSTALL_DIR=/opt/linksense sh upgrade.sh
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_INSTALL_DIR=/opt/linksense sh upgrade.sh
 ```
 
 Use the actual installation path and the existing compatible mode when needed.
@@ -119,7 +119,7 @@ This upgrades the existing instance and management tools; it does not require
 recreating accounts, resources, or data volumes. Subsequent upgrades use the
 updated installed tooling.
 
-## Downloads, storage, and kernel settings
+## Downloads and resumable installation
 
 Script/resource downloads use HTTPS and redirect restrictions, connect and
 transfer timeouts, and bounded transient retries. HTTP/2 transport failures can
@@ -131,11 +131,117 @@ Images are pinned by digest, reused when present, and pulled with three bounded
 transient attempts per image within a 45-minute phase deadline. Docker commands
 have deadlines, and readiness requests bypass shell proxies for loopback.
 
-The shell download proxy and Docker daemon pull proxy are separate. Use your
-controlled `HTTPS_PROXY`/`https_proxy` configuration for curl, and configure the
-Docker daemon's proxy according to the [official guide](https://docs.docker.com/engine/daemon/proxy/).
-The installer reports pull failures without restarting Docker or exposing proxy
-credentials. It does not switch to an untrusted mirror or disable TLS checks.
+## Network and proxies
+
+Configure the terminal download channel and Docker Engine image-pull channel
+separately. A working `docker pull` does not establish that terminal curl works,
+and a successful curl request does not establish that the Engine can pull images.
+
+On macOS, shared installer and CLI helpers append the usual Docker Desktop
+binary directories to the current process PATH, preserving any Docker CLI already
+selected there. This includes `$HOME/.docker/bin`,
+`/Applications/Docker.app/Contents/Resources/bin`, the corresponding user
+Applications directory and `/usr/local/bin`. They do not edit shell startup files.
+For manual Docker commands, if Desktop CLI integration failed, use:
+
+```sh
+export PATH="$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"
+```
+
+Exported PATH is inherited by `curl | sh`; that child shell does not read `.zshrc`
+again. macOS preflight checks the helper selected by Docker `credsStore` in
+`${DOCKER_CONFIG:-$HOME/.docker}/config.json`. Missing per-registry helpers are
+also reported when a pull fails. When `credHelpers` overrides are present, the
+preflight defers helper selection to actual pulls, following Docker's precedence
+instead of rejecting an unused global store. Keep credential configuration intact.
+
+Find the proxy application’s actual listener; its DNS settings are not a proxy
+port. HTTP and SOCKS ports may differ:
+
+```sh
+lsof -nP -iTCP -sTCP:LISTEN
+# Use this only after enabling and verifying the application's HTTP port.
+export http_proxy=http://127.0.0.1:10809
+export https_proxy=http://127.0.0.1:10809
+# With only a SOCKS5 listener, terminal curl can resolve DNS through the proxy:
+# export ALL_PROXY=socks5h://127.0.0.1:10808
+```
+
+For Docker Desktop, configure **Settings → Resources → Proxies** separately.
+[SOCKS5 support requires a Business subscription](https://docs.docker.com/desktop/settings-and-maintenance/settings/#proxies);
+use the proxy application's HTTP listener when SOCKS5 support is unavailable.
+`http.docker.internal:3128` in `docker info` is Desktop's internal forwarding
+address, so test image pulls rather than comparing this value to the external
+proxy. Desktop ignores daemon proxy settings in `daemon.json`. On Linux Engine,
+follow the [daemon proxy guide](https://docs.docker.com/engine/daemon/proxy/).
+
+If using a Docker Hub mirror, use an endpoint controlled or trusted by your
+organization. Merge the `registry-mirrors` property into the existing Engine JSON
+instead of replacing the file. For example, add this property while retaining
+every existing property (the example address must be replaced):
+
+```json
+{
+  "registry-mirrors": ["https://your-trusted-mirror.example"]
+}
+```
+
+Mirrors can help Docker Hub pulls; they do not automatically accelerate GHCR
+or GitHub downloads. The installer does not configure mirrors, restart Docker,
+disable TLS checks, or print proxy credentials.
+
+Download the bootstrap first, then execute it only after curl succeeds. This
+also protects the first raw.githubusercontent.com download, which cannot be
+retried by a script that has not started:
+
+```sh
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 \
+  -fsSL -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh &&
+sh install-core.sh --check-network
+# After reviewing the diagnostic results, run the installer:
+# macOS:
+sh install-core.sh
+# Linux: keep the terminal proxy through elevation, without preserving all env:
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
+# With installed management tools:
+linksense doctor --network
+```
+
+Use `install-full.sh` for Full. Linux installers require root; macOS installers
+must run under the Desktop user without sudo. Diagnostics require a release
+containing these changes. The new bootstrap refuses diagnostic mode for older
+downloaded installers instead of accidentally installing. Older installed CLIs
+do not gain this mode until the management tools are upgraded.
+
+Network diagnostics report each channel independently and exit nonzero if any
+check fails. They GET the actual release manifest; the default GitHub release
+source also checks the raw bootstrap, while custom sources do not require
+GitHub connectivity. Before installation they pull the small `hello-world:latest`
+diagnostic image only if release metadata cannot be validated; that fallback
+does not turn a failed check into success. With valid metadata they verify its
+checksum and pull the pinned BusyBox and API references, covering Docker Hub and
+GHCR for the standard release. Installed tools use their configured references;
+old states without those references use the verified release manifest. Pulls have a two-minute
+deadline per image. No containers are executed and no installation state,
+services, credentials or volumes are changed; pulled images remain cached.
+This mode diagnoses download/pull connectivity, not deployed service health:
+run plain `linksense doctor` for local health checks.
+
+Linux `sudo` normally removes proxy variables. Updated management launchers and
+CLI elevation preserve only `http_proxy`, `https_proxy`, `HTTP_PROXY`,
+`HTTPS_PROXY`, `ALL_PROXY`, `all_proxy`, `NO_PROXY`, and `no_proxy`, so network
+diagnostics and downloads use the requested terminal proxy after elevation.
+For manual install/repair/upgrade scripts, use the same `--preserve-env` list.
+If host sudo policy forbids it, an administrator must configure the elevated
+environment's proxy. Proxy values are not printed or persisted by this flow.
+
+You do not need to change global `~/.curlrc`. Existing download retries and
+HTTP/1.1 fallback remain, and rerunning the matching installer resumes trusted
+pending state and verified resources. Preloaded digest-matching images are
+reused, but this is not a complete offline installation mode: release metadata,
+configuration, and Full tokenizer assets still need trusted sources.
+
+## Storage and kernel settings
 
 Preflight checks free bytes and finite inodes on the actual Docker storage
 filesystem (and containerd's standard storage when present), or inside the

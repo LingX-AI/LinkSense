@@ -58,7 +58,7 @@ case "$HOST_OS:$HOST_ARCHITECTURE" in
 esac
 INSTALL_DIR=${LINKSENSE_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}
 
-if [ "$ACTION" = upgrade ] && [ -z "$EDITION" ]; then
+if [ "$ACTION" = upgrade ] && [ -z "$EDITION" ] && [ "${1:-}" != --check-network ]; then
   upgrade_identity_file=$INSTALL_DIR/install-state.env
   [ -f "$upgrade_identity_file" ] && [ ! -L "$upgrade_identity_file" ] || {
     printf 'No trusted LinkSense installation exists at %s.\n' "$upgrade_identity_file" >&2
@@ -69,11 +69,12 @@ fi
 
 case "$EDITION:$ACTION" in
   core:install|full:install|core:repair|full:repair|core:upgrade|full:upgrade) ;;
+  :upgrade) [ "${1:-}" = --check-network ] || { printf '%s\n' "Invalid installer entry point." >&2; exit 64; } ;;
   *) printf '%s\n' "Invalid installer entry point." >&2; exit 64 ;;
 esac
 PROGRAM="LinkSense $EDITION $ACTION"
 
-if [ "$HOST_OS" = Linux ] && [ "$INSTALL_OWNER_UID" -ne 0 ]; then
+if [ "$HOST_OS" = Linux ] && [ "$INSTALL_OWNER_UID" -ne 0 ] && [ "${1:-}" != --check-network ]; then
   printf '%s\n' "Please run this script as root (for example: curl ... | sudo sh)." >&2
   exit 77
 fi
@@ -504,6 +505,7 @@ preflight() {
     [ -z "$detected_api" ] || check_docker_api "$detected_api"
   fi
   host_prepare_tools
+  host_check_docker_credentials
 
   if ! docker info >/dev/null 2>&1; then
     if [ "$HOST_OS" = Darwin ]; then
@@ -1083,9 +1085,9 @@ activate_management_cli() {
         '  exit 1' \
         '}' \
         'if [ -n "${LINKSENSE_RELEASE_BASE_URL:-}" ]; then' \
-        "  exec sudo env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" \"LINKSENSE_RELEASE_BASE_URL=\$LINKSENSE_RELEASE_BASE_URL\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\"" \
+        "  exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" \"LINKSENSE_RELEASE_BASE_URL=\$LINKSENSE_RELEASE_BASE_URL\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\"" \
         'fi' \
-        "exec sudo env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\""
+        "exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\""
       launcher_path=/usr/local/bin/linksense
       install -d -m 0755 /usr/local/bin
     else
@@ -1181,9 +1183,12 @@ pull_image() {
     [ "$pull_remaining" -gt 0 ] || host_fail pull deadline
     [ "$pull_remaining" -le 1200 ] || pull_remaining=1200
     if host_bounded "$pull_remaining" "$DOCKER_CLI" pull "$pull_reference" >"$pull_log" 2>&1; then return 0; fi
+    pull_helper=$(sed -nE 's/.*(docker-credential-[A-Za-z0-9_.-]+).*executable file not found.*/\1/p' "$pull_log" | head -n 1)
+    [ -z "$pull_helper" ] || host_fail credential "$pull_helper"
     grep -Eiq 'timeout|timed out|connection reset|connection refused|TLS handshake|unexpected EOF|no such host|429|502|503|504|http2' "$pull_log" || break
     [ "$pull_attempt" -ge 3 ] || sleep "$pull_attempt"
   done
+  host_text docker_network_help >&2
   host_fail pull "image=$pull_reference attempts=$pull_attempt"
 }
 
@@ -1849,6 +1854,15 @@ upgrade_action() {
   log "Pre-upgrade database backup: $UPGRADE_BACKUP_URI"
   log "Open: $LINKSENSE_PUBLIC_BASE_URL"
 }
+
+case "${1:-}" in
+  --check-network)
+    [ "$#" -eq 1 ] || host_fail invalid_config installer_arguments
+    host_network_diagnostics "$(release_base)"
+    exit $? ;;
+  '') ;;
+  *) host_fail invalid_config installer_arguments ;;
+esac
 
 log_stage "Stage 1: run the read-only host preflight."
 validate_install_dir

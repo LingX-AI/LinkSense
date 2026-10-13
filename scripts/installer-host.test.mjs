@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
@@ -22,6 +22,77 @@ function directory(t) {
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   return dir
 }
+
+test("macOS discovers per-user Docker tools without replacing an existing Docker CLI", t => {
+  const dir = directory(t)
+  const dockerBin = path.join(dir, ".docker/bin")
+  mkdirSync(dockerBin, { recursive: true })
+  writeFileSync(path.join(dir, "uname"), '#!/bin/sh\necho Darwin\n', { mode: 0o755 })
+  writeFileSync(path.join(dockerBin, "docker"), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  writeFileSync(path.join(dockerBin, "docker-credential-desktop"), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  const environment = { HOME: dir, PATH: `${dir}:/usr/bin:/bin` }
+  const discovered = run('echo "$DOCKER_CLI"\ncommand -v docker-credential-desktop', environment)
+  assert.equal(discovered.status, 0, discovered.stderr)
+  assert.equal(discovered.stdout, `${dockerBin}/docker\n${dockerBin}/docker-credential-desktop\n`)
+  writeFileSync(path.join(dir, "docker"), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  assert.equal(run('echo "$DOCKER_CLI"', environment).stdout, `${dir}/docker\n`)
+})
+
+test("macOS checks the configured credential store without displaying credential data", t => {
+  const dir = directory(t)
+  writeFileSync(path.join(dir, "plutil"), `#!/bin/sh\nexec "${process.execPath}" "${dir}/plutil.cjs" "$@"\n`, { mode: 0o755 })
+  writeFileSync(path.join(dir, "plutil.cjs"), `
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+try {
+  const data = JSON.parse(fs.readFileSync(args.at(-1), "utf8"));
+  if (args[0] === "-convert") process.exit(0);
+  if (args[1] === "credHelpers") {
+    if (!data.credHelpers || typeof data.credHelpers !== "object") process.exit(1);
+    process.stdout.write(Object.keys(data.credHelpers).join("\\n"));
+    process.exit(0);
+  }
+  if (typeof data.credsStore !== "string") process.exit(1);
+  process.stdout.write(data.credsStore);
+} catch { process.exit(1); }
+`)
+  writeFileSync(path.join(dir, "config.json"), JSON.stringify({ credsStore: "fixture-missing", auths: { secret: { auth: "private-value" } } }))
+  const environment = { DOCKER_CONFIG: dir, PATH: `${dir}:${process.env.PATH}` }
+  const result = run('HOST_OS=Darwin\nhost_check_docker_credentials', environment)
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /docker-credential-fixture-missing/u)
+  assert.doesNotMatch(result.stderr, /private-value/u)
+  writeFileSync(path.join(dir, "docker-credential-osxkeychain"), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  writeFileSync(path.join(dir, "config.json"), JSON.stringify({
+    credsStore: "fixture-missing",
+    credHelpers: { "https://index.docker.io/v1/": "osxkeychain", "ghcr.io": "osxkeychain" },
+  }))
+  assert.equal(run('HOST_OS=Darwin\nhost_check_docker_credentials', environment).status, 0)
+  writeFileSync(path.join(dir, "config.json"), JSON.stringify({ credsStore: "fixture-missing", credHelpers: {} }))
+  assert.equal(run('HOST_OS=Darwin\nhost_check_docker_credentials', environment).status, 1)
+  writeFileSync(path.join(dir, "config.json"), JSON.stringify({ auths: {} }))
+  assert.equal(run('HOST_OS=Darwin\nhost_check_docker_credentials', environment).status, 0)
+  writeFileSync(path.join(dir, "config.json"), JSON.stringify({ credsStore: null, optional: null }))
+  assert.equal(run('HOST_OS=Darwin\nhost_check_docker_credentials', environment).status, 0)
+})
+
+test("network diagnostics report both channels, honor a custom release source and redact proxy errors", t => {
+  const dir = directory(t)
+  const result = run(`
+curl() { echo "$*" >> "$DIR/calls"; echo 'https://user:private-value@proxy.example' >&2; return 28; }
+host_bounded() { shift; "$@"; }
+docker() { case "$1" in info|pull) echo "$*" >> "$DIR/docker-calls"; return 0 ;; *) return 1 ;; esac; }
+host_check_docker_credentials() { :; }
+DOCKER_CLI=docker
+host_network_diagnostics https://downloads.example/release hello-world:latest`, { DIR: dir })
+  assert.equal(result.status, 1)
+  assert.match(result.stdout, /FAIL.*terminal-release/u)
+  assert.match(result.stdout, /PASS.*docker-pull/u)
+  assert.doesNotMatch(result.stdout + result.stderr, /private-value/u)
+  assert.match(readFileSync(path.join(dir, "calls"), "utf8"), /downloads.example\/release\/release-manifest.env/u)
+  assert.doesNotMatch(readFileSync(path.join(dir, "calls"), "utf8"), /raw.githubusercontent.com/u)
+  assert.match(readFileSync(path.join(dir, "docker-calls"), "utf8"), /pull hello-world:latest/u)
+})
 
 for (const [mode, quota, memory, pids, status] of [
   ["strict", "true", "true", "true", 0],
