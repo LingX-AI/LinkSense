@@ -6,7 +6,7 @@
 
 让组织中的每个人都拥有 Codex 级的 AI Agent——部署在您自己的基础设施上，并自由选择使用的模型。
 
-[在线体验](https://explore.linksense.org/) · [快速开始](#快速开始) · [工作方式](#组织能力) · [系统架构](#系统架构) · [基于 LinkSense 扩展](#基于-linksense-扩展)
+[在线体验](https://explore.linksense.org/) · [一句话安装](#一句话-agent-安装) · [快速开始](#快速开始) · [工作方式](#组织能力) · [系统架构](#系统架构) · [基于 LinkSense 扩展](#基于-linksense-扩展)
 
 <p align="center">
   <img src="./docs/demo/Hero.gif" alt="工程师在自己的工作空间中构建技能并发布到组织，同事无需重新编写即可安装和运行。" width="960" />
@@ -36,6 +36,16 @@
 
 ---
 
+## 一句话 Agent 安装
+
+将下面这句话交给 Codex、Claude Code、Cursor、Windsurf 或其他编程助手：
+
+```text
+请按照 https://raw.githubusercontent.com/LingX-AI/linksense/main/Install.md 帮我安装并启动 LinkSense。
+```
+
+[Agent 安装指南](./Install.md) 默认使用已发布的 Core 镜像，检查主机和两条网络通道，保留已有安装，并报告真实启动结果。如果需要克隆源码进行开发，在提示中加上“用于本地源码开发”。启动后在管理界面配置模型凭据，助手无需读取你的密钥。
+
 ## 快速开始
 
 同一仓库提供两种部署方案：
@@ -43,41 +53,70 @@
 **Core** — AI 工作空间 + 组织能力平台
 **Full** — Core + 完整的文档处理与知识检索
 
-Core 需要 4+ vCPU、8+ GiB 内存和 60+ GiB 可用 SSD 空间。新安装 Full 需要 8+ vCPU、24+ GiB 内存和 120+ GiB 可用 SSD 空间。要求 Docker Engine API v1.45+ 和 Docker Compose v2.24.4+。
+### 运行应用
+
+#### 部署配置建议
+
+下表可作为选型起点。推荐配置为镜像构建、浏览器工具、文档处理和宿主机其他服务预留余量，属于容量规划建议，不是经过压测的用户数保证。
+
+| 部署场景 | 起步配置 | 推荐配置 | 说明 |
+| --- | --- | --- | --- |
+| Core 评估 | 4+ vCPU、8+ GiB 内存、60+ GiB 可用 SSD | 8 vCPU、16 GiB、100 GiB 可用 SSD | 新安装默认允许 1 个并发对话。 |
+| Core 共享服务器 | 8 vCPU、16 GiB 内存、120 GiB 可用 SSD | 16 vCPU、32 GiB、200 GiB 可用 SSD | 每个活跃用户的 Worker 默认内存上限为 4 GiB，需单独规划并发容量。 |
+| Full（新安装） | 8+ vCPU、24+ GiB 内存、120+ GiB 可用 SSD | 16 vCPU、32 GiB、200 GiB 可用 SSD | 包含 Elasticsearch 和 Docling；OCR、大文档需额外余量。 |
+| Docker 源码开发 / `pnpm dev` | 8 vCPU、24 GiB 内存、120 GiB 可用 SSD | 16 vCPU、32 GiB、200 GiB 可用 SSD | 构建并运行开发栈，包含知识服务和任务 Worker。 |
+
+以上配置覆盖使用外部模型 API 的 LinkSense。本地大模型及其 GPU 需单独计算。长期共享部署优先使用 Linux + Docker；macOS + Docker Desktop 可用于评估和开发，但虚拟机必须获得足够资源。16 GiB Mac 建议先选 Core。
+
+要求 Docker Engine API v1.45+ 和 Docker Compose v2.24.4+。
 内存预检读取 Docker Engine 实际可用内存。使用 Docker Desktop 时，这指虚拟机分配的内存，而非宿主机总内存；标称分配 8 GB 时，实际可用值可能不足 8 GiB。请在 Settings → Resources → Advanced → Memory limit 调整分配，Core 建议至少 10–12 GB，新安装 Full 也应为 24 GiB 的实际可用要求留出余量，然后应用更改并重启 Docker Desktop。旧安装修复和升级保留已有配置，按已配置资源预算检查，不强制套用新安装的 24 GiB 门槛。
 自动工具适配、资源配置、CPU 兼容模式、代理及恢复方式见[安装器主机适配说明](deploy/release/HOST-ADAPTATION.md)。
 完整要求见[部署参考](#部署参考)。
 
-### Linux
+#### 方案一：已发布 Docker 镜像（推荐）
+
+无需克隆源码，也无需在宿主机安装 Node.js 或 pnpm。安装器检查主机后会启动应用；请先安装并启动 Docker。
+
+##### Linux
 
 ```bash
 # Core
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh | sudo sh
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh && sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
 
 # Full
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh | sudo sh
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh && sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-full.sh
 ```
 
 然后打开 `http://<server-address>:18081`。
 
-### macOS
+Linux 命令通过 `sudo` 仅保留代理环境变量，确保 bootstrap 与 curl 使用同一终端代理。如果 sudo 策略不允许保留这些变量，请由主机管理员为提权环境配置代理。
+
+##### macOS
 
 ```bash
-# Core
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh | sh
+# Core：下载成功后再执行；不使用 sudo
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh && sh install-core.sh
 
 # Full
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh | sh
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh && sh install-full.sh
 ```
 
 然后打开 `http://localhost:18081`。
 
-### 希望先阅读脚本
+终端下载和 Docker 拉取需要分别配置代理。Docker PATH、HTTP/SOCKS5 端口、镜像加速和新版网络诊断见[网络与代理说明](deploy/release/HOST-ADAPTATION.md#network-and-proxies)。
+
+##### 希望先阅读脚本
 
 ```bash
-curl -fsSL -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh
 less install-core.sh
-sudo sh install-core.sh
+# Linux 使用 sudo；macOS 使用 sh install-core.sh，不加 sudo。
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
 ```
 
 安装器会在写入持久化状态前检查主机，自动生成运行时密钥，并输出一次性初始化凭据，用于创建首位管理员。
@@ -85,6 +124,26 @@ sudo sh install-core.sh
 Linux 将部署文件保存在 `/opt/linksense`，macOS 使用 `~/.linksense`。
 
 本地启动不强制要求域名和 HTTPS。公开部署应在 `18081` 端口前配置 HTTPS 反向代理。
+
+#### 方案二：Docker 源码开发
+
+修改代码请按[本地开发](#本地开发)操作。宿主机需要 Node.js、pnpm、Docker、rsync 和 mkcert。`pnpm dev:prepare` 会构建镜像、初始化开发数据库、**启动服务**并检查就绪状态；`pnpm dev` 接入源码监听和日志。开发默认配置不能用于公开生产部署。
+
+#### 启动后
+
+1. 打开安装器打印的地址，使用初始化凭据创建首位管理员，并妥善保管凭据。
+2. 在管理界面配置模型渠道，分别验证简短对话和使用工具的任务。部署健康不代表模型兼容性已经验证。
+3. 按当前运行方式选择对应的检查和管理命令。
+
+| 操作 | 发行版安装 | 源码开发 |
+| --- | --- | --- |
+| 检查服务 | `linksense status` / `linksense doctor` | 查看 `pnpm dev` 的就绪检查和输出 |
+| 检查下载与镜像拉取 | `linksense doctor --network` | 参阅[网络说明](deploy/release/HOST-ADAPTATION.md#network-and-proxies) |
+| 启动 / 停止 | `linksense start` / `linksense stop` | `pnpm dev` / `pnpm dev:stop` |
+| 查看执行日志 | `linksense logs runner` | `pnpm dev` 附带的日志 |
+| 升级 / 重建 | `linksense upgrade` | `pnpm dev:rebuild` |
+
+网络诊断需要包含新版安装器和管理工具的发行版本。诊断会拉取 BusyBox/API 发行镜像，不启动容器；镜像会保留在本地缓存。
 
 ### 还没准备好安装？
 
@@ -316,8 +375,9 @@ LinkSense 提供三种主要扩展方式，无需修改 LinkSense 源码。
 ### 自定义端口
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh \
-  | sudo env LINKSENSE_HTTP_PORT=19090 sh
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh &&
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_HTTP_PORT=19090 sh install-full.sh
 ```
 
 ### 命令行管理
@@ -337,7 +397,7 @@ linksense upgrade
 
 不带参数运行 `linksense`，可打开交互式管理菜单。
 
-Linux 会在需要时请求 `sudo`。macOS 请将 `$HOME/.local/bin` 加入 `PATH`，并在不使用 `sudo` 的情况下执行命令。
+新版 Linux 管理工具会在需要时请求 `sudo`，仅保留代理变量。macOS 请将 `$HOME/.local/bin` 加入 `PATH`，并在不使用 `sudo` 的情况下执行命令。
 
 ### 修复与升级
 
@@ -348,7 +408,7 @@ curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/repair-full
 curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh | sudo sh
 ```
 
-macOS 使用相同命令，但不加 `sudo`。
+macOS 请先下载所选的修复或升级脚本，再用 `sh` 执行，不加 `sudo` 或其 `--preserve-env` 参数。
 
 修复沿用已安装的发行版本。升级会识别 Core / Full，等待正在运行的工作结束，并在迁移前将经过校验的 PostgreSQL 备份保存到 `volume://linksense-backups/postgres/`。
 
@@ -371,7 +431,7 @@ macOS 使用相同命令，但不加 `sudo`。
 
 ## 本地开发
 
-需要 Node.js 24+、pnpm 10.34.6、Docker Engine / Compose 和 rsync。
+需要 Node.js 24+、pnpm 10.34.6、Docker Engine / Compose、rsync，以及用于本地 HTTPS 证书的 [mkcert](https://github.com/FiloSottile/mkcert)。首次启动可能请求将 mkcert 的本地证书颁发机构加入系统信任。
 
 应用及其依赖在 Linux 容器中运行，宿主机上的 rsync 仅用于同步源码。
 

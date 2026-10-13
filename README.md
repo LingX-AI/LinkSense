@@ -10,7 +10,7 @@ English | [简体中文](./README.zh-CN.md)
 
 Give everyone in your organization a Codex-powered AI agent — deployed on your infrastructure, with the models you choose.
 
-[Live Demo](https://explore.linksense.org/) · [Quick Start](#quick-start) · [How it works](#organizational-capabilities) · [Architecture](#architecture) · [Build with LinkSense](#build-with-linksense)
+[Live Demo](https://explore.linksense.org/) · [Agent Setup](#one-line-agent-setup) · [Quick Start](#quick-start) · [How it works](#organizational-capabilities) · [Architecture](#architecture) · [Build with LinkSense](#build-with-linksense)
 
 https://github.com/user-attachments/assets/5b61e639-e222-42eb-8e9a-536905d659e0
 
@@ -35,6 +35,20 @@ Centrally manage access, models, knowledge, credentials, and capabilities. What 
 
 ---
 
+## One-Line Agent Setup
+
+Give Codex, Claude Code, Cursor, Windsurf, or another coding agent this prompt:
+
+```text
+Help me install and start LinkSense by following https://raw.githubusercontent.com/LingX-AI/linksense/main/Install.md
+```
+
+The [agent installation guide](./Install.md) defaults to the released Core images,
+checks the host and both network channels, preserves existing installations, and
+reports the actual launch result. Add “for local source development” to the prompt
+if you want a cloned development workspace instead. Model credentials are configured
+in the administration UI after startup; the agent does not need to read your secrets.
+
 ## Quick Start
 
 Two deployment profiles ship from the same repository:
@@ -42,8 +56,27 @@ Two deployment profiles ship from the same repository:
 **Core** — AI workspace + organizational capability platform
 **Full** — Core + complete document processing and Knowledge retrieval
 
-Core needs 4+ vCPU, 8+ GiB memory, and 60+ GiB free SSD. New Full installations need 8+ vCPU, 24+ GiB,
-and 120+ GiB. Docker Engine API v1.45+ and Docker Compose v2.24.4+ are required.
+### Running the Application
+
+#### Deployment Sizing
+
+Use this table as a practical starting point. The recommended column leaves room
+for builds, browser tools, document processing, and other services on the host;
+it is a planning suggestion, not a measured user-capacity guarantee.
+
+| Deployment target | Starting point | Recommended | Notes |
+| --- | --- | --- | --- |
+| Core evaluation | 4+ vCPU, 8+ GiB memory, 60+ GiB free SSD | 8 vCPU, 16 GiB, 100 GiB free SSD | A fresh installation defaults to one concurrent conversation. |
+| Core shared server | 8 vCPU, 16 GiB memory, 120 GiB free SSD | 16 vCPU, 32 GiB, 200 GiB free SSD | Each active user Worker has a default 4 GiB memory limit; size concurrency separately. |
+| Full (new installation) | 8+ vCPU, 24+ GiB memory, 120+ GiB free SSD | 16 vCPU, 32 GiB, 200 GiB free SSD | Includes Elasticsearch and Docling; OCR and large documents need extra headroom. |
+| Docker source development / `pnpm dev` | 8 vCPU, 24 GiB memory, 120 GiB free SSD | 16 vCPU, 32 GiB, 200 GiB free SSD | Builds and runs the development stack, including Knowledge services and task Workers. |
+
+These numbers cover LinkSense with externally hosted model APIs. Size a local LLM
+and its GPU separately. Prefer Linux with Docker for a persistent shared server;
+macOS with Docker Desktop is suitable for evaluation and development when its VM
+has enough resources. A 16 GiB Mac should start with Core.
+
+Docker Engine API v1.45+ and Docker Compose v2.24.4+ are required.
 The memory check reads the memory actually available to Docker Engine. With Docker
 Desktop, this is the VM allocation, rather than the host's total RAM. An 8 GB
 allocation can report less than 8 GiB of usable memory. Adjust Settings → Resources
@@ -56,36 +89,55 @@ See [Deployment reference](#deployment-reference) for the full list.
 See [Installer host adaptation](deploy/release/HOST-ADAPTATION.md) for automatic tool setup,
 resource profiles, CPU compatibility mode, proxies, and safe recovery.
 
-### Linux
+#### Option 1: Released Docker images (recommended)
+
+No source checkout, host Node.js, or pnpm is needed. The installer starts the
+application after checking the host; Docker must already be installed and running.
+
+##### Linux
 
 ```bash
 # Core
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh | sudo sh
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh && sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
 
 # Full
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh | sudo sh
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh && sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-full.sh
 ```
 
 Open the address printed by the installer (default: `http://<server-address>:18081`).
 
-### macOS
+The Linux commands preserve only proxy environment variables through `sudo`, so
+the bootstrap uses the same terminal proxy as curl. If sudo policy denies this,
+ask the host administrator to configure the elevated environment's proxy.
+
+##### macOS
 
 ```bash
-# Core
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh | sh
+# Core: execute only after the download succeeds; do not use sudo
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh && sh install-core.sh
 
 # Full
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh | sh
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh && sh install-full.sh
 ```
 
 Open the address printed by the installer (default: `http://localhost:18081`).
 
-### Prefer to read the script first
+Configure terminal downloads and Docker image pulls separately. See the
+[network and proxy guide](deploy/release/HOST-ADAPTATION.md#network-and-proxies)
+for Docker PATH discovery, HTTP/SOCKS5 ports, mirrors and network diagnostics.
+
+##### Prefer to read the script first
 
 ```bash
-curl -fsSL -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh
 less install-core.sh
-sudo sh install-core.sh
+# Use sudo on Linux; on macOS use sh install-core.sh without sudo.
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
 ```
 
 The installer validates the host before writing persistent state, generates runtime
@@ -96,6 +148,33 @@ Linux stores deployment files under `/opt/linksense`; macOS uses `~/.linksense`.
 
 A domain and HTTPS are optional for local startup. Public deployments should place an
 HTTPS reverse proxy in front of port `18081`.
+
+#### Option 2: Docker source development
+
+For code changes, follow [Local Development](#local-development). This path needs
+Node.js, pnpm, Docker, rsync, and mkcert on the host. `pnpm dev:prepare` builds
+images, initializes the development database, **starts services**, and checks
+readiness; `pnpm dev` attaches source watching and logs. Development defaults
+must not be used for public production deployments.
+
+#### After startup
+
+1. Open the printed address and use the initialization credential to create the
+   first administrator. Store the credential privately.
+2. Configure a model provider in administration, then verify both a short chat
+   and a task that uses tools. A healthy deployment does not prove model compatibility.
+3. Use the matching command below when checking or managing the installation.
+
+| Action | Release installation | Source development |
+| --- | --- | --- |
+| Check services | `linksense status` / `linksense doctor` | Readiness checks and output from `pnpm dev` |
+| Check download and image-pull connectivity | `linksense doctor --network` | See the [network guide](deploy/release/HOST-ADAPTATION.md#network-and-proxies) |
+| Start / stop | `linksense start` / `linksense stop` | `pnpm dev` / `pnpm dev:stop` |
+| View execution logs | `linksense logs runner` | Logs attached by `pnpm dev` |
+| Upgrade / rebuild | `linksense upgrade` | `pnpm dev:rebuild` |
+
+Network diagnostics require a release containing the updated installer and CLI.
+They pull BusyBox/API release images without starting containers; images remain cached.
 
 ### Not ready to install?
 
@@ -395,8 +474,9 @@ configuration and capability-composition objects.
 ### Custom port
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh \
-  | sudo env LINKSENSE_HTTP_PORT=19090 sh
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh &&
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_HTTP_PORT=19090 sh install-full.sh
 ```
 
 ### Command-line management
@@ -416,7 +496,8 @@ linksense upgrade
 
 Run `linksense` without arguments to open the interactive control menu.
 
-Linux requests `sudo` when needed. On macOS, add `$HOME/.local/bin` to `PATH` and run
+Updated Linux management tools request `sudo` when needed and preserve only proxy
+variables. On macOS, add `$HOME/.local/bin` to `PATH` and run
 commands without `sudo`.
 
 ### Repair and upgrade
@@ -428,7 +509,8 @@ curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/repair-full
 curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh | sudo sh
 ```
 
-Run the same commands without `sudo` on macOS.
+On macOS, download the chosen repair/upgrade script and run it with `sh`, without
+`sudo` or its `--preserve-env` option.
 
 Repair stays on the installed release. Upgrade detects Core/Full, waits for active work,
 and stores a validated PostgreSQL backup under `volume://linksense-backups/postgres/`
@@ -456,7 +538,9 @@ Third-party components keep their own licenses; exact versions are recorded in
 
 ## Local Development
 
-Requires Node.js 24+, pnpm 10.34.6, Docker Engine/Compose, and rsync.
+Requires Node.js 24+, pnpm 10.34.6, Docker Engine/Compose, rsync, and
+[mkcert](https://github.com/FiloSottile/mkcert) for the local HTTPS certificate.
+The first launch may request system trust for mkcert's local certificate authority.
 
 Applications and dependencies run in Linux containers; host rsync only synchronizes source
 files.

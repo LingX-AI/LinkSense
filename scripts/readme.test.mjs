@@ -18,6 +18,7 @@ test("the bilingual READMEs follow the current public section order", async () =
 
   const pairedHeadings = [
     ["Why LinkSense", "为什么选择 LinkSense"],
+    ["One-Line Agent Setup", "一句话 Agent 安装"],
     ["Quick Start", "快速开始"],
     ["Organizational Capabilities", "组织能力"],
     ["Built on the Open-source Codex Runtime", "基于开源 Codex 运行时"],
@@ -53,7 +54,8 @@ test("the bilingual READMEs follow the current public section order", async () =
 
 test("the bilingual READMEs preserve deployment commands and architectural diagrams", async () => {
   const [english, chinese] = await readBoth()
-  const commands = (source) => [...source.matchAll(/```bash\n([\s\S]*?)```/gu)].map(([, block]) => block)
+  const commands = (source) => [...source.matchAll(/```bash\n([\s\S]*?)```/gu)]
+    .map(([, block]) => block.replace(/^\s*#.*\n/gmu, ""))
   assert.equal(commands(english).length, 12)
   assert.deepEqual(commands(chinese), commands(english))
   const diagrams = (source) => [...source.matchAll(/<img src="(\.\/docs\/diagrams\/[^"]+)" alt="([^"]+)" width="(\d+)"\s*\/>/gu)]
