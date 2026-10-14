@@ -146,7 +146,7 @@ jobs:
           pnpm --dir deploy/baselines/tools install --prod --frozen-lockfile --ignore-workspace --registry=https://registry.npmjs.org/
           sh scripts/prepare-release-inputs.sh release-inputs
           cat release-inputs/runtime-images.env >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-inputs
           path: release-inputs/
@@ -270,7 +270,7 @@ jobs:
           printf '%s\n' \
             "ghcr.io/lingx-ai/linksense-${{ matrix.name }}@${{ steps.build.outputs.digest }}" \
             > "image-reference/${{ matrix.name }}-${{ matrix.architecture }}"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: image-platform-${{ matrix.name }}-${{ matrix.architecture }}
           path: image-reference/${{ matrix.name }}-${{ matrix.architecture }}
@@ -344,7 +344,7 @@ jobs:
           printf '%s\n' \
             "ghcr.io/lingx-ai/linksense-worker@${{ steps.build.outputs.digest }}" \
             > "image-reference/worker-${{ matrix.architecture }}"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: image-platform-worker-${{ matrix.architecture }}
           path: image-reference/worker-${{ matrix.architecture }}
@@ -391,7 +391,7 @@ jobs:
               "$candidate_reference" linux/amd64 linux/arm64 \
               > "image-references/$name"
           done
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: image-indexes
           path: image-references/
@@ -498,7 +498,7 @@ jobs:
           sh scripts/scan-release-images.sh image-references verified-inputs image-security-reports "$SCAN_PLATFORM" application
       - name: Save image vulnerability reports and failure diagnostics
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: image-security-reports-${{ matrix.architecture }}
           path: image-security-reports/
@@ -554,7 +554,7 @@ jobs:
             sha256sum release-manifest.env > release-manifest.env.sha256
             sha256sum * > SHA256SUMS
           )
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-assets
           path: release-assets/
@@ -624,7 +624,7 @@ jobs:
             "RELEASE_WORKFLOW_ID=$RELEASE_WORKFLOW_ID" node scripts/release-installation-smoke.mjs "$@"
       - name: Save redacted installation verification reports
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: installation-${{ matrix.edition }}-${{ matrix.platform.architecture }}
           path: installation-reports/

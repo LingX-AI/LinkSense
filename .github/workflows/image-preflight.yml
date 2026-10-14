@@ -69,7 +69,7 @@ jobs:
           writeFileSync('preflight/release-inputs/runtime-images.env', Object.entries(runtimes).map(([name, image]) => `BASELINE_${name.toUpperCase()}_IMAGE=${image}`).join('\n') + '\n');
           writeFileSync('preflight/candidates.json', JSON.stringify({ source: process.env.GITHUB_SHA, images }, null, 2));
           NODE
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: preflight-inputs
           path: preflight/
@@ -106,7 +106,7 @@ jobs:
         env:
           SCAN_PLATFORM: linux/${{ matrix.architecture }}
         run: sh scripts/scan-release-images.sh preflight/image-references preflight/release-inputs reports "$SCAN_PLATFORM" application
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: preflight-reports-${{ matrix.architecture }}
