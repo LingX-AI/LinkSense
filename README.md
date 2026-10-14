@@ -458,10 +458,8 @@ configuration and capability-composition objects.
 
 ### Requirements
 
-| Profile | CPU | Memory | Free SSD |
-| --- | ---: | ---: | ---: |
-| Core | 4+ vCPU | 8+ GiB | 60+ GiB |
-| Full (new installation) | 8+ vCPU | 24+ GiB | 120+ GiB |
+For CPU, memory, and disk sizing by deployment scenario, see
+[Deployment Sizing](#deployment-sizing).
 
 - Linux: x86_64 or ARM64 with the required Docker/kernel capabilities, including Ubuntu, Debian, Deepin, Fedora, RHEL, Rocky Linux, AlmaLinux, and CentOS
 - macOS: Intel or Apple Silicon with Docker Desktop

@@ -359,10 +359,7 @@ LinkSense 提供三种主要扩展方式，无需修改 LinkSense 源码。
 
 ### 环境要求
 
-| 方案 | CPU | 内存 | 可用 SSD 空间 |
-| --- | ---: | ---: | ---: |
-| Core | 4+ vCPU | 8+ GiB | 60+ GiB |
-| Full（新安装） | 8+ vCPU | 24+ GiB | 120+ GiB |
+各部署场景的 CPU、内存和磁盘配置见[部署配置建议](#部署配置建议)。
 
 - Linux：具备所需 Docker 和内核能力的 x86_64 或 ARM64 系统，包括 Ubuntu、Debian、Deepin、Fedora、RHEL、Rocky Linux、AlmaLinux 和 CentOS
 - macOS：配备 Docker Desktop 的 Intel 或 Apple Silicon 设备
