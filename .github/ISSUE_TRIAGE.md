@@ -45,7 +45,7 @@ Do not add automatic closing, duplicate, priority, merge, or release permissions
 Edit the Markdown sources for agentic workflows, then compile and commit their generated lock files with the pinned GitHub Agentic Workflows CLI:
 
 ```bash
-gh extension install github/gh-aw --pin v0.91.7
+gh extension install github/gh-aw --pin v0.91.8
 gh aw compile --strict --actionlint --validate
 ```
 
