@@ -678,10 +678,10 @@ function UsersAndGroupsManagementLayout({
           <TabsTrigger value="users">{t("admin.usersTitle")}</TabsTrigger>
           <TabsTrigger value="groups">{t("admin.groupsTitle")}</TabsTrigger>
         </TabsList>
-        <TabsContent value="users">
+        <TabsContent value="users" className="[&>.status-banner]:mb-4">
           {activeTab === "users" ? children : null}
         </TabsContent>
-        <TabsContent value="groups">
+        <TabsContent value="groups" className="[&>.status-banner]:mb-4">
           {activeTab === "groups" ? children : null}
         </TabsContent>
       </Tabs>
