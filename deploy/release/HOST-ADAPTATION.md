@@ -92,6 +92,10 @@ New Full installations also enforce Elasticsearch's 2048 MiB limit through
 `LINKSENSE_ELASTICSEARCH_MEMORY_MB`, leaving space above its fixed 1024 MiB JVM
 heap. Older installations without this setting remain unlimited.
 
+Repair of a release without host-adaptation metadata keeps the runtime keys
+compatible with that release's immutable repair and upgrade parsers. New resource
+fields are written only for a target release declaring host-adaptation format 1.
+
 Repair and upgrade preserve validated custom settings, credentials, volumes,
 URLs, concurrency, and memory limits. They update release-owned images and
 runtime identity. Missing resource fields in old installations keep their old
@@ -103,6 +107,13 @@ unlimited limits are unknown, so this is a minimum admission budget, not a
 peak-memory guarantee. Idle Workers, multiple users, document size and host
 workload still require operational capacity planning. A running same-version
 upgrade with no mode change returns without a backup or restart.
+
+This admission check can require more memory than a legacy release's original
+10 GiB Full minimum. With absent legacy service limits and the default 4 GiB
+Worker, it requires at least **15,104 MiB** reported by Docker Engine. A 10–14 GiB
+Full host must gain enough Docker memory before repair or upgrade; custom service
+limits can raise that requirement further. Rejection happens before stopping
+services or running migrations, and the existing environment and data remain intact.
 
 For the first upgrade of an installation created before host adaptation, use
 the **current root bootstrap**, which loads the target release's installer.
@@ -297,6 +308,7 @@ checks compare original secrets, volume identity, settings and content.
 Each matrix run needs an isolated disposable Docker daemon. Full needs a runner
 with at least 24 GiB allocated to Docker and enough free memory/storage. Set
 `LINKSENSE_INSTALLATION_RUNNER_AMD64` and `LINKSENSE_INSTALLATION_RUNNER_ARM64` to
-suitable runner labels when the default hosted machines are insufficient. A
+suitable runner labels; release preparation requires both variables before
+building images. Standard hosted machines cannot meet Full's memory floor. A
 shared business server is refused by the smoke harness. The expanded CI matrix
 must pass before publishing; local unit tests do not certify that matrix.
