@@ -942,6 +942,15 @@ write_runtime_env() {
     ' "$INSTALL_DIR/.env" "$env_tmp" > "$env_tmp.merged"
     mv "$env_tmp.merged" "$env_tmp"
   fi
+  if [ "${RESOURCE_HOST_ADAPTATION_FORMAT:-0}" != 1 ]; then
+    # Repair reinstalls immutable legacy tools whose runtime parser rejects these keys.
+    awk '
+      /^LINKSENSE_(CPU_QUOTA_MODE|(API|RUNNER)_(MEMORY_MB|NODE_OPTIONS)|(POSTGRES|REDIS|MINIO|ELASTICSEARCH)_MEMORY_MB)=/ { next }
+      /^LINKSENSE_(KB_(PARSING|CHUNKING|PARENTING|EMBEDDING|INDEXING|ACTIVATION)_CONCURRENCY|DOCLING_(API|WORKER)_CPUS)=/ { next }
+      { print }
+    ' "$env_tmp" > "$env_tmp.legacy"
+    mv "$env_tmp.legacy" "$env_tmp"
+  fi
   chmod 0600 "$env_tmp"
   mv "$env_tmp" "$INSTALL_DIR/.env"
 }

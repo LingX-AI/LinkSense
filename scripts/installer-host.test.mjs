@@ -446,7 +446,7 @@ test("configuration regeneration preserves custom credentials, concurrency, limi
   const fixture = Object.fromEntries([...writer.matchAll(/\$([A-Z][A-Z_0-9]*)\b/gu)].map(match => [match[1], "fixture"]))
   const previous = "LINKSENSE_VERSION=v0.3.6\nLINKSENSE_API_IMAGE=old-image\nLINKSENSE_MAX_CONCURRENT_CONVERSATIONS=7\nLINKSENSE_WORKER_MEMORY_MB=6144\nLINKSENSE_API_MEMORY_MB=3072\nLINKSENSE_API_NODE_OPTIONS=--max-old-space-size=2048\nPOSTGRES_USER=custom-user\nDATABASE_URL=custom-url\nLINKSENSE_CREDENTIAL_KEY_ID=custom-key\nLINKSENSE_USER_DATA_VOLUME=custom-volume\nLINKSENSE_KB_EMBEDDING_CONCURRENCY=3\nLINKSENSE_CPU_QUOTA_MODE=strict\n"
   writeFileSync(path.join(dir, ".env"), previous)
-  const result = run(`${writer}\nwrite_runtime_env`, { ...fixture, INSTALL_DIR: dir, EDITION: "full", RELEASE_VERSION: "v0.3.7", IMAGE_LINKSENSE_API: "new-image", LINKSENSE_CPU_QUOTA_MODE: "compatible" })
+  const result = run(`${writer}\nwrite_runtime_env`, { ...fixture, RESOURCE_HOST_ADAPTATION_FORMAT: "1", INSTALL_DIR: dir, EDITION: "full", RELEASE_VERSION: "v0.3.7", IMAGE_LINKSENSE_API: "new-image", LINKSENSE_CPU_QUOTA_MODE: "compatible" })
   assert.equal(result.status, 0, result.stderr)
   const current = Object.fromEntries(readFileSync(path.join(dir, ".env"), "utf8").trim().split("\n").map(line => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]))
   for (const line of previous.trim().split("\n")) {
@@ -459,6 +459,30 @@ test("configuration regeneration preserves custom credentials, concurrency, limi
   assert.equal(current.LINKSENSE_CPU_QUOTA_MODE, "compatible")
   assert.equal(current.LINKSENSE_DOCLING_WORKER_CPUS, "0")
 })
+
+for (const edition of ["core", "full"]) {
+  test(`repairing a legacy ${edition} release keeps its runtime readable by the published repair engine`, t => {
+    const dir = directory(t)
+    const writer = fn("write_runtime_env")
+    const fixture = Object.fromEntries([...writer.matchAll(/\$([A-Z][A-Z_0-9]*)\b/gu)].map(match => [match[1], "fixture"]))
+    const previous = "LINKSENSE_VERSION=v0.3.6\nPOSTGRES_PASSWORD=kept-credential\nLINKSENSE_MAX_CONCURRENT_CONVERSATIONS=7\nLINKSENSE_USER_DATA_VOLUME=custom-volume\n"
+    writeFileSync(path.join(dir, ".env"), previous)
+    const legacy = readFileSync(new URL("./fixtures/pre-host-adaptation-env-parser.sh", import.meta.url), "utf8")
+    const result = run(`${writer}
+${legacy}
+fail() { echo "$*" >&2; exit 1; }
+write_runtime_env
+load_strict_env "$INSTALL_DIR/.env" runtime
+write_runtime_env
+load_strict_env "$INSTALL_DIR/.env" runtime
+echo "$POSTGRES_PASSWORD/$LINKSENSE_MAX_CONCURRENT_CONVERSATIONS/$LINKSENSE_USER_DATA_VOLUME"`, {
+      ...fixture, INSTALL_DIR: dir, EDITION: edition, RELEASE_VERSION: "v0.3.6",
+      RESOURCE_HOST_ADAPTATION_FORMAT: "0", LINKSENSE_CPU_QUOTA_MODE: "strict",
+    })
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(result.stdout, "kept-credential/7/custom-volume\n")
+  })
+}
 
 test("persisted CPU mode is reused, and changing it requires an explicit upgrade", t => {
   const dir = directory(t)
