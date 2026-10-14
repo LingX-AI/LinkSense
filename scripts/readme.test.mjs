@@ -52,12 +52,43 @@ test("the bilingual READMEs follow the current public section order", async () =
   }
 })
 
+test("README deployment, development and attribution details have one canonical section", async () => {
+  const sources = await readBoth()
+  for (const [index, titles] of [
+    [0, ["Quick Start", "Deployment reference", "Local Development", "License"]],
+    [1, ["快速开始", "部署参考", "本地开发", "开源协议"]],
+  ]) {
+    const source = sources[index]
+    const details = [
+      ["4+ vCPU", "24+ GiB"],
+      ["v1.45+", "v2.24.4+", "linksense status", "linksense doctor --network", "linksense upgrade"],
+      ["Node.js 24+", "pnpm 10.34.6", "pnpm dev:prepare"],
+      ["18–24px", "licensing@linksense.org"],
+    ]
+    for (const [offset, title] of titles.entries()) {
+      const section = source.split(`## ${title}\n`)[1]?.split("\n## ")[0]
+      assert.ok(section, title)
+      for (const detail of details[offset]) {
+        const total = source.split(detail).length - 1
+        assert.ok(total > 0, `Missing ${detail}`)
+        assert.equal(total, section.split(detail).length - 1, `${detail} must stay in ${title}`)
+      }
+    }
+    for (const detail of ["4+ vCPU", "v1.45+", "v2.24.4+", "linksense status", "licensing@linksense.org"]) {
+      assert.equal(source.split(detail).length - 1, 1, `${detail} is duplicated`)
+    }
+  }
+})
+
 test("the bilingual READMEs preserve deployment commands and architectural diagrams", async () => {
   const [english, chinese] = await readBoth()
   const commands = (source) => [...source.matchAll(/```bash\n([\s\S]*?)```/gu)]
     .map(([, block]) => block.replace(/^\s*#.*\n/gmu, ""))
-  assert.equal(commands(english).length, 12)
+  assert.equal(commands(english).length, 9)
   assert.deepEqual(commands(chinese), commands(english))
+  const managementCommands = (source) => [...source.matchAll(/`(linksense(?: [^`\n]+)?)`/gu)]
+    .map(([, command]) => command)
+  assert.deepEqual(managementCommands(chinese), managementCommands(english))
   const diagrams = (source) => [...source.matchAll(/<img src="(\.\/docs\/diagrams\/[^"]+)" alt="([^"]+)" width="(\d+)"\s*\/>/gu)]
   const expected = [
     "organizational-capability-lifecycle",

@@ -26,7 +26,7 @@ Give every user a full agentic workspace to research, browse, run code, analyze 
 ### Your infrastructure. Your models.
 Deploy LinkSense on your own servers or private cloud. Use OpenAI, Anthropic, Gemini, DeepSeek, Qwen, or your own local LLM.
 
-### Fully open source — including enpterprise capabilities
+### Fully open source — including enterprise capabilities
 Users, groups, Knowledge, Skills, Plugins, MCP, Applications, governance, and more are part of the open-source platform — not locked behind an enterprise edition.
 
 ### Built for the whole organization
@@ -76,7 +76,6 @@ and its GPU separately. Prefer Linux with Docker for a persistent shared server;
 macOS with Docker Desktop is suitable for evaluation and development when its VM
 has enough resources. A 16 GiB Mac should start with Core.
 
-Docker Engine API v1.45+ and Docker Compose v2.24.4+ are required.
 The memory check reads the memory actually available to Docker Engine. With Docker
 Desktop, this is the VM allocation, rather than the host's total RAM. An 8 GB
 allocation can report less than 8 GiB of usable memory. Adjust Settings → Resources
@@ -130,19 +129,12 @@ Configure terminal downloads and Docker image pulls separately. See the
 [network and proxy guide](deploy/release/HOST-ADAPTATION.md#network-and-proxies)
 for Docker PATH discovery, HTTP/SOCKS5 ports, mirrors and network diagnostics.
 
-##### Prefer to read the script first
+To inspect the script first, run only the download part of the matching command
+above, open the file with `less install-core.sh` (or `less install-full.sh`), then
+execute it using the command for your OS.
 
-```bash
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh
-less install-core.sh
-# Use sudo on Linux; on macOS use sh install-core.sh without sudo.
-sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
-```
-
-The installer validates the host before writing persistent state, generates runtime
-secrets automatically, and prints a one-time initialization credential for creating the
-first administrator.
+The installer validates the host before writing persistent state and generates
+runtime secrets automatically. Initialization steps are listed below.
 
 Linux stores deployment files under `/opt/linksense`; macOS uses `~/.linksense`.
 
@@ -151,11 +143,9 @@ HTTPS reverse proxy in front of port `18081`.
 
 #### Option 2: Docker source development
 
-For code changes, follow [Local Development](#local-development). This path needs
-Node.js, pnpm, Docker, rsync, and mkcert on the host. `pnpm dev:prepare` builds
-images, initializes the development database, **starts services**, and checks
-readiness; `pnpm dev` attaches source watching and logs. Development defaults
-must not be used for public production deployments.
+For code changes, follow [Local Development](#local-development) for prerequisites,
+startup commands, and development ports. For image builds, see
+[Building from Source with Docker](#building-from-source-with-docker).
 
 #### After startup
 
@@ -163,26 +153,15 @@ must not be used for public production deployments.
    first administrator. Store the credential privately.
 2. Configure a model provider in administration, then verify both a short chat
    and a task that uses tools. A healthy deployment does not prove model compatibility.
-3. Use the matching command below when checking or managing the installation.
-
-| Action | Release installation | Source development |
-| --- | --- | --- |
-| Check services | `linksense status` / `linksense doctor` | Readiness checks and output from `pnpm dev` |
-| Check download and image-pull connectivity | `linksense doctor --network` | See the [network guide](deploy/release/HOST-ADAPTATION.md#network-and-proxies) |
-| Start / stop | `linksense start` / `linksense stop` | `pnpm dev` / `pnpm dev:stop` |
-| View execution logs | `linksense logs runner` | Logs attached by `pnpm dev` |
-| Upgrade / rebuild | `linksense upgrade` | `pnpm dev:rebuild` |
-
-Network diagnostics require a release containing the updated installer and CLI.
-They pull BusyBox/API release images without starting containers; images remain cached.
+3. Use [Command-line management](#command-line-management) for a release
+   installation, or [Local Development](#local-development) for source watching
+   and development lifecycle commands.
 
 ### Not ready to install?
 
 Open a [Discussion](../../discussions) and tell us what you are trying to do — we read
 all of them. If you are evaluating LinkSense for an organization, we are working with a
 small number of early design partners and will help you deploy: `hello@linksense.org`.
-
-Already running LinkSense? Add your organization to [ADOPTERS.md](./ADOPTERS.md).
 
 ---
 
@@ -298,18 +277,10 @@ affiliated with, sponsored by, or endorsed by OpenAI.*
 
 ## Open Source. Self-hosted. Under Your Control.
 
-The organizational capability layer itself is open source. Applications, Skills and
-Plugins, MCP management, Knowledge, identity and groups, governance, credentials, usage
-and audit, Runner, Workers, and the Core and Full deployment profiles are part of the
-open-source project.
-
-Organizational features are not separated into a required closed enterprise runtime or
-LinkSense-operated cloud control plane.
-
 Run the complete platform on your own servers, private cloud, or VPC. Inspect the source,
 modify the platform, choose your models and integrations, and operate the environment on
-infrastructure you control. There is no required online runtime license activation
-heartbeat.
+infrastructure you control. There is no required closed enterprise runtime,
+LinkSense-operated cloud control plane, or online license activation heartbeat.
 
 With private models, local Knowledge, and local MCP services, prompts, files, Task state,
 Knowledge indexes, credentials, audit records, and results can remain inside
@@ -321,29 +292,8 @@ itself as **self-hosted and private-network friendly**, not formally air-gapped.
 **Models:** OpenAI · Azure OpenAI · Anthropic · Google / Vertex · Alibaba · DeepSeek ·
 OpenRouter · OpenAI-compatible endpoints
 
-### What LinkSense asks in return
-
-One thing: a small attribution notice — the words `Powered by` and our mark, 18–24px
-tall. The bundled interface links it to our site, but the license does not require a URL.
-No copyright line or visible URL is required. It lives in a single area
-at the foot of the interface and stays there as people move around, so no screen needs
-its own copy. [Here is exactly what it looks like](./ATTRIBUTION.md).
-
-Where it is **not** required, written into the licence rather than left to interpretation:
-
-| | |
-|---|---|
-| Dialogs, menus, tooltips | not repeated — the screen underneath already carries it |
-| Full-screen editing, preview, presentation | may be hidden, as long as it returns on exit |
-| **Documents, decks and images your people export** | **no watermark of any kind, ever** |
-| Command-line, headless, API-only | no display obligation at all |
-
-Deploying internally, at any scale, modified or not, creates **no obligation to publish
-anything** — see the [Internal Deployment Exception](./LICENSE-EXCEPTIONS.md).
-
-Your own branding is fine and needs no permission — product name, logo, colours, wording,
-all yours to change. Your name at the top, ours in the footer. If you need the notice gone
-entirely, that is a commercial arrangement: `licensing@linksense.org`.
+For internal deployment exceptions, attribution requirements, and branding permissions,
+see [License](#license).
 
 ---
 
@@ -471,26 +421,30 @@ For CPU, memory, and disk sizing by deployment scenario, see
 
 ### Custom port
 
+After downloading the selected installer using [Quick Start](#quick-start), pass
+the port when executing it. For Full:
+
 ```bash
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh &&
+# Linux
 sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_HTTP_PORT=19090 sh install-full.sh
+# macOS
+env LINKSENSE_HTTP_PORT=19090 sh install-full.sh
 ```
 
 ### Command-line management
 
-```bash
-linksense status
-linksense start
-linksense stop
-linksense restart
-linksense port 19090
-linksense credential
-linksense logs api
-linksense doctor
-linksense repair
-linksense upgrade
-```
+| Action | Command |
+| --- | --- |
+| Check service status | `linksense status` |
+| Start / stop / restart | `linksense start` / `linksense stop` / `linksense restart` |
+| Show the access address | `linksense address` |
+| Change the HTTP port | `linksense port 19090` |
+| Show the initialization credential | `linksense credential` |
+| View service logs | `linksense logs api` / `linksense logs runner` |
+| Check deployed service health | `linksense doctor` |
+| Check downloads and image pulls | `linksense doctor --network` |
+| Repair the installed release | `linksense repair` |
+| Upgrade the installation | `linksense upgrade` |
 
 Run `linksense` without arguments to open the interactive control menu.
 
@@ -498,17 +452,10 @@ Updated Linux management tools request `sudo` when needed and preserve only prox
 variables. On macOS, add `$HOME/.local/bin` to `PATH` and run
 commands without `sudo`.
 
+Network diagnostics require a release containing the updated installer and CLI.
+They pull BusyBox/API release images without starting containers; images remain cached.
+
 ### Repair and upgrade
-
-```bash
-# Linux
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/repair-core.sh | sudo sh
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/repair-full.sh | sudo sh
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh | sudo sh
-```
-
-On macOS, download the chosen repair/upgrade script and run it with `sh`, without
-`sudo` or its `--preserve-env` option.
 
 Repair stays on the installed release. Upgrade detects Core/Full, waits for active work,
 and stores a validated PostgreSQL backup under `volume://linksense-backups/postgres/`
@@ -517,6 +464,11 @@ before migration.
 No data volume is deleted. A failure after migration begins does not trigger an automatic
 database rollback; retain the printed backup location and rerun the upgrade after
 reviewing diagnostics.
+
+If the installed CLI is unavailable, download [repair-core.sh](./repair-core.sh) or
+[repair-full.sh](./repair-full.sh), inspect it, and run it using the execution steps
+for your OS in [Quick Start](#quick-start). For the first upgrade of an older
+installation, follow [Installer host adaptation](deploy/release/HOST-ADAPTATION.md#fresh-resource-profiles).
 
 ---
 
@@ -529,9 +481,6 @@ reviewing diagnostics.
 | Runner | Node.js · TypeScript · Fastify · Docker · official Codex app-server · Chromium / Playwright |
 | Knowledge | Docling · Elasticsearch · BM25 + vector retrieval · RRF · optional reranking |
 
-Third-party components keep their own licenses; exact versions are recorded in
-[THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md).
-
 ---
 
 ## Local Development
@@ -541,7 +490,7 @@ Requires Node.js 24+, pnpm 10.34.6, Docker Engine/Compose, rsync, and
 The first launch may request system trust for mkcert's local certificate authority.
 
 Applications and dependencies run in Linux containers; host rsync only synchronizes source
-files.
+files. Development defaults must not be used for public production deployments.
 
 The API and development images include FFmpeg for voice transcription. Recordings
 are normalized to 16 kHz mono PCM WAV before being sent to the configured service;
@@ -581,7 +530,7 @@ pnpm build
 Help Center; checks infrastructure and database initialization; starts services; and warms
 runtime caches.
 
-`pnpm dev` prepares missing inputs automatically.
+`pnpm dev` prepares missing inputs automatically and attaches source watching and logs.
 
 ### AI development guide
 
@@ -668,9 +617,22 @@ get backwards:
 | Publish your changes | redistributing, or serving third parties | **no** |
 | Show the attribution | launching through a graphical interface | **yes** |
 
-So an organization running LinkSense on its own network owes no source disclosure at all,
-and keeps the one-line notice.
-[Here is exactly what that looks like](./ATTRIBUTION.md).
+### What LinkSense asks in return
+
+The graphical attribution is a small notice — the words `Powered by` and our mark,
+18–24px tall. The bundled interface links it to our site, but the license does not
+require a URL. No copyright line or visible URL is required. It lives in a single
+area at the foot of the interface and stays there as people move around, so no
+screen needs its own copy. [Here is exactly what it looks like](./ATTRIBUTION.md).
+
+Where it is **not** required, written into the licence rather than left to interpretation:
+
+| | |
+|---|---|
+| Dialogs, menus, tooltips | not repeated — the screen underneath already carries it |
+| Full-screen editing, preview, presentation | may be hidden, as long as it returns on exit |
+| **Documents, decks and images your people export** | **no watermark of any kind, ever** |
+| Command-line, headless, API-only | no display obligation at all |
 
 **Trademarks are licensed separately.** Fork it, rename it, ship it, compete with us —
 just don't call it LinkSense. See [TRADEMARK.md](./TRADEMARK.md).

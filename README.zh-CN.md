@@ -68,7 +68,6 @@
 
 以上配置覆盖使用外部模型 API 的 LinkSense。本地大模型及其 GPU 需单独计算。长期共享部署优先使用 Linux + Docker；macOS + Docker Desktop 可用于评估和开发，但虚拟机必须获得足够资源。16 GiB Mac 建议先选 Core。
 
-要求 Docker Engine API v1.45+ 和 Docker Compose v2.24.4+。
 内存预检读取 Docker Engine 实际可用内存。使用 Docker Desktop 时，这指虚拟机分配的内存，而非宿主机总内存；标称分配 8 GB 时，实际可用值可能不足 8 GiB。请在 Settings → Resources → Advanced → Memory limit 调整分配，Core 建议至少 10–12 GB，新安装 Full 也应为 24 GiB 的实际可用要求留出余量，然后应用更改并重启 Docker Desktop。旧安装修复和升级保留已有配置，按已配置资源预算检查，不强制套用新安装的 24 GiB 门槛。
 自动工具适配、资源配置、CPU 兼容模式、代理及恢复方式见[安装器主机适配说明](deploy/release/HOST-ADAPTATION.md)。
 完整要求见[部署参考](#部署参考)。
@@ -109,17 +108,9 @@ curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fs
 
 终端下载和 Docker 拉取需要分别配置代理。Docker PATH、HTTP/SOCKS5 端口、镜像加速和新版网络诊断见[网络与代理说明](deploy/release/HOST-ADAPTATION.md#network-and-proxies)。
 
-##### 希望先阅读脚本
+如果希望先阅读脚本，请只运行上述对应命令的下载部分，用 `less install-core.sh`（或 `less install-full.sh`）打开文件，再按当前系统的命令执行。
 
-```bash
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh
-less install-core.sh
-# Linux 使用 sudo；macOS 使用 sh install-core.sh，不加 sudo。
-sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
-```
-
-安装器会在写入持久化状态前检查主机，自动生成运行时密钥，并输出一次性初始化凭据，用于创建首位管理员。
+安装器会在写入持久化状态前检查主机，并自动生成运行时密钥。初始化步骤见下文。
 
 Linux 将部署文件保存在 `/opt/linksense`，macOS 使用 `~/.linksense`。
 
@@ -127,29 +118,17 @@ Linux 将部署文件保存在 `/opt/linksense`，macOS 使用 `~/.linksense`。
 
 #### 方案二：Docker 源码开发
 
-修改代码请按[本地开发](#本地开发)操作。宿主机需要 Node.js、pnpm、Docker、rsync 和 mkcert。`pnpm dev:prepare` 会构建镜像、初始化开发数据库、**启动服务**并检查就绪状态；`pnpm dev` 接入源码监听和日志。开发默认配置不能用于公开生产部署。
+修改代码所需的环境、启动命令和开发端口见[本地开发](#本地开发)；构建镜像见[使用 Docker 从源码构建](#使用-docker-从源码构建)。
 
 #### 启动后
 
 1. 打开安装器打印的地址，使用初始化凭据创建首位管理员，并妥善保管凭据。
 2. 在管理界面配置模型渠道，分别验证简短对话和使用工具的任务。部署健康不代表模型兼容性已经验证。
-3. 按当前运行方式选择对应的检查和管理命令。
-
-| 操作 | 发行版安装 | 源码开发 |
-| --- | --- | --- |
-| 检查服务 | `linksense status` / `linksense doctor` | 查看 `pnpm dev` 的就绪检查和输出 |
-| 检查下载与镜像拉取 | `linksense doctor --network` | 参阅[网络说明](deploy/release/HOST-ADAPTATION.md#network-and-proxies) |
-| 启动 / 停止 | `linksense start` / `linksense stop` | `pnpm dev` / `pnpm dev:stop` |
-| 查看执行日志 | `linksense logs runner` | `pnpm dev` 附带的日志 |
-| 升级 / 重建 | `linksense upgrade` | `pnpm dev:rebuild` |
-
-网络诊断需要包含新版安装器和管理工具的发行版本。诊断会拉取 BusyBox/API 发行镜像，不启动容器；镜像会保留在本地缓存。
+3. 发行版的操作见[命令行管理](#命令行管理)；源码监听和开发环境管理见[本地开发](#本地开发)。
 
 ### 还没准备好安装？
 
 发起一条[讨论](../../discussions)，告诉我们你希望完成什么，我们会阅读每一条。如果你正在为组织评估 LinkSense，我们正在与少量早期设计合作伙伴协作，并会帮助你部署：`hello@linksense.org`。
-
-已经在使用 LinkSense？欢迎将你的组织添加到 [ADOPTERS.md](./ADOPTERS.md)。
 
 ---
 
@@ -242,11 +221,7 @@ Codex 运行时由 OpenAI 以 Apache-2.0 许可发布，并以未修改的形式
 
 ## 开源。自主部署。由你掌控。
 
-组织能力层本身就是开源的。应用、技能和插件、MCP 管理、知识、身份与用户组、治理、凭据、用量与审计、Runner、Worker，以及 Core 和 Full 部署方案，都属于开源项目。
-
-组织功能并未被拆分到必须依赖的闭源企业运行时或 LinkSense 运营的云端控制平面中。
-
-在自己的服务器、私有云或 VPC 中运行完整平台。查看源码、修改平台、自主选择模型与集成服务，并在自己掌控的基础设施中运行。没有强制的在线运行时许可激活心跳。
+在自己的服务器、私有云或 VPC 中运行完整平台。查看源码、修改平台、自主选择模型与集成服务，并在自己掌控的基础设施中运行。没有强制依赖的闭源企业运行时、LinkSense 云端控制平面或在线运行时许可激活心跳。
 
 使用私有模型、本地知识和本地 MCP 服务时，提示词、文件、任务状态、知识索引、凭据、审计记录和结果都可以保留在你掌控的基础设施中。
 
@@ -254,22 +229,7 @@ Codex 运行时由 OpenAI 以 Apache-2.0 许可发布，并以未修改的形式
 
 **模型：** OpenAI · Azure OpenAI · Anthropic · Google / Vertex · Alibaba · DeepSeek · OpenRouter · OpenAI 兼容端点
 
-### LinkSense 希望你保留什么
-
-只有一项：一行小型署名，由 `Powered by` 和我们的标志组成，高度为 18–24px。当前界面实现会链接到我们的网站，但许可证本身不要求 URL，也不要求显示版权行。它位于界面底部的一个固定区域，并在用户切换页面时保持显示，因此每个页面不必各自重复放置。[具体样式见这里](./ATTRIBUTION.md)。
-
-以下**无需展示**的情况已写入许可证，无需自行解释：
-
-| | |
-|---|---|
-| 对话框、菜单、工具提示 | 不重复展示，底层页面已经包含署名 |
-| 全屏编辑、预览、演示 | 可以隐藏，退出后恢复即可 |
-| **用户导出的文档、演示文稿和图片** | **不要求任何形式的水印，始终如此** |
-| 命令行、无界面服务、仅 API | 不承担展示义务 |
-
-任何规模的内部部署，无论是否修改，都**不会产生公开任何内容的义务**，参阅[内部部署例外](./LICENSE-EXCEPTIONS.md)。
-
-可以使用自己的品牌，无需另行许可：产品名称、标志、颜色和文案均可自行调整。你的名称在顶部，我们的署名在底部。如需完全移除署名，可洽谈商业许可：`licensing@linksense.org`。
+内部部署例外、署名要求和品牌使用许可见[开源协议](#开源协议)。
 
 ---
 
@@ -371,45 +331,43 @@ LinkSense 提供三种主要扩展方式，无需修改 LinkSense 源码。
 
 ### 自定义端口
 
+按[快速开始](#快速开始)下载所选安装器后，在执行时指定端口。以 Full 为例：
+
 ```bash
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh &&
+# Linux
 sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_HTTP_PORT=19090 sh install-full.sh
+# macOS
+env LINKSENSE_HTTP_PORT=19090 sh install-full.sh
 ```
 
 ### 命令行管理
 
-```bash
-linksense status
-linksense start
-linksense stop
-linksense restart
-linksense port 19090
-linksense credential
-linksense logs api
-linksense doctor
-linksense repair
-linksense upgrade
-```
+| 操作 | 命令 |
+| --- | --- |
+| 检查服务状态 | `linksense status` |
+| 启动 / 停止 / 重启 | `linksense start` / `linksense stop` / `linksense restart` |
+| 查看访问地址 | `linksense address` |
+| 修改 HTTP 端口 | `linksense port 19090` |
+| 查看初始化凭据 | `linksense credential` |
+| 查看服务日志 | `linksense logs api` / `linksense logs runner` |
+| 检查已部署服务的健康状态 | `linksense doctor` |
+| 检查下载与镜像拉取 | `linksense doctor --network` |
+| 修复当前发行版 | `linksense repair` |
+| 升级当前安装 | `linksense upgrade` |
 
 不带参数运行 `linksense`，可打开交互式管理菜单。
 
 新版 Linux 管理工具会在需要时请求 `sudo`，仅保留代理变量。macOS 请将 `$HOME/.local/bin` 加入 `PATH`，并在不使用 `sudo` 的情况下执行命令。
 
+网络诊断需要包含新版安装器和管理工具的发行版本。诊断会拉取 BusyBox/API 发行镜像，不启动容器；镜像会保留在本地缓存。
+
 ### 修复与升级
-
-```bash
-# Linux
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/repair-core.sh | sudo sh
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/repair-full.sh | sudo sh
-curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh | sudo sh
-```
-
-macOS 请先下载所选的修复或升级脚本，再用 `sh` 执行，不加 `sudo` 或其 `--preserve-env` 参数。
 
 修复沿用已安装的发行版本。升级会识别 Core / Full，等待正在运行的工作结束，并在迁移前将经过校验的 PostgreSQL 备份保存到 `volume://linksense-backups/postgres/`。
 
 不会删除数据卷。迁移开始后若发生失败，不会自动回滚数据库；请保留输出的备份位置，查看诊断信息后重新执行升级。
+
+如果已安装的管理工具不可用，请下载 [repair-core.sh](./repair-core.sh) 或 [repair-full.sh](./repair-full.sh)，阅读后按[快速开始](#快速开始)中对应系统的执行方式运行。旧安装的首次升级步骤见[安装器主机适配说明](deploy/release/HOST-ADAPTATION.md#fresh-resource-profiles)。
 
 ---
 
@@ -422,15 +380,13 @@ macOS 请先下载所选的修复或升级脚本，再用 `sh` 执行，不加 `
 | Runner | Node.js · TypeScript · Fastify · Docker · 官方 Codex app-server · Chromium / Playwright |
 | 知识 | Docling · Elasticsearch · BM25 + 向量检索 · RRF · 可选重排序 |
 
-第三方组件保留各自的许可证，具体版本记录在 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md) 中。
-
 ---
 
 ## 本地开发
 
 需要 Node.js 24+、pnpm 10.34.6、Docker Engine / Compose、rsync，以及用于本地 HTTPS 证书的 [mkcert](https://github.com/FiloSottile/mkcert)。首次启动可能请求将 mkcert 的本地证书颁发机构加入系统信任。
 
-应用及其依赖在 Linux 容器中运行，宿主机上的 rsync 仅用于同步源码。
+应用及其依赖在 Linux 容器中运行，宿主机上的 rsync 仅用于同步源码。开发默认配置不能用于公开生产部署。
 
 API 和开发镜像内置 FFmpeg，录音提交到所配置的服务前会统一转换为 16 kHz、单声道 PCM WAV；OpenAI 兼容语音服务使用 `response_format=json`，不请求时间戳。直接在宿主机运行 API 时，需要确保 `PATH` 中可以找到 `ffmpeg`。升级时需部署新的 API 镜像，已有模型配置和网关密钥继续使用。可运行 `pnpm --filter @linksense/api test:voice:audio` 验证实际音频格式转换。
 
@@ -463,7 +419,7 @@ pnpm build
 
 `pnpm dev:prepare` 会构建应用镜像、生产任务 Worker 和双语帮助中心，检查基础设施与数据库初始化，启动服务，并预热运行时缓存。
 
-`pnpm dev` 会自动准备缺失的输入。
+`pnpm dev` 会自动准备缺失的输入，并接入源码监听和日志。
 
 ### AI 开发指南
 
@@ -539,8 +495,18 @@ LinkSense 采用 [CPAL-1.0](./LICENSE) 开源，这是一项[经 OSI 批准](htt
 | 公开你的修改 | 再分发，或向第三方提供服务 | **否** |
 | 展示署名 | 通过图形界面启动 | **是** |
 
-因此，组织在自己的网络中运行 LinkSense，不承担源码公开义务，只需保留一行署名。
-[具体样式见这里](./ATTRIBUTION.md)。
+### LinkSense 希望你保留什么
+
+图形界面的署名是一行小型标识，由 `Powered by` 和我们的标志组成，高度为 18–24px。当前界面实现会链接到我们的网站，但许可证本身不要求 URL，也不要求显示版权行。它位于界面底部的一个固定区域，并在用户切换页面时保持显示，因此每个页面不必各自重复放置。[具体样式见这里](./ATTRIBUTION.md)。
+
+以下**无需展示**的情况已写入许可证，无需自行解释：
+
+| | |
+|---|---|
+| 对话框、菜单、工具提示 | 不重复展示，底层页面已经包含署名 |
+| 全屏编辑、预览、演示 | 可以隐藏，退出后恢复即可 |
+| **用户导出的文档、演示文稿和图片** | **不要求任何形式的水印，始终如此** |
+| 命令行、无界面服务、仅 API | 不承担展示义务 |
 
 **商标单独授权。**你可以分叉、重命名、分发，甚至与我们竞争，只是不要将其命名为 LinkSense。参阅 [TRADEMARK.md](./TRADEMARK.md)。
 
