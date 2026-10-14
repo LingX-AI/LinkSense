@@ -11,6 +11,16 @@ const root = path.resolve(import.meta.dirname, "..")
 const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
 const { parse } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml")
 
+test("CodeQL initialization and analysis use the same pinned release", () => {
+  const security = parse(readFileSync(path.join(root, ".github/workflows/security.yml"), "utf8"))
+  const actions = security.jobs.codeql.steps
+    .map(step => step.uses)
+    .filter(uses => uses?.startsWith("github/codeql-action/"))
+  assert.ok(actions.some(uses => uses.startsWith("github/codeql-action/init@")))
+  assert.ok(actions.some(uses => uses.startsWith("github/codeql-action/analyze@")))
+  assert.equal(new Set(actions.map(uses => uses.split("@")[1])).size, 1)
+})
+
 function verifyAnonymousImages(t, deniedReference) {
   const directory = mkdtempSync(path.join(tmpdir(), "linksense-anonymous-images-"))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
