@@ -56,7 +56,7 @@ jobs:
           echo "fingerprint=$(node deploy/baselines/tools/baseline-images.mjs fingerprint)" >> "$GITHUB_OUTPUT"
           date -u '+%Y-%m-%dT%H:%M:%SZ' > baseline-inputs/built-at
           (cd baseline-inputs && sha256sum * > SHA256SUMS)
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: baseline-inputs
           path: baseline-inputs/
@@ -111,7 +111,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build the runtime or patched vendor candidate
         id: build
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           context: .
           file: ${{ matrix.component.file }}
@@ -161,7 +161,7 @@ jobs:
         run: |
           mkdir image-reference
           printf '%s\n' "$IMAGE" > "image-reference/$COMPONENT-$ARCHITECTURE"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: baseline-platform-${{ matrix.component.name }}-${{ matrix.platform.architecture }}
           path: image-reference/
@@ -217,7 +217,7 @@ jobs:
           done
           node deploy/baselines/tools/baseline-images.mjs assemble image-references baseline-inputs/upstream-images.env baseline-candidate
           (cd baseline-candidate && find . -type f ! -name SHA256SUMS | sort | xargs sha256sum > SHA256SUMS)
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: baseline-candidate
           path: baseline-candidate/
@@ -262,7 +262,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/trivy/archive.tar.gz" -C "$RUNNER_TEMP/trivy" trivy
           export PATH="$RUNNER_TEMP/trivy:$PATH"
           sh scripts/scan-release-images.sh baseline-candidate/image-references baseline-candidate/release-inputs baseline-reports "linux/${{ matrix.architecture }}" baseline
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: baseline-security-${{ matrix.architecture }}
@@ -314,7 +314,7 @@ jobs:
           (cd baseline-candidate && sha256sum -c SHA256SUMS)
           docker logout ghcr.io >/dev/null 2>&1 || true
           node -e 'const b=require("./baseline-candidate/images.lock.json"); for(const ref of new Set([...Object.values(b.runtimes),...Object.values(b.services)])) require("child_process").execFileSync("docker",["buildx","imagetools","inspect",ref],{stdio:"inherit",timeout:120000})'
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: verified-baseline
           path: baseline-candidate/images.lock.json
