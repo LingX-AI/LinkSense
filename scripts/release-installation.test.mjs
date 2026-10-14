@@ -1342,6 +1342,23 @@ test("every LinkSense release image contains the CPAL license and separate permi
   assert.equal((baseline.match(supplementalCopy) ?? []).length, 4)
 })
 
+test("release preparation requires both dedicated installation runners before building images", async () => {
+  const workflow = await readFile(path.join(root, ".github/workflows/release.yml"), "utf8")
+  const step = workflow.match(/      - name: Verify installation runner configuration\n([\s\S]*?)(?=\n      -)/u)?.[1]
+  assert.ok(step, "Runner configuration must be checked during release preparation")
+  const script = step.split("        run: |\n")[1]?.replace(/^          /gmu, "")
+  assert.ok(script)
+  assert.ok(workflow.indexOf("Verify installation runner configuration") < workflow.indexOf("Validate and freeze release inputs before building images"))
+  for (const [amd64, arm64, status] of [["", "", 1], ["large-amd64", "", 1], ["", "large-arm64", 1], ["large-amd64", "large-arm64", 0]]) {
+    const result = spawnSync("bash", ["-c", script], {
+      encoding: "utf8",
+      env: { ...process.env, LINKSENSE_INSTALLATION_RUNNER_AMD64: amd64, LINKSENSE_INSTALLATION_RUNNER_ARM64: arm64 },
+    })
+    assert.equal(result.status, status, result.stderr)
+    if (status !== 0) assert.match(result.stderr, /24 GiB/u)
+  }
+})
+
 test("the release workflow reuses verified main checks before promotion", async () => {
   const workflow = await readFile(
     path.join(root, ".github/workflows/release.yml"),
