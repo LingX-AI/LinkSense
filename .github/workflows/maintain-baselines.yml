@@ -104,7 +104,7 @@ jobs:
           upstream=$(sed -n "s/^IMAGE_${UPSTREAM_ROLE}=//p" baseline-inputs/upstream-images.env)
           test -n "$upstream"
           echo "UPSTREAM_IMAGE=$upstream" >> "$GITHUB_ENV"
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -185,7 +185,7 @@ jobs:
         with:
           version: 10.34.6
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -242,7 +242,7 @@ jobs:
         with:
           node-version: 24
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -280,7 +280,7 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
