@@ -217,7 +217,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -299,7 +299,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -367,7 +367,7 @@ jobs:
           pattern: image-platform-*
           path: image-platform-references
           merge-multiple: true
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -419,7 +419,7 @@ jobs:
         with:
           name: release-inputs
           path: release-inputs
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -474,7 +474,7 @@ jobs:
         with:
           name: release-inputs
           path: release-inputs
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -665,7 +665,7 @@ jobs:
               exit 1
             }
           done
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
