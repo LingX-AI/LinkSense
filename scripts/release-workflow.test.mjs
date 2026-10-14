@@ -21,6 +21,38 @@ test("CodeQL initialization and analysis use the same pinned release", () => {
   assert.equal(new Set(actions.map(uses => uses.split("@")[1])).size, 1)
 })
 
+test("release logins retain the GHCR authentication contract after action upgrades", () => {
+  const logins = Object.values(parse(workflow).jobs)
+    .flatMap(job => job.steps ?? [])
+    .filter(step => step.uses?.startsWith("docker/login-action@"))
+  assert.equal(logins.length, 6)
+  for (const step of logins) {
+    assert.match(step.uses, /^docker\/login-action@[0-9a-f]{40}$/u)
+    assert.deepEqual(step.with, {
+      registry: "ghcr.io",
+      username: "${{ github.actor }}",
+      password: "${{ secrets.GITHUB_TOKEN }}",
+    })
+  }
+})
+
+test("dependency smoke verifies both architectures without publishing images or releases", () => {
+  const smoke = parse(readFileSync(path.join(root, ".github/workflows/dependency-actions-smoke.yml"), "utf8"))
+  assert.deepEqual(Object.keys(smoke.on), ["pull_request", "workflow_dispatch"])
+  assert.deepEqual(smoke.permissions, { contents: "read" })
+  assert.deepEqual(smoke.jobs.build.permissions, { contents: "read", packages: "read" })
+  assert.deepEqual(smoke.jobs.build.strategy.matrix.include.map(platform => platform.architecture), ["amd64", "arm64"])
+  assert.deepEqual(smoke.jobs.download.strategy, smoke.jobs.build.strategy)
+  assert.equal(smoke.jobs.download.needs, "build")
+  const build = smoke.jobs.build.steps.find(step => step.uses?.startsWith("docker/build-push-action@"))
+  assert.equal(build.with.push, false)
+  assert.equal(build.with.load, true)
+  const upload = smoke.jobs.build.steps.find(step => step.uses?.startsWith("actions/upload-artifact@"))
+  assert.equal(upload.with.name, smoke.jobs.download.steps[0].with.name)
+  assert.match(smoke.jobs.download.steps.at(-1).run, /sha256sum -c SHA256SUMS/u)
+  assert.doesNotMatch(JSON.stringify(smoke), /"(?:contents|packages)":"write"|docker push|gh release|publish-release/u)
+})
+
 function verifyAnonymousImages(t, deniedReference) {
   const directory = mkdtempSync(path.join(tmpdir(), "linksense-anonymous-images-"))
   t.after(() => rmSync(directory, { recursive: true, force: true }))

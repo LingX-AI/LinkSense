@@ -1,0 +1,107 @@
+name: Dependency Actions Smoke
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/**
+      - scripts/release-workflow.test.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-actions-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { architecture: amd64, runner: ubuntu-24.04 }
+          - { architecture: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Prepare a small build fixture
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dependency-smoke/context" "$RUNNER_TEMP/dependency-smoke/artifact"
+          printf '%s\n' "$GITHUB_SHA" "$ARCHITECTURE" > "$RUNNER_TEMP/dependency-smoke/context/payload.txt"
+          printf 'FROM scratch\nCOPY payload.txt /payload.txt\n' > "$RUNNER_TEMP/dependency-smoke/context/Dockerfile"
+          node -e 'require("node:assert/strict").equal(process.versions.node.split(".")[0], "24")'
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - name: Build without publishing an image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        with:
+          context: ${{ runner.temp }}/dependency-smoke/context
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          tags: linksense-dependency-smoke:${{ matrix.architecture }}
+      - name: Verify the image content and digest
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          test "$(docker image inspect --format '{{.Architecture}}' "linksense-dependency-smoke:$ARCHITECTURE")" = "$ARCHITECTURE"
+          docker create --name dependency-smoke "linksense-dependency-smoke:$ARCHITECTURE" /unused
+          docker cp dependency-smoke:/payload.txt "$RUNNER_TEMP/dependency-smoke/artifact/payload.txt"
+          docker rm dependency-smoke
+          cmp "$RUNNER_TEMP/dependency-smoke/context/payload.txt" "$RUNNER_TEMP/dependency-smoke/artifact/payload.txt"
+          printf '%s\n' "$IMAGE_DIGEST" > "$RUNNER_TEMP/dependency-smoke/artifact/image-digest.txt"
+          cd "$RUNNER_TEMP/dependency-smoke/artifact"
+          sha256sum payload.txt image-digest.txt > SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: dependency-smoke-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/dependency-smoke/artifact/
+          if-no-files-found: error
+          retention-days: 3
+
+  download:
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { architecture: amd64, runner: ubuntu-24.04 }
+          - { architecture: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: dependency-smoke-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/dependency-smoke
+      - name: Verify the downloaded artifact
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/dependency-smoke"
+          sha256sum -c SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" "$ARCHITECTURE" > expected.txt
+          cmp expected.txt payload.txt
+          grep -Eq '^sha256:[0-9a-f]{64}$' image-digest.txt
