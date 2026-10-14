@@ -3,9 +3,11 @@ import { readFile } from "node:fs/promises"
 import test from "node:test"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { createRequire } from "node:module"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const read = (file) => readFile(path.join(root, file), "utf8")
+const { parse } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml")
 
 test("issue forms remain available", async () => {
   const files = await Promise.all([
@@ -70,6 +72,36 @@ test("agent-ready is maintainer-gated and creates only a draft PR", async () => 
   assert.match(workflow, /auto-close-issue: false/u)
   assert.match(workflow, /allowed-branches:[\s\S]*- agent\/\*/u)
   assert.doesNotMatch(workflow, /^\s+(close-issue|merge-pull-request):/mu)
+})
+
+test("generated AI workflows keep action manifests and compiler versions aligned", async () => {
+  const maintenance = await read(".github/ISSUE_TRIAGE.md")
+  const { entries } = JSON.parse(await read(".github/aw/actions-lock.json"))
+  for (const name of ["agent-ready", "issue-triage"]) {
+    const workflow = await read(`.github/workflows/${name}.lock.yml`)
+    const [metadataLine, manifestLine] = workflow.split("\n")
+    const metadata = JSON.parse(metadataLine.slice("# gh-aw-metadata: ".length))
+    const manifest = JSON.parse(manifestLine.slice("# gh-aw-manifest: ".length))
+    for (const [, repo, sha] of workflow.matchAll(/^\s+uses: ([\w/-]+)@([0-9a-f]{40})\b/gmu)) {
+      assert.equal(manifest.actions.find(action => action.repo === repo)?.sha, sha, `${name}: ${repo}`)
+    }
+    const setup = manifest.actions.find(action => action.repo === "github/gh-aw-actions/setup")
+    assert.equal(setup.version, metadata.compiler_version)
+    assert.equal(entries[`${setup.repo}@${setup.version}`]?.sha, setup.sha)
+    assert.ok(maintenance.includes(`--pin ${metadata.compiler_version}`))
+  }
+})
+
+test("compiler upgrades preserve the model fallback and read-only activation", async () => {
+  for (const name of ["agent-ready", "issue-triage"]) {
+    const { jobs } = parse(await read(`.github/workflows/${name}.lock.yml`))
+    assert.deepEqual(jobs.activation.permissions, { actions: "read", contents: "read" })
+    assert.deepEqual(jobs.agent.permissions, { contents: "read", issues: "read", "pull-requests": "read" })
+    const info = jobs.activation.steps.find(step => step.id === "generate_aw_info")
+    assert.equal(info.env.GH_AW_INFO_MODEL, "${{ vars.GH_AW_MODEL_AGENT_CODEX || vars.GH_AW_DEFAULT_MODEL_CODEX || 'gpt-5.4' }}")
+    const detection = jobs.detection.steps.find(step => step.env?.GH_AW_MODEL_DETECTION_CODEX)
+    assert.equal(detection.env.GH_AW_MODEL_DETECTION_CODEX, "detection")
+  }
 })
 
 test("label manifest includes status, area, priority, and approval labels", async () => {

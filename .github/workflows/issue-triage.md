@@ -6,6 +6,7 @@ on:
   issues:
     types: [opened, reopened]
   roles: all
+  report-blocked-version: false
 
 if: vars.LINKSENSE_ISSUE_AGENT_ENABLED == 'true'
 
@@ -16,6 +17,7 @@ permissions:
 
 engine:
   id: codex
+  model: ${{ vars.GH_AW_MODEL_AGENT_CODEX || vars.GH_AW_DEFAULT_MODEL_CODEX || 'gpt-5.4' }}
   env:
     OPENAI_BASE_URL: "https://codex-lb.lingx-ai.com/backend-api/codex"
     OPENAI_API_KEY: ${{ secrets.LINKSENSE_ISSUE_AGENT_API_KEY }}
@@ -32,6 +34,10 @@ network:
     - codex-lb.lingx-ai.com
 
 safe-outputs:
+  threat-detection:
+    engine:
+      id: codex
+      model: detection
   add-labels:
     allowed:
       - bug

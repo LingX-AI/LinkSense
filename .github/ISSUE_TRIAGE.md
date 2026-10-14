@@ -21,10 +21,10 @@ Configure these repository settings before enabling them:
 | Kind | Name | Purpose |
 |---|---|---|
 | Secret | `LINKSENSE_ISSUE_AGENT_API_KEY` | Codex provider API key |
-| Variable | `GH_AW_MODEL_AGENT_CODEX` | Codex model identifier |
+| Variable | `GH_AW_MODEL_AGENT_CODEX` | Codex model identifier; defaults to `GH_AW_DEFAULT_MODEL_CODEX`, then `gpt-5.4` |
 | Variable | `LINKSENSE_ISSUE_AGENT_ENABLED` | Set to `true` only after the other values are configured |
 
-The checked-in workflow uses OpenAI's standard API endpoint. To use Azure OpenAI or another provider, add a literal `OPENAI_BASE_URL` under `engine.env`, add that endpoint's hostname to `network.allowed`, and recompile the lock files. The provider must expose an OpenAI Responses API-compatible endpoint; never store its key in the workflow source.
+The checked-in workflows use `https://codex-lb.lingx-ai.com/backend-api/codex`. To use another provider, update the literal `OPENAI_BASE_URL` under `engine.env`, update its hostname in `network.allowed`, and recompile the lock files. The provider must expose an OpenAI Responses API-compatible endpoint; never store its key in the workflow source.
 
 Keep the repository's **Settings → Planning → Agent suggestions for issues → Automation level** at **Cautious**. At this level GitHub applies only high-confidence issue intents automatically and holds medium- and low-confidence changes for review. If this preview setting is not available for the repository, keep the AI workflows disabled.
 
@@ -45,8 +45,10 @@ Do not add automatic closing, duplicate, priority, merge, or release permissions
 Edit the Markdown sources for agentic workflows, then compile and commit their generated lock files with the pinned GitHub Agentic Workflows CLI:
 
 ```bash
-gh extension install github/gh-aw --pin v0.87.10
+gh extension install github/gh-aw --pin v0.91.7
 gh aw compile --strict --actionlint --validate
 ```
+
+The `--actionlint` check requires Docker. The sources explicitly preserve the existing main model fallback and native `detection` model alias, and disable activation-stage blocked-version notification issues so that activation keeps read-only permissions. Compiler version validation still runs and blocks incompatible versions.
 
 The canonical label definitions are stored in `.github/labels.yml`.
