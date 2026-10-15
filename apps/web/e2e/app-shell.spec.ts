@@ -2702,6 +2702,71 @@ test("credential editor stacks secret fields safely on a narrow viewport", async
   }
 })
 
+for (const width of [1440, 320]) {
+  for (const section of ["users", "groups"] as const) {
+    test(`user-management submission errors keep content spaced in ${section} at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 1024 })
+      await page.route("**/api/v1/admin/**", async (route) => {
+        const path = new URL(route.request().url()).pathname
+        if (
+          route.request().method() === "POST" &&
+          ["/api/v1/admin/users", "/api/v1/admin/user-groups"].includes(path)
+        ) {
+          return route.fulfill({
+            status: 400,
+            contentType: "application/json",
+            body: JSON.stringify({
+              success: false,
+              error_code: "VALIDATION_ERROR",
+            }),
+          })
+        }
+        if (path === "/api/v1/admin/user-groups") {
+          return ok(route, { items: [], next_cursor: null })
+        }
+        return route.fallback()
+      })
+      await page.goto(`/admin/${section}`)
+      const content = page.locator(
+        section === "users"
+          ? '[data-slot="user-management-filters"]'
+          : ".empty-state"
+      )
+      await expect(content).toBeVisible()
+      const initialBox = await content.boundingBox()
+      const title = section === "users" ? "创建用户" : "创建用户组"
+      await page.getByRole("button", { name: title, exact: true }).click()
+      const dialog = page.getByRole("dialog", { name: title, exact: true })
+      await dialog
+        .getByRole("textbox", { name: "名称", exact: true })
+        .fill("Support")
+      if (section === "users") {
+        await dialog
+          .getByRole("textbox", { name: "邮箱", exact: true })
+          .fill("support@example.test")
+      }
+      await dialog.getByRole("button", { name: "保存", exact: true }).click()
+      const alert = content.locator("..").locator('[role="alert"]')
+      await expect(alert).toContainText("提交内容无效，请检查后重试。")
+      await dialog.getByRole("button", { name: "取消", exact: true }).click()
+      const alertBox = await alert.boundingBox()
+      const contentBox = await content.boundingBox()
+      expect(alertBox).not.toBeNull()
+      expect(contentBox).not.toBeNull()
+      expect(
+        contentBox!.y - (alertBox!.y + alertBox!.height)
+      ).toBeGreaterThanOrEqual(15.5)
+
+      await page.reload()
+      await expect(content).toBeVisible()
+      await expect(alert).toHaveCount(0)
+      expect((await content.boundingBox())!.y).toBeCloseTo(initialBox!.y, 0)
+    })
+  }
+}
+
 test("user management table vertically centers data cells", async ({
   page,
 }) => {
