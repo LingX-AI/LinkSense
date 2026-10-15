@@ -23,6 +23,36 @@ function directory(t) {
   return dir
 }
 
+for (const [value, status] of [["", 0], ["--max-old-space-size=1024", 0], ["bad value", 1], ["$(id)", 1]]) {
+  test(`protected optional Node settings ${status === 0 ? "accept" : "reject"} ${JSON.stringify(value)}`, t => {
+    const dir = directory(t)
+    writeFileSync(path.join(dir, ".env"), `LINKSENSE_API_NODE_OPTIONS=${value}\nLINKSENSE_RUNNER_NODE_OPTIONS=\n`, { mode: 0o600 })
+    const result = run(`${fn("load_strict_env")}\nfail() { echo "$*" >&2; exit 1; }\nload_strict_env "$DIR/.env" runtime`, { DIR: dir })
+    assert.equal(result.status, status, result.stderr)
+  })
+}
+
+test("empty optional Node settings do not permit an empty runtime JWT secret", t => {
+  const dir = directory(t)
+  const writer = fn("write_runtime_env")
+  const fixture = Object.fromEntries([...writer.matchAll(/\$([A-Z][A-Z_0-9]*)\b/gu)].map(match => [match[1], "fixture"]))
+  const result = run(`${writer}
+${fn("load_strict_env")}
+${fn("require_loaded_keys")}
+${fn("load_runtime_env")}
+fail() { echo "$*" >&2; exit 1; }
+verify_private_file() { :; }
+write_runtime_env
+load_runtime_env`, {
+    ...fixture, INSTALL_DIR: dir, EDITION: "core", HOST_OS: "Linux", RESOURCE_HOST_ADAPTATION_FORMAT: "1",
+    LINKSENSE_CPU_QUOTA_MODE: "strict", HOST_CPU_QUOTA_MODE: "strict", LINKSENSE_JWT_SECRET: "",
+    LINKSENSE_PLATFORM: "linux-amd64", docker_platform: "linux-amd64", docker_endpoint: "unix:///var/run/docker.sock",
+    LINKSENSE_DOCKER_SOCKET_SOURCE: "/var/run/docker.sock", LINKSENSE_DOCKER_SOCKET_PATH: "/var/run/docker.sock",
+  })
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stderr, /Required secret LINKSENSE_JWT_SECRET is missing/u)
+})
+
 test("macOS discovers per-user Docker tools without replacing an existing Docker CLI", t => {
   const dir = directory(t)
   const dockerBin = path.join(dir, ".docker/bin")

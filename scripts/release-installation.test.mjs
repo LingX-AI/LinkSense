@@ -1625,7 +1625,7 @@ RELEASE_SELECTOR=latest
 fetch_manifest https://release.example
 `], { encoding: "utf8", env: { ...process.env, FIXTURE_SOURCE: directory, FIXTURE_TARGET: manifestCheck, FIXTURE_MEMORY: String(available * 1024 ** 3), FIXTURE_EXISTING: String(existing), FIXTURE_PENDING: String(pending) } })
       assert.equal(result.status, accepted ? 0 : 1, `Full minimum ${required}, available ${available}: ${result.stderr}`)
-      if (!accepted) assert.match(result.stderr, required === "" ? /Unsafe value for FULL_MIN_MEMORY_GIB/u : /host requirements|Docker Engine memory/u)
+      if (!accepted) assert.match(result.stderr, /host requirements|Docker Engine memory/u)
     }
   } finally {
     await rm(directory, { recursive: true, force: true })
