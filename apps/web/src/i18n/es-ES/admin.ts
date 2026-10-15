@@ -777,6 +777,7 @@ export const adminMessages = {
     lastRunTo: "Última ejecución hasta",
     auditConversationsEmpty:
       "No hay metadatos de ejecución de tareas coincidentes.",
+    auditPageCount: "Página {{current}} de {{total}}",
     retainedArtifactsDescription:
       "Muestra únicamente resúmenes con datos sensibles ocultos de los archivos conservados permanentemente de tareas eliminadas. No se puede ver el contenido, recuperarlo ni descargarlo.",
     retainedArtifactsSearchPlaceholder:

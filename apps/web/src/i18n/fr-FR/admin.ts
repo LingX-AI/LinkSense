@@ -760,6 +760,7 @@ export const admin = {
   lastRunFrom: "Dernière exécution à partir du",
   lastRunTo: "Dernière exécution jusqu’au",
   auditConversationsEmpty: "Aucune métadonnée d’exécution correspondante.",
+  auditPageCount: "Page {{current}} sur {{total}}",
   retainedArtifactsDescription:
     "Affiche uniquement les résumés expurgés des fichiers conservés indéfiniment après suppression des tâches. Consultation du contenu, restauration et téléchargement indisponibles.",
   retainedArtifactsSearchPlaceholder:
