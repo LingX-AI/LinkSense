@@ -42,6 +42,8 @@ Do not add automatic closing, duplicate, priority, merge, or release permissions
 
 ## Maintenance
 
+Triage loads only the read-only `issues` toolset, rather than repository files, code search, and the full default GitHub toolset. Its declared `allowed` list is `issue_read` and `search_issues`; the prompt budgets three issue reads and one repository-scoped issue search. These per-call budgets are prompt instructions, not a hard runtime quota: the pinned v0.91.8 Codex compiler records `allowed` in the manifest but does not emit the individual allowlist or documented `max-calls` guards into this workflow's gateway config. Other read-only tools in the `issues` group may therefore remain available. Do not use `github.args` to work around this: the pinned compiler renders those Docker arguments with a trailing comma that breaks gateway JSON parsing, and they are not MCP server CLI arguments. Keep the existing ten-minute execution limit: a run that stalls after completing its reads requires gateway/model investigation, not an unconditional timeout increase. This reduces context amplification but does not establish the root cause of historical inference stalls. Verify the complete agent, detection, and safe-output chain on a new run of the changed revision before closing historical failure issues.
+
 Edit the Markdown sources for agentic workflows, then compile and commit their generated lock files with the pinned GitHub Agentic Workflows CLI:
 
 ```bash
