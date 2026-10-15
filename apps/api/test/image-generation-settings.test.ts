@@ -1177,6 +1177,74 @@ describe("ImageGenerationSettingsService", () => {
     ).rejects.toMatchObject({ code: "IMAGE_GENERATION_OUTPUT_INVALID" })
   })
 
+  it.each([
+    ["chunked downloaded image", "image", 200, undefined],
+    ["under-reported downloaded image", "image", 200, "1"],
+    ["oversized declared JSON", "json", 200, String(512 * 1024 * 1024)],
+    ["chunked provider JSON error", "json", 429, undefined],
+    ["chunked provider text error", "text", 503, undefined],
+  ] as const)("cancels a %s before consuming the full oversized body", async (_name, kind, status, contentLength) => {
+    const chunkCount = kind === "image" ? 25 : 32
+    const chunkSize = kind === "image" ? 1024 * 1024 : 16 * 1024
+    const cancel = vi.fn()
+    let emitted = 0
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (emitted === chunkCount) {
+          controller.close()
+          return
+        }
+        const prefix = kind === "json" && emitted === 0 ? '{"data":[],"padding":"' : ""
+        const suffix = kind === "json" && emitted === chunkCount - 1 ? '"}' : ""
+        controller.enqueue(kind === "image"
+          ? new Uint8Array(chunkSize)
+          : new TextEncoder().encode(`${prefix}${"x".repeat(chunkSize)}${suffix}`))
+        emitted += 1
+      },
+      cancel,
+    })
+    const headers = new Headers({
+      "content-type": { image: "image/png", json: "application/json", text: "text/plain" }[kind],
+    })
+    if (contentLength) headers.set("content-length", contentLength)
+    const fetchMock = vi.fn<typeof fetch>()
+    if (kind === "image") {
+      fetchMock.mockResolvedValueOnce(Response.json({ data: [{ url: "https://images.example.test/large.png" }] }))
+    }
+    fetchMock.mockResolvedValueOnce(new Response(stream, { status, headers }))
+    const { service } = await configuredProviderHarness(
+      kind === "text" ? "stability" : "openai_compatible",
+      kind === "text" ? "stable-image-core" : "test-image-model",
+      fetchMock,
+    )
+
+    await expect(service.generate({
+      ownerId: USER_ID,
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      request: { prompt: "A test image", count: 1 },
+    })).rejects.toMatchObject({
+      code: status >= 400 ? "IMAGE_GENERATION_UNAVAILABLE" : "IMAGE_GENERATION_OUTPUT_INVALID",
+    })
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(emitted).toBeLessThan(chunkCount)
+    expect(fetchMock).toHaveBeenCalledTimes(kind === "image" ? 2 : 1)
+  })
+
+  it("preserves valid provider JSON with a UTF-8 byte order mark", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(
+      `\uFEFF${JSON.stringify({ data: [{ b64_json: ONE_PIXEL_PNG.toString("base64") }] })}`,
+      { headers: { "content-type": "application/json" } },
+    ))
+    const { service } = await configuredProviderHarness("openai_compatible", "test-image-model", fetchMock)
+    await expect(service.generate({
+      ownerId: USER_ID,
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      request: { prompt: "A test image", count: 1 },
+    })).resolves.toMatchObject({ image_count: 1 })
+  })
+
   it("validates Stability's provider-specific seed maximum", async () => {
     const fetchMock = vi.fn()
     const { service } = await configuredProviderHarness(

@@ -26,6 +26,7 @@ import type { AppConfig } from "../../config.js"
 import type { PrismaClient } from "../../generated/prisma/client.js"
 import { decryptJson, encryptJson } from "../../lib/crypto.js"
 import { AppError } from "../../lib/errors.js"
+import { readResponseWithLimit } from "../../lib/safe-http-fetch.js"
 import { detectSafeRasterImage } from "../../lib/safe-raster-image.js"
 import type { AuditContext } from "../audit/service.js"
 import type { ModelUsageRecorder } from "../usage/model-usage.js"
@@ -42,6 +43,8 @@ const ENCRYPTION_CONTEXT = "linksense:image-generation-settings:v1"
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024
 const MAX_IMAGE_BASE64_CHARACTERS = Math.ceil(MAX_IMAGE_BYTES / 3) * 4 + 4
 const MAX_PROVIDER_IMAGE_REFS = 10
+const MAX_PROVIDER_ERROR_BYTES = 64 * 1024
+const MAX_PROVIDER_JSON_BYTES = MAX_IMAGE_BASE64_CHARACTERS * MAX_PROVIDER_IMAGE_REFS + MAX_PROVIDER_ERROR_BYTES
 const ALIBABA_BAILIAN_MAX_SEED = 2_147_483_647
 const STABILITY_MAX_SEED = 4_294_967_294
 const GOOGLE_IMAGE_ASPECT_RATIOS = [
@@ -928,7 +931,8 @@ async function imagesFromRefs(
 async function jsonResponse(response: Response): Promise<unknown> {
   let body: unknown
   try {
-    body = await response.json()
+    const bytes = await readProviderResponse(response, response.ok ? MAX_PROVIDER_JSON_BYTES : MAX_PROVIDER_ERROR_BYTES)
+    body = JSON.parse(new TextDecoder().decode(bytes))
   } catch {
     if (response.ok) throw new AppError("IMAGE_GENERATION_OUTPUT_INVALID")
     throw providerResponseError(response, null)
@@ -958,8 +962,17 @@ async function imageFromRef(
 }
 
 async function imageFromBinaryResponse(response: Response): Promise<ProviderImage> {
-  const bytes = Buffer.from(await response.arrayBuffer())
+  const bytes = await readProviderResponse(response, MAX_IMAGE_BYTES)
   return providerImageFromBytes(bytes)
+}
+
+async function readProviderResponse(response: Response, byteLimit: number): Promise<Buffer> {
+  if (!response.body) throw new AppError("IMAGE_GENERATION_OUTPUT_INVALID")
+  if (Number(response.headers.get("content-length")) > byteLimit) {
+    await response.body.cancel().catch(() => {})
+    throw new AppError("IMAGE_GENERATION_OUTPUT_INVALID")
+  }
+  return readResponseWithLimit(response.body, byteLimit, "IMAGE_GENERATION_OUTPUT_INVALID")
 }
 
 function providerImageFromBytes(bytes: Buffer): ProviderImage {
@@ -1142,9 +1155,10 @@ async function providerErrorFromResponse(
 ): Promise<AppError> {
   try {
     const contentType = response.headers.get("content-type") ?? ""
-    const body = contentType.toLowerCase().includes("json")
-      ? await response.json()
-      : await response.text()
+    const text = new TextDecoder().decode(await readProviderResponse(response, MAX_PROVIDER_ERROR_BYTES))
+    const body: unknown = contentType.toLowerCase().includes("json")
+      ? JSON.parse(text)
+      : text
     return providerResponseError(response, body)
   } catch {
     return providerResponseError(response, null)
