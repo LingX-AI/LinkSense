@@ -234,6 +234,123 @@ describe("administrator audit metadata", () => {
     vi.unstubAllGlobals()
   })
 
+  it.each([
+    ["zh-CN", "第 1 / 3 页"],
+    ["en-US", "Page 1 of 3"],
+    ["es-ES", "Página 1 de 3"],
+    ["pt-BR", "Página 1 de 3"],
+    ["fr-FR", "Page 1 sur 3"],
+    ["ja-JP", "1 / 3 ページ"],
+  ])(
+    "paginates retained tasks and resets filtered pages in %s",
+    async (locale, firstPage) => {
+      await i18n.changeLanguage(locale)
+      const fetchMock = vi.fn((input: RequestInfo | URL) => {
+        const url = new URL(String(input), "http://localhost")
+        if (!url.pathname.endsWith("/retained-artifacts")) {
+          return Promise.resolve(envelope({ items: [], next_cursor: null }))
+        }
+        const page =
+          url.searchParams.get("cursor") === "last-page"
+            ? 3
+            : url.searchParams.has("cursor")
+              ? 2
+              : 1
+        const lastPage = page === 3
+        const empty = url.searchParams.get("search") === "missing"
+        return Promise.resolve(
+          envelope({
+            items: empty
+              ? []
+              : Array.from({ length: lastPage ? 1 : 10 }, (_, index) => ({
+                  conversation_id: `deleted-${page}-${index}`,
+                  owner_id: "user-2",
+                  owner_name: "Owner",
+                  owner_email: "owner@example.test",
+                  artifact_count: 3,
+                  total_size_bytes: 4096,
+                  checksum_present: true,
+                  first_artifact_created_at: null,
+                  last_artifact_created_at: null,
+                  conversation_deleted_at: "2026-07-10T00:00:00.000Z",
+                })),
+            total_count: empty ? 0 : 21,
+            next_cursor:
+              empty || lastPage ? null : page === 1 ? "next-page" : "last-page",
+          })
+        )
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      const interaction = userEvent.setup()
+      renderAudit()
+      await interaction.click(
+        screen.getByRole("tab", {
+          name: i18n.t("admin.auditSurfaces.retainedArtifacts"),
+        })
+      )
+      expect(await screen.findByText(firstPage)).toBeVisible()
+      expect(screen.getAllByRole("row")).toHaveLength(11)
+      const date = screen.getAllByText(/2026-07-10/)[0]!
+      expect(date.closest("td")).toHaveClass("min-w-40")
+      expect(
+        screen.getByRole("region", {
+          name: i18n.t("admin.auditSurfaces.retainedArtifacts"),
+        })
+      ).toHaveAttribute("tabindex", "0")
+      await interaction.click(
+        screen.getByRole("button", { name: i18n.t("common.next") })
+      )
+      expect(
+        await screen.findByText(
+          i18n.t("admin.auditPageCount", { current: 2, total: 3 })
+        )
+      ).toBeVisible()
+      await interaction.click(
+        screen.getByRole("button", { name: i18n.t("common.next") })
+      )
+      expect(
+        await screen.findByText(
+          i18n.t("admin.auditPageCount", { current: 3, total: 3 })
+        )
+      ).toBeVisible()
+      expect(screen.getAllByRole("row")).toHaveLength(2)
+      expect(
+        screen.getByRole("button", { name: i18n.t("common.next") })
+      ).toBeDisabled()
+      await interaction.click(
+        screen.getByRole("button", { name: i18n.t("common.previous") })
+      )
+      expect(
+        await screen.findByText(
+          i18n.t("admin.auditPageCount", { current: 2, total: 3 })
+        )
+      ).toBeVisible()
+      await interaction.click(
+        screen.getByRole("button", { name: i18n.t("common.previous") })
+      )
+      expect(await screen.findByText(firstPage)).toBeVisible()
+      await interaction.click(
+        screen.getByRole("button", { name: i18n.t("common.next") })
+      )
+      await interaction.type(
+        screen.getByRole("textbox", { name: i18n.t("common.search") }),
+        "missing"
+      )
+      expect(
+        await screen.findByText(
+          i18n.t("admin.auditPageCount", { current: 0, total: 0 })
+        )
+      ).toBeVisible()
+      expect(
+        screen.getByRole("button", { name: i18n.t("common.previous") })
+      ).toBeDisabled()
+      const request = fetchMock.mock.calls.at(-1)![0]
+      const url = new URL(String(request), "http://localhost")
+      expect(url.searchParams.get("limit")).toBe("10")
+      expect(url.searchParams.has("cursor")).toBe(false)
+    }
+  )
+
   it("does not render the user-agent column or value", async () => {
     const userAgent =
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"

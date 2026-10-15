@@ -6,7 +6,7 @@ import {
   type Locale,
 } from "@linksense/shared"
 import { z } from "zod"
-import type { Prisma } from "../../generated/prisma/client.js"
+import { Prisma } from "../../generated/prisma/client.js"
 
 import { attachmentContentDisposition } from "../../lib/content-disposition.js"
 import { ok } from "../../lib/http.js"
@@ -104,6 +104,7 @@ export const auditRoutes: FastifyPluginAsync<{
     const result = await listRetainedArtifactSummaries(
       services,
       retainedArtifactQuerySchema.parse(request.query),
+      true,
     )
     return reply.send(ok(result, request.id))
   })
@@ -495,24 +496,30 @@ async function listConversationMetadata(
 async function listRetainedArtifactSummaries(
   services: AppServices,
   query: RetainedArtifactQuery,
+  includeTotal = false,
 ) {
   const filters: Prisma.RetainedArtifactWhereInput[] = []
+  let searchOwnerIds: string[] = []
+  let searchConversationId: string | null = null
+  let searchDateRange: { gte: Date; lt: Date } | null = null
   if (query.owner_id) filters.push({ ownerId: query.owner_id })
   if (query.conversation_id)
     filters.push({ conversationId: query.conversation_id })
   const deletedAt = dateTimeRange(query.date_from, query.date_to)
   if (deletedAt) filters.push({ conversationDeletedAt: deletedAt })
   if (query.search) {
-    const ownerIds = await ownerIdsForSafeSearch(services, query.search)
+    searchOwnerIds = await ownerIdsForSafeSearch(services, query.search)
     const searchFilters: Prisma.RetainedArtifactWhereInput[] = []
     if (z.string().uuid().safeParse(query.search).success) {
+      searchConversationId = query.search
       searchFilters.push({ conversationId: query.search })
     }
-    if (ownerIds.length > 0) {
-      searchFilters.push({ ownerId: { in: ownerIds } })
+    if (searchOwnerIds.length > 0) {
+      searchFilters.push({ ownerId: { in: searchOwnerIds } })
     }
     const searchedDate = dayRange(query.search)
     if (searchedDate) {
+      searchDateRange = searchedDate
       searchFilters.push({ conversationDeletedAt: searchedDate })
     }
     filters.push(
@@ -521,6 +528,24 @@ async function listRetainedArtifactSummaries(
         : { conversationId: { in: [] } },
     )
   }
+  // Count tasks, not files, and exclude the cursor. CSV pages skip this query.
+  const countRows = includeTotal
+    ? await services.prisma.$queryRaw<Array<{ total_count: bigint }>>(Prisma.sql`
+        SELECT COUNT(DISTINCT conversation_id) AS total_count
+        FROM retained_artifacts
+        WHERE (${query.owner_id ?? null}::uuid IS NULL OR owner_id = ${query.owner_id ?? null}::uuid)
+          AND (${query.conversation_id ?? null}::uuid IS NULL OR conversation_id = ${query.conversation_id ?? null}::uuid)
+          AND (${query.date_from ?? null}::timestamptz IS NULL OR conversation_deleted_at >= ${query.date_from ?? null}::timestamptz)
+          AND (${query.date_to ?? null}::timestamptz IS NULL OR conversation_deleted_at <= ${query.date_to ?? null}::timestamptz)
+          AND (${!query.search} OR conversation_id = ${searchConversationId}::uuid
+            OR owner_id = ANY(${searchOwnerIds}::uuid[])
+            OR (conversation_deleted_at >= ${searchDateRange?.gte ?? null}::timestamptz
+              AND conversation_deleted_at < ${searchDateRange?.lt ?? null}::timestamptz))
+      `)
+    : null
+  const totalCount = countRows
+    ? z.coerce.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).parse(countRows[0]?.total_count)
+    : undefined
   const cursor = query.cursor ? parseCursor(query.cursor) : null
   if (cursor) {
     filters.push(cursorWhere("conversationDeletedAt", "conversationId", cursor))
@@ -580,6 +605,7 @@ async function listRetainedArtifactSummaries(
   })
   return {
     items,
+    ...(totalCount === undefined ? {} : { total_count: totalCount }),
     next_cursor:
       groupRows.length > query.limit && selectedGroups.length > 0
         ? encodeCursor(
@@ -1112,7 +1138,7 @@ function dateTimeRange(from?: Date, to?: Date): Prisma.DateTimeFilter | null {
   return { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) }
 }
 
-function dayRange(value: string): Prisma.DateTimeFilter | null {
+function dayRange(value: string): { gte: Date; lt: Date } | null {
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return null
   const start = new Date(`${value}T00:00:00.000Z`)
   if (Number.isNaN(start.getTime())) return null

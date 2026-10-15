@@ -5360,6 +5360,7 @@ export const ptBR = {
     lastRunTo: "Última execução até",
     auditConversationsEmpty:
       "Nenhum metadado de execução de tarefa correspondente.",
+    auditPageCount: "Página {{current}} de {{total}}",
     retainedArtifactsDescription:
       "Exibe apenas resumos com dados sensíveis ocultados dos arquivos mantidos permanentemente de tarefas excluídas. Visualização do conteúdo, recuperação e downloads estão indisponíveis.",
     retainedArtifactsSearchPlaceholder:
