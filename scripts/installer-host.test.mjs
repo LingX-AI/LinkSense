@@ -30,7 +30,7 @@ test("macOS discovers per-user Docker tools without replacing an existing Docker
   writeFileSync(path.join(dir, "uname"), '#!/bin/sh\necho Darwin\n', { mode: 0o755 })
   writeFileSync(path.join(dockerBin, "docker"), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
   writeFileSync(path.join(dockerBin, "docker-credential-desktop"), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
-  const environment = { HOME: dir, PATH: `${dir}:/usr/bin:/bin` }
+  const environment = { HOME: dir, PATH: dir }
   const discovered = run('echo "$DOCKER_CLI"\ncommand -v docker-credential-desktop', environment)
   assert.equal(discovered.status, 0, discovered.stderr)
   assert.equal(discovered.stdout, `${dockerBin}/docker\n${dockerBin}/docker-credential-desktop\n`)
@@ -439,6 +439,32 @@ validate_resource_budget existing`, { MEMORY_BYTES: String(memory * 1024 ** 3) }
   })
 }
 
+test("resuming a fresh installation rechecks available memory before fetching resources", t => {
+  const dir = directory(t)
+  writeFileSync(path.join(dir, "install.pending"), "", { mode: 0o600 })
+  const result = run(`${fn("install_action")}
+${fn("validate_resource_budget")}
+verify_private_file() { :; }
+load_strict_env() { :; }
+require_loaded_keys() { :; }
+load_runtime_env() { :; }
+log_stage() { :; }
+docker() { echo 25769803776; }
+host_available_memory_mib() { echo 16384; }
+fetch_release_resources() { touch "$DIR/resources-started"; exit 0; }
+install_action`, {
+    DIR: dir, INSTALL_DIR: dir, EDITION: "full", LINKSENSE_PLATFORM: "linux-amd64",
+    STATE_FORMAT: "2", STATE_EDITION: "full", STATE_PLATFORM: "linux-amd64",
+    RELEASE_VERSION: "v0.3.9", STATE_RELEASE_VERSION: "v0.3.9", MANIFEST_SHA256: "fixture", STATE_MANIFEST_SHA256: "fixture",
+    STATE_STARTED_AT: "2026-10-15T00:00:00Z", RESOURCE_HOST_ADAPTATION_FORMAT: "1",
+    LINKSENSE_API_MEMORY_MB: "2048", LINKSENSE_RUNNER_MEMORY_MB: "512", LINKSENSE_POSTGRES_MEMORY_MB: "768",
+    LINKSENSE_REDIS_MEMORY_MB: "512", LINKSENSE_MINIO_MEMORY_MB: "512", LINKSENSE_ELASTICSEARCH_MEMORY_MB: "2048",
+  })
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stderr, /available_mib=16384 required_mib=21504/u)
+  assert.equal(existsSync(path.join(dir, "resources-started")), false)
+})
+
 for (const [limit, status] of [[0, 0], [1024, 1], [2048, 0]]) {
   test(`Elasticsearch limit=${limit} MiB preserves unlimited legacy installs or leaves room for its fixed JVM heap`, () => {
     const result = run(`${fn("validate_resource_budget")}
@@ -469,6 +495,36 @@ test("configuration regeneration preserves custom credentials, concurrency, limi
   assert.equal(current.LINKSENSE_CPU_QUOTA_MODE, "compatible")
   assert.equal(current.LINKSENSE_DOCLING_WORKER_CPUS, "0")
 })
+
+for (const cores of [1, 2, 3, 8]) {
+  test(`Full compatible-to-strict upgrades cap Docling defaults to ${cores} available CPUs`, t => {
+    const dir = directory(t)
+    const writer = fn("write_runtime_env")
+    const fixture = Object.fromEntries([...writer.matchAll(/\$([A-Z][A-Z_0-9]*)\b/gu)].map(match => [match[1], "fixture"]))
+    const result = run(`${writer}
+${fn("load_runtime_env")}
+verify_private_file() { :; }
+require_loaded_keys() { :; }
+validate_http_origin() { :; }
+load_strict_env() { LINKSENSE_CPU_QUOTA_MODE=compatible; }
+docker() { echo "$CORES"; }
+for key in POSTGRES_PASSWORD REDIS_PASSWORD LINKSENSE_JWT_SECRET LINKSENSE_LOGIN_RATE_LIMIT_HMAC_SECRET LINKSENSE_PASSWORD_RESET_RATE_LIMIT_HMAC_SECRET LINKSENSE_CREDENTIAL_MASTER_KEY LINKSENSE_RUNNER_SHARED_SECRET LINKSENSE_INITIALIZATION_TOKEN MINIO_ROOT_PASSWORD MINIO_SECRET_KEY ELASTICSEARCH_ROOT_PASSWORD ELASTICSEARCH_PASSWORD DOCLING_SERVE_API_KEY; do
+  eval "$key=synthetic"
+done
+load_runtime_env
+write_runtime_env`, {
+      ...fixture, CORES: String(cores), RESOURCE_HOST_ADAPTATION_FORMAT: "1", INSTALL_DIR: dir,
+      EDITION: "full", HOST_CPU_QUOTA_MODE: "strict", HOST_OS: "Linux", docker_platform: "linux-amd64",
+      LINKSENSE_PLATFORM: "linux-amd64", docker_endpoint: "unix:///var/run/docker.sock",
+      LINKSENSE_DOCKER_SOCKET_SOURCE: "/var/run/docker.sock", LINKSENSE_DOCKER_SOCKET_PATH: "/var/run/docker.sock",
+      LINKSENSE_PUBLIC_BASE_URL: "http://localhost", LINKSENSE_PUBLIC_SCHEME: "http",
+    })
+    assert.equal(result.status, 0, result.stderr)
+    const environment = readFileSync(path.join(dir, ".env"), "utf8")
+    assert.match(environment, /^LINKSENSE_DOCLING_API_CPUS=1$/mu)
+    assert.match(environment, new RegExp(`^LINKSENSE_DOCLING_WORKER_CPUS=${Math.min(cores, 4)}$`, "mu"))
+  })
+}
 
 for (const edition of ["core", "full"]) {
   test(`repairing a legacy ${edition} release keeps its runtime readable by the published repair engine`, t => {

@@ -1602,7 +1602,8 @@ test("the release manifest generator records immutable images and artifact hashe
     }).join("\n")
     const manifestCheck = path.join(directory, "manifest-check")
     await mkdir(manifestCheck)
-    for (const [required, available, accepted, existing = false, freshMetadata = false] of [["10", 10, true], ["10", 9, false], ["16", 16, true], ["16", 10, false], ["9", 16, false], ["", 16, false], ["010", 16, false], ["10", 23, false, false, true], ["10", 24, true, false, true], ["10", 18, true, true, true]]) {
+    for (const [required, available, accepted, existing = false, freshMetadata = false, pending = false] of [["10", 10, true], ["10", 9, false], ["16", 16, true], ["16", 10, false], ["9", 16, false], ["", 16, false], ["010", 16, false], ["10", 23, false, false, true], ["10", 24, true, false, true], ["10", 18, true, true, true], ["10", 23, false, false, true, true], ["10", 24, true, false, true, true]]) {
+      await rm(path.join(manifestCheck, "install"), { recursive: true, force: true })
       const metadata = freshMetadata ? manifest : manifest.replace(/^RESOURCE_(?:HOST_ADAPTATION_FORMAT|FULL_FRESH_MIN_MEMORY_GIB)=.*\n/gmu, "")
       const fixture = metadata.replace(/^FULL_MIN_MEMORY_GIB=.*$/mu, `FULL_MIN_MEMORY_GIB=${required}`)
       await writeFile(output, fixture)
@@ -1615,13 +1616,14 @@ docker() { printf '%s\\n' "$FIXTURE_MEMORY"; }
 TMP_ROOT=$FIXTURE_TARGET
 INSTALL_DIR=$FIXTURE_TARGET/install
 if [ "$FIXTURE_EXISTING" = true ]; then mkdir -p "$INSTALL_DIR"; touch "$INSTALL_DIR/install-state.env"; fi
+if [ "$FIXTURE_PENDING" = true ]; then mkdir -p "$INSTALL_DIR"; touch "$INSTALL_DIR/install.pending"; fi
 EDITION=full
 LINKSENSE_PLATFORM=linux-amd64
 REQUIRED_DOCKER_API=1.45
 REQUIRED_COMPOSE_VERSION=2.24.4
 RELEASE_SELECTOR=latest
 fetch_manifest https://release.example
-`], { encoding: "utf8", env: { ...process.env, FIXTURE_SOURCE: directory, FIXTURE_TARGET: manifestCheck, FIXTURE_MEMORY: String(available * 1024 ** 3), FIXTURE_EXISTING: String(existing) } })
+`], { encoding: "utf8", env: { ...process.env, FIXTURE_SOURCE: directory, FIXTURE_TARGET: manifestCheck, FIXTURE_MEMORY: String(available * 1024 ** 3), FIXTURE_EXISTING: String(existing), FIXTURE_PENDING: String(pending) } })
       assert.equal(result.status, accepted ? 0 : 1, `Full minimum ${required}, available ${available}: ${result.stderr}`)
       if (!accepted) assert.match(result.stderr, required === "" ? /Unsafe value for FULL_MIN_MEMORY_GIB/u : /host requirements|Docker Engine memory/u)
     }

@@ -302,12 +302,14 @@ host_version_ge() {
 }
 
 # Pass an executable, rather than a shell function, so the deadline kills the client too.
-host_bounded() {
+host_bounded() (
   host_seconds=$1
   shift
-  # Background commands otherwise receive /dev/null, losing piped database backups.
-  "$@" <&0 &
+  # dash redirects background stdin before redirections; preserve the backup stream separately.
+  exec 3<&0
+  "$@" <&3 3<&- &
   host_command_pid=$!
+  exec 3<&-
   (
     /bin/sleep "$host_seconds" & host_timer_pid=$!
     trap 'kill "$host_timer_pid" 2>/dev/null || true; wait "$host_timer_pid" 2>/dev/null || true; exit 0' TERM INT HUP
@@ -322,7 +324,7 @@ host_bounded() {
   kill "$host_watchdog_pid" 2>/dev/null || true
   wait "$host_watchdog_pid" 2>/dev/null || true
   return "$host_status"
-}
+)
 
 host_download() (
   host_url=$1

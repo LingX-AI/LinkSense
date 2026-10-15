@@ -702,7 +702,7 @@ fetch_manifest() {
   if [ "${LINKSENSE_CPU_QUOTA_MODE:-strict}" = compatible ] && [ "${RESOURCE_HOST_ADAPTATION_FORMAT:-}" != 1 ]; then
     host_fail invalid_config release_has_no_CPU_compatibility_support
   fi
-  if [ "$EDITION" = full ] && [ ! -f "$INSTALL_DIR/install-state.env" ] && [ ! -f "$INSTALL_DIR/install.pending" ]; then
+  if [ "$EDITION" = full ] && [ ! -f "$INSTALL_DIR/install-state.env" ]; then
     manifest_memory_bytes=$(docker info --format '{{.MemTotal}}')
     manifest_fresh_memory_gib=${RESOURCE_FULL_FRESH_MIN_MEMORY_GIB:-$FULL_MIN_MEMORY_GIB}
     [ "$manifest_memory_bytes" -ge "$((manifest_fresh_memory_gib * 1024 * 1024 * 1024))" ] || fail "This release requires at least $manifest_fresh_memory_gib GiB of Docker Engine memory."
@@ -1600,7 +1600,16 @@ load_runtime_env() {
   load_strict_env "$INSTALL_DIR/.env" runtime
   runtime_cpu_mode=${LINKSENSE_CPU_QUOTA_MODE:-strict}
   LINKSENSE_CPU_QUOTA_MODE=${HOST_CPU_QUOTA_MODE:-${LINKSENSE_CPU_QUOTA_MODE:-strict}}
-  if [ "$runtime_cpu_mode" != "$LINKSENSE_CPU_QUOTA_MODE" ]; then unset LINKSENSE_DOCLING_API_CPUS LINKSENSE_DOCLING_WORKER_CPUS; fi
+  if [ "$runtime_cpu_mode" != "$LINKSENSE_CPU_QUOTA_MODE" ]; then
+    unset LINKSENSE_DOCLING_API_CPUS LINKSENSE_DOCLING_WORKER_CPUS
+    if [ "$EDITION:$LINKSENSE_CPU_QUOTA_MODE" = full:strict ]; then
+      runtime_cpu_count=$(docker info --format '{{.NCPU}}')
+      case "$runtime_cpu_count" in ''|*[!0-9]*|0) host_fail invalid_config Docker_NCPU ;; esac
+      LINKSENSE_DOCLING_API_CPUS=1
+      LINKSENSE_DOCLING_WORKER_CPUS=4
+      if [ "$runtime_cpu_count" -lt 4 ]; then LINKSENSE_DOCLING_WORKER_CPUS=$runtime_cpu_count; fi
+    fi
+  fi
   host_cpu_mode
   require_loaded_keys LINKSENSE_EDITION LINKSENSE_VERSION LINKSENSE_PUBLIC_BASE_URL LINKSENSE_PUBLIC_SCHEME POSTGRES_PASSWORD REDIS_PASSWORD LINKSENSE_JWT_SECRET LINKSENSE_INITIALIZATION_TOKEN LINKSENSE_LOGIN_RATE_LIMIT_HMAC_SECRET LINKSENSE_PASSWORD_RESET_RATE_LIMIT_HMAC_SECRET LINKSENSE_CREDENTIAL_MASTER_KEY LINKSENSE_RUNNER_SHARED_SECRET MINIO_ROOT_PASSWORD MINIO_SECRET_KEY
   if [ "$runtime_state_format" = 1 ]; then
@@ -1675,6 +1684,8 @@ install_action() {
     [ "$STATE_RELEASE_VERSION" = "$RELEASE_VERSION" ] || fail "An interrupted $STATE_RELEASE_VERSION installation exists."
     [ "$STATE_MANIFEST_SHA256" = "$MANIFEST_SHA256" ] || fail "The interrupted installation belongs to a different release manifest."
     load_runtime_env
+    if [ "${RESOURCE_HOST_ADAPTATION_FORMAT:-0}" = 1 ]; then validate_resource_budget fresh
+    else validate_resource_budget; fi
     installed_at=$STATE_STARTED_AT
   else
     write_env
