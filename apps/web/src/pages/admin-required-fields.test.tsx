@@ -53,6 +53,79 @@ function mount(page: "users" | "groups") {
 }
 
 describe("administrator user and group required fields", () => {
+  it.each(
+    supportedLanguages.flatMap((locale) =>
+      (["users", "groups"] as const).map((page) => [locale, page] as const)
+    )
+  )(
+    "keeps %s %s submission errors inside the active dialog",
+    async (locale, page) => {
+      await i18n.changeLanguage(locale)
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>(async (_input, init) =>
+          init?.method === "POST"
+            ? Response.json(
+                {
+                  success: false,
+                  error_code: "VALIDATION_ERROR",
+                  message_key: "errors.validation",
+                },
+                { status: 400 }
+              )
+            : Response.json({
+                success: true,
+                data: { items: [], total_count: 0, next_cursor: null },
+              })
+        )
+      )
+      const user = userEvent.setup()
+      mount(page)
+      const title = i18n.t(
+        page === "users" ? "admin.createUser" : "admin.createGroup"
+      )
+      await user.click(await screen.findByRole("button", { name: title }))
+      const dialog = within(await screen.findByRole("dialog"))
+      await user.type(
+        dialog.getByRole("textbox", {
+          name: i18n.t("common.name"),
+        }),
+        "Support"
+      )
+      if (page === "users") {
+        await user.type(
+          dialog.getByRole("textbox", {
+            name: i18n.t("common.email"),
+          }),
+          "support@example.invalid"
+        )
+      }
+      await user.click(
+        dialog.getByRole("button", { name: i18n.t("common.save") })
+      )
+      expect(await dialog.findByRole("alert")).toHaveTextContent(
+        i18n.t("errors.validation")
+      )
+      expect(
+        dialog.getByRole("textbox", {
+          name: i18n.t("common.name"),
+        })
+      ).toHaveValue("Support")
+      expect(
+        dialog.getByRole("button", { name: i18n.t("common.save") })
+      ).toBeEnabled()
+      await user.click(
+        dialog.getByRole("button", {
+          name: i18n.t("common.cancel"),
+        })
+      )
+      await user.click(screen.getByRole("button", { name: title }))
+      expect(
+        within(await screen.findByRole("dialog")).queryByRole("alert")
+      ).not.toBeInTheDocument()
+    }
+  )
+
   it.each(supportedLanguages)(
     "marks the user's required name and email in %s",
     async (locale) => {

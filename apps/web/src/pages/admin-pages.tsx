@@ -814,10 +814,12 @@ function UserManagementPage() {
 
   const openCreate = () => {
     reset()
+    setError(null)
     setEditorOpen(true)
   }
 
   const openEdit = (user: User) => {
+    setError(null)
     setEditing(user)
     setName(user.name)
     setEmail(user.email)
@@ -1455,6 +1457,7 @@ function UserManagementPage() {
               aria-label={t(editing ? "admin.editUser" : "admin.createUser")}
               className={dialogBodyStyles("flex flex-col gap-3.5 py-1 pl-1")}
             >
+              {error && <StatusBanner variant="error">{error}</StatusBanner>}
               <div className="form-grid">
                 <FieldShell id="user-name" label={t("common.name")} required>
                   <Input
@@ -2094,9 +2097,11 @@ function UserGroupManagementPage() {
   }
   const openCreate = () => {
     reset()
+    setError(null)
     setEditorOpen(true)
   }
   const openEdit = (group: UserGroup) => {
+    setError(null)
     setEditing(group)
     setName(group.name)
     setDescription(group.description ?? "")
@@ -2120,6 +2125,7 @@ function UserGroupManagementPage() {
           schema: userGroupSchema,
         }
       ),
+    onMutate: () => setError(null),
     onSuccess: async () => {
       setEditorOpen(false)
       reset()
@@ -2331,6 +2337,7 @@ function UserGroupManagementPage() {
               saveMutation.mutate()
             }}
           >
+            {error && <StatusBanner variant="error">{error}</StatusBanner>}
             <FieldShell id="group-name" label={t("common.name")} required>
               <Input
                 id="group-name"

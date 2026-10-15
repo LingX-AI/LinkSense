@@ -2789,6 +2789,9 @@ for (const width of [1440, 320]) {
       const panel = content.locator("..")
       const alert = panel.locator('[role="alert"]')
       await expect(alert).toContainText("提交内容无效，请检查后重试。")
+      await expect(dialog.getByRole("alert")).toContainText(
+        "提交内容无效，请检查后重试。"
+      )
       await dialog.getByRole("button", { name: "取消", exact: true }).click()
 
       const [alertBox, contentBox] = await Promise.all([
