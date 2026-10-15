@@ -193,6 +193,7 @@ import {
 } from "@/features/conversations/conversation-pending-turn-submission"
 import {
   clearLocalConversationDraft,
+  consumeAcceptedLocalConversationDraft,
   readLocalConversationDraft,
   writeLocalConversationDraft,
 } from "@/features/conversations/conversation-local-draft"
@@ -1463,7 +1464,23 @@ export function ConversationPage({
 
   useLayoutEffect(() => {
     if (!user) return
-    if (hydratedDraftScopeRef.current === localDraftScope) return
+    const acceptedDraft = consumeAcceptedLocalConversationDraft(
+      window.localStorage,
+      user.id,
+      localDraftScope,
+      [
+        conversation?.starting_turn?.idempotency_key,
+        ...(conversation?.turns ?? []).map((turn) => turn.idempotency_key),
+        ...(conversation?.pending_requests ?? []).map(
+          (request) => request.idempotency_key
+        ),
+      ]
+    )
+    if (
+      hydratedDraftScopeRef.current === localDraftScope &&
+      (!acceptedDraft || composerValue.getSnapshot() !== acceptedDraft.input)
+    )
+      return
     const draft = readLocalConversationDraft(
       window.localStorage,
       user.id,
@@ -1473,7 +1490,14 @@ export function ConversationPage({
     setValue(draft.input)
     setSelectedCapabilityIds([...draft.capabilityIds])
     setSelectedKnowledgeBaseIds([...draft.knowledgeBaseIds])
-  }, [localDraftScope, newTaskResetVersion, user, setValue])
+  }, [
+    conversation,
+    localDraftScope,
+    newTaskResetVersion,
+    user,
+    composerValue,
+    setValue,
+  ])
 
   useEffect(() => {
     if (!user) return
@@ -3045,6 +3069,11 @@ export function ConversationPage({
         optimisticId: submission.optimisticId,
         idempotencyKey,
       }))
+      if (user)
+        writeLocalConversationDraft(window.localStorage, user.id, id, {
+          ...submission,
+          idempotencyKey,
+        })
       const receipt = await requestTurnStart(
         turnSubmitOperationRef,
         `/conversations/${id}/turns`,
@@ -3368,6 +3397,11 @@ export function ConversationPage({
           selected_knowledge_base_ids: knowledgeBaseIds,
         },
       })
+      if (user)
+        writeLocalConversationDraft(window.localStorage, user.id, id, {
+          ...submission,
+          idempotencyKey,
+        })
       const receipt = await requestTurnStart(
         goalStartOperationRef,
         `/conversations/${id}/goal`,
@@ -4294,6 +4328,16 @@ export function ConversationPage({
         conversation_id: targetConversationId,
         collaboration_mode: submission.collaborationMode,
       })
+      if (user)
+        writeLocalConversationDraft(
+          window.localStorage,
+          user.id,
+          targetConversationId,
+          {
+            ...submission,
+            idempotencyKey,
+          }
+        )
       await apiRequest(
         `/conversations/${targetConversationId}/pending-requests`,
         {

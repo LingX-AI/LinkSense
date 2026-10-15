@@ -5,12 +5,14 @@ const localConversationDraftSchema = z.strictObject({
   input: z.string().max(1_000_000),
   capability_ids: z.array(z.string()),
   knowledge_base_ids: z.array(z.string()),
+  idempotency_key: z.string().min(1).max(120).optional(),
 })
 
 export type LocalConversationDraft = Readonly<{
   input: string
   capabilityIds: readonly string[]
   knowledgeBaseIds: readonly string[]
+  idempotencyKey?: string
 }>
 
 type DraftStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">
@@ -46,6 +48,9 @@ export function readLocalConversationDraft(
       input: parsed.data.input,
       capabilityIds: parsed.data.capability_ids,
       knowledgeBaseIds: parsed.data.knowledge_base_ids,
+      ...(parsed.data.idempotency_key
+        ? { idempotencyKey: parsed.data.idempotency_key }
+        : {}),
     }
   } catch {
     try {
@@ -73,6 +78,18 @@ export function writeLocalConversationDraft(
       storage.removeItem(key)
       return
     }
+    // Hydration retains admission provenance; editing creates an unsent draft.
+    const previous = readLocalConversationDraft(
+      storage,
+      userId,
+      conversationScope
+    )
+    const unchanged =
+      previous.input === draft.input &&
+      JSON.stringify(previous.capabilityIds) ===
+        JSON.stringify(draft.capabilityIds) &&
+      JSON.stringify(previous.knowledgeBaseIds) ===
+        JSON.stringify(draft.knowledgeBaseIds)
     storage.setItem(
       key,
       JSON.stringify({
@@ -80,12 +97,28 @@ export function writeLocalConversationDraft(
         input: draft.input,
         capability_ids: draft.capabilityIds,
         knowledge_base_ids: draft.knowledgeBaseIds,
+        idempotency_key:
+          draft.idempotencyKey ??
+          (unchanged ? previous.idempotencyKey : undefined),
       })
     )
   } catch {
     // Draft persistence is best-effort. The composer remains usable when
     // storage is unavailable or full.
   }
+}
+
+export function consumeAcceptedLocalConversationDraft(
+  storage: DraftStorage,
+  userId: string,
+  conversationScope: string,
+  acceptedKeys: readonly (string | null | undefined)[]
+): LocalConversationDraft | null {
+  const draft = readLocalConversationDraft(storage, userId, conversationScope)
+  if (!draft.idempotencyKey || !acceptedKeys.includes(draft.idempotencyKey))
+    return null
+  clearLocalConversationDraft(storage, userId, conversationScope)
+  return draft
 }
 
 export function clearLocalConversationDraft(

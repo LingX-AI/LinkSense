@@ -2,6 +2,10 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it } from "vitest"
 import {
+  readLocalConversationDraft,
+  writeLocalConversationDraft,
+} from "@/features/conversations/conversation-local-draft"
+import {
   setupApplicationTests,
   conversation,
   conversations,
@@ -12,6 +16,70 @@ import {
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it.each([
+    "running",
+    "completed",
+    "starting",
+    "queued",
+    "unaccepted",
+    "unsent",
+  ])(
+    "reconciles a reloaded draft only when its submission was accepted: %s",
+    async (state) => {
+      const accepted = !["unaccepted", "unsent"].includes(state)
+      const key = "qa-submission"
+      installApiMock({
+        conversationOverride: {
+          turns: [
+            {
+              id: "turn-1",
+              status: state === "completed" ? "completed" : "running",
+              idempotency_key: ["running", "completed"].includes(state)
+                ? key
+                : null,
+            },
+          ],
+          starting_turn:
+            state === "starting"
+              ? {
+                  turn_id: "30000000-0000-4000-8000-000000000001",
+                  task_kind: "turn",
+                  idempotency_key: key,
+                  input_text: "重连草稿",
+                  created_at: "2026-10-15T08:00:00.000Z",
+                  message_display: null,
+                  attachments: [],
+                }
+              : null,
+          pending_requests:
+            state === "queued"
+              ? [
+                  {
+                    id: "pending-1",
+                    status: "queued",
+                    input_text: "重连草稿",
+                    idempotency_key: key,
+                  },
+                ]
+              : [],
+        },
+      })
+      writeLocalConversationDraft(window.localStorage, "user-1", "c1", {
+        input: "重连草稿",
+        capabilityIds: [],
+        knowledgeBaseIds: [],
+        ...(state === "unsent" ? {} : { idempotencyKey: key }),
+      })
+      renderApp()
+      const input = await screen.findByRole("textbox", { name: "任务输入框" })
+      await waitFor(() =>
+        expect(input.textContent).toBe(accepted ? "" : "重连草稿")
+      )
+      expect(
+        readLocalConversationDraft(window.localStorage, "user-1", "c1").input
+      ).toBe(accepted ? "" : "重连草稿")
+    }
+  )
   it("selects and removes a priority Skill", async () => {
     installApiMock()
     const interaction = userEvent.setup()

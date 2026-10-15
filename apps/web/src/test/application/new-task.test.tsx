@@ -1,6 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
+import { readLocalConversationDraft } from "@/features/conversations/conversation-local-draft"
 import {
   setupApplicationTests,
   conversation,
@@ -25,6 +26,45 @@ function unconfiguredModels() {
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it("persists the admission key before a new task's receipt returns", async () => {
+    let release!: () => void
+    const admission = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { requests } = installApiMock({ newTaskTurnStart: admission })
+    renderApp("/conversations/new")
+    const interaction = userEvent.setup()
+    await interaction.type(
+      await screen.findByRole("textbox", { name: "任务输入框" }),
+      "重连提交"
+    )
+    await interaction.click(screen.getByRole("button", { name: "发送" }))
+    await waitFor(() => {
+      const request = requests.find(
+        (request) =>
+          request.path === "/api/v1/conversations/new-task-1/turns" &&
+          request.method === "POST"
+      )
+      expect(request).toBeDefined()
+      expect(
+        readLocalConversationDraft(window.localStorage, "user-1", "new-task-1")
+      ).toMatchObject({
+        input: "重连提交",
+        idempotencyKey: expect.any(String),
+      })
+      expect(request?.body).toMatchObject({
+        idempotency_key: readLocalConversationDraft(
+          window.localStorage,
+          "user-1",
+          "new-task-1"
+        ).idempotencyKey,
+      })
+    })
+    await act(async () => {
+      release()
+      await admission
+    })
+  })
   it.each(["/conversations/new", "/conversations/new?setup=1"])(
     "hides completed administrator onboarding at %s without changing the draft",
     async (route) => {
