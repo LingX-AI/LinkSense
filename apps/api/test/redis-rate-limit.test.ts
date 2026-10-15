@@ -14,6 +14,7 @@ import {
   type RunningTurnSlot,
 } from "../src/adapters/redis.js"
 import { testConfig } from "./test-config.js"
+import { RedisKnowledgeMaintenanceLock } from "../src/modules/knowledge/maintenance.js"
 
 const RUNNING_TURN_RECOVERY_STATUS_KEY =
   "linksense:running-turn-recovery-status"
@@ -93,6 +94,20 @@ describe("Redis atomic protection", () => {
     } finally {
       subscriber.disconnect()
       await upgraded.close()
+    }
+  })
+
+  it("keeps knowledge maintenance on RESP2 after the client upgrade", async () => {
+    const lock = new RedisKnowledgeMaintenanceLock(join(directory, "redis.sock"))
+    try {
+      await expect(lock.tryRunExclusive(async () => {
+        const clients = String(await client.call("CLIENT", "LIST"))
+        expect(clients.split("\n").filter((line) => /\bcmd=set\b/u.test(line)))
+          .toEqual([expect.stringMatching(/\bresp=2\b/u)])
+        return "completed"
+      })).resolves.toEqual({ acquired: true, value: "completed" })
+    } finally {
+      await lock.close()
     }
   })
 
