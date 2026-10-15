@@ -243,6 +243,27 @@ describe("administrator audit privacy contracts", () => {
     expect(detailQuery.select).not.toHaveProperty("minioObjectKey")
   })
 
+  it("returns the filtered retained-task total independently of the page cursor", async () => {
+    const fixture = await auditFixture()
+    fixture.prisma.$queryRaw.mockResolvedValueOnce([{ total_count: 21n }])
+    fixture.prisma.user.findMany.mockResolvedValueOnce([{ id: OWNER_ID }])
+    const cursor = `2026-07-10T00:00:00.000Z|${CONVERSATION_ID}`
+    const response = await fixture.app.inject({
+      method: "GET",
+      url: `/admin/audit/retained-artifacts?limit=10&cursor=${encodeURIComponent(cursor)}&search=Owner&date_from=2026-07-01&date_to=2026-07-31&owner_id=${OWNER_ID}`,
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.total_count).toBe(21)
+    const countQuery = fixture.prisma.$queryRaw.mock.calls[0]?.[0]
+    expect(countQuery?.sql).toContain("COUNT(DISTINCT conversation_id)")
+    expect(countQuery?.values).not.toContain(cursor)
+    expect(countQuery?.values).not.toContain(CONVERSATION_ID)
+    expect(countQuery?.values).toContain(OWNER_ID)
+    expect(countQuery?.values).toContainEqual([OWNER_ID])
+    expect(countQuery?.values).toContainEqual(new Date("2026-07-01"))
+    expect(countQuery?.values).toContainEqual(new Date("2026-07-31"))
+  })
+
   it.each(["audit_logs", "conversations", "retained_artifacts"] as const)(
     "exports the %s view with only its allowed columns and records the export",
     async (view) => {
@@ -267,6 +288,7 @@ describe("administrator audit privacy contracts", () => {
         expect(response.body).not.toContain('"Conversation ID"')
       }
       if (view === "retained_artifacts") {
+        expect(fixture.prisma.$queryRaw).not.toHaveBeenCalled()
         expect(response.body).toContain('"Task ID"')
         expect(response.body).toContain('"Task Deleted At"')
         expect(response.body).not.toContain('"Conversation ID"')
@@ -771,6 +793,7 @@ async function auditFixture(
       async () => [],
     )
   const prisma = {
+    $queryRaw: vi.fn<(input: { sql: string; values: unknown[] }) => Promise<Array<{ total_count: bigint }>>>(async () => [{ total_count: 0n }]),
     auditLog: { findMany: findMany() },
     user: { findMany: findMany() },
     conversation: { findMany: findMany() },
