@@ -1684,8 +1684,7 @@ install_action() {
     [ "$STATE_RELEASE_VERSION" = "$RELEASE_VERSION" ] || fail "An interrupted $STATE_RELEASE_VERSION installation exists."
     [ "$STATE_MANIFEST_SHA256" = "$MANIFEST_SHA256" ] || fail "The interrupted installation belongs to a different release manifest."
     load_runtime_env
-    if [ "${RESOURCE_HOST_ADAPTATION_FORMAT:-0}" = 1 ]; then validate_resource_budget fresh
-    else validate_resource_budget; fi
+    validate_resource_budget
     installed_at=$STATE_STARTED_AT
   else
     write_env

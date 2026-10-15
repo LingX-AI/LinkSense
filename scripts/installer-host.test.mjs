@@ -439,7 +439,8 @@ validate_resource_budget existing`, { MEMORY_BYTES: String(memory * 1024 ** 3) }
   })
 }
 
-test("resuming a fresh installation rechecks available memory before fetching resources", t => {
+for (const [workerMemory, status] of [[12288, 1], [4096, 0]]) {
+test(`resuming a fresh installation validates Engine capacity without double-counting its running services, worker=${workerMemory}`, t => {
   const dir = directory(t)
   writeFileSync(path.join(dir, "install.pending"), "", { mode: 0o600 })
   const result = run(`${fn("install_action")}
@@ -459,11 +460,13 @@ install_action`, {
     STATE_STARTED_AT: "2026-10-15T00:00:00Z", RESOURCE_HOST_ADAPTATION_FORMAT: "1",
     LINKSENSE_API_MEMORY_MB: "2048", LINKSENSE_RUNNER_MEMORY_MB: "512", LINKSENSE_POSTGRES_MEMORY_MB: "768",
     LINKSENSE_REDIS_MEMORY_MB: "512", LINKSENSE_MINIO_MEMORY_MB: "512", LINKSENSE_ELASTICSEARCH_MEMORY_MB: "2048",
+    LINKSENSE_WORKER_MEMORY_MB: String(workerMemory),
   })
-  assert.equal(result.status, 1, result.stderr)
-  assert.match(result.stderr, /available_mib=16384 required_mib=21504/u)
-  assert.equal(existsSync(path.join(dir, "resources-started")), false)
+  assert.equal(result.status, status, result.stderr)
+  if (status !== 0) assert.match(result.stderr, /available_mib=24576 required_mib=29696/u)
+  assert.equal(existsSync(path.join(dir, "resources-started")), status === 0)
 })
+}
 
 for (const [limit, status] of [[0, 0], [1024, 1], [2048, 0]]) {
   test(`Elasticsearch limit=${limit} MiB preserves unlimited legacy installs or leaves room for its fixed JVM heap`, () => {
