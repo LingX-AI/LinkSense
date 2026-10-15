@@ -2542,9 +2542,16 @@ describe("administrator authentication settings", () => {
     })
   })
 
-  it.each(["zh-CN", "en-US"])(
-    "shows voice provider logos in the selected value and every option in %s",
-    async (language) => {
+  it.each(
+    ["zh-CN", "en-US"].flatMap((language) =>
+      voiceTranscriptionProviderDefinitions.map((definition) => ({
+        language,
+        definition,
+      }))
+    )
+  )(
+    "shows the $definition.key voice provider logo in the selected value and option in $language",
+    async ({ language, definition }) => {
       vi.stubGlobal(
         "fetch",
         vi.fn((input: RequestInfo | URL) => {
@@ -2568,27 +2575,25 @@ describe("administrator authentication settings", () => {
           '[data-voice-transcription-provider-logo="openai"]'
         )
       ).toBeInTheDocument()
-      for (const definition of voiceTranscriptionProviderDefinitions) {
-        await interaction.click(provider)
-        const label = i18n.t(
-          `admin.voiceTranscription.providers.${definition.key}`
+      await interaction.click(provider)
+      const label = i18n.t(
+        `admin.voiceTranscription.providers.${definition.key}`
+      )
+      const option = await screen.findByRole("option", {
+        name: label,
+      })
+      expect(
+        option.querySelector(
+          `[data-voice-transcription-provider-logo="${definition.key}"]`
         )
-        const option = await screen.findByRole("option", {
-          name: label,
-        })
-        expect(
-          option.querySelector(
-            `[data-voice-transcription-provider-logo="${definition.key}"]`
-          )
-        ).toHaveAttribute("aria-hidden", "true")
-        await interaction.click(option)
-        expect(provider).toHaveTextContent(label)
-        expect(
-          provider.querySelector(
-            `[data-voice-transcription-provider-logo="${definition.key}"]`
-          )
-        ).toBeInTheDocument()
-      }
+      ).toHaveAttribute("aria-hidden", "true")
+      await interaction.click(option)
+      expect(provider).toHaveTextContent(label)
+      expect(
+        provider.querySelector(
+          `[data-voice-transcription-provider-logo="${definition.key}"]`
+        )
+      ).toBeInTheDocument()
     }
   )
 

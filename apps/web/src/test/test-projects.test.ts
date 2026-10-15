@@ -23,15 +23,18 @@ describe("test project boundaries", () => {
     const files = globSync("src/**/*.test.{ts,tsx}", { cwd: root })
     const projects = config.test?.projects ?? []
     expect(projects.length).toBeGreaterThan(0)
+    const projectFiles = projects.map((project) => {
+      if (typeof project !== "object" || !("test" in project))
+        return new Set<string>()
+      return new Set(
+        globSync(project.test?.include ?? [], {
+          cwd: root,
+          exclude: project.test?.exclude,
+        })
+      )
+    })
     for (const file of files) {
-      const matching = projects.filter((project) => {
-        if (typeof project !== "object" || !("test" in project)) return false
-        const test = project.test
-        return (
-          test?.include?.some((pattern) => path.matchesGlob(file, pattern)) &&
-          !test.exclude?.some((pattern) => path.matchesGlob(file, pattern))
-        )
-      })
+      const matching = projectFiles.filter((project) => project.has(file))
       expect(matching, file).toHaveLength(1)
     }
   })

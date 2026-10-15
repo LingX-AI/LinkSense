@@ -192,9 +192,17 @@ describe("model editor conflict feedback", () => {
     ).toBeDisabled()
   })
 
-  it.each(supportedLanguages)(
-    "keeps connection fields visible and editable after switching providers in %s",
-    async (language) => {
+  it.each(
+    supportedLanguages.flatMap((language) =>
+      modelServiceProviderValues.map((provider, index) => ({
+        language,
+        provider,
+        previousProvider: modelServiceProviderValues[index - 1],
+      }))
+    )
+  )(
+    "keeps connection fields visible after switching to $provider in $language",
+    async ({ language, provider: selectedProvider, previousProvider }) => {
       await i18n.changeLanguage(language)
       const user = userEvent.setup()
       const onSave = vi.fn()
@@ -223,7 +231,9 @@ describe("model editor conflict feedback", () => {
       await user.type(name, "New channel")
       await user.type(key, "test-key")
 
-      for (const provider of modelServiceProviderValues) {
+      for (const provider of previousProvider
+        ? [previousProvider, selectedProvider]
+        : [selectedProvider]) {
         await user.click(
           screen.getByRole("combobox", {
             name: i18n.t("admin.modelProvider.serviceProvider"),
@@ -268,6 +278,7 @@ describe("model editor conflict feedback", () => {
         )
       }
 
+      if (selectedProvider !== "openai_compatible") return
       await user.type(name, " edited")
       await user.type(url, "https://models.example.test/v1")
       await user.type(key, "-edited")
