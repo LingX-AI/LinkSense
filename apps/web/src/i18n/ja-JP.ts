@@ -5275,6 +5275,7 @@ export const jaJP = {
     lastRunFrom: "最終実行日時の開始",
     lastRunTo: "最終実行日時の終了",
     auditConversationsEmpty: "一致するタスク実行情報がありません。",
+    auditPageCount: "{{current}} / {{total}} ページ",
     retainedArtifactsDescription:
       "削除済みタスクで恒久的に保持される成果物について、機密情報を除いた概要のみ表示します。内容の閲覧、復元、ダウンロードはできません。",
     retainedArtifactsSearchPlaceholder: "タスク ID、所有者 ID、削除日時を検索…",

@@ -2923,6 +2923,74 @@ test("role summaries use aligned responsive rows without the fixed-role notice",
   ).toBeLessThanOrEqual(1)
 })
 
+for (const width of [1440, 320]) {
+  test(`retained task pagination and complete timestamps remain reachable at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.route(
+      "**/api/v1/admin/audit/retained-artifacts**",
+      async (route) => {
+        const cursor = new URL(route.request().url()).searchParams.get("cursor")
+        return ok(route, {
+          items: Array.from({ length: cursor ? 1 : 10 }, (_, index) => ({
+            conversation_id: `20000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+            owner_id: ADMIN.id,
+            owner_name: ADMIN.name,
+            owner_email: ADMIN.email,
+            artifact_count: 3,
+            total_size_bytes: 4096,
+            checksum_present: true,
+            first_artifact_created_at: NOW,
+            last_artifact_created_at: NOW,
+            conversation_deleted_at: NOW,
+          })),
+          total_count: 11,
+          next_cursor: cursor
+            ? null
+            : `${NOW}|20000000-0000-4000-8000-000000000010`,
+        })
+      }
+    )
+    await page.route("**/api/v1/admin/audit", (route) =>
+      ok(route, { items: [], next_cursor: null })
+    )
+    await page.goto("/admin/audit")
+    await page.getByRole("tab", { name: "已删除任务产物", exact: true }).click()
+    await expect(page.getByText("第 1 / 2 页", { exact: true })).toBeVisible()
+    const region = page.getByRole("region", {
+      name: "已删除任务产物",
+      exact: true,
+    })
+    await expect(region.getByRole("row")).toHaveCount(11)
+    const metrics = await region.evaluate((element) => ({
+      height: element.getBoundingClientRect().height,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      overflow: getComputedStyle(element).overflowY,
+    }))
+    expect(metrics.height).toBeLessThanOrEqual(385)
+    expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight)
+    expect(metrics.overflow).toBe("auto")
+    const deletedTime = region.getByRole("row").nth(1).getByRole("cell").nth(5)
+    await expect(deletedTime).toHaveText(dayjs(NOW).format("YYYY-MM-DD HH:mm"))
+    expect(
+      await deletedTime.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth
+      )
+    ).toBe(true)
+    await region.focus()
+    await page.keyboard.press("ArrowRight")
+    await page.getByRole("button", { name: "下一页", exact: true }).click()
+    await expect(page.getByText("第 2 / 2 页", { exact: true })).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "下一页", exact: true })
+    ).toBeDisabled()
+    await page.getByRole("button", { name: "上一页", exact: true }).click()
+    await expect(page.getByText("第 1 / 2 页", { exact: true })).toBeVisible()
+  })
+}
+
 test("audit settings remain usable without page-level horizontal overflow", async ({
   page,
 }) => {

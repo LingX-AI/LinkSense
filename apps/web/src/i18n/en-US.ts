@@ -5027,6 +5027,7 @@ export const enUS = {
     lastRunFrom: "Last run from",
     lastRunTo: "Last run to",
     auditConversationsEmpty: "No matching task execution metadata.",
+    auditPageCount: "Page {{current}} of {{total}}",
     retainedArtifactsDescription:
       "Shows only redacted summaries of permanently retained artifacts from deleted tasks. Content viewing, recovery, and downloads are unavailable.",
     retainedArtifactsSearchPlaceholder:

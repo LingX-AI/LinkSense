@@ -1405,12 +1405,9 @@ test("the release workflow reuses verified main checks before promotion", async 
   assert.match(workflow, /platform: linux\/arm64/u)
   assert.match(workflow, /platforms: \$\{\{ matrix\.platform \}\}/u)
   assert.match(workflow, /image-indexes:/u)
-  assert.equal(
-    workflow.match(
-      /docker\/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772/gu,
-    )?.length,
-    6,
-  )
+  const loginActions = workflow.match(/docker\/login-action@[0-9a-f]{40}\b/gu) ?? []
+  assert.equal(loginActions.length, 6)
+  assert.equal(new Set(loginActions).size, 1)
   assert.match(workflow, /sh scripts\/prepare-release-inputs\.sh release-inputs/u)
   assert.match(workflow, /cd release-inputs && sha256sum -c SHA256SUMS/u)
   assert.match(workflow, /release-inputs\/identity\.env/u)

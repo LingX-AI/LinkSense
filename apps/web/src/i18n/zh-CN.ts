@@ -4660,6 +4660,7 @@ export const zhCN = {
     lastRunFrom: "执行开始日期",
     lastRunTo: "执行结束日期",
     auditConversationsEmpty: "没有匹配的任务执行元数据。",
+    auditPageCount: "第 {{current}} / {{total}} 页",
     retainedArtifactsDescription:
       "仅展示已删除任务中永久保留产物的脱敏汇总，不提供内容查看、恢复或下载。",
     retainedArtifactsSearchPlaceholder: "搜索任务 ID、owner ID 或删除时间…",
