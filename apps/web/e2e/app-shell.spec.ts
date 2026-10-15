@@ -299,7 +299,9 @@ for (const viewport of [
     await expect(
       page.getByRole("heading", { name: "已归档任务", exact: true })
     ).toBeVisible()
-    await expect(page.getByRole("button", { name: "搜索" })).toBeVisible()
+    await expect(
+      page.getByRole("textbox", { name: "搜索已归档任务的标题、消息或附件…" })
+    ).toBeVisible()
     await expectNoHorizontalOverflow(page)
 
     await page.goto("/admin/roles")

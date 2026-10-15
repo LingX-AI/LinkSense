@@ -43,7 +43,7 @@ for (const width of [1440, 375]) {
         exact: true,
       })
       const url = dialog.getByRole("textbox", { name: "Base URL", exact: true })
-      const key = dialog.getByLabel("API_KEY", { exact: true })
+      const key = dialog.getByLabel(/^API_KEY\s*\*?$/u)
       const provider = dialog.getByRole("combobox", { name: "模型服务商" })
       await name.fill("Browser test channel")
       await key.fill("browser-test-key")
