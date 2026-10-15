@@ -238,7 +238,7 @@ export async function runInstallationSmoke({ assetDirectory, edition, reportDire
     const output = await compose(["exec", "-T", "api", "node", "--input-type=module", "-", operation, fixture.id, fixture.userId], { input: await readFile(path.join(root, "scripts/fixtures/installed-runtime-probe.mjs")), timeout: 180000 })
     requireProbeCompletion(output, "Installed runtime persistence probe passed.")
   }
-  async function verifyInstallation(manifest) {
+  async function verifyInstallation(manifest, cpuMode = process.env.LINKSENSE_CPU_QUOTA_MODE ?? "strict") {
     const state = await readInstalled("install-state.env")
     const env = await readInstalled(".env")
     assert.equal(state.STATE_RELEASE_VERSION, manifest.RELEASE_VERSION)
@@ -252,7 +252,7 @@ export async function runInstallationSmoke({ assetDirectory, edition, reportDire
     }
     verifyInstalledContainers(containers, manifest, edition)
     if (manifest.RESOURCE_HOST_ADAPTATION_FORMAT === "1") {
-      assert.equal(env.LINKSENSE_CPU_QUOTA_MODE, process.env.LINKSENSE_CPU_QUOTA_MODE ?? "strict")
+      assert.equal(env.LINKSENSE_CPU_QUOTA_MODE, cpuMode)
       verifyInstalledResources(containers, env)
     }
     await request("/system/health/ready")
@@ -312,6 +312,22 @@ export async function runInstallationSmoke({ assetDirectory, edition, reportDire
       assert.equal(await compose(["ps", "--quiet"]), ids, "Same-version upgrade restarted services")
       assertPreserved(before, await snapshot())
     })
+    if (manifest.RESOURCE_HOST_ADAPTATION_FORMAT === "1") {
+      const initialMode = process.env.LINKSENSE_CPU_QUOTA_MODE ?? "strict"
+      for (const mode of [initialMode === "strict" ? "compatible" : "strict", initialMode]) {
+        await step(`same-version CPU mode upgrade to ${mode}`, async () => {
+          const modeBefore = await snapshot()
+          delete modeBefore.resources.LINKSENSE_CPU_QUOTA_MODE
+          delete modeBefore.resources.LINKSENSE_DOCLING_API_CPUS
+          delete modeBefore.resources.LINKSENSE_DOCLING_WORKER_CPUS
+          await entry("upgrade.sh", { LINKSENSE_CPU_QUOTA_MODE: mode })
+          await verifyInstallation(manifest, mode)
+          assertPreserved(modeBefore, await snapshot())
+          await verifyAccount(fixture)
+          await runtimeProbe(fixture, "verify")
+        })
+      }
+    }
     await cleanupInstallation()
     if (previousAssetDirectory) {
       const previous = await verifyAssets(previousAssetDirectory)
