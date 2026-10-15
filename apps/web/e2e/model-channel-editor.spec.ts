@@ -38,8 +38,11 @@ for (const width of [1440, 375]) {
         await page.getByRole("menuitem", { name: "编辑渠道" }).click()
       }
       const dialog = page.getByRole("dialog")
-      const name = dialog.getByLabel("渠道名称", { exact: true })
-      const url = dialog.getByLabel("Base URL", { exact: true })
+      const name = dialog.getByRole("textbox", {
+        name: "渠道名称",
+        exact: true,
+      })
+      const url = dialog.getByRole("textbox", { name: "Base URL", exact: true })
       const key = dialog.getByLabel("API_KEY", { exact: true })
       const provider = dialog.getByRole("combobox", { name: "模型服务商" })
       await name.fill("Browser test channel")
