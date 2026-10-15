@@ -100,20 +100,20 @@ Repair and upgrade preserve validated custom settings, credentials, volumes,
 URLs, concurrency, and memory limits. They update release-owned images and
 runtime identity. Missing resource fields in old installations keep their old
 unlimited/default behavior (`0` memory limit and empty Node options); no new
-24 GiB threshold is imposed on those installations. Their admission check sums
-configured limits (including Elasticsearch), one Worker, fixed Docling limits,
-and headroom. Missing
-unlimited limits are unknown, so this is a minimum admission budget, not a
-peak-memory guarantee. Idle Workers, multiple users, document size and host
+24 GiB threshold is imposed on those installations. When every service memory
+limit is absent or unlimited, repair and upgrade retain the published 8 GiB Core
+or 10 GiB Full floor. Once explicit service limits are configured, admission sums
+those limits (including Elasticsearch), one Worker, fixed Docling limits, and
+headroom. Unlimited limits are unknown, so neither path guarantees peak-memory
+capacity. Idle Workers, multiple users, document size and host
 workload still require operational capacity planning. A running same-version
 upgrade with no mode change returns without a backup or restart.
 
-This admission check can require more memory than a legacy release's original
-10 GiB Full minimum. With absent legacy service limits and the default 4 GiB
-Worker, it requires at least **15,104 MiB** reported by Docker Engine. A 10–14 GiB
-Full host must gain enough Docker memory before repair or upgrade; custom service
-limits can raise that requirement further. Rejection happens before stopping
-services or running migrations, and the existing environment and data remain intact.
+Explicit service limits can require more memory than a legacy release's original
+10 GiB Full minimum. Check their aggregate budget before enabling them; unchanged
+10–14 GiB legacy Full hosts are not required to adopt those limits to repair or
+upgrade. Rejection happens before stopping services or running migrations, and
+the existing environment and data remain intact.
 
 For the first upgrade of an installation created before host adaptation, use
 the **current root bootstrap**, which loads the target release's installer.

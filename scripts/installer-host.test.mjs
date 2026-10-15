@@ -396,7 +396,7 @@ if (host_use_saved_tools); then exit 9; fi`, { DIR: dir })
   assert.match(result.stderr, /docker\/type/u)
 })
 
-for (const [memory, kind, status] of [[16, "existing", 0], [14, "existing", 1], [24, "fresh", 1]]) {
+for (const [memory, kind, status] of [[16, "existing", 0], [14, "existing", 0], [9, "existing", 1], [24, "fresh", 1]]) {
   test(`Full ${kind} budget with absent legacy limits and ${memory} GiB ${status === 0 ? "passes" : "fails"} without imposing the new-install floor`, () => {
     const result = run(`
 ${fn("validate_resource_budget")}
@@ -428,6 +428,16 @@ validate_resource_budget fresh`)
   assert.equal(result.status, 1)
   assert.match(result.stderr, /API heap_mib=2048 limit_mib=2048/u)
 })
+
+for (const memory of [10, 12, 14]) {
+  test(`legacy Full repair and upgrade retain the published admission floor at ${memory} GiB`, () => {
+    const result = run(`${fn("validate_resource_budget")}
+EDITION=full
+docker() { echo "$MEMORY_BYTES"; }
+validate_resource_budget existing`, { MEMORY_BYTES: String(memory * 1024 ** 3) })
+    assert.equal(result.status, 0, result.stderr)
+  })
+}
 
 for (const [limit, status] of [[0, 0], [1024, 1], [2048, 0]]) {
   test(`Elasticsearch limit=${limit} MiB preserves unlimited legacy installs or leaves room for its fixed JVM heap`, () => {

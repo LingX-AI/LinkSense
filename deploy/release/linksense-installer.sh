@@ -1034,12 +1034,14 @@ host_available_memory_mib() {
 validate_resource_budget() {
   budget_kind=${1:-existing}
   budget_mib=768
+  budget_legacy_limits=true
   budget_keys='LINKSENSE_API_MEMORY_MB LINKSENSE_RUNNER_MEMORY_MB LINKSENSE_POSTGRES_MEMORY_MB LINKSENSE_REDIS_MEMORY_MB LINKSENSE_MINIO_MEMORY_MB'
   if [ "$EDITION" = full ]; then budget_keys="$budget_keys LINKSENSE_ELASTICSEARCH_MEMORY_MB"; fi
   for budget_key in $budget_keys; do
     eval "budget_value=\${$budget_key:-0}"
     printf '%s' "$budget_value" | grep -Eq '^(0|[1-9][0-9]{0,6})$' || host_fail invalid_config "$budget_key"
     if [ "$budget_kind" = fresh ]; then [ "$budget_value" -gt 0 ] || host_fail invalid_config "$budget_key/zero"; fi
+    if [ "$budget_value" -ne 0 ]; then budget_legacy_limits=false; fi
     budget_mib=$((budget_mib + budget_value))
   done
   printf '%s' "${LINKSENSE_WORKER_MEMORY_MB:-4096}" | grep -Eq '^[1-9][0-9]{0,6}$' || host_fail invalid_config LINKSENSE_WORKER_MEMORY_MB
@@ -1061,6 +1063,11 @@ validate_resource_budget() {
       if [ "$budget_limit" -ne 0 ]; then [ "$budget_heap" -le "$((budget_limit * 3 / 4))" ] || host_fail memory "$budget_service heap_mib=$budget_heap limit_mib=$budget_limit"; fi
     fi
   done
+  if [ "$budget_kind" = existing ] && [ "$budget_legacy_limits" = true ]; then
+    # Unbounded legacy service limits do not define a new aggregate memory requirement.
+    budget_mib=8192
+    if [ "$EDITION" = full ]; then budget_mib=10240; fi
+  fi
   budget_available_mib=$(($(docker info --format '{{.MemTotal}}') / 1024 / 1024))
   if [ "$budget_kind" = fresh ]; then budget_available_mib=$(host_available_memory_mib); fi
   [ "$budget_available_mib" -ge "$budget_mib" ] || host_fail memory "available_mib=$budget_available_mib required_mib=$budget_mib"
