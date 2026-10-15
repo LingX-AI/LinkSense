@@ -981,8 +981,9 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
     page.getByRole("complementary", { name: "设置导航" })
   ).toHaveCount(0)
   await expect(
-    page.getByRole("heading", { name: "插件中心", exact: true })
+    page.getByRole("heading", { name: "应用", exact: true })
   ).toBeVisible()
+  await page.getByRole("tab", { name: "插件", exact: true }).click()
   await expect(page.getByRole("tab", { name: "插件" })).toHaveAttribute(
     "aria-selected",
     "true"
@@ -1606,10 +1607,13 @@ test("user message editor uses a shorter borderless light surface", async ({
   await expect(label).toBeVisible()
   const labelBox = await label.boundingBox()
   expect(labelBox).not.toBeNull()
+  const labelGap = await label
+    .locator("..")
+    .evaluate((field) => Number.parseFloat(getComputedStyle(field).rowGap))
   // The shared required-field label adds a row above the compact editing controls.
-  expect(editorSurfaceBox!.height - labelBox!.height - 8).toBeLessThanOrEqual(
-    140
-  )
+  expect(
+    editorSurfaceBox!.height - labelBox!.height - labelGap
+  ).toBeLessThanOrEqual(140)
 })
 
 test("assistant artifact cards use a transparent surface with hover feedback", async ({
