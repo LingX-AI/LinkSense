@@ -21,6 +21,42 @@ import test from "node:test"
 const root = path.resolve(import.meta.dirname, "..")
 const releaseDirectory = path.join(root, "deploy/release")
 
+test("bootstrap forwards diagnostics and refuses older releases instead of starting an installation", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "linksense-bootstrap-diagnostics-"))
+  try {
+    const bin = path.join(directory, "bin")
+    await mkdir(bin)
+    await writeFile(path.join(bin, "curl"), `#!/bin/sh
+target=
+while [ "$#" -gt 0 ]; do
+  case "$1" in -o) target=$2; shift 2 ;; *) shift ;; esac
+done
+cp "$MOCK_DOWNLOADED_INSTALLER" "$target"
+`, { mode: 0o755 })
+    const downloaded = path.join(directory, "downloaded.sh")
+    for (const [source, expected] of [
+      ['#!/bin/sh\nprintf "%s\\n" "$*" > "$MOCK_EXECUTED"\n# --check-network)\n', 0],
+      ['#!/bin/sh\ntouch "$MOCK_EXECUTED"\n', 64],
+    ]) {
+      await writeFile(downloaded, source)
+      for (const entry of ["install-core.sh", "install-full.sh", "repair-core.sh", "repair-full.sh", "upgrade.sh"]) {
+        const marker = path.join(directory, `${entry}.executed`)
+        const result = spawnSync("sh", [path.join(root, entry), "--check-network"], { encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, MOCK_DOWNLOADED_INSTALLER: downloaded, MOCK_EXECUTED: marker } })
+        assert.equal(result.status, expected, result.stderr)
+        if (expected === 0) {
+          assert.equal(await readFile(marker, "utf8"), "--check-network\n")
+          await rm(marker)
+        } else {
+          await assert.rejects(access(marker))
+          assert.match(result.stderr, /--check-network/u)
+        }
+      }
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("the five release entry scripts download only their matching release entry", async () => {
   const entries = [
     "install-core.sh",
@@ -102,6 +138,99 @@ test("release entry scripts are self-contained and pinned to one mode and versio
   }
 })
 
+test("bundled network diagnostics work before installation without creating state or starting containers", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "linksense-network-bundle-"))
+  try {
+    execFileSync(
+      process.execPath,
+      [path.join(root, "scripts/bundle-release-installers.mjs"), directory],
+      { env: { ...process.env, RELEASE_VERSION: "v0.1.0" } },
+    )
+    const bin = path.join(directory, "bin")
+    await mkdir(bin)
+    const manifest = `IMAGE_BUSYBOX=docker.io/library/busybox@sha256:${"a".repeat(64)}\nIMAGE_LINKSENSE_API=ghcr.io/lingx-ai/linksense-api@sha256:${"b".repeat(64)}\n`
+    await writeFile(path.join(directory, "manifest"), manifest)
+    await writeFile(path.join(directory, "checksum"), `${createHash("sha256").update(manifest).digest("hex")}  release-manifest.env\n`)
+    await writeExecutable(path.join(bin, "uname"), `#!/bin/sh
+case "$1" in -s) echo "$MOCK_OS" ;; -m) echo arm64 ;; *) exit 1 ;; esac
+`)
+    await writeExecutable(path.join(bin, "id"), '#!/bin/sh\necho 501\n')
+    await writeExecutable(path.join(bin, "curl"), `#!/bin/sh
+printf 'curl %s\\n' "$*" >> "$MOCK_TRACE"
+echo 'https://user:private-proxy-value@proxy.example' >&2
+[ "$MOCK_CURL_STATUS" = 0 ] || exit "$MOCK_CURL_STATUS"
+target=
+while [ "$#" -gt 0 ]; do
+  case "$1" in -o) target=$2; shift 2 ;; *) url=$1; shift ;; esac
+done
+case "$url" in *.sha256) cp "$MOCK_CHECKSUM" "$target" ;; *) cp "$MOCK_MANIFEST" "$target" ;; esac
+`)
+    await writeExecutable(path.join(bin, "docker"), `#!/bin/sh
+printf 'docker %s\\n' "$*" >> "$MOCK_TRACE"
+case "$1:$2" in pull:ghcr.io/*) exit "$MOCK_GHCR_STATUS" ;; info:*|pull:*) exit "$MOCK_DOCKER_STATUS" ;; *) exit 99 ;; esac
+`)
+    for (const scenario of [
+      { os: "Darwin", curl: 0, docker: 0 },
+      { os: "Linux", curl: 0, docker: 0 },
+      { os: "Darwin", curl: 0, docker: 0, entry: "upgrade.sh" },
+      { os: "Darwin", curl: 28, docker: 0 },
+      { os: "Darwin", curl: 0, docker: 1 },
+      { os: "Darwin", curl: 0, docker: 0, ghcr: 1 },
+      { os: "Darwin", curl: 0, docker: 0, invalid: "checksum" },
+      { os: "Darwin", curl: 0, docker: 0, invalid: "image" },
+      { os: "Darwin", curl: 0, docker: 0, invalid: "duplicate" },
+    ]) {
+      const manifestSource = scenario.invalid === "image"
+        ? manifest.replace(/IMAGE_LINKSENSE_API=.*/u, "IMAGE_LINKSENSE_API=--all-tags")
+        : scenario.invalid === "duplicate"
+          ? `${manifest}IMAGE_LINKSENSE_API=ghcr.io/untrusted/api@sha256:${"c".repeat(64)}\n`
+          : manifest
+      await writeFile(path.join(directory, "manifest"), manifestSource)
+      const checksum = scenario.invalid === "checksum" ? "0".repeat(64) : createHash("sha256").update(manifestSource).digest("hex")
+      await writeFile(path.join(directory, "checksum"), `${checksum}  release-manifest.env\n`)
+      const trace = path.join(directory, "trace")
+      const installDirectory = path.join(directory, "installation")
+      const result = spawnSync("/bin/sh", [path.join(directory, scenario.entry ?? "install-core.sh"), "--check-network"], {
+        encoding: "utf8",
+        timeout: 10000,
+        env: {
+          ...process.env,
+          HOME: directory,
+          DOCKER_CONFIG: directory,
+          PATH: `${bin}:/usr/bin:/bin`,
+          LINKSENSE_INSTALL_DIR: installDirectory,
+          LINKSENSE_RELEASE_BASE_URL: "https://downloads.example/v0.1.0",
+          LINKSENSE_CLI_LANGUAGE: "en-US",
+          MOCK_OS: scenario.os,
+          MOCK_CURL_STATUS: String(scenario.curl),
+          MOCK_DOCKER_STATUS: String(scenario.docker),
+          MOCK_GHCR_STATUS: String(scenario.ghcr ?? 0),
+          MOCK_MANIFEST: path.join(directory, "manifest"),
+          MOCK_CHECKSUM: path.join(directory, "checksum"),
+          MOCK_TRACE: trace,
+        },
+      })
+      assert.equal(result.status, scenario.curl || scenario.docker || scenario.ghcr || scenario.invalid ? 1 : 0, result.stderr)
+      assert.match(result.stdout, /(?:PASS|FAIL) terminal-release/u)
+      assert.match(result.stdout, /(?:PASS|FAIL) docker-engine/u)
+      assert.doesNotMatch(result.stdout + result.stderr, /private-proxy-value/u)
+      await assert.rejects(access(installDirectory))
+      const calls = await readFile(trace, "utf8")
+      assert.match(calls, /https:\/\/downloads.example\/v0\.1\.0\/release-manifest.env/u)
+      assert.doesNotMatch(calls, /raw\.githubusercontent\.com|docker (?:run|create|start|stop|compose|volume)/u)
+      if (scenario.docker === 0 && scenario.curl === 0 && !scenario.invalid) {
+        assert.match(calls, /docker pull docker.io\/library\/busybox@sha256:/u)
+        assert.match(calls, /docker pull ghcr.io\/lingx-ai\/linksense-api@sha256:/u)
+      } else if (scenario.docker === 0) assert.match(calls, /docker pull hello-world:latest/u)
+      else assert.doesNotMatch(calls, /docker pull/u)
+      assert.doesNotMatch(calls, /docker pull --all-tags|docker pull ghcr.io\/untrusted/u)
+      await rm(trace)
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("the installer checks the host before creating persistent state", async () => {
   const source = await readFile(
     path.join(releaseDirectory, "linksense-installer.sh"),
@@ -109,7 +238,7 @@ test("the installer checks the host before creating persistent state", async () 
   )
   assert.match(
     source,
-    /log_stage "Stage 1: run the read-only host preflight\."\nvalidate_install_dir\nresolve_http_port\npreflight\nTMP_ROOT=\$\(mktemp -d\)/u,
+    /log_stage "Stage 1: run the read-only host preflight\."\nvalidate_install_dir\nTMP_ROOT=\$\(mktemp -d\)\nhost_lock_installation\nresolve_http_port\nresolve_cpu_mode\npreflight/u,
   )
   assert.match(source, /REQUIRED_DOCKER_API=1\.45/u)
   assert.match(source, /REQUIRED_COMPOSE_VERSION=2\.24\.4/u)
@@ -117,11 +246,11 @@ test("the installer checks the host before creating persistent state", async () 
   assert.match(source, /LINKSENSE_HTTP_PORT must be an integer between 1 and 65535/u)
   assert.match(source, /STATE_HTTP_PORT/u)
   assert.doesNotMatch(source, /:2760\$/u)
-  assert.doesNotMatch(source, /required_disk_kb|available_inodes|required_inodes/u)
-  assert.doesNotMatch(source, /df -P[ki]/u)
+  assert.match(source, /available_inodes=.*required_inodes=/u)
+  assert.match(source, /check_release_storage/u)
   assert.match(source, /LINKSENSE_PLATFORM=linux-arm64/u)
-  assert.match(source, /"LINKSENSE_MAX_CONCURRENT_CONVERSATIONS=500"/u)
-  assert.match(source, /"LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT=20"/u)
+  assert.match(source, /LINKSENSE_MAX_CONCURRENT_CONVERSATIONS=\$\{LINKSENSE_MAX_CONCURRENT_CONVERSATIONS:-1\}/u)
+  assert.match(source, /LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT=\$\{LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT:-2\}/u)
   assert.match(
     source,
     /HOST_OS" = Darwin[\s\S]*LINKSENSE_DOCKER_SOCKET_SOURCE=\/var\/run\/docker\.sock/u,
@@ -173,7 +302,7 @@ test("the installer checks the host before creating persistent state", async () 
   assert.match(source, /STATE_RELEASE_BASE_URL=\$RELEASE_RESOURCE_BASE/u)
   assert.match(source, /\/usr\/local\/bin\/linksense/u)
   assert.match(source, /\$HOME\/\.local\/bin\/linksense/u)
-  assert.match(source, /exec sudo env LINKSENSE_INSTALL_DIR=/u)
+  assert.match(source, /exec sudo --preserve-env=[^ ]+ env LINKSENSE_INSTALL_DIR=/u)
   assert.match(source, /LINKSENSE_CLI_LANGUAGE=/u)
   assert.match(source, /LINKSENSE_RELEASE_BASE_URL=/u)
   assert.doesNotMatch(source, /^\s*\. "\$INSTALL_DIR\/\.env"/mu)
@@ -199,6 +328,7 @@ case "$1:$2:$3" in
   info:--format:'{{.OSType}}') printf linux ;;
   info:--format:'{{.Architecture}}') printf x86_64 ;;
   info:--format:'{{.MemTotal}}') printf '%s' "$LINKSENSE_TEST_MEMORY_BYTES" ;;
+  info:--format:'{{.MemoryLimit}}'|info:--format:'{{.PidsLimit}}'|info:--format:'{{.CPUCfsQuota}}'|info:--format:'{{.CPUCfsPeriod}}') printf true ;;
   version:--format:*) printf 1.45 ;;
   compose:version:*) printf 2.24.4 ;;
   context:inspect:*) printf 'unix://%s' "$LINKSENSE_TEST_SOCKET" ;;
@@ -211,7 +341,7 @@ esac
     const harness = path.join(directory, "memory-preflight.sh")
     await writeExecutable(harness, `${installer.slice(0, mainPosition)}read_os_release() { OS_ID=ubuntu; }\ncheck_port() { :; }\npreflight\n`)
     for (const hostOs of ["Darwin", "Linux"]) {
-      for (const [edition, requiredGiB] of [["core", 8], ["full", 10]]) {
+      for (const [edition, requiredGiB] of [["core", 8], ["full", 24]]) {
         const requiredKiB = requiredGiB * 1024 * 1024
         for (const memoryKiB of [8124776, requiredKiB - 1, requiredKiB]) {
           const result = spawnSync("/bin/sh", [harness], {
@@ -314,7 +444,7 @@ activate_management_cli
     })
     assert.equal(userResult.status, 0, userResult.stderr)
     const userTrace = await readFile(trace, "utf8")
-    assert.match(userTrace, /^sudo env LINKSENSE_INSTALL_DIR=/mu)
+    assert.match(userTrace, /^sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_INSTALL_DIR=/mu)
     assert.match(userTrace, /LINKSENSE_CLI_LANGUAGE=zh-CN/u)
     assert.match(userTrace, /LINKSENSE_RELEASE_BASE_URL=https:\/\/downloads\.example\/linksense-v0\.3\.0/u)
     assert.match(userTrace, /linksense-cli\.sh upgrade v0\.3\.0/u)
@@ -515,6 +645,8 @@ compose() {
     *) return 64 ;;
   esac
 }
+compose_bounded() { shift; compose "$@"; }
+verify_service_stability() { :; }
 wait_for_health
 `)
       const result = spawnSync("/bin/sh", [harness], {
@@ -537,7 +669,7 @@ wait_for_health
       if (scenario.success) assert.equal(result.status, 0, result.stderr)
       else {
         assert.equal(result.status, 1, result.stderr)
-        assert.match(result.stderr, /The stack did not become ready/u)
+        assert.match(result.stderr, /LS_HOST_stability.*readiness_deadline/u)
       }
       const recorded = await readFile(trace, "utf8")
       assert.match(recorded, /\/api\/v1\/system\/health\/ready/u)
@@ -570,18 +702,21 @@ test("tokenizer publication makes privately downloaded model files readable and 
       .replaceAll("/tokenizer", volumeDirectory)
       .replaceAll("/source", sourceDirectory)
       .replace("mv -Tf", "mv -f")
-    execFileSync("/bin/sh", ["-ec", script, "sh", "fixture-revision"])
+    const permissionEnv = { ...process.env, COPYFILE_DISABLE: "1" }
+    execFileSync("/bin/sh", ["-ec", script, "sh", "fixture-revision"], { env: permissionEnv })
 
     const file = path.join(volumeDirectory, "current", "config.json")
     assert.equal(await readFile(file, "utf8"), '{"model_type":"qwen3"}')
     assert.equal((await stat(file)).mode & 0o777, 0o444)
     assert.equal((await stat(path.dirname(file))).mode & 0o777, 0o555)
   } finally {
-    const publishedDirectory = path.join(directory, "volume", "releases", "fixture-revision")
-    try {
-      await chmod(publishedDirectory, 0o700)
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error
+    for (const revision of ["fixture-revision", ".staging"]) {
+      const publishedDirectory = path.join(directory, "volume", "releases", revision)
+      try {
+        await chmod(publishedDirectory, 0o700)
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error
+      }
     }
     await rm(directory, { recursive: true, force: true })
   }
@@ -659,6 +794,7 @@ load_strict_env() {
   STATE_INSTALLED_AT=2026-01-01T00:00:00Z
 }
 require_loaded_keys() { :; }
+docker() { printf '%s\\n' 17179869184; }
 load_runtime_env() {
   LINKSENSE_VERSION=v0.1.0
   LINKSENSE_PUBLIC_BASE_URL=http://127.0.0.1:10080
@@ -928,11 +1064,12 @@ test(
       const bundled = path.join(bundleDirectory, "install-core.sh")
       await Promise.all(
         [
-          { name: "docker-missing", docker: null, message: /Docker CLI is not installed/u },
+          { name: "docker-missing", docker: null, message: /LS_HOST_tools/u },
           { name: "daemon-stopped", docker: "daemon-stopped", message: /Docker Desktop is stopped/u },
           { name: "engine-old", docker: "engine-old", message: /API 1\.44 is too old/u },
-          { name: "compose-missing", docker: "compose-missing", message: /Compose V2 is not installed/u },
-          { name: "compose-old", docker: "compose-old", message: /Compose 2\.23\.0 is too old/u },
+          { name: "engine-client-old", docker: "engine-client-old", os: "Linux", message: /(?:API 1\.43 is too old|LS_HOST_engine)/u },
+          { name: "compose-missing", docker: "compose-missing", message: /LS_HOST_download/u },
+          { name: "compose-old", docker: "compose-old", message: /LS_HOST_download/u },
         ].map(async (scenario) => {
           const directory = await mkdtemp(
             path.join(tmpdir(), "linksense-preflight-"),
@@ -944,18 +1081,18 @@ test(
             await mkdir(bin)
             await writeExecutable(
               path.join(bin, "id"),
-              "#!/bin/sh\nprintf '%s\\n' 501\n",
+              `#!/bin/sh\nprintf '%s\\n' ${scenario.os === "Linux" ? "0" : "501"}\n`,
             )
             await writeExecutable(
               path.join(bin, "uname"),
-              "#!/bin/sh\ncase \"$1\" in -s) printf '%s\\n' Darwin ;; -m) printf '%s\\n' x86_64 ;; *) exit 1 ;; esac\n",
+              `#!/bin/sh\ncase "$1" in -s) printf '%s\\n' ${scenario.os || "Darwin"} ;; -m) printf '%s\\n' x86_64 ;; *) exit 1 ;; esac\n`,
             )
             await writeExecutable(
               path.join(bin, "curl"),
               "#!/bin/sh\nprintf 'curl %s\\n' \"$*\" >> \"$LINKSENSE_TEST_TRACE\"\nexit 99\n",
             )
             await Promise.all(
-              ["awk", "grep", "head", "tr", "sed"].map((command) =>
+              ["awk", "grep", "head", "tr", "sed", "dirname", "mktemp", "mkdir", "rm", "rmdir", "ps"].map((command) =>
                 linkSystemCommand(command, bin),
               ),
             )
@@ -970,6 +1107,7 @@ test(
                 HOME: directory,
                 LINKSENSE_INSTALL_DIR: installDirectory,
                 LINKSENSE_TEST_TRACE: trace,
+                LINKSENSE_CLI_LANGUAGE: "en-US",
                 PATH: bin,
               },
             })
@@ -981,7 +1119,8 @@ test(
               recorded,
               /\b(?:pull|up|run|create|rm|prune|stop|restart)\b/iu,
             )
-            assert.doesNotMatch(recorded, /^curl /mu)
+            if (scenario.name.startsWith("compose")) assert.match(recorded, /curl.*docker-compose-darwin-x86_64/u)
+            else assert.doesNotMatch(recorded, /^curl /mu)
           } finally {
             await rm(directory, { recursive: true, force: true })
           }
@@ -1055,6 +1194,16 @@ test("Core and Full keep distinct immutable server and client images with native
       services["minio-init"].command.join("\n"),
       /mcli admin policy attach local readwrite/u,
     )
+  }
+})
+
+test("Full enforces its configured Elasticsearch budget and keeps pre-change unlimited installations usable", () => {
+  for (const limit of [undefined, "0", "2048"]) {
+    const environment = composeEnvironment("full")
+    delete environment.LINKSENSE_ELASTICSEARCH_MEMORY_MB
+    if (limit !== undefined) environment.LINKSENSE_ELASTICSEARCH_MEMORY_MB = limit
+    const { services } = JSON.parse(execFileSync("docker", composeArguments("full", ["config", "--format", "json"]), { encoding: "utf8", env: environment }))
+    assert.equal(Number(services.elasticsearch.mem_limit ?? 0), Number(limit ?? 0) * 1024 ** 2)
   }
 })
 
@@ -1191,6 +1340,23 @@ test("every LinkSense release image contains the CPAL license and separate permi
   assert.equal((web.match(supplementalCopy) ?? []).length, 2)
   assert.equal((runner.match(supplementalCopy) ?? []).length, 1)
   assert.equal((baseline.match(supplementalCopy) ?? []).length, 4)
+})
+
+test("release preparation requires both dedicated installation runners before building images", async () => {
+  const workflow = await readFile(path.join(root, ".github/workflows/release.yml"), "utf8")
+  const step = workflow.match(/      - name: Verify installation runner configuration\n([\s\S]*?)(?=\n      -)/u)?.[1]
+  assert.ok(step, "Runner configuration must be checked during release preparation")
+  const script = step.split("        run: |\n")[1]?.replace(/^          /gmu, "")
+  assert.ok(script)
+  assert.ok(workflow.indexOf("Verify installation runner configuration") < workflow.indexOf("Validate and freeze release inputs before building images"))
+  for (const [amd64, arm64, status] of [["", "", 1], ["large-amd64", "", 1], ["", "large-arm64", 1], ["large-amd64", "large-arm64", 0]]) {
+    const result = spawnSync("bash", ["-c", script], {
+      encoding: "utf8",
+      env: { ...process.env, LINKSENSE_INSTALLATION_RUNNER_AMD64: amd64, LINKSENSE_INSTALLATION_RUNNER_ARM64: arm64 },
+    })
+    assert.equal(result.status, status, result.stderr)
+    if (status !== 0) assert.match(result.stderr, /24 GiB/u)
+  }
 })
 
 test("the release workflow reuses verified main checks before promotion", async () => {
@@ -1376,6 +1542,8 @@ test("the release manifest generator records immutable images and artifact hashe
     assert.match(manifest, /^MANIFEST_FORMAT=2$/mu)
     assert.match(manifest, /^CORE_MIN_MEMORY_GIB=8$/mu)
     assert.match(manifest, /^FULL_MIN_MEMORY_GIB=10$/mu)
+    assert.match(manifest, /^RESOURCE_FULL_FRESH_MIN_MEMORY_GIB=24$/mu)
+    assert.match(manifest, /^RESOURCE_HOST_ADAPTATION_FORMAT=1$/mu)
     assert.match(manifest, /RELEASE_VERSION=v0\.1\.0/u)
     assert.doesNotMatch(manifest, /^(?:CORE|FULL)_MIN_DISK_GIB=/mu)
     assert.doesNotMatch(manifest, /^(?:CORE|FULL)_MIN_FREE_INODES=/mu)
@@ -1434,8 +1602,10 @@ test("the release manifest generator records immutable images and artifact hashe
     }).join("\n")
     const manifestCheck = path.join(directory, "manifest-check")
     await mkdir(manifestCheck)
-    for (const [required, available, accepted] of [["10", 10, true], ["10", 9, false], ["16", 16, true], ["16", 10, false], ["9", 16, false], ["", 16, false], ["010", 16, false]]) {
-      const fixture = manifest.replace(/^FULL_MIN_MEMORY_GIB=.*$/mu, `FULL_MIN_MEMORY_GIB=${required}`)
+    for (const [required, available, accepted, existing = false, freshMetadata = false, pending = false] of [["10", 10, true], ["10", 9, false], ["16", 16, true], ["16", 10, false], ["9", 16, false], ["", 16, false], ["010", 16, false], ["10", 23, false, false, true], ["10", 24, true, false, true], ["10", 18, true, true, true], ["10", 23, false, false, true, true], ["10", 24, true, false, true, true]]) {
+      await rm(path.join(manifestCheck, "install"), { recursive: true, force: true })
+      const metadata = freshMetadata ? manifest : manifest.replace(/^RESOURCE_(?:HOST_ADAPTATION_FORMAT|FULL_FRESH_MIN_MEMORY_GIB)=.*\n/gmu, "")
+      const fixture = metadata.replace(/^FULL_MIN_MEMORY_GIB=.*$/mu, `FULL_MIN_MEMORY_GIB=${required}`)
       await writeFile(output, fixture)
       await writeFile(`${output}.sha256`, `${createHash("sha256").update(fixture).digest("hex")}  release-manifest.env\n`)
       const result = spawnSync("sh", ["-c", `
@@ -1444,15 +1614,18 @@ ${functions}
 download() { cp "$FIXTURE_SOURCE/\$(basename "$1")" "$2"; }
 docker() { printf '%s\\n' "$FIXTURE_MEMORY"; }
 TMP_ROOT=$FIXTURE_TARGET
+INSTALL_DIR=$FIXTURE_TARGET/install
+if [ "$FIXTURE_EXISTING" = true ]; then mkdir -p "$INSTALL_DIR"; touch "$INSTALL_DIR/install-state.env"; fi
+if [ "$FIXTURE_PENDING" = true ]; then mkdir -p "$INSTALL_DIR"; touch "$INSTALL_DIR/install.pending"; fi
 EDITION=full
 LINKSENSE_PLATFORM=linux-amd64
 REQUIRED_DOCKER_API=1.45
 REQUIRED_COMPOSE_VERSION=2.24.4
 RELEASE_SELECTOR=latest
 fetch_manifest https://release.example
-`], { encoding: "utf8", env: { ...process.env, FIXTURE_SOURCE: directory, FIXTURE_TARGET: manifestCheck, FIXTURE_MEMORY: String(available * 1024 ** 3) } })
+`], { encoding: "utf8", env: { ...process.env, FIXTURE_SOURCE: directory, FIXTURE_TARGET: manifestCheck, FIXTURE_MEMORY: String(available * 1024 ** 3), FIXTURE_EXISTING: String(existing), FIXTURE_PENDING: String(pending) } })
       assert.equal(result.status, accepted ? 0 : 1, `Full minimum ${required}, available ${available}: ${result.stderr}`)
-      if (!accepted) assert.match(result.stderr, required === "" ? /Unsafe value for FULL_MIN_MEMORY_GIB/u : /host requirements|Docker Engine memory/u)
+      if (!accepted) assert.match(result.stderr, /host requirements|Docker Engine memory/u)
     }
   } finally {
     await rm(directory, { recursive: true, force: true })
@@ -1603,7 +1776,7 @@ test("the public snapshot applies exclusions before the tar file list", async ()
 
 test("workflows that install dependencies use the resolvable pinned pnpm setup action", async () => {
   const expectedReference =
-    "pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1"
+    "pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413"
   for (const workflow of ["ci.yml", "security.yml", "release.yml", "maintain-baselines.yml", "verify-application-images.yml"]) {
     const source = await readFile(
       path.join(root, ".github/workflows", workflow),
@@ -1751,6 +1924,8 @@ function composeEnvironment(edition) {
 }
 
 async function writeExecutable(file, source) {
+  const helpers = await readFile(path.join(releaseDirectory, "linksense-host.sh"), "utf8")
+  source = source.replace('. "$(dirname "$0")/linksense-host.sh"', () => helpers)
   await writeFile(file, source, { mode: 0o755 })
   await chmod(file, 0o755)
 }
@@ -1777,7 +1952,8 @@ case "${scenario}:$1:$2:$3" in
   *:info::) exit 0 ;;
   *:info:--format:'{{.OSType}}') printf '%s\\n' linux ;;
   *:info:--format:'{{.Architecture}}') printf '%s\\n' x86_64 ;;
-  engine-old:version:--format:*) printf '%s\\n' 1.44 ;;
+  engine-old:version:--format:'{{.Server.APIVersion}}') printf '%s\\n' 1.44 ;;
+  engine-client-old:version:--format:*) printf '%s\\n' 1.43 ;;
   *:version:--format:*) printf '%s\\n' 1.45 ;;
   compose-missing:compose:version:*) exit 1 ;;
   compose-old:compose:version:*) printf '%s\\n' 2.23.0 ;;

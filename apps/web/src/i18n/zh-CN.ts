@@ -1,4 +1,5 @@
 import { connectionMessages } from "@/features/connections/messages"
+import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samlzhCN } from "@/features/saml/messages"
 import { webSitesZhCN } from "@/features/web-sites/messages"
 import { socialZhCN } from "@/features/social-auth/messages"
@@ -5125,6 +5126,7 @@ export const zhCN = {
       "初始化凭据无效，请使用安装成功时显示的一次性凭据。",
     teamsFailed: "Teams 登录失败，请重试或使用其他登录方式。",
     codexTurnFailed: "本轮执行失败。你可以调整输入后继续重试。",
+    modelGateway: modelGatewayMessages["zh-CN"],
     turnCompletedWithoutOutput:
       "本轮执行已结束，但没有产出可展示的内容，请重新执行。",
     automation: {

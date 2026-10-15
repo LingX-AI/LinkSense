@@ -164,7 +164,7 @@ export class RedisKnowledgeIndexReconciliationCoordinator
     } = {},
     redis?: Redis,
   ) {
-    this.redis = redis ?? new Redis(redisUrl, { maxRetriesPerRequest: null })
+    this.redis = redis ?? new Redis(redisUrl, { protocol: 2, maxRetriesPerRequest: null })
     const namespace = createHash("sha256")
       .update(indexName)
       .digest("hex")

@@ -25,6 +25,10 @@ Read the preflight message:
 
 ## Execution disconnects
 
+For provider access denials, rate limits, rejected requests, temporary outages or timeouts, follow the message and ask an administrator to check provider settings or connectivity. Administrators can run `linksense logs runner`, correlate the request and turn IDs, and inspect `upstreamStatus`, `upstreamRequestId`, `protocolMode`, `model` and `failureCode` on `model provider request failed` entries. Share only redacted diagnostic fields, excluding credentials, conversation content and complete upstream responses. Successful ordinary chat does not establish that multiple tool rounds work.
+
+Updated management tools provide `linksense doctor --network` to check terminal downloads and Docker pulls independently; before installation, use a release installer supporting `--check-network`. Diagnostics can download images but do not execute containers or restart services. They do not verify provider-backed task execution.
+
 Refresh and reopen the same task so LinkSense can recover the original turn. Do not submit repeated copies during a network interruption. Retry only after the turn has definitively failed.
 
 When the model context window is exceeded, an ordinary task automatically attempts to continue once. If it ultimately fails, wait for the task to stop, compact its context, and state where work should continue. See [Draft and context management](../tasks/context-and-drafts.md).

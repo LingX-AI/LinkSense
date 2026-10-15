@@ -217,7 +217,7 @@ run_pnpm() {
     https_proxy="${https_proxy:-}" \
     no_proxy="${no_proxy:-}" \
     PNPM_HOME="${PNPM_HOME:-}" \
-    COREPACK_HOME="${COREPACK_HOME:-}" \
+    COREPACK_HOME="${COREPACK_HOME:-$user_runtime_root/cache/corepack}" \
     XDG_CACHE_HOME="${XDG_CACHE_HOME:-}" \
     npm_config_store_dir="$store" \
     NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-}" \

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
-import { assertCleanDaemon, assertPreserved, parseEnvironment, publishedInstallationFixture, redactOutput, requireProbeCompletion, verificationPassword, verifyInstalledContainers } from "./release-installation-smoke.mjs"
+import { assertCleanDaemon, assertPreserved, parseEnvironment, publishedInstallationFixture, redactOutput, requireProbeCompletion, verificationPassword, verifyInstalledContainers, verifyInstalledResources } from "./release-installation-smoke.mjs"
 
 test("installation accounts use random passwords within the application's 8–16 character policy", () => {
   const passwords = Array.from({ length: 20 }, verificationPassword)
@@ -53,9 +53,9 @@ test("logs redact credentials, credential-bearing URLs, and bearer tokens", () =
 })
 
 test("repair and upgrade verification reject changed secrets or replaced persistent volumes without disclosing values", () => {
-  const snapshot = { installedAt: "2026-10-01T00:00:00Z", secrets: { SECRET: "private-value" }, volumes: [{ Name: "data", CreatedAt: "original" }] }
+  const snapshot = { installedAt: "2026-10-01T00:00:00Z", secrets: { SECRET: "private-value" }, resources: { LINKSENSE_WORKER_MEMORY_MB: "6144" }, volumes: [{ Name: "data", CreatedAt: "original" }] }
   assert.doesNotThrow(() => assertPreserved(snapshot, structuredClone(snapshot)))
-  for (const changed of [{ installedAt: "another-time" }, { secrets: { SECRET: "different-value" } }, { volumes: [{ Name: "data", CreatedAt: "replacement" }] }]) {
+  for (const changed of [{ installedAt: "another-time" }, { secrets: { SECRET: "different-value" } }, { resources: { LINKSENSE_WORKER_MEMORY_MB: "4096" } }, { volumes: [{ Name: "data", CreatedAt: "replacement" }] }]) {
     assert.throws(() => assertPreserved(snapshot, { ...snapshot, ...changed }), error => !error.message.includes("private-value") && !error.message.includes("different-value"))
   }
 })
@@ -86,3 +86,15 @@ for (const edition of ["core", "full"]) {
     assert.throws(() => verifyInstalledContainers(changed, manifest, edition), /image/u)
   })
 }
+
+test("installed container resource verification rejects changed memory, Node heaps and CPU policy", () => {
+  const env = { LINKSENSE_API_MEMORY_MB: "2048", LINKSENSE_API_NODE_OPTIONS: "--max-old-space-size=1536", LINKSENSE_RUNNER_MEMORY_MB: "512", LINKSENSE_RUNNER_NODE_OPTIONS: "--max-old-space-size=256", LINKSENSE_CPU_QUOTA_MODE: "compatible", LINKSENSE_DOCLING_WORKER_CPUS: "0", LINKSENSE_ELASTICSEARCH_MEMORY_MB: "2048" }
+  const container = (service, memory, environment, cpus = 0) => ({ Config: { Labels: { "com.docker.compose.service": service }, Env: environment }, HostConfig: { Memory: memory * 1024 ** 2, NanoCpus: cpus } })
+  const containers = [container("api", 2048, ["NODE_OPTIONS=--max-old-space-size=1536"]), container("runner", 512, ["NODE_OPTIONS=--max-old-space-size=256", "LINKSENSE_CPU_QUOTA_MODE=compatible"]), container("docling-worker", 8192, [], 0), container("elasticsearch", 2048, [])]
+  assert.doesNotThrow(() => verifyInstalledResources(containers, env))
+  for (const [index, changed] of [[0, { HostConfig: { Memory: 0 } }], [0, { Config: { ...containers[0].Config, Env: ["NODE_OPTIONS=--max-old-space-size=2048"] } }], [1, { Config: { ...containers[1].Config, Env: ["NODE_OPTIONS=--max-old-space-size=256", "LINKSENSE_CPU_QUOTA_MODE=strict"] } }], [2, { HostConfig: { Memory: 0, NanoCpus: 0 } }], [2, { HostConfig: { NanoCpus: 4e9 } }], [3, { HostConfig: { Memory: 0 } }]]) {
+    const different = structuredClone(containers)
+    different[index] = { ...different[index], ...changed }
+    assert.throws(() => verifyInstalledResources(different, env))
+  }
+})

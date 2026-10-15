@@ -42,8 +42,8 @@ MinIO 使用维护中的 [PGSTY SILO](https://github.com/pgsty/silo) 分发：�
 2. 创建仓库变量 `LINKSENSE_RELEASE_ACTOR`，值为唯一允许手动发版的 GitHub 用户名。发布工作流只接受该用户从 `main` 分支发起的 `workflow_dispatch`。
 3. 在 Actions 设置中允许仓库工作流运行，并允许 `GITHUB_TOKEN` 创建 Release 和写入 Packages。无需保存长期 Personal Access Token 到仓库 Secrets。
 4. 将 Actions artifact 最大保留期设为至少 30 天；工作流将发布输入和构建中间产物单独设为 3 天，镜像扫描报告设为 30 天。建议为 Actions 设置预算和告警，并禁止意外超额计费。
-5. 使用 `ubuntu-24.04` 和 `ubuntu-24.04-arm` GitHub 托管 Runner，无需配置自托管 Runner。
-6. 发布工作流在 amd64 / arm64 上分别执行 Core / Full 的真实安装、修复和升级验收。验收机的 Docker 可用内存至少为 10 GiB；当前公开仓库的标准托管 Runner 满足内存要求。私有仓库的标准机器内存不足时，通过仓库变量 `LINKSENSE_INSTALLATION_RUNNER_AMD64` 和 `LINKSENSE_INSTALLATION_RUNNER_ARM64` 指定对应架构的专用 Runner 标签，必须使用空的 Docker 环境，不能跳过验收。安装主机的其他资源要求见 README。
+5. 镜像构建继续使用 `ubuntu-24.04` 和 `ubuntu-24.04-arm` 托管 Runner；安装验收须另行准备原生 amd64 / arm64 的大规格托管 Runner，或一次性的专用 Runner。标准托管机器的 16 GB 内存不能满足 Full 新安装的要求。
+6. 设置仓库变量 `LINKSENSE_INSTALLATION_RUNNER_AMD64` 和 `LINKSENSE_INSTALLATION_RUNNER_ARM64` 为对应架构验收 Runner 的标签。每台机器必须向 Docker 提供至少 24 GiB 内存，并使用空的、独立的一次性 Docker 环境；不能指向共享或生产主机。Core 单独要求至少 8 GiB，但同一配置还要运行 Full。发布准备阶段在镜像构建前检查这两个变量，验收阶段仍验证实际内存并执行真实安装、修复和升级，不能跳过门禁。其他资源要求见 README。
 7. 通过 PR 审核合入 `main`。发布准备任务强制检查同一提交的 CI 和 Security 结果；如仓库套餐支持，再配置相应分支保护或规则集。
 
 GHCR 包必须允许匿名拉取。首次生成候选镜像后，组织所有者需检查下列包的可见性，并将尚未公开的包设为 Public：
@@ -117,7 +117,7 @@ test ! -e /absolute/path/to/linksense-github/design-qa.md
 
 ## 安装、修复和升级门禁
 
-`installation-smoke` 的四个任务分别在原生 amd64 / arm64 上验证 Core / Full。任务只读取本次候选镜像和安装附件，不创建 Release 或正式镜像标签。它通过本地 HTTPS 服务提供未经修改的候选附件，保留证书验证、清单校验和、真实 Docker Compose、数据库迁移和依赖服务。测试从仓库中的一键入口进入，实际下载并执行附件中的安装器，不以模拟 Docker 或 curl 代替安装。
+`installation-smoke` 的八个任务覆盖 Core / Full × 原生 amd64 / arm64 × strict / compatible CPU 模式。任务只读取本次候选镜像和安装附件，不创建 Release 或正式镜像标签。它通过本地 HTTPS 服务提供未经修改的候选附件，保留证书验证、清单校验和、真实 Docker Compose、数据库迁移和依赖服务。测试从仓库中的一键入口进入，实际下载并执行附件中的安装器，不以模拟 Docker 或 curl 代替安装。
 
 验收包括：全新安装、管理员初始化和登录、未授权访问拒绝、重复安装、停止服务后的修复、损坏 tokenizer 权限后的修复、同版本升级不重启，以及上一已发布版本的数据升级。Full 还执行真实中英文 OCR、Hybrid Chunker、Elasticsearch 关键词和向量检索。修复及升级前后核对管理员身份、MinIO 对象、Redis 数据、用户文件、数据卷身份和密钥；升级产生的 PostgreSQL 备份必须可被 `pg_restore --list` 读取。
 

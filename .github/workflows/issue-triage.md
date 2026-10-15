@@ -15,6 +15,9 @@ permissions:
   issues: read
   pull-requests: read
 
+imports:
+  - shared/codex-model-pricing.md
+
 engine:
   id: codex
   model: ${{ vars.GH_AW_MODEL_AGENT_CODEX || vars.GH_AW_DEFAULT_MODEL_CODEX || 'gpt-5.4' }}

@@ -24,7 +24,11 @@ Configure these repository settings before enabling them:
 | Variable | `GH_AW_MODEL_AGENT_CODEX` | Codex model identifier; defaults to `GH_AW_DEFAULT_MODEL_CODEX`, then `gpt-5.4` |
 | Variable | `LINKSENSE_ISSUE_AGENT_ENABLED` | Set to `true` only after the other values are configured |
 
-The checked-in workflows use `https://codex-lb.lingx-ai.com/backend-api/codex`. To use another provider, update the literal `OPENAI_BASE_URL` under `engine.env`, update its hostname in `network.allowed`, and recompile the lock files. The provider must expose an OpenAI Responses API-compatible endpoint; never store its key in the workflow source.
+The checked-in workflows use the HTTPS Responses API-compatible gateway at `https://codex-lb.lingx-ai.com/backend-api/codex`. To change providers, update the literal `OPENAI_BASE_URL` under `engine.env`, update `network.allowed`, and recompile both lock files. Never store the provider key in the workflow source.
+
+Both workflows import `shared/codex-model-pricing.md`. It supplies explicit `gpt-6.1-sol` pricing to the agent, threat-detection, and AWF API-proxy catalogs, so the pinned runtime can account for this model even before its built-in catalog is updated. Threat detection preserves the native `detection` model alias from the current default branch. Keep `GH_AW_MODEL_AGENT_CODEX` set to the intended model; changing it to an unknown model also requires adding that model's pricing and recompiling. Do not disable threat detection or the AI-credit budget, or add a blanket fallback price to bypass a missing catalog entry.
+
+The overlay uses the [official OpenAI Standard prices](https://developers.openai.com/api/docs/models/gpt-6.1-sol), checked on 2026-10-08: USD 2 input, 10 output, 0.10 cache read, and 2.50 cache write per million tokens. Frontmatter values are **USD per token**. AIC is a workflow budget estimate, not the gateway's invoice: the pinned AWF overlay accepts flat rates and does not model long-context, Fast-mode, regional, or gateway-specific surcharges. Update the rates to the gateway's applicable billing policy before relying on AIC as an actual-spend limit.
 
 Keep the repository's **Settings → Planning → Agent suggestions for issues → Automation level** at **Cautious**. At this level GitHub applies only high-confidence issue intents automatically and holds medium- and low-confidence changes for review. If this preview setting is not available for the repository, keep the AI workflows disabled.
 
@@ -51,6 +55,14 @@ gh extension install github/gh-aw --pin v0.91.8
 gh aw compile --strict --actionlint --validate
 ```
 
-The `--actionlint` check requires Docker. The sources explicitly preserve the existing main model fallback and native `detection` model alias, and disable activation-stage blocked-version notification issues so that activation keeps read-only permissions. Compiler version validation still runs and blocks incompatible versions.
+Verify the generated agent and detection proxy configurations with:
+
+```bash
+pnpm exec node --test scripts/github-issue-automation.test.mjs
+```
+
+The regression check covers both workflows, model-specific pricing in both proxy phases, and preservation of the budget and fail-closed behavior for unknown models. A live GitHub Actions run is still required to verify the configured gateway credentials and model access. Rerunning an old failed run executes its old workflow revision; validate the new revision instead.
+
+The `--actionlint` check requires Docker. Activation keeps read-only permissions by disabling blocked-version notification issues; compiler version validation remains enabled.
 
 The canonical label definitions are stored in `.github/labels.yml`.

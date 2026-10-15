@@ -64,6 +64,8 @@ const tokenizerLock = JSON.parse(
 
 const lines = [
   "MANIFEST_FORMAT=2",
+  "RESOURCE_HOST_ADAPTATION_FORMAT=1",
+  "RESOURCE_FULL_FRESH_MIN_MEMORY_GIB=24",
   `RELEASE_VERSION=${releaseVersion}`,
   "RELEASE_EDITION_SUPPORT=core-full",
   "RELEASE_PLATFORMS=linux-amd64,linux-arm64",
@@ -74,6 +76,7 @@ const lines = [
   "MIN_DOCKER_API=1.45",
   "MIN_DOCKER_COMPOSE=2.24.4",
   "CORE_MIN_MEMORY_GIB=8",
+  // Older upgrade scripts apply this legacy field to existing installations.
   "FULL_MIN_MEMORY_GIB=10",
 ]
 

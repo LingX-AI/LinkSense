@@ -1,4 +1,5 @@
 import { connectionMessages } from "@/features/connections/messages"
+import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samlenUS } from "@/features/saml/messages"
 import { webSitesEnUS } from "@/features/web-sites/messages"
 import { socialEnUS } from "@/features/social-auth/messages"
@@ -5591,6 +5592,7 @@ export const enUS = {
       "The initialization credential is invalid. Use the one-time credential shown after installation.",
     teamsFailed: "Teams sign-in failed. Retry or use another sign-in method.",
     codexTurnFailed: "This run failed. You can adjust the input and try again.",
+    modelGateway: modelGatewayMessages["en-US"],
     turnCompletedWithoutOutput:
       "This run finished without producing displayable output. Run it again.",
     automation: {

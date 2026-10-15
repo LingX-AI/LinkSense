@@ -27,6 +27,10 @@ import type {
   ModelTokenPricing,
   RunnerMemoryUsageCapture,
 } from "@linksense/shared";
+import {
+  modelGatewayErrorMessages,
+  modelGatewayFailureCode,
+} from "@linksense/shared";
 
 import {
   buildChatCompletionRequest,
@@ -524,7 +528,7 @@ export class ModelGateway implements ModelGatewayRuntime {
         downstreamStatus,
         downstreamStatus === 426
           ? "websocket_transport_unavailable"
-          : "model_provider_error",
+          : modelGatewayFailureCode(handshakeError?.statusCode ?? 502),
       );
       return;
     } finally {
@@ -1183,6 +1187,7 @@ export class ModelGateway implements ModelGatewayRuntime {
         ...requestLogFields(context),
         providerRevision: lease.revision,
         protocolMode: lease.protocolMode,
+        model: lease.model,
         stage,
         errorClass: error instanceof Error ? error.name : "unknown",
       },
@@ -1648,6 +1653,10 @@ export class ModelGateway implements ModelGatewayRuntime {
         providerRevision: lease.revision,
         protocolMode: lease.protocolMode,
         upstreamStatus: upstream.status,
+        model: lease.model,
+        failureCode: contextLengthExceeded
+          ? CONTEXT_LENGTH_EXCEEDED
+          : modelGatewayFailureCode(statusCode),
         upstreamRequestId:
           upstream.headers.get("x-request-id") ??
           upstream.headers.get("request-id"),
@@ -1684,7 +1693,7 @@ export class ModelGateway implements ModelGatewayRuntime {
       }
       return true;
     }
-    throw new GatewayHttpError(statusCode, "model_provider_error");
+    throw new GatewayHttpError(statusCode, modelGatewayFailureCode(statusCode));
   }
 
   private async inspectMemoryStream(
@@ -1764,11 +1773,17 @@ export class ModelGateway implements ModelGatewayRuntime {
   ): void {
     const known = error instanceof GatewayHttpError;
     const statusCode = known ? error.statusCode : 502;
-    const code = known ? error.code : "model_gateway_error";
+    const timedOut =
+      context.abortSource === "upstream_header_timeout" ||
+      context.abortSource === "upstream_idle_timeout";
+    let code = "model_gateway_error";
+    if (known) code = error.code;
+    else if (timedOut) code = "model_provider_timeout";
     if (!known) {
       this.options.logger.error(
         {
           ...requestLogFields(context),
+          failureCode: code,
           errorClass: error instanceof Error ? error.name : "unknown",
         },
         "model gateway request failed",
@@ -1785,8 +1800,8 @@ export class ModelGateway implements ModelGatewayRuntime {
           response: {
             status: "failed",
             error: {
-              code: "model_provider_error",
-              message: "The model provider request failed.",
+              code,
+              message: publicErrorMessage(code),
             },
           },
         })
@@ -2209,6 +2224,11 @@ function writeJson(
 }
 
 function publicErrorMessage(code: string): string {
+  if (Object.hasOwn(modelGatewayErrorMessages, code)) {
+    return modelGatewayErrorMessages[
+      code as keyof typeof modelGatewayErrorMessages
+    ];
+  }
   if (code === "invalid_gateway_token") return "Invalid gateway credentials.";
   if (code === "model_not_authorized") return "The model is not authorized.";
   if (code === "request_body_too_large")
@@ -2220,9 +2240,6 @@ function publicErrorMessage(code: string): string {
   if (code === "not_found") return "Not found.";
   if (code === "gateway_unavailable")
     return "The model gateway is unavailable.";
-  if (code === "model_provider_error") {
-    return "The model provider request failed.";
-  }
   if (code === "websocket_transport_unavailable") {
     return "The WebSocket transport is unavailable.";
   }

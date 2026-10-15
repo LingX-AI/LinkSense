@@ -3859,6 +3859,13 @@ function TurnSummary({
       providedLabel !== activity.message_key &&
       !providedLabel.startsWith("conversation.activities.")
     ) {
+      if (activity.type === "error") {
+        return getPublicRuntimeMessage(
+          providedLabel,
+          t("errors.codexTurnFailed"),
+          (key) => t(key)
+        )
+      }
       return providedLabel
     }
     return fallback === fallbackKey
@@ -3944,7 +3951,8 @@ function TurnSummary({
                 <p className="text-[var(--destructive)]">
                   {getPublicRuntimeMessage(
                     turn.error_message,
-                    t("errors.codexTurnFailed")
+                    t("errors.codexTurnFailed"),
+                    (key) => t(key)
                   )}
                 </p>
               )}
