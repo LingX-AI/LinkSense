@@ -13,7 +13,7 @@ function fn(name) {
   return match[0]
 }
 function run(source, environment = {}) {
-  return spawnSync("sh", ["-c", `set -eu\n${helpers}\n${source}`], {
+  return spawnSync("/bin/sh", ["-c", `set -eu\n${helpers}\n${source}`], {
     encoding: "utf8", timeout: 10000, env: { ...process.env, LINKSENSE_CLI_LANGUAGE: "en-US", ...environment },
   })
 }
