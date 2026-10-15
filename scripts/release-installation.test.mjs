@@ -217,7 +217,7 @@ case "$1:$2" in pull:ghcr.io/*) exit "$MOCK_GHCR_STATUS" ;; info:*|pull:*) exit 
       await assert.rejects(access(installDirectory))
       const calls = await readFile(trace, "utf8")
       assert.match(calls, /https:\/\/downloads.example\/v0\.1\.0\/release-manifest.env/u)
-      assert.doesNotMatch(calls, /raw.githubusercontent.com|docker (?:run|create|start|stop|compose|volume)/u)
+      assert.doesNotMatch(calls, /raw\.githubusercontent\.com|docker (?:run|create|start|stop|compose|volume)/u)
       if (scenario.docker === 0 && scenario.curl === 0 && !scenario.invalid) {
         assert.match(calls, /docker pull docker.io\/library\/busybox@sha256:/u)
         assert.match(calls, /docker pull ghcr.io\/lingx-ai\/linksense-api@sha256:/u)

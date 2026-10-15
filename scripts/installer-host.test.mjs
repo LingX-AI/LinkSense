@@ -120,7 +120,7 @@ host_network_diagnostics https://downloads.example/release hello-world:latest`, 
   assert.match(result.stdout, /PASS.*docker-pull/u)
   assert.doesNotMatch(result.stdout + result.stderr, /private-value/u)
   assert.match(readFileSync(path.join(dir, "calls"), "utf8"), /downloads.example\/release\/release-manifest.env/u)
-  assert.doesNotMatch(readFileSync(path.join(dir, "calls"), "utf8"), /raw.githubusercontent.com/u)
+  assert.doesNotMatch(readFileSync(path.join(dir, "calls"), "utf8"), /raw\.githubusercontent\.com/u)
   assert.match(readFileSync(path.join(dir, "docker-calls"), "utf8"), /pull hello-world:latest/u)
 })
 
