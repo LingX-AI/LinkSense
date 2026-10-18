@@ -45,6 +45,9 @@ test("the bilingual READMEs follow the current public section order", async () =
       "hello@linksense.org", "licensing@linksense.org", "./ADOPTERS.md",
       "./CLA.md", "./THIRD-PARTY-NOTICES.md", "../../discussions",
       "volume://linksense-backups/postgres/", "linux/amd64", "linux/arm64",
+      "x86-64-v2", "host-passthrough", "x86-64-v2-AES",
+      "cx16", "lahf_lm", "popcnt", "ssse3", "sse4_1", "sse4_2", "pni",
+      "Fatal glibc error: CPU does not support x86-64-v2",
     ]) {
       assert.ok(source.includes(required), `README is missing ${required}`)
     }
@@ -54,7 +57,7 @@ test("the bilingual READMEs follow the current public section order", async () =
 test("the bilingual READMEs preserve deployment commands and architectural diagrams", async () => {
   const [english, chinese] = await readBoth()
   const commands = (source) => [...source.matchAll(/```bash\n([\s\S]*?)```/gu)].map(([, block]) => block)
-  assert.equal(commands(english).length, 12)
+  assert.equal(commands(english).length, 13)
   assert.deepEqual(commands(chinese), commands(english))
   const diagrams = (source) => [...source.matchAll(/<img src="(\.\/docs\/diagrams\/[^"]+)" alt="([^"]+)" width="(\d+)"\s*\/>/gu)]
   const expected = [

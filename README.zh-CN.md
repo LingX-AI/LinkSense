@@ -47,6 +47,8 @@ Core 需要 4+ vCPU、8+ GiB 内存和 60+ GiB 可用 SSD 空间。Full 需要 8
 内存预检读取 Docker Engine 实际可用内存。使用 Docker Desktop 时，这指虚拟机分配的内存，而非宿主机总内存；标称分配 8 GB 时，实际可用值可能不足 8 GiB。请在 Settings → Resources → Advanced → Memory limit 调整分配，Core 建议至少 10–12 GB，Full 也应为 10 GiB 的实际可用要求留出余量，然后应用更改并重启 Docker Desktop。
 完整要求见[部署参考](#部署参考)。
 
+> **x86_64 虚拟机安装 Full 前，请确认来宾 CPU 支持 `x86-64-v2`。** 宿主机支持这些指令集，并不代表虚拟机已暴露它们。检查方法和 CPU 模式设置见[虚拟机 CPU 要求](#虚拟机-cpu-要求)。
+
 ### Linux
 
 ```bash
@@ -311,6 +313,31 @@ LinkSense 提供三种主要扩展方式，无需修改 LinkSense 源码。
 - Docker Compose v2.24.4+
 - `curl`
 - 默认 TCP 端口 `18081` 可用
+
+### 虚拟机 CPU 要求
+
+Full 在 `x86_64` / `amd64` 上运行 RAG 知识库组件（Elasticsearch、Docling）时，Docker Engine 所在主机或虚拟机需要向容器暴露至少 `x86-64-v2` 指令集。当前 [Docling v1.36.0 上游镜像](https://github.com/docling-project/docling-serve/blob/v1.36.0/Containerfile)基于 CentOS Stream 9，后者采用 [x86-64-v2 基线](https://blog.centos.org/2023/08/centos-isa-sig-performance-investigation/)。Elasticsearch 的 CPU 要求取决于具体版本和基础镜像。此项 x86 指令集要求不适用于原生 ARM64 部署。
+
+虚拟化平台的通用 CPU 模式可能屏蔽宿主机已有的指令集；CPU 型号、年代、vCPU 数量或 `uname -m` 输出不足以判断兼容性。请在**实际运行 Docker Engine 的 Linux 虚拟机内**检查：
+
+```bash
+LC_ALL=C lscpu
+grep -m1 '^flags' /proc/cpuinfo
+```
+
+除 x86-64 基础能力外，CPU flags 应包含 `cx16`、`lahf_lm`、`popcnt`、`ssse3`、`sse4_1`、`sse4_2` 和 SSE3（Linux 通常显示为 `pni`，也可能为 `sse3`）。仅有 `sse4_1` 和 `popcnt` 不能证明满足完整的 `x86-64-v2` 要求。
+
+发行包的安装、修复和升级脚本会对 Full 的 `linux/amd64` 部署自动检查 Docker 实际可见的 CPU flags，在修改运行配置、创建数据卷或停止现有服务前报告缺失项并退出。检查使用发行清单中固定摘要的 BusyBox 镜像，首次使用时可能需要拉取；临时容器只读、无网络、不挂载数据卷，结束后自动删除。
+
+此预检随包含该变更的发行包提供，旧安装目录中的脚本不会自动更新。若要在首次升级前获得预检，请在新版发行包发布后使用下文在线 `upgrade.sh` 命令获取新版升级脚本。
+
+若缺失所需指令集，或容器日志出现 `Fatal glibc error: CPU does not support x86-64-v2`：
+
+1. 正常关闭虚拟机，在虚拟化平台调整 CPU 模式。Proxmox VE 可选择宿主机支持的 `host` 或 `x86-64-v2-AES`；KVM/libvirt 可使用 [`host-passthrough`](https://libvirt.org/formatdomain.html#cpu-model-and-topology)。避免使用屏蔽所需指令集的 `kvm64` / `qemu64` 模式。
+2. 重新开机，在虚拟机内再次检查上述 flags。仅重启容器不会应用虚拟 CPU 模式变更。需要跨宿主机迁移时，应选择所有目标宿主机共同支持、且满足 `x86-64-v2` 的 CPU 模型。
+3. 检查通过后，新安装重新执行原 Full 安装命令；已有安装执行 `linksense repair`，再用 `linksense status` 检查服务状态。
+
+宿主机物理 CPU 本身不支持所需指令集时，需要换用兼容的宿主机；增加 vCPU 或内存无法补齐指令集。
 
 ### 自定义端口
 
