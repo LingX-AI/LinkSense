@@ -5657,6 +5657,92 @@ describe("conversation turn responses", () => {
     }
   )
 
+  it("shows one image per content after generation, renaming, and re-registering a previous turn image", () => {
+    const portrait = {
+      id: "portrait",
+      name: "generated-portrait.png",
+      size: 1024,
+      kind: "artifact" as const,
+      mime_type: "image/png",
+      turn_id: "turn-1",
+      checksum_sha256: "a".repeat(64),
+      download_available: true,
+    }
+    const generated = {
+      ...portrait,
+      id: "hunting-generated",
+      name: "generated-hunting.png",
+      turn_id: "turn-2",
+      checksum_sha256: "b".repeat(64),
+    }
+    const renamed = {
+      ...generated,
+      id: "hunting-renamed",
+      name: "lion-hunting.png",
+    }
+    const copiedPortrait = {
+      ...portrait,
+      id: "portrait-renamed",
+      name: "lion-portrait.png",
+      turn_id: "turn-2",
+    }
+    const onDownload = vi.fn()
+    const conversation: Conversation = {
+      ...completedConversation,
+      turns: [
+        completedConversation.turns![0]!,
+        { ...completedConversation.turns![0]!, id: "turn-2" },
+      ],
+      messages: [
+        { ...completedConversation.messages![1]!, artifacts: [portrait] },
+        {
+          id: "final-2",
+          role: "assistant",
+          turn_id: "turn-2",
+          phase: "final_answer",
+          content: "[追捕](lion-hunting.png) [上一张肖像](lion-portrait.png)",
+          artifacts: [generated, renamed, copiedPortrait],
+        },
+      ],
+    }
+    const { rerender } = render(
+      <ConversationThread
+        conversation={{
+          ...conversation,
+          turns: [
+            completedConversation.turns![0]!,
+            { id: "turn-2", status: "running" },
+          ],
+          running_turn: { id: "turn-2", status: "running" },
+        }}
+        onDownload={onDownload}
+      />
+    )
+    expect(screen.queryByText(renamed.name)).toBeNull()
+    rerender(
+      <ConversationThread conversation={conversation} onDownload={onDownload} />
+    )
+
+    // A fresh detail response must produce the same cards as completion.
+    rerender(
+      <ConversationThread
+        conversation={structuredClone(conversation)}
+        onDownload={onDownload}
+      />
+    )
+
+    const replies = screen.getAllByRole("article", { name: "助手回复" })
+    expect(within(replies[0]!).getByText(portrait.name)).toBeVisible()
+    expect(within(replies[1]!).getByText(renamed.name)).toBeVisible()
+    expect(within(replies[1]!).queryByText(generated.name)).toBeNull()
+    expect(within(replies[1]!).queryByText(copiedPortrait.name)).toBeNull()
+    expect(replies[1]!.querySelectorAll(".artifact-tile")).toHaveLength(1)
+    fireEvent.click(
+      within(replies[1]!).getByRole("button", { name: `下载 ${renamed.name}` })
+    )
+    expect(onDownload).toHaveBeenCalledWith(renamed)
+  })
+
   it("collapses native commentary and tool calls while keeping the final answer and artifact visible once", async () => {
     const interaction = userEvent.setup()
     const artifact = {

@@ -150,6 +150,7 @@ import {
   type ArtifactPreviewSource,
 } from "@/features/conversations/conversation-artifact-files"
 import { isPreviewableConversationImage } from "@/features/conversations/conversation-attachment-preview-utils"
+import { selectConversationArtifactCards } from "@/features/conversations/conversation-artifact-selection"
 import { ConversationAttachmentPreviews } from "@/features/conversations/conversation-attachment-previews"
 import {
   ConversationAttachmentOverflow,
@@ -4596,18 +4597,12 @@ export function ConversationThread({
     values.push(event)
     nativeEventsByTurn.set(turnId, values)
   }
-  const artifactsByTurn = new Map<string, Map<string, ConversationFile>>()
-  const addTurnArtifact = (file: ConversationFile) => {
-    if (inlineArtifactIds.has(file.id.toLowerCase())) return
-    if (!file.turn_id) return
-    const files = artifactsByTurn.get(file.turn_id) ?? new Map()
-    files.set(file.id, file)
-    artifactsByTurn.set(file.turn_id, files)
-  }
-  for (const message of messages) {
-    message.artifacts?.forEach(addTurnArtifact)
-  }
-  conversation.artifacts?.forEach(addTurnArtifact)
+  const artifactsByTurn = selectConversationArtifactCards({
+    files: [...conversationFilesById.values()],
+    turns,
+    finalMessagesByTurn: finalMessageByTurn,
+    inlineArtifactIds,
+  })
   const guidedMessagesByTurn = new Map<string, ConversationMessage[]>()
   for (const message of messages) {
     if (
