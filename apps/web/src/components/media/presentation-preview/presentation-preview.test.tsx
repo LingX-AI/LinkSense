@@ -350,6 +350,7 @@ vi.mock("pptx-react-viewer", async () => {
                   ref: setElementRect("title-1"),
                   "data-pptx-element": "true",
                   "data-element-id": "title-1",
+                  style: { visibility: "visible" },
                   "aria-selected": selectedIds.includes("title-1"),
                   onPointerDown: viewer.elementPointerDown,
                   onMouseDown: viewer.elementMouseDown,
@@ -663,6 +664,10 @@ describe("presentation preview", () => {
     )
     expect(adapter).toHaveAttribute("data-pptx-ready", "false")
     expect(viewerSurface).toHaveAttribute("aria-hidden", "true")
+    expect(viewerSurface).toHaveAttribute("inert")
+    expect(document.querySelector('[data-element-id="title-1"]')).toHaveStyle({
+      visibility: "visible",
+    })
     expect(screen.getByText("正在加载文档")).toHaveClass("shimmer")
 
     viewer.slideWrapperWidth = 760
@@ -673,6 +678,7 @@ describe("presentation preview", () => {
       expect(adapter).toHaveAttribute("data-pptx-ready", "true")
     )
     expect(viewerSurface).not.toHaveAttribute("aria-hidden")
+    expect(viewerSurface).not.toHaveAttribute("inert")
     expect(screen.queryByRole("status")).not.toBeInTheDocument()
   })
 
@@ -716,6 +722,64 @@ describe("presentation preview", () => {
     expect(viewer.zoomIn).toHaveBeenCalledOnce()
     expect(viewer.mountCount).toBe(1)
   })
+
+  it.each([
+    ".conversation-office-layout",
+    ".conversation-workspace",
+    ".office-preview-pane",
+  ])(
+    "keeps an initially fitting slide covered while %s is animating",
+    async (selector) => {
+      const nextFrame = controlAnimationFrames()
+      viewer.viewportWidth = 1200
+      viewer.viewportHeight = 800
+      viewer.slideWrapperWidth = 1100
+      viewer.slideWrapperHeight = 619
+      render(
+        <div className="conversation-office-layout">
+          <div className="conversation-workspace" />
+          <PresentationPreview
+            document={{ status: "ready", content: new Uint8Array([1]) }}
+            fileName="opening-preview.pptx"
+          />
+        </div>
+      )
+      const target = document.querySelector(selector)
+      if (!target)
+        throw new Error("Expected the preview layout animation target")
+      let pending = false
+      let playState: AnimationPlayState = "running"
+      Object.defineProperty(target, "getAnimations", {
+        value: () => [{ pending, playState }],
+      })
+      const adapter = screen.getByTestId("pptx-viewer-adapter")
+      const surface = document.querySelector(
+        ".presentation-preview-pptx-surface"
+      )
+
+      for (let frame = 0; frame < 5; frame += 1) await nextFrame()
+      expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+      expect(surface).toHaveAttribute("aria-hidden", "true")
+
+      // A queued transition must not expose an intermediate fit either.
+      pending = true
+      playState = "finished"
+      for (let frame = 0; frame < 3; frame += 1) await nextFrame()
+      expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+
+      pending = false
+      viewer.viewportWidth = 800
+      viewer.slideWrapperWidth = 760
+      viewer.slideWrapperHeight = 428
+      await nextFrame()
+      await nextFrame()
+      expect(adapter).toHaveAttribute("data-pptx-ready", "false")
+      await nextFrame()
+      expect(adapter).toHaveAttribute("data-pptx-ready", "true")
+      expect(surface).not.toHaveAttribute("aria-hidden")
+      expect(viewer.mountCount).toBe(1)
+    }
+  )
 
   it("waits for the viewport dimensions and compact navigation layout to settle", async () => {
     const nextFrame = controlAnimationFrames()

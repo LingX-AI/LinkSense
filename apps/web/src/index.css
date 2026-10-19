@@ -2820,6 +2820,8 @@
 
 .presentation-preview-pptx-surface[aria-hidden="true"] {
   visibility: hidden;
+  /* Native slide elements explicitly restore visibility; hide their composite. */
+  opacity: 0;
   pointer-events: none;
 }
 
