@@ -55,6 +55,26 @@ describe("TurnActivityItem", () => {
     vi.useRealTimers()
   })
 
+  it.each([undefined, "active", "thinking"] as const)(
+    "keeps the disclosure arrow beside its tool title for progress %s",
+    (progress) => {
+      const { container } = render(
+        <TurnActivityItem source={completedTools} progress={progress} />
+      )
+      const trigger = screen.getByRole("button")
+      expect(trigger).toHaveClass("w-fit", "max-w-full")
+      expect(trigger).not.toHaveClass("w-full", "pr-2")
+      expect(trigger.querySelector('[data-slot="marker"]')).toHaveClass("w-fit")
+      expect(
+        trigger.querySelector('[data-slot="marker-content"]')
+      ).not.toHaveClass("flex-1")
+      expect(container.querySelector(".native-activity-chevron")).toHaveClass(
+        "size-4",
+        "shrink-0"
+      )
+    }
+  )
+
   it.each([
     ["item/started", false, "正在压缩上下文"],
     ["item/completed", false, "上下文已压缩"],
@@ -115,7 +135,7 @@ describe("TurnActivityItem", () => {
   })
 
   it.each([undefined, "Comparing options"])(
-    "never exposes a tool disclosure while displaying thinking summary %s",
+    "expands the tool list while displaying thinking summary %s and preserves the open state through tool updates",
     (reasoningSummary) => {
       const { container, rerender } = render(
         <TurnActivityItem
@@ -125,15 +145,31 @@ describe("TurnActivityItem", () => {
         />
       )
       const label = screen.getByText(reasoningSummary ?? "正在思考")
-      expect(screen.queryByRole("button")).toBeNull()
-      expect(container.querySelector(".native-activity-chevron")).toBeNull()
-      fireEvent.click(label)
-      expect(screen.queryByRole("list")).toBeNull()
+      const trigger = screen.getByRole("button")
+      expect(trigger).toHaveAttribute("aria-expanded", "false")
+      expect(container.querySelector(".native-activity-chevron")).toHaveClass(
+        "opacity-0",
+        "group-hover:opacity-100",
+        "group-focus-visible:opacity-100",
+        "group-data-panel-open:opacity-100"
+      )
+      fireEvent.click(trigger)
+      expect(trigger).toHaveAttribute("aria-expanded", "true")
+      const list = container.querySelector('[data-slot="thinking-tool-list"]')!
+      expect(list).toBeVisible()
+      expect(
+        within(list as HTMLElement).getByText("运行了一个命令")
+      ).toBeVisible()
+      fireEvent.click(within(list as HTMLElement).getByRole("button"))
+      expect(within(list as HTMLElement).getByText("pnpm test")).toBeVisible()
       rerender(<TurnActivityItem source={runningTools} progress="active" />)
-      expect(screen.queryByRole("button")).toBeNull()
       act(() => vi.advanceTimersByTime(1_000))
-      fireEvent.click(screen.getByRole("button"))
-      expect(screen.getByRole("list")).toBeVisible()
+      expect(
+        container.querySelector(".native-activity-trigger")
+      ).toHaveAttribute("aria-expanded", "true")
+      expect(
+        within(screen.getByRole("list")).getByText("pnpm test")
+      ).toBeVisible()
       rerender(
         <TurnActivityItem
           source={completedTools}
@@ -143,11 +179,19 @@ describe("TurnActivityItem", () => {
       )
       act(() => vi.advanceTimersByTime(1_000))
       expect(screen.getByText(reasoningSummary ?? "正在思考")).toBe(label)
-      expect(screen.queryByRole("button")).toBeNull()
-      expect(container.querySelector(".native-activity-chevron")).toBeNull()
-      expect(screen.queryByRole("list")).toBeNull()
+      expect(
+        container.querySelector('[data-slot="thinking-tool-list"]')
+      ).toBeVisible()
     }
   )
+
+  it("has no empty disclosure before any tool has run", () => {
+    render(
+      <TurnActivityItem source={{ kind: "thinking" }} progress="thinking" />
+    )
+    expect(screen.getByText("正在思考")).toBeVisible()
+    expect(screen.queryByRole("button")).toBeNull()
+  })
 
   it("shows completed history immediately and prevents a delayed tool label from returning", () => {
     const { container, rerender } = render(

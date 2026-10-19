@@ -1912,7 +1912,7 @@ describe("conversation knowledge base snapshots", () => {
     await interaction.keyboard("{Enter}")
 
     await waitFor(() => expect(turnStartAttempts).toBe(1))
-    expect(await screen.findByText("正在思考", { exact: true })).toBeVisible()
+    expect(await screen.findByText("正在启动任务", { exact: true })).toBeVisible()
     await waitFor(() => expect(eventController).toBeDefined())
     const emitCompaction = (
       method: "item/started" | "item/completed",

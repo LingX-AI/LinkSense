@@ -458,6 +458,11 @@ export const zhCN = {
     taskAutoNamingEveryMessage: "每次对话时",
     taskAutoNamingSaved: "任务自动命名设置已保存。",
     personalizationPageDescription: "配置任务命名、自定义指令和记忆偏好。",
+    thinkingDisplay: "思考展示",
+    thinkingDisplayDescription: "选择是否查看任务过程中的思考内容。",
+    showReasoning: "显示思考内容",
+    showReasoningDescription:
+      "开启后，显示模型提供的完整思考正文。部分模型可能不提供，思考摘要始终正常显示。",
     customInstructions: "自定义指令",
     customInstructionsDescription:
       "提供适用于你所有未来任务的额外说明和上下文。任务中的平台规则与安全边界始终优先。",
@@ -2170,6 +2175,7 @@ export const zhCN = {
       expand: "展开思考内容",
       collapse: "收起思考内容",
     },
+    startingTask: "正在启动任务",
     thinking: "正在思考",
     processing: "正在处理",
     elapsed: "用时",
@@ -5110,9 +5116,18 @@ export const zhCN = {
     modelProvider: {
       inUseBySystemSetting:
         "该模型正在被系统设置使用，请先切换或取消相关选择后再删除。",
-      credentialRequired: localizedErrorMessage("MODEL_PROVIDER_CREDENTIAL_REQUIRED", "zh-CN"),
-      discoveryFailed: localizedErrorMessage("MODEL_PROVIDER_DISCOVERY_FAILED", "zh-CN"),
-      connectionFailed: localizedErrorMessage("MODEL_PROVIDER_CONNECTION_FAILED", "zh-CN"),
+      credentialRequired: localizedErrorMessage(
+        "MODEL_PROVIDER_CREDENTIAL_REQUIRED",
+        "zh-CN"
+      ),
+      discoveryFailed: localizedErrorMessage(
+        "MODEL_PROVIDER_DISCOVERY_FAILED",
+        "zh-CN"
+      ),
+      connectionFailed: localizedErrorMessage(
+        "MODEL_PROVIDER_CONNECTION_FAILED",
+        "zh-CN"
+      ),
       managementDisabled: "模型配置已由部署环境锁定，当前只能查看。",
     },
     adminSelfChangeForbidden: "管理员不能禁用自己或降低自己的角色。",

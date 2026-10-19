@@ -6,19 +6,46 @@ import type { StreamingReasoningSummaries } from "@/features/conversations/strea
 
 export type ReasoningActivitySummary = { text: string; createdAt: string }
 
-/** Read the latest visible summary line, without rendering markup or HTML. */
-export function extractReasoningActivityText(content: string): string | null {
-  const blocks = fromMarkdown(content).children
-  for (let index = blocks.length - 1; index >= 0; index -= 1) {
-    const text = toString(blocks[index], { includeHtml: false }).trim()
+type ReasoningTextNode = Readonly<{
+  type: string
+  children?: readonly ReasoningTextNode[]
+}>
+
+/** Read a visible line from native text, without rendering markup or HTML. */
+export function extractReasoningActivityText(
+  content: string,
+  position: "first" | "last" = "last"
+): string | null {
+  function readNode(node: ReasoningTextNode): string | null {
+    if (
+      node.children &&
+      ["root", "blockquote", "list", "listItem"].includes(node.type)
+    ) {
+      const children =
+        position === "first" ? node.children : node.children.toReversed()
+      for (const child of children) {
+        const line = readNode(child)
+        if (line) return line
+      }
+      return null
+    }
+    const text = toString(
+      node.type === "paragraph" || node.type === "heading"
+        ? node.children?.map((child) =>
+            child.type === "break" ? { type: "text", value: "\n" } : child
+          )
+        : node,
+      { includeHtml: false }
+    )
     const lines = text.split(/\r?\n/u)
-    for (let lineIndex = lines.length - 1; lineIndex >= 0; lineIndex -= 1) {
-      const line = lines[lineIndex]?.trim()
+    for (const textLine of position === "first" ? lines : lines.toReversed()) {
+      const line = textLine.trim()
       // A comment opener may arrive across several streaming deltas.
       if (line && !"<!--".startsWith(line)) return line
     }
+    return null
   }
-  return null
+  return readNode(fromMarkdown(content))
 }
 
 export function selectReasoningActivitySummary(

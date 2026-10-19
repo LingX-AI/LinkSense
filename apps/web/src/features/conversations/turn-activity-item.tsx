@@ -6,7 +6,10 @@ import type { ImagePreviewItem } from "@/components/media/image-preview"
 import type { LoadArtifactPreview } from "@/features/conversations/assistant-markdown-image"
 import { ConversationActivityItem } from "@/features/conversations/conversation-activity-item"
 import type { ActivitySummary } from "@/features/conversations/use-activity-summary"
-import { NativeActivityDetails } from "@/features/conversations/native-activity-item"
+import {
+  NativeActivityDetails,
+  NativeActivityItem,
+} from "@/features/conversations/native-activity-item"
 import { NativeActivityIcon } from "@/features/conversations/native-activity-icon"
 import {
   buildNativeActivityViewModel,
@@ -138,7 +141,7 @@ export function TurnActivityItem({
           ? "legacy-activity-item"
           : "native-activity-item"
       }
-      expandable={model?.expandable}
+      expandable={thinking ? effectiveActivities.length > 0 : model?.expandable}
       open={open}
       onOpenChange={onOpenChange}
       capabilityName={
@@ -148,18 +151,38 @@ export function TurnActivityItem({
         model?.commands.length ? "native-command-activity-details" : undefined
       }
     >
-      {model && (
-        <NativeActivityDetails
-          model={model}
-          imageFileId={imageFileId}
-          imageFile={
-            imageFileId
-              ? artifactFilesById?.get(imageFileId.toLowerCase())
-              : undefined
-          }
-          loadArtifactPreview={loadArtifactPreview}
-          onPreviewImage={onPreviewImage}
-        />
+      {thinking && effectiveActivities.length > 0 ? (
+        <ul
+          className="flex list-none flex-col gap-1"
+          data-slot="thinking-tool-list"
+        >
+          {effectiveActivities.map((activity) => (
+            <li key={activity.item.id}>
+              <NativeActivityItem
+                item={activity.item}
+                method={activity.method}
+                stopped={stopped}
+                artifactFilesById={artifactFilesById}
+                loadArtifactPreview={loadArtifactPreview}
+                onPreviewImage={onPreviewImage}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        model && (
+          <NativeActivityDetails
+            model={model}
+            imageFileId={imageFileId}
+            imageFile={
+              imageFileId
+                ? artifactFilesById?.get(imageFileId.toLowerCase())
+                : undefined
+            }
+            loadArtifactPreview={loadArtifactPreview}
+            onPreviewImage={onPreviewImage}
+          />
+        )
       )}
     </ConversationActivityItem>
   )

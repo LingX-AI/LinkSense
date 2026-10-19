@@ -76,6 +76,12 @@ export const settingsMessages = {
     taskAutoNamingSaved: "Preferencia de nombres de tareas guardada.",
     personalizationPageDescription:
       "Configura los nombres de tareas, las instrucciones personalizadas y la memoria.",
+    thinkingDisplay: "Visualización del razonamiento",
+    thinkingDisplayDescription:
+      "Elige si quieres ver el razonamiento durante las tareas.",
+    showReasoning: "Mostrar razonamiento",
+    showReasoningDescription:
+      "Muestra el texto completo del razonamiento del modelo, si está disponible. Los resúmenes breves se muestran en ambos casos.",
     customInstructions: "Instrucciones personalizadas",
     customInstructionsDescription:
       "Añade indicaciones y contexto para todas las tareas futuras. Las reglas de la plataforma y los límites de seguridad de cada tarea siempre tienen prioridad.",

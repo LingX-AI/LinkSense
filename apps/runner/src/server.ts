@@ -870,6 +870,7 @@ export function buildRunnerServer(
       return personalizationSettingsSchema.parse({
         custom_instructions: settings.custom_instructions,
         memories_enabled: settings.memories_enabled,
+        show_reasoning: settings.show_reasoning,
         task_auto_naming: settings.task_auto_naming,
       });
     } catch (error) {
@@ -912,6 +913,7 @@ export function buildRunnerServer(
       return personalizationSettingsSchema.parse({
         custom_instructions: settings.custom_instructions,
         memories_enabled: settings.memories_enabled,
+        show_reasoning: settings.show_reasoning,
         task_auto_naming: settings.task_auto_naming,
       });
     } catch (error) {

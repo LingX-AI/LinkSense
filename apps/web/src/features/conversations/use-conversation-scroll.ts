@@ -46,12 +46,14 @@ export function useConversationScroll(
   {
     preservePositionOnConversationChange = false,
     navigationRef,
+    interactionRef,
   }: {
     preservePositionOnConversationChange?: boolean
     navigationRef?: RefObject<Pick<
       ConversationThreadNavigation,
       "scrollToLatest" | "cancelScroll"
     > | null>
+    interactionRef?: RefObject<HTMLElement | null>
   } = {}
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -420,6 +422,9 @@ export function useConversationScroll(
   useEffect(() => {
     if (!container) return
 
+    // Custom scrollbars may sit beside the viewport. Track gestures at their
+    // common root while measuring and scrolling only the viewport itself.
+    const interactionContainer = interactionRef?.current ?? container
     lastScrollTopRef.current = container.scrollTop
 
     const handleScroll = () => {
@@ -515,17 +520,21 @@ export function useConversationScroll(
 
     container.addEventListener("scroll", handleScroll, { passive: true })
     container.addEventListener("scrollend", handleScrollEnd)
-    container.addEventListener("wheel", handleWheel, { passive: true })
-    container.addEventListener("keydown", handleKeyDown)
-    container.addEventListener("pointerdown", handlePointerDown)
-    container.addEventListener("touchstart", handleTouchStart, {
+    interactionContainer.addEventListener("wheel", handleWheel, {
       passive: true,
     })
-    container.addEventListener("touchmove", handleTouchMove, {
+    interactionContainer.addEventListener("keydown", handleKeyDown)
+    interactionContainer.addEventListener("pointerdown", handlePointerDown)
+    interactionContainer.addEventListener("touchstart", handleTouchStart, {
       passive: true,
     })
-    container.addEventListener("touchend", handleTouchEnd, { passive: true })
-    container.addEventListener("touchcancel", handleTouchEnd, {
+    interactionContainer.addEventListener("touchmove", handleTouchMove, {
+      passive: true,
+    })
+    interactionContainer.addEventListener("touchend", handleTouchEnd, {
+      passive: true,
+    })
+    interactionContainer.addEventListener("touchcancel", handleTouchEnd, {
       passive: true,
     })
     window.addEventListener("pointerup", handlePointerEnd)
@@ -535,13 +544,13 @@ export function useConversationScroll(
     return () => {
       container.removeEventListener("scroll", handleScroll)
       container.removeEventListener("scrollend", handleScrollEnd)
-      container.removeEventListener("wheel", handleWheel)
-      container.removeEventListener("keydown", handleKeyDown)
-      container.removeEventListener("pointerdown", handlePointerDown)
-      container.removeEventListener("touchstart", handleTouchStart)
-      container.removeEventListener("touchmove", handleTouchMove)
-      container.removeEventListener("touchend", handleTouchEnd)
-      container.removeEventListener("touchcancel", handleTouchEnd)
+      interactionContainer.removeEventListener("wheel", handleWheel)
+      interactionContainer.removeEventListener("keydown", handleKeyDown)
+      interactionContainer.removeEventListener("pointerdown", handlePointerDown)
+      interactionContainer.removeEventListener("touchstart", handleTouchStart)
+      interactionContainer.removeEventListener("touchmove", handleTouchMove)
+      interactionContainer.removeEventListener("touchend", handleTouchEnd)
+      interactionContainer.removeEventListener("touchcancel", handleTouchEnd)
       window.removeEventListener("pointerup", handlePointerEnd)
       window.removeEventListener("pointercancel", handlePointerEnd)
       pointerActiveRef.current = false
@@ -552,6 +561,7 @@ export function useConversationScroll(
     cancelScrollAnimation,
     cancelResizeFollow,
     container,
+    interactionRef,
     navigationRef,
     pauseAutoFollow,
     updateButtonVisibility,

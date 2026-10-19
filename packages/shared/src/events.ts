@@ -77,6 +77,7 @@ const runnerCodexEventMethodValues = [
   "serverRequest/resolved",
   "item/reasoning/summaryTextDelta",
   "item/reasoning/summaryPartAdded",
+  "item/reasoning/textDelta",
 ] as const;
 
 const runnerLinkSenseEventMethodValues = ["linksense/form/request"] as const;
@@ -971,6 +972,7 @@ const runnerCodexReasoningItemSchema = z.strictObject({
     )
     .max(runnerCodexPreviewLimits.activityTextParts)
     .optional(),
+  content: z.array(runnerNativeTextSchema).optional(),
 });
 
 const runnerCodexReadCommandActionSchema = z.strictObject({
@@ -1182,9 +1184,9 @@ const runnerCodexContextCompactionItemSchema = z.strictObject({
 
 /**
  * Sanitized, shape-preserving projection of codex app-server ThreadItem.
- * Bounded Codex-authored reasoning summaries and safe command, path, search,
- * prompt, and review previews are allowed. Raw reasoning content, tool
- * inputs/outputs, diffs, command output, working directories, and collaboration
+ * Model-authored reasoning content, bounded summaries, and safe command, path,
+ * search, prompt, and review previews are allowed. Raw tool inputs/outputs,
+ * diffs, command output, working directories, and collaboration
  * prompts, agent ids, status messages, and paths remain absent and therefore
  * fail strict parsing.
  */
@@ -1499,6 +1501,10 @@ const runnerCodexReasoningSummaryDeltaParamsSchema = z.strictObject({
   ),
   summaryIndex: z.number().int().nonnegative(),
 });
+const runnerCodexReasoningTextDeltaParamsSchema = z.strictObject({
+  ...runnerCodexDeltaParamsSchema.shape,
+  contentIndex: z.number().int().nonnegative(),
+});
 
 /**
  * New authenticated Runner -> API events keep the native app-server method and
@@ -1548,6 +1554,10 @@ export const runnerCodexEventSchema = z.discriminatedUnion("method", [
   runnerCodexEvent(
     "item/reasoning/summaryPartAdded",
     runnerCodexReasoningPartParamsSchema,
+  ),
+  runnerCodexEvent(
+    "item/reasoning/textDelta",
+    runnerCodexReasoningTextDeltaParamsSchema,
   ),
 ]);
 
@@ -1651,6 +1661,10 @@ export const nativeConversationEventSchema = z.discriminatedUnion(
       "item/reasoning/summaryPartAdded",
       runnerCodexReasoningPartParamsSchema,
     ),
+    nativeConversationEvent(
+      "item/reasoning/textDelta",
+      runnerCodexReasoningTextDeltaParamsSchema,
+    ),
   ],
 );
 
@@ -1701,24 +1715,28 @@ export const RUNNER_EVENT_BATCH_MAX_COUNT = 64;
 export const RUNNER_EVENT_BATCH_TARGET_BYTES = 256 * 1024;
 
 const runnerTextDeltaBatchIdentitySchema = z.object({
-  method: z.enum(["item/agentMessage/delta", "item/plan/delta", "item/reasoning/summaryTextDelta"]),
+  method: z.enum(["item/agentMessage/delta", "item/plan/delta", "item/reasoning/summaryTextDelta", "item/reasoning/textDelta"]),
   preparation: z.never().optional(),
   params: z.object({
     ...runnerCodexDeltaParamsSchema.shape,
     summaryIndex: z.number().int().nonnegative().optional(),
+    contentIndex: z.number().int().nonnegative().optional(),
   }),
-}).refine(input => input.method !== "item/reasoning/summaryTextDelta" || input.params.summaryIndex !== undefined);
+}).refine(input =>
+  (input.method !== "item/reasoning/summaryTextDelta" || input.params.summaryIndex !== undefined)
+  && (input.method !== "item/reasoning/textDelta" || input.params.contentIndex !== undefined)
+);
 
 /** Explicit eligibility, never a list of events that are required to flush. */
 export function runnerTextDeltaBatchKey(input: unknown): string | null {
   const parsed = runnerTextDeltaBatchIdentitySchema.safeParse(input);
   if (!parsed.success) return null;
   const { method, params } = parsed.data;
-  return JSON.stringify([method, params.threadId, params.turnId, params.itemId, params.summaryIndex ?? null]);
+  return JSON.stringify([method, params.threadId, params.turnId, params.itemId, params.summaryIndex ?? null, params.contentIndex ?? null]);
 }
 
 export type RunnerTextDeltaEvent = Extract<RunnerCodexEvent, {
-  method: "item/agentMessage/delta" | "item/plan/delta" | "item/reasoning/summaryTextDelta";
+  method: "item/agentMessage/delta" | "item/plan/delta" | "item/reasoning/summaryTextDelta" | "item/reasoning/textDelta";
 }>;
 
 export function isRunnerTextDeltaEvent(input: RunnerConversationEvent): input is RunnerTextDeltaEvent {

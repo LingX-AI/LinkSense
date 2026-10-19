@@ -3432,6 +3432,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
             "item/plan/delta",
             "item/reasoning/summaryTextDelta",
             "item/reasoning/summaryPartAdded",
+            "item/reasoning/textDelta",
             "turn/plan/updated",
           ],
         },
@@ -3737,6 +3738,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
             "item/plan/delta",
             "item/reasoning/summaryTextDelta",
             "item/reasoning/summaryPartAdded",
+            "item/reasoning/textDelta",
             "turn/plan/updated",
           ],
         },
@@ -4582,6 +4584,47 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(countQuery.values).toEqual(
       expect.arrayContaining([CONVERSATION_ID, firstTurn.id, secondTurn.id]),
     );
+  });
+
+  it("restores full reasoning and unfinished native deltas outside the bounded tool event window", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(conversationRow({ codexThreadId: "active-thread" }));
+    fixture.prisma.conversationTurn.findMany.mockResolvedValueOnce([turnRow({ id: TURN_ID, codexThreadId: "active-thread" })]);
+    const content = "First paragraph\n\n" + "正文".repeat(5_000);
+    const completed = eventRow({
+      id: "50000000-0000-4000-8000-000000000041", sequenceNo: 1n, turnId: TURN_ID,
+      eventType: "item/completed", visibility: "user_collapsed",
+      payloadJson: { schema_version: 2, source: "codex_app_server", method: "item/completed", params: {
+        threadId: "active-thread", turnId: "native-turn", item: { type: "reasoning", id: "reasoning-1", summary: ["Summary"], content: [content] },
+      } },
+    });
+    const partial = eventRow({
+      id: "50000000-0000-4000-8000-000000000042", sequenceNo: 2n, turnId: TURN_ID,
+      eventType: "item/reasoning/textDelta", visibility: "user_collapsed",
+      payloadJson: { schema_version: 2, source: "codex_app_server", method: "item/reasoning/textDelta", params: {
+        threadId: "active-thread", turnId: "native-turn", itemId: "reasoning-2", contentIndex: 0, delta: "Interrupted partial body",
+      } },
+    });
+    fixture.prisma.conversationEvent.findMany.mockResolvedValue([]);
+    fixture.prisma.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([completed, partial]);
+    const result = await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+    expect(result.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: completed.id, payload: completed.payloadJson }),
+      expect.objectContaining({ id: partial.id, payload: partial.payloadJson }),
+    ]));
+    expect(fixture.prisma.$queryRaw).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      strings: expect.arrayContaining([
+        expect.stringContaining("event.event_type = 'item/reasoning/textDelta'"),
+        expect.stringContaining("NOT EXISTS"),
+        expect.stringContaining("completed.turn_id = event.turn_id"),
+        expect.stringContaining("completed.conversation_id = event.conversation_id"),
+        expect.stringContaining("event.payload_json #>> '{params,item,type}' = 'reasoning'"),
+      ]),
+      values: expect.arrayContaining([CONVERSATION_ID, TURN_ID]),
+    }));
+    expect(fixture.prisma.$queryRaw).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      strings: expect.not.arrayContaining([expect.stringContaining("LIMIT")]),
+    }));
   });
 
   it("strictly validates supplemental native events before returning detail", async () => {
@@ -6946,6 +6989,7 @@ describe("ConversationService pending and turn materialization", () => {
           getPersonalization: vi.fn(async () => ({
             custom_instructions: "",
             memories_enabled: true,
+            show_reasoning: false,
             task_auto_naming: "first_message" as const,
           })),
         },

@@ -497,6 +497,12 @@ export const enUS = {
     taskAutoNamingSaved: "Task naming preference saved.",
     personalizationPageDescription:
       "Configure task naming, custom instructions, and memory preferences.",
+    thinkingDisplay: "Reasoning display",
+    thinkingDisplayDescription:
+      "Choose whether to view reasoning during tasks.",
+    showReasoning: "Show reasoning",
+    showReasoningDescription:
+      "Show the full reasoning text provided by the model, when available. Brief reasoning summaries remain visible either way.",
     customInstructions: "Custom instructions",
     customInstructionsDescription:
       "Provide extra guidance and context for all future tasks. Task-level platform rules and safety boundaries always take precedence.",
@@ -2343,6 +2349,7 @@ export const enUS = {
       expand: "Expand reasoning",
       collapse: "Collapse reasoning",
     },
+    startingTask: "Starting task",
     thinking: "Thinking",
     processing: "Processing",
     elapsed: "Took",
@@ -5573,9 +5580,18 @@ export const enUS = {
     modelProvider: {
       inUseBySystemSetting:
         "This model is used by a system setting. Change or clear that selection before deleting it.",
-      credentialRequired: localizedErrorMessage("MODEL_PROVIDER_CREDENTIAL_REQUIRED", "en-US"),
-      discoveryFailed: localizedErrorMessage("MODEL_PROVIDER_DISCOVERY_FAILED", "en-US"),
-      connectionFailed: localizedErrorMessage("MODEL_PROVIDER_CONNECTION_FAILED", "en-US"),
+      credentialRequired: localizedErrorMessage(
+        "MODEL_PROVIDER_CREDENTIAL_REQUIRED",
+        "en-US"
+      ),
+      discoveryFailed: localizedErrorMessage(
+        "MODEL_PROVIDER_DISCOVERY_FAILED",
+        "en-US"
+      ),
+      connectionFailed: localizedErrorMessage(
+        "MODEL_PROVIDER_CONNECTION_FAILED",
+        "en-US"
+      ),
       managementDisabled:
         "Model configuration is locked by the deployment environment and is read-only.",
     },

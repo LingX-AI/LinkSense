@@ -124,6 +124,7 @@ describe("worker owner isolation", () => {
       payload: {
         custom_instructions: "请优先运行相关单元测试。",
         memories_enabled: false,
+        show_reasoning: false,
         task_auto_naming: "every_message",
       },
     });
@@ -138,12 +139,14 @@ describe("worker owner isolation", () => {
     expect(defaults.json()).toEqual({
       custom_instructions: "",
       memories_enabled: false,
+      show_reasoning: false,
       task_auto_naming: "first_message",
     });
     expect(updated.statusCode).toBe(200);
     expect(updated.json()).toEqual({
       custom_instructions: "请优先运行相关单元测试。",
       memories_enabled: false,
+      show_reasoning: false,
       task_auto_naming: "every_message",
     });
     expect(reset.statusCode).toBe(200);
@@ -162,9 +165,19 @@ describe("worker owner isolation", () => {
     expect(namingOnly.json()).toEqual({
       custom_instructions: "请优先运行相关单元测试。",
       memories_enabled: false,
+      show_reasoning: false,
       task_auto_naming: "first_message",
     });
     expect(refreshOwnerPersonalization).not.toHaveBeenCalled();
+    const reasoningOnly = await server.inject({
+      method: "PATCH", url: "/personalization", headers,
+      payload: { show_reasoning: true },
+    });
+    expect(reasoningOnly.statusCode).toBe(200);
+    expect(reasoningOnly.json()).toMatchObject({ show_reasoning: true, task_auto_naming: "first_message" });
+    expect(refreshOwnerPersonalization).not.toHaveBeenCalled();
+    const reasoningRead = await server.inject({ method: "GET", url: "/personalization", headers });
+    expect(reasoningRead.json().show_reasoning).toBe(true);
     const invalid = await server.inject({
       method: "PATCH",
       url: "/personalization",

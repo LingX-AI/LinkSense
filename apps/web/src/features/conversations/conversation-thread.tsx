@@ -219,6 +219,11 @@ import {
 } from "@/features/conversations/streaming-markdown"
 import type { StreamingReasoningSummaries } from "@/features/conversations/streaming-reasoning-summaries"
 import { selectReasoningActivitySummary } from "@/features/conversations/reasoning-activity-summary"
+import {
+  selectReasoningActivities,
+  type ReasoningActivityContent,
+} from "@/features/conversations/reasoning-activity-content"
+import { ReasoningActivity } from "@/features/conversations/reasoning-activity"
 import { normalizeLanguage } from "@/i18n"
 import { getPublicRuntimeMessage } from "@/lib/public-copy"
 import {
@@ -240,6 +245,7 @@ const emptyKnowledgeBases: KnowledgeBase[] = []
 const emptyApplicationKnowledgeBases: readonly ApplicationKnowledgeBase[] = []
 const emptyModelCatalog: ModelPreference["models"] = []
 const emptyLiveReasoningSummaries: StreamingReasoningSummaries = {}
+const emptyLiveReasoningContentEvents: ConversationEvent[] = []
 
 const newTaskStarterQuestions = [
   {
@@ -3251,6 +3257,14 @@ function getConversationActivityRenderKey(activity: ConversationActivity) {
 type TurnTimelineEntry =
   | {
       id: string
+      kind: "reasoning"
+      activity: ReasoningActivityContent
+      sequence: number
+      createdAt: string
+      fallbackOrder: number
+    }
+  | {
+      id: string
       kind: "thinking"
       sequence?: number
       createdAt?: string
@@ -3457,6 +3471,7 @@ function TurnSummary({
   turn,
   conversationId,
   running,
+  startingTask,
   activityOpen,
   activityCollapseAvailable,
   onActivityOpenChange,
@@ -3485,7 +3500,9 @@ function TurnSummary({
   plan,
   hasProcessedContent,
   hasActiveProcessing,
+  reasoningActivities,
   reasoningSummary,
+  showReasoning,
   hasBlockingRequest,
   hasStreamingResponse,
   completedWithoutOutput,
@@ -3499,6 +3516,7 @@ function TurnSummary({
   turn: ConversationTurn
   conversationId: string
   running: boolean
+  startingTask: boolean
   activityOpen: boolean
   activityCollapseAvailable: boolean
   onActivityOpenChange: (open: boolean) => void
@@ -3527,7 +3545,9 @@ function TurnSummary({
   plan?: ConversationTurnPlan | null
   hasProcessedContent: boolean
   hasActiveProcessing: boolean
+  reasoningActivities: readonly ReasoningActivityContent[]
   reasoningSummary?: string
+  showReasoning: boolean
   hasBlockingRequest: boolean
   hasStreamingResponse: boolean
   completedWithoutOutput: boolean
@@ -3621,6 +3641,14 @@ function TurnSummary({
   const timeline = groupAdjacentNativeSubAgentActivities(
     groupAdjacentNativeToolActivities(
       [
+        ...reasoningActivities.map((activity): TurnTimelineEntry => ({
+          id: `reasoning-${turn.id}-${activity.itemId}`,
+          kind: "reasoning",
+          activity,
+          sequence: activity.sequence,
+          createdAt: activity.createdAt,
+          fallbackOrder: fallbackOrder++,
+        })),
         ...visibleIntermediateMessages.map((message): TurnTimelineEntry => ({
           id: getConversationMessageRenderKey(message),
           kind: "message",
@@ -3703,8 +3731,19 @@ function TurnSummary({
     !hasBlockingRequest &&
     !hasStreamingResponse &&
     !terminalErrorActivity
+  // Commentary can follow reasoning without starting a new processing stage.
+  const currentStage = timeline.findLast(
+    (entry) => entry.kind !== "message" && entry.kind !== "guided_message"
+  )
+  const hasVisibleCurrentReasoning =
+    showReasoning &&
+    currentStage?.kind === "reasoning" &&
+    currentStage.activity.content.trim().length > 0
   const showThinkingActivity =
-    progressAllowed && !hasActiveProcessing && !contextCompactionRunning
+    progressAllowed &&
+    !hasActiveProcessing &&
+    !contextCompactionRunning &&
+    (Boolean(reasoningSummary?.trim()) || !hasVisibleCurrentReasoning)
   const thinkingAfterCompaction =
     showThinkingActivity &&
     nativeActivities.at(-1)?.item.type === "contextCompaction"
@@ -3835,7 +3874,11 @@ function TurnSummary({
       : contextCompactionRunning
         ? t("conversation.processing")
         : initialThinking || thinkingAfterCompaction
-          ? t("conversation.thinking")
+          ? t(
+              initialThinking && startingTask
+                ? "conversation.startingTask"
+                : "conversation.thinking"
+            )
           : interruptedForDisplay
             ? t("statuses.interrupted")
             : turn.status === "failed" ||
@@ -3976,6 +4019,19 @@ function TurnSummary({
                 />
               )}
               {displayTimeline.map((entry, index) => {
+                if (entry.kind === "reasoning") {
+                  if (!showReasoning || !entry.activity.content.trim())
+                    return null
+                  return (
+                    <ReasoningActivity
+                      key={entry.id}
+                      content={entry.activity.content}
+                      turnRunning={visuallyRunning}
+                      running={visuallyRunning && entry.activity.running}
+                      streaming={visuallyRunning && entry.activity.running}
+                    />
+                  )
+                }
                 if (
                   entry.kind === "native_activity" ||
                   entry.kind === "native_tool_group" ||
@@ -4031,10 +4087,10 @@ function TurnSummary({
                       : undefined
                   return (
                     <TurnActivityItem
-                      key={`activity-after-${displayTimeline[index - 1]?.id ?? turn.id}`}
+                      key={`activity-after-${(entry.kind === "thinking" ? displayTimeline.slice(0, index).findLast((previous) => previous.kind !== "reasoning")?.id : displayTimeline[index - 1]?.id) ?? turn.id}`}
                       source={source}
-                      progress={progress}
                       reasoningSummary={reasoningSummary}
+                      progress={progress}
                       stopped={
                         !running ||
                         nativeReconnectFailed ||
@@ -4238,10 +4294,13 @@ function TurnSummary({
 
 export function ConversationThread({
   conversation,
+  startingTaskTurnId,
   knowledgeBases = emptyKnowledgeBases,
   applicationKnowledgeBases = emptyApplicationKnowledgeBases,
   modelCatalog = emptyModelCatalog,
   liveReasoningSummaries = emptyLiveReasoningSummaries,
+  liveReasoningContentEvents = emptyLiveReasoningContentEvents,
+  showReasoning = false,
   nativeReconnectState,
   reconcilingCompletedTurnId,
   loadAttachmentPreview,
@@ -4280,10 +4339,13 @@ export function ConversationThread({
   history,
 }: {
   conversation: Conversation
+  startingTaskTurnId?: string
   knowledgeBases?: KnowledgeBase[]
   applicationKnowledgeBases?: readonly ApplicationKnowledgeBase[]
   modelCatalog?: ModelPreference["models"]
   liveReasoningSummaries?: StreamingReasoningSummaries
+  liveReasoningContentEvents?: readonly ConversationEvent[]
+  showReasoning?: boolean
   nativeReconnectState?: NativeReconnectDisplayState | null
   reconcilingCompletedTurnId?: string
   loadAttachmentPreview?: LoadAttachmentPreview
@@ -4748,6 +4810,11 @@ export function ConversationThread({
       liveReasoningSummaries,
       turnNativeEvents
     )
+    const reasoningActivities = selectReasoningActivities(
+      turn.id,
+      liveReasoningContentEvents,
+      turnNativeEvents
+    )
     const processedAssistantMessages = turnAssistantMessages.filter(
       (message) =>
         message.content.trim().length > 0 ||
@@ -4804,6 +4871,9 @@ export function ConversationThread({
       visiblePlanEvents.length > 0 ||
       turnLiveReasoningSummaries.length > 0 ||
       Boolean(reasoningSummary) ||
+      reasoningActivities.some(
+        (activity) => activity.content.trim().length > 0
+      ) ||
       turnTerminalFormRequests.length > 0 ||
       turnArtifacts.length > 0
     // Reasoning labels the fallback; it must not count as a separate active
@@ -4825,6 +4895,7 @@ export function ConversationThread({
       ...visiblePlanEvents.map((event) => event.created_at),
       ...turnLiveReasoningSummaries.map((summary) => summary.createdAt),
       reasoningSummary?.createdAt,
+      ...reasoningActivities.map((activity) => activity.createdAt),
       ...turnTerminalFormRequests.map((request) => request.created_at),
       ...turnArtifacts.map((artifact) => artifact.created_at),
     ])
@@ -4893,8 +4964,11 @@ export function ConversationThread({
             : undefined
         }
         hasProcessedContent={hasProcessedContent}
+        startingTask={startingTaskTurnId === turn.id}
         hasActiveProcessing={hasActiveProcessing}
+        reasoningActivities={reasoningActivities}
         reasoningSummary={reasoningSummary?.text}
+        showReasoning={showReasoning}
         hasBlockingRequest={conversation.user_input_requests.some(
           (request) =>
             request.kind !== "async_questions" &&

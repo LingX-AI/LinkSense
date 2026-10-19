@@ -32,7 +32,8 @@ describe("ConversationSubAgentDetail", () => {
   function renderDetail(
     onClose = vi.fn(),
     agentStatus: "running" | "completed" = "completed",
-    runtimeStatus?: "running" | "completed"
+    runtimeStatus?: "running" | "completed",
+    showReasoning = false
   ) {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -40,6 +41,7 @@ describe("ConversationSubAgentDetail", () => {
     const result = render(
       <QueryClientProvider client={queryClient}>
         <ConversationSubAgentDetail
+          showReasoning={showReasoning}
           selection={{
             conversationId,
             turnId,
@@ -64,6 +66,44 @@ describe("ConversationSubAgentDetail", () => {
     expect(subAgentDetailRefetchInterval(undefined, "started")).toBe(1_500)
     expect(subAgentDetailRefetchInterval(undefined, "completed")).toBe(false)
   })
+
+  it.each([false, true])(
+    "uses the reasoning display preference for child thread snapshots: %s",
+    async (showReasoning) => {
+      vi.mocked(apiRequest).mockResolvedValueOnce({
+        agentKey: agentId,
+        status: "completed",
+        turns: [
+          {
+            status: "completed",
+            durationMs: 1_000,
+            items: [
+              {
+                type: "reasoning",
+                id: "detail-1",
+                summary: ["Child summary"],
+                content: ["Complete child reasoning body"],
+              },
+              {
+                type: "agentMessage",
+                id: "detail-2",
+                phase: "final_answer",
+                text: "Child finished.",
+              },
+            ],
+          },
+        ],
+      })
+      renderDetail(vi.fn(), "completed", undefined, showReasoning)
+      expect(await screen.findByText("Child finished.")).toBeVisible()
+      if (showReasoning)
+        expect(
+          await screen.findByText("Complete child reasoning body")
+        ).toBeVisible()
+      else
+        expect(screen.queryByText("Complete child reasoning body")).toBeNull()
+    }
+  )
 
   it("uses the detail runtime status once it is available", () => {
     expect(subAgentDetailRefetchInterval("running", "completed")).toBe(1_500)

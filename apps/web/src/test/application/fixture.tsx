@@ -9,7 +9,10 @@ import { cleanup, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeAll, beforeEach, vi } from "vitest"
-import { isLocale } from "@linksense/shared"
+import {
+  isLocale,
+  updatePersonalizationSettingsSchema,
+} from "@linksense/shared"
 
 const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(
   URL,
@@ -432,6 +435,7 @@ function capabilityPreviewResponse() {
 }
 
 function installApiMock(options?: {
+  showReasoning?: boolean
   conversationSourcesResponse?: () => Response | Promise<Response>
   initialized?: boolean
   initializationCredentialRequired?: boolean
@@ -525,6 +529,12 @@ function installApiMock(options?: {
     body?: unknown
   }[] = []
   let currentLanguage = options?.initialLanguage ?? "zh-CN"
+  let personalization = {
+    custom_instructions: "",
+    memories_enabled: false,
+    task_auto_naming: "first_message",
+    show_reasoning: options?.showReasoning ?? false,
+  }
   let currentRunningMessageAction =
     options?.userOverride?.running_message_action ?? user.running_message_action
   let pendingRequests = Array.isArray(
@@ -764,6 +774,14 @@ function installApiMock(options?: {
       }
       if (path === "/api/v1/automations" && method === "GET") {
         return json({ success: true, data: { items: [] } })
+      }
+      if (path === "/api/v1/me/personalization") {
+        if (method === "PATCH")
+          personalization = {
+            ...personalization,
+            ...updatePersonalizationSettingsSchema.parse(requestBody),
+          }
+        return json({ success: true, data: personalization })
       }
       if (path === "/api/v1/me") {
         if (method === "PATCH" && typeof init?.body === "string") {

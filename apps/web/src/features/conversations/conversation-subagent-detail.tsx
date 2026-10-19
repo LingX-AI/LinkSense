@@ -41,11 +41,13 @@ export function ConversationSubAgentDetail({
   agent,
   runtimeStatus,
   onClose,
+  showReasoning = false,
 }: {
   selection: ConversationSubAgentSelection
   agent?: NativeSubAgentViewModel
   runtimeStatus?: NativeSubAgentDetail["status"]
   onClose: () => void
+  showReasoning?: boolean
 }) {
   const { t } = useTranslation()
   const fallbackAgentName =
@@ -142,6 +144,7 @@ export function ConversationSubAgentDetail({
           <EmptyState title={t("conversation.subAgentActivities.noDetails")} />
         ) : subAgentConversation ? (
           <ConversationThread
+            showReasoning={showReasoning}
             conversation={subAgentConversation}
             onDownload={ignoreSubAgentDownload}
             editingDisabled

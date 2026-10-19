@@ -6710,7 +6710,7 @@ button.annotation-hover-file:focus-visible {
   align-items: center;
   justify-content: flex-start;
   border-radius: 0;
-  padding: 2px 2px 0;
+  padding: 2px 0 0;
   text-align: left;
 }
 
@@ -6856,27 +6856,20 @@ button.annotation-hover-file:focus-visible {
   align-items: flex-start;
 }
 
-.reasoning-activity-collapsible {
-  width: min(100%, 48rem);
-  max-width: 100%;
-}
-
 .reasoning-activity-row {
   width: 100%;
+  font-size: var(--app-ui-font-size);
+  font-weight: 500;
+  line-height: var(--app-ui-copy-line-height);
 }
 
-.reasoning-activity-row[data-open="false"] {
+.reasoning-activity-row[data-expanded="false"] {
   align-items: center;
 }
 
-.reasoning-activity-row[data-open="false"] > .reasoning-activity-icon,
-.reasoning-activity-row[data-open="false"] .reasoning-activity-trigger {
+.reasoning-activity-row[data-expanded="false"] > .reasoning-activity-icon,
+.reasoning-activity-row[data-expanded="false"] .reasoning-activity-trigger {
   margin-top: 0;
-}
-
-.reasoning-activity-row[data-open="false"] .reasoning-activity-content {
-  flex: 0 0 auto;
-  align-items: center;
 }
 
 .reasoning-activity-content {
@@ -6890,25 +6883,13 @@ button.annotation-hover-file:focus-visible {
   overflow: visible;
 }
 
-.reasoning-activity-collapsed-label {
-  font-weight: 500;
-}
-
 .reasoning-activity-trigger {
-  display: inline-flex;
-  width: 24px;
-  height: 24px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  margin-top: 3px;
   border-radius: 6px;
   color: color-mix(in srgb, var(--app-muted) 72%, transparent);
   outline: none;
 }
 
 .reasoning-activity-trigger:hover {
-  background: color-mix(in srgb, var(--app-muted) 6%, transparent);
   color: color-mix(in srgb, var(--app-muted) 88%, var(--app-text));
 }
 
@@ -7087,8 +7068,6 @@ button.annotation-hover-file:focus-visible {
 
 .native-activity-trigger {
   display: inline-flex;
-  width: fit-content;
-  max-width: 100%;
   min-height: 28px;
   align-items: center;
   justify-content: flex-start;

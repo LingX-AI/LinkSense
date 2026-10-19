@@ -14,6 +14,7 @@ import { MemoryRouter } from "react-router-dom"
 import type {
   CapabilitySummary,
   Conversation,
+  ConversationEvent,
   NativeCodexItem,
 } from "@/api/contracts"
 import { downloadApiFile } from "@/api/client"
@@ -3973,6 +3974,72 @@ describe("conversation turn responses", () => {
     expect(screen.getByText("工具调用已完成")).toBeVisible()
   })
 
+  it.each([
+    ["zh-CN", "正在启动任务"],
+    ["en-US", "Starting task"],
+    ["es-ES", "Iniciando la tarea"],
+    ["pt-BR", "Iniciando a tarefa"],
+    ["fr-FR", "Démarrage de la tâche"],
+    ["ja-JP", "タスクを開始中"],
+  ])(
+    "shows startup only during the first cold start in %s with Chinese fallback",
+    async (language, startingLabel) => {
+      await i18n.changeLanguage(language)
+      const runningTurn = {
+        id: "turn-starting",
+        status: "running" as const,
+      }
+      const conversation = {
+        ...completedConversation,
+        messages: [
+          {
+            ...completedConversation.messages![0]!,
+            turn_id: runningTurn.id,
+          },
+        ],
+        turns: [runningTurn],
+        running_turn: runningTurn,
+      }
+      const { rerender } = render(
+        <ConversationThread
+          conversation={conversation}
+          startingTaskTurnId={runningTurn.id}
+          onDownload={vi.fn()}
+        />
+      )
+
+      const summary = screen.getByTestId(`turn-summary-${runningTurn.id}`)
+      expect(
+        within(summary).getByText(startingLabel, { exact: true })
+      ).toBeVisible()
+      expect(
+        within(summary).queryByText(i18n.t("conversation.thinking"), {
+          exact: true,
+        })
+      ).toBeNull()
+      expect(summary.querySelector(".turn-duration")).toBeNull()
+
+      rerender(
+        <ConversationThread conversation={conversation} onDownload={vi.fn()} />
+      )
+      expect(
+        within(summary).queryByText(startingLabel, { exact: true })
+      ).toBeNull()
+      expect(
+        within(summary).getByText(i18n.t("conversation.thinking"), {
+          exact: true,
+        })
+      ).toBeVisible()
+
+      const fallback = i18n.cloneInstance({ forkResourceStore: true })
+      if (language !== "zh-CN")
+        fallback.removeResourceBundle(language, "translation")
+      expect(fallback.t("conversation.startingTask", { lng: language })).toBe(
+        "正在启动任务"
+      )
+    }
+  )
+
   it("shows thinking without a timer until the first assistant output arrives", () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T08:00:00.500Z"))
@@ -4060,6 +4127,9 @@ describe("conversation turn responses", () => {
     expect(
       processingStatus.closest(".turn-summary-heading")
     ).not.toHaveAttribute("data-initial-thinking")
+    expect(
+      within(summary).queryByText("正在启动任务", { exact: true })
+    ).toBeNull()
     expect(within(summary).queryByText("正在思考", { exact: true })).toBeNull()
     expect(summary.querySelector(".turn-duration")).toBeNull()
 
@@ -4338,7 +4408,7 @@ describe("conversation turn responses", () => {
     }
   )
 
-  it("shows thinking without a tool disclosure while a plan is running", () => {
+  it("expands the current stage's tools from thinking while a plan is running", () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T08:00:23.000Z"))
     const runningTurn = {
@@ -4394,19 +4464,80 @@ describe("conversation turn responses", () => {
     expect(thinkingRow).toHaveAttribute("role", "status")
     expect(thinkingRow).toHaveAttribute("aria-busy", "true")
     expect(summary.querySelectorAll(".native-activity-item")).toHaveLength(1)
-    expect(
-      within(summary).queryByRole("button", {
-        name: i18n.t("conversation.nativeActivityDetails.expand", {
-          activity: "正在思考",
-        }),
-      })
-    ).toBeNull()
-    expect(summary.querySelector(".native-activity-chevron")).toBeNull()
-    fireEvent.click(thinking)
+    const thinkingTrigger = within(summary).getByRole("button", {
+      name: i18n.t("conversation.nativeActivityDetails.expand", {
+        activity: "正在思考",
+      }),
+    })
+    expect(thinkingTrigger).toHaveAttribute("aria-expanded", "false")
+    expect(summary.querySelector(".native-activity-chevron")).toHaveClass(
+      "group-hover:opacity-100"
+    )
+    fireEvent.click(thinkingTrigger)
+    expect(thinkingTrigger).toHaveAttribute("aria-expanded", "true")
+    expect(within(summary).getByText("运行了一个命令")).toBeVisible()
     expect(within(summary).queryByText("pnpm test")).toBeNull()
     expect(within(summary).getByText("正在思考", { exact: true })).toBe(
       thinking
     )
+  })
+
+  it("keeps the thinking tool list scoped to the current stage when reasoning is hidden", () => {
+    const turn = {
+      ...completedConversation.turns![0]!,
+      status: "running" as const,
+      completed_at: null,
+    }
+    const { container } = render(
+      <ConversationThread
+        conversation={{
+          ...completedConversation,
+          messages: [completedConversation.messages![0]!],
+          turns: [turn],
+          running_turn: turn,
+          events: [
+            nativeLifecycleEvent({
+              id: "old-command",
+              itemId: "old",
+              sequence: 1,
+              method: "item/completed",
+              status: "completed",
+              command: "pnpm old-stage",
+            }),
+            nativeReasoningEvent({
+              id: "boundary",
+              itemId: "reasoning-stage",
+              sequence: 2,
+              method: "item/completed",
+              content: ["Hidden reasoning boundary"],
+            }),
+            nativeLifecycleEvent({
+              id: "current-command",
+              itemId: "current",
+              sequence: 3,
+              method: "item/completed",
+              status: "completed",
+              command: "pnpm current-stage",
+            }),
+          ],
+        }}
+        onDownload={vi.fn()}
+      />
+    )
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: i18n.t("conversation.nativeActivityDetails.expand", {
+          activity: "正在思考",
+        }),
+      })
+    )
+    const list = container.querySelector('[data-slot="thinking-tool-list"]')!
+    fireEvent.click(within(list as HTMLElement).getByRole("button"))
+    expect(
+      within(list as HTMLElement).getByText("pnpm current-stage")
+    ).toBeVisible()
+    expect(within(list as HTMLElement).queryByText("pnpm old-stage")).toBeNull()
+    expect(screen.queryByText("Hidden reasoning boundary")).toBeNull()
   })
 
   it("keeps thinking visible while named subagents work in the background", () => {
@@ -6652,6 +6783,421 @@ describe("conversation turn responses", () => {
     ).toHaveLength(1)
   })
 
+  it("shows persisted reasoning only after explicit opt-in and hides it immediately when disabled", () => {
+    const conversation: Conversation = {
+      ...completedConversation,
+      events: [
+        nativeReasoningEvent({
+          id: "reasoning-final",
+          itemId: "reasoning-1",
+          sequence: 3,
+          method: "item/completed",
+          summary: ["Short summary"],
+          content: ["First reasoning paragraph", "Second reasoning paragraph"],
+        }),
+      ],
+    }
+    const { rerender, container } = render(
+      <ConversationThread conversation={conversation} onDownload={vi.fn()} />
+    )
+    expect(screen.queryByText("First reasoning paragraph")).toBeNull()
+    rerender(
+      <ConversationThread
+        conversation={conversation}
+        showReasoning
+        onDownload={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: "展开中间过程" }))
+    expect(screen.getByText("First reasoning paragraph")).toBeVisible()
+    expect(screen.queryByText("Second reasoning paragraph")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "展开思考内容" }))
+    expect(screen.getByText("Second reasoning paragraph")).toBeVisible()
+    expect(container.querySelectorAll(".reasoning-activity-row")).toHaveLength(
+      1
+    )
+    rerender(
+      <ConversationThread conversation={conversation} onDownload={vi.fn()} />
+    )
+    expect(screen.queryByText("First reasoning paragraph")).toBeNull()
+    expect(container.querySelector(".reasoning-activity-row")).toBeNull()
+  })
+
+  it.each(["item/started", "item/completed"] as const)(
+    "hides the thinking placeholder when the current reasoning content is visible after %s, including after commentary",
+    (method) => {
+      const turn = {
+        ...completedConversation.turns![0]!,
+        status: "running" as const,
+        completed_at: null,
+      }
+      render(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            messages: [
+              completedConversation.messages![0]!,
+              {
+                id: "commentary-after-reasoning",
+                role: "assistant",
+                turn_id: turn.id,
+                phase: "commentary",
+                event_sequence_no: 3,
+                content: "现在开始生成演示文稿。",
+                created_at: "2026-07-11T08:00:03.000Z",
+              },
+            ],
+            turns: [turn],
+            running_turn: turn,
+            events: [
+              nativeLifecycleEvent({
+                id: "previous-tool",
+                sequence: 1,
+                method: "item/completed",
+                status: "completed",
+              }),
+              nativeReasoningEvent({
+                id: "current-reasoning",
+                itemId: "reasoning-current",
+                sequence: 2,
+                method,
+                content: ["Let me write the script now."],
+              }),
+            ],
+          }}
+          showReasoning
+          onDownload={vi.fn()}
+        />
+      )
+
+      expect(screen.getByText("Let me write the script now.")).toBeVisible()
+      expect(screen.getByText("现在开始生成演示文稿。")).toBeVisible()
+      expect(screen.getByText("运行了一个命令")).toBeVisible()
+      expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
+    }
+  )
+
+  it.each(supportedLanguages)(
+    "updates the thinking placeholder immediately when reasoning visibility changes in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const turn = {
+        ...completedConversation.turns![0]!,
+        status: "running" as const,
+        completed_at: null,
+      }
+      const conversation: Conversation = {
+        ...completedConversation,
+        messages: [completedConversation.messages![0]!],
+        turns: [turn],
+        running_turn: turn,
+        events: [
+          nativeReasoningEvent({
+            id: "current-reasoning",
+            itemId: "reasoning-current",
+            sequence: 2,
+            method: "item/started",
+            content: ["Current full thought"],
+          }),
+        ],
+      }
+      const { rerender } = render(
+        <ConversationThread conversation={conversation} onDownload={vi.fn()} />
+      )
+      const thinkingLabel = i18n.t("conversation.thinking")
+      expect(screen.getByText(thinkingLabel, { exact: true })).toBeVisible()
+      expect(screen.queryByText("Current full thought")).toBeNull()
+
+      rerender(
+        <ConversationThread
+          conversation={conversation}
+          showReasoning
+          onDownload={vi.fn()}
+        />
+      )
+      expect(screen.getByText("Current full thought")).toBeVisible()
+      expect(screen.queryByText(thinkingLabel, { exact: true })).toBeNull()
+
+      rerender(
+        <ConversationThread conversation={conversation} onDownload={vi.fn()} />
+      )
+      expect(screen.getByText(thinkingLabel, { exact: true })).toBeVisible()
+      expect(screen.queryByText("Current full thought")).toBeNull()
+    }
+  )
+
+  it.each([{ content: [] }, { content: [" \n "] }])(
+    "keeps thinking for a new empty reasoning stage until its first content delta arrives: $content",
+    ({ content }) => {
+      const turn = {
+        ...completedConversation.turns![0]!,
+        status: "running" as const,
+        completed_at: null,
+      }
+      const conversation: Conversation = {
+        ...completedConversation,
+        messages: [completedConversation.messages![0]!],
+        turns: [turn],
+        running_turn: turn,
+        events: [
+          nativeReasoningEvent({
+            id: "previous-reasoning",
+            itemId: "reasoning-previous",
+            sequence: 1,
+            method: "item/completed",
+            content: ["Previous stage thought"],
+          }),
+          nativeReasoningEvent({
+            id: "next-reasoning",
+            itemId: "reasoning-next",
+            sequence: 2,
+            method: "item/started",
+            content,
+          }),
+        ],
+      }
+      const { rerender } = render(
+        <ConversationThread
+          conversation={conversation}
+          showReasoning
+          onDownload={vi.fn()}
+        />
+      )
+      expect(screen.getByText("Previous stage thought")).toBeVisible()
+      expect(screen.getByText("正在思考", { exact: true })).toBeVisible()
+
+      const delta: ConversationEvent = {
+        id: "next-reasoning-delta",
+        type: "item/reasoning/textDelta",
+        turn_id: turn.id,
+        sequence_no: 3,
+        created_at: "2026-07-11T08:00:03.000Z",
+        payload: {
+          schema_version: 2,
+          source: "codex_app_server",
+          method: "item/reasoning/textDelta",
+          params: {
+            threadId: "thread-1",
+            turnId: turn.id,
+            itemId: "reasoning-next",
+            contentIndex: 0,
+            delta: "Next stage thought",
+          },
+        },
+      }
+      rerender(
+        <ConversationThread
+          conversation={conversation}
+          showReasoning
+          liveReasoningContentEvents={[delta]}
+          onDownload={vi.fn()}
+        />
+      )
+      expect(screen.getByText("Next stage thought")).toBeVisible()
+      expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
+    }
+  )
+
+  it("restores thinking for the next tool stage without hiding earlier reasoning or the current tool list", () => {
+    const turn = {
+      ...completedConversation.turns![0]!,
+      status: "running" as const,
+      completed_at: null,
+    }
+    const conversation: Conversation = {
+      ...completedConversation,
+      messages: [completedConversation.messages![0]!],
+      turns: [turn],
+      running_turn: turn,
+      events: [
+        nativeReasoningEvent({
+          id: "previous-reasoning",
+          itemId: "reasoning-previous",
+          sequence: 1,
+          method: "item/completed",
+          content: ["Previous stage thought"],
+        }),
+      ],
+    }
+    const { rerender } = render(
+      <ConversationThread
+        conversation={conversation}
+        showReasoning
+        onDownload={vi.fn()}
+      />
+    )
+    expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
+
+    rerender(
+      <ConversationThread
+        conversation={{
+          ...conversation,
+          events: [
+            ...conversation.events!,
+            nativeLifecycleEvent({
+              id: "next-tool-completed",
+              itemId: "next-tool",
+              sequence: 2,
+              method: "item/completed",
+              status: "completed",
+              command: "pnpm next-stage",
+            }),
+          ],
+        }}
+        showReasoning
+        onDownload={vi.fn()}
+      />
+    )
+    expect(screen.getByText("Previous stage thought")).toBeVisible()
+    expect(screen.getByText("正在思考", { exact: true })).toBeVisible()
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: i18n.t("conversation.nativeActivityDetails.expand", {
+          activity: "正在思考",
+        }),
+      })
+    )
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: i18n.t("conversation.nativeActivityDetails.expand", {
+          activity: "运行了一个命令",
+        }),
+      })
+    )
+    expect(screen.getByText("pnpm next-stage")).toBeVisible()
+  })
+
+  it("uses the latest reasoning line until the whole turn ends, then defaults to its first line", () => {
+    const turn = {
+      ...completedConversation.turns![0]!,
+      status: "running" as const,
+      completed_at: null,
+    }
+    const events = [
+      nativeReasoningEvent({
+        id: "reasoning-stage-completed",
+        itemId: "reasoning-stage",
+        sequence: 3,
+        method: "item/completed",
+        content: ["Earliest thought", "Latest thought"],
+      }),
+    ]
+    const { rerender } = render(
+      <ConversationThread
+        conversation={{
+          ...completedConversation,
+          messages: [completedConversation.messages![0]!],
+          turns: [turn],
+          running_turn: turn,
+          events,
+        }}
+        showReasoning
+        onDownload={vi.fn()}
+      />
+    )
+    expect(screen.getByText("Latest thought")).toHaveClass("truncate")
+    expect(screen.queryByText("Earliest thought")).toBeNull()
+
+    rerender(
+      <ConversationThread
+        conversation={{ ...completedConversation, events }}
+        showReasoning
+        onDownload={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: "展开中间过程" }))
+    expect(screen.getByText("Earliest thought")).toHaveClass("truncate")
+    expect(screen.queryByText("Latest thought")).toBeNull()
+  })
+
+  it("streams reasoning sections once and replaces them with the final snapshot after opt-in", async () => {
+    const turn = {
+      ...completedConversation.turns![0]!,
+      status: "running" as const,
+      completed_at: null,
+    }
+    const conversation = {
+      ...completedConversation,
+      messages: [completedConversation.messages![0]!],
+      turns: [turn],
+      running_turn: turn,
+    }
+    const liveReasoningContentEvents = [
+      "First live section",
+      "Second live section",
+    ].map((delta, contentIndex): ConversationEvent => ({
+      id: `live-full-${contentIndex}`,
+      type: "item/reasoning/textDelta",
+      turn_id: "turn-1",
+      sequence_no: contentIndex + 3,
+      created_at: "2026-07-11T08:00:03.000Z",
+      payload: {
+        schema_version: 2,
+        source: "codex_app_server",
+        method: "item/reasoning/textDelta",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "reasoning-1",
+          contentIndex,
+          delta,
+        },
+      },
+    }))
+    const { rerender, container } = render(
+      <ConversationThread
+        conversation={conversation}
+        showReasoning
+        liveReasoningContentEvents={liveReasoningContentEvents}
+        onDownload={vi.fn()}
+      />
+    )
+    const row = container.querySelector(".reasoning-activity-row")!
+    expect(
+      within(row as HTMLElement).getByText("Second live section")
+    ).toHaveClass("truncate")
+    fireEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "展开思考内容" })
+    )
+    expect(
+      within(row as HTMLElement).getByText("First live section")
+    ).toBeVisible()
+    expect(
+      within(row as HTMLElement).getByText("Second live section")
+    ).toBeVisible()
+    rerender(
+      <ConversationThread
+        conversation={{
+          ...conversation,
+          events: [
+            nativeReasoningEvent({
+              id: "finished-reasoning",
+              itemId: "reasoning-1",
+              sequence: 5,
+              method: "item/completed",
+              summary: ["Short summary"],
+              content: ["Finished reasoning"],
+            }),
+          ],
+        }}
+        showReasoning
+        liveReasoningContentEvents={liveReasoningContentEvents}
+        onDownload={vi.fn()}
+      />
+    )
+    expect(container.querySelector(".reasoning-activity-row")).toBe(row)
+    expect(container).toHaveTextContent("Finished reasoning")
+    expect(
+      await within(row as HTMLElement).findByText("Finished reasoning")
+    ).toBeVisible()
+    expect(
+      within(row as HTMLElement).queryByText("First live section")
+    ).toBeNull()
+    expect(container.querySelectorAll(".reasoning-activity-row")).toHaveLength(
+      1
+    )
+  })
+
   it("filters persisted Codex reasoning summaries from the timeline", () => {
     render(
       <ConversationThread
@@ -8189,12 +8735,14 @@ function nativeReasoningEvent({
   sequence,
   method,
   summary,
+  content,
 }: {
   id: string
   itemId: string
   sequence: number
   method: "item/started" | "item/completed"
   summary?: string[]
+  content?: string[]
 }) {
   return {
     id,
@@ -8213,6 +8761,7 @@ function nativeReasoningEvent({
           id: itemId,
           type: "reasoning" as const,
           ...(summary ? { summary } : {}),
+          ...(content ? { content } : {}),
         },
       },
     },

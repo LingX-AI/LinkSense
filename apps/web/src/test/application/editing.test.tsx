@@ -649,6 +649,7 @@ describe("LinkSense application", () => {
       within(optimisticUserMessage as HTMLElement).getByText("立即显示这条消息")
     ).toBeVisible()
     expect(screen.getByText("正在思考", { exact: true })).toBeVisible()
+    expect(screen.queryByText("正在启动任务", { exact: true })).toBeNull()
     expect(screen.queryByText("正在准备执行…")).toBeNull()
     const stop = screen.getByRole("button", { name: "停止" })
     expect(stop).toBeEnabled()

@@ -466,6 +466,7 @@ const CONVERSATION_DETAIL_TRANSIENT_EVENT_TYPES = [
   "item/plan/delta",
   "item/reasoning/summaryTextDelta",
   "item/reasoning/summaryPartAdded",
+  "item/reasoning/textDelta",
   "turn/plan/updated",
 ] as const;
 const USER_MESSAGE_DISPLAY_EVENT_TYPE = "conversation.message.display_context";
@@ -2530,6 +2531,7 @@ export class ConversationService {
       indexMessages,
       developmentRoles,
       deletedApplication,
+      reasoningEvents,
     ] = await Promise.all([
       this.prisma.conversationMessage.findMany({
         where: { conversationId, turnId: { in: messageTurnIds } },
@@ -2600,6 +2602,7 @@ export class ConversationService {
             select: { id: true },
           })
         : null,
+      this.findReasoningEvents(conversationId, messageTurnIds),
     ]);
     const firstUserByTurn = new Map<string, (typeof indexMessages)[number]>();
     const turnsWithContent = new Set<string>();
@@ -2712,7 +2715,7 @@ export class ConversationService {
         (event) =>
           !isSupersededPlanOutputMissingEvent(event, planReviewTurnIds),
       ),
-      latestPlanEvents,
+      [...latestPlanEvents, ...reasoningEvents],
     );
     // Event ingestion commits the native terminal notification and the local
     // turn transition atomically. Detail reads span several independent
@@ -3127,6 +3130,45 @@ export class ConversationService {
       .parse(rows);
     for (const row of parsedRows) projectStoredEvent(row);
     return parsedRows;
+  }
+
+  /** Full reasoning survives the bounded tool window, including interrupted streams. */
+  private async findReasoningEvents(
+    conversationId: string,
+    turnIds: string[],
+  ): Promise<ConversationDetailEventRow[]> {
+    if (turnIds.length === 0) return [];
+    const rows = await this.prisma.$queryRaw<unknown[]>(Prisma.sql`
+      SELECT event.id, event.conversation_id AS "conversationId",
+        event.turn_id AS "turnId", event.sequence_no AS "sequenceNo",
+        event.event_type AS "eventType", event.visibility,
+        event.payload_json AS "payloadJson", event.sse_event_id AS "sseEventId",
+        event.created_at AS "createdAt"
+      FROM conversation_events AS event
+      WHERE event.conversation_id = CAST(${conversationId} AS uuid)
+        AND event.turn_id IN (${Prisma.join(turnIds.map((id) => Prisma.sql`CAST(${id} AS uuid)`))})
+        AND event.visibility IN ('user_visible', 'user_collapsed')
+        AND (
+          (event.event_type IN ('item/started', 'item/completed')
+            AND event.payload_json #>> '{params,item,type}' = 'reasoning')
+          OR (event.event_type = 'item/reasoning/textDelta' AND NOT EXISTS (
+            SELECT 1 FROM conversation_events AS completed
+            WHERE completed.conversation_id = event.conversation_id
+              AND completed.turn_id = event.turn_id
+              AND completed.event_type = 'item/completed'
+              AND completed.payload_json #>> '{params,item,type}' = 'reasoning'
+              AND completed.payload_json #>> '{params,item,id}' = event.payload_json #>> '{params,itemId}'
+              AND completed.sequence_no > event.sequence_no
+          ))
+        )
+      ORDER BY event.sequence_no ASC
+    `);
+    const rowSchema = rawPlanEventRowSchema.extend({
+      eventType: z.enum(["item/started", "item/completed", "item/reasoning/textDelta"]),
+    }).refine((row) => row.conversationId === conversationId && turnIds.includes(row.turnId));
+    const parsed = z.array(rowSchema).parse(rows);
+    for (const row of parsed) projectStoredEvent(row);
+    return parsed;
   }
 
   private async countTurnFileChanges(

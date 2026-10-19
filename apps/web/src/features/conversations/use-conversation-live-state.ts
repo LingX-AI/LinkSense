@@ -7,6 +7,7 @@ import type { StreamingReasoningSummaries } from "@/features/conversations/strea
 type ConversationLiveState = {
   streamedMessages: StreamingAssistantMessages
   reasoningSummaries: StreamingReasoningSummaries
+  reasoningContentEvents: ConversationEvent[]
   activities: ConversationActivity[]
   events: ConversationEvent[]
 }
@@ -14,6 +15,7 @@ type ConversationLiveState = {
 const emptyConversationLiveState: ConversationLiveState = {
   streamedMessages: {},
   reasoningSummaries: {},
+  reasoningContentEvents: [],
   activities: [],
   events: [],
 }
@@ -42,6 +44,7 @@ function cacheConversationLiveStateField<
   if (
     Object.keys(next.streamedMessages).length === 0 &&
     Object.keys(next.reasoningSummaries).length === 0 &&
+    next.reasoningContentEvents.length === 0 &&
     next.activities.length === 0 &&
     next.events.length === 0
   ) {
@@ -58,6 +61,9 @@ export function useConversationLiveState(
     useState<StreamingAssistantMessages>({})
   const [reasoningSummaries, setReasoningSummariesState] =
     useState<StreamingReasoningSummaries>({})
+  const [reasoningContentEvents, setReasoningContentEventsState] = useState<
+    ConversationEvent[]
+  >([])
   const [activities, setActivitiesState] = useState<ConversationActivity[]>([])
   const [events, setEventsState] = useState<ConversationEvent[]>([])
   const [conversationId, setConversationId] = useState(initialConversationId)
@@ -92,6 +98,24 @@ export function useConversationLiveState(
             cacheRef.current,
             scopedConversationId,
             "reasoningSummaries",
+            next
+          )
+        }
+        return next
+      })
+    },
+    []
+  )
+  const setReasoningContentEvents = useCallback(
+    (action: SetStateAction<ConversationEvent[]>) => {
+      const scopedConversationId = conversationIdRef.current
+      setReasoningContentEventsState((current) => {
+        const next = resolveStateAction(current, action)
+        if (scopedConversationId) {
+          cacheConversationLiveStateField(
+            cacheRef.current,
+            scopedConversationId,
+            "reasoningContentEvents",
             next
           )
         }
@@ -153,6 +177,10 @@ export function useConversationLiveState(
         restoredState?.reasoningSummaries ??
           emptyConversationLiveState.reasoningSummaries
       )
+      setReasoningContentEventsState(
+        restoredState?.reasoningContentEvents ??
+          emptyConversationLiveState.reasoningContentEvents
+      )
       setActivitiesState(
         restoredState?.activities ?? emptyConversationLiveState.activities
       )
@@ -191,6 +219,9 @@ export function useConversationLiveState(
       if (conversationIdRef.current !== targetConversationId) return
       setStreamedMessagesState(emptyConversationLiveState.streamedMessages)
       setReasoningSummariesState(emptyConversationLiveState.reasoningSummaries)
+      setReasoningContentEventsState(
+        emptyConversationLiveState.reasoningContentEvents
+      )
       setActivitiesState(emptyConversationLiveState.activities)
       setEventsState(emptyConversationLiveState.events)
     },
@@ -204,6 +235,8 @@ export function useConversationLiveState(
     setStreamedMessages,
     reasoningSummaries,
     setReasoningSummaries,
+    reasoningContentEvents,
+    setReasoningContentEvents,
     activities,
     setActivities,
     events,

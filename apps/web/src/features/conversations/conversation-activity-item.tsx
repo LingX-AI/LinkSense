@@ -39,7 +39,7 @@ export function ConversationActivityItem({
   const [internalOpen, setInternalOpen] = useState(false)
   const previewId = useId()
   const displayed = useActivitySummary(summary, deferred)
-  const canExpand = expandable && !displayed.thinking
+  const canExpand = expandable
   const resolvedOpen = canExpand && (open ?? internalOpen)
   // A held header must not keep showing a finished tool's command preview.
   const displayedDetail =
@@ -65,7 +65,7 @@ export function ConversationActivityItem({
         disabled={!canExpand}
         role={canExpand ? undefined : "presentation"}
         tabIndex={canExpand ? undefined : -1}
-        className="native-activity-trigger group"
+        className="native-activity-trigger group w-fit max-w-full"
         aria-describedby={canExpand && displayedDetail ? previewId : undefined}
         aria-label={
           canExpand
@@ -111,7 +111,13 @@ export function ConversationActivityItem({
               )}
           </MarkerContent>
           {canExpand && (
-            <MarkerIcon className="native-activity-chevron">
+            <MarkerIcon
+              className={cn(
+                "native-activity-chevron",
+                displayed.thinking &&
+                  "opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-data-panel-open:opacity-100 [@media(hover:none)]:opacity-100"
+              )}
+            >
               <ChevronRightIcon className="size-3.5 transition-transform group-data-panel-open:rotate-90" />
             </MarkerIcon>
           )}

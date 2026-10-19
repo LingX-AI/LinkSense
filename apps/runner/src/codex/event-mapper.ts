@@ -306,6 +306,21 @@ export function mapCodexNotification(
     });
   }
 
+  if (notification.method === "item/reasoning/textDelta") {
+    const turnId = nativeId(params.turnId);
+    const itemId = nativeId(params.itemId);
+    if (!threadId || !turnId || !itemId || typeof params.delta !== "string" || !isNonnegativeInteger(params.contentIndex)) {
+      return [];
+    }
+    // This is model-authored text, like agentMessage, rather than a safe tool
+    // preview. Preserve formatting and every paragraph for the opt-in reader.
+    return event({
+      method: "item/reasoning/textDelta",
+      visibility: "user_collapsed",
+      params: { threadId, turnId, itemId, delta: params.delta, contentIndex: params.contentIndex },
+    });
+  }
+
   if (notification.method === "item/reasoning/summaryTextDelta") {
     const turnId = nativeId(params.turnId);
     const itemId = nativeId(params.itemId);
@@ -965,7 +980,7 @@ function sanitizeItem(
               return preview ? [preview] : [];
             })
         : [];
-      return parseItem({ type, id, summary });
+      return parseItem({ type, id, summary, ...(item.content !== undefined ? { content: item.content } : {}) });
     }
     case "commandExecution": {
       const status = enumValue(item.status, commandStatuses);

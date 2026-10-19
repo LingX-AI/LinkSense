@@ -672,6 +672,14 @@ describe("conversation activity typography", () => {
     )
   })
 
+  it("aligns the processing heading with thinking text without a horizontal inset", () => {
+    const headingTriggerRule = Array.from(
+      conversationStyles.matchAll(/\.activity-trigger\s*\{([^}]*)\}/gu)
+    ).find((match) => match[1].includes("padding:"))?.[1]
+
+    expect(headingTriggerRule).toMatch(/padding:\s*2px 0 0;/u)
+  })
+
   it("uses the same UI typography for processing, thinking and tool summary rows", () => {
     expect(conversationStyles).toMatch(
       /\.turn-status\s*\{[^}]*font-size:\s*var\(--app-ui-font-size\);[^}]*font-weight:\s*500;[^}]*line-height:\s*var\(--app-ui-compact-line-height\);/u
@@ -703,15 +711,21 @@ describe("conversation activity typography", () => {
     )
   })
 
-  it("keeps the disclosure arrow immediately beside the activity title", () => {
+  it("keeps activity disclosure width in Tailwind without a global CSS override", () => {
     const triggerRule = conversationStyles.match(
       /\.native-activity-trigger\s*\{([^}]*)\}/u
     )?.[1]
 
     expect(triggerRule).toMatch(/display:\s*inline-flex;/u)
-    expect(triggerRule).toMatch(/width:\s*fit-content;/u)
-    expect(triggerRule).toMatch(/max-width:\s*100%;/u)
+    expect(triggerRule).not.toMatch(/(?:max-)?width:/u)
     expect(triggerRule).toMatch(/justify-content:\s*flex-start;/u)
+  })
+
+  it("uses the full conversation column for reasoning instead of a narrower maximum width", () => {
+    const reasoningRule = conversationStyles.match(
+      /\.reasoning-activity\s*\{([^}]*)\}/u
+    )?.[1]
+    expect(reasoningRule ?? "").not.toMatch(/(?:max-)?width:/u)
   })
 
   it("animates activity disclosure panels from their measured height", () => {
@@ -946,16 +960,41 @@ describe("conversation activity typography", () => {
     expect(liveReasoningTextRule).not.toMatch(/overflow:\s*hidden;/u)
   })
 
-  it("centers the reasoning icon and disclosure control with the collapsed label", () => {
+  it("uses the same font size as tool activities for reasoning and its compact preview", () => {
+    const reasoningRowRule = conversationStyles.match(
+      /\.reasoning-activity-row\s*\{([^}]*)\}/u
+    )?.[1]
+    const toolTriggerRule = conversationStyles.match(
+      /\.native-activity-trigger\s*\{([^}]*)\}/u
+    )?.[1]
+    const reasoningTextRule = conversationStyles.match(
+      /\.reasoning-summary-markdown\s*\{([^}]*)\}/u
+    )?.[1]
+
+    expect(reasoningRowRule).toMatch(/font-size:\s*var\(--app-ui-font-size\);/u)
+    expect(toolTriggerRule).toMatch(/font-size:\s*var\(--app-ui-font-size\);/u)
+    expect(reasoningRowRule).toMatch(
+      /line-height:\s*var\(--app-ui-copy-line-height\);/u
+    )
+    expect(reasoningTextRule).toMatch(/font-size:\s*inherit;/u)
+    expect(reasoningTextRule).toMatch(/line-height:\s*inherit;/u)
     expect(conversationStyles).toMatch(
-      /\.reasoning-activity-row\[data-open="false"\]\s*\{[^}]*align-items:\s*center;/u
+      /\.reasoning-activity-row\[data-expanded="false"\]\s*\{[^}]*align-items:\s*center;/u
     )
     expect(conversationStyles).toMatch(
-      /\.reasoning-activity-row\[data-open="false"\]\s*>\s*\.reasoning-activity-icon,\s*\.reasoning-activity-row\[data-open="false"\]\s+\.reasoning-activity-trigger\s*\{[^}]*margin-top:\s*0;/u
+      /\.reasoning-activity-row\[data-expanded="false"\]\s*>\s*\.reasoning-activity-icon,\s*\.reasoning-activity-row\[data-expanded="false"\]\s+\.reasoning-activity-trigger\s*\{[^}]*margin-top:\s*0;/u
     )
-    expect(conversationStyles).toMatch(
-      /\.reasoning-activity-row\[data-open="false"\]\s+\.reasoning-activity-content\s*\{[^}]*flex:\s*0 0 auto;[^}]*align-items:\s*center;/u
+    expect(conversationStyles).not.toMatch(
+      /\.reasoning-activity-row\[data-open="false"\]/u
     )
+  })
+
+  it("keeps reasoning disclosure hover and expanded states free of background fills", () => {
+    const hoverRule = conversationStyles.match(
+      /\.reasoning-activity-trigger:hover\s*\{([^}]*)\}/u
+    )?.[1]
+    expect(hoverRule).toMatch(/color:/u)
+    expect(hoverRule).not.toMatch(/background(?:-color)?:/u)
   })
 
   it("top-aligns native activity icons with multiline summaries", () => {

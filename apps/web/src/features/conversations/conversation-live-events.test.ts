@@ -42,6 +42,13 @@ describe("conversation live event retention", () => {
     )
     expect(isStreamOnlyNativeEvent(reasoningSummary)).toBe(true)
     retained = appendConversationLiveEvent(retained, reasoningSummary)
+    const fullReasoning = nativeEvent(254, "item/reasoning/textDelta", {
+      itemId: "reasoning-1",
+      contentIndex: 0,
+      delta: "Complete reasoning body",
+    })
+    expect(isStreamOnlyNativeEvent(fullReasoning)).toBe(true)
+    retained = appendConversationLiveEvent(retained, fullReasoning)
 
     expect(retained).toEqual([tool])
   })
@@ -85,6 +92,7 @@ function nativeEvent(
     | "item/started"
     | "item/agentMessage/delta"
     | "item/reasoning/summaryTextDelta"
+    | "item/reasoning/textDelta"
     | "thread/tokenUsage/updated"
     | "turn/plan/updated",
   values: Record<string, unknown>

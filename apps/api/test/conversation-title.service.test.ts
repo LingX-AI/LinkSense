@@ -282,6 +282,7 @@ describe("ConversationTitleService", () => {
     fixture.personalization.getPersonalization.mockResolvedValue({
       custom_instructions: "",
       memories_enabled: true,
+      show_reasoning: false,
       task_auto_naming: "first_message",
     })
     await fixture.service.refresh(CONVERSATION_ID, undefined, request)
@@ -530,6 +531,7 @@ function titleFixture(
     getPersonalization: vi.fn(async () => ({
       custom_instructions: "",
       memories_enabled: true,
+      show_reasoning: false,
       task_auto_naming: taskAutoNaming,
     })),
   }

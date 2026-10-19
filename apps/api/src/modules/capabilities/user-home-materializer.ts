@@ -58,7 +58,7 @@ export const PLUGIN_STDIO_LAUNCHER_COMMAND = "linksense-plugin-stdio"
 // The regression test intentionally pins it to the actual generated tree so
 // every built-in writer or bundled documentation change must update it.
 export const BUILT_IN_CAPABILITY_RUNTIME_REVISION =
-  "5e77ed4d1c305a90042cf9eac00d51e38c11c4f1cc7189da9f3422a7f9867028"
+  "3c5abb8570587e8939d6fe65fb9f9018c33ca99cb7575a0df0866bf179f44c9c"
 
 const BUILT_IN_BROWSER_SKILL_NAME = "linksense-browser"
 const BUILT_IN_DOCUMENT_READER_SKILL_NAME = "linksense-document-reader"

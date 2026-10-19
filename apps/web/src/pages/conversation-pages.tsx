@@ -245,6 +245,7 @@ import {
   type ConversationSubAgentSelection,
 } from "@/features/conversations/conversation-subagent-detail"
 import { ConversationThread } from "@/features/conversations/conversation-thread"
+import { usePersonalization } from "@/features/personalization/use-personalization"
 import type { NativeSubAgentViewModel } from "@/features/conversations/native-subagent-activity"
 import { useSubAgentSummaries } from "@/features/conversations/use-subagent-summaries"
 import {
@@ -302,6 +303,10 @@ import {
   removeStreamingReasoningSummariesForTurn,
   removeStreamingReasoningSummaryItem,
 } from "@/features/conversations/streaming-reasoning-summaries"
+import {
+  appendReasoningContentEvent,
+  areReasoningContentEventsReconciled,
+} from "@/features/conversations/reasoning-activity-content"
 import { useConversationScroll } from "@/features/conversations/use-conversation-scroll"
 import { useConversationBottomStackHeight } from "@/features/conversations/use-conversation-bottom-stack-height"
 import { useConversationEvents } from "@/features/conversations/use-conversation-events"
@@ -566,6 +571,7 @@ export function ConversationPage({
   const { t } = useTranslation()
   const productName = useProductName()
   const { user, refreshUser } = useAuth()
+  const personalizationQuery = usePersonalization()
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
@@ -702,6 +708,8 @@ export function ConversationPage({
     setStreamedMessages,
     reasoningSummaries: liveReasoningSummaries,
     setReasoningSummaries: setLiveReasoningSummaries,
+    reasoningContentEvents: liveReasoningContentEvents,
+    setReasoningContentEvents: setLiveReasoningContentEvents,
     activities: liveActivities,
     setActivities: setLiveActivities,
     events: liveEvents,
@@ -1966,6 +1974,12 @@ export function ConversationPage({
           } else {
             clearNativeReconnect()
           }
+          if (native.method === "item/reasoning/textDelta") {
+            setLiveReasoningContentEvents((current) =>
+              appendReasoningContentEvent(current, event)
+            )
+            return
+          }
           if (native.method === "item/reasoning/summaryTextDelta") {
             setLiveReasoningSummaries((current) =>
               appendStreamingReasoningSummaryDelta(current, {
@@ -2061,6 +2075,11 @@ export function ConversationPage({
             native.method === "item/completed"
           ) {
             const item = native.params.item
+            if (item.type === "reasoning") {
+              setLiveReasoningContentEvents((current) =>
+                appendReasoningContentEvent(current, event)
+              )
+            }
             if (
               native.method === "item/completed" &&
               item.type === "reasoning"
@@ -2363,6 +2382,7 @@ export function ConversationPage({
         setLiveActivities,
         setLiveEvents,
         setLiveReasoningSummaries,
+        setLiveReasoningContentEvents,
         setStreamedMessages,
         startNativeReconnect,
         synchronizeLiveConversationScope,
@@ -2449,7 +2469,15 @@ export function ConversationPage({
   ])
 
   useEffect(() => {
-    if (!hasConversation || turnExecutionActive) return
+    if (
+      !hasConversation ||
+      turnExecutionActive ||
+      !areReasoningContentEventsReconciled(
+        liveReasoningContentEvents,
+        conversation?.events ?? []
+      )
+    )
+      return
     const timer = window.setTimeout(() => {
       clearInterruptingConversation(conversationId)
       clearNativeReconnect()
@@ -2461,7 +2489,9 @@ export function ConversationPage({
     clearInterruptingConversation,
     clearNativeReconnect,
     conversationId,
+    conversation?.events,
     hasConversation,
+    liveReasoningContentEvents,
     turnExecutionActive,
   ])
 
@@ -5321,6 +5351,21 @@ export function ConversationPage({
           started_at: activePendingTurnSubmission.message.created_at,
         }
       : null
+  const startingTaskTurnId =
+    optimisticPendingTurn &&
+    activePendingTurnSubmission?.status !== "running" &&
+    !displayConversation.turns?.length &&
+    !displayConversation.history?.index.length &&
+    !displayConversation.messages?.some(
+      (message) => message.role === "assistant"
+    ) &&
+    !visibleEvents.some(
+      (event) =>
+        event.turn_id === optimisticPendingTurn.id &&
+        getNativeCodexPayload(event)?.method === "turn/started"
+    )
+      ? optimisticPendingTurn.id
+      : undefined
   const persistedVisibleTurns = (displayConversation.turns ?? []).filter(
     (turn) => turn.id !== optimisticallyReplacedTurnId
   )
@@ -5504,6 +5549,7 @@ export function ConversationPage({
       preview={
         activeSubAgent ? (
           <ConversationSubAgentDetail
+            showReasoning={personalizationQuery.data?.show_reasoning ?? false}
             selection={activeSubAgent}
             agent={activeSubAgentProjection}
             runtimeStatus={activeSubAgentRuntimeStatus}
@@ -5812,6 +5858,9 @@ export function ConversationPage({
       )}
 
       <ConversationThread
+        startingTaskTurnId={startingTaskTurnId}
+        showReasoning={personalizationQuery.data?.show_reasoning ?? false}
+        liveReasoningContentEvents={liveReasoningContentEvents}
         navigationRef={threadNavigationRef}
         onVisibleMessageChange={handleVisibleMessageChange}
         history={conversation?.history ? conversationHistory : undefined}

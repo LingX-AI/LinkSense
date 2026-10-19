@@ -908,6 +908,7 @@ describe("RunnerClient owner routing", () => {
         jsonResponse({
           custom_instructions: "Prefer concise answers.",
           memories_enabled: true,
+          show_reasoning: false,
           task_auto_naming: "first_message",
         }),
       )
@@ -915,6 +916,7 @@ describe("RunnerClient owner routing", () => {
         jsonResponse({
           custom_instructions: "Prefer Chinese answers.",
           memories_enabled: false,
+          show_reasoning: true,
           task_auto_naming: "every_message",
         }),
       )
@@ -925,17 +927,20 @@ describe("RunnerClient owner routing", () => {
     await expect(client.getPersonalization(ownerId)).resolves.toEqual({
       custom_instructions: "Prefer concise answers.",
       memories_enabled: true,
+      show_reasoning: false,
       task_auto_naming: "first_message",
     });
     await expect(
       client.updatePersonalization(ownerId, {
         custom_instructions: "Prefer Chinese answers.",
         memories_enabled: false,
+        show_reasoning: true,
         task_auto_naming: "every_message",
       }),
     ).resolves.toEqual({
       custom_instructions: "Prefer Chinese answers.",
       memories_enabled: false,
+      show_reasoning: true,
       task_auto_naming: "every_message",
     });
     await expect(client.resetMemories(ownerId)).resolves.toEqual({
@@ -963,6 +968,7 @@ describe("RunnerClient owner routing", () => {
         body: {
           custom_instructions: "Prefer Chinese answers.",
           memories_enabled: false,
+          show_reasoning: true,
           task_auto_naming: "every_message",
         },
       },

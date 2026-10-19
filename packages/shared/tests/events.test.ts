@@ -1316,7 +1316,7 @@ describe("runner Codex event contract", () => {
     ).toBe(false);
   });
 
-  it("retains safe reasoning summaries but rejects raw reasoning content", () => {
+  it("retains summaries and complete native reasoning content as separate fields", () => {
     const reasoningEvent = {
       method: "item/completed",
       visibility: "user_collapsed",
@@ -1346,11 +1346,19 @@ describe("runner Codex event contract", () => {
           ...reasoningEvent.params,
           item: {
             ...reasoningEvent.params.item,
-            content: ["private chain of thought"],
+            content: ["First paragraph\n\n" + "正文".repeat(5_000), "Last paragraph"],
           },
         },
       }).success,
-    ).toBe(false);
+    ).toBe(true);
+    expect(runnerCodexEventSchema.safeParse({
+      method: "item/reasoning/textDelta",
+      visibility: "user_collapsed",
+      params: {
+        threadId: "thread-1", turnId: "turn-1", itemId: "item-2",
+        contentIndex: 1, delta: "Full text\n\nwith **formatting**",
+      },
+    }).success).toBe(true);
   });
 
   it("accepts the pinned token usage notification only as a strict runner event", () => {

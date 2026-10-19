@@ -500,18 +500,21 @@ describe("WorkspaceManager", () => {
     expect(initial).toMatchObject({
       custom_instructions: "",
       memories_enabled: false,
+      show_reasoning: false,
       task_auto_naming: "first_message",
     })
 
     const updated = await manager.updatePersonalization(ownerA, {
       custom_instructions: "请优先使用中文，并运行相关测试。",
       memories_enabled: true,
+      show_reasoning: false,
       task_auto_naming: "every_message",
     })
     expect(updated.revision).not.toBe(initial.revision)
     expect(updated).toMatchObject({
       custom_instructions: "请优先使用中文，并运行相关测试。",
       memories_enabled: true,
+      show_reasoning: false,
       task_auto_naming: "every_message",
     })
     const ownerAPaths = manager.ownerPathsFor(ownerA)
@@ -530,6 +533,7 @@ describe("WorkspaceManager", () => {
     expect(other).toMatchObject({
       custom_instructions: "",
       memories_enabled: false,
+      show_reasoning: false,
       task_auto_naming: "first_message",
     })
     manager.bindOwner(taskB, ownerB)
@@ -540,6 +544,29 @@ describe("WorkspaceManager", () => {
     await expect(restarted.getPersonalization(ownerA)).resolves.toEqual(
       updated,
     )
+  })
+
+  it("defaults existing personalization files to hidden reasoning and persists visibility independently per owner", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    const initial = await manager.updatePersonalization(ownerA, {
+      custom_instructions: "Keep the existing user instructions.",
+      memories_enabled: true,
+      task_auto_naming: "every_message",
+    })
+    expect(initial.show_reasoning).toBe(false)
+    const statePath = path.join(manager.ownerPathsFor(ownerA).control, "personalization.json")
+    const state = JSON.parse(await readFile(statePath, "utf8"))
+    delete state.show_reasoning
+    await writeFile(statePath, JSON.stringify(state))
+    expect(await manager.getPersonalization(ownerA)).toEqual(initial)
+    const updated = await manager.updatePersonalization(ownerA, { show_reasoning: true })
+    expect(updated).toMatchObject({ ...initial, show_reasoning: true, revision: updated.revision })
+    expect((await manager.getPersonalization(ownerB)).show_reasoning).toBe(false)
+    const restarted = new WorkspaceManager(root)
+    expect((await restarted.getPersonalization(ownerA)).show_reasoning).toBe(true)
+    const renamed = await restarted.updatePersonalization(ownerA, { task_auto_naming: "first_message" })
+    expect(renamed.show_reasoning).toBe(true)
   })
 
   it("does not widen API-managed Skill and Plugin source directories", async () => {

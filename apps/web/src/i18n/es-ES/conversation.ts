@@ -524,6 +524,7 @@ export const conversationMessages = {
       expand: "Expandir razonamiento",
       collapse: "Contraer razonamiento",
     },
+    startingTask: "Iniciando la tarea",
     thinking: "Pensando",
     processing: "Procesando",
     elapsed: "Duración",

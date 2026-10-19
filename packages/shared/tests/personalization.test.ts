@@ -8,6 +8,12 @@ import {
 } from "../src/index.js";
 
 describe("personalization contracts", () => {
+  it.each([true, false])("accepts a reasoning-only update without changing other settings: %s", (show_reasoning) => {
+    expect(updatePersonalizationSettingsSchema.parse({ show_reasoning })).toEqual({ show_reasoning })
+  })
+  it.each([null, "true", 1])("rejects invalid reasoning visibility: %s", (show_reasoning) => {
+    expect(updatePersonalizationSettingsSchema.safeParse({ show_reasoning }).success).toBe(false)
+  })
   it.each(["first_message", "every_message"])(
     "accepts a naming-only update for %s without resetting other preferences",
     (task_auto_naming) => {
@@ -32,11 +38,13 @@ describe("personalization contracts", () => {
       personalizationSettingsSchema.parse({
         custom_instructions: "请优先使用中文回答。",
         memories_enabled: true,
+        show_reasoning: false,
         task_auto_naming: "first_message",
       }),
     ).toEqual({
       custom_instructions: "请优先使用中文回答。",
       memories_enabled: true,
+      show_reasoning: false,
       task_auto_naming: "first_message",
     });
     expect(
@@ -54,6 +62,7 @@ describe("personalization contracts", () => {
       personalizationSettingsSchema.safeParse({
         custom_instructions: "x".repeat(MAX_CUSTOM_INSTRUCTIONS_LENGTH + 1),
         memories_enabled: true,
+        show_reasoning: false,
         task_auto_naming: "first_message",
       }).success,
     ).toBe(false);
