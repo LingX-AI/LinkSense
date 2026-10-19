@@ -6170,7 +6170,7 @@ export function ConversationPage({
         )}
         {!embedded && !developmentRole && !isApplicationConversation && (
           // 76rem leaves room for the mark beside the centered composer.
-          <PoweredByLinkSense className="mr-1 mb-1 hidden justify-self-end md:inline-flex @min-[76rem]/conversation-workspace:absolute @min-[76rem]/conversation-workspace:right-1 @min-[76rem]/conversation-workspace:bottom-1 @min-[76rem]/conversation-workspace:m-0" />
+          <PoweredByLinkSense className="conversation-attribution mr-1 mb-1 hidden justify-self-end md:inline-flex @min-[76rem]/conversation-workspace:absolute @min-[76rem]/conversation-workspace:right-1 @min-[76rem]/conversation-workspace:bottom-1 @min-[76rem]/conversation-workspace:m-0" />
         )}
       </div>
 

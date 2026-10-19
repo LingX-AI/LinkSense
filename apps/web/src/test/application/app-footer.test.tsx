@@ -2,6 +2,7 @@ import { screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it } from "vitest"
 
+import appStyles from "@/index.css?raw"
 import {
   installApiMock,
   renderApp,
@@ -104,5 +105,50 @@ describe("application attribution footer", () => {
         name: "由 LinkSense 提供支持",
       })
     ).toHaveClass("hidden", "md:inline-flex")
+  })
+
+  it("keeps attribution outside the overview translation when the panel is toggled", async () => {
+    installApiMock()
+    const interaction = userEvent.setup()
+    renderApp("/conversations/c1")
+
+    const composer = await screen.findByRole("form", { name: "任务输入框" })
+    const attribution = screen.getByRole("link", {
+      name: "由 LinkSense 提供支持",
+    })
+    const workspace = composer.closest(".conversation-workspace")
+    const bottomStack = composer.closest(".conversation-bottom-stack")
+    const shiftRule = appStyles.match(
+      /([^{}]+)\{\s*transform: translate3d\(var\(--conversation-task-overview-shift-x\), 0, 0\);/
+    )
+    if (!shiftRule) throw new Error("Task overview translation rule is missing")
+    const shiftSelector = shiftRule[1].trim()
+
+    const expectStationaryAttribution = () => {
+      expect(composer.matches(shiftSelector)).toBe(true)
+      expect(bottomStack?.matches(shiftSelector)).toBe(false)
+      expect(attribution.closest(shiftSelector)).toBeNull()
+      expect(attribution.parentElement).toBe(bottomStack)
+      expect(attribution).toHaveClass(
+        "@min-[76rem]/conversation-workspace:right-1"
+      )
+    }
+
+    await screen.findByRole("region", { name: "任务概览" })
+    expect(workspace).toHaveAttribute("data-task-overview-open", "true")
+    expectStationaryAttribution()
+
+    await interaction.click(
+      screen.getByRole("button", { name: "关闭任务概览" })
+    )
+    expect(workspace).not.toHaveAttribute("data-task-overview-open")
+    expectStationaryAttribution()
+
+    await interaction.click(
+      screen.getByRole("button", { name: "打开任务概览" })
+    )
+    await screen.findByRole("region", { name: "任务概览" })
+    expect(workspace).toHaveAttribute("data-task-overview-open", "true")
+    expectStationaryAttribution()
   })
 })

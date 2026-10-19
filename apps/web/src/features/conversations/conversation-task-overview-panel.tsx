@@ -1,4 +1,5 @@
-import { useId, useState, type SVGProps } from "react"
+import { useCallback, useId, useState, type SVGProps } from "react"
+import type { VirtualElement } from "@floating-ui/react-dom"
 import { DownloadIcon, LoaderCircleIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
@@ -73,6 +74,19 @@ export function ConversationTaskOverviewPanel({
 }: ConversationTaskOverviewPanelProps) {
   const { t } = useTranslation()
   const triggerId = useId()
+  const [anchor, setAnchor] = useState<VirtualElement | null>(null)
+  const setTriggerAnchor = useCallback((trigger: HTMLButtonElement | null) => {
+    setAnchor(
+      trigger
+        ? {
+            getBoundingClientRect: () => trigger.getBoundingClientRect(),
+            // The button keeps its size while preview transitions resize its header.
+            // Observe that layout boundary while positioning against the button.
+            contextElement: trigger.closest(".conversation-top-bar") ?? trigger,
+          }
+        : null
+    )
+  }, [])
   const [open, setOpen] = useState(
     () => defaultOpen ?? readTaskOverviewOpenPreference()
   )
@@ -100,6 +114,7 @@ export function ConversationTaskOverviewPanel({
     >
       <PopoverTrigger
         id={triggerId}
+        ref={setTriggerAnchor}
         render={
           <Button
             type="button"
@@ -116,6 +131,7 @@ export function ConversationTaskOverviewPanel({
         <TaskOverviewIcon className="size-5 text-foreground/55" />
       </PopoverTrigger>
       <PopoverContent
+        anchor={anchor}
         role="region"
         aria-label={t("conversation.taskOverview.title")}
         initialFocus={false}

@@ -1279,21 +1279,27 @@
 }
 
 .conversation-workspace > .conversation-scroll > .conversation-column,
-.conversation-workspace > .conversation-bottom-stack {
+.conversation-workspace
+  > .conversation-bottom-stack
+  > :not(.conversation-attribution) {
   transform: translate3d(var(--conversation-task-overview-shift-x), 0, 0);
   transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @container conversation-workspace (max-width: 87rem) {
   .conversation-workspace > .conversation-scroll > .conversation-column,
-  .conversation-workspace > .conversation-bottom-stack {
+  .conversation-workspace
+    > .conversation-bottom-stack
+    > :not(.conversation-attribution) {
     transform: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .conversation-workspace > .conversation-scroll > .conversation-column,
-  .conversation-workspace > .conversation-bottom-stack {
+  .conversation-workspace
+    > .conversation-bottom-stack
+    > :not(.conversation-attribution) {
     transition: none;
   }
 }

@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -53,12 +53,105 @@ function nativeEvent({
 }
 
 describe("ConversationTaskOverviewPanel", () => {
+  const originalResizeObserver = globalThis.ResizeObserver
   beforeEach(async () => {
     window.localStorage.clear()
     await i18n.changeLanguage("zh-CN")
   })
 
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    globalThis.ResizeObserver = originalResizeObserver
+    vi.restoreAllMocks()
+  })
+
+  it("follows header resizing throughout preview open, drag, close, and reopen without remounting", async () => {
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(
+      2000
+    )
+    vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(
+      1000
+    )
+    const resizeCallbacks = new Map<Element, () => void>()
+    const disconnect = vi.fn()
+    globalThis.ResizeObserver = class {
+      private targets = new Set<Element>()
+      private callback: ResizeObserverCallback
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback
+      }
+      observe(target: Element) {
+        this.targets.add(target)
+        resizeCallbacks.set(target, () => this.callback([], this))
+      }
+      unobserve(target: Element) {
+        this.targets.delete(target)
+        resizeCallbacks.delete(target)
+      }
+      disconnect() {
+        disconnect()
+        for (const target of this.targets) resizeCallbacks.delete(target)
+      }
+    }
+    let headerRight = 1800
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (this.classList.contains("conversation-top-bar")) {
+          return new DOMRect(300, 0, headerRight - 300, 52)
+        }
+        if (this.dataset.slot === "popover-trigger") {
+          return new DOMRect(headerRight - 40, 12, 28, 28)
+        }
+        return originalRect.call(this)
+      }
+    )
+    const user = userEvent.setup()
+    const view = render(
+      <header className="conversation-top-bar">
+        <ConversationTaskOverviewPanel
+          events={[]}
+          files={[artifact]}
+          onDownload={vi.fn()}
+        />
+      </header>
+    )
+    const popup = await screen.findByRole("region", { name: "任务概览" })
+    const header = screen.getByRole("banner")
+    expect(resizeCallbacks.has(header)).toBe(true)
+    const positioner = popup.parentElement
+    await waitFor(() =>
+      expect(positioner).toHaveStyle("transform: translate(1788px, 68px)")
+    )
+
+    for (const nextRight of [1100, 1350, 950, 1800, 1100, 1800]) {
+      headerRight = nextRight
+      act(() => resizeCallbacks.get(header)?.())
+      await waitFor(() =>
+        expect(positioner).toHaveStyle(
+          `transform: translate(${nextRight - 12}px, 68px)`
+        )
+      )
+      expect(screen.getByRole("region", { name: "任务概览" })).toBe(popup)
+    }
+
+    await user.click(screen.getByRole("button", { name: "关闭任务概览" }))
+    expect(resizeCallbacks.has(header)).toBe(false)
+    headerRight = 1450
+    await user.click(screen.getByRole("button", { name: "打开任务概览" }))
+    const reopenedPopup = await screen.findByRole("region", {
+      name: "任务概览",
+    })
+    await waitFor(() =>
+      expect(reopenedPopup.parentElement).toHaveStyle(
+        "transform: translate(1438px, 68px)"
+      )
+    )
+    expect(resizeCallbacks.has(header)).toBe(true)
+    view.unmount()
+    expect(resizeCallbacks.has(header)).toBe(false)
+    expect(disconnect).toHaveBeenCalled()
+  })
 
   it("uses compact rows and matching action icons for files and sources", async () => {
     const props = {
@@ -237,7 +330,7 @@ describe("ConversationTaskOverviewPanel", () => {
       "transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);"
     )
     expect(appStyles).toContain(
-      ".conversation-workspace > .conversation-scroll > .conversation-column,\n.conversation-workspace > .conversation-bottom-stack"
+      ".conversation-workspace > .conversation-scroll > .conversation-column,\n.conversation-workspace\n  > .conversation-bottom-stack\n  > :not(.conversation-attribution)"
     )
     expect(appStyles).not.toContain(
       ".conversation-workspace > .conversation-scroll,\n.conversation-workspace > .conversation-bottom-stack"
