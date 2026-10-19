@@ -1,4 +1,5 @@
 import { connectionMessages } from "@/features/connections/messages"
+import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samljaJP } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
 import type { TranslationResource } from "@/i18n/types"
@@ -5281,6 +5282,7 @@ export const jaJP = {
     lastRunFrom: "最終実行日時の開始",
     lastRunTo: "最終実行日時の終了",
     auditConversationsEmpty: "一致するタスク実行情報がありません。",
+    auditPageCount: "{{current}} / {{total}} ページ",
     retainedArtifactsDescription:
       "削除済みタスクで恒久的に保持される成果物について、機密情報を除いた概要のみ表示します。内容の閲覧、復元、ダウンロードはできません。",
     retainedArtifactsSearchPlaceholder: "タスク ID、所有者 ID、削除日時を検索…",
@@ -5863,6 +5865,7 @@ export const jaJP = {
       "Teamsでログインできませんでした。再試行するか、別の方法を使用してください。",
     codexTurnFailed:
       "今回の実行に失敗しました。メッセージを確認して再試行してください。",
+    modelGateway: modelGatewayMessages["ja-JP"],
     turnCompletedWithoutOutput:
       "今回の実行は終了しましたが、表示可能な出力がありません。再実行してください。",
     automation: {

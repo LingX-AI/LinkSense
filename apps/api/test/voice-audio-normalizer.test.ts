@@ -57,6 +57,50 @@ describe("voice audio normalization", () => {
     expect(await readdir(root)).toEqual([])
   })
 
+  it.each([
+    ["audio/mp4", 300_000, 1024, true],
+    ["audio/x-m4a", 300_000, 1024, true],
+    ["audio/mp4", 300_001, 1024, false],
+    ["audio/mp4", 300_000, 2050, false],
+  ] as const)("admits only AAC frame padding for %s, duration=%i, padding=%i", async (mime, durationMs, paddingBytes, accepted) => {
+    const padded = Buffer.alloc(MAX_NORMALIZED_VOICE_AUDIO_BYTES + paddingBytes)
+    padded.write("RIFF", 0)
+    padded.write("WAVE", 8)
+    padded.write("data", 36)
+    const probeAacTiming = vi.fn(async () => ({ durationMs, frameDurationMs: 64 }))
+    const normalize = createVoiceAudioNormalizer({
+      temporaryRoot: root,
+      runProcess: async (args) => { await writeFile(args.at(-1)!, padded) },
+      probeAacTiming,
+    })
+    const result = normalize({ audioDataUrl: `data:${mime};base64,AQIDBA==` })
+    if (accepted) {
+      const audio = Buffer.from(await result)
+      expect(audio.length).toBe(MAX_NORMALIZED_VOICE_AUDIO_BYTES)
+      expect(audio.readUInt32LE(4)).toBe(audio.length - 8)
+      expect(audio.readUInt32LE(40)).toBe(audio.length - 44)
+    } else {
+      await expect(result).rejects.toMatchObject({ reason: "too_long" })
+    }
+    expect(probeAacTiming).toHaveBeenCalledOnce()
+    expect(await readdir(root)).toEqual([])
+  })
+
+  it("honors cancellation while checking AAC boundary metadata", async () => {
+    const controller = new AbortController()
+    const normalize = createVoiceAudioNormalizer({
+      temporaryRoot: root,
+      runProcess: async (args) => { await writeFile(args.at(-1)!, Buffer.alloc(MAX_NORMALIZED_VOICE_AUDIO_BYTES + 1024)) },
+      probeAacTiming: async () => {
+        controller.abort()
+        return { durationMs: 300_000, frameDurationMs: 64 }
+      },
+    })
+    await expect(normalize({ audioDataUrl: "data:audio/mp4;base64,AQIDBA==", signal: controller.signal }))
+      .rejects.toMatchObject({ reason: "aborted" })
+    expect(await readdir(root)).toEqual([])
+  })
+
   it("rejects empty or invalid converter output and cleans up", async () => {
     const normalize = createVoiceAudioNormalizer({ temporaryRoot: root, runProcess: async (args) => {
       await writeFile(args.at(-1)!, "invalid output")

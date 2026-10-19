@@ -41,8 +41,8 @@ for (const viewport of PUBLIC_VIEWPORTS) {
       page.getByRole("button", { name: "创建管理员并完成初始化" })
     ).toHaveCSS("height", "44px")
 
-    const passwordInput = page.getByLabel("新密码", { exact: true })
-    const confirmationInput = page.getByLabel("确认新密码", { exact: true })
+    const passwordInput = page.getByLabel(/^新密码\s*\*?$/u)
+    const confirmationInput = page.getByLabel(/^确认新密码\s*\*?$/u)
     await expect(passwordInput).toHaveAttribute("type", "password")
     await expect(confirmationInput).toHaveAttribute("type", "password")
     await expect(page.getByRole("button", { name: "显示新密码" })).toBeVisible()

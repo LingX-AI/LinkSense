@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   clearLocalConversationDraft,
+  consumeAcceptedLocalConversationDraft,
   localConversationDraftStorageKey,
   readLocalConversationDraft,
   writeLocalConversationDraft,
@@ -24,6 +25,55 @@ function memoryStorage(): Storage {
 }
 
 describe("local conversation drafts", () => {
+  it("retains a pending receipt across hydration but never discards an edited draft", () => {
+    const storage = memoryStorage()
+    const draft = {
+      input: "submitted",
+      capabilityIds: ["skill-1"],
+      knowledgeBaseIds: [],
+    }
+    writeLocalConversationDraft(storage, "user-1", "task-1", {
+      ...draft,
+      idempotencyKey: "submission-1",
+    })
+    writeLocalConversationDraft(storage, "user-1", "task-1", draft)
+    expect(
+      consumeAcceptedLocalConversationDraft(storage, "user-1", "task-1", [
+        "unrelated",
+      ])
+    ).toBeNull()
+    expect(
+      readLocalConversationDraft(storage, "user-1", "task-1").idempotencyKey
+    ).toBe("submission-1")
+    expect(
+      consumeAcceptedLocalConversationDraft(storage, "user-1", "task-1", [
+        "submission-1",
+      ])?.input
+    ).toBe("submitted")
+    expect(readLocalConversationDraft(storage, "user-1", "task-1").input).toBe(
+      ""
+    )
+
+    for (const edited of [
+      { ...draft, input: "unsent edit" },
+      { ...draft, capabilityIds: [] },
+      { ...draft, knowledgeBaseIds: ["kb-1"] },
+    ]) {
+      writeLocalConversationDraft(storage, "user-1", "task-1", {
+        ...draft,
+        idempotencyKey: "submission-1",
+      })
+      writeLocalConversationDraft(storage, "user-1", "task-1", edited)
+      expect(
+        consumeAcceptedLocalConversationDraft(storage, "user-1", "task-1", [
+          "submission-1",
+        ])
+      ).toBeNull()
+      expect(readLocalConversationDraft(storage, "user-1", "task-1")).toEqual(
+        edited
+      )
+    }
+  })
   it("isolates drafts by user and task", () => {
     const storage = memoryStorage()
     writeLocalConversationDraft(storage, "user-1", "task-1", {

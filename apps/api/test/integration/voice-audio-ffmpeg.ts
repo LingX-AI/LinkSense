@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 
-import { createVoiceAudioNormalizer } from "../../src/adapters/voice-audio-normalizer.js"
+import { createVoiceAudioNormalizer, MAX_NORMALIZED_VOICE_AUDIO_BYTES } from "../../src/adapters/voice-audio-normalizer.js"
 
 const execute = promisify(execFile)
 const root = await mkdtemp(join(tmpdir(), "linksense-voice-native-"))
@@ -45,6 +45,24 @@ try {
     assert.equal(audio.readUInt32LE(40), audio.length - 44, "final data size for gateway duration accounting")
     assert.ok(audio.length > 44)
     console.log(`${fixture.mime}: valid 16 kHz mono PCM WAV`)
+  }
+  for (const duration of ["300", "300.001"]) {
+    const source = join(root, `aac-boundary-${duration}.mp4`)
+    await execute("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-nostdin", "-f", "lavfi",
+      "-i", "anullsrc=r=16000:cl=mono", "-t", duration, "-c:a", "aac", source,
+    ], { timeout: 10_000 })
+    const bytes = await readFile(source)
+    const result = normalize({ audioDataUrl: `data:audio/mp4;base64,${bytes.toString("base64")}` })
+    if (duration === "300") {
+      const audio = Buffer.from(await result)
+      assert.equal(audio.length, MAX_NORMALIZED_VOICE_AUDIO_BYTES)
+      assert.equal(audio.readUInt32LE(4), audio.length - 8)
+      assert.equal(audio.readUInt32LE(40), audio.length - 44)
+    } else {
+      await assert.rejects(result, { reason: "too_long" })
+    }
+    console.log(`audio/mp4: ${duration}s boundary ${duration === "300" ? "accepted without AAC padding" : "rejected"}`)
   }
   const longAudio = join(root, "overlong.webm")
   await execute("ffmpeg", [

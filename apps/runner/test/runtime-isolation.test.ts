@@ -464,7 +464,7 @@ describe("persistent user runtime", () => {
     await writeFile(template, '{"name":"linksense-user-runtime","private":true}\n')
     await writeExecutable(
       fakePnpm,
-      '#!/bin/sh\nif /usr/bin/env | /usr/bin/grep -q scoped-bypass.example.invalid; then exit 91; fi\nprintf \'%s\\n\' "$*" >> "$LINKSENSE_TEST_PNPM_LOG"\nprintf \'%s|%s|%s|%s|%s|%s|%s\\n\' "${NPM_CONFIG_REGISTRY:-}" "${NPM_CONFIG_USERCONFIG:-}" "${NPM_CONFIG_GLOBALCONFIG:-}" "${CC_ID:-}" "${CC_PASSWORD:-}" "${UNRELATED_SUPERVISOR_SECRET:-}" "${LINKSENSE_PNPM_PASSTHROUGH_ENV_NAMES:-}" >> "$LINKSENSE_TEST_PNPM_ENVIRONMENT_LOG"\n',
+      '#!/bin/sh\ncase "$COREPACK_HOME" in /*) ;; *) exit 92 ;; esac\nif /usr/bin/env | /usr/bin/grep -q scoped-bypass.example.invalid; then exit 91; fi\nprintf \'%s\\n\' "$*" >> "$LINKSENSE_TEST_PNPM_LOG"\nprintf \'%s|%s|%s|%s|%s|%s|%s\\n\' "${NPM_CONFIG_REGISTRY:-}" "${NPM_CONFIG_USERCONFIG:-}" "${NPM_CONFIG_GLOBALCONFIG:-}" "${CC_ID:-}" "${CC_PASSWORD:-}" "${UNRELATED_SUPERVISOR_SECRET:-}" "${LINKSENSE_PNPM_PASSTHROUGH_ENV_NAMES:-}" >> "$LINKSENSE_TEST_PNPM_ENVIRONMENT_LOG"\n',
     )
     await prepareManagedPackageSourceConfig(
       "https://python-packages.example.test/simple/",

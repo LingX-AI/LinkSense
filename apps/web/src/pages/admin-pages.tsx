@@ -678,10 +678,10 @@ function UsersAndGroupsManagementLayout({
           <TabsTrigger value="users">{t("admin.usersTitle")}</TabsTrigger>
           <TabsTrigger value="groups">{t("admin.groupsTitle")}</TabsTrigger>
         </TabsList>
-        <TabsContent value="users">
+        <TabsContent value="users" className="[&>.status-banner]:mb-4">
           {activeTab === "users" ? children : null}
         </TabsContent>
-        <TabsContent value="groups">
+        <TabsContent value="groups" className="[&>.status-banner]:mb-4">
           {activeTab === "groups" ? children : null}
         </TabsContent>
       </Tabs>
@@ -814,10 +814,12 @@ function UserManagementPage() {
 
   const openCreate = () => {
     reset()
+    setError(null)
     setEditorOpen(true)
   }
 
   const openEdit = (user: User) => {
+    setError(null)
     setEditing(user)
     setName(user.name)
     setEmail(user.email)
@@ -1455,6 +1457,7 @@ function UserManagementPage() {
               aria-label={t(editing ? "admin.editUser" : "admin.createUser")}
               className={dialogBodyStyles("flex flex-col gap-3.5 py-1 pl-1")}
             >
+              {error && <StatusBanner variant="error">{error}</StatusBanner>}
               <div className="form-grid">
                 <FieldShell id="user-name" label={t("common.name")} required>
                   <Input
@@ -2094,9 +2097,11 @@ function UserGroupManagementPage() {
   }
   const openCreate = () => {
     reset()
+    setError(null)
     setEditorOpen(true)
   }
   const openEdit = (group: UserGroup) => {
+    setError(null)
     setEditing(group)
     setName(group.name)
     setDescription(group.description ?? "")
@@ -2120,6 +2125,7 @@ function UserGroupManagementPage() {
           schema: userGroupSchema,
         }
       ),
+    onMutate: () => setError(null),
     onSuccess: async () => {
       setEditorOpen(false)
       reset()
@@ -2331,6 +2337,7 @@ function UserGroupManagementPage() {
               saveMutation.mutate()
             }}
           >
+            {error && <StatusBanner variant="error">{error}</StatusBanner>}
             <FieldShell id="group-name" label={t("common.name")} required>
               <Input
                 id="group-name"
@@ -2492,7 +2499,7 @@ function AuditPage() {
     date_from: retainedDateFrom,
     date_to: retainedDateTo,
     cursor: retainedCursor,
-    limit: 50,
+    limit: 10,
   }
   const retainedQuery = useQuery({
     queryKey: ["admin", "audit", "retained-artifacts", retainedParams],
@@ -3036,7 +3043,9 @@ function AuditPage() {
             <div className="pagination-row">
               <Button
                 variant="ghost"
-                disabled={!retainedCursorStack.length}
+                disabled={
+                  retainedQuery.isFetching || !retainedCursorStack.length
+                }
                 onClick={() => {
                   const previous = retainedCursorStack.at(-1)
                   setRetainedCursorStack((values) => values.slice(0, -1))
@@ -3045,9 +3054,26 @@ function AuditPage() {
               >
                 {t("common.previous")}
               </Button>
+              {retainedQuery.data?.total_count !== undefined && (
+                <span
+                  className="self-center text-sm text-muted-foreground"
+                  role="status"
+                >
+                  {t("admin.auditPageCount", {
+                    current: retainedArtifacts.length
+                      ? retainedCursorStack.length + 1
+                      : 0,
+                    total: Math.ceil(
+                      retainedQuery.data.total_count / retainedParams.limit
+                    ),
+                  })}
+                </span>
+              )}
               <Button
                 variant="ghost"
-                disabled={!retainedQuery.data?.next_cursor}
+                disabled={
+                  retainedQuery.isFetching || !retainedQuery.data?.next_cursor
+                }
                 onClick={() => {
                   if (!retainedQuery.data?.next_cursor) return
                   setRetainedCursorStack((values) => [
@@ -3386,8 +3412,14 @@ function RetainedArtifactTable({
         <Table
           appearance="card"
           className="data-table retained-artifact-table audit-details-table"
+          containerClassName="max-h-96 overflow-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          containerProps={{
+            tabIndex: 0,
+            role: "region",
+            "aria-label": t("admin.auditSurfaces.retainedArtifacts"),
+          }}
         >
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-20 bg-card">
             <TableRow>
               <TableHead>{t("admin.conversation")}</TableHead>
               <TableHead>{t("admin.owner")}</TableHead>
@@ -3436,7 +3468,7 @@ function RetainedArtifactTable({
                 <TableCell>
                   {t(record.checksum_present ? "common.yes" : "common.no")}
                 </TableCell>
-                <TableCell className="table-metadata">
+                <TableCell className="table-metadata min-w-40">
                   {formatDateTime(record.conversation_deleted_at, language)}
                 </TableCell>
                 <TableCell className="audit-details-actions-column text-right">

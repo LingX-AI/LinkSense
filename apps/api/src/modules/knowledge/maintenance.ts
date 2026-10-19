@@ -1160,7 +1160,7 @@ export class RedisKnowledgeMaintenanceLock implements KnowledgeMaintenanceLock {
     private readonly options: { leaseMs?: number; renewalMs?: number } = {},
     redis?: Redis,
   ) {
-    this.redis = redis ?? new Redis(redisUrl, { maxRetriesPerRequest: null });
+    this.redis = redis ?? new Redis(redisUrl, { protocol: 2, maxRetriesPerRequest: null });
   }
 
   async tryRunExclusive<T>(

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process"
+import { once } from "node:events"
 import { access, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -13,6 +14,7 @@ import {
   type RunningTurnSlot,
 } from "../src/adapters/redis.js"
 import { testConfig } from "./test-config.js"
+import { RedisKnowledgeMaintenanceLock } from "../src/modules/knowledge/maintenance.js"
 
 const RUNNING_TURN_RECOVERY_STATUS_KEY =
   "linksense:running-turn-recovery-status"
@@ -68,6 +70,45 @@ describe("Redis atomic protection", () => {
   beforeEach(async () => {
     await client.flushdb()
     await setSuccessfulRecoveryBaseline(client)
+  })
+
+  it("keeps RESP2 replies, subscriptions and existing hash data after the client upgrade", async () => {
+    const upgraded = new LinkSenseRedis({
+      ...testConfig(),
+      redisUrl: join(directory, "redis.sock"),
+    })
+    const subscriber = upgraded.client.duplicate()
+    try {
+      await client.hset("linksense:upgrade:legacy-hash", "owner", "existing-owner")
+      await upgraded.connect()
+      expect(await upgraded.client.call("CLIENT", "INFO")).toMatch(/\bresp=2\b/u)
+      expect(await upgraded.client.hgetall("linksense:upgrade:legacy-hash"))
+        .toEqual({ owner: "existing-owner" })
+      await subscriber.connect()
+      expect(await subscriber.call("CLIENT", "INFO")).toMatch(/\bresp=2\b/u)
+      const channel = "linksense:conversation-events:upgrade"
+      await subscriber.subscribe(channel)
+      const message = once(subscriber, "message", { signal: AbortSignal.timeout(2_000) })
+      await upgraded.publishConversationEvent("upgrade", { id: "existing-event" })
+      expect(await message).toEqual([channel, JSON.stringify({ id: "existing-event" })])
+    } finally {
+      subscriber.disconnect()
+      await upgraded.close()
+    }
+  })
+
+  it("keeps knowledge maintenance on RESP2 after the client upgrade", async () => {
+    const lock = new RedisKnowledgeMaintenanceLock(join(directory, "redis.sock"))
+    try {
+      await expect(lock.tryRunExclusive(async () => {
+        const clients = String(await client.call("CLIENT", "LIST"))
+        expect(clients.split("\n").filter((line) => /\bcmd=set\b/u.test(line)))
+          .toEqual([expect.stringMatching(/\bresp=2\b/u)])
+        return "completed"
+      })).resolves.toEqual({ acquired: true, value: "completed" })
+    } finally {
+      await lock.close()
+    }
   })
 
   it("allows concurrent runtime preparation and submission while lifecycle changes wait", async () => {

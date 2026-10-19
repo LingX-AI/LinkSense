@@ -198,6 +198,7 @@ Before considering a feature complete, confirm that:
 
 ## Never Rules
 
+- Never duplicate detailed README tables, command lists, or explanations across sections. Keep each topic in one canonical section, link to it elsewhere, and synchronize language editions.
 - Never use npm, yarn, or npx to install dependencies, run scripts, or generate a lockfile.
 - Never run Prettier from `apps/web` to format other repository packages directly. Format web files with `pnpm --filter @linksense/web format -- <path>`; this command rejects paths outside `apps/web`.
 - Never edit the lockfile manually or modify dependency, cache, or build-output directories such as `node_modules/`, `dist/`, `build/`, `coverage/`, `.vite/`, or `.turbo/`.

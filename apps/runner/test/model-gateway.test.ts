@@ -2047,7 +2047,7 @@ describe("ModelGateway", () => {
     });
     expect(upstreamFailure.status).toBe(401);
     const errorBody = await upstreamFailure.text();
-    expect(errorBody).toContain("model_provider_error");
+    expect(errorBody).toContain("model_provider_authentication_failed");
     expect(errorBody).not.toContain("provider-secret-diagnostic");
     expect(errorBody).not.toContain("provider-secret");
     expect(upstreamHandler).toHaveBeenCalledOnce();
@@ -2109,6 +2109,9 @@ describe("ModelGateway", () => {
 
     const response = await pendingResponse;
     expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({
+      error: { code: "model_provider_timeout" },
+    });
     const failureLog = logs.find(
       (entry) => entry.msg === "model gateway request failed",
     );
@@ -2122,6 +2125,50 @@ describe("ModelGateway", () => {
       errorClass: "AbortError",
       durationMs: expect.any(Number),
     });
+  });
+
+  it.each([
+    [400, "model_provider_invalid_request"],
+    [403, "model_provider_authentication_failed"],
+    [429, "model_provider_rate_limited"],
+    [503, "model_provider_unavailable"],
+    [504, "model_provider_timeout"],
+  ] as const)("classifies upstream HTTP %s without exposing its body or replaying the request", async (status, code) => {
+    const { logger, logs } = createCapturingLogger();
+    const handler = vi.fn(async (_request: IncomingMessage, response: ServerResponse) => {
+      writeJson(response, status, {
+        error: {
+          code: "private-provider-code",
+          message: "private-provider-diagnostic",
+        },
+      });
+    });
+    const upstream = await startUpstream(handler);
+    const gateway = await startGateway({ logger });
+    const lease = gateway.issueLease({
+      ...leaseMetering,
+      conversationId: "conversation-failure-classification",
+      revision: 1,
+      upstreamBaseUrl: `${upstream.baseUrl}/v1`,
+      apiKey: "private-api-key",
+      protocolMode: "chat_completions_bridge",
+      model: "model-a",
+    });
+    const response = await requestGateway(gateway, lease.token, {
+      model: "model-a",
+      input: "hello",
+    });
+    expect(response.status).toBe(status);
+    const body = await response.text();
+    expect(JSON.parse(body)).toMatchObject({ error: { code } });
+    expect(body).not.toContain("private-");
+    expect(handler).toHaveBeenCalledOnce();
+    expect(logs.find(entry => entry.msg === "model provider request failed")).toMatchObject({
+      upstreamStatus: status,
+      failureCode: code,
+      model: "model-a",
+    });
+    expect(JSON.stringify(logs)).not.toContain("private-");
   });
 
   it("logs a client response close separately from an upstream timeout", async () => {

@@ -479,6 +479,7 @@ export type ConversationPlanReview = z.infer<
 export const turnSchema = z
   .object({
     id: z.string(),
+    idempotency_key: z.string().min(1).max(120).nullable().optional(),
     status: z.enum(["running", "completed", "failed", "interrupted"]),
     task_kind: z.enum(["turn", "goal", "compact"]).optional(),
     collaboration_mode: conversationCollaborationModeSchema.optional(),
@@ -669,6 +670,7 @@ export function getNativeCodexPayload(event: {
 export const pendingRequestSchema = z
   .object({
     id: z.string(),
+    idempotency_key: z.string().min(1).max(120).nullable().optional(),
     sequence_no: z.number().optional(),
     queue_no: z.number().optional(),
     status: z.string(),

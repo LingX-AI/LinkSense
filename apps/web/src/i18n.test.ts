@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   applicationIconPresets,
   taskArtifactFileTypeSchema,
+  modelGatewayErrorMessages,
 } from "@linksense/shared"
 
 import i18n, {
@@ -15,6 +16,7 @@ import { frFR } from "@/i18n/fr-FR"
 import { jaJP } from "@/i18n/ja-JP"
 import { ptBR } from "@/i18n/pt-BR"
 import { zhCN } from "@/i18n/zh-CN"
+import { getPublicRuntimeMessage } from "@/lib/public-copy"
 
 function leafKeys(value: unknown, prefix = ""): string[] {
   if (typeof value !== "object" || value === null) return [prefix]
@@ -54,6 +56,25 @@ function interpolationTokens(value: string): string[] {
 }
 
 describe("i18n resources", () => {
+  it.each(supportedLanguages)(
+    "localizes gateway failures and historical JSON in %s",
+    (locale) => {
+      for (const code of Object.keys(modelGatewayErrorMessages)) {
+        const key = `errors.modelGateway.${code}`
+        const translated = i18n.t(key, { lng: locale })
+        expect(translated).not.toBe(key)
+        if (locale !== "zh-CN")
+          expect(translated).not.toBe(i18n.t(key, { lng: "zh-CN" }))
+        expect(
+          getPublicRuntimeMessage(
+            JSON.stringify({ error: { code, message: "private-diagnostic" } }),
+            "fallback",
+            (candidate) => i18n.t(candidate, { lng: locale })
+          )
+        ).toBe(translated)
+      }
+    }
+  )
   it.each(supportedLanguages)(
     "localizes editable image service addresses and the compatible provider in %s with Chinese fallback",
     (locale) => {

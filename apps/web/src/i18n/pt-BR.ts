@@ -1,4 +1,5 @@
 import { connectionMessages } from "@/features/connections/messages"
+import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samlptBR } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
 import type { TranslationResource } from "@/i18n/types"
@@ -5367,6 +5368,7 @@ export const ptBR = {
     lastRunTo: "Última execução até",
     auditConversationsEmpty:
       "Nenhum metadado de execução de tarefa correspondente.",
+    auditPageCount: "Página {{current}} de {{total}}",
     retainedArtifactsDescription:
       "Exibe apenas resumos com dados sensíveis ocultados dos arquivos mantidos permanentemente de tarefas excluídas. Visualização do conteúdo, recuperação e downloads estão indisponíveis.",
     retainedArtifactsSearchPlaceholder:
@@ -5967,6 +5969,7 @@ export const ptBR = {
       "O acesso pelo Teams falhou. Tente novamente ou use outro método de acesso.",
     codexTurnFailed:
       "Esta execução falhou. Você pode ajustar a entrada e tentar novamente.",
+    modelGateway: modelGatewayMessages["pt-BR"],
     turnCompletedWithoutOutput:
       "Esta execução terminou sem produzir um resultado exibível. Execute novamente.",
     automation: {

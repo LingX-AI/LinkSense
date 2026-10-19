@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+. "$(dirname "$0")/linksense-host.sh"
 
 HOST_OS=$(uname -s)
 HOST_ARCHITECTURE=$(uname -m)
@@ -72,7 +73,7 @@ text() {
     zh-CN:menu_prompt) printf '请输入命令编号：' ;;
     zh-CN:usage) printf '%s\n' \
       '用法：linksense [命令]' \
-      '命令：status、start、stop、restart、address、port <端口>、credential、logs [服务]、doctor、version、repair、upgrade [版本]' ;;
+      '命令：status、start、stop、restart、address、port <端口>、credential、logs [服务]、doctor [--network]、version、repair、upgrade [版本]' ;;
     en-US:unsupported_host) printf 'Unsupported host operating system: %s.' "$1" ;;
     en-US:run_without_sudo) printf 'Run linksense from the current macOS account without sudo.' ;;
     en-US:sudo_missing) printf 'Managing LinkSense requires root privileges, but sudo is not installed.' ;;
@@ -131,7 +132,7 @@ text() {
     en-US:menu_prompt) printf 'Select a command: ' ;;
     en-US:usage) printf '%s\n' \
       'Usage: linksense [command]' \
-      'Commands: status, start, stop, restart, address, port <port>, credential, logs [service], doctor, version, repair, upgrade [version]' ;;
+      'Commands: status, start, stop, restart, address, port <port>, credential, logs [service], doctor [--network], version, repair, upgrade [version]' ;;
     *) printf 'Unknown message: %s' "$key" ;;
   esac
 }
@@ -157,13 +158,13 @@ case "$HOST_OS" in
     if [ "$CURRENT_UID" -ne 0 ]; then
       command -v sudo >/dev/null 2>&1 || die sudo_missing
       if [ -n "${LINKSENSE_RELEASE_BASE_URL:-}" ]; then
-        exec sudo env \
+        exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env \
           "LINKSENSE_INSTALL_DIR=${LINKSENSE_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}" \
           "LINKSENSE_CLI_LANGUAGE=$CLI_LANGUAGE" \
           "LINKSENSE_RELEASE_BASE_URL=$LINKSENSE_RELEASE_BASE_URL" \
           "$0" "$@"
       fi
-      exec sudo env \
+      exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env \
         "LINKSENSE_INSTALL_DIR=${LINKSENSE_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}" \
         "LINKSENSE_CLI_LANGUAGE=$CLI_LANGUAGE" \
         "$0" "$@"
@@ -200,21 +201,6 @@ validate_installation_file() {
   [ "$(file_mode "$file" 2>/dev/null || true)" = 600 ] || die invalid_install "$file"
 }
 
-read_key() {
-  file=$1
-  expected=$2
-  awk -F= -v expected="$expected" '
-    $1 == expected {
-      count += 1
-      value = substr($0, length($1) + 2)
-    }
-    END {
-      if (count != 1) exit 1
-      print value
-    }
-  ' "$file"
-}
-
 validate_port() {
   case "$1" in ''|*[!0-9]*) return 1 ;; esac
   [ "$1" -ge 1 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
@@ -241,6 +227,10 @@ load_installation() {
   HTTP_PORT=$(read_key "$STATE_FILE" STATE_HTTP_PORT 2>/dev/null || true)
   PUBLIC_BASE_URL=$(read_key "$ENV_FILE" LINKSENSE_PUBLIC_BASE_URL 2>/dev/null || true)
   RUNTIME_PORT=$(read_key "$ENV_FILE" LINKSENSE_HTTP_PORT 2>/dev/null || true)
+  LINKSENSE_CPU_QUOTA_MODE=$(read_key "$ENV_FILE" LINKSENSE_CPU_QUOTA_MODE 2>/dev/null || true)
+  LINKSENSE_CPU_QUOTA_MODE=${LINKSENSE_CPU_QUOTA_MODE:-strict}
+  LINKSENSE_PLATFORM=$PLATFORM
+  host_cpu_mode
   case "$EDITION" in core|full) ;; *) die invalid_install "$STATE_FILE" ;; esac
   validate_version "$VERSION" || die invalid_install "$STATE_FILE"
   case "$PLATFORM" in linux-amd64|linux-arm64) ;; *) die invalid_install "$STATE_FILE" ;; esac
@@ -252,13 +242,14 @@ load_installation() {
 }
 
 ensure_docker() {
-  command -v docker >/dev/null 2>&1 || die docker_missing
+  host_use_saved_tools
+  [ -n "$DOCKER_CLI" ] || die docker_missing
   docker info >/dev/null 2>&1 || die docker_stopped
-  docker compose version >/dev/null 2>&1 || die compose_missing
+  host_compose version >/dev/null 2>&1 || die compose_missing
 }
 
 compose() {
-  docker compose --project-directory "$INSTALL_DIR" \
+  host_compose --project-directory "$INSTALL_DIR" \
     --env-file "$ENV_FILE" \
     -f "$INSTALL_DIR/compose.common.yml" \
     -f "$INSTALL_DIR/compose.$EDITION.yml" "$@"
@@ -269,7 +260,7 @@ local_url() {
 }
 
 ready() {
-  curl -fsS "$(local_url "$1")/api/v1/system/health/ready" >/dev/null 2>&1
+  curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "$(local_url "$1")/api/v1/system/health/ready" >/dev/null 2>&1
 }
 
 wait_until_ready() {
@@ -325,11 +316,15 @@ command_status() {
 }
 
 command_start() {
+  host_lock_installation
+  load_installation
   ensure_docker
+  host_capabilities
   compose config --quiet
   compose up -d --remove-orphans
   wait_until_ready "$HTTP_PORT" || die health_failed "$HTTP_PORT"
   say started "$PUBLIC_BASE_URL"
+  host_unlock_installation
 }
 
 sha256_text() {
@@ -360,21 +355,28 @@ remove_task_workers() {
 }
 
 command_stop() {
+  host_lock_installation
+  load_installation
   ensure_docker
   compose stop -t 60 api runner >/dev/null 2>&1 || true
   remove_task_workers
   compose stop -t 60
   say stopped
+  host_unlock_installation
 }
 
 command_restart() {
+  host_lock_installation
+  load_installation
   ensure_docker
+  host_capabilities
   compose config --quiet
   compose stop -t 60 api runner >/dev/null 2>&1 || true
   remove_task_workers
   compose restart -t 60
   wait_until_ready "$HTTP_PORT" || die health_failed "$HTTP_PORT"
   say restarted "$PUBLIC_BASE_URL"
+  host_unlock_installation
 }
 
 is_browser_restricted_port() {
@@ -480,7 +482,7 @@ rollback_port() {
   say port_rollback "$old_port" >&2
 }
 
-command_port() {
+command_port_unlocked() {
   new_port=${1:-}
   validate_port "$new_port" || die port_invalid
   is_browser_restricted_port "$new_port" && die port_restricted "$new_port"
@@ -523,6 +525,14 @@ command_port() {
   say port_changed "$old_port" "$new_port" "$new_public"
 }
 
+command_port() {
+  host_lock_installation
+  load_installation
+  (trap - EXIT; command_port_unlocked "$@")
+  load_installation
+  host_unlock_installation
+}
+
 command_credential() {
   require_confirmation=${1:-false}
   if [ "$require_confirmation" = true ]; then
@@ -530,7 +540,7 @@ command_credential() {
     IFS= read -r confirmation || confirmation=
     case "$confirmation" in y|Y|yes|YES|Yes|是) ;; *) say cancelled; return ;; esac
   fi
-  response=$(curl -fsS "$(local_url "$HTTP_PORT")/api/v1/system/bootstrap" 2>/dev/null || true)
+  response=$(curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "$(local_url "$HTTP_PORT")/api/v1/system/bootstrap" 2>/dev/null || true)
   [ -n "$response" ] || die credential_unavailable
   if printf '%s' "$response" | grep -Eq '"initialized"[[:space:]]*:[[:space:]]*true'; then
     say credential_expired
@@ -572,7 +582,21 @@ validate_managed_volume() {
 }
 
 command_doctor() {
+  if [ "${1:-}" = --network ]; then
+    host_use_saved_tools
+    network_base=${LINKSENSE_RELEASE_BASE_URL:-$(read_key "$STATE_FILE" STATE_RELEASE_BASE_URL 2>/dev/null || true)}
+    network_base=${network_base:-https://github.com/LingX-AI/linksense/releases/download/$VERSION}
+    network_busybox=$(read_key "$ENV_FILE" BUSYBOX_IMAGE 2>/dev/null || true)
+    network_api=$(read_key "$ENV_FILE" LINKSENSE_API_IMAGE 2>/dev/null || true)
+    if [ -n "$network_busybox" ] && [ -n "$network_api" ]; then
+      host_network_diagnostics "$network_base" "$network_busybox" "$network_api"
+    else
+      host_network_diagnostics "$network_base"
+    fi
+    return
+  fi
   ensure_docker
+  host_capabilities
   compose config --quiet
   volumes=$(read_key "$STATE_FILE" STATE_DATA_VOLUMES 2>/dev/null || true)
   [ -n "$volumes" ] || die invalid_install "$STATE_FILE"
@@ -593,6 +617,7 @@ command_doctor() {
   case ",$volumes," in *",$backup_volume,"*) ;; *) die invalid_install "$STATE_FILE" ;; esac
   validate_managed_volume "$user_data_volume" user-data
   validate_managed_volume "$backup_volume" backups
+  host_service_snapshot >/dev/null
   ready "$HTTP_PORT" || die health_failed "$HTTP_PORT"
   compose ps --all
   say doctor_ok
@@ -663,6 +688,8 @@ case "$command" in
 esac
 
 load_installation
+trap host_unlock_installation EXIT
+trap 'exit 130' HUP INT TERM
 
 case "$command" in
   menu) show_menu ;;
@@ -674,7 +701,9 @@ case "$command" in
   port) shift; command_port "${1:-}" ;;
   credential) command_credential false ;;
   logs) shift; command_logs "${1:-}" ;;
-  doctor) command_doctor ;;
+  doctor)
+    shift
+    case "$#:${1:-}" in 0:|1:--network) command_doctor "${1:-}" ;; *) die invalid_command doctor ;; esac ;;
   version) printf '%s (%s, %s)\n' "$VERSION" "$EDITION" "$PLATFORM" ;;
   repair) command_repair ;;
   upgrade) shift; command_upgrade "${1:-}" ;;

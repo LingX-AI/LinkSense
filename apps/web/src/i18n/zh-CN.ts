@@ -1,4 +1,5 @@
 import { connectionMessages } from "@/features/connections/messages"
+import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samlzhCN } from "@/features/saml/messages"
 import { webSitesZhCN } from "@/features/web-sites/messages"
 import { socialZhCN } from "@/features/social-auth/messages"
@@ -4665,6 +4666,7 @@ export const zhCN = {
     lastRunFrom: "执行开始日期",
     lastRunTo: "执行结束日期",
     auditConversationsEmpty: "没有匹配的任务执行元数据。",
+    auditPageCount: "第 {{current}} / {{total}} 页",
     retainedArtifactsDescription:
       "仅展示已删除任务中永久保留产物的脱敏汇总，不提供内容查看、恢复或下载。",
     retainedArtifactsSearchPlaceholder: "搜索任务 ID、owner ID 或删除时间…",
@@ -5139,6 +5141,7 @@ export const zhCN = {
       "初始化凭据无效，请使用安装成功时显示的一次性凭据。",
     teamsFailed: "Teams 登录失败，请重试或使用其他登录方式。",
     codexTurnFailed: "本轮执行失败。你可以调整输入后继续重试。",
+    modelGateway: modelGatewayMessages["zh-CN"],
     turnCompletedWithoutOutput:
       "本轮执行已结束，但没有产出可展示的内容，请重新执行。",
     automation: {

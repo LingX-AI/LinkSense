@@ -17,6 +17,15 @@ const baseEnvironment = {
 }
 
 describe("parseRunnerConfig", () => {
+  it("requires an explicit compatible mode to omit CPU quotas", () => {
+    expect(parseRunnerConfig(baseEnvironment).LINKSENSE_CPU_QUOTA_MODE).toBe("strict")
+    expect(parseRunnerConfig({ ...baseEnvironment, LINKSENSE_CPU_QUOTA_MODE: "compatible" }).LINKSENSE_CPU_QUOTA_MODE).toBe("compatible")
+    for (const mode of ["", "disabled", "false"]) {
+      expect(() => parseRunnerConfig({ ...baseEnvironment, LINKSENSE_CPU_QUOTA_MODE: mode })).toThrow()
+    }
+    expect(() => parseRunnerConfig({ ...baseEnvironment, LINKSENSE_WORKER_CPUS: "0" })).toThrow()
+  })
+
   it("uses the current conversation AGENTS template version by default", () => {
     const config = parseRunnerConfig({
       ...baseEnvironment,

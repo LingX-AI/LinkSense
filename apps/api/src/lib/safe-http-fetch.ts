@@ -246,7 +246,7 @@ async function waitForLookup<T>(
   })
 }
 
-async function readResponseWithLimit(
+export async function readResponseWithLimit(
   body: ReadableStream<Uint8Array>,
   byteLimit: number,
   errorCode: ErrorCode,

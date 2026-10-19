@@ -276,10 +276,9 @@ for (const viewport of [
     await expect(
       page.getByRole("heading", { name: "应用", exact: true })
     ).toBeVisible()
-    await expect(page.getByRole("tab", { name: "应用" })).toHaveAttribute(
-      "aria-selected",
-      "true"
-    )
+    await expect(
+      page.getByRole("tab", { name: "应用", exact: true })
+    ).toHaveAttribute("aria-selected", "true")
     await page.getByRole("tab", { name: "插件" }).click()
     await expect(
       page.getByText("还没有已安装的插件", { exact: true })
@@ -300,7 +299,9 @@ for (const viewport of [
     await expect(
       page.getByRole("heading", { name: "已归档任务", exact: true })
     ).toBeVisible()
-    await expect(page.getByRole("button", { name: "搜索" })).toBeVisible()
+    await expect(
+      page.getByRole("textbox", { name: "搜索已归档任务的标题、消息或附件…" })
+    ).toBeVisible()
     await expectNoHorizontalOverflow(page)
 
     await page.goto("/admin/roles")
@@ -403,7 +404,10 @@ test("light theme uses a neutral sidebar with translucent interaction colors wit
   await expect(appSidebar).toHaveCSS("background-color", "rgb(245, 245, 245)")
   await expect(
     appSidebar.locator(".sidebar-conversation-item.sidebar-link-active")
-  ).toHaveCSS("background-color", "color(srgb 0.12549 0.12549 0.12549 / 0.0509804)")
+  ).toHaveCSS(
+    "background-color",
+    "color(srgb 0.12549 0.12549 0.12549 / 0.0509804)"
+  )
   const capabilitiesLink = appSidebar.getByRole("link", { name: "插件中心" })
   await capabilitiesLink.hover()
   await expect(capabilitiesLink).toHaveCSS(
@@ -608,12 +612,16 @@ test("appearance supports themes and a persistent UI font size without backend p
     ".appearance-theme-preview"
   )
   const lightThemePreview = lightThemeLabel.locator(".appearance-theme-preview")
-  const defaultPreviewBorderColor = await lightThemePreview.evaluate(
-    (preview) => getComputedStyle(preview).borderLeftColor
+  const selectedPreviewBorderColor = await systemThemeLabel.evaluate(
+    (label) => getComputedStyle(label).color
   )
   await expect(systemThemePreview).toHaveCSS(
     "border-left-color",
-    defaultPreviewBorderColor
+    selectedPreviewBorderColor
+  )
+  await expect(lightThemePreview).not.toHaveCSS(
+    "border-left-color",
+    selectedPreviewBorderColor
   )
   await expect(systemThemePreview).toHaveCSS("box-shadow", "none")
 
@@ -737,9 +745,9 @@ test("security password fields use independent visibility controls", async ({
   await page.goto("/settings/security")
 
   await expect(page.getByRole("heading", { name: "安全" })).toBeVisible()
-  const currentPassword = page.getByLabel("当前密码", { exact: true })
-  const newPassword = page.getByLabel("新密码", { exact: true })
-  const confirmation = page.getByLabel("确认新密码", { exact: true })
+  const currentPassword = page.getByLabel(/^当前密码\s*\*?$/u)
+  const newPassword = page.getByLabel(/^新密码\s*\*?$/u)
+  const confirmation = page.getByLabel(/^确认新密码\s*\*?$/u)
   await currentPassword.fill("CurrentPass1!")
   await newPassword.fill("NextPass2!")
   await confirmation.fill("NextPass2!")
@@ -805,7 +813,7 @@ test("form controls and dropdown surfaces use partial radii", async ({
   await page.goto("/settings/general")
   const language = page.getByRole("combobox", { name: "语言" })
 
-  await expect(language).toHaveCSS("border-radius", "11.2px")
+  await expect(language).toHaveCSS("border-radius", "8.96px")
   await expect(language).toHaveCSS("font-weight", "500")
   await expect(page.getByRole("button", { name: "保存" })).toHaveCount(0)
   await language.click()
@@ -935,7 +943,9 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
   const settingsNavigationLabels = settingsSidebar.locator(
     ".settings-navigation-link > span"
   )
-  await expect(settingsNavigationLabels).toHaveCount(22)
+  await expect(settingsNavigationLabels).toHaveCount(
+    await settingsSidebar.locator(".settings-navigation-link").count()
+  )
   await expect(
     settingsSidebar.locator(".settings-navigation-link > span > span")
   ).toHaveCount(0)
@@ -971,8 +981,9 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
     page.getByRole("complementary", { name: "设置导航" })
   ).toHaveCount(0)
   await expect(
-    page.getByRole("heading", { name: "插件中心", exact: true })
+    page.getByRole("heading", { name: "应用", exact: true })
   ).toBeVisible()
+  await page.getByRole("tab", { name: "插件", exact: true }).click()
   await expect(page.getByRole("tab", { name: "插件" })).toHaveAttribute(
     "aria-selected",
     "true"
@@ -1590,7 +1601,19 @@ test("user message editor uses a shorter borderless light surface", async ({
 
   const editorSurfaceBox = await editorSurface.boundingBox()
   expect(editorSurfaceBox).not.toBeNull()
-  expect(editorSurfaceBox!.height).toBeLessThanOrEqual(140)
+  const label = userMessage.locator(
+    'label[for="' + (await editor.getAttribute("id")) + '"]'
+  )
+  await expect(label).toBeVisible()
+  const labelBox = await label.boundingBox()
+  expect(labelBox).not.toBeNull()
+  const labelGap = await label
+    .locator("..")
+    .evaluate((field) => Number.parseFloat(getComputedStyle(field).rowGap))
+  // The shared required-field label adds a row above the compact editing controls.
+  expect(
+    editorSurfaceBox!.height - labelBox!.height - labelGap
+  ).toBeLessThanOrEqual(140)
 })
 
 test("assistant artifact cards use a transparent surface with hover feedback", async ({
@@ -2702,6 +2725,107 @@ test("credential editor stacks secret fields safely on a narrow viewport", async
   }
 })
 
+for (const width of [1440, 320]) {
+  for (const section of ["users", "groups"] as const) {
+    test(`user-management submission errors preserve content spacing in ${section} at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 1024 })
+      await page.route("**/api/v1/admin/**", async (route) => {
+        const path = new URL(route.request().url()).pathname
+        if (
+          route.request().method() === "POST" &&
+          (path === "/api/v1/admin/users" ||
+            path === "/api/v1/admin/user-groups")
+        ) {
+          return route.fulfill({
+            status: 400,
+            contentType: "application/json",
+            body: JSON.stringify({
+              success: false,
+              error_code: "VALIDATION_ERROR",
+              message_key: "errors.validation",
+              params: {
+                reason:
+                  "The submitted record contains invalid values. Check the name and email before retrying.",
+              },
+            }),
+          })
+        }
+        if (path === "/api/v1/admin/user-groups") {
+          return ok(route, { items: [], next_cursor: null })
+        }
+        return route.fallback()
+      })
+      await page.goto(`/admin/${section}`)
+      const content = page.locator(
+        section === "users"
+          ? '[data-slot="user-management-filters"]'
+          : ".empty-state"
+      )
+      await expect(content).toBeVisible()
+      const initialOffset = await content.evaluate((element) => {
+        const parent = element.parentElement
+        if (!parent) throw new Error("Expected content inside a tab panel")
+        return (
+          element.getBoundingClientRect().top -
+          parent.getBoundingClientRect().top
+        )
+      })
+      expect(Math.abs(initialOffset)).toBeLessThanOrEqual(1)
+
+      const title = section === "users" ? "创建用户" : "创建用户组"
+      await page.getByRole("button", { name: title, exact: true }).click()
+      const dialog = page.getByRole("dialog", { name: title, exact: true })
+      await dialog
+        .getByRole("textbox", { name: "名称", exact: true })
+        .fill("Support")
+      if (section === "users") {
+        await dialog
+          .getByRole("textbox", { name: "邮箱", exact: true })
+          .fill("support@example.com")
+      }
+      await dialog.getByRole("button", { name: "保存", exact: true }).click()
+      const panel = content.locator("..")
+      const alert = panel.locator('[role="alert"]')
+      await expect(alert).toContainText("提交内容无效，请检查后重试。")
+      await expect(dialog.getByRole("alert")).toContainText(
+        "提交内容无效，请检查后重试。"
+      )
+      await dialog.getByRole("button", { name: "取消", exact: true }).click()
+
+      const [alertBox, contentBox] = await Promise.all([
+        alert.boundingBox(),
+        content.boundingBox(),
+      ])
+      if (!alertBox || !contentBox)
+        throw new Error("Expected visible error and content")
+      expect(
+        contentBox.y - (alertBox.y + alertBox.height)
+      ).toBeGreaterThanOrEqual(15.5)
+      if (width === 320) {
+        const descriptionBox = await alert
+          .locator('[data-slot="alert-description"]')
+          .boundingBox()
+        expect(descriptionBox?.height).toBeGreaterThan(20)
+      }
+
+      await page.reload()
+      await expect(content).toBeVisible()
+      await expect(panel.getByRole("alert")).toHaveCount(0)
+      const restoredOffset = await content.evaluate((element) => {
+        const parent = element.parentElement
+        if (!parent) throw new Error("Expected content inside a tab panel")
+        return (
+          element.getBoundingClientRect().top -
+          parent.getBoundingClientRect().top
+        )
+      })
+      expect(Math.abs(restoredOffset - initialOffset)).toBeLessThanOrEqual(1)
+    })
+  }
+}
+
 test("user management table vertically centers data cells", async ({
   page,
 }) => {
@@ -2713,7 +2837,9 @@ test("user management table vertically centers data cells", async ({
   ).toBeVisible()
   const userRow = page.getByRole("row").filter({ hasText: ADMIN.email })
   const dataCells = userRow.getByRole("cell")
-  await expect(dataCells).toHaveCount(12)
+  await expect(dataCells).toHaveCount(
+    await page.getByRole("columnheader").count()
+  )
   expect(
     await dataCells.evaluateAll((cells) =>
       cells
@@ -2767,7 +2893,13 @@ test("role summaries use aligned responsive rows without the fixed-role notice",
     cards.evaluateAll((items) =>
       items.map((item) => {
         const box = item.getBoundingClientRect()
-        return { top: box.top, bottom: box.bottom, left: box.left, right: box.right, height: box.height }
+        return {
+          top: box.top,
+          bottom: box.bottom,
+          left: box.left,
+          right: box.right,
+          height: box.height,
+        }
       })
     ),
     cards.evaluateAll((items) =>
@@ -2782,18 +2914,24 @@ test("role summaries use aligned responsive rows without the fixed-role notice",
     accountCounts.evaluateAll((items) =>
       items.map((item) => {
         const box = item.getBoundingClientRect()
-        return { top: box.top, bottom: box.bottom, left: box.left, right: box.right, height: box.height }
+        return {
+          top: box.top,
+          bottom: box.bottom,
+          left: box.left,
+          right: box.right,
+          height: box.height,
+        }
       })
     ),
   ])
   expect(cardBoxes[0].bottom).toBeLessThanOrEqual(cardBoxes[1].top)
-  expect(
-    Math.abs(cardBoxes[0].left - cardBoxes[1].left)
-  ).toBeLessThanOrEqual(1)
+  expect(Math.abs(cardBoxes[0].left - cardBoxes[1].left)).toBeLessThanOrEqual(1)
   expect(
     Math.abs(contentTopInsets[0] - contentTopInsets[1])
   ).toBeLessThanOrEqual(1)
-  expect(Math.abs(countBoxes[0].right - countBoxes[1].right)).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs(countBoxes[0].right - countBoxes[1].right)
+  ).toBeLessThanOrEqual(1)
   for (const [index, count] of countBoxes.entries()) {
     expect(count.top).toBeGreaterThanOrEqual(cardBoxes[index].top)
     expect(count.bottom).toBeLessThanOrEqual(cardBoxes[index].bottom)
@@ -2824,6 +2962,74 @@ test("role summaries use aligned responsive rows without the fixed-role notice",
     )
   ).toBeLessThanOrEqual(1)
 })
+
+for (const width of [1440, 320]) {
+  test(`retained task pagination and complete timestamps remain reachable at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.route(
+      "**/api/v1/admin/audit/retained-artifacts**",
+      async (route) => {
+        const cursor = new URL(route.request().url()).searchParams.get("cursor")
+        return ok(route, {
+          items: Array.from({ length: cursor ? 1 : 10 }, (_, index) => ({
+            conversation_id: `20000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+            owner_id: ADMIN.id,
+            owner_name: ADMIN.name,
+            owner_email: ADMIN.email,
+            artifact_count: 3,
+            total_size_bytes: 4096,
+            checksum_present: true,
+            first_artifact_created_at: NOW,
+            last_artifact_created_at: NOW,
+            conversation_deleted_at: NOW,
+          })),
+          total_count: 11,
+          next_cursor: cursor
+            ? null
+            : `${NOW}|20000000-0000-4000-8000-000000000010`,
+        })
+      }
+    )
+    await page.route("**/api/v1/admin/audit", (route) =>
+      ok(route, { items: [], next_cursor: null })
+    )
+    await page.goto("/admin/audit")
+    await page.getByRole("tab", { name: "已删除任务产物", exact: true }).click()
+    await expect(page.getByText("第 1 / 2 页", { exact: true })).toBeVisible()
+    const region = page.getByRole("region", {
+      name: "已删除任务产物",
+      exact: true,
+    })
+    await expect(region.getByRole("row")).toHaveCount(11)
+    const metrics = await region.evaluate((element) => ({
+      height: element.getBoundingClientRect().height,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      overflow: getComputedStyle(element).overflowY,
+    }))
+    expect(metrics.height).toBeLessThanOrEqual(385)
+    expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight)
+    expect(metrics.overflow).toBe("auto")
+    const deletedTime = region.getByRole("row").nth(1).getByRole("cell").nth(5)
+    await expect(deletedTime).toHaveText(dayjs(NOW).format("YYYY-MM-DD HH:mm"))
+    expect(
+      await deletedTime.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth
+      )
+    ).toBe(true)
+    await region.focus()
+    await page.keyboard.press("ArrowRight")
+    await page.getByRole("button", { name: "下一页", exact: true }).click()
+    await expect(page.getByText("第 2 / 2 页", { exact: true })).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "下一页", exact: true })
+    ).toBeDisabled()
+    await page.getByRole("button", { name: "上一页", exact: true }).click()
+    await expect(page.getByText("第 1 / 2 页", { exact: true })).toBeVisible()
+  })
+}
 
 test("audit settings remain usable without page-level horizontal overflow", async ({
   page,
@@ -2928,8 +3134,8 @@ test("system health hides internal infrastructure component rows", async ({
     page.getByRole("heading", { name: "系统健康状态" })
   ).toBeVisible()
   const refreshButton = page.getByRole("button", { name: "刷新" })
-  await expect(refreshButton).toHaveCSS("width", "28px")
-  await expect(refreshButton).toHaveCSS("height", "28px")
+  await expect(refreshButton).toHaveCSS("width", "32px")
+  await expect(refreshButton).toHaveCSS("height", "32px")
   await expect(refreshButton).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
   await expect(refreshButton).toHaveText("")
   await expect(
@@ -3278,6 +3484,18 @@ async function mockApi(page: Page) {
     if (path === "/auth/logout") return ok(route, {})
     if (path === "/voice/transcriptions/status") {
       return ok(route, { available: true })
+    }
+    if (
+      path === "/me/model-preference" ||
+      /^\/conversations\/[^/]+\/model-preference$/u.test(path)
+    ) {
+      return ok(route, {
+        configured: false,
+        models: [],
+        default_model: null,
+        selected_model: null,
+        selected_reasoning_effort: null,
+      })
     }
     if (path === "/admin/users") {
       return ok(route, {

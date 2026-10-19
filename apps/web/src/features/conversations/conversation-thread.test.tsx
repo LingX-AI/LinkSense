@@ -5570,6 +5570,52 @@ describe("conversation turn responses", () => {
     ).toBeVisible()
   })
 
+  it("localizes gateway failures in historical turn summaries and legacy error activities", async () => {
+    const body = JSON.stringify({
+      error: {
+        code: "model_provider_rate_limited",
+        message: "private-provider-diagnostic",
+      },
+    })
+    const interaction = userEvent.setup()
+    render(
+      <ConversationThread
+        conversation={{
+          ...completedConversation,
+          turns: [
+            {
+              id: "turn-1",
+              status: "failed",
+              error_message: body,
+              started_at: "2026-07-11T08:00:00.000Z",
+              completed_at: "2026-07-11T08:00:03.250Z",
+            },
+          ],
+          activities: [
+            {
+              id: "legacy-error",
+              turn_id: "turn-1",
+              type: "error",
+              label: body,
+            },
+          ],
+        }}
+        onDownload={vi.fn()}
+      />
+    )
+    const summary = screen.getByTestId("turn-summary-turn-1")
+    await interaction.click(
+      within(summary).getByRole("button", { name: "展开中间过程" })
+    )
+    expect(
+      within(summary).getAllByText(
+        "模型渠道触发限流或用量限制。请稍后重试，或联系管理员检查渠道额度。"
+      )
+    ).toHaveLength(2)
+    expect(summary).not.toHaveTextContent("private-provider-diagnostic")
+    expect(summary).not.toHaveTextContent("model_provider_rate_limited")
+  })
+
   it("keeps unphased commentary prominent when a failed turn has no final answer", async () => {
     const interaction = userEvent.setup()
     render(
