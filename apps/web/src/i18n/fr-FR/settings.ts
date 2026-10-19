@@ -267,6 +267,12 @@ export const settingsResources = {
     taskAutoNamingSaved: "Préférence de nommage enregistrée.",
     personalizationPageDescription:
       "Configurez le nommage des tâches, les instructions personnalisées et la mémoire.",
+    thinkingDisplay: "Affichage du raisonnement",
+    thinkingDisplayDescription:
+      "Choisissez si vous souhaitez voir le raisonnement pendant les tâches.",
+    showReasoning: "Afficher le raisonnement",
+    showReasoningDescription:
+      "Affiche le texte intégral du raisonnement fourni par le modèle, si disponible. Les résumés courts restent visibles dans tous les cas.",
     customInstructions: "Instructions personnalisées",
     customInstructionsDescription:
       "Ajoutez des consignes et du contexte pour toutes vos prochaines tâches. Les règles de la plateforme et les limites de sécurité applicables à chaque tâche restent prioritaires.",

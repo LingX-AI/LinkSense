@@ -802,56 +802,75 @@ describe("LinkSense application", () => {
     expect(await screen.findByText("实现输入框上方清单")).toBeVisible()
   })
 
-  it("shows the readable Codex reasoning summary streamed for the running turn", async () => {
-    const conversationId = "20000000-0000-4000-8000-000000000001"
-    const turnId = "30000000-0000-4000-8000-000000000001"
-    const summaryText = "Evaluating test timing reliability"
-    const eventId = "c1:13"
-    installApiMock({
-      conversationOverride: {
-        messages: [
-          {
-            id: "m1",
-            role: "user",
-            turn_id: turnId,
-            content: "检查测试稳定性",
-          },
-        ],
-        turns: [{ id: turnId, status: "running" }],
-        running_turn: { id: turnId, status: "running" },
-      },
-      eventStreamBody: `id: ${eventId}\nevent: item/reasoning/summaryTextDelta\ndata: ${JSON.stringify(
+  it.each([false, true])(
+    "always displays summaries and gates streamed full reasoning with the saved preference: %s",
+    async (showReasoning) => {
+      const conversationId = "20000000-0000-4000-8000-000000000001"
+      const turnId = "30000000-0000-4000-8000-000000000001"
+      const summaryText = "Evaluating test timing reliability"
+      const fullText =
+        "Full reasoning about timing, independent of the short summary."
+      const events = [
         {
-          id: "60000000-0000-4000-8000-000000000013",
-          conversation_id: conversationId,
-          turn_id: turnId,
-          sequence_no: 13,
-          event_type: "item/reasoning/summaryTextDelta",
-          visibility: "user_collapsed",
-          payload: {
-            schema_version: 2,
-            source: "codex_app_server",
-            method: "item/reasoning/summaryTextDelta",
-            params: {
-              threadId: "thread-native-1",
-              turnId: "turn-native-1",
-              itemId: "reasoning-1",
-              summaryIndex: 0,
-              delta: summaryText,
+          method: "item/reasoning/summaryTextDelta",
+          params: { summaryIndex: 0, delta: summaryText },
+        },
+        {
+          method: "item/reasoning/textDelta",
+          params: { contentIndex: 0, delta: fullText },
+        },
+      ]
+        .map(({ method, params }, index) => {
+          const sequence = index + 13
+          const eventId = `${conversationId}:${sequence}`
+          return `id: ${eventId}\nevent: ${method}\ndata: ${JSON.stringify({
+            id: `60000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`,
+            conversation_id: conversationId,
+            turn_id: turnId,
+            sequence_no: sequence,
+            event_type: method,
+            visibility: "user_collapsed",
+            payload: {
+              schema_version: 2,
+              source: "codex_app_server",
+              method,
+              params: {
+                threadId: "thread-native-1",
+                turnId: "turn-native-1",
+                itemId: "reasoning-1",
+                ...params,
+              },
             },
-          },
-          sse_event_id: eventId,
-          created_at: "2026-07-15T08:00:13.000Z",
-        }
-      )}\n\n`,
-    })
-
-    renderApp()
-
-    expect(await screen.findByText("正在处理", { exact: true })).toBeVisible()
-    expect(await screen.findByText(summaryText, { exact: true })).toBeVisible()
-    expect(screen.queryByText("思考内容", { exact: true })).toBeNull()
-  })
+            sse_event_id: eventId,
+            created_at: "2026-07-15T08:00:13.000Z",
+          })}\n\n`
+        })
+        .join("")
+      installApiMock({
+        showReasoning,
+        conversationOverride: {
+          messages: [
+            {
+              id: "m1",
+              role: "user",
+              turn_id: turnId,
+              content: "检查测试稳定性",
+            },
+          ],
+          turns: [{ id: turnId, status: "running" }],
+          running_turn: { id: turnId, status: "running" },
+        },
+        eventStreamBody: events,
+      })
+      renderApp()
+      expect(
+        await screen.findByText(summaryText, { exact: true })
+      ).toBeVisible()
+      if (showReasoning)
+        expect(await screen.findByText(fullText, { exact: true })).toBeVisible()
+      else expect(screen.queryByText(fullText, { exact: true })).toBeNull()
+    }
+  )
 
   it("renders the localized Plan output error streamed by the conversation", async () => {
     const turnId = "30000000-0000-4000-8000-000000000016"

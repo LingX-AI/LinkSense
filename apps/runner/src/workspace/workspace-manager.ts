@@ -85,6 +85,7 @@ const personalizationStateSchema = z.strictObject({
   version: z.literal(1),
   revision: z.uuid(),
   ...personalizationSettingsSchema.shape,
+  show_reasoning: personalizationSettingsSchema.shape.show_reasoning.default(false),
   task_auto_naming: personalizationSettingsSchema.shape.task_auto_naming.default(
     DEFAULT_TASK_AUTO_NAMING,
   ),
@@ -296,6 +297,7 @@ export class WorkspaceManager {
           update.custom_instructions ?? current.custom_instructions,
         memories_enabled:
           update.memories_enabled ?? current.memories_enabled,
+        show_reasoning: update.show_reasoning ?? current.show_reasoning,
         task_auto_naming: update.task_auto_naming ?? current.task_auto_naming,
       })
       await this.writePersonalizationState(paths, next)
@@ -835,6 +837,7 @@ function projectPersonalizationSnapshot(
     revision: state.revision,
     custom_instructions: state.custom_instructions,
     memories_enabled: state.memories_enabled,
+    show_reasoning: state.show_reasoning,
     task_auto_naming: state.task_auto_naming,
   }
 }

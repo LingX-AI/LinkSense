@@ -6,6 +6,7 @@ const STREAM_ONLY_NATIVE_METHODS = new Set([
   "item/plan/delta",
   "item/reasoning/summaryTextDelta",
   "item/reasoning/summaryPartAdded",
+  "item/reasoning/textDelta",
 ])
 
 export function isStreamOnlyNativeEvent(event: ConversationEvent) {

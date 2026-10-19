@@ -1,4 +1,11 @@
-import { act, cleanup, render, screen, within } from "@testing-library/react"
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -14,6 +21,7 @@ import {
   ConversationThread,
 } from "@/features/conversations/conversation-thread"
 import { ReasoningSummaryMarkdown } from "@/features/conversations/reasoning-summary-markdown"
+import { ReasoningActivity } from "@/features/conversations/reasoning-activity"
 import {
   appendStreamingMessageDelta,
   applyStreamingMessageLifecycle,
@@ -382,7 +390,7 @@ describe("conversation stream render stability", () => {
     expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
   })
 
-  it("updates the same status row with readable reasoning between tool calls", () => {
+  it("updates the same status row with summaries while full reasoning is disabled", () => {
     const conversation = createConversation([userMessage, firstCommentary])
     const { rerender } = render(
       <ConversationThread conversation={conversation} onDownload={vi.fn()} />
@@ -404,7 +412,9 @@ describe("conversation stream render stability", () => {
         }}
       />
     )
-    expect(screen.getByText("Comparing URL parsing options")).toBe(label)
+    expect(
+      screen.getByText("Comparing URL parsing options", { exact: true })
+    ).toBe(label)
     expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
   })
 
@@ -427,7 +437,7 @@ describe("conversation stream render stability", () => {
         onDownload={vi.fn()}
       />
     )
-    const label = screen.getByText("Checking results")
+    const label = screen.getByText("Checking results", { exact: true })
     const event: ConversationEvent = {
       id: "reasoning-completed",
       type: "item/completed",
@@ -453,8 +463,7 @@ describe("conversation stream render stability", () => {
     rerender(
       <ConversationThread conversation={conversation} onDownload={vi.fn()} />
     )
-    expect(screen.getByText("Checking results")).toBe(label)
-    expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
+    expect(screen.getByText("Checking results", { exact: true })).toBe(label)
     rerender(
       <ConversationThread
         conversation={{
@@ -861,7 +870,7 @@ describe("conversation stream render stability", () => {
     )
   })
 
-  it("keeps one empty activity shell from initial thinking through final completion", () => {
+  it("keeps one empty activity shell from task startup through final completion", () => {
     const finalMessage: ConversationMessage = {
       id: "message-final-shell-stability",
       role: "assistant",
@@ -876,6 +885,7 @@ describe("conversation stream render stability", () => {
     const { rerender } = render(
       <ConversationThread
         conversation={createConversation([userMessage])}
+        startingTaskTurnId={runningTurn.id}
         onDownload={vi.fn()}
       />
     )
@@ -886,6 +896,9 @@ describe("conversation stream render stability", () => {
     expect(shell).not.toBeNull()
     expect(trigger).not.toBeNull()
     expect(heading).not.toBeNull()
+    expect(
+      within(summary).getByText("正在启动任务", { exact: true })
+    ).toBeVisible()
     expect(summary.querySelector(".activity-panel")).toBeNull()
 
     rerender(
@@ -900,6 +913,9 @@ describe("conversation stream render stability", () => {
       trigger
     )
     expect(summary.querySelector(".turn-summary-heading")).toBe(heading)
+    expect(
+      within(summary).queryByText("正在启动任务", { exact: true })
+    ).toBeNull()
     expect(summary.querySelector(".activity-panel")).toBeNull()
 
     const completedTurn = {
@@ -1340,4 +1356,53 @@ describe("conversation stream render stability", () => {
 
     expect(screen.getByText("已确认页面结构").closest("p")).toBe(initialBlock)
   })
+
+  it.each(["", "## ", "- ", "> "])(
+    "replaces equal-length reasoning text in %j blocks with its authoritative final content",
+    async (prefix) => {
+      const { rerender } = render(
+        <ReasoningActivity
+          content={`${prefix}First live section\n\nSecond live section`}
+          turnRunning
+          running
+          streaming
+        />
+      )
+      fireEvent.click(screen.getByRole("button", { name: "展开思考内容" }))
+      expect(screen.getByText("Second live section")).toBeVisible()
+      rerender(
+        <ReasoningActivity
+          content={`${prefix}Finished reasoning`}
+          turnRunning={false}
+        />
+      )
+      expect(await screen.findByText("Finished reasoning")).toBeVisible()
+      expect(screen.queryByText("First live section")).toBeNull()
+    }
+  )
+
+  it.each([
+    ["inline code", "`First live section`", "`Finished reasoning`"],
+    [
+      "code block",
+      "```text\nFirst live section\n```",
+      "```text\nFinished reasoning\n```",
+    ],
+    [
+      "table",
+      "| Value |\n| --- |\n| First live section |",
+      "| Value |\n| --- |\n| Finished reasoning |",
+    ],
+  ])(
+    "reconciles an equal-length final replacement inside a reasoning %s",
+    async (_kind, live, completed) => {
+      const { rerender, container } = render(
+        <ReasoningSummaryMarkdown content={live} streaming />
+      )
+      expect(container).toHaveTextContent("First live section")
+      rerender(<ReasoningSummaryMarkdown content={completed} />)
+      expect(await screen.findByText("Finished reasoning")).toBeVisible()
+      expect(container).not.toHaveTextContent("First live section")
+    }
+  )
 })

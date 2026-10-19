@@ -35,6 +35,31 @@ function reasoningEvent(
 
 describe("reasoning activity text", () => {
   it.each([
+    ["\nFirst thought\nSecond thought\n\nLast thought\n", "First thought"],
+    [
+      "<!-- hidden -->\n\n## **First thought**\n\nLast thought",
+      "First thought",
+    ],
+    ["\n\r\n<!-- hidden -->", null],
+    ["- First item\n- Last item", "First item"],
+    ["> First thought\n>\n> Last thought", "First thought"],
+    ["First line  \nLast line", "First line"],
+    ["Checking &amp; comparing\n\nLast thought", "Checking & comparing"],
+  ])("extracts the earliest visible line from %j", (input, expected) => {
+    expect(extractReasoningActivityText(input, "first")).toBe(expected)
+  })
+
+  it.each([
+    ["- First item\n- Last item", "Last item"],
+    ["First line  \nLast line", "Last line"],
+  ])(
+    "extracts the latest line across structured blocks from %j",
+    (input, expected) => {
+      expect(extractReasoningActivityText(input, "last")).toBe(expected)
+    }
+  )
+
+  it.each([
     ["**Comparing URL parsing options**", "Comparing URL parsing options"],
     ["## 正在核对结果", "正在核对结果"],
     ["Earlier step\n\n**Latest step**\n\n", "Latest step"],

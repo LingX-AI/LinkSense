@@ -43,6 +43,7 @@ describe("useConversationLiveState", () => {
       })
       result.current.setActivities([activity])
       result.current.setEvents([event])
+      result.current.setReasoningContentEvents([event])
     })
 
     act(() => result.current.switchConversation(secondConversationId))
@@ -50,6 +51,7 @@ describe("useConversationLiveState", () => {
     expect(result.current.conversationId).toBe(secondConversationId)
     expect(result.current.streamedMessages).toEqual({})
     expect(result.current.reasoningSummaries).toEqual({})
+    expect(result.current.reasoningContentEvents).toEqual([])
     expect(result.current.activities).toEqual([])
     expect(result.current.events).toEqual([])
 
@@ -74,6 +76,7 @@ describe("useConversationLiveState", () => {
     })
     expect(result.current.activities).toEqual([activity])
     expect(result.current.events).toEqual([event])
+    expect(result.current.reasoningContentEvents).toEqual([event])
     expect(result.current.hasConversationLiveState(firstConversationId)).toBe(
       true
     )

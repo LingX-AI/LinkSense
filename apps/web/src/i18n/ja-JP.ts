@@ -711,6 +711,12 @@ export const jaJP = {
     taskAutoNamingSaved: "タスク名の設定を保存しました。",
     personalizationPageDescription:
       "タスク名、カスタム指示、メモリの設定を行います。",
+    thinkingDisplay: "思考の表示",
+    thinkingDisplayDescription:
+      "タスク実行中の思考内容を表示するか選択します。",
+    showReasoning: "思考内容を表示",
+    showReasoningDescription:
+      "モデルが提供する思考の全文を表示します。提供されない場合もあります。思考の要約は設定にかかわらず表示されます。",
     customInstructions: "カスタム指示",
     customInstructionsDescription:
       "今後のすべてのタスクに適用する補足の指示や背景情報を記述します。タスクのプラットフォームルールと安全上の制約が常に優先されます。",
@@ -2577,6 +2583,7 @@ export const jaJP = {
       expand: "推論を展開",
       collapse: "推論を折りたたむ",
     },
+    startingTask: "タスクを開始中",
     thinking: "思考",
     processing: "処理中",
     elapsed: "所要時間",
@@ -5828,9 +5835,18 @@ export const jaJP = {
     modelProvider: {
       inUseBySystemSetting:
         "このモデルはシステム設定で使用中です。削除する前に、その選択を変更または解除してください。",
-      credentialRequired: localizedErrorMessage("MODEL_PROVIDER_CREDENTIAL_REQUIRED", "ja-JP"),
-      discoveryFailed: localizedErrorMessage("MODEL_PROVIDER_DISCOVERY_FAILED", "ja-JP"),
-      connectionFailed: localizedErrorMessage("MODEL_PROVIDER_CONNECTION_FAILED", "ja-JP"),
+      credentialRequired: localizedErrorMessage(
+        "MODEL_PROVIDER_CREDENTIAL_REQUIRED",
+        "ja-JP"
+      ),
+      discoveryFailed: localizedErrorMessage(
+        "MODEL_PROVIDER_DISCOVERY_FAILED",
+        "ja-JP"
+      ),
+      connectionFailed: localizedErrorMessage(
+        "MODEL_PROVIDER_CONNECTION_FAILED",
+        "ja-JP"
+      ),
       managementDisabled:
         "モデル設定はデプロイ環境で固定されており、読み取り専用です。",
     },

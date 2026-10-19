@@ -50,9 +50,32 @@ function ApplicationSubmissionTrigger() {
 describe("interactive submissions in native chat", () => {
   setupApplicationTests()
 
-  it("restores the accepted request after a page refresh and reuses its receipt", async () => {
+  it("restores a cold start after refresh, reuses its receipt, and shows thinking once the native turn starts", async () => {
+    let releaseTurnStarted: (() => void) | undefined
+    const turnStarted = new Promise<void>((resolve) => {
+      releaseTurnStarted = resolve
+    })
     const { requests } = installApiMock({
-      eventStreamBody: "",
+      eventStreamStart: turnStarted,
+      eventStreamBody: `id: c1:1\nevent: turn/started\ndata: ${JSON.stringify({
+        id: "60000000-0000-4000-8000-000000000001",
+        conversation_id: "20000000-0000-4000-8000-000000000001",
+        turn_id: turnId,
+        sequence_no: 1,
+        event_type: "turn/started",
+        visibility: "user_visible",
+        payload: {
+          schema_version: 2,
+          source: "codex_app_server",
+          method: "turn/started",
+          params: {
+            threadId: "native-thread-cold-start",
+            turn: { id: "native-turn-cold-start", status: "inProgress" },
+          },
+        },
+        sse_event_id: "c1:1",
+        created_at: "2026-09-18T00:00:01.000Z",
+      })}\n\n`,
       conversationGetResponse: async () =>
         json({
           success: true,
@@ -90,7 +113,7 @@ describe("interactive submissions in native chat", () => {
       </MemoryRouter>
     )
     expect(await screen.findByText(prompt)).toBeVisible()
-    expect(await screen.findByText("正在思考")).toBeVisible()
+    expect(await screen.findByText("正在启动任务")).toBeVisible()
     expect(screen.getByRole("button", { name: "停止" })).toBeVisible()
     await interaction.click(screen.getByRole("button", { name: "应用提交" }))
     expect(
@@ -101,10 +124,14 @@ describe("interactive submissions in native chat", () => {
     expect(
       screen.queryByText("还没有任务。可以直接从输入框开始")
     ).not.toBeInTheDocument()
+
+    await act(async () => releaseTurnStarted?.())
+    expect(await screen.findByText("正在思考", { exact: true })).toBeVisible()
+    expect(screen.queryByText("正在启动任务", { exact: true })).toBeNull()
   })
 
   it.each(["before-receipt", "after-receipt", "detail"])(
-    "ends thinking when an accepted start fails via %s before a native turn exists",
+    "ends task startup when an accepted start fails via %s before a native turn exists",
     async (timing) => {
       let releaseReceipt!: () => void
       let releaseError!: () => void
@@ -192,7 +219,7 @@ describe("interactive submissions in native chat", () => {
       )
       if (timing === "after-receipt") {
         await act(async () => releaseReceipt())
-        expect(await screen.findByText("正在思考")).toBeVisible()
+        expect(await screen.findByText("正在启动任务")).toBeVisible()
       }
       await act(async () => {
         failed = true
@@ -211,7 +238,7 @@ describe("interactive submissions in native chat", () => {
       }
       await act(async () => releaseReceipt())
       await waitFor(() => {
-        expect(screen.queryByText("正在思考")).not.toBeInTheDocument()
+        expect(screen.queryByText("正在启动任务")).not.toBeInTheDocument()
         expect(screen.queryByText("正在发送…")).not.toBeInTheDocument()
         expect(
           screen.queryByRole("button", { name: "停止" })
@@ -228,7 +255,7 @@ describe("interactive submissions in native chat", () => {
         )
       ).toHaveLength(1)
       await interaction.click(screen.getByRole("button", { name: "应用提交" }))
-      expect(await screen.findByText("正在思考")).toBeVisible()
+      expect(await screen.findByText("正在启动任务")).toBeVisible()
       expect(screen.getByRole("button", { name: "停止" })).toBeVisible()
       expect(
         requests.filter(

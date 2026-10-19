@@ -135,6 +135,23 @@ function measuredElementSize(element: HTMLElement) {
 function readFittedPresentationLayout(
   root: HTMLElement
 ): PresentationViewerLayout | null {
+  const pane = root.closest(".office-preview-pane")
+  const layout = pane?.closest(".conversation-office-layout")
+  const workspace = layout?.querySelector(":scope > .conversation-workspace")
+  // A fit can pause for several frames during the split-pane entrance.
+  // Wait for the actual layout motion, excluding descendant loading shimmers.
+  if (
+    [pane, layout, workspace].some((element) =>
+      element
+        ?.getAnimations()
+        .some(
+          (animation) => animation.pending || animation.playState === "running"
+        )
+    )
+  ) {
+    return null
+  }
+
   const viewport = root.querySelector<HTMLElement>("[data-pptx-viewport]")
   const slideWrapper = viewport?.firstElementChild
   if (!viewport || !(slideWrapper instanceof HTMLElement)) return null
@@ -1555,6 +1572,7 @@ export const PptxViewerAdapter = forwardRef<
       <div
         className="presentation-preview-pptx-surface"
         aria-hidden={viewerReady ? undefined : true}
+        inert={!viewerReady}
       >
         <I18nextProvider i18n={viewerI18n}>
           <PowerPointViewer

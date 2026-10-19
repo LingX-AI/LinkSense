@@ -563,6 +563,8 @@ describe("LinkSense application", () => {
     )
     await interaction.click(screen.getByRole("button", { name: "发送" }))
 
+    expect(screen.getByText("正在启动任务", { exact: true })).toBeVisible()
+    expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
     const title = within(sidebar).getByText("未命名任务")
     const item = title.closest(".sidebar-conversation-item")
     expect(item).not.toBeNull()
@@ -610,6 +612,8 @@ describe("LinkSense application", () => {
       () => new Promise<void>((resolve) => window.setTimeout(resolve, 50))
     )
 
+    expect(screen.getByText("正在思考", { exact: true })).toBeVisible()
+    expect(screen.queryByText("正在启动任务", { exact: true })).toBeNull()
     const persistedTitle = within(sidebar).getByText("未命名任务")
     const persistedItem = persistedTitle.closest(".sidebar-conversation-item")
     expect(persistedItem).not.toBeNull()

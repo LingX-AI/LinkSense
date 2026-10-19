@@ -54,7 +54,7 @@ afterEach(async () => {
 });
 
 describe("ConversationEventService sanitization and terminal semantics", () => {
-  it.each<RunnerTextDeltaEvent["method"]>(["item/agentMessage/delta", "item/plan/delta", "item/reasoning/summaryTextDelta"])("keeps batched %s equivalent to individual ingestion, including internal visibility", async method => {
+  it.each<RunnerTextDeltaEvent["method"]>(["item/agentMessage/delta", "item/plan/delta", "item/reasoning/summaryTextDelta", "item/reasoning/textDelta"])("keeps batched %s equivalent to individual ingestion, including internal visibility", async method => {
     const individual = eventFixture();
     const batched = eventFixture();
     individual.tx.conversationEvent.findFirst.mockImplementation(async () => {
@@ -65,6 +65,8 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
       const visibility = index === 0 ? "internal_sanitized" as const : "user_visible" as const;
       const event: RunnerTextDeltaEvent = method === "item/reasoning/summaryTextDelta"
         ? { method, visibility, params: { ...entry.event.params, summaryIndex: 1 } }
+        : method === "item/reasoning/textDelta"
+        ? { method, visibility, params: { ...entry.event.params, contentIndex: 1 } }
         : { method, visibility, params: entry.event.params };
       return { deliveryId: entry.deliveryId, event };
     });
@@ -6343,7 +6345,7 @@ function memoryUsagePayload() {
   };
 }
 
-function textDeltaEntry(delta: string, index: number): { deliveryId: string; event: RunnerTextDeltaEvent } {
+function textDeltaEntry(delta: string, index: number): { deliveryId: string; event: Extract<RunnerTextDeltaEvent, { method: "item/agentMessage/delta" }> } {
   return {
     deliveryId: `60000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
     event: { method: "item/agentMessage/delta", visibility: "user_visible", params: { threadId: "codex-thread-1", turnId: "codex-turn-1", itemId: "stream-item", delta } },

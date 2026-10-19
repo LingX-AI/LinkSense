@@ -13,6 +13,7 @@ export type TaskAutoNaming = z.infer<typeof taskAutoNamingSchema>;
 export const personalizationSettingsSchema = z.strictObject({
   custom_instructions: z.string().max(MAX_CUSTOM_INSTRUCTIONS_LENGTH),
   memories_enabled: z.boolean(),
+  show_reasoning: z.boolean(),
   task_auto_naming: taskAutoNamingSchema,
 });
 
@@ -22,6 +23,7 @@ export const updatePersonalizationSettingsSchema = personalizationSettingsSchema
     (input) =>
       input.custom_instructions !== undefined ||
       input.memories_enabled !== undefined ||
+      input.show_reasoning !== undefined ||
       input.task_auto_naming !== undefined,
     "personalization_update_must_not_be_empty",
   );

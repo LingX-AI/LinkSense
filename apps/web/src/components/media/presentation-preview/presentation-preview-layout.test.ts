@@ -216,6 +216,16 @@ describe("presentation preview layout", () => {
     expect(viewport).toMatch(/padding:\s*16px 4px;/u)
   })
 
+  it("suppresses explicitly visible native slide elements without removing the measurable surface", () => {
+    const hiddenSurface = declarationFor(
+      '.presentation-preview-pptx-surface[aria-hidden="true"]'
+    )
+
+    expect(hiddenSurface).toMatch(/opacity:\s*0;/u)
+    expect(hiddenSurface).toMatch(/pointer-events:\s*none;/u)
+    expect(hiddenSurface).not.toMatch(/display:\s*none;/u)
+  })
+
   it("uses the presentation canvas color across the embedded viewer shell", () => {
     expect(declarationFor(".pptx-viewer-adapter")).toMatch(
       /background:\s*var\(--presentation-viewer-canvas\);/u

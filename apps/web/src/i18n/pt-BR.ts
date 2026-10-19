@@ -721,6 +721,12 @@ export const ptBR = {
     taskAutoNamingSaved: "Preferência de nomeação de tarefas salva.",
     personalizationPageDescription:
       "Configure a nomeação de tarefas, as instruções personalizadas e as preferências de memória.",
+    thinkingDisplay: "Exibição do raciocínio",
+    thinkingDisplayDescription:
+      "Escolha se deseja ver o raciocínio durante as tarefas.",
+    showReasoning: "Mostrar raciocínio",
+    showReasoningDescription:
+      "Mostra o texto completo do raciocínio fornecido pelo modelo, quando disponível. Os resumos breves continuam visíveis em ambos os casos.",
     customInstructions: "Instruções personalizadas",
     customInstructionsDescription:
       "Forneça orientações e contexto adicionais para todas as tarefas futuras. As regras da plataforma e os limites de segurança de cada tarefa sempre têm prioridade.",
@@ -2624,6 +2630,7 @@ export const ptBR = {
       expand: "Expandir raciocínio",
       collapse: "Recolher raciocínio",
     },
+    startingTask: "Iniciando a tarefa",
     thinking: "Raciocínio",
     processing: "Processando",
     elapsed: "Levou",
@@ -5931,9 +5938,18 @@ export const ptBR = {
     modelProvider: {
       inUseBySystemSetting:
         "Este modelo é usado por uma configuração do sistema. Altere ou limpe essa seleção antes de excluí-lo.",
-      credentialRequired: localizedErrorMessage("MODEL_PROVIDER_CREDENTIAL_REQUIRED", "pt-BR"),
-      discoveryFailed: localizedErrorMessage("MODEL_PROVIDER_DISCOVERY_FAILED", "pt-BR"),
-      connectionFailed: localizedErrorMessage("MODEL_PROVIDER_CONNECTION_FAILED", "pt-BR"),
+      credentialRequired: localizedErrorMessage(
+        "MODEL_PROVIDER_CREDENTIAL_REQUIRED",
+        "pt-BR"
+      ),
+      discoveryFailed: localizedErrorMessage(
+        "MODEL_PROVIDER_DISCOVERY_FAILED",
+        "pt-BR"
+      ),
+      connectionFailed: localizedErrorMessage(
+        "MODEL_PROVIDER_CONNECTION_FAILED",
+        "pt-BR"
+      ),
       managementDisabled:
         "A configuração de modelos está bloqueada pelo ambiente de implantação e é somente leitura.",
     },

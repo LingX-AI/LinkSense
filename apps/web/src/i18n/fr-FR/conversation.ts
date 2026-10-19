@@ -510,6 +510,7 @@ export const conversation = {
     expand: "Développer le raisonnement",
     collapse: "Réduire le raisonnement",
   },
+  startingTask: "Démarrage de la tâche",
   thinking: "Réflexion",
   processing: "Traitement",
   elapsed: "Durée",

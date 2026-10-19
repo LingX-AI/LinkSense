@@ -19,6 +19,71 @@ import i18n from "@/i18n"
 import { SettingsPersonalizationPage } from "@/pages/settings-pages"
 
 describe("personalization settings", () => {
+  it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
+    "saves and reloads reasoning visibility independently in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      let settings = {
+        custom_instructions: "",
+        memories_enabled: false,
+        task_auto_naming: "first_message",
+        show_reasoning: false,
+      }
+      const fetchMock = vi.fn(
+        async (_input: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.method === "PATCH")
+            settings = { ...settings, ...JSON.parse(String(init.body)) }
+          return envelope(settings)
+        }
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      const user = userEvent.setup()
+      const page = renderPage()
+      const toggle = await screen.findByRole("switch", {
+        name: i18n.t("settings.showReasoning"),
+      })
+      expect(toggle).not.toBeChecked()
+      await user.click(toggle)
+      await waitFor(() => expect(toggle).toBeChecked())
+      expect(
+        findRequest(fetchMock, "/api/v1/me/personalization", "PATCH", {
+          show_reasoning: true,
+        })
+      ).toBe(true)
+      expect(
+        screen.getByRole("switch", { name: i18n.t("settings.enableMemories") })
+      ).not.toBeChecked()
+      page.unmount()
+      renderPage()
+      expect(
+        await screen.findByRole("switch", {
+          name: i18n.t("settings.showReasoning"),
+        })
+      ).toBeChecked()
+    }
+  )
+
+  it("keeps the saved reasoning setting when saving fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+        init?.method === "PATCH"
+          ? envelope({ error_code: "RUNNER_UNAVAILABLE" }, 503)
+          : envelope({
+              custom_instructions: "",
+              memories_enabled: false,
+              task_auto_naming: "first_message",
+              show_reasoning: false,
+            })
+      )
+    )
+    const user = userEvent.setup()
+    renderPage()
+    const toggle = await screen.findByRole("switch", { name: "显示思考内容" })
+    await user.click(toggle)
+    await waitFor(() => expect(screen.getByRole("alert")).toBeVisible())
+    expect(toggle).not.toBeChecked()
+  })
   beforeEach(async () => {
     setAccessToken("personalization-access-token")
     await i18n.changeLanguage("zh-CN")
@@ -42,6 +107,9 @@ describe("personalization settings", () => {
     expect(
       await screen.findByRole("switch", { name: "启用记忆" })
     ).not.toBeChecked()
+    const reasoningToggle = screen.getByRole("switch", { name: "显示思考内容" })
+    expect(reasoningToggle).not.toBeChecked()
+    expect(reasoningToggle).toHaveAttribute("aria-disabled", "true")
   })
 
   it("keeps the custom instructions editor background transparent", async () => {
@@ -51,6 +119,7 @@ describe("personalization settings", () => {
         envelope({
           custom_instructions: "",
           memories_enabled: false,
+          show_reasoning: false,
           task_auto_naming: "first_message",
         })
       )
@@ -71,6 +140,7 @@ describe("personalization settings", () => {
       const settings = {
         custom_instructions: "",
         memories_enabled: false,
+        show_reasoning: false,
         task_auto_naming: "first_message",
       }
       const fetchMock = vi.fn(
@@ -84,7 +154,9 @@ describe("personalization settings", () => {
       const user = userEvent.setup()
       renderPage()
 
-      const toggle = await screen.findByRole("switch")
+      const toggle = await screen.findByRole("switch", {
+        name: i18n.t("settings.enableMemories"),
+      })
       expect(toggle).not.toBeChecked()
       await user.click(toggle)
       await waitFor(() => expect(toggle).toBeChecked())
@@ -104,6 +176,7 @@ describe("personalization settings", () => {
         envelope({
           custom_instructions: "saved instructions",
           memories_enabled: true,
+          show_reasoning: false,
           task_auto_naming: "first_message",
         })
       )
@@ -134,6 +207,7 @@ describe("personalization settings", () => {
     let settings = {
       custom_instructions: "请优先使用中文。",
       memories_enabled: true,
+      show_reasoning: false,
       task_auto_naming: "first_message",
     }
     const fetchMock = vi.fn(
@@ -260,6 +334,7 @@ describe("personalization settings", () => {
           return envelope({
             custom_instructions: "",
             memories_enabled: true,
+            show_reasoning: false,
             task_auto_naming: "first_message",
           })
         }
@@ -299,6 +374,7 @@ describe("personalization settings", () => {
         envelope({
           custom_instructions: "",
           memories_enabled: true,
+          show_reasoning: false,
           task_auto_naming: "first_message",
         })
       )
@@ -347,6 +423,7 @@ describe("personalization settings", () => {
       let settings = {
         custom_instructions: "",
         memories_enabled: true,
+        show_reasoning: false,
         task_auto_naming: "first_message",
       }
       let finish!: () => void
@@ -418,6 +495,7 @@ describe("personalization settings", () => {
           : envelope({
               custom_instructions: "",
               memories_enabled: true,
+              show_reasoning: false,
               task_auto_naming: "first_message",
             })
       )

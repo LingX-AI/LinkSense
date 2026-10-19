@@ -394,6 +394,7 @@ export const conversationFileSchema = z
     name: z.string().optional(),
     filename: z.string().optional(),
     mime_type: z.string().nullable().optional(),
+    checksum_sha256: z.string().nullable().optional(),
     size: z.number().optional(),
     size_bytes: z.number().optional(),
     kind: z.enum(["attachment", "artifact"]).optional(),

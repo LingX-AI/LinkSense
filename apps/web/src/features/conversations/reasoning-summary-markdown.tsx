@@ -3,6 +3,7 @@ import { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { Streamdown } from "streamdown"
 
+import { Table } from "@/components/ui/table"
 import {
   assistantMarkdownUrlTransform,
   getSafeAssistantMarkdownLinkUrl,
@@ -12,6 +13,31 @@ import { normalizeAssistantMarkdown } from "@/features/conversations/streaming-m
 import { cn } from "@/lib/utils"
 
 const reasoningMarkdownComponents: Components = {
+  // Streamdown memoizes blocks by source position. Native reasoning may replace
+  // text with the same length; reconcile content with ordinary React elements.
+  p: "p",
+  h1: "h1",
+  h2: "h2",
+  h3: "h3",
+  h4: "h4",
+  h5: "h5",
+  h6: "h6",
+  ul: "ul",
+  ol: "ol",
+  li: "li",
+  blockquote: "blockquote",
+  em: "em",
+  code: "code",
+  pre: "pre",
+  table: ({ node, ...props }) => {
+    void node
+    return <Table {...props} />
+  },
+  thead: "thead",
+  tbody: "tbody",
+  tr: "tr",
+  th: "th",
+  td: "td",
   strong: ({ node, ...props }) => {
     void node
     return <strong {...props} />

@@ -87,8 +87,11 @@ import { passwordSchema } from "@/lib/password"
 import { shouldAutoFocusOnDesktop } from "@/lib/responsive"
 import { cn } from "@/lib/utils"
 import { languageLabelKey } from "@/features/onboarding/language-labels"
+import {
+  personalizationQueryKey,
+  usePersonalization,
+} from "@/features/personalization/use-personalization"
 
-const personalizationQueryKey = ["me", "personalization"] as const
 const resetMemoriesNotificationId = "personalization-memories-reset"
 export function SettingsGeneralPage() {
   const { t } = useTranslation()
@@ -425,14 +428,7 @@ export function SettingsPersonalizationPage() {
   >(null)
   const [error, setError] = useState<string | null>(null)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
-  const personalizationQuery = useQuery({
-    queryKey: personalizationQueryKey,
-    queryFn: () =>
-      apiRequest("/me/personalization", {
-        schema: personalizationSettingsSchema,
-      }),
-    staleTime: Number.POSITIVE_INFINITY,
-  })
+  const personalizationQuery = usePersonalization()
   const customInstructions =
     customInstructionsDraft ??
     personalizationQuery.data?.custom_instructions ??
@@ -510,6 +506,19 @@ export function SettingsPersonalizationPage() {
 
   const hasUnsavedInstructions = customInstructions !== savedCustomInstructions
   const queryClient = useQueryClient()
+  const reasoningVisibilityMutation = useMutation({
+    mutationFn: (show_reasoning: boolean) =>
+      apiRequest("/me/personalization", {
+        method: "PATCH",
+        body: { show_reasoning },
+        schema: personalizationSettingsSchema,
+      }),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(personalizationQueryKey, settings)
+      setError(null)
+    },
+    onError: (nextError) => setError(getErrorMessage(nextError, t)),
+  })
   const taskAutoNamingMutation = useMutation({
     mutationFn: (task_auto_naming: TaskAutoNaming) =>
       apiRequest("/me/personalization", {
@@ -660,6 +669,39 @@ export function SettingsPersonalizationPage() {
                 >
                   {t("settings.reset")}
                 </Button>
+              </SettingsFieldRow>
+            </SettingsFieldGroup>
+          </SettingsCard>
+
+          <SettingsCard
+            header={
+              <SettingsSectionHeader
+                id="thinking-display-heading"
+                title={t("settings.thinkingDisplay")}
+                description={t("settings.thinkingDisplayDescription")}
+              />
+            }
+          >
+            <SettingsFieldGroup>
+              <SettingsFieldRow
+                id="show-reasoning"
+                label={t("settings.showReasoning")}
+                hint={t("settings.showReasoningDescription")}
+                controlWidth="compact"
+              >
+                <Switch
+                  id="show-reasoning"
+                  checked={personalizationQuery.data?.show_reasoning ?? false}
+                  disabled={
+                    !personalizationQuery.data ||
+                    personalizationQuery.isFetching ||
+                    reasoningVisibilityMutation.isPending
+                  }
+                  onCheckedChange={(checked) => {
+                    setError(null)
+                    reasoningVisibilityMutation.mutate(checked)
+                  }}
+                />
               </SettingsFieldRow>
             </SettingsFieldGroup>
           </SettingsCard>

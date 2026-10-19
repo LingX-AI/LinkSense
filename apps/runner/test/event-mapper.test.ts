@@ -1530,7 +1530,7 @@ describe("mapCodexNotification", () => {
     expect(item.command).not.toMatch(/\[RED(?:A(?:C(?:T(?:E(?:D)?)?)?)?)?…/u);
   });
 
-  it("keeps safe native previews and reasoning summaries while dropping raw content", () => {
+  it("keeps full reasoning and safe previews while dropping raw tool content", () => {
     const file = mapCodexNotification(
       {
         method: "item/completed",
@@ -1689,13 +1689,14 @@ describe("mapCodexNotification", () => {
           type: "reasoning",
           id: "reasoning-1",
           summary: ["Planning $ABSOLUTE/report.pdf with token=[REDACTED]"],
+          content: ["private chain of thought"],
         },
       },
     });
     expect(
       JSON.stringify([...file, ...search, ...openPage, ...image, ...reasoning]),
     ).not.toMatch(
-      /srv\/link-sense|private\/report|secret content|raw-search|user:password|raw-url-token|raw-reasoning-token|chain of thought|move_path/u,
+      /srv\/link-sense|private\/report|secret content|raw-search|user:password|raw-url-token|raw-reasoning-token|move_path/u,
     );
   });
 
@@ -1856,7 +1857,7 @@ describe("mapCodexNotification", () => {
     ).toBe(true);
   });
 
-  it("forwards sanitized reasoning summary deltas without exposing raw reasoning text", () => {
+  it("keeps summary preview redaction separate from full reasoning text", () => {
     const summary = mapCodexNotification(
       {
         method: "item/reasoning/summaryTextDelta",
@@ -1908,7 +1909,7 @@ describe("mapCodexNotification", () => {
           delta: "private chain of thought",
         },
       }),
-    ).toEqual([]);
+    ).toMatchObject([{ method: "item/reasoning/textDelta", params: { delta: "private chain of thought", contentIndex: 0 } }]);
   });
 
   it("preserves streamed assistant message deltas byte-for-byte", () => {
@@ -2357,7 +2358,27 @@ describe("mapCodexNotification", () => {
     expect(serialized).toContain("[REDACTED]");
   });
 
-  it("drops user inputs, raw reasoning text deltas, unknown items, and unknown methods", () => {
+  it("preserves the complete native reasoning stream without using summary previews", () => {
+    const delta = "First paragraph\n\n" + "正文".repeat(5_000) + "\nLast paragraph";
+    expect(mapCodexNotification({
+      method: "item/reasoning/textDelta",
+      params: { threadId: "thr_1", turnId: "turn_1", itemId: "reasoning-1", contentIndex: 1, delta },
+    })).toEqual([{
+      method: "item/reasoning/textDelta", visibility: "user_collapsed",
+      params: { threadId: "thr_1", turnId: "turn_1", itemId: "reasoning-1", contentIndex: 1, delta },
+    }]);
+    const events = mapCodexNotification({
+      method: "item/completed",
+      params: { threadId: "thr_1", turnId: "turn_1", item: {
+        type: "reasoning", id: "reasoning-1", summary: ["Short summary"], content: [delta, "Second part"],
+      } },
+    });
+    expect(completedItem(events)).toEqual({
+      type: "reasoning", id: "reasoning-1", summary: ["Short summary"], content: [delta, "Second part"],
+    });
+  });
+
+  it("drops user inputs, invalid reasoning deltas, unknown items, and unknown methods", () => {
     expect(
       mapCodexNotification({
         method: "item/started",
@@ -2379,7 +2400,7 @@ describe("mapCodexNotification", () => {
           threadId: "thr_1",
           turnId: "turn_1",
           itemId: "reasoning-1",
-          contentIndex: 0,
+          contentIndex: -1,
           delta: "private reasoning",
         },
       }),
