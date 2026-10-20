@@ -1,0 +1,114 @@
+name: Installer platforms
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '*.sh'
+      - 'deploy/release/**'
+      - 'scripts/*install*'
+      - 'scripts/fixtures/published-*'
+      - '.github/workflows/installer-platforms.yml'
+      - '.github/workflows/release.yml'
+  pull_request:
+    paths:
+      - '*.sh'
+      - 'deploy/release/**'
+      - 'scripts/*install*'
+      - 'scripts/fixtures/published-*'
+      - '.github/workflows/installer-platforms.yml'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-platforms-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-scripts:
+    name: Scripts (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-22.04, ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Test installer scripts with native system tools (no Docker runtime)
+        run: node scripts/installer-platform-tests.mjs platform-reports
+      - name: Save script compatibility results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: installer-scripts-${{ matrix.runner }}
+          path: platform-reports/
+          if-no-files-found: error
+          retention-days: 14
+
+  distribution-scripts:
+    name: Container scripts (${{ matrix.distribution }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distribution: debian-12
+            image: debian:12-slim
+          - distribution: debian-13
+            image: debian:13-slim
+          - distribution: centos-stream-9
+            image: quay.io/centos/centos:stream9
+          - distribution: centos-stream-10
+            image: quay.io/centos/centos:stream10
+          - distribution: rocky-9
+            image: rockylinux:9
+          - distribution: alma-9
+            image: almalinux:9
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Run script regressions inside the distribution (no Docker socket)
+        env:
+          IMAGE: ${{ matrix.image }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir platform-reports
+          docker pull "$IMAGE"
+          image_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+          printf '%s\n' "$image_digest" > platform-reports/container-image.txt
+          docker run --rm \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/platform-reports,target=/reports" \
+            --mount "type=bind,source=$(dirname "$(command -v node)"),target=/node,readonly" \
+            --env LINKSENSE_TEST_SCOPE=container-script-compatibility \
+            --env "LINKSENSE_TEST_IMAGE=$image_digest" \
+            --env "GITHUB_SHA=$GITHUB_SHA" \
+            --workdir /workspace "$image_digest" sh -ec '
+              if command -v apt-get >/dev/null 2>&1; then
+                apt-get update
+                apt-get install --yes --no-install-recommends ca-certificates curl openssl procps
+              else
+                dnf install --assumeyes ca-certificates curl openssl procps-ng findutils util-linux
+              fi
+              export PATH="/node:$PATH"
+              node scripts/installer-platform-tests.mjs /reports
+            '
+      - name: Save container script compatibility results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: installer-container-${{ matrix.distribution }}
+          path: platform-reports/
+          if-no-files-found: error
+          retention-days: 14
