@@ -98,4 +98,6 @@ Supported providers are Alibaba Cloud Model Studio, OpenAI, OpenAI-compatible se
 
 Transparent output can be generated natively or handled automatically for suitable clean-edged subjects. Choose a model with native transparency for complex hair, fur, glass, smoke, glow, and translucent edges.
 
+Image editing uses the service and model configured here; existing settings do not need to be saved again. Supported contracts include OpenAI GPT Image, Gemini image models, Bailian Qwen Image 2.x and later or Qwen Image Edit, fal.ai FLUX.2 Edit / Kontext, Replicate FLUX Kontext, and Together AI FLUX.2 / Kontext. An OpenAI-compatible service must implement file uploads at `/images/edits`; support for `/images/generations` alone is insufficient. The current Stability adapter only provides text-to-image generation. Reference-image counts and mask support depend on the selected model; unsupported requests are rejected before calling the provider.
+
 Saved API keys are never returned; leave the field empty while editing to retain the existing key. Enter a new key and verify pricing after switching providers. Use [Generate images](../user-guide/tasks/generate-images.md) for a one-image validation after configuration.

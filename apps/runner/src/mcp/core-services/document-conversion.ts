@@ -138,6 +138,7 @@ export const documentConversionCoreMcpModule = {
 export async function readWorkspaceDocument(
   workspaceRootInput: string,
   workspaceRelativePath: string,
+  maxSourceBytes = MAX_SOURCE_BYTES,
 ): Promise<{ bytes: Buffer; extension: string }> {
   if (
     path.isAbsolute(workspaceRelativePath) ||
@@ -164,7 +165,7 @@ export async function readWorkspaceDocument(
   if (!targetInfo.isFile() || targetInfo.isSymbolicLink()) {
     throw documentConversionError("DOCUMENT_CONVERSION_INVALID")
   }
-  if (targetInfo.size > MAX_SOURCE_BYTES) {
+  if (targetInfo.size > maxSourceBytes) {
     throw documentConversionError("DOCUMENT_TOO_LARGE")
   }
 
@@ -203,9 +204,9 @@ export async function readWorkspaceDocument(
 
   try {
     const openedInfo = await handle.stat()
-    if (!openedInfo.isFile() || openedInfo.size > MAX_SOURCE_BYTES) {
+    if (!openedInfo.isFile() || openedInfo.size > maxSourceBytes) {
       throw documentConversionError(
-        openedInfo.size > MAX_SOURCE_BYTES
+        openedInfo.size > maxSourceBytes
           ? "DOCUMENT_TOO_LARGE"
           : "DOCUMENT_CONVERSION_INVALID",
       )
@@ -227,7 +228,17 @@ export async function readWorkspaceDocument(
     ) {
       throw documentConversionError("DOCUMENT_CONVERSION_INVALID")
     }
-    const bytes = await handle.readFile()
+    // Bound the read even if the file grows after stat().
+    const bytes = Buffer.alloc(Math.min(openedInfo.size + 1, maxSourceBytes + 1))
+    let bytesRead = 0
+    while (bytesRead < bytes.length) {
+      const next = await handle.read(bytes, bytesRead, bytes.length - bytesRead, bytesRead)
+      if (next.bytesRead === 0) break
+      bytesRead += next.bytesRead
+    }
+    if (bytesRead > maxSourceBytes || bytesRead !== openedInfo.size) {
+      throw documentConversionError("DOCUMENT_CHANGED")
+    }
     const completedInfo = await handle.stat()
     if (
       completedInfo.size !== openedInfo.size ||
@@ -236,7 +247,7 @@ export async function readWorkspaceDocument(
     ) {
       throw documentConversionError("DOCUMENT_CHANGED")
     }
-    return { bytes, extension: path.extname(canonicalTarget) }
+    return { bytes: bytes.subarray(0, bytesRead), extension: path.extname(canonicalTarget) }
   } finally {
     await handle.close()
   }

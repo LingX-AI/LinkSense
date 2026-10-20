@@ -71,6 +71,8 @@ export const errorMessages = {
         "El modelo de comprensión de imágenes no superó la validación de entrada de imágenes, salida estructurada o desactivación del razonamiento. Comprueba la configuración del modelo y del proveedor.",
     },
     imageGeneration: {
+      inputInvalid: "No se puede leer la imagen para editarla. Usa PNG, JPEG o WebP de hasta 8 MB por imagen y 10 MB en total, incluida la máscara. La máscara debe ser un PNG transparente del mismo tamaño que la primera imagen.",
+      editUnsupported: "El modelo actual no admite esta edición. Usa menos imágenes de referencia, elimina la máscara o pide al administrador que seleccione un modelo compatible.",
       notConfigured:
         "El modelo de generación de imágenes no está configurado o activado.",
       forbidden: "Esta tarea no puede usar la generación de imágenes.",

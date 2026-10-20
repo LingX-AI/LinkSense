@@ -58,7 +58,7 @@ export const PLUGIN_STDIO_LAUNCHER_COMMAND = "linksense-plugin-stdio"
 // The regression test intentionally pins it to the actual generated tree so
 // every built-in writer or bundled documentation change must update it.
 export const BUILT_IN_CAPABILITY_RUNTIME_REVISION =
-  "a92b6eb0519fead8b575144bd6b257c65c8087b078e6f612281fe77be31e249f"
+  "3a7c54260ab29b760d510a8e9a3b72bcec4cefe75661fbf2f8ee411a2793001a"
 
 const BUILT_IN_BROWSER_SKILL_NAME = "linksense-browser"
 const BUILT_IN_DOCUMENT_READER_SKILL_NAME = "linksense-document-reader"
@@ -2044,7 +2044,7 @@ async function writeBuiltInImageGenerationSkill(
     path.join(directory, "SKILL.md"),
     `---
 name: linksense-image-generation
-description: Generate opaque or transparent-background raster images through the LinkSense configured image generation MCP and return registered image artifacts.
+description: Generate or edit raster images from text and task image files through the configured LinkSense image MCP, including reference images and supported masks, and return registered artifacts.
 ---
 
 # LinkSense Image Generation
@@ -2090,6 +2090,34 @@ runtime tokens.
 Prefer one image unless the user asks for variants, comparisons, thumbnails, or
 a sequence. Respect the provider's returned \`image_count\`; do not promise more
 images than the MCP registered.
+
+## Editing and reference images
+
+When the user uploads a picture and asks to modify it, pass its current task
+workspace-relative path in \`input_images\`, together with the editing prompt
+and a new \`image_name\`. For example, use
+\`input_images: ["attachments/photo.png"]\`. Resolve the uploaded file from the
+trusted turn attachment list; never guess a file or use an image description
+as a substitute for the original bytes. Do not pass absolute paths, URLs or
+Base64. Images must be PNG, JPEG or WebP, at most 8 MiB each and 10 MiB total
+including a mask. Up to four references are accepted, subject to model limits.
+
+For follow-up edits, use the selected result's returned
+\`workspace_relative_path\` under \`artifacts/\`. Preserve reference order and
+clearly state which image supplies the subject, background or visual style.
+Describe the requested changes and what should be preserved. Each edit creates
+a new registered artifact; do not overwrite the source or re-register outputs.
+
+Only provide \`mask\` when the user supplies or requests a local editing mask
+and the configured model supports it. It is a task-relative transparent PNG
+matching the first input image's dimensions; transparent regions identify the
+area to edit. A reference-image edit does not imply mask support.
+
+If \`IMAGE_GENERATION_EDIT_UNSUPPORTED\` or
+\`IMAGE_GENERATION_INPUT_INVALID\` is returned, explain the limitation. Do not
+discard the original, mask or extra references, silently generate from text,
+switch the configured model, or repeat an unchanged request. Ask the user to
+adjust their request or have the administrator select a suitable image model.
 
 ## Transparent-background images
 

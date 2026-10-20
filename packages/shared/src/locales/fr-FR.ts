@@ -1,6 +1,8 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  IMAGE_GENERATION_INPUT_INVALID: "Impossible de lire l’image à modifier. Utilisez des images PNG, JPEG ou WebP de 8 Mo maximum chacune et 10 Mo au total, masque compris. Le masque doit être un PNG transparent aux mêmes dimensions que la première image.",
+  IMAGE_GENERATION_EDIT_UNSUPPORTED: "Le modèle actuel ne prend pas en charge cette modification. Réduisez le nombre d’images de référence, retirez le masque ou demandez à un administrateur de choisir un modèle compatible.",
   MODEL_PROVIDER_CREDENTIAL_REQUIRED: "Saisissez une clé API. Une nouvelle clé est nécessaire après un changement de fournisseur, d’adresse du service ou de projet cloud.",
   MODEL_PROVIDER_DISCOVERY_FAILED: "Impossible de charger la liste des modèles. Vérifiez l’adresse du service et la clé, ou saisissez un modèle manuellement.",
   MODEL_PROVIDER_CONNECTION_FAILED: "Le test de connexion a échoué. Vérifiez l’adresse du service, la clé et le modèle, puis assurez-vous que le service prend en charge le mode de connexion choisi.",

@@ -21,6 +21,7 @@ import {
   emitInteractiveApplicationCustomEventInputSchema,
   getKnowledgeDocumentMarkdownInputSchema,
   imageGenerationRequestSchema,
+  imageEditingLimits,
   listKnowledgeDocumentsInputSchema,
   memoryExtractionRuntimeSchema,
   modelContextWindowSchema,
@@ -1169,6 +1170,7 @@ export function buildRunnerServer(
 
   app.post<{ Params: { conversationId: string } }>(
     "/mcp-image-generation/:conversationId/generate",
+    { bodyLimit: imageEditingLimits.requestBodyBytes },
     async (request, reply) => {
       const conversationId = uuid.parse(request.params.conversationId);
       const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");

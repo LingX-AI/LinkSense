@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { imageGenerationErrorFromApi } from "../src/image-generation-error.js";
 
 describe("imageGenerationErrorFromApi", () => {
+  it.each([
+    ["IMAGE_GENERATION_INPUT_INVALID", 400],
+    ["IMAGE_GENERATION_EDIT_UNSUPPORTED", 422],
+  ] as const)("preserves %s as a non-retryable editing failure", (code, status) => {
+    expect(imageGenerationErrorFromApi(status, { error_code: code })).toMatchObject({ code, retryable: false, statusCode: status });
+  });
   it("preserves provider rejection details from the API envelope", () => {
     const error = imageGenerationErrorFromApi(422, {
       success: false,

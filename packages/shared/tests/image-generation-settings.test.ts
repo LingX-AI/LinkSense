@@ -4,6 +4,7 @@ import {
   imageGenerationProviderDefinitions,
   imageGenerationProviderSchema,
   imageGenerationRequestSchema,
+  imageGenerationToolRequestSchema,
   updateImageGenerationSettingsSchema,
 } from "../src/image-generation.js"
 
@@ -15,6 +16,34 @@ const settings = {
   model: "custom-image-model",
   price_per_image: "0.25",
 }
+
+describe("image editing requests", () => {
+  const request = { prompt: "Change the background to a beach", image_name: "Beach portrait" }
+
+  it("accepts task image paths without allowing inline bytes in tool arguments", () => {
+    expect(imageGenerationToolRequestSchema.parse({ ...request, input_images: ["attachments/photo.png"] }).input_images).toEqual(["attachments/photo.png"])
+    expect(imageGenerationToolRequestSchema.safeParse({ ...request, input_images: [{ data_base64: "YQ==", mime_type: "image/png" }] }).success).toBe(false)
+  })
+
+  it.each(["../other/photo.png", "/etc/passwd", "https://example.test/photo.png", "attachments/../secret", "a\\b", "a\u0000b"])("rejects unsafe input image paths: %s", (inputPath) => {
+    expect(imageGenerationToolRequestSchema.safeParse({ ...request, input_images: [inputPath] }).success).toBe(false)
+  })
+
+  it("requires an original image when a mask is supplied", () => {
+    expect(imageGenerationToolRequestSchema.safeParse({ ...request, mask: "attachments/mask.png" }).success).toBe(false)
+    expect(imageGenerationRequestSchema.safeParse({ ...request, mask: { mime_type: "image/png", data_base64: "YQ==" } }).success).toBe(false)
+  })
+
+  it("bounds reference image count and rejects paths at the internal API boundary", () => {
+    expect(imageGenerationToolRequestSchema.safeParse({ ...request, input_images: Array(5).fill("attachments/photo.png") }).success).toBe(false)
+    expect(imageGenerationRequestSchema.safeParse({ ...request, input_images: ["attachments/photo.png"] }).success).toBe(false)
+  })
+
+  it("validates realistic image payloads without recursive regular-expression matching", () => {
+    const data = Buffer.alloc(1024 * 1024).toString("base64")
+    expect(imageGenerationRequestSchema.safeParse({ ...request, input_images: [{ mime_type: "image/png", data_base64: data }] }).success).toBe(true)
+  })
+})
 
 describe("generated image names", () => {
   it("requires a scene name and preserves names in the user's language", () => {

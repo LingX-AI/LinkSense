@@ -202,7 +202,23 @@ export const updateImageGenerationSettingsSchema = z
     }
   })
 
-export const imageGenerationRequestSchema = z.strictObject({
+export const imageEditingLimits = {
+  maxImages: 4,
+  maxImageBytes: 8 * 1024 * 1024,
+  maxTotalBytes: 10 * 1024 * 1024,
+  maxPixels: 40_000_000,
+  requestBodyBytes: 15 * 1024 * 1024,
+} as const
+
+export const imageGenerationInputImageSchema = z.strictObject({
+  mime_type: z.enum(["image/png", "image/jpeg", "image/webp"]),
+  data_base64: z.string().min(4)
+    .max(Math.ceil(imageEditingLimits.maxImageBytes / 3) * 4)
+    .regex(/^[A-Za-z0-9+/]+={0,2}$/u)
+    .refine((value) => value.length % 4 === 0, { message: "invalid_base64_length" }),
+})
+
+const imageGenerationOptionsSchema = z.strictObject({
   prompt: z.string().trim().min(1).max(8_000),
   image_name: z
     .string()
@@ -253,6 +269,31 @@ export const imageGenerationRequestSchema = z.strictObject({
       path: ["chroma_key"],
       message: "chroma_key_is_not_used_for_native_transparency",
     })
+  }
+})
+
+export const imageGenerationRequestSchema = imageGenerationOptionsSchema.safeExtend({
+  input_images: z.array(imageGenerationInputImageSchema).min(1).max(imageEditingLimits.maxImages).optional(),
+  mask: imageGenerationInputImageSchema.optional(),
+}).superRefine((request, context) => {
+  if (request.mask && !request.input_images?.length) {
+    context.addIssue({ code: "custom", path: ["mask"], message: "mask_requires_input_images" })
+  }
+})
+
+const imageGenerationInputPathSchema = z.string().trim().min(1).max(2_000)
+  .refine((value) => !value.startsWith("/") && !value.includes("\\") &&
+    !value.includes(":") && !/[\p{Cc}\p{Cf}]/u.test(value) &&
+    value.split("/").every((segment) => segment !== ".." && segment !== "." && segment !== ""), {
+    message: "input_image_must_be_a_task_relative_path",
+  })
+
+export const imageGenerationToolRequestSchema = imageGenerationOptionsSchema.safeExtend({
+  input_images: z.array(imageGenerationInputPathSchema).min(1).max(imageEditingLimits.maxImages).optional(),
+  mask: imageGenerationInputPathSchema.optional(),
+}).superRefine((request, context) => {
+  if (request.mask && !request.input_images?.length) {
+    context.addIssue({ code: "custom", path: ["mask"], message: "mask_requires_input_images" })
   }
 })
 
@@ -311,6 +352,8 @@ export const imageGenerationFailureCodeSchema = z.enum([
   "IMAGE_GENERATION_UNAVAILABLE",
   "IMAGE_GENERATION_PROVIDER_REJECTED",
   "IMAGE_GENERATION_OUTPUT_INVALID",
+  "IMAGE_GENERATION_INPUT_INVALID",
+  "IMAGE_GENERATION_EDIT_UNSUPPORTED",
   "IMAGE_GENERATION_TRANSPARENCY_UNSUPPORTED",
   "IMAGE_GENERATION_TRANSPARENCY_INVALID",
   "IMAGE_GENERATION_RECORDING_FAILED",

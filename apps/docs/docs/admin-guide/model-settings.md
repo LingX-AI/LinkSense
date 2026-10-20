@@ -104,4 +104,6 @@ Ranker 未配置或调用失败时，系统使用等权 RRF 结果，不会阻�
 
 透明背景可以由模型原生生成，或在适合清晰边缘的场景下自动处理。复杂的头发、毛发、玻璃、烟雾、发光和半透明边缘应选择原生支持透明输出的模型。
 
+图片编辑沿用此处配置的服务与模型，无需重新保存已有配置。可使用 OpenAI GPT Image、Gemini 图片模型、百炼 Qwen Image 2.x 及更新版本或 Qwen Image Edit，以及 fal.ai 的 FLUX.2 Edit / Kontext、Replicate 的 FLUX Kontext、Together AI 的 FLUX.2 / Kontext。OpenAI 兼容服务必须实现 `/images/edits` 文件上传接口；仅支持 `/images/generations` 的服务无法用于编辑。当前 Stability 适配器只提供文生图。具体参考图数量及蒙版支持受模型限制，无法支持的要求会在调用前被拒绝。
+
 API Key 保存后不会回显，编辑时留空会保留原密钥。切换服务商时应填写该服务商的新密钥并核对价格。配置后可按[生成图片](../user-guide/tasks/generate-images.md)进行一次单图验证。

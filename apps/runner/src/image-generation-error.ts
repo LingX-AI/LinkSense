@@ -27,6 +27,10 @@ export function imageGenerationErrorFromApi(
   const providerDetails = providerDetailsFromResponse(value);
 
   switch (apiCode) {
+    case "IMAGE_GENERATION_EDIT_UNSUPPORTED":
+      return new ImageGenerationRequestError("IMAGE_GENERATION_EDIT_UNSUPPORTED", false, 422);
+    case "IMAGE_GENERATION_INPUT_INVALID":
+      return new ImageGenerationRequestError("IMAGE_GENERATION_INPUT_INVALID", false, 400);
     case "IMAGE_GENERATION_NOT_CONFIGURED":
       return new ImageGenerationRequestError(
         "IMAGE_GENERATION_NOT_CONFIGURED",

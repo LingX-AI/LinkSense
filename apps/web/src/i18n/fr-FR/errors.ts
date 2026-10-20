@@ -65,6 +65,8 @@ export const errors = {
       "Le modèle d’analyse d’images a échoué à la validation des images en entrée, de la sortie structurée ou de la désactivation du raisonnement. Vérifiez la configuration du modèle et du fournisseur.",
   },
   imageGeneration: {
+    inputInvalid: "Impossible de lire l’image à modifier. Utilisez des images PNG, JPEG ou WebP de 8 Mo maximum chacune et 10 Mo au total, masque compris. Le masque doit être un PNG transparent aux mêmes dimensions que la première image.",
+    editUnsupported: "Le modèle actuel ne prend pas en charge cette modification. Réduisez le nombre d’images de référence, retirez le masque ou demandez à un administrateur de choisir un modèle compatible.",
     notConfigured:
       "Le modèle de génération d’images n’est pas configuré ou n’est pas activé.",
     forbidden: "Cette tâche ne peut pas utiliser la génération d’images.",
