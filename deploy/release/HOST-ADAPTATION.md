@@ -219,15 +219,20 @@ linksense doctor --network
 ```
 
 Use `install-full.sh` for Full. Linux installers require root; macOS installers
-must run under the Desktop user without sudo. Diagnostics require a release
-containing these changes. The new bootstrap refuses diagnostic mode for older
-downloaded installers instead of accidentally installing. Older installed CLIs
-do not gain this mode until the management tools are upgraded.
+must run under the Desktop user without sudo. When a selected release such as
+v0.3.8 predates network diagnostics, the current bootstrap downloads the shared
+diagnostic helper at a fixed source revision and checks that release without
+executing its installer. Re-download the bootstrap if an older local copy returns exit code 64.
+Old self-contained release installers and installed CLIs remain unchanged; use
+the current bootstrap for pre-installation checks, or upgrade the management
+tools for `linksense doctor --network`.
 
 Network diagnostics report each channel independently and exit nonzero if any
 check fails. They GET the actual release manifest; the default GitHub release
-source also checks the raw bootstrap, while custom sources do not require
-GitHub connectivity. Before installation they pull the small `hello-world:latest`
+source also checks the raw bootstrap. Custom sources with bundled diagnostics do
+not require GitHub connectivity; the fallback for older release installers needs
+raw.githubusercontent.com to download the shared diagnostic helper. Before
+installation they pull the small `hello-world:latest`
 diagnostic image only if release metadata cannot be validated; that fallback
 does not turn a failed check into success. With valid metadata they verify its
 checksum and pull the pinned BusyBox and API references, covering Docker Hub and

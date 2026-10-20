@@ -74,10 +74,13 @@ Check both network channels with the downloaded script:
 sh "$setup_dir/install-core.sh" --check-network
 ```
 
-This needs a release containing network diagnostics. An older release is rejected
-without starting installation. Do not silently discard this diagnostic flag;
-report the release limitation and use the manual checks in the
-[network guide](deploy/release/HOST-ADAPTATION.md#network-and-proxies) if needed.
+This also works with older releases such as v0.3.8. When the downloaded release
+installer lacks diagnostics, the bootstrap downloads the shared diagnostic
+helper from a fixed source revision and checks the selected release without
+executing its installer. If a previously downloaded bootstrap rejects the flag with exit code
+64, download the bootstrap from `main` again. Old self-contained release installers
+remain unchanged; use the current bootstrap for this check. See the
+[network guide](deploy/release/HOST-ADAPTATION.md#network-and-proxies) for manual checks.
 Linux diagnostics can run without root when the account can access Docker.
 Checks verify the release manifest checksum and pull its BusyBox and API images,
 covering the actual external and application registries. If metadata validation

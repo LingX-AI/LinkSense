@@ -20,23 +20,32 @@ else
 fi
 tmp=$(mktemp -d)
 trap 'rm -r "$tmp"' EXIT HUP INT TERM
-download_status=0
-curl --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 --retry-max-time 300 --connect-timeout 15 --max-time 300 -fsSL "$base/repair-full.sh" -o "$tmp/repair-full.sh" || download_status=$?
-case "$download_status" in
-  0) ;;
-  16|92) curl --http1.1 --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 --retry-max-time 300 --connect-timeout 15 --max-time 300 -fsSL "$base/repair-full.sh" -o "$tmp/repair-full.sh" ;;
-  *) exit "$download_status" ;;
-esac
+bootstrap_download() {
+  download_status=0
+  curl --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 --retry-max-time 300 --connect-timeout 15 --max-time 300 -fsSL "$1" -o "$2" || download_status=$?
+  case "$download_status" in
+    0) ;;
+    16|92) curl --http1.1 --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 --retry-max-time 300 --connect-timeout 15 --max-time 300 -fsSL "$1" -o "$2" ;;
+    *) return "$download_status" ;;
+  esac
+}
+bootstrap_download "$base/repair-full.sh" "$tmp/repair-full.sh"
 if [ "${1:-}" = --check-network ] && ! grep -q -- '--check-network)' "$tmp/repair-full.sh"; then
+  if bootstrap_download https://raw.githubusercontent.com/LingX-AI/linksense/078668cd90d74513df1c03d3ba0937cccbadda67/deploy/release/linksense-host.sh "$tmp/linksense-host.sh" 2>/dev/null; then
+    . "$tmp/linksense-host.sh"
+    [ "$#" -eq 1 ] || host_fail invalid_config installer_arguments
+    host_network_diagnostics "$base"
+    exit $?
+  fi
   case "${LINKSENSE_CLI_LANGUAGE:-${LANG:-zh-CN}}" in
-    en*) message='This release does not support --check-network. Use a release with network diagnostics.' ;;
-    es*) message='Esta versión no admite --check-network. Use una versión con diagnóstico de red.' ;;
-    pt*) message='Esta versão não oferece --check-network. Use uma versão com diagnóstico de rede.' ;;
-    fr*) message='Cette version ne prend pas en charge --check-network. Utilisez une version avec le diagnostic réseau.' ;;
-    ja*) message='このリリースは --check-network に対応していません。ネットワーク診断に対応するリリースを使用してください。' ;;
-    *) message='此发布版不支持 --check-network，请使用包含网络诊断的新发布版。' ;;
+    en*) message='Unable to download --check-network diagnostics. Check HTTPS connectivity and retry.' ;;
+    es*) message='No se pudo descargar el diagnóstico de --check-network. Compruebe la conexión HTTPS y vuelva a intentarlo.' ;;
+    pt*) message='Não foi possível baixar o diagnóstico de --check-network. Verifique a conexão HTTPS e tente novamente.' ;;
+    fr*) message='Impossible de télécharger le diagnostic --check-network. Vérifiez la connexion HTTPS et réessayez.' ;;
+    ja*) message='--check-network の診断モジュールをダウンロードできません。HTTPS 接続を確認して再試行してください。' ;;
+    *) message='无法下载 --check-network 网络诊断模块，请检查 HTTPS 连接后重试。' ;;
   esac
   printf '%s\n' "$message" >&2
-  exit 64
+  exit 1
 fi
 sh "$tmp/repair-full.sh" "$@"
