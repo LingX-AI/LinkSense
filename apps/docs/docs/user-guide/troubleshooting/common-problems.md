@@ -27,7 +27,7 @@ description: 处理登录、任务、文件、消息渠道、插件、MCP 和知
 
 如果提示模型渠道拒绝访问、限流、请求不兼容、暂时不可用或超时，请按提示联系管理员检查渠道配置或网络。管理员可运行 `linksense logs runner`，按请求与轮次编号定位 `model provider request failed`，核对 `upstreamStatus`、`upstreamRequestId`、`protocolMode`、`model` 和 `failureCode`。只分享脱敏的诊断字段，不分享密钥、对话内容或完整上游响应。普通对话成功不能证明多轮工具调用可用。
 
-新版管理工具提供 `linksense doctor --network`，分别检查终端下载和 Docker 镜像拉取；安装前可使用新版安装器的 `--check-network`。诊断可能下载镜像，不启动容器或重启服务。该检查不验证模型提供商的任务执行能力。
+新版管理工具提供 `linksense doctor --network`，分别检查终端下载和 Docker 镜像拉取；安装前可使用从 `main` 下载的引导脚本执行 `--check-network`。对于 v0.3.8 等尚无该参数的旧发布包，引导脚本会下载固定源码版本的诊断模块检查所选发布版，不执行旧安装器；本地旧引导脚本若返回 64，请重新下载。诊断可能下载镜像，不启动容器或重启服务。该检查不验证模型提供商的任务执行能力。
 
 刷新页面并重新进入同一任务，LinkSense 会尝试恢复原轮次。不要因为网络断开连续重复发送相同请求。确定轮次已经失败后再修正问题并重试。
 
