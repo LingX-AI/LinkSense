@@ -72,6 +72,6 @@ sysctl -w vm.max_map_count=262144
 getenforce
 GUEST
 status=0
-guest "cd /opt/linksense-ci && sudo env GITHUB_SHA='$GITHUB_SHA' node scripts/release-installation-smoke.mjs release-assets '$edition' reports previous-release-assets" || status=$?
+guest "cd /opt/linksense-ci && sudo env PATH=/usr/local/bin:/usr/bin:/bin GITHUB_SHA='$GITHUB_SHA' /usr/local/bin/node scripts/release-installation-smoke.mjs release-assets '$edition' reports previous-release-assets" || status=$?
 guest 'sudo tar -cf - -C /opt/linksense-ci/reports .' | tar -xf - -C "$reports"
 exit "$status"
