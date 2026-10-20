@@ -665,8 +665,8 @@ check_upgrade_backup_storage`, { FREE: String(free) })
   })
 }
 
-test("service snapshots check every replica and reject OOM, missing and unhealthy services", () => {
-  for (const state of ["healthy", "oom", "missing", "unhealthy", "stopped"]) {
+test("service snapshots check every replica and reject OOM, missing, starting and unhealthy services", () => {
+  for (const state of ["healthy", "oom", "missing", "starting", "unhealthy", "stopped"]) {
     const result = run(`
 EDITION=core
 compose() {
@@ -680,6 +680,7 @@ compose() {
 docker() {
   case "$STATE:$4" in
     oom:api-2) echo 'api-2 started 1 true true healthy' ;;
+    starting:api-2) echo 'api-2 started 0 true false starting' ;;
     unhealthy:api-2) echo 'api-2 started 0 true false unhealthy' ;;
     stopped:api-2) echo 'api-2 started 0 false false healthy' ;;
     *) echo "$4 started 0 true false healthy" ;;
@@ -688,6 +689,76 @@ docker() {
 host_service_snapshot`, { STATE: state })
     assert.equal(result.status, state === "healthy" ? 0 : 1, result.stderr)
     if (state === "healthy") assert.match(result.stdout, /api api-2/u)
+  }
+})
+
+for (const edition of ["core", "full"]) {
+  for (const settles of [true, false]) {
+    test(`${edition} readiness ${settles ? "waits for initial container health before the full stability window" : "times out when container health never leaves starting"}`, t => {
+      const dir = directory(t)
+      writeFileSync(path.join(dir, "clock"), "0\n")
+      writeFileSync(path.join(dir, "gateway-health"), "starting\n")
+      const result = run(`
+${fn("service_snapshot")}
+${fn("verify_service_stability")}
+${fn("wait_for_health")}
+TMP_ROOT=$DIR
+HTTP_PORT=18081
+ELASTICSEARCH_ROOT_USERNAME=fixture
+ELASTICSEARCH_ROOT_PASSWORD=fixture
+date() { cat "$DIR/clock"; }
+sleep() {
+  clock=$(cat "$DIR/clock")
+  echo "$((clock + $1))" > "$DIR/clock"
+  [ "$SETTLES" != true ] || echo healthy > "$DIR/gateway-health"
+}
+curl() { return 0; }
+compose_bounded() { return 0; }
+compose() { for service in "$@"; do :; done; echo "$service-1"; }
+docker() {
+  echo "$4" >> "$DIR/inspections"
+  health=healthy
+  [ "$4" != gateway-1 ] || health=$(cat "$DIR/gateway-health")
+  echo "$4 started 0 true false $health"
+}
+wait_for_health`, { DIR: dir, EDITION: edition, SETTLES: String(settles) })
+      if (settles) {
+        assert.equal(result.status, 0, result.stderr)
+        assert.equal(Number(readFileSync(path.join(dir, "clock"), "utf8")), 35)
+        const inspections = readFileSync(path.join(dir, "inspections"), "utf8")
+        assert.equal(inspections.match(/^gateway-1$/gmu)?.length, 9)
+        assert.equal(inspections.includes("docling-worker-1"), edition === "full")
+      } else {
+        assert.equal(result.status, 1, result.stderr)
+        assert.match(result.stderr, /LS_HOST_stability.*readiness_deadline/u)
+        assert.equal(Number(readFileSync(path.join(dir, "clock"), "utf8")), 300)
+      }
+    })
+  }
+}
+
+test("the initial-health probe still rejects unhealthy replicas even when another service is starting", () => {
+  for (const state of ["oom", "missing", "unhealthy", "stopped"]) {
+    const result = run(`
+EDITION=full
+compose() {
+  for service in "$@"; do :; done
+  if [ "$STATE" = missing ] && [ "$service" = docling-worker ]; then return; fi
+  echo "$service-1"
+}
+docker() {
+  case "$4:$STATE" in
+    gateway-1:*) echo 'gateway-1 started 0 true false starting' ;;
+    docling-worker-1:oom) echo 'docling-worker-1 started 0 true true healthy' ;;
+    docling-worker-1:unhealthy) echo 'docling-worker-1 started 0 true false unhealthy' ;;
+    docling-worker-1:stopped) echo 'docling-worker-1 started 0 false false healthy' ;;
+    *) echo "$4 started 0 true false healthy" ;;
+  esac
+}
+if host_service_snapshot readiness; then :; else echo 'still starting' >&2; fi`, { STATE: state })
+    assert.equal(result.status, 1, result.stderr)
+    assert.match(result.stderr, /LS_HOST_stability.*docling-worker\/(?:unready|missing)/u)
+    assert.doesNotMatch(result.stderr, /still starting/u)
   }
 })
 
