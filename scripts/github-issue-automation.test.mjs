@@ -139,6 +139,15 @@ for (const workflow of ["issue-triage", "agent-ready"]) {
   })
 }
 
+test("Dependabot leaves compiler-owned action upgrades to gh-aw", async () => {
+  const { updates } = parse(await read(".github/dependabot.yml"))
+  const actions = updates.find(update => update["package-ecosystem"] === "github-actions")
+  assert.deepEqual(
+    actions.ignore?.find(dependency => dependency["dependency-name"] === "github/gh-aw-actions/*"),
+    { "dependency-name": "github/gh-aw-actions/*" },
+  )
+})
+
 test("generated AI workflows keep action manifests and compiler versions aligned", async () => {
   const maintenance = await read(".github/ISSUE_TRIAGE.md")
   const { entries } = JSON.parse(await read(".github/aw/actions-lock.json"))
