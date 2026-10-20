@@ -27,6 +27,7 @@ import {
   assistantHtmlPreviewCaptureRequestMessageType,
   assistantHtmlPreviewCaptureSnapshotMessageType,
   assistantHtmlPreviewErrorMessageType,
+  assistantHtmlPreviewLayoutMessageType,
   assistantHtmlPreviewResizeMessageType,
   assistantHtmlPreviewWheelMessageType,
   buildAssistantHtmlPreviewDocument,
@@ -120,6 +121,20 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
     [documentSource, previewId]
   )
 
+  const synchronizePreviewLayout = useCallback(() => {
+    frameRef.current?.contentWindow?.postMessage(
+      {
+        type: assistantHtmlPreviewLayoutMessageType,
+        previewId,
+        mode:
+          document.fullscreenElement === previewCardRef.current
+            ? "fullscreen"
+            : "inline",
+      },
+      "*"
+    )
+  }, [previewId])
+
   useEffect(() => {
     if (documentSource === null) return
     const handleMessage = (event: MessageEvent<unknown>) => {
@@ -174,6 +189,7 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
         return
       }
       if (message.type === assistantHtmlPreviewResizeMessageType) {
+        if (document.fullscreenElement === previewCardRef.current) return
         setFrameState((current) => ({
           source: documentSource,
           attempt: current.source === documentSource ? current.attempt : 0,
@@ -187,6 +203,7 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
         message.type === assistantHtmlPreviewErrorMessageType
           ? "error"
           : "ready"
+      if (status === "ready") synchronizePreviewLayout()
       setFrameState((current) => {
         return {
           source: documentSource,
@@ -202,7 +219,12 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
 
     window.addEventListener("message", handleMessage)
     return () => window.removeEventListener("message", handleMessage)
-  }, [documentSource, initializePreviewFrame, previewId])
+  }, [
+    documentSource,
+    initializePreviewFrame,
+    previewId,
+    synchronizePreviewLayout,
+  ])
 
   useEffect(() => {
     const pendingRequests = pendingCaptureRequestsRef.current
@@ -218,11 +240,12 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
   useEffect(() => {
     const handleFullscreenChange = () => {
       setIsFullscreen(document.fullscreenElement === previewCardRef.current)
+      synchronizePreviewLayout()
     }
     document.addEventListener("fullscreenchange", handleFullscreenChange)
     return () =>
       document.removeEventListener("fullscreenchange", handleFullscreenChange)
-  }, [])
+  }, [synchronizePreviewLayout])
 
   useEffect(() => {
     if (documentSource === null || activeFrameState.status !== "loading") {
@@ -351,7 +374,7 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
       className={cn(
         "group relative my-3 w-full max-w-full bg-transparent pr-8 text-card-foreground",
         isFullscreen &&
-          "m-0 h-screen max-h-screen w-screen max-w-none overflow-y-auto bg-background pr-0"
+          "m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden bg-background p-0"
       )}
       aria-label={t("conversation.inlineHtmlPreview.cardLabel")}
     >
@@ -359,7 +382,7 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
         className={cn(
           "relative w-full overflow-hidden rounded-2xl",
           showPreviewSurfaceBorder && "border border-muted-foreground/15",
-          isFullscreen && "min-h-full rounded-none border-0",
+          isFullscreen && "h-full min-h-0 rounded-none border-0",
           documentSource === null && "min-h-80"
         )}
         data-assistant-html-preview-surface="true"
@@ -370,14 +393,15 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
             ref={frameRef}
             className={cn(
               "block w-full border-0 bg-white",
+              isFullscreen && "h-full",
               activeFrameState.status !== "ready" && "invisible"
             )}
-            height={activeFrameState.height}
+            height={isFullscreen ? undefined : activeFrameState.height}
             data-assistant-html-preview-id={previewId}
             data-assistant-html-preview-attempt={activeFrameState.attempt}
             title={t("conversation.inlineHtmlPreview.frameTitle")}
             sandbox={interactiveHtmlPreviewSandbox}
-            scrolling="no"
+            scrolling={isFullscreen ? "auto" : "no"}
             src={shellSource}
             onLoad={() => {
               const frameWindow = frameRef.current?.contentWindow

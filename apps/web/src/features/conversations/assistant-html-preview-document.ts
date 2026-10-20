@@ -14,6 +14,8 @@ export const assistantHtmlPreviewResizeMessageType =
   "linksense:assistant-html-preview:resize"
 export const assistantHtmlPreviewWheelMessageType =
   "linksense:assistant-html-preview:wheel"
+export const assistantHtmlPreviewLayoutMessageType =
+  "linksense:assistant-html-preview:layout"
 export const assistantHtmlPreviewShellReadyMessageType =
   htmlPreviewShellReadyMessageType
 export const assistantHtmlPreviewShellInitializeMessageType =
@@ -183,6 +185,7 @@ function buildAssistantHtmlPreviewBootstrap(previewId: string) {
   const errorType = ${JSON.stringify(assistantHtmlPreviewErrorMessageType)};
   const resizeType = ${JSON.stringify(assistantHtmlPreviewResizeMessageType)};
   const wheelType = ${JSON.stringify(assistantHtmlPreviewWheelMessageType)};
+  const layoutType = ${JSON.stringify(assistantHtmlPreviewLayoutMessageType)};
   const captureRequestType = ${JSON.stringify(assistantHtmlPreviewCaptureRequestMessageType)};
   const captureSnapshotType = ${JSON.stringify(assistantHtmlPreviewCaptureSnapshotMessageType)};
   const captureErrorType = ${JSON.stringify(assistantHtmlPreviewCaptureErrorMessageType)};
@@ -195,6 +198,7 @@ function buildAssistantHtmlPreviewBootstrap(previewId: string) {
   let contentObserver;
   let heightFrame = 0;
   let lastHeight = 0;
+  let fullscreen = false;
   let timeout;
 
   document.documentElement.setAttribute(loadingAttribute, "true");
@@ -276,7 +280,7 @@ function buildAssistantHtmlPreviewBootstrap(previewId: string) {
   };
 
   window.addEventListener("wheel", (event) => {
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey) return;
+    if (fullscreen || event.defaultPrevented || event.ctrlKey || event.metaKey) return;
     const delta = normalizeWheelDelta(event);
     if (
       (delta.deltaX === 0 && delta.deltaY === 0) ||
@@ -440,8 +444,24 @@ function buildAssistantHtmlPreviewBootstrap(previewId: string) {
     if (
       !message ||
       typeof message !== "object" ||
+      message.previewId !== previewId
+    ) {
+      return;
+    }
+    if (message.type === layoutType) {
+      if (message.mode !== "inline" && message.mode !== "fullscreen") return;
+      const nextFullscreen = message.mode === "fullscreen";
+      if (fullscreen === nextFullscreen) return;
+      fullscreen = nextFullscreen;
+      // Auto-height overrides belong only to the embedded chat preview.
+      // Keep the live document and let its authored viewport layout run in fullscreen.
+      sizingStyle.media = fullscreen ? "not all" : "";
+      lastHeight = 0;
+      scheduleHeightReport();
+      return;
+    }
+    if (
       message.type !== captureRequestType ||
-      message.previewId !== previewId ||
       typeof message.requestId !== "string" ||
       message.requestId.length < 1 ||
       message.requestId.length > 256
@@ -452,6 +472,7 @@ function buildAssistantHtmlPreviewBootstrap(previewId: string) {
   });
 
   const reportHeight = () => {
+    if (fullscreen) return;
     const height = readDocumentHeight();
     if (height === lastHeight) return;
     lastHeight = height;

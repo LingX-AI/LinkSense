@@ -16,6 +16,7 @@ import {
   assistantHtmlPreviewCaptureSnapshotMessageType,
   assistantHtmlPreviewErrorMessageType,
   assistantHtmlPreviewReadyMessageType,
+  assistantHtmlPreviewResizeMessageType,
   assistantHtmlPreviewShellInitializeMessageType,
 } from "@/features/conversations/assistant-html-preview-document"
 import { renderAssistantHtmlPreviewSnapshot } from "@/features/conversations/assistant-html-preview-capture"
@@ -438,32 +439,127 @@ describe("AssistantHtmlPreview actions", () => {
     expect(notify.success).not.toHaveBeenCalled()
   })
 
-  it("fills the screen and offers a close control without replacing the iframe", async () => {
+  it.each(["button", "escape"] as const)(
+    "fills the iframe viewport and restores inline sizing after exiting with %s",
+    async (exit) => {
+      const user = userEvent.setup()
+      const { card, frame } = renderReadyPreview()
+      const source = frame.src
+      const frameWindow = frame.contentWindow
+      const postMessage = vi.spyOn(frameWindow!, "postMessage")
+      const reportHeight = (height: number) => {
+        act(() => {
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              source: frameWindow,
+              data: {
+                type: assistantHtmlPreviewResizeMessageType,
+                previewId: frame.dataset.assistantHtmlPreviewId,
+                height,
+              },
+            })
+          )
+        })
+      }
+      reportHeight(480)
+      expect(frame).toHaveAttribute("height", "480")
+      const requestFullscreen = vi.fn(async () => {
+        fullscreenElement = card
+        document.dispatchEvent(new Event("fullscreenchange"))
+      })
+      Object.defineProperty(card, "requestFullscreen", {
+        configurable: true,
+        value: requestFullscreen,
+      })
+
+      await user.click(screen.getByRole("button", { name: "全屏预览" }))
+
+      expect(requestFullscreen).toHaveBeenCalledOnce()
+      expect(card).toHaveClass("h-dvh", "w-screen", "overflow-hidden")
+      expect(
+        card.querySelector("[data-assistant-html-preview-surface='true']")
+      ).toHaveClass("h-full", "min-h-0", "rounded-none", "border-0")
+      expect(frame).toHaveClass("h-full")
+      expect(frame).not.toHaveAttribute("height")
+      expect(frame).toHaveAttribute("scrolling", "auto")
+      expect(postMessage).toHaveBeenCalledWith(
+        {
+          type: "linksense:assistant-html-preview:layout",
+          previewId: frame.dataset.assistantHtmlPreviewId,
+          mode: "fullscreen",
+        },
+        "*"
+      )
+      expect(screen.getByRole("button", { name: "退出全屏预览" })).toBeVisible()
+      expect(screen.getByTitle("AI 生成的交互式 HTML 页面")).toBe(frame)
+      reportHeight(1_200)
+
+      if (exit === "button") {
+        await user.click(screen.getByRole("button", { name: "退出全屏预览" }))
+        expect(document.exitFullscreen).toHaveBeenCalledOnce()
+      } else {
+        act(() => {
+          fullscreenElement = null
+          document.dispatchEvent(new Event("fullscreenchange"))
+        })
+        expect(document.exitFullscreen).not.toHaveBeenCalled()
+      }
+
+      expect(card).not.toHaveClass("h-dvh")
+      expect(frame).not.toHaveClass("h-full")
+      expect(frame).toHaveAttribute("height", "480")
+      expect(frame).toHaveAttribute("scrolling", "no")
+      expect(postMessage).toHaveBeenLastCalledWith(
+        {
+          type: "linksense:assistant-html-preview:layout",
+          previewId: frame.dataset.assistantHtmlPreviewId,
+          mode: "inline",
+        },
+        "*"
+      )
+      expect(screen.queryByRole("button", { name: "退出全屏预览" })).toBeNull()
+      expect(frame.src).toBe(source)
+      expect(frame.contentWindow).toBe(frameWindow)
+      reportHeight(720)
+      expect(frame).toHaveAttribute("height", "720")
+    }
+  )
+
+  it("synchronizes the fullscreen layout when the preview document announces readiness again", async () => {
     const user = userEvent.setup()
     const { card, frame } = renderReadyPreview()
-    const requestFullscreen = vi.fn(async () => {
-      fullscreenElement = card
-      document.dispatchEvent(new Event("fullscreenchange"))
-    })
     Object.defineProperty(card, "requestFullscreen", {
       configurable: true,
-      value: requestFullscreen,
+      value: async () => {
+        fullscreenElement = card
+        document.dispatchEvent(new Event("fullscreenchange"))
+      },
+    })
+    await user.click(screen.getByRole("button", { name: "全屏预览" }))
+    const postMessage = vi.spyOn(frame.contentWindow!, "postMessage")
+    postMessage.mockClear()
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: frame.contentWindow,
+          data: {
+            type: assistantHtmlPreviewReadyMessageType,
+            previewId: frame.dataset.assistantHtmlPreviewId,
+          },
+        })
+      )
     })
 
-    await user.click(screen.getByRole("button", { name: "全屏预览" }))
-
-    expect(requestFullscreen).toHaveBeenCalledOnce()
-    expect(card).toHaveClass("h-screen", "w-screen")
-    expect(
-      card.querySelector("[data-assistant-html-preview-surface='true']")
-    ).toHaveClass("rounded-none", "border-0")
-    expect(screen.getByRole("button", { name: "退出全屏预览" })).toBeVisible()
-    expect(screen.getByTitle("AI 生成的交互式 HTML 页面")).toBe(frame)
-
-    await user.click(screen.getByRole("button", { name: "退出全屏预览" }))
-
-    expect(document.exitFullscreen).toHaveBeenCalledOnce()
-    expect(card).not.toHaveClass("h-screen")
-    expect(screen.queryByRole("button", { name: "退出全屏预览" })).toBeNull()
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: "linksense:assistant-html-preview:layout",
+        previewId: frame.dataset.assistantHtmlPreviewId,
+        mode: "fullscreen",
+      },
+      "*"
+    )
+    expect(frame).toHaveClass("h-full")
+    expect(frame).not.toHaveAttribute("height")
   })
 })

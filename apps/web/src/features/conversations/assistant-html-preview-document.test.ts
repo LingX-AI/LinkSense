@@ -19,7 +19,151 @@ import {
 
 afterEach(() => vi.useRealTimers())
 
+function createPreviewRuntime() {
+  vi.useFakeTimers()
+  const html = buildAssistantHtmlPreviewDocument(
+    '<html><head><style id="authored">body { height: 100vh; overflow: auto; }</style></head><body><input value="initial"><main class="min-h-screen">Interactive scene</main></body></html>',
+    { previewId: "fullscreen-preview" }
+  )
+  const document = new DOMParser().parseFromString(html, "text/html")
+  Object.defineProperty(document, "readyState", { value: "complete" })
+  const frameWindow = new EventTarget()
+  const postMessage = vi.fn()
+  const parent = { postMessage }
+  let scheduledHeightReport: FrameRequestCallback | null = null
+  class Observer {
+    observe() {}
+  }
+  new Function(
+    "document",
+    "window",
+    "parent",
+    "MutationObserver",
+    "ResizeObserver",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    document.querySelector("[data-linksense-preview-bootstrap]")?.textContent ??
+      ""
+  )(
+    document,
+    frameWindow,
+    parent,
+    Observer,
+    undefined,
+    (callback: FrameRequestCallback) => {
+      scheduledHeightReport = callback
+      return 1
+    },
+    vi.fn()
+  )
+  const sendLayout = (
+    mode: unknown,
+    {
+      source = parent,
+      previewId = "fullscreen-preview",
+    }: { source?: object; previewId?: string } = {}
+  ) => {
+    const event = new MessageEvent("message", {
+      data: {
+        type: "linksense:assistant-html-preview:layout",
+        previewId,
+        mode,
+      },
+    })
+    Object.defineProperty(event, "source", { value: source })
+    frameWindow.dispatchEvent(event)
+  }
+  const flushHeightReport = () => {
+    const callback = scheduledHeightReport
+    scheduledHeightReport = null
+    callback?.(0)
+  }
+  return { document, frameWindow, postMessage, sendLayout, flushHeightReport }
+}
+
 describe("assistant HTML preview document", () => {
+  it("restores authored viewport sizing in fullscreen and resumes inline height reports without replacing content", () => {
+    const runtime = createPreviewRuntime()
+    const sizingStyle = runtime.document.querySelector<HTMLStyleElement>(
+      "[data-linksense-preview-sizing-style]"
+    )!
+    const input = runtime.document.querySelector("input")!
+    input.value = "retained interaction"
+    const authoredStyle =
+      runtime.document.querySelector("#authored")?.textContent
+
+    runtime.sendLayout("fullscreen")
+    expect(sizingStyle.media).toBe("not all")
+    runtime.postMessage.mockClear()
+    runtime.frameWindow.dispatchEvent(new Event("resize"))
+    runtime.flushHeightReport()
+    expect(runtime.postMessage).not.toHaveBeenCalled()
+
+    runtime.sendLayout("inline")
+    expect(sizingStyle.media).toBe("")
+    runtime.flushHeightReport()
+    expect(runtime.postMessage).toHaveBeenCalledWith(
+      {
+        type: assistantHtmlPreviewResizeMessageType,
+        previewId: "fullscreen-preview",
+        height: 1,
+      },
+      "*"
+    )
+    expect(runtime.document.querySelector("input")).toBe(input)
+    expect(input.value).toBe("retained interaction")
+    expect(runtime.document.querySelector("#authored")?.textContent).toBe(
+      authoredStyle
+    )
+  })
+
+  it("allows native document scrolling in fullscreen and forwards wheel events again after returning inline", () => {
+    const runtime = createPreviewRuntime()
+    runtime.sendLayout("fullscreen")
+    runtime.postMessage.mockClear()
+    const fullscreenWheel = new WheelEvent("wheel", {
+      cancelable: true,
+      deltaY: 120,
+    })
+    runtime.frameWindow.dispatchEvent(fullscreenWheel)
+    expect(fullscreenWheel.defaultPrevented).toBe(false)
+    expect(runtime.postMessage).not.toHaveBeenCalled()
+
+    runtime.sendLayout("inline")
+    const inlineWheel = new WheelEvent("wheel", {
+      cancelable: true,
+      deltaY: 120,
+    })
+    runtime.frameWindow.dispatchEvent(inlineWheel)
+    expect(inlineWheel.defaultPrevented).toBe(true)
+    expect(runtime.postMessage).toHaveBeenCalledWith(
+      {
+        type: assistantHtmlPreviewWheelMessageType,
+        previewId: "fullscreen-preview",
+        deltaX: 0,
+        deltaY: 120,
+      },
+      "*"
+    )
+  })
+
+  it("ignores layout changes from another window, a different preview, or an invalid mode", () => {
+    const runtime = createPreviewRuntime()
+    const sizingStyle = runtime.document.querySelector<HTMLStyleElement>(
+      "[data-linksense-preview-sizing-style]"
+    )!
+    runtime.sendLayout("fullscreen")
+    expect(sizingStyle.media).toBe("not all")
+
+    runtime.sendLayout("inline", { source: {} })
+    runtime.sendLayout("inline", { previewId: "another-preview" })
+    for (const mode of [null, true, "other", {}]) runtime.sendLayout(mode)
+
+    expect(sizingStyle.media).toBe("not all")
+    runtime.sendLayout("inline")
+    expect(sizingStyle.media).toBe("")
+  })
+
   it.each(["loading", "interactive", "complete"] as const)(
     "shows plain HTML when the document is %s without waiting for a CSS framework",
     (initialState) => {
