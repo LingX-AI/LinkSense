@@ -493,6 +493,7 @@ host_storage() {
 }
 
 host_service_snapshot() {
+  host_snapshot_ready=true
   host_services='postgres redis minio runner api web gateway'
   [ "$EDITION" != full ] || host_services="$host_services elasticsearch docling-api docling-worker"
   for host_service in $host_services; do
@@ -500,10 +501,20 @@ host_service_snapshot() {
     [ -n "$host_ids" ] || host_fail stability "$host_service/missing"
     for host_id in $host_ids; do
       host_state=$(docker inspect --format '{{.Id}} {{.State.StartedAt}} {{.RestartCount}} {{.State.Running}} {{.State.OOMKilled}} {{with index .State "Health"}}{{.Status}}{{else}}none{{end}}' "$host_id")
-      case "$host_state" in *' true false healthy'|*' true false none') ;; *) host_fail stability "$host_service/unready" ;; esac
+      case "$host_state" in
+        *' true false healthy'|*' true false none') ;;
+        *' true false starting')
+          # An HTTP response can precede the first scheduled Docker healthcheck.
+          # Only the bounded initial-readiness loop may wait for that check.
+          [ "${1:-stable}" = readiness ] || host_fail stability "$host_service/unready"
+          host_snapshot_ready=false
+          ;;
+        *) host_fail stability "$host_service/unready" ;;
+      esac
       printf '%s %s\n' "$host_service" "$host_state"
     done
   done
+  [ "$host_snapshot_ready" = true ]
 }
 
 host_lock_installation() {

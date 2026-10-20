@@ -1503,8 +1503,10 @@ wait_for_health() {
           continue
         fi
       fi
-      verify_service_stability
-      return 0
+      if host_service_snapshot readiness >/dev/null; then
+        verify_service_stability
+        return 0
+      fi
     fi
     attempts=$((attempts + 1))
     sleep 5

@@ -697,6 +697,7 @@ compose() {
   esac
 }
 compose_bounded() { shift; compose "$@"; }
+host_service_snapshot() { return 0; }
 verify_service_stability() { :; }
 wait_for_health
 `)
