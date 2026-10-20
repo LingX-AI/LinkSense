@@ -15,6 +15,7 @@ import type {
   CapabilitySummary,
   Conversation,
   ConversationEvent,
+  ConversationFile,
   NativeCodexItem,
 } from "@/api/contracts"
 import { downloadApiFile } from "@/api/client"
@@ -4291,6 +4292,329 @@ describe("conversation turn responses", () => {
     expect(within(summary).getByText("正在运行一个命令")).toBeVisible()
   })
 
+  it("replaces the generation loading card with its image, keeps it after completion, and avoids duplicate attachments", async () => {
+    const fileId = "30000000-0000-4000-8000-000000000011"
+    const file = {
+      id: fileId,
+      name: "午后窗台上的柯基.png",
+      size: 1024,
+      kind: "artifact" as const,
+      turn_id: "turn-1",
+      mime_type: "image/png",
+      download_available: true,
+    }
+    const item = {
+      id: "corgi-generation",
+      type: "mcpToolCall" as const,
+      server: "linksense_core",
+      tool: "generate_image",
+      status: "inProgress" as const,
+    }
+    const started = nativeItemLifecycleEvent({
+      id: "corgi-start",
+      sequence: 3,
+      item,
+      method: "item/started",
+    })
+    const runningTurn = { id: "turn-1", status: "running" as const }
+    const onDownload = vi.fn()
+    const onPreviewImage = vi.fn()
+    const loadPreview = vi.fn().mockResolvedValue({
+      url: "https://files.example.test/corgi.png",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    })
+    const initial = {
+      ...completedConversation,
+      messages: [completedConversation.messages![0]!],
+      turns: [runningTurn],
+      running_turn: runningTurn,
+      events: [started],
+    }
+    const { rerender } = render(
+      <ConversationThread
+        conversation={initial}
+        onDownload={onDownload}
+        loadArtifactPreview={loadPreview}
+        onPreviewImage={onPreviewImage}
+      />
+    )
+    const summary = screen.getByTestId("turn-summary-turn-1")
+    expect(
+      within(summary).getByRole("status", { name: "正在生成图片…" })
+    ).toBeVisible()
+    const completed = {
+      ...initial,
+      artifacts: [file],
+      events: [
+        started,
+        nativeItemLifecycleEvent({
+          id: "corgi-complete",
+          sequence: 4,
+          item: {
+            ...item,
+            status: "completed",
+            generatedImageFileIds: [fileId],
+          },
+          method: "item/completed",
+        }),
+      ],
+    }
+    rerender(
+      <ConversationThread
+        conversation={completed}
+        onDownload={onDownload}
+        loadArtifactPreview={loadPreview}
+        onPreviewImage={onPreviewImage}
+      />
+    )
+    await waitFor(() =>
+      expect(
+        within(summary).getByRole("img", { name: file.name })
+      ).toBeVisible()
+    )
+    expect(summary.querySelector(".file-tile")).toBeNull()
+    fireEvent.click(
+      within(summary).getByRole("button", { name: `下载 ${file.name}` })
+    )
+    expect(onDownload).toHaveBeenCalledWith(file)
+    expect(onPreviewImage).not.toHaveBeenCalled()
+    fireEvent.click(
+      within(summary).getByRole("button", { name: `预览图片 ${file.name}` })
+    )
+    expect(onPreviewImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: file.name,
+        src: "https://files.example.test/corgi.png",
+      })
+    )
+    rerender(
+      <ConversationThread
+        conversation={{
+          ...completed,
+          turns: [{ ...runningTurn, status: "completed" }],
+          running_turn: null,
+          messages: [
+            ...initial.messages,
+            {
+              id: "corgi-final",
+              role: "assistant",
+              turn_id: "turn-1",
+              phase: "final_answer",
+              content: `已生成。\n\n![柯基](linksense-artifact:${fileId})`,
+              artifacts: [file],
+            },
+          ],
+        }}
+        onDownload={onDownload}
+        loadArtifactPreview={loadPreview}
+      />
+    )
+    await waitFor(() =>
+      expect(screen.getAllByRole("img", { name: file.name })).toHaveLength(1)
+    )
+    expect(document.querySelector(".artifact-image-tile")).toBeNull()
+    expect(
+      document.querySelectorAll(
+        'img[src="https://files.example.test/corgi.png"]'
+      )
+    ).toHaveLength(1)
+  })
+
+  it.each(["filenames", "artifact links", "code blocks"] as const)(
+    "shows code-generated images with %s in the gallery after the image service fails",
+    async (format) => {
+      const files = ["草地金毛幼犬", "雨窗柴犬", "日落海滩边牧"].map(
+        (name, index) => ({
+          id: `30000000-0000-4000-8000-00000000001${index}`,
+          name: `${name}.png`,
+          mime_type: "image/png",
+          size: 2048,
+          kind: "artifact" as const,
+          turn_id: "turn-1",
+          checksum_sha256: String(index + 1).repeat(64),
+          download_available: true,
+        })
+      )
+      const previews = files.map((file, index) => ({
+        ...file,
+        id: `30000000-0000-4000-8000-00000000002${index}`,
+        name: `preview-${index}.png`,
+      }))
+      const onDownload = vi.fn()
+      const onPreviewImage = vi.fn()
+      const loadPreview = vi
+        .fn()
+        .mockImplementation(async (file: ConversationFile) => ({
+          url: `https://files.example.test/${file.id}.png`,
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        }))
+      const conversation: Conversation = {
+        ...completedConversation,
+        artifacts: [...previews, ...files],
+        messages: [
+          completedConversation.messages![0]!,
+          {
+            ...completedConversation.messages![1]!,
+            phase: "final_answer",
+            content: `三张图片已用代码绘制完成：\n\n${files
+              .map((file) =>
+                format === "artifact links"
+                  ? `- [${file.name}](linksense-artifact:${file.id})`
+                  : format === "code blocks"
+                    ? `\`\`\`text\n![${file.name}](linksense-artifact:${file.id})\n\`\`\``
+                    : `- ${file.name}`
+              )
+              .join("\n\n")}`,
+            artifacts: [...previews, ...files],
+          },
+        ],
+        events: [
+          nativeItemLifecycleEvent({
+            id: "image-provider-failed",
+            sequence: 2,
+            method: "item/completed",
+            item: {
+              id: "image-provider",
+              type: "mcpToolCall",
+              server: "linksense_core",
+              tool: "generate_image",
+              status: "completed",
+              imageGenerationFailureCode: "IMAGE_GENERATION_UNAVAILABLE",
+            },
+          }),
+          ...previews.map((file, index) =>
+            nativeItemLifecycleEvent({
+              id: `code-image-view-${index}`,
+              sequence: 3 + index,
+              method: "item/completed",
+              item: {
+                id: `code-image-view-${index}`,
+                type: "imageView",
+                path: `$WORKSPACE/artifacts/${files[index]!.name}`,
+                fileId: file.id,
+              },
+            })
+          ),
+        ],
+      }
+      const renderThread = () => (
+        <ConversationThread
+          conversation={structuredClone(conversation)}
+          onDownload={onDownload}
+          onPreviewImage={onPreviewImage}
+          loadArtifactPreview={loadPreview}
+        />
+      )
+      const { rerender } = render(renderThread())
+      const summary = screen.getByTestId("turn-summary-turn-1")
+      const gallery = summary.querySelector<HTMLElement>(
+        '[data-slot="generated-image-call"]'
+      )
+      expect(gallery).not.toBeNull()
+      if (!gallery) throw new Error("Code-generated image gallery is missing")
+      expect(within(gallery).getAllByRole("tab")).toHaveLength(3)
+      await waitFor(() =>
+        expect(
+          within(gallery).getByRole("img", { name: files[0]!.name })
+        ).toBeVisible()
+      )
+      fireEvent.click(
+        within(gallery).getByRole("tab", { name: `选择图片 ${files[2]!.name}` })
+      )
+      await waitFor(() =>
+        expect(
+          within(gallery).getByRole("img", { name: files[2]!.name })
+        ).toBeVisible()
+      )
+      fireEvent.click(
+        within(gallery).getByRole("button", { name: `下载 ${files[2]!.name}` })
+      )
+      expect(onDownload).toHaveBeenCalledWith(files[2])
+      fireEvent.click(
+        within(gallery).getByRole("button", {
+          name: `预览图片 ${files[2]!.name}`,
+        })
+      )
+      expect(onPreviewImage).toHaveBeenCalledWith(
+        expect.objectContaining({ id: files[2]!.id, name: files[2]!.name })
+      )
+      expect(document.querySelector(".artifact-image-tile")).toBeNull()
+      rerender(renderThread())
+      expect(within(gallery).getAllByRole("tab")).toHaveLength(3)
+      expect(
+        within(gallery).getByRole("img", { name: files[2]!.name })
+      ).toBeVisible()
+      expect(loadPreview).toHaveBeenCalledTimes(3)
+    }
+  )
+
+  it("keeps an image failure in its timeline activity before the assistant continues, without a detached result card", () => {
+    const imageCall = {
+      id: "failed-image-call",
+      type: "mcpToolCall" as const,
+      server: "linksense_core",
+      tool: "generate_image",
+      status: "completed" as const,
+      imageGenerationFailureCode: "IMAGE_GENERATION_PROVIDER_REJECTED" as const,
+    }
+    const runningTurn = { id: "turn-1", status: "running" as const }
+    render(
+      <ConversationThread
+        conversation={{
+          ...completedConversation,
+          turns: [runningTurn],
+          running_turn: runningTurn,
+          messages: [
+            completedConversation.messages![0]!,
+            {
+              id: "after-image-failure",
+              role: "assistant",
+              turn_id: "turn-1",
+              phase: "commentary",
+              event_sequence_no: 5,
+              content: "我会检查其他绘图方式。",
+            },
+          ],
+          events: [
+            nativeItemLifecycleEvent({
+              id: "failed-image-completed",
+              sequence: 4,
+              item: imageCall,
+              method: "item/completed",
+            }),
+            nativeItemLifecycleEvent({
+              id: "after-image-command",
+              sequence: 6,
+              item: {
+                id: "check-render-tools",
+                type: "commandExecution",
+                command: "which convert",
+                commandActions: [{ type: "unknown", command: "which convert" }],
+                status: "inProgress",
+              },
+              method: "item/started",
+            }),
+          ],
+        }}
+        onDownload={vi.fn()}
+      />
+    )
+    const summary = screen.getByTestId("turn-summary-turn-1")
+    const failure = within(summary).getByText("图片生成失败")
+    const activity = failure.closest(".native-activity-item")
+    expect(activity).not.toBeNull()
+    if (!activity) throw new Error("Image failure activity is missing")
+    expect(
+      activity.compareDocumentPosition(
+        within(summary).getByText("我会检查其他绘图方式。")
+      ) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      summary.querySelector('[data-slot="generated-image-call"]')
+    ).toBeNull()
+    expect(within(summary).queryByRole("alert")).toBeNull()
+  })
+
   it.each(["completed", "failed", "interrupted"] as const)(
     "keeps the image generation surface last and removes its game when generation is %s",
     (outcome) => {
@@ -4354,7 +4678,7 @@ describe("conversation turn responses", () => {
         "turn-image-generation-loading",
         "aspect-square",
         "min-h-0",
-        "max-w-[20rem]"
+        "max-w-[15rem]"
       )
       expect(loading).not.toHaveClass("min-h-80")
       expect(
@@ -4363,7 +4687,7 @@ describe("conversation turn responses", () => {
       expect(
         loading.querySelector(".assistant-html-preview-loading-glow")
       ).toBeVisible()
-      expect(summary.lastElementChild).toBe(loading)
+      expect(summary.lastElementChild).toBe(loading.parentElement)
 
       const bounds = vi
         .spyOn(HTMLElement.prototype, "getBoundingClientRect")
@@ -5834,9 +6158,9 @@ describe("conversation turn responses", () => {
     }
   )
 
-  it("shows one image per content after generation, renaming, and re-registering a previous turn image", () => {
+  it("shows one gallery image per content after generation, renaming, and re-registering a previous turn image", async () => {
     const portrait = {
-      id: "portrait",
+      id: "30000000-0000-4000-8000-000000000041",
       name: "generated-portrait.png",
       size: 1024,
       kind: "artifact" as const,
@@ -5847,23 +6171,27 @@ describe("conversation turn responses", () => {
     }
     const generated = {
       ...portrait,
-      id: "hunting-generated",
+      id: "30000000-0000-4000-8000-000000000042",
       name: "generated-hunting.png",
       turn_id: "turn-2",
       checksum_sha256: "b".repeat(64),
     }
     const renamed = {
       ...generated,
-      id: "hunting-renamed",
+      id: "30000000-0000-4000-8000-000000000043",
       name: "lion-hunting.png",
     }
     const copiedPortrait = {
       ...portrait,
-      id: "portrait-renamed",
+      id: "30000000-0000-4000-8000-000000000044",
       name: "lion-portrait.png",
       turn_id: "turn-2",
     }
     const onDownload = vi.fn()
+    const loadArtifactPreview = vi.fn(async (file: ConversationFile) => ({
+      url: `https://files.example.test/${file.id}.png`,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    }))
     const conversation: Conversation = {
       ...completedConversation,
       turns: [
@@ -5893,11 +6221,16 @@ describe("conversation turn responses", () => {
           running_turn: { id: "turn-2", status: "running" },
         }}
         onDownload={onDownload}
+        loadArtifactPreview={loadArtifactPreview}
       />
     )
     expect(screen.queryByText(renamed.name)).toBeNull()
     rerender(
-      <ConversationThread conversation={conversation} onDownload={onDownload} />
+      <ConversationThread
+        conversation={conversation}
+        onDownload={onDownload}
+        loadArtifactPreview={loadArtifactPreview}
+      />
     )
 
     // A fresh detail response must produce the same cards as completion.
@@ -5905,20 +6238,86 @@ describe("conversation turn responses", () => {
       <ConversationThread
         conversation={structuredClone(conversation)}
         onDownload={onDownload}
+        loadArtifactPreview={loadArtifactPreview}
       />
     )
 
-    const replies = screen.getAllByRole("article", { name: "助手回复" })
-    expect(within(replies[0]!).getByText(portrait.name)).toBeVisible()
-    expect(within(replies[1]!).getByText(renamed.name)).toBeVisible()
-    expect(within(replies[1]!).queryByText(generated.name)).toBeNull()
-    expect(within(replies[1]!).queryByText(copiedPortrait.name)).toBeNull()
-    expect(replies[1]!.querySelectorAll(".artifact-tile")).toHaveLength(1)
+    const first = screen.getByTestId("turn-summary-turn-1")
+    const second = screen.getByTestId("turn-summary-turn-2")
+    await waitFor(() =>
+      expect(
+        within(first).getByRole("img", { name: portrait.name })
+      ).toBeVisible()
+    )
+    expect(
+      within(second).getByRole("img", { name: renamed.name })
+    ).toBeVisible()
+    expect(
+      within(second).queryByRole("img", { name: generated.name })
+    ).toBeNull()
+    expect(
+      within(second).queryByRole("img", { name: copiedPortrait.name })
+    ).toBeNull()
+    expect(
+      second.querySelectorAll('[data-slot="generated-image"]')
+    ).toHaveLength(1)
+    expect(document.querySelector(".artifact-image-tile")).toBeNull()
     fireEvent.click(
-      within(replies[1]!).getByRole("button", { name: `下载 ${renamed.name}` })
+      within(second).getByRole("button", { name: `下载 ${renamed.name}` })
     )
     expect(onDownload).toHaveBeenCalledWith(renamed)
   })
+
+  it.each(
+    supportedLanguages.flatMap((language) => [
+      {
+        language,
+        type: "system_capability_used",
+        capabilityName: "LinkSense File Service",
+        showBadge: false,
+      },
+      {
+        language,
+        type: "tool_completed",
+        capabilityName: "Report exporter",
+        showBadge: true,
+      },
+    ])
+  )(
+    "renders the expected capability badge for $type in $language",
+    async ({ language, type, capabilityName, showBadge }) => {
+      await i18n.changeLanguage(language)
+      render(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            activities: [
+              {
+                id: "activity-capability-badge",
+                turn_id: "turn-1",
+                type,
+                capability_name: capabilityName,
+              },
+            ],
+          }}
+          defaultActivityOpen
+          onDownload={vi.fn()}
+        />
+      )
+
+      const status = screen.getByText(i18n.t(`conversation.activities.${type}`))
+      expect(status).toBeVisible()
+      const badge = status
+        .closest('[data-slot="marker-content"]')
+        ?.querySelector(".trace-chip")
+      if (showBadge) {
+        expect(badge).toHaveTextContent(capabilityName)
+      } else {
+        expect(badge).toBeNull()
+        expect(screen.queryByText(capabilityName)).toBeNull()
+      }
+    }
+  )
 
   it("collapses native commentary and tool calls while keeping the final answer and artifact visible once", async () => {
     const interaction = userEvent.setup()
@@ -6035,16 +6434,17 @@ describe("conversation turn responses", () => {
     expect(toolCall).toBeVisible()
     expect(fileServiceMarker).not.toBeNull()
     expect(fileServiceMarker?.closest(".legacy-activity-item")).not.toBeNull()
+    expect(fileServiceActivity).toBeVisible()
     expect(
-      within(fileServiceMarker as HTMLElement).getByText(
+      within(fileServiceMarker as HTMLElement).queryByText(
         "LinkSense File Service"
       )
-    ).toBeVisible()
+    ).toBeNull()
     expect(
       fileServiceActivity
         .closest('[data-slot="marker-content"]')
         ?.querySelector(".trace-chip")
-    ).toHaveTextContent("LinkSense File Service")
+    ).toBeNull()
     expect(
       toolCall.closest(".activity-item-main")?.querySelector("svg")
     ).toHaveClass("size-3.5")
@@ -6870,7 +7270,7 @@ describe("conversation turn responses", () => {
   })
 
   it.each(["item/started", "item/completed"] as const)(
-    "hides the thinking placeholder when the current reasoning content is visible after %s, including after commentary",
+    "restores the thinking placeholder when commentary follows reasoning received through %s",
     (method) => {
       const turn = {
         ...completedConversation.turns![0]!,
@@ -6917,9 +7317,200 @@ describe("conversation turn responses", () => {
       )
 
       expect(screen.getByText("Let me write the script now.")).toBeVisible()
+      expect(screen.getByText("Let me write the script now.")).not.toHaveClass(
+        "shimmer"
+      )
       expect(screen.getByText("现在开始生成演示文稿。")).toBeVisible()
       expect(screen.getByText("运行了一个命令")).toBeVisible()
+      expect(screen.getAllByText("正在思考", { exact: true })).toHaveLength(1)
+      expect(screen.getByText("正在思考", { exact: true })).toBeVisible()
+    }
+  )
+
+  it.each(supportedLanguages)(
+    "keeps one waiting indicator through reasoning, commentary, and the next reasoning stage in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const turn = {
+        ...completedConversation.turns![0]!,
+        status: "running" as const,
+        completed_at: null,
+      }
+      const conversation: Conversation = {
+        ...completedConversation,
+        messages: [completedConversation.messages![0]!],
+        turns: [turn],
+        running_turn: turn,
+        events: [
+          nativeReasoningEvent({
+            id: "reasoning-before-commentary",
+            itemId: "reasoning-before-commentary",
+            sequence: 1,
+            method: "item/completed",
+            content: ["Reasoning before commentary"],
+          }),
+        ],
+      }
+      const commentary = {
+        id: "commentary-after-reasoning",
+        role: "assistant" as const,
+        phase: "commentary" as const,
+        turn_id: turn.id,
+        event_sequence_no: 2,
+        created_at: "2026-07-11T08:00:02.000Z",
+        content: "The task is still in progress.",
+      }
+      const { rerender, container } = render(
+        <ConversationThread
+          conversation={conversation}
+          showReasoning
+          onDownload={vi.fn()}
+        />
+      )
+      const thinkingLabel = i18n.t("conversation.thinking")
+      expect(screen.getByText("Reasoning before commentary")).toHaveClass(
+        "shimmer"
+      )
+      expect(screen.queryByText(thinkingLabel, { exact: true })).toBeNull()
+
+      rerender(
+        <ConversationThread
+          conversation={{
+            ...conversation,
+            messages: [
+              ...conversation.messages!,
+              { ...commentary, streaming: true },
+            ],
+          }}
+          showReasoning
+          onDownload={vi.fn()}
+        />
+      )
+      expect(screen.getByText(commentary.content)).toBeVisible()
+      expect(screen.getByText("Reasoning before commentary")).not.toHaveClass(
+        "shimmer"
+      )
+      expect(screen.queryByText(thinkingLabel, { exact: true })).toBeNull()
+
+      rerender(
+        <ConversationThread
+          conversation={{
+            ...conversation,
+            messages: [...conversation.messages!, commentary],
+          }}
+          showReasoning
+          onDownload={vi.fn()}
+        />
+      )
+      expect(screen.getAllByText(thinkingLabel, { exact: true })).toHaveLength(
+        1
+      )
+      expect(container.querySelectorAll(".shimmer")).toHaveLength(1)
+
+      rerender(
+        <ConversationThread
+          conversation={{
+            ...conversation,
+            messages: [...conversation.messages!, commentary],
+            events: [
+              ...conversation.events!,
+              nativeReasoningEvent({
+                id: "reasoning-after-commentary",
+                itemId: "reasoning-after-commentary",
+                sequence: 3,
+                method: "item/started",
+                content: ["Reasoning after commentary"],
+              }),
+            ],
+          }}
+          showReasoning
+          onDownload={vi.fn()}
+        />
+      )
+      expect(screen.queryByText(thinkingLabel, { exact: true })).toBeNull()
+      expect(screen.getByText("Reasoning after commentary")).toHaveClass(
+        "shimmer"
+      )
+      expect(screen.getByText("Reasoning before commentary")).not.toHaveClass(
+        "shimmer"
+      )
+      expect(container.querySelectorAll(".shimmer")).toHaveLength(1)
+    }
+  )
+
+  it.each(["item/started", "item/completed"] as const)(
+    "shimmers only the last reasoning entry when no thinking placeholder is visible after %s",
+    (method) => {
+      const turn = {
+        ...completedConversation.turns![0]!,
+        status: "running" as const,
+        completed_at: null,
+      }
+      const { container } = render(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            messages: [completedConversation.messages![0]!],
+            turns: [turn],
+            running_turn: turn,
+            events: [
+              nativeReasoningEvent({
+                id: "earlier-reasoning",
+                itemId: "reasoning-earlier",
+                sequence: 1,
+                method: "item/completed",
+                content: ["Earlier reasoning content"],
+              }),
+              nativeReasoningEvent({
+                id: "last-reasoning",
+                itemId: "reasoning-last",
+                sequence: 2,
+                method,
+                content: ["Last reasoning content"],
+              }),
+            ],
+          }}
+          showReasoning
+          onDownload={vi.fn()}
+        />
+      )
+
       expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
+      expect(screen.getByText("Last reasoning content")).toHaveClass("shimmer")
+      expect(screen.getByText("Earlier reasoning content")).not.toHaveClass(
+        "shimmer"
+      )
+      expect(container.querySelectorAll(".shimmer")).toHaveLength(1)
+    }
+  )
+
+  it.each(["completed", "failed", "interrupted"] as const)(
+    "stops the last reasoning shimmer when the task is %s",
+    (status) => {
+      render(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            turns: [{ ...completedConversation.turns![0]!, status }],
+            events: [
+              nativeReasoningEvent({
+                id: "last-reasoning",
+                itemId: "reasoning-last",
+                sequence: 2,
+                method: "item/started",
+                content: ["Last reasoning content"],
+              }),
+            ],
+          }}
+          showReasoning
+          defaultActivityOpen
+          onDownload={vi.fn()}
+        />
+      )
+
+      expect(screen.getByText("Last reasoning content")).not.toHaveClass(
+        "shimmer"
+      )
     }
   )
 
@@ -6962,6 +7553,7 @@ describe("conversation turn responses", () => {
         />
       )
       expect(screen.getByText("Current full thought")).toBeVisible()
+      expect(screen.getByText("Current full thought")).toHaveClass("shimmer")
       expect(screen.queryByText(thinkingLabel, { exact: true })).toBeNull()
 
       rerender(
@@ -7010,6 +7602,9 @@ describe("conversation turn responses", () => {
         />
       )
       expect(screen.getByText("Previous stage thought")).toBeVisible()
+      expect(screen.getByText("Previous stage thought")).not.toHaveClass(
+        "shimmer"
+      )
       expect(screen.getByText("正在思考", { exact: true })).toBeVisible()
 
       const delta: ConversationEvent = {
@@ -7040,6 +7635,7 @@ describe("conversation turn responses", () => {
         />
       )
       expect(screen.getByText("Next stage thought")).toBeVisible()
+      expect(screen.getByText("Next stage thought")).toHaveClass("shimmer")
       expect(screen.queryByText("正在思考", { exact: true })).toBeNull()
     }
   )
@@ -7095,6 +7691,9 @@ describe("conversation turn responses", () => {
       />
     )
     expect(screen.getByText("Previous stage thought")).toBeVisible()
+    expect(screen.getByText("Previous stage thought")).not.toHaveClass(
+      "shimmer"
+    )
     expect(screen.getByText("正在思考", { exact: true })).toBeVisible()
     fireEvent.click(
       screen.getByRole("button", {
@@ -7292,10 +7891,10 @@ describe("conversation turn responses", () => {
     expect(summary.querySelector(".reasoning-activity-row")).toBeNull()
   })
 
-  it("renders an image artifact thumbnail once and opens the shared preview", async () => {
+  it("renders a registered image in the gallery once and opens the shared preview", async () => {
     const interaction = userEvent.setup()
     const imageArtifact = {
-      id: "artifact-image-1",
+      id: "30000000-0000-4000-8000-000000000045",
       name: "小狗和可乐.png",
       mime_type: "image/png",
       size: 235_520,
@@ -7310,7 +7909,7 @@ describe("conversation turn responses", () => {
       expiresAt: "2099-07-14T10:49:00.000Z",
     })
     const onDownload = vi.fn()
-    const onPreviewOfficeDocument = vi.fn()
+    const onPreviewImage = vi.fn()
     render(
       <ConversationThread
         conversation={{
@@ -7326,7 +7925,7 @@ describe("conversation turn responses", () => {
         }}
         loadArtifactPreview={loadArtifactPreview}
         onDownload={onDownload}
-        onPreviewOfficeDocument={onPreviewOfficeDocument}
+        onPreviewImage={onPreviewImage}
       />
     )
 
@@ -7338,23 +7937,31 @@ describe("conversation turn responses", () => {
       imageArtifact,
       expect.any(AbortSignal)
     )
-    const card = thumbnail.closest(".artifact-image-tile")
+    const card = thumbnail.closest('[data-slot="generated-image"]')
     expect(card).not.toBeNull()
     expect(
-      within(card as HTMLElement).getByText("小狗和可乐.png")
+      within(card as HTMLElement).getByRole("img", { name: "小狗和可乐.png" })
     ).toBeVisible()
-    expect(within(card as HTMLElement).getByText(/230\s*kB/u)).toBeVisible()
-    expect(within(card as HTMLElement).queryByText(/2026-07-14/u)).toBeNull()
+    expect(document.querySelector(".artifact-image-tile")).toBeNull()
     expect(
       screen.getAllByRole("button", { name: "下载 小狗和可乐.png" })
     ).toHaveLength(1)
 
-    await interaction.click(
-      within(card as HTMLElement).getByText("小狗和可乐.png")
+    await interaction.click(thumbnail)
+    expect(onPreviewImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: imageArtifact.id,
+        src: "https://files.example.test/dog-and-cola.png",
+      })
     )
-    expect(onPreviewOfficeDocument).toHaveBeenCalledWith(imageArtifact)
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(onDownload).not.toHaveBeenCalled()
+    await interaction.click(
+      within(card as HTMLElement).getByRole("button", {
+        name: "下载 小狗和可乐.png",
+      })
+    )
+    expect(onDownload).toHaveBeenCalledWith(imageArtifact)
   })
 
   it("renders a registered inline artifact inside Markdown without a duplicate artifact card", async () => {
@@ -8335,7 +8942,7 @@ describe("conversation turn responses", () => {
   })
 
   it.each(supportedLanguages)(
-    "shows a visible required label for message editing in %s",
+    "keeps message editing accessible without a visible label or required marker in %s",
     async (language) => {
       await i18n.changeLanguage(language)
       const interaction = userEvent.setup()
@@ -8354,13 +8961,18 @@ describe("conversation turn responses", () => {
         name: i18n.t("conversation.editMessageInput"),
       })
       const label = document.querySelector(`label[for="${textbox.id}"]`)
-      expect(label).toBeVisible()
-      expect(label).not.toHaveClass("sr-only")
-      const indicator = label?.querySelector(
-        "span.text-destructive[aria-hidden='true']"
+      expect(label).toBeNull()
+      const form = screen.getByRole("form", {
+        name: i18n.t("conversation.editMessage"),
+      })
+      expect(
+        within(form).queryByText(i18n.t("conversation.editMessageInput"))
+      ).toBeNull()
+      expect(within(form).queryByText("*", { exact: true })).toBeNull()
+      expect(textbox).toHaveAttribute(
+        "aria-label",
+        i18n.t("conversation.editMessageInput")
       )
-      expect(indicator).toBeVisible()
-      expect(indicator).toHaveTextContent("*")
       expect(textbox).toHaveAttribute("aria-required", "true")
       expect(textbox).not.toHaveAttribute("required")
       await interaction.clear(textbox)

@@ -233,19 +233,20 @@ describe("archived conversation pagination", () => {
     const badge = await screen.findByRole("link", {
       name: "由 LinkSense 提供支持",
     })
-    expect(badge).toHaveClass(
-      "mr-1",
-      "mb-1",
+    const frame = badge.parentElement
+    expect(frame).toHaveAttribute("data-placement", "conversation")
+    expect(frame).toHaveClass(
       "justify-self-end",
       "hidden",
-      "md:inline-flex"
+      "md:flex",
+      "[--attribution-inset:18px]"
     )
     expect(badge).not.toHaveClass(
       "max-md:mr-0",
       "max-md:justify-self-center",
       "max-md:mt-3"
     )
-    expect(badge.parentElement).toHaveClass("conversation-bottom-stack")
+    expect(frame?.parentElement).toHaveClass("conversation-bottom-stack")
   })
 
   it("prewarms again when the empty composer starts another new task", async () => {

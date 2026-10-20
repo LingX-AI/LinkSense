@@ -1048,6 +1048,25 @@ describe("runner Codex event contract", () => {
     }
   });
 
+  it("accepts only bounded UUID associations on completed LinkSense image generation calls", () => {
+    const fileId = "01900000-0000-7000-8000-000000000011";
+    const item = { type: "mcpToolCall", id: "generated-image", server: "linksense_core", tool: "generate_image", status: "completed", generatedImageFileIds: [fileId] };
+    expect(runnerCodexEventSchema.safeParse(nativeItemEvent(item)).success).toBe(true);
+    for (const invalid of [
+      { ...item, server: "other_service" }, { ...item, tool: "other_tool" },
+      { ...item, status: "inProgress" }, { ...item, status: "failed" },
+      { ...item, generatedImageFileIds: ["private/path.png"] }, { ...item, generatedImageFileIds: [] },
+      { ...item, generatedImageFileIds: Array.from({ length: 11 }, () => fileId) },
+    ]) expect(runnerCodexEventSchema.safeParse(nativeItemEvent(invalid)).success).toBe(false);
+    const failure = { ...item, generatedImageFileIds: undefined, imageGenerationFailureCode: "IMAGE_GENERATION_UNAVAILABLE" };
+    expect(runnerCodexEventSchema.safeParse(nativeItemEvent(failure)).success).toBe(true);
+    for (const invalid of [
+      { ...failure, status: "inProgress" }, { ...failure, tool: "other_tool" },
+      { ...failure, server: "other_service" }, { ...failure, imageGenerationFailureCode: "private provider message" },
+      { ...failure, generatedImageFileIds: [fileId] },
+    ]) expect(runnerCodexEventSchema.safeParse(nativeItemEvent(invalid)).success).toBe(false);
+  });
+
   it("allows only the terminal no-available-bases outcome on knowledge search items", () => {
     expect(
       runnerCodexEventSchema.safeParse(

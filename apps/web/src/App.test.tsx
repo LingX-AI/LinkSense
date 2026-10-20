@@ -113,13 +113,12 @@ describe("LinkSense application", () => {
         name: "由 LinkSense 提供支持",
       })
       expect(badge).toBeVisible()
-      expect(badge).toHaveClass(
-        "mr-3",
-        "-mb-2.5",
-        "self-end",
-        "max-md:mr-0",
-        "max-md:self-center",
-        "max-md:mb-1"
+      expect(badge.parentElement).toHaveAttribute("data-placement", "public")
+      expect(badge.parentElement).toHaveClass(
+        "[--attribution-inset:18px]",
+        "px-[var(--attribution-inset)]",
+        "pb-[var(--attribution-inset)]",
+        "mt-auto"
       )
       view.unmount()
     }

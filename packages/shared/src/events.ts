@@ -25,6 +25,7 @@ import {
   turnStatusSchema,
 } from "./conversations.js";
 import { knowledgeNoAvailableBasesCodeSchema } from "./knowledge.js";
+import { imageGenerationFailureCodeSchema } from "./image-generation.js";
 import { coreMcpServerKey } from "./mcp.js";
 
 export const conversationEventVisibilitySchema = z.enum([
@@ -1057,8 +1058,36 @@ const runnerCodexMcpToolCallItemSchema = z
      * MCP result. Raw tool arguments, results, and errors remain forbidden.
      */
     failureCode: knowledgeNoAvailableBasesCodeSchema.optional(),
+    /** Registered image IDs only; raw generation arguments and results stay private. */
+    generatedImageFileIds: z.array(z.uuid()).min(1).max(10).optional(),
+    imageGenerationFailureCode: imageGenerationFailureCodeSchema.optional(),
   })
   .superRefine((item, context) => {
+    if (
+      item.generatedImageFileIds !== undefined &&
+      (item.server !== coreMcpServerKey ||
+        item.tool !== "generate_image" ||
+        item.status !== "completed")
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["generatedImageFileIds"],
+        message: "generated_images_require_completed_image_generation",
+      });
+    }
+    if (
+      item.imageGenerationFailureCode !== undefined &&
+      (item.server !== coreMcpServerKey ||
+        item.tool !== "generate_image" ||
+        item.status === "inProgress" ||
+        item.generatedImageFileIds !== undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["imageGenerationFailureCode"],
+        message: "image_failure_requires_terminal_image_generation",
+      });
+    }
     if (item.failureCode === undefined) return;
     if (
       item.server !== coreMcpServerKey ||

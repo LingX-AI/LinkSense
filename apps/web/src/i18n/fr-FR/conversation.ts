@@ -589,7 +589,14 @@ export const conversation = {
     controls:
       "Dirigez avec les flèches, WASD ou un glissement. Double-cliquez ou appuyez sur Échap pour revenir à l’attente.",
   },
-  imageGeneration: { loading: "Génération de l’image…" },
+  imageGeneration: {
+    loading: "Génération de l’image…",
+    images: "Images générées",
+    selectImage: "Sélectionner l’image {{name}}",
+    failed: "La génération de l’image a échoué",
+    stopped: "La génération de l’image a été arrêtée",
+    unavailable: "L’image est actuellement indisponible",
+  },
   copyTable: "Copier le tableau",
   tableCopied: "Tableau copié",
   tableActions: "Actions du tableau",
@@ -694,6 +701,7 @@ export const conversation = {
     imageViewCompleted: "Image consultée",
     imageGenerationRunning: "Génération d’une image",
     imageGenerationCompleted: "Image générée",
+    imageGenerationFinished: "La génération de l’image est terminée",
     enteredReviewMode: "Mode révision activé",
     exitedReviewMode: "Mode révision quitté",
     contextCompactionRunning: "Compactage du contexte",

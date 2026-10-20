@@ -204,6 +204,15 @@ export const updateImageGenerationSettingsSchema = z
 
 export const imageGenerationRequestSchema = z.strictObject({
   prompt: z.string().trim().min(1).max(8_000),
+  image_name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .regex(/^[^<>:"/\\|?*\p{Cc}\p{Cf}]+$/u)
+    .refine((name) => !name.startsWith(".") && !name.endsWith("."), {
+      message: "image_name_must_be_a_scene_name_without_a_path",
+    }),
   count: z.number().int().min(1).max(10).default(1),
   size: z
     .string()

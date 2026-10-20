@@ -28,7 +28,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom"
 
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
-import { PoweredByLinkSenseFooter } from "@/components/brand/powered-by-linksense"
+import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import { ProductLogo } from "@/components/brand/product-logo"
 import {
   resolveSettingsReturn,
@@ -348,7 +348,7 @@ export function SettingsShell() {
           {navigation}
         </SheetContent>
       </Sheet>
-      <div className="flex min-h-0 min-w-0 flex-col">
+      <div className="shell-content @container/shell-content relative flex min-h-0 min-w-0 flex-col">
         <main
           ref={mainRef}
           className="settings-main min-h-0 flex-1"
@@ -368,7 +368,7 @@ export function SettingsShell() {
             <Outlet />
           </div>
         </main>
-        <PoweredByLinkSenseFooter />
+        <PoweredByLinkSense />
       </div>
     </div>
   )

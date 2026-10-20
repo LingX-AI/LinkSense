@@ -105,12 +105,15 @@ describe("UserHomeCapabilityMaterializer durability", () => {
     expect(browserSkill).toContain("linksense-browser --help")
     expect(browserSkill).toContain("open-workspace-html")
     expect(browserSkill).toContain("does not mean Chromium is missing")
-    await expect(
-      readFile(
-        join(result.skillsRoot, "linksense-file-service", "SKILL.md"),
-        "utf8",
-      ),
-    ).resolves.toContain("register_artifact")
+    const fileServiceSkill = await readFile(
+      join(result.skillsRoot, "linksense-file-service", "SKILL.md"),
+      "utf8",
+    )
+    expect(fileServiceSkill).toContain("register_artifact")
+    expect(fileServiceSkill).toContain("Images created with code")
+    expect(fileServiceSkill).toContain("Viewing an image does not deliver it")
+    expect(fileServiceSkill).toContain("preview and download actions")
+    expect(fileServiceSkill).toContain("[report.pdf](report.pdf)")
     const documentReaderSkill = await readFile(
       join(result.skillsRoot, "linksense-document-reader", "SKILL.md"),
       "utf8",
@@ -125,6 +128,11 @@ describe("UserHomeCapabilityMaterializer durability", () => {
       "utf8",
     )
     expect(imageGenerationSkill).toContain("linksense_core.generate_image")
+    expect(imageGenerationSkill).toContain("image_name")
+    expect(imageGenerationSkill).toContain("in the user's language")
+    expect(imageGenerationSkill).toContain("Do not repeat the images as Markdown embeds")
+    expect(imageGenerationSkill).toContain("linksense-file-service")
+    expect(imageGenerationSkill).toContain("register every finished image")
     expect(imageGenerationSkill).toContain("IMAGE_GENERATION_NOT_CONFIGURED")
     expect(imageGenerationSkill).toContain('background: "transparent"')
     expect(imageGenerationSkill).toContain(

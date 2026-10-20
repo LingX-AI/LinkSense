@@ -63,6 +63,52 @@ describe("personalization settings", () => {
     }
   )
 
+  it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
+    "shows reasoning enabled by default and persists an explicit opt-out in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      let settings = {
+        custom_instructions: "",
+        memories_enabled: false,
+        task_auto_naming: "first_message",
+        show_reasoning: true,
+      }
+      const fetchMock = vi.fn(
+        async (_input: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.method === "PATCH")
+            settings = { ...settings, ...JSON.parse(String(init.body)) }
+          return envelope(settings)
+        }
+      )
+      vi.stubGlobal("fetch", fetchMock)
+      const user = userEvent.setup()
+      const page = renderPage()
+      const toggle = await screen.findByRole("switch", {
+        name: i18n.t("settings.showReasoning"),
+      })
+      await waitFor(() => expect(toggle).toBeChecked())
+      expect(
+        screen.getByRole("switch", { name: i18n.t("settings.enableMemories") })
+      ).not.toBeChecked()
+      await user.click(toggle)
+      await waitFor(() => expect(toggle).not.toBeChecked())
+      expect(
+        findRequest(fetchMock, "/api/v1/me/personalization", "PATCH", {
+          show_reasoning: false,
+        })
+      ).toBe(true)
+      page.unmount()
+      renderPage()
+      const reloadedToggle = await screen.findByRole("switch", {
+        name: i18n.t("settings.showReasoning"),
+      })
+      await waitFor(() =>
+        expect(reloadedToggle).not.toHaveAttribute("aria-disabled", "true")
+      )
+      expect(reloadedToggle).not.toBeChecked()
+    }
+  )
+
   it("keeps the saved reasoning setting when saving fails", async () => {
     vi.stubGlobal(
       "fetch",

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   imageGenerationProviderDefinitions,
   imageGenerationProviderSchema,
+  imageGenerationRequestSchema,
   updateImageGenerationSettingsSchema,
 } from "../src/image-generation.js"
 
@@ -14,6 +15,29 @@ const settings = {
   model: "custom-image-model",
   price_per_image: "0.25",
 }
+
+describe("generated image names", () => {
+  it("requires a scene name and preserves names in the user's language", () => {
+    expect(imageGenerationRequestSchema.safeParse({ prompt: "A sleeping corgi" }).success).toBe(false)
+    expect(imageGenerationRequestSchema.parse({
+      prompt: "A sleeping corgi on a sunny windowsill",
+      image_name: "  午后窗台上的柯基  ",
+    }).image_name).toBe("午后窗台上的柯基")
+  })
+
+  it.each(["", "   ", "../corgi", "folder/corgi", "folder\\corgi", "corgi\u0000", ".", "..", "corgi.", "a".repeat(101)])(
+    "rejects unsafe or empty image names: %j",
+    (imageName) => {
+      expect(imageGenerationRequestSchema.safeParse({ prompt: "A corgi", image_name: imageName }).success).toBe(false)
+    },
+  )
+
+  it.each(["草地上的柯基", "Corgi on the lawn", "Corgi en el jardín", "Corgi no gramado", "Corgi dans le jardin", "芝生の上のコーギー"])(
+    "preserves the scene name in each supported language: %s", (imageName) => {
+      expect(imageGenerationRequestSchema.parse({ prompt: "A corgi", image_name: imageName }).image_name).toBe(imageName)
+    },
+  )
+})
 
 describe("image generation connection settings", () => {
   it("accepts the OpenAI-compatible provider and publishes its defaults", () => {

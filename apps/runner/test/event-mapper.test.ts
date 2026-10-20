@@ -736,6 +736,52 @@ describe("mapCodexNotification", () => {
     ).toBe(true);
   });
 
+  it("projects generated image file IDs without exposing prompts, names, paths, or raw results", () => {
+    const fileIds = ["01900000-0000-7000-8000-000000000011", "01900000-0000-7000-8000-000000000012"];
+    const notification = {
+      method: "item/completed",
+      params: {
+        threadId: "thr_1", turnId: "turn_1",
+        item: {
+          type: "mcpToolCall", id: "generated-image-call", server: "linksense_core", tool: "generate_image", status: "completed",
+          arguments: { prompt: "private scene", image_name: "private scene name" },
+          result: { content: [{ type: "text", text: JSON.stringify({
+            success: true, provider: "openai_compatible", model: "image-model", image_count: 2,
+            unit_price: "0.25", total_cost: "0.5", currency: "USD",
+            transparency: { requested: false, strategy: "none", chroma_key: null },
+            artifacts: fileIds.map((id) => ({
+              artifact_id: id, file_id: id, display_name: "private scene name.png", download_card_event_id: id,
+              workspace_relative_path: "artifacts/private-scene.png", mime_type: "image/png", has_transparency: false,
+            })),
+          }) }] },
+        },
+      },
+    };
+    const projected = mapCodexNotification(notification);
+    expect(completedItem(projected)).toMatchObject({ generatedImageFileIds: fileIds });
+    expect(JSON.stringify(projected)).not.toMatch(/private scene|private-scene|image-model|workspace_relative_path|arguments|result/u);
+
+    for (const override of [
+      { server: "other_server" }, { tool: "other_tool" }, { status: "failed" }, { status: "inProgress" },
+      { result: { content: [{ type: "text", text: "invalid JSON" }] } },
+    ]) {
+      const events = mapCodexNotification({ ...notification, params: { ...notification.params, item: { ...notification.params.item, ...override } } });
+      expect(completedItem(events)).not.toHaveProperty("generatedImageFileIds");
+    }
+  });
+
+  it("preserves a safe image failure code when MCP completes with an error result", () => {
+    const notification = {
+      method: "item/completed",
+      params: { threadId: "thr_1", turnId: "turn_1", item: {
+        type: "mcpToolCall", id: "failed-image-call", server: "linksense_core", tool: "generate_image", status: "completed",
+        result: { content: [{ type: "text", text: JSON.stringify({ code: "IMAGE_GENERATION_PROVIDER_REJECTED", retryable: false }) }] },
+      } },
+    };
+    expect(completedItem(mapCodexNotification(notification))).toMatchObject({ imageGenerationFailureCode: "IMAGE_GENERATION_PROVIDER_REJECTED" });
+    expect(completedItem(mapCodexNotification({ ...notification, params: { ...notification.params, item: { ...notification.params.item, server: "other_server" } } }))).not.toHaveProperty("imageGenerationFailureCode");
+  });
+
   it("projects only the no-available-bases outcome from knowledge search results", () => {
     const noAvailableBases = mapCodexNotification({
       method: "item/completed",

@@ -28,7 +28,8 @@ function image(
 function select(
   files: ConversationFile[],
   content = "",
-  inlineArtifactIds = new Set<string>()
+  inlineArtifactIds = new Set<string>(),
+  activityImageArtifactIds = new Set<string>()
 ) {
   const final: ConversationMessage = {
     id: "final",
@@ -45,6 +46,7 @@ function select(
     ],
     finalMessagesByTurn: new Map([["current", final]]),
     inlineArtifactIds,
+    activityImageArtifactIds,
   })
 }
 
@@ -116,6 +118,43 @@ describe("conversation artifact card selection", () => {
         .get("current")!
         .values(),
     ]).toEqual([])
+  })
+
+  it("keeps a code-generated deliverable when an activity preview has the same image content", () => {
+    const preview = image("process-preview")
+    const deliverable = image("grassland-puppy")
+    const cards = select(
+      [preview, deliverable],
+      "草地小狗图片已经生成。",
+      new Set(),
+      new Set([preview.id])
+    )
+    expect([...cards.get("current")!.values()]).toEqual([deliverable])
+  })
+
+  it("does not let a previous turn's process preview hide a later deliverable", () => {
+    const preview = image("process-preview", "previous")
+    const deliverable = image("delivered-image")
+    const cards = select(
+      [preview, deliverable],
+      "[下载](delivered-image.png)",
+      new Set(),
+      new Set([preview.id])
+    )
+    expect([...cards.get("previous")!.values()]).toEqual([])
+    expect([...cards.get("current")!.values()]).toEqual([deliverable])
+  })
+
+  it("keeps a viewed image explicitly delivered in the final reply but hides unrelated process images", () => {
+    const preview = image("process-preview")
+    const deliverable = image("delivered-image", "current", "b".repeat(64))
+    const cards = select(
+      [preview, deliverable],
+      "[下载](delivered-image.png)",
+      new Set(),
+      new Set([preview.id, deliverable.id])
+    )
+    expect([...cards.get("current")!.values()]).toEqual([deliverable])
   })
 
   it("compares checksums without case sensitivity and keeps different contents with the same filename", () => {

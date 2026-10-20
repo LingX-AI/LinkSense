@@ -3,6 +3,8 @@ import { isDeepStrictEqual } from "node:util";
 
 import {
   coreMcpServerKey,
+  imageGenerationMcpSuccessSchema,
+  imageGenerationMcpFailureSchema,
   knowledgeNoAvailableBasesCodeSchema,
   knowledgeSearchFailureSchema,
   runnerCodexErrorInfoSchema,
@@ -18,6 +20,7 @@ import {
   type RunnerCodexTurn,
   type RunnerConversationEvent,
   type RunnerLinkSenseEvent,
+  type ImageGenerationMcpFailure,
 } from "@linksense/shared";
 
 import type {
@@ -1063,6 +1066,8 @@ function sanitizeItem(
       }
       const failureCode = projectKnowledgeSearchFailureCode(item);
       if (failureCode) result.failureCode = failureCode;
+      const imageOutcome = projectImageGenerationOutcome(item);
+      if (imageOutcome) Object.assign(result, imageOutcome);
       copyNullableNonnegativeNumber(result, item, "durationMs");
       return parseItem(result);
     }
@@ -2072,6 +2077,54 @@ function truncatePreview(value: string, maximum: number): string {
 function parseItem(value: unknown): RunnerCodexItem | null {
   const parsed = runnerCodexItemSchema.safeParse(value);
   return parsed.success ? parsed.data : null;
+}
+
+type ImageGenerationOutcome = {
+  generatedImageFileIds?: string[];
+  imageGenerationFailureCode?: ImageGenerationMcpFailure["code"];
+};
+
+function projectImageGenerationOutcome(
+  item: Record<string, unknown>,
+): ImageGenerationOutcome | null {
+  if (
+    item.server !== coreMcpServerKey ||
+    item.tool !== "generate_image" ||
+    item.status === "inProgress"
+  ) return null;
+  const result = asRecord(item.result);
+  const parseOutcome = (value: unknown): ImageGenerationOutcome | null => {
+    const success = imageGenerationMcpSuccessSchema.safeParse(value);
+    if (success.success && item.status === "completed") {
+      return {
+        generatedImageFileIds: [
+          ...new Set(success.data.artifacts.map((artifact) => artifact.file_id)),
+        ],
+      };
+    }
+    const failure = imageGenerationMcpFailureSchema.safeParse(value);
+    return failure.success
+      ? { imageGenerationFailureCode: failure.data.code }
+      : null;
+  };
+  const structured = parseOutcome(result.structuredContent);
+  if (structured) return structured;
+  if (!Array.isArray(result.content)) return null;
+  for (const block of result.content.slice(0, 8)) {
+    const content = asRecord(block);
+    if (
+      content.type !== "text" ||
+      typeof content.text !== "string" ||
+      content.text.length > 65_536
+    ) continue;
+    try {
+      const parsed = parseOutcome(JSON.parse(content.text));
+      if (parsed) return parsed;
+    } catch {
+      // Invalid tool text cannot establish a generated artifact association.
+    }
+  }
+  return null;
 }
 
 function projectKnowledgeSearchFailureCode(

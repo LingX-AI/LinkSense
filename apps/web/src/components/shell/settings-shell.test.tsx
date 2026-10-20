@@ -110,12 +110,12 @@ describe("SettingsShell administrator navigation", () => {
     )
     expect(screen.getByRole("main")).toHaveAttribute("tabindex", "0")
     expect(screen.getByRole("contentinfo")).toHaveClass(
-      "h-12",
+      "shell-attribution",
       "shrink-0",
-      "justify-center",
-      "md:h-16",
-      "md:justify-end",
-      "md:px-7"
+      "justify-end",
+      "[--attribution-inset:18px]",
+      "px-[var(--attribution-inset)]",
+      "pb-[var(--attribution-inset)]"
     )
     const content = screen
       .getByTestId("settings-page-content")
@@ -126,7 +126,7 @@ describe("SettingsShell administrator navigation", () => {
     )
   })
 
-  it("keeps attribution in a bottom footer outside the settings scroll area", () => {
+  it("allows attribution to use the settings gutter outside the scroll area", () => {
     render(
       <MemoryRouter initialEntries={["/admin/system-update"]}>
         <Routes>
@@ -143,12 +143,21 @@ describe("SettingsShell administrator navigation", () => {
     })
 
     expect(main).toHaveClass("min-h-0", "flex-1")
-    expect(main.parentElement).toHaveClass("flex", "min-h-0", "flex-col")
+    expect(main.parentElement).toHaveClass(
+      "shell-content",
+      "@container/shell-content",
+      "relative",
+      "flex",
+      "min-h-0",
+      "flex-col"
+    )
     expect(main.nextElementSibling).toBe(footer)
     expect(main).not.toContainElement(footer)
     expect(main).toContainElement(screen.getByText("System update content"))
     expect(footer).toContainElement(attribution)
-    expect(footer).toHaveClass("h-12", "shrink-0", "md:h-16")
+    expect(footer).toHaveAttribute("data-placement", "shell")
+    expect(footer).toHaveClass("shell-attribution", "shrink-0")
+    expect(footer).not.toHaveClass("h-8", "h-12", "md:h-16", "fixed")
     expect(attribution).not.toHaveClass("fixed")
   })
 

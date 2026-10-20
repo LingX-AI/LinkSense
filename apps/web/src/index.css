@@ -521,6 +521,40 @@
   background: var(--app-canvas);
 }
 
+/* Shared shell sizing follows the content column, including sidebar resizing.
+   Account for page padding as well as the outer gutter: wide settings pages
+   have 52px of inner padding on each side. Only the placement mode lives here;
+   PoweredByLinkSense owns every visible edge inset. */
+@container shell-content (min-width: 79rem) {
+  .shell-content:not(
+      :has(
+        .knowledge-library-page,
+        .knowledge-preview-page,
+        [data-content-width="wide"],
+        .office-preview-pane
+      )
+    )
+    > .shell-attribution {
+    position: absolute;
+    padding: 0;
+  }
+}
+
+@container shell-content (min-width: 92rem) {
+  .shell-content:not(:has([data-content-width="wide"], .office-preview-pane))
+    > .shell-attribution {
+    position: absolute;
+    padding: 0;
+  }
+}
+
+@container shell-content (min-width: 94rem) {
+  .shell-content:not(:has(.office-preview-pane)) > .shell-attribution {
+    position: absolute;
+    padding: 0;
+  }
+}
+
 .app-top-bar {
   position: absolute;
   inset: 0 0 auto;
@@ -3650,6 +3684,8 @@
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
+  padding: var(--app-safe-area-top) var(--app-safe-area-right)
+    var(--app-safe-area-bottom) var(--app-safe-area-left);
   background: var(--app-canvas);
   color: var(--app-text);
 }
@@ -3952,8 +3988,10 @@
 }
 
 .conversation-bottom-stack {
+  --conversation-bottom-inset: 18px;
   position: absolute;
-  inset: auto var(--conversation-horizontal-gutter) 18px;
+  inset: auto var(--conversation-horizontal-gutter)
+    var(--conversation-bottom-inset);
   z-index: 30;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -10212,13 +10250,14 @@ button.annotation-hover-file:focus-visible {
 }
 
 .public-shell {
+  --public-shell-horizontal-padding: 16px;
   width: 100%;
   height: 100svh;
   overflow-y: auto;
   padding: calc(32px + var(--app-safe-area-top))
-    calc(16px + var(--app-safe-area-right))
-    calc(32px + var(--app-safe-area-bottom))
-    calc(16px + var(--app-safe-area-left));
+    calc(var(--public-shell-horizontal-padding) + var(--app-safe-area-right))
+    var(--app-safe-area-bottom)
+    calc(var(--public-shell-horizontal-padding) + var(--app-safe-area-left));
   background: var(--app-canvas);
 }
 
@@ -11683,8 +11722,8 @@ button.annotation-hover-file:focus-visible {
   }
 
   .conversation-bottom-stack {
+    --conversation-bottom-inset: 10px;
     right: 10px;
-    bottom: 10px;
     left: 10px;
   }
 
@@ -12073,7 +12112,11 @@ button.annotation-hover-file:focus-visible {
   }
 
   .public-shell {
-    padding: 10px;
+    --public-shell-horizontal-padding: 10px;
+    padding: calc(10px + var(--app-safe-area-top))
+      calc(var(--public-shell-horizontal-padding) + var(--app-safe-area-right))
+      var(--app-safe-area-bottom)
+      calc(var(--public-shell-horizontal-padding) + var(--app-safe-area-left));
   }
 
   .public-panel {

@@ -6,6 +6,62 @@ import { installApiMock, renderApp, setupApplicationTests } from "./fixture"
 describe("personal reasoning visibility in conversations", () => {
   setupApplicationTests()
 
+  it("shows thinking after persisted reasoning is followed by completed commentary in a running task", async () => {
+    const turnId = "30000000-0000-4000-8000-000000000099"
+    const thought = "Previous reasoning about the requested document."
+    const commentary = "The document is still being prepared."
+    installApiMock({
+      showReasoning: true,
+      eventStreamBody: "",
+      conversationOverride: {
+        execution_status: "running",
+        turns: [{ id: turnId, status: "running" }],
+        running_turn: { id: turnId, status: "running" },
+        messages: [
+          {
+            id: "commentary-after-reasoning",
+            role: "assistant",
+            turn_id: turnId,
+            phase: "commentary",
+            content: commentary,
+            event_sequence_no: 2,
+            created_at: "2026-10-20T00:00:02.000Z",
+          },
+        ],
+        activities: [],
+        events: [
+          {
+            id: "reasoning-before-commentary",
+            type: "item/completed",
+            turn_id: turnId,
+            sequence_no: 1,
+            created_at: "2026-10-20T00:00:01.000Z",
+            payload: {
+              schema_version: 2,
+              source: "codex_app_server",
+              method: "item/completed",
+              params: {
+                threadId: "native-thread",
+                turnId,
+                item: {
+                  id: "reasoning-before-commentary",
+                  type: "reasoning",
+                  content: [thought],
+                },
+              },
+            },
+          },
+        ],
+      },
+    })
+    renderApp("/conversations/c1")
+
+    expect(await screen.findByText(thought)).toBeVisible()
+    expect(screen.getByText(commentary)).toBeVisible()
+    expect(await screen.findByText("正在思考", { exact: true })).toBeVisible()
+    expect(screen.getByText(thought)).not.toHaveClass("shimmer")
+  })
+
   it("keeps full reasoning received after a terminal snapshot until history has caught up", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const turnId = "30000000-0000-4000-8000-000000000099"

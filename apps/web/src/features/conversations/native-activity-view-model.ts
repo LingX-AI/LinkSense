@@ -99,6 +99,14 @@ export function isKnowledgeSearchNativeItem(item: NativeCodexItem): boolean {
   )
 }
 
+export function isImageGenerationNativeItem(item: NativeCodexItem): boolean {
+  return (
+    item.type === "mcpToolCall" &&
+    item.server === coreMcpServerKey &&
+    item.tool === "generate_image"
+  )
+}
+
 type NativeToolSummaryStats = {
   loadedTools: number
   runningLoadedTools: number
@@ -394,6 +402,18 @@ export function buildNativeActivityViewModel(
             : item.status === "failed"
               ? "conversation.nativeActivities.knowledgeSearchFailed"
               : "conversation.nativeActivities.knowledgeSearchCompleted"
+    } else if (isImageGenerationNativeItem(item)) {
+      summaryKey =
+        item.status === "failed" || item.imageGenerationFailureCode
+          ? "conversation.imageGeneration.failed"
+          : item.status === "inProgress" && options.stopped
+            ? "conversation.imageGeneration.stopped"
+            : method === "item/started"
+              ? "conversation.nativeActivities.imageGenerationRunning"
+              : item.generatedImageFileIds?.length
+                ? "conversation.nativeActivities.imageGenerationCompleted"
+                : "conversation.nativeActivities.imageGenerationFinished"
+      detailRows.push(...durationRow(item.durationMs))
     } else {
       summary = joinedNativeValues([item.server, item.tool])
       if (item.server) {

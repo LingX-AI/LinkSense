@@ -1,10 +1,9 @@
 import { cleanup, render, screen } from "@testing-library/react"
+import { compile } from "tailwindcss"
+import tailwindTheme from "tailwindcss/theme.css?raw"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import {
-  PoweredByLinkSense,
-  PoweredByLinkSenseFooter,
-} from "@/components/brand/powered-by-linksense"
+import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import i18n from "@/i18n"
 
 describe("PoweredByLinkSense", () => {
@@ -19,11 +18,11 @@ describe("PoweredByLinkSense", () => {
   })
 
   it("links the phrase and full mark to LinkSense without link decoration", () => {
-    render(<PoweredByLinkSense className="custom-position" />)
+    render(<PoweredByLinkSense />)
 
     const badge = screen.getByRole("link", { name: "由 LinkSense 提供支持" })
     const logo = badge.querySelector("img")
-    expect(badge).toHaveClass("custom-position", "h-5", "text-xs")
+    expect(badge).toHaveClass("h-5", "text-xs")
     expect(badge.tagName).toBe("A")
     expect(badge).toHaveAttribute("href", "https://linksense.org")
     expect(badge).toHaveAttribute("target", "_blank")
@@ -52,26 +51,55 @@ describe("PoweredByLinkSense", () => {
     ).toHaveAttribute("src", "/attribution/linksense-mark-light.svg")
   })
 
-  it("reserves a non-shrinking footer with centered mobile and right-aligned desktop attribution", () => {
-    render(<PoweredByLinkSenseFooter />)
+  it.each(["shell", "page", "public", "conversation"] as const)(
+    "owns the same edge inset in the %s placement",
+    async (placement) => {
+      render(<PoweredByLinkSense placement={placement} />)
 
-    const footer = screen.getByRole("contentinfo")
-    const attribution = screen.getByRole("link", {
-      name: "由 LinkSense 提供支持",
-    })
-    expect(footer).toHaveClass(
-      "flex",
-      "h-12",
-      "shrink-0",
-      "items-center",
-      "justify-center",
-      "md:h-16",
-      "md:justify-end",
-      "md:px-7"
-    )
-    expect(attribution.parentElement).toBe(footer)
-    expect(attribution).not.toHaveClass("fixed")
-  })
+      const attribution = screen.getByRole("link", {
+        name: "由 LinkSense 提供支持",
+      })
+      const frame = attribution.parentElement
+      expect(frame).toHaveAttribute("data-slot", "powered-by-linksense")
+      expect(frame).toHaveAttribute("data-placement", placement)
+      expect(frame).toHaveClass("[--attribution-inset:18px]", "shrink-0")
+      expect(frame).not.toHaveClass("fixed", "h-8", "h-12", "md:h-16")
+      if (!frame) throw new Error("Attribution frame is missing")
+      const compiler = await compile(`${tailwindTheme}\n@tailwind utilities;`)
+      const styles = compiler.build(Array.from(frame.classList))
+      expect(styles).toMatch(/--attribution-inset:\s*18px;/u)
+
+      if (placement === "conversation") {
+        expect(frame?.tagName).toBe("DIV")
+        expect(frame).toHaveClass("hidden", "md:flex")
+        expect(frame).toHaveClass(
+          "mr-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))]",
+          "mb-[calc(var(--attribution-inset)-var(--conversation-bottom-inset))]"
+        )
+      } else {
+        expect(frame).toBe(screen.getByRole("contentinfo"))
+        expect(frame).toHaveClass(
+          "flex",
+          "justify-end",
+          "px-[var(--attribution-inset)]",
+          "pb-[var(--attribution-inset)]",
+          "right-[var(--attribution-inset)]",
+          "bottom-[var(--attribution-inset)]"
+        )
+        expect(styles).toMatch(/right:\s*var\(--attribution-inset\);/u)
+        expect(styles).toMatch(/bottom:\s*var\(--attribution-inset\);/u)
+        expect(styles).toMatch(/padding-inline:\s*var\(--attribution-inset\);/u)
+        expect(styles).toMatch(/padding-bottom:\s*var\(--attribution-inset\);/u)
+      }
+
+      if (placement === "public") {
+        expect(frame).toHaveClass(
+          "mt-auto",
+          "-mx-[var(--public-shell-horizontal-padding)]"
+        )
+      }
+    }
+  )
 
   it.each([
     ["zh-CN", "Powered by", "由 LinkSense 提供支持"],

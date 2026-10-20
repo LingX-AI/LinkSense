@@ -113,6 +113,29 @@ afterEach(() => {
 })
 
 describe("reasoning activity preview", () => {
+  it("shimmers compact and expanded reasoning independently of its completed item state", () => {
+    const content = "Current reasoning content"
+    const { rerender, container } = render(
+      <ReasoningActivity content={content} turnRunning shimmer />
+    )
+    expect(screen.getByText(content)).toHaveClass("shimmer")
+    expect(
+      container.querySelector(".reasoning-activity-row")
+    ).not.toHaveAttribute("data-running")
+
+    fireEvent.click(screen.getByRole("button", { name: "展开思考内容" }))
+    expect(container.querySelector(".reasoning-summary-markdown")).toHaveClass(
+      "shimmer"
+    )
+
+    rerender(<ReasoningActivity content={content} turnRunning />)
+    expect(
+      container.querySelector(".reasoning-summary-markdown")
+    ).not.toHaveClass("shimmer")
+    fireEvent.click(screen.getByRole("button", { name: "收起思考内容" }))
+    expect(screen.getByText(content)).not.toHaveClass("shimmer")
+  })
+
   it("shows only one plain-text line with ellipsis styling and expands the full body", () => {
     const content = `**First thought**\n\n${"Detailed thought ".repeat(600)}\n\nLatest thought`
     render(<ReasoningActivity content={content} turnRunning={false} />)
