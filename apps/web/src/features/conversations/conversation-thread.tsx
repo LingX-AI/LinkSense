@@ -92,13 +92,14 @@ import {
   type ConversationHistoryControl,
 } from "@/features/conversations/conversation-message-list"
 import { ConversationForkSourceMarker } from "@/features/conversations/conversation-fork-source-marker"
-import { AssistantHtmlPreviewLoading } from "@/features/conversations/assistant-html-preview-loading"
+import { ConversationGeneratedImages } from "@/features/conversations/conversation-generated-images"
 import {
   NativeSubAgentActivityGroup,
   NativeSubAgentActivityItem,
 } from "@/features/conversations/native-activity-item"
 import {
   buildNativeActivityViewModel,
+  isImageGenerationNativeItem,
   isKnowledgeSearchNativeItem,
 } from "@/features/conversations/native-activity-view-model"
 import {
@@ -111,7 +112,6 @@ import { getNativeCodexPayload } from "@/api/contracts"
 import { CapabilityIcon } from "@/components/capabilities/capability-icon"
 import { capabilityPresentation } from "@/features/capabilities/built-in-presentation"
 import { EmptyState } from "@/components/feedback/page-state"
-import { FieldShell } from "@/components/forms/form-field"
 import { FileTypeIcon } from "@/components/media/file-type-icon"
 import {
   ImagePreviewDialog,
@@ -124,6 +124,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import { Field } from "@/components/ui/field"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
 import {
   Dialog,
@@ -151,6 +152,7 @@ import {
 } from "@/features/conversations/conversation-artifact-files"
 import { isPreviewableConversationImage } from "@/features/conversations/conversation-attachment-preview-utils"
 import { selectConversationArtifactCards } from "@/features/conversations/conversation-artifact-selection"
+import { resolveConversationDeliveryFiles } from "@/features/conversations/conversation-delivery-references"
 import { ConversationAttachmentPreviews } from "@/features/conversations/conversation-attachment-previews"
 import {
   ConversationAttachmentOverflow,
@@ -246,6 +248,9 @@ const emptyApplicationKnowledgeBases: readonly ApplicationKnowledgeBase[] = []
 const emptyModelCatalog: ModelPreference["models"] = []
 const emptyLiveReasoningSummaries: StreamingReasoningSummaries = {}
 const emptyLiveReasoningContentEvents: ConversationEvent[] = []
+const GeneratedImageArtifactContext = createContext<ReadonlySet<string>>(
+  new Set()
+)
 
 const newTaskStarterQuestions = [
   {
@@ -2150,8 +2155,15 @@ function AssistantMarkdownImageElement({
     openImagePreview,
   } = useContext(AssistantMarkdownAssetContext)
   const artifactId = getInlineArtifactId(src)
+  const generatedImageFileIds = useContext(GeneratedImageArtifactContext)
   const knowledgeAssetId = getKnowledgeAssetId(src)
   const name = alt?.trim() || t("conversation.inlineImage")
+  if (
+    artifactId &&
+    generatedImageFileIds.has(artifactId) &&
+    artifactFilesById?.get(artifactId)?.turn_id === knowledgeAssetScope?.turnId
+  )
+    return null
   if (artifactId || isInlineArtifactUrl(src)) {
     return (
       <AssistantMarkdownImage
@@ -2783,11 +2795,7 @@ const Message = memo(function Message({
                   void submitEdit()
                 }}
               >
-                <FieldShell
-                  id={editInputId}
-                  label={t("conversation.editMessageInput")}
-                  required
-                >
+                <Field className="form-field gap-1.5">
                   <Textarea
                     id={editInputId}
                     aria-required="true"
@@ -2812,7 +2820,7 @@ const Message = memo(function Message({
                       }
                     }}
                   />
-                </FieldShell>
+                </Field>
                 {editError && (
                   <p className="message-edit-error" role="alert">
                     {editError}
@@ -3149,16 +3157,6 @@ function isVisibleNativeLifecycleEntry(activity: NativeLifecycleEntry) {
   )
 }
 
-function isRunningImageGenerationActivity(activity: NativeLifecycleEntry) {
-  return (
-    activity.method === "item/started" &&
-    activity.item.type === "mcpToolCall" &&
-    activity.item.server === coreMcpServerKey &&
-    activity.item.tool === "generate_image" &&
-    activity.item.status === "inProgress"
-  )
-}
-
 function earliestTimestamp(values: Array<string | null | undefined>) {
   let earliest: { value: string; timestamp: number } | undefined
   for (const value of values) {
@@ -3365,7 +3363,11 @@ function isCollapsibleNativeToolActivity(
     return false
   }
 
-  if (isKnowledgeSearchNativeItem(entry.activity.item)) return false
+  if (
+    isKnowledgeSearchNativeItem(entry.activity.item) ||
+    isImageGenerationNativeItem(entry.activity.item)
+  )
+    return false
 
   return (
     entry.activity.item.type === "commandExecution" ||
@@ -3487,6 +3489,7 @@ function TurnSummary({
   finalAnswerConfirmed,
   finalAnswerVisible,
   artifacts,
+  imageArtifactIds,
   artifactFilesById,
   loadArtifactPreview,
   onPreviewHtmlCode,
@@ -3532,6 +3535,7 @@ function TurnSummary({
   finalAnswerConfirmed: boolean
   finalAnswerVisible: boolean
   artifacts: ConversationFile[]
+  imageArtifactIds: readonly string[]
   artifactFilesById?: ReadonlyMap<string, ConversationFile>
   loadArtifactPreview?: LoadArtifactPreview
   onPreviewHtmlCode?: (html: string) => void
@@ -3618,8 +3622,11 @@ function TurnSummary({
     nativeReconnectState?.phase === "reconnecting" ? nativeReconnectState : null
   const nativeReconnectFailed = nativeReconnectState?.phase === "failed"
   const visuallyRunning = running && !nativeReconnectFailed
-  const imageGenerationRunning =
-    visuallyRunning && nativeActivities.some(isRunningImageGenerationActivity)
+  const imageGenerationItems = nativeActivities.flatMap(({ item }) =>
+    item.type === "mcpToolCall" && isImageGenerationNativeItem(item)
+      ? [item]
+      : []
+  )
   const interruptedForDisplay =
     nativeReconnectFailed ||
     (Boolean(interruptRequestedAt) && !running) ||
@@ -3731,19 +3738,17 @@ function TurnSummary({
     !hasBlockingRequest &&
     !hasStreamingResponse &&
     !terminalErrorActivity
-  // Commentary can follow reasoning without starting a new processing stage.
-  const currentStage = timeline.findLast(
-    (entry) => entry.kind !== "message" && entry.kind !== "guided_message"
-  )
-  const hasVisibleCurrentReasoning =
+  // The waiting label and reasoning shimmer must follow the same visual tail.
+  const lastTimelineEntry = timeline.at(-1)
+  const hasVisibleTrailingReasoning =
     showReasoning &&
-    currentStage?.kind === "reasoning" &&
-    currentStage.activity.content.trim().length > 0
+    lastTimelineEntry?.kind === "reasoning" &&
+    lastTimelineEntry.activity.content.trim().length > 0
   const showThinkingActivity =
     progressAllowed &&
     !hasActiveProcessing &&
     !contextCompactionRunning &&
-    (Boolean(reasoningSummary?.trim()) || !hasVisibleCurrentReasoning)
+    (Boolean(reasoningSummary?.trim()) || !hasVisibleTrailingReasoning)
   const thinkingAfterCompaction =
     showThinkingActivity &&
     nativeActivities.at(-1)?.item.type === "contextCompaction"
@@ -3754,7 +3759,7 @@ function TurnSummary({
     entry?.kind === "native_tool_group" ||
     (entry?.kind === "legacy_activity" && entry.activity.type !== "error")
   const displayTimeline: TurnTimelineEntry[] =
-    showThinkingInTimeline && !isSummaryEntry(timeline.at(-1))
+    showThinkingInTimeline && !isSummaryEntry(lastTimelineEntry)
       ? [
           ...timeline,
           { id: "thinking", kind: "thinking", fallbackOrder: fallbackOrder++ },
@@ -4029,6 +4034,13 @@ function TurnSummary({
                       turnRunning={visuallyRunning}
                       running={visuallyRunning && entry.activity.running}
                       streaming={visuallyRunning && entry.activity.running}
+                      shimmer={
+                        progressAllowed &&
+                        !showThinkingActivity &&
+                        !contextCompactionRunning &&
+                        hasVisibleTrailingReasoning &&
+                        entry.id === lastTimelineEntry?.id
+                      }
                     />
                   )
                 }
@@ -4063,12 +4075,15 @@ function TurnSummary({
                             id: entry.id,
                             label: activityLabel(entry.activity),
                             running: activityRunning,
-                            capabilityName: entry.activity.capability_name
-                              ? formatFirstPartyCapabilityName(
-                                  entry.activity.capability_name,
-                                  productName
-                                )
-                              : undefined,
+                            capabilityName:
+                              entry.activity.type !==
+                                "system_capability_used" &&
+                              entry.activity.capability_name
+                                ? formatFirstPartyCapabilityName(
+                                    entry.activity.capability_name,
+                                    productName
+                                  )
+                                : undefined,
                           }
                         : {
                             kind: "native",
@@ -4282,12 +4297,18 @@ function TurnSummary({
         onDownload={onDownload}
         downloadingFileId={downloadingFileId}
       />
-      {imageGenerationRunning && (
-        <AssistantHtmlPreviewLoading
-          className="turn-image-generation-loading mt-4 aspect-square min-h-0 max-w-[20rem]"
-          label={t("conversation.imageGeneration.loading")}
-        />
-      )}
+      <ConversationGeneratedImages
+        items={imageGenerationItems}
+        registeredFileIds={imageArtifactIds}
+        turnId={turn.id}
+        turnStatus={turn.status}
+        running={visuallyRunning}
+        filesById={artifactFilesById}
+        loadPreview={loadArtifactPreview}
+        onPreviewImage={onPreviewImage}
+        onDownload={onDownload}
+        downloadingFileId={downloadingFileId}
+      />
     </section>
   )
 }
@@ -4521,28 +4542,63 @@ export function ConversationThread({
     message.artifacts?.forEach(indexConversationFile)
   })
   const inlineArtifactIds = new Set<string>()
+  const activityImageArtifactIds = new Set<string>()
+  const generatedImageFileIds = new Set<string>()
   for (const message of messages) {
-    if (message.role !== "assistant") continue
-    for (const id of collectInlineArtifactIds(message.content)) {
-      inlineArtifactIds.add(id)
+    if (
+      message.role !== "assistant" ||
+      !message.content.includes("linksense-artifact:")
+    )
+      continue
+    for (const file of resolveConversationDeliveryFiles(
+      message.content,
+      [...conversationFilesById.values()],
+      { inlineImagesOnly: true }
+    )) {
+      if (
+        file.turn_id === message.turn_id &&
+        isPreviewableConversationImage(file)
+      )
+        inlineArtifactIds.add(file.id.toLowerCase())
     }
   }
   for (const event of conversation.events ?? []) {
     const native = getNativeCodexPayload(event)
+    if (
+      native?.method === "item/completed" &&
+      native.params.item.type === "mcpToolCall" &&
+      native.params.item.server === coreMcpServerKey &&
+      native.params.item.tool === "generate_image"
+    ) {
+      for (const id of native.params.item.generatedImageFileIds ?? []) {
+        const file = conversationFilesById.get(id.toLowerCase())
+        if (
+          file?.kind === "artifact" &&
+          file.turn_id === event.turn_id &&
+          isPreviewableConversationImage(file)
+        ) {
+          generatedImageFileIds.add(id.toLowerCase())
+          inlineArtifactIds.add(id.toLowerCase())
+        }
+      }
+    }
     if (
       (native?.method === "item/started" ||
         native?.method === "item/completed") &&
       native.params.item.type === "imageView" &&
       native.params.item.fileId
     ) {
-      inlineArtifactIds.add(native.params.item.fileId.toLowerCase())
+      activityImageArtifactIds.add(native.params.item.fileId.toLowerCase())
     }
   }
   const visibleArtifacts = (files: ConversationFile[] | undefined) => {
-    if (!files?.some((file) => inlineArtifactIds.has(file.id.toLowerCase()))) {
+    const isHiddenArtifact = (file: ConversationFile) =>
+      inlineArtifactIds.has(file.id.toLowerCase()) ||
+      activityImageArtifactIds.has(file.id.toLowerCase())
+    if (!files?.some(isHiddenArtifact)) {
       return files
     }
-    return files.filter((file) => !inlineArtifactIds.has(file.id.toLowerCase()))
+    return files.filter((file) => !isHiddenArtifact(file))
   }
   const editableMessageId =
     !messageEditingDisabled && latestTurn && !isTurnActiveRunning(latestTurn)
@@ -4664,7 +4720,20 @@ export function ConversationThread({
     turns,
     finalMessagesByTurn: finalMessageByTurn,
     inlineArtifactIds,
+    activityImageArtifactIds,
   })
+  const imageArtifactIdsByTurn = new Map<string, string[]>()
+  for (const [turnId, artifacts] of artifactsByTurn) {
+    const imageIds: string[] = []
+    for (const [id, file] of artifacts) {
+      if (!isPreviewableConversationImage(file)) continue
+      imageIds.push(id)
+      generatedImageFileIds.add(id.toLowerCase())
+      inlineArtifactIds.add(id.toLowerCase())
+      artifacts.delete(id)
+    }
+    imageArtifactIdsByTurn.set(turnId, imageIds)
+  }
   const guidedMessagesByTurn = new Map<string, ConversationMessage[]>()
   for (const message of messages) {
     if (
@@ -4997,6 +5066,7 @@ export function ConversationThread({
             ? []
             : turnArtifacts
         }
+        imageArtifactIds={imageArtifactIdsByTurn.get(turn.id) ?? []}
         artifactFilesById={conversationFilesById}
         loadArtifactPreview={loadArtifactPreview}
         onPreviewHtmlCode={onPreviewHtmlCode}
@@ -5311,13 +5381,15 @@ export function ConversationThread({
               </div>
             )
           ))}
-        <ConversationMessageList
-          pinnedMessageId={editingMessageId}
-          rows={messageRows}
-          navigationRef={navigationRef}
-          onVisibleMessageChange={onVisibleMessageChange}
-          history={history}
-        />
+        <GeneratedImageArtifactContext.Provider value={generatedImageFileIds}>
+          <ConversationMessageList
+            pinnedMessageId={editingMessageId}
+            rows={messageRows}
+            navigationRef={navigationRef}
+            onVisibleMessageChange={onVisibleMessageChange}
+            history={history}
+          />
+        </GeneratedImageArtifactContext.Provider>
         {messages.length > 0 && emptyNotice && (
           <div className="conversation-inline-notice-row">
             <ConversationEmptyNotice>{emptyNotice}</ConversationEmptyNotice>

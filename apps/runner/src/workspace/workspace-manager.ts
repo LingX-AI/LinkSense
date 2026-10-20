@@ -85,7 +85,7 @@ const personalizationStateSchema = z.strictObject({
   version: z.literal(1),
   revision: z.uuid(),
   ...personalizationSettingsSchema.shape,
-  show_reasoning: personalizationSettingsSchema.shape.show_reasoning.default(false),
+  show_reasoning: personalizationSettingsSchema.shape.show_reasoning.default(true),
   task_auto_naming: personalizationSettingsSchema.shape.task_auto_naming.default(
     DEFAULT_TASK_AUTO_NAMING,
   ),

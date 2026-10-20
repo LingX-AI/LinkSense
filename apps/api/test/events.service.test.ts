@@ -531,6 +531,34 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
     expect(serialized).not.toContain("conversation.step");
   });
 
+  it.each([
+    { generatedImageFileIds: ["30000000-0000-4000-8000-000000000011"] },
+    { imageGenerationFailureCode: "IMAGE_GENERATION_PROVIDER_REJECTED" as const },
+  ])("persists and publishes image generation associations and safe failures for history", async (outcome) => {
+    const fixture = eventFixture();
+    const params = {
+      threadId: "codex-thread-1",
+      turnId: "codex-turn-1",
+      item: {
+        type: "mcpToolCall" as const,
+        id: "generated-image-call",
+        server: "linksense_core",
+        tool: "generate_image",
+        status: "completed" as const,
+        ...outcome,
+      },
+    };
+    await expect(fixture.service.ingest(CONVERSATION_ID, {
+      method: "item/completed", visibility: "user_collapsed", params,
+    })).resolves.toMatchObject({ accepted: true });
+    expect(fixture.tx.conversationEvent.create).toHaveBeenCalledOnce();
+    expect(fixture.tx.conversationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ payloadJson: expect.objectContaining({ params }) }),
+    });
+    expect(fixture.redis.publishConversationEvent).toHaveBeenCalledWith(CONVERSATION_ID,
+      expect.objectContaining({ payload: expect.objectContaining({ params }) }));
+  });
+
   it("persists and publishes a sanitized native reasoning summary delta", async () => {
     const fixture = eventFixture();
 

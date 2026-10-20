@@ -478,11 +478,13 @@ describe("shared boundary contracts", () => {
     expect(
       imageGenerationRequestSchema.parse({
         prompt: "A product mockup",
+        image_name: "Product mockup",
         count: 2,
         size: "1024x1024",
       }),
     ).toEqual({
       prompt: "A product mockup",
+      image_name: "Product mockup",
       count: 2,
       size: "1024x1024",
       background: "opaque",
@@ -491,6 +493,7 @@ describe("shared boundary contracts", () => {
     expect(
       imageGenerationRequestSchema.parse({
         prompt: "A clean product cutout",
+        image_name: "Product cutout",
         background: "transparent",
         transparency_mode: "chroma_key",
         chroma_key: "magenta",
@@ -503,6 +506,7 @@ describe("shared boundary contracts", () => {
     expect(
       imageGenerationRequestSchema.safeParse({
         prompt: "An ordinary image",
+        image_name: "Ordinary image",
         background: "opaque",
         transparency_mode: "native",
       }).success,

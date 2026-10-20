@@ -22,6 +22,7 @@ export function ReasoningActivity({
   turnRunning,
   running = false,
   streaming = false,
+  shimmer = false,
   live = false,
   capabilityName,
 }: Readonly<{
@@ -29,6 +30,7 @@ export function ReasoningActivity({
   turnRunning: boolean
   running?: boolean
   streaming?: boolean
+  shimmer?: boolean
   live?: boolean
   capabilityName?: string
 }>) {
@@ -108,7 +110,12 @@ export function ReasoningActivity({
                   disclosureRef.current?.focus()
                 }}
               >
-                <span className="reasoning-activity-preview m-0 min-w-0 truncate">
+                <span
+                  className={cn(
+                    "reasoning-activity-preview m-0 min-w-0 truncate",
+                    shimmer && "shimmer"
+                  )}
+                >
                   {preview ?? t("conversation.reasoningActivity.label")}
                 </span>
               </Button>
@@ -131,7 +138,7 @@ export function ReasoningActivity({
                         live
                           ? "live-reasoning-summary-text"
                           : "native-activity-summary",
-                        running && "shimmer"
+                        shimmer && "shimmer"
                       )}
                       streaming={streaming}
                     />

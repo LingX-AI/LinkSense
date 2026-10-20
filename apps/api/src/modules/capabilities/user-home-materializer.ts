@@ -58,7 +58,7 @@ export const PLUGIN_STDIO_LAUNCHER_COMMAND = "linksense-plugin-stdio"
 // The regression test intentionally pins it to the actual generated tree so
 // every built-in writer or bundled documentation change must update it.
 export const BUILT_IN_CAPABILITY_RUNTIME_REVISION =
-  "3c5abb8570587e8939d6fe65fb9f9018c33ca99cb7575a0df0866bf179f44c9c"
+  "c595f4a2d688d0dd00372b2070f40f32dd68295b5cc97312471b8d0b5e8026cf"
 
 const BUILT_IN_BROWSER_SKILL_NAME = "linksense-browser"
 const BUILT_IN_DOCUMENT_READER_SKILL_NAME = "linksense-document-reader"
@@ -1938,6 +1938,17 @@ spreadsheet, PDF, image, audio, video, or archive.
 - Only register finished deliverables, not caches or intermediate files.
 - Pass a path relative to the current task workspace.
 - Keep deliverables under \`artifacts/\`.
+- Images created with code, SVG rendering, charts, or other tools must also be
+  registered individually as finished deliverables. Viewing an image does not deliver it
+  to the user. Use a concise scene-based \`display_name\` in the user's language
+  and the file's actual extension and MIME type; never use a model identifier.
+  Successfully registered image deliverables appear in the task's image
+  gallery with preview and download actions. Do not replace registration with
+  a filename list or a workspace path in the final answer.
+- For other deliverable files, include a Markdown link in the final answer
+  using the returned \`display_name\` as its relative target, for example
+  \`[report.pdf](report.pdf)\`. Link only final deliverables there; keep process
+  images, temporary outputs, and reference files in commentary.
 - For websites, place the HTML entry and all public JS, CSS, images, fonts, and
   data in a dedicated directory under \`artifacts/\`. Pass that directory as
   \`web_root_relative_path\` and the HTML entry as \`workspace_relative_path\`.
@@ -2051,11 +2062,19 @@ runtime tokens.
 
 1. Write a concrete prompt that captures subject, style, composition, output
    constraints, and any text that must appear in the image.
-2. Call \`${coreMcpServerKey}.generate_image\` with \`prompt\`, and include
+2. Choose a concise \`image_name\` describing the requested subject and scene
+   in the user's language, such as \`午后窗台上的柯基\` or
+   \`草地上的柯基\`. Update the name when the scene changes. Never use a
+   provider or model identifier, a path, or a file extension as the name.
+   Call \`${coreMcpServerKey}.generate_image\` with \`prompt\` and \`image_name\`, and include
    \`count\`, \`size\`, \`negative_prompt\`, or \`seed\` only when they materially
    help the request.
 3. The MCP saves generated files under \`artifacts/\` and registers them as
-   LinkSense artifacts. Use the returned artifact metadata in the final answer.
+   LinkSense artifacts. LinkSense automatically replaces the generation loading
+   card with the registered images and provides preview and download actions.
+   Keep the final answer concise. Do not repeat the images as Markdown embeds,
+   add redundant filename lists, rename the output, or register it again just
+   for display. Use the returned artifact metadata for any explicit reference.
 4. If the tool returns a structured error such as
    \`IMAGE_GENERATION_NOT_CONFIGURED\`, \`IMAGE_GENERATION_PROVIDER_REJECTED\`, or
    \`IMAGE_GENERATION_UNAVAILABLE\`, explain the exact failure and do not invent
@@ -2063,6 +2082,10 @@ runtime tokens.
    \`IMAGE_GENERATION_RECORDING_FAILED\` or
    \`IMAGE_GENERATION_ARTIFACT_REGISTRATION_FAILED\`; the provider already
    processed the request and another call could create a duplicate charge.
+5. If you create images with code or another tool instead, follow
+   \`linksense-file-service\` and register every finished image before claiming
+   delivery. The automatic registration described in step 3 applies only to
+   successful \`${coreMcpServerKey}.generate_image\` results.
 
 Prefer one image unless the user asks for variants, comparisons, thumbnails, or
 a sequence. Respect the provider's returned \`image_count\`; do not promise more

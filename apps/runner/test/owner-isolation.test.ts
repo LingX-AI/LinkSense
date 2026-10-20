@@ -139,7 +139,7 @@ describe("worker owner isolation", () => {
     expect(defaults.json()).toEqual({
       custom_instructions: "",
       memories_enabled: false,
-      show_reasoning: false,
+      show_reasoning: true,
       task_auto_naming: "first_message",
     });
     expect(updated.statusCode).toBe(200);

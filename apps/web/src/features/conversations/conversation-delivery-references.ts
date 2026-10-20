@@ -5,7 +5,7 @@ import { getInlineArtifactId } from "@/features/conversations/assistant-markdown
 
 type MarkdownNode = ReturnType<typeof fromMarkdown>["children"][number]
 
-function collectDeliveryUrls(content: string): string[] {
+function collectDeliveryUrls(content: string, imagesOnly: boolean): string[] {
   const tree = fromMarkdown(content)
   const definitions = new Map<string, string>()
   const collectDefinitions = (nodes: readonly MarkdownNode[]): void => {
@@ -21,11 +21,11 @@ function collectDeliveryUrls(content: string): string[] {
   const urls: string[] = []
   const visit = (nodes: readonly MarkdownNode[]): void => {
     for (const node of nodes) {
-      if (node.type === "image" || node.type === "link") {
+      if (node.type === "image" || (!imagesOnly && node.type === "link")) {
         urls.push(node.url)
       } else if (
         node.type === "imageReference" ||
-        node.type === "linkReference"
+        (!imagesOnly && node.type === "linkReference")
       ) {
         const url = definitions.get(node.identifier)
         if (url) urls.push(url)
@@ -55,7 +55,8 @@ function getLocalDeliveryFilename(url: string): string | null {
 
 export function resolveConversationDeliveryFiles(
   content: string,
-  files: readonly ConversationFile[]
+  files: readonly ConversationFile[],
+  { inlineImagesOnly = false }: Readonly<{ inlineImagesOnly?: boolean }> = {}
 ): ConversationFile[] {
   const filesById = new Map(files.map((file) => [file.id.toLowerCase(), file]))
   const filesByName = new Map<string, ConversationFile | null>()
@@ -63,9 +64,12 @@ export function resolveConversationDeliveryFiles(
     filesByName.set(file.name, filesByName.has(file.name) ? null : file)
   }
   const resolved = new Map<string, ConversationFile>()
-  for (const url of collectDeliveryUrls(content)) {
+  for (const url of collectDeliveryUrls(content, inlineImagesOnly)) {
     const artifactId = getInlineArtifactId(url)
-    const filename = artifactId ? null : getLocalDeliveryFilename(url)
+    // The message renderer only loads registered artifact URLs inline.
+    // Local image paths establish delivery intent but cannot replace a card.
+    const filename =
+      artifactId || inlineImagesOnly ? null : getLocalDeliveryFilename(url)
     const file = artifactId
       ? filesById.get(artifactId)
       : filename

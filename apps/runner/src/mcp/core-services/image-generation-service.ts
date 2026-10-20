@@ -85,6 +85,7 @@ export const imageGenerationCoreMcpModule = {
           }
           const requestBody: z.infer<typeof imageGenerationRequestSchema> = {
             prompt: arguments_.prompt,
+            image_name: arguments_.image_name,
             count: arguments_.count,
             background: arguments_.background,
             transparency_mode: arguments_.transparency_mode,
@@ -326,11 +327,14 @@ function safeGeneratedImageName(
       : mimeType === "image/webp"
         ? "webp"
         : "png"
-  const base = displayName
-    .replace(/\.[A-Za-z0-9]+$/u, "")
-    .replace(/[^A-Za-z0-9._-]+/gu, "-")
-    .replace(/^-+|-+$/gu, "")
-    .slice(0, 120)
+  // Fifty Unicode characters leave room for the suffix under the filesystem's
+  // 255-byte component limit, including four-byte characters.
+  const base = Array.from(
+    displayName
+      .replace(/\.[A-Za-z0-9]+$/u, "")
+      .replace(/[^\p{L}\p{M}\p{N}._-]+/gu, "-")
+      .replace(/^-+|-+$/gu, ""),
+  ).slice(0, 50).join("")
   return `${base || "generated-image"}-${index + 1}-${randomUUID().slice(
     0,
     8,
@@ -352,6 +356,13 @@ const generateImageTool = {
     properties: {
       conversation_id: { type: "string", format: "uuid" },
       prompt: { type: "string" },
+      image_name: {
+        type: "string",
+        minLength: 1,
+        maxLength: 100,
+        description:
+          "A short, meaningful scene name in the user's language, such as 午后窗台上的柯基. Use the current image subject and setting, never the provider or model name. Do not include a path or file extension.",
+      },
       count: { type: "integer", minimum: 1, maximum: 10, default: 1 },
       size: { type: "string", examples: ["1024x1024", "1024x768"] },
       negative_prompt: { type: "string" },
@@ -377,7 +388,7 @@ const generateImageTool = {
           "Optional chroma color. Use magenta when the foreground is predominantly green.",
       },
     },
-    required: ["prompt"],
+    required: ["prompt", "image_name"],
     additionalProperties: false,
   },
 } satisfies Tool

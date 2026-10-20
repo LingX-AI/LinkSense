@@ -28,7 +28,7 @@ Manually edited task names stay unchanged. This preference applies to future mes
 
 ## Show reasoning
 
-**Show reasoning** is off by default. Turn it on to display the full reasoning text provided by the model during tasks and in task history. Some models provide only summaries or no full text; no full reasoning body is shown in those cases. Changes are saved per user and affect only the display, not reasoning effort. Existing brief reasoning summaries and tool calls are unaffected by this switch.
+**Show reasoning** is on by default, and existing saved preferences are preserved. When enabled, it displays the full reasoning text provided by the model during tasks and in task history. Some models provide only summaries or no full text; no full reasoning body is shown in those cases. Changes are saved per user and affect only the display, not reasoning effort. Existing brief reasoning summaries and tool calls are unaffected by this switch.
 
 During a task, hover over **Thinking** and click the arrow on the right to expand that stage's tool calls. Click again to collapse them. The arrow is absent when there are no tool calls. After completion, you can revisit the records in the activity history.
 

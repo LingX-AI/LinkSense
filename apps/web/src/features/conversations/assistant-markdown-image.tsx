@@ -3,6 +3,7 @@ import {
   useRef,
   useState,
   type ComponentPropsWithoutRef,
+  type ReactNode,
 } from "react"
 import { ImageIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -50,6 +51,8 @@ export function AssistantMarkdownImage({
   onPreview,
   previewTriggerClassName,
   placeholderClassName,
+  loadingPlaceholder,
+  errorPlaceholder,
   className,
   ...imageProps
 }: Omit<ComponentPropsWithoutRef<"img">, "src"> & {
@@ -59,6 +62,8 @@ export function AssistantMarkdownImage({
   onPreview?: (source: ArtifactPreviewSource) => void
   previewTriggerClassName?: string
   placeholderClassName?: string
+  loadingPlaceholder?: ReactNode
+  errorPlaceholder?: ReactNode
 }) {
   const { t } = useTranslation()
   const [reloadKey, setReloadKey] = useState(0)
@@ -161,12 +166,16 @@ export function AssistantMarkdownImage({
 
   if (!currentState && canLoad) {
     return (
-      <AssistantInlineImagePlaceholder
-        className={placeholderClassName}
-        label={t("conversation.previewLoading", { name })}
-      />
+      loadingPlaceholder ?? (
+        <AssistantInlineImagePlaceholder
+          className={placeholderClassName}
+          label={t("conversation.previewLoading", { name })}
+        />
+      )
     )
   }
+
+  if (errorPlaceholder !== undefined) return errorPlaceholder
 
   return (
     <span

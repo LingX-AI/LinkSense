@@ -24,6 +24,26 @@ const ONE_PIXEL_PNG = Buffer.from(
 )
 
 describe("ImageGenerationSettingsService", () => {
+  it.each([1, 2])("names %i generated images after their scene instead of the model", async (count) => {
+    const images = await Promise.all(Array.from({ length: count }, (_, index) =>
+      sharp({ create: { width: 1, height: 1, channels: 3, background: { r: index * 100, g: 80, b: 40 } } }).png().toBuffer(),
+    ))
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
+      data: images.map((image) => ({ b64_json: image.toString("base64") })),
+    }), { status: 200, headers: { "content-type": "application/json" } }))
+    const { service } = await configuredProviderHarness("openai_compatible", "custom-image-model", fetchMock)
+    const result = await service.generate({
+      ownerId: USER_ID,
+      conversationId: CONVERSATION_ID,
+      turnId: TURN_ID,
+      request: { prompt: "A corgi sleeping on a sunny windowsill", image_name: "午后窗台上的柯基.png", count },
+    })
+    expect(result.images.map((image) => image.display_name)).toEqual(
+      count === 1 ? ["午后窗台上的柯基.png"] : ["午后窗台上的柯基-1.png", "午后窗台上的柯基-2.png"],
+    )
+    expect(requestJsonBody(fetchMock)).not.toHaveProperty("image_name")
+  })
+
   it("saves and reloads a custom address without exposing the encrypted connection key", async () => {
     const database = inMemoryDatabase()
     const service = new ImageGenerationSettingsService(
@@ -97,7 +117,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: { prompt: "A test image", count: 1 },
+        request: { image_name: "场景图片", prompt: "A test image", count: 1 },
       })
       expect(result).toMatchObject({
         provider,
@@ -166,7 +186,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: { prompt: "A test image" },
+        request: { image_name: "场景图片", prompt: "A test image" },
       })).resolves.toMatchObject({ image_count: 1, provider: definition.key })
       expect(String(fetchMock.mock.calls[0]?.[0])).toContain(expectedBaseUrl)
     },
@@ -192,7 +212,7 @@ describe("ImageGenerationSettingsService", () => {
       ownerId: USER_ID,
       conversationId: CONVERSATION_ID,
       turnId: TURN_ID,
-      request: { prompt: "A test image", size: "1024x768", seed: 42, negative_prompt: "blur" },
+      request: { image_name: "场景图片", prompt: "A test image", size: "1024x768", seed: 42, negative_prompt: "blur" },
     })).resolves.toMatchObject({ provider: "openai_compatible", image_count: 1 })
     expect(requestJsonBody(fetchMock)).toEqual({
       model: "qwen-image",
@@ -221,7 +241,7 @@ describe("ImageGenerationSettingsService", () => {
       ownerId: ACTOR_ID,
       conversationId: CONVERSATION_ID,
       turnId: TURN_ID,
-      request: { prompt: "A test image" },
+      request: { image_name: "场景图片", prompt: "A test image" },
     })).rejects.toMatchObject({ code: "IMAGE_GENERATION_TURN_INACTIVE" })
     expect(fetchMock).not.toHaveBeenCalled()
     expect(recorder.recordModelUsage).not.toHaveBeenCalled()
@@ -362,7 +382,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: { prompt: "A clean product mockup", count: 1 },
+        request: { image_name: "场景图片", prompt: "A clean product mockup", count: 1 },
       }),
     ).resolves.toMatchObject({
       success: true,
@@ -437,8 +457,7 @@ describe("ImageGenerationSettingsService", () => {
       ownerId: USER_ID,
       conversationId: CONVERSATION_ID,
       turnId: TURN_ID,
-      request: {
-        prompt: "A glass sculpture with fine translucent edges",
+      request: { image_name: "场景图片", prompt: "A glass sculpture with fine translucent edges",
         count: 1,
         background: "transparent",
         transparency_mode: "native",
@@ -455,7 +474,7 @@ describe("ImageGenerationSettingsService", () => {
         {
           mime_type: "image/png",
           has_transparency: true,
-          display_name: "gpt-image-1.5-1.png",
+          display_name: "场景图片.png",
         },
       ],
     })
@@ -491,8 +510,7 @@ describe("ImageGenerationSettingsService", () => {
       ownerId: USER_ID,
       conversationId: CONVERSATION_ID,
       turnId: TURN_ID,
-      request: {
-        prompt: "A red product icon",
+      request: { image_name: "场景图片", prompt: "A red product icon",
         count: 1,
         background: "transparent",
         transparency_mode: "auto",
@@ -531,8 +549,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: {
-          prompt: "A fluffy cat with detailed fur",
+        request: { image_name: "场景图片", prompt: "A fluffy cat with detailed fur",
           count: 1,
           background: "transparent",
           transparency_mode: "native",
@@ -570,8 +587,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: {
-          prompt: "A red product icon",
+        request: { image_name: "场景图片", prompt: "A red product icon",
           count: 1,
           background: "transparent",
           transparency_mode: "chroma_key",
@@ -611,7 +627,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: { prompt: "A clean product mockup", count: 1 },
+        request: { image_name: "场景图片", prompt: "A clean product mockup", count: 1 },
       }),
     ).rejects.toMatchObject({ code: "IMAGE_GENERATION_RECORDING_FAILED" })
     expect(fetchMock).toHaveBeenCalledOnce()
@@ -669,7 +685,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: { prompt: "帮我生成一张狗狗看电视的图片，现实主义", count: 1 },
+        request: { image_name: "场景图片", prompt: "帮我生成一张狗狗看电视的图片，现实主义", count: 1 },
       }),
     ).rejects.toMatchObject({
       code: "IMAGE_GENERATION_PROVIDER_REJECTED",
@@ -749,8 +765,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: {
-          prompt: "帮我生成一张狗狗看电视的图片，现实主义",
+        request: { image_name: "场景图片", prompt: "帮我生成一张狗狗看电视的图片，现实主义",
           count: 1,
           size: "1024x1536",
         },
@@ -787,8 +802,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: {
-          prompt: "A studio portrait",
+        request: { image_name: "场景图片", prompt: "A studio portrait",
           count: 1,
           size: "1024x1536",
           negative_prompt: "blur",
@@ -858,8 +872,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: {
-          prompt: "A watercolor city",
+        request: { image_name: "场景图片", prompt: "A watercolor city",
           count: 1,
           size: "1024x1536",
           seed: 19,
@@ -920,8 +933,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: {
-          prompt: "A mountain lake",
+        request: { image_name: "场景图片", prompt: "A mountain lake",
           count: 1,
           size: "1024x1536",
           negative_prompt: "fog",
@@ -980,8 +992,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: {
-          prompt: "An editorial illustration",
+        request: { image_name: "场景图片", prompt: "An editorial illustration",
           count: 1,
           size: "1024x1536",
           seed: 43,
@@ -1038,8 +1049,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: {
-          prompt: "A neon train station",
+        request: { image_name: "场景图片", prompt: "A neon train station",
           count: 1,
           size: "1024x1536",
           seed: 59,
@@ -1093,7 +1103,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: { prompt: "A test image", count: 1 },
+        request: { image_name: "场景图片", prompt: "A test image", count: 1 },
       }),
     ).rejects.toMatchObject({
       code: "IMAGE_GENERATION_PROVIDER_REJECTED",
@@ -1136,7 +1146,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: { prompt: "A test image", count: 1 },
+        request: { image_name: "场景图片", prompt: "A test image", count: 1 },
       }),
     ).rejects.toMatchObject({
       code: "IMAGE_GENERATION_UNAVAILABLE",
@@ -1172,7 +1182,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: { prompt: "A test image", count: 1 },
+        request: { image_name: "场景图片", prompt: "A test image", count: 1 },
       }),
     ).rejects.toMatchObject({ code: "IMAGE_GENERATION_OUTPUT_INVALID" })
   })
@@ -1190,8 +1200,7 @@ describe("ImageGenerationSettingsService", () => {
         ownerId: USER_ID,
         conversationId: CONVERSATION_ID,
         turnId: TURN_ID,
-        request: {
-          prompt: "A test image",
+        request: { image_name: "场景图片", prompt: "A test image",
           count: 1,
           seed: 4_294_967_295,
         },

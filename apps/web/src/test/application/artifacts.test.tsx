@@ -416,6 +416,102 @@ describe("LinkSense application", () => {
     ).toBe(false)
   })
 
+  it("downloads a code-generated image from the gallery with its registered file ID and scene name", async () => {
+    const fileId = "30000000-0000-4000-8000-000000000081"
+    const filename = "草地金毛幼犬.png"
+    const createObjectURL = vi.fn(() => "blob:code-generated-image")
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL,
+    })
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    })
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined)
+    const artifact = {
+      id: fileId,
+      filename,
+      mime_type: "image/png",
+      size_bytes: 2048,
+      kind: "artifact",
+      turn_id: "turn-1",
+      downloadable: true,
+    }
+    const { fetchMock, requests } = installApiMock({
+      conversationOverride: {
+        execution_status: "completed",
+        turns: [{ id: "turn-1", status: "completed" }],
+        running_turn: null,
+        artifacts: [artifact],
+        messages: [
+          { ...conversation.messages[0], turn_id: "turn-1" },
+          {
+            id: "code-image-final",
+            role: "assistant",
+            turn_id: "turn-1",
+            phase: "final_answer",
+            content: `已用代码绘制图片：\n\n- ${filename}`,
+            artifacts: [artifact],
+          },
+        ],
+      },
+    })
+    const originalFetch = fetchMock.getMockImplementation()
+    if (!originalFetch) throw new Error("Application API mock is missing")
+    const previewPath = `/api/v1/conversations/c1/files/${fileId}/preview`
+    const downloadPath = `/api/v1/conversations/c1/files/${fileId}/download`
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = new URL(String(input), window.location.origin)
+      const path = url.pathname
+      const method = init?.method ?? "GET"
+      if (path === previewPath || path === downloadPath) {
+        requests.push({ path, method, query: url.search, body: undefined })
+        if (path === previewPath) {
+          return json({
+            success: true,
+            data: {
+              url: "https://files.example.test/code-puppy.png",
+              expires_at: "2099-01-01T00:00:00.000Z",
+              filename,
+            },
+          })
+        }
+        return new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), {
+          status: 200,
+          headers: { "Content-Type": "image/png" },
+        })
+      }
+      return originalFetch(input, init)
+    })
+    renderApp()
+    expect(await screen.findByRole("img", { name: filename })).toHaveAttribute(
+      "src",
+      "https://files.example.test/code-puppy.png"
+    )
+    const summary = screen.getByTestId("turn-summary-turn-1")
+    expect(
+      summary.querySelector('[data-slot="generated-image"]')
+    ).not.toBeNull()
+    expect(document.querySelector(".artifact-image-tile")).toBeNull()
+    fireEvent.click(
+      within(summary).getByRole("button", { name: `下载 ${filename}` })
+    )
+    await waitFor(() => expect(click).toHaveBeenCalledOnce())
+    expect(requests.filter((request) => request.path === downloadPath)).toEqual(
+      [expect.objectContaining({ method: "GET" })]
+    )
+    expect(createObjectURL).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "image/png", size: 8 })
+    )
+    expect(click.mock.instances[0]).toMatchObject({
+      download: filename,
+      href: "blob:code-generated-image",
+    })
+  })
+
   it("opens a sent XLSX attachment with the shared file preview", async () => {
     const spreadsheet = {
       id: "attachment-sheet-1",
