@@ -6,6 +6,7 @@ import {
   readFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
+import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseEnv } from "node:util";
@@ -32,6 +33,7 @@ import {
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
 const developmentComposeFile = "docker-compose.dev.yml";
+const { parse: parseYaml } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml");
 
 function required(source, name) {
   const value = source[name]?.trim();
@@ -373,40 +375,35 @@ export function developmentDependencyFingerprint(
 }
 
 export function migrationImageFingerprint(rootDirectory = repositoryRoot) {
+  // The migration target installs deploy/migration's standalone lockfile. It
+  // does not copy or install any workspace application manifests or packages.
   return sourceFingerprint(rootDirectory, [
     ".dockerignore",
     "Dockerfile.api",
     "deploy/baselines/images.lock.json",
     "LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE",
-    "apps/api/package.json",
-    "apps/docs/package.json",
-    "apps/runner/package.json",
-    "apps/web/package.json",
-    "deploy/docker/configure-debian-apt.sh",
-    "deploy/docker/bootstrap-ubuntu-node.sh",
     "deploy/migration",
-    "deploy/runtime/tooling-security",
-    "deploy/docker/patch-tooling-libraries.mjs",
-    "deploy/docker/verify-tooling-libraries.mjs",
-    "package.json",
-    "packages/shared/package.json",
-    "patches",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
     "prisma",
     "prisma.config.ts",
-    "tsconfig.base.json",
   ]);
 }
 
 export function docsImageFingerprint(rootDirectory = repositoryRoot) {
-  return sourceFingerprint(rootDirectory, [
-    ".dockerignore", "Dockerfile.web", "deploy/baselines/images.lock.json", "LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches", "tsconfig.base.json",
-    "apps/api/package.json", "apps/runner/package.json", "apps/web/package.json", "packages/shared/package.json",
+  const lockfile = z.object({
+    lockfileVersion: z.literal("9.0"),
+    importers: z.object({ "apps/docs": z.record(z.string(), z.unknown()) }),
+  }).passthrough().parse(parseYaml(readFileSync(resolve(rootDirectory, "pnpm-lock.yaml"), "utf8")));
+  // Reusing an already locked package in another application does not change
+  // the docs build. Keep ALL package resolutions, integrity, peer snapshots
+  // and global settings so dependency changes still conservatively rebuild.
+  // This deliberately avoids maintaining our own pnpm dependency-graph walker.
+  const sources = sourceFingerprint(rootDirectory, [
+    ".dockerignore", "Dockerfile.web", "deploy/baselines/images.lock.json", "LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE", "package.json", "pnpm-workspace.yaml", "patches", "tsconfig.base.json",
     "apps/docs/package.json", "apps/docs/docusaurus.config.ts", "apps/docs/sidebars.ts", "apps/docs/tsconfig.json",
     "apps/docs/docs", "apps/docs/i18n", "apps/docs/src", "apps/docs/static",
     "deploy/nginx/development-docs.conf", "deploy/nginx/help-location.conf",
   ]);
+  return createHash("sha256").update(sources).update(JSON.stringify(lockfile)).digest("hex");
 }
 
 export function workerImageFingerprint(rootDirectory = repositoryRoot) {

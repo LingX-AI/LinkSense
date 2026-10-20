@@ -29,7 +29,9 @@ import {
   developmentReadyMessage,
   developmentStorageInitializationCommand,
   developmentWorkerRebuildCommands,
+  docsImageFingerprint,
   hasRunningDevelopmentApplications,
+  migrationImageFingerprint,
   productionComposeArguments,
   resolveComposeDatabaseUrl,
   resolvePortableUserDataRoot,
@@ -980,6 +982,101 @@ test("development fingerprints are deterministic and include dependency changes"
     "linksense-runner-controller-dev:local",
     "linksense-web-dev:local",
   ]);
+});
+
+async function withIsolatedImageInputs(check) {
+  const root = await mkdtemp(resolve(tmpdir(), "linksense-image-inputs-"));
+  try {
+    for (const path of [
+      ".dockerignore", "Dockerfile.api", "Dockerfile.web", "LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE",
+      "deploy/baselines/images.lock.json", "deploy/docker/configure-debian-apt.sh", "deploy/docker/bootstrap-ubuntu-node.sh",
+      "deploy/docker/patch-tooling-libraries.mjs", "deploy/docker/verify-tooling-libraries.mjs", "deploy/runtime/tooling-security/package.json",
+      "deploy/migration/package.json", "deploy/migration/pnpm-lock.yaml", "prisma/schema.prisma", "prisma.config.ts",
+      "package.json", "packages/shared/package.json", "pnpm-workspace.yaml", "tsconfig.base.json", "patches/example.patch",
+      "apps/api/package.json", "apps/runner/package.json", "apps/web/package.json", "apps/docs/package.json",
+      "apps/docs/docusaurus.config.ts", "apps/docs/sidebars.ts", "apps/docs/tsconfig.json", "apps/docs/docs/index.md",
+      "apps/docs/i18n/en-US/index.md", "apps/docs/src/style.css", "apps/docs/static/icon.svg",
+      "deploy/nginx/development-docs.conf", "deploy/nginx/help-location.conf",
+    ]) {
+      await mkdir(resolve(root, path, ".."), { recursive: true });
+      await writeFile(resolve(root, path), "original input\n");
+    }
+    const lockfile = {
+      lockfileVersion: "9.0",
+      settings: { autoInstallPeers: true },
+      importers: {
+        "apps/docs": { devDependencies: { renderer: { specifier: "1.0.0", version: "1.0.0" } } },
+        "apps/runner": { dependencies: {} },
+      },
+      packages: {
+        "renderer@1.0.0": { resolution: { integrity: "renderer-integrity" } },
+        "sharp@0.35.5": { resolution: { integrity: "sharp-integrity" } },
+      },
+      snapshots: { "renderer@1.0.0": {}, "sharp@0.35.5": {} },
+    };
+    const writeLockfile = () => writeFile(resolve(root, "pnpm-lock.yaml"), JSON.stringify(lockfile));
+    await writeLockfile();
+    await check({ root, lockfile, writeLockfile });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+test("adding an already locked Runner dependency reuses the Help Center image", async () => {
+  await withIsolatedImageInputs(async ({ root, lockfile, writeLockfile }) => {
+    const previous = docsImageFingerprint(root);
+    lockfile.importers["apps/runner"].dependencies.sharp = { specifier: "^0.35.5", version: "0.35.5" };
+    await writeLockfile();
+    await writeFile(resolve(root, "apps/runner/package.json"), "runner now uses sharp\n");
+    assert.equal(docsImageFingerprint(root), previous);
+  });
+});
+
+test("Help Center reuse still detects its dependencies, package integrity and build inputs", async () => {
+  await withIsolatedImageInputs(async ({ root, lockfile, writeLockfile }) => {
+    let previous = docsImageFingerprint(root);
+    lockfile.importers["apps/docs"].devDependencies.renderer.specifier = "^1.0.0";
+    await writeLockfile();
+    assert.notEqual(docsImageFingerprint(root), previous);
+    previous = docsImageFingerprint(root);
+    lockfile.packages["renderer@1.0.0"].resolution.integrity = "updated-integrity";
+    await writeLockfile();
+    assert.notEqual(docsImageFingerprint(root), previous);
+    previous = docsImageFingerprint(root);
+    lockfile.snapshots["renderer@1.0.0"].dependencies = { sharp: "0.35.5" };
+    await writeLockfile();
+    assert.notEqual(docsImageFingerprint(root), previous);
+    for (const path of ["apps/docs/package.json", "apps/docs/docs/index.md", "apps/docs/i18n/en-US/index.md", "patches/example.patch", "package.json", "pnpm-workspace.yaml", "deploy/baselines/images.lock.json", "Dockerfile.web", "deploy/nginx/help-location.conf"]) {
+      previous = docsImageFingerprint(root);
+      await writeFile(resolve(root, path), "changed input\n");
+      assert.notEqual(docsImageFingerprint(root), previous, `${path} must invalidate the image`);
+    }
+  });
+});
+
+test("Help Center fingerprint rejects a malformed or missing dependency lock", async () => {
+  await withIsolatedImageInputs(async ({ root, lockfile, writeLockfile }) => {
+    delete lockfile.importers["apps/docs"];
+    await writeLockfile();
+    assert.throws(() => docsImageFingerprint(root), /docs|lockfile/iu);
+    await writeFile(resolve(root, "pnpm-lock.yaml"), "importers: [invalid");
+    assert.throws(() => docsImageFingerprint(root));
+  });
+});
+
+test("migration image reuse depends on its isolated runtime rather than application dependencies", async () => {
+  await withIsolatedImageInputs(async ({ root }) => {
+    const previous = migrationImageFingerprint(root);
+    for (const path of ["pnpm-lock.yaml", "apps/runner/package.json", "apps/api/package.json", "apps/docs/package.json", "apps/web/package.json", "package.json", "packages/shared/package.json", "pnpm-workspace.yaml", "tsconfig.base.json", "patches/example.patch"]) {
+      await writeFile(resolve(root, path), "unrelated application dependency change\n");
+      assert.equal(migrationImageFingerprint(root), previous, `${path} is not a migration build input`);
+    }
+    for (const path of ["deploy/migration/package.json", "deploy/migration/pnpm-lock.yaml", "prisma/schema.prisma", "prisma.config.ts", "Dockerfile.api", "deploy/baselines/images.lock.json"]) {
+      const before = migrationImageFingerprint(root);
+      await writeFile(resolve(root, path), "changed migration input\n");
+      assert.notEqual(migrationImageFingerprint(root), before, `${path} must invalidate the image`);
+    }
+  });
 });
 
 test("changing the repository Codex pin or isolation smoke rebuilds the development worker", async () => {
