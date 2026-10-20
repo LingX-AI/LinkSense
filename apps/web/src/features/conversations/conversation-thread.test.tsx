@@ -4676,10 +4676,12 @@ describe("conversation turn responses", () => {
       expect(loading).toHaveClass(
         "assistant-html-preview-loading-surface",
         "turn-image-generation-loading",
-        "aspect-square",
-        "min-h-0",
-        "max-w-[15rem]"
+        "size-full",
+        "min-h-0"
       )
+      expect(
+        loading.closest('[data-slot="generated-image-frame"]')
+      ).toHaveClass("aspect-square", "w-full", "max-h-[32rem]")
       expect(loading).not.toHaveClass("min-h-80")
       expect(
         loading.querySelector(".assistant-html-preview-loading-canvas")
@@ -4687,7 +4689,9 @@ describe("conversation turn responses", () => {
       expect(
         loading.querySelector(".assistant-html-preview-loading-glow")
       ).toBeVisible()
-      expect(summary.lastElementChild).toBe(loading.parentElement)
+      expect(summary.lastElementChild).toBe(
+        loading.closest('[data-slot="generated-image-call"]')
+      )
 
       const bounds = vi
         .spyOn(HTMLElement.prototype, "getBoundingClientRect")

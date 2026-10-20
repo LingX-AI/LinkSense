@@ -46,6 +46,133 @@ afterEach(() => {
 })
 
 describe("generated image cards", () => {
+  it("reserves a separate scrollbar lane beside ten fixed-size thumbnails and keeps keyboard selection working", async () => {
+    const files = Array.from({ length: 10 }, (_, index) => ({
+      ...image,
+      id: `30000000-0000-4000-8000-${String(index + 101).padStart(12, "0")}`,
+      name: `image-${index + 1}.png`,
+    }))
+    const user = userEvent.setup()
+    render(
+      <ConversationGeneratedImages
+        items={[]}
+        registeredFileIds={files.map((file) => file.id)}
+        turnId="turn-1"
+        turnStatus="completed"
+        running={false}
+        filesById={new Map(files.map((file) => [file.id, file]))}
+        loadPreview={vi.fn(() => new Promise<never>(() => undefined))}
+        onDownload={vi.fn()}
+      />
+    )
+
+    const list = screen.getByRole("tablist")
+    expect(list.parentElement).toHaveAttribute(
+      "data-slot",
+      "generated-image-thumbnail-scroll"
+    )
+    expect(list.parentElement).toHaveClass(
+      "w-20",
+      "max-h-[32rem]",
+      "overflow-x-hidden",
+      "overflow-y-auto"
+    )
+    expect(list).toHaveClass("w-16", "overflow-visible")
+    expect(list).not.toHaveClass("overflow-y-auto")
+    const thumbnails = screen.getAllByRole("tab")
+    expect(thumbnails).toHaveLength(10)
+    for (const thumbnail of thumbnails) {
+      expect(thumbnail).toHaveClass("size-14", "shrink-0")
+    }
+
+    await user.click(thumbnails[0]!)
+    await user.keyboard("{End}")
+    expect(thumbnails[9]).toHaveFocus()
+    expect(thumbnails[9]).toHaveAttribute("aria-selected", "true")
+  })
+
+  it("keeps the main image placeholder and disables preview until decoding finishes", async () => {
+    let finishDecoding!: () => void
+    const decode = vi
+      .spyOn(HTMLImageElement.prototype, "decode")
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => (finishDecoding = resolve))
+      )
+    const onPreviewImage = vi.fn()
+    const view = render(
+      <ConversationGeneratedImages
+        items={[call]}
+        turnId="turn-1"
+        turnStatus="completed"
+        running={false}
+        filesById={new Map([[fileId, image]])}
+        loadPreview={vi.fn().mockResolvedValue(previewSource)}
+        onPreviewImage={onPreviewImage}
+        onDownload={vi.fn()}
+      />
+    )
+    await waitFor(() => expect(decode).toHaveBeenCalledOnce())
+    expect(screen.getByRole("status", { name: "正在生成图片…" })).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: `预览图片 ${image.name}` })
+    ).toBeNull()
+    expect(
+      view.container.querySelector(".assistant-inline-image-preview-trigger")
+    ).toBeDisabled()
+    expect(view.container.querySelector("img")).toHaveAttribute(
+      "loading",
+      "eager"
+    )
+
+    await act(async () => finishDecoding())
+    expect(screen.queryByRole("status")).toBeNull()
+    fireEvent.click(
+      screen.getByRole("button", { name: `预览图片 ${image.name}` })
+    )
+    expect(onPreviewImage).toHaveBeenCalledWith(
+      expect.objectContaining({ src: previewSource.url })
+    )
+  })
+
+  it("keeps the preview frame while generation, image loading, and a failure replace its content", async () => {
+    const loadPreview = vi.fn().mockResolvedValue(previewSource)
+    const props = {
+      turnId: "turn-1",
+      turnStatus: "running" as const,
+      running: true,
+      filesById: new Map([[fileId, image]]),
+      loadPreview,
+      onDownload: vi.fn(),
+    }
+    const view = render(
+      <ConversationGeneratedImages
+        {...props}
+        items={[
+          { ...call, status: "inProgress", generatedImageFileIds: undefined },
+        ]}
+      />
+    )
+    const frame = view.container.querySelector(
+      '[data-slot="generated-image-frame"]'
+    )
+    expect(frame).toHaveClass("aspect-square", "w-full", "max-h-[32rem]")
+
+    view.rerender(<ConversationGeneratedImages {...props} items={[call]} />)
+    const preview = await screen.findByRole("img", { name: image.name })
+
+    expect(
+      view.container.querySelector('[data-slot="generated-image-frame"]')
+    ).toBe(frame)
+    expect(preview).toHaveClass("size-full", "object-contain")
+    expect(preview).not.toHaveClass("h-auto")
+    fireEvent.error(preview)
+
+    expect(screen.getByRole("button", { name: "重试" })).toBeVisible()
+    expect(
+      view.container.querySelector('[data-slot="generated-image-frame"]')
+    ).toBe(frame)
+  })
+
   it("shows registered code-generated PNG and SVG outputs without a successful generation call", async () => {
     const vector = {
       ...image,
