@@ -11,6 +11,7 @@ import { InputGroupAddon } from "@/components/ui/input-group"
 import {
   Combobox,
   ComboboxContent,
+  ComboboxEmpty,
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
@@ -108,15 +109,17 @@ export function SiteTargetPicker({
             </InputGroupAddon>
           </ComboboxInput>
           {pending && <LoadingState />}
-          {!pending && !error && !items.length && (
-            <p className="p-3 text-sm text-muted-foreground" role="status">
-              {t(
-                search.trim()
-                  ? "webSites.noResults"
-                  : "webSites.noUpdateTargets"
-              )}
-            </p>
-          )}
+          <ComboboxEmpty className="block p-0 text-left group-data-empty/combobox-content:block">
+            {!pending && !error && (
+              <p className="p-3 text-sm text-muted-foreground">
+                {t(
+                  search.trim()
+                    ? "webSites.noResults"
+                    : "webSites.noUpdateTargets"
+                )}
+              </p>
+            )}
+          </ComboboxEmpty>
           <ComboboxList className="min-h-0">
             {(site: WebSite) => (
               <ComboboxItem key={site.id} value={site}>
