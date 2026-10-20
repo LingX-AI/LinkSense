@@ -2,6 +2,11 @@ name: Publish release
 
 on:
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Optional full commit SHA already merged into main; defaults to the dispatch commit
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -31,6 +36,30 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+      - name: Freeze the requested release source
+        id: source
+        shell: bash
+        env:
+          REQUESTED_SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Release source must be a full immutable commit SHA." >&2
+            exit 1
+          }
+          test "$(git cat-file -t "$REQUESTED_SOURCE_SHA")" = commit || {
+            echo "Release source must identify an existing commit." >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$REQUESTED_SOURCE_SHA" "$GITHUB_SHA" || {
+            echo "Release source must already be merged into the dispatched main commit." >&2
+            exit 1
+          }
+          echo "source_sha=$REQUESTED_SOURCE_SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ steps.source.outputs.source_sha }}
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
@@ -40,6 +69,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ACTOR: ${{ vars.LINKSENSE_RELEASE_ACTOR }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = main || {
@@ -63,16 +93,16 @@ jobs:
             workflow_file=$1
             workflow_name=$2
             workflow_run=$(
-              WORKFLOW_EVENTS="$3" TARGET_SHA="$GITHUB_SHA" gh api --method GET \
+              WORKFLOW_EVENTS="$3" TARGET_SHA="$SOURCE_SHA" gh api --method GET \
                 "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_file/runs" \
                 -f branch=main \
-                -f head_sha="$GITHUB_SHA" \
+                -f head_sha="$SOURCE_SHA" \
                 -f status=completed \
                 -f per_page=100 \
                 --jq 'first(.workflow_runs[] | .event as $event | select(.head_sha == env.TARGET_SHA and .head_branch == "main" and .conclusion == "success" and (env.WORKFLOW_EVENTS | split(",") | index($event)))) | select(. != null) | [.id, .html_url] | @tsv'
             )
             test -n "$workflow_run" || {
-              echo "$workflow_name must pass on main at $GITHUB_SHA before releasing." >&2
+              echo "$workflow_name must pass on main at $SOURCE_SHA before releasing." >&2
               echo "Wait for the existing $workflow_name workflow to succeed, then dispatch the release again." >&2
               exit 1
             }
@@ -86,7 +116,7 @@ jobs:
               "repos/$GITHUB_REPOSITORY/actions/runs/$verified_workflow_run_id/jobs?per_page=100" \
               --jq '.jobs[] | select(.name == "codeql" and .conclusion == "success") | .id')
             test -n "$codeql_job" || {
-              echo "CodeQL must pass on main at $GITHUB_SHA before a public release." >&2
+              echo "CodeQL must pass on main at $SOURCE_SHA before a public release." >&2
               echo "Run the Security workflow on main after making the repository public, then retry." >&2
               exit 1
             }
@@ -114,7 +144,7 @@ jobs:
           {
             echo "release_version=$release_version"
             echo "candidate_tag=$candidate_tag"
-            echo "source_sha=$GITHUB_SHA"
+            echo "source_sha=$SOURCE_SHA"
             echo "license=$package_license"
           } >> "$GITHUB_OUTPUT"
 
@@ -216,6 +246,8 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
@@ -298,6 +330,8 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
@@ -361,6 +395,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
@@ -408,6 +444,8 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
@@ -444,6 +482,8 @@ jobs:
         architecture: [amd64, arm64]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
@@ -514,6 +554,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
@@ -581,6 +623,8 @@ jobs:
             runner: ${{ vars.LINKSENSE_INSTALLATION_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
@@ -648,6 +692,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
           fetch-depth: 0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333

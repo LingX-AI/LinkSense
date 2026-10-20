@@ -105,7 +105,7 @@ test ! -e /absolute/path/to/linksense-github/design-qa.md
 1. 确认 `package.json` 的 `version` 为不带 `v` 的目标版本，并确认 `license` 为 `CPAL-1.0`。
 2. 确认待发布代码已经推送到 GitHub 仓库的 `main`。
 3. 等待该 `main` 提交的 `CI` 和 `Security` 全部成功；公开仓库还须确认 Security 中的 CodeQL 成功。发布工作流会复用这些结果，不再重复安装依赖、运行测试、扫描密钥、执行类型检查、Lint 和源码构建。
-4. 从 GitHub Actions 手动运行 `Publish release`。工作流会核对目标提交的检查结果，并拒绝非 `main`、非 Private/Public 仓库、未授权发版人、已存在版本或非 CPAL-1.0 的输入。检查尚未结束或失败时，发布会在准备阶段快速停止，不会创建标签、镜像正式版本或 Release。
+4. 从 GitHub Actions 的 `main` 手动运行 `Publish release`。默认发布触发时的提交；需要排除后续并行改动时，在 `source_sha` 输入已合入 `main` 的完整 40 位提交 SHA。工作流会验证该提交属于触发时 `main` 的历史，并将检查结果、全部构建与验收源码、安装资产及版本标签统一固定到它；后续推送不会改变本次发布源，也不会回退 `main`。工作流仍拒绝非 `main`、非 Private/Public 仓库、未授权发版人、已存在版本或非 CPAL-1.0 的输入。目标提交的检查尚未结束或失败时，发布会在准备阶段快速停止，不会创建标签、镜像正式版本或 Release。
 5. `prepare` 在构建前检查基线配方指纹、已成功的维护任务及固定镜像索引的两种架构，下载固定提交的 tokenizer，生成并检查安装入口脚本。基线清单、运行环境/服务摘要、资源内容、版本、源码提交和生成时间保存为带校验和的 `release-inputs` artifact；失败时不会启动后续镜像构建，不重新解析厂商标签。
 6. GitHub 托管 Runner 分别构建 `api`、`web`、`migrate`、`runner`、`worker` 的两种架构。所有镜像先发布为本次运行唯一的候选标签，生成 SBOM 和最小 provenance，并验证镜像内基础命令或 Nginx 配置可以运行。此检查不是完整业务或安装验收。
 7. `image-indexes` 合并已验证架构镜像；`assets` 使用保存的发布输入和镜像摘要生成清单、许可证和资产校验和，不再重新解析上游标签或下载 tokenizer。`installation-smoke` 使用这套确切产物执行双架构 Core / Full 安装验收；`image-security` 使用冻结摘要执行双架构漏洞扫描。任一验收失败、HIGH / CRITICAL 漏洞或扫描失败都会阻止正式镜像标签和 Release 发布。

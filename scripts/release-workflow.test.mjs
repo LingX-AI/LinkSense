@@ -11,6 +11,91 @@ const root = path.resolve(import.meta.dirname, "..")
 const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8")
 const { parse } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml")
 
+test("release jobs check out one immutable approved source instead of a moving main branch", () => {
+  const release = parse(workflow)
+  assert.deepEqual(release.on.workflow_dispatch.inputs.source_sha, {
+    description: "Optional full commit SHA already merged into main; defaults to the dispatch commit",
+    required: false,
+    type: "string",
+  })
+  const freeze = release.jobs.prepare.steps.find(step => step.id === "source")
+  assert.equal(freeze.env.REQUESTED_SOURCE_SHA, "${{ inputs.source_sha || github.sha }}")
+  for (const [name, job] of Object.entries(release.jobs)) {
+    const checkouts = job.steps.filter(step => step.uses?.startsWith("actions/checkout@"))
+    assert.equal(checkouts.length, name === "prepare" ? 2 : 1, name)
+    for (const [index, checkout] of checkouts.entries()) {
+      if (name === "prepare" && index === 0) continue
+      assert.equal(checkout.with.ref, name === "prepare"
+        ? "${{ steps.source.outputs.source_sha }}"
+        : "${{ needs.prepare.outputs.source_sha }}", name)
+    }
+  }
+  const authorization = release.jobs.prepare.steps.find(step => step.id === "release")
+  assert.equal(authorization.env.SOURCE_SHA, "${{ steps.source.outputs.source_sha }}")
+  assert.doesNotMatch(authorization.run, /\$GITHUB_SHA/u)
+})
+
+function releaseSourceFixture(t) {
+  const directory = mkdtempSync(path.join(tmpdir(), "linksense-release-source-"))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const git = (...args) => {
+    const result = spawnSync("git", ["-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", ...args], {
+      cwd: directory, encoding: "utf8", timeout: 10_000,
+      env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+    })
+    assert.equal(result.status, 0, result.stderr)
+    return result.stdout.trim()
+  }
+  git("init", "--initial-branch=main")
+  git("config", "user.name", "Release fixture")
+  git("config", "user.email", "release@example.test")
+  const commit = value => {
+    writeFileSync(path.join(directory, "fixture"), value)
+    git("add", "fixture")
+    git("commit", "-m", `test: ${value}`)
+    return git("rev-parse", "HEAD")
+  }
+  const source = commit("approved source")
+  git("switch", "-c", "unmerged")
+  const unmerged = commit("unmerged source")
+  git("switch", "main")
+  const dispatch = commit("later main change")
+  const tree = git("rev-parse", "HEAD^{tree}")
+  const output = path.join(directory, "output")
+  const run = requested => {
+    const step = parse(workflow).jobs.prepare.steps.find(item => item.id === "source")
+    assert.ok(step, "The release must validate and freeze its source before checking out artifacts")
+    return spawnSync("bash", ["-c", step.run], {
+      cwd: directory, encoding: "utf8", timeout: 10_000,
+      env: { ...process.env, REQUESTED_SOURCE_SHA: requested, GITHUB_SHA: dispatch, GITHUB_OUTPUT: output },
+    })
+  }
+  return { source, dispatch, unmerged, tree, output, run }
+}
+
+for (const selected of ["source", "dispatch"]) {
+  test(`release source validation accepts the ${selected} main commit without including later changes`, t => {
+    const fixture = releaseSourceFixture(t)
+    const requested = fixture[selected]
+    const result = fixture.run(requested)
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(readFileSync(fixture.output, "utf8"), `source_sha=${requested}\n`)
+  })
+}
+
+for (const selected of ["unmerged", "tree", "missing", "branch", "short", "injected", "empty"]) {
+  test(`release source validation rejects ${selected} input before writing a source identity`, t => {
+    const fixture = releaseSourceFixture(t)
+    const requested = {
+      unmerged: fixture.unmerged, tree: fixture.tree, missing: "0".repeat(40),
+      branch: "main", short: fixture.source.slice(0, 8), injected: "$(touch unsafe)", empty: "",
+    }[selected]
+    const result = fixture.run(requested)
+    assert.notEqual(result.status, 0)
+    assert.equal(existsSync(fixture.output), false)
+  })
+}
+
 test("installer platform jobs distinguish native scripts, distribution containers and real lifecycle checks without publishing", () => {
   const platforms = parse(readFileSync(path.join(root, ".github/workflows/installer-platforms.yml"), "utf8"))
   assert.deepEqual(platforms.permissions, { contents: "read" })
@@ -299,8 +384,8 @@ if (request.includes("/actions/workflows/")) {
   const name = request.includes("ci.yml") ? "CI" : "SECURITY"
   const expectedEvents = name === "CI" ? "push" : "push,public,workflow_dispatch,schedule"
   if (process.env.WORKFLOW_EVENTS !== expectedEvents ||
-      process.env.TARGET_SHA !== process.env.GITHUB_SHA ||
-      !args.includes("branch=main") || !args.includes("head_sha=" + process.env.GITHUB_SHA))
+      process.env.TARGET_SHA !== process.env.SOURCE_SHA ||
+      !args.includes("branch=main") || !args.includes("head_sha=" + process.env.SOURCE_SHA))
     throw new Error("Checks must use the release commit, main and allowed events")
   if (process.env["FAKE_MISSING_" + name] !== "1")
     process.stdout.write("123\\thttps://github.com/example/linksense/actions/runs/123\\n")
@@ -323,7 +408,8 @@ if (request.includes("/actions/workflows/")) {
       GITHUB_REF_NAME: "main",
       GITHUB_ACTOR: "release-owner",
       RELEASE_ACTOR: "release-owner",
-      GITHUB_SHA: "a".repeat(40),
+      GITHUB_SHA: "b".repeat(40),
+      SOURCE_SHA: "a".repeat(40),
       GITHUB_RUN_ID: "123",
       GITHUB_RUN_ATTEMPT: "1",
       GITHUB_OUTPUT: output,
