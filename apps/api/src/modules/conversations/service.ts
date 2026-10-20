@@ -150,6 +150,7 @@ import {
   type ConversationGoalRow,
 } from "./goals.js";
 import { respondToAsyncUserInput } from "./async-user-input.js";
+import { buildReasoningEventsQuery } from "./reasoning-events-query.js";
 
 export type ExecutionCapability = RunnerCapability & {
   sourcePath: string;
@@ -3138,31 +3139,10 @@ export class ConversationService {
     turnIds: string[],
   ): Promise<ConversationDetailEventRow[]> {
     if (turnIds.length === 0) return [];
-    const rows = await this.prisma.$queryRaw<unknown[]>(Prisma.sql`
-      SELECT event.id, event.conversation_id AS "conversationId",
-        event.turn_id AS "turnId", event.sequence_no AS "sequenceNo",
-        event.event_type AS "eventType", event.visibility,
-        event.payload_json AS "payloadJson", event.sse_event_id AS "sseEventId",
-        event.created_at AS "createdAt"
-      FROM conversation_events AS event
-      WHERE event.conversation_id = CAST(${conversationId} AS uuid)
-        AND event.turn_id IN (${Prisma.join(turnIds.map((id) => Prisma.sql`CAST(${id} AS uuid)`))})
-        AND event.visibility IN ('user_visible', 'user_collapsed')
-        AND (
-          (event.event_type IN ('item/started', 'item/completed')
-            AND event.payload_json #>> '{params,item,type}' = 'reasoning')
-          OR (event.event_type = 'item/reasoning/textDelta' AND NOT EXISTS (
-            SELECT 1 FROM conversation_events AS completed
-            WHERE completed.conversation_id = event.conversation_id
-              AND completed.turn_id = event.turn_id
-              AND completed.event_type = 'item/completed'
-              AND completed.payload_json #>> '{params,item,type}' = 'reasoning'
-              AND completed.payload_json #>> '{params,item,id}' = event.payload_json #>> '{params,itemId}'
-              AND completed.sequence_no > event.sequence_no
-          ))
-        )
-      ORDER BY event.sequence_no ASC
-    `);
+    // Aggregate completions once instead of rescanning events for every delta.
+    const rows = await this.prisma.$queryRaw<unknown[]>(
+      buildReasoningEventsQuery(conversationId, turnIds),
+    );
     const rowSchema = rawPlanEventRowSchema.extend({
       eventType: z.enum(["item/started", "item/completed", "item/reasoning/textDelta"]),
     }).refine((row) => row.conversationId === conversationId && turnIds.includes(row.turnId));

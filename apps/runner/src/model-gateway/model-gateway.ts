@@ -38,6 +38,11 @@ import {
   chatCompletionToResponse,
 } from "./chat-completions-bridge.js";
 import {
+  ModelRequestBodyTooLargeError,
+  ModelRequestImageError,
+  prepareModelRequestImages,
+} from "./image-input.js";
+import {
   beginSseResponse,
   parseSseStream,
   writeResponseChunk,
@@ -49,7 +54,7 @@ import {
   type ToolCompatibilityContext,
 } from "./tool-compat.js";
 
-const DEFAULT_REQUEST_BODY_LIMIT = 32 * 1024 * 1024;
+const DEFAULT_REQUEST_BODY_LIMIT = 128 * 1024 * 1024;
 const MODEL_TRANSITION_NONCE_METADATA_KEY = "linksense_transition_nonce";
 const DEFAULT_UPSTREAM_HEADER_TIMEOUT_MS = 30_000;
 const DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS = 120_000;
@@ -198,6 +203,7 @@ type ModelGatewayRequestAbort = {
 type ModelGatewayOptions = {
   logger: Logger;
   requestBodyLimit?: number;
+  incomingRequestBodyLimit?: number;
   webSocketQueueLimit?: number;
   webSocketQueueMessageLimit?: number;
   upstreamHeaderTimeoutMs?: number;
@@ -257,7 +263,7 @@ export class ModelGateway implements ModelGatewayRuntime {
     this.webSocketServer = new WebSocketServer({
       noServer: true,
       clientTracking: false,
-      maxPayload: this.options.requestBodyLimit ?? DEFAULT_REQUEST_BODY_LIMIT,
+      maxPayload: this.incomingRequestBodyLimit,
       perMessageDeflate: false,
     });
     this.webSocketServer.on("headers", (headers, request) => {
@@ -303,9 +309,12 @@ export class ModelGateway implements ModelGatewayRuntime {
   private get webSocketQueueLimit(): number {
     return (
       this.options.webSocketQueueLimit ??
-      this.options.requestBodyLimit ??
-      DEFAULT_REQUEST_BODY_LIMIT
+      this.incomingRequestBodyLimit
     );
+  }
+
+  private get incomingRequestBodyLimit(): number {
+    return this.options.incomingRequestBodyLimit ?? this.options.requestBodyLimit ?? DEFAULT_REQUEST_BODY_LIMIT;
   }
 
   private get webSocketQueueMessageLimit(): number {
@@ -1039,6 +1048,22 @@ export class ModelGateway implements ModelGatewayRuntime {
       source.client_metadata,
     );
     source = extractionRequestBody(source, authorizedLease, operation);
+    const preparationAbort = new AbortController();
+    const abortPreparation = () => preparationAbort.abort();
+    downstream.once("close", abortPreparation);
+    try {
+      await this.prepareRequestImages(source, preparationAbort.signal);
+    } catch (error) {
+      if (!(error instanceof GatewayHttpError)) throw error;
+      await sendWebSocketError(
+        downstream, error.statusCode, error.code, publicErrorMessage(error.code),
+        this.webSocketQueueLimit,
+      );
+      return;
+    } finally {
+      downstream.off("close", abortPreparation);
+    }
+    if (session.closed) return;
     let body = source;
     let compatibilityContext: ToolCompatibilityContext | null = null;
     if (lease.protocolMode === "responses_tool_compat") {
@@ -1052,6 +1077,13 @@ export class ModelGateway implements ModelGatewayRuntime {
       if (!Object.hasOwn(source, "tools") && Array.isArray(body.tools) && body.tools.length === 0) {
         delete body.tools;
       }
+    }
+    if (Buffer.byteLength(JSON.stringify(body)) > (this.options.requestBodyLimit ?? DEFAULT_REQUEST_BODY_LIMIT)) {
+      await sendWebSocketError(
+        downstream, 413, "request_body_too_large", publicErrorMessage("request_body_too_large"),
+        this.webSocketQueueLimit,
+      );
+      return;
     }
     session.pendingRequest = {
       body: source,
@@ -1237,7 +1269,7 @@ export class ModelGateway implements ModelGatewayRuntime {
       let body = normalizeResponsesRequest(
         await readJsonRequest(
           request,
-          this.options.requestBodyLimit ?? DEFAULT_REQUEST_BODY_LIMIT,
+          this.incomingRequestBodyLimit,
         ),
       );
       const requestedModel = stringValue(body.model);
@@ -1253,6 +1285,7 @@ export class ModelGateway implements ModelGatewayRuntime {
         throw new GatewayHttpError(403, "model_not_authorized");
       }
       body = extractionRequestBody(body, authorizedLease, context.memoryOperation);
+      await this.prepareRequestImages(body, upstreamAbort.controller.signal);
       if (authorizedLease.protocolMode === "native_responses") {
         await this.forwardNativeResponses(
           authorizedLease,
@@ -1559,6 +1592,10 @@ export class ModelGateway implements ModelGatewayRuntime {
     abort: ModelGatewayRequestAbort,
     context: ModelGatewayRequestContext,
   ): Promise<Response> {
+    const serialized = JSON.stringify(body);
+    if (Buffer.byteLength(serialized) > (this.options.requestBodyLimit ?? DEFAULT_REQUEST_BODY_LIMIT)) {
+      throw new GatewayHttpError(413, "request_body_too_large");
+    }
     const latency = this.createUpstreamLatency(context, "http", body.stream === true);
     context.latency = latency;
     const timer = setTimeout(
@@ -1578,7 +1615,7 @@ export class ModelGateway implements ModelGatewayRuntime {
           "x-linksense-request-id": context.requestId,
           "user-agent": "LinkSense-Model-Gateway/1.0",
         },
-        body: JSON.stringify(body),
+        body: serialized,
         redirect: "manual" as const,
         signal: abort.controller.signal,
       };
@@ -1598,6 +1635,22 @@ export class ModelGateway implements ModelGatewayRuntime {
       });
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  private async prepareRequestImages(body: JsonObject, signal: AbortSignal): Promise<void> {
+    try {
+      await prepareModelRequestImages(
+        body, this.options.requestBodyLimit ?? DEFAULT_REQUEST_BODY_LIMIT, signal,
+      );
+    } catch (error) {
+      if (error instanceof ModelRequestBodyTooLargeError) {
+        throw new GatewayHttpError(413, "request_body_too_large");
+      }
+      if (error instanceof ModelRequestImageError) {
+        throw new GatewayHttpError(400, "model_provider_invalid_request");
+      }
+      throw error;
     }
   }
 

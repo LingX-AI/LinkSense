@@ -207,6 +207,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     await expect(fixture.service.get(OWNER_ID, CONVERSATION_ID, { around_turn: 26 })).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
     expect(fixture.prisma.conversationMessage.findMany).not.toHaveBeenCalled();
     expect(fixture.prisma.application.findFirst).not.toHaveBeenCalled();
+    expect(fixture.prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
   it("checks ownership before reading referenced sources", async () => {
@@ -4615,16 +4616,67 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.prisma.$queryRaw).toHaveBeenNthCalledWith(3, expect.objectContaining({
       strings: expect.arrayContaining([
         expect.stringContaining("event.event_type = 'item/reasoning/textDelta'"),
-        expect.stringContaining("NOT EXISTS"),
+        expect.stringContaining("MAX(completed.sequence_no)"),
+        expect.stringContaining("GROUP BY"),
+        expect.stringContaining("LEFT JOIN completed_reasoning"),
         expect.stringContaining("completed.turn_id = event.turn_id"),
-        expect.stringContaining("completed.conversation_id = event.conversation_id"),
+        expect.stringContaining("completed.conversation_id = CAST("),
         expect.stringContaining("event.payload_json #>> '{params,item,type}' = 'reasoning'"),
       ]),
       values: expect.arrayContaining([CONVERSATION_ID, TURN_ID]),
     }));
     expect(fixture.prisma.$queryRaw).toHaveBeenNthCalledWith(3, expect.objectContaining({
-      strings: expect.not.arrayContaining([expect.stringContaining("LIMIT")]),
+      strings: expect.not.arrayContaining([
+        expect.stringContaining("LIMIT"),
+        expect.stringContaining("NOT EXISTS"),
+      ]),
     }));
+  });
+
+  it.each([
+    { conversationId: SECOND_CONVERSATION_ID },
+    { turnId: "30000000-0000-4000-8000-000000000099" },
+    { visibility: "internal_sanitized" },
+    { payloadJson: { unredacted_internal_data: "must not reach the client" } },
+  ])("rejects reasoning rows outside the authorized projection: %j", async (override) => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(
+      conversationRow({ codexThreadId: "active-thread" }),
+    );
+    fixture.prisma.conversationTurn.findMany.mockResolvedValueOnce([
+      turnRow({ id: TURN_ID, codexThreadId: "active-thread" }),
+    ]);
+    fixture.prisma.$queryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([eventRow({
+        turnId: TURN_ID,
+        eventType: "item/reasoning/textDelta",
+        visibility: "user_collapsed",
+        payloadJson: {
+          schema_version: 2,
+          source: "codex_app_server",
+          method: "item/reasoning/textDelta",
+          params: {
+            threadId: "active-thread", turnId: "native-turn",
+            itemId: "reasoning-1", contentIndex: 0, delta: "Partial reasoning",
+          },
+        },
+        ...override,
+      })]);
+
+    await expect(fixture.service.get(OWNER_ID, CONVERSATION_ID))
+      .rejects.toMatchObject({ name: "ZodError" });
+  });
+
+  it("skips supplemental reasoning queries when a conversation has no active turns", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(conversationRow());
+    fixture.prisma.conversationTurn.findMany.mockResolvedValueOnce([]);
+
+    await fixture.service.get(OWNER_ID, CONVERSATION_ID);
+
+    expect(fixture.prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
   it("strictly validates supplemental native events before returning detail", async () => {

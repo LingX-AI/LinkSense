@@ -6,11 +6,18 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { assertCoreMcpRuntime } from "../deploy/docker/runner-runtime-smoke.mjs";
+import { assertCoreMcpRuntime, assertModelGatewayImageRuntime } from "../deploy/docker/runner-runtime-smoke.mjs";
 
 const execute = promisify(execFile);
 const smokeUrl = new URL("../deploy/docker/runner-runtime-smoke.mjs", import.meta.url).href;
 const runnerRoot = resolve(import.meta.dirname, "../apps/runner");
+
+test("the deployed image smoke exercises the native codec and preserves image dimensions", async () => {
+  await assertModelGatewayImageRuntime(runnerRoot, {
+    imageInputPath: "src/model-gateway/image-input.ts",
+    nodeArguments: ["--import", "tsx"],
+  });
+});
 
 test("the Docker smoke check accepts the actual Core MCP registry over stdio in both modes", async () => {
   // Load source explicitly so stale dist output cannot make this test pass.
