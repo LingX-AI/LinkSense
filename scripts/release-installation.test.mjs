@@ -912,7 +912,7 @@ test(
               "#!/bin/sh\nprintf 'curl %s\\n' \"$*\" >> \"$LINKSENSE_TEST_TRACE\"\nexit 99\n",
             )
             await Promise.all(
-              ["awk", "grep", "head", "tr", "sed", "dirname", "mktemp", "mkdir", "rm", "rmdir", "ps"].map((command) =>
+              ["awk", "cmp", "grep", "head", "tr", "sed", "dirname", "mktemp", "mkdir", "rm", "rmdir", "ps"].map((command) =>
                 linkSystemCommand(command, bin),
               ),
             )

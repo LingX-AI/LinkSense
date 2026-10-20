@@ -63,7 +63,8 @@ tar -cf - --exclude=.git --exclude=node_modules --exclude=apps --exclude=package
   | guest 'tar -xf - -C /opt/linksense-ci'
 tar -cf - -C "$(dirname "$(command -v node)")" node | guest 'sudo tar -xf - -C /usr/local/bin'
 guest 'sudo bash -se' <<'GUEST'
-dnf install -y dnf-plugins-core curl openssl ca-certificates
+dnf install -y dnf-plugins-core openssl ca-certificates diffutils
+command -v curl >/dev/null 2>&1 || dnf install -y curl
 dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
 dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 systemctl enable --now docker
