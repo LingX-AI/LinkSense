@@ -60,7 +60,7 @@ test("README deployment, development and attribution details have one canonical 
   ]) {
     const source = sources[index]
     const details = [
-      ["4+ vCPU", "24+ GiB"],
+      ["4+ vCPU", "10+ GiB"],
       ["v1.45+", "v2.24.4+", "linksense status", "linksense doctor --network", "linksense upgrade"],
       ["Node.js 24+", "pnpm 10.34.6", "pnpm dev:prepare"],
       ["18–24px", "licensing@linksense.org"],

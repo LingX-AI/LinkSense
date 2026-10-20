@@ -341,7 +341,7 @@ esac
     const harness = path.join(directory, "memory-preflight.sh")
     await writeExecutable(harness, `${installer.slice(0, mainPosition)}read_os_release() { OS_ID=ubuntu; }\ncheck_port() { :; }\npreflight\n`)
     for (const hostOs of ["Darwin", "Linux"]) {
-      for (const [edition, requiredGiB] of [["core", 8], ["full", 24]]) {
+      for (const [edition, requiredGiB] of [["core", 8], ["full", 10]]) {
         const requiredKiB = requiredGiB * 1024 * 1024
         for (const memoryKiB of [8124776, requiredKiB - 1, requiredKiB]) {
           const result = spawnSync("/bin/sh", [harness], {
@@ -1062,6 +1062,13 @@ test(
         { env: { ...process.env, RELEASE_VERSION: "v0.1.0" } },
       )
       const bundled = path.join(bundleDirectory, "install-core.sh")
+      const bundledSource = await readFile(bundled, "utf8")
+      const discoveryCall = "\nhost_discover_docker_tools\n"
+      assert.equal(bundledSource.split(discoveryCall).length - 1, 1)
+      const isolated = path.join(bundleDirectory, "isolated-install-core.sh")
+      // Tool discovery is tested separately; these fixtures own the complete
+      // CLI inventory and must not discover the developer machine's Docker.
+      await writeExecutable(isolated, bundledSource.replace(discoveryCall, "\n"))
       await Promise.all(
         [
           { name: "docker-missing", docker: null, message: /LS_HOST_tools/u },
@@ -1102,7 +1109,7 @@ test(
                 dockerPreflightStub(scenario.docker),
               )
             }
-            const result = await spawnResult("/bin/sh", [bundled], {
+            const result = await spawnResult("/bin/sh", [isolated], {
               env: {
                 HOME: directory,
                 LINKSENSE_INSTALL_DIR: installDirectory,
@@ -1342,20 +1349,30 @@ test("every LinkSense release image contains the CPAL license and separate permi
   assert.equal((baseline.match(supplementalCopy) ?? []).length, 4)
 })
 
-test("release preparation requires both dedicated installation runners before building images", async () => {
+test("release installation uses native hosted runners by default without requiring dedicated runner variables", async () => {
   const workflow = await readFile(path.join(root, ".github/workflows/release.yml"), "utf8")
-  const step = workflow.match(/      - name: Verify installation runner configuration\n([\s\S]*?)(?=\n      -)/u)?.[1]
-  assert.ok(step, "Runner configuration must be checked during release preparation")
+  assert.doesNotMatch(workflow, /must name a disposable native runner|test -n "\$\{!runner_variable\}"/u)
+  assert.match(workflow, /runner: \$\{\{ vars\.LINKSENSE_INSTALLATION_RUNNER_AMD64 \|\| 'ubuntu-24\.04' \}\}/u)
+  assert.match(workflow, /runner: \$\{\{ vars\.LINKSENSE_INSTALLATION_RUNNER_ARM64 \|\| 'ubuntu-24\.04-arm' \}\}/u)
+  const step = workflow.match(/      - name: Check memory and free space on the disposable hosted runner\n([\s\S]*?)(?=\n      -)/u)?.[1]
+  assert.ok(step)
   const script = step.split("        run: |\n")[1]?.replace(/^          /gmu, "")
   assert.ok(script)
-  assert.ok(workflow.indexOf("Verify installation runner configuration") < workflow.indexOf("Validate and freeze release inputs before building images"))
-  for (const [amd64, arm64, status] of [["", "", 1], ["large-amd64", "", 1], ["", "large-arm64", 1], ["large-amd64", "large-arm64", 0]]) {
-    const result = spawnSync("bash", ["-c", script], {
-      encoding: "utf8",
-      env: { ...process.env, LINKSENSE_INSTALLATION_RUNNER_AMD64: amd64, LINKSENSE_INSTALLATION_RUNNER_ARM64: arm64 },
-    })
-    assert.equal(result.status, status, result.stderr)
-    if (status !== 0) assert.match(result.stderr, /24 GiB/u)
+  for (const [edition, minimum] of [["core", 8], ["full", 10]]) {
+    for (const memory of [minimum * 1024 ** 3 - 1, minimum * 1024 ** 3]) {
+      const directory = await mkdtemp(path.join(tmpdir(), "linksense-runner-memory-"))
+      try {
+        const result = spawnSync("bash", ["-c", `set -euo pipefail\ndocker() { echo "$MEMORY_BYTES"; }\nsudo() { :; }\ndf() { :; }\n${script}`], {
+          cwd: directory,
+          encoding: "utf8",
+          env: { ...process.env, EDITION: edition, MEMORY_BYTES: String(memory), RUNNER_ENVIRONMENT: "github-hosted" },
+        })
+        assert.equal(result.status, memory < minimum * 1024 ** 3 ? 1 : 0, result.stderr)
+        if (result.status !== 0) assert.match(result.stderr, new RegExp(`${minimum} GiB`, "u"))
+      } finally {
+        await rm(directory, { recursive: true, force: true })
+      }
+    }
   }
 })
 
@@ -1542,7 +1559,7 @@ test("the release manifest generator records immutable images and artifact hashe
     assert.match(manifest, /^MANIFEST_FORMAT=2$/mu)
     assert.match(manifest, /^CORE_MIN_MEMORY_GIB=8$/mu)
     assert.match(manifest, /^FULL_MIN_MEMORY_GIB=10$/mu)
-    assert.match(manifest, /^RESOURCE_FULL_FRESH_MIN_MEMORY_GIB=24$/mu)
+    assert.match(manifest, /^RESOURCE_FULL_FRESH_MIN_MEMORY_GIB=10$/mu)
     assert.match(manifest, /^RESOURCE_HOST_ADAPTATION_FORMAT=1$/mu)
     assert.match(manifest, /RELEASE_VERSION=v0\.1\.0/u)
     assert.doesNotMatch(manifest, /^(?:CORE|FULL)_MIN_DISK_GIB=/mu)
@@ -1602,7 +1619,7 @@ test("the release manifest generator records immutable images and artifact hashe
     }).join("\n")
     const manifestCheck = path.join(directory, "manifest-check")
     await mkdir(manifestCheck)
-    for (const [required, available, accepted, existing = false, freshMetadata = false, pending = false] of [["10", 10, true], ["10", 9, false], ["16", 16, true], ["16", 10, false], ["9", 16, false], ["", 16, false], ["010", 16, false], ["10", 23, false, false, true], ["10", 24, true, false, true], ["10", 18, true, true, true], ["10", 23, false, false, true, true], ["10", 24, true, false, true, true]]) {
+    for (const [required, available, accepted, existing = false, freshMetadata = false, pending = false] of [["10", 10, true], ["10", 9, false], ["16", 16, true], ["16", 10, false], ["9", 16, false], ["", 16, false], ["010", 16, false], ["10", 9, false, false, true], ["10", 10, true, false, true], ["10", 10, true, true, true], ["10", 9, false, false, true, true], ["10", 10, true, false, true, true]]) {
       await rm(path.join(manifestCheck, "install"), { recursive: true, force: true })
       const metadata = freshMetadata ? manifest : manifest.replace(/^RESOURCE_(?:HOST_ADAPTATION_FORMAT|FULL_FRESH_MIN_MEMORY_GIB)=.*\n/gmu, "")
       const fixture = metadata.replace(/^FULL_MIN_MEMORY_GIB=.*$/mu, `FULL_MIN_MEMORY_GIB=${required}`)

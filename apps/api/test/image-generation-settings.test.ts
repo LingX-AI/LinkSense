@@ -1232,7 +1232,7 @@ describe("ImageGenerationSettingsService", () => {
       ownerId: USER_ID,
       conversationId: CONVERSATION_ID,
       turnId: TURN_ID,
-      request: { prompt: "A test image", count: 1 },
+      request: { image_name: "场景图片", prompt: "A test image", count: 1 },
     })).rejects.toMatchObject({
       code: status >= 400 ? "IMAGE_GENERATION_UNAVAILABLE" : "IMAGE_GENERATION_OUTPUT_INVALID",
     })
@@ -1251,7 +1251,7 @@ describe("ImageGenerationSettingsService", () => {
       ownerId: USER_ID,
       conversationId: CONVERSATION_ID,
       turnId: TURN_ID,
-      request: { prompt: "A test image", count: 1 },
+      request: { image_name: "场景图片", prompt: "A test image", count: 1 },
     })).resolves.toMatchObject({ image_count: 1 })
   })
 

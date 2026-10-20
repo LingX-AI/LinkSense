@@ -63,13 +63,15 @@ without `RESOURCE_HOST_ADAPTATION_FORMAT=1` cannot be used in compatible mode.
 
 ## Fresh resource profiles
 
-New Full installations require at least **24 GiB reported by Docker Engine**.
-For fresh Linux installations, the budget must also fit current `MemAvailable`.
-Docker Desktop allocations should leave space above the exact byte threshold.
-The manifest retains the legacy `FULL_MIN_MEMORY_GIB=10` for older upgrade
-readers, and records the fresh-install floor separately as
-`RESOURCE_FULL_FRESH_MIN_MEMORY_GIB=24`. The current installer enforces that
-fresh floor before creating persistent state.
+Full installations require at least **10 GiB reported by Docker Engine**.
+The installer warns when the aggregate upper-bound budget exceeds available
+memory, including Linux `MemAvailable` for new installations, but allows Full
+to continue without lowering individual container limits. This intentional
+overcommit can exhaust memory during concurrent tasks or large-document processing;
+the floor is not a peak-capacity guarantee. Docker Desktop allocations should
+leave space above the exact byte threshold. Both `FULL_MIN_MEMORY_GIB` and
+`RESOURCE_FULL_FRESH_MIN_MEMORY_GIB` record 10 for new releases. Older published
+release manifests remain immutable and retain their own fresh-install floor.
 
 | Limit (MiB) | Core | Core with less than 8 GiB currently free | Full |
 | --- | ---: | ---: | ---: |
@@ -81,7 +83,7 @@ fresh floor before creating persistent state.
 | One task Worker | 4096 | 4096 | 4096 |
 | Elasticsearch + Docling API + Docling Worker | — | — | 2048 + 2048 + 8192 |
 | Host/control headroom | 768 | 768 | 768 |
-| Admission budget | 8192 | 7488 | 21504 |
+| Aggregate upper-bound budget | 8192 | 7488 | 21504 (warning only above available memory) |
 
 Fresh defaults allow one concurrent conversation, two app-server processes per
 Worker, 60-second idle TTLs, and one job per Knowledge processing stage. CPU
@@ -100,20 +102,22 @@ Repair and upgrade preserve validated custom settings, credentials, volumes,
 URLs, concurrency, and memory limits. They update release-owned images and
 runtime identity. Missing resource fields in old installations keep their old
 unlimited/default behavior (`0` memory limit and empty Node options); no new
-24 GiB threshold is imposed on those installations. When every service memory
+fresh-install threshold is imposed on those installations. When every service memory
 limit is absent or unlimited, repair and upgrade retain the published 8 GiB Core
 or 10 GiB Full floor. Once explicit service limits are configured, admission sums
 those limits (including Elasticsearch), one Worker, fixed Docling limits, and
-headroom. Unlimited limits are unknown, so neither path guarantees peak-memory
+headroom. Full reports insufficient aggregate capacity as a warning; Core retains
+its aggregate admission check. Unlimited limits are unknown, so neither path guarantees peak-memory
 capacity. Idle Workers, multiple users, document size and host
 workload still require operational capacity planning. A running same-version
 upgrade with no mode change returns without a backup or restart.
 
-Explicit service limits can require more memory than a legacy release's original
-10 GiB Full minimum. Check their aggregate budget before enabling them; unchanged
-10–14 GiB legacy Full hosts are not required to adopt those limits to repair or
-upgrade. Rejection happens before stopping services or running migrations, and
-the existing environment and data remain intact.
+Explicit service limits can exceed the 10 GiB Full minimum. Plan capacity before
+enabling them; Full repair and upgrade warn about overcommit while preserving
+the configured limits. Invalid limits, oversized heaps, memory below the Engine
+floor, and actual OOM/readiness failures remain blocking. Validation happens
+before stopping services or running migrations, and the existing environment
+and data remain intact on validation failure.
 
 For the first upgrade of an installation created before host adaptation, use
 the **current root bootstrap**, which loads the target release's installer.
@@ -305,10 +309,10 @@ repair, repeated execution, and upgrades from frozen published assets. Upgrade
 fixtures include custom existing resource settings and real persistent data;
 checks compare original secrets, volume identity, settings and content.
 
-Each matrix run needs an isolated disposable Docker daemon. Full needs a runner
-with at least 24 GiB allocated to Docker and enough free memory/storage. Set
-`LINKSENSE_INSTALLATION_RUNNER_AMD64` and `LINKSENSE_INSTALLATION_RUNNER_ARM64` to
-suitable runner labels; release preparation requires both variables before
-building images. Standard hosted machines cannot meet Full's memory floor. A
-shared business server is refused by the smoke harness. The expanded CI matrix
+Each matrix run needs an isolated disposable Docker daemon. Core requires at
+least 8 GiB allocated to Docker, and Full requires 10 GiB with aggregate capacity
+warnings as described above. Native GitHub-hosted runners are used by default;
+`LINKSENSE_INSTALLATION_RUNNER_AMD64` and `LINKSENSE_INSTALLATION_RUNNER_ARM64` are
+optional label overrides for other disposable runners. A shared business server
+is refused by the smoke harness. The expanded CI matrix
 must pass before publishing; local unit tests do not certify that matrix.

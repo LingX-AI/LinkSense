@@ -469,8 +469,8 @@ validate_resource_budget existing`, { MEMORY_BYTES: String(memory * 1024 ** 3) }
   })
 }
 
-for (const [workerMemory, status] of [[12288, 1], [4096, 0]]) {
-test(`resuming a fresh installation validates Engine capacity without double-counting its running services, worker=${workerMemory}`, t => {
+for (const [workerMemory, warning] of [[12288, true], [4096, false]]) {
+test(`resuming Full preserves its Worker limit and reports aggregate overcommit without blocking, worker=${workerMemory}`, t => {
   const dir = directory(t)
   writeFileSync(path.join(dir, "install.pending"), "", { mode: 0o600 })
   const result = run(`${fn("install_action")}
@@ -492,10 +492,67 @@ install_action`, {
     LINKSENSE_REDIS_MEMORY_MB: "512", LINKSENSE_MINIO_MEMORY_MB: "512", LINKSENSE_ELASTICSEARCH_MEMORY_MB: "2048",
     LINKSENSE_WORKER_MEMORY_MB: String(workerMemory),
   })
-  assert.equal(result.status, status, result.stderr)
-  if (status !== 0) assert.match(result.stderr, /available_mib=24576 required_mib=29696/u)
-  assert.equal(existsSync(path.join(dir, "resources-started")), status === 0)
+  assert.equal(result.status, 0, result.stderr)
+  if (warning) assert.match(result.stderr, /LS_HOST_memory_budget_warning/u)
+  else assert.doesNotMatch(result.stderr, /LS_HOST_memory_budget_warning/u)
+  assert.equal(existsSync(path.join(dir, "resources-started")), true)
 })
+}
+
+for (const kind of ["fresh", "existing"]) {
+  for (const [memoryBytes, available, accepted] of [[10 * 1024 ** 3 - 1, 9000, false], [10 * 1024 ** 3, 8192, true], [16 * 1024 ** 3, 12288, true]]) {
+    test(`Full ${kind} keeps the 10 GiB Engine floor and warns about overcommit at ${memoryBytes} bytes`, () => {
+      const result = run(`${fn("validate_resource_budget")}
+EDITION=full
+docker() { echo "$MEMORY_BYTES"; }
+host_available_memory_mib() { echo "$AVAILABLE"; }
+LINKSENSE_API_MEMORY_MB=2048
+LINKSENSE_API_NODE_OPTIONS=--max-old-space-size=1536
+LINKSENSE_RUNNER_MEMORY_MB=512
+LINKSENSE_RUNNER_NODE_OPTIONS=--max-old-space-size=256
+LINKSENSE_POSTGRES_MEMORY_MB=768
+LINKSENSE_REDIS_MEMORY_MB=512
+LINKSENSE_MINIO_MEMORY_MB=512
+LINKSENSE_ELASTICSEARCH_MEMORY_MB=2048
+LINKSENSE_WORKER_MEMORY_MB=4096
+validate_resource_budget "$KIND"
+printf '%s/%s/%s\\n' "$LINKSENSE_API_MEMORY_MB" "$LINKSENSE_ELASTICSEARCH_MEMORY_MB" "$LINKSENSE_WORKER_MEMORY_MB"`, { MEMORY_BYTES: String(memoryBytes), AVAILABLE: String(available), KIND: kind })
+      assert.equal(result.status, accepted ? 0 : 1, result.stderr)
+      if (accepted) {
+        assert.match(result.stderr, /LS_HOST_memory_budget_warning/u)
+        assert.equal(result.stdout, "2048/2048/4096\n")
+      } else {
+        assert.match(result.stderr, /required_mib=10240/u)
+        assert.doesNotMatch(result.stderr, /LS_HOST_memory_budget_warning/u)
+      }
+    })
+  }
+}
+
+test("Core still rejects a fresh aggregate budget above available memory", () => {
+  const result = run(`${fn("validate_resource_budget")}
+EDITION=core
+docker() { echo 17179869184; }
+host_available_memory_mib() { echo 7168; }
+LINKSENSE_API_MEMORY_MB=1536
+LINKSENSE_RUNNER_MEMORY_MB=512
+LINKSENSE_POSTGRES_MEMORY_MB=512
+LINKSENSE_REDIS_MEMORY_MB=256
+LINKSENSE_MINIO_MEMORY_MB=512
+validate_resource_budget fresh`)
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /available_mib=7168 required_mib=8192/u)
+})
+
+for (const locale of ["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"]) {
+  test(`Full overcommit warning in ${locale} includes both budgets and keeps the operation successful`, () => {
+    const result = run('host_text memory_budget_warning 10240 21504', { LINKSENSE_CLI_LANGUAGE: locale })
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /10240/u)
+    assert.match(result.stdout, /21504/u)
+    assert.ok(result.stdout.length > 50)
+    assert.doesNotMatch(result.stdout, /%s/u)
+  })
 }
 
 for (const [limit, status] of [[0, 0], [1024, 1], [2048, 0]]) {
@@ -661,8 +718,8 @@ host_service_snapshot`)
   assert.match(result.stdout, /docling-worker docling-worker-1 started 0 true false none/u)
 })
 
-for (const [edition, available, api, heap, budget] of [["core", 7680, 1280, 896, 7488], ["core", 12288, 1536, 1024, 8192], ["full", 24576, 2048, 1536, 21504]]) {
-  test(`${edition} fresh profile fits ${available} MiB while preserving a 4 GiB Worker and a bounded Node heap`, () => {
+for (const [edition, available, api, heap, budget] of [["core", 7680, 1280, 896, 7488], ["core", 12288, 1536, 1024, 8192], ["full", 10240, 2048, 1536, 21504], ["full", 24576, 2048, 1536, 21504]]) {
+  test(`${edition} fresh profile accepts ${available} MiB while preserving a 4 GiB Worker and a bounded Node heap`, () => {
     const result = run(`
 ${fn("write_env")}
 ${fn("validate_resource_budget")}
@@ -676,6 +733,7 @@ HOST_OS=Darwin
 write_env`, { PROFILE: edition, AVAILABLE: String(available) })
     assert.equal(result.status, 0, result.stderr)
     assert.equal(result.stdout.trim(), `${api} --max-old-space-size=${heap} ${budget} 2 2 ${edition === "full" ? 2048 : 0}`)
+    if (budget > available) assert.match(result.stderr, /LS_HOST_memory_budget_warning/u)
   })
 }
 

@@ -46,14 +46,16 @@ Do not add automatic closing, duplicate, priority, merge, or release permissions
 
 ## Maintenance
 
-Triage loads only the read-only `issues` toolset, rather than repository files, code search, and the full default GitHub toolset. Its declared `allowed` list is `issue_read` and `search_issues`; the prompt budgets three issue reads and one repository-scoped issue search. These per-call budgets are prompt instructions, not a hard runtime quota: the pinned v0.91.8 Codex compiler records `allowed` in the manifest but does not emit the individual allowlist or documented `max-calls` guards into this workflow's gateway config. Other read-only tools in the `issues` group may therefore remain available. Do not use `github.args` to work around this: the pinned compiler renders those Docker arguments with a trailing comma that breaks gateway JSON parsing, and they are not MCP server CLI arguments. Keep the existing ten-minute execution limit: a run that stalls after completing its reads requires gateway/model investigation, not an unconditional timeout increase. This reduces context amplification but does not establish the root cause of historical inference stalls. Verify the complete agent, detection, and safe-output chain on a new run of the changed revision before closing historical failure issues.
+Triage loads only the read-only `issues` toolset, rather than repository files, code search, and the full default GitHub toolset. Its declared `allowed` list is `issue_read` and `search_issues`; the prompt budgets three issue reads and one repository-scoped issue search. These per-call budgets are prompt instructions, not a hard runtime quota: the pinned v0.92.4 Codex compiler records `allowed` in the manifest but does not emit the individual allowlist or documented `max-calls` guards into this workflow's gateway config. Other read-only tools in the `issues` group may therefore remain available. Do not use `github.args` as a tool filter: these are Docker arguments, not MCP server CLI arguments. Keep the existing ten-minute execution limit: a run that stalls after completing its reads requires gateway/model investigation, not an unconditional timeout increase. This reduces context amplification but does not establish the root cause of historical inference stalls. Verify the complete agent, detection, and safe-output chain on a new run of the changed revision before closing historical failure issues.
 
 Edit the Markdown sources for agentic workflows, then compile and commit their generated lock files with the pinned GitHub Agentic Workflows CLI:
 
 ```bash
-gh extension install github/gh-aw --pin v0.91.8
+gh extension install github/gh-aw --force --pin v0.92.4
 gh aw compile --strict --actionlint --validate
 ```
+
+The compiler manages `github/gh-aw-actions/*` pins together with its generated manifests and action lock. Dependabot ignores these actions; upgrade the pinned compiler and recompile both workflows instead of changing generated action references independently.
 
 Verify the generated agent and detection proxy configurations with:
 
@@ -61,8 +63,8 @@ Verify the generated agent and detection proxy configurations with:
 pnpm exec node --test scripts/github-issue-automation.test.mjs
 ```
 
-The regression check covers both workflows, model-specific pricing in both proxy phases, and preservation of the budget and fail-closed behavior for unknown models. A live GitHub Actions run is still required to verify the configured gateway credentials and model access. Rerunning an old failed run executes its old workflow revision; validate the new revision instead.
+The regression check covers both workflows, compiler/action alignment, Dependabot ownership, model-specific pricing in both proxy phases, and preservation of the budget and fail-closed behavior for unknown models. A live GitHub Actions run is still required to verify the configured gateway credentials and model access. Rerunning an old failed run executes its old workflow revision; validate the new revision instead.
 
-The `--actionlint` check requires Docker. Activation keeps read-only permissions by disabling blocked-version notification issues; compiler version validation remains enabled.
+The `--actionlint` check uses a local actionlint v1.7.12 or newer, falling back to Docker when no compatible binary is available. Activation keeps read-only permissions by disabling blocked-version notification issues; compiler version validation remains enabled.
 
 The canonical label definitions are stored in `.github/labels.yml`.
