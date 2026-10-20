@@ -9,6 +9,7 @@ import { createConnection, type Socket } from "node:net";
 import { Writable } from "node:stream";
 
 import pino, { type Logger } from "pino";
+import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket, { WebSocketServer } from "ws";
 
@@ -34,6 +35,240 @@ afterEach(async () => {
 });
 
 describe("ModelGateway", () => {
+  it("accepts HTTP requests above 32 MiB under the new 128 MiB limit", async () => {
+    let receivedBytes = 0;
+    const gateway = await startGateway({ fetch: async (_url, init) => {
+      receivedBytes = Buffer.byteLength(String(init?.body));
+      return Response.json({ id: "resp-large-http", status: "completed", output: [] });
+    } });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "large-http", revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "provider-key",
+      protocolMode: "native_responses", model: "model-a",
+    });
+
+    const response = await requestGateway(gateway, lease.token, { model: "model-a", input: "x".repeat(33 * 1024 * 1024) });
+
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(receivedBytes).toBeGreaterThan(32 * 1024 * 1024);
+    expect(receivedBytes).toBeLessThan(128 * 1024 * 1024);
+  });
+
+  it.each(["native_responses", "responses_tool_compat"] as const)("accepts WebSocket messages above 32 MiB in %s mode", async (protocolMode) => {
+    let receivedBytes = 0;
+    const upstream = await startWebSocketUpstream({ onConnection(socket) {
+      socket.on("message", data => {
+        receivedBytes = Buffer.byteLength(data.toString());
+        socket.send(JSON.stringify({ type: "response.completed", response: { id: "resp-large-ws", status: "completed", output: [] } }));
+      });
+    } });
+    const gateway = await startGateway();
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "large-ws", revision: 1,
+      upstreamBaseUrl: `${upstream.baseUrl}/v1`, apiKey: "provider-key",
+      protocolMode, model: "model-a",
+    });
+    const downstream = await connectGatewayWebSocket(gateway, lease.token);
+    const completed = nextWebSocketJson(downstream.socket);
+    downstream.socket.send(JSON.stringify({ type: "response.create", model: "model-a", input: [
+      { role: "user", content: [{ type: "input_text", text: "x".repeat(33 * 1024 * 1024) }] },
+    ] }));
+
+    expect(await completed).toMatchObject({ type: "response.completed", response: { status: "completed" } });
+    expect(receivedBytes).toBeGreaterThan(32 * 1024 * 1024);
+    expect(receivedBytes).toBeLessThan(128 * 1024 * 1024);
+    await closeWebSocket(downstream.socket);
+  });
+
+  it("rejects an HTTP Content-Length above 128 MiB before reading or forwarding its body", async () => {
+    const fetchUpstream = vi.fn<typeof fetch>();
+    const gateway = await startGateway({ fetch: fetchUpstream });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "excess-ingress", revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "provider-key",
+      protocolMode: "native_responses", model: "model-a",
+    });
+    const status = await new Promise<number | undefined>((resolve, reject) => {
+      const request = requestHttp(`${gateway.baseUrl}/responses`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${lease.token}`, "content-type": "application/json", "content-length": 128 * 1024 * 1024 + 1 },
+      }, response => {
+        response.resume();
+        response.once("end", () => resolve(response.statusCode));
+      });
+      request.once("error", reject);
+      request.end();
+    });
+
+    expect(status).toBe(413);
+    expect(fetchUpstream).not.toHaveBeenCalled();
+  });
+
+  it("returns 413 for chunked HTTP input above the receive limit", async () => {
+    const fetchUpstream = vi.fn<typeof fetch>();
+    const gateway = await startGateway({ requestBodyLimit: 256, fetch: fetchUpstream });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "chunked-ingress", revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "provider-key",
+      protocolMode: "native_responses", model: "model-a",
+    });
+    const status = await new Promise<number | undefined>((resolve, reject) => {
+      const request = requestHttp(`${gateway.baseUrl}/responses`, {
+        method: "POST", headers: { authorization: `Bearer ${lease.token}`, "content-type": "application/json" },
+      }, response => {
+        response.resume();
+        response.once("end", () => resolve(response.statusCode));
+      });
+      request.once("error", reject);
+      request.write('{"model":"model-a","input":"');
+      request.write("x".repeat(512));
+      request.end('"}');
+    });
+
+    expect(status).toBe(413);
+    expect(fetchUpstream).not.toHaveBeenCalled();
+  });
+
+  it.each(["native_responses", "responses_tool_compat", "chat_completions_bridge"] as const)("prepares image inputs before forwarding through %s", async (protocolMode) => {
+    const png = await sharp({ create: { width: 128, height: 128, channels: 3, background: "#abcdee" } }).png({ compressionLevel: 0 }).toBuffer();
+    const image = { type: "input_image", image_url: `data:image/png;base64,${png.toString("base64")}`, detail: "original" };
+    let wireBody = "";
+    const gateway = await startGateway({ requestBodyLimit: 8 * 1024, incomingRequestBodyLimit: 128 * 1024, fetch: async (_url, init) => {
+      wireBody = String(init?.body);
+      return Response.json(protocolMode === "chat_completions_bridge"
+        ? { id: "completion-images", choices: [{ message: { content: "Done." } }] }
+        : { id: "resp-images", status: "completed", output: [] });
+    } });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "image-protocol", revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "provider-key",
+      protocolMode, model: "model-a",
+    });
+
+    const response = await requestGateway(gateway, lease.token, { model: "model-a", input: [{ role: "user", content: [image, { type: "input_text", text: "Read this image." }] }] });
+
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(wireBody).toContain("data:image/webp;base64,");
+    expect(wireBody).toContain("Read this image.");
+    expect(Buffer.byteLength(wireBody)).toBeLessThanOrEqual(8 * 1024);
+    expect(image.image_url).toMatch(/^data:image\/png;base64,/u);
+  });
+
+  it.each(["native_responses", "responses_tool_compat"] as const)("prepares WebSocket images and keeps the connection usable after invalid input in %s", async (protocolMode) => {
+    const received: JsonObject[] = [];
+    const upstream = await startWebSocketUpstream({ onConnection(socket) {
+      socket.on("message", data => {
+        received.push(parseWebSocketJson(data.toString()));
+        socket.send(JSON.stringify({ type: "response.completed", response: { id: "resp-prepared-ws", status: "completed", output: [] } }));
+      });
+    } });
+    const gateway = await startGateway({ requestBodyLimit: 8 * 1024, incomingRequestBodyLimit: 128 * 1024 });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "image-ws", revision: 1,
+      upstreamBaseUrl: `${upstream.baseUrl}/v1`, apiKey: "provider-key", protocolMode, model: "model-a",
+    });
+    const downstream = await connectGatewayWebSocket(gateway, lease.token);
+    const send = (input: unknown, model = "model-a") => {
+      const event = nextWebSocketJson(downstream.socket);
+      downstream.socket.send(JSON.stringify({ type: "response.create", model, input }));
+      return event;
+    };
+    const invalid = [{ role: "user", content: [{ type: "input_image", image_url: `data:image/png;base64,${"A".repeat(16 * 1024)}` }] }];
+    expect(await send(invalid, "model-b")).toMatchObject({ type: "error", status: 403, error: { code: "model_not_authorized" } });
+    expect(await send(invalid)).toMatchObject({ type: "error", status: 400, error: { code: "model_provider_invalid_request" } });
+    expect(await send([{ role: "user", content: [{ type: "input_text", text: "x".repeat(16 * 1024) }] }]))
+      .toMatchObject({ type: "error", status: 413, error: { code: "request_body_too_large" } });
+    expect(received).toHaveLength(0);
+
+    const png = await sharp({ create: { width: 128, height: 128, channels: 3, background: "#eeddaa" } }).png({ compressionLevel: 0 }).toBuffer();
+    const result = await send([{ role: "user", content: [{ type: "input_image", image_url: `data:image/png;base64,${png.toString("base64")}`, detail: "original" }] }]);
+
+    expect(result).toMatchObject({ type: "response.completed" });
+    expect(received).toHaveLength(1);
+    expect(received[0]?.input).toEqual([{ role: "user", content: [{ type: "input_image", image_url: expect.stringMatching(/^data:image\/webp;base64,/u), detail: "original" }] }]);
+    await closeWebSocket(downstream.socket);
+  });
+
+  it("checks HTTP authorization before decoding images and redacts invalid-image failures", async () => {
+    const { logger, logs } = createCapturingLogger();
+    const fetchUpstream = vi.fn<typeof fetch>();
+    const gateway = await startGateway({ logger, requestBodyLimit: 8 * 1024, incomingRequestBodyLimit: 128 * 1024, fetch: fetchUpstream });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "image-errors", revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "provider-key",
+      protocolMode: "native_responses", model: "model-a",
+    });
+    const secret = "private-image-diagnostic";
+    const body = { model: "model-a", input: [{ type: "input_image", image_url: `data:image/png;base64,${Buffer.from(secret.repeat(1024)).toString("base64")}` }] };
+    const unauthenticated = await requestGateway(gateway, "invalid-token", body);
+    expect(unauthenticated.status).toBe(401);
+    await unauthenticated.text();
+    const unauthorized = await requestGateway(gateway, lease.token, { ...body, model: "model-b" });
+    expect(unauthorized.status).toBe(403);
+    await unauthorized.text();
+    const invalid = await requestGateway(gateway, lease.token, body);
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toMatchObject({ error: { code: "model_provider_invalid_request" } });
+    expect(fetchUpstream).not.toHaveBeenCalled();
+    expect(JSON.stringify(logs)).not.toContain(secret);
+    expect(JSON.stringify(logs)).not.toContain("data:image/");
+  });
+
+  it("continues a history containing four original-size images larger than 32 MiB without dropping items", async () => {
+    const png = await sharp({
+      create: { width: 1536, height: 1536, channels: 3, background: "#e8ddd0" },
+    }).png({ compressionLevel: 0 }).toBuffer();
+    const imageUrl = `data:image/png;base64,${png.toString("base64")}`;
+    const input = [
+      ...Array.from({ length: 4 }, (_, index) => ({
+        type: "function_call_output",
+        call_id: `view-image-${index}`,
+        output: [
+          { type: "input_text", text: `Original image ${index}` },
+          { type: "input_image", image_url: imageUrl, detail: "original" },
+        ],
+      })),
+      { role: "user", content: [{ type: "input_text", text: "Continue with the existing files." }] },
+    ];
+    let forwarded: JsonObject | undefined;
+    const fetchUpstream = vi.fn<typeof fetch>(async (_url, init) => {
+      expect(Buffer.byteLength(String(init?.body))).toBeLessThan(32 * 1024 * 1024);
+      forwarded = JSON.parse(String(init?.body));
+      return Response.json({ id: "resp-images", status: "completed", output: [] });
+    });
+    const gateway = await startGateway({ fetch: fetchUpstream });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "old-image-history", revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "provider-key",
+      protocolMode: "native_responses", model: "model-a",
+    });
+    const body = { model: "model-a", input };
+    expect(Buffer.byteLength(JSON.stringify(body))).toBeGreaterThan(32 * 1024 * 1024);
+
+    for (let continuation = 0; continuation < 2; continuation += 1) {
+      const response = await requestGateway(gateway, lease.token, body);
+      expect(response.status).toBe(200);
+      await response.text();
+    }
+
+    expect(fetchUpstream).toHaveBeenCalledTimes(2);
+    expect(forwarded?.input).toEqual([
+      ...Array.from({ length: 4 }, (_, index) => ({
+        type: "function_call_output", call_id: `view-image-${index}`,
+        output: [
+          { type: "input_text", text: `Original image ${index}` },
+          { type: "input_image", image_url: expect.stringMatching(/^data:image\/webp;base64,/u), detail: "original" },
+        ],
+      })),
+      input[4],
+    ]);
+    expect(body.input[0]).toMatchObject({
+      output: [{ type: "input_text" }, { image_url: imageUrl }],
+    });
+  });
+
   it("binds extraction WebSockets to the dedicated channel and rejects ordinary requests on that socket", async () => {
     const received: JsonObject[] = [];
     const captures: RunnerMemoryUsageCapture[] = [];
@@ -2384,6 +2619,7 @@ async function startGateway(
     fetch?: typeof fetch;
     logger?: Logger;
     requestBodyLimit?: number;
+    incomingRequestBodyLimit?: number;
     webSocketQueueLimit?: number;
     webSocketQueueMessageLimit?: number;
     upstreamHeaderTimeoutMs?: number;

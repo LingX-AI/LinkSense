@@ -71,6 +71,29 @@ export async function assertCoreMcpRuntime(runtimeRoot, {
   }
 }
 
+export async function assertModelGatewayImageRuntime(runtimeRoot, {
+  imageInputPath = "dist/model-gateway/image-input.js",
+  nodeArguments = [],
+} = {}) {
+  const imageInputUrl = pathToFileURL(path.join(runtimeRoot, imageInputPath)).href;
+  await runNode(runtimeRoot, [
+    ...nodeArguments, "--input-type=module", "--eval", `
+      const { default: sharp } = await import("sharp");
+      const { prepareModelRequestImages } = await import(${JSON.stringify(imageInputUrl)});
+      const png = await sharp({ create: { width: 128, height: 128, channels: 3, background: "white" } })
+        .png({ compressionLevel: 0 }).toBuffer();
+      const image = { type: "input_image", image_url: "data:image/png;base64," + png.toString("base64"), detail: "original" };
+      const body = { input: [{ role: "user", content: [image] }] };
+      await prepareModelRequestImages(body, 8192);
+      if (!image.image_url.startsWith("data:image/webp;base64,") || Buffer.byteLength(JSON.stringify(body)) > 8192) {
+        throw new Error("model image preparation failed");
+      }
+      const metadata = await sharp(Buffer.from(image.image_url.split(",")[1], "base64")).metadata();
+      if (metadata.width !== 128 || metadata.height !== 128) throw new Error("model image dimensions changed");
+    `,
+  ]);
+}
+
 async function assertTaskReadableAndImmutable(root) {
   const packagePath = path.join(
     root,
@@ -191,5 +214,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     "--eval",
     'const { toMarkdownBytes } = await import("@firecrawl/anydoc"); const markdown = await toMarkdownBytes(Buffer.from("name,score\\nAda,10\\n"), "csv"); if (!markdown.includes("Ada")) throw new Error("anydoc conversion failed");',
   ]);
+  await assertModelGatewayImageRuntime(runtimeRoot);
   await assertCoreMcpRuntime(runtimeRoot);
 }
