@@ -499,7 +499,6 @@ preflight() {
   fi
 
   command -v curl >/dev/null 2>&1 || fail "curl is required. Install it with your operating system package manager."
-  command -v cmp >/dev/null 2>&1 || host_fail required_command cmp
   host_use_saved_tools
   if [ -n "$DOCKER_CLI" ]; then
     detected_api=$(docker version --format '{{.Server.APIVersion}}' 2>/dev/null || true)

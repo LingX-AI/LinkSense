@@ -21,12 +21,6 @@ host_text() {
     ja*|JA*) host_locale=ja-JP ;; *) host_locale=zh-CN ;;
   esac
   case "$host_key:$host_locale" in
-    required_command:zh-CN) host_message='缺少必需的宿主命令：%s。请通过系统包管理器安装后重试；Linux 的 cmp 由 diffutils 提供。' ;;
-    required_command:en-US) host_message='Required host command is unavailable: %s. Install it with the system package manager and retry; Linux provides cmp in diffutils.' ;;
-    required_command:es-ES) host_message='Falta un comando necesario del sistema anfitrión: %s. Instálelo con el gestor de paquetes y vuelva a intentarlo; en Linux, cmp pertenece a diffutils.' ;;
-    required_command:pt-BR) host_message='Um comando obrigatório do sistema hospedeiro está indisponível: %s. Instale-o com o gerenciador de pacotes e tente novamente; no Linux, cmp faz parte do diffutils.' ;;
-    required_command:fr-FR) host_message='Une commande requise du système hôte est indisponible : %s. Installez-la avec le gestionnaire de paquets puis réessayez ; sous Linux, cmp est fourni par diffutils.' ;;
-    required_command:ja-JP) host_message='ホストに必要なコマンドがありません：%s。システムのパッケージマネージャーでインストールして再試行してください。Linux の cmp は diffutils に含まれています。' ;;
     credential:zh-CN) host_message='Docker 凭证助手不可用：%s。macOS 请启动 Docker Desktop，并执行 export PATH="/Applications/Docker.app/Contents/Resources/bin:$HOME/.docker/bin:$PATH" 后重试。保留 Docker 登录配置。' ;;
     credential:en-US) host_message='Docker credential helper is unavailable: %s. On macOS, start Docker Desktop and run export PATH="/Applications/Docker.app/Contents/Resources/bin:$HOME/.docker/bin:$PATH", then retry. Keep the Docker login configuration.' ;;
     credential:es-ES) host_message='El asistente de credenciales de Docker no está disponible: %s. En macOS, inicie Docker Desktop y ejecute export PATH="/Applications/Docker.app/Contents/Resources/bin:$HOME/.docker/bin:$PATH"; vuelva a intentarlo. Conserve la configuración de acceso de Docker.' ;;

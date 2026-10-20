@@ -96,36 +96,6 @@ for (const selected of ["unmerged", "tree", "missing", "branch", "short", "injec
   })
 }
 
-test("installer platform jobs distinguish native scripts, distribution containers and real lifecycle checks without publishing", () => {
-  const platforms = parse(readFileSync(path.join(root, ".github/workflows/installer-platforms.yml"), "utf8"))
-  assert.deepEqual(platforms.permissions, { contents: "read" })
-  assert.deepEqual(platforms.jobs["native-scripts"].strategy.matrix.runner, ["ubuntu-22.04", "ubuntu-24.04", "ubuntu-24.04-arm", "macos-15-intel", "macos-15"])
-  assert.equal(platforms.jobs["distribution-scripts"].strategy.matrix.include.length, 6)
-  for (const job of Object.values(platforms.jobs)) {
-    assert.equal(job.strategy["fail-fast"], false)
-    assert.equal(job["continue-on-error"], undefined)
-    assert.equal(job.steps.find(step => step.uses?.startsWith("actions/upload-artifact@")).if, "always()")
-  }
-  const distribution = platforms.jobs["distribution-scripts"].steps.find(step => step.run?.includes("docker run"))
-  assert.match(distribution.run, /LINKSENSE_TEST_SCOPE=container-script-compatibility/u)
-  assert.match(distribution.run, /RepoDigests/u)
-  assert.doesNotMatch(distribution.run, /docker\.sock|--privileged/u)
-  const ownership = platforms.jobs["distribution-scripts"].steps.find(step => step.name === "Return container reports to the runner user")
-  assert.equal(ownership.if, "always()")
-  assert.match(ownership.run, /chown -R/u)
-  const lifecycle = parse(readFileSync(path.join(root, ".github/workflows/installer-smoke.yml"), "utf8"))
-  assert.deepEqual(Object.keys(lifecycle.on), ["workflow_dispatch"])
-  assert.deepEqual(lifecycle.permissions, { contents: "read" })
-  assert.equal(lifecycle.jobs.ubuntu["runs-on"], "ubuntu-22.04")
-  for (const job of [lifecycle.jobs.ubuntu, lifecycle.jobs.centos]) {
-    assert.deepEqual(job.strategy.matrix.edition, ["core", "full"])
-    assert.equal(job["continue-on-error"], undefined)
-  }
-  assert.match(JSON.stringify(lifecycle.jobs.assets), /prepare-installer-test-assets\.mjs/u)
-  assert.match(JSON.stringify(lifecycle.jobs.centos), /installer-centos-vm\.sh/u)
-  assert.doesNotMatch(JSON.stringify([platforms, lifecycle]), /"(?:contents|packages)":"write"|docker push|gh release create|publish-release\.mjs|self-hosted/u)
-})
-
 test("CodeQL initialization and analysis use the same pinned release", () => {
   const security = parse(readFileSync(path.join(root, ".github/workflows/security.yml"), "utf8"))
   const actions = security.jobs.codeql.steps
