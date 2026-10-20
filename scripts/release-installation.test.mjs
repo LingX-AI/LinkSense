@@ -1451,7 +1451,7 @@ test("the release workflow reuses verified main checks before promotion", async 
   assert.match(workflow, /require_successful_workflow security\.yml Security push,public,workflow_dispatch,schedule/u)
   assert.match(workflow, /env\.WORKFLOW_EVENTS \| split\(","\) \| index\(\$event\)/u)
   assert.match(workflow, /\.name == "codeql" and \.conclusion == "success"/u)
-  assert.match(workflow, /-f head_sha="\$GITHUB_SHA"/u)
+  assert.match(workflow, /-f head_sha="\$SOURCE_SHA"/u)
   assert.match(workflow, /-f status=completed/u)
   assert.doesNotMatch(workflow, /^  verify:/mu)
   assert.doesNotMatch(workflow, /pnpm (?:install|test|typecheck|lint|build)/u)
