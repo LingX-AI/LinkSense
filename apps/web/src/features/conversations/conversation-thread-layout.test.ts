@@ -50,8 +50,9 @@ describe("conversation message navigation layout", () => {
     expect(composerDockRule).toMatch(
       /padding-inline:\s*var\(--conversation-horizontal-gutter\);/u
     )
+    expect(bottomStackRule).toMatch(/--conversation-bottom-inset:\s*18px;/u)
     expect(bottomStackRule).toMatch(
-      /inset:\s*auto var\(--conversation-horizontal-gutter\) 18px;/u
+      /inset:\s*auto var\(--conversation-horizontal-gutter\)\s*var\(--conversation-bottom-inset\);/u
     )
     expect(markdownRule).toMatch(/width:\s*100%;/u)
     expect(markdownRule).toMatch(/max-width:\s*100%;/u)

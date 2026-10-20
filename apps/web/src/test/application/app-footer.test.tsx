@@ -19,7 +19,7 @@ describe("application attribution footer", () => {
   setupApplicationTests()
 
   it.each(sections)(
-    "reserves a bottom footer outside the scrolling content at $path",
+    "shares the content width with compact attribution outside the scrolling content at $path",
     async ({ path, label }) => {
       installApiMock()
       renderApp(path)
@@ -37,17 +37,25 @@ describe("application attribution footer", () => {
         within(sidebar).getByRole("link", { name: label })
       ).toHaveAttribute("aria-current", "page")
       expect(main).toHaveClass("min-h-0", "flex-1")
-      expect(main.parentElement).toHaveClass("flex", "min-h-0", "flex-col")
+      expect(main.parentElement).toHaveClass(
+        "shell-content",
+        "@container/shell-content",
+        "relative",
+        "flex",
+        "min-h-0",
+        "flex-col"
+      )
       expect(main.nextElementSibling).toBe(footer)
       expect(main).not.toContainElement(attribution)
       expect(footer).toContainElement(attribution)
       expect(footer).toHaveClass(
-        "h-12",
+        "shell-attribution",
         "shrink-0",
-        "justify-center",
-        "md:h-16",
-        "md:justify-end"
+        "justify-end",
+        "[--attribution-inset:18px]",
+        "pb-[var(--attribution-inset)]"
       )
+      expect(footer).not.toHaveClass("h-8", "h-12", "md:h-16", "fixed")
       expect(attribution).not.toHaveClass("fixed")
     }
   )
@@ -62,16 +70,18 @@ describe("application attribution footer", () => {
       const attribution = screen.getByRole("link", {
         name: "由 LinkSense 提供支持",
       })
+      const frame = attribution.parentElement
       const bottomStack = input.closest(".conversation-bottom-stack")
 
       expect(bottomStack).not.toBeNull()
-      expect(attribution.parentElement).toBe(bottomStack)
-      expect(attribution).toHaveClass(
+      expect(frame?.parentElement).toBe(bottomStack)
+      expect(frame).toHaveAttribute("data-placement", "conversation")
+      expect(frame).toHaveClass(
         "hidden",
-        "md:inline-flex",
+        "md:flex",
         "@min-[76rem]/conversation-workspace:absolute"
       )
-      expect(attribution).not.toHaveClass("absolute", "fixed")
+      expect(frame).not.toHaveClass("absolute", "fixed")
       expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument()
     }
   )
@@ -103,8 +113,8 @@ describe("application attribution footer", () => {
     expect(
       within(screen.getByRole("main")).getByRole("link", {
         name: "由 LinkSense 提供支持",
-      })
-    ).toHaveClass("hidden", "md:inline-flex")
+      }).parentElement
+    ).toHaveClass("hidden", "md:flex")
   })
 
   it("keeps attribution outside the overview translation when the panel is toggled", async () => {
@@ -116,6 +126,7 @@ describe("application attribution footer", () => {
     const attribution = screen.getByRole("link", {
       name: "由 LinkSense 提供支持",
     })
+    const frame = attribution.parentElement
     const workspace = composer.closest(".conversation-workspace")
     const bottomStack = composer.closest(".conversation-bottom-stack")
     const shiftRule = appStyles.match(
@@ -128,9 +139,9 @@ describe("application attribution footer", () => {
       expect(composer.matches(shiftSelector)).toBe(true)
       expect(bottomStack?.matches(shiftSelector)).toBe(false)
       expect(attribution.closest(shiftSelector)).toBeNull()
-      expect(attribution.parentElement).toBe(bottomStack)
-      expect(attribution).toHaveClass(
-        "@min-[76rem]/conversation-workspace:right-1"
+      expect(frame?.parentElement).toBe(bottomStack)
+      expect(frame).toHaveClass(
+        "@min-[76rem]/conversation-workspace:right-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))]"
       )
     }
 

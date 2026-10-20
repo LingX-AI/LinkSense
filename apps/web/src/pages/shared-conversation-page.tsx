@@ -15,14 +15,6 @@ import { projectConversationForSharing } from "@/features/conversations/conversa
 import { ConversationThread } from "@/features/conversations/conversation-thread"
 import { cn } from "@/lib/utils"
 
-function SharedConversationFooter() {
-  return (
-    <footer className="flex shrink-0 justify-end px-7 pt-2 pb-[22px] max-md:justify-center max-md:px-3.5 max-md:pb-3.5">
-      <PoweredByLinkSense />
-    </footer>
-  )
-}
-
 export function SharedConversationPage() {
   const { shareId } = useParams()
   const { t } = useTranslation()
@@ -56,7 +48,7 @@ export function SharedConversationPage() {
         <main className="grid min-h-0 flex-1 place-items-center p-6">
           <LoadingState />
         </main>
-        <SharedConversationFooter />
+        <PoweredByLinkSense placement="page" />
       </div>
     )
   }
@@ -69,7 +61,7 @@ export function SharedConversationPage() {
             onRetry={() => void shareQuery.refetch()}
           />
         </main>
-        <SharedConversationFooter />
+        <PoweredByLinkSense placement="page" />
       </div>
     )
   }
@@ -102,7 +94,7 @@ export function SharedConversationPage() {
           embedded
         />
       </main>
-      <SharedConversationFooter />
+      <PoweredByLinkSense placement="page" />
     </div>
   )
 }

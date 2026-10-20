@@ -63,12 +63,12 @@
 | --- | --- | --- | --- |
 | Core 评估 | 4+ vCPU、8+ GiB 内存、60+ GiB 可用 SSD | 8 vCPU、16 GiB、100 GiB 可用 SSD | 新安装默认允许 1 个并发对话。 |
 | Core 共享服务器 | 8 vCPU、16 GiB 内存、120 GiB 可用 SSD | 16 vCPU、32 GiB、200 GiB 可用 SSD | 每个活跃用户的 Worker 默认内存上限为 4 GiB，需单独规划并发容量。 |
-| Full（新安装） | 8+ vCPU、24+ GiB 内存、120+ GiB 可用 SSD | 16 vCPU、32 GiB、200 GiB 可用 SSD | 包含 Elasticsearch 和 Docling；OCR、大文档需额外余量。 |
+| Full（新安装） | 8+ vCPU、10+ GiB 内存、120+ GiB 可用 SSD | 16 vCPU、32 GiB、200 GiB 可用 SSD | 最低配置允许内存超配；OCR、大文档及并发任务需额外余量。 |
 | Docker 源码开发 / `pnpm dev` | 8 vCPU、24 GiB 内存、120 GiB 可用 SSD | 16 vCPU、32 GiB、200 GiB 可用 SSD | 构建并运行开发栈，包含知识服务和任务 Worker。 |
 
 以上配置覆盖使用外部模型 API 的 LinkSense。本地大模型及其 GPU 需单独计算。长期共享部署优先使用 Linux + Docker；macOS + Docker Desktop 可用于评估和开发，但虚拟机必须获得足够资源。16 GiB Mac 建议先选 Core。
 
-内存预检读取 Docker Engine 实际可用内存。使用 Docker Desktop 时，这指虚拟机分配的内存，而非宿主机总内存；标称分配 8 GB 时，实际可用值可能不足 8 GiB。请在 Settings → Resources → Advanced → Memory limit 调整分配，Core 建议至少 10–12 GB，新安装 Full 也应为 24 GiB 的实际可用要求留出余量，然后应用更改并重启 Docker Desktop。旧安装修复和升级保留已有配置，按已配置资源预算检查，不强制套用新安装的 24 GiB 门槛。
+内存预检读取 Docker Engine 实际可用内存。使用 Docker Desktop 时，这指虚拟机分配的内存，而非宿主机总内存；标称分配 8 GB 时，实际可用值可能不足 8 GiB。请在 Settings → Resources → Advanced → Memory limit 调整分配，Core 建议至少 10–12 GB，Full 也应为 10 GiB 的实际可用最低要求留出余量，然后应用更改并重启 Docker Desktop。Full 的服务内存上限合计超过可用内存时告警并继续，不降低各容器上限，也不保证峰值内存足够。旧安装修复和升级保留已有配置。
 自动工具适配、资源配置、CPU 兼容模式、代理及恢复方式见[安装器主机适配说明](deploy/release/HOST-ADAPTATION.md)。
 完整要求见[部署参考](#部署参考)。
 

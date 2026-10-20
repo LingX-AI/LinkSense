@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { NativeCodexItem } from "@/api/contracts"
 import { NativeActivityItem } from "@/features/conversations/native-activity-item"
 import { buildNativeActivityViewModel } from "@/features/conversations/native-activity-view-model"
-import i18n from "@/i18n"
+import i18n, { supportedLanguages } from "@/i18n"
 
 describe("NativeActivityItem", () => {
   beforeEach(async () => {
@@ -472,6 +472,90 @@ describe("NativeActivityItem", () => {
       screen.getByText("No knowledge bases are available for this run")
     ).toBeVisible()
   })
+
+  it.each(supportedLanguages)(
+    "keeps image generation outcomes on their localized activity record in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const item = {
+        id: "image-outcome",
+        type: "mcpToolCall" as const,
+        server: "linksense_core",
+        tool: "generate_image",
+        status: "inProgress" as const,
+      }
+      const { rerender } = render(
+        <NativeActivityItem method="item/started" item={item} />
+      )
+      expect(
+        screen.getByText(
+          i18n.t("conversation.nativeActivities.imageGenerationRunning")
+        )
+      ).toBeVisible()
+
+      const failed = {
+        ...item,
+        status: "completed" as const,
+        imageGenerationFailureCode:
+          "IMAGE_GENERATION_PROVIDER_REJECTED" as const,
+      }
+      rerender(<NativeActivityItem method="item/completed" item={failed} />)
+      expect(
+        screen.getByText(i18n.t("conversation.imageGeneration.failed"))
+      ).toBeVisible()
+      expect(
+        screen.queryByText("IMAGE_GENERATION_PROVIDER_REJECTED")
+      ).toBeNull()
+      expect(screen.queryByText("linksense_core")).toBeNull()
+      expect(
+        buildNativeActivityViewModel(failed, "item/completed").status
+      ).toBe("completed")
+
+      rerender(
+        <NativeActivityItem
+          method="item/completed"
+          item={{ ...item, status: "failed" }}
+        />
+      )
+      expect(
+        screen.getByText(i18n.t("conversation.imageGeneration.failed"))
+      ).toBeVisible()
+
+      rerender(<NativeActivityItem method="item/started" item={item} stopped />)
+      expect(
+        screen.getByText(i18n.t("conversation.imageGeneration.stopped"))
+      ).toBeVisible()
+      expect(screen.queryByRole("status")).toBeNull()
+
+      rerender(
+        <NativeActivityItem
+          method="item/completed"
+          item={{
+            ...item,
+            status: "completed",
+            generatedImageFileIds: ["30000000-0000-4000-8000-000000000011"],
+          }}
+        />
+      )
+      expect(
+        screen.getByText(
+          i18n.t("conversation.nativeActivities.imageGenerationCompleted")
+        )
+      ).toBeVisible()
+
+      rerender(
+        <NativeActivityItem
+          method="item/completed"
+          item={{ ...item, status: "completed" }}
+        />
+      )
+      expect(
+        screen.getByText(
+          i18n.t("conversation.nativeActivities.imageGenerationFinished")
+        )
+      ).toBeVisible()
+    }
+  )
 
   it("deduplicates changed paths across adjacent file-change items", async () => {
     const interaction = userEvent.setup()

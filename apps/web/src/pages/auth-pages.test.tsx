@@ -176,6 +176,18 @@ describe("LoginPage session restoration", () => {
     expect(selector).toHaveClass("rounded-md")
     expect(selector).not.toHaveClass("rounded-lg", "rounded-full")
   })
+
+  it("uses the shared attribution placement outside the login form", () => {
+    renderLoginPageWithAuthStatus("anonymous")
+    const attribution = screen.getByRole("link", {
+      name: "由 LinkSense 提供支持",
+    })
+    const frame = attribution.parentElement
+    expect(frame).toHaveAttribute("data-slot", "powered-by-linksense")
+    expect(frame).toHaveAttribute("data-placement", "public")
+    expect(frame).toHaveClass("[--attribution-inset:18px]")
+    expect(screen.getByRole("main")).not.toContainElement(frame)
+  })
   beforeEach(async () => {
     teamsAdapterMocks.detectTeamsHost.mockClear()
     teamsAdapterMocks.getTeamsSsoToken.mockClear()

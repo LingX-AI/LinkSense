@@ -87,14 +87,14 @@ describe("InitializePage", () => {
   it("reports every invalid field inline and focuses the first one", async () => {
     const interaction = userEvent.setup()
     renderPage()
-    expect(
-      screen.getByRole("link", { name: "由 LinkSense 提供支持" })
-    ).toHaveClass(
-      "mr-3",
-      "-mb-2.5",
-      "max-md:mr-0",
-      "max-md:self-center",
-      "max-md:mb-1"
+    const attribution = screen.getByRole("link", {
+      name: "由 LinkSense 提供支持",
+    }).parentElement
+    expect(attribution).toHaveAttribute("data-placement", "public")
+    expect(attribution).toHaveClass(
+      "[--attribution-inset:18px]",
+      "pb-[var(--attribution-inset)]",
+      "mt-auto"
     )
 
     await interaction.click(

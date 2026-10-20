@@ -500,7 +500,7 @@ describe("WorkspaceManager", () => {
     expect(initial).toMatchObject({
       custom_instructions: "",
       memories_enabled: false,
-      show_reasoning: false,
+      show_reasoning: true,
       task_auto_naming: "first_message",
     })
 
@@ -533,7 +533,7 @@ describe("WorkspaceManager", () => {
     expect(other).toMatchObject({
       custom_instructions: "",
       memories_enabled: false,
-      show_reasoning: false,
+      show_reasoning: true,
       task_auto_naming: "first_message",
     })
     manager.bindOwner(taskB, ownerB)
@@ -546,7 +546,7 @@ describe("WorkspaceManager", () => {
     )
   })
 
-  it("defaults existing personalization files to hidden reasoning and persists visibility independently per owner", async () => {
+  it("defaults missing reasoning settings to visible and preserves saved opt-outs independently per owner", async () => {
     const root = await tempRoot()
     const manager = new WorkspaceManager(root)
     const initial = await manager.updatePersonalization(ownerA, {
@@ -554,19 +554,20 @@ describe("WorkspaceManager", () => {
       memories_enabled: true,
       task_auto_naming: "every_message",
     })
-    expect(initial.show_reasoning).toBe(false)
+    expect(initial.show_reasoning).toBe(true)
     const statePath = path.join(manager.ownerPathsFor(ownerA).control, "personalization.json")
     const state = JSON.parse(await readFile(statePath, "utf8"))
     delete state.show_reasoning
     await writeFile(statePath, JSON.stringify(state))
     expect(await manager.getPersonalization(ownerA)).toEqual(initial)
-    const updated = await manager.updatePersonalization(ownerA, { show_reasoning: true })
-    expect(updated).toMatchObject({ ...initial, show_reasoning: true, revision: updated.revision })
-    expect((await manager.getPersonalization(ownerB)).show_reasoning).toBe(false)
+    const updated = await manager.updatePersonalization(ownerA, { show_reasoning: false })
+    expect(updated).toMatchObject({ ...initial, show_reasoning: false, revision: updated.revision })
+    expect(updated.revision).not.toBe(initial.revision)
+    expect((await manager.getPersonalization(ownerB)).show_reasoning).toBe(true)
     const restarted = new WorkspaceManager(root)
-    expect((await restarted.getPersonalization(ownerA)).show_reasoning).toBe(true)
+    expect(await restarted.getPersonalization(ownerA)).toEqual(updated)
     const renamed = await restarted.updatePersonalization(ownerA, { task_auto_naming: "first_message" })
-    expect(renamed.show_reasoning).toBe(true)
+    expect(renamed.show_reasoning).toBe(false)
   })
 
   it("does not widen API-managed Skill and Plugin source directories", async () => {

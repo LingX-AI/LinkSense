@@ -314,7 +314,12 @@ export class ImageGenerationSettingsService {
       generatedImagePayloadSchema.parse({
         data_base64: image.bytes.toString("base64"),
         mime_type: image.mimeType,
-        display_name: generatedImageName(runtime.model, index, image.mimeType),
+        display_name: generatedImageName(
+          request.image_name,
+          index,
+          preparedImages.length,
+          image.mimeType,
+        ),
         has_transparency: image.hasTransparency,
       }),
     )
@@ -1265,13 +1270,15 @@ function isControlCharacter(value: string): boolean {
 }
 
 function generatedImageName(
-  model: string,
+  imageName: string,
   index: number,
+  count: number,
   mimeType: ProviderImage["mimeType"],
 ): string {
   const extension =
     mimeType === "image/jpeg" ? "jpg" : mimeType === "image/webp" ? "webp" : "png"
-  return `${model.replace(/[^A-Za-z0-9._-]+/gu, "-")}-${index + 1}.${extension}`
+  const name = imageName.normalize("NFC").replace(/\.(?:png|jpe?g|webp)$/iu, "")
+  return `${name}${count > 1 ? `-${index + 1}` : ""}.${extension}`
 }
 
 function providerMaxImages(

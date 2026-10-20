@@ -48,7 +48,7 @@ import {
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
-import { PoweredByLinkSenseFooter } from "@/components/brand/powered-by-linksense"
+import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import { ProductLogo } from "@/components/brand/product-logo"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -1559,7 +1559,7 @@ export function AppShell() {
           onCollapse={() => setSidebarCollapsed(true)}
         />
       </aside>
-      <div className="flex min-h-0 min-w-0 flex-col">
+      <div className="shell-content @container/shell-content relative flex min-h-0 min-w-0 flex-col">
         <main
           className="app-main min-h-0 flex-1"
           data-compact-top-bar={usesCompactTopBar ? "true" : undefined}
@@ -1592,7 +1592,7 @@ export function AppShell() {
           <SystemUpdateNotice />
           <Outlet />
         </main>
-        {!usesCompactTopBar && <PoweredByLinkSenseFooter />}
+        {!usesCompactTopBar && <PoweredByLinkSense />}
       </div>
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent

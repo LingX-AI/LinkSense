@@ -42,8 +42,8 @@ MinIO 使用维护中的 [PGSTY SILO](https://github.com/pgsty/silo) 分发：�
 2. 创建仓库变量 `LINKSENSE_RELEASE_ACTOR`，值为唯一允许手动发版的 GitHub 用户名。发布工作流只接受该用户从 `main` 分支发起的 `workflow_dispatch`。
 3. 在 Actions 设置中允许仓库工作流运行，并允许 `GITHUB_TOKEN` 创建 Release 和写入 Packages。无需保存长期 Personal Access Token 到仓库 Secrets。
 4. 将 Actions artifact 最大保留期设为至少 30 天；工作流将发布输入和构建中间产物单独设为 3 天，镜像扫描报告设为 30 天。建议为 Actions 设置预算和告警，并禁止意外超额计费。
-5. 镜像构建继续使用 `ubuntu-24.04` 和 `ubuntu-24.04-arm` 托管 Runner；安装验收须另行准备原生 amd64 / arm64 的大规格托管 Runner，或一次性的专用 Runner。标准托管机器的 16 GB 内存不能满足 Full 新安装的要求。
-6. 设置仓库变量 `LINKSENSE_INSTALLATION_RUNNER_AMD64` 和 `LINKSENSE_INSTALLATION_RUNNER_ARM64` 为对应架构验收 Runner 的标签。每台机器必须向 Docker 提供至少 24 GiB 内存，并使用空的、独立的一次性 Docker 环境；不能指向共享或生产主机。Core 单独要求至少 8 GiB，但同一配置还要运行 Full。发布准备阶段在镜像构建前检查这两个变量，验收阶段仍验证实际内存并执行真实安装、修复和升级，不能跳过门禁。其他资源要求见 README。
+5. 镜像构建和安装验收默认使用 `ubuntu-24.04` 和 `ubuntu-24.04-arm` 原生托管 Runner，无需另行配置专用 Runner。
+6. 如需使用其他 Runner，可选设置仓库变量 `LINKSENSE_INSTALLATION_RUNNER_AMD64` 和 `LINKSENSE_INSTALLATION_RUNNER_ARM64` 为对应架构的标签。Core 验收要求 Docker 至少 8 GiB，Full 要求至少 10 GiB；必须使用空的、独立的一次性 Docker 环境，不能指向共享或生产主机。Full 的容器内存上限合计超出可用内存时告警并继续，不降低各容器上限；并发或大文档仍可能耗尽内存。真实安装、修复、升级、OCR 和稳定性失败仍阻止发布，不能跳过。其他资源要求见 README。
 7. 通过 PR 审核合入 `main`。发布准备任务强制检查同一提交的 CI 和 Security 结果；如仓库套餐支持，再配置相应分支保护或规则集。
 
 GHCR 包必须允许匿名拉取。首次生成候选镜像后，组织所有者需检查下列包的可见性，并将尚未公开的包设为 Public：

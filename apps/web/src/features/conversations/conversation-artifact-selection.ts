@@ -20,11 +20,13 @@ export function selectConversationArtifactCards({
   turns,
   finalMessagesByTurn,
   inlineArtifactIds,
+  activityImageArtifactIds,
 }: Readonly<{
   files: readonly ConversationFile[]
   turns: readonly ConversationTurn[]
   finalMessagesByTurn: ReadonlyMap<string, ConversationMessage>
   inlineArtifactIds: ReadonlySet<string>
+  activityImageArtifactIds: ReadonlySet<string>
 }>): Map<string, Map<string, ConversationFile>> {
   const filesByTurn = new Map<string, Map<string, ConversationFile>>()
   for (const file of files) {
@@ -44,10 +46,13 @@ export function selectConversationArtifactCards({
       .filter((checksum) => checksum !== null)
     const hasDuplicateImages =
       new Set(imageChecksums).size < imageChecksums.length
+    const hasActivityImages = turnFiles.some((file) =>
+      activityImageArtifactIds.has(file.id.toLowerCase())
+    )
     const deliveryIds = new Set(
-      // Parse the reply only when choosing between aliases of the same image.
-      // Ordinary streaming text and unrelated documents need no Markdown work.
-      finalMessage && hasDuplicateImages
+      // An image viewed during processing becomes a deliverable only when the
+      // final reply explicitly references it. A separate registration is kept.
+      finalMessage && (hasDuplicateImages || hasActivityImages)
         ? resolveConversationDeliveryFiles(finalMessage.content, turnFiles).map(
             (file) => file.id.toLowerCase()
           )
@@ -61,7 +66,12 @@ export function selectConversationArtifactCards({
     )
     const selected = new Map<string, ConversationFile>()
     for (const file of turnFiles) {
-      if (inlineArtifactIds.has(file.id.toLowerCase())) continue
+      const id = file.id.toLowerCase()
+      if (
+        inlineArtifactIds.has(id) ||
+        (activityImageArtifactIds.has(id) && !deliveryIds.has(id))
+      )
+        continue
       const checksum = imageChecksum(file)
       if (
         checksum &&
@@ -82,7 +92,13 @@ export function selectConversationArtifactCards({
       turn.id,
       new Map([...selected.values()].map((file) => [file.id, file]))
     )
-    for (const checksum of imageChecksums) previousImageChecksums.add(checksum)
+    // A collapsed process preview is not a delivered image. Its digest must
+    // not suppress the download for a separately registered output later.
+    for (const checksum of inlineChecksums) previousImageChecksums.add(checksum)
+    for (const file of selected.values()) {
+      const checksum = imageChecksum(file)
+      if (checksum) previousImageChecksums.add(checksum)
+    }
   }
   return result
 }

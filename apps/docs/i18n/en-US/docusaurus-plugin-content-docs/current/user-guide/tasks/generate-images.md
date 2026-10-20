@@ -25,9 +25,11 @@ Explicitly request a transparent background for stickers, icons, product cutouts
 
 ## View results and cost
 
-Generated images appear as task artifacts for preview or download. You can also find them under **Library → Task artifacts**. The administrator configures a per-image price for the generation service; the number of images actually generated contributes to usage and credits.
+Generated images replace the loading area directly. When a turn generates multiple images, the selected image appears on the left with thumbnails on the right. Click a thumbnail to switch images. Click the main image to open a larger preview and hover over it to reveal the download button; on touch devices, the download button stays visible. Images receive descriptive scene names, with sequence numbers for images generated together. You can also find them under **Library → Task artifacts**. The administrator configures a per-image price for the generation service; the number of images actually generated contributes to usage and credits.
 
 ## If generation fails
+
+Images created with code or SVG rendering also appear in the image gallery once registered as task artifacts, with preview, switching, and download controls. Reference images viewed during processing do not replace the final deliverables.
 
 - **Not configured or disabled:** ask an administrator to configure image generation.
 - **Provider rejected the request:** review the prompt, model, or administrator configuration before submitting a revised request.

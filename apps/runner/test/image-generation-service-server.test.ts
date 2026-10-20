@@ -29,7 +29,11 @@ afterEach(async () => {
 });
 
 describe("LinkSense Core MCP image generation module", () => {
-  it.each(["alibaba_bailian", "openai_compatible"] as const)("generates images with %s, saves them under artifacts, and registers them", async (provider) => {
+  it.each([
+    ["alibaba_bailian", "午后窗台上的柯基.png"],
+    ["openai_compatible", "午后窗台上的柯基.png"],
+    ["openai_compatible", `${"窗".repeat(100)}.png`],
+  ] as const)("generates images with %s, preserves the scene name %s, and registers them", async (provider, displayName) => {
     const workspace = await mkdtemp(join(tmpdir(), "linksense-image-mcp-"));
     roots.push(workspace);
     const requests: Array<{
@@ -68,7 +72,7 @@ describe("LinkSense Core MCP image generation module", () => {
                 {
                   data_base64: pngBytes.toString("base64"),
                   mime_type: "image/png",
-                  display_name: "qwen-image-3.0-1.png",
+                  display_name: displayName,
                   has_transparency: true,
                 },
               ],
@@ -81,7 +85,7 @@ describe("LinkSense Core MCP image generation module", () => {
             success: true,
             artifact_id: "01900000-0000-7000-8000-000000000010",
             file_id: "01900000-0000-7000-8000-000000000011",
-            display_name: "qwen-image-3.0-1.png",
+            display_name: displayName,
             download_card_event_id: "01900000-0000-7000-8000-000000000012",
           }),
         );
@@ -115,13 +119,12 @@ describe("LinkSense Core MCP image generation module", () => {
     });
     await expect(rpc.call(2, "tools/list", {})).resolves.toMatchObject({
       tools: expect.arrayContaining([
-        expect.objectContaining({ name: "generate_image" }),
+        expect.objectContaining({ name: "generate_image", inputSchema: expect.objectContaining({ required: ["prompt", "image_name"] }) }),
       ]),
     });
     const result = await rpc.call(3, "tools/call", {
       name: "generate_image",
-      arguments: {
-        prompt: "A clean product mockup",
+      arguments: { image_name: displayName.replace(/\.png$/u, ""), prompt: "A clean product mockup",
         count: 1,
         size: "1024x1024",
         background: "transparent",
@@ -141,7 +144,7 @@ describe("LinkSense Core MCP image generation module", () => {
         {
           artifact_id: "01900000-0000-7000-8000-000000000010",
           file_id: "01900000-0000-7000-8000-000000000011",
-          display_name: "qwen-image-3.0-1.png",
+          display_name: displayName,
           download_card_event_id: "01900000-0000-7000-8000-000000000012",
           mime_type: "image/png",
           has_transparency: true,
@@ -154,7 +157,7 @@ describe("LinkSense Core MCP image generation module", () => {
     expect(registerRequest).toMatchObject({
       authorization: `Bearer ${fileToken}`,
       body: expect.objectContaining({
-        displayName: "qwen-image-3.0-1.png",
+        displayName,
         mimeType: "image/png",
         artifactKind: "generated_image",
       }),
@@ -163,6 +166,8 @@ describe("LinkSense Core MCP image generation module", () => {
       registerRequest?.body as { workspaceRelativePath: string }
     ).workspaceRelativePath;
     expect(workspaceRelativePath).toMatch(/^artifacts\//u);
+    expect(Buffer.byteLength(workspaceRelativePath.slice("artifacts/".length), "utf8")).toBeLessThanOrEqual(255);
+    expect(workspaceRelativePath).toContain(displayName.slice(0, 8));
     await expect(readFile(join(workspace, workspaceRelativePath))).resolves.toEqual(
       pngBytes,
     );
@@ -176,6 +181,7 @@ describe("LinkSense Core MCP image generation module", () => {
       url: "/generate",
       authorization: `Bearer ${imageToken}`,
       body: {
+        image_name: displayName.replace(/\.png$/u, ""),
         prompt: "A clean product mockup",
         count: 1,
         size: "1024x1024",
@@ -248,7 +254,7 @@ describe("LinkSense Core MCP image generation module", () => {
 
     const result = await rpc.call(1, "tools/call", {
       name: "generate_image",
-      arguments: { prompt: "A clean product mockup", count: 1 },
+      arguments: { image_name: "场景图片", prompt: "A clean product mockup", count: 1 },
     });
 
     expect(result).toMatchObject({ isError: true });
@@ -297,8 +303,7 @@ describe("LinkSense Core MCP image generation module", () => {
 
     const result = await rpc.call(1, "tools/call", {
       name: "generate_image",
-      arguments: {
-        prompt: "A clean product mockup",
+      arguments: { image_name: "场景图片", prompt: "A clean product mockup",
         count: 1,
       },
     });
