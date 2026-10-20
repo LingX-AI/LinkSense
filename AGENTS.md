@@ -202,6 +202,7 @@ Before considering a feature complete, confirm that:
 - Never use npm, yarn, or npx to install dependencies, run scripts, or generate a lockfile.
 - Never run Prettier from `apps/web` to format other repository packages directly. Format web files with `pnpm --filter @linksense/web format -- <path>`; this command rejects paths outside `apps/web`.
 - Never edit the lockfile manually or modify dependency, cache, or build-output directories such as `node_modules/`, `dist/`, `build/`, `coverage/`, `.vite/`, or `.turbo/`.
+- Never change bundled help documentation or built-in Skill writers without updating `BUILT_IN_CAPABILITY_RUNTIME_REVISION` to the generated content digest and verifying both the fingerprint and existing-snapshot refresh tests.
 - Never run drop, truncate, reset, irreversible migrations, historical-field deletion, or other destructive database operations without first confirming the data risks.
 - Never modify a migration that has already been applied to a development, test, or deployed database. Add a new forward migration for subsequent column, constraint, or data fixes, and preserve the checksum of published migration files.
 - Never accumulate complex request and business logic in frontend components, or business logic and scattered Prisma queries in backend routes.
