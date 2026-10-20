@@ -6,11 +6,16 @@ import {
   imageGenerationMcpFailureSchema,
   imageGenerationMcpSuccessSchema,
   imageGenerationRequestSchema,
+  imageGenerationToolRequestSchema,
+  imageEditingLimits,
   type ImageGenerationMcpFailure,
   type ImageGenerationMcpSuccess,
 } from "@linksense/shared"
 import type { Tool } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
+import sharp from "sharp"
+
+import { readWorkspaceDocument } from "./document-conversion.js"
 
 import {
   removeSharedWorkspaceFile,
@@ -24,7 +29,7 @@ import {
   type CoreMcpToolModule,
 } from "../core-service-module.js"
 
-const generateImageArgumentsSchema = imageGenerationRequestSchema.extend({
+const generateImageArgumentsSchema = imageGenerationToolRequestSchema.safeExtend({
   conversation_id: z.uuid().optional(),
 })
 
@@ -100,6 +105,32 @@ export const imageGenerationCoreMcpModule = {
               ? {}
               : { chroma_key: arguments_.chroma_key }),
           }
+          let remainingBytes: number = imageEditingLimits.maxTotalBytes
+          const readImage = async (inputPath: string): Promise<NonNullable<z.infer<typeof imageGenerationRequestSchema>["input_images"]>[number]> => {
+            try {
+              const { bytes } = await readWorkspaceDocument(workspaceRoot, inputPath,
+                Math.min(imageEditingLimits.maxImageBytes, remainingBytes))
+              const metadata = await sharp(bytes, { limitInputPixels: imageEditingLimits.maxPixels }).metadata()
+              const mimeType = metadata.format === "png" ? "image/png" :
+                metadata.format === "jpeg" ? "image/jpeg" :
+                  metadata.format === "webp" ? "image/webp" : null
+              if (!mimeType || (metadata.pages ?? 1) > 1 || !metadata.width || !metadata.height) {
+                throw new Error("unsupported input image")
+              }
+              remainingBytes -= bytes.length
+              return { mime_type: mimeType, data_base64: bytes.toString("base64") }
+            } catch {
+              throw new ImageGenerationMcpError({ code: "IMAGE_GENERATION_INPUT_INVALID", retryable: false })
+            }
+          }
+          if (arguments_.input_images) {
+            requestBody.input_images = []
+            for (const inputPath of arguments_.input_images) {
+              requestBody.input_images.push(await readImage(inputPath))
+            }
+          }
+          if (arguments_.mask) requestBody.mask = await readImage(arguments_.mask)
+          if (input.signal.aborted) throw input.signal.reason
           const result = await requestImages({
             endpoint,
             token,
@@ -350,12 +381,21 @@ function asRecord(value: unknown): Record<string, unknown> {
 const generateImageTool = {
   name: "generate_image",
   description:
-    "Generate one or more raster images with the LinkSense configured image generation model, save them to the task workspace, and register them as downloadable artifacts.",
+    "Generate or edit raster images with the configured image model and register the results as artifacts. For editing, pass task-relative paths in input_images; the original image bytes are sent with the editing prompt. Never describe an original image as a substitute for providing it.",
   inputSchema: {
     type: "object",
     properties: {
       conversation_id: { type: "string", format: "uuid" },
       prompt: { type: "string" },
+      input_images: {
+        type: "array", minItems: 1, maxItems: imageEditingLimits.maxImages,
+        items: { type: "string" },
+        description: "Original or reference image paths relative to this task workspace, including attachments/ uploads or artifacts/ from an earlier generation. Preserve input order. PNG, JPEG and WebP only; at most 8 MiB per image and 10 MiB total including a mask. Do not pass URLs, absolute paths or Base64.",
+      },
+      mask: {
+        type: "string",
+        description: "Optional task-relative PNG mask path for supported editing models. Requires input_images. Match the first image dimensions; transparent areas identify where to edit.",
+      },
       image_name: {
         type: "string",
         minLength: 1,

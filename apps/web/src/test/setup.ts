@@ -29,6 +29,13 @@ class ResizeObserverMock {
 class DOMMatrixMock {}
 
 if (typeof window !== "undefined" && typeof HTMLElement !== "undefined") {
+  // JSDOM does not fetch or decode image resources. Tests that exercise the
+  // loading boundary override this promise to model pending or failed decodes.
+  Object.defineProperty(HTMLImageElement.prototype, "decode", {
+    configurable: true,
+    writable: true,
+    value: () => Promise.resolve(),
+  })
   // Async navigation still uses real modules while the browser suite shares CPU.
   configure({ asyncUtilTimeout: 3_000 })
   Object.defineProperty(document, "elementFromPoint", {

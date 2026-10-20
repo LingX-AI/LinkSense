@@ -131,6 +131,8 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.body.RelayState",
   "req.body.audio_data_url",
   "req.body.icon.data_base64",
+  "req.body.request.input_images[*].data_base64",
+  "req.body.request.mask.data_base64",
   "req.body.instruction",
   "req.body.verify_code",
   "req.body.app_secret",

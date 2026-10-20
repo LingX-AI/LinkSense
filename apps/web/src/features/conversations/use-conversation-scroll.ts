@@ -47,6 +47,7 @@ export function useConversationScroll(
     preservePositionOnConversationChange = false,
     navigationRef,
     interactionRef,
+    followBehavior = "auto",
   }: {
     preservePositionOnConversationChange?: boolean
     navigationRef?: RefObject<Pick<
@@ -54,6 +55,7 @@ export function useConversationScroll(
       "scrollToLatest" | "cancelScroll"
     > | null>
     interactionRef?: RefObject<HTMLElement | null>
+    followBehavior?: ScrollBehavior
   } = {}
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -580,7 +582,8 @@ export function useConversationScroll(
 
     const handleResize = () => {
       if (followingLatestRef.current) {
-        followLatestSmoothly()
+        if (followBehavior === "smooth") followLatestSmoothly()
+        else scrollToBottomImmediately()
       } else {
         updateButtonVisibility()
       }
@@ -605,7 +608,9 @@ export function useConversationScroll(
     cancelResizeFollow,
     container,
     content,
+    followBehavior,
     followLatestSmoothly,
+    scrollToBottomImmediately,
     updateButtonVisibility,
   ])
 

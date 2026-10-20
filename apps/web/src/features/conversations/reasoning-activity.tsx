@@ -44,6 +44,7 @@ export function ReasoningActivity({
   const { scrollContainerRef, contentRef, scrollToBottom, pauseAutoFollow } =
     useConversationScroll(reasoningId, {
       interactionRef: scrollAreaRef,
+      followBehavior: turnRunning ? "smooth" : "auto",
     })
 
   const registerViewport = useCallback(

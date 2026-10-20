@@ -593,6 +593,7 @@ describe("website management", () => {
     await userEvent.click(
       await screen.findByRole("option", { name: /旧站点/u })
     )
+    expect(close).not.toHaveBeenCalled()
     await waitFor(() =>
       expect(
         screen.getByRole("combobox", { name: "选择站点" })
@@ -630,7 +631,9 @@ describe("website management", () => {
     expect(
       await screen.findByRole("combobox", { name: "搜索站点名称或链接" })
     ).toHaveValue("")
+    expect(close).not.toHaveBeenCalled()
     await userEvent.keyboard("{Escape}")
+    expect(close).not.toHaveBeenCalled()
     expect(screen.getByRole("button", { name: "更新站点" })).toBeEnabled()
     await userEvent.click(screen.getByRole("button", { name: "更新站点" }))
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -642,6 +645,65 @@ describe("website management", () => {
     )
     expect(screen.getByRole("button", { name: "更新站点" })).toBeEnabled()
   })
+  it.each(["loading", "empty", "error", "populated"])(
+    "dismisses only the site picker on Escape while targets are %s",
+    async (state) => {
+      let finishLoading: () => void = () => undefined
+      const loading = new Promise<void>((resolve) => {
+        finishLoading = resolve
+      })
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          if (state === "loading") await loading
+          if (state === "error") throw new Error("offline")
+          return success({
+            items: state === "populated" ? [site] : [],
+            next_cursor: null,
+          })
+        })
+      )
+      const close = vi.fn()
+      mount(
+        <SiteDialog
+          action={{
+            kind: "share",
+            source: { conversationId: id, fileId, name: "new.html" },
+          }}
+          onClose={close}
+        />
+      )
+      await choosePublishMode("updateExisting")
+      const target = screen.getByRole("combobox", { name: "选择站点" })
+      await userEvent.click(target)
+      await screen.findByRole("combobox", { name: "搜索站点名称或链接" })
+      if (state === "empty")
+        expect(
+          await screen.findByText(i18n.t("webSites.noUpdateTargets"))
+        ).toBeVisible()
+      if (state === "error")
+        expect(
+          await screen.findByRole("button", { name: "重试" })
+        ).toBeVisible()
+      if (state === "populated")
+        expect(
+          await screen.findByRole("option", { name: /山海集/u })
+        ).toBeVisible()
+
+      try {
+        await userEvent.keyboard("{Escape}")
+        await waitFor(() =>
+          expect(target).toHaveAttribute("aria-expanded", "false")
+        )
+        expect(close).not.toHaveBeenCalled()
+        expect(screen.getByRole("dialog")).toBeVisible()
+        await userEvent.keyboard("{Escape}")
+        expect(close).toHaveBeenCalledOnce()
+      } finally {
+        await act(async () => finishLoading())
+      }
+    }
+  )
   it("does not silently create a new site when target loading fails or the list is empty", async () => {
     const fetch = vi.fn().mockRejectedValue(new Error("offline"))
     vi.stubGlobal("fetch", fetch)

@@ -30,6 +30,7 @@ import { readResponseWithLimit } from "../../lib/safe-http-fetch.js"
 import { detectSafeRasterImage } from "../../lib/safe-raster-image.js"
 import type { AuditContext } from "../audit/service.js"
 import type { ModelUsageRecorder } from "../usage/model-usage.js"
+import { inputImageDataUrl, validateImageEditingRequest } from "./image-editing.js"
 import {
   ImageTransparencyValidationError,
   prepareGeneratedImage,
@@ -246,6 +247,7 @@ export class ImageGenerationSettingsService {
       }),
     ])
     if (!turn) throw new AppError("IMAGE_GENERATION_TURN_INACTIVE")
+    await validateImageEditingRequest(runtime.provider, runtime.model, request)
 
     const maxImages = providerMaxImages(runtime.provider, runtime.model)
     const count = Math.min(request.count, maxImages)
@@ -596,7 +598,10 @@ async function generateWithAlibaba(
             messages: [
               {
                 role: "user",
-                content: [{ text: request.prompt }],
+                content: [
+                  ...(request.input_images ?? []).map((image) => ({ image: inputImageDataUrl(image) })),
+                  { text: request.prompt },
+                ],
               },
             ],
           },
@@ -624,6 +629,29 @@ async function generateWithOpenAI(
   fetchImpl: ImageGenerationFetch,
   signal?: AbortSignal,
 ): Promise<ProviderImage[]> {
+  if (request.input_images?.length) {
+    const form = new FormData()
+    form.set("model", runtime.model)
+    form.set("prompt", request.prompt)
+    form.set("n", String(request.count))
+    if (request.size) form.set("size", request.size)
+    if (runtime.provider === "openai_compatible") {
+      if (request.seed !== undefined) form.set("seed", String(request.seed))
+      if (request.negative_prompt) form.set("negative_prompt", request.negative_prompt)
+    }
+    for (const [index, image] of request.input_images.entries()) {
+      form.append("image[]", new Blob([Buffer.from(image.data_base64, "base64")], { type: image.mime_type }), `input-${index}.${image.mime_type.split("/")[1]}`)
+    }
+    if (request.mask) form.set("mask", new Blob([Buffer.from(request.mask.data_base64, "base64")], { type: request.mask.mime_type }), "mask.png")
+    if (transparencyStrategy.kind === "native") {
+      form.set("background", "transparent")
+      form.set("output_format", "png")
+    }
+    const response = await fetchImpl(`${runtime.baseUrl}/images/edits`, withAbortSignal({
+      method: "POST", headers: { authorization: `Bearer ${runtime.apiKey}` }, body: form,
+    }, signal))
+    return imagesFromJsonResponse(response, fetchImpl, signal)
+  }
   const response = await fetchImpl(
     `${runtime.baseUrl}/images/generations`,
     withAbortSignal(
@@ -680,6 +708,9 @@ async function generateWithTogether(
           n: request.count,
           response_format: "base64",
           output_format: "png",
+          ...(request.input_images?.length ? /^black-forest-labs\/FLUX\.2-/u.test(runtime.model)
+            ? { reference_images: request.input_images.map(inputImageDataUrl) }
+            : { image_url: inputImageDataUrl(request.input_images[0]!) } : {}),
           ...(dimensions ?? {}),
           ...(request.negative_prompt
             ? { negative_prompt: request.negative_prompt }
@@ -717,7 +748,10 @@ async function generateWithGoogle(
           "x-goog-api-key": runtime.apiKey,
         },
         body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: request.prompt }] }],
+          contents: [{ role: "user", parts: [
+            ...(request.input_images ?? []).map((image) => ({ inlineData: { mimeType: image.mime_type, data: image.data_base64 } })),
+            { text: request.prompt },
+          ] }],
           generationConfig: {
             responseModalities: ["IMAGE"],
             ...(aspectRatio || imageSize
@@ -803,6 +837,9 @@ async function generateWithFal(
           prompt: request.prompt,
           num_images: request.count,
           output_format: "png",
+          ...(request.input_images?.length ? runtime.model.includes("flux-2/") || runtime.model.endsWith("/multi")
+            ? { image_urls: request.input_images.map(inputImageDataUrl) }
+            : { image_url: inputImageDataUrl(request.input_images[0]!) } : {}),
           ...(dimensions ? { image_size: dimensions } : {}),
           ...(request.seed === undefined ? {} : { seed: request.seed }),
         }),
@@ -838,6 +875,7 @@ async function generateWithReplicate(
             prompt: request.prompt,
             num_outputs: request.count,
             output_format: "png",
+            ...(request.input_images?.[0] ? { input_image: inputImageDataUrl(request.input_images[0]) } : {}),
             ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
             ...(request.seed === undefined ? {} : { seed: request.seed }),
           },

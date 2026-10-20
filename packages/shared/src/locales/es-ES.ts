@@ -1,6 +1,8 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages = {
+  IMAGE_GENERATION_INPUT_INVALID: "No se puede leer la imagen para editarla. Usa PNG, JPEG o WebP de hasta 8 MB por imagen y 10 MB en total, incluida la máscara. La máscara debe ser un PNG transparente del mismo tamaño que la primera imagen.",
+  IMAGE_GENERATION_EDIT_UNSUPPORTED: "El modelo actual no admite esta edición. Usa menos imágenes de referencia, elimina la máscara o pide al administrador que seleccione un modelo compatible.",
   MODEL_PROVIDER_CREDENTIAL_REQUIRED: "Introduce una clave de API. Debes introducir una nueva clave si cambias el proveedor, la dirección del servicio o el proyecto en la nube.",
   MODEL_PROVIDER_DISCOVERY_FAILED: "No se pudo cargar la lista de modelos. Revisa la dirección del servicio y la clave, o introduce un modelo manualmente.",
   MODEL_PROVIDER_CONNECTION_FAILED: "La prueba de conexión falló. Revisa la dirección del servicio, la clave y el modelo, y confirma que el servicio admite el método de conexión seleccionado.",

@@ -158,7 +158,10 @@ describe("virtual conversation messages", () => {
     )
     function Harness() {
       const navigationRef = useRef<ConversationThreadNavigation>(null)
-      const scroll = useConversationScroll("streaming-task", { navigationRef })
+      const scroll = useConversationScroll("streaming-task", {
+        navigationRef,
+        followBehavior: "smooth",
+      })
       return (
         <div
           className="conversation-scroll"

@@ -25,12 +25,19 @@ type PreviewState =
   | Readonly<{
       status: "ready"
       requestKey: string
+      loader: LoadArtifactPreview
       source: ArtifactPreviewSource
     }>
-  | Readonly<{ status: "error"; requestKey: string }>
+  | Readonly<{
+      status: "error"
+      requestKey: string
+      loader: LoadArtifactPreview
+    }>
 
 type PreviewRequest = {
   promise: Promise<ArtifactPreviewSource>
+  source?: ArtifactPreviewSource
+  decoded?: boolean
   expiresAt?: number
   evictionTimer?: number
 }
@@ -50,10 +57,12 @@ export function AssistantMarkdownImage({
   loadPreview,
   onPreview,
   previewTriggerClassName,
+  surfaceClassName,
   placeholderClassName,
   loadingPlaceholder,
   errorPlaceholder,
   className,
+  onError,
   ...imageProps
 }: Omit<ComponentPropsWithoutRef<"img">, "src"> & {
   source?: string
@@ -61,6 +70,7 @@ export function AssistantMarkdownImage({
   loadPreview?: LoadArtifactPreview
   onPreview?: (source: ArtifactPreviewSource) => void
   previewTriggerClassName?: string
+  surfaceClassName?: string
   placeholderClassName?: string
   loadingPlaceholder?: ReactNode
   errorPlaceholder?: ReactNode
@@ -68,6 +78,12 @@ export function AssistantMarkdownImage({
   const { t } = useTranslation()
   const [reloadKey, setReloadKey] = useState(0)
   const [state, setState] = useState<PreviewState | null>(null)
+  const [decoded, setDecoded] = useState<{
+    fileKey: string
+    loader: LoadArtifactPreview
+    source: ArtifactPreviewSource
+  } | null>(null)
+  const imageRef = useRef<HTMLImageElement>(null)
   const fileRef = useRef(file)
   const artifactId = getInlineArtifactId(source)
   const name = alt?.trim() || file?.name || t("conversation.inlineImage")
@@ -76,8 +92,40 @@ export function AssistantMarkdownImage({
     Boolean(file?.download_available) &&
     Boolean(file && isPreviewableConversationImage(file)) &&
     Boolean(loadPreview)
-  const requestKey =
-    canLoad && file ? `${file.id}:${file.mime_type}:${reloadKey}` : null
+  const fileKey =
+    canLoad && file
+      ? `${file.id}:${file.mime_type}:${file.checksum_sha256 ?? ""}:${file.size ?? ""}`
+      : null
+  const requestKey = fileKey ? `${fileKey}:${reloadKey}` : null
+  const cached =
+    fileKey && loadPreview
+      ? getFreshPreviewRequest(loadPreview, fileKey)
+      : undefined
+  const currentState =
+    state?.requestKey === requestKey && state.loader === loadPreview
+      ? state
+      : cached?.source && requestKey && loadPreview
+        ? {
+            status: "ready" as const,
+            requestKey,
+            loader: loadPreview,
+            source: cached.source,
+          }
+        : null
+  const previewSource =
+    currentState?.status === "ready" ? currentState.source : null
+  // Expiry governs obtaining a new URL. An already decoded image remains
+  // visible during renewal; a rejected request clears it through the error path.
+  const retainedSource =
+    decoded?.fileKey === fileKey && decoded.loader === loadPreview
+      ? decoded.source
+      : null
+  const imageReady = Boolean(
+    previewSource &&
+    ((cached?.decoded && cached.source?.url === previewSource.url) ||
+      retainedSource?.url === previewSource.url)
+  )
+  const displayedSource = imageReady ? previewSource : retainedSource
 
   useEffect(() => {
     fileRef.current = file
@@ -85,24 +133,25 @@ export function AssistantMarkdownImage({
 
   useEffect(() => {
     const requestFile = fileRef.current
-    if (!requestKey || !requestFile || !loadPreview) return
+    if (!requestKey || !fileKey || !requestFile || !loadPreview) return
 
     const controller = new AbortController()
     let refreshTimer: number | undefined
-    void loadCachedPreview(loadPreview, requestFile, requestKey)
+    void loadCachedPreview(loadPreview, requestFile, fileKey)
       .then((sourceValue) => {
-        if (
-          controller.signal.aborted ||
-          !sourceValue.url.trim() ||
-          !sourceValue.expiresAt.trim()
-        ) {
-          return
-        }
+        if (controller.signal.aborted) return
+        if (!sourceValue.url.trim() || !sourceValue.expiresAt.trim())
+          throw new Error("inline_image_preview_invalid")
         const expiresAt = Date.parse(sourceValue.expiresAt)
         if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
           throw new Error("inline_image_preview_expired")
         }
-        setState({ status: "ready", requestKey, source: sourceValue })
+        setState({
+          status: "ready",
+          requestKey,
+          loader: loadPreview,
+          source: sourceValue,
+        })
         const refreshDelay = Math.max(
           1_000,
           expiresAt - Date.now() - PREVIEW_REFRESH_SAFETY_MS
@@ -116,7 +165,8 @@ export function AssistantMarkdownImage({
       })
       .catch(() => {
         if (!controller.signal.aborted) {
-          setState({ status: "error", requestKey })
+          setDecoded(null)
+          setState({ status: "error", requestKey, loader: loadPreview })
         }
       })
 
@@ -124,84 +174,190 @@ export function AssistantMarkdownImage({
       controller.abort()
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
     }
-  }, [loadPreview, requestKey])
+  }, [fileKey, loadPreview, requestKey])
 
-  const currentState = state?.requestKey === requestKey ? state : null
-  if (currentState?.status === "ready" && canLoad) {
-    const image = (
+  useEffect(() => {
+    const image = imageRef.current
+    if (
+      !image ||
+      !previewSource ||
+      !requestKey ||
+      !fileKey ||
+      !loadPreview ||
+      (retainedSource?.url === previewSource.url &&
+        retainedSource.expiresAt === previewSource.expiresAt)
+    )
+      return
+
+    let active = true
+    // Decode the mounted image so native lazy loading still controls when its
+    // bytes are fetched. The placeholder remains in the same grid cell.
+    void image.decode().then(
+      () => {
+        if (!active) return
+        const request = getFreshPreviewRequest(loadPreview, fileKey)
+        if (request?.source?.url === previewSource.url) request.decoded = true
+        setDecoded({ fileKey, loader: loadPreview, source: previewSource })
+      },
+      () => {
+        if (!active) return
+        invalidatePreviewRequest(loadPreview, fileKey)
+        setDecoded(null)
+        setState({ status: "error", requestKey, loader: loadPreview })
+      }
+    )
+    return () => {
+      active = false
+    }
+  }, [fileKey, loadPreview, previewSource, requestKey, retainedSource])
+
+  const placeholder = loadingPlaceholder ?? (
+    <AssistantInlineImagePlaceholder
+      className={placeholderClassName}
+      label={t("conversation.previewLoading", { name })}
+    />
+  )
+  let content: ReactNode
+  const candidateSource = previewSource ?? displayedSource
+  if (
+    candidateSource &&
+    currentState?.status !== "error" &&
+    canLoad &&
+    loadPreview
+  ) {
+    const renderImage = (
+      imageSource: ArtifactPreviewSource,
+      candidate: boolean
+    ) => (
       <img
         {...imageProps}
-        className={className}
-        src={currentState.source.url}
+        key={imageSource.url}
+        ref={candidate ? imageRef : undefined}
+        className={cn(
+          "col-start-1 row-start-1",
+          className,
+          imageSource.url !== displayedSource?.url && "opacity-0"
+        )}
+        src={imageSource.url}
         alt={alt ?? ""}
         width={imageProps.width ?? 800}
         height={imageProps.height ?? 450}
         title={title}
-        loading="lazy"
+        loading={imageProps.loading ?? "lazy"}
         decoding="async"
         referrerPolicy="no-referrer"
-        onError={() => {
-          if (requestKey) setState({ status: "error", requestKey })
+        aria-hidden={imageSource.url !== displayedSource?.url || undefined}
+        onError={(event) => {
+          onError?.(event)
+          if (requestKey && fileKey) {
+            invalidatePreviewRequest(loadPreview, fileKey)
+            setDecoded(null)
+            setState({ status: "error", requestKey, loader: loadPreview })
+          }
         }}
       />
     )
+    // Keys retain the displayed DOM node while its replacement downloads and
+    // decodes. A signed-URL renewal must not turn an existing image into a skeleton.
+    const images = [
+      ...(displayedSource && displayedSource.url !== candidateSource.url
+        ? [renderImage(displayedSource, false)]
+        : []),
+      renderImage(candidateSource, true),
+    ]
 
-    if (!onPreview) return image
-
-    return (
-      <Button
-        type="button"
-        variant="ghost"
-        className={cn(
-          "assistant-inline-image-preview-trigger",
-          previewTriggerClassName
+    content = (
+      <>
+        {onPreview ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className={cn(
+              "assistant-inline-image-preview-trigger col-start-1 row-start-1 grid min-h-0 min-w-0 grid-cols-1 grid-rows-1",
+              previewTriggerClassName
+            )}
+            aria-label={t("conversation.previewImage", { name })}
+            aria-hidden={!displayedSource || undefined}
+            disabled={!displayedSource}
+            onClick={() => {
+              if (displayedSource) onPreview(displayedSource)
+            }}
+          >
+            {images}
+          </Button>
+        ) : (
+          images
         )}
-        aria-label={t("conversation.previewImage", { name })}
-        onClick={() => onPreview(currentState.source)}
+        {!displayedSource && (
+          <span className="col-start-1 row-start-1 size-full">
+            {placeholder}
+          </span>
+        )}
+      </>
+    )
+  } else if (!currentState && canLoad) {
+    content = placeholder
+  } else if (errorPlaceholder !== undefined) {
+    content = errorPlaceholder
+  } else {
+    content = (
+      <span
+        className="assistant-inline-image-state assistant-inline-image-error"
+        role="img"
+        aria-label={t("conversation.previewLoadFailed", { name })}
       >
-        {image}
-      </Button>
+        <ImageIcon className="size-4 shrink-0" aria-hidden="true" />
+        <span className="assistant-inline-image-state-text">
+          <span className="assistant-inline-image-state-title">
+            {t("conversation.previewLoadFailed", { name })}
+          </span>
+        </span>
+        {canLoad && (
+          <Button
+            className="assistant-inline-image-retry"
+            type="button"
+            variant="ghost"
+            size="xs"
+            onClick={() => setReloadKey((current) => current + 1)}
+          >
+            {t("common.retry")}
+          </Button>
+        )}
+      </span>
     )
   }
-
-  if (!currentState && canLoad) {
-    return (
-      loadingPlaceholder ?? (
-        <AssistantInlineImagePlaceholder
-          className={placeholderClassName}
-          label={t("conversation.previewLoading", { name })}
-        />
-      )
-    )
-  }
-
-  if (errorPlaceholder !== undefined) return errorPlaceholder
 
   return (
     <span
-      className="assistant-inline-image-state assistant-inline-image-error"
-      role="img"
-      aria-label={t("conversation.previewLoadFailed", { name })}
-    >
-      <ImageIcon className="size-4 shrink-0" aria-hidden="true" />
-      <span className="assistant-inline-image-state-text">
-        <span className="assistant-inline-image-state-title">
-          {t("conversation.previewLoadFailed", { name })}
-        </span>
-      </span>
-      {canLoad && (
-        <Button
-          className="assistant-inline-image-retry"
-          type="button"
-          variant="ghost"
-          size="xs"
-          onClick={() => setReloadKey((current) => current + 1)}
-        >
-          {t("common.retry")}
-        </Button>
+      data-slot="assistant-image-surface"
+      className={cn(
+        "relative inline-grid min-h-0 max-w-full min-w-0 grid-cols-1 grid-rows-1 align-middle",
+        surfaceClassName
       )}
+    >
+      {content}
     </span>
   )
+}
+
+function getFreshPreviewRequest(
+  loader: LoadArtifactPreview,
+  requestKey: string
+): PreviewRequest | undefined {
+  const request = previewRequests.get(loader)?.get(requestKey)
+  return request?.expiresAt !== undefined &&
+    request.expiresAt - PREVIEW_REFRESH_SAFETY_MS > Date.now()
+    ? request
+    : undefined
+}
+
+function invalidatePreviewRequest(
+  loader: LoadArtifactPreview,
+  requestKey: string
+): void {
+  const requests = previewRequests.get(loader)
+  const request = requests?.get(requestKey)
+  if (requests && request) deletePreviewRequest(requests, requestKey, request)
 }
 
 function loadCachedPreview(
@@ -243,6 +399,7 @@ function loadCachedPreview(
         return
       }
       entry.expiresAt = expiresAt
+      entry.source = sourceValue
       schedulePreviewRequestEviction(requests, requestKey, entry)
     },
     () => {

@@ -78,9 +78,11 @@ function restoreProperty(
 function ScrollHarness({
   conversationId,
   preservePositionOnConversationChange = false,
+  followBehavior = "smooth",
 }: {
   conversationId: string
   preservePositionOnConversationChange?: boolean
+  followBehavior?: ScrollBehavior
 }) {
   const {
     scrollContainerRef,
@@ -92,6 +94,7 @@ function ScrollHarness({
     preserveScrollPositionForInteraction,
   } = useConversationScroll(conversationId, {
     preservePositionOnConversationChange,
+    followBehavior,
   })
 
   return (
@@ -390,6 +393,53 @@ describe("conversation scroll behavior", () => {
     expect(container.scrollTop).toBe(1_800)
     expect(scrollToMock).not.toHaveBeenCalled()
     expect(screen.queryByRole("button", { name: "回到底部" })).toBeNull()
+  })
+
+  it("corrects historical image loading immediately without starting a follow animation", () => {
+    render(
+      <ScrollHarness conversationId="completed-task" followBehavior="auto" />
+    )
+    const container = screen.getByTestId("scroll-container")
+    scrollToMock.mockClear()
+
+    for (const height of [2_300, 2_100, 2_500]) {
+      layout.scrollHeight = height
+      triggerContentResize()
+      expect(container.scrollTop).toBe(height - layout.clientHeight)
+      expect(animationFrames.size).toBe(0)
+    }
+    expect(requestAnimationFrameMock).not.toHaveBeenCalled()
+  })
+
+  it("preserves a historical reading position while images finish loading", () => {
+    render(
+      <ScrollHarness conversationId="completed-task" followBehavior="auto" />
+    )
+    const container = screen.getByTestId("scroll-container")
+    fireEvent.wheel(container, { deltaY: -200 })
+    act(() => setScrollTop(container, 1_300))
+    scrollToMock.mockClear()
+
+    layout.scrollHeight = 2_500
+    triggerContentResize()
+
+    expect(container.scrollTop).toBe(1_300)
+    expect(scrollToMock).not.toHaveBeenCalled()
+    expect(animationFrames.size).toBe(0)
+  })
+
+  it("stops a streaming follow animation when the task becomes historical", () => {
+    const view = render(<ScrollHarness conversationId="task" />)
+    const container = screen.getByTestId("scroll-container")
+    layout.scrollHeight = 2_300
+    triggerContentResize()
+    expect(animationFrames.size).toBe(1)
+
+    view.rerender(<ScrollHarness conversationId="task" followBehavior="auto" />)
+    expect(animationFrames.size).toBe(0)
+    triggerContentResize()
+    expect(container.scrollTop).toBe(1_800)
+    expect(animationFrames.size).toBe(0)
   })
 
   it("keeps the current position when a focused form control tries to scroll its container", () => {

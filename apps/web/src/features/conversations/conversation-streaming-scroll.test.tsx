@@ -68,7 +68,10 @@ function StreamingList({
 }: StreamingListOptions) {
   const navigationRef = useRef<ConversationThreadNavigation>(null)
   const { scrollContainerRef, contentRef, scrollToBottom } =
-    useConversationScroll("streaming-task", { navigationRef })
+    useConversationScroll("streaming-task", {
+      navigationRef,
+      followBehavior: "smooth",
+    })
   return (
     <>
       <div

@@ -919,6 +919,22 @@ export const errorCatalog = {
         "The configured image provider or model does not support native transparency. Use automatic transparency or ask an administrator to change the model.",
     },
   },
+  IMAGE_GENERATION_INPUT_INVALID: {
+    message_key: "errors.imageGeneration.inputInvalid",
+    http_status: 400,
+    messages: {
+      "zh-CN": "无法读取用于编辑的图片，请使用 PNG、JPEG 或 WebP 图片。单张不超过 8 MB，原图与蒙版合计不超过 10 MB，蒙版须为与首张原图同尺寸的透明 PNG。",
+      "en-US": "The editing image could not be read. Use PNG, JPEG or WebP images up to 8 MB each and 10 MB in total, including the mask. Masks must be transparent PNGs matching the first image's dimensions.",
+    },
+  },
+  IMAGE_GENERATION_EDIT_UNSUPPORTED: {
+    message_key: "errors.imageGeneration.editUnsupported",
+    http_status: 422,
+    messages: {
+      "zh-CN": "当前图片模型不支持本次编辑要求，请减少参考图、移除蒙版，或联系管理员选择支持相应编辑方式的模型。",
+      "en-US": "The current image model does not support this edit. Use fewer reference images, remove the mask, or ask an administrator to select a model that supports the requested editing features.",
+    },
+  },
   IMAGE_GENERATION_TRANSPARENCY_INVALID: {
     message_key: "errors.imageGeneration.transparencyInvalid",
     http_status: 502,

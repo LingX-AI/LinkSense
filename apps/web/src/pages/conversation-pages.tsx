@@ -894,6 +894,10 @@ export function ConversationPage({
     }
   }, [conversationId, newTaskPromotionConversationId])
   const threadNavigationRef = useRef<ConversationThreadNavigation>(null)
+  const conversationQuery = useQuery({
+    ...conversationDetailQueryOptions(conversationId),
+    enabled: !isNew,
+  })
   const [visibleMessageIds, setVisibleMessageIds] = useState<string[]>([])
   const handleVisibleMessageChange = useCallback((ids: string[]) => {
     setVisibleMessageIds((previous) =>
@@ -914,6 +918,10 @@ export function ConversationPage({
   } = useConversationScroll(conversationId ?? newConversationPlaceholderId, {
     preservePositionOnConversationChange: isNewTaskPromotion,
     navigationRef: threadNavigationRef,
+    followBehavior:
+      conversationQuery.data?.running_turn?.status === "running"
+        ? "smooth"
+        : "auto",
   })
   const bottomStackRef = useConversationBottomStackHeight()
 
@@ -934,10 +942,6 @@ export function ConversationPage({
     [setValue]
   )
 
-  const conversationQuery = useQuery({
-    ...conversationDetailQueryOptions(conversationId),
-    enabled: !isNew,
-  })
   const voiceTranscriptionAvailability = useVoiceTranscriptionAvailability()
   const isApplicationConversation = Boolean(conversationQuery.data?.application)
   const isManagedApplicationConversation =

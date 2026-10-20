@@ -85,10 +85,12 @@ export function ConversationGeneratedImages({
   }
   const loading = () => (
     <AssistantHtmlPreviewLoading
-      className="turn-image-generation-loading aspect-square min-h-0 max-w-[15rem]"
+      className="turn-image-generation-loading size-full min-h-0"
       label={t("conversation.imageGeneration.loading")}
     />
   )
+  const frameClassName =
+    "relative aspect-square max-h-[32rem] w-full overflow-hidden rounded-2xl"
   const renderImage = (file: ConversationFile) => {
     const downloading = downloadingFileId === file.id
     return (
@@ -96,24 +98,28 @@ export function ConversationGeneratedImages({
         className="group/generated-image relative w-full overflow-hidden rounded-2xl"
         data-slot="generated-image"
       >
-        <AssistantMarkdownImage
-          source={`linksense-artifact:${file.id}`}
-          file={file}
-          alt={file.name}
-          loadPreview={loadPreview}
-          className="block h-auto max-h-[32rem] w-full object-contain"
-          previewTriggerClassName="h-auto w-full overflow-hidden rounded-2xl p-0"
-          loadingPlaceholder={loading()}
-          onPreview={(source) =>
-            openPreview({
-              id: file.id,
-              name: file.name,
-              alt: file.name,
-              src: source.url,
-              downloadable: file.download_available,
-            })
-          }
-        />
+        <div data-slot="generated-image-frame" className={frameClassName}>
+          <AssistantMarkdownImage
+            source={`linksense-artifact:${file.id}`}
+            file={file}
+            alt={file.name}
+            loadPreview={loadPreview}
+            className="block size-full object-contain"
+            surfaceClassName="absolute inset-0 size-full"
+            previewTriggerClassName="size-full overflow-hidden rounded-2xl p-0"
+            loading="eager"
+            loadingPlaceholder={loading()}
+            onPreview={(source) =>
+              openPreview({
+                id: file.id,
+                name: file.name,
+                alt: file.name,
+                src: source.url,
+                downloadable: file.download_available,
+              })
+            }
+          />
+        </div>
         <Button
           type="button"
           variant="floating"
@@ -162,49 +168,62 @@ export function ConversationGeneratedImages({
               </TabsContent>
             ))}
           </div>
-          <TabsList
-            activateOnFocus
-            aria-label={t("conversation.imageGeneration.images")}
-            className="max-h-[32rem] w-16 shrink-0 flex-col justify-start gap-2 overflow-x-hidden overflow-y-auto p-1"
+          <div
+            data-slot="generated-image-thumbnail-scroll"
+            className="max-h-[32rem] w-20 shrink-0 overflow-x-hidden overflow-y-auto"
           >
-            {files.map((file) => (
-              <TabsTrigger
-                key={file.id}
-                value={file.id}
-                aria-label={t("conversation.imageGeneration.selectImage", {
-                  name: file.name,
-                })}
-                className="size-14 min-h-0 flex-none shrink-0 overflow-hidden rounded-xl p-0 data-active:ring-2 data-active:ring-ring data-active:ring-offset-2 data-active:ring-offset-background"
-              >
-                <AssistantMarkdownImage
-                  source={`linksense-artifact:${file.id}`}
-                  file={file}
-                  alt=""
-                  loadPreview={loadPreview}
-                  className="size-full object-cover"
-                  loadingPlaceholder={
-                    <Skeleton className="size-full rounded-none" />
-                  }
-                  errorPlaceholder={<ImageOffIcon aria-hidden="true" />}
-                />
-              </TabsTrigger>
-            ))}
-            {loadingImages && (
-              <div
-                className="size-14 shrink-0"
-                role="status"
-                aria-busy="true"
-                aria-label={t("conversation.imageGeneration.loading")}
-              >
-                <Skeleton className="size-full rounded-xl" />
-              </div>
-            )}
-          </TabsList>
+            <TabsList
+              activateOnFocus
+              aria-label={t("conversation.imageGeneration.images")}
+              className="w-16 shrink-0 flex-col justify-start gap-2 overflow-visible p-1"
+            >
+              {files.map((file) => (
+                <TabsTrigger
+                  key={file.id}
+                  value={file.id}
+                  aria-label={t("conversation.imageGeneration.selectImage", {
+                    name: file.name,
+                  })}
+                  className="size-14 min-h-0 flex-none shrink-0 overflow-hidden rounded-xl p-0 data-active:ring-2 data-active:ring-ring data-active:ring-offset-2 data-active:ring-offset-background"
+                >
+                  <AssistantMarkdownImage
+                    source={`linksense-artifact:${file.id}`}
+                    file={file}
+                    alt=""
+                    loadPreview={loadPreview}
+                    className="size-full object-cover"
+                    surfaceClassName="size-full"
+                    loadingPlaceholder={
+                      <Skeleton className="size-full rounded-none" />
+                    }
+                    errorPlaceholder={<ImageOffIcon aria-hidden="true" />}
+                  />
+                </TabsTrigger>
+              ))}
+              {loadingImages && (
+                <div
+                  className="size-14 shrink-0"
+                  role="status"
+                  aria-busy="true"
+                  aria-label={t("conversation.imageGeneration.loading")}
+                >
+                  <Skeleton className="size-full rounded-xl" />
+                </div>
+              )}
+            </TabsList>
+          </div>
         </Tabs>
       ) : files[0] ? (
         renderImage(files[0])
       ) : loadingImages ? (
-        loading()
+        <div
+          className="relative w-full overflow-hidden rounded-2xl"
+          data-slot="generated-image"
+        >
+          <div data-slot="generated-image-frame" className={frameClassName}>
+            {loading()}
+          </div>
+        </div>
       ) : null}
       {unavailable && (
         <Alert>

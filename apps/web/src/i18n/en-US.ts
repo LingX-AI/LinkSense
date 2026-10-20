@@ -5339,6 +5339,8 @@ export const enUS = {
         "The image-understanding model failed image input, structured output, or thinking-disable validation. Check the model and provider configuration.",
     },
     imageGeneration: {
+      inputInvalid: "The editing image could not be read. Use PNG, JPEG or WebP images up to 8 MB each and 10 MB in total, including the mask. Masks must be transparent PNGs matching the first image's dimensions.",
+      editUnsupported: "The current image model does not support this edit. Use fewer reference images, remove the mask, or ask an administrator to select a model that supports the requested editing features.",
       notConfigured:
         "The image generation model is not configured or is not enabled.",
       forbidden: "This task cannot call image generation.",

@@ -1,4 +1,5 @@
 import sharp from "sharp"
+import Fastify from "fastify"
 import { describe, expect, it, vi } from "vitest"
 
 import {
@@ -7,6 +8,8 @@ import {
 } from "@linksense/shared"
 import type { PrismaClient } from "../src/generated/prisma/client.js"
 import { encryptJson } from "../src/lib/crypto.js"
+import { normalizeError } from "../src/lib/errors.js"
+import { internalImageGenerationRoutes } from "../src/modules/system/image-generation-internal-routes.js"
 import {
   ImageGenerationSettingsService,
   resolveProviderBaseUrl,
@@ -22,6 +25,131 @@ const ONE_PIXEL_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
 )
+
+describe("image editing provider contracts", () => {
+  const source = { mime_type: "image/png" as const, data_base64: ONE_PIXEL_PNG.toString("base64") }
+  const request = { prompt: "Change the background to blue", image_name: "Blue background", input_images: [source] }
+
+  it.each(["openai", "openai_compatible"] as const)("sends the original bytes and edit instruction to %s edits", async (provider) => {
+    const fetchMock = vi.fn<typeof fetch>(async () => providerGenerationResponse(provider))
+    const { service, recorder } = await configuredProviderHarness(provider, "gpt-image-2", fetchMock, "https://images.example.test/custom/v1")
+    const result = await service.generate({ ownerId: USER_ID, conversationId: CONVERSATION_ID, turnId: TURN_ID, request })
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe("https://images.example.test/custom/v1/images/edits")
+    expect(init?.body).toBeInstanceOf(FormData)
+    const body = init?.body as FormData
+    expect(body.get("prompt")).toBe(request.prompt)
+    const image = body.get("image[]") as File
+    expect(Buffer.from(await image.arrayBuffer())).toEqual(ONE_PIXEL_PNG)
+    expect(result.image_count).toBe(1)
+    expect(recorder.recordModelUsage).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ["alibaba_bailian", "qwen-image-2.0-pro"],
+    ["google_gemini", "gemini-3.1-flash-image"],
+    ["fal", "fal-ai/flux-2/edit"],
+    ["replicate", "black-forest-labs/flux-kontext-pro"],
+    ["together", "black-forest-labs/FLUX.2-pro"],
+  ] satisfies Array<[ImageGenerationProvider, string]>)("forwards image bytes through %s's native contract", async (provider, model) => {
+    const fetchMock = vi.fn<typeof fetch>(async () => providerGenerationResponse(provider))
+    const { service } = await configuredProviderHarness(provider, model, fetchMock)
+    await service.generate({ ownerId: USER_ID, conversationId: CONVERSATION_ID, turnId: TURN_ID, request })
+    const body = requestJsonBody(fetchMock)
+    const uri = `data:image/png;base64,${source.data_base64}`
+    if (provider === "alibaba_bailian") expect(body).toMatchObject({ input: { messages: [{ content: [{ image: uri }, { text: request.prompt }] }] } })
+    if (provider === "google_gemini") expect(body).toMatchObject({ contents: [{ parts: [{ inlineData: { mimeType: "image/png", data: source.data_base64 } }, { text: request.prompt }] }] })
+    if (provider === "fal") expect(body).toMatchObject({ image_urls: [uri] })
+    if (provider === "replicate") expect(body).toMatchObject({ input: { input_image: uri } })
+    if (provider === "together") expect(body).toMatchObject({ reference_images: [uri] })
+  })
+
+  it.each([
+    ["stability", "stable-image-core"], ["openai", "dall-e-3"],
+    ["google_gemini", "imagen-4.0-generate-001"], ["alibaba_bailian", "qwen-image"],
+    ["fal", "fal-ai/flux/dev"], ["replicate", "black-forest-labs/flux-schnell"],
+    ["together", "black-forest-labs/FLUX.1-schnell"],
+  ] satisfies Array<[ImageGenerationProvider, string]>)("rejects unsupported editing with %s before contacting the provider", async (provider, model) => {
+    const fetchMock = vi.fn<typeof fetch>()
+    const { service, recorder } = await configuredProviderHarness(provider, model, fetchMock)
+    await expect(service.generate({ ownerId: USER_ID, conversationId: CONVERSATION_ID, turnId: TURN_ID, request })).rejects.toMatchObject({ code: "IMAGE_GENERATION_EDIT_UNSUPPORTED" })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(recorder.recordModelUsage).not.toHaveBeenCalled()
+  })
+
+  it("rejects forged image metadata before sending private bytes to a provider", async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    const { service } = await configuredProviderHarness("openai", "gpt-image-2", fetchMock)
+    await expect(service.generate({ ownerId: USER_ID, conversationId: CONVERSATION_ID, turnId: TURN_ID, request: { ...request, input_images: [{ ...source, mime_type: "image/jpeg" }] } })).rejects.toMatchObject({ code: "IMAGE_GENERATION_INPUT_INVALID" })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("sends all reference images and the matching PNG mask to OpenAI in order", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => providerGenerationResponse("openai"))
+    const { service } = await configuredProviderHarness("openai", "gpt-image-2", fetchMock)
+    const second = await sharp({ create: { width: 1, height: 1, channels: 3, background: "red" } }).png().toBuffer()
+    const mask = await sharp({ create: { width: 1, height: 1, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer()
+    await service.generate({ ownerId: USER_ID, conversationId: CONVERSATION_ID, turnId: TURN_ID, request: {
+      ...request, input_images: [source, { mime_type: "image/png", data_base64: second.toString("base64") }],
+      mask: { mime_type: "image/png", data_base64: mask.toString("base64") },
+    } })
+    const body = fetchMock.mock.calls[0]?.[1]?.body as FormData
+    const images = body.getAll("image[]") as File[]
+    expect(await Promise.all(images.map(async (file) => Buffer.from(await file.arrayBuffer())))).toEqual([ONE_PIXEL_PNG, second])
+    expect(Buffer.from(await (body.get("mask") as File).arrayBuffer())).toEqual(mask)
+  })
+
+  it("rejects masks with different dimensions and never silently discards a Gemini mask", async () => {
+    const mask = { mime_type: "image/png" as const, data_base64: (await sharp({ create: { width: 2, height: 2, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer()).toString("base64") }
+    for (const [provider, model, code] of [["openai", "gpt-image-2", "IMAGE_GENERATION_INPUT_INVALID"], ["google_gemini", "gemini-3.1-flash-image", "IMAGE_GENERATION_EDIT_UNSUPPORTED"]] as const) {
+      const fetchMock = vi.fn<typeof fetch>()
+      const { service } = await configuredProviderHarness(provider, model, fetchMock)
+      await expect(service.generate({ ownerId: USER_ID, conversationId: CONVERSATION_ID, turnId: TURN_ID, request: { ...request, mask } })).rejects.toMatchObject({ code })
+      expect(fetchMock).not.toHaveBeenCalled()
+    }
+  })
+
+  it.each(["custom-image-model", "Qwen-Image-2.1-Turbo-FP8"])("does not infer mask support solely from an OpenAI-compatible address for %s", async (model) => {
+    const fetchMock = vi.fn<typeof fetch>()
+    const { service } = await configuredProviderHarness("openai_compatible", model, fetchMock)
+    await expect(service.generate({ ownerId: USER_ID, conversationId: CONVERSATION_ID, turnId: TURN_ID, request: { ...request, mask: source } })).rejects.toMatchObject({ code: "IMAGE_GENERATION_EDIT_UNSUPPORTED" })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it.each(["jpeg", "webp"] as const)("accepts and forwards validated %s originals without changing their bytes", async (format) => {
+    const bytes = await sharp(ONE_PIXEL_PNG).toFormat(format).toBuffer()
+    const fetchMock = vi.fn<typeof fetch>(async () => providerGenerationResponse("openai"))
+    const { service } = await configuredProviderHarness("openai", "gpt-image-2", fetchMock)
+    await service.generate({ ownerId: USER_ID, conversationId: CONVERSATION_ID, turnId: TURN_ID, request: { ...request, input_images: [{ mime_type: format === "jpeg" ? "image/jpeg" : "image/webp", data_base64: bytes.toString("base64") }] } })
+    const body = fetchMock.mock.calls[0]?.[1]?.body as FormData
+    expect(Buffer.from(await (body.get("image[]") as File).arrayBuffer())).toEqual(bytes)
+  })
+
+  it("enforces the internal HTTP token, turn owner and input contract before delivering an edited image", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => providerGenerationResponse("openai"))
+    const { service } = await configuredProviderHarness("openai", "gpt-image-2", fetchMock)
+    const app = Fastify()
+    app.setErrorHandler((error, _request, reply) => {
+      const failure = normalizeError(error)
+      return reply.code(failure.code === "IMAGE_GENERATION_TURN_INACTIVE" ? 409 : 400).send({ error_code: failure.code })
+    })
+    await app.register(internalImageGenerationRoutes, { service, sharedSecret: "internal-image-token" })
+    const payload = { conversationId: CONVERSATION_ID, turnId: TURN_ID, request }
+    const headers = { authorization: "Bearer internal-image-token", "x-linksense-owner-id": USER_ID }
+    try {
+      expect((await app.inject({ method: "POST", url: "/image-generation/generate", payload })).statusCode).toBe(401)
+      expect((await app.inject({ method: "POST", url: "/image-generation/generate", headers: { ...headers, "x-linksense-owner-id": ACTOR_ID }, payload })).statusCode).toBe(409)
+      expect((await app.inject({ method: "POST", url: "/image-generation/generate", headers, payload: { ...payload, request: { ...request, input_images: ["/etc/passwd"] } } })).statusCode).toBe(400)
+      expect(fetchMock).not.toHaveBeenCalled()
+      const response = await app.inject({ method: "POST", url: "/image-generation/generate", headers, payload })
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toMatchObject({ success: true, image_count: 1, images: [{ mime_type: "image/png", data_base64: ONE_PIXEL_PNG.toString("base64") }] })
+      expect(fetchMock).toHaveBeenCalledOnce()
+    } finally {
+      await app.close()
+    }
+  })
+})
 
 describe("ImageGenerationSettingsService", () => {
   it.each([1, 2])("names %i generated images after their scene instead of the model", async (count) => {

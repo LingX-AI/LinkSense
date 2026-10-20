@@ -19,6 +19,14 @@ Include:
 
 For example: “Generate one 1024×1024 minimal product icon, keep the full subject inside the canvas with padding on every side, and use a transparent background.” LinkSense normally requests one image when no count is given. The configured provider and model may impose lower count or size limits.
 
+## Edit an existing image
+
+Upload a picture and describe the change, for example: “Replace this photo’s background with a beach while preserving the person, clothes and pose.” You can also ask for another edit to a previously generated image. LinkSense sends the original image with your instructions and creates a new registered image without overwriting the source.
+
+Use PNG, JPEG or WebP images up to 8 MiB each and 10 MiB in total, including an optional mask. Up to four reference images are accepted, subject to the selected model’s limits. Explain each reference’s role. A local editing mask must be a transparent PNG matching the first image’s dimensions; transparent regions indicate where to edit.
+
+An administrator must configure a model that supports editing. Reference-image support does not imply mask support. Unsupported requests are reported explicitly rather than silently generating from text alone. Generative editing can change other details, so inspect the result before use.
+
 ## Transparent backgrounds
 
 Explicitly request a transparent background for stickers, icons, product cutouts, or compositing assets. Simple subjects with clean edges can be handled automatically. Hair, fur, glass, smoke, glow, and translucent materials require native model support for high-quality transparent edges. If the current model cannot provide that quality, LinkSense reports the limitation instead of silently substituting a lower-quality result.

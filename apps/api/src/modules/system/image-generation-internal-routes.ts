@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto"
 
-import { imageGenerationRequestSchema } from "@linksense/shared"
+import { imageGenerationRequestSchema, imageEditingLimits } from "@linksense/shared"
 import type { FastifyPluginAsync, FastifyRequest } from "fastify"
 import { z } from "zod"
 
@@ -26,7 +26,7 @@ export const internalImageGenerationRoutes: FastifyPluginAsync<{
     }
   })
 
-  app.post("/image-generation/generate", async (request, reply) => {
+  app.post("/image-generation/generate", { bodyLimit: imageEditingLimits.requestBodyBytes }, async (request, reply) => {
     const ownerId = parseRunnerOwnerId(request)
     const body = internalImageGenerationInputSchema.parse(request.body)
     const controller = new AbortController()

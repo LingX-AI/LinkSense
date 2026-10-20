@@ -8,6 +8,8 @@ import {
 } from "@/lib/public-copy"
 
 const errorCodeToKey: Record<string, string> = {
+  IMAGE_GENERATION_INPUT_INVALID: errorCatalog.IMAGE_GENERATION_INPUT_INVALID.message_key,
+  IMAGE_GENERATION_EDIT_UNSUPPORTED: errorCatalog.IMAGE_GENERATION_EDIT_UNSUPPORTED.message_key,
   CONNECTION_WRITE_REQUIRED: errorCatalog.CONNECTION_WRITE_REQUIRED.message_key,
   CONNECTION_FILE_CONFLICT: errorCatalog.CONNECTION_FILE_CONFLICT.message_key,
   CONNECTION_NOT_CONFIGURED: errorCatalog.CONNECTION_NOT_CONFIGURED.message_key,

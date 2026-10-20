@@ -7,12 +7,14 @@ import i18n from "@/i18n"
 
 describe("getErrorMessage", () => {
   it.each(supportedLocales)(
-    "localizes model discovery and connection errors in %s",
+    "localizes model discovery, connection and image editing errors in %s",
     (locale) => {
       for (const code of [
         "MODEL_PROVIDER_CREDENTIAL_REQUIRED",
         "MODEL_PROVIDER_DISCOVERY_FAILED",
         "MODEL_PROVIDER_CONNECTION_FAILED",
+        "IMAGE_GENERATION_INPUT_INVALID",
+        "IMAGE_GENERATION_EDIT_UNSUPPORTED",
       ] as const) {
         expect(
           getErrorMessage(

@@ -4944,6 +4944,8 @@ export const zhCN = {
         "图片理解模型未通过图片输入、结构化输出或禁用思考校验，请检查模型与服务配置。",
     },
     imageGeneration: {
+      inputInvalid: "无法读取用于编辑的图片，请使用 PNG、JPEG 或 WebP 图片。单张不超过 8 MB，原图与蒙版合计不超过 10 MB，蒙版须为与首张原图同尺寸的透明 PNG。",
+      editUnsupported: "当前图片模型不支持本次编辑要求，请减少参考图、移除蒙版，或联系管理员选择支持相应编辑方式的模型。",
       notConfigured: "图片生成模型尚未配置或未启用。",
       forbidden: "当前任务无法调用图片生成插件。",
       turnInactive: "当前任务运行已结束，无法继续生成图片。",
