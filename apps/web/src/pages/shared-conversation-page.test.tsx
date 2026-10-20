@@ -113,12 +113,11 @@ describe("SharedConversationPage", () => {
       name: "Powered by LinkSense",
     })
     expect(badge).toBeVisible()
+    expect(badge.parentElement).toHaveAttribute("data-placement", "page")
     expect(badge.parentElement).toHaveClass(
-      "px-7",
-      "pb-[22px]",
-      "max-md:justify-center",
-      "max-md:px-3.5",
-      "max-md:pb-3.5"
+      "[--attribution-inset:18px]",
+      "px-[var(--attribution-inset)]",
+      "pb-[var(--attribution-inset)]"
     )
     const messageRegion = screen.getByRole("log")
     expect(messageRegion).toHaveClass("conversation-scroll-embedded")
@@ -158,5 +157,6 @@ describe("SharedConversationPage", () => {
     })
     expect(attribution).toBeVisible()
     expect(attribution).toHaveAttribute("href", "https://linksense.org")
+    expect(attribution.parentElement).toHaveAttribute("data-placement", "page")
   })
 })
