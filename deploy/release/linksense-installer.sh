@@ -564,7 +564,6 @@ preflight() {
   memory_kb=$((memory_bytes / 1024))
   if [ "$EDITION" = full ]; then
     required_memory_kb=$((10 * 1024 * 1024))
-    if [ ! -f "$INSTALL_DIR/install-state.env" ] && [ ! -f "$INSTALL_DIR/install.pending" ]; then required_memory_kb=$((24 * 1024 * 1024)); fi
   else
     required_memory_kb=$((8 * 1024 * 1024))
   fi
@@ -697,7 +696,7 @@ fetch_manifest() {
   [ "${CORE_MIN_MEMORY_GIB:-}" = 8 ] || fail "The release manifest has inconsistent Core host requirements."
   printf '%s' "${FULL_MIN_MEMORY_GIB:-}" | grep -Eq '^[1-9][0-9]{0,3}$' && [ "$FULL_MIN_MEMORY_GIB" -ge 10 ] || fail "The release manifest has invalid Full host requirements."
   if [ -n "${RESOURCE_FULL_FRESH_MIN_MEMORY_GIB:-}" ]; then
-    printf '%s' "$RESOURCE_FULL_FRESH_MIN_MEMORY_GIB" | grep -Eq '^[1-9][0-9]{0,3}$' && [ "$RESOURCE_FULL_FRESH_MIN_MEMORY_GIB" -ge 24 ] || host_fail invalid_config RESOURCE_FULL_FRESH_MIN_MEMORY_GIB
+    printf '%s' "$RESOURCE_FULL_FRESH_MIN_MEMORY_GIB" | grep -Eq '^[1-9][0-9]{0,3}$' && [ "$RESOURCE_FULL_FRESH_MIN_MEMORY_GIB" -ge 10 ] || host_fail invalid_config RESOURCE_FULL_FRESH_MIN_MEMORY_GIB
   fi
   if [ "${LINKSENSE_CPU_QUOTA_MODE:-strict}" = compatible ] && [ "${RESOURCE_HOST_ADAPTATION_FORMAT:-}" != 1 ]; then
     host_fail invalid_config release_has_no_CPU_compatibility_support
@@ -1068,9 +1067,21 @@ validate_resource_budget() {
     budget_mib=8192
     if [ "$EDITION" = full ]; then budget_mib=10240; fi
   fi
-  budget_available_mib=$(($(docker info --format '{{.MemTotal}}') / 1024 / 1024))
+  budget_engine_mib=$(($(docker info --format '{{.MemTotal}}') / 1024 / 1024))
+  budget_available_mib=$budget_engine_mib
   if [ "$budget_kind" = fresh ]; then budget_available_mib=$(host_available_memory_mib); fi
-  [ "$budget_available_mib" -ge "$budget_mib" ] || host_fail memory "available_mib=$budget_available_mib required_mib=$budget_mib"
+  if [ "$EDITION" = full ]; then
+    # Full admits intentional overcommit without lowering any container limit.
+    # Capacity planning is advisory; invalid settings and real OOM/readiness
+    # failures remain blocking, including during repair and upgrade.
+    [ "$budget_engine_mib" -ge 10240 ] || host_fail memory "available_mib=$budget_engine_mib required_mib=10240"
+    if [ "$budget_available_mib" -lt "$budget_mib" ]; then
+      printf '[LS_HOST_memory_budget_warning] ' >&2
+      host_text memory_budget_warning "$budget_available_mib" "$budget_mib" >&2
+    fi
+  else
+    [ "$budget_available_mib" -ge "$budget_mib" ] || host_fail memory "available_mib=$budget_available_mib required_mib=$budget_mib"
+  fi
 }
 
 install_resources() {

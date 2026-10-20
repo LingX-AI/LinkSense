@@ -68,7 +68,7 @@ it is a planning suggestion, not a measured user-capacity guarantee.
 | --- | --- | --- | --- |
 | Core evaluation | 4+ vCPU, 8+ GiB memory, 60+ GiB free SSD | 8 vCPU, 16 GiB, 100 GiB free SSD | A fresh installation defaults to one concurrent conversation. |
 | Core shared server | 8 vCPU, 16 GiB memory, 120 GiB free SSD | 16 vCPU, 32 GiB, 200 GiB free SSD | Each active user Worker has a default 4 GiB memory limit; size concurrency separately. |
-| Full (new installation) | 8+ vCPU, 24+ GiB memory, 120+ GiB free SSD | 16 vCPU, 32 GiB, 200 GiB free SSD | Includes Elasticsearch and Docling; OCR and large documents need extra headroom. |
+| Full (new installation) | 8+ vCPU, 10+ GiB memory, 120+ GiB free SSD | 16 vCPU, 32 GiB, 200 GiB free SSD | The minimum permits memory overcommit; OCR, large documents and concurrent tasks need extra headroom. |
 | Docker source development / `pnpm dev` | 8 vCPU, 24 GiB memory, 120 GiB free SSD | 16 vCPU, 32 GiB, 200 GiB free SSD | Builds and runs the development stack, including Knowledge services and task Workers. |
 
 These numbers cover LinkSense with externally hosted model APIs. Size a local LLM
@@ -81,9 +81,10 @@ Desktop, this is the VM allocation, rather than the host's total RAM. An 8 GB
 allocation can report less than 8 GiB of usable memory. Adjust Settings → Resources
 → Advanced → Memory limit, then apply the changes and restart Docker Desktop;
 allocate at least 10–12 GB for Core and leave room
-above Full's 24 GiB usable-memory requirement for new installations. Existing
-installations retain their resource settings and are checked against their
-configured budget during repair and upgrade.
+above Full's 10 GiB usable-memory minimum. Full warns when combined service
+limits exceed available memory and continues without reducing those limits;
+this is not a peak-memory guarantee. Existing installations retain their resource
+settings during repair and upgrade. Plan capacity for workload peaks separately.
 See [Deployment reference](#deployment-reference) for the full list.
 See [Installer host adaptation](deploy/release/HOST-ADAPTATION.md) for automatic tool setup,
 resource profiles, CPU compatibility mode, proxies, and safe recovery.

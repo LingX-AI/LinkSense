@@ -118,20 +118,6 @@ jobs:
             echo "license=$package_license"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Verify installation runner configuration
-        shell: bash
-        env:
-          LINKSENSE_INSTALLATION_RUNNER_AMD64: ${{ vars.LINKSENSE_INSTALLATION_RUNNER_AMD64 }}
-          LINKSENSE_INSTALLATION_RUNNER_ARM64: ${{ vars.LINKSENSE_INSTALLATION_RUNNER_ARM64 }}
-        run: |
-          set -euo pipefail
-          for runner_variable in LINKSENSE_INSTALLATION_RUNNER_AMD64 LINKSENSE_INSTALLATION_RUNNER_ARM64; do
-            test -n "${!runner_variable}" || {
-              echo "$runner_variable must name a disposable native runner with at least 24 GiB available to Docker. Standard hosted runners cannot verify Full; see .github/RELEASING.md." >&2
-              exit 1
-            }
-          done
-
       - name: Freeze the published upgrade baseline
         id: upgrade
         env:
@@ -604,7 +590,7 @@ jobs:
         run: |
           mkdir installation-reports
           required_gib=8
-          if [ "$EDITION" = full ]; then required_gib=24; fi
+          if [ "$EDITION" = full ]; then required_gib=10; fi
           test "$(docker info --format '{{.MemTotal}}')" -ge "$((required_gib * 1024 * 1024 * 1024))" || {
             echo "Installation verification requires at least $required_gib GiB available to Docker. Use a sufficiently sized runner; this gate cannot be skipped." >&2
             exit 1

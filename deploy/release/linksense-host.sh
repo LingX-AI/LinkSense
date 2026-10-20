@@ -123,6 +123,12 @@ host_text() {
     memory:pt-BR) host_message='A memória disponível não cobre o orçamento da implantação. Amplie a memória ou ajuste explicitamente os recursos e tente novamente: %s' ;;
     memory:fr-FR) host_message='La mémoire disponible est inférieure au budget du déploiement. Ajoutez de la mémoire ou ajustez explicitement les ressources : %s' ;;
     memory:ja-JP) host_message='利用可能なメモリがデプロイの予算を下回っています。増設またはリソース設定の明示的な調整後に再実行してください：%s' ;;
+    memory_budget_warning:zh-CN) host_message='警告：当前可用内存为 %s MiB，低于服务内存上限合计及预留余量 %s MiB。将继续，但并发任务或大文档处理可能因内存不足失败；建议降低负载或扩容。' ;;
+    memory_budget_warning:en-US) host_message='Warning: %s MiB is available, below the combined service memory limits and headroom of %s MiB. Continuing, but concurrent tasks or large documents may run out of memory. Reduce the workload or add memory.' ;;
+    memory_budget_warning:es-ES) host_message='Advertencia: hay %s MiB disponibles, menos que los límites de memoria de los servicios y el margen de %s MiB. Se continuará, pero las tareas simultáneas o los documentos grandes pueden agotar la memoria. Reduzca la carga o amplíe la memoria.' ;;
+    memory_budget_warning:pt-BR) host_message='Aviso: há %s MiB disponíveis, abaixo dos limites de memória dos serviços e da margem de %s MiB. A operação continuará, mas tarefas simultâneas ou documentos grandes podem esgotar a memória. Reduza a carga ou amplie a memória.' ;;
+    memory_budget_warning:fr-FR) host_message='Attention : %s MiB sont disponibles, en dessous des limites mémoire cumulées des services et de la marge de %s MiB. L’opération continue, mais des tâches simultanées ou de gros documents peuvent épuiser la mémoire. Réduisez la charge ou ajoutez de la mémoire.' ;;
+    memory_budget_warning:ja-JP) host_message='警告：利用可能なメモリは %s MiB で、サービスのメモリ上限の合計と余裕分の %s MiB を下回っています。処理は続行しますが、同時タスクや大きな文書の処理でメモリ不足になる可能性があります。負荷を減らすか、メモリを増やしてください。' ;;
     tools:zh-CN) host_message='私有 Docker 工具不可用或校验失败。不会覆盖系统工具；修复工具或重新运行安装器：%s' ;;
     tools:en-US) host_message='Private Docker tools are unavailable or failed verification. System tools will not be overwritten; repair the tools or rerun the installer: %s' ;;
     tools:es-ES) host_message='Las herramientas privadas de Docker no están disponibles o falló su verificación. No se sobrescribirán las del sistema; repárelas o vuelva a ejecutar el instalador: %s' ;;
