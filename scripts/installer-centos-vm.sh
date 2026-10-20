@@ -10,6 +10,7 @@ test "${RUNNER_ENVIRONMENT:-}" = github-hosted
 test -c /dev/kvm || { echo 'This experimental VM requires KVM on its disposable GitHub-hosted runner.' >&2; exit 1; }
 vm=$(mktemp -d)
 pid=
+# shellcheck disable=SC2329 # Invoked by the EXIT trap.
 cleanup() {
   if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi
   rm -rf "$vm"
@@ -47,9 +48,10 @@ qemu-system-x86_64 -enable-kvm -cpu host -smp 4 -m 12288 -display none -no-reboo
   -serial "file:$reports/vm-boot.log" > "$reports/qemu.log" 2>&1 &
 pid=$!
 ssh_options=(-i "$vm/key" -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$vm/known_hosts" -p 2222)
+# shellcheck disable=SC2029 # Callers intentionally construct the guest command.
 guest() { ssh "${ssh_options[@]}" linksense-ci@127.0.0.1 "$@"; }
 ready=false
-for attempt in $(seq 1 90); do
+for ((attempt=0; attempt<90; attempt++)); do
   kill -0 "$pid"
   if guest true 2>/dev/null; then ready=true; break; fi
   sleep 5

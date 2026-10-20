@@ -104,6 +104,10 @@ jobs:
               export PATH="/node:$PATH"
               node scripts/installer-platform-tests.mjs /reports
             '
+      - name: Return container reports to the runner user
+        if: always()
+        run: |
+          if [ -d platform-reports ]; then sudo chown -R "$(id -u):$(id -g)" platform-reports; fi
       - name: Save container script compatibility results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
