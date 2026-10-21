@@ -2,7 +2,7 @@ import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { I18nextProvider } from "react-i18next"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { ApplicationIcon } from "@linksense/shared"
+import { supportedLocales, type ApplicationIcon } from "@linksense/shared"
 import { Button } from "@/components/ui/button"
 import i18n from "@/i18n"
 import { enUS } from "@/i18n/en-US"
@@ -69,6 +69,52 @@ function showCard({
 }
 
 describe("application card presentation", () => {
+  it.each(supportedLocales)(
+    "reserves the same footer action row with absent, empty and visible actions in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const cases = [
+        { name: "Draft application", actions: null },
+        { name: "Retained application", actions: <div /> },
+        {
+          name: "Ready application",
+          actions: (
+            <Button size="sm">
+              {i18n.t("applications.distribution.useService")}
+            </Button>
+          ),
+        },
+      ]
+      render(
+        <div className="grid gap-4 md:grid-cols-2">
+          {cases.map((item) => (
+            <ApplicationCard
+              key={item.name}
+              id={id}
+              name={item.name}
+              kind="interactive"
+              description={null}
+              footer={i18n.t("applications.createdByMe")}
+              actions={item.actions}
+            />
+          ))}
+        </div>
+      )
+
+      for (const item of cases) {
+        const card = screen.getByRole("article", { name: item.name })
+        const footer = card.querySelector('[data-slot="card-footer"]')
+        expect(footer).toHaveClass("mt-auto", "border-t", "flex-wrap")
+        const actionRow = footer?.lastElementChild
+        expect(actionRow).toHaveClass("min-h-7", "flex-wrap")
+        expect(actionRow).not.toHaveClass("h-7")
+        expect(within(card).queryAllByRole("button")).toHaveLength(
+          item.name === "Ready application" ? 1 : 0
+        )
+      }
+    }
+  )
+
   it.each(["zh-CN", "en-US"])(
     "groups the name, resources, status and footer without changing their data in %s",
     async (language) => {

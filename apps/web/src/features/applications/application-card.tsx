@@ -153,7 +153,7 @@ export function ApplicationCard({
         <div className="min-w-0 flex-1 basis-32 text-xs text-muted-foreground">
           {footer}
         </div>
-        <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
+        <div className="ml-auto flex min-h-7 max-w-full flex-wrap items-center justify-end gap-2">
           {actions}
         </div>
       </CardFooter>
