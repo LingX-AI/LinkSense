@@ -43,7 +43,7 @@ function fixture() {
     return { version_id: versionId, version_number: input.version_number, usage_instructions: input.usage_instructions };
   }) };
   const service = new ApplicationCenterService(repository as never, publications as never, audit, applications);
-  return { service, repository, publications, audit, applications, transaction };
+  return { service, repository, publications, audit, applications, transaction, release };
 }
 
 describe("application center", () => {
@@ -137,7 +137,7 @@ describe("application center", () => {
   it("rejects interactive install submissions and never promotes historical install-only releases to service access", async () => {
     const f = fixture();
     f.repository.prisma.application.findFirst.mockResolvedValue({ id: applicationId, kind: "interactive" });
-    await expect(f.service.submit(actor, applicationId, { version_number: "1.0.0", usage_instructions: "", usage_modes: ["install"], release_notes: "" }, context)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(f.service.submit(actor, applicationId, { version_number: "1.0.0", usage_instructions: "", usage_modes: ["install"], release_notes: "Initial release" }, context)).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     expect(f.applications.captureDistributionVersion).not.toHaveBeenCalled();
     f.publications.parseDefinition.mockReturnValue({ kind: "interactive", usageInstructions: "Use online" });
     expect((await f.service.ownPublications(actor))[0]?.usage_modes).toEqual([]);
@@ -196,9 +196,49 @@ describe("application center", () => {
       expect(f.repository.ownPublications).toHaveBeenCalledTimes(1);
     } finally { await app.close(); }
   });
-  it("accepts an empty usage guide and empty release notes", async () => {
+  it("rejects missing or blank release notes before creating a listing submission", async () => {
     const f = fixture();
-    const input = { version_number: "1.0.0", usage_instructions: "", usage_modes: ["install" as const], release_notes: "" };
+    const app = Fastify();
+    app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
+    await app.register(applicationCenterRoutes, {
+      prefix: "/application-center", service: f.service, resolveActor: async () => actor,
+    });
+    try {
+      for (const release_notes of [undefined, null, "", " \n\t "]) {
+        const response = await app.inject({
+          method: "POST", url: `/application-center/${applicationId}/submissions`,
+          payload: { version_number: "1.0.0", usage_instructions: "", usage_modes: ["install"], ...(release_notes === undefined ? {} : { release_notes }) },
+        });
+        expect(response.statusCode, response.body).toBe(400);
+        expect(response.json()).toMatchObject({ error_code: "VALIDATION_ERROR" });
+      }
+      expect(f.applications.captureDistributionVersion).not.toHaveBeenCalled();
+      expect(f.repository.submit).not.toHaveBeenCalled();
+      expect(f.audit.write).not.toHaveBeenCalled();
+
+      const response = await app.inject({
+        method: "POST", url: `/application-center/${applicationId}/submissions`,
+        payload: { version_number: "1.0.0", usage_instructions: "", usage_modes: ["install"], release_notes: " Initial release " },
+      });
+      expect(response.statusCode, response.body).toBe(202);
+      expect(f.repository.submit).toHaveBeenCalledWith(f.transaction, ownerId, applicationId, versionId, expect.objectContaining({ release_notes: "Initial release" }));
+    } finally { await app.close(); }
+  });
+  it("keeps existing releases with empty notes readable and reviewable", async () => {
+    const f = fixture();
+    f.release.releaseNotes = "";
+    const admin: RequestActor = { ...actor, role: "admin" };
+    for (const releases of [await f.service.ownReleases(actor, applicationId), await f.service.catalog(actor), await f.service.adminReleases(admin)]) {
+      expect(releases).toEqual([expect.objectContaining({ id: releaseId, release_notes: "" })]);
+    }
+    await f.service.review(admin, releaseId, { decision: "approved", comment: "" }, context);
+    expect(f.repository.review).toHaveBeenCalledWith(ownerId, releaseId, "approved", "");
+    await f.service.setStatus(actor, applicationId, { status: "published", reason: "" }, context);
+    expect(f.repository.setStatus).toHaveBeenCalledWith(ownerId, false, applicationId, "published", "");
+  });
+  it("accepts an empty usage guide with nonblank release notes", async () => {
+    const f = fixture();
+    const input = { version_number: "1.0.0", usage_instructions: "", usage_modes: ["install" as const], release_notes: "Initial release" };
     await f.service.submit(actor, applicationId, input, context);
     expect(f.applications.captureDistributionVersion).toHaveBeenCalledWith(actor, applicationId, input, expect.any(Function));
     expect(f.repository.submit).toHaveBeenCalledWith(f.transaction, ownerId, applicationId, versionId, input);

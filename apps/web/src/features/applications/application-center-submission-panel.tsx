@@ -11,6 +11,7 @@ import { apiRequest } from "@/api/client"
 import { getErrorMessage } from "@/api/error-message"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { notify } from "@/components/feedback/notification"
+import { RequiredIndicator } from "@/components/forms/required-indicator"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -170,11 +171,13 @@ export function ApplicationCenterSubmissionPanel({
         <Field>
           <FieldLabel htmlFor="application-release-notes">
             {t("applications.distribution.releaseNotes")}
+            <RequiredIndicator />
           </FieldLabel>
           <Textarea
             id="application-release-notes"
             value={notes}
             maxLength={8000}
+            required
             onChange={(event) => setNotes(event.target.value)}
             disabled={busy}
           />

@@ -13,6 +13,7 @@ import {
   applicationSchema,
   applicationShareInputSchema,
   applicationCenterSubmissionInputSchema,
+  supportedLocales,
 } from "@linksense/shared"
 import i18n from "@/i18n"
 import { apiRequest } from "@/api/client"
@@ -213,20 +214,20 @@ describe("separate application distribution forms", () => {
     }
   )
 
-  it.each([
-    ["direct", "zh-CN"],
-    ["center", "zh-CN"],
-    ["direct", "en-US"],
-    ["center", "en-US"],
-    ["direct", "fr"],
-    ["center", "fr"],
-  ] as const)(
+  it.each(
+    (["direct", "center"] as const).flatMap((mode) =>
+      [...supportedLocales, "de-DE"].map((locale) => [mode, locale] as const)
+    )
+  )(
     "marks required %s fields with red asterisks in %s",
     async (mode, locale) => {
       await i18n.changeLanguage(locale)
       mockRequests({ hasGrants: false })
       show(mode)
-      const fields = ["applications.distribution.versionNumber"]
+      const fields = [
+        "applications.distribution.versionNumber",
+        ...(mode === "center" ? ["applications.distribution.releaseNotes"] : []),
+      ]
       for (const key of fields) {
         const input = await screen.findByRole("textbox", { name: i18n.t(key) })
         expect(input).toBeRequired()
@@ -241,18 +242,6 @@ describe("separate application distribution forms", () => {
           screen.getByText(i18n.t("applications.distribution.guide"))
         ).queryByText("*")
       ).not.toBeInTheDocument()
-      if (mode === "center") {
-        expect(
-          screen.getByRole("textbox", {
-            name: i18n.t("applications.distribution.releaseNotes"),
-          })
-        ).not.toBeRequired()
-        expect(
-          within(
-            screen.getByText(i18n.t("applications.distribution.releaseNotes"))
-          ).queryByText("*")
-        ).not.toBeInTheDocument()
-      }
       for (const key of [
         ...fields,
         "applications.distribution.usageModes",
@@ -287,6 +276,48 @@ describe("separate application distribution forms", () => {
     }
   )
 
+  it.each([...supportedLocales, "de-DE"])(
+    "requires nonblank release notes before submitting a listing in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      mockRequests()
+      show("center")
+      await screen.findByRole("textbox", {
+        name: i18n.t("applications.distribution.versionNumber"),
+      })
+      const notes = screen.getByRole("textbox", {
+        name: i18n.t("applications.distribution.releaseNotes"),
+      })
+      const submit = screen.getByRole("button", {
+        name: i18n.t("applications.distribution.submit"),
+      })
+      expect(submit).toBeDisabled()
+      await userEvent.type(notes, "   ")
+      expect(submit).toBeDisabled()
+      await userEvent.click(submit)
+      expect(apiRequest).not.toHaveBeenCalledWith(
+        `/application-center/${id}/submissions`,
+        expect.objectContaining({ method: "POST" })
+      )
+      await userEvent.clear(notes)
+      await userEvent.type(notes, "Release")
+      expect(submit).toBeEnabled()
+      await userEvent.clear(notes)
+      expect(submit).toBeDisabled()
+      await userEvent.type(notes, "  Release  ")
+      await userEvent.click(submit)
+      await waitFor(() =>
+        expect(apiRequest).toHaveBeenCalledWith(
+          `/application-center/${id}/submissions`,
+          expect.objectContaining({
+            method: "POST",
+            body: expect.objectContaining({ release_notes: "Release" }),
+          })
+        )
+      )
+    }
+  )
+
   it("keeps a new sharing target optional when updating existing shares", async () => {
     await i18n.changeLanguage("zh-CN")
     mockRequests()
@@ -315,6 +346,13 @@ describe("separate application distribution forms", () => {
       expect(version).toHaveAttribute("readonly")
       const guide = screen.getByRole("textbox", { name: i18n.t("applications.distribution.guide") })
       expect(guide).toHaveAttribute("readonly")
+      if (mode === "center")
+        await userEvent.type(
+          screen.getByRole("textbox", {
+            name: i18n.t("applications.distribution.releaseNotes"),
+          }),
+          "Release"
+        )
       const submit = screen.getByRole("button", { name: i18n.t(mode === "direct" ? "applications.distribution.saveSharing" : "applications.distribution.submit") })
       await waitFor(() => expect(submit).toBeEnabled())
       await userEvent.click(submit)
@@ -368,6 +406,13 @@ describe("separate application distribution forms", () => {
       const guide = await screen.findByRole("textbox", {
         name: i18n.t("applications.distribution.guide"),
       })
+      if (mode === "center")
+        await userEvent.type(
+          screen.getByRole("textbox", {
+            name: i18n.t("applications.distribution.releaseNotes"),
+          }),
+          "Release"
+        )
       const submit = screen.getByRole("button", {
         name: i18n.t(
           mode === "direct"
@@ -451,6 +496,13 @@ describe("separate application distribution forms", () => {
         name: i18n.t("applications.distribution.guide"),
       })
       expect(guide).toHaveValue("")
+      if (mode === "center")
+        await userEvent.type(
+          screen.getByRole("textbox", {
+            name: i18n.t("applications.distribution.releaseNotes"),
+          }),
+          "Release"
+        )
       const submit = screen.getByRole("button", {
         name: i18n.t(
           mode === "direct"

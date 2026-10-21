@@ -586,6 +586,12 @@ describe("capability marketplace pages", () => {
     await interaction.click(
       await within(dialog).findByRole("checkbox", { name: "应用服务" })
     )
+    await interaction.type(
+      within(dialog).getByRole("textbox", {
+        name: i18n.t("applications.distribution.releaseNotes"),
+      }),
+      "First application release"
+    )
     await interaction.click(
       within(dialog).getByRole("button", { name: "提交上架审批" })
     )
