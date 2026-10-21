@@ -61,7 +61,8 @@ describe("ModelProviderSettingsService", () => {
 
   it("resolves a dedicated extraction channel and preserves it across unrelated settings updates", async () => {
     const database = inMemoryDatabase();
-    const service = new ModelProviderSettingsService(database.prisma, testConfig());
+    const metadataClient = { readContextWindows: vi.fn(async () => new Map<string, number>()) };
+    const service = new ModelProviderSettingsService(database.prisma, testConfig(), metadataClient);
     const providers = [
       provider("task", "https://task.example.test/v1", [pricedModel("task-model", ["high", "low"], "high")], "native_responses", "task-key"),
       provider("memory", "https://memory.example.test/v1", [pricedModel("memory-model", ["high", "minimal", "low"], "high")], "chat_completions_bridge", "memory-key"),
@@ -73,7 +74,7 @@ describe("ModelProviderSettingsService", () => {
         model: "memory-model", reasoningEffort: "minimal", baseUrl: "https://memory.example.test/v1", apiKey: "memory-key", protocolMode: "chat_completions_bridge",
       } },
     });
-    const reloaded = new ModelProviderSettingsService(database.prisma, testConfig());
+    const reloaded = new ModelProviderSettingsService(database.prisma, testConfig(), metadataClient);
     await reloaded.update(ACTOR_ID, { expected_revision: 1, providers, default_model: "task-model" }, {});
     expect((await reloaded.getAdminSettings()).memory_extraction_model).toBe("memory-model");
     await expect(reloaded.deleteProvider(ACTOR_ID, { expected_revision: 2, provider_id: "memory" }, {})).rejects.toMatchObject({ code: "MODEL_IN_USE_BY_SYSTEM_SETTING" });
@@ -83,7 +84,8 @@ describe("ModelProviderSettingsService", () => {
 
   it("allows a hidden chat model for memory extraction and protects its reference during edits and deletion", async () => {
     const database = inMemoryDatabase()
-    const service = new ModelProviderSettingsService(database.prisma, testConfig())
+    const metadataClient = { readContextWindows: vi.fn(async () => new Map<string, number>()) }
+    const service = new ModelProviderSettingsService(database.prisma, testConfig(), metadataClient)
     const taskModel = pricedModel("task-model", ["low", "high"], "high")
     const memoryModel = { ...pricedModel("memory-model", ["low"], "low"), enabled: false }
     const models = [taskModel, memoryModel]
