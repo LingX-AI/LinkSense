@@ -2036,6 +2036,51 @@ describe("conversation voice input", () => {
     expect(props.onSubmit).toHaveBeenCalledWith("快速发送的新内容")
   })
 
+  it.each(["click", "enter"] as const)(
+    "keeps focus through %s submission so another message can be sent without refocusing",
+    async (method) => {
+      const interaction = userEvent.setup()
+      const { props, rerender } = renderComposer({ value: "First message" })
+      const input = screen.getByRole("textbox", { name: "任务输入框" })
+      await interaction.click(input)
+      if (method === "click")
+        await interaction.click(screen.getByRole("button", { name: "发送" }))
+      else await interaction.keyboard("{Enter}")
+      expect(props.onSubmit).toHaveBeenCalledWith("First message")
+      expect(input).toHaveFocus()
+
+      rerender(<ConversationComposer {...props} value="" submitting />)
+      expect(input).toBeEnabled()
+      expect(input).toHaveAttribute("readonly")
+      expect(input).toHaveFocus()
+      await interaction.keyboard("{Enter}")
+      expect(props.onSubmit).toHaveBeenCalledTimes(1)
+
+      rerender(<ConversationComposer {...props} value="" submitting={false} />)
+      expect(input).not.toHaveAttribute("readonly")
+      expect(input).toHaveFocus()
+      fireEvent.change(input, { target: { value: "Second message" } })
+      await interaction.keyboard("{Enter}")
+      expect(props.onSubmit).toHaveBeenNthCalledWith(2, "Second message")
+    }
+  )
+
+  it("does not reclaim focus from another control when submission finishes", async () => {
+    const interaction = userEvent.setup()
+    const { props, rerender } = renderComposer({ value: "First message" })
+    const input = screen.getByRole("textbox", { name: "任务输入框" })
+    await interaction.click(input)
+    await interaction.keyboard("{Enter}")
+    rerender(<ConversationComposer {...props} value="" submitting />)
+    const otherControl = document.createElement("button")
+    otherControl.textContent = "Another control"
+    document.body.append(otherControl)
+    otherControl.focus()
+    rerender(<ConversationComposer {...props} value="" submitting={false} />)
+    expect(otherControl).toHaveFocus()
+    otherControl.remove()
+  })
+
   it("submits the latest textarea value before the parent value prop catches up on Enter", () => {
     const { props } = renderComposer({ value: "" })
 
