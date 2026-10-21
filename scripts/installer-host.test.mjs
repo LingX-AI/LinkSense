@@ -23,6 +23,18 @@ function directory(t) {
   return dir
 }
 
+test("a minimal host without cmp is rejected before reading installation tools or modifying state", t => {
+  const dir = directory(t)
+  const result = run(`${fn("preflight")}
+command() { case "$*" in '-v curl') return 0 ;; '-v cmp') return 1 ;; *) return 99 ;; esac; }
+host_use_saved_tools() { touch "$DIR/mutated"; }
+HOST_OS=Darwin
+preflight`, { DIR: dir })
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stderr, /LS_HOST_required_command.*cmp.*diffutils/u)
+  assert.equal(existsSync(path.join(dir, "mutated")), false)
+})
+
 for (const [value, status] of [["", 0], ["--max-old-space-size=1024", 0], ["bad value", 1], ["$(id)", 1]]) {
   test(`protected optional Node settings ${status === 0 ? "accept" : "reject"} ${JSON.stringify(value)}`, t => {
     const dir = directory(t)

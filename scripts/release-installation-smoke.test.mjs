@@ -1,10 +1,21 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
-import { assertCleanDaemon, assertPreserved, parseEnvironment, publishedInstallationFixture, redactOutput, requireProbeCompletion, verificationPassword, verifyInstalledContainers, verifyInstalledResources } from "./release-installation-smoke.mjs"
+import { assertCleanDaemon, assertPreserved, parseEnvironment, publishedInstallationFixture, readSystemCaBundle, redactOutput, requireProbeCompletion, verificationPassword, verifyInstalledContainers, verifyInstalledResources } from "./release-installation-smoke.mjs"
+
+test("installation HTTPS uses the distribution's available CA bundle and fails closed when none exists", async t => {
+  const directory = mkdtempSync(path.join(tmpdir(), "linksense-ca-bundle-"))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const absent = path.join(directory, "debian-ca-certificates.crt")
+  const rpm = path.join(directory, "rpm-ca-bundle.crt")
+  writeFileSync(rpm, "trusted-rpm-certificate\n")
+  assert.equal((await readSystemCaBundle([absent, rpm])).toString(), "trusted-rpm-certificate\n")
+  await assert.rejects(readSystemCaBundle([absent]), /No system CA bundle/u)
+  await assert.rejects(readSystemCaBundle([directory, rpm]), { code: "EISDIR" })
+})
 
 test("installation accounts use random passwords within the application's 8–16 character policy", () => {
   const passwords = Array.from({ length: 20 }, verificationPassword)
