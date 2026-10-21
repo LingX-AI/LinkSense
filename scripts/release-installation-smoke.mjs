@@ -244,7 +244,7 @@ export async function runInstallationSmoke({ assetDirectory, edition, reportDire
     assert.equal(session.user.role, "admin")
     await request("/admin/model-provider-settings", { token: session.access_token })
     const page = await fetch(origin, { signal: AbortSignal.timeout(15000) })
-    assert.equal(page.status, 200)
+    assert.equal(page.status, 200, "The public Web page is unavailable through the gateway")
     assert.match(await page.text(), /<html/iu)
   }
   async function runtimeProbe(fixture, operation) {
