@@ -1,4 +1,10 @@
 import { createRandomUuid } from "@/lib/random-uuid"
+import { useSideChat } from "@/features/conversations/use-side-chat"
+import { SideChatPanel } from "@/features/conversations/side-chat-panel"
+import {
+  appendSideChatQuote,
+  sideChatTurnInput,
+} from "@/features/conversations/conversation-message-selection"
 import type { ApplicationAnnotationSubmit } from "@/features/applications/application-annotation-submission"
 import { SiteShareButton } from "@/features/web-sites/site-share-button"
 import { FirstUseGuide } from "@/features/onboarding/first-use-guide"
@@ -31,6 +37,7 @@ import {
   EllipsisIcon,
   FolderIcon,
   InfoIcon,
+  MessagesSquareIcon,
   PencilIcon,
   SearchIcon,
   UploadIcon,
@@ -54,8 +61,10 @@ import {
   builtInCapabilityId,
   type ConversationCollaborationMode,
   type ConversationUserInputResponse,
+  type SideChatReference,
 } from "@linksense/shared"
 import { z } from "zod"
+import { toast } from "sonner"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
 import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
@@ -383,6 +392,7 @@ type ComposerSubmission = Readonly<{
   attachments: ConversationFile[]
   collaborationMode: ConversationCollaborationMode
   optimisticId?: string
+  referenceId?: string
 }>
 
 type PlanReviewActionSubmission =
@@ -544,6 +554,7 @@ function isDefinitiveKnowledgeBaseSelectionError(error: unknown) {
 export function ConversationPage({
   headerActions,
   showConversationActions = true,
+  showHeader = true,
   showComposer = true,
   conversationId: embeddedConversationId,
   embedded = false,
@@ -553,9 +564,12 @@ export function ConversationPage({
   unavailableMessage,
   annotationSubmitRef,
   onApplicationEvent,
+  sideChatReference,
+  onReturnSideChatSelection,
 }: Readonly<{
   headerActions?: ReactNode
   showConversationActions?: boolean
+  showHeader?: boolean
   showComposer?: boolean
   conversationId?: string
   embedded?: boolean
@@ -565,6 +579,8 @@ export function ConversationPage({
   readOnly?: boolean
   unavailableMessage?: string
   onApplicationEvent?: (event: ConversationEvent) => void
+  sideChatReference?: SideChatReference
+  onReturnSideChatSelection?: (text: string) => void
 }> = {}) {
   const { conversationId: routeConversationId } = useParams()
   const conversationId = embeddedConversationId ?? routeConversationId
@@ -577,6 +593,7 @@ export function ConversationPage({
   const location = useLocation()
   const queryClient = useQueryClient()
   const [composerValue] = useState(createConversationComposerValue)
+  const sideChatPanelRef = useRef<HTMLElement>(null)
   const { setValue } = composerValue
   const {
     projectId: newProjectId,
@@ -1222,6 +1239,15 @@ export function ConversationPage({
     (knowledgeBasesLoading || knowledgeBaseSelectionVerificationFailed)
 
   const conversation = conversationQuery.data
+  const sideChat = useSideChat(
+    conversationId,
+    !isNew &&
+      !embedded &&
+      !development &&
+      !readOnly &&
+      Boolean(conversation) &&
+      !conversation?.application_development_role
+  )
   const sourcesQuery = useQuery({
     ...conversationSourcesQueryOptions(
       conversationId,
@@ -1388,7 +1414,9 @@ export function ConversationPage({
     (running || pendingTurnExecutionActive || pendingConversationExecution) &&
     !reconnectExhausted
   )
-  const runningMessageAction = user?.running_message_action ?? "queue"
+  const runningMessageAction = sideChatReference
+    ? "queue"
+    : (user?.running_message_action ?? "queue")
   const previewUpdateCandidate =
     conversation &&
     officePreviewUpdate &&
@@ -3045,6 +3073,9 @@ export function ConversationPage({
           conversation?.turns?.at(-1)?.id ??
           null,
         input_text: requestedInput,
+        ...(submission.referenceId
+          ? { reference_id: submission.referenceId }
+          : {}),
         priority_capability_ids: requestedCapabilityIds,
         knowledge_base_ids: requestedKnowledgeBaseIds,
         attachment_ids: nextAttachments.map((attachment) => attachment.id),
@@ -3112,7 +3143,10 @@ export function ConversationPage({
         turnSubmitOperationRef,
         `/conversations/${id}/turns`,
         {
-          input_text: requestedInput,
+          ...sideChatTurnInput({
+            input: requestedInput,
+            referenceId: submission.referenceId,
+          }),
           priority_capability_ids: requestedCapabilityIds,
           knowledge_base_ids: requestedKnowledgeBaseIds,
           idempotency_key: idempotencyKey,
@@ -3155,13 +3189,23 @@ export function ConversationPage({
         }
         sendSubmissionConversationIdRef.current = null
         if (user)
-          clearLocalConversationDraft(window.localStorage, user.id, result.id)
+          consumeAcceptedLocalConversationDraft(
+            window.localStorage,
+            user.id,
+            result.id,
+            [result.idempotencyKey]
+          )
         return
       }
       turnSubmitOperationRef.current = null
       sendSubmissionConversationIdRef.current = null
       if (user)
-        clearLocalConversationDraft(window.localStorage, user.id, result.id)
+        consumeAcceptedLocalConversationDraft(
+          window.localStorage,
+          user.id,
+          result.id,
+          [result.idempotencyKey]
+        )
       // Keep the optimistic running state until the submitted turn is
       // projected. An immediate list refresh can still return the preceding
       // terminal state and make the sidebar indicator flicker.
@@ -4377,7 +4421,7 @@ export function ConversationPage({
         {
           method: "POST",
           body: {
-            input_text: submission.input,
+            ...sideChatTurnInput(submission),
             priority_capability_ids: submission.capabilityIds,
             knowledge_base_ids: submission.knowledgeBaseIds,
             collaboration_mode: submission.collaborationMode,
@@ -4387,13 +4431,18 @@ export function ConversationPage({
         }
       )
       await refreshSubmittedConversation(targetConversationId)
-      return { id: targetConversationId }
+      return { id: targetConversationId, idempotencyKey }
     },
     onSuccess: async (result, _submission, optimisticAttachmentConsumption) => {
       commitOptimisticallyConsumedAttachments(optimisticAttachmentConsumption)
       composerSubmissionInFlightRef.current = false
       if (user)
-        clearLocalConversationDraft(window.localStorage, user.id, result.id)
+        consumeAcceptedLocalConversationDraft(
+          window.localStorage,
+          user.id,
+          result.id,
+          [result.idempotencyKey]
+        )
       if (routeConversationIdRef.current !== result.id) {
         pendingOperationRef.current = null
         pendingSubmissionConversationIdRef.current = null
@@ -4791,6 +4840,7 @@ export function ConversationPage({
       return
     const submission: ComposerSubmission = {
       input,
+      ...(sideChatReference ? { referenceId: sideChatReference.id } : {}),
       capabilityIds: [...selectedCapabilityIds],
       knowledgeBaseIds: [...validSelectedKnowledgeBaseIds],
       attachments: [...attachments],
@@ -5184,7 +5234,7 @@ export function ConversationPage({
       </div>
     )
   }
-  if (shouldRecoverUnavailableConversation) {
+  if (shouldRecoverUnavailableConversation && !embedded) {
     return <Navigate to="/conversations/new" replace />
   }
   if (!isNew && conversationQuery.isError) {
@@ -5578,24 +5628,75 @@ export function ConversationPage({
 
   return (
     <ConversationOfficeLayout
+      previewBlocksWorkspace={sideChat.open}
       taskOverviewOpen={
-        surfaceActive && !isNew && !taskOverviewSuppressed && taskOverviewOpen
+        surfaceActive &&
+        !isNew &&
+        !taskOverviewSuppressed &&
+        taskOverviewOpen &&
+        !sideChat.open
       }
       defaultPreviewViewportRatio={
-        activeSubAgent ? DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO : undefined
+        sideChat.open
+          ? 0.4
+          : activeSubAgent
+            ? DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO
+            : undefined
       }
       resizeLabel={t(
-        activeSubAgent
-          ? "conversation.subAgentActivities.resizeDetails"
-          : "officePreview.resizePreview"
+        sideChat.open
+          ? "sideChat.resize"
+          : activeSubAgent
+            ? "conversation.subAgentActivities.resizeDetails"
+            : "officePreview.resizePreview"
       )}
       previewClosing={
+        !sideChat.open &&
         filePreviewClosing &&
         Boolean(activeHtmlCodePreview || activeImagePreview || officeFile)
       }
       onPreviewExitComplete={finishFilePreviewExit}
       preview={
-        activeSubAgent ? (
+        sideChat.open ? (
+          <SideChatPanel
+            containerRef={sideChatPanelRef}
+            data={sideChat.data}
+            pending={sideChat.pending}
+            failed={sideChat.failed}
+            onClose={() => {
+              sideChat.close()
+              window.setTimeout(() => composerRef.current?.focus(), 0)
+            }}
+            onRetry={sideChat.retry}
+            onSelectionChange={sideChat.select}
+          >
+            {sideChat.data && (
+              <ConversationPage
+                key={sideChat.data.conversation_id}
+                conversationId={sideChat.data.conversation_id}
+                embedded
+                showConversationActions={false}
+                showHeader={false}
+                sideChatReference={sideChat.data.reference}
+                readOnly={sideChat.pending}
+                onReturnSideChatSelection={(text) => {
+                  setValue((current) =>
+                    appendSideChatQuote(current, text, t("sideChat.quote"))
+                  )
+                  if (
+                    window.matchMedia("(max-width: 1100px)").matches ||
+                    sideChatPanelRef.current?.parentElement?.getAttribute(
+                      "data-overlay-office-preview"
+                    ) === "true"
+                  )
+                    sideChat.close()
+                  window.setTimeout(() => composerRef.current?.focus(), 0)
+                  toast.success(t("sideChat.carried"))
+                }}
+              />
+            )}
+          </SideChatPanel>
+        ) : activeSubAgent ? (
           <ConversationSubAgentDetail
             showReasoning={personalizationQuery.data?.show_reasoning ?? false}
             selection={activeSubAgent}
@@ -5652,7 +5753,11 @@ export function ConversationPage({
         ) : undefined
       }
     >
-      <header className="conversation-top-bar" role="banner">
+      <header
+        hidden={!showHeader}
+        className={showHeader ? "conversation-top-bar" : "hidden"}
+        role="banner"
+      >
         <div className="conversation-title-actions flex min-w-0 items-center gap-1">
           <ConversationDevelopmentIcon role={developmentRole} />
           {displayConversation.application && !developmentRole && (
@@ -5844,6 +5949,18 @@ export function ConversationPage({
             />
           )}
           {headerActions}
+          {sideChat.data && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t("sideChat.reopen")}
+              aria-expanded={sideChat.open}
+              onClick={sideChat.show}
+            >
+              <MessagesSquareIcon aria-hidden="true" />
+            </Button>
+          )}
           {!showComposer && !executionBlocked && visuallyRunning && (
             <Button
               type="button"
@@ -5906,6 +6023,27 @@ export function ConversationPage({
       )}
 
       <ConversationThread
+        messageReferenceAction={
+          onReturnSideChatSelection
+            ? {
+                label: t("sideChat.carry"),
+                mode: "return",
+                onSelect: (_message, text) => onReturnSideChatSelection(text),
+              }
+            : !embedded && !developmentRole && !readOnly
+              ? {
+                  label: t("sideChat.ask"),
+                  mode: "ask",
+                  disabled: sideChat.pending,
+                  onSelect: (message, text) =>
+                    sideChat.select({
+                      source_message_id: message.id,
+                      selection_text: text,
+                      include_recent_messages: true,
+                    }),
+                }
+              : undefined
+        }
         startingTaskTurnId={startingTaskTurnId}
         showReasoning={personalizationQuery.data?.show_reasoning ?? false}
         liveReasoningContentEvents={liveReasoningContentEvents}
@@ -6001,7 +6139,7 @@ export function ConversationPage({
         contentRef={contentRef}
         onRegenerateMessage={handleRegenerateMessage}
         onForkMessage={
-          developmentRole === "preview" || executionBlocked
+          developmentRole === "preview" || executionBlocked || sideChatReference
             ? undefined
             : handleForkMessage
         }
@@ -6187,6 +6325,8 @@ export function ConversationPage({
             isRunning={visuallyRunning}
             interrupting={interrupting}
             goalMode={goalMode}
+            goalModeAvailable={!sideChatReference}
+            planModeAvailable={!sideChatReference}
             onGoalModeChange={handleGoalModeChange}
             planMode={planMode}
             planModeDisabled={

@@ -69,5 +69,6 @@ export * from "./application-icons.js";
 export * from "./social-auth.js"
 export * from "./saml.js";
 export * from "./connections.js";
+export * from "./conversation-side-chat.js";
 export * from "./connection-plugins.js";
 export * from "./workspace-connections.js";

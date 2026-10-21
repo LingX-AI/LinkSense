@@ -1,4 +1,5 @@
 import { connectionMessages } from "@/features/connections/messages"
+import { sideChatMessages } from "@/features/conversations/side-chat-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samljaJP } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
@@ -10,6 +11,7 @@ import { localizedErrorMessage } from "@linksense/shared"
 export const jaJP = {
   modelSetup: modelSetupMessages["ja-JP"],
   connections: connectionMessages["ja-JP"],
+  sideChat: sideChatMessages["ja-JP"],
   saml: samljaJP,
   social: {
     disableHelp:

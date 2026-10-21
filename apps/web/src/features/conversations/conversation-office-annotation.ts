@@ -39,7 +39,7 @@ export function buildOfficeAnnotationInput(
       request: string
     }>
   >
-): OfficeAnnotationInput {
+): Exclude<OfficeAnnotationInput, { kind: "conversation_reference" }> {
   const firstRequest = requests[0]
   if (!firstRequest) throw new Error("office_annotation_required")
 

@@ -1,4 +1,9 @@
 import { officeAnnotationDisplayName } from "@linksense/shared"
+import { uuidSchema } from "@linksense/shared"
+import {
+  selectedMessageText,
+  type MessageReferenceAction,
+} from "./conversation-message-selection"
 import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { AssistantMermaid } from "@/features/conversations/assistant-mermaid"
 import { AssistantPreviewAction } from "@/features/conversations/assistant-preview-actions"
@@ -48,6 +53,8 @@ import {
   PresentationIcon,
   GoalIcon,
   GitForkIcon,
+  MessagesSquareIcon,
+  CornerUpLeftIcon,
   SparklesIcon,
   WifiIcon,
   WrenchIcon,
@@ -2351,13 +2358,15 @@ async function copyTextToClipboard(content: string) {
 
 function getOfficeAnnotationDisplay(
   value: unknown
-): OfficeAnnotationDisplay | null {
+): Exclude<OfficeAnnotationDisplay, { kind: "conversation_reference" }> | null {
   const parsed = officeAnnotationDisplaySchema.safeParse(value)
-  return parsed.success ? parsed.data : null
+  return parsed.success && parsed.data.kind !== "conversation_reference"
+    ? parsed.data
+    : null
 }
 
 function officeAnnotationCardItems(
-  display: OfficeAnnotationDisplay,
+  display: Exclude<OfficeAnnotationDisplay, { kind: "conversation_reference" }>,
   t: TFunction
 ): ReadonlyArray<Readonly<{ request: string; locationLabel: string }>> {
   if (display.kind === "presentation_annotation") {
@@ -2430,6 +2439,7 @@ type MessageProps = Readonly<{
   }>
   proposedPlan?: boolean
   hideActions?: boolean
+  messageReferenceAction?: MessageReferenceAction
 }>
 
 const Message = memo(function Message({
@@ -2459,6 +2469,7 @@ const Message = memo(function Message({
   goalCompletion,
   proposedPlan = false,
   hideActions = false,
+  messageReferenceAction,
 }: MessageProps) {
   const { t, i18n } = useTranslation()
   const user = message.role === "user"
@@ -2499,6 +2510,8 @@ const Message = memo(function Message({
     "idle"
   )
   const editButtonRef = useRef<HTMLButtonElement>(null)
+  const messageElementRef = useRef<HTMLElement>(null)
+  const selectedTextRef = useRef<string | null>(null)
   const editInputId = useId()
   const nextContent = editValue.trim()
   const canSubmit = nextContent.length > 0 && !submitting && !editingDisabled
@@ -2667,6 +2680,63 @@ const Message = memo(function Message({
       <ActionTooltipContent side="top">{copyActionLabel}</ActionTooltipContent>
     </Tooltip>
   )
+  const referenceAction =
+    messageReferenceAction &&
+    (!user || messageReferenceAction.mode === "ask") &&
+    uuidSchema.safeParse(message.id).success &&
+    (user ? displayedUserContent : assistantCopyContent).trim() ? (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="message-action-button"
+              aria-label={messageReferenceAction.label}
+              disabled={messageReferenceAction.disabled}
+              onPointerDown={() => {
+                selectedTextRef.current = selectedMessageText(
+                  messageElementRef.current,
+                  window.getSelection(),
+                  user ? displayedUserContent : assistantCopyContent,
+                  messageReferenceAction.mode
+                )
+              }}
+              onClick={() => {
+                const text =
+                  selectedTextRef.current ??
+                  selectedMessageText(
+                    messageElementRef.current,
+                    window.getSelection(),
+                    user ? displayedUserContent : assistantCopyContent,
+                    messageReferenceAction.mode
+                  )
+                selectedTextRef.current = null
+                messageReferenceAction.onSelect(message, text)
+              }}
+            >
+              {messageReferenceAction.mode === "ask" ? (
+                <MessagesSquareIcon
+                  className="size-3"
+                  strokeWidth={1.5}
+                  aria-hidden="true"
+                />
+              ) : (
+                <CornerUpLeftIcon
+                  className="size-3"
+                  strokeWidth={1.5}
+                  aria-hidden="true"
+                />
+              )}
+            </Button>
+          }
+        />
+        <ActionTooltipContent side="top">
+          {messageReferenceAction.label}
+        </ActionTooltipContent>
+      </Tooltip>
+    ) : null
   const forkAction = forkButton ? (
     <Tooltip>
       <TooltipTrigger render={forkButton} />
@@ -2691,6 +2761,7 @@ const Message = memo(function Message({
 
   return (
     <article
+      ref={messageElementRef}
       id={getConversationMessageAnchorId(message.id)}
       aria-label={t(
         user ? "conversation.userMessage" : "conversation.assistantMessage"
@@ -2724,6 +2795,18 @@ const Message = memo(function Message({
           onPreviewFile={onPreviewOfficeDocument}
         />
       )}
+      {user &&
+        message.display?.kind === "conversation_reference" &&
+        !editing && (
+          <div className="mb-2 max-w-full rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            <p className="mb-1 font-medium">
+              {t("sideChat.source", { title: message.display.source_title })}
+            </p>
+            <blockquote className="max-h-24 overflow-y-auto border-l-2 border-primary/40 pl-2 break-words whitespace-pre-wrap">
+              {message.display.selection_text}
+            </blockquote>
+          </div>
+        )}
       {officeAnnotation && !editing ? (
         <OfficeAnnotationCard
           ariaLabel={t(
@@ -3004,6 +3087,7 @@ const Message = memo(function Message({
                 <span className="message-user-action-controls">
                   {metadataElement}
                   {copyAction}
+                  {referenceAction}
                   {onRegenerateMessage && !editingDisabled && !submitting && (
                     <Button
                       type="button"
@@ -3039,6 +3123,7 @@ const Message = memo(function Message({
             ) : (
               <>
                 {copyAction}
+                {referenceAction}
                 {forkAction}
                 {metadataElement}
                 {goalCompletionElement}
@@ -4365,9 +4450,11 @@ export function ConversationThread({
   hideMessageActions = false,
   navigationRef,
   onVisibleMessageChange,
+  messageReferenceAction,
   history,
 }: {
   conversation: Conversation
+  messageReferenceAction?: MessageReferenceAction
   startingTaskTurnId?: string
   knowledgeBases?: KnowledgeBase[]
   applicationKnowledgeBases?: readonly ApplicationKnowledgeBase[]
@@ -4790,6 +4877,7 @@ export function ConversationThread({
       <Message
         key={getConversationMessageRenderKey(message)}
         message={messageForRender}
+        messageReferenceAction={messageReferenceAction}
         conversationId={conversation.id}
         modelName={
           turn?.model

@@ -29,6 +29,7 @@ export function ConversationOfficeLayout({
   taskOverviewOpen = false,
   previewClosing = false,
   onPreviewExitComplete,
+  previewBlocksWorkspace = false,
 }: Readonly<{
   children: ReactNode
   preview?: ReactNode
@@ -37,6 +38,7 @@ export function ConversationOfficeLayout({
   taskOverviewOpen?: boolean
   previewClosing?: boolean
   onPreviewExitComplete?: () => void
+  previewBlocksWorkspace?: boolean
 }>) {
   const layoutRef = useRef<HTMLDivElement | null>(null)
   const [layoutWidth, setLayoutWidth] = useState(0)
@@ -118,7 +120,9 @@ export function ConversationOfficeLayout({
     defaultPreviewViewportRatio,
   })
   const bounds = getConversationWorkspaceWidthBounds(layoutWidth)
-  const overlayPreview = shouldOverlayPresentationPreview(layoutWidth)
+  const overlayPreview =
+    shouldOverlayPresentationPreview(layoutWidth) ||
+    (previewBlocksWorkspace && viewportWidth <= 1100)
   const layoutStyle = {
     "--conversation-workspace-width":
       layoutWidth > 0
@@ -143,6 +147,11 @@ export function ConversationOfficeLayout({
       style={layoutStyle}
     >
       <div
+        inert={
+          hasPreview && overlayPreview && previewBlocksWorkspace
+            ? true
+            : undefined
+        }
         className="conversation-workspace"
         data-task-overview-open={taskOverviewOpen ? "true" : undefined}
       >

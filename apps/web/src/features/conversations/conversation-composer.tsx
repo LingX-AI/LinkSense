@@ -428,6 +428,7 @@ type ConversationComposerProps = Readonly<{
   goalMode?: boolean
   planMode?: boolean
   planModeAvailable?: boolean
+  goalModeAvailable?: boolean
   planModeDisabled?: boolean
   unavailableMessage?: string
   interactionBlocked?: boolean
@@ -504,6 +505,7 @@ export const ConversationComposer = forwardRef<
     goalMode = false,
     planMode = false,
     planModeAvailable = true,
+    goalModeAvailable = true,
     planModeDisabled = false,
     interactionBlocked = false,
     unavailableMessage,
@@ -1786,7 +1788,7 @@ export const ConversationComposer = forwardRef<
                         {t("conversation.attachFolderMenuLabel")}
                       </span>
                     </CommandItem>
-                    {!managedApplicationName && (
+                    {!managedApplicationName && goalModeAvailable && (
                       <CommandItem
                         value={t("conversation.goal.menuSearchValue")}
                         disabled={attachmentActionDisabled}

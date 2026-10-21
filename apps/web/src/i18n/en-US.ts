@@ -1,4 +1,5 @@
 import { connectionMessages } from "@/features/connections/messages"
+import { sideChatMessages } from "@/features/conversations/side-chat-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samlenUS } from "@/features/saml/messages"
 import { webSitesEnUS } from "@/features/web-sites/messages"
@@ -11,6 +12,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 export const enUS = {
   modelSetup: modelSetupMessages["en-US"],
   connections: connectionMessages["en-US"],
+  sideChat: sideChatMessages["en-US"],
   saml: samlenUS,
   social: socialEnUS,
   personalQuota: personalQuotaEnUS,

@@ -1489,7 +1489,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     const result = await fixture.service.list(OWNER_ID, { limit: 30 });
     expect(result.items.map(row => row.application_development_role)).toEqual(["development", null]);
     expect(fixture.prisma.conversation.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ ownerId: OWNER_ID, AND: { OR: [{ applicationId: null }, { applicationId: { notIn: [previewId] } }] } }), take: 31,
+      where: expect.objectContaining({ ownerId: OWNER_ID, AND: { sideChatParentId: null, OR: [{ applicationId: null }, { applicationId: { notIn: [previewId] } }] } }), take: 31,
     }));
   });
 
@@ -2706,7 +2706,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     );
     expect(firstPage.total_count).toBe(2);
     expect(fixture.prisma.conversation.count).toHaveBeenCalledWith({
-      where: { ownerId: OWNER_ID, archiveStatus: "archived", AND: {} },
+      where: { ownerId: OWNER_ID, archiveStatus: "archived", AND: { sideChatParentId: null } },
     });
 
     await fixture.service.list(OWNER_ID, {
@@ -2718,7 +2718,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       where: {
         ownerId: OWNER_ID,
         archiveStatus: "archived",
-        AND: {},
+        AND: { sideChatParentId: null },
         OR: [
           { updatedAt: { lt: NOW } },
           {
@@ -2752,7 +2752,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       where: {
         ownerId: OWNER_ID,
         archiveStatus: "archived",
-        AND: {},
+        AND: { sideChatParentId: null },
         projectId,
         OR: [
           { updatedAt: { gt: NOW } },
@@ -2766,7 +2766,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       where: {
         ownerId: OWNER_ID,
         archiveStatus: "archived",
-        AND: {},
+        AND: { sideChatParentId: null },
         projectId,
       },
     });
@@ -4950,6 +4950,10 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(transaction.conversation.delete).toHaveBeenCalledWith({
       where: { id: CONVERSATION_ID },
     });
+    expect(transaction.conversation.updateMany).toHaveBeenCalledWith({
+      where: { sideChatParentId: CONVERSATION_ID },
+      data: { sideChatParentId: null, sideChatReferenceJson: Prisma.DbNull },
+    });
     expect(transaction.conversationPlanReview.deleteMany).toHaveBeenCalledWith({
       where: { conversationId: CONVERSATION_ID },
     });
@@ -5105,7 +5109,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     });
 
     expect(fixture.prisma.conversation.findMany).toHaveBeenCalledWith({
-      where: { ownerId: OWNER_ID, archiveStatus: "archived", AND: {} },
+      where: { ownerId: OWNER_ID, archiveStatus: "archived", AND: { sideChatParentId: null } },
       select: { id: true, title: true },
       orderBy: { id: "asc" },
     });
@@ -9619,6 +9623,16 @@ describe("ConversationService pending and turn materialization", () => {
     expect(fixture.runner.startTurn).not.toHaveBeenCalled();
   });
 
+  it("keeps a queued reference intact when its original context cannot be restored", async () => {
+    const fixture = await conversationFixture();
+    const transaction = transactionFixture();
+    transaction.pendingRequest.findFirst.mockResolvedValueOnce(pendingRow({ inputText: "[LinkSense office annotation]\nDisplay metadata:\n{}\n\ninternal source snapshot" }));
+    fixture.prisma.$transaction.mockImplementationOnce(async (action: (tx: typeof transaction) => Promise<unknown>) => action(transaction));
+    await expect(fixture.service.restorePendingToInput(OWNER_ID, CONVERSATION_ID, PENDING_ID, {})).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(transaction.pendingRequest.delete).not.toHaveBeenCalled();
+    expect(transaction.conversationFile.updateMany).not.toHaveBeenCalled();
+  });
+
   it("refuses to restore a pending request protected by a durable turn-start intent", async () => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
@@ -11876,6 +11890,95 @@ describe("ConversationService pending and turn materialization", () => {
   });
 });
 
+describe("conversation side chats", () => {
+  it("refuses to attach prepared side-chat storage after its parent moves projects", async () => {
+    const fixture = await conversationFixture();
+    const parent = conversationRow({ codexThreadId: "active-thread", projectId: null });
+    fixture.prisma.conversation.findFirst.mockImplementation(async input => input?.where?.sideChatParentId ? null : parent);
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([{ id: TURN_ID }]);
+    fixture.prisma.conversationMessage.findFirst.mockResolvedValue({ sequenceNo: 3 });
+    fixture.prisma.conversation.create.mockImplementation(async ({ data }) => conversationRow(data));
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{ id: CONVERSATION_ID, projectId: APPLICATION_ID, workspaceRelPath: `${OWNER_ID}/home/projects/${APPLICATION_ID}` }]);
+    await expect(fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, { source_message_id: MESSAGE_ID, selection_text: "quote", include_recent_messages: false })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+  });
+  it.each([true, false])("handles a simultaneous first open without returning another selection (same selection=%s)", async sameSelection => {
+    const fixture = await conversationFixture();
+    const selection = { source_message_id: MESSAGE_ID, selection_text: "my source quote", include_recent_messages: true };
+    const concurrent = conversationRow({ id: SECOND_CONVERSATION_ID, sideChatParentId: CONVERSATION_ID,
+      sideChatReferenceJson: { ...selection, selection_text: sameSelection ? selection.selection_text : "a different quote", id: PLAN_MESSAGE_ID, source_conversation_id: CONVERSATION_ID, source_title: "Parent task", recent_messages: [] } });
+    let createdConcurrently = false;
+    fixture.prisma.conversation.findFirst.mockImplementation(async input => input?.where?.sideChatParentId ? (createdConcurrently ? concurrent : null) : conversationRow({ codexThreadId: "parent-thread" }));
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([{ id: TURN_ID }]);
+    fixture.prisma.conversationMessage.findFirst.mockResolvedValue({ sequenceNo: 3 });
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{ id: CONVERSATION_ID, projectId: null, workspaceRelPath: `${OWNER_ID}/home/workspace` }]);
+    fixture.prisma.conversation.create.mockImplementation(async () => {
+      createdConcurrently = true;
+      throw new Prisma.PrismaClientKnownRequestError("unique parent", { code: "P2002", clientVersion: "test" });
+    });
+    const opened = fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, selection);
+    if (sameSelection) await expect(opened).resolves.toMatchObject({ conversation_id: SECOND_CONVERSATION_ID, reference: { selection_text: selection.selection_text } });
+    else await expect(opened).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(fixture.runner.startTurn).not.toHaveBeenCalled();
+  });
+
+  it("queues side-chat questions with their staged attachments and frozen reference", async () => {
+    const fixture = await conversationFixture();
+    const reference = {
+      id: MESSAGE_ID,
+      source_conversation_id: SECOND_CONVERSATION_ID,
+      source_message_id: PLAN_MESSAGE_ID,
+      source_title: "Parent task",
+      selection_text: "Quoted claim",
+      include_recent_messages: true,
+      recent_messages: [],
+    };
+    const child = conversationRow({ sideChatParentId: SECOND_CONVERSATION_ID, sideChatReferenceJson: reference });
+    fixture.prisma.conversation.findUnique.mockResolvedValue(child);
+    fixture.prisma.conversation.findFirst.mockImplementation(async input => input?.where?.id === SECOND_CONVERSATION_ID ? conversationRow({ id: SECOND_CONVERSATION_ID }) : child);
+    fixture.prisma.conversationTurn.findFirst.mockResolvedValue({ id: TURN_ID });
+    fixture.defaultTransaction.pendingRequest.create.mockImplementation(async ({ data }) => pendingRow(data));
+    const result = await fixture.service.createPending(OWNER_ID, CONVERSATION_ID, {
+      officeAnnotation: { kind: "conversation_reference", reference_id: reference.id, request: "Explain using the attached file" },
+      priorityCapabilityIds: [],
+    }, {});
+    expect(result).toMatchObject({ input_text: "Explain using the attached file", display: { kind: "conversation_reference", reference_id: reference.id, selection_text: reference.selection_text } });
+    expect(fixture.defaultTransaction.conversationFile.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: { pendingRequestId: PENDING_ID, status: "pending" },
+    }));
+  });
+
+  it("opens an independent conversation while the parent is running and reuses the existing child", async () => {
+    const fixture = await conversationFixture();
+    const parent = conversationRow({ lastTurnStatus: "running", preferredModel: "test-model", codexThreadId: "parent-thread" });
+    let child: ReturnType<typeof conversationRow> | null = null;
+    fixture.prisma.conversation.findFirst.mockImplementation(async input => input?.where?.sideChatParentId ? child : parent);
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([{ id: TURN_ID }]);
+    fixture.prisma.conversationMessage.findFirst.mockResolvedValue({ sequenceNo: 3 });
+    fixture.prisma.conversation.create.mockImplementation(async ({ data }) => { child = conversationRow(data); return child; });
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{ id: CONVERSATION_ID, projectId: null, workspaceRelPath: `${OWNER_ID}/home/workspace` }]);
+    const service = createService(fixture, fixture.root);
+    const selection = { source_message_id: MESSAGE_ID, selection_text: "source quote", include_recent_messages: true };
+    const opened = await service.openSideChat(OWNER_ID, CONVERSATION_ID, selection);
+    expect(opened.parent_conversation_id).toBe(CONVERSATION_ID);
+    expect(opened.conversation_id).not.toBe(CONVERSATION_ID);
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ sideChatParentId: CONVERSATION_ID, preferredModel: "test-model", codexThreadId: null }) }));
+    expect(fixture.runner.forkThread).not.toHaveBeenCalled();
+    expect(fixture.runner.interrupt).not.toHaveBeenCalled();
+    expect(await service.openSideChat(OWNER_ID, CONVERSATION_ID, selection)).toEqual(opened);
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not read another user's side chat when the parent is inaccessible", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(null);
+    const service = createService(fixture, fixture.root);
+    await expect(service.getSideChat(OWNER_ID, CONVERSATION_ID)).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    expect(fixture.prisma.conversation.findFirst).toHaveBeenCalledTimes(1);
+    expect(fixture.prisma.conversationMessage.findFirst).not.toHaveBeenCalled();
+  });
+});
+
 async function conversationFixture() {
   const root = await mkdtemp(join(tmpdir(), "linksense-conversations-test-"));
   temporaryDirectories.push(root);
@@ -12972,6 +13075,8 @@ function conversationRow(overrides: Record<string, unknown> = {}) {
     forkSourceConversationId: null,
     forkSourceMessageId: null,
     forkIdempotencyKey: null,
+    sideChatParentId: null,
+    sideChatReferenceJson: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,
@@ -13419,6 +13524,46 @@ function nativeSubAgentEventRow(
 describe("task category assignment", () => {
   const projectId = "60000000-0000-4000-8000-000000000099";
 
+  it.each([false, true])("moves an attached side chat with its parent while preserving service workspace=%s", async serviceWorkspace => {
+    const fixture = await conversationFixture();
+    const childWorkspace = serviceWorkspace ? `${OWNER_ID}/services/${APPLICATION_ID}/home/workspace` : `${OWNER_ID}/home/workspace`;
+    fixture.defaultTransaction.$queryRaw.mockImplementation(async (...input) => {
+      const query = input[0] as { sql?: string } | readonly string[] | undefined;
+      const sql = Array.isArray(query) ? query.join("") : (query as { sql?: string } | undefined)?.sql ?? "";
+      if (sql.includes("side_chat_parent_id")) return [{ id: SECOND_CONVERSATION_ID, workspaceRelPath: childWorkspace, pinnedAt: null }];
+      return sql.includes("AS busy") ? [{ busy: false, development: false }] : [{ id: projectId }];
+    });
+    await fixture.service.patch(OWNER_ID, CONVERSATION_ID, { projectId });
+    expect(fixture.defaultTransaction.conversation.updateMany).toHaveBeenCalledWith({
+      where: { id: SECOND_CONVERSATION_ID, ownerId: OWNER_ID, sideChatParentId: CONVERSATION_ID },
+      data: { projectId, workspaceRelPath: serviceWorkspace ? childWorkspace : `${OWNER_ID}/home/projects/${projectId}`, sortOrder: null },
+    });
+    const idleQuery = fixture.defaultTransaction.$queryRaw.mock.calls.map(call => call[0]).find(query => typeof query === "object" && query !== null && "sql" in query && typeof query.sql === "string" && query.sql.includes("AS busy"));
+    expect(idleQuery).toMatchObject({ values: expect.arrayContaining([CONVERSATION_ID, SECOND_CONVERSATION_ID]) });
+  });
+
+  it("refuses to move the parent while its side chat is active", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockImplementation(async (...input) => {
+      const query = input[0] as { sql?: string; values?: unknown[] } | readonly string[] | undefined;
+      const sql = Array.isArray(query) ? query.join("") : (query as { sql?: string } | undefined)?.sql ?? "";
+      if (sql.includes("side_chat_parent_id")) return [{ id: SECOND_CONVERSATION_ID, workspaceRelPath: `${OWNER_ID}/home/workspace`, pinnedAt: null }];
+      if (sql.includes("AS busy")) return [{ busy: !Array.isArray(query) && (query as { values?: unknown[] } | undefined)?.values?.includes(SECOND_CONVERSATION_ID) === true, development: false }];
+      return [{ id: projectId }];
+    });
+    await expect(fixture.service.patch(OWNER_ID, CONVERSATION_ID, { projectId })).rejects.toMatchObject({ code: "PROJECT_TASK_ACTIVE" });
+    expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.conversation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("keeps an attached side chat in its parent's project when moved directly", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockResolvedValueOnce([{ id: projectId }]);
+    fixture.defaultTransaction.conversation.findUnique.mockResolvedValueOnce(conversationRow({ sideChatParentId: SECOND_CONVERSATION_ID }));
+    await expect(fixture.service.patch(OWNER_ID, CONVERSATION_ID, { projectId })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(fixture.prisma.conversation.update).not.toHaveBeenCalled();
+  });
+
   it.each([null, "60000000-0000-4000-8000-000000000098"])("rejects moving a development task to %s before unpinning or changing its workspace", async destination => {
     const fixture = await conversationFixture();
     fixture.defaultTransaction.conversation.findUnique.mockResolvedValueOnce(conversationRow({ projectId, pinnedAt: NOW }));
@@ -13518,5 +13663,14 @@ describe("task category assignment", () => {
     expect(result.project_id).toBe(projectId);
     const query = fixture.defaultTransaction.$queryRaw.mock.calls[0]?.[0];
     expect(query).toMatchObject({ sql: expect.stringContaining("pinned_at IS NULL AND project_id ="), values: [OWNER_ID, projectId] });
+  });
+
+  it("reorders the visible task group when an attached side chat is hidden from the list", async () => {
+    const fixture = await conversationFixture();
+    fixture.defaultTransaction.$queryRaw.mockImplementation(async (...input) => {
+      const query = input[0] as { sql?: string } | undefined;
+      return [{ id: CONVERSATION_ID }, { id: SECOND_CONVERSATION_ID }, ...(query?.sql?.includes("side_chat_parent_id IS NULL") ? [] : [{ id: MESSAGE_ID }])];
+    });
+    await expect(fixture.service.reorder(OWNER_ID, { group: "recent", conversationIds: [SECOND_CONVERSATION_ID, CONVERSATION_ID] })).resolves.toMatchObject({ conversation_ids: [SECOND_CONVERSATION_ID, CONVERSATION_ID] });
   });
 });

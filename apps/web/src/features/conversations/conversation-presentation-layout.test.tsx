@@ -420,6 +420,31 @@ describe("ConversationPresentationLayout", () => {
     expect(shouldOverlayPresentationPreview(801)).toBe(false)
   })
 
+  it("makes only the covered main pane inert for a side chat in a narrow container", async () => {
+    measuredLayoutWidth = 700
+    const { container, rerender } = render(
+      <ConversationPresentationLayout
+        resizeLabel="Resize side chat"
+        previewBlocksWorkspace
+        preview={<aside>Side chat</aside>}
+      >
+        <button>Main draft</button>
+      </ConversationPresentationLayout>
+    )
+    const workspace = container.querySelector(".conversation-workspace")
+    await waitFor(() => expect(workspace).toHaveAttribute("inert"))
+    expect(screen.getByText("Side chat").closest("[inert]")).toBeNull()
+    rerender(
+      <ConversationPresentationLayout
+        resizeLabel="Resize side chat"
+        previewBlocksWorkspace
+      >
+        <button>Main draft</button>
+      </ConversationPresentationLayout>
+    )
+    expect(workspace).not.toHaveAttribute("inert")
+  })
+
   it("uses an overlay instead of squeezing both panes in a narrow container", async () => {
     measuredLayoutWidth = 760
     render(
