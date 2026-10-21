@@ -2,6 +2,8 @@
 
 生产服务器使用 `main` 分支和仓库内的平台无关入口 `docker-compose.production-stack.yml`。不要把用户名、密码或访问令牌写入 Git remote URL、`.env.production`、Compose 文件或发布日志。
 
+此部署方式使用外置的 Elasticsearch 和 Docling。安装知识库组件前，请在实际承载这些服务的主机或虚拟机上核对[虚拟机 CPU 要求](../../README.zh-CN.md#虚拟机-cpu-要求)；API / Runner 所在主机的 CPU 检查不能代表外置服务的运行环境。
+
 > Git remote 应使用 HTTPS 或 SSH deploy key。若使用凭据文件，它必须只允许 root 读取，并优先使用只具备仓库读取权限的专用部署凭据。
 
 ## 首次接管

@@ -1,4 +1,5 @@
 import { connectionMessages } from "@/features/connections/messages"
+import { sideChatMessages } from "@/features/conversations/side-chat-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samlzhCN } from "@/features/saml/messages"
 import { webSitesZhCN } from "@/features/web-sites/messages"
@@ -10,6 +11,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 export const zhCN = {
   modelSetup: modelSetupMessages["zh-CN"],
   connections: connectionMessages["zh-CN"],
+  sideChat: sideChatMessages["zh-CN"],
   saml: samlzhCN,
   social: socialZhCN,
   personalQuota: personalQuotaZhCN,

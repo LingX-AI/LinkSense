@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { INTERACTIVE_APPLICATION_FILE_SOURCE } from "./interactive-applications.js";
+import { conversationReferenceInputSchema, conversationReferenceDisplaySchema } from "./conversation-side-chat.js";
 
 import {
   applicationUnavailableReasonSchema,
@@ -719,6 +720,7 @@ export const applicationAnnotationDisplaySchema = z.strictObject({
 }).refine(value => value.annotation_count === value.annotations.length, { message: "annotation_count_mismatch", path: ["annotation_count"] });
 
 export const officeAnnotationInputSchema = z.discriminatedUnion("kind", [
+  conversationReferenceInputSchema,
   presentationAnnotationInputSchema,
   wordAnnotationInputSchema,
   spreadsheetAnnotationInputSchema,
@@ -727,6 +729,7 @@ export const officeAnnotationInputSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const officeAnnotationDisplaySchema = z.discriminatedUnion("kind", [
+  conversationReferenceDisplaySchema,
   presentationAnnotationDisplaySchema,
   wordAnnotationDisplaySchema,
   spreadsheetAnnotationDisplaySchema,
@@ -951,7 +954,7 @@ function spreadsheetAnnotationSelectionLabel(
  * admission latency cannot change the shape of a message after submission.
  */
 export function buildOfficeAnnotationDisplay(
-  annotation: OfficeAnnotationInput,
+  annotation: Exclude<OfficeAnnotationInput, { kind: "conversation_reference" }>,
   fileName: string,
 ): OfficeAnnotationDisplay {
   if (annotation.kind === "application_annotation") {
@@ -1025,6 +1028,7 @@ export function buildOfficeAnnotationDisplay(
 export function officeAnnotationRequestText(
   annotation: OfficeAnnotationInput | OfficeAnnotationDisplay,
 ): string {
+  if (annotation.kind === "conversation_reference") return annotation.request;
   if (annotation.annotations.length === 1) {
     return annotation.annotations[0]?.request ?? "";
   }
@@ -1034,5 +1038,6 @@ export function officeAnnotationRequestText(
 }
 
 export function officeAnnotationDisplayName(display: OfficeAnnotationDisplay): string {
+  if (display.kind === "conversation_reference") return display.source_title;
   return display.kind === "application_annotation" ? display.application_name : display.file_name;
 }

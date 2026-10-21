@@ -89,6 +89,8 @@ See [Deployment reference](#deployment-reference) for the full list.
 See [Installer host adaptation](deploy/release/HOST-ADAPTATION.md) for automatic tool setup,
 resource profiles, CPU compatibility mode, proxies, and safe recovery.
 
+> **Before installing Full in an x86_64 VM, confirm that the guest CPU supports `x86-64-v2`.** Host support alone does not mean those features are exposed to the guest. See [Virtual machine CPU requirements](#virtual-machine-cpu-requirements) for checks and CPU settings.
+
 #### Option 1: Released Docker images (recommended)
 
 No source checkout, host Node.js, or pnpm is needed. The installer starts the
@@ -419,6 +421,31 @@ For CPU, memory, and disk sizing by deployment scenario, see
 - Docker Compose v2.24.4+
 - `curl`
 - TCP port `18081` available by default
+
+### Virtual machine CPU requirements
+
+Full's RAG Knowledge Base components (Elasticsearch and Docling) require the Docker Engine host or VM to expose at least `x86-64-v2` CPU features on `x86_64` / `amd64`. The current [Docling v1.36.0 upstream image](https://github.com/docling-project/docling-serve/blob/v1.36.0/Containerfile) uses CentOS Stream 9, which has an [x86-64-v2 baseline](https://blog.centos.org/2023/08/centos-isa-sig-performance-investigation/). Elasticsearch's CPU requirements depend on its version and base image. This x86 instruction-set requirement does not apply to native ARM64 deployments.
+
+Generic virtual CPU modes can mask features supported by the physical host. CPU model, age, vCPU count, and `uname -m` alone do not establish compatibility. Run these checks **inside the Linux VM that actually runs Docker Engine**:
+
+```bash
+LC_ALL=C lscpu
+grep -m1 '^flags' /proc/cpuinfo
+```
+
+In addition to the x86-64 baseline, CPU flags must include `cx16`, `lahf_lm`, `popcnt`, `ssse3`, `sse4_1`, `sse4_2`, and SSE3 (usually shown as `pni` on Linux, or `sse3`). Checking only `sse4_1` and `popcnt` does not establish full `x86-64-v2` support.
+
+Release install, repair, and upgrade scripts automatically check the CPU flags visible to Docker for Full on `linux/amd64`. They report missing features and exit before changing runtime configuration, creating data volumes, or stopping existing services. The check uses the release manifest's digest-pinned BusyBox image, which may need to be pulled on first use. Its temporary container is read-only, has no network or data-volume mounts, and is automatically removed on exit.
+
+This preflight ships with releases that include this change; scripts in older installation directories are not updated automatically. To get the check before the first upgrade, use the online `upgrade.sh` command below after the updated release is published.
+
+If required features are missing, or container logs report `Fatal glibc error: CPU does not support x86-64-v2`:
+
+1. Shut down the VM cleanly and change its CPU mode in the virtualization platform. In Proxmox VE, select `host` or `x86-64-v2-AES` if supported by the physical host. With KVM/libvirt, use [`host-passthrough`](https://libvirt.org/formatdomain.html#cpu-model-and-topology). Avoid `kvm64` / `qemu64` modes that mask required features.
+2. Power the VM back on and check the flags again inside the guest. Restarting containers alone does not apply virtual CPU changes. For migration between hosts, choose a CPU model supported by every destination host that also meets `x86-64-v2`.
+3. Once the checks pass, rerun the original Full install command for a new installation; for an existing installation, follow [Repair and upgrade](#repair-and-upgrade), then check services using [Command-line management](#command-line-management).
+
+If the physical CPU lacks the required features, use a compatible host. Adding vCPUs or memory cannot supply missing instructions.
 
 ### Custom port
 

@@ -214,6 +214,27 @@ describe("API response contracts", () => {
     expect(result.maintenance_id).toBe("01900000-0000-7000-8000-000000000001")
   })
 
+  it.each([true, false])(
+    "retains knowledge availability %s in bootstrap",
+    (enabled) => {
+      expect(
+        bootstrapSchema.parse({ knowledge: { enabled } }).knowledge
+      ).toEqual({ enabled })
+    }
+  )
+
+  it("accepts older bootstrap responses without knowledge availability", () => {
+    expect(
+      bootstrapSchema.parse({ initialized: true }).knowledge
+    ).toBeUndefined()
+  })
+
+  it("rejects malformed knowledge availability in bootstrap", () => {
+    expect(
+      bootstrapSchema.safeParse({ knowledge: { enabled: "false" } }).success
+    ).toBe(false)
+  })
+
   it("normalizes current user token usage summaries", () => {
     const result = userSchema.parse({
       id: "user-1",

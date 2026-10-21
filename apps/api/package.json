@@ -5,7 +5,7 @@
   "license": "CPAL-1.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --include ../../packages/shared/src/**/*.ts src/index.ts",
+    "dev": "tsx watch --include \"../../packages/shared/src/**/*.ts\" src/index.ts",
     "build": "tsc -p tsconfig.build.json && node dist/commands/bundle-linksense-docs.js && node ../../scripts/application-build.mjs api",
     "start": "node dist/index.js",
     "knowledge:reset-storage": "tsx --env-file-if-exists=../../.env src/commands/reset-knowledge-storage.ts",
@@ -46,7 +46,7 @@
     "@linksense/shared": "workspace:*",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@microsoft/teams.apps": "2.0.16",
-    "@modelcontextprotocol/sdk": "1.31.0",
+    "@modelcontextprotocol/sdk": "1.32.0",
     "@node-saml/node-saml": "5.1.0",
     "@openrouter/ai-sdk-provider": "3.0.0",
     "@prisma/adapter-pg": "7.8.0",

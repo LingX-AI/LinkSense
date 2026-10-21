@@ -4,7 +4,7 @@ import type { PrismaClient, Prisma } from "../../generated/prisma/client.js";
 /** Filter in the database before ordering, pagination and archive counts. */
 export async function ordinaryConversationFilter(db: PrismaClient, ownerId: string): Promise<Prisma.ConversationWhereInput> {
   const previews = await db.application.findMany({ where: { ownerId, developmentOnly: true }, select: { id: true } });
-  return previews.length ? { OR: [{ applicationId: null }, { applicationId: { notIn: previews.map(item => item.id) } }] } : {};
+  return { sideChatParentId: null, ...(previews.length ? { OR: [{ applicationId: null }, { applicationId: { notIn: previews.map(item => item.id) } }] } : {}) };
 }
 
 /** Derive task labels from owned resources, including previews from earlier revisions. */

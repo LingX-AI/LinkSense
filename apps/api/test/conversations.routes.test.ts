@@ -5,6 +5,7 @@ import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
 import { conversationRoutes } from "../src/modules/conversations/routes.js";
 import type { AppServices } from "../src/services.js";
+import type { SideChatSelection } from "@linksense/shared";
 
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
 const CONVERSATION_ID = "20000000-0000-4000-8000-000000000001";
@@ -20,7 +21,40 @@ const PROJECT_ID = "40000000-0000-4000-8000-000000000003";
 const AGENT_KEY = `agent_${"a".repeat(24)}`;
 const apps: Array<ReturnType<typeof Fastify>> = [];
 
+describe("side chat routes", () => {
+  it("passes only validated selection context and the authenticated owner to the service", async () => {
+    const { app, openSideChat } = await conversationRouteFixture();
+    const selection = { source_message_id: MESSAGE_ID, selection_text: "quoted claim", include_recent_messages: false };
+    const response = await app.inject({ method: "POST", url: `/conversations/${CONVERSATION_ID}/side-chat`, payload: selection });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(openSideChat).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, selection);
+  });
+
+  it("rejects oversized quotes and unexpected parent IDs before creating a conversation", async () => {
+    const { app, openSideChat } = await conversationRouteFixture();
+    for (const fields of [{ selection_text: "a".repeat(4_001) }, { parent_conversation_id: MESSAGE_ID }]) {
+      const response = await app.inject({ method: "POST", url: `/conversations/${CONVERSATION_ID}/side-chat`, payload: { source_message_id: MESSAGE_ID, selection_text: "quote", ...fields } });
+      expect(response.statusCode).toBe(400);
+    }
+    expect(openSideChat).not.toHaveBeenCalled();
+  });
+
+  it("does not expose a side chat when the parent is inaccessible", async () => {
+    const { app, getSideChat } = await conversationRouteFixture();
+    getSideChat.mockRejectedValueOnce(new AppError("CONVERSATION_NOT_FOUND"));
+    const response = await app.inject({ method: "GET", url: `/conversations/${CONVERSATION_ID}/side-chat` });
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).not.toHaveProperty("data");
+  });
+});
+
 describe("interactive application message source", () => {
+  it("accepts a side-chat reference through the existing native turn submission route", async () => {
+    const { app, startTurn } = await conversationRouteFixture();
+    const response = await app.inject({ method: "POST", url: `/conversations/${CONVERSATION_ID}/turns`, payload: { message_display: { kind: "conversation_reference", reference_id: MESSAGE_ID, request: "Explain this" } } });
+    expect(response.statusCode, response.body).toBe(202);
+    expect(startTurn).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, expect.objectContaining({ officeAnnotation: { kind: "conversation_reference", reference_id: MESSAGE_ID, request: "Explain this" } }), expect.any(Object));
+  });
   it("passes the validated source alongside the complete prompt", async () => {
     const { app, startTurn: acceptTurn } = await conversationRouteFixture();
     const response = await app.inject({
@@ -1454,6 +1488,12 @@ async function conversationRouteFixture(
     accepted: true as const,
     status: "starting" as const,
   }));
+  const getSideChat = vi.fn(async () => null);
+  const openSideChat = vi.fn(async (_owner: string, parentId: string, selection: SideChatSelection) => ({
+    conversation_id: TURN_ID,
+    parent_conversation_id: parentId,
+    reference: { ...selection, id: IDEMPOTENCY_KEY, source_conversation_id: parentId, source_title: "Task", recent_messages: [] },
+  }));
   const startGoal = vi.fn(async () => ({
     turn_id: "50000000-0000-4000-8000-000000000005",
     accepted: true as const,
@@ -1611,6 +1651,8 @@ async function conversationRouteFixture(
     prefix: "/conversations",
     services: {
       conversations: {
+        getSideChat,
+        openSideChat,
         getInteractiveTaskState,
         getReferencedSources,
         list,
@@ -1650,6 +1692,8 @@ async function conversationRouteFixture(
   });
   return {
     app,
+    getSideChat,
+    openSideChat,
     getInteractiveTaskState,
     getReferencedSources,
     list,

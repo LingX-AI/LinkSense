@@ -867,6 +867,8 @@ model Conversation {
   forkSourceConversationId        String?   @map("fork_source_conversation_id") @db.Uuid
   forkSourceMessageId             String?   @map("fork_source_message_id") @db.Uuid
   forkIdempotencyKey              String?   @map("fork_idempotency_key") @db.VarChar(120)
+  sideChatParentId                String?   @unique(map: "conversations_side_chat_parent_key") @map("side_chat_parent_id") @db.Uuid
+  sideChatReferenceJson           Json?     @map("side_chat_reference_json") @db.JsonB
   createdAt                       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 

@@ -7,6 +7,7 @@ import test from "node:test"
 
 const helpers = readFileSync(new URL("../deploy/release/linksense-host.sh", import.meta.url), "utf8")
 const installer = readFileSync(new URL("../deploy/release/linksense-installer.sh", import.meta.url), "utf8")
+const cli = readFileSync(new URL("../deploy/release/linksense-cli.sh", import.meta.url), "utf8")
 function fn(name) {
   const match = installer.match(new RegExp(`^${name}\\(\\) \\{\\n[\\s\\S]*?^\\}`, "mu"))
   assert.ok(match, name)
@@ -22,6 +23,28 @@ function directory(t) {
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   return dir
 }
+
+test("the management CLI rejects a healthy API when the public Web endpoint is unavailable", () => {
+  const ready = cli.match(/^ready\(\) \{\n[\s\S]*?^\}/mu)?.[0]
+  assert.ok(ready)
+  const result = run(`${ready}
+local_url() { printf 'http://127.0.0.1:%s' "$1"; }
+curl() { for endpoint in "$@"; do :; done; case "$endpoint" in */api/v1/system/health/ready) return 0 ;; *) return 22 ;; esac; }
+ready 18081`)
+  assert.equal(result.status, 22, result.stderr)
+})
+
+test("a minimal host without cmp is rejected before reading installation tools or modifying state", t => {
+  const dir = directory(t)
+  const result = run(`${fn("preflight")}
+command() { case "$*" in '-v curl') return 0 ;; '-v cmp') return 1 ;; *) return 99 ;; esac; }
+host_use_saved_tools() { touch "$DIR/mutated"; }
+HOST_OS=Darwin
+preflight`, { DIR: dir })
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stderr, /LS_HOST_required_command.*cmp.*diffutils/u)
+  assert.equal(existsSync(path.join(dir, "mutated")), false)
+})
 
 for (const [value, status] of [["", 0], ["--max-old-space-size=1024", 0], ["bad value", 1], ["$(id)", 1]]) {
   test(`protected optional Node settings ${status === 0 ? "accept" : "reject"} ${JSON.stringify(value)}`, t => {
@@ -693,6 +716,27 @@ host_service_snapshot`, { STATE: state })
 })
 
 for (const edition of ["core", "full"]) {
+  test(`${edition} cannot report readiness while the API is healthy but the public Web gateway returns 502`, t => {
+    const dir = directory(t)
+    writeFileSync(path.join(dir, "clock"), "0\n")
+    const result = run(`
+${fn("wait_for_health")}
+HTTP_PORT=18081
+ELASTICSEARCH_ROOT_USERNAME=fixture
+ELASTICSEARCH_ROOT_PASSWORD=fixture
+date() { cat "$DIR/clock"; }
+sleep() { clock=$(cat "$DIR/clock"); echo "$((clock + $1))" > "$DIR/clock"; }
+curl() { for endpoint in "$@"; do :; done; case "$endpoint" in */api/v1/system/health/ready) return 0 ;; *) return 22 ;; esac; }
+host_service_snapshot() { return 0; }
+verify_service_stability() { echo ready > "$DIR/ready"; }
+compose() { return 0; }
+compose_bounded() { return 0; }
+wait_for_health`, { DIR: dir, EDITION: edition })
+    assert.equal(result.status, 1, result.stderr)
+    assert.match(result.stderr, /LS_HOST_stability.*readiness_deadline/u)
+    assert.equal(existsSync(path.join(dir, "ready")), false)
+  })
+
   for (const settles of [true, false]) {
     test(`${edition} readiness ${settles ? "waits for initial container health before the full stability window" : "times out when container health never leaves starting"}`, t => {
       const dir = directory(t)

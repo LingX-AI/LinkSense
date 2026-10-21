@@ -189,6 +189,57 @@ describe("conversation turn responses", () => {
     )
   })
 
+  it.each([
+    { mode: "ask" as const, selected: false },
+    { mode: "ask" as const, selected: true },
+    { mode: "return" as const, selected: false },
+    { mode: "return" as const, selected: true },
+  ])(
+    "limits source context but preserves returned answers (mode=$mode, selected=$selected)",
+    async ({ mode, selected }) => {
+      const interaction = userEvent.setup()
+      const selectedText = "x".repeat(5_000) + "Final conclusion."
+      const content = `Before ${selectedText} After`
+      const onSelect = vi.fn()
+      render(
+        <MemoryRouter>
+          <ConversationThread
+            conversation={{
+              ...completedConversation,
+              messages: [
+                {
+                  id: "30000000-0000-4000-8000-000000000001",
+                  role: "assistant",
+                  turn_id: "turn-1",
+                  content,
+                },
+              ],
+            }}
+            onDownload={vi.fn()}
+            messageReferenceAction={{ mode, label: "Use this text", onSelect }}
+          />
+        </MemoryRouter>
+      )
+      if (selected) {
+        const textNode = screen.getByText(content).firstChild
+        if (!textNode) throw new Error("Expected rendered answer text")
+        const range = document.createRange()
+        range.setStart(textNode, "Before ".length)
+        range.setEnd(textNode, "Before ".length + selectedText.length)
+        window.getSelection()?.removeAllRanges()
+        window.getSelection()?.addRange(range)
+      }
+      await interaction.click(
+        screen.getByRole("button", { name: "Use this text" })
+      )
+      const expected = selected ? selectedText : content
+      expect(onSelect).toHaveBeenCalledWith(
+        expect.objectContaining({ role: "assistant" }),
+        mode === "ask" ? expected.slice(0, 4_000) : expected
+      )
+    }
+  )
+
   it("renders a source-task link at the copied-context boundary", () => {
     const { container } = render(
       <MemoryRouter>

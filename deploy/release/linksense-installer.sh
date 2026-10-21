@@ -243,7 +243,7 @@ restore_pre_migration_upgrade() {
     fi
   fi
   rm -f "$INSTALL_DIR/upgrade.pending"
-  compose up -d --remove-orphans >/dev/null 2>&1 || true
+  activate_release_services >/dev/null 2>&1 || true
   if [ -n "$UPGRADE_BACKUP_URI" ]; then
     printf 'The validated database backup remains at %s\n' "$UPGRADE_BACKUP_URI" >&2
   fi
@@ -491,6 +491,40 @@ check_port() {
   fi
 }
 
+check_full_cpu() {
+  [ "$EDITION:$LINKSENSE_PLATFORM" = full:linux-amd64 ] || return 0
+  log "Checking x86-64-v2 CPU features inside Docker Engine."
+  # Docker Desktop may expose a different CPU feature set than the CLI host.
+  missing_cpu_features=$(docker run --rm --network none --read-only \
+    --cap-drop ALL --security-opt no-new-privileges \
+    --entrypoint awk "$IMAGE_BUSYBOX" '
+      BEGIN {
+        count = split("cx16 lahf_lm popcnt ssse3 sse4_1 sse4_2 sse3", required)
+      }
+      /^flags[ \t]*:/ {
+        cpu_count++
+        features = $0
+        sub(/^[^:]*:/, "", features)
+        gsub(/[ \t]+/, " ", features)
+        features = " " features " "
+        if (index(features, " pni ")) features = features "sse3 "
+        for (i = 1; i <= count; i++) {
+          if (!index(features, " " required[i] " ")) missing[required[i]] = 1
+        }
+      }
+      END {
+        if (!cpu_count) exit 2
+        for (i = 1; i <= count; i++) {
+          if (missing[required[i]]) print required[i]
+        }
+      }
+    ' /proc/cpuinfo) || fail "Could not check CPU features inside Docker Engine. Ensure Docker can pull and run the release BusyBox image and expose readable /proc/cpuinfo, then retry. CPU compatibility has not been established."
+  [ -z "$missing_cpu_features" ] || fail "Full on linux/amd64 requires x86-64-v2 CPU features inside Docker Engine.
+Missing CPU features: $missing_cpu_features
+Shut down the Docker Engine VM and select host/host-passthrough or a supported x86-64-v2-AES CPU model, then power it on and retry. The physical host must also support these features.
+Adding vCPUs or memory cannot supply missing instructions."
+}
+
 preflight() {
   if [ "$HOST_OS" = Linux ]; then
     read_os_release
@@ -499,6 +533,7 @@ preflight() {
   fi
 
   command -v curl >/dev/null 2>&1 || fail "curl is required. Install it with your operating system package manager."
+  command -v cmp >/dev/null 2>&1 || host_fail required_command cmp
   host_use_saved_tools
   if [ -n "$DOCKER_CLI" ]; then
     detected_api=$(docker version --format '{{.Server.APIVersion}}' 2>/dev/null || true)
@@ -1339,7 +1374,7 @@ start_stack() {
   compose up -d postgres redis minio
   compose run --rm minio-init
   compose run --rm migrate
-  compose up -d --remove-orphans
+  activate_release_services
 }
 
 active_operation_count() {
@@ -1494,7 +1529,8 @@ wait_for_health() {
   health_deadline=$(($(date +%s) + 400))
   local_health_url="http://127.0.0.1:$HTTP_PORT/api/v1/system/health/ready"
   while [ "$attempts" -lt 60 ] && [ "$(date +%s)" -lt "$health_deadline" ]; do
-    if curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "$local_health_url" >/dev/null 2>&1; then
+    if curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "$local_health_url" >/dev/null 2>&1 && \
+      curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "http://127.0.0.1:$HTTP_PORT/" >/dev/null 2>&1; then
       if [ "$EDITION" = full ]; then
         if ! compose_bounded 10 exec -T elasticsearch curl --max-time 5 -fsS -u "$ELASTICSEARCH_ROOT_USERNAME:$ELASTICSEARCH_ROOT_PASSWORD" http://127.0.0.1:9200/_cluster/health >/dev/null 2>&1 || \
           ! compose_bounded 10 exec -T docling-api python -c 'import os,urllib.request; r=urllib.request.Request("http://127.0.0.1:5001/ready",headers={"X-Api-Key":os.environ["DOCLING_SERVE_API_KEY"]}); urllib.request.urlopen(r,timeout=5).read()' >/dev/null 2>&1; then
@@ -1751,6 +1787,7 @@ repair_action() {
   RELEASE_SELECTOR=$state_release
   fetch_manifest "$(release_base)"
   [ "$MANIFEST_SHA256" = "$state_manifest" ] || fail "The published manifest no longer matches the installed immutable version."
+  check_full_cpu
   fetch_release_resources
   write_and_activate_runtime_env
   install_resources
@@ -1838,7 +1875,8 @@ upgrade_action() {
       [ "$MANIFEST_SHA256" = "$current_manifest_sha" ] || fail "The published manifest for installed release $RELEASE_VERSION changed unexpectedly."
     fi
     if [ "$RELEASE_VERSION" = "$UPGRADE_FROM_VERSION" ] && [ "${CPU_MODE_CHANGED:-false}" = false ]; then
-      if curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "http://127.0.0.1:$HTTP_PORT/api/v1/system/health/ready" >/dev/null 2>&1; then
+      if curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "http://127.0.0.1:$HTTP_PORT/api/v1/system/health/ready" >/dev/null 2>&1 && \
+        curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "http://127.0.0.1:$HTTP_PORT/" >/dev/null 2>&1; then
         log "LinkSense $EDITION is already running the latest release $RELEASE_VERSION. No backup or restart was needed."
         return
       fi
@@ -1846,6 +1884,7 @@ upgrade_action() {
     fi
   fi
   validate_resource_budget
+  check_full_cpu
   fetch_release_resources
 
   log_stage "Stage 4/9: pull and verify target images and edition assets."
@@ -1879,7 +1918,7 @@ upgrade_action() {
   UPGRADE_MIGRATION_STARTED=true
   write_upgrade_pending true
   compose run --rm migrate
-  compose up -d --remove-orphans
+  activate_release_services
 
   log_stage "Stage 8/9: verify service readiness and edition capabilities."
   wait_for_health
@@ -1914,6 +1953,7 @@ preflight
 if [ "$ACTION" = install ]; then
   log_stage "Stage 2/7: verify immutable release inputs and download configuration."
   fetch_manifest "$(release_base)"
+  check_full_cpu
   install_action
 elif [ "$ACTION" = repair ]; then
   repair_action

@@ -1,4 +1,4 @@
-import type { Prisma } from "../../generated/prisma/client.js";
+import { Prisma } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
 import { runtimePlacementForWorkspace } from "../../lib/user-runtime-paths.js";
 import type { AuditContext } from "../audit/service.js";
@@ -115,6 +115,8 @@ async function deleteConversationGraph(
   tx: Prisma.TransactionClient,
   conversationId: string,
 ) {
+  // Keep independent side-chat history discoverable when its parent is removed.
+  await tx.conversation.updateMany({ where: { sideChatParentId: conversationId }, data: { sideChatParentId: null, sideChatReferenceJson: Prisma.DbNull } });
   const turnIds = (
     await tx.conversationTurn.findMany({
       where: { conversationId },

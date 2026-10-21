@@ -1,4 +1,7 @@
 import { projectInteractiveTaskState } from "./interactive-task-state.js";
+import { indexStopHookSupersededAssistantMessageIds } from "./message-visibility.js";
+import { buildSideChatReference, prepareConversationReference, projectSideChat } from "./side-chat.js";
+import { type SideChat, type SideChatReference, type SideChatSelection } from "@linksense/shared";
 import { prepareApplicationAnnotation, assertApplicationAnnotationBinding, validateApplicationAnnotationSnapshot } from "./application-annotation.js";
 import { lockDevelopmentPreview, reuseUnusedDevelopmentPreview, assertCurrentDevelopmentPreview, assertNotDevelopmentPreview, type DevelopmentPreviewCreation } from "../applications/development-preview-lifecycle.js";
 import { lockDetachedDevelopment, type DevelopmentConversationCreation } from "../applications/development-conversation-lifecycle.js";
@@ -2288,6 +2291,7 @@ export class ConversationService {
       SELECT c.id
       FROM conversations AS c
       WHERE c.owner_id = CAST(${ownerId} AS uuid)
+        AND c.side_chat_parent_id IS NULL
         AND c.archive_status = ${input.archiveStatus}
         AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.id = c.application_id AND a.owner_id = c.owner_id AND a.development_only = true)
         ${projectFilter}
@@ -3248,6 +3252,81 @@ export class ConversationService {
     });
   }
 
+  async getSideChat(ownerId: string, conversationId: string): Promise<SideChat | null> {
+    await this.assertOwner(ownerId, conversationId);
+    const row = await this.prisma.conversation.findFirst({ where: { ownerId, sideChatParentId: conversationId } });
+    return row ? projectSideChat(row) : null;
+  }
+
+  async openSideChat(ownerId: string, conversationId: string, selection: SideChatSelection): Promise<SideChat> {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
+      const parent = await this.assertOwner(ownerId, conversationId);
+      if (parent.sideChatParentId) throw new AppError("CONFLICT");
+      const roles = await readConversationDevelopmentRoles(this.prisma, ownerId, [parent]);
+      if (roles.has(parent.id)) throw new AppError("CONFLICT");
+      const existing = await this.getSideChat(ownerId, conversationId);
+      if (
+        existing &&
+        existing.reference.source_message_id === selection.source_message_id &&
+        existing.reference.selection_text === selection.selection_text &&
+        existing.reference.include_recent_messages === selection.include_recent_messages
+      ) return existing;
+      const reference = await buildSideChatReference(this.prisma, {
+        id: parent.id,
+        title: projectTaskTitle(parent.title, parent.titleSource),
+        codexThreadId: parent.codexThreadId,
+      }, selection);
+      if (existing) {
+        const updated = await this.prisma.conversation.updateMany({
+          where: { id: existing.conversation_id, ownerId, sideChatParentId: parent.id },
+          data: { sideChatReferenceJson: reference },
+        });
+        if (updated.count !== 1) throw new AppError("CONFLICT");
+        return { ...existing, reference };
+      }
+      const applicationRuntime = await this.applicationRuntimeForConversation(ownerId, parent.applicationId, parent.applicationChannel);
+      try {
+        const created = await this.createConversation(
+          ownerId,
+          undefined,
+          applicationRuntime
+            ? {
+                id: applicationRuntime.applicationId,
+                name: parent.applicationNameSnapshot ?? parent.title,
+                kind: applicationRuntime.kind,
+                interactivePackageId: parent.interactiveApplicationPackageId,
+                channel: applicationDistributionChannelSchema.parse(parent.applicationChannel ?? "direct"),
+              }
+            : undefined,
+          {
+            projectId: parent.projectId,
+            sideChat: {
+              parentId: parent.id,
+              workspaceRelPath: parent.workspaceRelPath,
+              reference,
+              preferredModel: parent.preferredModel,
+              knowledgeBaseIds: parent.selectedKnowledgeBaseIdsJson,
+            },
+          },
+        );
+        return projectSideChat(created);
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          const concurrent = await this.getSideChat(ownerId, parent.id);
+          if (concurrent) {
+            if (
+              concurrent.reference.source_message_id !== selection.source_message_id ||
+              concurrent.reference.selection_text !== selection.selection_text ||
+              concurrent.reference.include_recent_messages !== selection.include_recent_messages
+            ) throw new AppError("CONFLICT");
+            return concurrent;
+          }
+        }
+        throw error;
+      }
+    });
+  }
+
   async patch(
     ownerId: string,
     conversationId: string,
@@ -3279,7 +3358,26 @@ export class ConversationService {
         throw new AppError("CONVERSATION_NOT_FOUND");
       }
       if (input.projectId !== undefined && input.projectId !== lockedConversation.projectId) {
-        await assertProjectTasksIdle(tx, [conversationId]);
+        if (lockedConversation.sideChatParentId) throw new AppError("CONFLICT");
+        const sideChats = await tx.$queryRaw<Array<{ id: string; workspaceRelPath: string; pinnedAt: Date | null }>>(Prisma.sql`
+          SELECT id, workspace_rel_path AS "workspaceRelPath", pinned_at AS "pinnedAt"
+          FROM conversations
+          WHERE owner_id = ${ownerId}::uuid AND side_chat_parent_id = ${conversationId}::uuid
+          ORDER BY id FOR UPDATE
+        `);
+        await assertProjectTasksIdle(tx, [conversationId, ...sideChats.map(sideChat => sideChat.id)]);
+        for (const sideChat of sideChats) {
+          await tx.conversation.updateMany({
+            where: { id: sideChat.id, ownerId, sideChatParentId: conversationId },
+            data: {
+              projectId: input.projectId,
+              workspaceRelPath: runtimePlacementForWorkspace(ownerId, sideChat.workspaceRelPath).serviceSessionId
+                ? sideChat.workspaceRelPath
+                : projectWorkspaceRelativePath(ownerId, input.projectId),
+              ...(!sideChat.pinnedAt ? { sortOrder: null } : {}),
+            },
+          });
+        }
       }
       if (
         input.collaborationMode &&
@@ -3392,6 +3490,7 @@ export class ConversationService {
         FROM conversations
         WHERE owner_id = ${ownerId}::uuid
           AND archive_status = 'active'
+          AND side_chat_parent_id IS NULL
           AND ${
             input.group === "pinned"
               ? Prisma.sql`pinned_at IS NOT NULL`
@@ -3579,7 +3678,7 @@ export class ConversationService {
         ? input.inputText
         : "";
     const preservesStagedAttachments =
-      Boolean(officeAnnotation) || input.preserveStagedAttachments === true;
+      Boolean(officeAnnotation && officeAnnotation.kind !== "conversation_reference") || input.preserveStagedAttachments === true;
     const lock = await this.acquireConversationLock(conversationId);
     try {
       const result = await this.prisma.$transaction(async (tx) => {
@@ -3941,6 +4040,8 @@ export class ConversationService {
         });
         if (!pending) throw new AppError("NOT_FOUND");
         if (pending.status === "steering") throw new AppError("CONFLICT");
+        // A plain composer cannot safely restore the original structured selection.
+        if (inspectOfficeAnnotationPrompt(pending.inputText).suspected) throw new AppError("CONFLICT");
         const protectedByStartIntent =
           await tx.conversationTurnStartIntent.findFirst({
             where: {
@@ -7216,6 +7317,7 @@ export class ConversationService {
       collaborationMode?: ConversationCollaborationMode;
       conversationId?: string;
       projectId?: string | null;
+      sideChat?: { parentId: string; workspaceRelPath: string; reference: SideChatReference; preferredModel: string | null; knowledgeBaseIds: Prisma.JsonValue };
     },
     prewarmedConversationId?: string,
   ) {
@@ -7234,9 +7336,9 @@ export class ConversationService {
       if (reused) return reused;
     }
     const serviceSessionId = application?.id;
-    const workspaceRelPath = serviceSessionId
+    const workspaceRelPath = options?.sideChat?.workspaceRelPath ?? (serviceSessionId
       ? serviceWorkspaceRelativePath(ownerId, serviceSessionId)
-      : projectWorkspaceRelativePath(ownerId, options?.projectId ?? null);
+      : projectWorkspaceRelativePath(ownerId, options?.projectId ?? null));
     let claimedPrewarm = false;
     if (prewarmedConversationId) {
       const collision = await this.prisma.conversation.findUnique({
@@ -7297,6 +7399,13 @@ export class ConversationService {
         if (options?.projectId) {
           await lockOwnedProject(tx, ownerId, options.projectId);
         }
+        if (options?.sideChat) {
+          const [parent] = await tx.$queryRaw<Array<{ id: string; projectId: string | null; workspaceRelPath: string }>>`
+            SELECT id, project_id AS "projectId", workspace_rel_path AS "workspaceRelPath"
+            FROM conversations WHERE id = ${options.sideChat.parentId}::uuid AND owner_id = ${ownerId}::uuid FOR UPDATE`;
+          if (!parent) throw new AppError("CONVERSATION_NOT_FOUND");
+          if (parent.projectId !== (options.projectId ?? null) || parent.workspaceRelPath !== workspaceRelPath) throw new AppError("CONFLICT");
+        }
         if (application) {
           if (options?.development) await lockDevelopmentPreview(tx, ownerId, application.id, application.interactivePackageId, options.development);
           else await assertNotDevelopmentPreview(tx, application.id);
@@ -7330,6 +7439,12 @@ export class ConversationService {
               application?.kind === "interactive"
                 ? applicationRuntime?.interactivePackageId ?? null
                 : null,
+            ...(options?.sideChat ? {
+              sideChatParentId: options.sideChat.parentId,
+              sideChatReferenceJson: options.sideChat.reference,
+              preferredModel: options.sideChat.preferredModel,
+              selectedKnowledgeBaseIdsJson: options.sideChat.knowledgeBaseIds ?? Prisma.JsonNull,
+            } : {}),
           },
         });
         if (options?.developmentSource) {
@@ -7369,6 +7484,9 @@ export class ConversationService {
     inputText: string;
     display: OfficeAnnotationDisplay;
   }> {
+    if (annotation.kind === "conversation_reference") {
+      return prepareConversationReference(this.prisma, conversationId, annotation, officeAnnotationFingerprint(annotation));
+    }
     if (annotation.kind === "application_annotation") {
       return prepareApplicationAnnotation(this.prisma, this.workspaceRoot, conversationId, annotation, officeAnnotationFingerprint(annotation));
     }
@@ -7382,7 +7500,7 @@ export class ConversationService {
     assertOfficeAnnotationSemantics(annotation);
 
     const display = buildOfficeAnnotationDisplay(annotation, file.filename);
-    if (display.kind === "application_annotation") throw new AppError("VALIDATION_ERROR");
+    if (display.kind === "application_annotation" || display.kind === "conversation_reference") throw new AppError("VALIDATION_ERROR");
     return {
       inputText: buildOfficeAnnotationPrompt(annotation, display),
       display,
@@ -7879,6 +7997,7 @@ export class ConversationService {
       if (
         input.prepared.messageDisplay &&
         input.prepared.messageDisplay.kind !== "interactive_application" &&
+        input.prepared.messageDisplay.kind !== "conversation_reference" &&
         input.prepared.messageDisplay.kind !== "application_annotation"
       ) {
         await tx.$queryRaw<Array<{ id: string }>>`
@@ -9087,7 +9206,7 @@ export class ConversationService {
       }
       const officeAnnotation = submissionOfficeAnnotation(submission);
       const preservesStagedAttachments =
-        Boolean(officeAnnotation) ||
+        Boolean(officeAnnotation && officeAnnotation.kind !== "conversation_reference") ||
         (submission.preserveStagedAttachments === true &&
           !pendingId &&
           !regeneration);
@@ -9141,7 +9260,7 @@ export class ConversationService {
           : {}),
         messageDisplay:
           preparedAnnotation?.display ??
-          (queuedDisplay?.kind === "application_annotation" ? queuedDisplay : null) ??
+          (queuedDisplay?.kind === "application_annotation" || queuedDisplay?.kind === "conversation_reference" ? queuedDisplay : null) ??
           (fromInteractiveApplication && applicationRuntime
             ? {
                 kind: "interactive_application",
@@ -10393,6 +10512,7 @@ function matchesAnnotationFile(
   const lowerName = file.filename.toLocaleLowerCase("en-US");
   switch (kind) {
     case "application_annotation":
+    case "conversation_reference":
       return false;
     case "presentation_annotation":
       return file.mimeType === PPTX_MIME_TYPE && lowerName.endsWith(".pptx");
@@ -10626,8 +10746,8 @@ function buildHtmlAnnotationSection(
 }
 
 function buildOfficeAnnotationPrompt(
-  annotation: Exclude<OfficeAnnotationInput, { kind: "application_annotation" }>,
-  display: Exclude<OfficeAnnotationDisplay, { kind: "application_annotation" }>,
+  annotation: Exclude<OfficeAnnotationInput, { kind: "application_annotation" | "conversation_reference" }>,
+  display: Exclude<OfficeAnnotationDisplay, { kind: "application_annotation" | "conversation_reference" }>,
 ): string {
   if (annotation.kind !== display.kind) throw new AppError("VALIDATION_ERROR");
 
@@ -10691,33 +10811,6 @@ type StoredConversationEvent = {
   sseEventId: string;
   createdAt: Date;
 };
-
-function indexStopHookSupersededAssistantMessageIds(
-  rows: Array<{ turnId: string | null; payloadJson: unknown }>,
-  planReviewTurnIds: ReadonlySet<string>,
-): Set<string> {
-  const messageIds = new Set<string>();
-  for (const row of rows) {
-    if (!row.turnId || !planReviewTurnIds.has(row.turnId)) continue;
-    const payload = asRecord(row.payloadJson);
-    const params = asRecord(payload.params);
-    const run = asRecord(params.run);
-    const local = asRecord(payload.local);
-    if (
-      payload.method === "hook/completed" &&
-      run.eventName === "stop" &&
-      run.status === "blocked" &&
-      typeof params.supersededItemId === "string" &&
-      typeof local.superseded_item_id === "string" &&
-      params.supersededItemId === local.superseded_item_id &&
-      typeof local.superseded_message_id === "string" &&
-      isUuid(local.superseded_message_id)
-    ) {
-      messageIds.add(local.superseded_message_id);
-    }
-  }
-  return messageIds;
-}
 
 type UserMessageProjection = {
   contentText: string;
@@ -10844,6 +10937,10 @@ function resolveUserMessageProjection(
     // application selection as an attachment or expose its internal prompt.
     const display = storedDisplay?.kind === "application_annotation" &&
       storedDisplay.development_id === inspected.display.development_id ? storedDisplay : null;
+    return { contentText: inspected.request ?? "", display, selectedCapabilities };
+  }
+  if (inspected.display?.kind === "conversation_reference") {
+    const display = storedDisplay?.kind === "conversation_reference" && storedDisplay.reference_id === inspected.display.reference_id ? storedDisplay : null;
     return { contentText: inspected.request ?? "", display, selectedCapabilities };
   }
   if (inspected.display) {

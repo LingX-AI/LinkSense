@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   conversationShareCreateSchema,
+  sideChatSelectionSchema,
   conversationCollaborationModeSchema,
   conversationHistoryQuerySchema,
   conversationSourcesSchema,
@@ -155,6 +156,19 @@ export const conversationRoutes: FastifyPluginAsync<{
       ...(body.project_id !== undefined ? { projectId: body.project_id } : {}),
     });
     return reply.code(202).send(ok(receipt, request.id));
+  });
+
+  app.get("/:id/side-chat", async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    const { id } = uuidParamsSchema.parse(request.params);
+    return reply.send(ok(await services.conversations.getSideChat(user.id, id), request.id));
+  });
+
+  app.post("/:id/side-chat", async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    const { id } = uuidParamsSchema.parse(request.params);
+    const selection = sideChatSelectionSchema.parse(request.body);
+    return reply.send(ok(await services.conversations.openSideChat(user.id, id, selection), request.id));
   });
 
   app.get("/", async (request, reply) => {

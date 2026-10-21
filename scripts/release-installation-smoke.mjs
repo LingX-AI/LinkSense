@@ -3,7 +3,7 @@ import { spawn } from "node:child_process"
 import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
-import { tmpdir } from "node:os"
+import { release, tmpdir, version } from "node:os"
 import path from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 import { pathToFileURL } from "node:url"
@@ -15,6 +15,15 @@ const networkNames = ["linksense-internal", "linksense-worker-control", "linksen
 const secretKey = /PASSWORD|SECRET|TOKEN|(?:^|_)KEY(?:_ID)?$|^DATABASE_URL$|^REDIS_URL$|^DOCLING_REDIS_URL$/u
 const resourceKey = /^LINKSENSE_(?:CPU_QUOTA_MODE|(?:API|RUNNER|POSTGRES|REDIS|MINIO|WORKER|ELASTICSEARCH)_MEMORY_MB|(?:API|RUNNER)_NODE_OPTIONS|MAX_CONCURRENT_CONVERSATIONS|RUNNER_APP_SERVER_PROCESS_LIMIT|(?:CODEX_APP_SERVER|WORKER)_IDLE_TTL_SECONDS|KB_[A-Z]+_CONCURRENCY)$/u
 const hash = value => createHash("sha256").update(value).digest("hex")
+
+export async function readSystemCaBundle(paths = process.env.SSL_CERT_FILE
+  ? [process.env.SSL_CERT_FILE]
+  : ["/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem"]) {
+  for (const file of paths) {
+    try { return await readFile(file) } catch (error) { if (error.code !== "ENOENT") throw error }
+  }
+  throw new Error("No system CA bundle found; set SSL_CERT_FILE to the trusted system bundle")
+}
 
 export function verificationPassword() {
   return `Qa9!${randomBytes(6).toString("hex")}`
@@ -134,7 +143,11 @@ export async function runInstallationSmoke({ assetDirectory, edition, reportDire
   const assetServers = []
   let ownsInstallation = false
   let phase = "preflight"
-  const report = { edition, architecture: process.arch, phases: [], success: false }
+  const report = {
+    edition, architecture: process.arch, phases: [], success: false,
+    host: { platform: process.platform, kernel: release(), version: version(), runnerImage: process.env.ImageOS, runnerImageVersion: process.env.ImageVersion },
+    sourceSha: process.env.GITHUB_SHA ?? process.env.SOURCE_SHA,
+  }
 
   async function readInstalled(name) {
     return parseEnvironment(await readFile(path.join(installDirectory, name), "utf8"))
@@ -231,7 +244,7 @@ export async function runInstallationSmoke({ assetDirectory, edition, reportDire
     assert.equal(session.user.role, "admin")
     await request("/admin/model-provider-settings", { token: session.access_token })
     const page = await fetch(origin, { signal: AbortSignal.timeout(15000) })
-    assert.equal(page.status, 200)
+    assert.equal(page.status, 200, "The public Web page is unavailable through the gateway")
     assert.match(await page.text(), /<html/iu)
   }
   async function runtimeProbe(fixture, operation) {
@@ -273,12 +286,18 @@ export async function runInstallationSmoke({ assetDirectory, edition, reportDire
     ownsInstallation = false
   }
   try {
+    try { report.installerTest = JSON.parse(await readFile(path.join(assetDirectory, "installer-test.json"), "utf8")) } catch (error) { if (error.code !== "ENOENT") throw error }
+    report.host.distribution = (await readFile("/etc/os-release", "utf8")).trim()
+    report.host.docker = JSON.parse(await docker(["version", "--format", "{{json .}}" ]))
+    report.host.compose = await docker(["compose", "version", "--short"])
     assertCleanDaemon({ containers: await docker(["ps", "--all", "--quiet"]), volumes: await docker(["volume", "ls", "--quiet"]), networks: await docker(["network", "ls", "--format", "{{.Name}}"] ) })
     const manifest = await verifyAssets(assetDirectory, { version: process.env.RELEASE_VERSION, sourceSha: process.env.SOURCE_SHA, workflowUrl: process.env.RELEASE_WORKFLOW_ID })
     report.version = manifest.RELEASE_VERSION
+    report.runtimeSourceSha = manifest.RELEASE_GIT_COMMIT
+    report.images = Object.fromEntries(Object.entries(manifest).filter(([key]) => /^IMAGE_(?!.*_DIGEST$)/u.test(key)))
     await run("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=IP:127.0.0.1", "-keyout", privateKey, "-out", certificate], { quiet: true })
     await chmod(privateKey, 0o600)
-    await writeFile(caBundle, Buffer.concat([await readFile("/etc/ssl/certs/ca-certificates.crt"), await readFile(certificate)]))
+    await writeFile(caBundle, Buffer.concat([await readSystemCaBundle(), Buffer.from("\n"), await readFile(certificate)]))
     const base = await serveAssets(assetDirectory)
     const socket = process.env.DOCKER_HOST ?? await docker(["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"])
     assert.ok(socket.startsWith("unix://"), "Installation tests require a local Unix socket")

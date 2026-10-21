@@ -210,16 +210,18 @@ export function PendingRequests({
                   selectedKnowledgeBases.length === 0 &&
                   attachmentCount === 0)
               const lockedForSteering = request.status === "steering"
-              const annotationLabel = request.display
-                ? t(
-                    request.display.kind === "presentation_annotation"
-                      ? "conversation.presentationAnnotationCount"
-                      : request.display.kind === "html_annotation"
-                        ? "conversation.htmlAnnotationCount"
-                        : "conversation.officeAnnotationCount",
-                    { count: request.display.annotation_count }
-                  )
-                : null
+              const annotationLabel =
+                request.display &&
+                request.display.kind !== "conversation_reference"
+                  ? t(
+                      request.display.kind === "presentation_annotation"
+                        ? "conversation.presentationAnnotationCount"
+                        : request.display.kind === "html_annotation"
+                          ? "conversation.htmlAnnotationCount"
+                          : "conversation.officeAnnotationCount",
+                      { count: request.display.annotation_count }
+                    )
+                  : null
               const requestLabel =
                 annotationLabel ||
                 request.input_text ||
@@ -241,7 +243,8 @@ export function PendingRequests({
                     <span
                       className="pending-request-context-input"
                       title={
-                        request.display
+                        request.display &&
+                        request.display.kind !== "conversation_reference"
                           ? request.display.annotations
                               .map((annotation) => annotation.request)
                               .join("\n")
@@ -332,6 +335,7 @@ export function PendingRequests({
                           <DropdownMenuItem
                             disabled={
                               lockedForSteering ||
+                              Boolean(request.display) ||
                               pendingActionId === request.id
                             }
                             onClick={() => onEdit(request)}

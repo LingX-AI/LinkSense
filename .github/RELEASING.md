@@ -160,6 +160,26 @@ Worker 保留本地编译所需的 `linux-libc-dev`，而非删除编译能力�
 
 ## 节约 Runner 用量与失败恢复
 
+### 安装器的平台兼容性与独立生命周期验证
+
+`Installer platforms` 在安装器、相关测试和工作流变更的 PR/main 上运行，也可手动触发：
+
+- 原生脚本：Ubuntu 22.04、24.04 amd64/arm64、macOS 15 Intel/Apple Silicon，运行真实系统 shell、权限与工具分支；Docker 交互使用测试替身，不声称 Docker Desktop 安装成功。
+- 发行版容器：Debian 12/13、CentOS Stream 9/10、Rocky 9、AlmaLinux 9。拉取后固定实际 digest，使用发行版工具执行同一套测试；不挂载 Docker socket，不声称目标系统内核或 Docker 服务已验证。
+- 每个脚本矩阵任务上传 `platform.json` 和 TAP 结果，记录实际 OS、架构、Runner image、Node 和容器 digest，失败保持失败状态。脚本检查不安装整个工作区依赖。
+- 网关回归在 Ubuntu 上使用固定摘要的真实 Nginx/BusyBox 容器：替换 Web 并占用旧 IP，先复现静态 DNS 导致的 502，再验证当前安装器的服务激活逻辑刷新网关后能够访问新 Web。失败会阻止该流程通过。
+
+`Installer lifecycle` 仅手动触发，默认使用最新稳定 Release，也可输入 `vX.Y.Z`。它冻结该版本及前一稳定版附件，用当前提交的安装器/CLI 和共享 Compose 模型替换测试目录中的对应文件并重新计算校验和；保持发布的镜像、版本专用 Compose、tokenizer、运行时版本和运行时源 SHA 不变，不修改 GitHub Release。`installer-test.json` 将 `source-installer-with-published-runtime`、安装器提交和运行时提交分别记录。因此该流程验证当前脚本与已发布运行时的组合；正式发布仍由 `installation-smoke` 验证全部候选制品。
+
+独立生命周期覆盖 Ubuntu 22.04 的 Core/Full，以及可选的 CentOS Stream 9 Core/Full VM 试点。它复用安装、重复安装、修复、同版本升级、冻结上一版数据升级和备份可读性断言。CentOS 使用官方日期固定且校验 SHA-256 的 cloud image、自己的内核、SELinux 和 Docker daemon；不使用特权发行版容器冒充真实宿主。VM 内只传测试源码和制品，不传 GitHub Token。测试要求空白可销毁 daemon，不能在日常或生产主机执行。
+
+CentOS 嵌套 VM 依赖托管 Runner 的 KVM，GitHub 不保证嵌套虚拟化的稳定性；试点失败会使独立流程失败，目前不新增正式发布门禁。macOS 完整 Docker Desktop 生命周期不在本轮自动化覆盖范围，不能从脚本测试推断成功。运行结束后查看对应 `installer-*` artifact；环境/网络准备失败与应用验收失败应分别定位，不能放宽资源、安全或数据保护断言。
+
+```bash
+gh workflow run installer-platforms.yml --repo LingX-AI/linksense --ref main
+gh workflow run installer-smoke.yml --repo LingX-AI/linksense --ref main -f centos_vm=true
+```
+
 - CI 和 Security 在目标 `main` 提交上通过一次即可，发布不重复执行完整测试、检查和源码构建。
 - 镜像矩阵不因单个任务失败而取消其他架构或镜像任务，已经成功的构建结果留给续跑复用。
 - 镜像缓存使用 GitHub Actions `mode=min` 缓存，不向公开 GHCR 推送中间构建层。仓库公开后不要将缓存视为私有存储，也不要向其中放入凭据。API 额外读取同架构 migration 的共享依赖缓存。缓存导出最多等待 2 分钟；导出失败不使已成功构建的镜像失败。编译、测试、安全扫描、镜像推送和资产校验仍是必须通过的步骤。

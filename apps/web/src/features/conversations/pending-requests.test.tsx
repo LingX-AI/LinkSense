@@ -13,6 +13,48 @@ describe("pending request summaries", () => {
 
   afterEach(cleanup)
 
+  it("does not offer plain-text editing for a queued reference snapshot", async () => {
+    const interaction = userEvent.setup()
+    render(
+      <PendingRequests
+        requests={[
+          {
+            id: "queued-reference",
+            sequence_no: 1,
+            status: "waiting_previous_turn",
+            input_text: "Explain this",
+            priority_capability_ids: [],
+            attachments: [],
+            display: {
+              kind: "conversation_reference",
+              reference_id: "40000000-0000-4000-8000-000000000001",
+              source_conversation_id: "20000000-0000-4000-8000-000000000001",
+              source_message_id: "30000000-0000-4000-8000-000000000001",
+              source_title: "Source",
+              selection_text: "Quote",
+              request: "Explain this",
+              recent_message_count: 0,
+            },
+          },
+        ]}
+        capabilities={[]}
+        onGuide={vi.fn()}
+        onStart={vi.fn()}
+        onEdit={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+    await interaction.click(
+      screen.getByRole("button", { name: "查看后续请求详情" })
+    )
+    expect(
+      await screen.findByRole("menuitem", { name: "编辑信息" })
+    ).toHaveAttribute("aria-disabled", "true")
+    expect(
+      screen.getByRole("menuitem", { name: "关闭排队" })
+    ).not.toHaveAttribute("aria-disabled", "true")
+  })
+
   it("renders a compact queued request and keeps its details on demand", async () => {
     const onCancel = vi.fn()
     const onEdit = vi.fn()

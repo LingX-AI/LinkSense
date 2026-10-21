@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { parseEnv } from "node:util";
 
@@ -165,6 +168,33 @@ test("host development starts every application with pnpm and passes the dynamic
     false,
   );
 });
+
+for (const workspace of ["api", "runner"]) {
+  test(`host ${workspace} development preserves the shared source glob and application entry point`, async (context) => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-host-dev-"));
+    context.after(() => rm(root, { recursive: true, force: true }));
+    const appDirectory = join(root, "apps", workspace);
+    const localesDirectory = join(root, "packages/shared/src/locales");
+    await mkdir(appDirectory, { recursive: true });
+    await mkdir(localesDirectory, { recursive: true });
+    for (const locale of ["en-US", "zh-CN"]) {
+      await writeFile(join(localesDirectory, `${locale}.ts`), "export {};\n");
+    }
+    const packageJson = JSON.parse(
+      await readFile(new URL(`../apps/${workspace}/package.json`, import.meta.url), "utf8"),
+    );
+    const result = spawnSync("/bin/sh", [
+      "-c",
+      'tsx() { printf "%s\\n" "$@"; }\n' + packageJson.scripts.dev,
+    ], { cwd: appDirectory, encoding: "utf8", timeout: 5_000 });
+
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.stdout.trimEnd().split("\n"), [
+      "watch", "--include", "../../packages/shared/src/**/*.ts", "src/index.ts",
+    ]);
+  });
+}
 
 test("host readiness waits for Docs before probing the Vite Help Center proxy", async () => {
   const environment = buildHostDevelopmentEnvironment({

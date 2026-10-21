@@ -87,6 +87,7 @@ import {
 } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
+import { useBootstrap } from "@/app/bootstrap-state"
 import { ExecutionConcurrencySettingsForm } from "@/features/admin/execution-concurrency-settings-form"
 import {
   AuditConversationDetailDialog,
@@ -3976,7 +3977,11 @@ function RegistrationSettingsToggle({
 
 function ModelSettingsPage() {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState<ModelSettingsTab>("channels")
+  const { bootstrap } = useBootstrap()
+  const knowledgeEnabled = bootstrap?.knowledge?.enabled !== false
+  const [selectedTab, setSelectedTab] = useState<ModelSettingsTab>("channels")
+  const activeTab =
+    selectedTab === "knowledge" && !knowledgeEnabled ? "channels" : selectedTab
   const [tabRenderVersions, setTabRenderVersions] = useState<
     Record<ModelSettingsTab, number>
   >({
@@ -3995,6 +4000,7 @@ function ModelSettingsPage() {
   })
   const imageUnderstandingQuery = useQuery({
     queryKey: ["admin", "image-understanding-settings"],
+    enabled: knowledgeEnabled,
     queryFn: ({ signal }) =>
       apiRequest("/admin/image-understanding-settings", {
         schema: imageUnderstandingSettingsSchema,
@@ -4019,6 +4025,7 @@ function ModelSettingsPage() {
   })
   const knowledgeModelQuery = useQuery({
     queryKey: ["admin", "knowledge-model-settings"],
+    enabled: knowledgeEnabled,
     queryFn: ({ signal }) =>
       apiRequest("/admin/knowledge-model-settings", {
         schema: knowledgeModelSettingsSchema,
@@ -4026,7 +4033,7 @@ function ModelSettingsPage() {
       }),
   })
   const refreshTab = (nextTab: ModelSettingsTab) => {
-    setActiveTab(nextTab)
+    setSelectedTab(nextTab)
     const queries =
       nextTab === "knowledge"
         ? [modelProviderQuery, knowledgeModelQuery, imageUnderstandingQuery]
@@ -4085,9 +4092,11 @@ function ModelSettingsPage() {
           <TabsTrigger value="channels">
             {t("admin.modelTabs.channels")}
           </TabsTrigger>
-          <TabsTrigger value="knowledge">
-            {t("admin.modelTabs.knowledge")}
-          </TabsTrigger>
+          {knowledgeEnabled && (
+            <TabsTrigger value="knowledge">
+              {t("admin.modelTabs.knowledge")}
+            </TabsTrigger>
+          )}
           <TabsTrigger value="voiceTranscription">
             {t("admin.modelTabs.voiceTranscription")}
           </TabsTrigger>
@@ -4114,55 +4123,57 @@ function ModelSettingsPage() {
               />
             )}
         </TabsContent>
-        <TabsContent value="knowledge" className="min-w-0" keepMounted>
-          {knowledgeLoading && <LoadingState />}
-          {!knowledgeLoading && modelProviderQuery.error && (
-            <ErrorState
-              message={getErrorMessage(modelProviderQuery.error, t)}
-              onRetry={() => {
-                void modelProviderQuery.refetch()
-              }}
-            />
-          )}
-          {!knowledgeLoading && knowledgeModelQuery.error && (
-            <ErrorState
-              message={getErrorMessage(knowledgeModelQuery.error, t)}
-              onRetry={() => {
-                void knowledgeModelQuery.refetch()
-              }}
-            />
-          )}
-          {!knowledgeLoading &&
-            !modelProviderQuery.error &&
-            !knowledgeModelQuery.error &&
-            knowledgeModelQuery.data &&
-            modelProviderQuery.data && (
-              <KnowledgeModelSettingsForm
-                key={`knowledge-models-${knowledgeModelQuery.data.revision}-${modelProviderQuery.data.revision}-${tabRenderVersions.knowledge}`}
-                settings={knowledgeModelQuery.data}
-                modelSettings={modelProviderQuery.data}
+        {knowledgeEnabled && (
+          <TabsContent value="knowledge" className="min-w-0" keepMounted>
+            {knowledgeLoading && <LoadingState />}
+            {!knowledgeLoading && modelProviderQuery.error && (
+              <ErrorState
+                message={getErrorMessage(modelProviderQuery.error, t)}
+                onRetry={() => {
+                  void modelProviderQuery.refetch()
+                }}
               />
             )}
-          {!knowledgeLoading && imageUnderstandingQuery.error && (
-            <ErrorState
-              message={getErrorMessage(imageUnderstandingQuery.error, t)}
-              onRetry={() => {
-                void imageUnderstandingQuery.refetch()
-              }}
-            />
-          )}
-          {!knowledgeLoading &&
-            !modelProviderQuery.error &&
-            !imageUnderstandingQuery.error &&
-            imageUnderstandingQuery.data &&
-            modelProviderQuery.data && (
-              <ImageUnderstandingSettingsForm
-                key={`image-understanding-${imageUnderstandingQuery.data.revision}-${modelProviderQuery.data.revision}-${tabRenderVersions.knowledge}`}
-                settings={imageUnderstandingQuery.data}
-                modelSettings={modelProviderQuery.data}
+            {!knowledgeLoading && knowledgeModelQuery.error && (
+              <ErrorState
+                message={getErrorMessage(knowledgeModelQuery.error, t)}
+                onRetry={() => {
+                  void knowledgeModelQuery.refetch()
+                }}
               />
             )}
-        </TabsContent>
+            {!knowledgeLoading &&
+              !modelProviderQuery.error &&
+              !knowledgeModelQuery.error &&
+              knowledgeModelQuery.data &&
+              modelProviderQuery.data && (
+                <KnowledgeModelSettingsForm
+                  key={`knowledge-models-${knowledgeModelQuery.data.revision}-${modelProviderQuery.data.revision}-${tabRenderVersions.knowledge}`}
+                  settings={knowledgeModelQuery.data}
+                  modelSettings={modelProviderQuery.data}
+                />
+              )}
+            {!knowledgeLoading && imageUnderstandingQuery.error && (
+              <ErrorState
+                message={getErrorMessage(imageUnderstandingQuery.error, t)}
+                onRetry={() => {
+                  void imageUnderstandingQuery.refetch()
+                }}
+              />
+            )}
+            {!knowledgeLoading &&
+              !modelProviderQuery.error &&
+              !imageUnderstandingQuery.error &&
+              imageUnderstandingQuery.data &&
+              modelProviderQuery.data && (
+                <ImageUnderstandingSettingsForm
+                  key={`image-understanding-${imageUnderstandingQuery.data.revision}-${modelProviderQuery.data.revision}-${tabRenderVersions.knowledge}`}
+                  settings={imageUnderstandingQuery.data}
+                  modelSettings={modelProviderQuery.data}
+                />
+              )}
+          </TabsContent>
+        )}
         <TabsContent value="voiceTranscription" className="min-w-0" keepMounted>
           {voiceTranscriptionLoading && <LoadingState />}
           {!voiceTranscriptionLoading && modelProviderQuery.error && (

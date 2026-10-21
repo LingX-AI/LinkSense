@@ -428,6 +428,7 @@ type ConversationComposerProps = Readonly<{
   goalMode?: boolean
   planMode?: boolean
   planModeAvailable?: boolean
+  goalModeAvailable?: boolean
   planModeDisabled?: boolean
   unavailableMessage?: string
   interactionBlocked?: boolean
@@ -504,6 +505,7 @@ export const ConversationComposer = forwardRef<
     goalMode = false,
     planMode = false,
     planModeAvailable = true,
+    goalModeAvailable = true,
     planModeDisabled = false,
     interactionBlocked = false,
     unavailableMessage,
@@ -1034,6 +1036,7 @@ export const ConversationComposer = forwardRef<
       onCompact()
       return
     }
+    textareaRef.current?.focus({ preventScroll: true })
     onSubmit(nextValue)
   }
 
@@ -1692,7 +1695,8 @@ export const ConversationComposer = forwardRef<
                   { productName }
                 )
           }
-          disabled={submitting || interactionBlocked}
+          disabled={interactionBlocked}
+          readOnly={submitting}
           className={cn(
             "composer-input composer-input-textarea min-h-14 border-0 bg-transparent px-1 py-2 text-sm leading-6 shadow-none focus-visible:bg-transparent focus-visible:ring-0",
             hasComposerInputUrl && "composer-input-has-url",
@@ -1784,7 +1788,7 @@ export const ConversationComposer = forwardRef<
                         {t("conversation.attachFolderMenuLabel")}
                       </span>
                     </CommandItem>
-                    {!managedApplicationName && (
+                    {!managedApplicationName && goalModeAvailable && (
                       <CommandItem
                         value={t("conversation.goal.menuSearchValue")}
                         disabled={attachmentActionDisabled}
