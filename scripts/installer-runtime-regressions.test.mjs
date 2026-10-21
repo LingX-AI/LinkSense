@@ -6,6 +6,7 @@ import path from "node:path"
 import test from "node:test"
 
 const installer = readFileSync(new URL("../deploy/release/linksense-installer.sh", import.meta.url), "utf8")
+const host = readFileSync(new URL("../deploy/release/linksense-host.sh", import.meta.url), "utf8")
 const x86V2Flags = "fpu cx8 cmov mmx fxsr sse sse2 syscall lm cx16 lahf_lm pni popcnt ssse3 sse4_1 sse4_2"
 const cpuDockerStub = `
 docker() {
@@ -17,7 +18,7 @@ docker() {
 }
 `
 function shellFunction(name) {
-  const match = installer.match(new RegExp(`^${name}\\(\\) \\{\\n[\\s\\S]*?^\\}`, "mu"))
+  const match = `${installer}\n${host}`.match(new RegExp(`^${name}\\(\\) \\{\\n[\\s\\S]*?^\\}`, "mu"))
   assert.ok(match, `${name} must exist`)
   return match[0]
 }
@@ -25,6 +26,58 @@ function directory(t) {
   const value = mkdtempSync(path.join(tmpdir(), "linksense-installer-regression-"))
   t.after(() => rmSync(value, { recursive: true, force: true }))
   return value
+}
+
+for (const operation of ["start", "upgrade", "rollback"]) {
+  for (const refreshFails of operation === "rollback" ? [false] : [false, true]) {
+    test(`${operation} ${refreshFails ? "fails when the gateway cannot refresh" : "refreshes gateway routing after replacing the Web container"}`, t => {
+      const root = directory(t)
+      writeFileSync(path.join(root, "web"), "old-web-ip\n")
+      writeFileSync(path.join(root, "gateway"), "old-web-ip\n")
+      const helper = shellFunction("activate_release_services")
+      const upgrade = shellFunction("upgrade_action")
+      const activation = upgrade.slice(upgrade.indexOf('  log_stage "Stage 7/9:'), upgrade.indexOf('  log_stage "Stage 8/9:'))
+      let action = activation
+      if (operation === "start") action = "start_stack"
+      if (operation === "rollback") action = "restore_pre_migration_upgrade"
+      const result = spawnSync("sh", ["-c", `
+set -eu
+${helper}
+${shellFunction("start_stack")}
+${shellFunction("restore_pre_migration_upgrade")}
+compose() {
+  printf '%s\\n' "$*" >> "$DIR/calls"
+  case "$*" in
+    'up -d --remove-orphans') echo replacement-web-ip > "$DIR/web" ;;
+    'up -d --no-deps --force-recreate gateway')
+      [ "$REFRESH_FAILS" = false ] || return 1
+      cp "$DIR/web" "$DIR/gateway" ;;
+  esac
+}
+log_stage() { :; }
+write_and_activate_runtime_env() { :; }
+install_resources() { :; }
+publish_tokenizer() { :; }
+write_upgrade_pending() { :; }
+ACTION=upgrade
+UPGRADE_RUNTIME_STOPPED=true
+UPGRADE_MIGRATION_STARTED=false
+UPGRADE_PENDING_EXISTED=false
+UPGRADE_CONFIG_CHANGED=false
+UPGRADE_PREVIOUS_DIR=
+UPGRADE_BACKUP_URI=
+INSTALL_DIR=$DIR
+${action}
+echo complete > "$DIR/completed"
+`, "sh"], { encoding: "utf8", env: { ...process.env, DIR: root, REFRESH_FAILS: String(refreshFails) } })
+      assert.equal(result.status, refreshFails ? 1 : 0, result.stderr)
+      if (refreshFails) assert.throws(() => readFileSync(path.join(root, "completed")), { code: "ENOENT" })
+      else assert.equal(readFileSync(path.join(root, "gateway"), "utf8"), readFileSync(path.join(root, "web"), "utf8"))
+      const calls = readFileSync(path.join(root, "calls"), "utf8")
+      assert.match(calls, /up -d --remove-orphans\nup -d --no-deps --force-recreate gateway/u)
+      assert.doesNotMatch(calls, /down|prune|volume rm/u)
+    })
+  }
 }
 
 for (const scenario of [

@@ -260,7 +260,8 @@ local_url() {
 }
 
 ready() {
-  curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "$(local_url "$1")/api/v1/system/health/ready" >/dev/null 2>&1
+  curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "$(local_url "$1")/api/v1/system/health/ready" >/dev/null 2>&1 && \
+    curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "$(local_url "$1")/" >/dev/null 2>&1
 }
 
 wait_until_ready() {
@@ -321,7 +322,7 @@ command_start() {
   ensure_docker
   host_capabilities
   compose config --quiet
-  compose up -d --remove-orphans
+  activate_release_services
   wait_until_ready "$HTTP_PORT" || die health_failed "$HTTP_PORT"
   say started "$PUBLIC_BASE_URL"
   host_unlock_installation

@@ -243,7 +243,7 @@ restore_pre_migration_upgrade() {
     fi
   fi
   rm -f "$INSTALL_DIR/upgrade.pending"
-  compose up -d --remove-orphans >/dev/null 2>&1 || true
+  activate_release_services >/dev/null 2>&1 || true
   if [ -n "$UPGRADE_BACKUP_URI" ]; then
     printf 'The validated database backup remains at %s\n' "$UPGRADE_BACKUP_URI" >&2
   fi
@@ -1374,7 +1374,7 @@ start_stack() {
   compose up -d postgres redis minio
   compose run --rm minio-init
   compose run --rm migrate
-  compose up -d --remove-orphans
+  activate_release_services
 }
 
 active_operation_count() {
@@ -1529,7 +1529,8 @@ wait_for_health() {
   health_deadline=$(($(date +%s) + 400))
   local_health_url="http://127.0.0.1:$HTTP_PORT/api/v1/system/health/ready"
   while [ "$attempts" -lt 60 ] && [ "$(date +%s)" -lt "$health_deadline" ]; do
-    if curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "$local_health_url" >/dev/null 2>&1; then
+    if curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "$local_health_url" >/dev/null 2>&1 && \
+      curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "http://127.0.0.1:$HTTP_PORT/" >/dev/null 2>&1; then
       if [ "$EDITION" = full ]; then
         if ! compose_bounded 10 exec -T elasticsearch curl --max-time 5 -fsS -u "$ELASTICSEARCH_ROOT_USERNAME:$ELASTICSEARCH_ROOT_PASSWORD" http://127.0.0.1:9200/_cluster/health >/dev/null 2>&1 || \
           ! compose_bounded 10 exec -T docling-api python -c 'import os,urllib.request; r=urllib.request.Request("http://127.0.0.1:5001/ready",headers={"X-Api-Key":os.environ["DOCLING_SERVE_API_KEY"]}); urllib.request.urlopen(r,timeout=5).read()' >/dev/null 2>&1; then
@@ -1874,7 +1875,8 @@ upgrade_action() {
       [ "$MANIFEST_SHA256" = "$current_manifest_sha" ] || fail "The published manifest for installed release $RELEASE_VERSION changed unexpectedly."
     fi
     if [ "$RELEASE_VERSION" = "$UPGRADE_FROM_VERSION" ] && [ "${CPU_MODE_CHANGED:-false}" = false ]; then
-      if curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "http://127.0.0.1:$HTTP_PORT/api/v1/system/health/ready" >/dev/null 2>&1; then
+      if curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "http://127.0.0.1:$HTTP_PORT/api/v1/system/health/ready" >/dev/null 2>&1 && \
+        curl --noproxy '*' --connect-timeout 3 --max-time 5 -fsS "http://127.0.0.1:$HTTP_PORT/" >/dev/null 2>&1; then
         log "LinkSense $EDITION is already running the latest release $RELEASE_VERSION. No backup or restart was needed."
         return
       fi
@@ -1916,7 +1918,7 @@ upgrade_action() {
   UPGRADE_MIGRATION_STARTED=true
   write_upgrade_pending true
   compose run --rm migrate
-  compose up -d --remove-orphans
+  activate_release_services
 
   log_stage "Stage 8/9: verify service readiness and edition capabilities."
   wait_for_health

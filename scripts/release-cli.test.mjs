@@ -332,11 +332,11 @@ describe("release management CLI", { concurrency: 4 }, () => {
           assert.match(result.stderr, /trusted LinkSense data labels/u)
         }
       }
-      const failedHealth = await runCli(fixture, ["doctor"], {
-        environment: { MOCK_HEALTH_FAIL_PORT: "18081" },
-      })
-      assert.notEqual(failedHealth.status, 0)
-      assert.match(failedHealth.stderr, /readiness check/u)
+      for (const environment of [{ MOCK_HEALTH_FAIL_PORT: "18081" }, { MOCK_WEB_FAIL_PORT: "18081" }]) {
+        const failedHealth = await runCli(fixture, ["doctor"], { environment })
+        assert.notEqual(failedHealth.status, 0)
+        assert.match(failedHealth.stderr, /readiness check/u)
+      }
       assert.doesNotMatch(
         await readFile(fixture.dockerLog, "utf8"),
         /volume (?:create|rm)|prune/u,
@@ -760,6 +760,8 @@ case "$url" in
   */api/v1/system/bootstrap) printf '%s\\n' "\${MOCK_BOOTSTRAP_RESPONSE:-{\\"success\\":true,\\"data\\":{\\"initialized\\":false,\\"initialization_credential_required\\":true}}}" ;;
   *:\${MOCK_HEALTH_FAIL_PORT:-none}/api/v1/system/health/ready) exit 22 ;;
   */api/v1/system/health/ready) printf '%s\\n' '{"success":true,"data":{"status":"available"}}' ;;
+  *:\${MOCK_WEB_FAIL_PORT:-none}/) exit 22 ;;
+  http://127.0.0.1:*/) printf '%s\\n' '<html>fixture</html>' ;;
   */release-manifest.env.sha256) [ "\${MOCK_NETWORK_OK:-}" = true ] && printf '%s\\n' '${networkChecksum}  release-manifest.env' > "$target" ;;
   */release-manifest.env) [ "\${MOCK_NETWORK_OK:-}" = true ] && printf '%s' '${networkManifest}' > "$target" ;;
   *) exit 22 ;;

@@ -486,7 +486,9 @@ wait_for_health
       }
       const recorded = await readFile(trace, "utf8")
       assert.match(recorded, /\/api\/v1\/system\/health\/ready/u)
-      assert.equal((recorded.match(/^curl /gmu) ?? []).length, scenario.success ? 1 : 60)
+      const attempts = scenario.success ? 1 : 60
+      assert.equal((recorded.match(/^curl .*\/api\/v1\/system\/health\/ready$/gmu) ?? []).length, attempts)
+      assert.equal((recorded.match(/^curl .*http:\/\/127\.0\.0\.1:\d+\/$/gmu) ?? []).length, scenario.apiReady ? attempts : 0)
       if (scenario.edition === "full" && scenario.apiReady) {
         assert.match(recorded, /compose exec -T elasticsearch/u)
         if (scenario.elasticsearchReady) assert.match(recorded, /compose exec -T docling-api/u)
@@ -1113,6 +1115,7 @@ test("release API receives the immutable installed LinkSense version", () => {
       ),
     )
     assert.equal(compose.services.api.environment.LINKSENSE_VERSION, "v0.1.0")
+    assert.equal(compose.services.gateway.labels["com.linksense.release.version"], "v0.1.0")
   }
 })
 
