@@ -67,6 +67,11 @@ try {
     ports: ['127.0.0.1:${port}:80']
     volumes: [${JSON.stringify(`${root}/deploy/release/gateway.conf.template:/etc/nginx/templates/default.conf.template:ro`)}]
     depends_on: [web]
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.240.0/24
 `)
   ownsStack = true
   compose(["up", "-d"])
@@ -75,8 +80,9 @@ try {
   const [network, endpoint] = Object.entries(previous.NetworkSettings.Networks)[0]
   docker(["rm", "--force", previous.Id])
   // Reserve the retired IP so replacement cannot accidentally hide stale DNS.
-  docker(["run", "-d", "--name", blocker, "--network", network, "--ip", endpoint.IPAddress, images.BUSYBOX, "sleep", "300"])
-  blockers.push(blocker)
+  const blockerId = docker(["create", "--name", blocker, "--network", network, "--ip", endpoint.IPAddress, images.BUSYBOX, "sleep", "300"])
+  blockers.push(blockerId)
+  docker(["start", blockerId])
   await writeFile(index, "replacement-web\n")
   compose(["up", "-d", "web"])
   assert.equal((await web(origin)).status, 502, "The unchanged gateway must reproduce the retired Web address failure")
@@ -91,8 +97,9 @@ try {
   const currentEndpoint = current.NetworkSettings.Networks[network]
   docker(["rm", "--force", current.Id])
   const upgradeBlocker = `${project}-upgrade-old-ip`
-  docker(["run", "-d", "--name", upgradeBlocker, "--network", network, "--ip", currentEndpoint.IPAddress, images.BUSYBOX, "sleep", "300"])
-  blockers.push(upgradeBlocker)
+  const upgradeBlockerId = docker(["create", "--name", upgradeBlocker, "--network", network, "--ip", currentEndpoint.IPAddress, images.BUSYBOX, "sleep", "300"])
+  blockers.push(upgradeBlockerId)
+  docker(["start", upgradeBlockerId])
   await writeFile(index, "upgraded-web\n")
   environment.LINKSENSE_VERSION = "v0.3.10"
   // A published older upgrader only runs plain Compose up; the version label must suffice.
