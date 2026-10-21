@@ -166,9 +166,10 @@ Worker 保留本地编译所需的 `linux-libc-dev`，而非删除编译能力�
 
 - 原生脚本：Ubuntu 22.04、24.04 amd64/arm64、macOS 15 Intel/Apple Silicon，运行真实系统 shell、权限与工具分支；Docker 交互使用测试替身，不声称 Docker Desktop 安装成功。
 - 发行版容器：Debian 12/13、CentOS Stream 9/10、Rocky 9、AlmaLinux 9。拉取后固定实际 digest，使用发行版工具执行同一套测试；不挂载 Docker socket，不声称目标系统内核或 Docker 服务已验证。
-- 每个任务上传 `platform.json` 和 TAP 结果，记录实际 OS、架构、Runner image、Node 和容器 digest，失败保持失败状态。脚本检查不安装整个工作区依赖。
+- 每个脚本矩阵任务上传 `platform.json` 和 TAP 结果，记录实际 OS、架构、Runner image、Node 和容器 digest，失败保持失败状态。脚本检查不安装整个工作区依赖。
+- 网关回归在 Ubuntu 上使用固定摘要的真实 Nginx/BusyBox 容器：替换 Web 并占用旧 IP，先复现静态 DNS 导致的 502，再验证当前安装器的服务激活逻辑刷新网关后能够访问新 Web。失败会阻止该流程通过。
 
-`Installer lifecycle` 仅手动触发，默认使用最新稳定 Release，也可输入 `vX.Y.Z`。它冻结该版本及前一稳定版附件，用当前提交的安装器/CLI 替换测试目录中的脚本并重新计算校验和；保持发布的镜像、Compose、tokenizer、运行时版本和运行时源 SHA 不变，不修改 GitHub Release。`installer-test.json` 将 `source-installer-with-published-runtime`、安装器提交和运行时提交分别记录。因此该流程验证当前脚本与已发布运行时的组合；正式发布仍由 `installation-smoke` 验证全部候选制品。
+`Installer lifecycle` 仅手动触发，默认使用最新稳定 Release，也可输入 `vX.Y.Z`。它冻结该版本及前一稳定版附件，用当前提交的安装器/CLI 和共享 Compose 模型替换测试目录中的对应文件并重新计算校验和；保持发布的镜像、版本专用 Compose、tokenizer、运行时版本和运行时源 SHA 不变，不修改 GitHub Release。`installer-test.json` 将 `source-installer-with-published-runtime`、安装器提交和运行时提交分别记录。因此该流程验证当前脚本与已发布运行时的组合；正式发布仍由 `installation-smoke` 验证全部候选制品。
 
 独立生命周期覆盖 Ubuntu 22.04 的 Core/Full，以及可选的 CentOS Stream 9 Core/Full VM 试点。它复用安装、重复安装、修复、同版本升级、冻结上一版数据升级和备份可读性断言。CentOS 使用官方日期固定且校验 SHA-256 的 cloud image、自己的内核、SELinux 和 Docker daemon；不使用特权发行版容器冒充真实宿主。VM 内只传测试源码和制品，不传 GitHub Token。测试要求空白可销毁 daemon，不能在日常或生产主机执行。
 

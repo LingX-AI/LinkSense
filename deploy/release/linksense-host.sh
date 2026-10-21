@@ -12,6 +12,12 @@ SYSTEM_DOCKER_CLI=$(command -v docker || true)
 DOCKER_CLI=$SYSTEM_DOCKER_CLI
 COMPOSE_CLI=
 
+activate_release_services() {
+  compose up -d --remove-orphans || return
+  # Existing gateways retain startup DNS and rendered templates after Web replacement.
+  compose up -d --no-deps --force-recreate gateway
+}
+
 host_text() {
   host_key=$1
   shift

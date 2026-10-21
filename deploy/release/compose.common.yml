@@ -282,6 +282,8 @@ services:
 
   gateway:
     image: ${GATEWAY_IMAGE:?release manifest did not provide GATEWAY_IMAGE}
+    labels:
+      com.linksense.release.version: ${LINKSENSE_VERSION:?release manifest did not provide LINKSENSE_VERSION}
     restart: unless-stopped
     read_only: true
     tmpfs:

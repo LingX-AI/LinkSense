@@ -22,7 +22,18 @@ image=CentOS-Stream-GenericCloud-9-20261013.0.x86_64.qcow2
 curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --connect-timeout 15 --max-time 600 \
   "https://cloud.centos.org/centos/9-stream/x86_64/images/$image" -o "$vm/base.qcow2"
 printf '%s  %s\n' 6178901e812a08e1c36e5adac2992be65a409dfb61812a6b630b2488fc0644b3 "$vm/base.qcow2" | sha256sum -c -
-qemu-img create -f qcow2 -F qcow2 -b "$vm/base.qcow2" "$vm/disk.qcow2" 70G
+df -Pk "$vm" > "$reports/host-disk.txt"
+available_kib=$(awk 'NR == 2 { print $4 }' "$reports/host-disk.txt")
+[[ "$available_kib" =~ ^[0-9]+$ ]]
+disk_gib=$((available_kib / 1024 / 1024 - 4))
+minimum_gib=64
+# The old Full fixture still needs 60 GiB free after caching the candidate images.
+if [ "$edition" = full ]; then minimum_gib=96; fi
+test "$disk_gib" -ge "$minimum_gib" || {
+  echo "Insufficient backing disk: VM needs $minimum_gib GiB plus 4 GiB host reserve; available_kib=$available_kib." >&2
+  exit 1
+}
+qemu-img create -f qcow2 -F qcow2 -b "$vm/base.qcow2" "$vm/disk.qcow2" "${disk_gib}G"
 ssh-keygen -q -t ed25519 -N '' -f "$vm/key"
 cat > "$vm/user-data" <<EOF
 #cloud-config

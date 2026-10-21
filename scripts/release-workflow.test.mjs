@@ -101,7 +101,7 @@ test("installer platform jobs distinguish native scripts, distribution container
   assert.deepEqual(platforms.permissions, { contents: "read" })
   assert.deepEqual(platforms.jobs["native-scripts"].strategy.matrix.runner, ["ubuntu-22.04", "ubuntu-24.04", "ubuntu-24.04-arm", "macos-15-intel", "macos-15"])
   assert.equal(platforms.jobs["distribution-scripts"].strategy.matrix.include.length, 6)
-  for (const job of Object.values(platforms.jobs)) {
+  for (const job of [platforms.jobs["native-scripts"], platforms.jobs["distribution-scripts"]]) {
     assert.equal(job.strategy["fail-fast"], false)
     assert.equal(job["continue-on-error"], undefined)
     assert.equal(job.steps.find(step => step.uses?.startsWith("actions/upload-artifact@")).if, "always()")
@@ -113,6 +113,9 @@ test("installer platform jobs distinguish native scripts, distribution container
   const ownership = platforms.jobs["distribution-scripts"].steps.find(step => step.name === "Return container reports to the runner user")
   assert.equal(ownership.if, "always()")
   assert.match(ownership.run, /chown -R/u)
+  const routing = platforms.jobs["gateway-routing"]
+  assert.equal(routing["continue-on-error"], undefined)
+  assert.match(routing.steps.at(-1).run, /node scripts\/installer-gateway-smoke\.mjs/u)
   const lifecycle = parse(readFileSync(path.join(root, ".github/workflows/installer-smoke.yml"), "utf8"))
   assert.deepEqual(Object.keys(lifecycle.on), ["workflow_dispatch"])
   assert.deepEqual(lifecycle.permissions, { contents: "read" })

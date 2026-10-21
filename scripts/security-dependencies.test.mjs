@@ -17,12 +17,16 @@ const lockfile = parse(
 // GHSA-9q9j-q6p8-xq58, GHSA-hwr6-493r-vm6h, GHSA-p68q-wchp-6fh7,
 // GHSA-v53p-9fqp-m79j, GHSA-c475-qrg2-pj4r, GHSA-qhr7-859c-m2p7,
 // GHSA-xjh9-v7x6-24jw, GHSA-qw65-cvwx-89v3, GHSA-rfgv-xxqx-mfg5,
-// GHSA-wq5f-xc86-pv6w and GHSA-6qxp-vccf-f47h.
+// GHSA-wq5f-xc86-pv6w, GHSA-6qxp-vccf-f47h, GHSA-22jm-h49p-29qw,
+// GHSA-46jr-4wx8-v453, GHSA-q3jh-wrc6-jgq8, GHSA-8r9p-f939-6h3c
+// and GHSA-587h-7wmj-h5pm.
 // Check every resolution, including transitive copies.
 for (const [name, minimum] of [
   ["@xmldom/xmldom", "0.9.12"],
   ["sharp", "0.35.5"],
-  ["@modelcontextprotocol/sdk", "1.31.0"],
+  ["@modelcontextprotocol/sdk", "1.32.0"],
+  ["follow-redirects", "1.16.1"],
+  ["vite", "8.1.6"],
   ["nodemailer", "10.0.6"],
   ["fastify", "5.12.2"],
   ["@fastify/busboy", "3.2.1"],
@@ -49,6 +53,7 @@ for (const [name, minimum] of [
         "@xmldom/xmldom": "~0.8.15 || >=0.9.12",
         "fast-uri": ">=3.1.7 <4.0.0 || >=4.1.4",
         "undici": ">=6.28.1 <7.0.0 || >=7.29.1",
+        "vite": ">=6.4.4 <7.0.0 || >=7.3.7 <8.0.0 || >=8.1.6 <8.2.0 || >=8.2.4 <8.3.0 || >=8.3.3",
       };
       const patched = name in patchedRanges
         ? satisfies(version, patchedRanges[name])
