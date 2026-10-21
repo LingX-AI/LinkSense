@@ -143,6 +143,7 @@ export class SystemService {
       maintenance_id,
       maintenance,
       registration,
+      knowledge: { enabled: this.config.knowledge.enabled },
       auth: {
         password: { status: "available" },
         oidc: {

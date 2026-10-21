@@ -331,6 +331,7 @@ export const bootstrapSchema = z
     teams_sso: integrationStatusSchema.optional(),
     password_email: integrationStatusSchema.optional(),
     registration: sharedRegistrationAvailabilitySchema.optional(),
+    knowledge: z.object({ enabled: z.boolean() }).optional(),
     smtp: integrationStatusSchema.optional(),
     auth: z
       .object({

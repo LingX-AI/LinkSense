@@ -17,10 +17,12 @@ import {
 } from "@linksense/shared"
 
 import { setAccessToken } from "@/api/session"
+import { bootstrapSchema } from "@/api/contracts"
+import { BootstrapContext } from "@/app/bootstrap-state"
 import { ThemeProvider } from "@/app/theme-context"
 import { notify } from "@/components/feedback/notification"
 import { NotificationCenter } from "@/components/feedback/notification-toast"
-import i18n from "@/i18n"
+import i18n, { supportedLanguages } from "@/i18n"
 import { samlSettingsFixture } from "@/features/saml/test-fixture"
 import { AdminPages } from "@/pages/admin-pages"
 import {
@@ -280,7 +282,8 @@ function settingsPayload(path: string) {
 
 function renderSettings(
   page: "settings" | "models" = "settings",
-  initialPath = "/"
+  initialPath = "/",
+  knowledgeEnabled?: boolean
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -289,7 +292,20 @@ function renderSettings(
     <ThemeProvider>
       <MemoryRouter initialEntries={[initialPath]}>
         <QueryClientProvider client={queryClient}>
-          <AdminPages page={page} />
+          <BootstrapContext.Provider
+            value={{
+              bootstrap: bootstrapSchema.parse(
+                knowledgeEnabled === undefined
+                  ? {}
+                  : { knowledge: { enabled: knowledgeEnabled } }
+              ),
+              isLoading: false,
+              error: null,
+              refetch: () => undefined,
+            }}
+          >
+            <AdminPages page={page} />
+          </BootstrapContext.Provider>
         </QueryClientProvider>
       </MemoryRouter>
       <NotificationCenter />
@@ -1378,6 +1394,42 @@ describe("administrator authentication settings", () => {
       )
       expect(button).toHaveAttribute("type", "submit")
       expect(button.closest("form")).toContainElement(card)
+    }
+  )
+
+  it.each(supportedLanguages)(
+    "does not request or render unavailable knowledge models in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const requests: string[] = []
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          requests.push(path)
+          return envelope(settingsPayload(path))
+        })
+      )
+      const interaction = userEvent.setup()
+      renderSettings("models", "/", false)
+
+      await screen.findByRole("table", {
+        name: i18n.t("admin.modelProvider.models"),
+      })
+      expect(
+        screen.queryByRole("tab", { name: i18n.t("admin.modelTabs.knowledge") })
+      ).not.toBeInTheDocument()
+      for (const tab of ["voiceTranscription", "imageGeneration"] as const) {
+        await interaction.click(
+          screen.getByRole("tab", { name: i18n.t(`admin.modelTabs.${tab}`) })
+        )
+      }
+      expect(
+        requests.some((path) => path.endsWith("/knowledge-model-settings"))
+      ).toBe(false)
+      expect(
+        requests.some((path) => path.endsWith("/image-understanding-settings"))
+      ).toBe(false)
     }
   )
 

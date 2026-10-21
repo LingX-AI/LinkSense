@@ -135,6 +135,14 @@ describe("system health", () => {
     })
   })
 
+  it.each(["core", "full"] as const)("advertises knowledge availability for the %s edition", async (edition) => {
+    const { service } = createSystemService(directory, { edition })
+
+    await expect(service.bootstrap()).resolves.toMatchObject({
+      knowledge: { enabled: edition === "full" },
+    })
+  })
+
   it("exposes Docker resource usage from the runner without affecting readiness", async () => {
     const runnerMetadata = {
       ...healthyRunnerMetadata(),
@@ -687,6 +695,7 @@ describe("system health", () => {
 function createSystemService(
   directory: string,
   overrides: {
+    edition?: "core" | "full"
     redisPing?: LinkSenseRedis["ping"]
     redisRunningTurnCount?: LinkSenseRedis["runningTurnCount"]
     redisRunningTurnRecoveryStatus?: LinkSenseRedis["runningTurnRecoveryStatus"]
@@ -756,6 +765,7 @@ function createSystemService(
     retryAllFailedCleanupJobs: overrides.retryAllCleanupJobs ?? vi.fn(),
   } as unknown as BackgroundJobs
   const config = testConfig({
+    LINKSENSE_EDITION: overrides.edition ?? "full",
     LINKSENSE_USER_DATA_ROOT: join(directory, "users"),
     ...(overrides.publicBaseUrl
       ? { LINKSENSE_PUBLIC_BASE_URL: overrides.publicBaseUrl }
