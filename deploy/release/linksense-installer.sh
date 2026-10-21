@@ -491,6 +491,40 @@ check_port() {
   fi
 }
 
+check_full_cpu() {
+  [ "$EDITION:$LINKSENSE_PLATFORM" = full:linux-amd64 ] || return 0
+  log "Checking x86-64-v2 CPU features inside Docker Engine."
+  # Docker Desktop may expose a different CPU feature set than the CLI host.
+  missing_cpu_features=$(docker run --rm --network none --read-only \
+    --cap-drop ALL --security-opt no-new-privileges \
+    --entrypoint awk "$IMAGE_BUSYBOX" '
+      BEGIN {
+        count = split("cx16 lahf_lm popcnt ssse3 sse4_1 sse4_2 sse3", required)
+      }
+      /^flags[ \t]*:/ {
+        cpu_count++
+        features = $0
+        sub(/^[^:]*:/, "", features)
+        gsub(/[ \t]+/, " ", features)
+        features = " " features " "
+        if (index(features, " pni ")) features = features "sse3 "
+        for (i = 1; i <= count; i++) {
+          if (!index(features, " " required[i] " ")) missing[required[i]] = 1
+        }
+      }
+      END {
+        if (!cpu_count) exit 2
+        for (i = 1; i <= count; i++) {
+          if (missing[required[i]]) print required[i]
+        }
+      }
+    ' /proc/cpuinfo) || fail "Could not check CPU features inside Docker Engine. Ensure Docker can pull and run the release BusyBox image and expose readable /proc/cpuinfo, then retry. CPU compatibility has not been established."
+  [ -z "$missing_cpu_features" ] || fail "Full on linux/amd64 requires x86-64-v2 CPU features inside Docker Engine.
+Missing CPU features: $missing_cpu_features
+Shut down the Docker Engine VM and select host/host-passthrough or a supported x86-64-v2-AES CPU model, then power it on and retry. The physical host must also support these features.
+Adding vCPUs or memory cannot supply missing instructions."
+}
+
 preflight() {
   if [ "$HOST_OS" = Linux ]; then
     read_os_release
@@ -1752,6 +1786,7 @@ repair_action() {
   RELEASE_SELECTOR=$state_release
   fetch_manifest "$(release_base)"
   [ "$MANIFEST_SHA256" = "$state_manifest" ] || fail "The published manifest no longer matches the installed immutable version."
+  check_full_cpu
   fetch_release_resources
   write_and_activate_runtime_env
   install_resources
@@ -1847,6 +1882,7 @@ upgrade_action() {
     fi
   fi
   validate_resource_budget
+  check_full_cpu
   fetch_release_resources
 
   log_stage "Stage 4/9: pull and verify target images and edition assets."
@@ -1915,6 +1951,7 @@ preflight
 if [ "$ACTION" = install ]; then
   log_stage "Stage 2/7: verify immutable release inputs and download configuration."
   fetch_manifest "$(release_base)"
+  check_full_cpu
   install_action
 elif [ "$ACTION" = repair ]; then
   repair_action
