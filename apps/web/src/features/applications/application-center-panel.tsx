@@ -37,6 +37,7 @@ import {
   applicationCenterPageSchema,
 } from "./application-distribution-queries"
 import { ApplicationInstallationDialog } from "./application-installation-dialog"
+import { ApplicationInstallationAction } from "./application-installation-action"
 import { ApplicationUsageModeBadges } from "./application-usage-modes"
 import {
   ApplicationDetailsDialog,
@@ -274,77 +275,42 @@ export function ApplicationCenterPanel({
             }
             actions={
               <>
-                {item.usage_modes.includes("install") && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={
-                      Boolean(item.installed_application_id) &&
-                      !item.copy_installation?.update_available
-                    }
-                    onClick={() => {
-                      setInstallMode("install")
-                      setInstall(item)
-                    }}
-                  >
-                    {t(
-                      item.copy_installation?.update_available
-                        ? "applications.distribution.updateAvailable"
-                        : item.installed_application_id
-                          ? "applications.distribution.installedLabel"
-                          : "applications.distribution.install"
-                    )}
-                  </Button>
-                )}
-                {item.usage_modes.includes("service") && (
-                  <>
-                    {(!item.service_installation?.installed_version_id ||
-                      item.service_installation.update_available) && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setInstallMode("service")
-                          setInstall(item)
-                        }}
-                      >
-                        {t(
-                          item.service_installation?.update_available
-                            ? "applications.distribution.updateAvailable"
-                            : "applications.distribution.install"
-                        )}
-                      </Button>
-                    )}
-                    {item.service_installation?.installed_version_id && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        aria-busy={
-                          startingApplicationId === item.application_id ||
-                          undefined
-                        }
-                        disabled={start.isPending}
-                        onClick={() =>
-                          start.mutate({
-                            id: item.application_id,
-                            kind: item.kind,
-                          })
-                        }
-                      >
-                        {startingApplicationId === item.application_id && (
-                          <Spinner data-icon="inline-start" />
-                        )}
-                        {t("applications.distribution.useService")}
-                        {startingApplicationId !== item.application_id && (
-                          <ArrowUpRightIcon
-                            data-icon="inline-end"
-                            aria-hidden="true"
-                          />
-                        )}
-                      </Button>
-                    )}
-                  </>
-                )}
+                <ApplicationInstallationAction
+                  distribution={item}
+                  onInstall={(mode) => {
+                    setInstallMode(mode)
+                    setInstall(item)
+                  }}
+                />
+                {item.usage_modes.includes("service") &&
+                  item.service_installation?.installed_version_id && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-busy={
+                        startingApplicationId === item.application_id ||
+                        undefined
+                      }
+                      disabled={start.isPending}
+                      onClick={() =>
+                        start.mutate({
+                          id: item.application_id,
+                          kind: item.kind,
+                        })
+                      }
+                    >
+                      {startingApplicationId === item.application_id && (
+                        <Spinner data-icon="inline-start" />
+                      )}
+                      {t("applications.distribution.useService")}
+                      {startingApplicationId !== item.application_id && (
+                        <ArrowUpRightIcon
+                          data-icon="inline-end"
+                          aria-hidden="true"
+                        />
+                      )}
+                    </Button>
+                  )}
               </>
             }
           >

@@ -51,6 +51,43 @@ function show(content: React.ReactNode) {
 }
 
 describe("application installation", () => {
+  it.each(["direct", "center"] as const)(
+    "installs the selected service version through the %s channel",
+    async (channel) => {
+      await i18n.changeLanguage("zh-CN")
+      vi.mocked(apiRequest).mockResolvedValue(application)
+      const installed = vi.fn()
+      show(
+        <ApplicationInstallationDialog
+          target={{
+            id,
+            name: "Reports",
+            versionId: nextVersion,
+            channel,
+            mode: "service",
+          }}
+          onClose={vi.fn()}
+          onInstalled={installed}
+        />
+      )
+      expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+      expect(
+        screen.getByText(
+          i18n.t("applications.distribution.serviceInstallationHint")
+        )
+      ).toBeVisible()
+      await userEvent.click(screen.getByRole("button", { name: "安装应用" }))
+      await waitFor(() => expect(installed).toHaveBeenCalledWith(application))
+      expect(apiRequest).toHaveBeenCalledWith(
+        `/applications/${id}/service-installation`,
+        expect.objectContaining({
+          method: "POST",
+          body: { channel, version_id: nextVersion },
+        })
+      )
+    }
+  )
+
   it.each(["zh-CN", "en-US"])(
     "installs the explicitly selected center version in %s",
     async (locale) => {

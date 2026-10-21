@@ -107,6 +107,7 @@ import { StatusBanner } from "@/components/feedback/status-banner"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { ResourceMultiSelect } from "./application-resource-multi-select"
+import { ApplicationInstallationAction } from "./application-installation-action"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -922,36 +923,26 @@ export function ApplicationCatalogPanel({
                         {t("applications.distribution.updateAvailable")}
                       </Button>
                     )}
-                    {!application.is_owner &&
-                      sharing?.usage_modes.includes("service") &&
-                      sharing.published_version_id &&
-                      (!sharing.service_installation?.installed_version_id ||
-                        sharing.service_installation.update_available) && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            if (sharing.published_version_id)
-                              setInstallTarget({
-                                id: application.id,
-                                name: application.name,
-                                versionId: sharing.published_version_id,
-                                channel: "direct",
-                                mode: "service",
-                                versionNumber: sharing.published_version_number,
-                                installedVersionNumber:
-                                  sharing.service_installation
-                                    ?.installed_version_number,
-                              })
-                          }}
-                        >
-                          {t(
-                            sharing.service_installation?.update_available
-                              ? "applications.distribution.updateAvailable"
-                              : "applications.distribution.install"
-                          )}
-                        </Button>
-                      )}
+                    {!application.is_owner && sharing?.published_version_id && (
+                      <ApplicationInstallationAction
+                        distribution={sharing}
+                        onInstall={(mode) => {
+                          if (sharing.published_version_id)
+                            setInstallTarget({
+                              id: application.id,
+                              name: application.name,
+                              versionId: sharing.published_version_id,
+                              channel: "direct",
+                              mode,
+                              versionNumber: sharing.published_version_number,
+                              installedVersionNumber: (mode === "service"
+                                ? sharing.service_installation
+                                : sharing.copy_installation
+                              )?.installed_version_number,
+                            })
+                        }}
+                      />
+                    )}
                     {!application.is_owner && (
                       <Button
                         type="button"
@@ -962,39 +953,6 @@ export function ApplicationCatalogPanel({
                         {t("applications.distribution.guide")}
                       </Button>
                     )}
-                    {!application.is_owner &&
-                      sharing?.usage_modes.includes("install") &&
-                      sharing.published_version_id && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={
-                            Boolean(sharing.installed_application_id) &&
-                            !sharing.copy_installation?.update_available
-                          }
-                          onClick={() => {
-                            if (sharing.published_version_id)
-                              setInstallTarget({
-                                id: application.id,
-                                name: application.name,
-                                versionId: sharing.published_version_id,
-                                versionNumber: sharing.published_version_number,
-                                installedVersionNumber:
-                                  sharing.copy_installation
-                                    ?.installed_version_number,
-                                channel: "direct",
-                              })
-                          }}
-                        >
-                          {t(
-                            sharing.copy_installation?.update_available
-                              ? "applications.distribution.updateAvailable"
-                              : sharing.installed_application_id
-                                ? "applications.distribution.installedLabel"
-                                : "applications.distribution.install"
-                          )}
-                        </Button>
-                      )}
                     {sharing?.installation?.setup_required ? (
                       <Button
                         size="sm"
