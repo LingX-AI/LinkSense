@@ -18,7 +18,7 @@ export const applicationUpdateInstallationInputSchema = z.strictObject({
 });
 export const applicationCenterSubmissionInputSchema = applicationPublishedVersionInputSchema.extend({
   usage_modes: applicationUsageModesSchema,
-  release_notes: z.string().trim().max(8_000).default(""),
+  release_notes: z.string().trim().min(1).max(8_000),
 });
 export const applicationCenterReviewInputSchema = z.strictObject({
   decision: z.enum(["approved", "rejected"]),

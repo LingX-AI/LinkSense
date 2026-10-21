@@ -30,13 +30,15 @@ describe("application distribution contracts", () => {
     expect(applicationInstallInputSchema.safeParse({ name: "Application" }).success).toBe(false);
   });
 
-  it("requires a version and usage choice while release notes remain optional", () => {
+  it("requires a version, usage choice and nonblank release notes", () => {
     const input = { version_number: "1.0.0", usage_instructions: "Guide", usage_modes: ["service"], release_notes: "Initial release" };
     expect(applicationCenterSubmissionInputSchema.safeParse(input).success).toBe(true);
     expect(applicationCenterSubmissionInputSchema.safeParse({ ...input, usage_modes: [] }).success).toBe(false);
-    for (const release_notes of [undefined, "", "  "]) {
-      expect(applicationCenterSubmissionInputSchema.parse({ ...input, release_notes }).release_notes).toBe("");
+    for (const release_notes of [undefined, null, "", "  ", "\n\t"]) {
+      expect(applicationCenterSubmissionInputSchema.safeParse({ ...input, release_notes }).success).toBe(false);
     }
+    expect(applicationCenterSubmissionInputSchema.parse({ ...input, release_notes: " Initial release " }).release_notes).toBe("Initial release");
+    expect(applicationCenterSubmissionInputSchema.safeParse({ ...input, release_notes: "x".repeat(8_000) }).success).toBe(true);
     expect(applicationCenterSubmissionInputSchema.safeParse({ ...input, release_notes: "x".repeat(8_001) }).success).toBe(false);
   });
 

@@ -1569,6 +1569,63 @@ describe("three application categories", () => {
     }
   )
 
+  it.each(["install", "service"] as const)(
+    "offers one shared installation entry and submits the chosen %s mode",
+    async (mode) => {
+      await i18n.changeLanguage("zh-CN")
+      mockCatalog()
+      const existingRequest = vi.mocked(apiRequest).getMockImplementation()!
+      vi.mocked(apiRequest).mockImplementation(async (path, options) => {
+        if (options?.method === "POST") return installed
+        if (path === "/applications/distribution")
+          return {
+            items: [
+              {
+                application_id: sharedId,
+                published_version_id: sharedId,
+                published_version_number: "1.0.0",
+                usage_modes: ["install", "service"],
+                installation: null,
+                installed_application_id: null,
+                copy_installation: null,
+                service_installation: null,
+              },
+            ],
+          }
+        return existingRequest(path, options)
+      })
+      show("/capabilities?section=application&app_scope=shared")
+      const card = await screen.findByRole("article", { name: shared.name })
+      const buttons = await within(card).findAllByRole("button", {
+        name: "安装应用",
+      })
+      expect(buttons).toHaveLength(1)
+      await userEvent.click(buttons[0])
+      await userEvent.click(
+        await screen.findByRole("menuitem", {
+          name: i18n.t(`applications.distribution.modes.${mode}`),
+        })
+      )
+      const dialog = await screen.findByRole("dialog", { name: "安装应用" })
+      await userEvent.click(
+        within(dialog).getByRole("button", { name: "安装应用" })
+      )
+      await waitFor(() =>
+        expect(apiRequest).toHaveBeenCalledWith(
+          `/applications/${sharedId}/${mode === "service" ? "service-installation" : "install"}`,
+          expect.objectContaining({
+            method: "POST",
+            body: {
+              channel: "direct",
+              version_id: sharedId,
+              ...(mode === "install" ? { name: shared.name } : {}),
+            },
+          })
+        )
+      )
+    }
+  )
+
   it("returns a newly installed shared application to My applications and clears the previous search", async () => {
     await i18n.changeLanguage("zh-CN")
     let didInstall = false

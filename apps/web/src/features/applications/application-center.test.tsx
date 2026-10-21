@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   applicationCenterReleaseSchema,
   applicationSchema,
+  supportedLocales,
 } from "@linksense/shared"
 import { apiRequest } from "@/api/client"
 import i18n from "@/i18n"
@@ -81,6 +82,41 @@ function show(content: React.ReactNode) {
 }
 
 describe("application center user flows", () => {
+  it.each(supportedLocales)(
+    "offers one installation button for both usage modes in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      vi.mocked(apiRequest).mockResolvedValue({
+        items: [
+          {
+            ...release,
+            usage_modes: ["install", "service"],
+            status: "approved",
+            listing_status: "published",
+            service_installation: null,
+          },
+        ],
+      })
+      show(<ApplicationCenterPanel search="" />)
+      const card = await screen.findByRole("article", { name: release.name })
+      const buttons = within(card).getAllByRole("button", {
+        name: i18n.t("applications.distribution.install"),
+      })
+      expect(buttons).toHaveLength(1)
+      await userEvent.click(buttons[0])
+      expect(
+        await screen.findByRole("menuitem", {
+          name: i18n.t("applications.distribution.modes.install"),
+        })
+      ).toBeVisible()
+      expect(
+        screen.getByRole("menuitem", {
+          name: i18n.t("applications.distribution.modes.service"),
+        })
+      ).toBeVisible()
+    }
+  )
+
   it.each(["standard", "interactive"] as const)(
     "uses the cube default for %s application cards",
     async (kind) => {
@@ -99,6 +135,54 @@ describe("application center user flows", () => {
       ).toBeNull()
     }
   )
+  it.each(["install", "service"] as const)(
+    "opens the %s confirmation after choosing from a dual-mode center application",
+    async (mode) => {
+      await i18n.changeLanguage("zh-CN")
+      vi.mocked(apiRequest).mockResolvedValue({
+        items: [
+          {
+            ...release,
+            usage_modes: ["install", "service"],
+            status: "approved",
+            listing_status: "published",
+            service_installation: null,
+          },
+        ],
+      })
+      show(<ApplicationCenterPanel search="" />)
+      await userEvent.click(
+        await screen.findByRole("button", { name: "安装应用" })
+      )
+      await userEvent.click(
+        await screen.findByRole("menuitem", {
+          name: i18n.t(`applications.distribution.modes.${mode}`),
+        })
+      )
+      const dialog = await screen.findByRole("dialog", { name: "安装应用" })
+      expect(dialog).toHaveTextContent(
+        i18n.t(
+          mode === "service"
+            ? "applications.distribution.serviceInstallationHint"
+            : "applications.distribution.installationHint"
+        )
+      )
+      expect(dialog).toHaveTextContent(
+        i18n.t("applications.distribution.availableVersion", {
+          version: release.version_number,
+        })
+      )
+      if (mode === "service")
+        expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument()
+      else expect(within(dialog).getByRole("textbox")).toHaveValue(release.name)
+      expect(
+        vi
+          .mocked(apiRequest)
+          .mock.calls.some(([, options]) => options?.method === "POST")
+      ).toBe(false)
+    }
+  )
+
   it("returns to personal applications after installing and offers setup before use", async () => {
     await i18n.changeLanguage("zh-CN")
     const installed = applicationSchema.parse({
