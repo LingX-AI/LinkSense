@@ -480,6 +480,26 @@ describe("authenticated file downloads", () => {
     )
   })
 
+  it("keeps downloads uncached by default and allows private thumbnail response caching", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("image", { headers: { "content-type": "image/webp" } })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    await downloadApiFile("/files/download")
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ cache: "no-store" })
+    )
+    await downloadApiFile("/files/thumbnail", undefined, undefined, {
+      cache: "default",
+    })
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ cache: "default", credentials: "include" })
+    )
+  })
+
   it("preserves structured validation parameters for readable row-level feedback", async () => {
     vi.stubGlobal(
       "fetch",

@@ -88,6 +88,13 @@ describe("task artifact library", () => {
 
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      }
+    )
   })
 
   afterEach(() => {
@@ -421,6 +428,9 @@ describe("task artifact library", () => {
     renderLibrary("/knowledge-bases?tab=artifacts&search=季度")
 
     expect(await screen.findByText("季度图片.png")).toBeVisible()
+    expect(
+      document.querySelector('[data-slot="task-artifact-thumbnail"]')
+    ).toHaveClass("size-10", "rounded-lg")
     const filter = screen.getByRole("combobox", { name: "按文件类型筛选" })
     expect(filter).toHaveTextContent("全部类型")
     expect(filter.querySelector(".lucide-tags")).not.toBeNull()

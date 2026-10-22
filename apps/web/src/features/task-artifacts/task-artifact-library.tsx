@@ -51,6 +51,7 @@ import { downloadBlob } from "@/lib/download-blob"
 import { readUrlEnum, updateUrlSearchParams } from "@/lib/url-search-params"
 
 import { getTaskArtifacts, type TaskArtifact } from "./task-artifact-api"
+import { TaskArtifactThumbnail } from "./task-artifact-thumbnail"
 
 const fileTypes = ["all", ...taskArtifactFileTypeSchema.options] as const
 
@@ -264,11 +265,18 @@ export function TaskArtifactLibrary({
                   const downloading = downloadingFileId === file.id
                   const content = (
                     <>
-                      <FileTypeIcon
-                        filename={file.name}
-                        mimeType={file.mime_type}
-                        className="size-7 shrink-0"
-                      />
+                      {previewKind === "image" ? (
+                        <TaskArtifactThumbnail
+                          key={`${file.id}:${file.updated_at}`}
+                          file={file}
+                        />
+                      ) : (
+                        <FileTypeIcon
+                          filename={file.name}
+                          mimeType={file.mime_type}
+                          className="size-7 shrink-0"
+                        />
+                      )}
                       <span className="min-w-0 flex-1 text-left">
                         <span className="block truncate font-medium text-[var(--app-text)]">
                           {file.name}

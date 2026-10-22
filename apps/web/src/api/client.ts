@@ -707,7 +707,8 @@ export async function apiStreamRequest(
 export async function downloadApiFile(
   path: string,
   query?: Record<string, QueryValue>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options?: { cache?: RequestCache }
 ) {
   const headers = new Headers()
   prepareClientBuildRequest(headers, path)
@@ -725,7 +726,7 @@ export async function downloadApiFile(
       headers,
       credentials: "include",
       signal,
-      cache: "no-store",
+      cache: options?.cache ?? "no-store",
     })
     validateResponseBuild(response.headers)
     return response
