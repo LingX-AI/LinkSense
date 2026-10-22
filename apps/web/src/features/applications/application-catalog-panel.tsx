@@ -12,6 +12,7 @@ import { ApplicationVersionNumberInput } from "./application-version-number-inpu
 import { ApplicationMetadataPublishDialog } from "./application-metadata-dialog"
 import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { ApplicationUsageGuideDialog } from "./application-usage-guide-dialog"
+import { ApplicationSetupDialog } from "./application-setup-dialog"
 import { ApplicationDevelopmentCreateDialog } from "./application-development-create-dialog"
 import {
   ApplicationCreateDialog,
@@ -81,6 +82,7 @@ import {
   type InteractiveDependencyBinding,
   type ReasoningEffort,
   type ApplicationCatalogFilter,
+  type ApplicationUsageMode,
   type ApplicationDevelopmentSummary,
 } from "@linksense/shared"
 import { z } from "zod"
@@ -535,7 +537,7 @@ export function ApplicationCatalogPanel({
   scope: "owned" | "shared"
   search: string
   state?: ApplicationCatalogFilter
-  onInstalled?: () => void
+  onInstalled?: (application: Application, mode?: ApplicationUsageMode) => void
   organizationSharingEnabled?: boolean
 }) {
   const { t, i18n } = useTranslation()
@@ -573,6 +575,7 @@ export function ApplicationCatalogPanel({
   const [installTarget, setInstallTarget] =
     useState<ApplicationInstallTarget | null>(null)
   const [updateTarget, setUpdateTarget] = useState<Application | null>(null)
+  const [setupTarget, setSetupTarget] = useState<Application | null>(null)
   const distribution = useApplicationDistributionSummaries()
   const [deleteTarget, setDeleteTarget] = useState<Application | null>(null)
   const [interactiveImportTarget, setInteractiveImportTarget] = useState<
@@ -761,6 +764,14 @@ export function ApplicationCatalogPanel({
                               )}
                             </DropdownMenuItem>
                           )}
+                          {sharing?.installation &&
+                            application.kind === "standard" && (
+                              <DropdownMenuItem
+                                onClick={() => setSetupTarget(application)}
+                              >
+                                {t("applicationSetup.title")}
+                              </DropdownMenuItem>
+                            )}
                           {sharing?.installation && (
                             <DropdownMenuItem
                               onClick={() => setUpdateTarget(application)}
@@ -956,7 +967,11 @@ export function ApplicationCatalogPanel({
                     {sharing?.installation?.setup_required ? (
                       <Button
                         size="sm"
-                        onClick={() => setEditor({ open: true, application })}
+                        onClick={() => {
+                          if (application.kind === "standard")
+                            setSetupTarget(application)
+                          else setEditor({ open: true, application })
+                        }}
                       >
                         {t("applications.distribution.completeSetup")}
                       </Button>
@@ -1093,9 +1108,10 @@ export function ApplicationCatalogPanel({
           onClose={() => setInstallTarget(null)}
           onInstalled={(application) => {
             setInstallTarget(null)
-            if (onInstalled) onInstalled()
+            if (onInstalled)
+              onInstalled(application, installTarget.mode ?? "install")
             else if (installTarget.mode !== "service")
-              setEditor({ open: true, application })
+              setSetupTarget(application)
             notify.success(t("applications.distribution.installed"))
           }}
         />
@@ -1104,10 +1120,20 @@ export function ApplicationCatalogPanel({
         <ApplicationInstallationUpdateDialog
           applicationId={updateTarget.id}
           onClose={() => setUpdateTarget(null)}
-          onUpdated={() => {
+          onUpdated={(application) => {
             setUpdateTarget(null)
+            if (application.kind === "standard") setSetupTarget(application)
             notify.success(t("applications.distribution.updated"))
           }}
+        />
+      )}
+      {setupTarget && !editor.open && (
+        <ApplicationSetupDialog
+          application={setupTarget}
+          onClose={() => setSetupTarget(null)}
+          onUse={() => startConversation.mutate(setupTarget)}
+          starting={startConversation.isPending}
+          startError={startConversation.error}
         />
       )}
       {editor.open && editor.application?.kind === "interactive" ? (

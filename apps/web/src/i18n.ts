@@ -13,6 +13,7 @@ import { jaJP } from "@/i18n/ja-JP"
 import { ptBR } from "@/i18n/pt-BR"
 import { zhCN } from "@/i18n/zh-CN"
 import { onboardingMessages } from "@/features/onboarding/messages"
+import { applicationSetupMessages } from "@/features/applications/application-setup-messages"
 
 export const supportedLanguages = supportedLocales
 export type SupportedLanguage = Locale
@@ -66,6 +67,7 @@ void i18n.use(initReactI18next).init({
     "zh-CN": {
       translation: {
         ...zhCN,
+        applicationSetup: applicationSetupMessages["zh-CN"],
         onboarding: onboardingMessages["zh-CN"],
         auditValues: auditTranslationResource("zh-CN"),
       },
@@ -73,6 +75,7 @@ void i18n.use(initReactI18next).init({
     "en-US": {
       translation: {
         ...enUS,
+        applicationSetup: applicationSetupMessages["en-US"],
         onboarding: onboardingMessages["en-US"],
         auditValues: auditTranslationResource("en-US"),
       },
@@ -80,6 +83,7 @@ void i18n.use(initReactI18next).init({
     "es-ES": {
       translation: {
         ...esES,
+        applicationSetup: applicationSetupMessages["es-ES"],
         onboarding: onboardingMessages["es-ES"],
         auditValues: auditTranslationResource("es-ES"),
       },
@@ -87,6 +91,7 @@ void i18n.use(initReactI18next).init({
     "pt-BR": {
       translation: {
         ...ptBR,
+        applicationSetup: applicationSetupMessages["pt-BR"],
         onboarding: onboardingMessages["pt-BR"],
         auditValues: auditTranslationResource("pt-BR"),
       },
@@ -94,6 +99,7 @@ void i18n.use(initReactI18next).init({
     "fr-FR": {
       translation: {
         ...frFR,
+        applicationSetup: applicationSetupMessages["fr-FR"],
         onboarding: onboardingMessages["fr-FR"],
         auditValues: auditTranslationResource("fr-FR"),
       },
@@ -101,6 +107,7 @@ void i18n.use(initReactI18next).init({
     "ja-JP": {
       translation: {
         ...jaJP,
+        applicationSetup: applicationSetupMessages["ja-JP"],
         onboarding: onboardingMessages["ja-JP"],
         auditValues: auditTranslationResource("ja-JP"),
       },
