@@ -5,6 +5,7 @@ import { encryptJson } from "../src/lib/crypto.js"
 import {
   ModelProviderSettingsService,
   parseOpenAiCompatibleModelContextWindows,
+  type ModelProviderMetadataClient,
 } from "../src/modules/system/model-provider-settings.js"
 import { testConfig } from "./test-config.js"
 
@@ -12,6 +13,12 @@ const ACTOR_ID = "00000000-0000-4000-8000-000000000099"
 const USER_ID = "00000000-0000-4000-8000-000000000010"
 const CONVERSATION_A_ID = "00000000-0000-4000-8000-0000000000a1"
 const CONVERSATION_B_ID = "00000000-0000-4000-8000-0000000000b1"
+
+// Service behavior tests must not probe example hostnames. Metadata-specific
+// cases inject their own client and continue to exercise discovery and failures.
+const noModelMetadata: ModelProviderMetadataClient = {
+  readContextWindows: async () => new Map<string, number>(),
+}
 
 describe("ModelProviderSettingsService", () => {
   it("requires a replacement key before a saved channel can send credentials to a changed target", async () => {
@@ -53,7 +60,7 @@ describe("ModelProviderSettingsService", () => {
         id: "existing-channel", name: null, provider: "openai_compatible", providerProject: null, providerLocation: null, baseUrl: "https://existing.example/v1", protocolMode: "native_responses", apiKey: "existing-key", models: [pricedModel("existing", ["high", "minimal", "medium"], "high")],
       }] }, config.credentialMasterKey, config.credentialKeyId, "linksense:model-provider-settings:v1"),
     });
-    const service = new ModelProviderSettingsService(database.prisma, config);
+    const service = new ModelProviderSettingsService(database.prisma, config, noModelMetadata);
     expect((await service.getAdminSettings()).memory_extraction_model).toBeNull();
     await expect(service.resolveRuntimeForSelection("existing", "high")).resolves.toMatchObject({ model: "existing", reasoningEffort: "high", provider: { memoryExtraction: { model: "existing", reasoningEffort: "minimal", apiKey: "existing-key" } } });
     expect(JSON.stringify(await service.getAdminSettings())).not.toContain("existing-key");
@@ -116,7 +123,7 @@ describe("ModelProviderSettingsService", () => {
   })
 
   it("rejects a selected memory model whose channel has no credentials even when it is hidden from conversations", async () => {
-    const service = new ModelProviderSettingsService(inMemoryDatabase().prisma, testConfig())
+    const service = new ModelProviderSettingsService(inMemoryDatabase().prisma, testConfig(), noModelMetadata)
     const providers = [
       provider("task", "https://task.example.test/v1", [pricedModel("task-model", ["low"], "low")], "native_responses", "test-key"),
       provider("memory", "https://memory.example.test/v1", [{ ...pricedModel("memory-model", ["low"], "low"), enabled: false }]),
@@ -153,7 +160,7 @@ describe("ModelProviderSettingsService", () => {
 
   it("deletes an empty channel while retaining another empty channel", async () => {
     const database = inMemoryDatabase()
-    const service = new ModelProviderSettingsService(database.prisma, testConfig())
+    const service = new ModelProviderSettingsService(database.prisma, testConfig(), noModelMetadata)
     await service.update(ACTOR_ID, {
       expected_revision: 0,
       providers: [provider("first", "https://first.example.test/v1", []), provider("second", "https://second.example.test/v1", [])],
@@ -268,7 +275,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
 
     const first = await service.update(
@@ -424,7 +431,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
 
     const settings = await service.update(
@@ -555,7 +562,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     await service.update(
       ACTOR_ID,
@@ -625,7 +632,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     const disabledSourceModel = {
       ...pricedModel("gpt-5.6-luna", ["high"], "high", {
@@ -691,7 +698,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     await service.update(
       ACTOR_ID,
@@ -762,7 +769,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     await service.update(
       ACTOR_ID,
@@ -815,7 +822,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     await service.update(
       ACTOR_ID,
@@ -865,7 +872,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     const providers = [
       provider(
@@ -930,7 +937,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     await service.update(
       ACTOR_ID,
@@ -997,7 +1004,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     await service.update(
       ACTOR_ID,
@@ -1072,7 +1079,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     service.registerReferenceReader({
       getReferencedModelIds: vi.fn().mockResolvedValue(new Set(["model-b"])),
@@ -1162,7 +1169,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     await service.update(
       ACTOR_ID,
@@ -1200,7 +1207,7 @@ describe("ModelProviderSettingsService", () => {
     const singleProviderDatabase = inMemoryDatabase()
     const singleProviderService = new ModelProviderSettingsService(
       singleProviderDatabase.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     await singleProviderService.update(
       ACTOR_ID,
@@ -1232,7 +1239,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     await service.update(
       ACTOR_ID,
@@ -1273,7 +1280,7 @@ describe("ModelProviderSettingsService", () => {
     const singleModelDatabase = inMemoryDatabase()
     const singleModelService = new ModelProviderSettingsService(
       singleModelDatabase.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     await singleModelService.update(
       ACTOR_ID,
@@ -1309,7 +1316,7 @@ describe("ModelProviderSettingsService", () => {
     database.addTurn(CONVERSATION_B_ID, "model-b", 1)
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     await service.update(
       ACTOR_ID,
@@ -1379,7 +1386,7 @@ describe("ModelProviderSettingsService", () => {
       ),
       model_provider_settings_key_id: config.credentialKeyId,
     })
-    const service = new ModelProviderSettingsService(database.prisma, config)
+    const service = new ModelProviderSettingsService(database.prisma, config, noModelMetadata)
 
     await expect(service.getPreference(USER_ID)).resolves.toMatchObject({
       selected_model: "gpt-5.6-sol",
@@ -1427,7 +1434,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
 
     await expect(
@@ -1466,7 +1473,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
 
     await expect(
@@ -1524,7 +1531,7 @@ describe("ModelProviderSettingsService", () => {
       ),
       model_provider_settings_key_id: config.credentialKeyId,
     })
-    const service = new ModelProviderSettingsService(database.prisma, config)
+    const service = new ModelProviderSettingsService(database.prisma, config, noModelMetadata)
 
     await expect(service.getAdminSettings()).resolves.toMatchObject({
       configured: true,
@@ -1572,7 +1579,7 @@ describe("ModelProviderSettingsService", () => {
       ),
       model_provider_settings_key_id: config.credentialKeyId,
     })
-    const service = new ModelProviderSettingsService(database.prisma, config)
+    const service = new ModelProviderSettingsService(database.prisma, config, noModelMetadata)
 
     await expect(service.getAdminSettings()).resolves.toMatchObject({
       revision: 8,
@@ -1646,7 +1653,7 @@ describe("ModelProviderSettingsService", () => {
       ),
       model_provider_settings_key_id: config.credentialKeyId,
     })
-    const service = new ModelProviderSettingsService(database.prisma, config)
+    const service = new ModelProviderSettingsService(database.prisma, config, noModelMetadata)
 
     const settings = await service.getAdminSettings()
     expect(settings).toMatchObject({
@@ -1748,7 +1755,7 @@ describe("ModelProviderSettingsService", () => {
       image_understanding_settings_key_id: config.credentialKeyId,
     }
     const database = inMemoryDatabase(initialSettings)
-    const service = new ModelProviderSettingsService(database.prisma, config)
+    const service = new ModelProviderSettingsService(database.prisma, config, noModelMetadata)
 
     const first = await service.getAdminSettings()
     expect(first).toMatchObject({
@@ -1786,7 +1793,7 @@ describe("ModelProviderSettingsService", () => {
       ])
     )
 
-    const reloaded = new ModelProviderSettingsService(database.prisma, config)
+    const reloaded = new ModelProviderSettingsService(database.prisma, config, noModelMetadata)
     await expect(reloaded.getAdminSettings()).resolves.toMatchObject({
       revision: 5,
     })
@@ -1796,7 +1803,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
 
     await expect(
@@ -1820,7 +1827,7 @@ describe("ModelProviderSettingsService", () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
       database.prisma,
-      testConfig()
+      testConfig(), noModelMetadata
     )
     const disabledTitleModel = {
       ...pricedModel("model-title", ["medium"], "medium"),
