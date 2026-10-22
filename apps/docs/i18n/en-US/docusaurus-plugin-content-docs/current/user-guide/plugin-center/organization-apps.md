@@ -5,7 +5,7 @@ description: Install and use application packages or services shared directly or
 
 # Use shared and Application Center apps
 
-An organization application can combine models, plugins, Skills, knowledge bases, and fixed instructions as either an installable application package or a creator-managed application service.
+An organization application can combine models, plugins, Skills, knowledge bases, and fixed instructions as either an installable application package or a creator-managed online application service.
 
 Applications can be standard or interactive. An interactive application opens a creator-provided workflow UI with the trusted LinkSense chat in a separate pane on the right. Drag the divider to resize the chat, or hide and reopen it without stopping the task or losing application data.
 
@@ -21,12 +21,12 @@ Cards identify the available usage options. Details show the creator, purpose, v
 
 ## Choose a usage option
 
-A standard application may offer one or both options. Interactive applications support **Application service** only:
+A standard application may offer one or both options. Interactive applications support **Online application service** only:
 
 | Option | What installation creates | Who maintains resources and configuration |
 | --- | --- | --- |
-| Application package | An independent copy under **My applications** that you may continue editing | The app and bundled plugins or Skills are saved to your account; you configure credentials, knowledge bases, and external connections |
-| Application service | Access to the creator's managed service | The creator maintains the app version, resources, and configured credentials; you do not gain permission to browse their content or configuration |
+| Application package | An independent copy under **My applications** whose source code you can view and edit | The app and bundled plugins or Skills are saved to your account; you configure any credentials, knowledge bases, and external connections it may need |
+| Online application service | Online access to the creator's service without installing your own local copy | You use the creator's configured credentials; the creator maintains the app version and resources, and you do not gain permission to browse their content or configuration |
 
 Review the version, usage guide, and required setup before installing. An application package can use a custom installed name. If it shows **Setup required** afterward, complete its resources and credentials under **My applications**. For a service, choose **Use** after installation to start a task.
 

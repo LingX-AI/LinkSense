@@ -44,7 +44,7 @@
 1. API 根据当前用户有有效授权的已连接服务发布可信插件。OneDrive 与 SharePoint 共用一个 Microsoft 文件插件，不重复注册；没有连接时不发布。用户自定义插件不能占用官方包的 ID 或名称。
 2. 复用现有能力目录、原生插件安装和 Codex 工具搜索。插件仅提供 `read_files` 与 `write_files` 两个操作入口，完整参数按原生工具搜索需要提供，不修改 Codex 回合、重试或恢复语义。
 3. 插件通过独立 `linksense-connection-mcp microsoft-files` 启动器运行。Graph 令牌始终在 API 内；插件只持有当前任务进程的受限代理令牌，令牌不会进入模型输入、插件文件、任务快照或审计。
-4. 调用链为插件 → Runner → Controller → API → 用户委托的 Microsoft Graph。每次校验用户、任务归属、活动回合、连接状态和实际授权；写入在 MCP、Runner、API 三层限制规划模式。Controller 与 API 拒绝外部应用服务会话。
+4. 调用链为插件 → Runner → Controller → API → 用户委托的 Microsoft Graph。每次校验用户、任务归属、活动回合、连接状态和实际授权；写入在 MCP、Runner、API 三层限制规划模式。Controller 与 API 拒绝外部在线应用服务会话。
 5. 下一轮执行前重新解析连接目录；断开后移除该插件。恢复已排队任务也重新检查授权，不沿用失效的快照权限。已发布应用的能力范围不自动包含发布者个人连接。
 
 OAuth 采用 PKCE、state、nonce 和 issuer 校验；临时状态加密保存在 Redis，绑定浏览器 Cookie、发起用户及凭据失效时间，十分钟内单次消费。用户令牌复用凭据主密钥，并绑定用户与服务作为加密上下文。刷新、断开与回调通过 PostgreSQL 事务锁协调。

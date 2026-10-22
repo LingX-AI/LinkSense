@@ -37,7 +37,7 @@ A task branched from a reply inherits the project and shares its files. Each tas
 
 Deleting a task removes its message history and keeps project files. **Remove project** moves its tasks to the common workspace and keeps the original files and historical attachments. Delete files separately when you want to remove them.
 
-Application services have their own work environment. Grouping an application task into a project organizes the task without moving service files or sign-in state into your personal workspace.
+Online application services have their own work environment. Grouping an application task into a project organizes the task without moving service files or sign-in state into your personal workspace.
 
 ## Runtime and historical files
 
