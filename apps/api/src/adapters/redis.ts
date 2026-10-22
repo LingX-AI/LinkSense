@@ -243,6 +243,8 @@ const RUNNING_TURN_RECOVERY_STATUS_KEY =
   "linksense:running-turn-recovery-status"
 const SITE_ICON_CACHE_KEY_PREFIX = "linksense:v2:site-icon:"
 const SYSTEM_UPDATE_CACHE_KEY = "linksense:v1:system-update"
+const ARTIFACT_THUMBNAIL_ACTIVE_KEY = "linksense:v1:artifact-thumbnail-active"
+const ARTIFACT_THUMBNAIL_LOCK_PREFIX = "linksense:v1:artifact-thumbnail-lock:"
 const SITE_ICON_RATE_LIMIT_KEY_PREFIX = "linksense:v2:site-icon-rate:"
 const SITE_ICON_RATE_LIMIT_MAX_REQUESTS = 60
 const SITE_ICON_RATE_LIMIT_WINDOW_SECONDS = 60
@@ -713,6 +715,39 @@ export class LinkSenseRedis {
       return result === "OK" ? token : null
     } catch {
       throw new RedisUnavailableError("conversation_lock")
+    }
+  }
+
+  async acquireArtifactThumbnailLease(fileId: string): Promise<string | null> {
+    const token = randomUUID()
+    const key = ARTIFACT_THUMBNAIL_LOCK_PREFIX + z.uuid().parse(fileId)
+    try {
+      const result = await this.client.eval(`
+        local time = redis.call('TIME')
+        local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+        redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now)
+        if redis.call('ZCARD', KEYS[2]) >= 4 then return 0 end
+        if not redis.call('SET', KEYS[1], ARGV[1], 'NX', 'PX', 30000) then return 0 end
+        redis.call('ZADD', KEYS[2], now + 30000, ARGV[1])
+        redis.call('PEXPIRE', KEYS[2], 60000)
+        return 1
+      `, 2, key, ARTIFACT_THUMBNAIL_ACTIVE_KEY, token)
+      return Number(result) === 1 ? token : null
+    } catch {
+      throw new RedisUnavailableError("artifact_thumbnail_acquire")
+    }
+  }
+
+  async releaseArtifactThumbnailLease(fileId: string, token: string): Promise<void> {
+    const key = ARTIFACT_THUMBNAIL_LOCK_PREFIX + z.uuid().parse(fileId)
+    try {
+      await this.client.eval(`
+        if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('DEL', KEYS[1]) end
+        redis.call('ZREM', KEYS[2], ARGV[1])
+        return 1
+      `, 2, key, ARTIFACT_THUMBNAIL_ACTIVE_KEY, token)
+    } catch {
+      throw new RedisUnavailableError("artifact_thumbnail_release")
     }
   }
 

@@ -72,6 +72,28 @@ describe("Redis atomic protection", () => {
     await setSuccessfulRecoveryBaseline(client)
   })
 
+  it("deduplicates thumbnail work across API instances and limits decoding to four concurrent files", async () => {
+    const other = new LinkSenseRedis(testConfig(), client)
+    const files = [1, 2, 3, 4, 5].map(index => `30000000-0000-4000-8000-00000000000${index}`)
+    const leases: string[] = []
+    for (const file of files.slice(0, 4)) {
+      const lease = await protection.acquireArtifactThumbnailLease(file)
+      expect(lease).not.toBeNull()
+      if (lease) leases.push(lease)
+    }
+    expect(await other.acquireArtifactThumbnailLease(files[0]!)).toBeNull()
+    expect(await other.acquireArtifactThumbnailLease(files[4]!)).toBeNull()
+    await other.releaseArtifactThumbnailLease(files[0]!, "wrong-token")
+    expect(await other.acquireArtifactThumbnailLease(files[4]!)).toBeNull()
+    await protection.releaseArtifactThumbnailLease(files[0]!, leases[0]!)
+    expect(await other.acquireArtifactThumbnailLease(files[4]!)).toEqual(expect.any(String))
+    const key = `linksense:v1:artifact-thumbnail-lock:${files[1]}`
+    expect(await client.pttl(key)).toBeGreaterThan(0)
+    await client.del(key)
+    await client.zadd("linksense:v1:artifact-thumbnail-active", 0, leases[1]!)
+    expect(await other.acquireArtifactThumbnailLease(files[1]!)).toEqual(expect.any(String))
+  })
+
   it("keeps RESP2 replies, subscriptions and existing hash data after the client upgrade", async () => {
     const upgraded = new LinkSenseRedis({
       ...testConfig(),
