@@ -2710,12 +2710,15 @@ export const enUS = {
       sharedApplications: "Shared with me",
       usageModes: "Usage options",
       usageModesHint: "Choose at least one option. You can offer both.",
-      modes: { install: "Application package", service: "Application service" },
+      modes: {
+        install: "Application package",
+        service: "Online application service",
+      },
       modeDescriptions: {
         install:
-          "Users install their own application, configure their credentials and maintain it independently.",
+          "Users install their own copy of the application, configure any credentials it may need, and can view its source code.",
         service:
-          "Users manually install the application service and use your configured resources and credentials.",
+          "Publish the application as an online service. Users access it online with your configured credentials, without installing their own local copy.",
       },
       install: "Install application",
       useService: "Use",

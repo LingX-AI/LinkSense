@@ -584,7 +584,7 @@ describe("capability marketplace pages", () => {
     )
     const dialog = await screen.findByRole("dialog", { name: "申请上架" })
     await interaction.click(
-      await within(dialog).findByRole("checkbox", { name: "应用服务" })
+      await within(dialog).findByRole("checkbox", { name: "在线应用服务" })
     )
     await interaction.type(
       within(dialog).getByRole("textbox", {

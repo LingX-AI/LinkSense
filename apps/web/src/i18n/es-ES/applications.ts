@@ -48,13 +48,13 @@ export const applicationsMessages = {
       usageModesHint: "Elige al menos una opción. Puedes ofrecer ambas.",
       modes: {
         install: "Paquete de aplicación",
-        service: "Servicio de aplicación",
+        service: "Servicio de aplicación en línea",
       },
       modeDescriptions: {
         install:
-          "Los usuarios instalan su propia aplicación, configuran sus credenciales y la mantienen de forma independiente.",
+          "Los usuarios instalan su propia copia de la aplicación, configuran las credenciales que pueda necesitar y pueden ver su código fuente.",
         service:
-          "Los usuarios instalan manualmente el servicio de aplicación y utilizan tus recursos y credenciales configurados.",
+          "Publica la aplicación como un servicio en línea. Los usuarios la utilizan en línea con las credenciales que has configurado, sin instalar su propia copia local.",
       },
       install: "Instalar aplicación",
       useService: "Usar",
