@@ -109,8 +109,12 @@ export class ApplicationInstallationService {
       this.prisma.applicationKnowledgeBase.findMany({ where: { applicationId }, orderBy: { selectionOrder: "asc" } }),
       this.prisma.applicationMcpServer.findMany({ where: { applicationId }, orderBy: { selectionOrder: "asc" } }),
     ]);
-    const knowledgeIds = mapCopyResourceBindings(previous.knowledgeBaseIds, knowledge.map(item => item.knowledgeBaseId), definition.knowledgeBaseIds);
-    const mcpIds = mapCopyResourceBindings(previous.mcpServerIds, mcp.map(item => item.mcpServerId), definition.mcpServerIds);
+    const knowledgeSlots = mapCopyResourceBindings(previous.knowledgeBaseIds,
+      orderedResourceIds(previous.knowledgeBaseIds.length, knowledge.map(item => ({ id: item.knowledgeBaseId, position: item.selectionOrder }))), definition.knowledgeBaseIds);
+    const mcpSlots = mapCopyResourceBindings(previous.mcpServerIds,
+      orderedResourceIds(previous.mcpServerIds.length, mcp.map(item => ({ id: item.mcpServerId, position: item.selectionOrder }))), definition.mcpServerIds);
+    const knowledgeIds = knowledgeSlots.filter((id): id is string => id !== null);
+    const mcpIds = mcpSlots.filter((id): id is string => id !== null);
     const staged = await this.stage(ownerId, applicationId, definition, baseline);
     let committed = false;
     try {
@@ -122,24 +126,39 @@ export class ApplicationInstallationService {
         if (!isDeepStrictEqual(actual, current) || installed?.installedVersionId !== installation.installedVersionId) throw new AppError("CONFLICT");
         if (!isDeepStrictEqual(knowledge, await tx.applicationKnowledgeBase.findMany({ where: { applicationId }, orderBy: { selectionOrder: "asc" } })) ||
           !isDeepStrictEqual(mcp, await tx.applicationMcpServer.findMany({ where: { applicationId }, orderBy: { selectionOrder: "asc" } }))) throw new AppError("CONFLICT");
-        await validateApplicationCredentials(this.credentials, ownerId, definition.capabilities.map(snapshot => ({ ...snapshot, id: staged.mapping.find(item => item.sourceId === snapshot.id)!.installedId })));
+        let setupRequired = knowledgeSlots.includes(null) || mcpSlots.includes(null);
+        try {
+          await validateApplicationCredentials(this.credentials, ownerId, definition.capabilities.map(snapshot => ({ ...snapshot, id: staged.mapping.find(item => item.sourceId === snapshot.id)!.installedId })));
+        } catch (error) {
+          if (!(error instanceof AppError) || error.code !== "APPLICATION_DEPENDENCY_UNAVAILABLE") throw error;
+          setupRequired = true;
+        }
         const [availableKnowledge, availableMcp] = await Promise.all([
           tx.knowledgeBase.count({ where: { id: { in: knowledgeIds }, ownerId, lifecycleStatus: "active", availabilityStatus: "enabled" } }),
           tx.mcpServer.count({ where: { id: { in: mcpIds }, ownerId, status: "active" } }),
         ]);
         if (availableKnowledge !== knowledgeIds.length || availableMcp !== mcpIds.length) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
         await staged.save(tx);
-        await tx.applicationKnowledgeBase.deleteMany({ where: { applicationId, knowledgeBaseId: { notIn: knowledgeIds } } });
-        await tx.applicationMcpServer.deleteMany({ where: { applicationId, mcpServerId: { notIn: mcpIds } } });
-        for (const [selectionOrder, knowledgeBaseId] of knowledgeIds.entries()) {
-          await tx.applicationKnowledgeBase.updateMany({ where: { applicationId, knowledgeBaseId }, data: { selectionOrder } });
-        }
-        for (const [selectionOrder, mcpServerId] of mcpIds.entries()) {
-          await tx.applicationMcpServer.updateMany({ where: { applicationId, mcpServerId }, data: { selectionOrder } });
-        }
+        // Rebuild only app selections. Personal resources and credentials retain
+        // their identities; gaps keep unfinished setup steps in their own slots.
+        await tx.applicationKnowledgeBase.deleteMany({ where: { applicationId } });
+        await tx.applicationMcpServer.deleteMany({ where: { applicationId } });
+        if (knowledgeIds.length) await tx.applicationKnowledgeBase.createMany({ data: knowledgeSlots.flatMap((id, selectionOrder) => {
+          if (!id) return [];
+          const binding = knowledge.find(item => item.knowledgeBaseId === id);
+          if (!binding) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
+          return [{ applicationId, knowledgeBaseId: id, knowledgeBaseNameSnapshot: binding.knowledgeBaseNameSnapshot, selectionOrder }];
+        }) });
+        if (mcpIds.length) await tx.applicationMcpServer.createMany({ data: mcpSlots.flatMap((id, selectionOrder) => {
+          if (!id) return [];
+          const binding = mcp.find(item => item.mcpServerId === id);
+          if (!binding) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
+          return [{ applicationId, mcpServerId: id, mcpServerNameSnapshot: binding.mcpServerNameSnapshot, selectionOrder }];
+        }) });
         await tx.application.update({ where: { id: applicationId }, data: {
           name: definition.name, description: definition.description, iconPreset: definition.iconPreset, iconObjectKey: definition.iconObjectKey, instructions: definition.instructions, model: definition.model,
           reasoningEffort: definition.reasoningEffort, usageInstructions: definition.usageInstructions,
+          ...(setupRequired ? { status: "disabled" } : {}),
         } });
         await tx.applicationInstallation.update({ where: { applicationId }, data: {
           installedVersionId: latest.id, channel: installation.channel, baselineJson: this.baseline(definition, staged.mapping),
@@ -261,12 +280,13 @@ function requiresSetup(definition: PublishedApplicationDefinition): boolean {
 }
 
 /** Keep the user's resource identities and credentials, replacing the app's selection. */
-export function mapCopyResourceBindings(previous: readonly string[], configured: readonly string[], incoming: readonly string[]): string[] {
+export function mapCopyResourceBindings(previous: readonly string[], configured: readonly (string | null)[], incoming: readonly string[]): (string | null)[] {
   const mappings = new Map(previous.flatMap((id, index) => configured[index] ? [[id, configured[index]] as const] : []));
   const added = configured.slice(previous.length);
-  return incoming.map(id => {
-    const target = mappings.get(id) ?? added.shift();
-    if (!target) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
-    return target;
-  });
+  return incoming.map(id => mappings.get(id) ?? added.shift() ?? null);
+}
+
+function orderedResourceIds(requiredCount: number, bindings: readonly { id: string; position: number }[]): (string | null)[] {
+  return Array.from({ length: Math.max(requiredCount, ...bindings.map(item => item.position + 1)) }, (_, position) =>
+    bindings.find(item => item.position === position)?.id ?? null);
 }

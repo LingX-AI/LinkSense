@@ -15,6 +15,9 @@ import {
   updateApplicationInputSchema,
   editAndPublishApplicationInputSchema,
   applicationInstallInputSchema,
+  applicationSetupBindingInputSchema,
+  applicationSetupRevisionSchema,
+  applicationSetupModelInputSchema,
   applicationVersionInputSchema,
   applicationUpdateInstallationInputSchema,
   applicationDistributionChannelSchema,
@@ -227,6 +230,34 @@ export const applicationRoutes: FastifyPluginAsync<
     const actor = await actorFor(request);
     const { id } = applicationParams.parse(request.params);
     return reply.send(ok(await options.service.previewInstallationUpdate(actor, id), request));
+  });
+
+  app.get("/:id/installation/setup", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    z.strictObject({}).parse(request.query);
+    return reply.header("cache-control", "private, no-store").send(ok(await options.service.installationSetup(actor, id), request));
+  });
+
+  app.patch("/:id/installation/setup", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    const input = applicationSetupBindingInputSchema.parse(request.body);
+    return reply.header("cache-control", "private, no-store").send(ok(await options.service.saveInstallationSetup(actor, id, input, auditContext(request)), request));
+  });
+
+  app.post("/:id/installation/setup/complete", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    const input = applicationSetupRevisionSchema.parse(request.body);
+    return reply.header("cache-control", "private, no-store").send(ok(await options.service.completeInstallationSetup(actor, id, input, auditContext(request)), request));
+  });
+
+  app.patch("/:id/installation/setup/model", async (request, reply) => {
+    const actor = await actorFor(request);
+    const { id } = applicationParams.parse(request.params);
+    const input = applicationSetupModelInputSchema.parse(request.body);
+    return reply.header("cache-control", "private, no-store").send(ok(await options.service.saveInstallationSetupModel(actor, id, input, auditContext(request)), request));
   });
 
   app.post("/:id/installation/update", async (request, reply) => {

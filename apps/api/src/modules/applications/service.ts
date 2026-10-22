@@ -1,4 +1,6 @@
-import { validateApplicationCredentials } from "./runtime-credentials.js";
+import { declaredApplicationCredentialKeys, validateApplicationCredentials } from "./runtime-credentials.js";
+import { applicationSetupMatchesRuntime, assertApplicationSetupRevision, readApplicationInstallationSetup, saveApplicationSetupBinding, saveApplicationSetupModel } from "./installation-setup.js";
+import type { ApplicationInstallationSetup, ApplicationSetupBindingInput, ApplicationSetupRevision, ApplicationSetupModelInput } from "@linksense/shared";
 import { hasActiveApplicationTasks } from "./publication-readiness.js";
 import type { ApplicationPublicationReadiness } from "@linksense/shared";
 import type { ApplicationInstallationService } from "./installation-service.js";
@@ -239,6 +241,52 @@ export class ApplicationService {
     return this.installations.previewUpdate(actor.id, applicationId);
   }
 
+  async installationSetup(actor: RequestActor, applicationId: string): Promise<ApplicationInstallationSetup> {
+    assertActiveActor(actor);
+    return (await readApplicationInstallationSetup(this.prisma, this.credentials, this.models, actor.id, applicationId)).guide;
+  }
+
+  async saveInstallationSetup(actor: RequestActor, applicationId: string, input: ApplicationSetupBindingInput, context: AuditContext): Promise<ApplicationInstallationSetup> {
+    return this.#changeInstallationSetup(actor, applicationId, tx => saveApplicationSetupBinding(tx, actor.id, applicationId, input), context);
+  }
+
+  async saveInstallationSetupModel(actor: RequestActor, applicationId: string, input: ApplicationSetupModelInput, context: AuditContext): Promise<ApplicationInstallationSetup> {
+    return this.#changeInstallationSetup(actor, applicationId, tx => saveApplicationSetupModel(tx, this.models, actor.id, applicationId, input), context);
+  }
+
+  async #changeInstallationSetup(actor: RequestActor, applicationId: string, change: (tx: Prisma.TransactionClient) => Promise<void>, context: AuditContext): Promise<ApplicationInstallationSetup> {
+    assertActiveActor(actor);
+    await this.#requireOwned(actor.id, applicationId);
+    if (!this.runtimeInstallations) throw new AppError("INTERNAL_ERROR");
+    await this.runtimeInstallations.gate.change(actor.id, applicationId, async assertCurrent => {
+      await this.prisma.$transaction(async tx => {
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM applications WHERE id = ${applicationId}::uuid AND owner_id = ${actor.id}::uuid FOR UPDATE`);
+        assertCurrent();
+        await change(tx);
+      });
+    });
+    await this.audit.write({ ...context, actorId: actor.id, action: "application_updated", targetType: "application", targetId: applicationId, result: "success" });
+    return this.installationSetup(actor, applicationId);
+  }
+
+  async completeInstallationSetup(actor: RequestActor, applicationId: string, input: ApplicationSetupRevision, context: AuditContext): Promise<Application> {
+    assertActiveActor(actor);
+    await this.#requireOwned(actor.id, applicationId);
+    if (!this.runtimeInstallations) throw new AppError("INTERNAL_ERROR");
+    return this.runtimeInstallations.gate.change(actor.id, applicationId, async assertCurrent => {
+      const state = await readApplicationInstallationSetup(this.prisma, this.credentials, this.models, actor.id, applicationId);
+      assertApplicationSetupRevision(state, input);
+      if (!state.guide.can_complete) throw new AppError("APPLICATION_DEPENDENCY_UNAVAILABLE");
+      if (state.guide.can_use) return this.get(actor, applicationId);
+      const settings = await this.distributionSettings(actor, applicationId);
+      return this.#updateApplication(actor, state.application, {
+        capability_ids: state.resourceIds.capabilityIds, knowledge_base_ids: state.resourceIds.knowledgeBaseIds,
+        mcp_server_ids: state.resourceIds.mcpServerIds, status: "active",
+      }, context, { release: { version_number: settings.highest_version_number ?? state.guide.installed_version_number,
+        usage_instructions: state.definition.usageInstructions }, assertCurrent });
+    });
+  }
+
   async updateInstallation(actor: RequestActor, applicationId: string, versionId: string, context: AuditContext): Promise<Application> {
     assertActiveActor(actor);
     if (!this.installations) throw new AppError("INTERNAL_ERROR");
@@ -271,6 +319,10 @@ export class ApplicationService {
       const app = applications.find(item => item.id === row.id);
       const selected = runtimeInstallations.find(item => item.applicationId === row.id);
       const selectedVersion = selected ? byVersion.get(selected.versionId) : null;
+      const setupPending = installed && row.kind === "standard" && app && (!selectedVersion || !applicationSetupMatchesRuntime(publishedApplicationDefinitionSchema.parse(selectedVersion.definitionJson), {
+        instructions: app.instructions, model: app.model, reasoningEffort: app.reasoning_effort,
+        capabilityIds: app.capabilities.map(item => item.id), knowledgeBaseIds: app.knowledge_bases.map(item => item.id), mcpServerIds: app.mcp_servers.map(item => item.id),
+      }));
       return applicationDistributionSummarySchema.parse({
         application_id: row.id, published_version_id: row.publishedVersionId,
         published_version_number: row.publishedVersionId ? byVersion.get(row.publishedVersionId)?.versionLabel ?? null : null,
@@ -283,7 +335,7 @@ export class ApplicationService {
           installed_version_id: installed.installedVersionId, installed_version_number: installedVersion?.versionLabel,
           latest_version_id: latestVersion ? latestId : null, latest_version_number: latestVersion?.versionLabel ?? null,
           update_available: Boolean(installedVersion && latestVersion && isApplicationVersionUpdate(installedVersion, latestVersion)),
-          setup_required: !app?.dependencies_available || (app.knowledge_base_count < baseline.requiredKnowledgeBases || app.mcp_server_count < baseline.requiredMcpServers),
+          setup_required: Boolean(setupPending) || (row.kind === "standard" && app?.status === "disabled") || !app?.dependencies_available || (app.knowledge_base_count < baseline.requiredKnowledgeBases || app.mcp_server_count < baseline.requiredMcpServers),
         } : null,
       });
     });
@@ -2431,23 +2483,6 @@ function assertOrganizationSharingAccess(actor: RequestActor): void {
   if (actor.registrationSource === "self_registration") {
     throw new AppError("FORBIDDEN");
   }
-}
-
-function declaredApplicationCredentialKeys(value: unknown): string[] {
-  const risk = asObject(value);
-  return Array.isArray(risk.declared_environment_keys)
-    ? risk.declared_environment_keys.filter(
-        (key): key is string =>
-          typeof key === "string" &&
-          /^[A-Za-z_][A-Za-z0-9_]*$/u.test(key),
-      )
-    : [];
-}
-
-function asObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 function jsonStringIds(value: unknown): string[] {
