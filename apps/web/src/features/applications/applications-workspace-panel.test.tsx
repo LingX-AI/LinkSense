@@ -1669,6 +1669,19 @@ describe("three application categories", () => {
             },
           ],
         }
+      if (path === `/applications/${installedId}/installation/setup`)
+        return {
+          application_id: installedId,
+          installed_version_id: sharedId,
+          installed_version_number: "1.0.0",
+          updated_at: installed.updated_at,
+          usage_instructions: "Choose your resources",
+          model: null,
+          reasoning_effort: null,
+          items: [],
+          can_complete: true,
+          can_use: true,
+        }
       return {
         items: path === "/applications/distribution" ? ownedDistributions : [],
       }
@@ -1680,6 +1693,14 @@ describe("three application categories", () => {
     const dialog = await screen.findByRole("dialog")
     await userEvent.click(
       within(dialog).getByRole("button", { name: "安装应用" })
+    )
+    expect(
+      await screen.findByRole("dialog", {
+        name: i18n.t("applicationSetup.title"),
+      })
+    ).toBeVisible()
+    await userEvent.click(
+      screen.getByRole("button", { name: i18n.t("applicationSetup.later") })
     )
     expect(
       await screen.findByRole("heading", { name: installed.name })

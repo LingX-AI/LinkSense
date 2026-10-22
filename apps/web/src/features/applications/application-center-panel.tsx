@@ -7,6 +7,8 @@ import { useSearchParams } from "react-router-dom"
 import {
   applicationCatalogFilterSchema,
   type ApplicationCenterRelease,
+  type Application,
+  type ApplicationUsageMode,
 } from "@linksense/shared"
 import { apiRequest } from "@/api/client"
 import { readUrlEnum, updateUrlSearchParams } from "@/lib/url-search-params"
@@ -32,6 +34,7 @@ import {
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ApplicationCatalogPanel } from "./application-catalog-panel"
+import { ApplicationSetupDialog } from "./application-setup-dialog"
 import {
   applicationDistributionKeys,
   applicationCenterPageSchema,
@@ -73,6 +76,8 @@ export function ApplicationsWorkspacePanel(
     label: t(`applicationDevelopment.catalog.${value}`),
   }))
   const [centerSearch, setCenterSearch] = useState("")
+  const [setupTarget, setSetupTarget] = useState<Application | null>(null)
+  const startInstalled = useOpenApplicationConversation()
   useEffect(() => {
     if (organizationSharingEnabled || requestedTab === "owned") return
     setSearchParams(
@@ -86,7 +91,11 @@ export function ApplicationsWorkspacePanel(
       { replace: true }
     )
   }
-  const showInstalledApplication = () => {
+  const showInstalledApplication = (
+    application: Application,
+    mode: ApplicationUsageMode = "install"
+  ) => {
+    if (mode === "install") setSetupTarget(application)
     setSearchParams(
       (current) =>
         updateUrlSearchParams(current, {
@@ -207,6 +216,15 @@ export function ApplicationsWorkspacePanel(
           </TabsContent>
         </>
       )}
+      {setupTarget && (
+        <ApplicationSetupDialog
+          application={setupTarget}
+          onClose={() => setSetupTarget(null)}
+          onUse={() => startInstalled.mutate(setupTarget)}
+          starting={startInstalled.isPending}
+          startError={startInstalled.error}
+        />
+      )}
     </Tabs>
   )
 }
@@ -216,10 +234,12 @@ export function ApplicationCenterPanel({
   onInstalled,
 }: {
   search: string
-  onInstalled?: () => void
+  onInstalled?: (application: Application) => void
 }) {
   const { t } = useTranslation()
   const [install, setInstall] = useState<ApplicationCenterRelease | null>(null)
+  const [setupTarget, setSetupTarget] = useState<Application | null>(null)
+  const startInstalled = useOpenApplicationConversation()
   const [installMode, setInstallMode] = useState<"install" | "service">(
     "install"
   )
@@ -343,12 +363,24 @@ export function ApplicationCenterPanel({
             )?.installed_version_number,
           }}
           onClose={() => setInstall(null)}
-          onInstalled={() => {
+          onInstalled={(application) => {
             setInstall(null)
             void query.refetch()
-            if (installMode === "install") onInstalled?.()
+            if (installMode === "install") {
+              if (onInstalled) onInstalled(application)
+              else setSetupTarget(application)
+            }
             notify.success(t("applications.distribution.installed"))
           }}
+        />
+      )}
+      {setupTarget && (
+        <ApplicationSetupDialog
+          application={setupTarget}
+          onClose={() => setSetupTarget(null)}
+          onUse={() => startInstalled.mutate(setupTarget)}
+          starting={startInstalled.isPending}
+          startError={startInstalled.error}
         />
       )}
     </div>

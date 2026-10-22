@@ -86,7 +86,9 @@ describe("application installation action", () => {
     expect(copy).toHaveAttribute("aria-disabled", "true")
     await userEvent.click(copy)
     expect(onInstall).not.toHaveBeenCalled()
-    await userEvent.click(screen.getByRole("menuitem", { name: "应用服务" }))
+    await userEvent.click(
+      screen.getByRole("menuitem", { name: "在线应用服务" })
+    )
     expect(onInstall).toHaveBeenCalledExactlyOnceWith("service")
   })
 

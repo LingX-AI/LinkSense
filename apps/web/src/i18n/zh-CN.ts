@@ -2513,10 +2513,12 @@ export const zhCN = {
       sharedApplications: "共享我的",
       usageModes: "使用方式",
       usageModesHint: "至少选择一种，也可以同时提供两种方式。",
-      modes: { install: "应用安装包", service: "应用服务" },
+      modes: { install: "应用安装包", service: "在线应用服务" },
       modeDescriptions: {
-        install: "安装为自己的应用，由使用者配置凭据并独立维护。",
-        service: "使用者手动安装后，使用你提供的服务和已配置的凭据。",
+        install:
+          "用户安装为自己的应用，自行配置应用可能需要的凭据，使用者能够看到应用源码。",
+        service:
+          "发布应用为在线服务，用户无需安装为自己的本地应用，将使用你已配置的凭据在线使用应用。",
       },
       install: "安装应用",
       useService: "使用",

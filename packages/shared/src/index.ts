@@ -1,6 +1,7 @@
 export * from "./auth.js";
 export * from "./audit-i18n.js";
 export * from "./applications.js";
+export * from "./application-setup.js";
 export * from "./application-embed.js";
 export * from "./automations.js";
 export * from "./authentication-settings.js";

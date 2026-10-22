@@ -1,4 +1,5 @@
 import { applicationRuntimeFixture } from "./application-runtime-fixture.js";
+import { runApplicationSetupScenarios } from "./application-setup-scenarios.js";
 import JSZip from "jszip";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -439,6 +440,7 @@ try {
   assert.equal((await db.application.findUniqueOrThrow({ where: { id: oldCopyId } })).status, "active");
   assert.equal(await db.conversation.count({ where: { id: oldTaskId } }), 1);
   console.log("PASS API and revocation: authentication, validation, channel persistence, suspension, revocation and independent copies/history verified.");
+  await runApplicationSetupScenarios(db, capabilityRoot);
   if (process.argv.includes("--serve")) {
     await center.setStatus(actor(admin), sourceId, { status: "published", reason: "" }, context);
     await db.application.update({ where: { id: sourceId }, data: { instructions: "Version three" } });

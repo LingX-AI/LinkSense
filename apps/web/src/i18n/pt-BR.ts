@@ -3001,13 +3001,13 @@ export const ptBR = {
       usageModesHint: "Escolha pelo menos uma opção. Você pode oferecer ambas.",
       modes: {
         install: "Pacote de aplicativo",
-        service: "Serviço de aplicativo",
+        service: "Serviço de aplicativo online",
       },
       modeDescriptions: {
         install:
-          "Os usuários instalam seu próprio aplicativo, configuram suas credenciais e o mantêm de forma independente.",
+          "Os usuários instalam sua própria cópia do aplicativo, configuram as credenciais que ele possa precisar e podem ver seu código-fonte.",
         service:
-          "Os usuários instalam manualmente o serviço do aplicativo e usam os recursos e as credenciais configurados por você.",
+          "Publique o aplicativo como um serviço online. Os usuários o utilizam online com as credenciais que você configurou, sem instalar sua própria cópia local.",
       },
       install: "Instalar aplicativo",
       useService: "Usar",

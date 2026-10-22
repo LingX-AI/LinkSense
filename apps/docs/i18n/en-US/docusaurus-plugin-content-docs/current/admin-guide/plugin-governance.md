@@ -19,7 +19,7 @@ Every release requires a separate review and LinkSense verifies snapshot integri
 
 An application review shows its creator, standard or interactive kind, version, release notes, and offered usage options. Open the detail to inspect its instructions, plugin and Skill names, knowledge-base and MCP counts, and—for an interactive application—package file paths.
 
-An **Application package** becomes an independently maintained user copy, while an **Application service** uses creator-managed resources and credentials. Interactive applications cannot be distributed as copy-installable packages and support the service option only. Before approval, confirm that release notes match the submitted behavior and assess the instructions, external connections, data scope, and usage options. Rejection requires a reason.
+An **Application package** becomes an independently maintained user copy whose source code users can view and whose required credentials they configure. An **Online application service** runs online with creator-managed resources and configured credentials, without users installing their own local copy. Interactive applications cannot be distributed as copy-installable packages and support the service option only. Before approval, confirm that release notes match the submitted behavior and assess the instructions, external connections, data scope, and usage options. Rejection requires a reason.
 
 ## Approve or reject
 

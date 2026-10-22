@@ -46,13 +46,13 @@ export const applicationResources = {
         "Choisissez au moins une option. Vous pouvez proposer les deux.",
       modes: {
         install: "Paquet d’application",
-        service: "Service d’application",
+        service: "Service d’application en ligne",
       },
       modeDescriptions: {
         install:
-          "Les utilisateurs installent leur propre application, configurent leurs identifiants et l’entretiennent indépendamment.",
+          "Les utilisateurs installent leur propre copie de l’application, configurent les identifiants dont elle peut avoir besoin et peuvent consulter son code source.",
         service:
-          "Les utilisateurs installent manuellement le service d’application et utilisent vos ressources et identifiants configurés.",
+          "Publiez l’application sous forme de service en ligne. Les utilisateurs y accèdent en ligne avec les identifiants que vous avez configurés, sans installer leur propre copie locale.",
       },
       install: "Installer l’application",
       useService: "Utiliser",

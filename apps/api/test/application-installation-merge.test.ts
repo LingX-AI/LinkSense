@@ -13,10 +13,14 @@ describe("manual application updates", () => {
     expect(mapCopyResourceBindings(["source-a", "source-b"], ["own-a", "own-b", "own-c"], ["source-a", "source-c"])).toEqual(["own-a", "own-c"]);
   });
 
-  it("rejects missing new resources before modifying the existing installation", () => {
+  it("keeps missing new requirements as empty slots for the configuration guide", () => {
     const current = ["own-a"];
-    expect(() => mapCopyResourceBindings(["source-a"], current, ["source-a", "source-b"])).toThrow("APPLICATION_DEPENDENCY_UNAVAILABLE");
+    expect(mapCopyResourceBindings(["source-a"], current, ["source-a", "source-b"])).toEqual(["own-a", null]);
     expect(current).toEqual(["own-a"]);
+  });
+
+  it("preserves a partially configured later requirement when a newer source reorders its requirements", () => {
+    expect(mapCopyResourceBindings(["source-a", "source-b"], [null, "own-b"], ["source-b", "source-a", "source-c"])).toEqual(["own-b", null, null]);
   });
 
   it("removes the application's selection without deleting the user's resource", () => {

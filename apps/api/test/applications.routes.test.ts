@@ -29,6 +29,29 @@ afterEach(async () => {
 });
 
 describe("internal application routes", () => {
+  it("authenticates and validates setup requests and never caches personal configuration", async () => {
+    const { app, service } = await applicationRouteFixture();
+    const path = `/api/v1/applications/${APPLICATION_ID}/installation/setup`;
+    const headers = { authorization: "Bearer internal-user" };
+    const revision = { installed_version_id: APPLICATION_ID, updated_at: "2026-10-22T00:00:00.000Z" };
+    const binding = { ...revision, type: "knowledge_base", position: 0, resource_id: TARGET_USER_ID };
+    for (const [method, url, payload] of [["GET", path, undefined], ["PATCH", path, binding], ["POST", `${path}/complete`, revision], ["PATCH", `${path}/model`, { ...revision, model: null, reasoning_effort: null }]] as const) {
+      expect((await app.inject({ method, url, ...(payload ? { payload } : {}) })).statusCode).toBe(401);
+      const response = await app.inject({ method, url, headers, ...(payload ? { payload } : {}) });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.headers["cache-control"]).toBe("private, no-store");
+    }
+    expect(service.installationSetup).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID);
+    expect(service.saveInstallationSetup).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID, binding, expect.any(Object));
+    expect(service.completeInstallationSetup).toHaveBeenCalledWith(expect.objectContaining({ id: USER_ID }), APPLICATION_ID, revision, expect.any(Object));
+    for (const payload of [{ ...binding, owner_id: TARGET_USER_ID }, { ...binding, type: "model" }, { ...binding, position: -1 }, { ...binding, position: 100 }, { ...binding, resource_id: "invalid" }, { ...binding, updated_at: "yesterday" }]) {
+      expect((await app.inject({ method: "PATCH", url: path, headers, payload })).statusCode).toBe(400);
+    }
+    expect((await app.inject({ method: "GET", url: `${path}?owner_id=${TARGET_USER_ID}`, headers })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PATCH", url: `${path}/model`, headers, payload: { ...revision, model: "report-model", reasoning_effort: null } })).statusCode).toBe(400);
+    service.installationSetup.mockRejectedValueOnce(new AppError("APPLICATION_NOT_FOUND"));
+    expect((await app.inject({ method: "GET", url: path, headers })).statusCode).toBe(404);
+  });
   it("validates an edit and its release together before publishing a standard application", async () => {
     const { app, service } = await applicationRouteFixture();
     const url = `/api/v1/applications/${APPLICATION_ID}/edit-and-publish`;
@@ -577,6 +600,10 @@ async function applicationRouteFixture() {
     getPublication: vi.fn(async () => ({ version_id: null, version_number: null, usage_instructions: "" })),
     distributionSettings: vi.fn(async () => ({ version_number: "1.0.0", highest_version_number: null, usage_instructions: "" })),
     publicationReadiness: vi.fn(async () => ({ has_active_tasks: false })),
+    installationSetup: vi.fn(async () => ({ items: [], can_complete: false, can_use: false })),
+    saveInstallationSetup: vi.fn(async () => ({ items: [], can_complete: false, can_use: false })),
+    saveInstallationSetupModel: vi.fn(async () => ({ items: [], can_complete: false, can_use: false })),
+    completeInstallationSetup: vi.fn(async () => ({ id: APPLICATION_ID })),
     share: vi.fn(async () => ({ version_id: APPLICATION_ID, version_number: "1.0.0", usage_instructions: "Configure your account." })),
     install: vi.fn(async () => ({ id: APPLICATION_ID })),
     list: vi.fn(async () => []),

@@ -9,8 +9,8 @@ description: Grant access inside the organization or expose a controlled applica
 
 Under **My applications**, open the application's three-dot menu, choose **Share within organization**, add users or groups, and select usage options:
 
-- **Application package:** available to standard applications only. The recipient installs an independent application and configures personal credentials, knowledge bases, and external connections.
-- **Application service:** the recipient installs access to the application resources and configured credentials maintained by the creator. Interactive applications support this option only.
+- **Application package:** available to standard applications only. Users install their own copy of the application, configure any credentials it may need, and can view its source code. They also configure their own knowledge bases and external connections.
+- **Online application service:** publish the application as an online service. Users access it online with your configured credentials, without installing their own local copy. Interactive applications support this option only.
 
 A standard application may offer both options. Recipients must explicitly install before use. A service user does not gain permission to browse hidden instructions, creator credentials, or documents in the application's knowledge bases.
 

@@ -34,6 +34,8 @@ export const applicationDistributionKeys = {
     ["applications", "distribution", "releases", applicationId] as const,
   update: (applicationId: string) =>
     ["applications", "distribution", "update", applicationId] as const,
+  setup: (applicationId: string) =>
+    ["applications", "distribution", "setup", applicationId] as const,
   reviews: ["admin", "application-center"] as const,
 }
 

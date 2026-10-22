@@ -265,6 +265,19 @@ describe("application center user flows", () => {
               ]
             : [],
         }
+      if (path === `/applications/${id}/installation/setup`)
+        return {
+          application_id: id,
+          installed_version_id: version,
+          installed_version_number: "2.0.0",
+          updated_at: installed.updated_at,
+          usage_instructions: "Configure your reporting account",
+          model: null,
+          reasoning_effort: null,
+          items: [],
+          can_complete: false,
+          can_use: false,
+        }
       return { items: [], models: [] }
     })
     show(<ApplicationsWorkspacePanel onFeedback={vi.fn()} />)
@@ -275,6 +288,14 @@ describe("application center user flows", () => {
     const dialog = await screen.findByRole("dialog")
     await userEvent.click(
       within(dialog).getByRole("button", { name: "安装应用" })
+    )
+    expect(
+      await screen.findByRole("dialog", {
+        name: i18n.t("applicationSetup.title"),
+      })
+    ).toBeVisible()
+    await userEvent.click(
+      screen.getByRole("button", { name: i18n.t("applicationSetup.later") })
     )
     await waitFor(() =>
       expect(
@@ -292,7 +313,7 @@ describe("application center user flows", () => {
     )
     expect(
       await screen.findByRole("dialog", {
-        name: i18n.t("applications.editTitle"),
+        name: i18n.t("applicationSetup.title"),
       })
     ).toBeVisible()
   })
