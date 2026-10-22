@@ -36,6 +36,36 @@ it("rejects a callback after shutdown so the transport cannot acknowledge an unp
   expect(fixture.repository.persistInbound).not.toHaveBeenCalled();
 });
 describe.each(testCredentials)("$provider runtime", (credentials) => {
+  it("sends a proactive notice only through the verified current connection without starting a task", async () => {
+    const fixture = harness(credentials);
+    await fixture.runtime.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await fixture.runtime.sendNotification({ ownerId: fixture.connection.ownerId, connectionId: fixture.connection.id, inbound: fixture.message, text: "A completed scheduled result", beforeSend: async () => undefined });
+    expect(fixture.send).toHaveBeenCalledWith(expect.any(Object), "A completed scheduled result");
+    expect(fixture.conversations.acceptTurn).not.toHaveBeenCalled();
+    expect(fixture.runtime.notificationConnectionIds()).toContain(fixture.connection.id);
+  });
+  it("rejects a different owner before sending a proactive notice", async () => {
+    const fixture = harness(credentials);
+    await fixture.runtime.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(fixture.runtime.sendNotification({ ownerId: "different-owner", connectionId: fixture.connection.id, inbound: fixture.message, text: "Private result", beforeSend: async () => undefined })).rejects.toThrow("BOT_CHANNEL_DELIVERY_FAILED");
+    expect(fixture.send).not.toHaveBeenCalled();
+  });
+  it("does not send a notification revoked while waiting for the lifecycle lock", async () => {
+    const fixture = harness(credentials);
+    await fixture.runtime.start();
+    await vi.advanceTimersByTimeAsync(0);
+    let grantLease: ((lease: { key: string; token: string }) => void) | undefined;
+    fixture.coordinator.acquireLease.mockImplementationOnce(() => new Promise(resolve => { grantLease = resolve; }));
+    const beforeSend = vi.fn(async () => { throw new Error("delivery revoked"); });
+    const operation = fixture.runtime.sendNotification({ ownerId: fixture.connection.ownerId, connectionId: fixture.connection.id, inbound: fixture.message, text: "Private result", beforeSend });
+    expect(beforeSend).not.toHaveBeenCalled();
+    grantLease!({ key: "lease", token: "token" });
+    await expect(operation).rejects.toThrow("delivery revoked");
+    expect(beforeSend).toHaveBeenCalledOnce();
+    expect(fixture.send).not.toHaveBeenCalled();
+  });
   it("accepts a pushed message immediately while the outbound scan is blocked", async () => {
     const fixture = harness(credentials);
     let finish: (() => void) | undefined;
@@ -324,6 +354,8 @@ function harness(credentials: (typeof testCredentials)[number]) {
   runtimes.push(runtime);
   return {
     runtime,
+    connection,
+    message,
     repository,
     coordinator,
     conversations,

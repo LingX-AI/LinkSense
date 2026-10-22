@@ -99,6 +99,16 @@ export class FeishuRuntime {
     this.wake();
   }
 
+  async sendNotification(input: { ownerId: string; connectionId: string; chatId: string; text: string; idempotencyKey: string; beforeSend: () => Promise<void> }): Promise<void> {
+    await this.#withLocks(input.ownerId, null, async () => {
+      const connection = await this.repository.findActiveConnection(input.connectionId);
+      const peer = connection && await this.repository.findPeerSession(connection.id, input.chatId);
+      if (!connection || connection.ownerId !== input.ownerId || !peer || peer.senderOpenId !== connection.ownerOpenId) throw new FeishuProtocolError("FEISHU_UPSTREAM_REJECTED");
+      await input.beforeSend();
+      await this.client.sendText({ credentials: decryptFeishuCredentials(connection, this.encryption), chatId: peer.chatId, text: input.text, idempotencyKey: input.idempotencyKey });
+    });
+  }
+
   wake(): void {
     if (!this.started) return;
     queueMicrotask(() => {

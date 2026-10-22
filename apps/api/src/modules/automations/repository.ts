@@ -1,13 +1,13 @@
 import { z } from "zod";
 
-import { reasoningEffortSchema } from "@linksense/shared";
+import { reasoningEffortSchema, automationNotificationTargetSchema } from "@linksense/shared";
 
 import type {
   Automation as PrismaAutomation,
   AutomationRun as PrismaAutomationRun,
   PrismaClient,
 } from "../../generated/prisma/client.js";
-import type { Prisma } from "../../generated/prisma/client.js";
+import { Prisma } from "../../generated/prisma/client.js";
 import {
   AutomationTargetCollaborationModeError,
   AutomationTargetNotPinnedError,
@@ -145,7 +145,8 @@ export class PrismaAutomationRepository implements AutomationRepository {
         where: { ownerId: input.ownerId, deletedAt: null },
       });
       if (count >= limit) return null;
-      const created = await transaction.automation.create({ data: input });
+      const { notificationTarget, ...data } = input;
+      const created = await transaction.automation.create({ data: { ...data, ...(notificationTarget ? { notificationTargetJson: notificationTarget } : {}) } });
       return {
         ...parseAutomationRecord(created),
         conversation,
@@ -169,10 +170,13 @@ export class PrismaAutomationRepository implements AutomationRepository {
         ownerId,
         input.conversationId ?? current.conversationId,
       );
+      const { notificationTarget, ...data } = input;
       const updated = await transaction.automation.update({
         where: { id: automationId },
-        data: input,
+        data: { ...data, ...(notificationTarget !== undefined ? { notificationTargetJson: notificationTarget ?? Prisma.DbNull } : {}) },
       });
+      const previousTarget = current.notificationTargetJson ? automationNotificationTargetSchema.parse(current.notificationTargetJson) : null;
+      if (input.notificationTarget !== undefined && JSON.stringify(input.notificationTarget) !== JSON.stringify(previousTarget)) await transaction.automationNotificationDelivery.updateMany({ where: { automationId, ownerId, status: { in: ["pending", "processing"] } }, data: { status: "cancelled", processingToken: null } });
       return { ...parseAutomationRecord(updated), conversation };
     });
   }
@@ -188,6 +192,7 @@ export class PrismaAutomationRepository implements AutomationRepository {
         where: { id: automationId, ownerId, deletedAt: null },
       });
       if (!current) return null;
+      await transaction.automationNotificationDelivery.updateMany({ where: { automationId, ownerId, status: { in: ["pending", "processing"] } }, data: { status: "cancelled", processingToken: null } });
       return parseAutomationRecord(
         await transaction.automation.update({
           where: { id: automationId },
@@ -321,6 +326,7 @@ export class PrismaAutomationRepository implements AutomationRepository {
           status: "dispatching",
         },
       });
+      if (automation.notificationTarget) await transaction.automationNotificationDelivery.create({ data: { automationId: automation.id, runId: run.id, ownerId: automation.ownerId, targetJson: automation.notificationTarget } });
       return {
         automation: parseAutomationRecord(updatedAutomation),
         run: parseAutomationRunRecord(run),
@@ -386,6 +392,7 @@ export class PrismaAutomationRepository implements AutomationRepository {
           status: "dispatching",
         },
       });
+      if (automation.notificationTarget) await transaction.automationNotificationDelivery.create({ data: { automationId: automation.id, runId: run.id, ownerId: automation.ownerId, targetJson: automation.notificationTarget } });
       return {
         automation,
         run: parseAutomationRunRecord(run),
@@ -508,6 +515,7 @@ export class PrismaAutomationRepository implements AutomationRepository {
 function parseAutomationRecord(row: PrismaAutomation): AutomationRecord {
   return {
     ...row,
+    notificationTarget: row.notificationTargetJson ? automationNotificationTargetSchema.parse(row.notificationTargetJson) : null,
     status: automationStatusSchema.parse(row.status),
     frequency: automationFrequencySchema.parse(row.frequency),
     lastRunStatus:

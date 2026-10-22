@@ -174,6 +174,21 @@ describe("PrismaAutomationRepository target mode locking", () => {
 });
 
 describe("PrismaAutomationRepository manual runs", () => {
+  it.each([false, true])("persists the notification with the new run only when explicitly enabled: %s", async enabled => {
+    const target = { kind: "feishu", connection_id: OWNER_ID, peer_session_id: CONVERSATION_ID };
+    const row = { ...automationRow(), notificationTargetJson: enabled ? target : null };
+    const run = { id: RUN_ID, automationId: AUTOMATION_ID, ownerId: OWNER_ID, conversationId: CONVERSATION_ID, scheduledFor: NOW, idempotencyKey: "manual-notice", status: "dispatching", turnId: null, pendingRequestId: null, errorCode: null, completedAt: null, completionReadAt: null, createdAt: NOW, updatedAt: NOW };
+    const tx = {
+      $executeRaw: vi.fn(async () => 1),
+      automation: { findFirst: vi.fn(async () => row) },
+      automationRun: { findUnique: vi.fn(async () => null), create: vi.fn(async () => run) },
+      automationNotificationDelivery: { create: vi.fn(async () => undefined) },
+    };
+    const repository = new PrismaAutomationRepository({ $transaction: vi.fn(async action => action(tx)) } as never);
+    await repository.claimManualRun({ ownerId: OWNER_ID, automationId: AUTOMATION_ID, requestedAt: NOW, idempotencyKey: "manual-notice" });
+    if (enabled) expect(tx.automationNotificationDelivery.create).toHaveBeenCalledWith({ data: { automationId: AUTOMATION_ID, runId: RUN_ID, ownerId: OWNER_ID, targetJson: target } });
+    else expect(tx.automationNotificationDelivery.create).not.toHaveBeenCalled();
+  });
   it("claims a manual run for an owned paused automation without changing its schedule", async () => {
     const automation = {
       id: AUTOMATION_ID,
