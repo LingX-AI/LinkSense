@@ -14,6 +14,7 @@ const snapshot: AssistantHtmlPreviewCaptureSnapshot = {
     <div data-linksense-capture-scroll-top="42"></div>
   </body></html>`,
   viewportWidth: 1_200,
+  viewportHeight: 480,
   width: 1_440,
   height: 900,
 }
@@ -61,6 +62,7 @@ describe("assistant HTML preview snapshot capture", () => {
     frame!.dispatchEvent(new Event("load"))
 
     await expect(rendered).resolves.toMatchObject({ type: "image/png" })
+    expect(frame?.height).toBe("480")
     expect(html2canvas).toHaveBeenCalledWith(
       captureDocument.body,
       expect.objectContaining({
@@ -68,6 +70,7 @@ describe("assistant HTML preview snapshot capture", () => {
         useCORS: true,
         width: 1_440,
         windowWidth: 1_200,
+        windowHeight: 480,
       })
     )
     expect(

@@ -16,11 +16,13 @@ import {
   assistantHtmlPreviewCaptureSnapshotMessageType,
   assistantHtmlPreviewErrorMessageType,
   assistantHtmlPreviewReadyMessageType,
-  assistantHtmlPreviewResizeMessageType,
   assistantHtmlPreviewShellInitializeMessageType,
 } from "@/features/conversations/assistant-html-preview-document"
 import { renderAssistantHtmlPreviewSnapshot } from "@/features/conversations/assistant-html-preview-capture"
-import { AssistantHtmlPreview } from "@/features/conversations/assistant-html-preview"
+import {
+  AssistantHtmlPreview,
+  AssistantHtmlPreviewPending,
+} from "@/features/conversations/assistant-html-preview"
 import i18n from "@/i18n"
 import { downloadBlob } from "@/lib/download-blob"
 
@@ -93,8 +95,8 @@ function renderReadyPreview(productName?: string) {
       <BootstrapContext.Provider
         value={{
           bootstrap: {
-          initialized: true,
-          initialization_credential_required: false,
+            initialized: true,
+            initialization_credential_required: false,
             system_name: productName,
             default_language: "zh-CN",
             logo_url: null,
@@ -175,22 +177,103 @@ describe("AssistantHtmlPreview actions", () => {
     restoreProperty(document, "exitFullscreen", originalExitFullscreen)
   })
 
+  it("keeps a bounded viewport when animated content reports changing heights", () => {
+    const { card, frame } = renderReadyPreview()
+    const source = frame.src
+    const frameWindow = frame.contentWindow
+    const surface = card.querySelector(
+      "[data-assistant-html-preview-surface='true']"
+    )
+
+    for (const height of [1, 1_280, 100_000, 360]) {
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: frameWindow,
+            data: {
+              type: "linksense:assistant-html-preview:resize",
+              previewId: frame.dataset.assistantHtmlPreviewId,
+              height,
+            },
+          })
+        )
+      })
+      expect(surface).toHaveClass(
+        "h-[min(560px,var(--assistant-html-preview-height,70dvh))]"
+      )
+      expect(frame).toHaveClass("h-full")
+      expect(frame).not.toHaveAttribute("height")
+      expect(frame).toHaveAttribute("scrolling", "auto")
+      expect(frame.contentWindow).toBe(frameWindow)
+      expect(frame.src).toBe(source)
+      expect(frame).not.toHaveClass("invisible")
+    }
+  })
+
+  it("reserves the same viewport while generating, loading, ready, failed, and retrying", async () => {
+    const user = userEvent.setup()
+    const html = "<!doctype html><html><body>Preview</body></html>"
+    const heightClass =
+      "h-[min(560px,var(--assistant-html-preview-height,70dvh))]"
+    const { rerender } = render(<AssistantHtmlPreviewPending />)
+    expect(screen.getByRole("status")).toHaveClass(heightClass, "min-h-0")
+
+    rerender(<AssistantHtmlPreview html={html} />)
+    const frame =
+      screen.getByTitle<HTMLIFrameElement>("AI 生成的交互式 HTML 页面")
+    const surface = frame.parentElement
+    expect(surface).toHaveClass(heightClass)
+    for (const type of [
+      assistantHtmlPreviewReadyMessageType,
+      assistantHtmlPreviewErrorMessageType,
+    ]) {
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: frame.contentWindow,
+            data: { type, previewId: frame.dataset.assistantHtmlPreviewId },
+          })
+        )
+      })
+      expect(surface).toHaveClass(heightClass)
+      expect(frame).toHaveClass("h-full")
+      expect(frame).not.toHaveAttribute("height")
+    }
+
+    await user.click(screen.getByRole("button", { name: "重试" }))
+    expect(screen.getByRole("status")).toBeVisible()
+    expect(surface).toHaveClass(heightClass)
+  })
+
+  it("keeps the live iframe mounted when its parent rerenders the same HTML", () => {
+    const html = "<!doctype html><html><body><input></body></html>"
+    const { rerender } = render(<AssistantHtmlPreview html={html} />)
+    const frame =
+      screen.getByTitle<HTMLIFrameElement>("AI 生成的交互式 HTML 页面")
+    const frameWindow = frame.contentWindow
+    const source = frame.src
+    rerender(<AssistantHtmlPreview html={html} />)
+    expect(screen.getByTitle("AI 生成的交互式 HTML 页面")).toBe(frame)
+    expect(frame.contentWindow).toBe(frameWindow)
+    expect(frame.src).toBe(source)
+  })
+
   it.each(["ready", "error"] as const)(
     "unmounts the waiting game when the interactive preview becomes %s",
     (status) => {
       render(
         <AssistantHtmlPreview html="<!doctype html><html><body>Preview</body></html>" />
       )
-      const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      const bounds = vi
+        .spyOn(HTMLElement.prototype, "getBoundingClientRect")
         .mockReturnValue(new DOMRect(0, 0, 384, 256))
       fireEvent.click(
         screen.getByRole("status", { name: "正在加载交互式预览…" })
       )
       bounds.mockRestore()
       expect(screen.getByRole("application", { name: "贪吃蛇" })).toBeVisible()
-      const frame = screen.getByTitle<HTMLIFrameElement>(
-        "AI 生成的交互式 HTML 页面"
-      )
+      const frame =
+        screen.getByTitle<HTMLIFrameElement>("AI 生成的交互式 HTML 页面")
       act(() => {
         window.dispatchEvent(
           new MessageEvent("message", {
@@ -225,7 +308,7 @@ describe("AssistantHtmlPreview actions", () => {
     expect(card).toHaveClass("pr-8")
     expect(actions).not.toHaveClass("ml-2")
     expect(surface).not.toContainElement(actions)
-    expect(surface).not.toHaveClass("border", "border-muted-foreground/15")
+    expect(surface).not.toHaveClass("ring-1", "ring-muted-foreground/15")
     expect(actions).toHaveClass("flex", "flex-col")
     expect(actions).toHaveAttribute("aria-orientation", "vertical")
     expect(screen.queryByRole("button", { name: "HTML 预览操作" })).toBeNull()
@@ -239,9 +322,7 @@ describe("AssistantHtmlPreview actions", () => {
       await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull())
     }
 
-    expect(
-      screen.getByRole("button", { name: "下载 HTML 文件" })
-    ).toBeVisible()
+    expect(screen.getByRole("button", { name: "下载 HTML 文件" })).toBeVisible()
     expect(screen.getByRole("button", { name: "复制为图像" })).toBeVisible()
     expect(screen.getByRole("button", { name: "全屏预览" })).toBeVisible()
   })
@@ -333,9 +414,7 @@ describe("AssistantHtmlPreview actions", () => {
       }
     )
 
-    const click = user.click(
-      screen.getByRole("button", { name: "复制为图像" })
-    )
+    const click = user.click(screen.getByRole("button", { name: "复制为图像" }))
     await waitFor(() =>
       expect(postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -361,6 +440,7 @@ describe("AssistantHtmlPreview actions", () => {
             requestId: captureMessage.requestId,
             html: "<!doctype html><html><body>Preview</body></html>",
             viewportWidth: 1_200,
+            viewportHeight: 480,
             width: 1_200,
             height: 800,
           },
@@ -373,6 +453,7 @@ describe("AssistantHtmlPreview actions", () => {
     expect(renderAssistantHtmlPreviewSnapshot).toHaveBeenCalledWith({
       html: "<!doctype html><html><body>Preview</body></html>",
       viewportWidth: 1_200,
+      viewportHeight: 480,
       width: 1_200,
       height: 800,
     })
@@ -396,9 +477,7 @@ describe("AssistantHtmlPreview actions", () => {
       }
     )
 
-    const click = user.click(
-      screen.getByRole("button", { name: "复制为图像" })
-    )
+    const click = user.click(screen.getByRole("button", { name: "复制为图像" }))
     await waitFor(() =>
       expect(postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -421,6 +500,7 @@ describe("AssistantHtmlPreview actions", () => {
             requestId: captureMessage.requestId,
             html: "<!doctype html><html><body>Preview</body></html>",
             viewportWidth: 1_200,
+            viewportHeight: 480,
             width: 1_200,
             height: 800,
           },
@@ -447,22 +527,7 @@ describe("AssistantHtmlPreview actions", () => {
       const source = frame.src
       const frameWindow = frame.contentWindow
       const postMessage = vi.spyOn(frameWindow!, "postMessage")
-      const reportHeight = (height: number) => {
-        act(() => {
-          window.dispatchEvent(
-            new MessageEvent("message", {
-              source: frameWindow,
-              data: {
-                type: assistantHtmlPreviewResizeMessageType,
-                previewId: frame.dataset.assistantHtmlPreviewId,
-                height,
-              },
-            })
-          )
-        })
-      }
-      reportHeight(480)
-      expect(frame).toHaveAttribute("height", "480")
+      expect(frame).not.toHaveAttribute("height")
       const requestFullscreen = vi.fn(async () => {
         fullscreenElement = card
         document.dispatchEvent(new Event("fullscreenchange"))
@@ -492,7 +557,6 @@ describe("AssistantHtmlPreview actions", () => {
       )
       expect(screen.getByRole("button", { name: "退出全屏预览" })).toBeVisible()
       expect(screen.getByTitle("AI 生成的交互式 HTML 页面")).toBe(frame)
-      reportHeight(1_200)
 
       if (exit === "button") {
         await user.click(screen.getByRole("button", { name: "退出全屏预览" }))
@@ -506,9 +570,12 @@ describe("AssistantHtmlPreview actions", () => {
       }
 
       expect(card).not.toHaveClass("h-dvh")
-      expect(frame).not.toHaveClass("h-full")
-      expect(frame).toHaveAttribute("height", "480")
-      expect(frame).toHaveAttribute("scrolling", "no")
+      expect(frame).toHaveClass("h-full")
+      expect(frame).not.toHaveAttribute("height")
+      expect(frame).toHaveAttribute("scrolling", "auto")
+      expect(frame.parentElement).toHaveClass(
+        "h-[min(560px,var(--assistant-html-preview-height,70dvh))]"
+      )
       expect(postMessage).toHaveBeenLastCalledWith(
         {
           type: "linksense:assistant-html-preview:layout",
@@ -520,8 +587,6 @@ describe("AssistantHtmlPreview actions", () => {
       expect(screen.queryByRole("button", { name: "退出全屏预览" })).toBeNull()
       expect(frame.src).toBe(source)
       expect(frame.contentWindow).toBe(frameWindow)
-      reportHeight(720)
-      expect(frame).toHaveAttribute("height", "720")
     }
   )
 

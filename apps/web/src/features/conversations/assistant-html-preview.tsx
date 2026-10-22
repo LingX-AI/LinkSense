@@ -28,7 +28,6 @@ import {
   assistantHtmlPreviewCaptureSnapshotMessageType,
   assistantHtmlPreviewErrorMessageType,
   assistantHtmlPreviewLayoutMessageType,
-  assistantHtmlPreviewResizeMessageType,
   assistantHtmlPreviewWheelMessageType,
   buildAssistantHtmlPreviewDocument,
   isAssistantHtmlPreviewFrameMessage,
@@ -37,10 +36,13 @@ import {
 } from "@/features/conversations/assistant-html-preview-document"
 import { renderAssistantHtmlPreviewSnapshot } from "@/features/conversations/assistant-html-preview-capture"
 import { AssistantHtmlPreviewLoading } from "@/features/conversations/assistant-html-preview-loading"
+import {
+  assistantHtmlPreviewViewportClassName,
+  useAssistantHtmlPreviewViewport,
+} from "@/features/conversations/use-assistant-html-preview-viewport"
 import { downloadBlob } from "@/lib/download-blob"
 import { cn } from "@/lib/utils"
 
-const defaultAssistantHtmlPreviewHeight = 360
 const assistantHtmlPreviewCaptureTimeout = 15_000
 type FrameStatus = "loading" | "ready" | "error"
 
@@ -48,7 +50,6 @@ type FrameState = Readonly<{
   source: string | null
   attempt: number
   status: FrameStatus
-  height: number
 }>
 
 type PendingCaptureRequest = Readonly<{
@@ -63,13 +64,17 @@ export type AssistantHtmlPreviewProps = Readonly<{
 
 export function AssistantHtmlPreviewPending() {
   const { t } = useTranslation()
+  const previewRef = useRef<HTMLElement>(null)
+  useAssistantHtmlPreviewViewport(previewRef)
 
   return (
     <section
-      className="my-3 w-full max-w-full"
+      ref={previewRef}
+      className="my-3 w-full max-w-full pr-8"
       aria-label={t("conversation.inlineHtmlPreview.cardLabel")}
     >
       <AssistantHtmlPreviewLoading
+        className={cn(assistantHtmlPreviewViewportClassName, "min-h-0")}
         label={t("conversation.inlineHtmlPreview.generating")}
       />
     </section>
@@ -81,6 +86,7 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
   const productName = useProductName()
   const previewId = useId()
   const previewCardRef = useRef<HTMLElement>(null)
+  useAssistantHtmlPreviewViewport(previewCardRef)
   const frameRef = useRef<HTMLIFrameElement>(null)
   const captureSequenceRef = useRef(0)
   const pendingCaptureRequestsRef = useRef(
@@ -101,7 +107,6 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
     source: documentSource,
     attempt: 0,
     status: documentSource === null ? "error" : "loading",
-    height: defaultAssistantHtmlPreviewHeight,
   }))
   const activeFrameState: FrameState =
     frameState.source === documentSource
@@ -110,7 +115,6 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
           source: documentSource,
           attempt: 0,
           status: documentSource === null ? "error" : "loading",
-          height: defaultAssistantHtmlPreviewHeight,
         }
 
   const initializePreviewFrame = useCallback(
@@ -162,6 +166,7 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
           pendingRequest.resolve({
             html: message.html,
             viewportWidth: message.viewportWidth,
+            viewportHeight: message.viewportHeight,
             width: message.width,
             height: message.height,
           })
@@ -188,31 +193,19 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
         scrollContainer.scrollTop += message.deltaY
         return
       }
-      if (message.type === assistantHtmlPreviewResizeMessageType) {
-        if (document.fullscreenElement === previewCardRef.current) return
-        setFrameState((current) => ({
-          source: documentSource,
-          attempt: current.source === documentSource ? current.attempt : 0,
-          status:
-            current.source === documentSource ? current.status : "loading",
-          height: message.height,
-        }))
-        return
-      }
       const status: FrameStatus =
         message.type === assistantHtmlPreviewErrorMessageType
           ? "error"
           : "ready"
       if (status === "ready") synchronizePreviewLayout()
       setFrameState((current) => {
+        if (current.source === documentSource && current.status === status) {
+          return current
+        }
         return {
           source: documentSource,
           attempt: current.source === documentSource ? current.attempt : 0,
           status,
-          height:
-            current.source === documentSource
-              ? current.height
-              : defaultAssistantHtmlPreviewHeight,
         }
       })
     }
@@ -260,10 +253,6 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
               source: documentSource,
               attempt: current.source === documentSource ? current.attempt : 0,
               status: "error",
-              height:
-                current.source === documentSource
-                  ? current.height
-                  : defaultAssistantHtmlPreviewHeight,
             }
           : current
       })
@@ -277,7 +266,6 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
       source: documentSource,
       attempt: current.source === documentSource ? current.attempt + 1 : 0,
       status: "loading",
-      height: defaultAssistantHtmlPreviewHeight,
     }))
   }
 
@@ -381,9 +369,10 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
       <div
         className={cn(
           "relative w-full overflow-hidden rounded-2xl",
-          showPreviewSurfaceBorder && "border border-muted-foreground/15",
-          isFullscreen && "h-full min-h-0 rounded-none border-0",
-          documentSource === null && "min-h-80"
+          assistantHtmlPreviewViewportClassName,
+          showPreviewSurfaceBorder &&
+            "ring-1 ring-muted-foreground/15 ring-inset",
+          isFullscreen && "h-full min-h-0 rounded-none border-0"
         )}
         data-assistant-html-preview-surface="true"
       >
@@ -392,16 +381,14 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
             key={`${previewId}:${activeFrameState.attempt}`}
             ref={frameRef}
             className={cn(
-              "block w-full border-0 bg-white",
-              isFullscreen && "h-full",
+              "block h-full w-full border-0 bg-white",
               activeFrameState.status !== "ready" && "invisible"
             )}
-            height={isFullscreen ? undefined : activeFrameState.height}
             data-assistant-html-preview-id={previewId}
             data-assistant-html-preview-attempt={activeFrameState.attempt}
             title={t("conversation.inlineHtmlPreview.frameTitle")}
             sandbox={interactiveHtmlPreviewSandbox}
-            scrolling={isFullscreen ? "auto" : "no"}
+            scrolling="auto"
             src={shellSource}
             onLoad={() => {
               const frameWindow = frameRef.current?.contentWindow

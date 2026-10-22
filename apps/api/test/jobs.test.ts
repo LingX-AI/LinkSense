@@ -436,6 +436,51 @@ describe("maintenance cleanup failures", () => {
     )
   })
 
+  it("retries thumbnail cleanup through the durable outbox without removing its row or invoking the runner on storage failure", async () => {
+    const outbox = runtimeCleanupOutboxRow({ status: "queued" })
+    const cleanupRuntime = vi.fn()
+    const cleanupArtifactThumbnails = vi.fn().mockRejectedValueOnce(new Error("object storage unavailable"))
+    const runtimeCleanupOutbox = {
+      findUnique: vi.fn().mockResolvedValue(outbox),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      deleteMany: vi.fn(),
+    }
+    await expect(executeRuntimeCleanupJob({
+      runner: { cleanupRuntime }, prisma: { runtimeCleanupOutbox } as never,
+      ownerId: outbox.ownerId, conversationId: outbox.conversationId, outboxId: outbox.id,
+      cleanupArtifactThumbnails,
+    })).rejects.toMatchObject({ reasonCode: "CLEANUP_VERIFICATION_FAILED" })
+    expect(cleanupArtifactThumbnails).toHaveBeenCalledOnce()
+    expect(cleanupRuntime).not.toHaveBeenCalled()
+    expect(runtimeCleanupOutbox.deleteMany).not.toHaveBeenCalled()
+    expect(runtimeCleanupOutbox.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "pending", lastErrorCode: "CLEANUP_VERIFICATION_FAILED" }) }))
+  })
+
+  it("removes only the thumbnail through the real runtime cleanup job before clearing the durable outbox", async () => {
+    const outbox = runtimeCleanupOutboxRow({ status: "queued" })
+    const fileId = "30000000-0000-4000-8000-000000000001"
+    const removeObject = vi.fn().mockResolvedValue(undefined)
+    const cleanupRuntime = vi.fn().mockResolvedValue({ success: true })
+    const prisma = {
+      retainedArtifact: { findMany: vi.fn().mockResolvedValue([{ originalFileId: fileId }]) },
+      runtimeCleanupOutbox: {
+        findUnique: vi.fn().mockResolvedValue(outbox),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+    }
+    const jobs = new BackgroundJobs(testConfig(), { removeObject } as never,
+      { cleanupRuntime } as never, {} as never, undefined,
+      queueControl({ failedJobs: [] }), prisma as never)
+    await expect(jobs["process"]({ data: {
+      type: "runtime-cleanup", ownerId: outbox.ownerId,
+      conversationId: outbox.conversationId, outboxId: outbox.id,
+    } } as Job<MaintenanceJob>, {} as never)).resolves.toEqual({ cleaned: true })
+    expect(removeObject).toHaveBeenCalledExactlyOnceWith(`conversations/${outbox.conversationId}/artifacts/${fileId}/thumbnails/v1.webp`)
+    expect(prisma.runtimeCleanupOutbox.deleteMany.mock.invocationCallOrder[0]).toBeGreaterThan(removeObject.mock.invocationCallOrder[0]!)
+    expect(cleanupRuntime).toHaveBeenCalledOnce()
+  })
+
   it("retains a retryable cleanup when task control removal is denied", async () => {
     const outbox = runtimeCleanupOutboxRow({ status: "queued" })
     const updateMany = vi.fn().mockResolvedValue({ count: 1 })

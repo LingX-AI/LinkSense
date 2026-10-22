@@ -25,7 +25,6 @@ import {
 } from "@/features/conversations/conversation-thread"
 import {
   assistantHtmlPreviewReadyMessageType,
-  assistantHtmlPreviewResizeMessageType,
   assistantHtmlPreviewShellInitializeMessageType,
   assistantHtmlPreviewShellReadyMessageType,
   assistantHtmlPreviewWheelMessageType,
@@ -827,7 +826,7 @@ describe("conversation turn responses", () => {
     )
     expect(previewCard).toBeVisible()
     expect(previewCard).toHaveClass("w-full", "max-w-full", "bg-transparent")
-    expect(previewSurface).toHaveClass("border-muted-foreground/15")
+    expect(previewSurface).toHaveClass("ring-muted-foreground/15")
     expect(previewCard).not.toHaveClass("resize-y", "sm:resize")
     expect(previewCard).not.toHaveClass("shadow-xs")
     expect(screen.queryByRole("tablist")).toBeNull()
@@ -845,7 +844,7 @@ describe("conversation turn responses", () => {
       expect.stringContaining("allow-same-origin")
     )
     expect(frame).not.toHaveAttribute("referrerpolicy")
-    expect(frame).toHaveAttribute("scrolling", "no")
+    expect(frame).toHaveAttribute("scrolling", "auto")
     expect(frame).toHaveClass("w-full")
     expect(frame).toHaveAttribute(
       "src",
@@ -898,14 +897,18 @@ describe("conversation turn responses", () => {
         new MessageEvent("message", {
           source: frame.contentWindow,
           data: {
-            type: assistantHtmlPreviewResizeMessageType,
+            type: "linksense:assistant-html-preview:resize",
             previewId,
             height: 1_280,
           },
         })
       )
     })
-    await waitFor(() => expect(frame).toHaveAttribute("height", "1280"))
+    expect(frame).not.toHaveAttribute("height")
+    expect(frame).toHaveClass("h-full")
+    expect(previewSurface).toHaveClass(
+      "h-[min(560px,var(--assistant-html-preview-height,70dvh))]"
+    )
 
     act(() => {
       window.dispatchEvent(
@@ -926,8 +929,8 @@ describe("conversation turn responses", () => {
       previewCard.querySelector(".assistant-html-preview-loading-surface")
     ).toBeNull()
     expect(previewSurface).not.toHaveClass(
-      "border",
-      "border-muted-foreground/15"
+      "ring-1",
+      "ring-muted-foreground/15"
     )
     expect(screen.queryByText("正在生成中，可能需要一些时间")).toBeNull()
   })

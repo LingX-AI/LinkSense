@@ -45,6 +45,7 @@ import {
 } from "../conversations/service.js";
 import { nextConversationEventSequence } from "../events/sequence.js";
 import { taskArtifactFileTypeFilter } from "./task-artifact-file-type-filter.js";
+import { getOrCreateArtifactThumbnail } from "./artifact-thumbnail.js";
 import { captureWebBundle } from "../web-sites/bundle.js";
 import type { WebBundleManifest } from "@linksense/shared";
 
@@ -1253,6 +1254,49 @@ export class FileService {
       ).toISOString(),
       filename: file.filename,
     };
+  }
+
+  async readArtifactThumbnail(
+    ownerId: string,
+    conversationId: string,
+    fileId: string,
+  ): Promise<Buffer> {
+    await this.conversations.assertOwner(ownerId, conversationId);
+    const where = {
+      id: fileId, conversationId, kind: "artifact", status: "registered",
+      downloadable: true, storageBackend: "minio",
+    };
+    const file = await this.prisma.conversationFile.findFirst({
+      where,
+      select: {
+        filename: true, mimeType: true, minioObjectKey: true,
+        sizeBytes: true, checksumSha256: true,
+      },
+    });
+    if (
+      !file || !isPreviewArtifactImageMimeType(file.mimeType) ||
+      !matchesPreviewFilename(file.filename, file.mimeType) || !file.minioObjectKey
+    ) {
+      throw new AppError("ARTIFACT_NOT_FOUND");
+    }
+    return getOrCreateArtifactThumbnail({
+      source: {
+        conversationId, fileId, objectKey: file.minioObjectKey,
+        mimeType: file.mimeType, sizeBytes: Number(file.sizeBytes),
+        checksumSha256: file.checksumSha256,
+      },
+      storage: this.storage,
+      coordinator: this.redis,
+      maximumSourceBytes: Math.min(this.config.upload.maxFileSizeBytes, 20 * 1024 * 1024),
+      assertCurrent: async () => {
+        const current = await this.prisma.conversationFile.findFirst({
+          where: { ...where, minioObjectKey: file.minioObjectKey },
+          select: { id: true },
+        });
+        if (!current) throw new AppError("ARTIFACT_NOT_FOUND");
+      },
+      scheduleRemoval: (key) => this.cleanup.enqueueObjectDelete(key),
+    });
   }
 
   /**

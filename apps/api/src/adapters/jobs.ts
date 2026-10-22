@@ -18,6 +18,7 @@ import {
 } from "./runner.js"
 import type { AuditService } from "../modules/audit/service.js"
 import { pruneExpiredCapabilityPreviews } from "../modules/capabilities/preview.js"
+import { removeConversationArtifactThumbnails } from "../modules/files/artifact-thumbnail.js"
 import { assertConversationWorkspacePath } from "../lib/user-runtime-paths.js"
 import {
   conversationPrewarmInputSchema,
@@ -442,12 +443,18 @@ export class BackgroundJobs {
       return { prewarmed: true }
     }
     if (data.type === "runtime-cleanup") {
+      const prisma = this.prisma
       const result = await executeRuntimeCleanupJob({
         runner: this.runner,
         ...(this.prisma ? { prisma: this.prisma } : {}),
         ...(this.lifecycleCoordinator ? { lifecycleCoordinator: this.lifecycleCoordinator } : {}),
         ownerId: data.ownerId,
         conversationId: data.conversationId,
+        ...(prisma ? {
+          cleanupArtifactThumbnails: () => removeConversationArtifactThumbnails(
+            prisma, this.storage, data.ownerId, data.conversationId,
+          ),
+        } : {}),
         ...(data.outboxId ? { outboxId: data.outboxId } : {}),
         ...(data.serviceSessionId ? { serviceSessionId: data.serviceSessionId } : {}),
       })
@@ -674,6 +681,7 @@ export async function executeRuntimeCleanupJob(input: {
   outboxId?: string
   serviceSessionId?: string
   now?: () => Date
+  cleanupArtifactThumbnails?: () => Promise<void>
 }): Promise<
   | { cleaned: true }
   | {
@@ -761,6 +769,11 @@ export async function executeRuntimeCleanupJob(input: {
     claim = { token, attemptCount, maxAttempts: outbox.maxAttempts }
   }
   try {
+    try {
+      await input.cleanupArtifactThumbnails?.()
+    } catch {
+      throw new RunnerRuntimeCleanupError("CLEANUP_VERIFICATION_FAILED", "verify_absent")
+    }
     if (removeServiceEnvironment) {
       const lifecycle = input.lifecycleCoordinator
       const conversations = input.prisma?.conversation

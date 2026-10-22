@@ -1,7 +1,10 @@
 import { z } from "zod"
-import type { TaskArtifactFileType } from "@linksense/shared"
+import {
+  taskArtifactThumbnail,
+  type TaskArtifactFileType,
+} from "@linksense/shared"
 
-import { apiRequest } from "@/api/client"
+import { apiRequest, downloadApiFile, ApiError } from "@/api/client"
 
 const taskArtifactSchema = z
   .object({
@@ -43,6 +46,26 @@ const artifactPreviewLinkSchema = z.object({
 
 export type TaskArtifact = z.infer<typeof taskArtifactSchema>
 export type TaskArtifactPage = z.infer<typeof taskArtifactPageSchema>
+
+export async function getTaskArtifactThumbnail(
+  file: TaskArtifact,
+  signal: AbortSignal
+): Promise<Blob> {
+  const blob = await downloadApiFile(
+    `/conversations/${file.conversation_id}/files/${file.id}/thumbnail`,
+    { revision: file.updated_at },
+    signal,
+    { cache: "default" }
+  )
+  if (
+    blob.type !== "image/webp" ||
+    blob.size === 0 ||
+    blob.size > taskArtifactThumbnail.maximumBytes
+  ) {
+    throw new ApiError({ status: 404, errorCode: "ARTIFACT_NOT_FOUND" })
+  }
+  return blob
+}
 
 export function getTaskArtifacts(input: {
   search?: string

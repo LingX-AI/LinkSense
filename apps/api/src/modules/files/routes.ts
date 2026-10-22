@@ -1,6 +1,12 @@
+import { createHash } from "node:crypto";
+
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { interactiveApplicationFileSchema, taskArtifactFileTypeSchema } from "@linksense/shared";
+import {
+  interactiveApplicationFileSchema,
+  taskArtifactFileTypeSchema,
+  taskArtifactThumbnail,
+} from "@linksense/shared";
 
 import {
   attachmentContentDisposition,
@@ -235,6 +241,25 @@ export const fileRoutes: FastifyPluginAsync<{ services: AppServices }> = async (
         fileId,
       );
       return reply.send(ok(result, request.id));
+    },
+  );
+
+  app.get(
+    "/:id/files/:fileId/thumbnail",
+    { preHandler: app.authenticate },
+    async (request, reply) => {
+      const user = (request as AuthenticatedRequest).authUser;
+      const { id, fileId } = fileParams.parse(request.params);
+      const data = await services.files.readArtifactThumbnail(user.id, id, fileId);
+      const etag = `"${createHash("sha256").update(data).digest("hex")}"`;
+      reply
+        .type("image/webp")
+        .header("cache-control", `private, max-age=${taskArtifactThumbnail.cacheMaxAgeSeconds}`)
+        .header("vary", "Authorization, Cookie")
+        .header("etag", etag)
+        .header("x-content-type-options", "nosniff");
+      if (request.headers["if-none-match"] === etag) return reply.code(304).send();
+      return reply.header("content-length", data.byteLength).send(data);
     },
   );
 
