@@ -86,7 +86,7 @@ export async function renderAssistantHtmlPreviewSnapshot(
   frame.className =
     "pointer-events-none fixed top-0 -left-[100000px] border-0 opacity-0"
   frame.width = String(snapshot.viewportWidth)
-  frame.height = String(snapshot.height)
+  frame.height = String(snapshot.viewportHeight)
   frame.tabIndex = -1
   frame.setAttribute("aria-hidden", "true")
   frame.setAttribute("sandbox", "allow-same-origin")
@@ -135,7 +135,7 @@ export async function renderAssistantHtmlPreviewSnapshot(
       signal: controller.signal,
       useCORS: true,
       width,
-      windowHeight: height,
+      windowHeight: snapshot.viewportHeight,
       windowWidth: snapshot.viewportWidth,
     })
     return await canvasToPng(canvas)

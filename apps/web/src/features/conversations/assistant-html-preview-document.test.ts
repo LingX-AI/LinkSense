@@ -6,7 +6,6 @@ import {
   assistantHtmlPreviewCaptureSnapshotMessageType,
   assistantHtmlPreviewErrorMessageType,
   assistantHtmlPreviewReadyMessageType,
-  assistantHtmlPreviewResizeMessageType,
   assistantHtmlPreviewShellInitializeMessageType,
   assistantHtmlPreviewShellReadyMessageType,
   assistantHtmlPreviewWheelMessageType,
@@ -17,7 +16,10 @@ import {
   maximumAssistantHtmlPreviewLength,
 } from "@/features/conversations/assistant-html-preview-document"
 
-afterEach(() => vi.useRealTimers())
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
 
 function createPreviewRuntime() {
   vi.useFakeTimers()
@@ -30,32 +32,13 @@ function createPreviewRuntime() {
   const frameWindow = new EventTarget()
   const postMessage = vi.fn()
   const parent = { postMessage }
-  let scheduledHeightReport: FrameRequestCallback | null = null
-  class Observer {
-    observe() {}
-  }
   new Function(
     "document",
     "window",
     "parent",
-    "MutationObserver",
-    "ResizeObserver",
-    "requestAnimationFrame",
-    "cancelAnimationFrame",
     document.querySelector("[data-linksense-preview-bootstrap]")?.textContent ??
       ""
-  )(
-    document,
-    frameWindow,
-    parent,
-    Observer,
-    undefined,
-    (callback: FrameRequestCallback) => {
-      scheduledHeightReport = callback
-      return 1
-    },
-    vi.fn()
-  )
+  )(document, frameWindow, parent)
   const sendLayout = (
     mode: unknown,
     {
@@ -73,48 +56,186 @@ function createPreviewRuntime() {
     Object.defineProperty(event, "source", { value: source })
     frameWindow.dispatchEvent(event)
   }
-  const flushHeightReport = () => {
-    const callback = scheduledHeightReport
-    scheduledHeightReport = null
-    callback?.(0)
+  const sendCapture = (requestId: string) => {
+    const event = new MessageEvent("message", {
+      data: {
+        type: assistantHtmlPreviewCaptureRequestMessageType,
+        previewId: "fullscreen-preview",
+        requestId,
+      },
+    })
+    Object.defineProperty(event, "source", { value: parent })
+    frameWindow.dispatchEvent(event)
   }
-  return { document, frameWindow, postMessage, sendLayout, flushHeightReport }
+  return { document, frameWindow, postMessage, sendLayout, sendCapture }
 }
 
 describe("assistant HTML preview document", () => {
-  it("restores authored viewport sizing in fullscreen and resumes inline height reports without replacing content", () => {
+  it("does not measure animated descendants or report their height back to the message", () => {
     const runtime = createPreviewRuntime()
-    const sizingStyle = runtime.document.querySelector<HTMLStyleElement>(
-      "[data-linksense-preview-sizing-style]"
-    )!
+    const scene = runtime.document.querySelector("main")!
+    const measure = vi
+      .spyOn(scene, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(0, 0, 800, 100_000))
+    runtime.postMessage.mockClear()
+
+    scene.style.transform = "translateY(10000px)"
+    runtime.frameWindow.dispatchEvent(new Event("resize"))
+
+    expect(measure).not.toHaveBeenCalled()
+    expect(runtime.postMessage).not.toHaveBeenCalled()
+    measure.mockRestore()
+  })
+
+  it("lets the document consume wheel movement until its own scroll boundary", () => {
+    const runtime = createPreviewRuntime()
+    const root = runtime.document.documentElement
+    root.style.overflowY = "auto"
+    Object.defineProperties(root, {
+      scrollHeight: { configurable: true, value: 1_200 },
+      clientHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, writable: true, value: 200 },
+    })
+    Object.defineProperty(runtime.document, "scrollingElement", {
+      configurable: true,
+      value: root,
+    })
+    const wheel = (deltaY = 120) => {
+      const event = new WheelEvent("wheel", {
+        cancelable: true,
+        deltaY,
+      })
+      Object.defineProperty(event, "target", {
+        value: runtime.document.querySelector("main"),
+      })
+      runtime.frameWindow.dispatchEvent(event)
+      return event
+    }
+    runtime.postMessage.mockClear()
+
+    expect(wheel().defaultPrevented).toBe(false)
+    expect(runtime.postMessage).not.toHaveBeenCalled()
+
+    root.scrollTop = 800
+    expect(wheel().defaultPrevented).toBe(true)
+    expect(runtime.postMessage).toHaveBeenLastCalledWith(
+      {
+        type: assistantHtmlPreviewWheelMessageType,
+        previewId: "fullscreen-preview",
+        deltaX: 0,
+        deltaY: 120,
+      },
+      "*"
+    )
+    expect(wheel(-120).defaultPrevented).toBe(false)
+    root.scrollTop = 0
+    expect(wheel(-120).defaultPrevented).toBe(true)
+  })
+
+  it.each([
+    { rootOverflow: "visible", bodyOverflow: "visible", consumed: true },
+    { rootOverflow: "visible", bodyOverflow: "hidden", consumed: false },
+    { rootOverflow: "visible", bodyOverflow: "clip", consumed: false },
+    { rootOverflow: "auto", bodyOverflow: "hidden", consumed: true },
+  ])(
+    "respects root $rootOverflow and body $bodyOverflow when routing document scrolling",
+    ({ rootOverflow, bodyOverflow, consumed }) => {
+      const runtime = createPreviewRuntime()
+      const root = runtime.document.documentElement
+      root.style.overflowY = rootOverflow
+      runtime.document.body.style.overflowY = bodyOverflow
+      Object.defineProperties(root, {
+        scrollHeight: { configurable: true, value: 1_200 },
+        clientHeight: { configurable: true, value: 400 },
+        scrollTop: { configurable: true, value: 200 },
+      })
+      Object.defineProperty(runtime.document, "scrollingElement", {
+        configurable: true,
+        value: root,
+      })
+      const event = new WheelEvent("wheel", { cancelable: true, deltaY: 120 })
+      Object.defineProperty(event, "target", {
+        value: runtime.document.querySelector("main"),
+      })
+      runtime.frameWindow.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(!consumed)
+      expect(root.style.overflowY).toBe(rootOverflow)
+      expect(runtime.document.body.style.overflowY).toBe(bodyOverflow)
+    }
+  )
+
+  it("forwards wheel movement at the document boundary when body overflow belongs to the viewport", () => {
+    const runtime = createPreviewRuntime()
+    const root = runtime.document.documentElement
+    root.style.overflowX = "visible"
+    root.style.overflowY = "visible"
+    runtime.document.body.style.overflowY = "auto"
+    for (const element of [root, runtime.document.body]) {
+      Object.defineProperties(element, {
+        scrollHeight: { configurable: true, value: 1_200 },
+        clientHeight: { configurable: true, value: 400 },
+        scrollTop: { configurable: true, value: element === root ? 800 : 0 },
+      })
+    }
+    Object.defineProperty(runtime.document, "scrollingElement", {
+      configurable: true,
+      value: root,
+    })
+    const event = new WheelEvent("wheel", { cancelable: true, deltaY: 120 })
+    Object.defineProperty(event, "target", {
+      value: runtime.document.querySelector("main"),
+    })
+    runtime.frameWindow.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    expect(runtime.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: assistantHtmlPreviewWheelMessageType }),
+      "*"
+    )
+  })
+
+  it("captures the original viewport separately from the full document dimensions", () => {
+    const runtime = createPreviewRuntime()
+    Object.defineProperties(runtime.document.documentElement, {
+      clientWidth: { value: 800 },
+      clientHeight: { value: 480 },
+      scrollWidth: { value: 800 },
+      scrollHeight: { value: 1_200 },
+    })
+    runtime.sendCapture("capture-1")
+    expect(runtime.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: assistantHtmlPreviewCaptureSnapshotMessageType,
+        requestId: "capture-1",
+        viewportWidth: 800,
+        viewportHeight: 480,
+        width: 800,
+        height: 1_200,
+      }),
+      "*"
+    )
+  })
+
+  it("preserves authored viewport sizing and interaction state in inline and fullscreen modes", () => {
+    const runtime = createPreviewRuntime()
     const input = runtime.document.querySelector("input")!
     input.value = "retained interaction"
     const authoredStyle =
       runtime.document.querySelector("#authored")?.textContent
 
-    runtime.sendLayout("fullscreen")
-    expect(sizingStyle.media).toBe("not all")
-    runtime.postMessage.mockClear()
-    runtime.frameWindow.dispatchEvent(new Event("resize"))
-    runtime.flushHeightReport()
-    expect(runtime.postMessage).not.toHaveBeenCalled()
-
-    runtime.sendLayout("inline")
-    expect(sizingStyle.media).toBe("")
-    runtime.flushHeightReport()
-    expect(runtime.postMessage).toHaveBeenCalledWith(
-      {
-        type: assistantHtmlPreviewResizeMessageType,
-        previewId: "fullscreen-preview",
-        height: 1,
-      },
-      "*"
-    )
-    expect(runtime.document.querySelector("input")).toBe(input)
-    expect(input.value).toBe("retained interaction")
-    expect(runtime.document.querySelector("#authored")?.textContent).toBe(
-      authoredStyle
-    )
+    for (const mode of ["inline", "fullscreen", "inline"]) {
+      runtime.sendLayout(mode)
+      expect(
+        runtime.document.querySelector("[data-linksense-preview-sizing-style]")
+      ).toBeNull()
+      expect(runtime.document.querySelector("input")).toBe(input)
+      expect(input.value).toBe("retained interaction")
+      expect(runtime.document.querySelector("#authored")?.textContent).toBe(
+        authoredStyle
+      )
+      expect(
+        runtime.document.querySelector("main")?.getAttribute("class")
+      ).toBe("min-h-screen")
+    }
   })
 
   it("allows native document scrolling in fullscreen and forwards wheel events again after returning inline", () => {
@@ -149,19 +270,25 @@ describe("assistant HTML preview document", () => {
 
   it("ignores layout changes from another window, a different preview, or an invalid mode", () => {
     const runtime = createPreviewRuntime()
-    const sizingStyle = runtime.document.querySelector<HTMLStyleElement>(
-      "[data-linksense-preview-sizing-style]"
-    )!
     runtime.sendLayout("fullscreen")
-    expect(sizingStyle.media).toBe("not all")
 
     runtime.sendLayout("inline", { source: {} })
     runtime.sendLayout("inline", { previewId: "another-preview" })
     for (const mode of [null, true, "other", {}]) runtime.sendLayout(mode)
 
-    expect(sizingStyle.media).toBe("not all")
+    const fullscreenWheel = new WheelEvent("wheel", {
+      cancelable: true,
+      deltaY: 120,
+    })
+    runtime.frameWindow.dispatchEvent(fullscreenWheel)
+    expect(fullscreenWheel.defaultPrevented).toBe(false)
     runtime.sendLayout("inline")
-    expect(sizingStyle.media).toBe("")
+    const inlineWheel = new WheelEvent("wheel", {
+      cancelable: true,
+      deltaY: 120,
+    })
+    runtime.frameWindow.dispatchEvent(inlineWheel)
+    expect(inlineWheel.defaultPrevented).toBe(true)
   })
 
   it.each(["loading", "interactive", "complete"] as const)(
@@ -255,13 +382,10 @@ describe("assistant HTML preview document", () => {
     expect(bootstrap?.textContent).toContain(
       JSON.stringify(assistantHtmlPreviewErrorMessageType)
     )
-    expect(bootstrap?.textContent).toContain(
-      JSON.stringify(assistantHtmlPreviewResizeMessageType)
-    )
-    expect(bootstrap?.textContent).toContain("ResizeObserver")
+    expect(bootstrap?.textContent).not.toContain("ResizeObserver")
+    expect(bootstrap?.textContent).not.toContain("MutationObserver")
     expect(bootstrap?.textContent).toContain("scrollHeight")
-    expect(bootstrap?.textContent).toContain("min-h-screen")
-    expect(bootstrap?.textContent).toContain(
+    expect(bootstrap?.textContent).not.toContain(
       "data-linksense-preview-sizing-style"
     )
     expect(bootstrap?.textContent).toContain('addEventListener("wheel"')
@@ -304,7 +428,7 @@ describe("assistant HTML preview document", () => {
     ).toBeNull()
   })
 
-  it("accepts only scoped lifecycle, resize, and wheel messages", () => {
+  it("accepts only scoped lifecycle, capture, and wheel messages", () => {
     expect(
       isAssistantHtmlPreviewFrameMessage(
         {
@@ -335,6 +459,7 @@ describe("assistant HTML preview document", () => {
           requestId: "capture-1",
           html: "<!doctype html><html><body>Preview</body></html>",
           viewportWidth: 1_200,
+          viewportHeight: 480,
           width: 1_200,
           height: 800,
         },
@@ -351,6 +476,7 @@ describe("assistant HTML preview document", () => {
             maximumAssistantHtmlPreviewCaptureSnapshotLength + 1
           ),
           viewportWidth: 1_200,
+          viewportHeight: 480,
           width: 1_200,
           height: 800,
         },
@@ -370,17 +496,17 @@ describe("assistant HTML preview document", () => {
     expect(
       isAssistantHtmlPreviewFrameMessage(
         {
-          type: assistantHtmlPreviewResizeMessageType,
+          type: "linksense:assistant-html-preview:resize",
           previewId: "preview-1",
           height: 1_280,
         },
         "preview-1"
       )
-    ).toBe(true)
+    ).toBe(false)
     expect(
       isAssistantHtmlPreviewFrameMessage(
         {
-          type: assistantHtmlPreviewResizeMessageType,
+          type: "linksense:assistant-html-preview:resize",
           previewId: "preview-1",
           height: Number.POSITIVE_INFINITY,
         },
@@ -442,6 +568,27 @@ describe("assistant HTML preview document", () => {
       )
     ).toBe(false)
   })
+
+  it.each([undefined, 0, -1, 100_001, Number.POSITIVE_INFINITY])(
+    "rejects capture snapshots with an invalid viewport height %s",
+    (viewportHeight) => {
+      expect(
+        isAssistantHtmlPreviewFrameMessage(
+          {
+            type: assistantHtmlPreviewCaptureSnapshotMessageType,
+            previewId: "preview-1",
+            requestId: "capture-1",
+            html: "<!doctype html><html><body>Preview</body></html>",
+            viewportWidth: 800,
+            viewportHeight,
+            width: 800,
+            height: 1_200,
+          },
+          "preview-1"
+        )
+      ).toBe(false)
+    }
+  )
 
   it("rejects oversized message previews before sanitization", () => {
     expect(() =>

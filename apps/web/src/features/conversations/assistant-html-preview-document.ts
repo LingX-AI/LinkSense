@@ -10,8 +10,6 @@ export const assistantHtmlPreviewReadyMessageType =
   "linksense:assistant-html-preview:ready"
 export const assistantHtmlPreviewErrorMessageType =
   "linksense:assistant-html-preview:error"
-export const assistantHtmlPreviewResizeMessageType =
-  "linksense:assistant-html-preview:resize"
 export const assistantHtmlPreviewWheelMessageType =
   "linksense:assistant-html-preview:wheel"
 export const assistantHtmlPreviewLayoutMessageType =
@@ -27,56 +25,15 @@ export const assistantHtmlPreviewCaptureSnapshotMessageType =
 export const assistantHtmlPreviewCaptureErrorMessageType =
   "linksense:assistant-html-preview:capture-error"
 export const maximumAssistantHtmlPreviewLength = 256 * 1024
-export const maximumAssistantHtmlPreviewHeight = 100_000
+const maximumAssistantHtmlPreviewCaptureDimension = 100_000
 export const maximumAssistantHtmlPreviewWheelDelta = 10_000
 export const maximumAssistantHtmlPreviewCaptureSnapshotLength = 4 * 1024 * 1024
-
-const assistantHtmlPreviewSizingCss = `
-html[data-linksense-assistant-preview-root="true"],
-html[data-linksense-assistant-preview-root="true"] body {
-  height: auto !important;
-  min-height: 0 !important;
-  overflow: visible !important;
-}
-
-html[data-linksense-assistant-preview-root="true"] body > :is(
-  [class~="h-screen"],
-  [class~="min-h-screen"],
-  [class~="h-dvh"],
-  [class~="min-h-dvh"],
-  [class~="h-svh"],
-  [class~="min-h-svh"],
-  [class~="h-lvh"],
-  [class~="min-h-lvh"],
-  [class*=":h-screen"],
-  [class*=":min-h-screen"],
-  [class*=":h-dvh"],
-  [class*=":min-h-dvh"],
-  [class*=":h-svh"],
-  [class*=":min-h-svh"],
-  [class*=":h-lvh"],
-  [class*=":min-h-lvh"],
-  [style*="100vh" i],
-  [style*="100dvh" i],
-  [style*="100svh" i],
-  [style*="100lvh" i]
-) {
-  height: auto !important;
-  min-height: 0 !important;
-}
-`
 
 type AssistantHtmlPreviewLifecycleMessage = Readonly<{
   type:
     | typeof assistantHtmlPreviewReadyMessageType
     | typeof assistantHtmlPreviewErrorMessageType
   previewId: string
-}>
-
-type AssistantHtmlPreviewResizeMessage = Readonly<{
-  type: typeof assistantHtmlPreviewResizeMessageType
-  previewId: string
-  height: number
 }>
 
 type AssistantHtmlPreviewWheelMessage = Readonly<{
@@ -89,6 +46,7 @@ type AssistantHtmlPreviewWheelMessage = Readonly<{
 export type AssistantHtmlPreviewCaptureSnapshot = Readonly<{
   html: string
   viewportWidth: number
+  viewportHeight: number
   width: number
   height: number
 }>
@@ -109,7 +67,6 @@ type AssistantHtmlPreviewCaptureErrorMessage = Readonly<{
 
 export type AssistantHtmlPreviewFrameMessage =
   | AssistantHtmlPreviewLifecycleMessage
-  | AssistantHtmlPreviewResizeMessage
   | AssistantHtmlPreviewWheelMessage
   | AssistantHtmlPreviewCaptureSnapshotMessage
   | AssistantHtmlPreviewCaptureErrorMessage
@@ -121,11 +78,6 @@ const assistantHtmlPreviewFrameMessageSchema = z.discriminatedUnion("type", [
       z.literal(assistantHtmlPreviewErrorMessageType),
     ]),
     previewId: z.string().min(1).max(256),
-  }),
-  z.object({
-    type: z.literal(assistantHtmlPreviewResizeMessageType),
-    previewId: z.string().min(1).max(256),
-    height: z.number().int().positive().max(maximumAssistantHtmlPreviewHeight),
   }),
   z.object({
     type: z.literal(assistantHtmlPreviewWheelMessageType),
@@ -151,9 +103,22 @@ const assistantHtmlPreviewFrameMessageSchema = z.discriminatedUnion("type", [
       .number()
       .int()
       .positive()
-      .max(maximumAssistantHtmlPreviewHeight),
-    width: z.number().int().positive().max(maximumAssistantHtmlPreviewHeight),
-    height: z.number().int().positive().max(maximumAssistantHtmlPreviewHeight),
+      .max(maximumAssistantHtmlPreviewCaptureDimension),
+    viewportHeight: z
+      .number()
+      .int()
+      .positive()
+      .max(maximumAssistantHtmlPreviewCaptureDimension),
+    width: z
+      .number()
+      .int()
+      .positive()
+      .max(maximumAssistantHtmlPreviewCaptureDimension),
+    height: z
+      .number()
+      .int()
+      .positive()
+      .max(maximumAssistantHtmlPreviewCaptureDimension),
   }),
   z.object({
     type: z.literal(assistantHtmlPreviewCaptureErrorMessageType),
@@ -183,73 +148,58 @@ function buildAssistantHtmlPreviewBootstrap(previewId: string) {
   const previewId = ${JSON.stringify(previewId)};
   const readyType = ${JSON.stringify(assistantHtmlPreviewReadyMessageType)};
   const errorType = ${JSON.stringify(assistantHtmlPreviewErrorMessageType)};
-  const resizeType = ${JSON.stringify(assistantHtmlPreviewResizeMessageType)};
   const wheelType = ${JSON.stringify(assistantHtmlPreviewWheelMessageType)};
   const layoutType = ${JSON.stringify(assistantHtmlPreviewLayoutMessageType)};
   const captureRequestType = ${JSON.stringify(assistantHtmlPreviewCaptureRequestMessageType)};
   const captureSnapshotType = ${JSON.stringify(assistantHtmlPreviewCaptureSnapshotMessageType)};
   const captureErrorType = ${JSON.stringify(assistantHtmlPreviewCaptureErrorMessageType)};
-  const maximumHeight = ${maximumAssistantHtmlPreviewHeight};
+  const maximumCaptureDimension = ${maximumAssistantHtmlPreviewCaptureDimension};
   const maximumWheelDelta = ${maximumAssistantHtmlPreviewWheelDelta};
   const maximumCaptureSnapshotLength = ${maximumAssistantHtmlPreviewCaptureSnapshotLength};
   const loadingAttribute = "data-linksense-assistant-preview-loading";
   let settled = false;
-  let heightObserver;
-  let contentObserver;
-  let heightFrame = 0;
-  let lastHeight = 0;
   let fullscreen = false;
   let timeout;
 
   document.documentElement.setAttribute(loadingAttribute, "true");
-  document.documentElement.setAttribute(
-    "data-linksense-assistant-preview-root",
-    "true"
-  );
   const loadingStyle = document.createElement("style");
   loadingStyle.setAttribute("data-linksense-assistant-preview-loading-style", "true");
   loadingStyle.textContent =
     "html[" + loadingAttribute + "] body { visibility: hidden !important; }";
   document.head.append(loadingStyle);
 
-  const sizingStyle = document.createElement("style");
-  sizingStyle.setAttribute("data-linksense-preview-sizing-style", "true");
-  sizingStyle.textContent = ${JSON.stringify(assistantHtmlPreviewSizingCss)};
-  document.head.append(sizingStyle);
-
-  const readDocumentHeight = () => {
-    const body = document.body;
-    if (!body) return 1;
-    const bodyBounds = body.getBoundingClientRect();
-    const bodyStyle = getComputedStyle(body);
-    let bottom = Math.max(bodyBounds.bottom, body.offsetTop + body.offsetHeight);
-    for (const element of body.querySelectorAll("*")) {
-      const bounds = element.getBoundingClientRect();
-      if (bounds.width === 0 && bounds.height === 0) continue;
-      const style = getComputedStyle(element);
-      if (style.display === "none" || style.visibility === "hidden") continue;
-      const marginBottom = Number.parseFloat(style.marginBottom) || 0;
-      bottom = Math.max(bottom, bounds.bottom + marginBottom);
-    }
-    const bodyMarginBottom = Number.parseFloat(bodyStyle.marginBottom) || 0;
-    return Math.min(
-      maximumHeight,
-      Math.max(1, Math.ceil(bottom + bodyMarginBottom))
-    );
-  };
-
   const canScrollInDirection = (target, deltaX, deltaY) => {
     let element = target instanceof Element ? target : target?.parentElement;
-    while (element && element !== document.body) {
-      const style = getComputedStyle(element);
+    const scrollRoot = document.scrollingElement || document.documentElement;
+    const rootStyle = getComputedStyle(scrollRoot);
+    const bodyOverflowIsViewport = scrollRoot === document.documentElement &&
+      (!rootStyle.overflowX || rootStyle.overflowX === "visible") &&
+      (!rootStyle.overflowY || rootStyle.overflowY === "visible");
+    while (element) {
+      const isRoot = element === scrollRoot;
+      if (element === document.body && !isRoot && bodyOverflowIsViewport) {
+        // Propagated body overflow does not create a second scroll container.
+        element = element.parentElement;
+        continue;
+      }
+      const style = isRoot ? rootStyle : getComputedStyle(element);
+      // A visible root propagates body overflow to the viewport. Its default
+      // visible overflow scrolls, but authored hidden/clip must stay respected.
+      const bodyStyle = isRoot && bodyOverflowIsViewport && document.body
+        ? getComputedStyle(document.body)
+        : null;
+      const overflowY = bodyStyle?.overflowY || style.overflowY;
+      const overflowX = bodyStyle?.overflowX || style.overflowX;
       const canScrollY =
-        /(auto|scroll|overlay)/.test(style.overflowY) &&
+        (/(auto|scroll|overlay)/.test(overflowY) ||
+          (isRoot && !/(hidden|clip)/.test(overflowY))) &&
         element.scrollHeight > element.clientHeight + 1 &&
         ((deltaY < 0 && element.scrollTop > 0) ||
           (deltaY > 0 &&
             element.scrollTop + element.clientHeight < element.scrollHeight - 1));
       const canScrollX =
-        /(auto|scroll|overlay)/.test(style.overflowX) &&
+        (/(auto|scroll|overlay)/.test(overflowX) ||
+          (isRoot && !/(hidden|clip)/.test(overflowX))) &&
         element.scrollWidth > element.clientWidth + 1 &&
         ((deltaX < 0 && element.scrollLeft > 0) ||
           (deltaX > 0 &&
@@ -409,15 +359,19 @@ function buildAssistantHtmlPreviewBootstrap(previewId: string) {
     return {
       html,
       viewportWidth: Math.min(
-        maximumHeight,
+        maximumCaptureDimension,
         Math.max(1, Math.ceil(root.clientWidth || window.innerWidth || 0))
       ),
+      viewportHeight: Math.min(
+        maximumCaptureDimension,
+        Math.max(1, Math.ceil(root.clientHeight || window.innerHeight || 0))
+      ),
       width: Math.min(
-        maximumHeight,
+        maximumCaptureDimension,
         Math.max(1, Math.ceil(Math.max(root.scrollWidth, body?.scrollWidth || 0)))
       ),
       height: Math.min(
-        maximumHeight,
+        maximumCaptureDimension,
         Math.max(1, Math.ceil(Math.max(root.scrollHeight, body?.scrollHeight || 0)))
       ),
     };
@@ -450,14 +404,7 @@ function buildAssistantHtmlPreviewBootstrap(previewId: string) {
     }
     if (message.type === layoutType) {
       if (message.mode !== "inline" && message.mode !== "fullscreen") return;
-      const nextFullscreen = message.mode === "fullscreen";
-      if (fullscreen === nextFullscreen) return;
-      fullscreen = nextFullscreen;
-      // Auto-height overrides belong only to the embedded chat preview.
-      // Keep the live document and let its authored viewport layout run in fullscreen.
-      sizingStyle.media = fullscreen ? "not all" : "";
-      lastHeight = 0;
-      scheduleHeightReport();
+      fullscreen = message.mode === "fullscreen";
       return;
     }
     if (
@@ -471,46 +418,12 @@ function buildAssistantHtmlPreviewBootstrap(previewId: string) {
     capturePreview(message.requestId);
   });
 
-  const reportHeight = () => {
-    if (fullscreen) return;
-    const height = readDocumentHeight();
-    if (height === lastHeight) return;
-    lastHeight = height;
-    parent.postMessage({ type: resizeType, previewId, height }, "*");
-  };
-
-  const scheduleHeightReport = () => {
-    if (heightFrame) cancelAnimationFrame(heightFrame);
-    heightFrame = requestAnimationFrame(() => {
-      heightFrame = 0;
-      reportHeight();
-    });
-  };
-
-  const observeHeight = () => {
-    reportHeight();
-    if (typeof ResizeObserver === "function") {
-      heightObserver = new ResizeObserver(scheduleHeightReport);
-      heightObserver.observe(document.documentElement);
-      if (document.body) heightObserver.observe(document.body);
-    }
-    contentObserver = new MutationObserver(scheduleHeightReport);
-    contentObserver.observe(document.documentElement, {
-      attributes: true,
-      childList: true,
-      characterData: true,
-      subtree: true,
-    });
-    window.addEventListener("resize", scheduleHeightReport);
-  };
-
   const finish = (type) => {
     if (settled) return;
     settled = true;
     clearTimeout(timeout);
     if (type === readyType) {
       document.documentElement.removeAttribute(loadingAttribute);
-      observeHeight();
     }
     parent.postMessage({ type, previewId }, "*");
   };
