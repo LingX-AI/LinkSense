@@ -769,6 +769,11 @@ function installApiMock(options?: {
           data: automationCompletionNotification,
         })
       }
+      if (
+        path === "/api/v1/automations/notification-targets" &&
+        method === "GET"
+      )
+        return json({ success: true, data: { items: [] } })
       if (path === "/api/v1/automations/pinned-tasks" && method === "GET") {
         return json({ success: true, data: { items: [] } })
       }
