@@ -1660,6 +1660,7 @@ export class AppServerProcessPool {
               LINKSENSE_APPLICATION_BUILDER_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-application-builder/${input.conversationId}`,
               LINKSENSE_APPLICATION_BUILDER_TOKEN: skillCreatorToken,
               LINKSENSE_CURRENT_USER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/info`,
+              LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/referenced-conversation`,
               LINKSENSE_CURRENT_USER_TOKEN: currentUserToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
               LINKSENSE_CONNECTION_TOKEN: connectionToken,
@@ -3774,6 +3775,7 @@ export class AppServerProcessPool {
               LINKSENSE_APPLICATION_BUILDER_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-application-builder/${input.conversationId}`,
               LINKSENSE_APPLICATION_BUILDER_TOKEN: skillCreatorToken,
               LINKSENSE_CURRENT_USER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/info`,
+              LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/referenced-conversation`,
               LINKSENSE_CURRENT_USER_TOKEN: currentUserToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
               LINKSENSE_CONNECTION_TOKEN: connectionToken,
@@ -4440,6 +4442,13 @@ export class AppServerProcessPool {
       conversationId,
       turnId: managed.activeProjectionTurnId,
     });
+  }
+
+  async readConversationReference(conversationId: string, token: string, input: import("@linksense/shared").ReadConversationReferenceInput): Promise<unknown> {
+    const managed = this.processes.get(conversationId);
+    if (!managed?.activeTurnId || !managed.activeProjectionTurnId || !safeTokenEqual(token, managed.currentUserToken)) throw new ConversationReferenceRequestError(403);
+    if (!this.options.eventSink.readConversationReference) throw new ConversationReferenceRequestError(503);
+    return this.options.eventSink.readConversationReference({ conversationId, turnId: managed.activeProjectionTurnId, input });
   }
 
   async accessConnection(
@@ -8218,3 +8227,4 @@ function assertSteerOperationMatches(
     throw new SteerOperationIdempotencyConflictError();
   }
 }
+import { ConversationReferenceRequestError } from "./conversation-reference-error.js";

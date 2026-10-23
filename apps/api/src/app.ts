@@ -573,6 +573,7 @@ export async function buildApi(
   await app.register(siteIconRoutes, { prefix: "/api/v1", services });
   await app.register(externalImageRoutes, { prefix: "/api/v1", services });
   await app.register(internalRunnerRoutes, { prefix: "/internal", services });
+  await app.register(internalConversationReferenceRoutes, { prefix: "/internal", prisma: services.prisma, sharedSecret: services.config.runnerSharedSecret });
   await app.register(internalSkillCreatorRoutes, {
     prefix: "/internal/skill-creator",
     service: services.skillCreator,
@@ -801,3 +802,4 @@ function createAuthService(
     audit: services.audit,
   });
 }
+import { internalConversationReferenceRoutes } from "./modules/conversations/reference-routes.js";
