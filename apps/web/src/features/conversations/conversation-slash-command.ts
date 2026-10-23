@@ -59,3 +59,25 @@ export function removeConversationSkillCommandTrigger(
 ) {
   return `${value.slice(0, trigger.start)}${value.slice(trigger.end)}`
 }
+export type ConversationTaskReferenceTrigger = ConversationSlashCommandTrigger
+
+export function findConversationTaskReferenceTrigger(
+  value: string,
+  caret = value.length
+): ConversationTaskReferenceTrigger | null {
+  if (!Number.isInteger(caret) || caret < 0 || caret > value.length) return null
+  const match = /(^|\s)@([^\n@]*)$/u.exec(value.slice(0, caret))
+  if (!match || (match[2]?.length ?? 0) > 240) return null
+  return {
+    start: match.index + (match[1]?.length ?? 0),
+    end: caret,
+    query: match[2] ?? "",
+  }
+}
+
+export function removeConversationTaskReferenceTrigger(
+  value: string,
+  trigger: ConversationTaskReferenceTrigger
+): string {
+  return `${value.slice(0, trigger.start)}${value.slice(trigger.end)}`
+}

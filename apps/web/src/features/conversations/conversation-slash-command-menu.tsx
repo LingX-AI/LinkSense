@@ -1,4 +1,9 @@
-import { Fragment, forwardRef, useMemo, type ReactNode } from "react"
+import { Fragment, forwardRef, useMemo, useState, type ReactNode } from "react"
+import { maximumConversationReferences } from "@linksense/shared"
+import {
+  useTaskReferenceOptions,
+  type TaskReference,
+} from "./task-reference-data"
 import {
   AppWindowIcon,
   BlocksIcon,
@@ -440,6 +445,110 @@ export const ConversationSkillCommandMenu = forwardRef<
           />
         </CommandList>
       </Command>
+    </div>
+  )
+})
+
+export const ConversationTaskReferenceCommandMenu = forwardRef<
+  HTMLDivElement,
+  {
+    id: string
+    query: string
+    currentConversationId?: string
+    selected: TaskReference[]
+    onSelect: (task: TaskReference) => void
+  }
+>(function ConversationTaskReferenceCommandMenu(
+  { id, query: search, currentConversationId, selected, onSelect },
+  ref
+) {
+  const { t } = useTranslation()
+  const [archived, setArchived] = useState(false)
+  const query = useTaskReferenceOptions(currentConversationId, search, archived)
+  const tasks = query.items.filter(
+    (task) => !selected.some((item) => item.id === task.id)
+  )
+  const scope = `${archived}:${search}`
+  const [active, setActive] = useState({ scope: "", value: "" })
+  // Async results must become the default choice ahead of footer actions.
+  const activeValue =
+    active.scope === scope &&
+    (tasks.some((task) => task.id === active.value) ||
+      ["toggle-archive", "load-more"].includes(active.value))
+      ? active.value
+      : (tasks[0]?.id ?? "toggle-archive")
+  return (
+    <div
+      ref={ref}
+      id={id}
+      className="composer-slash-menu"
+      data-panel="task-references"
+    >
+      <Command
+        loop
+        shouldFilter={false}
+        value={activeValue}
+        onValueChange={(value) => {
+          if (!query.isPending) setActive({ scope, value })
+        }}
+        className="composer-slash-command"
+        aria-label={t("taskReferences.title")}
+        onMouseDown={(event) => event.preventDefault()}
+      >
+        <CommandList className="composer-slash-list">
+          <CommandGroup heading={t("taskReferences.title")}>
+            {query.isPending && <SlashLoadingState />}
+            {query.isError && (
+              <SlashErrorState
+                message={getErrorMessage(query.error, t)}
+                onRetry={() => void query.refetch()}
+              />
+            )}
+            {!query.isPending && !query.isError && tasks.length === 0 && (
+              <p className="composer-slash-state" role="status">
+                {t("taskReferences.empty")}
+              </p>
+            )}
+            {tasks.map((task) => (
+              <CommandItem
+                key={task.id}
+                value={task.id}
+                className="composer-slash-detail-item"
+                disabled={selected.length >= maximumConversationReferences}
+                onSelect={() => onSelect({ id: task.id, title: task.title })}
+              >
+                <span className="composer-slash-item-copy">
+                  <span className="composer-slash-item-title">
+                    {task.title}
+                  </span>
+                </span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+          <CommandGroup>
+            {query.hasNextPage && (
+              <CommandItem
+                value="load-more"
+                disabled={query.isFetchingNextPage}
+                onSelect={() => void query.fetchNextPage()}
+              >
+                {t("taskReferences.more")}
+              </CommandItem>
+            )}
+            <CommandItem
+              value="toggle-archive"
+              onSelect={() => setArchived((value) => !value)}
+            >
+              {t(
+                archived ? "taskReferences.active" : "taskReferences.archived"
+              )}
+            </CommandItem>
+          </CommandGroup>
+        </CommandList>
+      </Command>
+      <p className="px-3 py-2 text-xs text-muted-foreground" role="status">
+        {t("taskReferences.limit", { count: selected.length })}
+      </p>
     </div>
   )
 })
