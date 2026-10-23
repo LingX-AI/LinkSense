@@ -2358,15 +2358,23 @@ async function copyTextToClipboard(content: string) {
 
 function getOfficeAnnotationDisplay(
   value: unknown
-): Exclude<OfficeAnnotationDisplay, { kind: "conversation_reference" }> | null {
+): Exclude<
+  OfficeAnnotationDisplay,
+  { kind: "conversation_reference" | "task_references" }
+> | null {
   const parsed = officeAnnotationDisplaySchema.safeParse(value)
-  return parsed.success && parsed.data.kind !== "conversation_reference"
+  return parsed.success &&
+    parsed.data.kind !== "conversation_reference" &&
+    parsed.data.kind !== "task_references"
     ? parsed.data
     : null
 }
 
 function officeAnnotationCardItems(
-  display: Exclude<OfficeAnnotationDisplay, { kind: "conversation_reference" }>,
+  display: Exclude<
+    OfficeAnnotationDisplay,
+    { kind: "conversation_reference" | "task_references" }
+  >,
   t: TFunction
 ): ReadonlyArray<Readonly<{ request: string; locationLabel: string }>> {
   if (display.kind === "presentation_annotation") {
@@ -2794,6 +2802,22 @@ const Message = memo(function Message({
           onPreviewImage={onPreviewImage}
           onPreviewFile={onPreviewOfficeDocument}
         />
+      )}
+      {user && message.display?.kind === "task_references" && !editing && (
+        <div
+          className="mb-2 flex flex-wrap gap-1 text-xs"
+          aria-label={t("taskReferences.source")}
+        >
+          {message.display.sources.map((source) => (
+            <Link
+              key={source.id}
+              className="max-w-64 truncate rounded-md border bg-muted px-2 py-1 text-muted-foreground hover:text-foreground"
+              to={`/conversations/${source.id}`}
+            >
+              {source.title}
+            </Link>
+          ))}
+        </div>
       )}
       {user &&
         message.display?.kind === "conversation_reference" &&

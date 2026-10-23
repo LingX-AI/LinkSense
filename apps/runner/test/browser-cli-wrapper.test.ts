@@ -752,7 +752,8 @@ describe("managed browser CLI", () => {
     await writeFile(
       command,
       [
-        `#!${process.execPath} --import=${import.meta.resolve("tsx")}`,
+        // fnm's real Node path can contain spaces; resolve the interpreter via PATH.
+        `#!/usr/bin/env -S node --import=${import.meta.resolve("tsx")}`,
         `import { writeFile } from "node:fs/promises";`,
         `import { browserCliMain } from ${JSON.stringify(wrapperUrl.href)};`,
         `process.exitCode = await browserCliMain(process.argv.slice(2), process.env, process.cwd(), {`,

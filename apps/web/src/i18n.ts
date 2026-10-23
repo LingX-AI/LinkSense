@@ -1,4 +1,5 @@
 import { automationNotificationMessages } from "@/features/conversations/automation-notification-messages"
+import { taskReferenceMessages } from "@/features/conversations/task-reference-messages"
 import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
 import {
@@ -69,6 +70,7 @@ void i18n.use(initReactI18next).init({
       translation: {
         ...zhCN,
         automationNotifications: automationNotificationMessages["zh-CN"],
+        taskReferences: taskReferenceMessages["zh-CN"],
         applicationSetup: applicationSetupMessages["zh-CN"],
         onboarding: onboardingMessages["zh-CN"],
         auditValues: auditTranslationResource("zh-CN"),
@@ -78,6 +80,7 @@ void i18n.use(initReactI18next).init({
       translation: {
         ...enUS,
         automationNotifications: automationNotificationMessages["en-US"],
+        taskReferences: taskReferenceMessages["en-US"],
         applicationSetup: applicationSetupMessages["en-US"],
         onboarding: onboardingMessages["en-US"],
         auditValues: auditTranslationResource("en-US"),
@@ -87,6 +90,7 @@ void i18n.use(initReactI18next).init({
       translation: {
         ...esES,
         automationNotifications: automationNotificationMessages["es-ES"],
+        taskReferences: taskReferenceMessages["es-ES"],
         applicationSetup: applicationSetupMessages["es-ES"],
         onboarding: onboardingMessages["es-ES"],
         auditValues: auditTranslationResource("es-ES"),
@@ -96,6 +100,7 @@ void i18n.use(initReactI18next).init({
       translation: {
         ...ptBR,
         automationNotifications: automationNotificationMessages["pt-BR"],
+        taskReferences: taskReferenceMessages["pt-BR"],
         applicationSetup: applicationSetupMessages["pt-BR"],
         onboarding: onboardingMessages["pt-BR"],
         auditValues: auditTranslationResource("pt-BR"),
@@ -105,6 +110,7 @@ void i18n.use(initReactI18next).init({
       translation: {
         ...frFR,
         automationNotifications: automationNotificationMessages["fr-FR"],
+        taskReferences: taskReferenceMessages["fr-FR"],
         applicationSetup: applicationSetupMessages["fr-FR"],
         onboarding: onboardingMessages["fr-FR"],
         auditValues: auditTranslationResource("fr-FR"),
@@ -114,6 +120,7 @@ void i18n.use(initReactI18next).init({
       translation: {
         ...jaJP,
         automationNotifications: automationNotificationMessages["ja-JP"],
+        taskReferences: taskReferenceMessages["ja-JP"],
         applicationSetup: applicationSetupMessages["ja-JP"],
         onboarding: onboardingMessages["ja-JP"],
         auditValues: auditTranslationResource("ja-JP"),

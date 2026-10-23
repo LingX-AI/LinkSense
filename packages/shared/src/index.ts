@@ -73,3 +73,4 @@ export * from "./connections.js";
 export * from "./conversation-side-chat.js";
 export * from "./connection-plugins.js";
 export * from "./workspace-connections.js";
+export * from "./conversation-references.js";
