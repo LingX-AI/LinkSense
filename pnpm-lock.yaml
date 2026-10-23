@@ -16,6 +16,7 @@ overrides:
   basic-ftp@<6.2.1: 6.2.1
   brace-expansion@<5.0.11: 5.0.11
   deepmerge-ts@<8.0.2: 8.0.2
+  dompurify@<3.4.17: 3.4.17
   fast-uri@>=3.0.0 <3.1.7: 3.1.7
   fast-uri@>=4.0.0 <4.1.4: 4.1.4
   fast-jwt@<6.3.1: 6.3.1
@@ -628,8 +629,8 @@ importers:
         specifier: 2.0.2
         version: 2.0.2
       dompurify:
-        specifier: 3.4.14
-        version: 3.4.14
+        specifier: 3.4.17
+        version: 3.4.17
       fast-xml-parser:
         specifier: ^5.10.1
         version: 5.10.1
@@ -6478,8 +6479,8 @@ packages:
     resolution: {integrity: sha512-cgwlv/1iFQiFnU96XXgROh8xTeetsnJiDsTc7TYCLFd9+/WNkIqPTxiM/8pSd8VIrhXGTf1Ny1q1hquVqDJB5w==}
     engines: {node: '>= 4'}
 
-  dompurify@3.4.14:
-    resolution: {integrity: sha512-dVoH9z+MY+C9IilgGCk3YfFqjLi3fChm2OiKJMzh6axrJ5qwxqWaZamgmHrpv22CN/KdbZJuGEGgfQoL00LTdg==}
+  dompurify@3.4.17:
+    resolution: {integrity: sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w==}
 
   domutils@2.8.0:
     resolution: {integrity: sha512-w96Cjofp72M5IIhpjgobBimYEfoPjx1Vx0BSX9P30WBdZW2WIKU0T1Bd0kz2eNZ9ikjKgHbEyKx8BB6H1L3h3A==}
@@ -14492,7 +14493,7 @@ snapshots:
   '@eigenpal/docx-editor-core@1.9.0(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.3)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.42.3)':
     dependencies:
       docxtemplater: 3.69.0
-      dompurify: 3.4.14
+      dompurify: 3.4.17
       jszip: 3.10.1
       pizzip: 3.2.0
       prosemirror-commands: 1.7.1
@@ -14803,7 +14804,7 @@ snapshots:
 
   '@file-viewer/doc@2.3.1':
     dependencies:
-      dompurify: 3.4.14
+      dompurify: 3.4.17
 
   '@file-viewer/docx@0.3.26':
     dependencies:
@@ -18732,7 +18733,7 @@ snapshots:
     dependencies:
       domelementtype: 2.3.0
 
-  dompurify@3.4.14:
+  dompurify@3.4.17:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
@@ -20447,7 +20448,7 @@ snapshots:
     optionalDependencies:
       canvg: 3.0.11
       core-js: 3.49.0
-      dompurify: 3.4.14
+      dompurify: 3.4.17
       html2canvas: 1.4.1
 
   jszip@3.10.1:
@@ -21023,7 +21024,7 @@ snapshots:
       d3-sankey: 0.12.3
       dagre-d3-es: 7.0.14
       dayjs: 1.11.21
-      dompurify: 3.4.14
+      dompurify: 3.4.17
       es-toolkit: 1.50.0
       fastdom: 1.0.12
       katex: 0.16.47
@@ -21049,7 +21050,7 @@ snapshots:
       d3-sankey: 0.12.3
       dagre-d3-es: 7.0.14
       dayjs: 1.11.21
-      dompurify: 3.4.14
+      dompurify: 3.4.17
       elkjs: 0.9.3
       es-toolkit: 1.50.0
       katex: 0.16.47
@@ -22502,7 +22503,7 @@ snapshots:
   pptx-react-viewer@1.17.0(patch_hash=e27c36014491f63b3c876bf880e4ed3dfb3e9755da8a228b317c546c7d976ce2)(fast-xml-parser@5.10.1)(framer-motion@12.42.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(i18next@26.3.6(typescript@6.0.3))(jspdf@4.2.1)(jszip@3.10.1)(lucide-react@1.24.0(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react-i18next@17.0.9(i18next@26.3.6(typescript@6.0.3))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(typescript@6.0.3))(react-icons@5.7.0(react@19.2.7))(react@19.2.7):
     dependencies:
       clsx: 2.1.1
-      dompurify: 3.4.14
+      dompurify: 3.4.17
       fast-xml-parser: 5.10.1
       framer-motion: 12.42.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       html2canvas-pro: 2.2.4
