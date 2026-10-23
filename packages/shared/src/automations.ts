@@ -5,6 +5,7 @@ import {
   reasoningEffortSchema,
 } from "./model-provider.js";
 import { timestampSchema, uuidSchema } from "./common.js";
+import { automationMonitoringSettingsSchema, automationMonitoringStateSchema } from "./automation-monitoring.js";
 import {
   scheduleIntervalSchema,
   scheduleTimeOfDaySchema,
@@ -117,6 +118,7 @@ export const automationModelPreferenceInputSchema = z
   .nullable();
 
 export const automationCreateInputSchema = z.strictObject({
+  monitoring: automationMonitoringSettingsSchema.optional(),
   notification_target: automationNotificationTargetSchema.nullable().default(null),
   title: z.string().trim().min(1).max(160),
   instruction: z.string().trim().min(1).max(1_000_000),
@@ -128,6 +130,7 @@ export const automationCreateInputSchema = z.strictObject({
 
 export const automationUpdateInputSchema = z
   .strictObject({
+    monitoring: automationMonitoringSettingsSchema.optional(),
     notification_target: automationNotificationTargetSchema.nullable().optional(),
     title: z.string().trim().min(1).max(160).optional(),
     instruction: z.string().trim().min(1).max(1_000_000).optional(),
@@ -160,6 +163,7 @@ export const automationRunStatusSchema = z.enum([
 ]);
 
 export const automationSchema = z.strictObject({
+  monitoring: automationMonitoringStateSchema.omit({ stop_requested_run_id: true }).optional(),
   notification_target: automationNotificationTargetSchema.nullable().default(null),
   id: uuidSchema,
   title: z.string().min(1).max(160),

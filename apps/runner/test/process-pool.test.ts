@@ -7344,7 +7344,7 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("keeps the stable capability runtime and reuses a secret-bearing process after terminal delivery", async () => {
+  it.each([undefined, false])("keeps the stable capability runtime after terminal delivery (browser cleanup: %s)", async (cleanupResult) => {
     const root = await mkdtemp(join(tmpdir(), "linksense-pool-"));
     roots.push(root);
     const controlled = createControlledAppServer();
@@ -7355,7 +7355,7 @@ trust_level = "trusted"
       reportProcessExit: vi.fn(async () => undefined),
       registerArtifact: vi.fn(async () => ({})),
     } satisfies RunnerEventSink;
-    const browserSessionCleanup = vi.fn(async () => undefined);
+    const browserSessionCleanup = vi.fn(async () => cleanupResult);
     const workspaceManager = createWorkspaceManager(root);
     controlledWorkspaceRuntimeGeneration(workspaceManager);
     const pool = new AppServerProcessPool({
@@ -7419,10 +7419,12 @@ trust_level = "trusted"
         userHome: join(root, "home"),
         codexHome: join(taskRuntimeHome(root), ".codex"),
         workspace: join(root, "home", "workspace"),
+        preserveHumanControl: true,
       });
       expect(pool.size).toBe(1);
     });
     await pool.closeAll();
+    expect(browserSessionCleanup).toHaveBeenLastCalledWith(expect.not.objectContaining({ preserveHumanControl: true }));
   });
 
   it("reserves capacity before asynchronous app-server creation", async () => {

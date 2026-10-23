@@ -1957,6 +1957,7 @@ model ConversationMessageKnowledgeCitationAnchor {
 }
 
 model Automation {
+  monitoringJson Json? @map("monitoring_json") @db.JsonB
   notificationTargetJson Json? @map("notification_target_json") @db.JsonB
   id               String    @id @default(uuid()) @db.Uuid
   ownerId          String    @map("owner_id") @db.Uuid
@@ -2012,6 +2013,7 @@ model AutomationNotificationDelivery {
 }
 
 model AutomationRun {
+  executionContextJson Json? @map("execution_context_json") @db.JsonB
   id               String    @id @default(uuid()) @db.Uuid
   automationId     String    @map("automation_id") @db.Uuid
   ownerId          String    @map("owner_id") @db.Uuid

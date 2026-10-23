@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { automationMonitoringCoreMcpModule } from "./core-services/automation-monitoring-service.js"
 import { conversationReferenceCoreMcpModule } from "./core-services/conversation-reference-service.js"
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js"
 
@@ -21,6 +22,7 @@ import type {
 const collaborationModeSchema = z.enum(["default", "plan"])
 
 export const coreMcpModuleRegistry: readonly CoreMcpModuleDefinition[] = [
+  automationMonitoringCoreMcpModule,
   conversationReferenceCoreMcpModule,
   fileServiceCoreMcpModule,
   documentConversionCoreMcpModule,

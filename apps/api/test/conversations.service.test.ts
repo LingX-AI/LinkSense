@@ -1812,6 +1812,28 @@ describe("ConversationService ownership and draft lifecycle", () => {
     }
   });
 
+  it("reuses a fresh automation task only inside the active user's runtime lease", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(conversationRow({ pinnedAt: NOW }));
+    const existing = await fixture.service.createPinnedConversation(OWNER_ID, "Monitor", undefined, CONVERSATION_ID);
+    expect(existing.id).toBe(CONVERSATION_ID);
+    expect(fixture.redis.acquireUserRuntimeLease).toHaveBeenCalledWith(OWNER_ID, expect.any(Number));
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { ownerId: SECOND_CONVERSATION_ID },
+    { archiveStatus: "archived" },
+    { pinnedAt: null },
+    { collaborationMode: "plan" },
+  ])("rejects an incompatible idempotent automation task: %s", async changes => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(conversationRow({ pinnedAt: NOW, ...changes }));
+    await expect(fixture.service.createPinnedConversation(OWNER_ID, "Monitor", undefined, CONVERSATION_ID)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+  });
+
   it("creates an external application task with its application name as an automatic title", async () => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.create.mockImplementationOnce(async ({ data }) =>
@@ -2051,6 +2073,15 @@ describe("ConversationService ownership and draft lifecycle", () => {
       }),
     );
     expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+  });
+
+  it("keeps a monitor's stopping policy out of visible user messages", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({ pinnedAt: NOW }));
+    fixture.defaultTransaction.automationRun.findFirst.mockResolvedValueOnce({ executionContextJson: { trigger: "scheduled", context_mode: "reuse_task", stop_condition: "清单全部完成" } });
+    await fixture.service.submitScheduledTurn(OWNER_ID, CONVERSATION_ID, "检查发布清单。", "automation:monitor");
+    expect(fixture.runner.startTurn).toHaveBeenCalledWith(expect.objectContaining({ context: expect.objectContaining({ userInput: "检查发布清单。", applicationInstructions: expect.stringContaining("call stop_scheduled_monitor") }) }));
+    expect(fixture.defaultTransaction.conversationMessage.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ role: "user", contentText: "检查发布清单。" }) }));
   });
 
   it("does not mark an unattended automation turn as started when the runner start fails", async () => {
@@ -13005,6 +13036,7 @@ function transactionFixture() {
       count: vi.fn(async () => 0),
     },
     automationRun: {
+      findFirst: vi.fn(async () => null as Record<string, unknown> | null),
       updateMany: vi.fn(async () => ({ count: 0 })),
     },
     usageActivityRecord: {

@@ -30,6 +30,7 @@ import {
   readManagedBrowserPolicy,
 } from "../src/browser/policy.js"
 import { cleanupManagedBrowserSession } from "../src/browser/session-cleanup.js"
+import { writeBrowserControl } from "../src/browser/session-control.js"
 import {
   projectImageViewAsset,
   type RegisterInlineImageArtifact,
@@ -51,6 +52,59 @@ afterEach(async () => {
 })
 
 describe("managed browser CLI", () => {
+  it("keeps the original CLI session directory when the task shell changes directory", async () => {
+    const root = await temporaryRoot()
+    const home = path.join(root, "home")
+    const workspace = path.join(home, "workspace")
+    const runtimeRoot = path.join(root, "runtime")
+    await Promise.all([mkdir(path.join(home, ".codex"), { recursive: true }), mkdir(workspace, { recursive: true }), prepareBrowserRuntime(runtimeRoot)])
+    const environment = { HOME: home, CODEX_HOME: path.join(home, ".codex"), LINKSENSE_CONVERSATION_ID: firstConversationId, LINKSENSE_WORKSPACE_PATH: workspace }
+    const policy = { sessionRoot: path.join(root, "sessions"), sessionLimit: 2 }
+    const runCli = vi.fn<BrowserCliRunner>(async () => 0)
+    await browserCliMain(["open", "https://example.test/"], environment, home, { runtimeRoot, policy, runCli })
+    await browserCliMain(["snapshot"], environment, workspace, { runtimeRoot, policy, runCli })
+    expect(runCli).toHaveBeenLastCalledWith(expect.objectContaining({ cwd: await realpath(home) }))
+    await browserCliMain(["__cleanup"], environment, workspace, { runtimeRoot, policy, runCli })
+    expect(runCli).toHaveBeenLastCalledWith(expect.objectContaining({ cwd: await realpath(home), args: [`-s=linksense-${firstConversationId}`, "close"] }))
+  })
+
+  it("blocks agent commands during human control and forces cleanup when the runtime closes", async () => {
+    const root = await temporaryRoot()
+    const home = path.join(root, "home")
+    const workspace = path.join(home, "workspace")
+    const runtimeRoot = path.join(root, "runtime")
+    await Promise.all([mkdir(path.join(home, ".codex"), { recursive: true }), mkdir(workspace, { recursive: true }), prepareBrowserRuntime(runtimeRoot)])
+    const environment = { HOME: home, CODEX_HOME: path.join(home, ".codex"), LINKSENSE_CONVERSATION_ID: firstConversationId, LINKSENSE_WORKSPACE_PATH: workspace }
+    const policy = { sessionRoot: path.join(root, "sessions"), sessionLimit: 2 }
+    const runCli = vi.fn<BrowserCliRunner>(async () => 0)
+    await browserCliMain(["open", "https://example.test/"], environment, workspace, { runtimeRoot, policy, runCli })
+    const stateRoot = path.join(home, ".local/share/linksense/browser", firstConversationId)
+    await writeBrowserControl(stateRoot, { token: secondConversationId, expiresAt: Date.now() + 30_000 })
+    await expect(browserCliMain(["click", "e1"], environment, workspace, { runtimeRoot, policy, runCli })).rejects.toThrow("user controls this browser")
+    expect(runCli).toHaveBeenCalledOnce()
+    const output = vi.fn()
+    await browserCliMain(["__cleanup"], { ...environment, LINKSENSE_BROWSER_PRESERVE_CONTROL: "1" }, workspace, { runtimeRoot, policy, runCli, writeOutput: output })
+    expect(output).toHaveBeenCalledWith("LINKSENSE_BROWSER_CLEANUP_DEFERRED\n")
+    expect(await stat(path.join(stateRoot, "session-active"))).toBeDefined()
+    await browserCliMain(["__cleanup"], environment, workspace, { runtimeRoot, policy, runCli })
+    await expect(stat(stateRoot)).rejects.toMatchObject({ code: "ENOENT" })
+    expect(runCli).toHaveBeenLastCalledWith(expect.objectContaining({ args: [`-s=linksense-${firstConversationId}`, "close"] }))
+  })
+
+  it("retains the original Plan browser restriction after the native turn becomes idle", async () => {
+    const root = await temporaryRoot()
+    const home = path.join(root, "home")
+    const workspace = path.join(home, "workspace")
+    const runtimeRoot = path.join(root, "runtime")
+    await Promise.all([mkdir(path.join(home, ".codex"), { recursive: true }), mkdir(workspace, { recursive: true }), prepareBrowserRuntime(runtimeRoot)])
+    const environment = { HOME: home, CODEX_HOME: path.join(home, ".codex"), LINKSENSE_CONVERSATION_ID: firstConversationId, LINKSENSE_WORKSPACE_PATH: workspace }
+    const policy = { sessionRoot: path.join(root, "sessions"), sessionLimit: 2 }
+    const runCli = vi.fn<BrowserCliRunner>(async () => 0)
+    await browserCliMain(["open", "https://example.test/"], { ...environment, LINKSENSE_BROWSER_READ_ONLY: "1" }, workspace, { runtimeRoot, policy, runCli })
+    await expect(browserCliMain(["snapshot"], environment, workspace, { runtimeRoot, policy, runCli, panelOperation: { action: "claim", token: secondConversationId } })).rejects.toMatchObject({ code: "BROWSER_CONTROL_REQUIRED" })
+    expect(runCli).toHaveBeenCalledOnce()
+  })
+
   it("allows broad Playwright commands and navigation targets", () => {
     expect(
       validateBrowserCliArguments(["open", "https://example.com/path"]),

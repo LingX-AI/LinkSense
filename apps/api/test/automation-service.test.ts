@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readAutomationMonitoring } from "@linksense/shared";
 
 import { AutomationService } from "../src/modules/automations/service.js";
 import {
@@ -204,6 +205,55 @@ describe("AutomationService", () => {
     expect(fixture.repository.latestUnreadCompletion).toHaveBeenCalledWith(
       OWNER_ID,
     );
+  });
+
+  it.each(["scheduled", "manual"] as const)("creates a stable fresh task for a %s run without changing the saved instruction", async trigger => {
+    const fixture = automationFixture();
+    const automation = automationRecord({ monitoring: readAutomationMonitoring({ context_mode: "fresh_task", stop_condition: "Checklist complete" }) });
+    const claim = {
+      automation,
+      run: {
+        id: RUN_ID, automationId: AUTOMATION_ID, ownerId: OWNER_ID,
+        conversationId: NEW_CONVERSATION_ID, scheduledFor: NOW,
+        idempotencyKey: `automation:${trigger}:test`, status: "dispatching",
+        turnId: null, pendingRequestId: null, errorCode: null,
+        completedAt: null, completionReadAt: null, createdAt: NOW, updatedAt: NOW,
+        executionContext: { trigger, context_mode: "fresh_task", stop_condition: "Checklist complete", target_conversation_id: CONVERSATION_ID },
+      },
+      shouldDispatch: true,
+    };
+    fixture.repository.findById.mockResolvedValueOnce(automation);
+    fixture.repository.claimOccurrence.mockResolvedValueOnce(claim);
+    fixture.repository.claimManualRun.mockResolvedValueOnce(claim);
+    fixture.repository.findPinnedConversation.mockResolvedValueOnce(pinnedConversation(NEW_CONVERSATION_ID));
+    fixture.conversations.createPinnedConversation.mockResolvedValueOnce({ id: NEW_CONVERSATION_ID });
+    fixture.conversations.submitScheduledTurn.mockResolvedValueOnce({ status: "started", turnId: TURN_ID });
+    if (trigger === "scheduled") await fixture.service.dispatchOccurrence(AUTOMATION_ID, NOW);
+    else await fixture.service.runNow(OWNER_ID, AUTOMATION_ID, REQUEST_ID, {});
+    expect(fixture.conversations.createPinnedConversation).toHaveBeenCalledWith(OWNER_ID, automation.title, undefined, NEW_CONVERSATION_ID);
+    expect(fixture.conversations.submitScheduledTurn).toHaveBeenCalledWith(OWNER_ID, NEW_CONVERSATION_ID, "Summarize important updates.", `automation:${trigger}:test`, undefined);
+    expect(automation.instruction).toBe("Summarize important updates.");
+  });
+
+  it("does not submit or remove a fresh task after its preparation fails", async () => {
+    const fixture = automationFixture();
+    const automation = automationRecord({ monitoring: readAutomationMonitoring({ context_mode: "fresh_task" }) });
+    fixture.repository.findById.mockResolvedValueOnce(automation);
+    fixture.repository.claimOccurrence.mockResolvedValueOnce({ automation, run: { id: RUN_ID, conversationId: NEW_CONVERSATION_ID, executionContext: { trigger: "scheduled", context_mode: "fresh_task", stop_condition: null } }, shouldDispatch: true });
+    fixture.conversations.createPinnedConversation.mockRejectedValueOnce(new Error("storage unavailable"));
+    await fixture.service.dispatchOccurrence(AUTOMATION_ID, NOW);
+    expect(fixture.conversations.submitScheduledTurn).not.toHaveBeenCalled();
+    expect(fixture.conversations.delete).not.toHaveBeenCalled();
+    expect(fixture.repository.markRunFailed).toHaveBeenCalledWith(expect.objectContaining({ runId: RUN_ID, errorCode: "INTERNAL_ERROR" }));
+  });
+
+  it("restores the next schedule when an in-flight run limit is raised", async () => {
+    const fixture = automationFixture();
+    const existing = automationRecord({ nextRunAt: null, monitoring: readAutomationMonitoring({ automatic_run_count: 1, max_runs: 1, stop_reason: "run_limit_reached", stop_requested_run_id: RUN_ID }) });
+    fixture.repository.findOwnedRecord.mockResolvedValueOnce(existing);
+    fixture.repository.updateOwned.mockImplementationOnce(async (_ownerId, _automationId, input) => automationWithConversation({ ...existing, ...input }));
+    await fixture.service.update(OWNER_ID, AUTOMATION_ID, { monitoring: { max_runs: 2 } }, {});
+    expect(fixture.repository.updateOwned).toHaveBeenCalledWith(OWNER_ID, AUTOMATION_ID, expect.objectContaining({ nextRunAt: new Date("2026-07-30T01:00:00.000Z") }));
   });
 
   it("does not report notifications when every task is already read", async () => {

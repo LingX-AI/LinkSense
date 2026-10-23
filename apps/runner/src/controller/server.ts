@@ -154,6 +154,7 @@ export function buildControllerServer(
     "/internal/skill-creator/confirm",
     "/internal/current-user/info",
     "/internal/conversation-references/read",
+    "/internal/automations/request-stop",
     "/internal/connections/execute",
     "/internal/application-events/emit",
     "/internal/application-builder",

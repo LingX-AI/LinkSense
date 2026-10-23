@@ -1,6 +1,11 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  AUTOMATION_RUN_LIMIT_REACHED: "La limite d’exécutions automatiques est atteinte. Augmentez-la ou supprimez-la avant de reprendre.",
+  BROWSER_PANEL_UNAVAILABLE: "Cette tâche ne dispose d’aucune session de navigateur.",
+  BROWSER_CONTROL_BUSY: "Le navigateur effectue une action. Réessayez dans un instant.",
+  BROWSER_CONTROL_REQUIRED: "Le contrôle a expiré ou appartient à une autre fenêtre. Reprenez le contrôle.",
+
   IMAGE_GENERATION_INPUT_INVALID: "Impossible de lire l’image à modifier. Utilisez des images PNG, JPEG ou WebP de 8 Mo maximum chacune et 10 Mo au total, masque compris. Le masque doit être un PNG transparent aux mêmes dimensions que la première image.",
   IMAGE_GENERATION_EDIT_UNSUPPORTED: "Le modèle actuel ne prend pas en charge cette modification. Réduisez le nombre d’images de référence, retirez le masque ou demandez à un administrateur de choisir un modèle compatible.",
   MODEL_PROVIDER_CREDENTIAL_REQUIRED: "Saisissez une clé API. Une nouvelle clé est nécessaire après un changement de fournisseur, d’adresse du service ou de projet cloud.",

@@ -103,6 +103,7 @@ export interface RunnerEventSink {
     turnId: string;
   }): Promise<unknown>;
   readConversationReference?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ReadConversationReferenceInput }): Promise<unknown>;
+  requestMonitoringStop?(input: { conversationId: string; turnId: string }): Promise<unknown>;
   emitInteractiveApplicationEvent?(input: {
     conversationId: string;
     codexTurnId: string;
@@ -387,6 +388,12 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     const response = await this.request("/internal/conversation-references/read", input, this.workspaceManager.ownerFor(input.conversationId));
     if (!response.ok) throw new ConversationReferenceRequestError(response.status);
     return parseResponseBody(response);
+  }
+
+  async requestMonitoringStop(input: { conversationId: string; turnId: string }): Promise<unknown> {
+    const response = await this.request("/internal/automations/request-stop", input, this.workspaceManager.ownerFor(input.conversationId));
+    if (!response.ok) throw new ConversationReferenceRequestError(response.status);
+    return response.json();
   }
 
   confirmSkillInstall(input: {

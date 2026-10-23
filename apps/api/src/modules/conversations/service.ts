@@ -1,3 +1,4 @@
+import { settleCancelledAutomationPending, monitoringInstructionsForStart } from "../automations/monitoring.js";
 import { projectInteractiveTaskState } from "./interactive-task-state.js";
 import { prepareTaskReferences } from "./task-references.js";
 import { indexStopHookSupersededAssistantMessageIds } from "./message-visibility.js";
@@ -807,6 +808,15 @@ export class ConversationService {
 
   runnerForRecovery(): RunnerClient {
     return this.runner;
+  }
+
+  async browserPanel(ownerId: string, conversationId: string, request: import("@linksense/shared").BrowserPanelRequest): Promise<import("@linksense/shared").BrowserPanelState> {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
+      const conversation = await this.assertOwner(ownerId, conversationId);
+      await this.applicationRuntimeForConversation(ownerId, conversation.applicationId, conversation.applicationChannel);
+      if ((conversation.collaborationMode === "plan" || conversation.archiveStatus !== "active") && request.action !== "frame") throw new AppError("FORBIDDEN");
+      return this.runner.browserPanel(ownerId, conversationId, request);
+    });
   }
 
   private async applicationRuntimeForConversation(
@@ -3970,6 +3980,7 @@ export class ConversationService {
           where: { pendingRequestId: pendingId, status: "pending" },
           data: { pendingRequestId: null, status: "staged" },
         });
+        await settleCancelledAutomationPending(tx, pending);
         await tx.pendingRequest.delete({ where: { id: pendingId } });
         const sequenceNo = await nextConversationEventSequence(
           tx,
@@ -4076,6 +4087,7 @@ export class ConversationService {
           where: { pendingRequestId: pendingId, status: "pending" },
           data: { pendingRequestId: null, status: "staged" },
         });
+        await settleCancelledAutomationPending(tx, pending);
         await tx.pendingRequest.delete({ where: { id: pendingId } });
         const sequenceNo = await nextConversationEventSequence(
           tx,
@@ -5658,6 +5670,7 @@ export class ConversationService {
           sseEventId: `${input.conversationId}:${messageSequenceNo}`,
         },
       });
+      await settleCancelledAutomationPending(tx, pending);
       await tx.pendingRequest.delete({ where: { id: pending.id } });
       const cancelledSequenceNo = messageSequenceNo + 1n;
       const cancelledEvent = await tx.conversationEvent.create({
@@ -7298,13 +7311,22 @@ export class ConversationService {
     ownerId: string,
     title: string,
     fallbackLocale?: Locale,
+    idempotentConversationId?: string,
   ) {
-    return this.withActiveUserRuntimeLease(ownerId, () =>
-      this.createConversation(ownerId, fallbackLocale, undefined, {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
+      if (idempotentConversationId) {
+        const existing = await this.prisma.conversation.findUnique({ where: { id: idempotentConversationId } });
+        if (existing) {
+          if (existing.ownerId !== ownerId || existing.applicationId || existing.archiveStatus !== "active" || !existing.pinnedAt || existing.collaborationMode !== "default") throw new AppError("CONFLICT");
+          return existing;
+        }
+      }
+      return this.createConversation(ownerId, fallbackLocale, undefined, {
         title,
         pinned: true,
-      }),
-    );
+        ...(idempotentConversationId ? { conversationId: idempotentConversationId, reusePinnedCreation: true } : {}),
+      });
+    });
   }
 
   private async createConversation(
@@ -7325,6 +7347,7 @@ export class ConversationService {
       developmentSource?: DevelopmentConversationCreation;
       title?: string;
       pinned?: boolean;
+      reusePinnedCreation?: boolean;
       collaborationMode?: ConversationCollaborationMode;
       conversationId?: string;
       projectId?: string | null;
@@ -7481,6 +7504,10 @@ export class ConversationService {
         return created;
       });
     } catch (error) {
+      if (options?.reusePinnedCreation) {
+        const existing = await this.prisma.conversation.findUnique({ where: { id } });
+        if (existing?.ownerId === ownerId && !existing.applicationId && existing.archiveStatus === "active" && existing.pinnedAt) return existing;
+      }
       await this.cleanup
         .enqueueRuntimeCleanup(ownerId, id, serviceSessionId)
         .catch(() => undefined);
@@ -8038,6 +8065,8 @@ export class ConversationService {
         }
       }
 
+      const monitoringInstructions = await monitoringInstructionsForStart(tx, input.ownerId, input.conversationId, input.prepared.idempotencyKey);
+      const developmentInstructions = input.applicationRuntime ? null : await this.developmentInstructions?.(input.ownerId, input.conversationId) ?? null;
       return parseTurnStartIntent(
         await tx.conversationTurnStartIntent.create({
           data: {
@@ -8052,11 +8081,8 @@ export class ConversationService {
             applicationId: input.applicationRuntime?.applicationId ?? null,
             applicationUpdatedAt:
               input.applicationRuntime?.applicationUpdatedAt ?? null,
-            applicationInstructions:
-              input.applicationRuntime?.instructions ?? null,
-            developmentInstructions: input.applicationRuntime
-              ? null
-              : await this.developmentInstructions?.(input.ownerId, input.conversationId) ?? null,
+            applicationInstructions: input.applicationRuntime ? [input.applicationRuntime.instructions, monitoringInstructions].filter(Boolean).join("\n\n") || null : null,
+            developmentInstructions: input.applicationRuntime ? null : [developmentInstructions, monitoringInstructions].filter(Boolean).join("\n\n") || null,
             inputText: input.prepared.inputText,
             taskKind: input.prepared.goal ? "goal" : "turn",
             collaborationMode: input.prepared.collaborationMode,
@@ -8994,6 +9020,8 @@ export class ConversationService {
     }
     const ownerStatus = await executionPrincipalStatus(tx, intent.ownerId);
     if (ownerStatus === "disabled") {
+      const pending = await tx.pendingRequest.findFirst({ where: { id: intent.pendingRequestId, conversationId: intent.conversationId, submittedBy: intent.ownerId } });
+      if (pending) await settleCancelledAutomationPending(tx, pending, "AUTH_SESSION_EXPIRED");
       await tx.conversationFile.updateMany({
         where: {
           conversationId: intent.conversationId,

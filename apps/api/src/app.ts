@@ -1,3 +1,5 @@
+import { internalAutomationMonitoringRoutes } from "./modules/automations/internal-routes.js";
+import { conversationBrowserRoutes } from "./modules/conversations/browser-routes.js";
 import { SamlSettingsService } from "./modules/saml/settings.js";
 import { SamlProtocol } from "./modules/saml/protocol.js";
 import { RedisSamlStateStore } from "./modules/saml/state.js";
@@ -522,6 +524,7 @@ export async function buildApi(
     prefix: "/api/v1/shared-conversations",
     service: services.conversationShares,
   });
+  await app.register(conversationBrowserRoutes, { prefix: "/api/v1/conversations", services });
   await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: services.webSites });
   await app.register(publicWebSiteRoutes, { prefix: "/web", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl });
   await app.register(automationRoutes, {
@@ -574,6 +577,7 @@ export async function buildApi(
   await app.register(externalImageRoutes, { prefix: "/api/v1", services });
   await app.register(internalRunnerRoutes, { prefix: "/internal", services });
   await app.register(internalConversationReferenceRoutes, { prefix: "/internal", prisma: services.prisma, sharedSecret: services.config.runnerSharedSecret });
+  await app.register(internalAutomationMonitoringRoutes, { prefix: "/internal", prisma: services.prisma, sharedSecret: services.config.runnerSharedSecret });
   await app.register(internalSkillCreatorRoutes, {
     prefix: "/internal/skill-creator",
     service: services.skillCreator,

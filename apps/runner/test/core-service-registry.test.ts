@@ -55,6 +55,7 @@ describe("Core MCP module registry", () => {
     })
 
     expect(coreMcpModuleRegistry.map((module) => module.key)).toEqual([
+      "automation_monitoring",
       "conversation_references",
       "file_service",
       "document_conversion",
@@ -66,6 +67,7 @@ describe("Core MCP module registry", () => {
       "application_builder",
     ])
     expect(registry.modules.map((module) => module.key)).toEqual([
+      "automation_monitoring",
       "conversation_references",
       "file_service",
       "document_conversion",

@@ -1,3 +1,5 @@
+import { runBrowserPanel } from "./browser/panel-client.js";
+import { BrowserPanelError } from "./browser/session-control.js";
 import {
   createHash,
   createHmac,
@@ -885,7 +887,8 @@ export class AppServerProcessPool {
         userHome: string;
         codexHome: string;
         workspace: string;
-      }) => Promise<void>;
+        preserveHumanControl?: boolean;
+      }) => Promise<boolean | void>;
     },
   ) {
     this.globalFeatureOverrides = [...this.options.globalFeatureOverrides];
@@ -1661,6 +1664,7 @@ export class AppServerProcessPool {
               LINKSENSE_APPLICATION_BUILDER_TOKEN: skillCreatorToken,
               LINKSENSE_CURRENT_USER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/info`,
               LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/referenced-conversation`,
+              LINKSENSE_AUTOMATION_STOP_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/stop-monitor`,
               LINKSENSE_CURRENT_USER_TOKEN: currentUserToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
               LINKSENSE_CONNECTION_TOKEN: connectionToken,
@@ -1710,8 +1714,7 @@ export class AppServerProcessPool {
     managed.starting = true;
     this.clearIdleTimer(managed);
     if (managed.browserCleanupPending) {
-      await this.cleanupBrowserSession(managed);
-      managed.browserCleanupPending = false;
+      managed.browserCleanupPending = !(await this.cleanupBrowserSession(managed, true));
     }
     let nativeRequestIssued = false;
     let turnStartRequestIssued = false;
@@ -3776,6 +3779,7 @@ export class AppServerProcessPool {
               LINKSENSE_APPLICATION_BUILDER_TOKEN: skillCreatorToken,
               LINKSENSE_CURRENT_USER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/info`,
               LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/referenced-conversation`,
+              LINKSENSE_AUTOMATION_STOP_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/stop-monitor`,
               LINKSENSE_CURRENT_USER_TOKEN: currentUserToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
               LINKSENSE_CONNECTION_TOKEN: connectionToken,
@@ -4449,6 +4453,23 @@ export class AppServerProcessPool {
     if (!managed?.activeTurnId || !managed.activeProjectionTurnId || !safeTokenEqual(token, managed.currentUserToken)) throw new ConversationReferenceRequestError(403);
     if (!this.options.eventSink.readConversationReference) throw new ConversationReferenceRequestError(503);
     return this.options.eventSink.readConversationReference({ conversationId, turnId: managed.activeProjectionTurnId, input });
+  }
+
+  async requestMonitoringStop(conversationId: string, token: string): Promise<unknown> {
+    const managed = this.processes.get(conversationId);
+    if (!managed?.activeTurnId || !managed.activeProjectionTurnId || managed.activeCollaborationMode === "plan" || !safeTokenEqual(token, managed.currentUserToken)) throw new ConversationReferenceRequestError(403);
+    if (!this.options.eventSink.requestMonitoringStop) throw new ConversationReferenceRequestError(503);
+    return this.options.eventSink.requestMonitoringStop({ conversationId, turnId: managed.activeProjectionTurnId });
+  }
+
+  async browserPanel(conversationId: string, ownerId: string, request: import("@linksense/shared").BrowserPanelRequest): Promise<import("@linksense/shared").BrowserPanelState> {
+    const managed = this.processes.get(conversationId);
+    if (!managed || managed.ownerId !== ownerId || !this.options.browserSessionCleanup) throw new BrowserPanelError("BROWSER_PANEL_UNAVAILABLE");
+    if (managed.activeCollaborationMode === "plan" && request.action !== "frame") throw new BrowserPanelError("BROWSER_CONTROL_REQUIRED");
+    const response = await runBrowserPanel({ conversationId, home: managed.userHome, codexHome: managed.codexHome, workspace: managed.workspace, readOnly: managed.activeCollaborationMode === "plan", request, ...(this.options.codexProcessIdentity ? { identity: this.options.codexProcessIdentity } : {}) });
+    managed.lastUsedAt = Date.now();
+    if (!managed.activeTurnId && !managed.starting) this.scheduleIdleClose(managed);
+    return response;
   }
 
   async accessConnection(
@@ -6241,8 +6262,7 @@ export class AppServerProcessPool {
         managed.lastUsedAt = Date.now();
         managed.browserCleanupPending = !goalWillContinue;
         if (managed.browserCleanupPending) {
-          await this.cleanupBrowserSession(managed);
-          managed.browserCleanupPending = false;
+          managed.browserCleanupPending = !(await this.cleanupBrowserSession(managed, true));
         }
         if (!goalWillContinue) this.scheduleIdleClose(managed);
       });
@@ -7202,7 +7222,7 @@ export class AppServerProcessPool {
           "failed to close idle app-server process",
         ),
       );
-    }, this.options.idleTtlMs);
+    }, managed.browserCleanupPending ? Math.min(60_000, this.options.idleTtlMs) : this.options.idleTtlMs);
     managed.idleTimer.unref();
   }
 
@@ -7322,21 +7342,24 @@ export class AppServerProcessPool {
     return false;
   }
 
-  private async cleanupBrowserSession(managed: ManagedProcess): Promise<void> {
-    if (!this.options.browserSessionCleanup) return;
+  private async cleanupBrowserSession(managed: ManagedProcess, preserveHumanControl = false): Promise<boolean> {
+    if (!this.options.browserSessionCleanup) return true;
     try {
-      await this.options.browserSessionCleanup({
+      const closed = await this.options.browserSessionCleanup({
         conversationId: managed.conversationId,
         ownerId: managed.ownerId,
         userHome: managed.userHome,
         codexHome: managed.codexHome,
         workspace: managed.workspace,
+        ...(preserveHumanControl ? { preserveHumanControl } : {}),
       });
+      return closed !== false;
     } catch {
       this.options.logger.error(
         { conversationId: managed.conversationId },
         "managed browser session cleanup failed",
       );
+      return false;
     }
   }
 

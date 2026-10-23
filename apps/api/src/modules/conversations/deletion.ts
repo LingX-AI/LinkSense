@@ -1,3 +1,4 @@
+import { settleCancelledAutomationPending } from "../automations/monitoring.js";
 import { Prisma } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
 import { runtimePlacementForWorkspace } from "../../lib/user-runtime-paths.js";
@@ -167,6 +168,8 @@ async function deleteConversationGraph(
   await tx.conversationTurnStartIntent.deleteMany({
     where: { conversationId },
   });
+  const pending = await tx.pendingRequest.findMany({ where: { conversationId, idempotencyKey: { startsWith: "automation:" } } });
+  for (const request of pending) await settleCancelledAutomationPending(tx, request);
   await tx.pendingRequest.deleteMany({ where: { conversationId } });
   await tx.conversation.delete({ where: { id: conversationId } });
 }

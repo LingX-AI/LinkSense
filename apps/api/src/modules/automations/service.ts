@@ -5,6 +5,7 @@ import {
   automationCreateInputSchema,
   automationUpdateInputSchema,
   errorCodeSchema,
+  readAutomationMonitoring,
   type Automation,
   type AutomationCompletionNotification,
   type AutomationCreateInput,
@@ -144,6 +145,7 @@ export class AutomationService {
           ownerId,
           conversationId,
           notificationTarget: input.notification_target,
+          ...(input.monitoring ? { monitoring: readAutomationMonitoring(input.monitoring) } : {}),
           title: input.title,
           instruction: input.instruction,
           status: "active",
@@ -193,6 +195,7 @@ export class AutomationService {
     let createdConversationId: string | null = null;
     try {
       const update: UpdateAutomationRecord = {};
+      if (input.monitoring) update.monitoring = { ...readAutomationMonitoring(existing.monitoring), ...input.monitoring };
       if (input.notification_target !== undefined) {
         if (input.notification_target) {
           if (!this.notifications) throw new AppError("VALIDATION_ERROR");
@@ -248,7 +251,8 @@ export class AutomationService {
       } else if (
         input.schedule ||
         input.expires_on !== undefined ||
-        existing.status === "paused"
+        existing.status === "paused" ||
+        (input.monitoring !== undefined && existing.nextRunAt === null)
       ) {
         update.nextRunAt = nextAutomationRunBeforeExpiration(
           schedule,
@@ -379,6 +383,9 @@ export class AutomationService {
     try {
       if (isAutomationExpired(claim.automation.expiresAt, this.now())) {
         throw new AppError("AUTOMATION_EXPIRED");
+      }
+      if (claim.run.executionContext?.context_mode === "fresh_task") {
+        await this.conversations.createPinnedConversation(claim.automation.ownerId, claim.automation.title, undefined, claim.run.conversationId);
       }
       const conversation = await this.repository.findPinnedConversation(
         claim.automation.ownerId,
@@ -584,6 +591,7 @@ function projectAutomation(
   return {
     id: record.id,
     notification_target: record.notificationTarget ?? null,
+    monitoring: publicMonitoring(record),
     title: record.title,
     instruction: record.instruction,
     status: record.status,
@@ -609,6 +617,18 @@ function projectAutomation(
         : null,
     created_at: record.createdAt.toISOString(),
     updated_at: record.updatedAt.toISOString(),
+  };
+}
+
+function publicMonitoring(record: AutomationRecord): NonNullable<Automation["monitoring"]> {
+  const monitoring = readAutomationMonitoring(record.monitoring);
+  return {
+    stop_condition: monitoring.stop_condition,
+    max_runs: monitoring.max_runs,
+    context_mode: monitoring.context_mode,
+    automatic_run_count: monitoring.automatic_run_count,
+    stop_reason: monitoring.stop_reason,
+    last_run_conversation_id: monitoring.last_run_conversation_id,
   };
 }
 
