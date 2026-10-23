@@ -15,6 +15,7 @@ import {
   type TaskReference,
 } from "./task-reference-picker"
 import { taskReferenceMessages } from "./task-reference-messages"
+import { automationNotificationMessages } from "./automation-notification-messages"
 import { supportedLocales } from "@linksense/shared"
 
 vi.mock("@/api/client", async (importOriginal) => ({
@@ -99,26 +100,32 @@ describe("task reference selection", () => {
   it.each(supportedLocales)(
     "provides consistent keys, interpolation and fallback in %s",
     (locale) => {
-      const messages = taskReferenceMessages
-      expect(Object.keys(messages[locale]).sort()).toEqual(
-        Object.keys(messages["zh-CN"]).sort()
-      )
-      for (const key of Object.keys(messages["zh-CN"])) {
-        const fullKey = `taskReferences.${key}`
-        expect(i18n.t(fullKey, { lng: locale })).not.toBe(fullKey)
-        expect(
-          (i18n.t(fullKey, { lng: locale }).match(/\{\{.*?\}\}/gu) ?? []).sort()
-        ).toEqual(
-          (
-            i18n.t(fullKey, { lng: "zh-CN" }).match(/\{\{.*?\}\}/gu) ?? []
-          ).sort()
+      for (const [prefix, messages] of [
+        ["taskReferences", taskReferenceMessages],
+        ["automationNotifications", automationNotificationMessages],
+      ] as const) {
+        expect(Object.keys(messages[locale]).sort()).toEqual(
+          Object.keys(messages["zh-CN"]).sort()
         )
-        const fallback = i18n.cloneInstance({ forkResourceStore: true })
-        fallback.removeResourceBundle(locale, "translation")
-        if (locale !== "zh-CN")
-          expect(fallback.t(fullKey, { lng: locale })).toBe(
-            i18n.t(fullKey, { lng: "zh-CN" })
+        for (const key of Object.keys(messages["zh-CN"])) {
+          const fullKey = `${prefix}.${key}`
+          expect(i18n.t(fullKey, { lng: locale })).not.toBe(fullKey)
+          expect(
+            (
+              i18n.t(fullKey, { lng: locale }).match(/\{\{.*?\}\}/gu) ?? []
+            ).sort()
+          ).toEqual(
+            (
+              i18n.t(fullKey, { lng: "zh-CN" }).match(/\{\{.*?\}\}/gu) ?? []
+            ).sort()
           )
+          const fallback = i18n.cloneInstance({ forkResourceStore: true })
+          fallback.removeResourceBundle(locale, "translation")
+          if (locale !== "zh-CN")
+            expect(fallback.t(fullKey, { lng: locale })).toBe(
+              i18n.t(fullKey, { lng: "zh-CN" })
+            )
+        }
       }
     }
   )
