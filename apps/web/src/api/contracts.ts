@@ -28,6 +28,7 @@ import {
   registrationSettingsSchema as sharedRegistrationSettingsSchema,
   capabilityRiskSummarySchema as sharedCapabilityRiskSummarySchema,
   conversationEventSchema,
+  conversationFileKindSchema,
   conversationCollaborationModeSchema,
   conversationApplicationDevelopmentRoleSchema,
   conversationHistoryPageSchema,
@@ -397,7 +398,7 @@ export const conversationFileSchema = z
     checksum_sha256: z.string().nullable().optional(),
     size: z.number().optional(),
     size_bytes: z.number().optional(),
-    kind: z.enum(["attachment", "artifact"]).optional(),
+    kind: conversationFileKindSchema.optional(),
     source: z.string().optional(),
     pending_request_id: z.string().nullable().optional(),
     turn_id: z.string().nullable().optional(),
@@ -914,6 +915,7 @@ export const conversationSchema = z
     history: conversationHistoryPageSchema.optional(),
     attachments: z.array(conversationFileSchema).optional(),
     artifacts: z.array(conversationFileSchema).optional(),
+    files: z.array(conversationFileSchema).optional(),
     turns: z.array(turnSchema).optional(),
     running_turn: turnSchema.nullable().optional(),
     starting_turn: conversationStartingTurnSchema.nullable().optional(),
@@ -1074,7 +1076,7 @@ const conversationDetailPayloadSchema = z
         message.role === "user" && message.turn_id
           ? value.files.filter(
               (file) =>
-                file.kind !== "artifact" && file.turn_id === message.turn_id
+                file.kind === "attachment" && file.turn_id === message.turn_id
             )
           : message.attachments,
       artifacts:
@@ -1096,6 +1098,7 @@ const conversationDetailPayloadSchema = z
       ...value.conversation,
       goal: value.goal ?? value.conversation.goal ?? null,
       messages,
+      files: value.files,
       history: value.history,
       turns: value.turns,
       running_turn: runningTurn ?? null,
@@ -1104,14 +1107,14 @@ const conversationDetailPayloadSchema = z
         ...request,
         attachments: value.files.filter(
           (file) =>
-            file.kind !== "artifact" && file.pending_request_id === request.id
+            file.kind === "attachment" && file.pending_request_id === request.id
         ),
       })),
       user_input_requests: value.user_input_requests,
       plan_reviews: value.plan_reviews,
       attachments: value.files.filter(
         (file) =>
-          file.kind !== "artifact" &&
+          file.kind === "attachment" &&
           file.status === "staged" &&
           file.source !== INTERACTIVE_APPLICATION_FILE_SOURCE
       ),

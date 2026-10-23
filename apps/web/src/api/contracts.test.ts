@@ -24,6 +24,70 @@ import {
 const now = "2026-07-11T00:00:00.000Z"
 
 describe("API response contracts", () => {
+  it("indexes preview files without projecting them as uploads or deliverables", () => {
+    const preview = {
+      id: "preview-1",
+      filename: "preview.png",
+      mime_type: "image/png",
+      kind: "image_preview",
+      turn_id: "turn-1",
+      status: "registered",
+      source: "system_generated",
+      downloadable: false,
+    }
+    const attachment = {
+      ...preview,
+      id: "attachment-1",
+      kind: "attachment",
+      status: "bound",
+      source: "user_upload",
+    }
+    const artifact = {
+      ...preview,
+      id: "artifact-1",
+      kind: "artifact",
+      downloadable: true,
+    }
+    const result = conversationDetailSchema.parse({
+      conversation: {
+        id: "conversation-1",
+        project_id: null,
+        title: "Images",
+        updated_at: now,
+      },
+      turns: [{ id: "turn-1", status: "completed" }],
+      messages: [
+        {
+          id: "user-1",
+          turn_id: "turn-1",
+          role: "user",
+          content_text: "describe",
+        },
+        {
+          id: "assistant-1",
+          turn_id: "turn-1",
+          role: "assistant",
+          content_text: "done",
+          phase: "final_answer",
+        },
+      ],
+      files: [preview, attachment, artifact],
+    })
+    expect(result.files?.map((file) => file.id)).toEqual([
+      "preview-1",
+      "attachment-1",
+      "artifact-1",
+    ])
+    expect(result.messages?.[0].attachments?.map((file) => file.id)).toEqual([
+      "attachment-1",
+    ])
+    expect(result.messages?.[1].artifacts?.map((file) => file.id)).toEqual([
+      "artifact-1",
+    ])
+    expect(result.attachments).toEqual([])
+    expect(result.artifacts).toEqual([])
+  })
+
   it("keeps authentication responses independent from full user profiles", () => {
     const authUser = {
       id: "00000000-0000-4000-8000-000000000001",

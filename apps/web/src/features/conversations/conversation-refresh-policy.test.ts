@@ -8,6 +8,37 @@ import {
 } from "@/features/conversations/conversation-refresh-policy"
 
 describe("conversation query refresh policy", () => {
+  it.each([true, false])(
+    "refreshes reused image metadata only when an image-view has a file identity: %s",
+    (hasFile) => {
+      const result = getConversationEventQueryRefreshScope({
+        id: "conversation:48",
+        type: "item/completed",
+        turn_id: "10000000-0000-4000-8000-000000000001",
+        created_at: "2026-10-23T00:00:00.000Z",
+        sequence_no: 48,
+        payload: {
+          schema_version: 2,
+          source: "codex_app_server",
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              type: "imageView",
+              id: "view-1",
+              path: "$WORKSPACE/attachments/image.png",
+              ...(hasFile
+                ? { fileId: "30000000-0000-4000-8000-000000000001" }
+                : {}),
+            },
+          },
+        },
+      })
+      expect(result).toBe(hasFile ? "detail" : "none")
+    }
+  )
+
   it("refreshes newly persisted asynchronous questions before the turn finishes", () => {
     expect(
       getConversationEventQueryRefreshScope({

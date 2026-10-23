@@ -18,6 +18,7 @@ import {
   type ImagePreviewItem,
 } from "@/components/media/image-preview"
 import i18n from "@/i18n"
+import { createConversationAttachmentPreviewSource } from "@/features/conversations/conversation-attachment-preview-utils"
 
 vi.mock("@/api/client", () => ({
   buildApiUrl: (path: string, query?: Record<string, string>) => {
@@ -87,6 +88,25 @@ function OpenPreviewHarness({
 }
 
 describe("image preview", () => {
+  it("keeps private image bytes while the viewer is open after its thumbnail releases them", () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:retained-preview")
+    const revoke = vi.spyOn(URL, "revokeObjectURL")
+    const source = createConversationAttachmentPreviewSource(
+      new Blob(["image"], { type: "image/png" })
+    )
+    const item = {
+      id: "private",
+      name: "private.png",
+      src: source.url,
+      retainSource: source.retain,
+    }
+    const viewer = render(<ImagePreviewViewer item={item} />)
+    source.release()
+    expect(revoke).not.toHaveBeenCalled()
+    viewer.unmount()
+    expect(revoke).toHaveBeenCalledExactlyOnceWith(source.url)
+  })
+
   beforeEach(async () => {
     i18n.addResourceBundle(
       "zh-CN",

@@ -27,14 +27,24 @@ export function isPreviewableConversationImage(file: ConversationFile) {
 
 export function createConversationAttachmentPreviewSource(blob: Blob) {
   const url = URL.createObjectURL(blob)
-  let released = false
+  let references = 1
+  const lease = () => {
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      references -= 1
+      if (references === 0) URL.revokeObjectURL(url)
+    }
+  }
   return {
     url,
     expiresAt: OBJECT_URL_PREVIEW_EXPIRY,
-    release: () => {
-      if (released) return
-      released = true
-      URL.revokeObjectURL(url)
+    release: lease(),
+    retain: () => {
+      if (references === 0) return () => undefined
+      references += 1
+      return lease()
     },
   }
 }

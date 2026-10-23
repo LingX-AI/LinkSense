@@ -4,4 +4,5 @@ export type ImagePreviewItem = Readonly<{
   src: string
   alt?: string
   downloadable?: boolean
+  retainSource?: () => () => void
 }>
