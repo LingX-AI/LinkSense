@@ -141,6 +141,7 @@ import {
   forkBaseTitle,
   forkedConversationTitle,
   isValidForkedThreadHistory,
+  remapForkedFileReferences,
   remapForkedJson,
 } from "./fork.js";
 import {
@@ -151,6 +152,7 @@ import {
 } from "./goals.js";
 import { respondToAsyncUserInput } from "./async-user-input.js";
 import { buildReasoningEventsQuery } from "./reasoning-events-query.js";
+import { forkImageFileBinding, includeReferencedImageAttachments, referencedImageTurnIds } from "./image-preview-files.js";
 
 export type ExecutionCapability = RunnerCapability & {
   sourcePath: string;
@@ -2519,7 +2521,7 @@ export class ConversationService {
     const [
       messages,
       pending,
-      files,
+      scopedFiles,
       events,
       latestPlanEvents,
       turnFileChangeCounts,
@@ -2605,6 +2607,9 @@ export class ConversationService {
         : null,
       this.findReasoningEvents(conversationId, messageTurnIds),
     ]);
+    const files = await includeReferencedImageAttachments(this.prisma, {
+      conversationId, files: scopedFiles, events, messages,
+    });
     const firstUserByTurn = new Map<string, (typeof indexMessages)[number]>();
     const turnsWithContent = new Set<string>();
     for (const message of indexMessages) {
@@ -6643,7 +6648,7 @@ export class ConversationService {
 
         const [
           events,
-          files,
+          scopedFiles,
           turnKnowledgeBases,
           planReviews,
           userInputRequests,
@@ -6691,6 +6696,9 @@ export class ConversationService {
             orderBy: [{ messageId: "asc" }, { citationNo: "asc" }],
           }),
         ]);
+        const files = await includeReferencedImageAttachments(this.prisma, {
+          conversationId, files: scopedFiles, events, messages,
+        });
         const citationIds = citations.map((citation) => citation.id);
         const citationAnchors =
           citationIds.length === 0
@@ -6765,6 +6773,7 @@ export class ConversationService {
         const fileIdMap = new Map(
           files.map((file) => [file.id, crypto.randomUUID()]),
         );
+        const imageReferenceTurnIds = referencedImageTurnIds({ events, messages });
         const planReviewIdMap = new Map(
           planReviews.map((review) => [review.id, crypto.randomUUID()]),
         );
@@ -6896,7 +6905,7 @@ export class ConversationService {
               turnId: message.turnId ? turnIdMap.get(message.turnId)! : null,
               sequenceNo: message.sequenceNo,
               role: message.role,
-              contentText: message.contentText,
+              contentText: remapForkedFileReferences(message.contentText, fileIdMap),
               createdAt: message.createdAt,
               updatedAt: message.updatedAt,
             })),
@@ -6925,10 +6934,7 @@ export class ConversationService {
                 id: fileIdMap.get(file.id)!,
                 conversationId: forkConversationId,
                 pendingRequestId: null,
-                turnId: file.turnId ? turnIdMap.get(file.turnId)! : null,
-                kind: file.kind,
-                source: file.source,
-                status: file.status,
+                ...forkImageFileBinding(file, turnIdMap, imageReferenceTurnIds),
                 knowledgeAssetReferenceId: file.knowledgeAssetReferenceId,
                 filename: file.filename,
                 mimeType: file.mimeType,
@@ -6938,7 +6944,6 @@ export class ConversationService {
                 workspaceRelativePath: file.workspaceRelativePath,
     workspaceRootRelPath: file.workspaceRootRelPath,
                 minioObjectKey: file.minioObjectKey,
-                downloadable: file.downloadable,
                 downloadCardEventId: file.downloadCardEventId
                   ? (eventIdMap.get(file.downloadCardEventId) ?? null)
                   : null,

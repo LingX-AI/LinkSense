@@ -350,7 +350,8 @@ describe("ConversationService ownership and draft lifecycle", () => {
     { name: "rejects an unavailable category without creating an orphaned fork", projectId: "80000000-0000-4000-8000-000000000001", categoryAvailable: false },
     { name: "inherits the category on retry after the runner recovers without creating a duplicate task", projectId: "80000000-0000-4000-8000-000000000001", categoryAvailable: true, runnerInitiallyUnavailable: true },
     { name: "preserves answered async questions and makes unresolved questions independently answerable in a fork", projectId: null, categoryAvailable: true, includeAsyncInput: true },
-  ])("$name", async ({ projectId, categoryAvailable, runnerInitiallyUnavailable, includeAsyncInput }) => {
+    { name: "preserves a viewed attachment whose source turn is outside the forked branch", projectId: null, categoryAvailable: true, includeHistoricalImage: true },
+  ])("$name", async ({ projectId, categoryAvailable, runnerInitiallyUnavailable, includeAsyncInput, includeHistoricalImage }) => {
     const fixture = await conversationFixture();
     const source = conversationRow({
       title: "Task",
@@ -386,6 +387,11 @@ describe("ConversationService ownership and draft lifecycle", () => {
     });
     const assetReferenceId = "40000000-0000-4000-8000-000000000091";
     const attachment = attachmentRow({ turnId: TURN_ID });
+    const historicalImage = attachmentRow({
+      id: "70000000-0000-4000-8000-000000000093",
+      turnId: "40000000-0000-4000-8000-000000000099",
+      filename: "original.png", mimeType: "image/png",
+    });
     const imageSnapshot = attachmentRow({
       id: "40000000-0000-4000-8000-000000000092",
       turnId: TURN_ID,
@@ -433,7 +439,19 @@ describe("ConversationService ownership and draft lifecycle", () => {
         },
       }),
     ]);
-    fixture.prisma.conversationFile.findMany.mockResolvedValue([attachment, imageSnapshot]);
+    fixture.prisma.conversationFile.findMany.mockImplementation(async (query?: { where?: { id?: unknown } }) =>
+      query?.where?.id ? [historicalImage] : [attachment, imageSnapshot],
+    );
+    if (includeHistoricalImage) {
+      fixture.prisma.conversationEvent.findMany.mockResolvedValue([
+        eventRow({ turnId: TURN_ID, payloadJson: {
+          conversation_id: CONVERSATION_ID, turn_id: TURN_ID, message_id: MESSAGE_ID,
+        } }),
+        eventRow({ id: "50000000-0000-4000-8000-000000000093", turnId: TURN_ID, eventType: "item/completed", sequenceNo: 2n, payloadJson: {
+          method: "item/completed", params: { item: { type: "imageView", id: "view-original", fileId: historicalImage.id } },
+        } }),
+      ]);
+    }
     fixture.runner.forkThread.mockResolvedValue({
       codexThreadId: "codex-thread-forked",
       codexTurnIds: ["codex-turn-internal", "codex-turn-target"],
@@ -586,6 +604,11 @@ describe("ConversationService ownership and draft lifecycle", () => {
           minioObjectKey: "snapshot/image.png",
           downloadable: false,
         }),
+        ...(includeHistoricalImage ? [expect.objectContaining({
+          conversationId: result.id, kind: "image_preview", turnId: clonedTurn.id,
+          source: "system_generated", status: "registered",
+          filename: "original.png", downloadable: false,
+        })] : []),
       ],
     });
     expect(
@@ -600,6 +623,11 @@ describe("ConversationService ownership and draft lifecycle", () => {
             message_id: clonedAssistantMessage.id,
           },
         }),
+        ...(includeHistoricalImage ? [expect.objectContaining({
+          conversationId: result.id, payloadJson: expect.objectContaining({
+            params: { item: { type: "imageView", id: "view-original", fileId: expect.not.stringContaining(historicalImage.id) } },
+          }),
+        })] : []),
       ],
     });
     await expect(

@@ -1,4 +1,6 @@
 import type { Conversation, ConversationMessage } from "@/api/contracts"
+import { getNativeCodexPayload } from "@/api/contracts"
+import { resolveConversationDeliveryFiles } from "@/features/conversations/conversation-delivery-references"
 
 function sortMessages(messages: ConversationMessage[]): ConversationMessage[] {
   return messages.sort(
@@ -58,11 +60,44 @@ export function mergeConversationHistory(
   if (direction === "older") {
     for (const event of current.events ?? []) eventsById.set(event.id, event)
   }
+  const referencedFileIds = new Set(
+    retainedMessages.flatMap((message) =>
+      resolveConversationDeliveryFiles(message.content, current.files ?? [], {
+        inlineImagesOnly: true,
+      }).map((file) => file.id)
+    )
+  )
+  for (const event of eventsById.values()) {
+    const native = getNativeCodexPayload(event)
+    if (
+      native?.method === "item/completed" &&
+      native.params.item.type === "imageView" &&
+      native.params.item.fileId
+    ) {
+      referencedFileIds.add(native.params.item.fileId)
+    }
+  }
+  const filesById = new Map(
+    (current.files ?? [])
+      .filter(
+        (file) =>
+          (file.turn_id &&
+            activeTurns.has(file.turn_id) &&
+            !replacedTurns.has(file.turn_id)) ||
+          referencedFileIds.has(file.id)
+      )
+      .map((file) => [file.id, file])
+  )
+  for (const file of incoming.files ?? []) filesById.set(file.id, file)
+  if (direction === "older") {
+    for (const file of current.files ?? []) filesById.set(file.id, file)
+  }
   return {
     ...latest,
     fork_source:
       latest.fork_source ?? incoming.fork_source ?? current.fork_source,
     messages: sortMessages([...messagesById.values()]),
+    files: [...filesById.values()],
     events: [...eventsById.values()].sort(
       (a, b) => (a.sequence_no ?? 0) - (b.sequence_no ?? 0)
     ),
