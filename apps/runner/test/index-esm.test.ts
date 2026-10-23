@@ -1,16 +1,37 @@
 import path from "node:path"
+import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
 
 import { describe, expect, it } from "vitest"
 
 import {
   isMainModule,
+  resolveNativeImageTemporaryRoots,
   resolveOwnerExecutionPaths,
 } from "../src/index.js"
 
 const ownerId = "01900000-0000-7000-8000-000000000002"
 
 describe("runner ESM entrypoint", () => {
+  it.each([
+    ["worker", "docker"],
+    ["worker", "local-process"],
+    ["standalone", "docker"],
+  ] as const)("limits native temporary previews to the %s/%s execution boundary", (mode, provider) => {
+    const roots = resolveNativeImageTemporaryRoots({
+      LINKSENSE_RUNNER_MODE: mode,
+      LINKSENSE_WORKER_PROVIDER: provider,
+      LINKSENSE_USER_DATA_ROOT: "/srv/linksense/users",
+    }, ownerId)
+    const runtimeRoot = mode === "worker"
+      ? "/srv/linksense/users/.local/share/linksense/tmp"
+      : `/srv/linksense/users/${ownerId}/home/.local/share/linksense/tmp`
+
+    expect(roots).toEqual(mode === "worker" && provider === "docker"
+      ? [runtimeRoot, tmpdir()]
+      : [runtimeRoot])
+  })
+
   it("compares file URLs with the executable path without CommonJS globals", () => {
     const executable = path.resolve("/tmp/linksense runner/index.js")
     expect(isMainModule(pathToFileURL(executable).href, executable)).toBe(true)

@@ -145,6 +145,7 @@ export function buildControllerServer(
     "/internal/runner/events",
     "/internal/runner/memory-usage",
     "/internal/runner/process-exit",
+    "/internal/image-previews",
     "/internal/file-service/register-artifact",
     "/internal/image-generation/generate",
     "/internal/knowledge/search",
