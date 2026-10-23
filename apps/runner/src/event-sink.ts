@@ -102,6 +102,7 @@ export interface RunnerEventSink {
     conversationId: string;
     turnId: string;
   }): Promise<unknown>;
+  readConversationReference?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ReadConversationReferenceInput }): Promise<unknown>;
   emitInteractiveApplicationEvent?(input: {
     conversationId: string;
     codexTurnId: string;
@@ -381,6 +382,11 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     const body = await parseResponseBody(response);
     if (!response.ok) throw applicationBuilderErrorFromApi(response.status, body);
     return body;
+  }
+  async readConversationReference(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ReadConversationReferenceInput }): Promise<unknown> {
+    const response = await this.request("/internal/conversation-references/read", input, this.workspaceManager.ownerFor(input.conversationId));
+    if (!response.ok) throw new ConversationReferenceRequestError(response.status);
+    return parseResponseBody(response);
   }
 
   confirmSkillInstall(input: {
@@ -857,3 +863,4 @@ function abortableDelay(
 function isPowerOfTwo(value: number): boolean {
   return value > 0 && (value & (value - 1)) === 0;
 }
+import { ConversationReferenceRequestError } from "./conversation-reference-error.js";

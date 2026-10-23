@@ -342,6 +342,7 @@ const artifactPreviewLinkSchema = z.object({
 })
 const reconnectingConversationRefetchIntervalMs = 1_500
 const newConversationPlaceholderId = "new"
+const emptyTaskReferences: { id: string; title: string }[] = []
 const conversationForkNotificationId = "conversation-fork-loading"
 const goalClearResultSchema = z.strictObject({ cleared: z.boolean() })
 const emptyPersistedMessageRenderKeys: ReadonlyMap<string, string> = new Map()
@@ -393,6 +394,7 @@ type ComposerSubmission = Readonly<{
   collaborationMode: ConversationCollaborationMode
   optimisticId?: string
   referenceId?: string
+  taskReferences?: { id: string; title: string }[]
 }>
 
 type PlanReviewActionSubmission =
@@ -829,6 +831,14 @@ export function ConversationPage({
   const composerSubmissionInFlightRef = useRef(false)
   const composerAttachmentOperationInFlightRef = useRef(false)
   const composerModelPreferenceOperationInFlightRef = useRef(false)
+  const [taskReferenceSelection, setTaskReferenceSelection] = useState<{
+    scope: string | undefined
+    items: { id: string; title: string }[]
+  }>({ scope: conversationId, items: [] })
+  const taskReferences =
+    taskReferenceSelection.scope === conversationId
+      ? taskReferenceSelection.items
+      : emptyTaskReferences
   const attachmentMutationTargetConversationIdRef = useRef<string | null>(null)
   const currentRouteConversationId = isNew ? null : (conversationId ?? null)
   const routeConversationIdRef = useRef<string | null>(
@@ -1468,6 +1478,7 @@ export function ConversationPage({
     setNewTaskCollaborationMode("default")
     setSelectedCapabilityIds([])
     setSelectedKnowledgeBaseIds([])
+    setTaskReferenceSelection({ scope: conversationId, items: [] })
     setOfficePreview(null)
     setOfficePreviewUpdate(null)
     setImagePreview(null)
@@ -1530,8 +1541,13 @@ export function ConversationPage({
     setValue(draft.input)
     setSelectedCapabilityIds([...draft.capabilityIds])
     setSelectedKnowledgeBaseIds([...draft.knowledgeBaseIds])
+    setTaskReferenceSelection({
+      scope: conversationId,
+      items: [...(draft.taskReferences ?? [])],
+    })
   }, [
     conversation,
+    conversationId,
     localDraftScope,
     newTaskResetVersion,
     user,
@@ -1552,6 +1568,7 @@ export function ConversationPage({
           input: composerValue.getSnapshot(),
           capabilityIds: selectedCapabilityIds,
           knowledgeBaseIds: selectedKnowledgeBaseIds,
+          taskReferences,
         }
       )
     }
@@ -1561,6 +1578,7 @@ export function ConversationPage({
     localDraftScope,
     selectedCapabilityIds,
     selectedKnowledgeBaseIds,
+    taskReferences,
     user,
     composerValue,
   ])
@@ -2676,12 +2694,14 @@ export function ConversationPage({
     initialInput = "",
     initialCapabilityIds = [],
     initialKnowledgeBaseIds = selectedKnowledgeBaseIds,
+    initialTaskReferences = taskReferences,
     initialCollaborationMode = collaborationMode,
   }: {
     suppressEmptyStateUntilFirstMessage?: boolean
     initialInput?: string
     initialCapabilityIds?: string[]
     initialKnowledgeBaseIds?: string[]
+    initialTaskReferences?: ComposerSubmission["taskReferences"]
     initialCollaborationMode?: ConversationCollaborationMode
   } = {}) => {
     if (routeConversationIdRef.current) return routeConversationIdRef.current
@@ -2716,6 +2736,7 @@ export function ConversationPage({
             input: initialInput,
             capabilityIds: initialCapabilityIds,
             knowledgeBaseIds: initialKnowledgeBaseIds,
+            taskReferences: initialTaskReferences,
           }
         )
         clearLocalConversationDraft(window.localStorage, user.id, "new")
@@ -3054,6 +3075,7 @@ export function ConversationPage({
         initialInput: requestedInput,
         initialCapabilityIds: requestedCapabilityIds,
         initialKnowledgeBaseIds: requestedKnowledgeBaseIds,
+        initialTaskReferences: submission.taskReferences ?? [],
         initialCollaborationMode: submission.collaborationMode,
       })
       sendSubmissionConversationIdRef.current = id
@@ -3076,6 +3098,7 @@ export function ConversationPage({
         ...(submission.referenceId
           ? { reference_id: submission.referenceId }
           : {}),
+        task_references: submission.taskReferences,
         priority_capability_ids: requestedCapabilityIds,
         knowledge_base_ids: requestedKnowledgeBaseIds,
         attachment_ids: nextAttachments.map((attachment) => attachment.id),
@@ -3100,6 +3123,7 @@ export function ConversationPage({
           optimisticId: submission.optimisticId,
           idempotencyKey,
           message: {
+            ...optimisticSubmission?.message,
             id:
               optimisticSubmission?.message.id ??
               `optimistic-${idempotencyKey}`,
@@ -3146,6 +3170,7 @@ export function ConversationPage({
           ...sideChatTurnInput({
             input: requestedInput,
             referenceId: submission.referenceId,
+            taskReferences: submission.taskReferences,
           }),
           priority_capability_ids: requestedCapabilityIds,
           knowledge_base_ids: requestedKnowledgeBaseIds,
@@ -3275,6 +3300,14 @@ export function ConversationPage({
       )
       setSelectedKnowledgeBaseIds((current) =>
         current.length > 0 ? current : [...submission.knowledgeBaseIds]
+      )
+      setTaskReferenceSelection((current) =>
+        current.scope === conversationId && current.items.length
+          ? current
+          : {
+              scope: conversationId,
+              items: [...(submission.taskReferences ?? [])],
+            }
       )
       setTurnAdmissionError(nextError)
       sendSubmissionConversationIdRef.current = null
@@ -3575,6 +3608,14 @@ export function ConversationPage({
       )
       setSelectedKnowledgeBaseIds((current) =>
         current.length > 0 ? current : [...submission.knowledgeBaseIds]
+      )
+      setTaskReferenceSelection((current) =>
+        current.scope === conversationId && current.items.length
+          ? current
+          : {
+              scope: conversationId,
+              items: [...(submission.taskReferences ?? [])],
+            }
       )
       setOptimisticGoal((current) =>
         current?.goal.objective === submission.input.trim() ? null : current
@@ -4390,6 +4431,14 @@ export function ConversationPage({
       setSelectedKnowledgeBaseIds((current) =>
         current.length > 0 ? current : [...submission.knowledgeBaseIds]
       )
+      setTaskReferenceSelection((current) =>
+        current.scope === conversationId && current.items.length
+          ? current
+          : {
+              scope: conversationId,
+              items: [...(submission.taskReferences ?? [])],
+            }
+      )
       setError(getErrorMessage(nextError, t))
       steerSubmissionConversationIdRef.current = null
     },
@@ -4403,6 +4452,7 @@ export function ConversationPage({
       const targetConversationId = conversationId
       const idempotencyKey = await stableOperationId(pendingOperationRef, {
         operation: "pending_create",
+        task_references: submission.taskReferences,
         conversation_id: targetConversationId,
         collaboration_mode: submission.collaborationMode,
       })
@@ -4467,6 +4517,14 @@ export function ConversationPage({
       )
       setSelectedKnowledgeBaseIds((current) =>
         current.length > 0 ? current : [...submission.knowledgeBaseIds]
+      )
+      setTaskReferenceSelection((current) =>
+        current.scope === conversationId && current.items.length
+          ? current
+          : {
+              scope: conversationId,
+              items: [...(submission.taskReferences ?? [])],
+            }
       )
       setError(getErrorMessage(nextError, t))
       pendingSubmissionConversationIdRef.current = null
@@ -4840,6 +4898,12 @@ export function ConversationPage({
       return
     const submission: ComposerSubmission = {
       input,
+      ...(!goalMode &&
+      !isApplicationConversation &&
+      !sideChatReference &&
+      taskReferences.length
+        ? { taskReferences: [...taskReferences] }
+        : {}),
       ...(sideChatReference ? { referenceId: sideChatReference.id } : {}),
       capabilityIds: [...selectedCapabilityIds],
       knowledgeBaseIds: [...validSelectedKnowledgeBaseIds],
@@ -4887,6 +4951,18 @@ export function ConversationPage({
           id: `optimistic-${optimisticId}`,
           role: "user",
           content: submission.input,
+          ...(submission.taskReferences?.length
+            ? {
+                display: {
+                  kind: "task_references" as const,
+                  request: submission.input,
+                  conversation_ids: submission.taskReferences.map(
+                    (source) => source.id
+                  ),
+                  sources: submission.taskReferences,
+                },
+              }
+            : {}),
           turn_id: null,
           created_at: new Date().toISOString(),
           attachments: submission.attachments,
@@ -4917,12 +4993,14 @@ export function ConversationPage({
       composerSubmissionInFlightRef.current = true
       setValue("")
       setSelectedCapabilityIds([])
+      setTaskReferenceSelection({ scope: conversationId, items: [] })
       sendMutation.mutate({ ...submission, optimisticId })
       return
     }
 
     const canSteer =
       running &&
+      !submission.taskReferences?.length &&
       attachments.length === 0 &&
       submission.capabilityIds.length === 0
     if (runningMessageAction === "steer" && canSteer) {
@@ -4947,6 +5025,7 @@ export function ConversationPage({
     composerSubmissionInFlightRef.current = true
     setValue("")
     setSelectedCapabilityIds([])
+    setTaskReferenceSelection({ scope: conversationId, items: [] })
     pendingMutation.mutate(submission)
   }
 
@@ -6374,6 +6453,13 @@ export function ConversationPage({
                 : undefined
             }
             onSubmit={submitComposer}
+            taskReferences={goalMode ? [] : taskReferences}
+            onTaskReferencesChange={
+              !goalMode && !isApplicationConversation && !sideChatReference
+                ? (items) =>
+                    setTaskReferenceSelection({ scope: conversationId, items })
+                : undefined
+            }
             onCompact={startContextCompaction}
             compactAvailable={compactionAvailable}
             compacting={contextCompactionMutation.isPending}

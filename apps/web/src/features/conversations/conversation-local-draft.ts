@@ -5,6 +5,10 @@ const localConversationDraftSchema = z.strictObject({
   input: z.string().max(1_000_000),
   capability_ids: z.array(z.string()),
   knowledge_base_ids: z.array(z.string()),
+  task_references: z
+    .array(z.object({ id: z.uuid(), title: z.string().max(240) }))
+    .max(3)
+    .optional(),
   idempotency_key: z.string().min(1).max(120).optional(),
 })
 
@@ -12,6 +16,7 @@ export type LocalConversationDraft = Readonly<{
   input: string
   capabilityIds: readonly string[]
   knowledgeBaseIds: readonly string[]
+  taskReferences?: readonly { id: string; title: string }[]
   idempotencyKey?: string
 }>
 
@@ -48,6 +53,9 @@ export function readLocalConversationDraft(
       input: parsed.data.input,
       capabilityIds: parsed.data.capability_ids,
       knowledgeBaseIds: parsed.data.knowledge_base_ids,
+      ...(parsed.data.task_references?.length
+        ? { taskReferences: parsed.data.task_references }
+        : {}),
       ...(parsed.data.idempotency_key
         ? { idempotencyKey: parsed.data.idempotency_key }
         : {}),
@@ -73,7 +81,8 @@ export function writeLocalConversationDraft(
     if (
       draft.input.length === 0 &&
       draft.capabilityIds.length === 0 &&
-      draft.knowledgeBaseIds.length === 0
+      draft.knowledgeBaseIds.length === 0 &&
+      !draft.taskReferences?.length
     ) {
       storage.removeItem(key)
       return
@@ -89,7 +98,9 @@ export function writeLocalConversationDraft(
       JSON.stringify(previous.capabilityIds) ===
         JSON.stringify(draft.capabilityIds) &&
       JSON.stringify(previous.knowledgeBaseIds) ===
-        JSON.stringify(draft.knowledgeBaseIds)
+        JSON.stringify(draft.knowledgeBaseIds) &&
+      JSON.stringify(previous.taskReferences ?? []) ===
+        JSON.stringify(draft.taskReferences ?? [])
     storage.setItem(
       key,
       JSON.stringify({
@@ -97,6 +108,9 @@ export function writeLocalConversationDraft(
         input: draft.input,
         capability_ids: draft.capabilityIds,
         knowledge_base_ids: draft.knowledgeBaseIds,
+        ...(draft.taskReferences?.length
+          ? { task_references: draft.taskReferences }
+          : {}),
         idempotency_key:
           draft.idempotencyKey ??
           (unchanged ? previous.idempotencyKey : undefined),

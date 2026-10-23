@@ -64,3 +64,22 @@ describe("side chat message selection", () => {
     })
   })
 })
+describe("task reference turn submission", () => {
+  it("sends explicit source IDs as metadata rather than authorizing pasted text", () => {
+    expect(
+      sideChatTurnInput({
+        input: "Compare the findings",
+        taskReferences: [
+          { id: "source-a", title: "Research" },
+          { id: "source-b", title: "Design" },
+        ],
+      })
+    ).toEqual({
+      message_display: {
+        kind: "task_references",
+        request: "Compare the findings",
+        conversation_ids: ["source-a", "source-b"],
+      },
+    })
+  })
+})

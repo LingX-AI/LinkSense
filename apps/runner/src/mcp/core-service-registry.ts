@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { conversationReferenceCoreMcpModule } from "./core-services/conversation-reference-service.js"
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js"
 
 import { currentUserCoreMcpModule } from "./core-services/current-user-service.js"
@@ -20,6 +21,7 @@ import type {
 const collaborationModeSchema = z.enum(["default", "plan"])
 
 export const coreMcpModuleRegistry: readonly CoreMcpModuleDefinition[] = [
+  conversationReferenceCoreMcpModule,
   fileServiceCoreMcpModule,
   documentConversionCoreMcpModule,
   currentUserCoreMcpModule,

@@ -11566,6 +11566,22 @@ describe("ConversationService pending and turn materialization", () => {
     expect(fixture.runner.startTurn).not.toHaveBeenCalled();
   });
 
+  it("keeps a structured task reference queued instead of steering its wrapper into the active turn", async () => {
+    const fixture = await conversationFixture();
+    const display = { kind: "task_references", request: "Compare", conversation_ids: [SECOND_CONVERSATION_ID], sources: [{ id: SECOND_CONVERSATION_ID, title: "Research" }] };
+    const pending = pendingRow({ inputText: `[LinkSense office annotation]\nDisplay metadata:\n${JSON.stringify(display)}\n\nUser request:\nCompare` });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
+    const reservation = transactionFixture();
+    reservation.pendingRequest.findFirst.mockResolvedValue(pending);
+    reservation.conversationTurn.findFirst.mockResolvedValue(turnRow());
+    reservation.conversationFile.findFirst.mockResolvedValue(null);
+    reservation.conversationTurnStartIntent.findFirst.mockResolvedValue(null);
+    fixture.prisma.$transaction.mockImplementationOnce(async action => action(reservation));
+    await expect(fixture.service.steerPending(OWNER_ID, CONVERSATION_ID, PENDING_ID, {})).rejects.toMatchObject({ code: "TURN_STEER_REQUEST_FAILED" });
+    expect(fixture.runner.steer).not.toHaveBeenCalled();
+    expect(reservation.pendingRequest.update).not.toHaveBeenCalled();
+  });
+
   it("promotes the FIFO plain-text pending request into the running turn exactly once", async () => {
     const fixture = await conversationFixture();
     const turn = turnRow();

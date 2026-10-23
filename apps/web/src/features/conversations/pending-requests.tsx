@@ -212,7 +212,8 @@ export function PendingRequests({
               const lockedForSteering = request.status === "steering"
               const annotationLabel =
                 request.display &&
-                request.display.kind !== "conversation_reference"
+                request.display.kind !== "conversation_reference" &&
+                request.display.kind !== "task_references"
                   ? t(
                       request.display.kind === "presentation_annotation"
                         ? "conversation.presentationAnnotationCount"
@@ -244,7 +245,8 @@ export function PendingRequests({
                       className="pending-request-context-input"
                       title={
                         request.display &&
-                        request.display.kind !== "conversation_reference"
+                        request.display.kind !== "conversation_reference" &&
+                        request.display.kind !== "task_references"
                           ? request.display.annotations
                               .map((annotation) => annotation.request)
                               .join("\n")

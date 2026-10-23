@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -12,6 +13,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
+  type SyntheticEvent,
 } from "react"
 import {
   ArrowUpIcon,
@@ -37,7 +39,11 @@ import type {
   ConversationFile,
 } from "@/api/contracts"
 import { useProductName } from "@/app/product-branding"
-import type { ModelPreference, ReasoningEffort } from "@linksense/shared"
+import {
+  maximumConversationReferences,
+  type ModelPreference,
+  type ReasoningEffort,
+} from "@linksense/shared"
 import { CapabilityIcon } from "@/components/capabilities/capability-icon"
 import { FileTypeIcon } from "@/components/media/file-type-icon"
 import { Button } from "@/components/ui/button"
@@ -74,6 +80,10 @@ import { ConversationAttachmentPreviews } from "@/features/conversations/convers
 import { ConversationAttachmentUploadPreview } from "@/features/conversations/conversation-attachment-upload-preview"
 import { ConversationAttachmentOverflow } from "@/features/conversations/conversation-attachment-overflow"
 import { ReferenceFilePopover } from "@/features/conversations/reference-file-popover"
+import {
+  TaskReferencePicker,
+  type TaskReference,
+} from "./task-reference-picker"
 import type { ReferenceableFile } from "@/features/conversations/reference-file-api"
 import { capabilityPresentation } from "@/features/capabilities/built-in-presentation"
 import {
@@ -85,14 +95,17 @@ import { ConversationModelSelector } from "@/features/conversations/conversation
 import type { ConversationModelContextUsage } from "@/features/conversations/conversation-context-usage"
 import {
   ConversationSkillCommandMenu,
+  ConversationTaskReferenceCommandMenu,
   ConversationSlashCommandMenu,
   type ConversationSlashCommandPanel,
 } from "@/features/conversations/conversation-slash-command-menu"
 import {
   findConversationSkillCommandTrigger,
+  findConversationTaskReferenceTrigger,
   findConversationSlashCommandTrigger,
   isConversationContextCompactionCommand,
   removeConversationSkillCommandTrigger,
+  removeConversationTaskReferenceTrigger,
   removeConversationSlashCommandTrigger,
 } from "@/features/conversations/conversation-slash-command"
 import { ConversationComposerUrlHighlightLayer } from "@/features/conversations/conversation-composer-url-highlight-layer"
@@ -442,6 +455,8 @@ type ConversationComposerProps = Readonly<{
     reasoningEffort: ReasoningEffort
   ) => void
   onSubmit: (value: string) => void
+  taskReferences?: TaskReference[]
+  onTaskReferencesChange?: (references: TaskReference[]) => void
   onCompact?: () => void
   compactAvailable?: boolean
   compacting?: boolean
@@ -516,6 +531,8 @@ export const ConversationComposer = forwardRef<
     allowManagedApplicationModelSelection = false,
     onModelPreferenceChange,
     onSubmit,
+    taskReferences = [],
+    onTaskReferencesChange,
     onCompact = () => undefined,
     compactAvailable = false,
     compacting = false,
@@ -543,6 +560,13 @@ export const ConversationComposer = forwardRef<
   const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
   const [menuOpen, setMenuOpen] = useState(false)
   const [referenceFileOpen, setReferenceFileOpen] = useState(false)
+  const [taskReferenceOpen, setTaskReferenceOpen] = useState(false)
+  const [taskReferenceCaret, setTaskReferenceCaret] = useState<number | null>(
+    null
+  )
+  const [dismissedTaskReferenceValue, setDismissedTaskReferenceValue] =
+    useState<string | null>(null)
+  const taskReferenceMenuId = useId()
   const [knowledgeMenuOpen, setKnowledgeMenuOpen] = useState(false)
   const [slashPanel, setSlashPanel] =
     useState<ConversationSlashCommandPanel | null>(null)
@@ -619,7 +643,29 @@ export const ConversationComposer = forwardRef<
     slashPanel === null &&
     skillTrigger !== null &&
     dismissedSkillValue !== value
-  const commandMenuOpen = slashMenuOpen || skillMenuOpen
+  const taskReferenceTrigger = findConversationTaskReferenceTrigger(
+    value,
+    taskReferenceCaret ?? value.length
+  )
+  const taskReferenceMenuOpen = Boolean(
+    onTaskReferencesChange &&
+    taskReferenceTrigger &&
+    dismissedTaskReferenceValue !== value &&
+    !slashMenuOpen &&
+    !skillMenuOpen &&
+    !menuOpen &&
+    !taskReferenceOpen &&
+    !interactionBlocked &&
+    !submitting
+  )
+  const commandMenuOpen =
+    slashMenuOpen || skillMenuOpen || taskReferenceMenuOpen
+  const handleInputSelection = useCallback(
+    (event: SyntheticEvent<HTMLTextAreaElement>) => {
+      setTaskReferenceCaret(event.currentTarget.selectionStart)
+    },
+    []
+  )
 
   const dismissSlashMenu = useCallback(() => {
     setSlashPanel(null)
@@ -632,6 +678,7 @@ export const ConversationComposer = forwardRef<
   const dismissCommandMenu = useCallback(() => {
     dismissSlashMenu()
     const currentValue = latestValueRef.current
+    setDismissedTaskReferenceValue(currentValue)
     setDismissedSkillValue(
       findConversationSkillCommandTrigger(currentValue) ? currentValue : null
     )
@@ -962,6 +1009,37 @@ export const ConversationComposer = forwardRef<
     )
     latestValueRef.current = nextValue
     onValueChange(nextValue)
+  }
+
+  const selectTaskReference = (task: TaskReference) => {
+    if (
+      !onTaskReferencesChange ||
+      taskReferences.length >= maximumConversationReferences ||
+      taskReferences.some((source) => source.id === task.id)
+    )
+      return
+    const currentValue = latestValueRef.current
+    const trigger = findConversationTaskReferenceTrigger(
+      currentValue,
+      textareaRef.current?.selectionStart ?? currentValue.length
+    )
+    if (!trigger) return
+    const nextValue = removeConversationTaskReferenceTrigger(
+      currentValue,
+      trigger
+    )
+    onTaskReferencesChange([
+      ...taskReferences,
+      { id: task.id, title: task.title },
+    ])
+    latestValueRef.current = nextValue
+    onValueChange(nextValue)
+    setTaskReferenceCaret(trigger.start)
+    setDismissedTaskReferenceValue(nextValue)
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true })
+      textareaRef.current?.setSelectionRange(trigger.start, trigger.start)
+    })
   }
 
   const openSlashPanel = (panel: ConversationSlashCommandPanel) => {
@@ -1327,6 +1405,49 @@ export const ConversationComposer = forwardRef<
           onReference={onReferenceFile}
         />
       )}
+      {onTaskReferencesChange && (
+        <>
+          {taskReferences.length > 0 && (
+            <div
+              className="flex flex-wrap gap-1 px-3 py-2"
+              aria-label={t("taskReferences.source")}
+            >
+              {taskReferences.map((source) => (
+                <Button
+                  key={source.id}
+                  type="button"
+                  variant="secondary"
+                  size="xs"
+                  disabled={submitting}
+                  aria-label={t("taskReferences.remove", {
+                    title: source.title,
+                  })}
+                  onClick={() =>
+                    onTaskReferencesChange(
+                      taskReferences.filter((item) => item.id !== source.id)
+                    )
+                  }
+                >
+                  <span className="max-w-48 truncate">{source.title}</span>
+                  <XIcon aria-hidden="true" />
+                </Button>
+              ))}
+            </div>
+          )}
+          {taskReferenceOpen && (
+            <TaskReferencePicker
+              anchor={composerShellRef}
+              finalFocus={textareaRef}
+              currentConversationId={currentConversationId}
+              open={taskReferenceOpen}
+              onOpenChange={setTaskReferenceOpen}
+              selected={taskReferences}
+              onChange={onTaskReferencesChange}
+              disabled={submitting}
+            />
+          )}
+        </>
+      )}
       {skillMenuOpen && (
         <ConversationSkillCommandMenu
           ref={commandMenuRef}
@@ -1337,6 +1458,16 @@ export const ConversationComposer = forwardRef<
           selectedCapabilityIds={selectedIds}
           onRetryCapabilities={onRetryCapabilities}
           onSelectCapability={selectSkillCapability}
+        />
+      )}
+      {taskReferenceMenuOpen && (
+        <ConversationTaskReferenceCommandMenu
+          ref={commandMenuRef}
+          id={taskReferenceMenuId}
+          query={taskReferenceTrigger?.query ?? ""}
+          currentConversationId={currentConversationId}
+          selected={taskReferences}
+          onSelect={selectTaskReference}
         />
       )}
       {slashMenuOpen && !skillMenuOpen && (
@@ -1650,7 +1781,10 @@ export const ConversationComposer = forwardRef<
             setSlashPanel(null)
             setDismissedSlashValue(null)
             setDismissedSkillValue(null)
+            setDismissedTaskReferenceValue(null)
+            setTaskReferenceCaret(event.target.selectionStart)
             if (
+              !onTaskReferencesChange &&
               !attachmentActionDisabled &&
               isCapabilityMenuShortcutInsertion(
                 latestValueRef.current,
@@ -1666,6 +1800,7 @@ export const ConversationComposer = forwardRef<
             onValueChange(nextValue)
           }}
           onKeyDown={handleKeyDown}
+          onSelect={handleInputSelection}
           onPaste={handlePaste}
           onScroll={(event) => {
             const highlight = composerInputHighlightRef.current
@@ -1673,11 +1808,13 @@ export const ConversationComposer = forwardRef<
           }}
           aria-label={t("conversation.messageInput")}
           aria-controls={
-            skillMenuOpen
-              ? "conversation-skill-command-menu"
-              : slashMenuOpen
-                ? "conversation-slash-command-menu"
-                : undefined
+            taskReferenceMenuOpen
+              ? taskReferenceMenuId
+              : skillMenuOpen
+                ? "conversation-skill-command-menu"
+                : slashMenuOpen
+                  ? "conversation-slash-command-menu"
+                  : undefined
           }
           placeholder={
             unavailableMessage
@@ -1774,6 +1911,29 @@ export const ConversationComposer = forwardRef<
                         <span className="min-w-0 flex-1 truncate text-xs font-medium">
                           {t("conversation.referenceFile.menuLabel")}
                         </span>
+                      </CommandItem>
+                    )}
+                    {onTaskReferencesChange && (
+                      <CommandItem
+                        value={t("taskReferences.title")}
+                        disabled={attachmentActionDisabled}
+                        onSelect={() => {
+                          setMenuOpen(false)
+                          setTaskReferenceOpen(true)
+                        }}
+                      >
+                        <span className="capability-menu-icon capability-menu-action-icon">
+                          <Link2Icon aria-hidden="true" />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                          {t("taskReferences.title")}
+                        </span>
+                        <kbd
+                          className="ml-auto text-xs text-muted-foreground"
+                          aria-hidden="true"
+                        >
+                          @
+                        </kbd>
                       </CommandItem>
                     )}
                     <CommandItem

@@ -4,10 +4,12 @@ import { describe, expect, it } from "vitest"
 
 import {
   findConversationSkillCommandTrigger,
+  findConversationTaskReferenceTrigger,
   findConversationSlashCommandTrigger,
   isConversationContextCompactionCommand,
   removeConversationSkillCommandTrigger,
   removeConversationSlashCommandTrigger,
+  removeConversationTaskReferenceTrigger,
 } from "@/features/conversations/conversation-slash-command"
 
 describe("conversation slash command trigger", () => {
@@ -52,6 +54,40 @@ describe("conversation slash command trigger", () => {
 
     const consumed = removeConversationSlashCommandTrigger(value, trigger)
     expect(consumed).toBe("整理材料 ")
+  })
+})
+
+describe("task @ reference trigger", () => {
+  it("opens at a text boundary and supports queries with spaces", () => {
+    expect(findConversationTaskReferenceTrigger("@")).toEqual({
+      start: 0,
+      end: 1,
+      query: "",
+    })
+    expect(
+      findConversationTaskReferenceTrigger("Compare @product research")
+    ).toEqual({ start: 8, end: 25, query: "product research" })
+    expect(
+      findConversationTaskReferenceTrigger("First line\n@调研")
+    ).toMatchObject({ query: "调研" })
+  })
+  it("does not treat email addresses or URL paths as task references", () => {
+    for (const value of [
+      "owner@example.com",
+      "https://example.com/@task",
+      "@@task",
+      "@task\nNext line",
+    ])
+      expect(findConversationTaskReferenceTrigger(value)).toBeNull()
+  })
+  it("consumes only the reference at the caret and preserves the remaining draft", () => {
+    const value = "Compare @report with the existing plan"
+    const caret = "Compare @report".length
+    const trigger = findConversationTaskReferenceTrigger(value, caret)
+    expect(trigger).toEqual({ start: 8, end: caret, query: "report" })
+    expect(removeConversationTaskReferenceTrigger(value, trigger!)).toBe(
+      "Compare  with the existing plan"
+    )
   })
 })
 

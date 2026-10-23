@@ -55,6 +55,7 @@ describe("Core MCP module registry", () => {
     })
 
     expect(coreMcpModuleRegistry.map((module) => module.key)).toEqual([
+      "conversation_references",
       "file_service",
       "document_conversion",
       "current_user",
@@ -65,6 +66,7 @@ describe("Core MCP module registry", () => {
       "application_builder",
     ])
     expect(registry.modules.map((module) => module.key)).toEqual([
+      "conversation_references",
       "file_service",
       "document_conversion",
       "current_user",
@@ -111,12 +113,14 @@ describe("Core MCP module registry", () => {
     })
 
     expect(registry.modules.map((module) => module.key)).toEqual([
+      "conversation_references",
       "document_conversion",
       "current_user",
       "knowledge",
       "interactive_form",
     ])
     expect(registry.tools.map((tool) => tool.name)).toEqual([
+      "read_referenced_conversation",
       "convert_document_to_markdown",
       "get_current_user_info",
       "search_knowledge_base",
