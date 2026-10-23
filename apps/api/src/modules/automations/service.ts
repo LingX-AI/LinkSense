@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { AutomationNotificationService } from "./notifications.js";
 
 import {
   automationCreateInputSchema,
@@ -51,7 +52,10 @@ export class AutomationService {
     private readonly conversations: AutomationConversationGateway,
     private readonly audit: AuditService,
     private readonly now: () => Date = () => new Date(),
+    private readonly notifications?: AutomationNotificationService,
   ) {}
+
+  async listNotificationTargets(ownerId: string) { return this.notifications ? this.notifications.listTargets(ownerId) : { items: [] }; }
 
   async list(ownerId: string): Promise<{ items: Automation[] }> {
     return {
@@ -120,6 +124,10 @@ export class AutomationService {
     let createdConversationId: string | null = null;
 
     try {
+      if (input.notification_target) {
+        if (!this.notifications) throw new AppError("VALIDATION_ERROR");
+        await this.notifications.validateTarget(ownerId, input.notification_target);
+      }
       const conversationId =
         input.target.mode === "existing_task"
           ? input.target.conversation_id
@@ -135,6 +143,7 @@ export class AutomationService {
         {
           ownerId,
           conversationId,
+          notificationTarget: input.notification_target,
           title: input.title,
           instruction: input.instruction,
           status: "active",
@@ -184,6 +193,13 @@ export class AutomationService {
     let createdConversationId: string | null = null;
     try {
       const update: UpdateAutomationRecord = {};
+      if (input.notification_target !== undefined) {
+        if (input.notification_target) {
+          if (!this.notifications) throw new AppError("VALIDATION_ERROR");
+          await this.notifications.validateTarget(ownerId, input.notification_target);
+        }
+        update.notificationTarget = input.notification_target;
+      }
       if (input.title !== undefined) update.title = input.title;
       if (input.instruction !== undefined)
         update.instruction = input.instruction;
@@ -567,6 +583,7 @@ function projectAutomation(
   }
   return {
     id: record.id,
+    notification_target: record.notificationTarget ?? null,
     title: record.title,
     instruction: record.instruction,
     status: record.status,

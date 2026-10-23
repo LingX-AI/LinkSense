@@ -1,3 +1,4 @@
+import { automationNotificationMessages } from "@/features/conversations/automation-notification-messages"
 import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
 import {
@@ -67,6 +68,7 @@ void i18n.use(initReactI18next).init({
     "zh-CN": {
       translation: {
         ...zhCN,
+        automationNotifications: automationNotificationMessages["zh-CN"],
         applicationSetup: applicationSetupMessages["zh-CN"],
         onboarding: onboardingMessages["zh-CN"],
         auditValues: auditTranslationResource("zh-CN"),
@@ -75,6 +77,7 @@ void i18n.use(initReactI18next).init({
     "en-US": {
       translation: {
         ...enUS,
+        automationNotifications: automationNotificationMessages["en-US"],
         applicationSetup: applicationSetupMessages["en-US"],
         onboarding: onboardingMessages["en-US"],
         auditValues: auditTranslationResource("en-US"),
@@ -83,6 +86,7 @@ void i18n.use(initReactI18next).init({
     "es-ES": {
       translation: {
         ...esES,
+        automationNotifications: automationNotificationMessages["es-ES"],
         applicationSetup: applicationSetupMessages["es-ES"],
         onboarding: onboardingMessages["es-ES"],
         auditValues: auditTranslationResource("es-ES"),
@@ -91,6 +95,7 @@ void i18n.use(initReactI18next).init({
     "pt-BR": {
       translation: {
         ...ptBR,
+        automationNotifications: automationNotificationMessages["pt-BR"],
         applicationSetup: applicationSetupMessages["pt-BR"],
         onboarding: onboardingMessages["pt-BR"],
         auditValues: auditTranslationResource("pt-BR"),
@@ -99,6 +104,7 @@ void i18n.use(initReactI18next).init({
     "fr-FR": {
       translation: {
         ...frFR,
+        automationNotifications: automationNotificationMessages["fr-FR"],
         applicationSetup: applicationSetupMessages["fr-FR"],
         onboarding: onboardingMessages["fr-FR"],
         auditValues: auditTranslationResource("fr-FR"),
@@ -107,6 +113,7 @@ void i18n.use(initReactI18next).init({
     "ja-JP": {
       translation: {
         ...jaJP,
+        automationNotifications: automationNotificationMessages["ja-JP"],
         applicationSetup: applicationSetupMessages["ja-JP"],
         onboarding: onboardingMessages["ja-JP"],
         auditValues: auditTranslationResource("ja-JP"),

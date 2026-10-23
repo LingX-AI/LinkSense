@@ -100,6 +100,7 @@ import { formatDateTime, formatRelativeDate } from "@/i18n/date"
 import { cn } from "@/lib/utils"
 
 type AutomationForm = {
+  notificationTarget: AutomationNotificationTarget | null
   title: string
   instruction: string
   targetMode: "existing_task" | "new_task"
@@ -1033,6 +1034,10 @@ function AutomationFormFields({
         </FieldShell>
       )}
 
+      <AutomationNotificationField
+        value={form.notificationTarget}
+        onChange={(value) => updateForm("notificationTarget", value)}
+      />
       <div className="rounded-[min(var(--radius-4xl),24px)] border border-[color:var(--app-border)] p-4">
         <FieldGroup className="gap-4">
           <FieldShell
@@ -1571,6 +1576,7 @@ function resolveDefaultReasoningEffort(
 
 function createDefaultForm(): AutomationForm {
   return {
+    notificationTarget: null,
     title: "",
     instruction: "",
     targetMode: "existing_task",
@@ -1616,6 +1622,7 @@ function formFromAutomation(
   modelPreference: ModelPreference | null
 ): AutomationForm {
   const form = createDefaultForm()
+  form.notificationTarget = automation.notification_target ?? null
   const schedule = automation.schedule
   form.title = automation.title
   form.instruction = automation.instruction
@@ -1689,6 +1696,7 @@ function automationInputFromForm(form: AutomationForm): unknown {
             : { ...scheduleBase, frequency: "daily", time: form.time }
   return {
     title: form.title,
+    notification_target: form.notificationTarget,
     instruction: form.instruction,
     target:
       form.targetMode === "new_task"
@@ -1771,3 +1779,5 @@ function isWeekdayValue(
 ): value is (typeof weekdayValues)[number] {
   return weekdayValues.some((weekday) => weekday === value)
 }
+import { type AutomationNotificationTarget } from "@linksense/shared"
+import { AutomationNotificationField } from "@/features/conversations/automation-notification-field"

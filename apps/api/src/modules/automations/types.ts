@@ -1,10 +1,12 @@
 import type {
   AutomationRunStatus,
   AutomationStatus,
+  AutomationNotificationTarget,
   ReasoningEffort,
 } from "@linksense/shared";
 
 export type AutomationRecord = {
+  notificationTarget?: AutomationNotificationTarget | null;
   id: string;
   ownerId: string;
   conversationId: string;
@@ -76,6 +78,7 @@ export type UpdateAutomationRecord = Partial<
   Pick<
     AutomationRecord,
     | "conversationId"
+    | "notificationTarget"
     | "title"
     | "instruction"
     | "status"
