@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { pathToFileURL } from "node:url";
 
-export function prepareUat(root, { revision, project = "linksense-uat", publicUrl, port = "19090" }) {
+export function prepareUat(root, { revision, project = "linksense-uat", publicUrl, port = "19090", cachedBaselines = false }) {
   if (!/^[a-f0-9]{40}$/u.test(revision)) throw new Error("A committed source revision is required");
   if (!/^[a-z][a-z0-9_-]{2,40}$/u.test(project)) throw new Error("Invalid UAT project name");
   if (!/^\d{1,5}$/u.test(String(port)) || Number(port) < 1024 || Number(port) > 65535) throw new Error("UAT port must be between 1024 and 65535");
@@ -73,7 +73,7 @@ export function prepareUat(root, { revision, project = "linksense-uat", publicUr
   for (const role of ["POSTGRES", "REDIS", "MINIO", "MINIO_CLIENT", "BUSYBOX", "GATEWAY"]) {
     const image = baseline.services[role];
     if (!/^[a-z0-9./_-]+@sha256:[a-f0-9]{64}$/u.test(image)) throw new Error(`Unpinned baseline image: ${role}`);
-    environment[`${role}_IMAGE`] = image;
+    environment[`${role}_IMAGE`] = cachedBaselines ? `linksense-uat-cache/${role.toLowerCase()}:${image.split("sha256:")[1]}` : image;
   }
   for (const [role, suffix] of Object.entries({ POSTGRES: "postgres", REDIS: "redis", MINIO: "minio", USER_DATA: "users", BACKUP: "backups" })) environment[`LINKSENSE_${role}_VOLUME`] = `${project}-${suffix}`;
   for (const [role, suffix] of Object.entries({ INTERNAL: "internal", WORKER_CONTROL: "worker-control", WORKER_EGRESS: "worker-egress" })) environment[`LINKSENSE_${role}_NETWORK`] = `${project}-${suffix}`;
@@ -91,5 +91,6 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
     project: process.env.COMPOSE_PROJECT_NAME || "linksense-uat",
     publicUrl: process.env.LINKSENSE_PUBLIC_BASE_URL,
     port: process.env.LINKSENSE_HTTP_PORT || "19090",
+    cachedBaselines: process.env.LINKSENSE_UAT_CACHED_BASELINES === "1",
   });
 }

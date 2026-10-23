@@ -35,3 +35,10 @@ test("UAT rejects invalid origins and cross-project credential reuse", t => {
   prepareUat(root, { revision, publicUrl: "http://localhost:19090" });
   assert.throws(() => prepareUat(root, { revision, project: "other-uat", publicUrl: "http://localhost:19090" }), /another project/u);
 });
+test("proxy-loaded baseline aliases keep the frozen image digests in their identity", t => {
+  const root = fixture(t);
+  const original = prepareUat(root, { revision, publicUrl: "http://localhost:19090" });
+  const cached = prepareUat(root, { revision, publicUrl: "http://localhost:19090", cachedBaselines: true });
+  for (const role of ["POSTGRES", "REDIS", "MINIO", "MINIO_CLIENT", "BUSYBOX", "GATEWAY"]) assert.equal(cached[`${role}_IMAGE`], `linksense-uat-cache/${role.toLowerCase()}:${original[`${role}_IMAGE`].split("sha256:")[1]}`);
+  assert.equal(cached.POSTGRES_PASSWORD, original.POSTGRES_PASSWORD);
+});

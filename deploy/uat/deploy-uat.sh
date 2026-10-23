@@ -24,11 +24,17 @@ docker_root=$(docker info --format '{{.DockerRootDir}}')
 free_kb=$(df -Pk "$docker_root" | awk 'NR == 2 {print $4}')
 test "$free_kb" -ge 20971520 || { echo "Core source deployment needs at least 20 GiB free in Docker storage" >&2; exit 1; }
 node_image=$(python3 -c 'import json; print(json.load(open("deploy/baselines/images.lock.json"))["runtimes"]["node"])')
-timeout 600 docker pull "$node_image"
+if [ "${LINKSENSE_UAT_CACHED_BASELINES:-0}" = 1 ]; then
+  node_image=linksense-uat-cache/node:${node_image##*sha256:}
+  docker image inspect "$node_image" >/dev/null
+else
+  timeout 600 docker pull "$node_image"
+fi
 timeout 60 docker run --rm --network none --user "$(id -u):$(id -g)" \
   -v "$root:$root" -w "$root" \
   -e "LINKSENSE_SOURCE_REVISION=$revision" -e "COMPOSE_PROJECT_NAME=$project" \
   -e "LINKSENSE_PUBLIC_BASE_URL=$public_url" -e "LINKSENSE_HTTP_PORT=$port" \
+  -e "LINKSENSE_UAT_CACHED_BASELINES=${LINKSENSE_UAT_CACHED_BASELINES:-0}" \
   "$node_image" node deploy/uat/prepare.mjs
 compose() {
   timeout 3600 docker compose --project-directory "$root" --env-file "$root/.data/uat/runtime.env" -p "$project" \
@@ -46,7 +52,21 @@ for role in postgres redis minio users backups; do
   fi
 done
 echo "Building UAT source revision $revision"
-COMPOSE_PARALLEL_LIMIT=1 compose --progress plain build migrate api runner worker-image web
+if [ -n "${LINKSENSE_UAT_BUILD_PROXY:-}" ]; then
+  export LINKSENSE_UAT_BUILD_PROXY
+  python3 - <<'PY'
+import json, os
+proxy = os.environ['LINKSENSE_UAT_BUILD_PROXY']
+args = {'HTTP_PROXY': proxy, 'HTTPS_PROXY': proxy, 'NO_PROXY': 'localhost,127.0.0.1,::1'}
+services = {name: {'build': {'network': 'host', 'entitlements': ['network.host'], 'args': args}} for name in ['migrate', 'api', 'runner', 'worker-image', 'web']}
+with open('.data/uat/proxy-build.json', 'w') as output:
+    json.dump({'services': services}, output)
+PY
+  trap 'rm -f "$root/.data/uat/proxy-build.json"' EXIT HUP INT TERM
+  COMPOSE_PARALLEL_LIMIT=1 compose -f "$root/.data/uat/proxy-build.json" --progress plain build migrate api runner worker-image web
+else
+  COMPOSE_PARALLEL_LIMIT=1 compose --progress plain build migrate api runner worker-image web
+fi
 # Build failure leaves the running environment intact. Never delete UAT volumes.
 compose up -d --wait --wait-timeout 180 postgres redis minio
 schema_present=$(compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT to_regclass('\''public.conversation_turns'\'') IS NOT NULL"')
