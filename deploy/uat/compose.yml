@@ -1,0 +1,31 @@
+services:
+  migrate:
+    build:
+      context: ${LINKSENSE_SOURCE_ROOT}
+      dockerfile: Dockerfile.api
+      target: migration
+  worker-image:
+    build:
+      context: ${LINKSENSE_SOURCE_ROOT}
+      dockerfile: Dockerfile.runner
+      target: worker
+      args:
+        WORKER_IMAGE_FINGERPRINT: ${LINKSENSE_WORKER_IMAGE_REVISION}
+  runner:
+    build:
+      context: ${LINKSENSE_SOURCE_ROOT}
+      dockerfile: Dockerfile.runner
+      target: controller
+  api:
+    build:
+      context: ${LINKSENSE_SOURCE_ROOT}
+      dockerfile: Dockerfile.api
+      target: runtime
+  web:
+    build:
+      context: ${LINKSENSE_SOURCE_ROOT}
+      dockerfile: Dockerfile.web
+      target: runtime
+  gateway:
+    volumes:
+      - ${LINKSENSE_SOURCE_ROOT}/deploy/release/gateway.conf.template:/etc/nginx/templates/default.conf.template:ro
