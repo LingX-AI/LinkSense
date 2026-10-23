@@ -23,10 +23,22 @@ test("UAT updates preserve credentials and data identities while advancing sourc
   assert.equal(second.LINKSENSE_EDITION, "core");
   assert.equal(second.LINKSENSE_USER_DATA_VOLUME, "linksense-uat-user-data");
   assert.equal(second.LINKSENSE_VERSION, "v0.3.11");
-  assert.equal(second.LINKSENSE_MAX_CONCURRENT_CONVERSATIONS, "1");
+  assert.equal(second.LINKSENSE_MAX_CONCURRENT_CONVERSATIONS, "4");
+  assert.equal(second.LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT, "4");
   assert.equal(Buffer.from(second.LINKSENSE_CREDENTIAL_MASTER_KEY, "base64").length, 32);
   for (const file of ["runtime.env", "initialization.txt"]) assert.equal(statSync(resolve(root, ".data/uat", file)).mode & 0o777, 0o600);
   assert(!("ELASTICSEARCH_PASSWORD" in second));
+});
+test("UAT updates preserve configured concurrency limits", t => {
+  const root = fixture(t);
+  prepareUat(root, { revision, publicUrl: "http://localhost:19090" });
+  const file = resolve(root, ".data/uat/runtime.env");
+  writeFileSync(file, readFileSync(file, "utf8")
+    .replace(/^LINKSENSE_MAX_CONCURRENT_CONVERSATIONS=.*$/mu, 'LINKSENSE_MAX_CONCURRENT_CONVERSATIONS="6"')
+    .replace(/^LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT=.*$/mu, 'LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT="5"'));
+  const updated = prepareUat(root, { revision: "b".repeat(40), publicUrl: "http://localhost:19090" });
+  assert.equal(updated.LINKSENSE_MAX_CONCURRENT_CONVERSATIONS, "6");
+  assert.equal(updated.LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT, "5");
 });
 test("UAT rejects invalid origins and cross-project credential reuse", t => {
   const root = fixture(t);

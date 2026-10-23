@@ -10,7 +10,9 @@ LINKSENSE_PUBLIC_BASE_URL=http://YOUR_TEST_IP:19090 sh deploy/uat/deploy-uat.sh
 
 主机需要 Git、Python 3、curl、GNU timeout/flock、可用 Docker Engine、Buildx 和 Compose。脚本使用容器里的固定 Node 工具链，不要求主机安装 Node/pnpm。Core 下载预检要求 Docker 存储至少有 20 GiB 空闲；源码构建需要额外缓存空间，实际使用时应按仓库容量表预留余量。脚本不会清理其他应用的镜像、缓存或卷。
 
-默认项目为 `linksense-uat`，端口为 `19090`，并发任务为 1。可通过 `COMPOSE_PROJECT_NAME` 和 `LINKSENSE_HTTP_PORT` 在首次部署时指定。项目名隔离网络和 external named volumes；既有无归属标记的同名卷会被拒绝，数据卷不随 Compose 项目删除。
+默认项目为 `linksense-uat`，端口为 `19090`，全站并发任务和单用户任务进程上限均为 4。可通过 `COMPOSE_PROJECT_NAME` 和 `LINKSENSE_HTTP_PORT` 在首次部署时指定项目和端口。项目名隔离网络和 external named volumes；既有无归属标记的同名卷会被拒绝，数据卷不随 Compose 项目删除。
+
+并发可在「管理后台 → 系统设置 → 任务并发」调整，保存后对新启动的任务生效。重新部署会保留 `runtime.env` 中已有的两项并发默认值和后台设置；旧 UAT 中的上限 1 不会被自动提高，需要在后台调整。并发指不同任务可同时运行的数量；同一任务内仍由 Codex 串行执行消息。
 
 配置和初始化凭据位于 `.data/uat/runtime.env`、`.data/uat/initialization.txt`，权限为 0600，不进入 Git。首次访问 Web 后使用初始化凭据创建管理员，再在管理界面配置模型；脚本不复制其他服务的账户或模型密钥。
 
