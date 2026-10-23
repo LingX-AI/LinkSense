@@ -4,6 +4,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readFile,
   readdir,
   rm,
   stat,
@@ -11,10 +12,12 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
+import sharp from "sharp";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { workspacePermissionPolicy } from "@linksense/shared";
 
 import { AppError } from "../src/lib/errors.js";
 import type { Prisma } from "../src/generated/prisma/client.js";
@@ -516,40 +519,177 @@ describe("FileService workspace and MIME boundaries", () => {
     );
   });
 
-  it("records inline image registrations without exposing a server path", async () => {
+  it("stores a viewed image as a private workspace preview without registering a deliverable", async () => {
     const fixture = await fileFixture();
     await writeFile(join(fixture.conversationRoot, "preview.png"), PNG);
-    const tx = artifactTransactionFixture();
+    const tx = attachmentUploadTransactionFixture();
     fixture.prisma.$transaction.mockImplementationOnce(
       async (operation: (transaction: typeof tx) => Promise<unknown>) =>
         operation(tx),
     );
 
-    await fixture.service.registerArtifact({
+    const result = await fixture.service.registerImagePreview({
       ownerId: OWNER_ID,
       conversationId: CONVERSATION_ID,
-      codexTurnId: "codex-turn-1",
+      turnId: "codex-turn-1",
       workspaceRelativePath: "preview.png",
-      displayName: "inline-image-1.png",
+      displayName: "preview.png",
       mimeType: "image/png",
-      artifactKind: "inline_image",
     });
-
-    expect(tx.conversationEvent.create).toHaveBeenNthCalledWith(
-      1,
+    expect(tx.conversationFile.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        id: result.file_id, kind: "image_preview", source: "system_generated",
+        status: "registered", storageBackend: "workspace", downloadable: false,
+        checksumSha256: checksum(PNG),
+      }),
+    });
+    expect(tx.conversationEvent.create).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          payloadJson: expect.objectContaining({
-            safe_summary: "registered inline message image",
-          }),
+          eventType: "conversation.file.created",
+          payloadJson: expect.objectContaining({ file_id: result.file_id }),
         }),
       }),
     );
+    const savedPath = join(fixture.conversationRoot, ".linksense", "image-previews", result.file_id, "preview.png");
+    expect(await readFile(savedPath)).toEqual(PNG);
+    expect((await stat(savedPath)).mode & 0o777).toBe(workspacePermissionPolicy.sharedReadonlyFile);
+    expect(fixture.storage.putObject).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
     expect(
       JSON.stringify(tx.conversationEvent.create.mock.calls, (_key, value) =>
         typeof value === "bigint" ? value.toString() : value,
       ),
     ).not.toContain(fixture.conversationRoot);
+  });
+
+  it.each(["attachments/upload/mainbird", "artifacts/generated", "temp/crop", ".linksense/inline-images/handoff"])(
+    "persists PNG, JPEG and WebP previews from workspace location %s after source removal",
+    async (location) => {
+      for (const format of ["png", "jpeg", "webp"] as const) {
+        const fixture = await fileFixture();
+        const data = await sharp({ create: { width: 4, height: 4, channels: 3, background: "#4379a1" } }).toFormat(format).toBuffer();
+        const relativePath = `${location}.${format}`;
+        const source = join(fixture.conversationRoot, relativePath);
+        await mkdir(dirname(source), { recursive: true });
+        await writeFile(source, data);
+        const tx = attachmentUploadTransactionFixture();
+        fixture.prisma.$transaction.mockImplementationOnce(async (operation: (transaction: typeof tx) => Promise<unknown>) => operation(tx));
+        const result = await fixture.service.registerImagePreview({
+          ownerId: OWNER_ID, conversationId: CONVERSATION_ID, turnId: "codex-turn-1",
+          workspaceRelativePath: relativePath, displayName: `preview.${format}`, mimeType: `image/${format}`,
+        });
+        await rm(source);
+        expect(await readFile(join(fixture.conversationRoot, ".linksense", "image-previews", result.file_id, `preview.${format}`))).toEqual(data);
+        expect(tx.conversationFile.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+          kind: "image_preview", mimeType: `image/${format}`, checksumSha256: checksum(data), sizeBytes: BigInt(data.length),
+          storageBackend: "workspace", downloadable: false,
+        }) });
+        expect(fixture.storage.putObject).not.toHaveBeenCalled();
+        expect(tx.auditLog.create).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each(["attachment", "image_preview"])("reuses an unchanged %s without writing another preview", async (kind) => {
+    const fixture = await fileFixture();
+    await writeFile(join(fixture.conversationRoot, "preview.png"), PNG);
+    fixture.prisma.conversationFile.findFirst.mockResolvedValueOnce({ id: FILE_ID });
+    await expect(fixture.service.registerImagePreview({
+      ownerId: OWNER_ID, conversationId: CONVERSATION_ID, turnId: "codex-turn-1",
+      workspaceRelativePath: "preview.png", displayName: kind === "attachment" ? "inline-image-1.png" : "preview.png", mimeType: "image/png",
+    })).resolves.toEqual({ file_id: FILE_ID });
+    expect(fixture.prisma.conversationFile.findFirst).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        conversationId: CONVERSATION_ID, checksumSha256: checksum(PNG),
+        sizeBytes: BigInt(PNG.length), mimeType: "image/png", storageBackend: "workspace",
+        OR: expect.arrayContaining([expect.objectContaining({ kind })]),
+      }),
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+    expect(fixture.redis.publishConversationEvent).not.toHaveBeenCalled();
+    expect(await readdir(fixture.conversationRoot)).toEqual(["preview.png"]);
+  });
+
+  it("cleans up only the new snapshot when preview persistence fails", async () => {
+    const fixture = await fileFixture();
+    await writeFile(join(fixture.conversationRoot, "preview.png"), PNG);
+    fixture.prisma.$transaction.mockRejectedValueOnce(new Error("database unavailable"));
+    await expect(fixture.service.registerImagePreview({
+      ownerId: OWNER_ID, conversationId: CONVERSATION_ID, turnId: "codex-turn-1",
+      workspaceRelativePath: "preview.png", displayName: "preview.png", mimeType: "image/png",
+    })).rejects.toThrow("database unavailable");
+    expect(await readdir(join(fixture.conversationRoot, ".linksense", "image-previews"))).toEqual([]);
+    expect(await readFile(join(fixture.conversationRoot, "preview.png"))).toEqual(PNG);
+    expect(fixture.redis.publishConversationEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects preview registration before reading files when the conversation is unauthorized", async () => {
+    const fixture = await fileFixture();
+    fixture.conversations.assertOwner.mockRejectedValueOnce(new AppError("CONVERSATION_NOT_FOUND"));
+    await expect(fixture.service.registerImagePreview({
+      ownerId: OTHER_ID, conversationId: CONVERSATION_ID, turnId: "codex-turn-1",
+      workspaceRelativePath: "preview.png", displayName: "preview.png", mimeType: "image/png",
+    })).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    expect(fixture.prisma.conversationTurn.findFirst).not.toHaveBeenCalled();
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects preview registration outside an active owner-submitted turn", async () => {
+    const fixture = await fileFixture();
+    fixture.prisma.conversationTurn.findFirst.mockResolvedValueOnce(null);
+    await expect(fixture.service.registerImagePreview({
+      ownerId: OWNER_ID, conversationId: CONVERSATION_ID, turnId: "completed-turn",
+      workspaceRelativePath: "preview.png", displayName: "preview.png", mimeType: "image/png",
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(fixture.prisma.conversationTurn.findFirst).toHaveBeenCalledWith({
+      where: { conversationId: CONVERSATION_ID, codexTurnId: "completed-turn", submittedBy: OWNER_ID, status: "running" },
+    });
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it.each(["../preview.png", "outside.png", "spoofed.png"])("rejects unsafe preview input %s without registering a file", async (workspaceRelativePath) => {
+    const fixture = await fileFixture();
+    const outside = join(fixture.root, "preview.png");
+    await writeFile(outside, PNG);
+    await symlink(outside, join(fixture.conversationRoot, "outside.png"));
+    await writeFile(join(fixture.conversationRoot, "spoofed.png"), "not an image");
+    await expect(fixture.service.registerImagePreview({
+      ownerId: OWNER_ID, conversationId: CONVERSATION_ID, turnId: "codex-turn-1",
+      workspaceRelativePath, displayName: "preview.png", mimeType: "image/png",
+    })).rejects.toMatchObject({ code: workspaceRelativePath === "spoofed.png" ? "VALIDATION_ERROR" : "NOT_FOUND" });
+    expect(fixture.prisma.$transaction).not.toHaveBeenCalled();
+    expect(fixture.redis.publishConversationEvent).not.toHaveBeenCalled();
+  });
+
+  it("serves a saved preview with checksum verification without granting download permission", async () => {
+    const fixture = await fileFixture();
+    await stageAttachmentImage(fixture, { status: "registered" });
+    const result = await fixture.service.readImagePreviewContent(OWNER_ID, CONVERSATION_ID, FILE_ID);
+    expect(result.data).toEqual(PNG);
+    expect(fixture.prisma.conversationFile.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: FILE_ID, conversationId: CONVERSATION_ID, kind: "image_preview", status: { in: ["registered"] }, storageBackend: "workspace" },
+    }));
+    expect(fixture.storage.presignedGetObject).not.toHaveBeenCalled();
+  });
+
+  it("rejects another owner's preview read before accessing a file", async () => {
+    const fixture = await fileFixture();
+    fixture.conversations.assertOwner.mockRejectedValueOnce(new AppError("CONVERSATION_NOT_FOUND"));
+    await expect(fixture.service.readImagePreviewContent(OTHER_ID, CONVERSATION_ID, FILE_ID)).rejects.toMatchObject({ code: "CONVERSATION_NOT_FOUND" });
+    expect(fixture.prisma.conversationFile.findFirst).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { checksumSha256: "0".repeat(64) },
+    { status: "bound" },
+    { filename: "document.pdf", mimeType: "application/pdf", data: Buffer.from("%PDF-1.4\n") },
+  ])("rejects changed or non-raster preview snapshots", async (overrides) => {
+    const fixture = await fileFixture();
+    await stageAttachmentImage(fixture, { status: "registered", ...overrides });
+    await expect(fixture.service.readImagePreviewContent(OWNER_ID, CONVERSATION_ID, FILE_ID)).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("rejects artifact registration when the active turn is not owned by the routed user", async () => {

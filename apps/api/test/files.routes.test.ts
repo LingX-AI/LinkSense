@@ -180,6 +180,39 @@ async function fileRouteApp(
   return app;
 }
 
+describe("private image preview route", () => {
+  it("serves a preview snapshot with private caching and no download link", async () => {
+    const readImagePreviewContent = vi.fn(async () => ({ data: PNG, filename: "preview.png", mimeType: "image/png", sizeBytes: PNG.length }));
+    const app = await fileRouteApp({ readImagePreviewContent });
+    const response = await app.inject({ method: "GET", url: `/conversations/${CONVERSATION_ID}/files/${FILE_ID}/image-preview` });
+    expect(response.statusCode).toBe(200);
+    expect(response.rawPayload).toEqual(PNG);
+    expect(response.headers).toMatchObject({
+      "cache-control": "private, no-store", "x-content-type-options": "nosniff",
+      "content-type": "image/png", "content-length": String(PNG.length),
+    });
+    expect(response.headers["content-disposition"]).toContain("inline;");
+    expect(readImagePreviewContent).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, FILE_ID);
+  });
+
+  it("requires authentication before accessing preview bytes", async () => {
+    const readImagePreviewContent = vi.fn();
+    const app = await fileRouteApp({ readImagePreviewContent }, false);
+    const response = await app.inject({ method: "GET", url: `/conversations/${CONVERSATION_ID}/files/${FILE_ID}/image-preview` });
+    expect(response.statusCode).toBe(401);
+    expect(readImagePreviewContent).not.toHaveBeenCalled();
+  });
+
+  it("does not expose snapshot details after an ownership rejection", async () => {
+    const readImagePreviewContent = vi.fn().mockRejectedValue(new AppError("CONVERSATION_NOT_FOUND"));
+    const app = await fileRouteApp({ readImagePreviewContent });
+    const response = await app.inject({ method: "GET", url: `/conversations/${CONVERSATION_ID}/files/${FILE_ID}/image-preview` });
+    expect(response.statusCode).toBe(404);
+    expect(response.body).not.toContain("workspace");
+    expect(response.body).not.toContain("preview.png");
+  });
+});
+
 describe("historical file reference routes", () => {
   it("lists searchable historical files for the authenticated owner", async () => {
     const listReferenceableFiles = vi.fn(async () => ({ items: [], next_cursor: null }));

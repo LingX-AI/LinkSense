@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { conversationFileKindSchema } from "./conversations.js";
 
 const sharedConversationMessageSchema = z
   .object({
@@ -35,7 +36,7 @@ const sharedConversationFileSchema = z
     conversation_id: z.string().uuid().optional(),
     pending_request_id: z.string().uuid().nullable().optional(),
     turn_id: z.string().uuid().nullable().optional(),
-    kind: z.enum(["attachment", "artifact"]),
+    kind: conversationFileKindSchema,
     status: z.string().optional(),
     filename: z.string().min(1),
     mime_type: z.string().nullable().optional(),
