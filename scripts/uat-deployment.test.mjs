@@ -21,6 +21,7 @@ test("UAT updates preserve credentials and data identities while advancing sourc
   for (const key of ["POSTGRES_PASSWORD", "REDIS_PASSWORD", "LINKSENSE_CREDENTIAL_MASTER_KEY", "LINKSENSE_JWT_SECRET", "LINKSENSE_INITIALIZATION_TOKEN", "LINKSENSE_POSTGRES_VOLUME", "LINKSENSE_USER_DATA_VOLUME"]) assert.equal(first[key], second[key], key);
   assert.notEqual(first.LINKSENSE_API_IMAGE, second.LINKSENSE_API_IMAGE);
   assert.equal(second.LINKSENSE_EDITION, "core");
+  assert.equal(second.LINKSENSE_USER_DATA_VOLUME, "linksense-uat-user-data");
   assert.equal(second.LINKSENSE_VERSION, "v0.3.11");
   assert.equal(second.LINKSENSE_MAX_CONCURRENT_CONVERSATIONS, "1");
   assert.equal(Buffer.from(second.LINKSENSE_CREDENTIAL_MASTER_KEY, "base64").length, 32);

@@ -42,13 +42,23 @@ compose() {
     -f "$root/deploy/uat/compose.yml" "$@"
 }
 compose config --quiet
-for role in postgres redis minio users backups; do
-  volume=$project-$role
+for role in POSTGRES REDIS MINIO USER_DATA BACKUP; do
+  volume=$(python3 -c 'import json,sys; key="LINKSENSE_"+sys.argv[1]+"_VOLUME"; print(next(json.loads(line.split("=",1)[1]) for line in open(".data/uat/runtime.env") if line.startswith(key+"=")))' "$role")
   if docker volume inspect "$volume" >/dev/null 2>&1; then
     owner=$(docker volume inspect --format '{{index .Labels "com.linksense.uat-project"}}' "$volume")
     test "$owner" = "$project" || { echo "Refusing to reuse an unowned UAT volume: $volume" >&2; exit 1; }
+    if [ "$role" = USER_DATA ]; then
+      contract=$(docker volume inspect --format '{{.Driver}}|{{json .Options}}|{{index .Labels "com.linksense.managed-by"}}|{{index .Labels "com.linksense.persistence"}}|{{index .Labels "com.linksense.role"}}' "$volume")
+      case "$contract" in
+        'local|null|linksense-production|critical|user-data'|'local|{}|linksense-production|critical|user-data') ;;
+        *) echo "UAT user-data volume does not satisfy the Runner security contract: $volume" >&2; exit 1 ;;
+      esac
+    fi
   else
-    docker volume create --driver local --label "com.linksense.uat-project=$project" --label com.linksense.persistence=critical "$volume" >/dev/null
+    case "$role" in USER_DATA) volume_role=user-data ;; BACKUP) volume_role=backups ;; *) volume_role=$(printf '%s' "$role" | tr 'A-Z' 'a-z') ;; esac
+    docker volume create --driver local --label "com.linksense.uat-project=$project" \
+      --label com.linksense.managed-by=linksense-production --label com.linksense.persistence=critical \
+      --label "com.linksense.role=$volume_role" "$volume" >/dev/null
   fi
 done
 echo "Building UAT source revision $revision"

@@ -75,7 +75,10 @@ export function prepareUat(root, { revision, project = "linksense-uat", publicUr
     if (!/^[a-z0-9./_-]+@sha256:[a-f0-9]{64}$/u.test(image)) throw new Error(`Unpinned baseline image: ${role}`);
     environment[`${role}_IMAGE`] = cachedBaselines ? `linksense-uat-cache/${role.toLowerCase()}:${image.split("sha256:")[1]}` : image;
   }
-  for (const [role, suffix] of Object.entries({ POSTGRES: "postgres", REDIS: "redis", MINIO: "minio", USER_DATA: "users", BACKUP: "backups" })) environment[`LINKSENSE_${role}_VOLUME`] = `${project}-${suffix}`;
+  for (const [role, suffix] of Object.entries({ POSTGRES: "postgres", REDIS: "redis", MINIO: "minio", USER_DATA: "user-data", BACKUP: "backups" })) {
+    const key = `LINKSENSE_${role}_VOLUME`;
+    environment[key] = previous[key] ?? `${project}-${suffix}`;
+  }
   for (const [role, suffix] of Object.entries({ INTERNAL: "internal", WORKER_CONTROL: "worker-control", WORKER_EGRESS: "worker-egress" })) environment[`LINKSENSE_${role}_NETWORK`] = `${project}-${suffix}`;
   const temporary = `${file}.tmp`;
   writeFileSync(temporary, Object.entries(environment).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join("\n") + "\n", { mode: 0o600 });
