@@ -63,7 +63,8 @@ with open('.data/uat/proxy-build.json', 'w') as output:
     json.dump({'services': services}, output)
 PY
   trap 'rm -f "$root/.data/uat/proxy-build.json"' EXIT HUP INT TERM
-  COMPOSE_PARALLEL_LIMIT=1 compose -f "$root/.data/uat/proxy-build.json" --progress plain build migrate api runner worker-image web
+  HTTP_PROXY="$LINKSENSE_UAT_BUILD_PROXY" HTTPS_PROXY="$LINKSENSE_UAT_BUILD_PROXY" \
+    COMPOSE_PARALLEL_LIMIT=1 compose -f "$root/.data/uat/proxy-build.json" --progress plain build migrate api runner worker-image web
 else
   COMPOSE_PARALLEL_LIMIT=1 compose --progress plain build migrate api runner worker-image web
 fi
