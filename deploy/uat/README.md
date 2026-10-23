@@ -1,0 +1,27 @@
+# Core 源码 UAT
+
+用于在独立 Linux 测试机部署尚未发布的分支。复用发行版 Core Compose 与摘要锁定的基础镜像，源码构建 API、Web、迁移器、控制器和任务 Worker；不安装 Elasticsearch 或 Docling，也不使用正式发布安装器下载的旧应用镜像。
+
+在目标分支的干净 checkout 中执行：
+
+```sh
+LINKSENSE_PUBLIC_BASE_URL=http://YOUR_TEST_IP:19090 sh deploy/uat/deploy-uat.sh
+```
+
+主机需要 Git、Python 3、curl、GNU timeout/flock、可用 Docker Engine、Buildx 和 Compose。脚本使用容器里的固定 Node 工具链，不要求主机安装 Node/pnpm。Core 下载预检要求 Docker 存储至少有 20 GiB 空闲；源码构建需要额外缓存空间，实际使用时应按仓库容量表预留余量。脚本不会清理其他应用的镜像、缓存或卷。
+
+默认项目为 `linksense-uat`，端口为 `19090`，并发任务为 1。可通过 `COMPOSE_PROJECT_NAME` 和 `LINKSENSE_HTTP_PORT` 在首次部署时指定。项目名隔离网络和 external named volumes；既有无归属标记的同名卷会被拒绝，数据卷不随 Compose 项目删除。
+
+配置和初始化凭据位于 `.data/uat/runtime.env`、`.data/uat/initialization.txt`，权限为 0600，不进入 Git。首次访问 Web 后使用初始化凭据创建管理员，再在管理界面配置模型；脚本不复制其他服务的账户或模型密钥。
+
+再次执行同一命令会保留密钥与数据身份，按当前已提交源码构建新镜像。构建失败不会停止现有 UAT；更新前拒绝仍有运行中任务的实例，并保存 PostgreSQL custom-format 备份后应用 Prisma 迁移。备份在 `.data/uat/` 下；迁移不自动降级，脚本也不回滚数据库。测试库同样不允许未确认的数据清空或破坏性迁移。
+
+状态检查使用相同 Compose 文件和配置：
+
+```sh
+docker compose --project-directory "$PWD" --env-file .data/uat/runtime.env -p linksense-uat \
+  -f deploy/release/compose.common.yml -f deploy/release/compose.core.yml \
+  -f deploy/uat/compose.yml ps
+```
+
+公开访问时应使用 HTTPS；HTTP 适合本机或可信测试网络，部分浏览器能力和第三方登录需要 HTTPS。
