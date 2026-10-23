@@ -10,7 +10,7 @@ describe("navigation menu links", () => {
     expect(appShellSource).toContain("<NavLink")
     expect(appShellSource).toContain('to="/settings/general"')
     expect(automationPagesSource).toContain(
-      "to={`/conversations/${automation.conversation.id}`}"
+      "to={`/conversations/${automation.monitoring?.last_run_conversation_id ?? automation.conversation.id}`}"
     )
     expect(applicationCatalogSource).toContain(
       "to={`/capabilities/applications/${application.id}/external-access`}"
