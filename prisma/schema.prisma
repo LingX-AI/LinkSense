@@ -1357,6 +1357,7 @@ model ConversationFile {
   conversationId        String   @map("conversation_id") @db.Uuid
   pendingRequestId      String?  @map("pending_request_id") @db.Uuid
   turnId                String?  @map("turn_id") @db.Uuid
+  /// attachment | artifact | image_preview; SQL migrations enforce kind and state constraints.
   kind                  String   @db.VarChar(32)
   source                String   @db.VarChar(32)
   status                String   @db.VarChar(32)

@@ -2,6 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { imagePreviewRegistrationSchema } from "@linksense/shared";
+import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseRunnerConfig } from "../src/config.js";
@@ -9,12 +11,13 @@ import { buildControllerServer } from "../src/controller/server.js";
 import { ownerWorkerSecret } from "../src/controller/storage-key.js";
 import { FetchWorkerTransport } from "../src/controller/worker-http-client.js";
 import type { WorkerManager } from "../src/controller/worker-manager.js";
+import { HttpRunnerEventSink } from "../src/event-sink.js";
 import type {
   AppServerProcessPool,
   StartTurnInput,
 } from "../src/process-pool.js";
 import { buildRunnerServer } from "../src/server.js";
-import type { WorkspaceManager } from "../src/workspace/workspace-manager.js";
+import { WorkspaceManager } from "../src/workspace/workspace-manager.js";
 
 const ownerId = "01900000-0000-7000-8000-000000000002";
 const conversationId = "01900000-0000-7000-8000-000000000003";
@@ -22,7 +25,7 @@ const projectionTurnId = "01900000-0000-7000-8000-000000000004";
 const capabilityId = "01900000-0000-7000-8000-000000000005";
 const globalSecret = "runner-contract-probe-secret-000000000000";
 
-describe("controller to dynamic worker turn-start contract", () => {
+describe("controller and dynamic worker HTTP contracts", () => {
   let root: string;
 
   beforeEach(async () => {
@@ -37,6 +40,59 @@ describe("controller to dynamic worker turn-start contract", () => {
     vi.unstubAllGlobals();
     await rm(root, { recursive: true, force: true });
   });
+
+  it.each([undefined, "01900000-0000-7000-8000-000000000006"])(
+    "relays native image previews from the worker sink through the controller with service session %s",
+    async (serviceSessionId) => {
+      const fileId = "01900000-0000-7000-8000-000000000007";
+      const input = {
+        conversationId,
+        turnId: "native-turn-1",
+        workspaceRelativePath: ".linksense/inline-images/preview.png",
+        displayName: "preview.png",
+        mimeType: "image/png" as const,
+      };
+      const api = Fastify({ logger: false });
+      const registerPreview = vi.fn((body: unknown) => {
+        expect(imagePreviewRegistrationSchema.parse(body)).toEqual(input);
+        return { file_id: fileId };
+      });
+      api.post("/internal/image-previews", async (request) => {
+        expect(request.headers.authorization).toBe(`Bearer ${globalSecret}`);
+        expect(request.headers["x-linksense-owner-id"]).toBe(ownerId);
+        expect(request.headers["x-linksense-service-session"]).toBe(serviceSessionId);
+        return registerPreview(request.body);
+      });
+      const apiUrl = await api.listen({ host: "127.0.0.1", port: 0 });
+      const workers = { request: vi.fn<WorkerManager["request"]>() } as unknown as WorkerManager;
+      const controller = buildControllerServer(parseRunnerConfig({
+        LINKSENSE_RUNNER_MODE: "controller",
+        LINKSENSE_USER_DATA_ROOT: path.join(root, "users"),
+        LINKSENSE_RUNNER_SHARED_SECRET: globalSecret,
+        LINKSENSE_API_INTERNAL_URL: apiUrl,
+      }), workers);
+      let sink: HttpRunnerEventSink | undefined;
+      try {
+        const controllerUrl = await controller.listen({ host: "127.0.0.1", port: 0 });
+        const workspaceManager = new WorkspaceManager(path.join(root, "users"));
+        workspaceManager.bindOwner(conversationId, ownerId);
+        sink = new HttpRunnerEventSink(
+          controllerUrl,
+          ownerWorkerSecret(ownerId, globalSecret, serviceSessionId),
+          workspaceManager,
+          serviceSessionId ? { serviceSessionId } : {},
+        );
+
+        await expect(sink.registerImagePreview(input)).resolves.toEqual({ file_id: fileId });
+        expect(registerPreview).toHaveBeenCalledExactlyOnceWith(input);
+        expect(workers.request).not.toHaveBeenCalled();
+      } finally {
+        await sink?.close();
+        await controller.close();
+        await api.close();
+      }
+    },
+  );
 
   it("uses a request-specific worker transport timeout when provided", async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, "timeout");

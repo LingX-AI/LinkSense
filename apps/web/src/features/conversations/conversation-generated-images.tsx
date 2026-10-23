@@ -116,6 +116,7 @@ export function ConversationGeneratedImages({
                 alt: file.name,
                 src: source.url,
                 downloadable: file.download_available,
+                ...(source.retain ? { retainSource: source.retain } : {}),
               })
             }
           />

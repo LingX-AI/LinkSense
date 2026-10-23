@@ -37,6 +37,69 @@ function page(turnIds: number[], allIds = [1, 2, 3, 4]): Conversation {
 }
 
 describe("conversation history cache", () => {
+  it("retains an attachment referenced by a loaded historical message after its source turn leaves the branch", () => {
+    const current = page([1, 4])
+    const id = "30000000-0000-4000-8000-000000000001"
+    current.files = [
+      {
+        id,
+        name: "original.png",
+        size: 128,
+        kind: "attachment",
+        turn_id: "old-source-turn",
+        status: "bound",
+        download_available: false,
+      },
+    ]
+    current.messages = current.messages?.map((message) =>
+      message.id === "message-1"
+        ? { ...message, content: `![original](linksense-artifact:${id})` }
+        : message
+    )
+    const result = mergeConversationHistory(current, page([4]), "latest")
+    expect(result.files?.map((file) => file.id)).toEqual([id])
+  })
+
+  it("retains preview identities from loaded history while refreshing the latest turn", () => {
+    const first = {
+      ...page([1]),
+      files: [
+        {
+          id: "preview-1",
+          name: "first.png",
+          size: 128,
+          kind: "image_preview" as const,
+          turn_id: "turn-1",
+          download_available: false,
+        },
+      ],
+    }
+    const latest = {
+      ...page([4]),
+      files: [
+        {
+          id: "preview-4",
+          name: "latest.png",
+          size: 128,
+          kind: "image_preview" as const,
+          turn_id: "turn-4",
+          download_available: false,
+        },
+      ],
+    }
+    const merged = mergeConversationHistory(latest, first, "older")
+    expect(merged.files?.map((file) => file.id).sort()).toEqual([
+      "preview-1",
+      "preview-4",
+    ])
+    const refreshed = mergeConversationHistory(
+      merged,
+      { ...latest, files: [] },
+      "latest"
+    )
+    expect(refreshed.files?.map((file) => file.id)).toEqual(["preview-1"])
+  })
+
   it("retains sparse windows across refreshes while the full index represents unloaded gaps", () => {
     const result = mergeConversationHistory(page([1], [1]), page([4]), "latest")
     expect(result.messages?.map((message) => message.sequence_no)).toEqual([

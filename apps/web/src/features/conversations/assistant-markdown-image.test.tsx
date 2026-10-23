@@ -75,6 +75,74 @@ describe("assistant Markdown image preview cache", () => {
     }
   })
 
+  it.each(["attachment", "image_preview"] as const)(
+    "previews a non-downloadable %s and releases its object URL after the last consumer",
+    async (kind) => {
+      const release = vi.fn()
+      const loadPreview = vi
+        .fn()
+        .mockResolvedValue({
+          url: "blob:private-image",
+          expiresAt: "9999-12-31T23:59:59.999Z",
+          release,
+        })
+      const props = {
+        source: `linksense-artifact:${FILE_ID}`,
+        alt: "private.png",
+        file: { ...imageFile, kind, download_available: false },
+        loadPreview,
+      }
+      const first = render(<AssistantMarkdownImage {...props} />)
+      const second = render(<AssistantMarkdownImage {...props} />)
+      await flushPreviewLoad()
+      expect(screen.getAllByRole("img", { name: "private.png" })).toHaveLength(
+        2
+      )
+      expect(loadPreview).toHaveBeenCalledOnce()
+      first.unmount()
+      expect(release).not.toHaveBeenCalled()
+      second.unmount()
+      expect(release).toHaveBeenCalledOnce()
+    }
+  )
+
+  it("releases image bytes that finish loading after the preview is unmounted", async () => {
+    const release = vi.fn()
+    let finish!: (source: {
+      url: string
+      expiresAt: string
+      release: () => void
+    }) => void
+    const loadPreview = vi.fn(
+      () =>
+        new Promise<{ url: string; expiresAt: string; release: () => void }>(
+          (resolve) => {
+            finish = resolve
+          }
+        )
+    )
+    const preview = render(
+      <AssistantMarkdownImage
+        source={`linksense-artifact:${FILE_ID}`}
+        alt="private.png"
+        file={{
+          ...imageFile,
+          kind: "image_preview",
+          download_available: false,
+        }}
+        loadPreview={loadPreview}
+      />
+    )
+    preview.unmount()
+    finish({
+      url: "blob:late-image",
+      expiresAt: "9999-12-31T23:59:59.999Z",
+      release,
+    })
+    await flushPreviewLoad()
+    expect(release).toHaveBeenCalledOnce()
+  })
+
   it("keeps the placeholder until the mounted lazy image finishes decoding", async () => {
     let finishDecoding!: () => void
     decodeImage.mockImplementationOnce(

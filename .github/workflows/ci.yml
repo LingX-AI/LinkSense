@@ -70,6 +70,9 @@ jobs:
       - name: Verify interactive upload database migrations
         run: pnpm test:interactive-files:postgres
 
+      - name: Verify image preview database migrations
+        run: pnpm test:image-previews:postgres
+
       - name: Verify application development instruction migrations
         run: pnpm test:development-instructions:postgres
 

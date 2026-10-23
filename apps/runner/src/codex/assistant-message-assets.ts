@@ -32,23 +32,22 @@ import type {
 import { gfmFromMarkdown } from "mdast-util-gfm"
 import { fromMarkdown } from "mdast-util-from-markdown"
 import { gfm } from "micromark-extension-gfm"
-import { z } from "zod"
-
-import { workspacePermissionPolicy } from "@linksense/shared"
+import {
+  workspacePermissionPolicy,
+  MAX_IMAGE_PREVIEW_BYTES,
+  imagePreviewRegistrationResultSchema,
+  type ImagePreviewRegistration,
+} from "@linksense/shared"
 
 import type { AuthorizedTurnSkill } from "../context.js"
 
 const MAX_INLINE_IMAGES = 12
-const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024
+const MAX_INLINE_IMAGE_BYTES = MAX_IMAGE_PREVIEW_BYTES
 const INLINE_IMAGE_SCHEME = "linksense-artifact:"
 const UNAVAILABLE_INLINE_IMAGE_URL = `${INLINE_IMAGE_SCHEME}unavailable`
 const INLINE_IMAGE_DIRECTORY_MODE =
   workspacePermissionPolicy.sharedReadonlyDirectory
 const INLINE_IMAGE_FILE_MODE = workspacePermissionPolicy.sharedReadonlyFile
-
-const artifactRegistrationResultSchema = z.object({
-  file_id: z.uuid(),
-})
 
 type InlineImageMime = "image/jpeg" | "image/png" | "image/webp"
 
@@ -84,12 +83,9 @@ export type ImageViewAssetProjection = Readonly<{
   fileId: string
 }>
 
-export type RegisterInlineImageArtifact = (input: {
-  workspaceRelativePath: string
-  displayName: string
-  mimeType: InlineImageMime
-  artifactKind: "inline_image"
-}) => Promise<unknown>
+export type RegisterImagePreview = (
+  input: Omit<ImagePreviewRegistration, "conversationId" | "turnId">,
+) => Promise<unknown>
 
 export async function projectAssistantMessageAssets(input: {
   text: string
@@ -98,7 +94,7 @@ export async function projectAssistantMessageAssets(input: {
   authorizedSkills: readonly AuthorizedTurnSkill[]
   turnId: string
   itemId: string
-  registerArtifact: RegisterInlineImageArtifact
+  registerPreview: RegisterImagePreview
 }): Promise<AssistantMessageAssetProjection> {
   const images = collectMarkdownImages(input.text)
   if (images.length === 0) {
@@ -158,7 +154,7 @@ export async function projectAssistantMessageAssets(input: {
               roots,
               temporaryDirectory: ensureTemporaryDirectory,
               imageIndex,
-              registerArtifact: input.registerArtifact,
+              registerPreview: input.registerPreview,
             })
           if (!existing) registrations.set(registrationKey, registration)
           replacementUrl = await registration.catch(
@@ -203,9 +199,10 @@ export async function projectImageViewAsset(input: {
   workspace: string
   codexHome: string
   authorizedSkills: readonly AuthorizedTurnSkill[]
+  temporaryRoots?: readonly string[]
   turnId: string
   itemId: string
-  registerArtifact: RegisterInlineImageArtifact
+  registerPreview: RegisterImagePreview
 }): Promise<ImageViewAssetProjection> {
   const source = localImagePath(input.path, {
     workspace: input.workspace,
@@ -216,6 +213,7 @@ export async function projectImageViewAsset(input: {
   const roots = await allowedImageRoots(
     input.workspace,
     input.authorizedSkills,
+    input.temporaryRoots,
   )
   let temporaryDirectory: string | null = null
   const ensureTemporaryDirectory = async () => {
@@ -235,7 +233,7 @@ export async function projectImageViewAsset(input: {
       temporaryDirectory: ensureTemporaryDirectory,
       imageIndex: 0,
       displayName: basename(source),
-      registerArtifact: input.registerArtifact,
+      registerPreview: input.registerPreview,
     })
     return { fileId: url.slice(INLINE_IMAGE_SCHEME.length) }
   } finally {
@@ -274,7 +272,7 @@ async function registerLocalImage(input: {
   temporaryDirectory: () => Promise<string>
   imageIndex: number
   displayName?: string
-  registerArtifact: RegisterInlineImageArtifact
+  registerPreview: RegisterImagePreview
 }): Promise<string> {
   const source = await validateSource(input.source, input.roots)
   const data = await readStableImage(source)
@@ -319,12 +317,11 @@ async function registerLocalImage(input: {
   ) {
     throw new Error("inline_image_workspace_path_invalid")
   }
-  const result = artifactRegistrationResultSchema.parse(
-    await input.registerArtifact({
+  const result = imagePreviewRegistrationResultSchema.parse(
+    await input.registerPreview({
       workspaceRelativePath,
       displayName,
       mimeType,
-      artifactKind: "inline_image",
     }),
   )
   return `${INLINE_IMAGE_SCHEME}${result.file_id}`
@@ -358,10 +355,12 @@ async function createInlineImageTemporaryDirectory(input: {
 async function allowedImageRoots(
   workspace: string,
   authorizedSkills: readonly AuthorizedTurnSkill[],
+  temporaryRoots: readonly string[] = [],
 ): Promise<AllowedRoot[]> {
   const candidates = [
     workspace,
     ...authorizedSkills.map((skill) => join(dirname(skill.path), "assets")),
+    ...temporaryRoots,
   ]
   const roots: AllowedRoot[] = []
   for (const logicalPath of candidates) {

@@ -8,6 +8,9 @@ import {
   runnerStartSettledSchema,
   runnerStartSettledReceiptSchema,
   userWorkspacePathSchema,
+  imagePreviewRegistrationSchema,
+  imagePreviewRegistrationResultSchema,
+  type ImagePreviewRegistration,
   type RunnerStartSettled,
 } from "@linksense/shared";
 import type {
@@ -20,6 +23,7 @@ import type {
   LinkSenseRunnerEvent,
 } from "./codex/event-mapper.js";
 import { fileServiceErrorFromApi } from "./file-service-error.js";
+import { ImagePreviewRequestError } from "./image-preview-error.js";
 import { imageGenerationErrorFromApi } from "./image-generation-error.js";
 import { knowledgeSearchErrorFromApi } from "./knowledge-search-error.js";
 import { knowledgeServiceErrorFromApi } from "./knowledge-service-error.js";
@@ -58,6 +62,7 @@ export interface RunnerEventSink {
     artifactKind?: string;
     webRootRelativePath?: string;
   }): Promise<unknown>;
+  registerImagePreview(input: ImagePreviewRegistration): Promise<unknown>;
   generateImage?(input: {
     conversationId: string;
     turnId: string;
@@ -346,6 +351,16 @@ export class HttpRunnerEventSink implements RunnerEventSink {
       input,
       this.workspaceManager.ownerFor(input.conversationId),
     );
+  }
+
+  async registerImagePreview(input: ImagePreviewRegistration): Promise<unknown> {
+    const response = await this.request(
+      "/internal/image-previews",
+      imagePreviewRegistrationSchema.parse(input),
+      this.workspaceManager.ownerFor(input.conversationId),
+    );
+    if (!response.ok) throw new ImagePreviewRequestError(response.status);
+    return imagePreviewRegistrationResultSchema.parse(await parseResponseBody(response));
   }
 
   generateImage(input: {

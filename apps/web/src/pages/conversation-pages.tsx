@@ -5016,6 +5016,17 @@ export function ConversationPage({
 
   const loadFilePreviewSource = useCallback(
     async (file: ConversationFile, signal: AbortSignal) => {
+      if (file.kind === "image_preview") {
+        if (!conversationId || isNew)
+          throw new Error("conversation_id_required")
+        const blob = await downloadApiFile(
+          `/conversations/${conversationId}/files/${file.id}/image-preview`,
+          undefined,
+          signal
+        )
+        if (signal.aborted) throw new Error("image_preview_aborted")
+        return createConversationAttachmentPreviewSource(blob)
+      }
       if (!isAttachmentConversationFile(file)) {
         return loadArtifactPreview(file, signal)
       }
@@ -5024,7 +5035,7 @@ export function ConversationPage({
       if (signal.aborted) throw new Error("attachment_preview_aborted")
       return createConversationAttachmentPreviewSource(blob)
     },
-    [loadArtifactPreview, loadAttachmentPreview]
+    [conversationId, isNew, loadArtifactPreview, loadAttachmentPreview]
   )
 
   const loadOfficeContent = useCallback(
@@ -6074,7 +6085,7 @@ export function ConversationPage({
             : undefined
         }
         loadAttachmentPreview={loadAttachmentPreview}
-        loadArtifactPreview={loadArtifactPreview}
+        loadArtifactPreview={loadFilePreviewSource}
         selectedSubAgent={
           activeSubAgent
             ? {

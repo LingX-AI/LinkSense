@@ -55,6 +55,13 @@ export function getConversationEventQueryRefreshScope(
   }
   if (
     native?.method === "item/completed" &&
+    native.params.item.type === "imageView" &&
+    native.params.item.fileId
+  ) {
+    return "detail"
+  }
+  if (
+    native?.method === "item/completed" &&
     native.local?.user_input_request_id
   ) {
     return "detail"

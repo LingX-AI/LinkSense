@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -179,6 +180,9 @@ export function ImagePreviewViewer({
   onLoadError?: () => void
 }>) {
   const { t } = useTranslation()
+  const retainSource = item.retainSource
+  // Acquire before thumbnail effects release a shared blob during the same commit.
+  useLayoutEffect(() => retainSource?.(), [retainSource])
   const [zoom, setZoom] = useState(DEFAULT_ZOOM)
   const zoomRef = useRef(DEFAULT_ZOOM)
   const [pan, setPan] = useState<ImagePreviewPan>({ x: 0, y: 0 })
