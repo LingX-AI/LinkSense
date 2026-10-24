@@ -928,10 +928,7 @@ describe("conversation turn responses", () => {
     expect(
       previewCard.querySelector(".assistant-html-preview-loading-surface")
     ).toBeNull()
-    expect(previewSurface).not.toHaveClass(
-      "ring-1",
-      "ring-muted-foreground/15"
-    )
+    expect(previewSurface).not.toHaveClass("ring-1", "ring-muted-foreground/15")
     expect(screen.queryByText("正在生成中，可能需要一些时间")).toBeNull()
   })
 
@@ -8129,68 +8126,73 @@ describe("conversation turn responses", () => {
     expect(loadArtifactPreview).toHaveBeenCalledOnce()
   })
 
-  it("renders a projected image-view artifact without a duplicate download card", async () => {
-    const interaction = userEvent.setup()
-    const fileId = "30000000-0000-4000-8000-000000000003"
-    const viewedImage = {
-      id: fileId,
-      name: "contact.png",
-      mime_type: "image/png",
-      size: 2_048,
-      kind: "artifact" as const,
-      turn_id: "turn-1",
-      status: "available",
-      created_at: "2026-07-14T10:44:00.000Z",
-      download_available: true,
-    }
-    const loadArtifactPreview = vi.fn().mockResolvedValue({
-      url: "https://files.example.test/contact.png",
-      expiresAt: "2099-07-14T10:49:00.000Z",
-    })
-    render(
-      <ConversationThread
-        conversation={{
-          ...completedConversation,
-          artifacts: [viewedImage],
-          events: [
-            nativeItemLifecycleEvent({
-              id: "event-image-view-1",
-              sequence: 2,
-              item: {
-                id: "image-view-1",
-                type: "imageView",
-                path: "$WORKSPACE/temp/pdfs/contact.png",
-                fileId,
-              },
-            }),
-          ],
-        }}
-        loadArtifactPreview={loadArtifactPreview}
-        onDownload={vi.fn()}
-      />
-    )
-
-    const summary = screen.getByTestId("turn-summary-turn-1")
-    await interaction.click(
-      within(summary).getByRole("button", { name: "展开中间过程" })
-    )
-    await interaction.click(
-      within(summary).getByRole("button", {
-        name: "展开“已查看图像”的详情",
+  it.each(["artifact", "attachment", "image_preview"] as const)(
+    "renders an image-view %s without a duplicate download card or file-service activity",
+    async (kind) => {
+      const interaction = userEvent.setup()
+      const fileId = "30000000-0000-4000-8000-000000000003"
+      const viewedImage = {
+        id: fileId,
+        name: "contact.png",
+        mime_type: "image/png",
+        size: 2_048,
+        kind,
+        turn_id: "turn-1",
+        status: "available",
+        created_at: "2026-07-14T10:44:00.000Z",
+        download_available: kind === "artifact",
+      }
+      const loadArtifactPreview = vi.fn().mockResolvedValue({
+        url: "https://files.example.test/contact.png",
+        expiresAt: "2099-07-14T10:49:00.000Z",
       })
-    )
+      render(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            files: [viewedImage],
+            artifacts: kind === "artifact" ? [viewedImage] : [],
+            events: [
+              nativeItemLifecycleEvent({
+                id: "event-image-view-1",
+                sequence: 2,
+                item: {
+                  id: "image-view-1",
+                  type: "imageView",
+                  path: "$WORKSPACE/temp/pdfs/contact.png",
+                  fileId,
+                },
+              }),
+            ],
+          }}
+          loadArtifactPreview={loadArtifactPreview}
+          onDownload={vi.fn()}
+        />
+      )
 
-    expect(
-      await within(summary).findByRole("img", { name: "contact.png" })
-    ).toHaveAttribute("src", "https://files.example.test/contact.png")
-    expect(loadArtifactPreview).toHaveBeenCalledWith(
-      viewedImage,
-      expect.any(AbortSignal)
-    )
-    expect(
-      screen.queryByRole("button", { name: "下载 contact.png" })
-    ).toBeNull()
-  })
+      const summary = screen.getByTestId("turn-summary-turn-1")
+      await interaction.click(
+        within(summary).getByRole("button", { name: "展开中间过程" })
+      )
+      await interaction.click(
+        within(summary).getByRole("button", {
+          name: "展开“已查看图像”的详情",
+        })
+      )
+
+      expect(
+        await within(summary).findByRole("img", { name: "contact.png" })
+      ).toHaveAttribute("src", "https://files.example.test/contact.png")
+      expect(screen.queryByText("已使用文件服务")).toBeNull()
+      expect(loadArtifactPreview).toHaveBeenCalledWith(
+        viewedImage,
+        expect.any(AbortSignal)
+      )
+      expect(
+        screen.queryByRole("button", { name: "下载 contact.png" })
+      ).toBeNull()
+    }
+  )
 
   it("blocks historical runner-local image paths instead of requesting them", async () => {
     const loadArtifactPreview = vi.fn()

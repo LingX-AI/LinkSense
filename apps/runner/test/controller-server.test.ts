@@ -421,7 +421,7 @@ describe("controller authentication and routing", () => {
     await server.close()
   })
 
-  it.each(["/internal/runner/events", "/internal/runner/heartbeat", "/internal/runner/start-settled"])("authenticates and relays the scoped callback %s", async (route) => {
+  it.each(["/internal/runner/events", "/internal/runner/heartbeat", "/internal/runner/start-settled", "/internal/image-previews"])("authenticates and relays the scoped callback %s", async (route) => {
     const { server } = await createServer()
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ success: true }), {

@@ -788,82 +788,85 @@ describe("NativeActivityItem", () => {
     ).toBeVisible()
   })
 
-  it("expands image-view details while retaining the image type icon", async () => {
-    const interaction = userEvent.setup()
-    const fileId = "30000000-0000-4000-8000-000000000001"
-    const onPreviewImage = vi.fn()
-    const loadArtifactPreview = vi.fn(async () => ({
-      url: "https://files.example/preview.png",
-      expiresAt: "2999-01-01T00:00:00.000Z",
-    }))
-    const { container } = render(
-      <NativeActivityItem
-        method="item/completed"
-        item={{
-          id: "image-view-1",
-          type: "imageView",
-          path: "$WORKSPACE/artifacts/preview.png",
-          fileId,
-        }}
-        artifactFilesById={
-          new Map([
-            [
-              fileId,
-              {
-                id: fileId,
-                name: "preview.png",
-                mime_type: "image/png",
-                size: 2_048,
-                kind: "artifact",
-                download_available: true,
-              },
-            ],
-          ])
-        }
-        loadArtifactPreview={loadArtifactPreview}
-        onPreviewImage={onPreviewImage}
-      />
-    )
-
-    const trigger = screen.getByRole("button", {
-      name: "展开“已查看图像”的详情",
-    })
-    expect(container.querySelector(".lucide-image")).toHaveClass("size-3.5")
-    expect(container.querySelector(".lucide-circle-check")).toBeNull()
-
-    await interaction.click(trigger)
-
-    const details = screen.getByText("路径").closest("dl")
-    expect(details).not.toBeNull()
-    expect(
-      within(details as HTMLElement).getByText(
-        "$WORKSPACE/artifacts/preview.png",
-        { selector: "code" }
+  it.each(["artifact", "attachment", "image_preview"] as const)(
+    "expands %s image-view details while retaining the image type icon",
+    async (kind) => {
+      const interaction = userEvent.setup()
+      const fileId = "30000000-0000-4000-8000-000000000001"
+      const onPreviewImage = vi.fn()
+      const loadArtifactPreview = vi.fn(async () => ({
+        url: "https://files.example/preview.png",
+        expiresAt: "2999-01-01T00:00:00.000Z",
+      }))
+      const { container } = render(
+        <NativeActivityItem
+          method="item/completed"
+          item={{
+            id: "image-view-1",
+            type: "imageView",
+            path: "$WORKSPACE/artifacts/preview.png",
+            fileId,
+          }}
+          artifactFilesById={
+            new Map([
+              [
+                fileId,
+                {
+                  id: fileId,
+                  name: "preview.png",
+                  mime_type: "image/png",
+                  size: 2_048,
+                  kind,
+                  download_available: kind === "artifact",
+                },
+              ],
+            ])
+          }
+          loadArtifactPreview={loadArtifactPreview}
+          onPreviewImage={onPreviewImage}
+        />
       )
-    ).toBeVisible()
-    expect(
-      await screen.findByRole("img", { name: "preview.png" })
-    ).toHaveAttribute("src", "https://files.example/preview.png")
-    const previewButton = screen.getByRole("button", {
-      name: "预览图片 preview.png",
-    })
-    expect(previewButton).toHaveClass("native-activity-image-preview-trigger")
-    expect(screen.getByRole("img", { name: "preview.png" })).toHaveClass(
-      "native-activity-image-preview-image"
-    )
-    expect(loadArtifactPreview).toHaveBeenCalledOnce()
 
-    await interaction.click(previewButton)
+      const trigger = screen.getByRole("button", {
+        name: "展开“已查看图像”的详情",
+      })
+      expect(container.querySelector(".lucide-image")).toHaveClass("size-3.5")
+      expect(container.querySelector(".lucide-circle-check")).toBeNull()
 
-    expect(onPreviewImage).toHaveBeenCalledWith({
-      id: fileId,
-      name: "preview.png",
-      src: "https://files.example/preview.png",
-      alt: "preview.png",
-      downloadable: true,
-    })
-    expect(screen.queryByRole("dialog", { name: "图片预览" })).toBeNull()
-  })
+      await interaction.click(trigger)
+
+      const details = screen.getByText("路径").closest("dl")
+      expect(details).not.toBeNull()
+      expect(
+        within(details as HTMLElement).getByText(
+          "$WORKSPACE/artifacts/preview.png",
+          { selector: "code" }
+        )
+      ).toBeVisible()
+      expect(
+        await screen.findByRole("img", { name: "preview.png" })
+      ).toHaveAttribute("src", "https://files.example/preview.png")
+      const previewButton = screen.getByRole("button", {
+        name: "预览图片 preview.png",
+      })
+      expect(previewButton).toHaveClass("native-activity-image-preview-trigger")
+      expect(screen.getByRole("img", { name: "preview.png" })).toHaveClass(
+        "native-activity-image-preview-image"
+      )
+      expect(loadArtifactPreview).toHaveBeenCalledOnce()
+
+      await interaction.click(previewButton)
+
+      expect(onPreviewImage).toHaveBeenCalledWith({
+        id: fileId,
+        name: "preview.png",
+        src: "https://files.example/preview.png",
+        alt: "preview.png",
+        downloadable: kind === "artifact",
+      })
+      expect(screen.queryByRole("dialog", { name: "图片预览" })).toBeNull()
+    }
+  )
 
   it("renders failed image-view previews as a retryable status card", async () => {
     const interaction = userEvent.setup()
@@ -918,6 +921,28 @@ describe("NativeActivityItem", () => {
     )
     expect(loadArtifactPreview).toHaveBeenCalledOnce()
   })
+
+  it.each(["item/started", "item/completed"] as const)(
+    "shows an unavailable preview only after an image view finishes without a preview reference (%s)",
+    async (method) => {
+      const loadArtifactPreview = vi.fn()
+      render(
+        <NativeActivityItem
+          method={method}
+          item={{ type: "imageView", id: "missing-preview", path: "$ABSOLUTE/crop.png" }}
+          loadArtifactPreview={loadArtifactPreview}
+          open
+        />
+      )
+      expect(screen.getByText("$ABSOLUTE/crop.png", { selector: "code" })).toBeVisible()
+      if (method === "item/completed") {
+        expect(screen.getByRole("status")).toHaveTextContent("图片暂不可用")
+      } else {
+        expect(screen.queryByText("图片暂不可用")).toBeNull()
+      }
+      expect(loadArtifactPreview).not.toHaveBeenCalled()
+    }
+  )
 
   it("supports Enter and Space for expanding details", async () => {
     const interaction = userEvent.setup()

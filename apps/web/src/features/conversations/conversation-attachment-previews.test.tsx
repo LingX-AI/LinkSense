@@ -121,6 +121,21 @@ describe("conversation attachment image previews", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:conversation-preview-1")
   })
 
+  it("retains an object URL until its original owner and all expanded viewers release it", () => {
+    const source = createConversationAttachmentPreviewSource(
+      new Blob(["image"], { type: "image/png" })
+    )
+    const firstViewer = source.retain()
+    const secondViewer = source.retain()
+    source.release()
+    firstViewer()
+    firstViewer()
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+    secondViewer()
+    secondViewer()
+    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith(source.url)
+  })
+
   it("loads one object URL, keeps it across loader identity changes, and opens the thumbnail preview", async () => {
     const image = file("image-1", "preview.png", "image/png")
     const firstLoader = vi.fn<

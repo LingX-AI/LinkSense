@@ -28,7 +28,7 @@ export function remapForkedJson(
   value: unknown,
   replacements: ReadonlyMap<string, string>,
 ): unknown {
-  if (typeof value === "string") return replacements.get(value) ?? value;
+  if (typeof value === "string") return replacements.get(value) ?? remapForkedFileReferences(value, replacements);
   if (Array.isArray(value)) {
     return value.map((entry) => remapForkedJson(entry, replacements));
   }
@@ -39,6 +39,14 @@ export function remapForkedJson(
       remapForkedJson(entry, replacements),
     ]),
   );
+}
+
+export function remapForkedFileReferences(text: string, replacements: ReadonlyMap<string, string>): string {
+  return text.replace(/linksense-artifact:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-f-])/giu,
+    (reference: string, fileId: string) => {
+      const replacement = replacements.get(fileId.toLowerCase());
+      return replacement ? `linksense-artifact:${replacement}` : reference;
+    });
 }
 
 export function isValidForkedThreadHistory(

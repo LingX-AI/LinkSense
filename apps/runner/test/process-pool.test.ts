@@ -26,7 +26,7 @@ import {
   HttpRunnerEventSink,
   type RunnerEventSink,
 } from "../src/event-sink.js";
-import { FileServiceRequestError } from "../src/file-service-error.js";
+import { ImagePreviewRequestError } from "../src/image-preview-error.js";
 import {
   AppServerProcessPool,
   StartOperationIdempotencyConflictError,
@@ -3031,9 +3031,9 @@ trust_level = "trusted"
     const source = join(workspace, "generated", "preview.png");
     await mkdir(dirname(source), { recursive: true });
     await writeFile(source, PNG);
-    eventSink.registerArtifact
+    eventSink.registerImagePreview
       .mockRejectedValueOnce(
-        new FileServiceRequestError("ARTIFACT_REGISTRATION_BUSY", true, 409),
+        new ImagePreviewRequestError(409),
       )
       .mockResolvedValueOnce({
         file_id: "30000000-0000-4000-8000-000000000001",
@@ -3067,7 +3067,7 @@ trust_level = "trusted"
         }),
       );
     });
-    expect(eventSink.registerArtifact).toHaveBeenLastCalledWith({
+    expect(eventSink.registerImagePreview).toHaveBeenLastCalledWith({
       conversationId: input.conversationId,
       turnId: "turn-native-1",
       workspaceRelativePath: expect.stringMatching(
@@ -3075,18 +3075,17 @@ trust_level = "trusted"
       ),
       displayName: "inline-image-1.png",
       mimeType: "image/png",
-      artifactKind: "inline_image",
     });
     expect(JSON.stringify(eventSink.publish.mock.calls)).not.toContain(source);
     controlled.notify(completedMessageNotification);
     await waitForFast(() => {
       expect(eventSink.publish).toHaveBeenCalledTimes(2);
     });
-    expect(eventSink.registerArtifact).toHaveBeenCalledTimes(2);
+    expect(eventSink.registerImagePreview).toHaveBeenCalledTimes(2);
     await pool.closeAll();
   });
 
-  it("registers a completed image-view item and publishes its artifact id", async () => {
+  it.each(["default", "plan"] as const)("registers a completed image-view preview in %s mode without invoking the file service", async (collaborationMode) => {
     const root = await mkdtemp(join(tmpdir(), "linksense-image-view-event-"));
     roots.push(root);
     const controlled = createControlledAppServer();
@@ -3096,13 +3095,13 @@ trust_level = "trusted"
     );
     const input = startOperationInput();
 
-    await pool.startTurn(input);
+    await pool.startTurn({ ...input, collaborationMode });
     const workspace = workspaceManager.pathsFor(input.conversationId).workspace;
     const source = join(workspace, "temp", "contact.png");
     await mkdir(dirname(source), { recursive: true });
     await writeFile(source, PNG);
     const fileId = "30000000-0000-4000-8000-000000000002";
-    eventSink.registerArtifact.mockResolvedValueOnce({ file_id: fileId });
+    eventSink.registerImagePreview.mockResolvedValueOnce({ file_id: fileId });
 
     const completedImageNotification = {
       method: "item/completed",
@@ -3117,6 +3116,9 @@ trust_level = "trusted"
       },
     };
     controlled.notify(completedImageNotification);
+
+    await waitForFast(() => expect(eventSink.publish).toHaveBeenCalled());
+    expect(eventSink.registerArtifact).not.toHaveBeenCalled();
 
     await waitForFast(() => {
       expect(eventSink.publish).toHaveBeenCalledWith(
@@ -3134,7 +3136,7 @@ trust_level = "trusted"
         }),
       );
     });
-    expect(eventSink.registerArtifact).toHaveBeenCalledWith({
+    expect(eventSink.registerImagePreview).toHaveBeenCalledWith({
       conversationId: input.conversationId,
       turnId: "turn-native-1",
       workspaceRelativePath: expect.stringMatching(
@@ -3142,7 +3144,6 @@ trust_level = "trusted"
       ),
       displayName: "contact.png",
       mimeType: "image/png",
-      artifactKind: "inline_image",
     });
     expect(JSON.stringify(eventSink.publish.mock.calls)).not.toContain(source);
 
@@ -3150,7 +3151,7 @@ trust_level = "trusted"
     await waitForFast(() => {
       expect(eventSink.publish).toHaveBeenCalledTimes(2);
     });
-    expect(eventSink.registerArtifact).toHaveBeenCalledOnce();
+    expect(eventSink.registerImagePreview).toHaveBeenCalledOnce();
     await pool.closeAll();
   });
 
@@ -3197,7 +3198,7 @@ trust_level = "trusted"
       ],
     });
     const fileId = "30000000-0000-4000-8000-000000000003";
-    eventSink.registerArtifact.mockResolvedValueOnce({ file_id: fileId });
+    eventSink.registerImagePreview.mockResolvedValueOnce({ file_id: fileId });
 
     controlled.notify({
       method: "item/completed",
@@ -3228,16 +3229,61 @@ trust_level = "trusted"
         }),
       );
     });
-    expect(eventSink.registerArtifact).toHaveBeenCalledWith(
+    expect(eventSink.registerImagePreview).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId: input.conversationId,
         turnId: "turn-native-1",
         displayName: "theme-style-grid.png",
         mimeType: "image/png",
-        artifactKind: "inline_image",
-      }),
+        }),
     );
     expect(JSON.stringify(eventSink.publish.mock.calls)).not.toContain(source);
+    await pool.closeAll();
+  });
+
+  it("projects native views of four temporary crops without exposing the paths or using the file service", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-temporary-image-view-"));
+    roots.push(root);
+    const temporaryRoot = join(root, "worker-tmp");
+    await mkdir(temporaryRoot);
+    const controlled = createControlledAppServer();
+    const nativeImageTemporaryRootsForOwner = vi.fn(() => [temporaryRoot]);
+    const { pool, eventSink, workspaceManager } = createStartOperationPool(
+      root, controlled.factory, undefined, { nativeImageTemporaryRootsForOwner },
+    );
+    const input = startOperationInput();
+    await pool.startTurn(input);
+    const workspace = workspaceManager.pathsFor(input.conversationId).workspace;
+    const sources = [1, 2, 3, 4].map(index => join(temporaryRoot, `c${index}.png`));
+    await Promise.all(sources.map(source => writeFile(source, PNG)));
+
+    for (const [index, source] of sources.entries()) {
+      const fileId = `30000000-0000-4000-8000-00000000000${index + 1}`;
+      eventSink.registerImagePreview.mockImplementationOnce(async (image) => {
+        expect(await readFile(join(workspace, image.workspaceRelativePath))).toEqual(PNG);
+        return { file_id: fileId };
+      });
+      controlled.notify({
+        method: "item/completed",
+        params: {
+          threadId: "thread-native-1", turnId: "turn-native-1",
+          item: { type: "imageView", id: `temporary-image-${index}`, path: source },
+        },
+      });
+      await waitForFast(() => {
+        expect(eventSink.publish).toHaveBeenCalledWith(input.conversationId, expect.objectContaining({
+          method: "item/completed",
+          params: expect.objectContaining({ item: {
+            type: "imageView", id: `temporary-image-${index}`,
+            path: `$ABSOLUTE/c${index + 1}.png`, fileId,
+          } }),
+        }));
+      });
+    }
+    expect(nativeImageTemporaryRootsForOwner).toHaveBeenCalledWith(input.ownerId);
+    expect(eventSink.registerImagePreview).toHaveBeenCalledTimes(4);
+    expect(eventSink.registerArtifact).not.toHaveBeenCalled();
+    expect(JSON.stringify(eventSink.publish.mock.calls)).not.toContain(temporaryRoot);
     await pool.closeAll();
   });
 
@@ -7356,6 +7402,7 @@ trust_level = "trusted"
       publishBatch: vi.fn(async () => undefined),
       reportProcessExit: vi.fn(async () => undefined),
       registerArtifact: vi.fn(async () => ({})),
+      registerImagePreview: vi.fn(async () => ({})),
     } satisfies RunnerEventSink;
     const browserSessionCleanup = vi.fn(async () => cleanupResult);
     const workspaceManager = createWorkspaceManager(root);
@@ -7476,6 +7523,7 @@ trust_level = "trusted"
         publishBatch: vi.fn(async () => undefined),
         reportProcessExit: vi.fn(async () => undefined),
         registerArtifact: vi.fn(async () => ({})),
+        registerImagePreview: vi.fn(async () => ({})),
       },
       logger: pino({ enabled: false }),
       mcpCommand: process.execPath,
@@ -7711,6 +7759,7 @@ trust_level = "trusted"
         publishBatch: vi.fn(async () => undefined),
         reportProcessExit: vi.fn(async () => undefined),
         registerArtifact: vi.fn(async () => ({})),
+        registerImagePreview: vi.fn(async () => ({})),
       },
       logger: pino({ enabled: false }),
       mcpCommand: process.execPath,
@@ -7952,6 +8001,7 @@ trust_level = "trusted"
         }),
         reportProcessExit: vi.fn(async () => undefined),
         registerArtifact: vi.fn(async () => ({})),
+        registerImagePreview: vi.fn(async () => ({})),
       } satisfies RunnerEventSink;
       const pool = new AppServerProcessPool({
         command: "codex",
@@ -8060,6 +8110,7 @@ trust_level = "trusted"
         publishBatch: vi.fn(async () => undefined),
         reportProcessExit: vi.fn(async () => undefined),
         registerArtifact: vi.fn(async () => ({})),
+        registerImagePreview: vi.fn(async () => ({})),
         searchKnowledge: vi.fn(async () => ({})),
       },
       logger: pino({ enabled: false }),
@@ -8105,6 +8156,7 @@ trust_level = "trusted"
       publishBatch: vi.fn(async () => undefined),
       reportProcessExit: vi.fn(async () => undefined),
       registerArtifact: vi.fn(async () => ({})),
+      registerImagePreview: vi.fn(async () => ({})),
       searchKnowledge: vi.fn(async () => ({})),
     } satisfies RunnerEventSink;
     const workspaceManager = createWorkspaceManager(root);
@@ -9637,6 +9689,7 @@ trust_level = "trusted"
         publishBatch: vi.fn(async () => undefined),
         reportProcessExit: vi.fn(async () => undefined),
         registerArtifact: vi.fn(async () => ({})),
+        registerImagePreview: vi.fn(async () => ({})),
       },
       logger: pino({ enabled: false }),
       mcpCommand: process.execPath,
@@ -9689,6 +9742,7 @@ trust_level = "trusted"
         publishBatch: vi.fn(async () => undefined),
         reportProcessExit: vi.fn(async () => undefined),
         registerArtifact: vi.fn(async () => ({})),
+        registerImagePreview: vi.fn(async () => ({})),
       },
       logger: pino({ enabled: false }),
       mcpCommand: process.execPath,
@@ -11644,6 +11698,7 @@ function createStartOperationPool(
     managedBrowserEnabled?: boolean;
     nativeTurnRegistrationTimeoutMs?: number;
     modelTransitionCompactionTimeoutMs?: number;
+    nativeImageTemporaryRootsForOwner?: (ownerId: string) => readonly string[];
     logger?: Logger;
   } = {},
 ) {
@@ -11657,6 +11712,7 @@ function createStartOperationPool(
     }),
     reportProcessExit: vi.fn(async () => undefined),
     registerArtifact: vi.fn(async () => ({})),
+    registerImagePreview: vi.fn<RunnerEventSink["registerImagePreview"]>(async () => ({})),
     previewSkillZip: vi.fn(async () => ({})),
     applicationBuilder: vi.fn(async () => null),
     confirmSkillInstall: vi.fn(async () => ({})),
@@ -11697,6 +11753,9 @@ function createStartOperationPool(
         }),
     personalStdioLauncherCommand: process.execPath,
     personalStdioLauncherArgs: ["/app/dist/mcp/personal-stdio-launcher.js"],
+    ...(overrides.nativeImageTemporaryRootsForOwner
+      ? { nativeImageTemporaryRootsForOwner: overrides.nativeImageTemporaryRootsForOwner }
+      : {}),
     mcpEndpointBase: "http://127.0.0.1:4010/mcp-file-service",
     childProcessFactory,
     ...(overrides.modelTransitionCompactionTimeoutMs !== undefined

@@ -33,7 +33,7 @@ import { cleanupManagedBrowserSession } from "../src/browser/session-cleanup.js"
 import { writeBrowserControl } from "../src/browser/session-control.js"
 import {
   projectImageViewAsset,
-  type RegisterInlineImageArtifact,
+  type RegisterImagePreview,
 } from "../src/codex/assistant-message-assets.js"
 import { makeDirectoryTreeRemovable } from "../src/workspace/filesystem.js"
 
@@ -579,7 +579,7 @@ describe("managed browser CLI", () => {
       }
       await browserCliMain(["open", "about:blank"], environment, cwd, dependencies)
       const fileId = "30000000-0000-4000-8000-000000000001"
-      const registerArtifact = vi.fn<RegisterInlineImageArtifact>(
+      const registerPreview = vi.fn<RegisterImagePreview>(
         async (artifact) => {
           const registeredPath = path.join(workspace, artifact.workspaceRelativePath)
           expect(await readFile(registeredPath)).toEqual(screenshot)
@@ -596,14 +596,14 @@ describe("managed browser CLI", () => {
             authorizedSkills: [],
             turnId: "turn-browser-preview",
             itemId: `view-${args.length}`,
-            registerArtifact,
+            registerPreview,
           }),
         ).resolves.toEqual({ fileId })
         expect(path.dirname(screenshotPath)).toBe(
           path.join(await realpath(workspace), "temp", "browser"),
         )
       }
-      expect(registerArtifact).toHaveBeenCalledTimes(2)
+      expect(registerPreview).toHaveBeenCalledTimes(2)
       expect(runCli.mock.calls[0]?.[0].cwd).toBe(await realpath(cwd))
       await browserCliMain(["close"], environment, cwd, dependencies)
     },

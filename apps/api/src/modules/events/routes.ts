@@ -11,6 +11,7 @@ import {
   runnerStartSettledSchema,
   runtimeServiceSessionHeader,
   type ConversationEvent,
+  imagePreviewRegistrationSchema,
 } from "@linksense/shared"
 import type { FastifyPluginAsync, FastifyRequest } from "fastify"
 import { z } from "zod"
@@ -176,6 +177,12 @@ export const internalRunnerRoutes: FastifyPluginAsync<{ services: AppServices }>
         observedAt: new Date(body.observed_at),
       })
       return reply.send(ok(result, request.id))
+    })
+
+    app.post("/image-previews", async (request, reply) => {
+      const body = imagePreviewRegistrationSchema.parse(request.body)
+      const ownerId = parseRunnerOwnerId(request)
+      return reply.send(await services.files.registerImagePreview({ ...body, ownerId }))
     })
 
     app.post("/file-service/register-artifact", async (request, reply) => {

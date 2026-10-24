@@ -28,6 +28,8 @@ import { formatFileSize } from "@/i18n/date"
 export type ArtifactPreviewSource = Readonly<{
   url: string
   expiresAt: string
+  release?: () => void
+  retain?: () => () => void
 }>
 
 export type ConversationArtifactFilesProps = Readonly<{

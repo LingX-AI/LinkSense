@@ -16,6 +16,9 @@ import {
   isMeaninglessTemporaryUploadFilename,
   workspacePermissionPolicy,
   type TaskArtifactFileType,
+  imagePreviewMimeTypeSchema,
+  MAX_IMAGE_PREVIEW_BYTES,
+  type ImagePreviewRegistration,
 } from "@linksense/shared";
 import { detectCfbf } from "@file-type/cfbf";
 import { FileTypeParser } from "file-type";
@@ -86,6 +89,13 @@ type TaskArtifactRow = {
   sizeBytes: bigint;
   createdAt: Date;
   updatedAt: Date;
+};
+
+type WorkspaceFilePreviewContent = {
+  data: Buffer;
+  filename: string;
+  mimeType: AttachmentPreviewMimeType;
+  sizeBytes: number;
 };
 
 type ReferenceableFileRow = TaskArtifactRow & {
@@ -710,19 +720,38 @@ export class FileService {
     ownerId: string,
     conversationId: string,
     fileId: string,
-  ): Promise<{
-    data: Buffer;
-    filename: string;
-    mimeType: AttachmentPreviewMimeType;
-    sizeBytes: number;
-  }> {
+  ): Promise<WorkspaceFilePreviewContent> {
+    return this.readWorkspacePreviewContent(
+      ownerId, conversationId, fileId, "attachment",
+    );
+  }
+
+  async readImagePreviewContent(
+    ownerId: string,
+    conversationId: string,
+    fileId: string,
+  ): Promise<WorkspaceFilePreviewContent> {
+    return this.readWorkspacePreviewContent(
+      ownerId, conversationId, fileId, "image_preview",
+    );
+  }
+
+  private async readWorkspacePreviewContent(
+    ownerId: string,
+    conversationId: string,
+    fileId: string,
+    kind: "attachment" | "image_preview",
+  ): Promise<WorkspaceFilePreviewContent> {
+    const allowedStatuses = kind === "attachment"
+      ? ["staged", "bound"]
+      : ["registered"];
     await this.conversations.assertOwner(ownerId, conversationId);
     const file = await this.prisma.conversationFile.findFirst({
       where: {
         id: fileId,
         conversationId,
-        kind: "attachment",
-        status: { in: ["staged", "bound"] },
+        kind,
+        status: { in: allowedStatuses },
         storageBackend: "workspace",
       },
       select: {
@@ -744,12 +773,16 @@ export class FileService {
       : 0;
     if (
       !file ||
-      (file.status !== "staged" && file.status !== "bound") ||
+      !allowedStatuses.includes(file.status) ||
       !previewMimeType ||
+      (kind === "image_preview" &&
+        !imagePreviewMimeTypeSchema.safeParse(previewMimeType).success) ||
       !file.workspaceRelativePath ||
       !file.workspaceRootRelPath ||
       !file.checksumSha256 ||
       file.sizeBytes <= 0n ||
+      (kind === "image_preview" &&
+        file.sizeBytes > BigInt(MAX_IMAGE_PREVIEW_BYTES)) ||
       file.sizeBytes > BigInt(maximumPreviewSize)
     ) {
       throwAttachmentPreviewUnavailable();
@@ -802,6 +835,128 @@ export class FileService {
       mimeType: previewMimeType,
       sizeBytes: data.byteLength,
     };
+  }
+
+  async registerImagePreview(
+    input: ImagePreviewRegistration & { ownerId: string },
+  ): Promise<{ file_id: string }> {
+    return this.withConversationLock(input.conversationId, async () => {
+      const conversation = await this.conversations.assertOwner(
+        input.ownerId, input.conversationId,
+      );
+      const turn = await this.prisma.conversationTurn.findFirst({
+        where: {
+          conversationId: input.conversationId,
+          codexTurnId: input.turnId,
+          submittedBy: input.ownerId,
+          status: "running",
+        },
+      });
+      if (!turn) throw new AppError("FORBIDDEN");
+      const root = await realpath(
+        workspaceRoot(
+          this.config.workspaceRoot, input.ownerId, conversation.workspaceRelPath,
+        ),
+      );
+      const candidate = resolve(root, input.workspaceRelativePath);
+      assertAttachmentPreviewDescendant(root, candidate);
+      const actual = await realpath(candidate).catch(
+        throwAttachmentPreviewUnavailable,
+      );
+      assertAttachmentPreviewDescendant(root, actual);
+      const info = await lstat(actual).catch(throwAttachmentPreviewUnavailable);
+      const data = await readStableRegularFile(actual, info, {
+        maximumBytes: Math.min(
+          MAX_IMAGE_PREVIEW_BYTES, this.config.upload.maxFileSizeBytes,
+        ),
+        invalidFileError: () => new AppError("NOT_FOUND"),
+        fileTooLargeError: () => new AppError("FILE_LIMIT_EXCEEDED"),
+      });
+      const detectedMime = imagePreviewMimeTypeSchema.safeParse(
+        (await detectFileType(data))?.mime,
+      );
+      if (!detectedMime.success || detectedMime.data !== input.mimeType) {
+        throw new AppError("VALIDATION_ERROR");
+      }
+      const filename = artifactDisplayName(input.displayName, detectedMime.data);
+      const checksumSha256 = sha256(data);
+      const existing = await this.prisma.conversationFile.findFirst({
+        where: {
+          conversationId: input.conversationId,
+          mimeType: detectedMime.data,
+          checksumSha256,
+          sizeBytes: BigInt(data.byteLength),
+          storageBackend: "workspace",
+          workspaceRootRelPath: conversation.workspaceRelPath,
+          OR: [
+            { kind: "attachment", status: "bound", pendingRequestId: null },
+            { kind: "image_preview", status: "registered", turnId: turn.id },
+          ],
+        },
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+      });
+      if (existing) return { file_id: existing.id };
+
+      const id = randomUUID();
+      const relativePath = `.linksense/image-previews/${id}/${filename}`;
+      const destination = resolve(root, relativePath);
+      await ensureSharedWorkspaceDirectory(root, dirname(destination));
+      try {
+        await writeFile(destination, data, {
+          flag: "wx", mode: workspacePermissionPolicy.sharedReadonlyFile,
+        });
+        const event = await this.prisma.$transaction(async (tx) => {
+          await tx.conversationFile.create({
+            data: {
+              id,
+              conversationId: input.conversationId,
+              turnId: turn.id,
+              kind: "image_preview",
+              source: "system_generated",
+              status: "registered",
+              filename,
+              mimeType: detectedMime.data,
+              sizeBytes: BigInt(data.byteLength),
+              checksumSha256,
+              storageBackend: "workspace",
+              workspaceRelativePath: relativePath,
+              workspaceRootRelPath: conversation.workspaceRelPath,
+              downloadable: false,
+            },
+          });
+          const sequenceNo = await nextConversationEventSequence(
+            tx, input.conversationId,
+          );
+          return tx.conversationEvent.create({
+            data: {
+              conversationId: input.conversationId,
+              turnId: turn.id,
+              sequenceNo,
+              eventType: "conversation.file.created",
+              visibility: "user_collapsed",
+              payloadJson: {
+                schema_version: 1,
+                file_id: id,
+                display_name: filename,
+                mime_type: detectedMime.data,
+                size_bytes: data.byteLength,
+              },
+              sseEventId: `${input.conversationId}:${sequenceNo}`,
+            },
+          });
+        });
+        await this.redis
+          .publishConversationEvent(input.conversationId, projectFileEvent(event))
+          .catch(() => undefined);
+        return { file_id: id };
+      } catch (error) {
+        await this.removeWorkspaceDirectoryOrEnqueue(
+          input.ownerId, input.conversationId, dirname(destination),
+        );
+        throw error;
+      }
+    });
   }
 
   async registerArtifact(input: {
@@ -861,7 +1016,6 @@ export class FileService {
         reportedMimeType,
       );
       const id = randomUUID();
-      const inlineImage = input.artifactKind === "inline_image";
       const displayName = artifactDisplayName(
         input.displayName || basename(actual),
         mimeType,
@@ -918,9 +1072,7 @@ export class FileService {
                 system_capability_key: "linksense_file_service",
                 usage_type: "system_file_service",
                 name: "LinkSense File Service",
-                safe_summary: inlineImage
-                  ? "registered inline message image"
-                  : "registered downloadable artifact",
+                safe_summary: "registered downloadable artifact",
               },
               sseEventId: `${input.conversationId}:${eventSequence}`,
             },
@@ -975,9 +1127,7 @@ export class FileService {
             system_capability_key: "linksense_file_service",
             usage_type: "system_file_service",
             name: "LinkSense File Service",
-            safe_summary: inlineImage
-              ? "registered inline message image"
-              : "registered downloadable artifact",
+            safe_summary: "registered downloadable artifact",
           },
           sse_event_id: `${input.conversationId}:${file.eventSequence}`,
           created_at: new Date().toISOString(),

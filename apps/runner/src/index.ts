@@ -1,5 +1,6 @@
 import { countUserProcesses } from "./user-process-activity.js"
 import { existsSync } from "node:fs"
+import { tmpdir } from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { flushCompileCache } from "node:module"
@@ -59,6 +60,23 @@ export function resolveOwnerExecutionPaths(
         : path.join(config.LINKSENSE_USER_DATA_ROOT, ownerId, "control"),
     runtime: path.join(home, ".local", "share", "linksense"),
   }
+}
+
+export function resolveNativeImageTemporaryRoots(
+  config: Pick<RunnerConfig,
+    "LINKSENSE_RUNNER_MODE" | "LINKSENSE_WORKER_PROVIDER" | "LINKSENSE_USER_DATA_ROOT"
+  >,
+  ownerId: string,
+): readonly string[] {
+  const { runtime } = resolveOwnerExecutionPaths(config, ownerId)
+  return [
+    userRuntimePaths(runtime).temporaryRoot,
+    // Docker gives each worker its own temporary filesystem. Host temporary
+    // directories remain outside the local-process and standalone boundary.
+    ...(config.LINKSENSE_RUNNER_MODE === "worker" && config.LINKSENSE_WORKER_PROVIDER === "docker"
+      ? [tmpdir()]
+      : []),
+  ]
 }
 
 export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> {
@@ -325,6 +343,8 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
       config.LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS,
     runtimeEnvironmentForOwner: async (ownerId) =>
       (await ensureUserRuntime(ownerId)).environment,
+    nativeImageTemporaryRootsForOwner: (ownerId) =>
+      resolveNativeImageTemporaryRoots(config, ownerId),
     ...(managedBrowserEnabled && existsSync(browserCommand)
       ? {
           browserSessionCleanup: async ({

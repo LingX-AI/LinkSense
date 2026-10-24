@@ -72,7 +72,7 @@ import {
   blockUnresolvedLocalMarkdownImages,
   projectAssistantMessageAssets,
   projectImageViewAsset,
-  type RegisterInlineImageArtifact,
+  type RegisterImagePreview,
 } from "./codex/assistant-message-assets.js";
 import {
   CodexJsonRpcClient,
@@ -135,6 +135,7 @@ import { CurrentUserInfoRequestError } from "./current-user-error.js";
 import { ConnectionRequestError } from "./connection-error.js";
 import type { ConnectionInput } from "@linksense/shared";
 import { FileServiceRequestError } from "./file-service-error.js";
+import { ImagePreviewRequestError } from "./image-preview-error.js";
 import { ImageGenerationRequestError } from "./image-generation-error.js";
 import { InteractiveFormRequestError } from "./interactive-form-error.js";
 import { KnowledgeSearchRequestError } from "./knowledge-search-error.js";
@@ -880,6 +881,7 @@ export class AppServerProcessPool {
         ownerId: string,
       ) => Promise<Record<string, string>>;
       codexProcessIdentity?: { uid: number; gid: number };
+      nativeImageTemporaryRootsForOwner?: (ownerId: string) => readonly string[];
       browserSessionCleanup?: (input: {
         conversationId: string;
         ownerId: string;
@@ -6694,13 +6696,14 @@ export class AppServerProcessPool {
             workspace: managed.workspace,
             codexHome: managed.codexHome,
             authorizedSkills: managed.authorizedSkills,
+            temporaryRoots: this.options.nativeImageTemporaryRootsForOwner?.(managed.ownerId) ?? [],
             turnId: event.params.turnId,
             itemId: event.params.item.id,
-            registerArtifact: (artifact) =>
-              this.registerInlineImageArtifact(
+            registerPreview: (image) =>
+              this.registerInlineImagePreview(
                 managed.conversationId,
                 event.params.turnId,
-                artifact,
+                image,
               ),
           });
           fileId = projection.fileId;
@@ -6756,11 +6759,11 @@ export class AppServerProcessPool {
         authorizedSkills: managed.authorizedSkills,
         turnId: event.params.turnId,
         itemId: event.params.item.id,
-        registerArtifact: (artifact) =>
-          this.registerInlineImageArtifact(
+        registerPreview: (image) =>
+          this.registerInlineImagePreview(
             managed.conversationId,
             event.params.turnId,
-            artifact,
+            image,
           ),
       });
       text = projection.text;
@@ -6803,28 +6806,21 @@ export class AppServerProcessPool {
     };
   }
 
-  private async registerInlineImageArtifact(
+  private async registerInlineImagePreview(
     conversationId: string,
     turnId: string,
-    artifact: Parameters<RegisterInlineImageArtifact>[0],
+    image: Parameters<RegisterImagePreview>[0],
   ): Promise<unknown> {
-    const managed = this.processes.get(conversationId);
-    if (
-      managed?.activeTurnId === turnId &&
-      managed.activeCollaborationMode === "plan"
-    ) {
-      throw new FileServiceRequestError("FILE_SERVICE_FORBIDDEN", false, 403);
-    }
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        return await this.options.eventSink.registerArtifact({
+        return await this.options.eventSink.registerImagePreview({
           conversationId,
           turnId,
-          ...artifact,
+          ...image,
         });
       } catch (error) {
         if (
-          !(error instanceof FileServiceRequestError) ||
+          !(error instanceof ImagePreviewRequestError) ||
           !error.retryable ||
           attempt === 2
         ) {
@@ -6836,7 +6832,7 @@ export class AppServerProcessPool {
         });
       }
     }
-    throw new Error("inline image artifact registration exhausted");
+    throw new Error("image preview registration exhausted");
   }
 
   private requireProcess(conversationId: string): ManagedProcess {

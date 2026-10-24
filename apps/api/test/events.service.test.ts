@@ -4457,7 +4457,7 @@ describe("ConversationEventService SSE replay privacy", () => {
       ...artifactRequest,
       payload: {
         ...artifactRequest.payload,
-        artifactKind: "inline_image",
+        artifactKind: "generated_image",
       },
       headers: {
         authorization: "Bearer runner-secret",
@@ -4474,7 +4474,7 @@ describe("ConversationEventService SSE replay privacy", () => {
       workspaceRelativePath: "artifacts/report.txt",
       displayName: "report.txt",
       mimeType: "text/plain",
-      artifactKind: "inline_image",
+      artifactKind: "generated_image",
     });
   });
 

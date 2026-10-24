@@ -36,6 +36,7 @@ type PreviewState =
 
 type PreviewRequest = {
   promise: Promise<ArtifactPreviewSource>
+  consumers: number
   source?: ArtifactPreviewSource
   decoded?: boolean
   expiresAt?: number
@@ -89,7 +90,12 @@ export function AssistantMarkdownImage({
   const name = alt?.trim() || file?.name || t("conversation.inlineImage")
   const canLoad =
     Boolean(artifactId) &&
-    Boolean(file?.download_available) &&
+    Boolean(
+      file &&
+      (file.download_available ||
+        file.kind === "attachment" ||
+        file.kind === "image_preview")
+    ) &&
     Boolean(file && isPreviewableConversationImage(file)) &&
     Boolean(loadPreview)
   const fileKey =
@@ -137,7 +143,9 @@ export function AssistantMarkdownImage({
 
     const controller = new AbortController()
     let refreshTimer: number | undefined
-    void loadCachedPreview(loadPreview, requestFile, fileKey)
+    const request = loadCachedPreview(loadPreview, requestFile, fileKey)
+    request.consumers += 1
+    void request.promise
       .then((sourceValue) => {
         if (controller.signal.aborted) return
         if (!sourceValue.url.trim() || !sourceValue.expiresAt.trim())
@@ -172,6 +180,11 @@ export function AssistantMarkdownImage({
 
     return () => {
       controller.abort()
+      request.consumers -= 1
+      if (request.consumers === 0 && request.source?.release) {
+        const requests = previewRequests.get(loadPreview)
+        if (requests) deletePreviewRequest(requests, fileKey, request)
+      }
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
     }
   }, [fileKey, loadPreview, requestKey])
@@ -378,7 +391,7 @@ function loadCachedPreview(
   loadPreview: LoadArtifactPreview,
   file: ConversationFile,
   requestKey: string
-): Promise<ArtifactPreviewSource> {
+): PreviewRequest {
   let requests = previewRequests.get(loadPreview)
   if (!requests) {
     requests = new Map()
@@ -390,7 +403,7 @@ function loadCachedPreview(
     (existing.expiresAt === undefined ||
       existing.expiresAt - PREVIEW_REFRESH_SAFETY_MS > Date.now())
   ) {
-    return existing.promise
+    return existing
   }
   if (existing) deletePreviewRequest(requests, requestKey, existing)
 
@@ -402,11 +415,20 @@ function loadCachedPreview(
 
   const entry: PreviewRequest = {
     promise: loadPreview(file, new AbortController().signal),
+    consumers: 0,
   }
   requests.set(requestKey, entry)
   void entry.promise.then(
     (sourceValue) => {
-      if (requests?.get(requestKey) !== entry) return
+      if (requests?.get(requestKey) !== entry) {
+        sourceValue.release?.()
+        return
+      }
+      if (entry.consumers === 0 && sourceValue.release) {
+        sourceValue.release()
+        deletePreviewRequest(requests, requestKey, entry)
+        return
+      }
       const expiresAt = Date.parse(sourceValue.expiresAt)
       if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
         deletePreviewRequest(requests, requestKey, entry)
@@ -422,7 +444,7 @@ function loadCachedPreview(
       }
     }
   )
-  return entry.promise
+  return entry
 }
 
 function schedulePreviewRequestEviction(
@@ -461,4 +483,7 @@ function deletePreviewRequest(
     window.clearTimeout(entry.evictionTimer)
   }
   if (requests.get(requestKey) === entry) requests.delete(requestKey)
+  const source = entry.source
+  entry.source = undefined
+  source?.release?.()
 }

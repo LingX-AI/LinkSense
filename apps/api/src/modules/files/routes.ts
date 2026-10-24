@@ -293,6 +293,23 @@ export const fileRoutes: FastifyPluginAsync<{ services: AppServices }> = async (
   );
 
   app.get(
+    "/:id/files/:fileId/image-preview",
+    { preHandler: app.authenticate },
+    async (request, reply) => {
+      const user = (request as AuthenticatedRequest).authUser;
+      const { id, fileId } = fileParams.parse(request.params);
+      const image = await services.files.readImagePreviewContent(user.id, id, fileId);
+      return reply
+        .type(image.mimeType)
+        .header("cache-control", "private, no-store")
+        .header("content-length", image.sizeBytes)
+        .header("content-disposition", inlineContentDisposition(image.filename))
+        .header("x-content-type-options", "nosniff")
+        .send(image.data);
+    },
+  );
+
+  app.get(
     "/:id/files/:fileId/media",
     { preHandler: app.authenticate },
     async (request, reply) => {

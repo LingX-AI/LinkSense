@@ -13,6 +13,122 @@ import {
 describe("LinkSense application", () => {
   setupApplicationTests()
 
+  it.each(["attachment", "image_preview"] as const)(
+    "loads a viewed %s through its authenticated image endpoint without registering an artifact",
+    async (kind) => {
+      const interaction = userEvent.setup()
+      const fileId = "30000000-0000-4000-8000-000000000099"
+      const filename = "local-image.png"
+      const image = {
+        id: fileId,
+        filename,
+        mime_type: "image/png",
+        size_bytes: 8,
+        kind,
+        turn_id: "turn-1",
+        status: kind === "attachment" ? "bound" : "registered",
+        downloadable: false,
+      }
+      const { fetchMock, requests } = installApiMock({
+        conversationOverride: {
+          execution_status: "completed",
+          turns: [{ id: "turn-1", status: "completed" }],
+          running_turn: null,
+          files: [image],
+          artifacts: [],
+          messages: conversation.messages.map((message) => ({
+            ...message,
+            turn_id: "turn-1",
+          })),
+          events: [
+            {
+              id: "view-event",
+              type: "item/completed",
+              turn_id: "turn-1",
+              sequence_no: 2,
+              created_at: "2026-10-23T00:00:00.000Z",
+              payload: {
+                schema_version: 2,
+                source: "codex_app_server",
+                method: "item/completed",
+                params: {
+                  threadId: "native-thread",
+                  turnId: "native-turn",
+                  item: {
+                    type: "imageView",
+                    id: "image-view-1",
+                    path: "$WORKSPACE/attachments/local-image.png",
+                    fileId,
+                  },
+                },
+              },
+            },
+          ],
+        },
+      })
+      const originalFetch = fetchMock.getMockImplementation()
+      if (!originalFetch) throw new Error("Application API mock is missing")
+      const imagePath =
+        kind === "attachment"
+          ? `/api/v1/conversations/c1/attachments/${fileId}/content`
+          : `/api/v1/conversations/c1/files/${fileId}/image-preview`
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = new URL(String(input), window.location.origin)
+        if (url.pathname === imagePath) {
+          requests.push({
+            path: imagePath,
+            method: init?.method ?? "GET",
+            query: url.search,
+            body: undefined,
+          })
+          expect(new Headers(init?.headers).get("authorization")).toMatch(
+            /^Bearer /
+          )
+          return new Response(
+            new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+            { headers: { "Content-Type": "image/png" } }
+          )
+        }
+        return originalFetch(input, init)
+      })
+      vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:local-preview")
+      const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL")
+      const view = renderApp()
+      const summary = await screen.findByTestId("turn-summary-turn-1")
+      await interaction.click(
+        within(summary).getByRole("button", { name: "展开中间过程" })
+      )
+      await interaction.click(
+        within(summary).getByRole("button", { name: "展开“已查看图像”的详情" })
+      )
+      expect(
+        await within(summary).findByRole("img", { name: filename })
+      ).toHaveAttribute("src", "blob:local-preview")
+      expect(
+        requests.filter((request) => request.path === imagePath)
+      ).toHaveLength(1)
+      expect(
+        requests.some((request) => request.path.endsWith(`/${fileId}/preview`))
+      ).toBe(false)
+      expect(
+        screen.queryByRole("button", { name: `下载 ${filename}` })
+      ).toBeNull()
+      expect(screen.queryByText("已使用文件服务")).toBeNull()
+      await interaction.click(
+        within(summary).getByRole("button", { name: `预览图片 ${filename}` })
+      )
+      expect(
+        await screen.findByRole("region", { name: `预览文档 ${filename}` })
+      ).toBeVisible()
+      await interaction.click(
+        within(summary).getByRole("button", { name: "收起中间过程" })
+      )
+      expect(revokeObjectURL).not.toHaveBeenCalled()
+      view.unmount()
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:local-preview")
+    }
+  )
+
   it.each([
     { delivery: "final file", deliversFile: true },
     { delivery: "text-only final answer", deliversFile: false },

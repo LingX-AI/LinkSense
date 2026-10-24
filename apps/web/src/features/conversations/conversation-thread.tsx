@@ -2103,6 +2103,7 @@ function AssistantMarkdownImageElement({
             name,
             src: source.url,
             alt: name,
+            ...(source.retain ? { retainSource: source.retain } : {}),
           })
         }
       />
@@ -4580,6 +4581,7 @@ export function ConversationThread({
   const conversationFilesById = new Map<string, ConversationFile>()
   const indexConversationFile = (file: ConversationFile) =>
     conversationFilesById.set(file.id.toLowerCase(), file)
+  conversation.files?.forEach(indexConversationFile)
   conversation.attachments?.forEach(indexConversationFile)
   conversation.artifacts?.forEach(indexConversationFile)
   conversation.pending_requests?.forEach((request) =>

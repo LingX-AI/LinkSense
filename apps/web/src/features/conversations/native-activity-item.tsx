@@ -56,12 +56,14 @@ export function NativeActivityDetails({
   model,
   imageFile,
   imageFileId,
+  imagePreviewUnavailable,
   loadArtifactPreview,
   onPreviewImage,
 }: {
   model: NativeActivityViewModel
   imageFile?: ConversationFile
   imageFileId?: string
+  imagePreviewUnavailable?: boolean
   loadArtifactPreview?: LoadArtifactPreview
   onPreviewImage?: (item: ImagePreviewItem) => void
 }) {
@@ -144,6 +146,11 @@ export function NativeActivityDetails({
           ))}
         </dl>
       )}
+      {imagePreviewUnavailable && (
+        <p role="status" className="text-muted-foreground text-sm">
+          {t("conversation.inlineImageUnavailable")}
+        </p>
+      )}
       {imageFileId && imageFile && loadArtifactPreview && (
         <>
           <div className="native-activity-image-preview">
@@ -162,6 +169,7 @@ export function NativeActivityDetails({
                   src: source.url,
                   alt: imageFile.name,
                   downloadable: imageFile.download_available,
+                  ...(source.retain ? { retainSource: source.retain } : {}),
                 }
                 if (onPreviewImage) {
                   onPreviewImage(previewItem)
@@ -407,6 +415,7 @@ export function NativeActivityItem({
         model={model}
         imageFile={imageFile}
         imageFileId={imageFileId}
+        imagePreviewUnavailable={item.type === "imageView" && !running && !imageFileId}
         loadArtifactPreview={loadArtifactPreview}
         onPreviewImage={onPreviewImage}
       />

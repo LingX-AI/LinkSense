@@ -37,6 +37,14 @@ describe("conversation fork helpers", () => {
     });
   });
 
+  it("remaps explicit image references inside copied native message text while preserving ordinary identifier text", () => {
+    const sourceId = "10000000-0000-4000-8000-000000000001";
+    const targetId = "20000000-0000-4000-8000-000000000001";
+    expect(remapForkedJson({ text: `![image](linksense-artifact:${sourceId})\nReference ${sourceId}` }, new Map([[sourceId, targetId]]))).toEqual({
+      text: `![image](linksense-artifact:${targetId})\nReference ${sourceId}`,
+    });
+  });
+
   it("accepts internal native turns while preserving every visible turn through the target", () => {
     expect(
       isValidForkedThreadHistory(

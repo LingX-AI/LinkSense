@@ -22,6 +22,7 @@ export * from "./feedback.js";
 export * from "./feishu.js";
 export * from "./bot-channels.js";
 export * from "./image-generation.js";
+export * from "./image-previews.js";
 export * from "./image-understanding.js";
 export * from "./interactive-applications.js";
 export * from "./knowledge.js";

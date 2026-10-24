@@ -280,6 +280,29 @@ describe("HttpRunnerEventSink", () => {
     await sink.close();
   });
 
+  it("registers image previews through a dedicated owner-scoped endpoint", async () => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const fileId = "30000000-0000-4000-8000-000000000001";
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ file_id: fileId }));
+    const sink = new HttpRunnerEventSink("http://127.0.0.1:4000/internal", "runner-shared-secret-value", workspaceManager, { fetch: fetchMock });
+    const input = { conversationId, turnId: "turn-native-1", workspaceRelativePath: ".linksense/inline-images/preview.png", displayName: "preview.png", mimeType: "image/png" as const };
+    await expect(sink.registerImagePreview(input)).resolves.toEqual({ file_id: fileId });
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(new URL("http://127.0.0.1:4000/internal/image-previews"), expect.objectContaining({
+      method: "POST", body: JSON.stringify(input),
+      headers: expect.objectContaining({ "x-linksense-owner-id": ownerId }),
+    }));
+    await sink.close();
+  });
+
+  it.each([[403, false], [409, true], [503, true]] as const)("classifies preview status %s without retrying a Codex turn", async (status, retryable) => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response("{}", { status }));
+    const sink = new HttpRunnerEventSink("http://127.0.0.1:4000/internal", "runner-shared-secret-value", workspaceManager, { fetch: fetchMock });
+    await expect(sink.registerImagePreview({ conversationId, turnId: "turn-native-1", workspaceRelativePath: "preview.png", displayName: "preview.png", mimeType: "image/png" })).rejects.toMatchObject({ statusCode: status, retryable });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    await sink.close();
+  });
+
   it("gives process-exit recovery a 150 second budget without changing ordinary requests", async () => {
     const { workspaceManager } = await createWorkspaceManager();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(

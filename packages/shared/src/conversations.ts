@@ -800,7 +800,9 @@ export const conversationMessageSchema = z.strictObject({
   updated_at: timestampSchema,
 });
 
-export const conversationFileKindSchema = z.enum(["attachment", "artifact"]);
+export const conversationFileKindSchema = z.enum([
+  "attachment", "artifact", "image_preview",
+]);
 export const conversationFileSourceSchema = z.enum([
   "user_upload",
   INTERACTIVE_APPLICATION_FILE_SOURCE,
