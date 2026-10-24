@@ -119,7 +119,37 @@ describe("assistant Markdown image preview cache", () => {
     expect(loadPreview).toHaveBeenCalledOnce()
   })
 
+  it("waits for a pending lazy image to load when its initial decode is rejected", async () => {
+    decodeImage.mockRejectedValueOnce(
+      new DOMException("Image request is pending", "EncodingError")
+    )
+    const loadPreview = vi.fn().mockResolvedValue({
+      url: "https://files.example.test/pending.png",
+      expiresAt: new Date(NOW.getTime() + 120_000).toISOString(),
+    })
+    const view = render(<InlineImage loadPreview={loadPreview} />)
+    await flushPreviewLoad()
+
+    expect(screen.getByRole("status")).toBeVisible()
+    expect(screen.queryByRole("button", { name: "重试" })).toBeNull()
+    const image = view.container.querySelector("img")
+    if (!image) throw new Error("Expected the mounted lazy image")
+    expect(image.complete).toBe(false)
+    expect(decodeImage).toHaveBeenCalledOnce()
+
+    fireEvent.load(image)
+    await flushPreviewLoad()
+
+    expect(screen.getByRole("img", { name: "preview.png" })).toBe(image)
+    expect(screen.queryByRole("status")).toBeNull()
+    expect(decodeImage).toHaveBeenCalledTimes(2)
+    expect(loadPreview).toHaveBeenCalledOnce()
+  })
+
   it("reports a decoding failure and loads a new preview when the user retries", async () => {
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(
+      true
+    )
     decodeImage.mockRejectedValueOnce(new Error("invalid_image"))
     const loadPreview = vi.fn().mockResolvedValue({
       url: "https://files.example.test/retry.png",
