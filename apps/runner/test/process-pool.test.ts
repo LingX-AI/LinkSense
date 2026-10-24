@@ -7344,10 +7344,12 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it.each([undefined, false])("keeps the stable capability runtime after terminal delivery (browser cleanup: %s)", async (cleanupResult) => {
+  it.each([undefined, false])("keeps the browser session and stable capability runtime between turns (browser cleanup: %s)", async (cleanupResult) => {
     const root = await mkdtemp(join(tmpdir(), "linksense-pool-"));
     roots.push(root);
-    const controlled = createControlledAppServer();
+    const controlled = createControlledAppServer({
+      turnStartIds: ["turn-native-1", "turn-native-2"],
+    });
     const capabilityRuntimeManager = createCapabilityRuntimeManagerMock();
     const eventSink = {
       publish: vi.fn(async () => undefined),
@@ -7380,7 +7382,7 @@ trust_level = "trusted"
     const conversationId = "01900000-0000-7000-8000-000000000001";
     const projectionTurnId = "01900000-0000-7000-8000-000000000099";
 
-    const started = await pool.startTurn({
+    const input: Parameters<AppServerProcessPool["startTurn"]>[0] = {
       conversationId,
       projectionTurnId,
       ownerId: "01900000-0000-7000-8000-000000000002",
@@ -7395,7 +7397,8 @@ trust_level = "trusted"
       },
       capabilities: [],
       environment: { SERVICE_API_KEY: "secret-value" },
-    });
+    };
+    const started = await pool.startTurn(input);
 
     expect(started.codexTurnId).toBe("turn-native-1");
     expect(controlled.environment?.SERVICE_API_KEY).toBe("secret-value");
@@ -7413,16 +7416,27 @@ trust_level = "trusted"
       expect(eventSink.publish).toHaveBeenCalledTimes(1);
       expect(controlled.kill).not.toHaveBeenCalled();
       expect(capabilityRuntimeManager.resolvePublished).toHaveBeenCalledOnce();
-      expect(browserSessionCleanup).toHaveBeenCalledWith({
-        conversationId,
-        ownerId: "01900000-0000-7000-8000-000000000002",
-        userHome: join(root, "home"),
-        codexHome: join(taskRuntimeHome(root), ".codex"),
-        workspace: join(root, "home", "workspace"),
-        preserveHumanControl: true,
-      });
+      expect(browserSessionCleanup).not.toHaveBeenCalled();
       expect(pool.size).toBe(1);
     });
+    await waitForFast(() => expect(pool.runningCount).toBe(0));
+    await confirmRecoveryProjection(pool, input);
+    const continued = await pool.startTurn({
+      ...input,
+      projectionTurnId: "01900000-0000-7000-8000-000000000098",
+      codexThreadId: "thread-native-1",
+    });
+    expect(continued.codexTurnId).toBe("turn-native-2");
+    expect(browserSessionCleanup).not.toHaveBeenCalled();
+    controlled.notify({
+      method: "turn/completed",
+      params: {
+        threadId: "thread-native-1",
+        turn: { id: "turn-native-2", status: "completed" },
+      },
+    });
+    await waitForFast(() => expect(eventSink.publish).toHaveBeenCalledTimes(2));
+    expect(browserSessionCleanup).not.toHaveBeenCalled();
     await pool.closeAll();
     expect(browserSessionCleanup).toHaveBeenLastCalledWith(expect.not.objectContaining({ preserveHumanControl: true }));
   });

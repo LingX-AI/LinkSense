@@ -734,7 +734,6 @@ type ManagedProcess = {
   subAgentRuntimeNotificationRevision: number;
   lastCompletedFinalAgentMessageByTurn: Map<string, string>;
   pendingStopHooks: Map<string, PendingStopHook>;
-  browserCleanupPending: boolean;
   runtimeGeneration: string;
   capabilityGeneration: string;
   mcpGeneration: string;
@@ -1713,9 +1712,6 @@ export class AppServerProcessPool {
     managed.ownerId = input.ownerId;
     managed.starting = true;
     this.clearIdleTimer(managed);
-    if (managed.browserCleanupPending) {
-      managed.browserCleanupPending = !(await this.cleanupBrowserSession(managed, true));
-    }
     let nativeRequestIssued = false;
     let turnStartRequestIssued = false;
     let turnStartConfirmed = false;
@@ -5569,7 +5565,6 @@ export class AppServerProcessPool {
         subAgentRuntimeNotificationRevision: 0,
         lastCompletedFinalAgentMessageByTurn: new Map(),
         pendingStopHooks: new Map(),
-        browserCleanupPending: false,
         runtimeGeneration: paths.runtimeGeneration,
         capabilityGeneration: input.capabilityGeneration,
         mcpGeneration: mcpGenerationFor(input),
@@ -6260,10 +6255,7 @@ export class AppServerProcessPool {
         }
         this.syncModelGatewayTurnCorrelation(managed);
         managed.lastUsedAt = Date.now();
-        managed.browserCleanupPending = !goalWillContinue;
-        if (managed.browserCleanupPending) {
-          managed.browserCleanupPending = !(await this.cleanupBrowserSession(managed, true));
-        }
+        // Keep the conversation's browser until the runtime is released or idles out.
         if (!goalWillContinue) this.scheduleIdleClose(managed);
       });
     }
@@ -7222,7 +7214,7 @@ export class AppServerProcessPool {
           "failed to close idle app-server process",
         ),
       );
-    }, managed.browserCleanupPending ? Math.min(60_000, this.options.idleTtlMs) : this.options.idleTtlMs);
+    }, this.options.idleTtlMs);
     managed.idleTimer.unref();
   }
 
@@ -7281,7 +7273,6 @@ export class AppServerProcessPool {
         managed.mcpProxyRuntimeId,
       );
       if (!browserAlreadyClean) await this.cleanupBrowserSession(managed);
-      managed.browserCleanupPending = false;
       await this.options.eventSink.flushConversation?.(
         managed.conversationId,
         250,
