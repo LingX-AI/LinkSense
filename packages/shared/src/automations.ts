@@ -12,6 +12,19 @@ import {
   scheduleWeekdaysSchema,
 } from "./schedules.js";
 
+export const automationNotificationTargetSchema = z.strictObject({
+  kind: z.enum(["feishu", "bot_channel"]),
+  connection_id: uuidSchema,
+  peer_session_id: uuidSchema,
+});
+export type AutomationNotificationTarget = z.infer<typeof automationNotificationTargetSchema>;
+export const automationNotificationTargetsSchema = z.strictObject({ items: z.array(z.strictObject({
+  target: automationNotificationTargetSchema,
+  provider: z.string(),
+  title: z.string(),
+})) });
+export type AutomationNotificationTargets = z.infer<typeof automationNotificationTargetsSchema>;
+
 export const automationStatusSchema = z.enum(["active", "paused"]);
 export const automationFrequencySchema = z.enum([
   "hourly",
@@ -104,6 +117,7 @@ export const automationModelPreferenceInputSchema = z
   .nullable();
 
 export const automationCreateInputSchema = z.strictObject({
+  notification_target: automationNotificationTargetSchema.nullable().default(null),
   title: z.string().trim().min(1).max(160),
   instruction: z.string().trim().min(1).max(1_000_000),
   target: automationTargetInputSchema,
@@ -114,6 +128,7 @@ export const automationCreateInputSchema = z.strictObject({
 
 export const automationUpdateInputSchema = z
   .strictObject({
+    notification_target: automationNotificationTargetSchema.nullable().optional(),
     title: z.string().trim().min(1).max(160).optional(),
     instruction: z.string().trim().min(1).max(1_000_000).optional(),
     target: automationTargetInputSchema.optional(),
@@ -145,6 +160,7 @@ export const automationRunStatusSchema = z.enum([
 ]);
 
 export const automationSchema = z.strictObject({
+  notification_target: automationNotificationTargetSchema.nullable().default(null),
   id: uuidSchema,
   title: z.string().min(1).max(160),
   instruction: z.string().min(1).max(1_000_000),

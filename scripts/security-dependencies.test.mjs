@@ -18,8 +18,8 @@ const lockfile = parse(
 // GHSA-v53p-9fqp-m79j, GHSA-c475-qrg2-pj4r, GHSA-qhr7-859c-m2p7,
 // GHSA-xjh9-v7x6-24jw, GHSA-qw65-cvwx-89v3, GHSA-rfgv-xxqx-mfg5,
 // GHSA-wq5f-xc86-pv6w, GHSA-6qxp-vccf-f47h, GHSA-22jm-h49p-29qw,
-// GHSA-46jr-4wx8-v453, GHSA-q3jh-wrc6-jgq8, GHSA-8r9p-f939-6h3c
-// and GHSA-587h-7wmj-h5pm.
+// GHSA-46jr-4wx8-v453, GHSA-q3jh-wrc6-jgq8, GHSA-8r9p-f939-6h3c,
+// GHSA-587h-7wmj-h5pm, GHSA-cg2g-xh64-v4q7, and GHSA-mrv2-3pqr-j5jr.
 // Check every resolution, including transitive copies.
 for (const [name, minimum] of [
   ["@xmldom/xmldom", "0.9.12"],
@@ -37,6 +37,7 @@ for (const [name, minimum] of [
   ["proxy-addr", "2.0.8"],
   ["source-map-js", "1.2.2"],
   ["prosemirror-view", "1.42.3"],
+  ["dompurify", "3.4.17"],
 ]) {
   test(`the lockfile resolves ${name} only to security-patched versions`, () => {
     const versions = Object.keys(lockfile.packages)

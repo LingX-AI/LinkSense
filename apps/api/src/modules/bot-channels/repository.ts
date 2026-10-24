@@ -73,6 +73,7 @@ export class PrismaBotChannelRepository {
         data: { status: "disconnecting" },
       });
       if (!found.count) return false;
+      await cancelConnectionNotifications(tx, ownerId, id);
       await tx.botChannelOutboundDelivery.deleteMany({
         where: { connectionId: id },
       });
@@ -708,3 +709,4 @@ function isUuid(value: string): boolean {
     value,
   );
 }
+import { cancelConnectionNotifications } from "../automations/notification-cancellation.js";

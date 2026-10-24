@@ -130,6 +130,7 @@ describe("PrismaFeishuRepository", () => {
         findFirst: vi.fn(async () => ({ id: CONNECTION_ID })),
         delete: vi.fn(async () => connection),
       },
+      automationNotificationDelivery: { updateMany: vi.fn(async () => ({ count: 0 })) },
       feishuOutboundDelivery: {
         deleteMany: vi.fn(async () => ({ count: 0 })),
       },
@@ -147,6 +148,7 @@ describe("PrismaFeishuRepository", () => {
       where: { id: CONNECTION_ID },
     });
     expect(tx.feishuAppBinding.delete).not.toHaveBeenCalled();
+    expect(tx.automationNotificationDelivery.updateMany).toHaveBeenCalledWith({ where: { ownerId: OWNER_ID, status: { in: ["pending", "processing"] }, targetJson: { path: ["connection_id"], equals: CONNECTION_ID } }, data: { status: "cancelled", processingToken: null } });
   });
 
   it("stores a reusable non-secret app binding when a connection is created", async () => {
