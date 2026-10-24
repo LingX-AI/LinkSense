@@ -263,6 +263,7 @@ const storedModelProviderSchema = z.strictObject({
   baseUrl: modelProviderBaseUrlSchema,
   protocolMode: modelProviderProtocolModeSchema,
   apiKey: z.string().min(1).max(16_384).nullable(),
+  testModelId: modelIdentifierSchema.nullable().optional(),
   models: z.array(managedPricedModelSchema).max(100),
 })
 
@@ -505,6 +506,9 @@ export class ModelProviderSettingsService
               currentProvider?.protocolMode ??
               "native_responses",
             apiKey: apiKey ?? null,
+            testModelId: provider.test_model_id === undefined
+              ? currentProvider?.testModelId
+              : provider.test_model_id,
             models: provider.models,
           }
         }),
@@ -1556,6 +1560,7 @@ function assertValidStoredSettings(
       base_url: provider.baseUrl,
       protocol_mode: provider.protocolMode,
       ...(provider.apiKey ? { api_key: provider.apiKey } : {}),
+      test_model_id: provider.testModelId,
       models: provider.models,
     })),
     default_model: settings.defaultModel,
@@ -1583,6 +1588,7 @@ function projectAdminSettings(
             base_url: provider.baseUrl,
             protocol_mode: provider.protocolMode,
             api_key_configured: provider.apiKey !== null,
+            test_model_id: provider.testModelId,
             models: provider.models,
           })),
           default_model: stored.defaultModel,

@@ -8,6 +8,7 @@ import type { ModelProviderSettings } from "@/api/contracts"
 import i18n, { supportedLanguages } from "@/i18n"
 import { ChannelEditor, ModelEditor } from "./model-channel-editors"
 import { ModelProviderSettingsForm } from "./model-provider-settings-form"
+import { newModel } from "./model-settings-draft"
 
 const channel: ModelProviderSettings["providers"][number] = {
   id: "main",
@@ -71,6 +72,12 @@ const foundModel = {
 
 beforeEach(async () => {
   await i18n.changeLanguage("en-US")
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      response({ status: "supported", models: [], truncated: false })
+    )
+  )
 })
 afterEach(() => {
   cleanup()
@@ -78,6 +85,111 @@ afterEach(() => {
 })
 
 describe("model setup", () => {
+  it("loads models on each Edit channel opening without changing the saved test model or refetching on selection", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      response({
+        status: "supported",
+        models: [foundModel],
+        truncated: false,
+      })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ModelProviderSettingsForm
+          settings={{
+            ...settings,
+            providers: [{ ...channel, test_model_id: "saved-test-model" }],
+          }}
+        />
+      </QueryClientProvider>
+    )
+    const user = userEvent.setup()
+    expect(fetchMock).not.toHaveBeenCalled()
+    for (const count of [1, 2]) {
+      await user.click(screen.getByRole("button", { name: "Channel actions" }))
+      await user.click(
+        await screen.findByRole("menuitem", { name: "Edit channel" })
+      )
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(count))
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "Get available models" })
+        ).toBeEnabled()
+      )
+      expect(
+        screen.getByRole("combobox", { name: "Model ID to test" })
+      ).toHaveValue("saved-test-model")
+      if (count === 1) {
+        await user.click(screen.getByRole("button", { name: "Cancel" }))
+        await waitFor(() =>
+          expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+        )
+      }
+    }
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(request).toMatchObject({ channel_id: channel.id })
+    expect(request).not.toHaveProperty("api_key")
+    const model = screen.getByRole("combobox", { name: "Model ID to test" })
+    await user.clear(model)
+    await user.click(model)
+    await user.click(
+      await screen.findByRole("option", { name: "Remote model (remote-model)" })
+    )
+    expect(model).toHaveValue(foundModel.id)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("loads models on each Add model opening without refetching when selecting a model", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      response({
+        status: "supported",
+        models: [foundModel],
+        truncated: false,
+      })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ModelProviderSettingsForm settings={settings} />
+      </QueryClientProvider>
+    )
+    const user = userEvent.setup()
+    expect(fetchMock).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "Add model" }))
+    const firstSelection = await screen.findByRole("combobox", {
+      name: "Select an available model",
+    })
+    await waitFor(() => expect(firstSelection).toBeEnabled())
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/admin/model-provider-settings/discover"),
+      expect.objectContaining({ method: "POST", body: expect.any(String) })
+    )
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    ).toMatchObject({ channel_id: channel.id })
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+    await user.click(screen.getByRole("button", { name: "Add model" }))
+    const selection = await screen.findByRole("combobox", {
+      name: "Select an available model",
+    })
+    await waitFor(() => expect(selection).toBeEnabled())
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await user.click(selection)
+    await user.click(
+      await screen.findByRole("option", { name: "Remote model (remote-model)" })
+    )
+    expect(screen.getByLabelText(formLabelPattern("Model ID"))).toHaveValue(
+      "remote-model"
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it.each(supportedLanguages)(
     "allows typing a test model before discovery in %s",
     async (locale) => {
@@ -130,9 +242,10 @@ describe("model setup", () => {
       }
       const model = screen.getByLabelText(formLabelPattern("Model ID to test"))
       await user.type(model, "first-manual-id")
-      await user.click(
-        screen.getByRole("button", { name: "Get available models" })
-      )
+      if (!saved)
+        await user.click(
+          screen.getByRole("button", { name: "Get available models" })
+        )
       await waitFor(() => expect(probes).toHaveLength(1))
       expect(model).toHaveValue("first-manual-id")
       if (saved) {
@@ -202,9 +315,6 @@ describe("model setup", () => {
       )
       renderChannel()
       const user = userEvent.setup()
-      await user.click(
-        screen.getByRole("button", { name: "Get available models" })
-      )
       if (result === "error")
         expect(await screen.findByRole("alert")).toBeVisible()
       else
@@ -228,6 +338,85 @@ describe("model setup", () => {
     }
   )
 
+  it("remembers the saved test model after reopening a legacy channel without changing its configured models", async () => {
+    const configuredModel = {
+      ...newModel(),
+      id: "model-a",
+      display_name: "Model A",
+    }
+    let saved: ModelProviderSettings = {
+      ...settings,
+      configured: true,
+      providers: [{ ...channel, models: [configuredModel] }],
+      default_model: configuredModel.id,
+      title_model: configuredModel.id,
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url, init?: RequestInit) => {
+        if (String(url).endsWith("/discover"))
+          return response({
+            status: "supported",
+            models: [foundModel],
+            truncated: false,
+          })
+        const input = updateModelProviderSettingsSchema.parse(
+          JSON.parse(String(init?.body))
+        )
+        saved = {
+          ...saved,
+          revision: saved.revision + 1,
+          default_model: input.default_model,
+          title_model: input.title_model ?? null,
+          memory_extraction_model: input.memory_extraction_model ?? null,
+          providers: input.providers.map((provider) => ({
+            ...provider,
+            name: provider.name ?? null,
+            protocol_mode: provider.protocol_mode ?? "native_responses",
+            api_key_configured: true,
+          })),
+        }
+        return response({ code: "SYSTEM_SETTINGS_UPDATED", settings: saved })
+      })
+    )
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ModelProviderSettingsForm settings={saved} />
+      </QueryClientProvider>
+    )
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("button", { name: "Channel actions" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Edit channel" })
+    )
+    const model = screen.getByRole("combobox", { name: "Model ID to test" })
+    expect(model).toHaveValue(configuredModel.id)
+    await user.clear(model)
+    await user.type(model, "test")
+    await user.tab()
+    await user.click(
+      screen.getByRole("button", { name: "Save model channel Primary" })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+    expect(saved.providers[0]?.models).toEqual([configuredModel])
+    expect(saved.default_model).toBe(configuredModel.id)
+    expect(saved.title_model).toBe(configuredModel.id)
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Channel actions" })
+      ).toBeEnabled()
+    )
+    await user.click(screen.getByRole("button", { name: "Channel actions" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Edit channel" })
+    )
+    expect(
+      screen.getByRole("combobox", { name: "Model ID to test" })
+    ).toHaveValue("test")
+  })
+
   it("ignores a late model list after connection settings change and permits a fresh request", async () => {
     let finish: ((result: Response) => void) | undefined
     const fetchMock = vi.fn(
@@ -239,9 +428,6 @@ describe("model setup", () => {
     vi.stubGlobal("fetch", fetchMock)
     renderChannel()
     const user = userEvent.setup()
-    await user.click(
-      screen.getByRole("button", { name: "Get available models" })
-    )
     expect(
       screen.getByRole("button", { name: "Getting models…" })
     ).toBeDisabled()
@@ -294,9 +480,10 @@ describe("model setup", () => {
         name: i18n.t("modelSetup.selectModel"),
       })
       const discover = screen.getByRole("button", {
-        name: i18n.t("modelSetup.discover"),
+        name: i18n.t("modelSetup.discovering"),
       })
       expect(selection).toBeDisabled()
+      expect(discover).toBeDisabled()
       const controls = selection.closest(
         '[data-slot="input-group"]'
       )?.parentElement
@@ -408,9 +595,6 @@ describe("model setup", () => {
       screen.queryByLabelText(formLabelPattern("Model ID"))
     ).not.toBeInTheDocument()
     expect(screen.getByLabelText(formLabelPattern("Input price"))).toBeVisible()
-    await user.click(
-      screen.getByRole("button", { name: "Get available models" })
-    )
     const selection = await screen.findByRole("combobox", {
       name: "Select an available model",
     })
@@ -492,9 +676,6 @@ describe("model setup", () => {
     )
     renderModel()
     const user = userEvent.setup()
-    await user.click(
-      screen.getByRole("button", { name: "Get available models" })
-    )
     const selection = screen.getByRole("combobox", {
       name: "Select an available model",
     })
@@ -509,9 +690,6 @@ describe("model setup", () => {
     cleanup()
     supported = false
     renderModel()
-    await user.click(
-      screen.getByRole("button", { name: "Get available models" })
-    )
     expect(
       await screen.findByText(
         /This service does not offer an available model list/
@@ -544,9 +722,6 @@ describe("model setup", () => {
     )
     renderModel()
     const user = userEvent.setup()
-    await user.click(
-      screen.getByRole("button", { name: "Get available models" })
-    )
     expect(await screen.findByRole("alert")).toBeVisible()
     fail = false
     await user.click(
@@ -562,7 +737,9 @@ describe("model setup", () => {
     let fail = true
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => {
+      vi.fn(async (url) => {
+        if (String(url).endsWith("/discover"))
+          return response({ status: "supported", models: [], truncated: false })
         if (fail)
           return new Response(
             JSON.stringify({ success: false, error_code: "FORBIDDEN" }),
@@ -598,11 +775,14 @@ describe("model setup", () => {
 
   it("does not apply a late test success after the user changes the model", async () => {
     let finish: ((result: Response) => void) | undefined
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          finish = resolve
-        })
+    const fetchMock = vi.fn((url: RequestInfo | URL) =>
+      String(url).endsWith("/discover")
+        ? Promise.resolve(
+            response({ status: "supported", models: [], truncated: false })
+          )
+        : new Promise<Response>((resolve) => {
+            finish = resolve
+          })
     )
     vi.stubGlobal("fetch", fetchMock)
     renderModel()
@@ -639,8 +819,12 @@ describe("model setup", () => {
   it("reports unsupported inference separately from a successful model response", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        response({ status: "unsupported", model_id: "embedding-model" })
+      vi.fn(async (url) =>
+        response(
+          String(url).endsWith("/discover")
+            ? { status: "supported", models: [], truncated: false }
+            : { status: "unsupported", model_id: "embedding-model" }
+        )
       )
     )
     renderModel()
@@ -668,8 +852,12 @@ describe("model setup", () => {
   })
 
   it("requires a new key to probe a changed saved endpoint and clears its old success", async () => {
-    const fetchMock = vi.fn<typeof fetch>(async () =>
-      response({ status: "success", model_id: "model-a" })
+    const fetchMock = vi.fn<typeof fetch>(async (url) =>
+      response(
+        String(url).endsWith("/discover")
+          ? { status: "supported", models: [], truncated: false }
+          : { status: "success", model_id: "model-a" }
+      )
     )
     vi.stubGlobal("fetch", fetchMock)
     render(
@@ -717,9 +905,9 @@ describe("model setup", () => {
     await user.click(
       screen.getByRole("button", { name: "Test model connection" })
     )
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     expect(
-      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))
+      JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))
     ).toMatchObject({
       api_key: "new-key",
       base_url: `${channel.base_url}/other`,

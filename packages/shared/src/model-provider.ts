@@ -286,6 +286,7 @@ export const updateManagedModelProviderSchema = z
     base_url: modelProviderBaseUrlSchema,
     protocol_mode: modelProviderProtocolModeSchema.optional(),
     api_key: z.string().trim().min(1).max(16_384).optional(),
+    test_model_id: modelIdentifierSchema.nullable().optional(),
     models: updateModelCollectionSchema,
   })
   .superRefine(validateProviderSpecificFields)
@@ -299,6 +300,7 @@ export const managedModelProviderSettingsSchema = z
     base_url: z.string(),
     protocol_mode: modelProviderProtocolModeSchema,
     api_key_configured: z.boolean(),
+    test_model_id: modelIdentifierSchema.nullable().optional(),
     models: z.array(managedPricedModelSchema),
   })
   .superRefine(validateProviderSpecificFields)

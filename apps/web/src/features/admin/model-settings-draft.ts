@@ -26,6 +26,7 @@ export function toSettingsProviderUpdate(
     provider_location: provider.provider_location,
     base_url: provider.base_url,
     protocol_mode: provider.protocol_mode,
+    test_model_id: provider.test_model_id,
     models: provider.models,
   }
 }

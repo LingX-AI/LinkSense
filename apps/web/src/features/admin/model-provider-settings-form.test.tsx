@@ -77,7 +77,15 @@ function installSaveMock(initial = settings, detectContext = false) {
   const requests: Array<Record<string, unknown>> = []
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (_url, init?: RequestInit) => {
+    vi.fn(async (url, init?: RequestInit) => {
+      if (String(url).endsWith("/discover"))
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: { status: "supported", models: [], truncated: false },
+          }),
+          { headers: { "content-type": "application/json" } }
+        )
       const input = updateModelProviderSettingsSchema.parse(
         JSON.parse(String(init?.body))
       )

@@ -129,6 +129,7 @@ export function ModelEditor({
         <>
           <ModelDiscovery
             key={JSON.stringify(probe)}
+            autoDiscover
             input={probe}
             credentialsReady={channel.api_key_configured}
             disabled={actions.pending}
@@ -219,6 +220,10 @@ export function ChannelEditor({
     channel
       ? {
           ...toSettingsProviderUpdate(channel),
+          test_model_id:
+            channel.test_model_id === undefined
+              ? channel.models.find((model) => model.kind === "chat")?.id
+              : channel.test_model_id,
           name:
             channel.name ??
             t("admin.modelProvider.providerTitle", {
@@ -241,9 +246,7 @@ export function ChannelEditor({
   )
   const [value, setValue] = useState(initial)
   const [apiKey, setApiKey] = useState("")
-  const [testModelId, setTestModelId] = useState(
-    channel?.models.find((model) => model.kind === "chat")?.id ?? ""
-  )
+  const testModelId = value.test_model_id ?? ""
   const draft = replaceChannel(actions.settings, {
     ...value,
     ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
@@ -453,14 +456,16 @@ export function ChannelEditor({
       </ModelAdvancedSettings>
       <ModelDiscovery
         key={JSON.stringify(probe)}
+        autoDiscover={savedTargetMatches && !apiKey.trim()}
         input={probe}
         credentialsReady={credentialsReady}
         disabled={actions.pending}
         selectedId={testModelId}
-        onSelect={(model) => setTestModelId(model.id)}
+        onSelect={(model) => setValue({ ...value, test_model_id: model.id })}
         manualEntry={{
           label: t("modelSetup.testModel"),
-          onChange: setTestModelId,
+          onChange: (modelId) =>
+            setValue({ ...value, test_model_id: modelId || null }),
         }}
       />
       <ModelConnectionTest

@@ -33,12 +33,14 @@ export function ModelDiscovery({
   selectedId,
   onSelect,
   manualEntry,
+  autoDiscover = false,
 }: {
   input: ModelProviderProbeInput
   credentialsReady: boolean
   disabled: boolean
   selectedId: string
   onSelect: (model: DiscoveredProviderModel) => void
+  autoDiscover?: boolean
   manualEntry?: {
     label: string
     onChange: (modelId: string) => void
@@ -46,12 +48,16 @@ export function ModelDiscovery({
 }) {
   const { t } = useTranslation()
   const id = useId()
-  const mutation = useDiscoverModels(input)
+  const canDiscover =
+    !disabled &&
+    credentialsReady &&
+    modelProviderProbeInputSchema.safeParse(input).success
+  const discovery = useDiscoverModels(input, autoDiscover && canDiscover)
   const [open, setOpen] = useState(false)
-  const data = mutation.data
+  const data = discovery.data
   const models = data?.models ?? []
   const selectionDisabled =
-    disabled || (!manualEntry && (mutation.isPending || models.length === 0))
+    disabled || (!manualEntry && (discovery.isFetching || models.length === 0))
   const selected = models.find((model) => model.id === selectedId) ?? null
   const { contains } = useComboboxFilter()
   return (
@@ -120,27 +126,22 @@ export function ModelDiscovery({
             type="button"
             variant="secondary"
             className="shrink-0"
-            disabled={
-              disabled ||
-              mutation.isPending ||
-              !credentialsReady ||
-              !modelProviderProbeInputSchema.safeParse(input).success
-            }
-            aria-busy={mutation.isPending || undefined}
-            onClick={() => mutation.mutate()}
+            disabled={!canDiscover || discovery.isFetching}
+            aria-busy={discovery.isFetching || undefined}
+            onClick={() => void discovery.refetch()}
           >
-            {mutation.isPending && <Spinner data-icon="inline-start" />}
+            {discovery.isFetching && <Spinner data-icon="inline-start" />}
             {t(
-              mutation.isPending
+              discovery.isFetching
                 ? "modelSetup.discovering"
                 : "modelSetup.discover"
             )}
           </Button>
         </div>
       </FieldShell>
-      {mutation.error && (
+      {discovery.error && (
         <StatusBanner variant="error">
-          {getErrorMessage(mutation.error, t)}
+          {getErrorMessage(discovery.error, t)}
         </StatusBanner>
       )}
       {data && data.models.length === 0 && (
