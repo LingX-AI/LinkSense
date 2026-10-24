@@ -1117,7 +1117,7 @@ describe("task projects", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("places project selection in a separate bar directly above the new task input", async () => {
+  it("places project selection in the input toolbar without losing its accessible controls", async () => {
     const { requests } = installProjectApi()
     const interaction = userEvent.setup()
     renderApp("/conversations/new")
@@ -1125,13 +1125,13 @@ describe("task projects", () => {
     const picker = screen.getByRole("combobox", { name: "项目" })
     const input = screen.getByRole("textbox", { name: "任务输入框" })
     const form = input.closest("form")
-    const bar = picker.closest(".conversation-project-dock")
+    const bar = picker.closest<HTMLElement>(".conversation-project-dock")
 
     expect(form).not.toBeNull()
     expect(bar).toHaveClass("min-h-10", "min-w-0", "flex-wrap")
-    expect(bar?.parentElement).toBe(form?.parentElement)
-    expect(bar?.nextElementSibling).toBe(form)
-    expect(form).not.toContainElement(picker)
+    expect(bar?.closest('[data-slot="composer-toolbar"]')).toBeInTheDocument()
+    expect(form).toContainElement(bar)
+    expect(form).toContainElement(picker)
     expect(picker).toHaveClass("bg-transparent", "max-w-full", "min-w-0")
     expect(picker).toHaveTextContent("生活")
     expect(
@@ -1485,9 +1485,9 @@ describe("task projects", () => {
         body: { project_id: personalId },
       })
     )
-    expect(
-      screen.getByRole("combobox", { name: "项目" }).closest("form")
-    ).toBeNull()
+    expect(screen.getByRole("combobox", { name: "项目" }).closest("form")).toBe(
+      screen.getByRole("textbox", { name: "任务输入框" }).closest("form")
+    )
     expect(screen.getByRole("textbox", { name: "任务输入框" })).toHaveValue(
       "请整理附件"
     )

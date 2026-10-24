@@ -306,8 +306,7 @@ describe("personalization settings", () => {
     expect(instructions.closest('[data-layout="settings"]')).toBeNull()
     const memorySwitch = screen.getByRole("switch", { name: "启用记忆" })
     expect(memorySwitch.closest('[data-slot="card-content"]')).toHaveClass(
-      "px-4",
-      "sm:px-5"
+      "px-6"
     )
     expect(
       memorySwitch.closest('[data-slot="settings-field-group"]')

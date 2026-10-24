@@ -36,8 +36,6 @@ import {
   BoxIcon,
   CheckIcon,
   BookOpenIcon,
-  BookOpenTextIcon,
-  ChartNoAxesCombinedIcon,
   ChevronRightIcon,
   CircleCheckIcon,
   CircleAlertIcon,
@@ -45,17 +43,14 @@ import {
   CopyIcon,
   DownloadIcon,
   EyeIcon,
-  FileTextIcon,
   ImageOffIcon,
   LoaderCircleIcon,
   Maximize2Icon,
   PencilIcon,
-  PresentationIcon,
   GoalIcon,
   GitForkIcon,
   MessagesSquareIcon,
   CornerUpLeftIcon,
-  SparklesIcon,
   WifiIcon,
   WrenchIcon,
 } from "lucide-react"
@@ -99,6 +94,7 @@ import {
   type ConversationHistoryControl,
 } from "@/features/conversations/conversation-message-list"
 import { ConversationForkSourceMarker } from "@/features/conversations/conversation-fork-source-marker"
+import { NewTaskWelcome } from "@/features/conversations/new-task-welcome"
 import { ConversationGeneratedImages } from "@/features/conversations/conversation-generated-images"
 import {
   NativeSubAgentActivityGroup,
@@ -258,87 +254,6 @@ const emptyLiveReasoningContentEvents: ConversationEvent[] = []
 const GeneratedImageArtifactContext = createContext<ReadonlySet<string>>(
   new Set()
 )
-
-const newTaskStarterQuestions = [
-  {
-    id: "analyzeFile",
-    icon: FileTextIcon,
-    tone: "file",
-    titleKey: "conversation.starterQuestions.analyzeFile.title",
-    descriptionKey: "conversation.starterQuestions.analyzeFile.description",
-    promptKey: "conversation.starterQuestions.analyzeFile.prompt",
-  },
-  {
-    id: "searchKnowledge",
-    icon: BookOpenTextIcon,
-    tone: "knowledge",
-    titleKey: "conversation.starterQuestions.searchKnowledge.title",
-    descriptionKey: "conversation.starterQuestions.searchKnowledge.description",
-    promptKey: "conversation.starterQuestions.searchKnowledge.prompt",
-  },
-  {
-    id: "analyzeData",
-    icon: ChartNoAxesCombinedIcon,
-    tone: "data",
-    titleKey: "conversation.starterQuestions.analyzeData.title",
-    descriptionKey: "conversation.starterQuestions.analyzeData.description",
-    promptKey: "conversation.starterQuestions.analyzeData.prompt",
-  },
-  {
-    id: "createDeliverable",
-    icon: PresentationIcon,
-    tone: "deliverable",
-    titleKey: "conversation.starterQuestions.createDeliverable.title",
-    descriptionKey:
-      "conversation.starterQuestions.createDeliverable.description",
-    promptKey: "conversation.starterQuestions.createDeliverable.prompt",
-  },
-] as const
-
-function NewTaskStarterQuestions({
-  onSelect,
-}: Readonly<{
-  onSelect: (prompt: string) => void
-}>) {
-  const { t } = useTranslation()
-
-  return (
-    <div
-      className="conversation-starter-questions"
-      role="group"
-      aria-label={t("conversation.starterQuestions.label")}
-    >
-      {newTaskStarterQuestions.map((question) => {
-        const QuestionIcon = question.icon
-        return (
-          <Button
-            key={question.id}
-            type="button"
-            variant="outline"
-            className="conversation-starter-question"
-            onClick={() => onSelect(t(question.promptKey))}
-          >
-            <span
-              className="conversation-starter-question-icon"
-              data-tone={question.tone}
-              aria-hidden="true"
-            >
-              <QuestionIcon data-icon="inline-start" strokeWidth={1.9} />
-            </span>
-            <span className="conversation-starter-question-copy">
-              <span className="conversation-starter-question-title">
-                {t(question.titleKey)}
-              </span>
-              <span className="conversation-starter-question-description">
-                {t(question.descriptionKey)}
-              </span>
-            </span>
-          </Button>
-        )
-      })}
-    </div>
-  )
-}
 
 function ConversationEmptyNotice({
   children,
@@ -2685,7 +2600,9 @@ const Message = memo(function Message({
   const copyAction = (
     <Tooltip>
       <TooltipTrigger render={copyButton} />
-      <ActionTooltipContent side="top">{copyActionLabel}</ActionTooltipContent>
+      <ActionTooltipContent side="top">
+        {t(copyState === "copied" ? "common.copied" : "common.copy")}
+      </ActionTooltipContent>
     </Tooltip>
   )
   const referenceAction =
@@ -2741,14 +2658,20 @@ const Message = memo(function Message({
           }
         />
         <ActionTooltipContent side="top">
-          {messageReferenceAction.label}
+          {messageReferenceAction.tooltipLabel ?? messageReferenceAction.label}
         </ActionTooltipContent>
       </Tooltip>
     ) : null
   const forkAction = forkButton ? (
     <Tooltip>
       <TooltipTrigger render={forkButton} />
-      <ActionTooltipContent side="top">{forkActionLabel}</ActionTooltipContent>
+      <ActionTooltipContent side="top">
+        {t(
+          forkState === "forking"
+            ? "common.loading"
+            : "conversation.forkMessageTooltip"
+        )}
+      </ActionTooltipContent>
     </Tooltip>
   ) : null
   const goalCompletionElement =
@@ -3120,7 +3043,7 @@ const Message = memo(function Message({
                       className="message-action-button"
                       ref={editButtonRef}
                       aria-label={t("conversation.editMessage")}
-                      title={t("conversation.editMessage")}
+                      title={t("common.edit")}
                       onClick={startEditing}
                     >
                       <PencilIcon
@@ -3197,6 +3120,10 @@ function areMessagePropsEqual(previous: MessageProps, next: MessageProps) {
     previous.editingDisabled === next.editingDisabled &&
     previous.onRegenerateMessage === next.onRegenerateMessage &&
     previous.onForkMessage === next.onForkMessage &&
+    previous.messageReferenceAction?.label ===
+      next.messageReferenceAction?.label &&
+    previous.messageReferenceAction?.tooltipLabel ===
+      next.messageReferenceAction?.tooltipLabel &&
     previous.forkDisabled === next.forkDisabled &&
     previous.isGoalTask === next.isGoalTask &&
     previous.goalCompletion?.durationLabel ===
@@ -4454,6 +4381,7 @@ export function ConversationThread({
   forkingDisabled = false,
   editingDisabled = false,
   showNewTaskWelcome = false,
+  newTaskUserName,
   newTaskGuide,
   onStarterQuestionSelect,
   suppressEmptyState = false,
@@ -4505,6 +4433,7 @@ export function ConversationThread({
   forkingDisabled?: boolean
   editingDisabled?: boolean
   showNewTaskWelcome?: boolean
+  newTaskUserName?: string
   newTaskGuide?: ReactNode
   onStarterQuestionSelect?: (prompt: string) => void
   suppressEmptyState?: boolean
@@ -5468,25 +5397,19 @@ export function ConversationThread({
               )}
             </div>
           ) : showWelcome ? (
-            <section
-              className="conversation-welcome"
-              aria-labelledby="new-task-welcome-title"
-            >
-              <SparklesIcon
-                className="conversation-welcome-icon"
-                aria-hidden="true"
-              />
-              <h2 id="new-task-welcome-title">
-                {t("conversation.newTaskWelcome", { productName })}
-              </h2>
-              {emptyNotice && (
-                <ConversationEmptyNotice>{emptyNotice}</ConversationEmptyNotice>
-              )}
-              {newTaskGuide}
-              {onStarterQuestionSelect && (
-                <NewTaskStarterQuestions onSelect={onStarterQuestionSelect} />
-              )}
-            </section>
+            <NewTaskWelcome
+              productName={productName}
+              userName={newTaskUserName}
+              guide={newTaskGuide}
+              notice={
+                emptyNotice ? (
+                  <ConversationEmptyNotice>
+                    {emptyNotice}
+                  </ConversationEmptyNotice>
+                ) : undefined
+              }
+              onSelect={onStarterQuestionSelect}
+            />
           ) : (
             (!suppressEmptyState || emptyNotice) && (
               <div className="conversation-empty-stack">

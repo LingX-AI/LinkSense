@@ -673,6 +673,7 @@ function UsersAndGroupsManagementLayout({
         }}
       >
         <TabsList
+          id="admin-users-groups-tabs"
           aria-label={t("admin.usersAndGroupsTabsLabel")}
           className="max-w-full justify-start overflow-x-auto"
         >

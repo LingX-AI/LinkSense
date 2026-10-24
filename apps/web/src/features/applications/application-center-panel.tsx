@@ -115,7 +115,7 @@ export function ApplicationsWorkspacePanel(
         {organizationSharingEnabled && (
           <TabsList
             aria-label={t("applications.scopeLabel")}
-            className="h-auto w-full flex-wrap justify-start overflow-visible"
+            className="justify-start"
           >
             <TabsTrigger value="owned" className="flex-none">
               {t("applications.distribution.myApplications")}

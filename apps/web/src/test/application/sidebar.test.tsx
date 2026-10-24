@@ -1088,7 +1088,7 @@ describe("LinkSense application", () => {
     })
   })
 
-  it("places search, notification, and collapse controls beside the LinkSense logo", async () => {
+  it("keeps notification and collapse beside the logo with a separate search field", async () => {
     installApiMock()
     const interaction = userEvent.setup()
     renderApp()
@@ -1107,6 +1107,8 @@ describe("LinkSense application", () => {
       name: "自动化通知",
     })
 
+    expect(notificationButton).toHaveAttribute("title", "自动化通知")
+    expect(collapseButton).toHaveAttribute("title", "折叠侧边栏")
     expect(brand).toHaveClass("sidebar-brand-logo")
     expect(brand).toHaveAttribute(
       "src",
@@ -1118,23 +1120,19 @@ describe("LinkSense application", () => {
     expect(brand.parentElement).not.toHaveClass(
       "text-[length:var(--app-font-15)]"
     )
-    expect(brand.parentElement).toContainElement(searchButton)
+    expect(brand.parentElement).not.toContainElement(searchButton)
     expect(brand.parentElement).toContainElement(collapseButton)
     expect(brand.parentElement).toContainElement(notificationButton)
     expect(
-      searchButton.compareDocumentPosition(notificationButton) &
+      notificationButton.compareDocumentPosition(searchButton) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     expect(
       notificationButton.compareDocumentPosition(collapseButton) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
-    expect(searchButton).toHaveClass(
-      "sidebar-nav-item",
-      "size-7",
-      "bg-transparent"
-    )
-    expect(searchButton).toHaveTextContent("")
+    expect(searchButton).toHaveClass("h-10", "rounded-full", "bg-card")
+    expect(searchButton).toHaveTextContent("搜索")
     expect(searchButton.querySelector(".lucide-search")).toHaveAttribute(
       "stroke-width",
       "2"
@@ -1267,11 +1265,14 @@ describe("LinkSense application", () => {
 
     expect(closeButton).toHaveClass("mobile-navigation-close")
     expect(closeButton).not.toHaveClass("bg-secondary")
-    expect(searchButton.parentElement).toHaveClass("sidebar-header-actions")
+    expect(notificationButton.parentElement).toHaveClass(
+      "sidebar-header-actions"
+    )
+    expect(searchButton).toHaveTextContent("搜索")
     expect(notificationButton).toBeVisible()
   })
 
-  it("does nothing when the notification bell has no unread item", async () => {
+  it("shows feedback without navigating when the notification bell has no unread item", async () => {
     const { requests } = installApiMock()
     const interaction = userEvent.setup()
     renderApp()
@@ -1286,6 +1287,7 @@ describe("LinkSense application", () => {
 
     await interaction.click(notificationButton)
 
+    expect(await screen.findByText("暂无未读的自动化通知")).toBeVisible()
     expect(
       screen.queryByRole("heading", { name: "自动化" })
     ).not.toBeInTheDocument()
@@ -1485,6 +1487,7 @@ describe("LinkSense application", () => {
       "true"
     )
     expect(expandButton).toHaveAttribute("aria-controls", "app-sidebar")
+    expect(expandButton).toHaveAttribute("title", "展开侧边栏")
     expect(expandButton).toHaveClass("sidebar-collapse-control")
     expect(expandButton.querySelector(".lucide-panel-left")).toHaveAttribute(
       "stroke-width",
@@ -1590,8 +1593,8 @@ describe("LinkSense application", () => {
     })
 
     expect(within(sidebar).getByRole("button", { name: "搜索" })).toHaveClass(
-      "sidebar-nav-item",
-      "size-7"
+      "h-10",
+      "font-normal"
     )
     expect(
       within(sidebar).queryByRole("link", { name: "任务" })
@@ -1632,7 +1635,7 @@ describe("LinkSense application", () => {
     )
     expect(
       await within(sidebar).findByText(conversations[0]!.title)
-    ).toHaveClass("font-medium", "text-[length:var(--app-ui-font-size)]")
+    ).toHaveClass("font-medium", "text-[length:var(--app-font-13)]")
     expect(sidebar.querySelector("time")).toBeNull()
 
     const accountTrigger = within(sidebar).getByRole("button", {
@@ -1641,11 +1644,11 @@ describe("LinkSense application", () => {
     expect(accountTrigger).toHaveClass("sidebar-user-button")
     expect(accountTrigger).toHaveClass("py-1.5")
     expect(accountTrigger.closest(".sidebar-account-bar")).toHaveClass(
-      "-mx-3",
+      "-mx-4",
       "mt-1",
       "border-t",
-      "border-[color:var(--app-divider)]",
-      "px-3",
+      "border-border",
+      "px-4",
       "pt-1"
     )
     expect(accountTrigger.querySelector("svg")).toBeNull()
@@ -1667,7 +1670,8 @@ describe("LinkSense application", () => {
       name: "设置",
     })
     expect(screen.getByRole("menu")).toHaveClass(
-      "w-(--anchor-width)",
+      "w-max",
+      "min-w-(--anchor-width)",
       "max-w-[calc(100vw-24px)]"
     )
     expect(settingsMenuItem).toHaveClass(

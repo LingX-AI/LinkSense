@@ -18,6 +18,9 @@ import { ptBR } from "@/i18n/pt-BR"
 import { zhCN } from "@/i18n/zh-CN"
 import { onboardingMessages } from "@/features/onboarding/messages"
 import { applicationSetupMessages } from "@/features/applications/application-setup-messages"
+import { accountAccessMessages } from "@/components/auth/account-access-messages"
+import { workspaceHomeMessages } from "@/features/conversations/workspace-home-messages"
+import { settingsInterfaceMessages } from "@/components/settings/interface-messages"
 
 export const supportedLanguages = supportedLocales
 export type SupportedLanguage = Locale
@@ -71,6 +74,9 @@ void i18n.use(initReactI18next).init({
     "zh-CN": {
       translation: {
         ...zhCN,
+        accountAccess: accountAccessMessages["zh-CN"],
+        workspaceHome: workspaceHomeMessages["zh-CN"],
+        settingsInterface: settingsInterfaceMessages["zh-CN"],
         browserPanel: browserPanelMessages["zh-CN"],
         monitoring: monitoringMessages["zh-CN"],
         taskReferences: taskReferenceMessages["zh-CN"],
@@ -83,6 +89,9 @@ void i18n.use(initReactI18next).init({
     "en-US": {
       translation: {
         ...enUS,
+        accountAccess: accountAccessMessages["en-US"],
+        workspaceHome: workspaceHomeMessages["en-US"],
+        settingsInterface: settingsInterfaceMessages["en-US"],
         browserPanel: browserPanelMessages["en-US"],
         monitoring: monitoringMessages["en-US"],
         taskReferences: taskReferenceMessages["en-US"],
@@ -95,6 +104,9 @@ void i18n.use(initReactI18next).init({
     "es-ES": {
       translation: {
         ...esES,
+        accountAccess: accountAccessMessages["es-ES"],
+        workspaceHome: workspaceHomeMessages["es-ES"],
+        settingsInterface: settingsInterfaceMessages["es-ES"],
         browserPanel: browserPanelMessages["es-ES"],
         monitoring: monitoringMessages["es-ES"],
         taskReferences: taskReferenceMessages["es-ES"],
@@ -107,6 +119,9 @@ void i18n.use(initReactI18next).init({
     "pt-BR": {
       translation: {
         ...ptBR,
+        accountAccess: accountAccessMessages["pt-BR"],
+        workspaceHome: workspaceHomeMessages["pt-BR"],
+        settingsInterface: settingsInterfaceMessages["pt-BR"],
         browserPanel: browserPanelMessages["pt-BR"],
         monitoring: monitoringMessages["pt-BR"],
         taskReferences: taskReferenceMessages["pt-BR"],
@@ -119,6 +134,9 @@ void i18n.use(initReactI18next).init({
     "fr-FR": {
       translation: {
         ...frFR,
+        accountAccess: accountAccessMessages["fr-FR"],
+        workspaceHome: workspaceHomeMessages["fr-FR"],
+        settingsInterface: settingsInterfaceMessages["fr-FR"],
         browserPanel: browserPanelMessages["fr-FR"],
         monitoring: monitoringMessages["fr-FR"],
         taskReferences: taskReferenceMessages["fr-FR"],
@@ -131,6 +149,9 @@ void i18n.use(initReactI18next).init({
     "ja-JP": {
       translation: {
         ...jaJP,
+        accountAccess: accountAccessMessages["ja-JP"],
+        workspaceHome: workspaceHomeMessages["ja-JP"],
+        settingsInterface: settingsInterfaceMessages["ja-JP"],
         browserPanel: browserPanelMessages["ja-JP"],
         monitoring: monitoringMessages["ja-JP"],
         taskReferences: taskReferenceMessages["ja-JP"],

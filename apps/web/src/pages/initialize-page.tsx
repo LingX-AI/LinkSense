@@ -9,8 +9,7 @@ import { bootstrapSchema, initializeSystemResultSchema } from "@/api/contracts"
 import { getErrorMessage } from "@/api/error-message"
 import { useBootstrap } from "@/app/bootstrap-state"
 import { useProductName } from "@/app/product-branding"
-import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
-import { ProductLogo } from "@/components/brand/product-logo"
+import { AccountAccessLayout } from "@/components/auth/account-access-layout"
 import { FieldShell } from "@/components/forms/form-field"
 import { PasswordInput } from "@/components/forms/password-input"
 import { StatusBanner } from "@/components/feedback/status-banner"
@@ -18,7 +17,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { passwordSchema } from "@/lib/password"
-import { LanguageSwitcher } from "@/features/onboarding/language-switcher"
 
 type InitializationField =
   "credential" | "name" | "email" | "password" | "confirmation"
@@ -123,12 +121,8 @@ export function InitializePage() {
   }
 
   return (
-    <div className="public-shell flex flex-col">
-      <div className="flex shrink-0 justify-end">
-        <LanguageSwitcher />
-      </div>
-      <main className="public-panel public-panel-wide shrink-0">
-        <ProductLogo productName={productName} className="public-brand-logo" />
+    <AccountAccessLayout>
+      <div className="public-panel">
         <header>
           <h1>{t("initialize.title", { productName })}</h1>
           <p>{t("initialize.description")}</p>
@@ -174,7 +168,6 @@ export function InitializePage() {
               ref={nameRef}
               id="admin-name"
               name="name"
-              className="h-9"
               autoComplete="name"
               value={name}
               onChange={(event) => {
@@ -198,7 +191,6 @@ export function InitializePage() {
               ref={emailRef}
               id="admin-email"
               name="email"
-              className="h-9"
               type="email"
               autoComplete="email"
               autoCapitalize="none"
@@ -277,8 +269,7 @@ export function InitializePage() {
             {t("initialize.submit")}
           </Button>
         </form>
-      </main>
-      <PoweredByLinkSense placement="public" />
-    </div>
+      </div>
+    </AccountAccessLayout>
   )
 }

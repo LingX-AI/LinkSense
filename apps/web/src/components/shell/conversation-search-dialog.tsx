@@ -50,7 +50,7 @@ type GlobalSearchResults = {
 
 const searchResultLimit = 6
 const searchResultItemClassName =
-  "conversation-search-result min-h-8 gap-3 rounded-xl! px-2 py-1.5 text-[length:var(--app-ui-font-size)] data-selected:bg-[color-mix(in_srgb,var(--app-hover)_64%,var(--app-popover))]"
+  "conversation-search-result min-h-8 gap-3 rounded-md! px-2 py-1.5 text-[length:var(--app-ui-font-size)] data-selected:bg-[color-mix(in_srgb,var(--app-hover)_64%,var(--app-popover))]"
 const searchResultLineIconClassName =
   "ml-3 size-3.5 shrink-0 text-[var(--app-muted)] opacity-60"
 const searchResultMediaIconClassName = "ml-3 size-4 shrink-0 opacity-70"
@@ -114,20 +114,20 @@ export function ConversationSearchDialog({
       initialFocus={() =>
         shouldAutoFocusOnDesktop() ? searchInputRef.current : false
       }
-      className="conversation-search-dialog top-1/2 max-h-[calc(100svh_-_2rem)] w-[calc(100%_-_1.5rem)] max-w-[640px]! -translate-y-1/2 gap-0 rounded-[20px]! border-0 bg-[var(--app-popover)] p-0 shadow-[0_22px_64px_rgb(0_0_0/18%)] ring-0"
+      className="conversation-search-dialog top-1/2 max-h-[calc(100svh_-_2rem)] w-[calc(100%_-_1.5rem)] max-w-[680px]! -translate-y-1/2 gap-0 rounded-xl! border border-border bg-[var(--app-popover)] p-0 shadow-[var(--app-dialog-shadow)] ring-0"
     >
       <Command
         shouldFilter={false}
-        className="conversation-search-command rounded-[20px] bg-transparent p-0 [&_[data-slot=command-input-wrapper]]:px-5 [&_[data-slot=command-input-wrapper]]:pt-4 [&_[data-slot=command-input-wrapper]]:pb-3 [&_[data-slot=input-group-addon]]:hidden [&_[data-slot=input-group]]:h-10! [&_[data-slot=input-group]]:rounded-none! [&_[data-slot=input-group]]:border-transparent! [&_[data-slot=input-group]]:bg-transparent! [&_[data-slot=input-group]]:shadow-none!"
+        className="conversation-search-command rounded-xl bg-transparent p-0 [&_[data-slot=command-input-wrapper]]:px-5 [&_[data-slot=command-input-wrapper]]:pt-4 [&_[data-slot=command-input-wrapper]]:pb-3 [&_[data-slot=input-group-addon]]:hidden [&_[data-slot=input-group]]:h-10! [&_[data-slot=input-group]]:rounded-none! [&_[data-slot=input-group]]:border-transparent! [&_[data-slot=input-group]]:bg-transparent! [&_[data-slot=input-group]]:shadow-none!"
       >
         <CommandInput
           ref={searchInputRef}
           value={query}
           onValueChange={setQuery}
           placeholder={t("conversation.searchPlaceholder")}
-          className="text-[length:var(--app-font-15)] font-medium placeholder:text-[var(--app-muted)]"
+          className="text-sm font-normal placeholder:text-[var(--app-muted)]"
         />
-        <CommandList className="h-[min(76svh,34rem)] max-h-[min(76svh,34rem)]! px-3 pb-4">
+        <CommandList className="h-[min(60svh,24rem)] max-h-[min(60svh,24rem)]! px-3 pb-4">
           {results.isLoading && (
             <div
               className="flex min-h-20 items-center justify-center gap-2 px-3 text-[length:var(--app-font-12)] text-[var(--app-muted)]"

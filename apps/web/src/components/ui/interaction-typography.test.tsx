@@ -64,14 +64,14 @@ describe("interactive typography", () => {
     await interaction.keyboard("{Escape}")
 
     const selectTrigger = screen.getByRole("combobox", { name: "Choice" })
-    expect(selectTrigger).toHaveClass("font-medium")
+    expect(selectTrigger).toHaveClass("font-normal")
     await interaction.click(selectTrigger)
     for (const option of await screen.findAllByRole("option")) {
       expect(option).toHaveClass("font-medium")
     }
   })
 
-  it("uses the spacious shadcn Base Tabs hierarchy for navigation tabs", () => {
+  it("uses a segmented track with separate active-background and label layers", () => {
     render(
       <>
         <Command>
@@ -101,10 +101,10 @@ describe("interactive typography", () => {
     const tabList = firstTab.closest('[data-slot="tabs-list"]')
     expect(firstTab.closest('[data-slot="tabs"]')).toHaveClass("gap-3")
     expect(tabList).toHaveClass(
-      "rounded-none",
-      "bg-transparent",
+      "rounded-xl",
+      "bg-muted",
       "gap-1",
-      "p-0",
+      "p-1",
       "group-data-horizontal/tabs:min-h-10",
       "overflow-x-auto",
       "overflow-y-hidden",
@@ -112,15 +112,16 @@ describe("interactive typography", () => {
       "[&::-webkit-scrollbar]:hidden"
     )
     expect(firstTab).toHaveClass(
-      "rounded-xl",
+      "rounded-lg",
       "font-medium",
       "h-auto",
       "min-h-8",
       "px-3",
       "py-1.5",
       "text-muted-foreground",
-      "hover:bg-hover",
-      "data-active:bg-muted/50"
+      "not-data-active:hover:bg-hover",
+      "data-active:text-foreground",
+      "z-10"
     )
     expect(firstTab).not.toHaveClass("font-semibold")
   })

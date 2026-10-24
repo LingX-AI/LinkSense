@@ -50,6 +50,7 @@ import { StatusBanner } from "@/components/feedback/status-banner"
 import { FieldShell } from "@/components/forms/form-field"
 import { FileTypeIcon } from "@/components/media/file-type-icon"
 import { PageLayout } from "@/components/shell/page-layout"
+import { PageTopBar } from "@/components/shell/page-top-bar"
 import { ConversationOfficeLayout } from "@/features/conversations/conversation-presentation-layout"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -234,17 +235,7 @@ export function KnowledgeBaseListPage() {
         }}
         className="h-full min-h-0 min-w-0 gap-0"
       >
-        <div className="shrink-0 pt-4 pr-4 pl-14 sm:pr-6">
-          <TabsList aria-label={t("library.tabsLabel")}>
-            <TabsTrigger value="knowledge">
-              {t("library.tabs.knowledge")}
-            </TabsTrigger>
-            <TabsTrigger value="artifacts">
-              {t("library.tabs.artifacts")}
-            </TabsTrigger>
-            <TabsTrigger value="sites">{t("webSites.title")}</TabsTrigger>
-          </TabsList>
-        </div>
+        <PageTopBar title={t("nav.knowledgeBases")} />
         <div className="management-scroll">
           <div className="knowledge-library-page">
             <header className="knowledge-library-header pb-5" role="banner">
@@ -269,6 +260,18 @@ export function KnowledgeBaseListPage() {
                 </p>
               </div>
             </header>
+            <div className="mb-6">
+              {" "}
+              <TabsList aria-label={t("library.tabsLabel")}>
+                <TabsTrigger value="knowledge">
+                  {t("library.tabs.knowledge")}
+                </TabsTrigger>
+                <TabsTrigger value="artifacts">
+                  {t("library.tabs.artifacts")}
+                </TabsTrigger>
+                <TabsTrigger value="sites">{t("webSites.title")}</TabsTrigger>
+              </TabsList>
+            </div>
             <TabsContent value="knowledge">
               {activeTab === "knowledge" ? (
                 <KnowledgeBaseLibraryContent />

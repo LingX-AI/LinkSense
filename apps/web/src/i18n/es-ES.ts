@@ -145,6 +145,8 @@ export const esES = {
     helpCenter: "Centro de ayuda",
     helpCenterNewTab: "Abrir el Centro de ayuda en una pestaña nueva",
     automationNotifications: "Notificaciones de automatización",
+    automationNotificationsEmpty:
+      "No hay notificaciones de automatización sin leer",
     automationNotificationsUnread:
       "Notificaciones de automatización con una tarea completada sin leer",
     automationTask: "Tarea de automatización",

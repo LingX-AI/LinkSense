@@ -27,6 +27,11 @@ export const conversationMessages = {
         "No se ha podido copiar el enlace. Comprueba los permisos del navegador e inténtalo de nuevo.",
       unavailable: "Este enlace compartido no existe o ya no está disponible.",
       continueInProduct: "Continuar en {{productName}}",
+      snapshotDate: "Instantánea compartida · {{date}}",
+      sharedConversation: "Conversación compartida",
+      readOnly: "Solo lectura",
+      snapshotNotice:
+        "Esta es una instantánea. No incluye los mensajes posteriores.",
     },
     rename: "Cambiar nombre",
     archive: "Archivar tarea",
@@ -550,6 +555,7 @@ export const conversationMessages = {
     messageCopied: "Mensaje copiado",
     copyMessageFailed: "No se ha podido copiar el mensaje. Inténtalo de nuevo.",
     forkMessage: "Crear una rama en una nueva conversación",
+    forkMessageTooltip: "Crear rama",
     forkingMessage: "Creando rama…",
     forkMessageFailed:
       "No se ha podido crear la tarea ramificada. Inténtalo de nuevo.",

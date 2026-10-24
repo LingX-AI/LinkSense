@@ -36,6 +36,7 @@ import {
 } from "@/features/conversations/assistant-html-preview-document"
 import { renderAssistantHtmlPreviewSnapshot } from "@/features/conversations/assistant-html-preview-capture"
 import { AssistantHtmlPreviewLoading } from "@/features/conversations/assistant-html-preview-loading"
+import { getConversationScrollViewport } from "@/features/conversations/conversation-scroll-viewport"
 import {
   assistantHtmlPreviewViewportClassName,
   useAssistantHtmlPreviewViewport,
@@ -180,7 +181,7 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
         const scrollContainer =
           document.fullscreenElement === previewCard
             ? previewCard
-            : frameRef.current?.closest<HTMLElement>(".conversation-scroll")
+            : getConversationScrollViewport(frameRef.current)
         if (!scrollContainer) return
         scrollContainer.dispatchEvent(
           new WheelEvent("wheel", {

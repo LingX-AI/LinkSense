@@ -516,7 +516,7 @@ export function UsageAnalyticsPage() {
               updateUsageParams({ tab: value === "models" ? null : value })
             }
           >
-            <TabsList aria-label={t("usage.tabsLabel")} variant="line">
+            <TabsList aria-label={t("usage.tabsLabel")}>
               <TabsTrigger value="models">{t("usage.tabs.models")}</TabsTrigger>
               <TabsTrigger value="workloads">
                 {t("usage.tabs.workloads")}

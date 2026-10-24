@@ -423,6 +423,7 @@ export const ptBR = {
     helpCenter: "Central de ajuda",
     helpCenterNewTab: "Abrir a Central de ajuda em uma nova aba",
     automationNotifications: "Notificações de automações",
+    automationNotificationsEmpty: "Nenhuma notificação de automação não lida",
     automationNotificationsUnread:
       "Notificações de automações, com uma tarefa concluída não lida",
     automationTask: "Tarefa de automação",
@@ -2029,6 +2030,7 @@ export const ptBR = {
     taskActive:
       "Conclua as tarefas ativas antes de movê-las ou remover seu projeto",
     empty: "Nenhuma tarefa ainda",
+    emptyList: "Nenhum projeto ainda",
     create: "Novo projeto",
     createDescription:
       "As tarefas de um projeto compartilham arquivos e mantêm históricos de mensagens separados.",
@@ -2141,6 +2143,11 @@ export const ptBR = {
       unavailable:
         "Este link compartilhado não existe ou não está mais disponível.",
       continueInProduct: "Continuar no {{productName}}",
+      snapshotDate: "Registro compartilhado · {{date}}",
+      sharedConversation: "Conversa compartilhada",
+      readOnly: "Somente leitura",
+      snapshotNotice:
+        "Este é um registro da conversa. Mensagens posteriores não estão incluídas.",
     },
     rename: "Renomear",
     archive: "Arquivar tarefa",
@@ -2658,6 +2665,7 @@ export const ptBR = {
     messageCopied: "Mensagem copiada",
     copyMessageFailed: "Não foi possível copiar a mensagem. Tente novamente.",
     forkMessage: "Ramificar para uma nova conversa",
+    forkMessageTooltip: "Ramificar",
     forkingMessage: "Criando ramificação…",
     forkMessageFailed:
       "Não foi possível criar a tarefa ramificada. Tente novamente.",
@@ -5689,8 +5697,10 @@ export const ptBR = {
         "O modelo de compreensão de imagens falhou na validação de entrada de imagens, saída estruturada ou desativação do raciocínio. Verifique a configuração do modelo e do provedor.",
     },
     imageGeneration: {
-      inputInvalid: "Não foi possível ler a imagem para edição. Use PNG, JPEG ou WebP de até 8 MB por imagem e 10 MB no total, incluindo a máscara. A máscara deve ser um PNG transparente com as mesmas dimensões da primeira imagem.",
-      editUnsupported: "O modelo atual não aceita esta edição. Use menos imagens de referência, remova a máscara ou peça ao administrador para selecionar um modelo compatível.",
+      inputInvalid:
+        "Não foi possível ler a imagem para edição. Use PNG, JPEG ou WebP de até 8 MB por imagem e 10 MB no total, incluindo a máscara. A máscara deve ser um PNG transparente com as mesmas dimensões da primeira imagem.",
+      editUnsupported:
+        "O modelo atual não aceita esta edição. Use menos imagens de referência, remova a máscara ou peça ao administrador para selecionar um modelo compatível.",
       notConfigured:
         "O modelo de geração de imagens não está configurado ou ativado.",
       forbidden: "Esta tarefa não pode chamar a geração de imagens.",

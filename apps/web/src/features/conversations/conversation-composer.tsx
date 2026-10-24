@@ -417,6 +417,7 @@ type ConversationComposerProps = Readonly<{
   requiredIds?: readonly string[]
   onSelectedIdsChange: (ids: string[]) => void
   showKnowledgeBaseButton?: boolean
+  projectPicker?: ReactNode
   knowledgeBases?: KnowledgeBase[]
   knowledgeBasesLoading?: boolean
   knowledgeBasesError?: boolean
@@ -498,6 +499,7 @@ export const ConversationComposer = forwardRef<
     requiredIds = noRequiredCapabilityIds,
     onSelectedIdsChange,
     showKnowledgeBaseButton = true,
+    projectPicker,
     knowledgeBases = [],
     knowledgeBasesLoading,
     knowledgeBasesError,
@@ -1775,6 +1777,7 @@ export const ConversationComposer = forwardRef<
         )}
         <ConversationComposerInput
           ref={textareaRef}
+          rows={1}
           value={value}
           onChange={(event) => {
             const nextValue = event.target.value
@@ -1835,15 +1838,18 @@ export const ConversationComposer = forwardRef<
           disabled={interactionBlocked}
           readOnly={submitting}
           className={cn(
-            "composer-input composer-input-textarea min-h-14 border-0 bg-transparent px-1 py-2 text-sm leading-6 shadow-none focus-visible:bg-transparent focus-visible:ring-0",
+            "composer-input composer-input-textarea min-h-10 border-0 bg-transparent px-1 py-2 text-sm leading-6 shadow-none focus-visible:bg-transparent focus-visible:ring-0 @min-[48rem]/conversation-workspace:min-h-14",
             hasComposerInputUrl && "composer-input-has-url",
             hasLeadingComposerInputUrl && "composer-input-has-leading-url"
           )}
         />
       </div>
 
-      <div className="mt-1 flex min-w-0 items-center gap-3">
-        <div className="flex shrink-0 items-center gap-1">
+      <div
+        className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 @min-[48rem]/conversation-workspace:mt-4"
+        data-slot="composer-toolbar"
+      >
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Popover
             open={menuOpen}
             onOpenChange={handleCapabilityMenuOpenChange}
@@ -2376,6 +2382,7 @@ export const ConversationComposer = forwardRef<
             </>
           )}
 
+          {projectPicker}
           <Input
             ref={fileInputRef}
             type="file"
@@ -2397,8 +2404,9 @@ export const ConversationComposer = forwardRef<
         </div>
 
         <div
-          className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1.5"
+          className="ml-auto flex min-w-0 flex-1 basis-64 items-center justify-end gap-1.5"
           data-testid="composer-primary-actions"
+          data-slot="composer-primary-actions"
         >
           {(voice.phase === "recording" ||
             voice.phase === "stopping" ||

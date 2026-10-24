@@ -51,46 +51,38 @@ export function ProfileOverview({
         <div className="profile-hero-avatar-wrap">
           <Avatar className="profile-hero-avatar">
             {user.avatar_url && <AvatarImage src={user.avatar_url} alt="" />}
-            <AvatarFallback className="profile-hero-avatar-fallback text-xl font-semibold text-[var(--app-avatar-foreground)]">
+            <AvatarFallback className="profile-hero-avatar-fallback text-xl font-semibold text-[var(--app-brand-foreground)]">
               {initials}
             </AvatarFallback>
           </Avatar>
+        </div>
+        <div className="grid min-w-0 flex-1 gap-2">
+          <h2 className="truncate">{user.name}</h2>
+          <p className="text-sm break-all text-muted-foreground">
+            {user.email}
+          </p>
+          <Badge variant="secondary" className="w-fit bg-accent text-primary">
+            {t(user.role === "admin" ? "common.admin" : "common.user")}
+          </Badge>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2 sm:flex-col">
+          <Button type="button" variant="outline" onClick={onNameEditRequest}>
+            <PencilIcon aria-hidden="true" />
+            {t("profile.editName")}
+          </Button>
           <Button
             type="button"
-            variant="secondary"
-            size="icon"
-            className="profile-avatar-upload-button rounded-full"
-            aria-label={t("profile.uploadAvatar")}
+            variant="outline"
             onClick={onAvatarUploadRequest}
             disabled={avatarUploadPending}
           >
             {avatarUploadPending ? (
-              <Spinner data-icon="inline-start" />
+              <Spinner />
             ) : (
-              <CameraIcon data-icon="inline-start" aria-hidden="true" />
+              <CameraIcon aria-hidden="true" />
             )}
+            {t("profile.uploadAvatar")}
           </Button>
-        </div>
-        <div className="profile-hero-name-row">
-          <h2>{user.name}</h2>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="profile-name-edit-button"
-            aria-label={t("profile.editName")}
-            title={t("profile.editName")}
-            onClick={onNameEditRequest}
-          >
-            <PencilIcon aria-hidden="true" />
-          </Button>
-        </div>
-        <div className="profile-hero-meta">
-          <span>{user.email}</span>
-          <span aria-hidden="true">·</span>
-          <Badge variant="secondary">
-            {t(user.role === "admin" ? "common.admin" : "common.user")}
-          </Badge>
         </div>
       </header>
 

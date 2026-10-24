@@ -141,6 +141,7 @@ export const frFR = {
     helpCenter: "Centre d’aide",
     helpCenterNewTab: "Ouvrir le Centre d’aide dans un nouvel onglet",
     automationNotifications: "Notifications d’automatisation",
+    automationNotificationsEmpty: "Aucune notification d’automatisation non lue",
     automationNotificationsUnread:
       "Notifications d’automatisation avec une tâche terminée non lue",
     automationTask: "Tâche automatisée",

@@ -9,14 +9,12 @@ describe("sidebar header actions", () => {
     const actionsEnd = appShellSource.indexOf("</div>", actionsStart)
     const actionsSource = appShellSource.slice(actionsStart, actionsEnd)
 
-    const searchIndex = actionsSource.indexOf('t("common.search")')
     const notificationsIndex = actionsSource.indexOf(
       '"nav.automationNotifications"'
     )
     const collapseIndex = actionsSource.indexOf('t("nav.collapseSidebar")')
 
-    expect(searchIndex).toBeGreaterThan(-1)
-    expect(notificationsIndex).toBeGreaterThan(searchIndex)
+    expect(notificationsIndex).toBeGreaterThan(-1)
     expect(collapseIndex).toBeGreaterThan(notificationsIndex)
   })
 })

@@ -55,8 +55,10 @@ describe("SidebarResizer", () => {
     vi.useRealTimers()
   })
 
-  it("uses a 248px default width", () => {
-    expect(DEFAULT_SIDEBAR_WIDTH).toBe(248)
+  it("uses a 272px default width and preserves an existing stored width", () => {
+    expect(DEFAULT_SIDEBAR_WIDTH).toBe(272)
+    expect(readStoredSidebarWidth()).toBe(272)
+    persistSidebarWidth(248)
     expect(readStoredSidebarWidth()).toBe(248)
   })
 

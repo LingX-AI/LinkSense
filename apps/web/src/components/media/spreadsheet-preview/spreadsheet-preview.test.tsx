@@ -908,14 +908,11 @@ describe("spreadsheet preview", () => {
     ).not.toBeInTheDocument()
     expect(screen.getByRole("tab", { name: "预算" })).toHaveClass(
       "min-h-7",
-      "rounded-md",
+      "rounded-lg",
       "px-2.5",
       "py-0.5",
       "text-xs",
-      "data-active:bg-[var(--app-user-surface)]!",
-      "data-active:text-foreground!",
-      "data-active:shadow-none",
-      "data-active:after:hidden"
+      "data-active:text-foreground"
     )
 
     await userEvent.click(screen.getByRole("tab", { name: "明细" }))
@@ -927,14 +924,11 @@ describe("spreadsheet preview", () => {
     )
     expect(screen.getByRole("tab", { name: "明细" })).toHaveClass(
       "min-h-7",
-      "rounded-md",
+      "rounded-lg",
       "px-2.5",
       "py-0.5",
       "text-xs",
-      "data-active:bg-[var(--app-user-surface)]!",
-      "data-active:text-foreground!",
-      "data-active:shadow-none",
-      "data-active:after:hidden"
+      "data-active:text-foreground"
     )
     expect(
       document.querySelector(".office-preview-location-count")

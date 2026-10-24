@@ -33,7 +33,7 @@ export function SidebarTaskSection({
             {label}
             <ChevronRightIcon
               aria-hidden="true"
-              className="size-3.5 shrink-0 opacity-0 transition-[transform,opacity] duration-200 ease-out group-hover/tasks-heading:opacity-100 group-has-[:focus-visible]/tasks-heading:opacity-100 group-aria-expanded/section-trigger:rotate-90 motion-reduce:transition-none [@media(hover:none)]:opacity-100"
+              className="size-3.5 shrink-0 transition-transform duration-200 ease-out group-aria-expanded/section-trigger:rotate-90 motion-reduce:transition-none"
             />
           </CollapsibleTrigger>
         </h2>

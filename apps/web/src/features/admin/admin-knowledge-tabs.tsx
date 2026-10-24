@@ -30,6 +30,7 @@ export function AdminKnowledgeTabs({
       }}
     >
       <TabsList
+        id="admin-knowledge-tabs"
         aria-label={t("adminKnowledge.tabsLabel")}
         className="max-w-full justify-start overflow-x-auto"
       >

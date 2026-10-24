@@ -196,8 +196,10 @@ describe("development metadata autosave", () => {
       expect(screen.getByRole("textbox")).toHaveClass(
         "border-[color:var(--app-border)]"
       )
-      expect(screen.getByRole("textbox")).not.toHaveClass(
-        "focus-visible:border-ring"
+      expect(screen.getByRole("textbox")).toHaveClass(
+        label === "编辑应用描述"
+          ? "focus-visible:border-ring"
+          : "focus:not-aria-invalid:border-ring"
       )
     }
   )

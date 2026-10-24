@@ -1,6 +1,6 @@
-import { useCallback, useId, useState, type SVGProps } from "react"
+import { useCallback, useId, useState } from "react"
 import type { VirtualElement } from "@floating-ui/react-dom"
-import { DownloadIcon, LoaderCircleIcon } from "lucide-react"
+import { DownloadIcon, ListIcon, LoaderCircleIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import type {
@@ -17,6 +17,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { buildConversationTaskOverview } from "@/features/conversations/conversation-task-overview"
+import { ConversationHeaderButton } from "@/features/conversations/conversation-header-button"
 import {
   readTaskOverviewOpenPreference,
   writeTaskOverviewOpenPreference,
@@ -28,25 +29,6 @@ import {
 } from "@/features/conversations/conversation-sources-list"
 
 const maxVisibleSubAgentIcons = 10
-
-function TaskOverviewIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      {...props}
-    >
-      <circle cx="7.5" cy="8" r="1.35" strokeWidth="1.65" />
-      <path d="M12 8h5.5" strokeWidth="1.65" />
-      <circle cx="7.5" cy="16" r="1.35" strokeWidth="1.65" />
-      <path d="M12 16h5.5" strokeWidth="1.65" />
-    </svg>
-  )
-}
 
 type ConversationTaskOverviewPanelProps = {
   events: readonly ConversationEvent[]
@@ -116,11 +98,8 @@ export function ConversationTaskOverviewPanel({
         id={triggerId}
         ref={setTriggerAnchor}
         render={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={t(
+          <ConversationHeaderButton
+            label={t(
               open
                 ? "conversation.taskOverview.close"
                 : "conversation.taskOverview.open"
@@ -128,7 +107,7 @@ export function ConversationTaskOverviewPanel({
           />
         }
       >
-        <TaskOverviewIcon className="size-5 text-foreground/55" />
+        <ListIcon aria-hidden="true" />
       </PopoverTrigger>
       <PopoverContent
         anchor={anchor}

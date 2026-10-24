@@ -8598,9 +8598,23 @@ describe("conversation turn responses", () => {
   it("shows assistant action names immediately without tooltip arrows", () => {
     render(
       <ConversationThread
-        conversation={completedConversation}
+        conversation={{
+          ...completedConversation,
+          messages: completedConversation.messages?.map((message) =>
+            message.role === "assistant"
+              ? { ...message, id: "30000000-0000-4000-8000-000000000001" }
+              : message
+          ),
+        }}
         onDownload={vi.fn()}
         onForkMessage={vi.fn().mockResolvedValue(undefined)}
+        onRegenerateMessage={vi.fn().mockResolvedValue(undefined)}
+        messageReferenceAction={{
+          mode: "ask",
+          label: "旁边问这段",
+          tooltipLabel: "旁聊",
+          onSelect: vi.fn(),
+        }}
       />
     )
 
@@ -8619,7 +8633,7 @@ describe("conversation turn responses", () => {
     fireEvent.mouseEnter(copyButton)
     fireEvent.mouseMove(copyButton, { movementX: 3, movementY: 0 })
     const copyTooltip = screen.getByRole("tooltip")
-    expect(copyTooltip).toHaveTextContent("复制消息")
+    expect(copyTooltip.textContent).toBe("复制")
     expect(copyTooltip).toHaveClass(
       "rounded-md",
       "border",
@@ -8636,7 +8650,7 @@ describe("conversation turn responses", () => {
     fireEvent.mouseEnter(forkButton)
     fireEvent.mouseMove(forkButton, { movementX: 3, movementY: 0 })
     const forkTooltip = screen.getByRole("tooltip")
-    expect(forkTooltip).toHaveTextContent("分支到新聊天")
+    expect(forkTooltip.textContent).toBe("分支")
     expect(forkTooltip).toHaveClass(
       "rounded-md",
       "border",
@@ -8646,6 +8660,21 @@ describe("conversation turn responses", () => {
       "text-[var(--app-text)]"
     )
     expect(forkTooltip).not.toHaveClass("rounded-full", "rounded-xl")
+    fireEvent.pointerLeave(forkButton, { pointerType: "mouse" })
+    fireEvent.mouseLeave(forkButton)
+    const sideChatButton = within(assistantMessage).getByRole("button", {
+      name: "旁边问这段",
+    })
+    fireEvent.pointerEnter(sideChatButton, { pointerType: "mouse" })
+    fireEvent.mouseEnter(sideChatButton)
+    fireEvent.mouseMove(sideChatButton, { movementX: 3, movementY: 0 })
+    expect(screen.getByRole("tooltip").textContent).toBe("旁聊")
+    expect(
+      within(screen.getByRole("article", { name: "用户消息" })).getByRole(
+        "button",
+        { name: "编辑消息" }
+      )
+    ).toHaveAttribute("title", "编辑")
     expect(document.querySelector(".rotate-45")).not.toBeInTheDocument()
   })
 

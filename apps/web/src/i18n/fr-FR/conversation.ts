@@ -24,6 +24,11 @@ export const conversation = {
       "Impossible de copier le lien. Vérifiez les permissions du navigateur et réessayez.",
     unavailable: "Ce lien de partage n’existe pas ou n’est plus disponible.",
     continueInProduct: "Continuer dans {{productName}}",
+    snapshotDate: "Instantané partagé · {{date}}",
+    sharedConversation: "Conversation partagée",
+    readOnly: "Lecture seule",
+    snapshotNotice:
+      "Ceci est un instantané. Les messages ultérieurs ne sont pas inclus.",
   },
   rename: "Renommer",
   archive: "Archiver la tâche",
@@ -535,6 +540,7 @@ export const conversation = {
   messageCopied: "Message copié",
   copyMessageFailed: "Impossible de copier le message. Réessayez.",
   forkMessage: "Créer une conversation dérivée",
+  forkMessageTooltip: "Créer une branche",
   forkingMessage: "Création de la conversation dérivée…",
   forkMessageFailed: "Impossible de créer la tâche dérivée. Réessayez.",
   forkSource: {

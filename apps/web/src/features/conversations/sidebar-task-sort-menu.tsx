@@ -36,7 +36,6 @@ export function SidebarTaskSortMenu({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="pointer-events-none opacity-0 group-hover/tasks-heading:pointer-events-auto group-hover/tasks-heading:opacity-100 group-has-[:focus-visible]/tasks-heading:pointer-events-auto group-has-[:focus-visible]/tasks-heading:opacity-100 data-popup-open:pointer-events-auto data-popup-open:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
             aria-label={t("conversation.taskSort.open", {
               section: sectionLabel,
             })}

@@ -79,10 +79,12 @@ function ScrollHarness({
   conversationId,
   preservePositionOnConversationChange = false,
   followBehavior = "smooth",
+  initialPosition = "bottom",
 }: {
   conversationId: string
   preservePositionOnConversationChange?: boolean
   followBehavior?: ScrollBehavior
+  initialPosition?: "top" | "bottom"
 }) {
   const {
     scrollContainerRef,
@@ -95,6 +97,7 @@ function ScrollHarness({
   } = useConversationScroll(conversationId, {
     preservePositionOnConversationChange,
     followBehavior,
+    initialPosition,
   })
 
   return (
@@ -311,6 +314,19 @@ describe("conversation scroll behavior", () => {
         scrollTop: 1_600,
       })
     ).toBe(0)
+  })
+
+  it("keeps the new task welcome at the top while its content loads", () => {
+    const { rerender } = render(
+      <ScrollHarness conversationId="new" initialPosition="top" />
+    )
+    const container = screen.getByTestId("scroll-container")
+    expect(container.scrollTop).toBe(0)
+    layout.scrollHeight = 3_000
+    act(() => resizeObservers.forEach((observer) => observer.trigger()))
+    expect(container.scrollTop).toBe(0)
+    rerender(<ScrollHarness conversationId="conversation-1" />)
+    expect(container.scrollTop).toBe(2_500)
   })
 
   it("immediately scrolls to the bottom on first mount and after switching conversations", () => {

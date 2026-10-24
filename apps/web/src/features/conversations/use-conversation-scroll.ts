@@ -48,6 +48,7 @@ export function useConversationScroll(
     navigationRef,
     interactionRef,
     followBehavior = "auto",
+    initialPosition = "bottom",
   }: {
     preservePositionOnConversationChange?: boolean
     navigationRef?: RefObject<Pick<
@@ -56,6 +57,7 @@ export function useConversationScroll(
     > | null>
     interactionRef?: RefObject<HTMLElement | null>
     followBehavior?: ScrollBehavior
+    initialPosition?: "top" | "bottom"
   } = {}
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -412,10 +414,18 @@ export function useConversationScroll(
       return
     }
     if (!containerChanged && !conversationChanged) return
+    if (initialPosition === "top") {
+      pauseAutoFollow()
+      if (containerRef.current) containerRef.current.scrollTop = 0
+      lastScrollTopRef.current = 0
+      return
+    }
     scrollToBottomImmediately()
   }, [
     container,
     conversationId,
+    initialPosition,
+    pauseAutoFollow,
     preservePositionOnConversationChange,
     scrollToBottomImmediately,
     updateButtonVisibility,

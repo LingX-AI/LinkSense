@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import appStyles from "@/index.css?raw"
+import welcomeSource from "@/features/conversations/new-task-welcome.tsx?raw"
 import capabilityPageSource from "@/pages/capability-pages.tsx?raw"
 import { describe, expect, it } from "vitest"
 
@@ -18,24 +19,26 @@ describe("application heading typography", () => {
     ".management-header h1",
     ".capability-library-header h1",
     ".settings-page-header h1",
-    ".public-panel header h1",
     ".knowledge-library-header h1",
   ])("matches the settings page title tier for %s", (selector) => {
     const rules = cssRules(selector)
 
     expect(rules).toHaveLength(1)
-    expect(rules[0]).toContain("font-size: var(--app-font-16);")
+    expect(rules[0]).toContain("font-size: var(--text-page-title);")
     expect(rules[0]).toContain("font-weight: 600;")
-    expect(rules[0]).toContain("line-height: var(--app-line-24);")
+    expect(rules[0]).toContain("line-height: 1.22;")
   })
 
-  it("uses the 24px title tier for the conversation welcome heading", () => {
-    const rules = cssRules(".conversation-welcome h2")
-
-    expect(rules).toHaveLength(1)
-    expect(rules[0]).toContain("font-size: var(--app-font-24);")
-    expect(rules[0]).toContain("font-weight: 500;")
-    expect(rules[0]).toContain("line-height: var(--app-line-32);")
+  it("uses the account title tier for public forms and a responsive welcome title", () => {
+    expect(cssRules(".public-panel header h1")[0]).toContain(
+      "font-size: var(--text-account-title);"
+    )
+    expect(welcomeSource).toContain("text-xl font-semibold")
+    expect(welcomeSource).toContain("/task-home:text-2xl")
+    expect(welcomeSource).toContain("/task-home:text-home-title")
+    expect(appStyles).toContain(
+      "--text-home-title: calc(36px + var(--app-ui-font-delta));"
+    )
   })
 
   it("uses the configured appearance font size for preview file names", () => {

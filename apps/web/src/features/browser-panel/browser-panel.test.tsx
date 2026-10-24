@@ -77,6 +77,17 @@ const sent = () =>
   vi.mocked(apiRequest).mock.calls.map(([, options]) => options.body)
 
 describe("browser panel control", () => {
+  it("uses the shared preview layout when no browser session is available", async () => {
+    vi.mocked(apiRequest).mockRejectedValueOnce(
+      new ApiError({ status: 404, errorCode: "BROWSER_PANEL_UNAVAILABLE" })
+    )
+    host()
+    await screen.findByText(/No browser session is available/)
+    expect(screen.getByRole("region", { name: "Browser" })).toHaveClass(
+      "office-preview-pane"
+    )
+  })
+
   it("shows the task frame and leaves Plan mode read only", async () => {
     host({ readOnly: true })
     expect(await screen.findByRole("img", { name: "Test page" })).toBeVisible()

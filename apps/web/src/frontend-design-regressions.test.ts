@@ -82,10 +82,10 @@ describe("frontend design regressions", () => {
   })
 
   it("matches the documented shell dimensions and semantic theme tokens", () => {
-    expect(appStyles).toContain("--app-sidebar-width: 248px")
-    expect(appStyles).toContain("--conversation-top-bar-height: 54px")
+    expect(appStyles).toContain("--app-sidebar-width: 272px")
+    expect(appStyles).toContain("--conversation-top-bar-height: 66px")
     expect(appStyles).toMatch(
-      /:root\s*\{[\s\S]*?--sidebar:\s*#f5f5f5;[\s\S]*?--app-sidebar:\s*#f5f5f5;/u
+      /:root\s*\{[\s\S]*?--sidebar:\s*#f7f8fa;[\s\S]*?--app-sidebar:\s*#f7f8fa;/u
     )
     expect(appStyles).toMatch(
       /\.dark\s*\{[\s\S]*?--app-canvas:\s*#141414;[\s\S]*?--app-sidebar:\s*#202020;/u

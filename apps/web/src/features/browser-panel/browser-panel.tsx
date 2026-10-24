@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
-import { MonitorIcon, RefreshCwIcon, XIcon } from "lucide-react"
+import { AppWindowIcon, RefreshCwIcon, XIcon } from "lucide-react"
 import {
   browserPanelInputSchema,
   browserPanelStateSchema,
@@ -161,11 +161,11 @@ export function BrowserPanel({
   const error = mutation.error ?? query.error
   return (
     <section
-      className="flex h-full min-h-0 min-w-0 flex-col bg-background"
+      className="office-preview-pane"
       aria-label={t("browserPanel.title")}
     >
       <header className="flex flex-wrap items-center gap-2 border-b p-3">
-        <MonitorIcon
+        <AppWindowIcon
           className="size-4 text-muted-foreground"
           aria-hidden="true"
         />

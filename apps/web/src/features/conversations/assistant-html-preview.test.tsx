@@ -17,6 +17,7 @@ import {
   assistantHtmlPreviewErrorMessageType,
   assistantHtmlPreviewReadyMessageType,
   assistantHtmlPreviewShellInitializeMessageType,
+  assistantHtmlPreviewWheelMessageType,
 } from "@/features/conversations/assistant-html-preview-document"
 import { renderAssistantHtmlPreviewSnapshot } from "@/features/conversations/assistant-html-preview-capture"
 import {
@@ -175,6 +176,34 @@ describe("AssistantHtmlPreview actions", () => {
     restoreProperty(window, "ClipboardItem", originalClipboardItem)
     restoreProperty(document, "fullscreenElement", originalFullscreenElement)
     restoreProperty(document, "exitFullscreen", originalExitFullscreen)
+  })
+
+  it("forwards embedded frame scrolling to the shared page's viewport", () => {
+    render(
+      <main data-conversation-scroll-viewport data-testid="shared-viewport">
+        <div className="conversation-scroll" data-testid="embedded-log">
+          <AssistantHtmlPreview html="<!doctype html><html><body>Preview</body></html>" />
+        </div>
+      </main>
+    )
+    const frame = screen.getByTitle(
+      "AI 生成的交互式 HTML 页面"
+    ) as HTMLIFrameElement
+    fireEvent(
+      window,
+      new MessageEvent("message", {
+        source: frame.contentWindow,
+        data: {
+          type: assistantHtmlPreviewWheelMessageType,
+          previewId: frame.dataset.assistantHtmlPreviewId,
+          deltaX: 20,
+          deltaY: 150,
+        },
+      })
+    )
+    expect(screen.getByTestId("shared-viewport").scrollTop).toBe(150)
+    expect(screen.getByTestId("shared-viewport").scrollLeft).toBe(20)
+    expect(screen.getByTestId("embedded-log").scrollTop).toBe(0)
   })
 
   it("keeps a bounded viewport when animated content reports changing heights", () => {

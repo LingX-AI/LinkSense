@@ -35,7 +35,7 @@ describe("settings form fields", () => {
     }
   )
 
-  it("renders page fields with labels and hints in the left column", () => {
+  it("places controls beside their labels only when the field group has enough space", () => {
     render(
       <SettingsFieldGroup data-testid="group">
         <FieldShell
@@ -58,17 +58,27 @@ describe("settings form fields", () => {
       </SettingsFieldGroup>
     )
 
-    expect(screen.getByTestId("group")).toHaveClass("divide-y")
+    expect(screen.getByTestId("group")).toHaveClass(
+      "divide-y",
+      "@container/field-group"
+    )
     expect(
       screen.getByLabelText("Name").closest('[data-layout="settings"]')
-    ).toHaveClass("md:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)]")
+    ).toHaveClass(
+      "flex-col",
+      "@2xl/field-group:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)]"
+    )
     expect(screen.getByLabelText("Name").parentElement).toHaveClass(
-      "md:justify-self-end",
-      "md:max-w-sm"
+      "@2xl/field-group:justify-self-end",
+      "@2xl/field-group:max-w-sm"
     )
     expect(
       screen.getByRole("button", { name: "Enabled" }).parentElement
-    ).toHaveClass("md:justify-self-end", "md:max-w-48")
+    ).toHaveClass(
+      "items-start",
+      "@2xl/field-group:justify-self-end",
+      "@2xl/field-group:max-w-48"
+    )
     expect(
       screen.getByText("Shown to everyone").parentElement
     ).toContainElement(screen.getByText("Name"))
@@ -107,8 +117,8 @@ describe("settings form fields", () => {
     const input = screen.getByRole("textbox", { name: "Instructions" })
     const field = input.closest('[data-layout="settings"]')
     expect(field).toHaveAttribute("data-orientation", "vertical")
-    expect(field).not.toHaveClass("md:grid")
-    expect(input.parentElement).not.toHaveClass("md:max-w-48")
+    expect(field).not.toHaveClass("@2xl/field-group:grid")
+    expect(input.parentElement).not.toHaveClass("@2xl/field-group:max-w-48")
     expect(field?.firstElementChild).toContainElement(
       screen.getByText("Instructions")
     )

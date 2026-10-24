@@ -673,7 +673,7 @@ export function AutomationPage() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent
                                   align="end"
-                                  className="w-44"
+                                  className="min-w-44"
                                 >
                                   <DropdownMenuGroup>
                                     <DropdownMenuItem
@@ -767,16 +767,16 @@ function AutomationSuggestions({
 }) {
   return (
     <section
-      className="flex w-full max-w-2xl flex-col gap-3 py-4 sm:py-8"
+      className="mt-8 flex w-full flex-col gap-4"
       aria-labelledby="automation-suggestions-title"
     >
       <h2
         id="automation-suggestions-title"
-        className="px-3 text-sm font-semibold text-muted-foreground sm:px-4"
+        className="text-lg font-medium text-heading"
       >
         {t("automation.suggestions.title")}
       </h2>
-      <ul className="flex flex-col gap-1">
+      <ul className="grid grid-cols-1 gap-4 @min-[60rem]/shell-content:grid-cols-3">
         {automationTemplates.map((template) => {
           const Icon = template.icon
           const title = t(`automation.suggestions.${template.id}.title`)
@@ -787,8 +787,8 @@ function AutomationSuggestions({
             <li key={template.id}>
               <Button
                 type="button"
-                variant="ghost"
-                className="h-auto w-full items-start justify-start gap-4 rounded-2xl px-3 py-3 text-left whitespace-normal sm:px-4 sm:py-4"
+                variant="outline"
+                className="h-full min-h-40 w-full flex-col items-stretch justify-start gap-4 rounded-xl border-border bg-card p-4 text-left whitespace-normal hover:border-input-hover"
                 aria-label={t("automation.suggestions.useTemplateNamed", {
                   name: title,
                 })}
@@ -797,28 +797,28 @@ function AutomationSuggestions({
               >
                 <span
                   className={cn(
-                    "flex size-7 shrink-0 items-center justify-center",
+                    "flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent",
                     template.iconClassName
                   )}
                   aria-hidden="true"
                 >
                   <Icon />
                 </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                    <span className="text-sm font-semibold text-foreground">
+                <span className="flex min-w-0 flex-1 flex-col gap-3">
+                  <span className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <span className="text-sm font-medium text-heading">
                       {title}
                     </span>
                     <span
                       id={scheduleId}
-                      className="text-sm font-normal text-muted-foreground"
+                      className="text-xs font-normal text-muted-foreground"
                     >
                       {t(`automation.suggestions.${template.id}.schedule`)}
                     </span>
                   </span>
                   <span
                     id={descriptionId}
-                    className="text-xs leading-5 font-normal text-muted-foreground"
+                    className="text-sm leading-[var(--app-line-22)] font-normal text-muted-foreground"
                   >
                     {t(`automation.suggestions.${template.id}.description`)}
                   </span>

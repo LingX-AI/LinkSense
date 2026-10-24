@@ -30,6 +30,7 @@ import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
 import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import { ProductLogo } from "@/components/brand/product-logo"
+import { PageTopBar } from "@/components/shell/page-top-bar"
 import {
   resolveSettingsReturn,
   type SettingsReturnState,
@@ -248,6 +249,9 @@ export function SettingsShell() {
   const navigation = (
     <div className="settings-navigation-body">
       <div className="settings-navigation-header">
+        <div className="hidden w-fit py-2 md:block">
+          <ProductLogo productName={productName} className="h-7.5" />
+        </div>
         <NavLink
           to={appReturnTo}
           className="settings-back-link font-semibold max-md:mr-10"
@@ -349,6 +353,15 @@ export function SettingsShell() {
         </SheetContent>
       </Sheet>
       <div className="shell-content @container/shell-content relative flex min-h-0 min-w-0 flex-col">
+        <PageTopBar
+          title={t(
+            location.pathname.startsWith("/admin/")
+              ? "settings.administrationGroup"
+              : "settingsInterface.title",
+            { productName }
+          )}
+          className="hidden md:flex"
+        />
         <main
           ref={mainRef}
           className="settings-main min-h-0 flex-1"

@@ -169,17 +169,17 @@ describe("conversation search dialog", () => {
     const dialog = await screen.findByRole("dialog", { name: "搜索" })
     expect(dialog).toHaveClass(
       "conversation-search-dialog",
-      "max-w-[640px]!",
+      "max-w-[680px]!",
       "top-1/2",
       "-translate-y-1/2",
-      "rounded-[20px]!"
+      "rounded-xl!"
     )
     expect(
       dialog.querySelector(".conversation-search-command")?.className
     ).toContain("[&_[data-slot=command-input-wrapper]]:px-5")
     expect(dialog.querySelector('[data-slot="command-list"]')).toHaveClass(
-      "h-[min(76svh,34rem)]",
-      "max-h-[min(76svh,34rem)]!"
+      "h-[min(60svh,24rem)]",
+      "max-h-[min(60svh,24rem)]!"
     )
 
     const input = within(dialog).getByPlaceholderText(
@@ -199,7 +199,7 @@ describe("conversation search dialog", () => {
     ).closest('[data-slot="command-item"]')
     expect(firstResult).toHaveClass(
       "conversation-search-result",
-      "rounded-xl!",
+      "rounded-md!",
       "gap-3"
     )
     expect(firstResult?.querySelector(".lucide-message-square")).toHaveClass(

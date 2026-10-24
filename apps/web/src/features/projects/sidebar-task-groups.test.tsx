@@ -105,28 +105,105 @@ describe("sidebar task project controls", () => {
       projects.compareDocumentPosition(recent) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
+    expect(within(projects).queryByText("暂无项目")).not.toBeInTheDocument()
+    expect(within(recent).queryByText("暂无任务")).not.toBeInTheDocument()
   })
 
-  it("keeps separate section headings and project creation available when both lists are empty", () => {
+  it("does not show an empty project hint when unavailable-project tasks remain", () => {
     render(
+      <SidebarTaskGroups
+        userId="first"
+        pinned={[]}
+        recent={[{ ...pinnedTask, pinned_at: null, project_id: project.id }]}
+        projects={[]}
+        loadingMore={false}
+        onAction={vi.fn()}
+      >
+        {() => <a href="/conversations/task">归属任务</a>}
+      </SidebarTaskGroups>
+    )
+    expect(
+      within(screen.getByRole("region", { name: "项目暂不可用" })).getByRole(
+        "link",
+        { name: "归属任务" }
+      )
+    ).toBeVisible()
+    expect(screen.queryByText("暂无项目")).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ["zh-CN", "暂无项目", "暂无任务"],
+    ["en-US", "No projects yet", "No tasks yet"],
+    ["es-ES", "Todavía no hay proyectos", "Todavía no hay tareas"],
+    ["pt-BR", "Nenhum projeto ainda", "Nenhuma tarefa ainda"],
+    ["fr-FR", "Aucun projet", "Aucune tâche"],
+    ["ja-JP", "プロジェクトはまだありません", "タスクはまだありません"],
+    ["de-DE", "暂无项目", "暂无任务"],
+  ])(
+    "shows compact, collapsible empty states in %s",
+    async (language, emptyProjects, emptyTasks) => {
+      await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
+      render(
+        <SidebarTaskGroups
+          userId="first"
+          pinned={[]}
+          recent={[]}
+          projects={[]}
+          loadingMore={false}
+          onAction={vi.fn()}
+        >
+          {() => null}
+        </SidebarTaskGroups>
+      )
+      for (const [label, message] of [
+        [i18n.t("nav.projects"), emptyProjects],
+        [i18n.t("nav.recent"), emptyTasks],
+      ]) {
+        const section = screen.getByRole("region", { name: label })
+        const empty = within(section).getByText(message)
+        expect(empty).toBeVisible()
+        expect(empty).toHaveClass("px-2.5", "py-1", "text-muted-foreground")
+        const trigger = within(section).getByRole("button", { name: label })
+        await interaction.click(trigger)
+        expect(empty).not.toBeVisible()
+        expect(
+          within(section).getByRole("button", {
+            name: i18n.t("conversation.taskSort.open", { section: label }),
+          })
+        ).toBeEnabled()
+        await interaction.keyboard("{Enter}")
+        expect(empty).toBeVisible()
+      }
+      expect(
+        screen.getByRole("button", { name: i18n.t("projects.create") })
+      ).toBeEnabled()
+      expect(screen.queryByRole("link")).not.toBeInTheDocument()
+    }
+  )
+
+  it("waits for project and task loading to finish before showing empty states", () => {
+    const view = (projectsReady: boolean, loadingMore: boolean) => (
       <SidebarTaskGroups
         userId="first"
         pinned={[]}
         recent={[]}
         projects={[]}
-        loadingMore={false}
+        projectsReady={projectsReady}
+        loadingMore={loadingMore}
         onAction={vi.fn()}
       >
         {() => null}
       </SidebarTaskGroups>
     )
-    expect(
-      within(screen.getByRole("region", { name: "项目" })).getByRole("button", {
-        name: "新建项目",
-      })
-    ).toBeEnabled()
-    expect(screen.getByRole("region", { name: "最近" })).toBeVisible()
-    expect(screen.queryByRole("link")).not.toBeInTheDocument()
+    const { rerender } = render(view(false, true))
+    expect(screen.queryByText("暂无项目")).not.toBeInTheDocument()
+    expect(screen.queryByText("暂无任务")).not.toBeInTheDocument()
+    rerender(view(true, true))
+    expect(screen.getByText("暂无项目")).toBeVisible()
+    expect(screen.queryByText("暂无任务")).not.toBeInTheDocument()
+    rerender(view(true, false))
+    expect(screen.getByText("暂无任务")).toBeVisible()
   })
 
   it("restores the last collapsed or expanded choice after remounting the sidebar", async () => {
@@ -152,13 +229,16 @@ describe("sidebar task project controls", () => {
     expect(screen.getByRole("link", { name: "归属任务" })).toBeVisible()
   })
 
-  it("uses the same smaller adaptive font size for Pinned, Projects, and Recent headings", () => {
+  it("uses the same adaptive font size for section headings and project names", () => {
     renderGroups("first", [pinnedTask])
     for (const name of ["置顶", "项目", "最近"]) {
       const heading = screen.getByRole("heading", { name })
       expect(heading).toHaveClass("text-[length:var(--app-font-13)]")
       expect(heading).not.toHaveClass("text-[length:var(--app-ui-font-size)]")
     }
+    expect(screen.getByText(project.name)).toHaveClass(
+      "text-[length:var(--app-font-13)]"
+    )
   })
 
   it.each([
@@ -247,7 +327,8 @@ describe("sidebar task project controls", () => {
     }
   )
 
-  it("reveals section arrows on heading hover, keyboard focus, and touch devices", () => {
+  it("keeps section arrows visible when expanded and collapsed without hovering", async () => {
+    const interaction = userEvent.setup()
     renderGroups("first", [pinnedTask])
     for (const name of ["置顶", "项目", "最近"]) {
       const trigger = screen.getByRole("button", { name })
@@ -257,13 +338,16 @@ describe("sidebar task project controls", () => {
       )
       const arrow = trigger.querySelector("svg")
       expect(arrow).toHaveAttribute("aria-hidden", "true")
-      expect(arrow).toHaveClass(
-        "opacity-0",
-        "group-hover/tasks-heading:opacity-100",
-        "group-has-[:focus-visible]/tasks-heading:opacity-100",
-        "group-aria-expanded/section-trigger:rotate-90",
-        "[@media(hover:none)]:opacity-100"
-      )
+      expect(arrow).toBeVisible()
+      expect(arrow).not.toHaveClass("opacity-0")
+      expect(arrow).toHaveClass("group-aria-expanded/section-trigger:rotate-90")
+      await interaction.click(trigger)
+      expect(trigger).toHaveAttribute("aria-expanded", "false")
+      expect(arrow).toBeVisible()
+      expect(arrow).not.toHaveClass("opacity-0")
+      await interaction.keyboard("{Enter}")
+      expect(trigger).toHaveAttribute("aria-expanded", "true")
+      expect(arrow).toBeVisible()
     }
   })
 
@@ -290,7 +374,7 @@ describe("sidebar task project controls", () => {
       expect(
         within(section).getByRole("button", { name }).querySelector("svg")
       ).toHaveClass(
-        "transition-[transform,opacity]",
+        "transition-transform",
         "duration-200",
         "ease-out",
         "motion-reduce:transition-none"
@@ -366,7 +450,7 @@ describe("sidebar task project controls", () => {
     expect(folder).toHaveAttribute("aria-expanded", "true")
   })
 
-  it("scopes the create action reveal to the heading row and keeps a larger square control near the right edge", async () => {
+  it("keeps heading actions visible without hovering and preserves keyboard creation", async () => {
     const interaction = userEvent.setup()
     const onAction = renderGroups()
     const create = screen.getByRole("button", { name: "新建项目" })
@@ -379,18 +463,16 @@ describe("sidebar task project controls", () => {
     expect(headingRow).not.toContainElement(
       screen.getByRole("region", { name: project.name })
     )
-    expect(create).toHaveClass(
-      "size-7",
-      "rounded-lg",
-      "opacity-0",
-      "pointer-events-none",
-      "group-hover/tasks-heading:opacity-100",
-      "group-hover/tasks-heading:pointer-events-auto",
-      "group-has-[:focus-visible]/tasks-heading:opacity-100",
-      "group-has-[:focus-visible]/tasks-heading:pointer-events-auto",
-      "[@media(hover:none)]:opacity-100",
-      "[@media(hover:none)]:pointer-events-auto"
-    )
+    expect(create).toHaveClass("size-7", "rounded-lg")
+    for (const action of [
+      create,
+      screen.getByRole("button", { name: "设置项目任务排序方式" }),
+      screen.getByRole("button", { name: "设置最近任务排序方式" }),
+    ]) {
+      expect(action).toBeVisible()
+      expect(action).not.toHaveClass("opacity-0")
+      expect(action).not.toHaveClass("pointer-events-none")
+    }
     expect(create).not.toHaveClass("[&_svg:not([class*='size-'])]:size-3")
     await interaction.tab()
     expect(screen.getByRole("button", { name: "项目" })).toHaveFocus()
@@ -424,7 +506,7 @@ describe("sidebar task project controls", () => {
       "hover:bg-[var(--app-sidebar-hover)]"
     )
     expect(folder).toHaveClass(
-      "h-8",
+      "h-9",
       "w-full",
       "pr-9",
       "hover:bg-transparent",
@@ -588,7 +670,7 @@ describe("sidebar task project controls", () => {
     renderGroups()
     const group = screen.getByRole("region", { name: project.name })
     const folder = within(group).getByRole("button", { name: project.name })
-    expect(folder).toHaveClass("pl-2.5", "gap-1.5", "border")
+    expect(folder).toHaveClass("pl-2.5", "gap-2", "border-transparent")
     expect(folder.querySelector("svg")).toHaveClass("size-3.5")
     expect(group).toHaveClass(
       "[--sidebar-conversation-indent:calc(1.875rem-7px)]"

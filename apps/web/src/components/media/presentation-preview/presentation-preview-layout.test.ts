@@ -169,7 +169,7 @@ describe("presentation preview layout", () => {
     )?.[1]
     const previewHeader = declarationFor(".office-preview-header")
 
-    expect(rootRule).toMatch(/--conversation-top-bar-height:\s*54px;/u)
+    expect(rootRule).toMatch(/--conversation-top-bar-height:\s*66px;/u)
     expect(conversationTopBar).toMatch(
       /height:\s*var\(--conversation-top-bar-height\);/u
     )

@@ -170,6 +170,7 @@ export const miscResources = {
     taskActive:
       "Terminez les tâches actives avant de les déplacer ou de retirer leur projet",
     empty: "Aucune tâche",
+    emptyList: "Aucun projet",
     create: "Nouveau projet",
     createDescription:
       "Les tâches d’un projet partagent leurs fichiers et conservent des historiques de messages séparés.",

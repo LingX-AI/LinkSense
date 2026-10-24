@@ -20,36 +20,38 @@ describe("settings page layout", () => {
     expect(button).toBeDisabled()
   })
 
-  it("groups General preferences in one rounded card separated by two lines", async () => {
+  it("groups interface preferences in a card and keeps notifications in a separate section", async () => {
     installApiMock()
     renderApp("/settings/general")
     const language = await screen.findByRole("combobox", { name: "界面语言" })
     const card = language.closest('[data-slot="card"]')
-    expect(card).toHaveClass("rounded-card", "border", "gap-0", "py-0")
+    expect(card).toHaveClass("rounded-card", "border", "py-2")
     expect(card).toContainElement(
       screen.getByRole("combobox", { name: "执行中发送新消息" })
     )
-    expect(card).toContainElement(
-      screen.getByRole("switch", { name: "启用浏览器通知" })
-    )
+    const notifications = screen.getByRole("switch", { name: "启用浏览器通知" })
+    expect(card).not.toContainElement(notifications)
+    expect(
+      notifications.closest('[data-slot="settings-card"]')
+    ).toContainElement(screen.getByRole("heading", { name: "浏览器通知" }))
     expect(card?.querySelectorAll(".settings-panel")).toHaveLength(0)
     expect(card?.querySelectorAll('[data-slot="card"]')).toHaveLength(0)
     expect(
-      Array.from(card?.children ?? [], (child) =>
-        child.matches("section")
-          ? child.getAttribute("aria-labelledby")
-          : child.getAttribute("data-slot")
+      Array.from(
+        card?.querySelector('[data-slot="card-content"]')?.children ?? [],
+        (child) =>
+          child.matches("section")
+            ? child.getAttribute("aria-labelledby")
+            : child.getAttribute("data-slot")
       )
     ).toEqual([
       "interface-language-heading",
       "separator",
       "running-message-action-heading",
-      "separator",
-      "browser-notifications-heading",
     ])
   })
 
-  it("places the running-message selector on the right with only option names", async () => {
+  it("stacks the running-message selector in narrow containers with only option names", async () => {
     installApiMock()
     const interaction = userEvent.setup()
     renderApp("/settings/general")
@@ -60,7 +62,13 @@ describe("settings page layout", () => {
       .getByRole("heading", { name: "执行中发送新消息" })
       .closest('[data-slot="settings-section-header"]')
     expect(header).toContainElement(selector)
-    expect(header).toHaveClass("flex-row", "justify-between")
+    expect(header?.firstElementChild).toHaveClass(
+      "flex-col",
+      "@2xl/settings-section:flex-row",
+      "@2xl/settings-section:items-center"
+    )
+    expect(header?.firstElementChild).not.toHaveClass("flex-row")
+    expect(selector).toHaveClass("w-full", "@2xl/settings-section:w-56")
     expect(
       selector.closest('[data-slot="settings-section-action"]')
     ).not.toBeNull()
@@ -71,7 +79,7 @@ describe("settings page layout", () => {
       (await screen.findAllByRole("option")).map((option) => option.textContent)
     ).toEqual(["引导当前执行", "排队为下一条请求"])
   })
-  it("places the language selector beside its description and the notification switch in its title row", async () => {
+  it("places the language selector beside its description and notifications beside their section heading", async () => {
     installApiMock()
     renderApp("/settings/general")
     const language = await screen.findByRole("combobox", { name: "界面语言" })
@@ -87,11 +95,9 @@ describe("settings page layout", () => {
     expect(screen.queryByText("语言", { exact: true })).not.toBeInTheDocument()
     expect(language).toHaveAccessibleDescription("应用UI语言")
     const toggle = screen.getByRole("switch", { name: "启用浏览器通知" })
-    expect(
-      toggle.closest('[data-slot="settings-section-title-row"]')
-    ).toContainElement(screen.getByRole("heading", { name: "浏览器通知" }))
-    expect(
-      toggle.closest('[data-slot="settings-section-title-action"]')
-    ).not.toBeNull()
+    expect(toggle.closest('[data-slot="settings-card"]')).toContainElement(
+      screen.getByRole("heading", { name: "浏览器通知" })
+    )
+    expect(toggle).toHaveAccessibleDescription(/通过当前浏览器通知/u)
   })
 })

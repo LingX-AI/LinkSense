@@ -424,6 +424,7 @@ export const jaJP = {
     helpCenter: "ヘルプセンター",
     helpCenterNewTab: "ヘルプセンターを新しいタブで開く",
     automationNotifications: "自動化通知",
+    automationNotificationsEmpty: "未読の自動化通知はありません",
     automationNotificationsUnread: "未読の完了タスクがある自動化通知",
     automationTask: "自動化タスク",
     unreadCompletion: "完了後、まだ確認されていないタスク",
@@ -1999,6 +2000,7 @@ export const jaJP = {
     taskActive:
       "タスクを移動したりプロジェクトを削除したりする前に、実行中のタスクを完了してください",
     empty: "タスクはまだありません",
+    emptyList: "プロジェクトはまだありません",
     create: "新しいプロジェクト",
     createDescription:
       "プロジェクト内のタスクはファイルを共有し、メッセージ履歴はそれぞれ個別に保持します。",
@@ -2109,6 +2111,11 @@ export const jaJP = {
         "リンクをコピーできませんでした。ブラウザーの権限を確認して再試行してください。",
       unavailable: "この共有リンクは存在しないか、利用できなくなっています。",
       continueInProduct: "{{productName}} で続行",
+      snapshotDate: "共有スナップショット · {{date}}",
+      sharedConversation: "共有された会話",
+      readOnly: "読み取り専用",
+      snapshotNotice:
+        "これは会話のスナップショットです。以降のメッセージは含まれません。",
     },
     rename: "名前を変更",
     archive: "タスクをアーカイブ",
@@ -2613,6 +2620,7 @@ export const jaJP = {
     copyMessageFailed:
       "メッセージをコピーできませんでした。再試行してください。",
     forkMessage: "新しいチャットに分岐",
+    forkMessageTooltip: "分岐",
     forkingMessage: "分岐を作成中…",
     forkMessageFailed:
       "分岐したタスクを作成できませんでした。再試行してください。",
@@ -5595,8 +5603,10 @@ export const jaJP = {
         "画像理解モデルが、画像、構造化出力、または思考機能の無効化の検証に合格しませんでした。",
     },
     imageGeneration: {
-      inputInvalid: "編集用の画像を読み取れません。PNG、JPEG、WebP 形式で、1 枚 8 MB 以下、マスクを含め合計 10 MB 以下にしてください。マスクは最初の画像と同じ寸法の透明 PNG が必要です。",
-      editUnsupported: "現在の画像モデルはこの編集に対応していません。参照画像を減らすか、マスクを外すか、対応するモデルの選択を管理者に依頼してください。",
+      inputInvalid:
+        "編集用の画像を読み取れません。PNG、JPEG、WebP 形式で、1 枚 8 MB 以下、マスクを含め合計 10 MB 以下にしてください。マスクは最初の画像と同じ寸法の透明 PNG が必要です。",
+      editUnsupported:
+        "現在の画像モデルはこの編集に対応していません。参照画像を減らすか、マスクを外すか、対応するモデルの選択を管理者に依頼してください。",
       notConfigured: "管理者が画像生成モデルをまだ設定していません。",
       forbidden: "このタスクのターンでは画像生成を利用できません。",
       turnInactive:

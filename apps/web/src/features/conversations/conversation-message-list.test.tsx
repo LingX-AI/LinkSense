@@ -106,6 +106,40 @@ afterEach(() => {
 })
 
 describe("virtual conversation messages", () => {
+  it("keeps long shared snapshots virtualized in their outer scrolling viewport", async () => {
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(
+      function (this: HTMLElement) {
+        if (this.classList.contains("conversation-scroll")) return 84_000
+        return this.hasAttribute("data-conversation-row") ? 100 : 600
+      }
+    )
+    const navigation = createRef<ConversationThreadNavigation>()
+    render(
+      <main data-conversation-scroll-viewport data-testid="shared-viewport">
+        <div className="conversation-scroll" data-testid="embedded-log">
+          <ConversationMessageList
+            rows={rows(0, 200)}
+            navigationRef={navigation}
+          />
+        </div>
+      </main>
+    )
+    expect(
+      document.querySelectorAll("[data-conversation-row]").length
+    ).toBeLessThan(20)
+    act(() => {
+      navigation.current?.scrollToMessage("message-150")
+    })
+    await waitFor(() =>
+      expect(screen.getByText("message-150")).toBeInTheDocument()
+    )
+    expect(screen.getByTestId("shared-viewport").scrollTop).toBeGreaterThan(0)
+    expect(screen.getByTestId("embedded-log").scrollTop).toBe(0)
+    expect(
+      document.querySelectorAll("[data-conversation-row]").length
+    ).toBeLessThan(20)
+  })
+
   it("keeps the reading position inside a long streaming reply and resumes only at the bottom", async () => {
     let replyHeight = 1_000
     const observers: Array<{

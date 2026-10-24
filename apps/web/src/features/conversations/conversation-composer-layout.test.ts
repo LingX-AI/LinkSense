@@ -25,7 +25,7 @@ describe("conversation composer capability chips", () => {
   })
 
   it.each([
-    { theme: "light", selector: /:root\s*\{([^}]*)\}/u, background: "#f5f5f5" },
+    { theme: "light", selector: /:root\s*\{([^}]*)\}/u, background: "#fafbfd" },
     { theme: "dark", selector: /\.dark\s*\{([^}]*)\}/u, background: "#292929" },
   ])(
     "uses the $theme gray surface above the composer",

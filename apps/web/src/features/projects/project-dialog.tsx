@@ -109,6 +109,7 @@ export function ProjectDialog({
           className="flex min-w-0 flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault()
+            event.stopPropagation()
             if (!mutation.isPending && (!nameRequired || validName.success))
               mutation.mutate()
           }}

@@ -667,7 +667,7 @@ describe("administrator authentication settings", () => {
         name: i18n.t("common.save"),
       })
       for (const button of buttons) {
-        expect(button).toHaveClass("h-8", "px-3", "text-sm")
+        expect(button).toHaveClass("h-9", "px-4", "text-sm")
         expect(button).not.toHaveClass("h-9", "h-7", "px-4")
       }
     }
@@ -1104,13 +1104,13 @@ describe("administrator authentication settings", () => {
       "系统维护",
     ])
     expect(productTab.closest('[data-slot="tabs-list"]')).toHaveClass(
-      "rounded-none",
-      "bg-transparent"
+      "rounded-xl",
+      "bg-muted"
     )
     expect(productTab).toHaveClass(
-      "rounded-xl",
+      "rounded-lg",
       "font-medium",
-      "data-active:bg-muted/50"
+      "data-active:text-foreground"
     )
     expect(productTab).not.toHaveClass("rounded-2xl")
     expect(
@@ -1594,10 +1594,10 @@ describe("administrator authentication settings", () => {
     )
     expect(embeddingModelCard).not.toHaveClass("xl:grid-cols-2")
     expect(embeddingModelField).toHaveClass(
-      "md:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)]"
+      "@2xl/field-group:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)]"
     )
     expect(rankModelField).toHaveClass(
-      "md:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)]"
+      "@2xl/field-group:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)]"
     )
     expect(
       screen.queryByLabelText(formLabelPattern("嵌入 API Key"))

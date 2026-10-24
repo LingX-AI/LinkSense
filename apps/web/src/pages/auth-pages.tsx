@@ -23,8 +23,10 @@ import {
 import { useAuth } from "@/app/auth-state"
 import { useBootstrap } from "@/app/bootstrap-state"
 import { useProductName } from "@/app/product-branding"
-import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
-import { ProductLogo } from "@/components/brand/product-logo"
+import {
+  AccountAccessHeading,
+  AccountAccessLayout,
+} from "@/components/auth/account-access-layout"
 import { NotificationToast } from "@/components/feedback/notification-toast"
 import { LoadingState } from "@/components/feedback/page-state"
 import { FieldShell } from "@/components/forms/form-field"
@@ -39,7 +41,6 @@ import {
   setAppLanguage,
 } from "@/i18n"
 import { passwordSchema } from "@/lib/password"
-import { LanguageSwitcher } from "@/features/onboarding/language-switcher"
 
 const emailSchema = z.email()
 
@@ -51,13 +52,9 @@ function PublicPanel({
   showPoweredBy?: boolean
 }) {
   return (
-    <div className="public-shell flex flex-col">
-      <div className="flex shrink-0 justify-end">
-        <LanguageSwitcher />
-      </div>
-      <main className="public-panel shrink-0">{children}</main>
-      {showPoweredBy && <PoweredByLinkSense placement="public" />}
-    </div>
+    <AccountAccessLayout showPoweredBy={showPoweredBy}>
+      <div className="public-panel">{children}</div>
+    </AccountAccessLayout>
   )
 }
 
@@ -182,12 +179,11 @@ export function LoginPage() {
   if (status === "authenticated") return null
 
   return (
-    <PublicPanel showPoweredBy>
-      <ProductLogo productName={productName} className="public-brand-logo" />
-      <header>
-        <h1>{t("auth.loginTitle", { productName })}</h1>
-        <p>{t("auth.loginDescription")}</p>
-      </header>
+    <AccountAccessLayout>
+      <AccountAccessHeading
+        title={t("auth.loginTitle", { productName })}
+        description={t("auth.loginDescription")}
+      />
       {teamsState === "loading" && (
         <StatusBanner>
           <span className="flex items-center gap-2">
@@ -257,9 +253,10 @@ export function LoginPage() {
         }
       />
       {formError && <StatusBanner variant="error">{formError}</StatusBanner>}
-      <form className="form-stack" onSubmit={submit} noValidate>
+      <form className="grid gap-5" onSubmit={submit} noValidate>
         <FieldShell
           id="login-email"
+          layout="account"
           required
           label={t("common.email")}
           error={emailError ?? undefined}
@@ -268,7 +265,8 @@ export function LoginPage() {
             ref={emailRef}
             id="login-email"
             name="email"
-            className="h-9"
+            variant="outlined"
+            placeholder={t("accountAccess.emailPlaceholder")}
             type="email"
             autoComplete="username"
             autoCapitalize="none"
@@ -285,6 +283,7 @@ export function LoginPage() {
         </FieldShell>
         <FieldShell
           id="login-password"
+          layout="account"
           required
           label={t("auth.password")}
           error={passwordError ?? undefined}
@@ -294,6 +293,8 @@ export function LoginPage() {
             id="login-password"
             name="password"
             fieldLabel={t("auth.password")}
+            variant="outlined"
+            placeholder={t("accountAccess.passwordPlaceholder")}
             autoComplete="current-password"
             value={password}
             onChange={(event) => {
@@ -308,7 +309,10 @@ export function LoginPage() {
           />
         </FieldShell>
         <div className="text-right">
-          <Link className="public-link" to="/forgot-password">
+          <Link
+            className="inline-flex min-h-7 items-center text-xs text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            to="/forgot-password"
+          >
             {t("auth.forgotPassword")}
           </Link>
         </div>
@@ -317,6 +321,7 @@ export function LoginPage() {
           size="xl"
           disabled={loginMutation.isPending}
           aria-busy={loginMutation.isPending || undefined}
+          variant="brand"
           className="w-full"
         >
           {loginMutation.isPending && <Spinner data-icon="inline-start" />}
@@ -328,7 +333,7 @@ export function LoginPage() {
       {["available", "configured"].includes(bootstrap?.oidc?.status ?? "") && (
         <Button
           type="button"
-          variant="secondary"
+          variant="outline"
           size="xl"
           className="w-full"
           onClick={startOidc}
@@ -346,7 +351,7 @@ export function LoginPage() {
           />
         </p>
       )}
-    </PublicPanel>
+    </AccountAccessLayout>
   )
 }
 
@@ -400,7 +405,6 @@ export function RegistrationPage() {
       <Link className="public-back-link" to="/login">
         <ArrowLeftIcon aria-hidden="true" /> {t("common.back")}
       </Link>
-      <ProductLogo productName={productName} className="public-brand-logo" />
       <header>
         <h1>{t("auth.registration.title", { productName })}</h1>
         <p>{t("auth.registration.description")}</p>
@@ -439,7 +443,6 @@ export function RegistrationPage() {
               ref={emailRef}
               id="registration-email"
               name="email"
-              className="h-9"
               type="email"
               autoComplete="email"
               autoCapitalize="none"
@@ -542,7 +545,6 @@ export function CompleteRegistrationPage() {
 
   return (
     <PublicPanel>
-      <ProductLogo productName={productName} className="public-brand-logo" />
       <header>
         <h1>{t("auth.registration.activateTitle")}</h1>
         <p>{t("auth.registration.activateDescription")}</p>
@@ -667,14 +669,18 @@ export function ForgotPasswordPage() {
   }
 
   return (
-    <PublicPanel showPoweredBy>
-      <Link className="public-back-link" to="/login">
-        <ArrowLeftIcon aria-hidden="true" /> {t("common.back")}
+    <AccountAccessLayout>
+      <Link
+        className="inline-flex min-h-8 w-fit items-center gap-2 rounded-sm text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        to="/login"
+      >
+        <ArrowLeftIcon className="size-4" aria-hidden="true" />
+        {t("auth.backToLogin")}
       </Link>
-      <header>
-        <h1>{t("auth.forgotTitle")}</h1>
-        <p>{t("auth.forgotDescription")}</p>
-      </header>
+      <AccountAccessHeading
+        title={t("auth.forgotTitle")}
+        description={t("auth.forgotDescription")}
+      />
       <NotificationToast
         id="password-reset-request-submitted"
         message={message ? t("auth.resetRequestSubmitted") : undefined}
@@ -685,9 +691,10 @@ export function ForgotPasswordPage() {
           {error}
         </StatusBanner>
       )}
-      <form className="form-stack" onSubmit={submit} noValidate>
+      <form className="grid gap-6" onSubmit={submit} noValidate>
         <FieldShell
           id="forgot-email"
+          layout="account"
           required
           label={t("common.email")}
           error={emailError ?? undefined}
@@ -696,7 +703,8 @@ export function ForgotPasswordPage() {
             ref={emailRef}
             id="forgot-email"
             name="email"
-            className="h-9"
+            variant="outlined"
+            placeholder={t("accountAccess.emailPlaceholder")}
             type="email"
             autoComplete="email"
             autoCapitalize="none"
@@ -717,18 +725,18 @@ export function ForgotPasswordPage() {
           disabled={mutation.isPending}
           aria-busy={mutation.isPending || undefined}
           className="w-full"
+          variant="brand"
         >
           {mutation.isPending && <Spinner data-icon="inline-start" />}
           {t("auth.sendResetLink")}
         </Button>
       </form>
-    </PublicPanel>
+    </AccountAccessLayout>
   )
 }
 
 export function ResetPasswordPage() {
   const { t } = useTranslation()
-  const productName = useProductName()
   const navigate = useNavigate()
   // This initializer must stay pure. React StrictMode intentionally invokes it
   // twice in development, so clearing the URL here would make the second read
@@ -791,7 +799,6 @@ export function ResetPasswordPage() {
 
   return (
     <PublicPanel>
-      <ProductLogo productName={productName} className="public-brand-logo" />
       <header>
         <h1>{t("auth.resetTitle")}</h1>
         <p>{t("auth.resetDescription")}</p>
@@ -814,7 +821,6 @@ export function ResetPasswordPage() {
             ref={passwordRef}
             id="new-password"
             name="new-password"
-            className="h-9"
             type="password"
             autoComplete="new-password"
             value={password}
@@ -837,7 +843,6 @@ export function ResetPasswordPage() {
             ref={confirmationRef}
             id="confirm-password"
             name="new-password-confirmation"
-            className="h-9"
             type="password"
             autoComplete="new-password"
             value={confirmation}

@@ -17,9 +17,69 @@ import {
   renderApp,
 } from "./fixture"
 import { conversationInterruptTimeoutMs } from "@/features/conversations/conversation-interrupt"
+import { writeTaskOverviewOpenPreference } from "@/features/conversations/conversation-task-overview-preference"
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it("unifies task header icons and shows their labels on hover and keyboard focus", async () => {
+    installApiMock()
+    writeTaskOverviewOpenPreference(false)
+    const interaction = userEvent.setup()
+    renderApp()
+    const banner = await screen.findByRole("banner")
+    const share = within(banner).getByRole("button", { name: "分享" })
+    act(() => share.focus())
+    expect(share).toHaveFocus()
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("分享")
+    const overview = within(banner).getByRole("button", {
+      name: "打开任务概览",
+    })
+    await interaction.tab()
+    expect(overview).toHaveFocus()
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("打开任务概览")
+    await interaction.keyboard("{Enter}")
+    expect(
+      within(banner).getByRole("button", { name: "关闭任务概览" })
+    ).toHaveAttribute("aria-expanded", "true")
+    act(() => overview.blur())
+    expect(
+      within(banner)
+        .getByRole("button", { name: "查看任务浏览器" })
+        .querySelector("svg")
+    ).toHaveClass("lucide-app-window")
+    const labels = ["分享", "关闭任务概览", "查看任务浏览器"]
+    for (const label of labels) {
+      const button = within(banner).getByRole("button", { name: label })
+      expect(button).toHaveClass(
+        "size-7",
+        "text-muted-foreground",
+        "hover:bg-hover",
+        "hover:text-foreground"
+      )
+      expect(button.textContent).toBe("")
+      expect(button).not.toHaveAttribute("title")
+      expect(button.querySelector("svg")).toHaveAttribute(
+        "stroke",
+        "currentColor"
+      )
+      await interaction.hover(button)
+      fireEvent.pointerEnter(button, { pointerType: "mouse" })
+      fireEvent.mouseEnter(button)
+      fireEvent.mouseMove(button, { movementX: 3, movementY: 0 })
+      const tooltip = await screen.findByRole("tooltip")
+      expect(tooltip).toHaveTextContent(label)
+      expect(tooltip).toHaveClass(
+        "rounded-md",
+        "bg-[var(--app-popover)]",
+        "text-[var(--app-text)]"
+      )
+      await interaction.unhover(button)
+      await waitFor(() =>
+        expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
+      )
+    }
+  })
+
   it.each([
     ["TURN_START_CLOSED", false, false],
     ["TURN_START_CLOSED", false, true],
@@ -681,7 +741,9 @@ describe("LinkSense application", () => {
       ).not.toBeInTheDocument()
     )
     expect(
-      await screen.findByRole("heading", { name: "未命名任务" })
+      await screen.findByRole("heading", {
+        name: "我们一起在 LinkSense 中做些什么？",
+      })
     ).toBeVisible()
     resolveConversationListRefresh(
       json({
@@ -763,7 +825,9 @@ describe("LinkSense application", () => {
       )
     )
     expect(
-      await screen.findByRole("heading", { name: "未命名任务" })
+      await screen.findByRole("heading", {
+        name: "我们一起在 LinkSense 中做些什么？",
+      })
     ).toBeVisible()
   })
 

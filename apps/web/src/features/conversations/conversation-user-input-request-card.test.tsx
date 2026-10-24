@@ -468,10 +468,10 @@ describe("ConversationUserInputRequestCard", () => {
     const channel = within(card).getByRole("combobox", { name: /渠道/ })
     expect(channel).toHaveTextContent("Teams")
     expect(channel).toHaveAttribute("data-size", "default")
-    expect(channel).toHaveClass("data-[size=default]:h-8")
+    expect(channel).toHaveClass("data-[size=default]:h-10")
     expect(channel.closest('[data-slot="field"]')).toHaveClass("sm:col-span-1")
     const publishDate = within(card).getByLabelText(/发布日期/)
-    expect(publishDate).toHaveClass("h-8")
+    expect(publishDate).toHaveClass("h-9")
     expect(getStructuredField(card, "发布日期")).toHaveClass("sm:col-span-1")
     expect(getStructuredField(card, "发布时间")).toHaveClass("sm:col-span-2")
     await interaction.click(

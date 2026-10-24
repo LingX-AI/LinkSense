@@ -187,7 +187,7 @@ describe("knowledge share dialog", () => {
     cleanup()
   })
 
-  it("uses the shared pill tabs for choosing the share target type", async () => {
+  it("uses the shared segmented tabs for choosing the share target type", async () => {
     renderDialog({ canCreateGrant: true })
 
     const userToggle = await screen.findByRole("tab", { name: "用户" })
@@ -211,7 +211,8 @@ describe("knowledge share dialog", () => {
     expect(groupToggle).toHaveAttribute("data-slot", "tabs-trigger")
     expect(userToggle).toHaveAttribute("aria-selected", "true")
     expect(userToggle).toHaveAttribute("data-active")
-    expect(userToggle).toHaveClass("data-active:bg-muted/50")
+    expect(targetTypeSelector).toHaveAttribute("data-variant", "segmented")
+    expect(userToggle).toHaveClass("data-active:text-foreground")
     expect(groupToggle).toHaveAttribute("aria-selected", "false")
     expect(groupToggle).not.toHaveAttribute("data-active")
     expect(

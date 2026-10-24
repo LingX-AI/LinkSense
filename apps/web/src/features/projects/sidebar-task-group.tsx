@@ -72,7 +72,7 @@ export function SidebarTaskGroup({
   if (!project)
     return (
       <section aria-label={label} className="flex flex-col gap-0.5">
-        <h2 className="px-2.5 py-1 text-sm font-semibold text-muted-foreground">
+        <h2 className="px-2.5 py-1 text-[length:var(--app-font-13)] leading-[var(--app-ui-compact-line-height)] font-semibold text-muted-foreground">
           {label}
         </h2>
         {children}
@@ -122,7 +122,7 @@ export function SidebarTaskGroup({
             className="size-3.5"
           />
           <span
-            className="min-w-0 flex-1 truncate text-left"
+            className="min-w-0 flex-1 truncate text-left text-[length:var(--app-font-13)]"
             title={active ? undefined : project.name}
           >
             {project.name}

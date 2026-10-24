@@ -1,5 +1,5 @@
 import { BrowserPanel } from "@/features/browser-panel/browser-panel"
-import { MonitorIcon } from "lucide-react"
+import { AppWindowIcon } from "lucide-react"
 import { createRandomUuid } from "@/lib/random-uuid"
 import { useSideChat } from "@/features/conversations/use-side-chat"
 import { SideChatPanel } from "@/features/conversations/side-chat-panel"
@@ -245,6 +245,7 @@ import { useNewProject } from "@/features/projects/use-new-project"
 import { newProjectNavigationState } from "@/features/projects/new-project-preference"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import { ConversationTaskOverviewPanel } from "@/features/conversations/conversation-task-overview-panel"
+import { ConversationHeaderButton } from "@/features/conversations/conversation-header-button"
 import {
   conversationSourcesQueryKey,
   conversationSourcesQueryOptions,
@@ -947,6 +948,7 @@ export function ConversationPage({
     pauseAutoFollow,
     preserveScrollPositionForInteraction,
   } = useConversationScroll(conversationId ?? newConversationPlaceholderId, {
+    initialPosition: isNew ? "top" : "bottom",
     preservePositionOnConversationChange: isNewTaskPromotion,
     navigationRef: threadNavigationRef,
     followBehavior:
@@ -5863,7 +5865,11 @@ export function ConversationPage({
               className="conversation-title-application-icon size-5 shrink-0"
             />
           )}
-          <h1>{displayConversation.title || t("conversation.untitled")}</h1>
+          <h1>
+            {isNew
+              ? t("nav.newConversation")
+              : displayConversation.title || t("conversation.untitled")}
+          </h1>
           {displayConversation.application && (
             <HoverCard>
               <HoverCardTrigger
@@ -6006,18 +6012,16 @@ export function ConversationPage({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {!isNew && showConversationActions && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="conversation-share-trigger"
+            <ConversationHeaderButton
+              label={t("conversation.share.action")}
+              aria-haspopup="dialog"
+              aria-expanded={shareOpen}
               onClick={() => setShareOpen(true)}
             >
               <UploadIcon aria-hidden="true" />
-              {t("conversation.share.action")}
-            </Button>
+            </ConversationHeaderButton>
           )}
-          {!isNew && surfaceActive && (
+          {!isNew && surfaceActive && !browserPanelOpen && (
             <ConversationTaskOverviewPanel
               key={conversationId}
               events={visibleEvents}
@@ -6042,21 +6046,28 @@ export function ConversationPage({
           )}
           {headerActions}
           {!isNew && !readOnly && surfaceActive && !sideChatReference && (
-            <Button type="button" variant="ghost" size="icon-sm" aria-label={t("browserPanel.open")} aria-expanded={browserPanelOpen} onClick={() => setBrowserPanelConversationId(browserPanelOpen ? null : conversationId ?? null)}>
-              <MonitorIcon aria-hidden="true" />
-            </Button>
+            <ConversationHeaderButton
+              label={t(
+                browserPanelOpen ? "browserPanel.close" : "browserPanel.open"
+              )}
+              aria-expanded={browserPanelOpen}
+              onClick={() =>
+                setBrowserPanelConversationId(
+                  browserPanelOpen ? null : conversationId ?? null
+                )
+              }
+            >
+              <AppWindowIcon aria-hidden="true" />
+            </ConversationHeaderButton>
           )}
           {sideChat.data && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label={t("sideChat.reopen")}
+            <ConversationHeaderButton
+              label={t("sideChat.reopen")}
               aria-expanded={sideChat.open}
               onClick={sideChat.show}
             >
               <MessagesSquareIcon aria-hidden="true" />
-            </Button>
+            </ConversationHeaderButton>
           )}
           {!showComposer && !executionBlocked && visuallyRunning && (
             <Button
@@ -6124,12 +6135,14 @@ export function ConversationPage({
           onReturnSideChatSelection
             ? {
                 label: t("sideChat.carry"),
+                tooltipLabel: t("sideChat.carryTooltip"),
                 mode: "return",
                 onSelect: (_message, text) => onReturnSideChatSelection(text),
               }
             : !embedded && !developmentRole && !readOnly
               ? {
                   label: t("sideChat.ask"),
+                  tooltipLabel: t("sideChat.title"),
                   mode: "ask",
                   disabled: sideChat.pending,
                   onSelect: (message, text) =>
@@ -6197,6 +6210,7 @@ export function ConversationPage({
           visiblePendingRequests.length > 0
         }
         showNewTaskWelcome={isNew}
+        newTaskUserName={user?.name}
         newTaskGuide={
           isNew &&
           !embedded &&
@@ -6250,7 +6264,7 @@ export function ConversationPage({
       />
 
       <div ref={bottomStackRef} className="conversation-bottom-stack">
-        {showScrollToBottom && (
+        {showScrollToBottom && visibleMessages.length > 0 && (
           <div className="conversation-scroll-to-bottom-row">
             <Button
               type="button"
@@ -6344,28 +6358,6 @@ export function ConversationPage({
               }
             />
           )}
-        {showComposer &&
-          !readOnly &&
-          !blockingPanelActive &&
-          !taskStartDisabledByCreditQuota &&
-          !development &&
-          (isNew || !isApplicationConversation) &&
-          visibleMessages.length === 0 && (
-            <ProjectComposerPicker
-              value={isNew ? newProjectId : displayConversation.project_id}
-              onChange={(projectId) => {
-                chooseNewProject(projectId)
-                if (!isNew)
-                  patchConversationMutation.mutate({ project_id: projectId })
-              }}
-              disabled={
-                sendMutation.isPending ||
-                goalStartMutation.isPending ||
-                attachmentOperationPending ||
-                patchConversationMutation.isPending
-              }
-            />
-          )}
         {showApplicationUnavailableNotice && applicationUnavailableMessage && (
           <Alert
             role="status"
@@ -6379,6 +6371,30 @@ export function ConversationPage({
         {showConversationComposer && (
           <ConversationDraftComposer
             ref={composerRef}
+            projectPicker={
+              showComposer &&
+              !readOnly &&
+              !blockingPanelActive &&
+              !taskStartDisabledByCreditQuota &&
+              !development &&
+              (isNew || !isApplicationConversation) &&
+              visibleMessages.length === 0 && (
+                <ProjectComposerPicker
+                  value={isNew ? newProjectId : displayConversation.project_id}
+                  onChange={(projectId) => {
+                    chooseNewProject(projectId)
+                    if (!isNew)
+                      patchConversationMutation.mutate({ project_id: projectId })
+                  }}
+                  disabled={
+                    sendMutation.isPending ||
+                    goalStartMutation.isPending ||
+                    attachmentOperationPending ||
+                    patchConversationMutation.isPending
+                  }
+                />
+              )
+            }
             voiceTranscriptionAvailability={voiceTranscriptionAvailability}
             key={`${composerInstanceId}:${newTaskResetVersion}`}
             draft={composerValue}

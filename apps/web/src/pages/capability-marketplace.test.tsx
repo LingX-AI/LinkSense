@@ -678,17 +678,19 @@ describe("capability marketplace pages", () => {
       })
       const header = screen.getByRole("banner")
       const page = header.closest(".management-page")
-      expect(page).not.toContainElement(tabs)
+      expect(page).toContainElement(tabs)
       expect(
-        tabs.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING
+        header.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING
       ).toBeTruthy()
       expect(tabs.closest('[data-slot="tabs"]')).toContainElement(header)
       const publicationsButton = screen.getByRole("button", {
         name: i18n.t("marketplace.tabs.publishing"),
       })
       expect(page).not.toContainElement(publicationsButton)
-      expect(tabs.parentElement).toContainElement(publicationsButton)
-      expect(publicationsButton).toHaveClass("ml-auto", "shrink-0")
+      expect(
+        document.querySelector('[data-slot="page-top-bar"]')
+      ).toContainElement(publicationsButton)
+      expect(publicationsButton).toHaveClass("shrink-0")
       expect(i18n.t("marketplace.catalogDescriptions.connector")).toBe(
         language === "zh-CN"
           ? "连接外部系统，在任务中让 AI 按需获取信息和执行操作，不会自动同步到资料库。"
@@ -897,14 +899,14 @@ describe("capability marketplace pages", () => {
     const catalogTabs = await screen.findByRole("tablist", {
       name: "插件中心内容分类",
     })
-    expect(catalogTabs).toHaveAttribute("data-variant", "default")
+    expect(catalogTabs).toHaveAttribute("data-variant", "segmented")
     await interaction.click(
       within(catalogTabs).getByRole("tab", { name: "技能" })
     )
     const searchbox = screen.getByRole("searchbox", { name: "搜索技能" })
     expect(searchbox).toBeVisible()
     const inputGroup = searchbox.closest('[data-slot="input-group"]')
-    expect(inputGroup).toHaveClass("h-8", "rounded-lg", "bg-field")
+    expect(inputGroup).toHaveClass("h-10", "rounded-lg", "bg-field")
     const searchRow = inputGroup?.parentElement
     const addButton = screen.getByRole("button", { name: "添加技能" })
     expect(searchRow).toHaveClass("capability-center-search-row")
@@ -3106,7 +3108,8 @@ describe("capability marketplace pages", () => {
     expect(groupTab).toHaveAttribute("data-slot", "tabs-trigger")
     expect(userTab).toHaveAttribute("aria-selected", "true")
     expect(userTab).toHaveAttribute("data-active")
-    expect(userTab).toHaveClass("data-active:bg-muted/50")
+    expect(targetTypeSelector).toHaveAttribute("data-variant", "segmented")
+    expect(userTab).toHaveClass("data-active:text-foreground")
     expect(groupTab).toHaveAttribute("aria-selected", "false")
     expect(groupTab).not.toHaveAttribute("data-active")
     expect(
@@ -3869,7 +3872,7 @@ describe("capability marketplace pages", () => {
       const fields = [
         {
           label: i18n.t("common.description"),
-          minHeight: "min-h-16",
+          minHeight: "min-h-24",
           maxHeight: "max-h-40",
           content: "Skill description\n".repeat(100),
         },

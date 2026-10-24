@@ -23,6 +23,7 @@ import {
   MenuIcon,
   MessageSquarePlusIcon,
   PanelLeftIcon,
+  PlusIcon,
   SearchIcon,
   Settings2Icon,
 } from "lucide-react"
@@ -51,6 +52,7 @@ import { useProductName } from "@/app/product-branding"
 import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import { ProductLogo } from "@/components/brand/product-logo"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
+import { notify } from "@/components/feedback/notification"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -90,7 +92,10 @@ import { SidebarConversationActions } from "@/components/shell/sidebar-conversat
 import { SidebarTaskScrollArea } from "@/components/shell/sidebar-task-scroll-area"
 import { AppShellLayout } from "@/components/shell/app-shell-layout"
 import { conversationSettingsReturnState } from "@/components/shell/settings-return-navigation"
-import { FeedbackDialog, SupportMenuItems } from "@/components/shell/support-menu"
+import {
+  FeedbackDialog,
+  SupportMenuItems,
+} from "@/components/shell/support-menu"
 import {
   Tooltip,
   TooltipTrigger,
@@ -881,7 +886,23 @@ function AppSidebarContent({
 
   const handleOpenAutomationNotifications = () => {
     const latestUnread = visibleAutomationNotification
-    if (!latestUnread) return
+    if (!latestUnread) {
+      if (automationNotificationsQuery.isError) {
+        notify.error(getErrorMessage(automationNotificationsQuery.error, t), {
+          id: "automation-notifications",
+        })
+      } else {
+        notify.info(
+          t(
+            automationNotificationsQuery.isPending
+              ? "common.loading"
+              : "nav.automationNotificationsEmpty"
+          ),
+          { id: "automation-notifications" }
+        )
+      }
+      return
+    }
 
     const conversation = conversations.find(
       (item) => item.id === latestUnread.conversation_id
@@ -904,8 +925,8 @@ function AppSidebarContent({
             conversationId={conversationId}
           />
         ))}
-      <div className="flex h-full min-h-0 flex-col overflow-hidden px-3 pt-3 pb-2">
-        <div className="flex h-11 shrink-0 items-center justify-between gap-2 px-2">
+      <div className="workspace-theme flex h-full min-h-0 flex-col overflow-hidden bg-sidebar px-4 pb-2 font-interface text-foreground">
+        <div className="-mx-4 flex h-16.5 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
           <ProductLogo
             productName={productName}
             className="sidebar-brand-logo min-w-0"
@@ -915,23 +936,8 @@ function AppSidebarContent({
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="sidebar-nav-item border-0 bg-transparent shadow-none"
-              aria-label={t("common.search")}
-              onClick={() => {
-                setSearchOpen(true)
-              }}
-            >
-              <SearchIcon
-                className="size-3.5"
-                strokeWidth={2}
-                aria-hidden="true"
-              />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
               className="sidebar-nav-item relative border-0 bg-transparent shadow-none"
+              title={t("nav.automationNotifications")}
               aria-label={t(
                 visibleAutomationNotification
                   ? "nav.automationNotificationsUnread"
@@ -959,6 +965,7 @@ function AppSidebarContent({
                 size="icon-sm"
                 className="sidebar-collapse-control sidebar-nav-item border-0 bg-transparent shadow-none"
                 aria-label={t("nav.collapseSidebar")}
+                title={t("nav.collapseSidebar")}
                 aria-controls="app-sidebar"
                 aria-expanded="true"
                 onClick={onCollapse}
@@ -975,31 +982,41 @@ function AppSidebarContent({
 
         <nav
           aria-label={t("nav.navigationLabel", { productName })}
-          className="sidebar-primary-navigation mt-2 shrink-0 space-y-0.5"
+          className="sidebar-primary-navigation mt-3 shrink-0"
         >
-          {userItems
-            .slice(0, 1)
-            .map(({ to, labelKey, icon: Icon, activeClassName }) => (
-              <NavLink
-                key={to}
-                to={to}
-                state={newTaskNavigationState}
-                onClick={onNavigate}
-                className={({ isActive }) =>
-                  cn("sidebar-link font-medium", isActive && activeClassName)
-                }
-              >
-                <Icon className="size-3.5" aria-hidden="true" />
-                <span>{t(labelKey)}</span>
-              </NavLink>
-            ))}
+          {userItems.slice(0, 1).map(({ to, labelKey }) => (
+            <NavLink
+              key={to}
+              to={to}
+              state={newTaskNavigationState}
+              onClick={onNavigate}
+              className="flex min-h-10 min-w-0 items-center justify-center gap-3 rounded-full border border-border bg-card px-3 py-2 text-sm text-foreground shadow-sm transition-colors hover:border-input-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              <PlusIcon className="size-4 shrink-0" aria-hidden="true" />
+              <span>{t(labelKey)}</span>
+            </NavLink>
+          ))}
         </nav>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-3 mb-6 h-10 shrink-0 justify-start gap-2 rounded-full border-border bg-card px-3 font-normal text-muted-foreground shadow-none hover:border-input-hover"
+          aria-label={t("common.search")}
+          onClick={() => setSearchOpen(true)}
+        >
+          <SearchIcon className="size-4" aria-hidden="true" />
+          <span>{t("common.search")}</span>
+        </Button>
 
         <SidebarTaskScrollArea>
           <nav
             aria-label={t("nav.navigationLabel", { productName })}
-            className="space-y-0.5 pt-0.5"
+            className="space-y-2 pt-0.5"
           >
+            <p className="mb-2 text-xs leading-[var(--app-line-18)] text-muted-foreground">
+              {t("workspaceHome.workspace")}
+            </p>
             {userItems
               .slice(1)
               .map(({ to, labelKey, icon: Icon, activeClassName }) => (
@@ -1008,7 +1025,10 @@ function AppSidebarContent({
                   to={to}
                   onClick={onNavigate}
                   className={({ isActive }) =>
-                    cn("sidebar-link font-medium", isActive && activeClassName)
+                    cn(
+                      "sidebar-link h-10 font-normal",
+                      isActive && activeClassName
+                    )
                   }
                 >
                   <Icon className="size-3.5" aria-hidden="true" />
@@ -1016,8 +1036,9 @@ function AppSidebarContent({
                 </NavLink>
               ))}
           </nav>
+          <div className="my-3 h-px bg-border" role="separator" />
           {conversationsQuery.isLoading && (
-            <p className="px-2.5 py-2 text-[length:var(--app-ui-font-size)] leading-[var(--app-ui-compact-line-height)] font-medium text-[var(--app-muted)]">
+            <p className="px-2.5 py-2 text-[length:var(--app-font-13)] leading-[var(--app-ui-compact-line-height)] font-medium text-[var(--app-muted)]">
               {t("common.loading")}
             </p>
           )}
@@ -1076,6 +1097,7 @@ function AppSidebarContent({
               pinned={pinnedConversations}
               recent={recentConversations}
               projects={projectsQuery.data ?? []}
+              projectsReady={projectsQuery.isSuccess}
               sortModes={taskSortModes}
               onSortModeChange={handleTaskSortModeChange}
               loadingMore={
@@ -1190,7 +1212,7 @@ function AppSidebarContent({
                               )}
                             <span className="flex min-w-0 flex-1 items-center gap-2">
                               <span
-                                className="sidebar-conversation-title-fade min-w-0 flex-1 text-[length:var(--app-ui-font-size)] font-medium"
+                                className="sidebar-conversation-title-fade min-w-0 flex-1 text-[length:var(--app-font-13)] font-medium"
                                 onDoubleClick={(event) => {
                                   event.preventDefault()
                                   event.stopPropagation()
@@ -1350,18 +1372,13 @@ function AppSidebarContent({
             />
           )}
           {isFetchingNextPage && (
-            <p className="px-2.5 py-2 text-[length:var(--app-ui-font-size)] leading-[var(--app-ui-compact-line-height)] font-medium text-[var(--app-muted)]">
+            <p className="px-2.5 py-2 text-[length:var(--app-font-13)] leading-[var(--app-ui-compact-line-height)] font-medium text-[var(--app-muted)]">
               {t("common.loading")}
-            </p>
-          )}
-          {conversationsData && conversations.length === 0 && (
-            <p className="px-2.5 py-2 text-[length:var(--app-ui-font-size)] leading-[var(--app-ui-compact-line-height)] font-medium text-[var(--app-muted)]">
-              {t("conversation.listEmpty")}
             </p>
           )}
         </SidebarTaskScrollArea>
 
-        <div className="sidebar-account-bar -mx-3 mt-1 flex shrink-0 items-center gap-1 border-t border-[color:var(--app-divider)] px-3 pt-1">
+        <div className="sidebar-account-bar -mx-4 mt-1 flex min-h-15 shrink-0 items-center gap-1 border-t border-border px-4 pt-1">
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -1391,10 +1408,10 @@ function AppSidebarContent({
               side="top"
               align="start"
               sideOffset={8}
-              className="account-menu w-(--anchor-width) max-w-[calc(100vw-24px)] border-0 p-1.5"
+              className="account-menu max-w-[calc(100vw-24px)] min-w-(--anchor-width) border-0 p-1.5"
             >
               <DropdownMenuGroup>
-                <DropdownMenuLabel className="account-menu-identity flex items-center gap-2.5 px-2 py-2 text-[var(--app-text)]">
+                <DropdownMenuLabel className="account-menu-identity flex max-w-(--anchor-width) items-center gap-2.5 px-2 py-2 text-[var(--app-text)]">
                   <Avatar className="sidebar-account-avatar size-6 border-0">
                     {user?.avatar_url && (
                       <AvatarImage src={user.avatar_url} alt="" />
@@ -1572,6 +1589,7 @@ export function AppShell() {
               size="icon-sm"
               className="desktop-sidebar-trigger sidebar-collapse-control hidden border-0 bg-transparent shadow-none md:inline-flex"
               aria-label={t("nav.expandSidebar")}
+              title={t("nav.expandSidebar")}
               aria-controls="app-sidebar"
               aria-expanded="false"
               onClick={() => setSidebarCollapsed(false)}
@@ -1585,6 +1603,7 @@ export function AppShell() {
             size="icon-sm"
             className="mobile-shell-trigger md:hidden"
             aria-label={t("nav.open")}
+            title={t("nav.open")}
             onClick={() => setMobileOpen(true)}
           >
             <MenuIcon aria-hidden="true" />

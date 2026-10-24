@@ -3,6 +3,7 @@ import type { ConversationMessage } from "@/api/contracts"
 
 export type MessageReferenceAction = Readonly<{
   label: string
+  tooltipLabel?: string
   mode: "ask" | "return"
   disabled?: boolean
   onSelect: (message: ConversationMessage, text: string) => void

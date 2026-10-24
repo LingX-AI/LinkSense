@@ -79,7 +79,7 @@ describe("InitializePage", () => {
     const selector = screen.getByRole("combobox", { name: "界面语言" })
     expect(selector.closest("main")).toBeNull()
     expect(selector.parentElement).toHaveClass("justify-end", "shrink-0")
-    expect(selector.parentElement?.parentElement).toHaveClass("public-shell")
+    expect(selector.closest(".account-access-theme")).toBeInTheDocument()
     expect(selector).toHaveClass("rounded-md")
     expect(selector).not.toHaveClass("rounded-lg", "rounded-full")
   })
@@ -90,11 +90,10 @@ describe("InitializePage", () => {
     const attribution = screen.getByRole("link", {
       name: "由 LinkSense 提供支持",
     }).parentElement
-    expect(attribution).toHaveAttribute("data-placement", "public")
+    expect(attribution).toHaveAttribute("data-placement", "page")
     expect(attribution).toHaveClass(
       "[--attribution-inset:18px]",
-      "pb-[var(--attribution-inset)]",
-      "mt-auto"
+      "pb-[var(--attribution-inset)]"
     )
 
     await interaction.click(

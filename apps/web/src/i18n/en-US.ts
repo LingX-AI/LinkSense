@@ -201,6 +201,7 @@ export const enUS = {
     helpCenter: "Help Center",
     helpCenterNewTab: "Open Help Center in a new tab",
     automationNotifications: "Automation notifications",
+    automationNotificationsEmpty: "No unread automation notifications",
     automationNotificationsUnread:
       "Automation notifications, with an unread completed task",
     automationTask: "Automation task",
@@ -1775,6 +1776,7 @@ export const enUS = {
     notFound: errorCatalog.PROJECT_NOT_FOUND.messages["en-US"],
     taskActive: errorCatalog.PROJECT_TASK_ACTIVE.messages["en-US"],
     empty: "No tasks yet",
+    emptyList: "No projects yet",
     create: "New project",
     createDescription:
       "Tasks in a project share files and keep separate message histories.",
@@ -1883,6 +1885,10 @@ export const enUS = {
         "The link couldn't be copied. Check browser permissions and try again.",
       unavailable: "This shared link doesn't exist or is no longer available.",
       continueInProduct: "Continue in {{productName}}",
+      snapshotDate: "Shared snapshot · {{date}}",
+      sharedConversation: "Shared conversation",
+      readOnly: "Read-only",
+      snapshotNotice: "This is a snapshot. Later messages are not included.",
     },
     rename: "Rename",
     archive: "Archive task",
@@ -2377,6 +2383,7 @@ export const enUS = {
     messageCopied: "Message copied",
     copyMessageFailed: "Unable to copy the message. Try again.",
     forkMessage: "Branch to new chat",
+    forkMessageTooltip: "Branch",
     forkingMessage: "Creating branch…",
     forkMessageFailed: "Unable to create the branched task. Try again.",
     forkSource: {
@@ -5344,8 +5351,10 @@ export const enUS = {
         "The image-understanding model failed image input, structured output, or thinking-disable validation. Check the model and provider configuration.",
     },
     imageGeneration: {
-      inputInvalid: "The editing image could not be read. Use PNG, JPEG or WebP images up to 8 MB each and 10 MB in total, including the mask. Masks must be transparent PNGs matching the first image's dimensions.",
-      editUnsupported: "The current image model does not support this edit. Use fewer reference images, remove the mask, or ask an administrator to select a model that supports the requested editing features.",
+      inputInvalid:
+        "The editing image could not be read. Use PNG, JPEG or WebP images up to 8 MB each and 10 MB in total, including the mask. Masks must be transparent PNGs matching the first image's dimensions.",
+      editUnsupported:
+        "The current image model does not support this edit. Use fewer reference images, remove the mask, or ask an administrator to select a model that supports the requested editing features.",
       notConfigured:
         "The image generation model is not configured or is not enabled.",
       forbidden: "This task cannot call image generation.",

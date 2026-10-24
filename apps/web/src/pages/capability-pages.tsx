@@ -3620,41 +3620,30 @@ export function CapabilityManagementPage() {
         )
       }}
     >
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 pt-4 pr-4 pl-14 sm:pr-6">
-        {view === "store" && (
-          <TabsList
-            className="max-w-full overflow-x-auto"
-            aria-label={t("marketplace.catalogTabsLabel")}
-          >
-            {capabilityCenterSections.map((value) => (
-              <TabsTrigger key={value} value={value}>
-                {t(marketplaceCatalogSectionKeys[value])}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        )}
-        {organizationMarketplaceEnabled && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={cn("shrink-0", view === "store" && "ml-auto")}
-            onClick={() => setView(view === "store" ? "publishing" : "store")}
-          >
-            {view === "store" ? (
-              <UploadIcon data-icon="inline-start" />
-            ) : (
-              <ArrowLeftIcon data-icon="inline-start" />
-            )}
-            {t(
-              view === "store"
-                ? "marketplace.tabs.publishing"
-                : "marketplace.backToCenter"
-            )}
-          </Button>
-        )}
-      </div>
       <PageLayout
+        navigationTitle={t("nav.capabilities")}
+        navigationActions={
+          organizationMarketplaceEnabled && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={cn("shrink-0", view === "store" && "ml-auto")}
+              onClick={() => setView(view === "store" ? "publishing" : "store")}
+            >
+              {view === "store" ? (
+                <UploadIcon data-icon="inline-start" />
+              ) : (
+                <ArrowLeftIcon data-icon="inline-start" />
+              )}
+              {t(
+                view === "store"
+                  ? "marketplace.tabs.publishing"
+                  : "marketplace.backToCenter"
+              )}
+            </Button>
+          )
+        }
         title={t(
           view === "store"
             ? marketplaceCatalogSectionKeys[section]
@@ -3676,7 +3665,25 @@ export function CapabilityManagementPage() {
           ) : undefined
         }
         afterHeader={
-          view !== "publishing" && error ? <Feedback error={error} /> : null
+          <>
+            {view === "store" && (
+              <TabsList
+                className="mb-6 justify-start"
+                aria-label={t("marketplace.catalogTabsLabel")}
+              >
+                {capabilityCenterSections.map((value) => (
+                  <TabsTrigger
+                    key={value}
+                    value={value}
+                    className="flex-none"
+                  >
+                    {t(marketplaceCatalogSectionKeys[value])}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            )}
+            {view !== "publishing" && error ? <Feedback error={error} /> : null}
+          </>
         }
       >
         {view === "store" && section === "connector" && (

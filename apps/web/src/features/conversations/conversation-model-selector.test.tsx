@@ -185,9 +185,9 @@ describe("ConversationModelSelector", () => {
     expect(selector).toHaveClass(
       "w-fit",
       "max-w-[min(20rem,calc(100vw-6rem))]",
-      "bg-muted/40",
-      "hover:bg-hover",
-      "aria-expanded:bg-muted/60"
+      "bg-card",
+      "hover:bg-card",
+      "aria-expanded:bg-accent"
     )
     const contextTrigger = screen.getByLabelText("背景信息窗口：60% 已用")
     expect(contextTrigger).toBeVisible()

@@ -30,10 +30,7 @@ const readableSecondaryRules = [
   ["capability descriptions", "\\.capability-library-description"],
   ["capability pagination", "\\.capability-library-more"],
   ["authentication notices", "\\.authentication-mode-notice"],
-  [
-    "settings descriptions",
-    "\\.settings-page-header p,\\s*\\.settings-panel > p",
-  ],
+  ["settings descriptions", "\\.settings-page-header p"],
   ["role account summaries", "\\.role-account-count span"],
   ["page links", "\\.text-link,\\s*\\.public-link,\\s*\\.public-back-link"],
   ["health labels", "\\.health-summary span"],
@@ -45,18 +42,29 @@ const readableSecondaryRules = [
 
 describe("readable secondary copy typography", () => {
   it.each(readableSecondaryRules)(
-    "uses the 13px-derived token for %s",
-    (_name, selectorPattern) => {
+    "uses the design copy tier for %s",
+    (name, selectorPattern) => {
       const rule = cssRule(selectorPattern)
 
-      expect(rule).toContain("font-size: var(--app-font-13);")
-      expect(rule).toContain("line-height: var(--app-line-20);")
+      const body = [
+        "management descriptions",
+        "form labels",
+        "settings descriptions",
+        "public page descriptions",
+      ].includes(name)
+      const hint = name === "form hints"
+      expect(rule).toContain(
+        `font-size: var(${body ? "--app-ui-font-size" : hint ? "--app-font-12" : "--app-font-13"});`
+      )
+      expect(rule).toContain(
+        `line-height: var(${body ? "--app-line-22" : hint ? "--app-line-18" : "--app-line-20"});`
+      )
     }
   )
 
   it("uses the shared small text tier for appearance labels", () => {
     expect(settingsPagesSource).toContain(
-      '"text-center text-sm font-medium"'
+      '"flex items-center justify-between gap-2 text-sm font-medium"'
     )
   })
 

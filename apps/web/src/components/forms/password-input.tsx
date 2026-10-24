@@ -15,12 +15,14 @@ type PasswordInputProps = Omit<
 > & {
   id: string
   fieldLabel: string
+  variant?: ComponentProps<typeof InputGroup>["variant"]
 }
 
 export function PasswordInput({
   id,
   fieldLabel,
   disabled,
+  variant = "outlined",
   ...props
 }: PasswordInputProps) {
   const { t } = useTranslation()
@@ -31,7 +33,11 @@ export function PasswordInput({
   )
 
   return (
-    <InputGroup className="h-9" data-disabled={disabled ? "true" : undefined}>
+    <InputGroup
+      variant={variant}
+      className={variant === "default" ? "h-9" : undefined}
+      data-disabled={disabled ? "true" : undefined}
+    >
       <InputGroupInput
         {...props}
         id={id}

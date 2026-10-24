@@ -35,6 +35,7 @@ export function SidebarTaskGroups({
   pinned,
   recent,
   projects,
+  projectsReady = true,
   loadingMore,
   sortModes = defaultSidebarTaskSortModes,
   onSortModeChange,
@@ -45,6 +46,7 @@ export function SidebarTaskGroups({
   pinned: Conversation[]
   recent: Conversation[]
   projects: Project[]
+  projectsReady?: boolean
   loadingMore: boolean
   sortModes?: SidebarTaskSortModes
   onSortModeChange?: (
@@ -130,7 +132,6 @@ export function SidebarTaskGroups({
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="pointer-events-none opacity-0 group-hover/tasks-heading:pointer-events-auto group-hover/tasks-heading:opacity-100 group-has-[:focus-visible]/tasks-heading:pointer-events-auto group-has-[:focus-visible]/tasks-heading:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
               aria-label={t("projects.create")}
               onClick={() => onAction({ mode: "create" })}
             >
@@ -170,6 +171,13 @@ export function SidebarTaskGroups({
             {renderProject(id)}
           </SidebarTaskGroup>
         ))}
+        {projectsReady &&
+          orderedProjects.length === 0 &&
+          unavailableIds.length === 0 && (
+            <p className="px-2.5 py-1 text-[length:var(--app-font-13)] leading-[var(--app-ui-compact-line-height)] text-muted-foreground">
+              {t("projects.emptyList")}
+            </p>
+          )}
       </SidebarTaskSection>
       <SidebarTaskSection
         key={JSON.stringify([userId, "recent"])}
@@ -178,6 +186,11 @@ export function SidebarTaskGroups({
         action={sortMenu("recent", t("nav.recent"))}
       >
         {byProject.has(null) && renderProject(null)}
+        {!loadingMore && !byProject.has(null) && (
+          <p className="px-2.5 py-1 text-[length:var(--app-font-13)] leading-[var(--app-ui-compact-line-height)] text-muted-foreground">
+            {t("projects.empty")}
+          </p>
+        )}
       </SidebarTaskSection>
     </>
   )

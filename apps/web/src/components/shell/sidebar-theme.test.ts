@@ -50,8 +50,8 @@ describe("sidebar theme", () => {
       "--sidebar-conversation-actions-width: 56px;"
     )
   })
-  it("uses the documented 248px default for task and settings sidebars", () => {
-    expect(cssRule(":root")).toContain("--app-sidebar-width: 248px;")
+  it("uses the documented 272px default for task and settings sidebars", () => {
+    expect(cssRule(":root")).toContain("--app-sidebar-width: 272px;")
     expect(cssRule(".prototype-shell")).toContain(
       "grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);"
     )
@@ -64,17 +64,17 @@ describe("sidebar theme", () => {
     const lightTheme = cssRule(":root")
     const darkTheme = cssRule(".dark")
 
-    expect(lightTheme).toContain("--sidebar: #f5f5f5;")
-    expect(lightTheme).toContain("--app-sidebar: #f5f5f5;")
-    expect(lightTheme).toContain("--app-sidebar-muted: #626262;")
-    expect(lightTheme).toContain("--sidebar-accent: rgb(32 32 32 / 3%);")
-    expect(lightTheme).toContain("--app-sidebar-hover: rgb(32 32 32 / 3%);")
-    expect(lightTheme).toContain("--app-hover-subtle: rgb(32 32 32 / 2%);")
-    expect(lightTheme).toContain("--app-sidebar-active: rgb(32 32 32 / 8%);")
-    expect(lightTheme).toContain("--app-user-surface: #f5f5f5;")
+    expect(lightTheme).toContain("--sidebar: #f7f8fa;")
+    expect(lightTheme).toContain("--app-sidebar: #f7f8fa;")
+    expect(lightTheme).toContain("--app-sidebar-muted: #64728b;")
+    expect(lightTheme).toContain("--sidebar-accent: #e9f1ff;")
+    expect(lightTheme).toContain("--app-sidebar-hover: #eef4fe;")
+    expect(lightTheme).toContain("--app-hover-subtle: #f7f9fd;")
+    expect(lightTheme).toContain("--app-sidebar-active: #e9f1ff;")
+    expect(lightTheme).toContain("--app-user-surface: #f3f5f8;")
     expect(lightTheme).toContain("--app-brand: #1866e1;")
     expect(lightTheme).toContain("--app-brand-foreground: #ffffff;")
-    expect(lightTheme).toContain("--destructive: #b84048;")
+    expect(lightTheme).toContain("--destructive: #c52736;")
     expect(lightTheme).toContain("--app-sidebar-avatar: var(--app-brand);")
     expect(lightTheme).toContain(
       "--app-sidebar-avatar-foreground: var(--app-brand-foreground);"
@@ -84,12 +84,12 @@ describe("sidebar theme", () => {
     )
     expect(darkTheme).toContain("--sidebar: #202020;")
     expect(darkTheme).toContain("--app-sidebar: #202020;")
-    expect(darkTheme).toContain("--sidebar-accent: #282828;")
-    expect(darkTheme).toContain("--app-sidebar-hover: #282828;")
-    expect(darkTheme).toContain("--app-hover-subtle: rgb(255 255 255 / 3%);")
-    expect(darkTheme).toContain("--app-sidebar-active: #343434;")
+    expect(darkTheme).toContain("--sidebar-accent: #293347;")
+    expect(darkTheme).toContain("--app-sidebar-hover: #282c36;")
+    expect(darkTheme).toContain("--app-hover-subtle: #222630;")
+    expect(darkTheme).toContain("--app-sidebar-active: #293347;")
     expect(darkTheme).toContain("--app-user-surface: #292929;")
-    expect(darkTheme).toContain("--app-sidebar-muted: #b3b3b3;")
+    expect(darkTheme).toContain("--app-sidebar-muted: #adb6c8;")
     expect(darkTheme).toContain("--app-sidebar-avatar: var(--app-brand);")
     expect(darkTheme).toContain(
       "--app-sidebar-avatar-foreground: var(--app-brand-foreground);"
@@ -100,11 +100,11 @@ describe("sidebar theme", () => {
     const lightTheme = cssRule(":root")
     const darkTheme = cssRule(".dark")
 
-    expect(lightTheme).toContain("--accent: #e9e9e9;")
-    expect(lightTheme).toContain("--app-hover: rgb(32 32 32 / 4%);")
+    expect(lightTheme).toContain("--accent: #e9f1ff;")
+    expect(lightTheme).toContain("--app-hover: #eef4fe;")
     expect(lightTheme).toContain("--app-media-control-hover: #e9e9e9;")
-    expect(darkTheme).toContain("--accent: #2c2c2c;")
-    expect(darkTheme).toContain("--app-hover: rgb(255 255 255 / 6%);")
+    expect(darkTheme).toContain("--accent: #293347;")
+    expect(darkTheme).toContain("--app-hover: #282c36;")
     expect(darkTheme).toContain("--app-media-control-hover: #393939;")
     expect(sidebarStyles).toContain("--color-hover: var(--app-hover);")
   })
@@ -114,11 +114,11 @@ describe("sidebar theme", () => {
 
     expect(darkTheme).toContain("--background: #141414;")
     expect(darkTheme).toContain("--app-canvas: #141414;")
-    expect(darkTheme).toContain("--app-topbar: rgb(20 20 20 / 94%);")
-    expect(darkTheme).toContain("--card: #252525;")
-    expect(darkTheme).toContain("--app-composer: #252525;")
-    expect(darkTheme).toContain("--app-popover: #252525;")
-    expect(darkTheme).toContain("--app-control-surface: #303030;")
+    expect(darkTheme).toContain("--app-topbar: #202020;")
+    expect(darkTheme).toContain("--card: #202020;")
+    expect(darkTheme).toContain("--app-composer: #202020;")
+    expect(darkTheme).toContain("--app-popover: #202020;")
+    expect(darkTheme).toContain("--app-control-surface: #282828;")
   })
 
   it("uses sidebar-specific avatar colors for the account identity", () => {
@@ -234,7 +234,7 @@ describe("sidebar theme", () => {
       )
     ).toContain("top: calc((var(--conversation-top-bar-height) - 28px) / 2);")
     expect(cssRule(".desktop-sidebar-trigger:hover")).toContain(
-      "background: transparent;"
+      "background: var(--app-hover);"
     )
     expect(
       cssRule(
