@@ -186,6 +186,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   "AUTOMATION_TASK_IN_USE": "Esta tarefa ainda é usada por uma automação. Exclua ou reatribua a automação primeiro.",
   "AUTOMATION_EMPTY_RESULT": "A automação terminou sem produzir um resultado exibível. Execute novamente.",
   "AUTOMATION_EXPIRED": "Esta automação expirou e não pode mais ser executada.",
+  AUTOMATION_TARGET_ALREADY_CONFIGURED: "Esta tarefa já tem uma automação. Edite o plano existente ou peça explicitamente outro separado.",
   "ACCESS_DENIED": "Você não tem acesso a esta tarefa.",
   "ATTACHMENT_UPLOAD_INVALID": "O envio do anexo falhou. Escolha um arquivo compatível e tente novamente.",
   "ATTACHMENT_TEMPORARY_FILE_SKIPPED": "Arquivos temporários foram ignorados. Escolha outro arquivo com conteúdo relevante.",
