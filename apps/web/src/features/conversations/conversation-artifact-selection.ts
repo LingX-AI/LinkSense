@@ -2,7 +2,9 @@ import type {
   ConversationFile,
   ConversationMessage,
   ConversationTurn,
+  NativeCodexItem,
 } from "@/api/contracts"
+import { isPreviewableConversationImage } from "@/features/conversations/conversation-attachment-preview-utils"
 import { resolveConversationDeliveryFiles } from "@/features/conversations/conversation-delivery-references"
 import { getConversationFilePreviewKind } from "@/features/conversations/conversation-file-preview"
 
@@ -12,6 +14,74 @@ function imageChecksum(file: ConversationFile): string | null {
   return checksum && /^[a-f0-9]{64}$/iu.test(checksum)
     ? checksum.toLowerCase()
     : null
+}
+
+/** Tool outputs are candidates; the final reply determines which images are delivered. */
+export function selectConversationGeneratedImageIds({
+  items,
+  registeredFileIds = [],
+  turnId,
+  filesById,
+  finalMessage,
+}: Readonly<{
+  items: readonly Extract<NativeCodexItem, { type: "mcpToolCall" }>[]
+  registeredFileIds?: readonly string[]
+  turnId: string
+  filesById?: ReadonlyMap<string, ConversationFile>
+  finalMessage?: ConversationMessage
+}>): string[] {
+  const generatedIds = items.flatMap((item) => item.generatedImageFileIds ?? [])
+  const candidateIds = new Set(
+    [...generatedIds, ...registeredFileIds].map((id) => id.toLowerCase())
+  )
+  if (candidateIds.size === 0) return []
+  const generatedChecksums = new Set(
+    generatedIds.flatMap((id) => {
+      const file = filesById?.get(id.toLowerCase())
+      const checksum =
+        file?.kind === "artifact" && file.turn_id === turnId
+          ? imageChecksum(file)
+          : null
+      return checksum ? [checksum] : []
+    })
+  )
+  const turnFiles = [...(filesById?.values() ?? [])].filter(
+    (file) => file.kind === "artifact" && file.turn_id === turnId
+  )
+  const deliveries = finalMessage
+    ? resolveConversationDeliveryFiles(finalMessage.content, turnFiles)
+    : []
+  const ids = deliveries.length
+    ? deliveries
+        .filter((file) => {
+          const checksum = imageChecksum(file)
+          return (
+            candidateIds.has(file.id.toLowerCase()) ||
+            (checksum !== null && generatedChecksums.has(checksum))
+          )
+        })
+        .map((file) => file.id.toLowerCase())
+    : finalMessage
+      ? [...registeredFileIds, ...generatedIds]
+      : [...generatedIds, ...registeredFileIds]
+  const seen = new Set<string>()
+  return [...new Set(ids.map((id) => id.toLowerCase()))].filter((id) => {
+    const file = filesById?.get(id)
+    // Keep unresolved registrations so the image surface can show loading or
+    // unavailable feedback while file details arrive independently of events.
+    if (!file) return true
+    if (
+      file.kind !== "artifact" ||
+      file.turn_id !== turnId ||
+      !isPreviewableConversationImage(file)
+    )
+      return false
+    const checksum = imageChecksum(file)
+    if (!checksum) return true
+    if (seen.has(checksum)) return false
+    seen.add(checksum)
+    return true
+  })
 }
 
 /** Select automatic cards without removing files used by explicit links or downloads. */
@@ -41,18 +111,10 @@ export function selectConversationArtifactCards({
   for (const turn of turns) {
     const turnFiles = [...(filesByTurn.get(turn.id)?.values() ?? [])]
     const finalMessage = finalMessagesByTurn.get(turn.id)
-    const imageChecksums = turnFiles
-      .map(imageChecksum)
-      .filter((checksum) => checksum !== null)
-    const hasDuplicateImages =
-      new Set(imageChecksums).size < imageChecksums.length
-    const hasActivityImages = turnFiles.some((file) =>
-      activityImageArtifactIds.has(file.id.toLowerCase())
-    )
     const deliveryIds = new Set(
       // An image viewed during processing becomes a deliverable only when the
       // final reply explicitly references it. A separate registration is kept.
-      finalMessage && (hasDuplicateImages || hasActivityImages)
+      finalMessage
         ? resolveConversationDeliveryFiles(finalMessage.content, turnFiles).map(
             (file) => file.id.toLowerCase()
           )
@@ -60,7 +122,13 @@ export function selectConversationArtifactCards({
     )
     const inlineChecksums = new Set(
       turnFiles
-        .filter((file) => inlineArtifactIds.has(file.id.toLowerCase()))
+        .filter((file) => {
+          const id = file.id.toLowerCase()
+          return (
+            inlineArtifactIds.has(id) &&
+            (!activityImageArtifactIds.has(id) || deliveryIds.has(id))
+          )
+        })
         .map(imageChecksum)
         .filter((checksum) => checksum !== null)
     )
@@ -70,6 +138,12 @@ export function selectConversationArtifactCards({
       if (
         inlineArtifactIds.has(id) ||
         (activityImageArtifactIds.has(id) && !deliveryIds.has(id))
+      )
+        continue
+      if (
+        getConversationFilePreviewKind(file) === "image" &&
+        deliveryIds.size > 0 &&
+        !deliveryIds.has(id)
       )
         continue
       const checksum = imageChecksum(file)

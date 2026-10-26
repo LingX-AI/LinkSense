@@ -381,7 +381,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 const generateImageTool = {
   name: "generate_image",
   description:
-    "Generate or edit raster images with the configured image model and register the results as artifacts. For editing, pass task-relative paths in input_images; the original image bytes are sent with the editing prompt. Never describe an original image as a substitute for providing it.",
+    "Generate or edit raster images with the configured image model and register the results as artifacts. Image previews and downloads appear in a gallery below the final reply; refer to this gallery below, never above. In the final reply, link every final image as [scene](linksense-artifact:<file_id>) using its returned file_id. Keep all requested scenes or variants across successful calls and omit discarded drafts and process-only previews. For editing, pass task-relative paths in input_images; the original image bytes are sent with the editing prompt. Never describe an original image as a substitute for providing it.",
   inputSchema: {
     type: "object",
     properties: {

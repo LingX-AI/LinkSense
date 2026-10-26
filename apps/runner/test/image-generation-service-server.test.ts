@@ -119,7 +119,11 @@ describe("LinkSense Core MCP image generation module", () => {
     });
     await expect(rpc.call(2, "tools/list", {})).resolves.toMatchObject({
       tools: expect.arrayContaining([
-        expect.objectContaining({ name: "generate_image", inputSchema: expect.objectContaining({ required: ["prompt", "image_name"] }) }),
+        expect.objectContaining({
+          name: "generate_image",
+          description: expect.stringContaining("below the final reply"),
+          inputSchema: expect.objectContaining({ required: ["prompt", "image_name"] }),
+        }),
       ]),
     });
     const result = await rpc.call(3, "tools/call", {

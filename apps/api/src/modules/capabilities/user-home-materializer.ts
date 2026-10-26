@@ -58,7 +58,7 @@ export const PLUGIN_STDIO_LAUNCHER_COMMAND = "linksense-plugin-stdio"
 // The regression test intentionally pins it to the actual generated tree so
 // every built-in writer or bundled documentation change must update it.
 export const BUILT_IN_CAPABILITY_RUNTIME_REVISION =
-  "94bdc0bae29410b1247de7ad7801039510db1bcdea8d6c440bdc3e620ff2df62"
+  "546793bb765c4d344d6c754645c329b240f8d7f4ed27df9695fdc4188c50a3a1"
 
 const BUILT_IN_BROWSER_SKILL_NAME = "linksense-browser"
 const BUILT_IN_DOCUMENT_READER_SKILL_NAME = "linksense-document-reader"
@@ -2070,11 +2070,16 @@ runtime tokens.
    \`count\`, \`size\`, \`negative_prompt\`, or \`seed\` only when they materially
    help the request.
 3. The MCP saves generated files under \`artifacts/\` and registers them as
-   LinkSense artifacts. LinkSense automatically replaces the generation loading
-   card with the registered images and provides preview and download actions.
-   Keep the final answer concise. Do not repeat the images as Markdown embeds,
-   add redundant filename lists, rename the output, or register it again just
-   for display. Use the returned artifact metadata for any explicit reference.
+   LinkSense artifacts. LinkSense displays the finished images, preview and
+   download actions in a gallery below the final reply. Refer to this gallery
+   below, never above.
+   In the final reply, include a Markdown link for every final image using its
+   exact returned \`file_id\`: \`[scene](linksense-artifact:<file_id>)\`.
+   Keep all requested scenes or variants, including results from separate
+   successful calls. Omit discarded drafts and process-only previews from these
+   links. Keep the final answer concise.
+   Do not repeat the images as Markdown embeds, add redundant filename lists,
+   rename the output, or register it again just for display.
 4. If the tool returns a structured error such as
    \`IMAGE_GENERATION_NOT_CONFIGURED\`, \`IMAGE_GENERATION_PROVIDER_REJECTED\`, or
    \`IMAGE_GENERATION_UNAVAILABLE\`, explain the exact failure and do not invent

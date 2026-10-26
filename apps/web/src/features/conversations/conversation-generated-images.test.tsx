@@ -46,6 +46,112 @@ afterEach(() => {
 })
 
 describe("generated image cards", () => {
+  it.each([1, 2])(
+    "fits the main image to its natural height at the same responsive width with %s images",
+    async (count) => {
+      const files = [
+        image,
+        { ...image, id: secondFileId, name: "second.png" },
+      ].slice(0, count)
+      const { container } = render(
+        <ConversationGeneratedImages
+          items={[
+            { ...call, generatedImageFileIds: files.map((file) => file.id) },
+          ]}
+          turnId="turn-1"
+          turnStatus="completed"
+          running={false}
+          filesById={new Map(files.map((file) => [file.id, file]))}
+          loadPreview={vi.fn().mockResolvedValue(previewSource)}
+          onDownload={vi.fn()}
+        />
+      )
+      const preview = await screen.findByRole("img", { name: image.name })
+      expect(preview).toHaveClass("w-full", "h-auto", "object-contain")
+      const frame = preview.closest('[data-slot="generated-image-frame"]')
+      expect(frame).toHaveClass("w-full")
+      expect(frame).not.toHaveClass("aspect-square", "max-h-[32rem]")
+      expect(frame?.parentElement).toHaveClass("w-[32rem]", "max-w-full")
+      expect(
+        preview.closest('[data-slot="assistant-image-surface"]')
+      ).not.toHaveClass("absolute", "size-full")
+      expect(preview.closest("button")).toHaveClass(
+        "w-full",
+        "h-auto",
+        "p-0",
+        "border-0"
+      )
+      expect(
+        container.querySelector('[data-slot="generated-image-call"]')
+      ).toHaveClass("w-fit", "max-w-full")
+      if (count > 1) {
+        expect(
+          screen.getByRole("tablist").closest('[data-slot="tabs"]')
+        ).toHaveClass("flex-row", "items-start")
+        expect(
+          frame?.closest('[data-slot="tabs-content"]')?.parentElement
+        ).toHaveClass("w-[32rem]", "min-w-0")
+      }
+    }
+  )
+
+  it.each(supportedLanguages)(
+    "keeps only the delivered image and its localized download action in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const finalImage = { ...image, id: secondFileId, name: "final.png" }
+      const onDownload = vi.fn()
+      const loadPreview = vi.fn().mockResolvedValue(previewSource)
+      render(
+        <ConversationGeneratedImages
+          items={[
+            call,
+            {
+              ...call,
+              id: "final-call",
+              generatedImageFileIds: [secondFileId],
+            },
+          ]}
+          turnId="turn-1"
+          turnStatus="completed"
+          running={false}
+          finalMessage={{
+            id: "final-message",
+            role: "assistant",
+            turn_id: "turn-1",
+            phase: "final_answer",
+            content: `![result](linksense-artifact:${secondFileId})`,
+          }}
+          filesById={
+            new Map([
+              [fileId, image],
+              [secondFileId, finalImage],
+            ])
+          }
+          loadPreview={loadPreview}
+          onDownload={onDownload}
+        />
+      )
+      expect(
+        await screen.findByRole("img", { name: finalImage.name })
+      ).toBeVisible()
+      expect(screen.queryByRole("img", { name: image.name })).toBeNull()
+      expect(screen.queryByRole("tablist")).toBeNull()
+      expect(loadPreview).toHaveBeenCalledExactlyOnceWith(
+        finalImage,
+        expect.any(AbortSignal)
+      )
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: i18n.t("conversation.downloadArtifact", {
+            name: finalImage.name,
+          }),
+        })
+      )
+      expect(onDownload).toHaveBeenCalledWith(finalImage)
+    }
+  )
+
   it("reserves a separate scrollbar lane beside ten fixed-size thumbnails and keeps keyboard selection working", async () => {
     const files = Array.from({ length: 10 }, (_, index) => ({
       ...image,
@@ -155,7 +261,9 @@ describe("generated image cards", () => {
     const frame = view.container.querySelector(
       '[data-slot="generated-image-frame"]'
     )
-    expect(frame).toHaveClass("aspect-square", "w-full", "max-h-[32rem]")
+    expect(frame).toHaveClass("w-full")
+    expect(frame).not.toHaveClass("aspect-square", "max-h-[32rem]")
+    expect(screen.getByRole("status")).toHaveClass("aspect-square")
 
     view.rerender(<ConversationGeneratedImages {...props} items={[call]} />)
     const preview = await screen.findByRole("img", { name: image.name })
@@ -163,8 +271,7 @@ describe("generated image cards", () => {
     expect(
       view.container.querySelector('[data-slot="generated-image-frame"]')
     ).toBe(frame)
-    expect(preview).toHaveClass("size-full", "object-contain")
-    expect(preview).not.toHaveClass("h-auto")
+    expect(preview).toHaveClass("w-full", "h-auto", "object-contain")
     fireEvent.error(preview)
 
     expect(screen.getByRole("button", { name: "重试" })).toBeVisible()
@@ -262,7 +369,7 @@ describe("generated image cards", () => {
       />
     )
     const card = container.querySelector('[data-slot="generated-image-call"]')
-    expect(card).toHaveClass("max-w-[15rem]")
+    expect(card).toHaveClass("w-fit", "max-w-full")
     expect(screen.getByRole("status", { name: "正在生成图片…" })).toBeVisible()
     rerender(<ConversationGeneratedImages {...props} items={[call]} />)
     expect(container.querySelector('[data-slot="generated-image-call"]')).toBe(
@@ -345,7 +452,7 @@ describe("generated image cards", () => {
     expect(screen.getAllByRole("tab")).toHaveLength(2)
     expect(screen.getByRole("tablist")).toHaveClass("flex-col")
     expect(screen.getAllByRole("tabpanel")).toHaveLength(1)
-    expect(screen.getByText("图片暂时无法查看")).toBeVisible()
+    expect(screen.queryByText("图片暂时无法查看")).toBeNull()
     first.unmount()
     render(<ConversationGeneratedImages {...props} />)
     await waitFor(() =>

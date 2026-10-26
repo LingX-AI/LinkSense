@@ -158,7 +158,10 @@ import {
   type ArtifactPreviewSource,
 } from "@/features/conversations/conversation-artifact-files"
 import { isPreviewableConversationImage } from "@/features/conversations/conversation-attachment-preview-utils"
-import { selectConversationArtifactCards } from "@/features/conversations/conversation-artifact-selection"
+import {
+  selectConversationArtifactCards,
+  selectConversationGeneratedImageIds,
+} from "@/features/conversations/conversation-artifact-selection"
 import { resolveConversationDeliveryFiles } from "@/features/conversations/conversation-delivery-references"
 import { ConversationAttachmentPreviews } from "@/features/conversations/conversation-attachment-previews"
 import {
@@ -3575,7 +3578,6 @@ function TurnSummary({
   finalAnswerConfirmed,
   finalAnswerVisible,
   artifacts,
-  imageArtifactIds,
   artifactFilesById,
   loadArtifactPreview,
   onPreviewHtmlCode,
@@ -3621,7 +3623,6 @@ function TurnSummary({
   finalAnswerConfirmed: boolean
   finalAnswerVisible: boolean
   artifacts: ConversationFile[]
-  imageArtifactIds: readonly string[]
   artifactFilesById?: ReadonlyMap<string, ConversationFile>
   loadArtifactPreview?: LoadArtifactPreview
   onPreviewHtmlCode?: (html: string) => void
@@ -3708,11 +3709,6 @@ function TurnSummary({
     nativeReconnectState?.phase === "reconnecting" ? nativeReconnectState : null
   const nativeReconnectFailed = nativeReconnectState?.phase === "failed"
   const visuallyRunning = running && !nativeReconnectFailed
-  const imageGenerationItems = nativeActivities.flatMap(({ item }) =>
-    item.type === "mcpToolCall" && isImageGenerationNativeItem(item)
-      ? [item]
-      : []
-  )
   const interruptedForDisplay =
     nativeReconnectFailed ||
     (Boolean(interruptRequestedAt) && !running) ||
@@ -4391,18 +4387,6 @@ function TurnSummary({
         onDownload={onDownload}
         downloadingFileId={downloadingFileId}
       />
-      <ConversationGeneratedImages
-        items={imageGenerationItems}
-        registeredFileIds={imageArtifactIds}
-        turnId={turn.id}
-        turnStatus={turn.status}
-        running={visuallyRunning}
-        filesById={artifactFilesById}
-        loadPreview={loadArtifactPreview}
-        onPreviewImage={onPreviewImage}
-        onDownload={onDownload}
-        downloadingFileId={downloadingFileId}
-      />
     </section>
   )
 }
@@ -4655,8 +4639,12 @@ export function ConversationThread({
       if (
         file.turn_id === message.turn_id &&
         isPreviewableConversationImage(file)
-      )
+      ) {
         inlineArtifactIds.add(file.id.toLowerCase())
+        if (message.phase === "commentary") {
+          activityImageArtifactIds.add(file.id.toLowerCase())
+        }
+      }
     }
   }
   for (const event of conversation.events ?? []) {
@@ -4812,6 +4800,35 @@ export function ConversationThread({
     values.push(event)
     nativeEventsByTurn.set(turnId, values)
   }
+  const imageGenerationItemsByTurn = new Map<
+    string,
+    Extract<NativeCodexItem, { type: "mcpToolCall" }>[]
+  >()
+  for (const [turnId, events] of nativeEventsByTurn) {
+    const items = collapseNativeLifecycle(events).flatMap(({ item }) =>
+      item.type === "mcpToolCall" && isImageGenerationNativeItem(item)
+        ? [item]
+        : []
+    )
+    imageGenerationItemsByTurn.set(turnId, items)
+    const finalMessage = finalMessageByTurn.get(turnId)
+    if (!finalMessage || finalMessage.streaming === true) continue
+    const deliveredIds = new Set(
+      selectConversationGeneratedImageIds({
+        items,
+        turnId,
+        filesById: conversationFilesById,
+        finalMessage,
+      })
+    )
+    for (const item of items) {
+      for (const id of item.generatedImageFileIds ?? []) {
+        if (!deliveredIds.has(id.toLowerCase())) {
+          activityImageArtifactIds.add(id.toLowerCase())
+        }
+      }
+    }
+  }
   const artifactsByTurn = selectConversationArtifactCards({
     files: [...conversationFilesById.values()],
     turns,
@@ -4830,6 +4847,17 @@ export function ConversationThread({
       artifacts.delete(id)
     }
     imageArtifactIdsByTurn.set(turnId, imageIds)
+  }
+  for (const [turnId, finalMessage] of finalMessageByTurn) {
+    for (const id of selectConversationGeneratedImageIds({
+      items: imageGenerationItemsByTurn.get(turnId) ?? [],
+      registeredFileIds: imageArtifactIdsByTurn.get(turnId) ?? [],
+      turnId,
+      filesById: conversationFilesById,
+      finalMessage,
+    })) {
+      generatedImageFileIds.add(id)
+    }
   }
   const guidedMessagesByTurn = new Map<string, ConversationMessage[]>()
   for (const message of messages) {
@@ -5164,7 +5192,6 @@ export function ConversationThread({
             ? []
             : turnArtifacts
         }
-        imageArtifactIds={imageArtifactIdsByTurn.get(turn.id) ?? []}
         artifactFilesById={conversationFilesById}
         loadArtifactPreview={loadArtifactPreview}
         onPreviewHtmlCode={onPreviewHtmlCode}
@@ -5379,7 +5406,37 @@ export function ConversationThread({
       key: row.key,
       turnId: row.turnId,
       messageIds: row.messageIds,
-      render: () => row.renderers.flatMap((render) => render()),
+      render: () => {
+        const nodes = row.renderers.flatMap((render) => render())
+        const turn = row.turnId ? turnById.get(row.turnId) : undefined
+        if (!turn) return nodes
+        const finalMessage = finalMessageByTurn.get(turn.id)
+        nodes.push(
+          <ConversationGeneratedImages
+            key={`turn-images-${getTurnRenderKey(turn)}`}
+            items={imageGenerationItemsByTurn.get(turn.id) ?? []}
+            registeredFileIds={imageArtifactIdsByTurn.get(turn.id) ?? []}
+            finalMessage={
+              finalMessage?.streaming === true ? undefined : finalMessage
+            }
+            turnId={turn.id}
+            turnStatus={turn.status}
+            running={
+              isTurnActiveRunning(turn) &&
+              !(
+                nativeReconnectState?.turnId === turn.id &&
+                nativeReconnectState.phase === "failed"
+              )
+            }
+            filesById={conversationFilesById}
+            loadPreview={loadArtifactPreview}
+            onPreviewImage={onPreviewImage}
+            onDownload={onDownload}
+            downloadingFileId={downloadingFileId}
+          />
+        )
+        return nodes
+      },
     })
   )
   const rowsByTurn = new Map(
