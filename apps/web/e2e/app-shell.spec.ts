@@ -569,6 +569,8 @@ for (const viewport of [
 for (const viewport of [
   { width: 1440, height: 900 },
   { width: 2222, height: 1000 },
+  { width: 1720, height: 900 },
+  { width: 1721, height: 900 },
   { width: 1024, height: 768 },
   { width: 832, height: 970 },
   { width: 390, height: 844 },
@@ -619,6 +621,7 @@ for (const viewport of [
     if (!scrollBox || !controlsBox)
       throw new Error("Expected the home task layout")
     expect(scrollBox.y + scrollBox.height).toBeLessThanOrEqual(controlsBox.y)
+    await expectTaskHomeLayout(page)
     const cards = page
       .getByRole("group", { name: "常见任务建议" })
       .getByRole("button")
@@ -735,7 +738,58 @@ test("compact English task home keeps shortcuts and model controls readable", as
   await page.screenshot({
     path: test.info().outputPath("task-home-compact-en-dark.png"),
   })
+  for (const width of [1720, 1721, 2365]) {
+    await page.setViewportSize({ width, height: 970 })
+    await expectTaskHomeLayout(page)
+  }
+  await page.screenshot({
+    path: test.info().outputPath("task-home-wide-en-dark.png"),
+  })
 })
+
+async function expectTaskHomeLayout(page: Page): Promise<void> {
+  const layout = await page
+    .locator(".conversation-workspace")
+    .evaluate((workspace) => {
+      const welcome = workspace.querySelector(".conversation-welcome")
+      const composer = workspace.querySelector(".composer-shell")
+      const attribution = workspace.querySelector(".conversation-attribution")
+      if (!welcome || !composer)
+        throw new Error("Expected the task home and composer")
+      return {
+        workspace: workspace.getBoundingClientRect().toJSON(),
+        welcome: welcome.getBoundingClientRect().toJSON(),
+        composer: composer.getBoundingClientRect().toJSON(),
+        attribution: attribution?.getClientRects().length
+          ? attribution.getBoundingClientRect().toJSON()
+          : null,
+      }
+    })
+  expect(layout.welcome.width).toBeLessThanOrEqual(1112)
+  expect(layout.composer.width).toBeLessThanOrEqual(1112)
+  expect(
+    Math.abs(layout.welcome.left - layout.composer.left)
+  ).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs(layout.welcome.right - layout.composer.right)
+  ).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs(
+      (layout.composer.left + layout.composer.right) / 2 -
+        (layout.workspace.left + layout.workspace.right) / 2
+    )
+  ).toBeLessThanOrEqual(1)
+  if (layout.attribution) {
+    const mark = layout.attribution
+    const composer = layout.composer
+    expect(
+      mark.right <= composer.left ||
+        mark.left >= composer.right ||
+        mark.bottom <= composer.top ||
+        mark.top >= composer.bottom
+    ).toBe(true)
+  }
+}
 
 for (const theme of ["light", "dark"] as const) {
   test(`task home follows the design and keeps search usable in ${theme}`, async ({

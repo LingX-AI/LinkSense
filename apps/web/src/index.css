@@ -10231,13 +10231,9 @@ button.annotation-hover-file:focus-visible {
 
 /* Bridge the new home into the existing measured composer layout. */
 .conversation-workspace:has(.conversation-welcome) {
-  --app-composer-width: 100%;
   --conversation-top-bar-height: 66px;
   --conversation-horizontal-gutter: 28px;
   --conversation-message-inner-padding: 0px;
-  --conversation-content-width: calc(
-    100% - 2 * var(--conversation-horizontal-gutter)
-  );
   font-family: var(--font-interface);
 }
 
@@ -11742,8 +11738,8 @@ button.annotation-hover-file:focus-visible {
 
   .conversation-bottom-stack {
     --conversation-bottom-inset: 10px;
-    right: 10px;
-    left: 10px;
+    right: var(--conversation-horizontal-gutter);
+    left: var(--conversation-horizontal-gutter);
   }
 
   .conversation-goal-bar {
