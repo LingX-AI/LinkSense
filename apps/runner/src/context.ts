@@ -7,6 +7,7 @@ export type TurnContextInput = {
   userInput: string;
   approvedPlanImplementation?: true;
   requireFinalResponse?: boolean;
+  automationExecution?: true;
   applicationInstructions?: string;
   selectedKnowledgeBases?: RunnerKnowledgeBaseSelection;
   officeSelectionContext?: string;
@@ -62,6 +63,15 @@ const buildRuntimeIdentityInstructions = (): string =>
     "You are the AI assistant in LinkSense, the user-facing host of this conversation. Codex app-server is the internal execution engine; mention it when implementation details are relevant. Do not identify this session as another Codex client or ChatGPT without trusted runtime context.",
     `For the current LinkSense account's name, email, groups or Token quota, call mcp__${coreMcpServerKey}__get_current_user_info; do not guess.`,
   ].join("\n");
+const AUTOMATION_MANAGEMENT_INSTRUCTIONS = [
+  "This is an interactive user turn. Earlier scheduled-execution instructions do not apply to this turn.",
+  `Use ${coreMcpServerKey} for schedule management. Default creation to a separate new_task; reuse current_task or existing_task only when the user explicitly requests it. For timing changes or the same workflow with a different time, keep the existing automation ID and call update_automation. Use the previously returned ID even when its target differs from this chat, or an unfiltered list_automations and get_automation; ask if ambiguous. Create another plan only when requested. Store work in instruction, recurrence and time in schedule.`,
+].join("\n");
+const AUTOMATION_EXECUTION_INSTRUCTIONS = [
+  "This turn is an occurrence of an existing LinkSense automation. Execute the stored work now and deliver its actual result in this conversation.",
+  "The current input is the saved work instruction, not a request to create or reconfigure a schedule. Recurring wording such as '每天' or 'every day' describes the work's context. Previous messages about creating or changing a plan are historical setup, not this turn's objective.",
+  "Use the tools needed for the work (for example, retrieve news and write the requested summary). Do not replace the work with checking whether an automation exists, confirming a schedule, or creating another automation. Use automation management tools only if managing automation definitions is itself an explicit part of the saved work.",
+].join("\n");
 const KNOWLEDGE_GROUNDING_INSTRUCTIONS = [
   "<linksense_knowledge_grounding>",
   "One or more knowledge bases are selected for this turn.",
@@ -183,6 +193,10 @@ export function buildTurnAdditionalContext(
     "linksense.runtime-identity": {
       kind: "application",
       value: buildRuntimeIdentityInstructions(),
+    },
+    "linksense.automation-mode": {
+      kind: "application",
+      value: context.automationExecution ? AUTOMATION_EXECUTION_INSTRUCTIONS : AUTOMATION_MANAGEMENT_INSTRUCTIONS,
     },
     "linksense.interactive-forms": {
       kind: "application",

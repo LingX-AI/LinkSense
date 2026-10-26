@@ -39,6 +39,7 @@ const safePathSegments = new Set([
   "userInput",
   "approvedPlanImplementation",
   "requireFinalResponse",
+  "automationExecution",
   "applicationInstructions",
   "officeSelectionContext",
   "selectedKnowledgeBases",

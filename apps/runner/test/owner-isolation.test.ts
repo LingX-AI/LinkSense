@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseRunnerConfig } from "../src/config.js";
 import { ConversationOwnerRegistry } from "../src/owner-binding.js";
+import { AutomationRequestError } from "../src/automation-error.js";
 import {
   ConversationRuntimeActiveError,
   SubAgentDetailNotFoundError,
@@ -86,6 +87,27 @@ describe("runtime cleanup isolation", () => {
 });
 
 describe("worker owner isolation", () => {
+  it("protects automation MCP calls with a task token and validates their inputs", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "linksense-automation-route-"));
+    roots.push(root);
+    const config = createWorkerConfig(root);
+    const workspaceManager = createWorkspaceManager(config, root);
+    const manageAutomation = vi.fn(async () => ({ operation: "list", items: [] }));
+    const pool = { manageAutomation } as unknown as AppServerProcessPool;
+    const app = buildRunnerServer(config, pool, workspaceManager);
+    const url = `/mcp-automations/${ownerId}/execute`;
+    expect((await app.inject({ method: "POST", url, payload: { operation: "list" } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url, headers: { authorization: "Bearer task-token" }, payload: { operation: "list", owner_id: otherOwnerId } })).statusCode).toBe(400);
+    expect(manageAutomation).not.toHaveBeenCalled();
+    expect((await app.inject({ method: "POST", url, headers: { authorization: "Bearer task-token" }, payload: { operation: "list" } })).statusCode).toBe(200);
+    expect(manageAutomation).toHaveBeenCalledWith(ownerId, "task-token", { operation: "list" });
+    manageAutomation.mockRejectedValueOnce(new AutomationRequestError("FORBIDDEN", false, 403));
+    const rejected = await app.inject({ method: "POST", url, headers: { authorization: "Bearer other-task-token" }, payload: { operation: "list" } });
+    expect(rejected.statusCode).toBe(403);
+    expect(rejected.json()).toEqual({ code: "FORBIDDEN", retryable: false });
+    await app.close();
+  });
+
   it("persists personalization and delegates memory state changes to the native process pool", async () => {
     const root = await mkdtemp(
       path.join(tmpdir(), "linksense-personalization-route-"),

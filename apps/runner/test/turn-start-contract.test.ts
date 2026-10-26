@@ -72,11 +72,14 @@ describe("turn-start contract diagnostics", () => {
     for (const candidate of [
       { ...body, codexThreadId: undefined },
       { ...body, context: { ...body.context, userInput: "/压缩" } },
+      { ...body, context: { ...body.context, automationExecution: true } },
       { ...body, goal: { objective: "compact" } },
       { ...body, forkFromCodexTurnId: "turn-native-0" },
     ]) {
       expect(startTurnBodySchema.safeParse(candidate).success).toBe(false);
     }
+    const automation = startTurnBodySchema.parse({ ...body, operationKind: "turn", context: { ...body.context, userInput: "每天整理新闻", automationExecution: true } });
+    expect(automation.context.automationExecution).toBe(true);
   });
 
   it("accepts the native active status at the Goal control boundary", () => {
