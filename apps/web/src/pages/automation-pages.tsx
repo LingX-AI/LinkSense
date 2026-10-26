@@ -55,6 +55,7 @@ import { FieldShell } from "@/components/forms/form-field"
 import { TimePicker } from "@/components/forms/time-picker"
 import { PageLayout } from "@/components/shell/page-layout"
 import { Button } from "@/components/ui/button"
+import { cardSpotlightProps } from "@/components/ui/card-spotlight"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
@@ -786,9 +787,13 @@ function AutomationSuggestions({
           return (
             <li key={template.id}>
               <Button
+                {...cardSpotlightProps}
                 type="button"
                 variant="outline"
-                className="h-full min-h-40 w-full flex-col items-stretch justify-start gap-4 rounded-xl border-border bg-card p-4 text-left whitespace-normal hover:border-input-hover"
+                className={cn(
+                  cardSpotlightProps.className,
+                  "h-full min-h-40 w-full flex-col items-stretch justify-start gap-4 rounded-xl border-border bg-card p-4 text-left whitespace-normal hover:border-input-hover"
+                )}
                 aria-label={t("automation.suggestions.useTemplateNamed", {
                   name: title,
                 })}

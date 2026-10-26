@@ -18,6 +18,7 @@
 | 基础控件 | `components/ui/` 复用 Base UI 的键盘、焦点、禁用、表单和弹窗语义。Input、InputGroup、PasswordInput 默认描边；嵌套或透明编辑控件可显式使用 `variant="default"`，避免双重边框。 |
 | 分段标签 | `components/ui/tabs.tsx` 的 TabsList 统一采用 Segmented；单个活动背景复用 Base UI 的容器内测量结果，由现有 Motion 平滑移动与缩放。路由会重建列表时，以稳定且唯一的列表 id 维持背景连续性；其他实例自动隔离。保持横向滚动、竖向标签、键盘和减少动态效果支持，不在页面叠加旧下划线或独立选中背景。 |
 | 操作按钮 | 默认与 `brand` 使用实色主色及悬停色；保留已有紧凑尺寸和明确的图标按钮尺寸，不按一张画板统一放大所有密集操作。账号提交继续保留原有较大触达区。 |
+| 卡片聚光 | `components/ui/card-spotlight.ts` 从 React Bits SpotlightCard 适配局部装饰；首页快捷卡、自动化模板、应用卡、站点卡、能力条目与知识库入口通过 `cardSpotlightProps` 复用。保留其 className 与现有类合并；仅精细指针悬停且未减少动态效果时跟随光点，键盘焦点使用静态边缘高亮。无常驻帧循环、额外布局容器或点击拦截，许可见 `THIRD-PARTY-NOTICES.md`。 |
 | 设置分区 | `components/settings/settings-card.tsx` 的 `layout="split"` 将类别标题、说明和图标置于左侧，字段卡片置于右侧；随内容容器宽度堆叠。默认 stacked 仍用于管理表单等场景。 |
 | 账号访问 | `components/auth/account-access-layout.tsx` 统一品牌面板、语言选择、表单阅读宽度和归属标记；`AccountAccessHeading` 管理登录/找回的标题层级。注册、激活、重设密码、初始化与身份回调复用同一外壳。 |
 | 聊天与输入 | `features/conversations/conversation-thread.tsx`、`conversation-composer.tsx`、`conversation-model-selector.tsx` 沿用原有消息、执行、输入和资源状态。项目选择器在输入工具栏内，创建项目只提交项目表单。 |

@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { cardSpotlightProps } from "@/components/ui/card-spotlight"
 import { cn } from "@/lib/utils"
 export { ApplicationCardResources } from "./application-resource-counts"
 import {
@@ -91,9 +92,13 @@ export function ApplicationCard({
   const { t } = useTranslation()
   return (
     <Card
+      {...cardSpotlightProps}
       role="article"
       aria-label={name}
-      className="@container/application-card relative min-w-0 gap-5 shadow-none transition-colors hover:border-foreground/20"
+      className={cn(
+        cardSpotlightProps.className,
+        "@container/application-card min-w-0 gap-5 shadow-none transition-colors hover:border-foreground/20"
+      )}
     >
       <CardHeader className="@container-normal flex flex-row items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-3">

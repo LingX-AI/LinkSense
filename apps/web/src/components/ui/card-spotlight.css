@@ -1,0 +1,58 @@
+/* React Bits SpotlightCard adaptation; license: /licenses/react-bits.txt. */
+.card-spotlight::before,
+.card-spotlight::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+
+.card-spotlight::before {
+  z-index: -1;
+  background: radial-gradient(
+    20rem circle at var(--card-spotlight-x, 50%) var(--card-spotlight-y, 50%),
+    color-mix(in srgb, var(--primary) 4%, transparent),
+    transparent 70%
+  );
+}
+
+.card-spotlight::after {
+  z-index: 1;
+  padding: 1px;
+  background: radial-gradient(
+    14rem circle at var(--card-spotlight-x, 50%) var(--card-spotlight-y, 50%),
+    color-mix(in srgb, var(--primary) 25%, transparent),
+    transparent 70%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .card-spotlight[data-spotlight-active="true"]::before,
+  .card-spotlight[data-spotlight-active="true"]::after {
+    opacity: 1;
+  }
+}
+
+.card-spotlight:focus-visible::after,
+.card-spotlight:has(:focus-visible)::after {
+  background: color-mix(in srgb, var(--primary) 50%, transparent);
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-spotlight::before,
+  .card-spotlight::after {
+    transition: none !important;
+  }
+}

@@ -67,6 +67,7 @@ import {
   CardDescription,
   CardTitle,
 } from "@/components/ui/card"
+import { cardSpotlightProps } from "@/components/ui/card-spotlight"
 import {
   Dialog,
   DialogClose,
@@ -536,8 +537,9 @@ function KnowledgeBaseCard({
   const sourceTypeLabel = getKnowledgeBaseSourceTypeLabel(knowledgeBase, t)
   return (
     <NavLink
+      {...cardSpotlightProps}
       to={`/knowledge-bases/${knowledgeBase.id}`}
-      className="knowledge-card-link"
+      className={cn(cardSpotlightProps.className, "knowledge-card-link")}
       aria-label={knowledgeBase.name}
     >
       <Card size="sm" className="knowledge-card rounded-none border-0">

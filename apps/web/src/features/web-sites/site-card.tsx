@@ -14,9 +14,11 @@ import {
   CardFooter,
   CardHeader,
 } from "@/components/ui/card"
+import { cardSpotlightProps } from "@/components/ui/card-spotlight"
 import { copyConversationShareUrl } from "@/features/conversations/conversation-share-contracts"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime, formatFileSize } from "@/i18n/date"
+import { cn } from "@/lib/utils"
 
 export function SiteCard({
   site,
@@ -30,7 +32,11 @@ export function SiteCard({
   const url = new URL(site.url_path, window.location.origin).href
 
   return (
-    <Card size="sm" className="min-w-0">
+    <Card
+      {...cardSpotlightProps}
+      size="sm"
+      className={cn(cardSpotlightProps.className, "min-w-0")}
+    >
       <CardHeader className="gap-x-3">
         <div className="flex min-w-0 items-start gap-3">
           <div className="hidden shrink-0 rounded-lg bg-[var(--app-selection)]/8 p-2.5 sm:block">
