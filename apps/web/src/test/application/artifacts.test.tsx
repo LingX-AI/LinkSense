@@ -603,17 +603,27 @@ describe("LinkSense application", () => {
       return originalFetch(input, init)
     })
     renderApp()
-    expect(await screen.findByRole("img", { name: filename })).toHaveAttribute(
+    const image = await screen.findByRole("img", { name: filename })
+    expect(image).toHaveAttribute(
       "src",
       "https://files.example.test/code-puppy.png"
     )
     const summary = screen.getByTestId("turn-summary-turn-1")
+    const gallery = image.closest<HTMLElement>(
+      '[data-slot="generated-image-call"]'
+    )
+    expect(gallery).not.toBeNull()
+    if (!gallery) throw new Error("Generated image gallery is missing")
+    expect(summary.querySelector('[data-slot="generated-image"]')).toBeNull()
     expect(
-      summary.querySelector('[data-slot="generated-image"]')
-    ).not.toBeNull()
+      screen.getByText("已用代码绘制图片：").compareDocumentPosition(gallery) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
     expect(document.querySelector(".artifact-image-tile")).toBeNull()
     fireEvent.click(
-      within(summary).getByRole("button", { name: `下载 ${filename}` })
+      within(gallery).getByRole("button", {
+        name: `下载 ${filename}`,
+      })
     )
     await waitFor(() => expect(click).toHaveBeenCalledOnce())
     expect(requests.filter((request) => request.path === downloadPath)).toEqual(
