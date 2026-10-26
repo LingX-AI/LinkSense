@@ -13,8 +13,10 @@ export const taskReferencesInputSchema = z.strictObject({
 export const taskReferencesDisplaySchema = taskReferencesInputSchema.extend({
   sources: z.array(z.strictObject({ id: uuidSchema, title: z.string().min(1).max(240) })).min(1).max(maximumConversationReferences),
 }).refine(value => value.conversation_ids.length === value.sources.length && value.conversation_ids.every((id, index) => value.sources[index]?.id === id), "reference_sources_mismatch");
+export const readConversationReferenceModeSchema = z.enum(["history", "latest_assistant"]);
 export const readConversationReferenceInputSchema = z.strictObject({
   conversation_id: uuidSchema,
+  mode: readConversationReferenceModeSchema.optional(),
   cursor: z.string().regex(/^\d{1,10}$/u).refine(value => Number(value) <= 2_147_483_647, "invalid_cursor").default("0"),
   offset: z.number().int().min(0).max(maximumConversationReferenceOffset).default(0),
 });

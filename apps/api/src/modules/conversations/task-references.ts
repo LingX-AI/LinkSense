@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { taskReferencesDisplaySchema, type OfficeAnnotationInput, type ReadConversationReferenceInput, type ReadConversationReferenceResult, type TaskReferencesDisplay, readConversationReferenceResultSchema } from "@linksense/shared";
 import { z } from "zod";
-import type { PrismaClient } from "../../generated/prisma/client.js";
+import type { Prisma, PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
 import { inspectOfficeAnnotationPrompt, OFFICE_ANNOTATION_PROMPT_MARKER } from "./annotation-prompt.js";
 import { indexStopHookSupersededAssistantMessageIds } from "./message-visibility.js";
@@ -35,7 +35,14 @@ export async function readTaskReference(db: PrismaClient, ownerId: string, conve
   const turns = source.codexThreadId ? await db.conversationTurn.findMany({ where: { conversationId: source.id, codexThreadId: source.codexThreadId }, select: { id: true } }) : [];
   const turnIds = turns.map(row => row.id);
   const cursor = Number(input.cursor);
-  const rows = await db.conversationMessage.findMany({ where: { conversationId: source.id, turnId: { in: turnIds }, role: { in: ["user", "assistant"] }, sequenceNo: input.offset ? { gte: cursor } : { gt: cursor } }, orderBy: { sequenceNo: "asc" }, take: 21 });
+  const latestAssistant = input.mode === "latest_assistant";
+  let sequenceNo: Prisma.ConversationMessageWhereInput["sequenceNo"] = input.offset ? { gte: cursor } : { gt: cursor };
+  if (latestAssistant) {
+    sequenceNo = {};
+    if (input.offset > 0) sequenceNo = cursor;
+    else if (cursor > 0) sequenceNo = { lt: cursor };
+  }
+  const rows = await db.conversationMessage.findMany({ where: { conversationId: source.id, turnId: { in: turnIds }, role: { in: latestAssistant ? ["assistant"] : ["user", "assistant"] }, sequenceNo }, orderBy: { sequenceNo: latestAssistant ? "desc" : "asc" }, take: 21 });
   const reviews = await db.conversationPlanReview.findMany({ where: { conversationId: source.id, sourceTurnId: { in: rows.flatMap(row => row.turnId ? [row.turnId] : []) } }, select: { sourceTurnId: true } });
   const reviewIds = new Set(reviews.map(row => row.sourceTurnId));
   const hooks = reviewIds.size ? await db.conversationEvent.findMany({ where: { conversationId: source.id, turnId: { in: [...reviewIds] }, eventType: "hook/completed" }, select: { turnId: true, payloadJson: true } }) : [];
@@ -47,16 +54,18 @@ export async function readTaskReference(db: PrismaClient, ownerId: string, conve
   for (const row of rows.slice(0, 20)) {
     nextCursor = row.sequenceNo.toString();
     if (hidden.has(row.id)) continue;
-    const inspected = inspectOfficeAnnotationPrompt(row.contentText);
-    const text = inspected.suspected ? inspected.request ?? "" : row.contentText;
+    const inspected = latestAssistant ? null : inspectOfficeAnnotationPrompt(row.contentText);
+    const text = inspected?.suspected ? inspected.request ?? "" : row.contentText;
     const offset = row.sequenceNo === cursor ? input.offset : 0;
     const part = text.slice(offset, offset + room);
     if (part) messages.push({ id: row.id, role: row.role === "user" ? "user" : "assistant", text: part });
     room -= part.length;
     if (offset + part.length < text.length) { nextOffset = offset + part.length; break; }
-    if (room === 0) break;
+    if (room === 0 || (latestAssistant && messages.length > 0)) break;
   }
-  const hasMore = nextOffset > 0 || rows.length > 20 || (rows.length > 0 && nextCursor !== rows.at(-1)?.sequenceNo.toString());
+  if (latestAssistant && input.offset > 0 && messages.length === 0) throw new AppError("CONVERSATION_NOT_FOUND");
+  const unreadRows = rows.length > 20 || (rows.length > 0 && nextCursor !== rows.at(-1)?.sequenceNo.toString());
+  const hasMore = nextOffset > 0 || (unreadRows && (!latestAssistant || messages.length === 0));
   if (!await db.conversation.findFirst({ where: { id: source.id, ownerId, codexThreadId: source.codexThreadId }, select: { id: true } })) throw new AppError("CONVERSATION_NOT_FOUND");
   return readConversationReferenceResultSchema.parse({ conversation_id: source.id, title: source.title, messages, next_cursor: hasMore ? nextCursor : null, next_offset: nextOffset });
 }
