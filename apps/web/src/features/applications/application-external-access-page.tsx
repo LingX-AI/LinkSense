@@ -48,7 +48,6 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import {
   externalAccessSecurityConfigurationChanged,
   externalIframeSnippet,
@@ -396,28 +395,27 @@ function ApplicationExternalAccessSettings({
                           )}
                         </FieldDescription>
                       </FieldContent>
-                      <ToggleGroup
-                        variant="outline"
-                        spacing={0}
-                        value={[authMode]}
-                        onValueChange={(values) => {
-                          const value = values[0]
+                      <Tabs
+                        value={authMode}
+                        onValueChange={(value) => {
                           if (value === "required" || value === "public") {
                             setAuthMode(value)
                           }
                         }}
-                        aria-label={t(
-                          "applications.externalAccess.authRequirementLabel"
-                        )}
-                        className="max-w-full flex-wrap"
                       >
-                        <ToggleGroupItem value="required">
-                          {t("applications.externalAccess.authModeRequired")}
-                        </ToggleGroupItem>
-                        <ToggleGroupItem value="public">
-                          {t("applications.externalAccess.authModePublic")}
-                        </ToggleGroupItem>
-                      </ToggleGroup>
+                        <TabsList
+                          aria-label={t(
+                            "applications.externalAccess.authRequirementLabel"
+                          )}
+                        >
+                          <TabsTrigger value="required">
+                            {t("applications.externalAccess.authModeRequired")}
+                          </TabsTrigger>
+                          <TabsTrigger value="public">
+                            {t("applications.externalAccess.authModePublic")}
+                          </TabsTrigger>
+                        </TabsList>
+                      </Tabs>
                     </Field>
                   </FieldGroup>
                 </CardContent>

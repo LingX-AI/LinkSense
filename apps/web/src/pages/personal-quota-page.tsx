@@ -21,7 +21,6 @@ import {
   CardContent,
 } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Progress } from "@/components/ui/progress"
 import { Button } from "@/components/ui/button"
 import {
@@ -96,21 +95,21 @@ export default function PersonalQuotaPage() {
                     zone: timeZone,
                   })}
                 </p>
-                <ToggleGroup
-                  value={[range]}
-                  onValueChange={(values) => {
-                    if (values[0] === "7d" || values[0] === "30d")
-                      setRange(values[0])
+                <Tabs
+                  value={range}
+                  onValueChange={(value) => {
+                    if (value === "7d" || value === "30d") setRange(value)
                   }}
-                  aria-label={t("personalQuota.range")}
                 >
-                  <ToggleGroupItem value="7d">
-                    {t("personalQuota.days", { count: 7 })}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="30d">
-                    {t("personalQuota.days", { count: 30 })}
-                  </ToggleGroupItem>
-                </ToggleGroup>
+                  <TabsList aria-label={t("personalQuota.range")}>
+                    <TabsTrigger value="7d">
+                      {t("personalQuota.days", { count: 7 })}
+                    </TabsTrigger>
+                    <TabsTrigger value="30d">
+                      {t("personalQuota.days", { count: 30 })}
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
               </div>
               <QuotaAnalytics key={range} analytics={query.data.analytics} />
             </TabsContent>
@@ -224,22 +223,21 @@ function QuotaAnalytics({ analytics }: { analytics: PersonalQuotaAnalytics }) {
           amount: row.credits,
         }))}
         controls={
-          <ToggleGroup
-            appearance="segmented"
-            size="sm"
-            value={[group]}
-            onValueChange={(values) => {
-              if (values[0]) setGroup(values[0])
+          <Tabs
+            value={group}
+            onValueChange={(value) => {
+              if (value === "workload" || value === "model") setGroup(value)
             }}
-            aria-label={t("personalQuota.group")}
           >
-            <ToggleGroupItem value="workload">
-              {t("personalQuota.byWorkload")}
-            </ToggleGroupItem>
-            <ToggleGroupItem value="model">
-              {t("personalQuota.byModel")}
-            </ToggleGroupItem>
-          </ToggleGroup>
+            <TabsList aria-label={t("personalQuota.group")}>
+              <TabsTrigger value="workload">
+                {t("personalQuota.byWorkload")}
+              </TabsTrigger>
+              <TabsTrigger value="model">
+                {t("personalQuota.byModel")}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         }
       />
       <QuotaTaskRanking tasks={analytics.tasks} />

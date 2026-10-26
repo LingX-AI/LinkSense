@@ -312,15 +312,15 @@ describe("application external access page", () => {
       screen.queryByRole("dialog", { name: "应用外部访问" })
     ).not.toBeInTheDocument()
     expect(screen.queryByText("认证方式")).not.toBeInTheDocument()
-    const requireAuthButton = await screen.findByRole("button", {
+    const requireAuthButton = await screen.findByRole("tab", {
       name: "需要认证",
     })
     expect(requireAuthButton).toBeVisible()
     expect(screen.queryByText("应用凭据")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "不需要认证" })).toBeVisible()
+    expect(screen.getByRole("tab", { name: "不需要认证" })).toBeVisible()
     expect(
-      requireAuthButton.closest('[data-slot="toggle-group"]')
-    ).toHaveAttribute("data-spacing", "0")
+      requireAuthButton.closest('[data-slot="tabs-list"]')
+    ).toHaveAttribute("data-variant", "segmented")
     expect(screen.queryByText(/访问令牌 2 小时/u)).not.toBeInTheDocument()
     expect(screen.queryByText(/轮换续期令牌 8 小时/u)).not.toBeInTheDocument()
     expect(screen.queryByText(/外部会话绝对时长 7 天/u)).not.toBeInTheDocument()
@@ -492,7 +492,7 @@ describe("application external access page", () => {
     expect(switchedCodeBlock).toHaveTextContent(
       encodeURIComponent(SECOND_ALLOWED_ORIGIN)
     )
-    await interaction.click(screen.getByRole("button", { name: "不需要认证" }))
+    await interaction.click(screen.getByRole("tab", { name: "不需要认证" }))
     expect(
       screen.getByText(/允许网站中的页面打开后即可使用应用/u)
     ).toBeVisible()

@@ -41,7 +41,7 @@ import {
   ProgressValue,
 } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   uploadKnowledgeDocument,
   type KnowledgeUploadConflictOptions,
@@ -444,28 +444,25 @@ export function KnowledgeUploadDialog({
               {t("knowledge.upload.sourceTypeDescription")}
             </FieldDescription>
           </FieldContent>
-          <ToggleGroup
-            value={[uploadMode]}
-            disabled={hasQueue || uploading}
-            variant="outline"
-            spacing={0}
-            aria-label={t("knowledge.upload.sourceType")}
+          <Tabs
+            value={uploadMode}
             onValueChange={(value) => {
-              const nextMode = value[0]
-              if (nextMode === "files" || nextMode === "folder") {
-                setUploadMode(nextMode)
+              if (value === "files" || value === "folder") {
+                setUploadMode(value)
               }
             }}
           >
-            <ToggleGroupItem value="files">
-              <FileUpIcon data-icon="inline-start" aria-hidden="true" />
-              {t("knowledge.upload.filesMode")}
-            </ToggleGroupItem>
-            <ToggleGroupItem value="folder">
-              <FolderUpIcon data-icon="inline-start" aria-hidden="true" />
-              {t("knowledge.upload.folderMode")}
-            </ToggleGroupItem>
-          </ToggleGroup>
+            <TabsList aria-label={t("knowledge.upload.sourceType")}>
+              <TabsTrigger value="files" disabled={hasQueue || uploading}>
+                <FileUpIcon data-icon="inline-start" aria-hidden="true" />
+                {t("knowledge.upload.filesMode")}
+              </TabsTrigger>
+              <TabsTrigger value="folder" disabled={hasQueue || uploading}>
+                <FolderUpIcon data-icon="inline-start" aria-hidden="true" />
+                {t("knowledge.upload.folderMode")}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </Field>
 
         <FieldShell

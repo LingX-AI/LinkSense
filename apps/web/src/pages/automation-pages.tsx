@@ -94,7 +94,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { ConversationOfficeLayout } from "@/features/conversations/conversation-presentation-layout"
 import { normalizeLanguage, type SupportedLanguage } from "@/i18n"
 import { readUrlEnum, updateUrlSearchParams } from "@/lib/url-search-params"
@@ -985,25 +984,23 @@ function AutomationFormFields({
 
       <Field className="gap-2">
         <FieldLabel required>{t("automation.runIn")}</FieldLabel>
-        <ToggleGroup
-          value={[form.targetMode]}
-          variant="outline"
-          spacing={0}
-          aria-label={t("automation.runIn")}
-          onValueChange={(values) => {
-            const value = values[0]
+        <Tabs
+          value={form.targetMode}
+          onValueChange={(value) => {
             if (value === "existing_task" || value === "new_task") {
               updateForm("targetMode", value)
             }
           }}
         >
-          <ToggleGroupItem value="existing_task">
-            {t("automation.existingTask")}
-          </ToggleGroupItem>
-          <ToggleGroupItem value="new_task">
-            {t("automation.newTask")}
-          </ToggleGroupItem>
-        </ToggleGroup>
+          <TabsList aria-label={t("automation.runIn")}>
+            <TabsTrigger value="existing_task">
+              {t("automation.existingTask")}
+            </TabsTrigger>
+            <TabsTrigger value="new_task">
+              {t("automation.newTask")}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
         <FieldDescription>
           {t(
             form.targetMode === "new_task"

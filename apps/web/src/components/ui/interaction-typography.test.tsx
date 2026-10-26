@@ -99,7 +99,10 @@ describe("interactive typography", () => {
     )
     const firstTab = screen.getByRole("tab", { name: "First" })
     const tabList = firstTab.closest('[data-slot="tabs-list"]')
-    expect(firstTab.closest('[data-slot="tabs"]')).toHaveClass("gap-3")
+    expect(firstTab.closest('[data-slot="tabs"]')).toHaveClass(
+      "min-w-0",
+      "gap-3"
+    )
     expect(tabList).toHaveClass(
       "rounded-xl",
       "bg-muted",

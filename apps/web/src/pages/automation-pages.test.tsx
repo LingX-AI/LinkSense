@@ -220,8 +220,8 @@ describe("AutomationPage", () => {
         within(editor).getByRole("textbox", { name: "自动化指令" })
       ).toHaveValue(instruction)
       expect(
-        within(editor).getByRole("button", { name: "新建任务" })
-      ).toHaveAttribute("aria-pressed", "true")
+        within(editor).getByRole("tab", { name: "新建任务" })
+      ).toHaveAttribute("aria-selected", "true")
       expect(
         within(editor).getByRole("combobox", { name: "重复" })
       ).toHaveTextContent("每周")
@@ -435,7 +435,7 @@ describe("AutomationPage", () => {
       })
     ).toHaveClass("mt-0.5")
     await interaction.click(
-      within(editor).getByRole("button", { name: "新建任务" })
+      within(editor).getByRole("tab", { name: "新建任务" })
     )
     await interaction.click(
       within(editor).getByRole("combobox", { name: "重复" })

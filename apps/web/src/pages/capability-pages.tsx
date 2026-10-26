@@ -138,7 +138,6 @@ import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
 import { cn } from "@/lib/utils"
@@ -2707,13 +2706,9 @@ function MarketplaceCatalogPanel({
                 />
                 <Separator />
                 <div className="capability-center-scope-row">
-                  <ToggleGroup
-                    value={[scope]}
-                    variant="default"
-                    spacing={2}
-                    aria-label={t("marketplace.catalogScopesLabel")}
-                    onValueChange={(values) => {
-                      const value = values[0]
+                  <Tabs
+                    value={scope}
+                    onValueChange={(value) => {
                       if (
                         (value === "public" && publicScopeAvailable) ||
                         value === "personal" ||
@@ -2723,20 +2718,22 @@ function MarketplaceCatalogPanel({
                       }
                     }}
                   >
-                    <ToggleGroupItem value="personal">
-                      {t("marketplace.scopes.personal")}
-                    </ToggleGroupItem>
-                    {publicScopeAvailable && (
-                      <ToggleGroupItem value="public">
-                        {t("marketplace.scopes.public")}
-                      </ToggleGroupItem>
-                    )}
-                    {section === "skill" && (
-                      <ToggleGroupItem value="clawhub">
-                        {t("clawHub.repository")}
-                      </ToggleGroupItem>
-                    )}
-                  </ToggleGroup>
+                    <TabsList aria-label={t("marketplace.catalogScopesLabel")}>
+                      <TabsTrigger value="personal">
+                        {t("marketplace.scopes.personal")}
+                      </TabsTrigger>
+                      {publicScopeAvailable && (
+                        <TabsTrigger value="public">
+                          {t("marketplace.scopes.public")}
+                        </TabsTrigger>
+                      )}
+                      {section === "skill" && (
+                        <TabsTrigger value="clawhub">
+                          {t("clawHub.repository")}
+                        </TabsTrigger>
+                      )}
+                    </TabsList>
+                  </Tabs>
                 </div>
                 <section
                   className="capability-center-directory"

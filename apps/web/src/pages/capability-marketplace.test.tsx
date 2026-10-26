@@ -770,10 +770,10 @@ describe("capability marketplace pages", () => {
       await screen.findByRole("searchbox", { name: "搜索技能" })
     ).toHaveValue("deck")
     expect(
-      within(screen.getByLabelText("内容范围")).getByRole("button", {
+      within(screen.getByLabelText("内容范围")).getByRole("tab", {
         name: "公开",
       })
-    ).toHaveAttribute("aria-pressed", "true")
+    ).toHaveAttribute("aria-selected", "true")
 
     await interaction.click(screen.getByRole("tab", { name: "MCP" }))
     expect(screen.getByTestId("capability-location")).toHaveTextContent(
@@ -811,12 +811,12 @@ describe("capability marketplace pages", () => {
       screen.queryByRole("button", { name: "我的发布" })
     ).not.toBeInTheDocument()
     expect(
-      within(screen.getByLabelText("内容范围")).queryByRole("button", {
+      within(screen.getByLabelText("内容范围")).queryByRole("tab", {
         name: "公开",
       })
     ).not.toBeInTheDocument()
     const skillRepository = within(screen.getByLabelText("内容范围")).getByRole(
-      "button",
+      "tab",
       { name: "技能仓库" }
     )
     expect(skillRepository).toBeVisible()
@@ -987,16 +987,16 @@ describe("capability marketplace pages", () => {
       within(installedSection).getByRole("list", { name: "已安装的技能" })
     ).toBeVisible()
     const scopeToggle = screen.getByLabelText("内容范围")
-    expect(scopeToggle).toHaveAttribute("data-variant", "default")
-    expect(scopeToggle).toHaveAttribute("data-spacing", "2")
+    expect(scopeToggle).toHaveAttribute("data-variant", "segmented")
+    expect(scopeToggle).toHaveAttribute("role", "tablist")
     expect(
       within(scopeToggle)
-        .getAllByRole("button")
+        .getAllByRole("tab")
         .map((button) => button.textContent)
     ).toEqual(["个人", "公开", "技能仓库"])
     expect(
-      within(scopeToggle).getByRole("button", { name: "个人" })
-    ).toHaveAttribute("aria-pressed", "true")
+      within(scopeToggle).getByRole("tab", { name: "个人" })
+    ).toHaveAttribute("aria-selected", "true")
     const personalCatalog = await screen.findByRole("region", {
       name: "个人技能",
     })
@@ -1025,7 +1025,7 @@ describe("capability marketplace pages", () => {
     ).toBeVisible()
 
     await interaction.click(
-      within(scopeToggle).getByRole("button", { name: "公开" })
+      within(scopeToggle).getByRole("tab", { name: "公开" })
     )
     expect(catalogTabs).toBeVisible()
 
@@ -1217,7 +1217,7 @@ describe("capability marketplace pages", () => {
       })
     )
     await interaction.click(
-      within(screen.getByLabelText("内容范围")).getByRole("button", {
+      within(screen.getByLabelText("内容范围")).getByRole("tab", {
         name: "公开",
       })
     )
@@ -1457,7 +1457,7 @@ describe("capability marketplace pages", () => {
 
     await interaction.click(await screen.findByRole("tab", { name: "技能" }))
     await interaction.click(
-      within(screen.getByLabelText("内容范围")).getByRole("button", {
+      within(screen.getByLabelText("内容范围")).getByRole("tab", {
         name: "个人",
       })
     )
@@ -1562,7 +1562,7 @@ describe("capability marketplace pages", () => {
 
     await interaction.click(await screen.findByRole("tab", { name: "技能" }))
     await interaction.click(
-      within(screen.getByLabelText("内容范围")).getByRole("button", {
+      within(screen.getByLabelText("内容范围")).getByRole("tab", {
         name: "公开",
       })
     )
@@ -1838,7 +1838,7 @@ describe("capability marketplace pages", () => {
       within(catalogTabs).getByRole("tab", { name: "技能" })
     )
     await interaction.click(
-      within(screen.getByLabelText("内容范围")).getByRole("button", {
+      within(screen.getByLabelText("内容范围")).getByRole("tab", {
         name: "个人",
       })
     )
@@ -2008,12 +2008,12 @@ describe("capability marketplace pages", () => {
     const scopeToggle = screen.getByLabelText("内容范围")
     expect(
       within(scopeToggle)
-        .getAllByRole("button")
+        .getAllByRole("tab")
         .map((button) => button.textContent)
     ).toEqual(["个人", "公开"])
     expect(
-      within(scopeToggle).getByRole("button", { name: "个人" })
-    ).toHaveAttribute("aria-pressed", "true")
+      within(scopeToggle).getByRole("tab", { name: "个人" })
+    ).toHaveAttribute("aria-selected", "true")
     expectAddButtonBesideSearch("搜索插件", "添加插件")
     await interaction.click(screen.getByRole("button", { name: "添加插件" }))
     const pluginImportDialog = await screen.findByRole("dialog", {
@@ -2042,7 +2042,7 @@ describe("capability marketplace pages", () => {
 
     expect(screen.queryByText(pluginRelease.name)).not.toBeInTheDocument()
     await interaction.click(
-      within(scopeToggle).getByRole("button", { name: "公开" })
+      within(scopeToggle).getByRole("tab", { name: "公开" })
     )
     expect(await screen.findByText(pluginRelease.name)).toBeVisible()
     const mcpPluginItem = screen.getByRole("article", {
@@ -2058,14 +2058,14 @@ describe("capability marketplace pages", () => {
     const mcpScopeToggle = screen.getByLabelText("内容范围")
     expect(
       within(mcpScopeToggle)
-        .getAllByRole("button")
+        .getAllByRole("tab")
         .map((button) => button.textContent)
     ).toEqual(["个人"])
     expect(
-      within(mcpScopeToggle).getByRole("button", { name: "个人" })
-    ).toHaveAttribute("aria-pressed", "true")
+      within(mcpScopeToggle).getByRole("tab", { name: "个人" })
+    ).toHaveAttribute("aria-selected", "true")
     expect(
-      within(mcpScopeToggle).queryByRole("button", { name: "公开" })
+      within(mcpScopeToggle).queryByRole("tab", { name: "公开" })
     ).not.toBeInTheDocument()
     expect(screen.queryByText(mcpRelease.name)).not.toBeInTheDocument()
     expect(screen.getByRole("searchbox", { name: "搜索MCP" })).toBeVisible()
@@ -2081,13 +2081,13 @@ describe("capability marketplace pages", () => {
       within(catalogTabs).getByRole("tab", { name: "技能" })
     )
     expect(
-      within(screen.getByLabelText("内容范围")).getByRole("button", {
+      within(screen.getByLabelText("内容范围")).getByRole("tab", {
         name: "个人",
       })
-    ).toHaveAttribute("aria-pressed", "true")
+    ).toHaveAttribute("aria-selected", "true")
     expect(screen.queryByText(release.name)).not.toBeInTheDocument()
     await interaction.click(
-      within(screen.getByLabelText("内容范围")).getByRole("button", {
+      within(screen.getByLabelText("内容范围")).getByRole("tab", {
         name: "公开",
       })
     )
@@ -2288,14 +2288,14 @@ describe("capability marketplace pages", () => {
     const mcpScopeToggle = screen.getByLabelText("内容范围")
     expect(
       within(mcpScopeToggle)
-        .getAllByRole("button")
+        .getAllByRole("tab")
         .map((button) => button.textContent)
     ).toEqual(["个人"])
     expect(
-      within(mcpScopeToggle).getByRole("button", { name: "个人" })
-    ).toHaveAttribute("aria-pressed", "true")
+      within(mcpScopeToggle).getByRole("tab", { name: "个人" })
+    ).toHaveAttribute("aria-selected", "true")
     expect(
-      within(mcpScopeToggle).queryByRole("button", { name: "公开" })
+      within(mcpScopeToggle).queryByRole("tab", { name: "公开" })
     ).not.toBeInTheDocument()
     const connectionsHeading = await screen.findByRole("heading", {
       name: "MCP 连接",
@@ -2366,21 +2366,21 @@ describe("capability marketplace pages", () => {
       within(returnedCatalogTabs).getByRole("tab", { name: "MCP" })
     ).toHaveAttribute("aria-selected", "true")
     expect(
-      within(screen.getByLabelText("内容范围")).getByRole("button", {
+      within(screen.getByLabelText("内容范围")).getByRole("tab", {
         name: "个人",
       })
-    ).toHaveAttribute("aria-pressed", "true")
+    ).toHaveAttribute("aria-selected", "true")
     expect(
       await screen.findByRole("heading", { name: "MCP 连接" })
     ).toBeVisible()
     const returnedScopeToggle = screen.getByLabelText("内容范围")
     expect(
       within(returnedScopeToggle)
-        .getAllByRole("button")
+        .getAllByRole("tab")
         .map((button) => button.textContent)
     ).toEqual(["个人"])
     expect(
-      within(returnedScopeToggle).queryByRole("button", { name: "公开" })
+      within(returnedScopeToggle).queryByRole("tab", { name: "公开" })
     ).not.toBeInTheDocument()
     expect(
       fetchMock.mock.calls.some(([input]) => {
@@ -4427,7 +4427,7 @@ describe("capability marketplace pages", () => {
       within(catalogTabs).getByRole("tab", { name: "技能" })
     )
     await interaction.click(
-      within(screen.getByLabelText("内容范围")).getByRole("button", {
+      within(screen.getByLabelText("内容范围")).getByRole("tab", {
         name: "个人",
       })
     )
