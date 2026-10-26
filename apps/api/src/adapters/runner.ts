@@ -251,6 +251,7 @@ export type RunnerStartInput = {
     userInput: string;
     approvedPlanImplementation?: true;
     requireFinalResponse?: boolean;
+    automationExecution?: true;
     applicationInstructions?: string;
     selectedKnowledgeBases?: RunnerKnowledgeBaseSelection;
     officeSelectionContext?: string;

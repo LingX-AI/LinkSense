@@ -291,6 +291,72 @@ function repositoryFixture(options?: { unreadConversationIds?: string[] }) {
   };
 }
 
+describe("automation creation and pinning transactions", () => {
+  function fixture(pinnedAt: Date | null = null) {
+    const row = automationRow();
+    const transaction = {
+      $executeRaw: vi.fn(async () => 1),
+      $queryRaw: vi.fn(async () => [{ id: CONVERSATION_ID, ownerId: OWNER_ID, title: "Current", archiveStatus: "active", collaborationMode: "default", pinnedAt }]),
+      conversation: { update: vi.fn(async () => ({ pinnedAt: NOW })) },
+      automation: {
+        findUnique: vi.fn(async (): Promise<ReturnType<typeof automationRow> | null> => null),
+        count: vi.fn(async () => 0), create: vi.fn(async () => row),
+      },
+    };
+    const repository = new PrismaAutomationRepository({ $transaction: vi.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction)) } as never);
+    const input: import("../src/modules/automations/types.js").CreateAutomationRecord = {
+      id: row.id, ownerId: row.ownerId, conversationId: row.conversationId,
+      title: row.title, instruction: row.instruction, status: "active", frequency: "daily",
+      intervalCount: row.intervalCount, minuteOfHour: row.minuteOfHour, timeOfDayMinutes: row.timeOfDayMinutes,
+      weekdays: row.weekdays, dayOfMonth: row.dayOfMonth, monthOfYear: row.monthOfYear, timeZone: row.timeZone,
+      anchorAt: row.anchorAt, nextRunAt: row.nextRunAt, expiresAt: row.expiresAt, modelId: row.modelId, reasoningEffort: row.reasoningEffort,
+    };
+    return { transaction, repository, input, row };
+  }
+
+  it("pins the current task inside the same transaction as creating its automation", async () => {
+    const f = fixture();
+    const result = await f.repository.createWithinOwnerLimit(f.input, 100, { pinTarget: true });
+    expect(f.transaction.conversation.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: CONVERSATION_ID }, data: { pinnedAt: expect.any(Date), sortOrder: null } }));
+    expect(result?.conversation?.pinnedAt).toEqual(NOW);
+    expect(f.transaction.automation.create).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the target unpinned when the owner has reached the creation limit", async () => {
+    const f = fixture();
+    f.transaction.automation.count.mockResolvedValueOnce(100);
+    expect(await f.repository.createWithinOwnerLimit(f.input, 100, { pinTarget: true })).toBeNull();
+    expect(f.transaction.conversation.update).not.toHaveBeenCalled();
+    expect(f.transaction.automation.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects another default chat creation for an already configured target without pinning or writing", async () => {
+    const f = fixture();
+    Object.assign(f.transaction.automation, { findFirst: vi.fn(async () => ({ id: AUTOMATION_ID })) });
+    await expect(f.repository.createWithinOwnerLimit(f.input, 100, { pinTarget: true, allowAdditional: false })).rejects.toMatchObject({ name: "AutomationTargetAlreadyConfiguredError" });
+    expect(f.transaction.conversation.update).not.toHaveBeenCalled();
+    expect(f.transaction.automation.create).not.toHaveBeenCalled();
+  });
+
+  it("allows an explicitly additional plan without treating the existing plan as a duplicate request", async () => {
+    const f = fixture(NOW);
+    const existing = vi.fn(async () => ({ id: AUTOMATION_ID }));
+    Object.assign(f.transaction.automation, { findFirst: existing });
+    await expect(f.repository.createWithinOwnerLimit(f.input, 100, { allowAdditional: true })).resolves.toMatchObject({ wasCreated: true });
+    expect(existing).not.toHaveBeenCalled();
+    expect(f.transaction.automation.create).toHaveBeenCalledOnce();
+  });
+
+  it("returns the primary-key creation receipt under the owner lock before counting or creating", async () => {
+    const f = fixture(NOW);
+    f.transaction.automation.findUnique.mockResolvedValueOnce(f.row);
+    expect((await f.repository.createWithinOwnerLimit(f.input, 100, { allowAdditional: false }))?.id).toBe(AUTOMATION_ID);
+    expect(f.transaction.$executeRaw).toHaveBeenCalledOnce();
+    expect(f.transaction.automation.count).not.toHaveBeenCalled();
+    expect(f.transaction.automation.create).not.toHaveBeenCalled();
+  });
+});
+
 function automationRow() {
   return {
     id: AUTOMATION_ID,
