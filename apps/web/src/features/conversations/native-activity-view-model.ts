@@ -3,6 +3,7 @@ import type { TFunction } from "i18next"
 
 import type { NativeCodexItem } from "@/api/contracts"
 import { isSkillDefinitionReadAction } from "@/features/conversations/native-activity-icon-kind"
+import { isAutomationToolItem } from "@/features/conversations/automation-tool-activity"
 
 export type NativeLifecycleMethod = "item/started" | "item/completed"
 
@@ -393,7 +394,15 @@ export function buildNativeActivityViewModel(
   }
 
   if (item.type === "mcpToolCall") {
-    if (isKnowledgeSearchNativeItem(item)) {
+    if (isAutomationToolItem(item)) {
+      summaryKey =
+        item.status === "failed"
+          ? "conversation.nativeActivities.automationFailed"
+          : method === "item/started"
+            ? "conversation.nativeActivities.automationRunning"
+            : "conversation.nativeActivities.automationFinished"
+      detailRows.push(...durationRow(item.durationMs))
+    } else if (isKnowledgeSearchNativeItem(item)) {
       summaryKey =
         method === "item/started"
           ? "conversation.nativeActivities.knowledgeSearchRunning"

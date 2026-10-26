@@ -2761,6 +2761,9 @@ export const jaJP = {
     streamDisconnectedWarning:
       "応答ストリームが切断されたためタスクを停止しました",
     nativeActivities: {
+      automationRunning: "自動化タスクを処理しています",
+      automationFinished: "自動化の操作が終了しました",
+      automationFailed: "自動化の操作に失敗しました",
       fileChangeRunning_one: "{{count}} 個のファイルを更新中",
       fileChangeRunning_other: "{{count}} 個のファイルを更新中",
       fileChangeCompleted_one: "{{count}} 個のファイルを更新しました",
@@ -5877,6 +5880,8 @@ export const jaJP = {
     turnCompletedWithoutOutput:
       "今回の実行は終了しましたが、表示可能な出力がありません。再実行してください。",
     automation: {
+      targetAlreadyConfigured:
+        "このタスクにはすでに自動化があります。既存の設定を編集するか、別の自動化の追加を明示的に依頼してください。",
       emptyResult:
         "自動化は終了しましたが、表示可能な出力がありません。再実行してください。",
       expired: "この自動化の有効期限が切れたため、実行できません。",
