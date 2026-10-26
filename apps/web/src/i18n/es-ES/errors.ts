@@ -365,6 +365,8 @@ export const errorMessages = {
     turnCompletedWithoutOutput:
       "Esta ejecución terminó sin resultados que se puedan mostrar. Ejecútala de nuevo.",
     automation: {
+      targetAlreadyConfigured:
+        "Esta tarea ya tiene una automatización. Edita el plan existente o solicita explícitamente otro independiente.",
       emptyResult:
         "La automatización terminó sin resultados que se puedan mostrar. Ejecútala de nuevo.",
       expired: "Esta automatización ha caducado y ya no se puede ejecutar.",

@@ -43,6 +43,8 @@ import {
 
 import type { RunnerConfig } from "./config.js";
 import { CurrentUserInfoRequestError } from "./current-user-error.js";
+import { AutomationRequestError } from "./automation-error.js";
+import { AUTOMATION_TOOL_BODY_LIMIT, automationToolRequestSchema } from "@linksense/shared";
 import { ConnectionRequestError } from "./connection-error.js";
 import { connectionInputSchema } from "@linksense/shared";
 import { FileServiceRequestError } from "./file-service-error.js";
@@ -281,6 +283,7 @@ export const startTurnBodySchema = z
       userInput: z.string(),
       approvedPlanImplementation: z.literal(true).optional(),
       requireFinalResponse: z.boolean().optional(),
+      automationExecution: z.literal(true).optional(),
       applicationInstructions: z.string().min(1).max(20_000).optional(),
       selectedKnowledgeBases: runnerKnowledgeBaseSelectionSchema.optional(),
       officeSelectionContext: z.string().min(1).max(1_000_000).optional(),
@@ -346,6 +349,7 @@ export const startTurnBodySchema = z
         body.context.prioritySkills.length > 0 ||
         body.context.approvedPlanImplementation ||
         body.context.requireFinalResponse ||
+        body.context.automationExecution ||
         body.context.applicationInstructions ||
         body.context.officeSelectionContext ||
         (body.context.selectedKnowledgeBases?.length ?? 0) !== 0
@@ -805,6 +809,7 @@ export function buildRunnerServer(
       request.url.startsWith("/mcp-skill-creator/") ||
       request.url.startsWith("/mcp-application-builder/") ||
       request.url.startsWith("/mcp-current-user/") ||
+      request.url.startsWith("/mcp-automations/") ||
       request.url.startsWith("/mcp-connections/") ||
       request.url.startsWith("/mcp-user/")
     )
@@ -1291,6 +1296,25 @@ export function buildRunnerServer(
   );
 
   app.post<{ Params: { conversationId: string } }>(
+    "/mcp-automations/:conversationId/execute",
+    { bodyLimit: AUTOMATION_TOOL_BODY_LIMIT },
+    async (request, reply) => {
+      const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "") ?? "";
+      if (!token) return reply.code(401).send({ code: "FORBIDDEN", retryable: false });
+      const conversationId = uuid.safeParse(request.params.conversationId);
+      const body = automationToolRequestSchema.safeParse(request.body);
+      if (!conversationId.success || !body.success) return reply.code(400).send({ code: "VALIDATION_ERROR", retryable: false });
+      try {
+        return await pool.manageAutomation(conversationId.data, token, body.data);
+      } catch (error) {
+        const failure = error instanceof AutomationRequestError ? error : new AutomationRequestError("INTERNAL_ERROR", true, 503);
+        request.log.warn({ conversationId: conversationId.data, reasonCode: failure.code }, "automation request rejected");
+        return reply.code(failure.statusCode).send({ code: failure.code, retryable: failure.retryable });
+      }
+    },
+  );
+
+  app.post<{ Params: { conversationId: string } }>(
     "/mcp-current-user/:conversationId/info",
     async (request, reply) => {
       const conversationId = uuid.parse(request.params.conversationId);
@@ -1635,6 +1659,7 @@ export function buildRunnerServer(
                   requireFinalResponse: body.context.requireFinalResponse,
                 }
               : {}),
+            ...(body.context.automationExecution ? { automationExecution: true as const } : {}),
             ...(body.context.applicationInstructions !== undefined
               ? {
                   applicationInstructions: body.context.applicationInstructions,
@@ -2450,6 +2475,7 @@ export function buildRunnerServer(
         parsedBody.data.context.prioritySkills.length > 0 ||
         parsedBody.data.context.approvedPlanImplementation !== undefined ||
         parsedBody.data.context.requireFinalResponse !== undefined ||
+        parsedBody.data.context.automationExecution !== undefined ||
         parsedBody.data.context.applicationInstructions !== undefined ||
         parsedBody.data.context.officeSelectionContext !== undefined ||
         (parsedBody.data.context.selectedKnowledgeBases?.length ?? 0) !== 0

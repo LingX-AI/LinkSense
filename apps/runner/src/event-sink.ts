@@ -30,6 +30,8 @@ import { knowledgeServiceErrorFromApi } from "./knowledge-service-error.js";
 import { skillCreatorErrorFromApi } from "./skill-creator-error.js";
 import { applicationBuilderErrorFromApi } from "./application-builder-error.js";
 import { currentUserInfoErrorFromApi } from "./current-user-error.js";
+import { automationErrorFromApi } from "./automation-error.js";
+import type { AutomationToolRequest } from "@linksense/shared";
 import { connectionErrorFromApi } from "./connection-error.js";
 import type { ConnectionInput } from "@linksense/shared";
 import {
@@ -41,6 +43,12 @@ import { MemoryUsageOutboxStore } from "./workspace/memory-usage-outbox.js";
 import { WorkspaceManager } from "./workspace/workspace-manager.js";
 
 export interface RunnerEventSink {
+  manageAutomation?(input: {
+    conversationId: string;
+    turnId: string;
+    request: AutomationToolRequest;
+    signal?: AbortSignal;
+  }): Promise<unknown>;
   accessConnection?(input: {
     conversationId: string;
     turnId: string;
@@ -461,6 +469,14 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     );
   }
 
+  async manageAutomation(input: { conversationId: string; turnId: string; request: AutomationToolRequest; signal?: AbortSignal }): Promise<unknown> {
+    const { signal, ...body } = input;
+    const response = await this.request("/internal/automations/execute", body, this.workspaceManager.ownerFor(input.conversationId), signal);
+    const result = await parseResponseBody(response);
+    if (!response.ok) throw automationErrorFromApi(response.status, result);
+    return result;
+  }
+
   getCurrentUserInfo(input: {
     conversationId: string;
     turnId: string;
@@ -794,7 +810,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
         ).workerRelayMs
       : pathname.startsWith("/internal/image-generation/")
         ? 180_000
-      : pathname === "/internal/application-builder" || pathname.startsWith("/internal/connections/") ? 60_000
+      : pathname === "/internal/application-builder" || pathname.startsWith("/internal/connections/") || pathname.startsWith("/internal/automations/") ? 60_000
       : pathname === "/internal/runner/process-exit"
         ? (this.options.processExitTimeoutMs ?? 150_000)
         : (this.options.requestTimeoutMs ?? 15_000);

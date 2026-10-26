@@ -1550,6 +1550,7 @@ export class ConversationService {
         codexThreadId: conversation.codexThreadId,
         context: {
           userInput: CONTEXT_WINDOW_CONTINUATION_INPUT,
+          ...(turn.idempotencyKey?.startsWith("automation:") ? { automationExecution: true as const } : {}),
           ...(continuationContext.require_final_response
             ? { requireFinalResponse: true }
             : {}),
@@ -11262,7 +11263,7 @@ function buildRunnerStartInputFromIntent(
         ? { approvedPlanImplementation: true as const }
         : {}),
       ...(!isCompact && intent.idempotencyKey?.startsWith("automation:")
-        ? { requireFinalResponse: true }
+        ? { requireFinalResponse: true, automationExecution: true as const }
         : {}),
       ...(!isCompact && instructions
         ? { applicationInstructions: instructions }

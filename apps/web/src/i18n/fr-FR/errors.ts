@@ -355,6 +355,8 @@ export const errors = {
   turnCompletedWithoutOutput:
     "L’exécution s’est terminée sans produire de résultat affichable. Relancez-la.",
   automation: {
+    targetAlreadyConfigured:
+      "Cette tâche possède déjà une automatisation. Modifiez le programme existant ou demandez explicitement un programme distinct.",
     emptyResult:
       "L’automatisation s’est terminée sans résultat affichable. Relancez-la.",
     expired: "Cette automatisation a expiré et ne peut plus s’exécuter.",

@@ -5,6 +5,10 @@ import {
   appendSideChatQuote,
   sideChatTurnInput,
 } from "@/features/conversations/conversation-message-selection"
+import {
+  isAutomationMutationItem,
+  refreshAutomationQueries,
+} from "@/features/conversations/automation-tool-activity"
 import type { ApplicationAnnotationSubmit } from "@/features/applications/application-annotation-submission"
 import { SiteShareButton } from "@/features/web-sites/site-share-button"
 import { FirstUseGuide } from "@/features/onboarding/first-use-guide"
@@ -2025,6 +2029,13 @@ export function ConversationPage({
 
         const native = getNativeCodexPayload(event)
         if (native) {
+          if (
+            conversationId &&
+            native.method === "item/completed" &&
+            isAutomationMutationItem(native.params.item)
+          ) {
+            void refreshAutomationQueries(queryClient, conversationId)
+          }
           if (isNativeStreamDisconnectRetry(event)) {
             startNativeReconnect()
           } else {

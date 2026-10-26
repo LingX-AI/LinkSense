@@ -186,6 +186,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   AUTOMATION_TASK_IN_USE: "このタスクは自動化で使用中です。先に自動化を削除するか実行先を変更してください。",
   AUTOMATION_EMPTY_RESULT: "自動化は終了しましたが、表示可能な出力がありません。再実行してください。",
   AUTOMATION_EXPIRED: "この自動化の有効期限が切れたため、実行できません。",
+  AUTOMATION_TARGET_ALREADY_CONFIGURED: "このタスクにはすでに自動化があります。既存の設定を編集するか、別の自動化の追加を明示的に依頼してください。",
   ACCESS_DENIED: "このタスクへのアクセス権がありません。",
   ATTACHMENT_UPLOAD_INVALID: "添付ファイルのアップロードに失敗しました。対応するファイルを選択して再試行してください。",
   ATTACHMENT_TEMPORARY_FILE_SKIPPED: "一時ファイルをスキップしました。必要な内容を含む別のファイルを選択してください。",

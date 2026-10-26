@@ -2812,6 +2812,9 @@ export const ptBR = {
     streamDisconnectedWarning:
       "Tarefa interrompida porque o fluxo de resposta foi desconectado",
     nativeActivities: {
+      automationRunning: "Gerenciando automações",
+      automationFinished: "Operação de automação encerrada",
+      automationFailed: "Falha na operação de automação",
       fileChangeRunning_one: "Atualizando {{count}} arquivo",
       fileChangeRunning_other: "Atualizando {{count}} arquivos",
       fileChangeCompleted_one: "{{count}} arquivo atualizado",
@@ -5983,6 +5986,8 @@ export const ptBR = {
     turnCompletedWithoutOutput:
       "Esta execução terminou sem produzir um resultado exibível. Execute novamente.",
     automation: {
+      targetAlreadyConfigured:
+        "Esta tarefa já tem uma automação. Edite o plano existente ou peça explicitamente outro separado.",
       emptyResult:
         "A automação terminou sem produzir um resultado exibível. Execute novamente.",
       expired: "Esta automação expirou e não pode mais ser executada.",

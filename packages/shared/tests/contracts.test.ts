@@ -1152,7 +1152,7 @@ describe("shared boundary contracts", () => {
 
   it("publishes one stable runner turn-start contract version", () => {
     expect(RUNNER_TURN_START_CONTRACT_VERSION).toBe(
-      "user-project-runtime-v26",
+      "user-project-runtime-v27",
     );
   });
 

@@ -63,6 +63,7 @@ describe("Core MCP module registry", () => {
       "interactive_form",
       "skill_creator",
       "application_builder",
+      "automations",
     ])
     expect(registry.modules.map((module) => module.key)).toEqual([
       "file_service",
@@ -73,6 +74,7 @@ describe("Core MCP module registry", () => {
       "interactive_form",
       "skill_creator",
       "application_builder",
+      "automations",
     ])
     expect(registry.tools.map((tool) => tool.name)).toEqual(
       coreMcpToolNamesFor("default"),

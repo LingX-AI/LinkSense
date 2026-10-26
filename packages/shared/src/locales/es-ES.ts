@@ -186,6 +186,7 @@ export const errorMessages = {
   "AUTOMATION_TASK_IN_USE": "Una automatización sigue usando esta tarea. Elimina o reasigna primero la automatización.",
   "AUTOMATION_EMPTY_RESULT": "La automatización terminó sin resultados que se puedan mostrar. Ejecútala de nuevo.",
   "AUTOMATION_EXPIRED": "Esta automatización ha caducado y ya no se puede ejecutar.",
+  AUTOMATION_TARGET_ALREADY_CONFIGURED: "Esta tarea ya tiene una automatización. Edita el plan existente o solicita explícitamente otro independiente.",
   "ACCESS_DENIED": "No tienes acceso a esta tarea.",
   "ATTACHMENT_UPLOAD_INVALID": "La subida del adjunto falló. Elige un archivo compatible e inténtalo de nuevo.",
   "ATTACHMENT_TEMPORARY_FILE_SKIPPED": "Se han omitido los archivos temporales. Elige otro archivo con contenido útil.",

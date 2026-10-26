@@ -186,6 +186,7 @@ export const errorMessages: Record<ErrorCode, string> = {
  AUTOMATION_TASK_IN_USE: "Cette tâche est encore utilisée par une automatisation. Supprimez ou réaffectez celle-ci d’abord.",
  AUTOMATION_EMPTY_RESULT: "L’automatisation s’est terminée sans résultat affichable. Relancez-la.",
  AUTOMATION_EXPIRED: "Cette automatisation a expiré et ne peut plus s’exécuter.",
+ AUTOMATION_TARGET_ALREADY_CONFIGURED: "Cette tâche possède déjà une automatisation. Modifiez le programme existant ou demandez explicitement un programme distinct.",
  ACCESS_DENIED: "Vous n’avez pas accès à cette tâche.",
  ATTACHMENT_UPLOAD_INVALID: "Échec de l’import de la pièce jointe. Choisissez un fichier pris en charge et réessayez.",
  ATTACHMENT_TEMPORARY_FILE_SKIPPED: "Les fichiers temporaires ont été ignorés. Choisissez un autre fichier utile.",

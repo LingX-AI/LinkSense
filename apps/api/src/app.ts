@@ -81,6 +81,7 @@ import {
 import { internalKnowledgeSearchRoutes } from "./modules/knowledge/internal-routes.js";
 import { internalImageGenerationRoutes } from "./modules/system/image-generation-internal-routes.js";
 import { internalCurrentUserRoutes } from "./modules/users/internal-routes.js";
+import { internalAutomationRoutes } from "./modules/automations/internal-routes.js";
 import { knowledgeAdminRoutes } from "./modules/knowledge/admin-routes.js";
 import { knowledgeMaintenanceRoutes } from "./modules/knowledge/maintenance-routes.js";
 import { KnowledgeCitationReadService } from "./modules/knowledge/citation-read.js";
@@ -595,6 +596,11 @@ export async function buildApi(
   await app.register(internalCurrentUserRoutes, {
     prefix: "/internal",
     service: services.users,
+    sharedSecret: services.config.runnerSharedSecret,
+  });
+  await app.register(internalAutomationRoutes, {
+    prefix: "/internal/automations",
+    service: services.conversationAutomations,
     sharedSecret: services.config.runnerSharedSecret,
   });
   await app.register(auditRoutes, { prefix: "/api/v1/admin/audit", services });
