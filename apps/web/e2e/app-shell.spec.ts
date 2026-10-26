@@ -3826,11 +3826,67 @@ for (const locale of supportedLocales) {
   })
 }
 
-for (const reducedMotion of ["no-preference", "reduce"] as const) {
-  test(`segmented route tabs keep backgrounds local across remounts with ${reducedMotion} motion`, async ({
+for (const width of [1920, 390]) {
+  test(`administration pages and model, usage and knowledge tabs share one content width at ${width}px`, async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.setViewportSize({ width, height: 1000 })
+    const content = page.locator(".management-page")
+    const measure = () =>
+      content.evaluate((element) => {
+        const { x, width } = element.getBoundingClientRect()
+        return { x, width }
+      })
+    await page.goto("/admin/users")
+    await expect(content).toBeVisible()
+    const initial = await measure()
+    if (width === 1920) expect(initial.width).toBe(1440)
+    const expectSameWidth = async () => {
+      await expect.poll(measure).toEqual(initial)
+      await expectNoHorizontalOverflow(page)
+    }
+    for (const route of [
+      "/admin/groups",
+      "/admin/roles",
+      "/admin/quotas",
+      "/admin/capabilities",
+      "/admin/settings",
+      "/admin/health",
+      "/admin/feedback",
+      "/admin/audit",
+      "/admin/system-update",
+      "/admin/models",
+    ]) {
+      await page.goto(route)
+      await expectSameWidth()
+    }
+    for (const name of ["语音转文字模型", "图片生成模型", "模型渠道"]) {
+      await page.getByRole("tab", { name, exact: true }).click()
+      await expectSameWidth()
+    }
+    await page.goto("/admin/usage")
+    await expectSameWidth()
+    await page.getByRole("tab", { name: "账单", exact: true }).click()
+    await expectSameWidth()
+    await page.getByRole("tab", { name: "用量统计", exact: true }).click()
+    await expectSameWidth()
+    await page.goto("/admin/knowledge-bases")
+    await expectSameWidth()
+    const knowledgeTabs = page.locator("#admin-knowledge-tabs")
+    await knowledgeTabs.getByRole("tab").nth(1).click()
+    await expect(page).toHaveURL(/\/admin\/knowledge-sources$/u)
+    await expectSameWidth()
+    await knowledgeTabs.getByRole("tab").nth(0).click()
+    await expect(page).toHaveURL(/\/admin\/knowledge-bases$/u)
+    await expectSameWidth()
+  })
+}
+
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+  test(`segmented route tabs keep page width and backgrounds local across rapid remounts with ${reducedMotion} motion`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1920, height: 1000 })
     await page.emulateMedia({ reducedMotion })
     await page.goto("/admin/users")
     const list = page.locator("#admin-users-groups-tabs")
@@ -3845,6 +3901,10 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
           x: number
           y: number
           listY: number
+          listX: number
+          listWidth: number
+          pageX: number
+          pageWidth: number
           inBounds: boolean
         }[] = []
         for (let index = 0; index < 36; index++) {
@@ -3853,13 +3913,19 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
           )
           const list = document.querySelector("#admin-users-groups-tabs")
           const background = list?.querySelector('[data-slot="tabs-indicator"]')
-          if (list && background) {
+          const page = list?.closest(".management-page")
+          if (list && background && page) {
             const track = list.getBoundingClientRect()
             const active = background.getBoundingClientRect()
+            const content = page.getBoundingClientRect()
             frames.push({
               x: active.left - track.left,
               y: active.top - track.top,
               listY: track.top,
+              listX: track.left,
+              listWidth: track.width,
+              pageX: content.left,
+              pageWidth: content.width,
               inBounds:
                 active.left >= track.left - 1 &&
                 active.right <= track.right + 1 &&
@@ -3870,7 +3936,11 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
         }
         return frames
       }),
-      list.getByRole("tab", { name: "用户组", exact: true }).click(),
+      (async () => {
+        for (const name of ["用户组", "用户", "用户组", "用户", "用户组"]) {
+          await list.getByRole("tab", { name, exact: true }).click()
+        }
+      })(),
     ])
     await expect(page).toHaveURL(/\/admin\/groups$/u)
     const first = frames[0]
@@ -3880,6 +3950,13 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     expect(frames.length).toBeGreaterThanOrEqual(30)
     expect(frames.filter((frame) => !frame.inBounds)).toEqual([])
     expect(frames.every((frame) => Math.abs(frame.y - last.y) < 1)).toBe(true)
+    for (const key of ["listX", "listWidth", "pageX", "pageWidth"] as const) {
+      expect(
+        Math.max(...frames.map((frame) => frame[key])) -
+          Math.min(...frames.map((frame) => frame[key])),
+        `${key} must stay stable while switching administration tabs`
+      ).toBeLessThan(1)
+    }
     expect(
       Math.max(...frames.map((frame) => frame.listY)) -
         Math.min(...frames.map((frame) => frame.listY))

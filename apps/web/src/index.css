@@ -586,7 +586,7 @@
       :has(
         .knowledge-library-page,
         .knowledge-preview-page,
-        [data-content-width="wide"],
+        .settings-content-administration,
         .office-preview-pane
       )
     )
@@ -597,7 +597,7 @@
 }
 
 @container shell-content (min-width: 92rem) {
-  .shell-content:not(:has([data-content-width="wide"], .office-preview-pane))
+  .shell-content:not(:has(.settings-content-administration, .office-preview-pane))
     > .shell-attribution {
     position: absolute;
     padding: 0;
@@ -8917,9 +8917,7 @@ button.annotation-hover-file:focus-visible {
   margin-inline: auto;
 }
 
-.settings-content-administration:has(
-  .management-page[data-content-width="wide"]
-) {
+.settings-content-administration {
   --app-settings-page-width: var(--app-administration-page-width);
 }
 

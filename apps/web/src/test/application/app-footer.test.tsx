@@ -79,7 +79,7 @@ describe("application attribution footer", () => {
       expect(frame).toHaveClass(
         "hidden",
         "md:flex",
-        "@min-[76rem]/conversation-workspace:absolute"
+        "@min-[90.5rem]/conversation-workspace:absolute"
       )
       expect(frame).not.toHaveClass("absolute", "fixed")
       expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument()
@@ -141,7 +141,7 @@ describe("application attribution footer", () => {
       expect(attribution.closest(shiftSelector)).toBeNull()
       expect(frame?.parentElement).toBe(bottomStack)
       expect(frame).toHaveClass(
-        "@min-[76rem]/conversation-workspace:right-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))]"
+        "@min-[90.5rem]/conversation-workspace:right-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))]"
       )
     }
 

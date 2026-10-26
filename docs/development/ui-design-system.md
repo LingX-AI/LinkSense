@@ -19,7 +19,7 @@
 | 分段标签 | `components/ui/tabs.tsx` 的 TabsList 统一采用 Segmented，周期、分组、内容范围、运行位置、上传方式与认证方式也复用此组件；单个活动背景复用 Base UI 的容器内测量结果，由现有 Motion 平滑移动与缩放。路由会重建列表时，以稳定且唯一的列表 id 维持背景连续性；其他实例自动隔离。保持横向滚动、竖向标签、键盘和减少动态效果支持，不在页面叠加旧下划线或独立选中背景。 |
 | 操作按钮 | 默认与 `brand` 使用实色主色及悬停色；保留已有紧凑尺寸和明确的图标按钮尺寸，不按一张画板统一放大所有密集操作。账号提交继续保留原有较大触达区。 |
 | 卡片聚光 | `components/ui/card-spotlight.ts` 从 React Bits SpotlightCard 适配局部装饰；首页快捷卡、自动化模板、应用卡、站点卡、能力条目与知识库入口通过 `cardSpotlightProps` 复用。保留其 className 与现有类合并；仅精细指针悬停且未减少动态效果时跟随光点，键盘焦点使用静态边缘高亮。无常驻帧循环、额外布局容器或点击拦截，许可见 `THIRD-PARTY-NOTICES.md`。 |
-| 设置分区 | `components/settings/settings-card.tsx` 的 `layout="split"` 将类别标题、说明和图标置于左侧，字段卡片置于右侧；随内容容器宽度堆叠。默认 stacked 仍用于管理表单等场景。 |
+| 设置分区 | `components/settings/settings-card.tsx` 的 `layout="split"` 将类别标题、说明和图标置于左侧，字段卡片置于右侧；随内容容器宽度堆叠。默认 stacked 仍用于管理表单等场景。两种排列共用四边相等的内边距，布局变体只调整排列和内容间隔。 |
 | 账号访问 | `components/auth/account-access-layout.tsx` 统一品牌面板、语言选择、表单阅读宽度和归属标记；`AccountAccessHeading` 管理登录/找回的标题层级。注册、激活、重设密码、初始化与身份回调复用同一外壳。 |
 | 聊天与输入 | `features/conversations/conversation-thread.tsx`、`conversation-composer.tsx`、`conversation-model-selector.tsx` 沿用原有消息、执行、输入和资源状态。项目选择器在输入工具栏内，创建项目只提交项目表单。 |
 | 首页与共享页 | `new-task-welcome.tsx` 复用真实问候和提示词；`pages/shared-conversation-page.tsx` 复用首页渐变素材，展示标题、快照时间和只读说明。 |
@@ -65,6 +65,8 @@
 设置标题和表单行按各自容器的实际可用宽度排列：不足 42rem 时标签、说明和控件上下堆叠，达到该宽度才左右排列。窄容器内选择器占满可用宽度，开关和短按钮保持自然尺寸；不以整屏宽度判断是否有足够的标签空间。
 
 个人额度、凭据、MCP、消息渠道、反馈、归档，以及管理端用户、分组、角色、模型、用量、额度、资源、审计、系统设置、健康与更新页面复用共享外壳和控件。现有认证、授权和接口契约保持不变；应用自身内容与用户创建的 iframe 内容不属于外壳主题的改写范围。
+
+管理后台的页面宽度由 `SettingsShell` 统一限制为 1440px，个人设置为 1200px，窄屏均自适应。页面和 Tab 不单独切换宽度；共享滚动区预留滚动条空间，避免长短内容切换时页面与分段标签横向跳动。
 
 ## 账号页静态呈现
 

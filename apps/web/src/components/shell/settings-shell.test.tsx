@@ -95,7 +95,7 @@ describe("SettingsShell administrator navigation", () => {
     "/admin/audit",
     "/admin/usage",
     "/admin/system-update",
-  ])("marks administration routes for page-specific width at %s", (path) => {
+  ])("selects the shared administration width from the route at %s", (path) => {
     render(
       <MemoryRouter initialEntries={[path]}>
         <Routes>
@@ -108,6 +108,7 @@ describe("SettingsShell administrator navigation", () => {
         </Routes>
       </MemoryRouter>
     )
+    expect(screen.getByRole("main")).toHaveClass("[scrollbar-gutter:stable]")
     expect(screen.getByRole("main")).toHaveAttribute("tabindex", "0")
     expect(screen.getByRole("contentinfo")).toHaveClass(
       "shell-attribution",

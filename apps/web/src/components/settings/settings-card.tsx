@@ -42,13 +42,11 @@ export function SettingsCard({
       ) : (
         header
       )}
-      <Card
-        className={cn("min-w-0", layout === "split" ? "py-2" : "py-4 sm:py-5")}
-      >
+      <Card className="min-w-0 py-4 sm:py-5">
         <CardContent
           className={cn(
-            "grid min-w-0",
-            layout === "split" ? "gap-0 px-6" : "gap-4 px-4 sm:px-5"
+            "grid min-w-0 px-4 sm:px-5",
+            layout === "split" ? "gap-0" : "gap-4"
           )}
         >
           {children}

@@ -21,9 +21,8 @@ describe("LinkSense application", () => {
       renderApp("/admin/users")
       const header = await screen.findByRole("columnheader", { name: title })
       expect(header).toHaveClass("user-management-actions-column")
-      expect(header.closest(".management-page")).toHaveAttribute(
-        "data-content-width",
-        "wide"
+      expect(header.closest(".settings-content")).toHaveClass(
+        "settings-content-administration"
       )
       expect(header).toHaveTextContent(title)
       expect(header).toBeVisible()
@@ -216,9 +215,9 @@ describe("LinkSense application", () => {
     await interaction.click(screen.getByRole("tab", { name: "用户组" }))
 
     expect(await screen.findByText("暂无用户组")).toBeVisible()
-    expect(
-      screen.getByRole("banner").closest(".management-page")
-    ).toHaveAttribute("data-content-width", "standard")
+    expect(screen.getByRole("banner").closest(".settings-content")).toHaveClass(
+      "settings-content-administration"
+    )
     expect(screen.getByRole("tab", { name: "用户组" })).toHaveAttribute(
       "aria-selected",
       "true"

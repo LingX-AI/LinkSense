@@ -327,7 +327,6 @@ export function UsageAnalyticsPage() {
   return (
     <PageLayout
       title={t("usage.title")}
-      contentWidth={section === "analytics" ? "wide" : "standard"}
       description={
         section === "billing"
           ? t("usage.billing.pageDescription")

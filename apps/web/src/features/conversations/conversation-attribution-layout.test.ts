@@ -25,20 +25,20 @@ describe("conversation attribution layout", () => {
 
   it("removes attribution from the composer grid only when the workspace has room beside the input", () => {
     const wideWorkspaceRule = attributionStyles.match(
-      /@container conversation-workspace \(width >= 76rem\)\s*\{[^}]*position:\s*absolute;/u
+      /@container conversation-workspace \(width >= 90\.5rem\)\s*\{[^}]*position:\s*absolute;/u
     )?.[0]
 
     expect(wideWorkspaceRule).toBeDefined()
     expect(attributionStyles).not.toMatch(/(?:^|\n)\.absolute\s*\{/u)
     expect(attributionStyles).not.toMatch(/position:\s*fixed;/u)
     expect(attributionStyles).toMatch(
-      /@container conversation-workspace \(width >= 76rem\)\s*\{[^}]*right:\s*calc\(var\(--attribution-inset\)\s*-\s*var\(--conversation-horizontal-gutter\)\);/u
+      /@container conversation-workspace \(width >= 90\.5rem\)\s*\{[^}]*right:\s*calc\(var\(--attribution-inset\)\s*-\s*var\(--conversation-horizontal-gutter\)\);/u
     )
     expect(attributionStyles).toMatch(
-      /@container conversation-workspace \(width >= 76rem\)\s*\{[^}]*bottom:\s*calc\(var\(--attribution-inset\)\s*-\s*var\(--conversation-bottom-inset\)\);/u
+      /@container conversation-workspace \(width >= 90\.5rem\)\s*\{[^}]*bottom:\s*calc\(var\(--attribution-inset\)\s*-\s*var\(--conversation-bottom-inset\)\);/u
     )
     expect(attributionStyles).toMatch(
-      /@container conversation-workspace \(width >= 76rem\)\s*\{[^}]*margin:\s*0;/u
+      /@container conversation-workspace \(width >= 90\.5rem\)\s*\{[^}]*margin:\s*0;/u
     )
   })
 

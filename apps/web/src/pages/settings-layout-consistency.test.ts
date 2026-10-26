@@ -74,7 +74,7 @@ describe("settings center layout consistency", () => {
     ).not.toContain("background-image")
   })
 
-  it("centers all settings pages and widens only administration pages explicitly marked wide", () => {
+  it("centers settings pages and keeps all administration pages at one width independent of the active tab", () => {
     expect(firstCssRule(":root")).toContain(
       "--app-settings-page-width: 1200px;"
     )
@@ -87,14 +87,10 @@ describe("settings center layout consistency", () => {
     expect(firstCssRule(":root")).toContain(
       "--app-administration-page-width: 1440px;"
     )
-    expect(firstCssRule(".settings-content-administration")).toBeUndefined()
-    expect(
-      firstCssRule(
-        '.settings-content-administration:has( .management-page[data-content-width="wide"] )'
-      )
-    ).toContain(
+    expect(firstCssRule(".settings-content-administration")).toContain(
       "--app-settings-page-width: var(--app-administration-page-width);"
     )
+    expect(appStyles).not.toContain("data-content-width")
   })
 
   it("lets settings sections fill their shared page instead of imposing local widths", () => {

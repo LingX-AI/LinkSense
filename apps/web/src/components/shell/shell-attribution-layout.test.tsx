@@ -24,25 +24,21 @@ describe("shared shell attribution layout", () => {
   it.each([
     {
       pageClass: "management-page",
-      contentWidth: "standard",
       width: 390,
       corner: false,
     },
     {
       pageClass: "management-page",
-      contentWidth: "standard",
       width: 1200,
       corner: false,
     },
     {
       pageClass: "management-page",
-      contentWidth: "standard",
       width: 1250,
       corner: false,
     },
     {
       pageClass: "management-page",
-      contentWidth: "standard",
       width: 1264,
       corner: true,
     },
@@ -53,29 +49,49 @@ describe("shared shell attribution layout", () => {
     { pageClass: "knowledge-preview-page", width: 1472, corner: true },
     {
       pageClass: "management-page",
-      contentWidth: "wide",
+      administration: true,
+      width: 1264,
+      corner: false,
+    },
+    {
+      pageClass: "management-page",
+      administration: true,
+      width: 1472,
+      corner: false,
+    },
+    {
+      pageClass: "management-page",
+      administration: true,
       width: 1480,
       corner: false,
     },
     {
       pageClass: "management-page",
-      contentWidth: "wide",
+      administration: true,
       width: 1504,
       corner: true,
     },
     {
       pageClass: "management-page",
-      contentWidth: "wide",
+      administration: true,
       width: 1552,
       corner: true,
     },
   ])(
-    "uses the gutter=$corner for $pageClass ($contentWidth) at content width $width",
-    ({ pageClass, contentWidth, width, corner }) => {
+    "uses the gutter=$corner for $pageClass (administration=$administration) at content width $width",
+    ({ pageClass, administration, width, corner }) => {
       render(
         <div className="shell-content">
           <main>
-            <div className={pageClass} data-content-width={contentWidth} />
+            <div
+              className={
+                administration
+                  ? "settings-content-administration"
+                  : "settings-content"
+              }
+            >
+              <div className={pageClass} />
+            </div>
           </main>
           <PoweredByLinkSense />
         </div>

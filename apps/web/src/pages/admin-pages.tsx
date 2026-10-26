@@ -659,7 +659,6 @@ function UsersAndGroupsManagementLayout({
     <PageLayout
       title={t("admin.usersAndGroupsTitle")}
       className="[&>.management-header]:mb-4!"
-      contentWidth={activeTab === "users" ? "wide" : "standard"}
       description={t("admin.usersAndGroupsDescription")}
       actions={actions}
     >
@@ -1924,7 +1923,6 @@ function RoleOverviewPage() {
   return (
     <PageLayout
       title={t("admin.rolesTitle")}
-      contentWidth="wide"
       description={t("admin.rolesDescription", { productName })}
     >
       {summaryQuery.isLoading && <LoadingState />}
@@ -2571,7 +2569,6 @@ function AuditPage() {
     <PageLayout
       title={t("admin.auditTitle")}
       className="[&>.management-header]:mb-4!"
-      contentWidth="wide"
       description={t("admin.auditDescription")}
       actions={
         <Button
@@ -4078,7 +4075,6 @@ function ModelSettingsPage() {
   return (
     <PageLayout
       title={t("settings.modelSettings")}
-      contentWidth={activeTab === "channels" ? "wide" : "standard"}
       description={t("settings.modelSettingsDescription")}
     >
       {modelProviderQuery.data?.management_enabled === false && (

@@ -13,7 +13,7 @@ const placementClasses: Record<AttributionPlacement, string> = {
   // keeps the same distance from the workspace edge in both grid and gutter.
   // Margins also work when the requested inset is smaller than the stack gutter.
   conversation:
-    "conversation-attribution mr-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))] mb-[calc(var(--attribution-inset)-var(--conversation-bottom-inset))] hidden justify-self-end md:flex @min-[76rem]/conversation-workspace:absolute @min-[76rem]/conversation-workspace:right-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))] @min-[76rem]/conversation-workspace:bottom-[calc(var(--attribution-inset)-var(--conversation-bottom-inset))] @min-[76rem]/conversation-workspace:m-0",
+    "conversation-attribution mr-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))] mb-[calc(var(--attribution-inset)-var(--conversation-bottom-inset))] hidden justify-self-end md:flex @min-[90.5rem]/conversation-workspace:absolute @min-[90.5rem]/conversation-workspace:right-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))] @min-[90.5rem]/conversation-workspace:bottom-[calc(var(--attribution-inset)-var(--conversation-bottom-inset))] @min-[90.5rem]/conversation-workspace:m-0",
 }
 
 export function PoweredByLinkSense({

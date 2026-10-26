@@ -11,7 +11,6 @@ export function PageLayout({
   beforeHeader,
   afterHeader,
   className,
-  contentWidth = "standard",
   navigationTitle,
   navigationActions,
   children,
@@ -23,21 +22,17 @@ export function PageLayout({
   beforeHeader?: ReactNode
   afterHeader?: ReactNode
   className?: string
-  contentWidth?: "standard" | "wide"
   navigationTitle?: string
   navigationActions?: ReactNode
   children: ReactNode
 }) {
   return (
-    <div className="management-scroll">
+    <div className="management-scroll scrollbar-gutter-stable">
       <PageTopBar
         title={navigationTitle ?? title}
         actions={navigationActions}
       />
-      <div
-        className={cn("management-page", className)}
-        data-content-width={contentWidth}
-      >
+      <div className={cn("management-page", className)}>
         {beforeHeader && <div className="mb-6">{beforeHeader}</div>}
         <header className="management-header" role="banner">
           <div className="min-w-0">

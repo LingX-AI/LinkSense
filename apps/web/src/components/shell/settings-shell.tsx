@@ -364,7 +364,7 @@ export function SettingsShell() {
         />
         <main
           ref={mainRef}
-          className="settings-main min-h-0 flex-1"
+          className="settings-main min-h-0 flex-1 [scrollbar-gutter:stable]"
           id="main-content"
           tabIndex={0}
         >

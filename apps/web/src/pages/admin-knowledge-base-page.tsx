@@ -327,7 +327,6 @@ export function AdminKnowledgeBasePage() {
   return (
     <PageLayout
       title={t("adminKnowledge.title")}
-      contentWidth="wide"
       description={t("adminKnowledge.description")}
     >
       <AdminKnowledgeTabs value="knowledgeBases">

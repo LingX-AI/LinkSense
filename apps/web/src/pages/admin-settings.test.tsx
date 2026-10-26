@@ -1687,7 +1687,7 @@ describe("administrator authentication settings", () => {
     ).toBe(false)
   })
 
-  it("uses wide content only for the model channel table and standard width for model forms", async () => {
+  it("keeps one shell-sized page container while switching model tables and forms", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
@@ -1698,13 +1698,15 @@ describe("administrator authentication settings", () => {
     const interaction = userEvent.setup()
     renderSettings("models")
     const page = screen.getByRole("banner").closest(".management-page")
-    expect(page).toHaveAttribute("data-content-width", "wide")
+    expect(page).not.toHaveAttribute("data-content-width")
     for (const name of ["知识检索模型", "语音转文字模型", "图片生成模型"]) {
       await interaction.click(await screen.findByRole("tab", { name }))
-      expect(page).toHaveAttribute("data-content-width", "standard")
+      expect(screen.getByRole("banner").closest(".management-page")).toBe(page)
+      expect(page).not.toHaveAttribute("data-content-width")
     }
     await interaction.click(screen.getByRole("tab", { name: "模型渠道" }))
-    expect(page).toHaveAttribute("data-content-width", "wide")
+    expect(screen.getByRole("banner").closest(".management-page")).toBe(page)
+    expect(page).not.toHaveAttribute("data-content-width")
   })
 
   it("refetches each model tab and remounts its form with the latest data", async () => {

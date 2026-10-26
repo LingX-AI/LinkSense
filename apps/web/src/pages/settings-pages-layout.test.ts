@@ -25,7 +25,7 @@ describe("settings page layout", () => {
     renderApp("/settings/general")
     const language = await screen.findByRole("combobox", { name: "界面语言" })
     const card = language.closest('[data-slot="card"]')
-    expect(card).toHaveClass("rounded-card", "border", "py-2")
+    expect(card).toHaveClass("rounded-card", "border", "py-4", "sm:py-5")
     expect(card).toContainElement(
       screen.getByRole("combobox", { name: "执行中发送新消息" })
     )
