@@ -414,52 +414,21 @@ test("long shared snapshots keep a bounded virtual list while scrolling", async 
 })
 
 for (const width of [2048, 390]) {
-  test(`empty browser panel fills the available pane at ${width}px`, async ({
+  test(`task header omits the browser panel at ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 })
-    await page.route("**/api/v1/conversations/*/browser", (route) =>
-      route.fulfill({
-        status: 404,
-        json: { success: false, error_code: "BROWSER_PANEL_UNAVAILABLE" },
-      })
-    )
     await page.goto("/conversations/20000000-0000-4000-8000-000000000001")
-    await page.getByRole("button", { name: "查看任务浏览器" }).click()
-    await expect(
-      page.getByRole("region", { name: "任务概览", exact: true })
-    ).toHaveCount(0)
-    const panel = page.getByRole("region", { name: "浏览器", exact: true })
-    await expect(
-      panel.getByText("当前任务没有可查看的浏览器会话。请先让 Agent 打开网页。")
-    ).toBeVisible()
-    await expect
-      .poll(() =>
-        panel.evaluate((element, compact) => {
-          const layout = element.closest(".conversation-office-layout")
-          if (!layout) throw new Error("Expected the browser preview layout")
-          const layoutBox = layout.getBoundingClientRect()
-          const panelBox = element.getBoundingClientRect()
-          return Math.max(
-            Math.abs(layoutBox.right - panelBox.right),
-            compact ? Math.abs(panelBox.left - layoutBox.left) : 0,
-            compact ? Math.abs(panelBox.width - layoutBox.width) : 0
-          )
-        }, width < 1101)
-      )
-      .toBeLessThanOrEqual(1)
-    await expectNoHorizontalOverflow(page)
-    await page.screenshot({
-      path: test.info().outputPath(`browser-panel-empty-${width}.png`),
-    })
-    await panel.getByRole("button", { name: "关闭浏览器面板" }).click()
-    await expect(panel).toHaveCount(0)
-    await expect(
-      page.getByRole("region", { name: "任务概览", exact: true })
-    ).toBeVisible()
     await expect(
       page.getByRole("textbox", { name: "任务输入框" })
     ).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "查看任务浏览器" })
+    ).toHaveCount(0)
+    await expect(
+      page.getByRole("region", { name: "浏览器", exact: true })
+    ).toHaveCount(0)
+    await expectNoHorizontalOverflow(page)
   })
 }
 

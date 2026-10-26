@@ -1,5 +1,3 @@
-import { BrowserPanel } from "@/features/browser-panel/browser-panel"
-import { AppWindowIcon } from "lucide-react"
 import { createRandomUuid } from "@/lib/random-uuid"
 import { useSideChat } from "@/features/conversations/use-side-chat"
 import { SideChatPanel } from "@/features/conversations/side-chat-panel"
@@ -599,8 +597,6 @@ export function ConversationPage({
   const queryClient = useQueryClient()
   const [composerValue] = useState(createConversationComposerValue)
   const sideChatPanelRef = useRef<HTMLElement>(null)
-  const [browserPanelConversationId, setBrowserPanelConversationId] = useState<string | null>(null)
-  const browserPanelOpen = Boolean(conversationId && browserPanelConversationId === conversationId)
   const { setValue } = composerValue
   const {
     projectId: newProjectId,
@@ -5724,18 +5720,16 @@ export function ConversationPage({
 
   return (
     <ConversationOfficeLayout
-      previewBlocksWorkspace={sideChat.open || browserPanelOpen}
+      previewBlocksWorkspace={sideChat.open}
       taskOverviewOpen={
         surfaceActive &&
         !isNew &&
         !taskOverviewSuppressed &&
         taskOverviewOpen &&
-        !sideChat.open && !browserPanelOpen
+        !sideChat.open
       }
       defaultPreviewViewportRatio={
-        browserPanelOpen
-          ? 0.5
-          : sideChat.open
+        sideChat.open
           ? 0.4
           : activeSubAgent
             ? DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO
@@ -5749,20 +5743,13 @@ export function ConversationPage({
             : "officePreview.resizePreview"
       )}
       previewClosing={
-        !sideChat.open && !browserPanelOpen &&
+        !sideChat.open &&
         filePreviewClosing &&
         Boolean(activeHtmlCodePreview || activeImagePreview || officeFile)
       }
       onPreviewExitComplete={finishFilePreviewExit}
       preview={
-        browserPanelOpen && conversationId ? (
-          <BrowserPanel key={conversationId} conversationId={conversationId} readOnly={readOnly || collaborationMode === "plan"} running={turnExecutionActive} onClose={() => setBrowserPanelConversationId(null)} onContinue={() => {
-            if (composerValue.getSnapshot().trim() || attachments.length || goalMode || taskReferences.length) {
-              setValue(current => [current, t("browserPanel.continuePrompt")].filter(Boolean).join("\n\n"))
-              composerRef.current?.focus()
-            } else submitComposer(t("browserPanel.continuePrompt"))
-          }} />
-        ) : sideChat.open ? (
+        sideChat.open ? (
           <SideChatPanel
             containerRef={sideChatPanelRef}
             data={sideChat.data}
@@ -6032,7 +6019,7 @@ export function ConversationPage({
               <UploadIcon aria-hidden="true" />
             </ConversationHeaderButton>
           )}
-          {!isNew && surfaceActive && !browserPanelOpen && (
+          {!isNew && surfaceActive && (
             <ConversationTaskOverviewPanel
               key={conversationId}
               events={visibleEvents}
@@ -6056,21 +6043,6 @@ export function ConversationPage({
             />
           )}
           {headerActions}
-          {!isNew && !readOnly && surfaceActive && !sideChatReference && (
-            <ConversationHeaderButton
-              label={t(
-                browserPanelOpen ? "browserPanel.close" : "browserPanel.open"
-              )}
-              aria-expanded={browserPanelOpen}
-              onClick={() =>
-                setBrowserPanelConversationId(
-                  browserPanelOpen ? null : conversationId ?? null
-                )
-              }
-            >
-              <AppWindowIcon aria-hidden="true" />
-            </ConversationHeaderButton>
-          )}
           {sideChat.data && (
             <ConversationHeaderButton
               label={t("sideChat.reopen")}

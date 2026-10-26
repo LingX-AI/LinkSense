@@ -43,11 +43,9 @@ describe("LinkSense application", () => {
     ).toHaveAttribute("aria-expanded", "true")
     act(() => overview.blur())
     expect(
-      within(banner)
-        .getByRole("button", { name: "查看任务浏览器" })
-        .querySelector("svg")
-    ).toHaveClass("lucide-app-window")
-    const labels = ["分享", "关闭任务概览", "查看任务浏览器"]
+      within(banner).queryByRole("button", { name: "查看任务浏览器" })
+    ).not.toBeInTheDocument()
+    const labels = ["分享", "关闭任务概览"]
     for (const label of labels) {
       const button = within(banner).getByRole("button", { name: label })
       expect(button).toHaveClass(
@@ -774,10 +772,10 @@ describe("LinkSense application", () => {
     expect(
       titleActions?.querySelector(".conversation-title-application-icon")
     ).toBeNull()
-    expect(within(banner).getAllByRole("button")).toHaveLength(4)
+    expect(within(banner).getAllByRole("button")).toHaveLength(3)
     expect(
-      within(banner).getByRole("button", { name: "查看任务浏览器" })
-    ).toHaveAttribute("aria-expanded", "false")
+      within(banner).queryByRole("button", { name: "查看任务浏览器" })
+    ).not.toBeInTheDocument()
     expect(within(banner).getByRole("button", { name: "分享" })).toBeVisible()
     expect(
       within(banner).getByRole("button", { name: "关闭任务概览" })
