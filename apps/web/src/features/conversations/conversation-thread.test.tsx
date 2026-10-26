@@ -503,6 +503,122 @@ describe("conversation turn responses", () => {
     })
   })
 
+  it.each(["one call", "three calls"] as const)(
+    "keeps all three completed images below a reply without file references after %s and reopening",
+    async (mode) => {
+      const files = ["草地上的金毛", "木地板上的柯基", "湖边奔跑的边牧"].map(
+        (name, index) => ({
+          id: `30000000-0000-4000-8000-00000000005${index}`,
+          name: `${name}.png`,
+          kind: "artifact" as const,
+          turn_id: "turn-1",
+          mime_type: "image/png",
+          checksum_sha256: String(index + 1).repeat(64),
+          size: 2048,
+          download_available: true,
+        })
+      )
+      const processPreview = {
+        ...files[0]!,
+        id: "30000000-0000-4000-8000-000000000059",
+        name: "process-preview.png",
+        checksum_sha256: "f".repeat(64),
+      }
+      const content =
+        "3 张狗狗照片已经生成：\n\n- 金色阳光下草地上的金毛\n- 木地板上的柯基特写\n- 湖边奔跑的边牧\n\n这三张照片都是写实风格，可以在上方查看，也可以下载原图。"
+      const batches =
+        mode === "one call" ? [files] : files.map((file) => [file])
+      const conversation: Conversation = {
+        ...completedConversation,
+        artifacts: [processPreview, ...files],
+        messages: [
+          completedConversation.messages![0]!,
+          {
+            ...completedConversation.messages![1]!,
+            phase: "final_answer",
+            content,
+          },
+        ],
+        events: [
+          ...batches.map((batch, index) =>
+            nativeItemLifecycleEvent({
+              id: `dog-generation-${index}`,
+              sequence: index + 2,
+              method: "item/completed",
+              item: {
+                id: `dog-generation-${index}`,
+                type: "mcpToolCall",
+                server: "linksense_core",
+                tool: "generate_image",
+                status: "completed",
+                generatedImageFileIds: batch.map((file) => file.id),
+              },
+            })
+          ),
+          nativeItemLifecycleEvent({
+            id: "process-image-view",
+            sequence: 5,
+            method: "item/completed",
+            item: {
+              id: "process-image-view",
+              type: "imageView",
+              path: "$WORKSPACE/process-preview.png",
+              fileId: processPreview.id,
+            },
+          }),
+        ],
+      }
+      const loadArtifactPreview = vi.fn(async (file: ConversationFile) => ({
+        url: `https://files.example.test/${file.id}.png`,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      }))
+      const onDownload = vi.fn()
+      const view = render(
+        <ConversationThread
+          conversation={conversation}
+          loadArtifactPreview={loadArtifactPreview}
+          onDownload={onDownload}
+        />
+      )
+      expect(screen.getAllByRole("tab")).toHaveLength(3)
+      const firstImage = await screen.findByRole("img", {
+        name: files[0]!.name,
+      })
+      const gallery = firstImage.closest('[data-slot="generated-image-call"]')
+      if (!gallery) throw new Error("Missing image gallery")
+      expect(
+        screen
+          .getByText(/这三张照片都是写实风格/u)
+          .compareDocumentPosition(gallery) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(
+        screen.queryByRole("tab", { name: `选择图片 ${processPreview.name}` })
+      ).toBeNull()
+      for (const file of files) {
+        fireEvent.click(
+          screen.getByRole("tab", { name: `选择图片 ${file.name}` })
+        )
+        expect(
+          await screen.findByRole("img", { name: file.name })
+        ).toBeVisible()
+        fireEvent.click(
+          screen.getByRole("button", { name: `下载 ${file.name}` })
+        )
+        expect(onDownload).toHaveBeenLastCalledWith(file)
+      }
+      view.rerender(
+        <ConversationThread
+          conversation={structuredClone(conversation)}
+          loadArtifactPreview={loadArtifactPreview}
+          onDownload={onDownload}
+        />
+      )
+      expect(screen.getAllByRole("tab")).toHaveLength(3)
+      expect(screen.getByRole("img", { name: files[2]!.name })).toBeVisible()
+      expect(loadArtifactPreview).toHaveBeenCalledTimes(3)
+    }
+  )
+
   it.each([
     ["empty", "[下载文件]()"],
     ["workspace-relative", "[下载文件](artifacts/result.zip)"],
@@ -4339,9 +4455,7 @@ describe("conversation turn responses", () => {
       />
     )
     const summary = screen.getByTestId("turn-summary-turn-1")
-    expect(
-      within(summary).getByRole("status", { name: "正在生成图片…" })
-    ).toBeVisible()
+    expect(screen.getByRole("status", { name: "正在生成图片…" })).toBeVisible()
     const completed = {
       ...initial,
       artifacts: [file],
@@ -4368,18 +4482,14 @@ describe("conversation turn responses", () => {
       />
     )
     await waitFor(() =>
-      expect(
-        within(summary).getByRole("img", { name: file.name })
-      ).toBeVisible()
+      expect(screen.getByRole("img", { name: file.name })).toBeVisible()
     )
     expect(summary.querySelector(".file-tile")).toBeNull()
-    fireEvent.click(
-      within(summary).getByRole("button", { name: `下载 ${file.name}` })
-    )
+    fireEvent.click(screen.getByRole("button", { name: `下载 ${file.name}` }))
     expect(onDownload).toHaveBeenCalledWith(file)
     expect(onPreviewImage).not.toHaveBeenCalled()
     fireEvent.click(
-      within(summary).getByRole("button", { name: `预览图片 ${file.name}` })
+      screen.getByRole("button", { name: `预览图片 ${file.name}` })
     )
     expect(onPreviewImage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -4418,7 +4528,148 @@ describe("conversation turn responses", () => {
         'img[src="https://files.example.test/corgi.png"]'
       )
     ).toHaveLength(1)
+    expect(loadPreview).toHaveBeenCalledTimes(1)
   })
+
+  it.each([
+    "inline",
+    "download",
+    "local",
+    "reference",
+    "renamed inline",
+    "renamed download",
+  ] as const)(
+    "shows only the final delivered image after all reply text for a %s reference",
+    async (format) => {
+      const files = ["draft", "process-preview", "final"].map(
+        (name, index) => ({
+          id: `30000000-0000-4000-8000-00000000003${index}`,
+          name: `${name}.png`,
+          kind: "artifact" as const,
+          turn_id: "turn-1",
+          mime_type: "image/png",
+          checksum_sha256: String(index + 1).repeat(64),
+          size: 1024,
+          download_available: true,
+        })
+      )
+      const [draft, preview, final] = files
+      if (!draft || !preview || !final) throw new Error("Missing image fixture")
+      const generated = format.startsWith("renamed")
+        ? {
+            ...final,
+            id: "30000000-0000-4000-8000-000000000033",
+            name: "generated.png",
+          }
+        : final
+      if (generated !== final) files.push(generated)
+      const reference = format.endsWith("inline")
+        ? `![最终图片](linksense-artifact:${final.id})`
+        : format.endsWith("download")
+          ? `[下载图片](linksense-artifact:${final.id})`
+          : format === "local"
+            ? `[下载图片](artifacts/${final.name})`
+            : `![最终图片][result]\n\n[result]: linksense-artifact:${final.id}`
+      const loadArtifactPreview = vi.fn(async (file: ConversationFile) => ({
+        url: `https://files.example.test/${file.id}.png`,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      }))
+      const onDownload = vi.fn()
+      const conversation: Conversation = {
+        ...completedConversation,
+        artifacts: files,
+        messages: [
+          completedConversation.messages![0]!,
+          {
+            id: "draft-commentary",
+            role: "assistant",
+            turn_id: "turn-1",
+            phase: "commentary",
+            content: `![过程图片](linksense-artifact:${draft.id})`,
+          },
+          {
+            ...completedConversation.messages![1]!,
+            phase: "final_answer",
+            content: `生成完成。\n\n${reference}\n\n请查收最终图片。`,
+            artifacts: files,
+          },
+        ],
+        events: [
+          ...[draft, generated].map((file, index) =>
+            nativeItemLifecycleEvent({
+              id: `generate-${index}`,
+              sequence: index + 2,
+              method: "item/completed",
+              item: {
+                id: `generate-${index}`,
+                type: "mcpToolCall",
+                server: "linksense_core",
+                tool: "generate_image",
+                status: "completed",
+                generatedImageFileIds: [file.id],
+              },
+            })
+          ),
+          nativeItemLifecycleEvent({
+            id: "view-process-image",
+            sequence: 4,
+            method: "item/completed",
+            item: {
+              id: "view-process-image",
+              type: "imageView",
+              path: "$WORKSPACE/process-preview.png",
+              fileId: preview.id,
+            },
+          }),
+        ],
+      }
+      const { container, rerender } = render(
+        <ConversationThread
+          conversation={conversation}
+          loadArtifactPreview={loadArtifactPreview}
+          onDownload={onDownload}
+        />
+      )
+      const image = await screen.findByRole("img", { name: final.name })
+      const gallery = image.closest('[data-slot="generated-image-call"]')
+      expect(gallery).not.toBeNull()
+      if (!gallery) throw new Error("Missing final image gallery")
+      expect(
+        screen.getByText("请查收最终图片。").compareDocumentPosition(gallery) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(
+        screen
+          .getByTestId("turn-summary-turn-1")
+          .querySelector('[data-slot="generated-image-call"]')
+      ).toBeNull()
+      expect(
+        container.querySelectorAll('[data-slot="generated-image"]')
+      ).toHaveLength(1)
+      expect(screen.queryByRole("img", { name: draft.name })).toBeNull()
+      expect(screen.queryByRole("img", { name: preview.name })).toBeNull()
+      expect(loadArtifactPreview).toHaveBeenCalledExactlyOnceWith(
+        final,
+        expect.any(AbortSignal)
+      )
+      fireEvent.click(
+        screen.getByRole("button", { name: `下载 ${final.name}` })
+      )
+      expect(onDownload).toHaveBeenCalledWith(final)
+
+      rerender(
+        <ConversationThread
+          conversation={structuredClone(conversation)}
+          loadArtifactPreview={loadArtifactPreview}
+          onDownload={onDownload}
+        />
+      )
+      expect(
+        container.querySelectorAll('[data-slot="generated-image"]')
+      ).toHaveLength(1)
+      expect(screen.getByRole("img", { name: final.name })).toBe(image)
+    }
+  )
 
   it.each(["filenames", "artifact links", "code blocks"] as const)(
     "shows code-generated images with %s in the gallery after the image service fails",
@@ -4506,8 +4757,7 @@ describe("conversation turn responses", () => {
         />
       )
       const { rerender } = render(renderThread())
-      const summary = screen.getByTestId("turn-summary-turn-1")
-      const gallery = summary.querySelector<HTMLElement>(
+      const gallery = document.querySelector<HTMLElement>(
         '[data-slot="generated-image-call"]'
       )
       expect(gallery).not.toBeNull()
@@ -4669,19 +4919,23 @@ describe("conversation turn responses", () => {
       )
 
       const summary = screen.getByTestId("turn-summary-turn-1")
-      const loading = within(summary).getByRole("status", {
+      const loading = screen.getByRole("status", {
         name: "正在生成图片…",
       })
       expect(loading).toBeVisible()
       expect(loading).toHaveClass(
         "assistant-html-preview-loading-surface",
         "turn-image-generation-loading",
-        "size-full",
+        "w-full",
+        "aspect-square",
         "min-h-0"
       )
       expect(
         loading.closest('[data-slot="generated-image-frame"]')
-      ).toHaveClass("aspect-square", "w-full", "max-h-[32rem]")
+      ).toHaveClass("w-full")
+      expect(
+        loading.closest('[data-slot="generated-image-frame"]')
+      ).not.toHaveClass("aspect-square", "max-h-[32rem]")
       expect(loading).not.toHaveClass("min-h-80")
       expect(
         loading.querySelector(".assistant-html-preview-loading-canvas")
@@ -4689,7 +4943,7 @@ describe("conversation turn responses", () => {
       expect(
         loading.querySelector(".assistant-html-preview-loading-glow")
       ).toBeVisible()
-      expect(summary.lastElementChild).toBe(
+      expect(summary.closest("[data-conversation-row]")?.lastElementChild).toBe(
         loading.closest('[data-slot="generated-image-call"]')
       )
 
@@ -6246,8 +6500,13 @@ describe("conversation turn responses", () => {
       />
     )
 
-    const first = screen.getByTestId("turn-summary-turn-1")
-    const second = screen.getByTestId("turn-summary-turn-2")
+    const first = screen
+      .getByTestId("turn-summary-turn-1")
+      .closest<HTMLElement>("[data-conversation-row]")
+    const second = screen
+      .getByTestId("turn-summary-turn-2")
+      .closest<HTMLElement>("[data-conversation-row]")
+    if (!first || !second) throw new Error("Missing conversation turn rows")
     await waitFor(() =>
       expect(
         within(first).getByRole("img", { name: portrait.name })

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 
 import type {
   ConversationFile,
+  ConversationMessage,
   ConversationTurn,
   NativeCodexItem,
 } from "@/api/contracts"
@@ -21,13 +22,14 @@ import {
   type LoadArtifactPreview,
 } from "@/features/conversations/assistant-markdown-image"
 import { isPreviewableConversationImage } from "@/features/conversations/conversation-attachment-preview-utils"
-import { cn } from "@/lib/utils"
+import { selectConversationGeneratedImageIds } from "@/features/conversations/conversation-artifact-selection"
 
 type ImageGenerationItem = Extract<NativeCodexItem, { type: "mcpToolCall" }>
 
 export function ConversationGeneratedImages({
   items,
   registeredFileIds,
+  finalMessage,
   turnId,
   turnStatus,
   running,
@@ -39,6 +41,7 @@ export function ConversationGeneratedImages({
 }: Readonly<{
   items: readonly ImageGenerationItem[]
   registeredFileIds?: readonly string[]
+  finalMessage?: ConversationMessage
   turnId: string
   turnStatus: ConversationTurn["status"]
   running: boolean
@@ -53,14 +56,13 @@ export function ConversationGeneratedImages({
     null
   )
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const fileIds = [
-    ...new Set(
-      [
-        ...items.flatMap((item) => item.generatedImageFileIds ?? []),
-        ...(registeredFileIds ?? []),
-      ].map((id) => id.toLowerCase())
-    ),
-  ]
+  const fileIds = selectConversationGeneratedImageIds({
+    items,
+    registeredFileIds,
+    finalMessage,
+    turnId,
+    filesById,
+  })
   const files = fileIds.flatMap((id) => {
     const file = filesById?.get(id)
     return file?.kind === "artifact" &&
@@ -85,17 +87,16 @@ export function ConversationGeneratedImages({
   }
   const loading = () => (
     <AssistantHtmlPreviewLoading
-      className="turn-image-generation-loading size-full min-h-0"
+      className="turn-image-generation-loading aspect-square min-h-0 w-full"
       label={t("conversation.imageGeneration.loading")}
     />
   )
-  const frameClassName =
-    "relative aspect-square max-h-[32rem] w-full overflow-hidden rounded-2xl"
+  const frameClassName = "relative w-full overflow-hidden rounded-2xl"
   const renderImage = (file: ConversationFile) => {
     const downloading = downloadingFileId === file.id
     return (
       <div
-        className="group/generated-image relative w-full overflow-hidden rounded-2xl"
+        className="group/generated-image relative w-[32rem] max-w-full overflow-hidden rounded-2xl"
         data-slot="generated-image"
       >
         <div data-slot="generated-image-frame" className={frameClassName}>
@@ -104,9 +105,9 @@ export function ConversationGeneratedImages({
             file={file}
             alt={file.name}
             loadPreview={loadPreview}
-            className="block size-full object-contain"
-            surfaceClassName="absolute inset-0 size-full"
-            previewTriggerClassName="size-full overflow-hidden rounded-2xl p-0"
+            className="block h-auto w-full object-contain"
+            surfaceClassName="grid w-full"
+            previewTriggerClassName="h-auto w-full overflow-hidden rounded-2xl border-0 p-0"
             loading="eager"
             loadingPlaceholder={loading()}
             onPreview={(source) =>
@@ -148,10 +149,7 @@ export function ConversationGeneratedImages({
   return (
     <div
       data-slot="generated-image-call"
-      className={cn(
-        "mt-4 flex w-full min-w-0 flex-col gap-3",
-        multiple ? "max-w-[48rem]" : "max-w-[15rem]"
-      )}
+      className="mt-4 flex w-fit max-w-full min-w-0 flex-col gap-3"
     >
       {multiple ? (
         <Tabs
@@ -162,7 +160,7 @@ export function ConversationGeneratedImages({
           orientation="vertical"
           className="w-full min-w-0 flex-row items-start"
         >
-          <div className="min-w-0 flex-1">
+          <div className="w-[32rem] min-w-0 shrink">
             {files.map((file) => (
               <TabsContent key={file.id} value={file.id}>
                 {renderImage(file)}
@@ -218,7 +216,7 @@ export function ConversationGeneratedImages({
         renderImage(files[0])
       ) : loadingImages ? (
         <div
-          className="relative w-full overflow-hidden rounded-2xl"
+          className="relative w-[32rem] max-w-full overflow-hidden rounded-2xl"
           data-slot="generated-image"
         >
           <div data-slot="generated-image-frame" className={frameClassName}>

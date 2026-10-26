@@ -5,8 +5,12 @@ import {
   conversationFileSchema,
   type ConversationFile,
   type ConversationMessage,
+  type NativeCodexItem,
 } from "@/api/contracts"
-import { selectConversationArtifactCards } from "@/features/conversations/conversation-artifact-selection"
+import {
+  selectConversationArtifactCards,
+  selectConversationGeneratedImageIds,
+} from "@/features/conversations/conversation-artifact-selection"
 
 function image(
   id: string,
@@ -99,7 +103,10 @@ describe("conversation artifact card selection", () => {
     const previous = image("previous-image", "previous")
     const copy = image("copy")
     const fresh = image("fresh", "current", "b".repeat(64))
-    const cards = select([copy, fresh, previous], "[copy](copy.png)")
+    const cards = select(
+      [copy, fresh, previous],
+      "[fresh](fresh.png) [copy](copy.png)"
+    )
     expect([...cards.get("previous")!.values()]).toEqual([previous])
     expect([...cards.get("current")!.values()]).toEqual([fresh])
   })
@@ -143,6 +150,56 @@ describe("conversation artifact card selection", () => {
     )
     expect([...cards.get("previous")!.values()]).toEqual([])
     expect([...cards.get("current")!.values()]).toEqual([deliverable])
+  })
+
+  it("does not let a process image embedded in commentary hide a later deliverable", () => {
+    const preview = image("process-preview", "previous")
+    const deliverable = image("delivered-image")
+    const cards = select(
+      [preview, deliverable],
+      "[下载](delivered-image.png)",
+      new Set([preview.id]),
+      new Set([preview.id])
+    )
+    expect([...cards.get("previous")!.values()]).toEqual([])
+    expect([...cards.get("current")!.values()]).toEqual([deliverable])
+  })
+
+  it("excludes unreferenced process images without suppressing their later delivery in another turn", () => {
+    const draft = image("draft", "previous")
+    const final = image("final", "previous", "b".repeat(64))
+    const deliveredLater = image("delivered-later")
+    const cards = selectConversationArtifactCards({
+      files: [draft, final, deliveredLater],
+      turns: [
+        { id: "previous", status: "completed" },
+        { id: "current", status: "completed" },
+      ],
+      finalMessagesByTurn: new Map([
+        [
+          "previous",
+          {
+            id: "previous-final",
+            role: "assistant",
+            turn_id: "previous",
+            content: "[下载](final.png)",
+          },
+        ],
+        [
+          "current",
+          {
+            id: "current-final",
+            role: "assistant",
+            turn_id: "current",
+            content: "[下载](delivered-later.png)",
+          },
+        ],
+      ]),
+      inlineArtifactIds: new Set(),
+      activityImageArtifactIds: new Set(),
+    })
+    expect([...cards.get("previous")!.values()]).toEqual([final])
+    expect([...cards.get("current")!.values()]).toEqual([deliveredLater])
   })
 
   it("keeps a viewed image explicitly delivered in the final reply but hides unrelated process images", () => {
@@ -210,5 +267,141 @@ describe("conversation artifact card selection", () => {
     expect(select([...files, ...files], "[下载](renamed.png)")).toEqual(
       select(files, "[下载](renamed.png)")
     )
+  })
+})
+
+describe("generated image delivery selection", () => {
+  const generation = (
+    id: string,
+    fileIds: string[]
+  ): Extract<NativeCodexItem, { type: "mcpToolCall" }> => ({
+    id,
+    type: "mcpToolCall",
+    server: "linksense_core",
+    tool: "generate_image",
+    status: "completed",
+    generatedImageFileIds: fileIds,
+  })
+  const finalMessage = (content: string): ConversationMessage => ({
+    id: "final",
+    role: "assistant",
+    turn_id: "current",
+    phase: "final_answer",
+    content,
+  })
+  const draft = image("11111111-1111-4111-8111-111111111111")
+  const delivered = image(
+    "22222222-2222-4222-8222-222222222222",
+    "current",
+    "b".repeat(64)
+  )
+  const filesById = new Map([draft, delivered].map((file) => [file.id, file]))
+  const items = [
+    generation("draft", [draft.id]),
+    generation("delivered", [delivered.id]),
+  ]
+
+  it("shows only images explicitly delivered by the final reply, in reply order", () => {
+    expect(
+      selectConversationGeneratedImageIds({
+        items,
+        turnId: "current",
+        filesById,
+        finalMessage: finalMessage(
+          `[下载](linksense-artifact:${delivered.id})`
+        ),
+      })
+    ).toEqual([delivered.id])
+    expect(
+      selectConversationGeneratedImageIds({
+        items,
+        turnId: "current",
+        filesById,
+        finalMessage: finalMessage(
+          `![结果二](linksense-artifact:${delivered.id})\n\n![结果一](linksense-artifact:${draft.id})`
+        ),
+      })
+    ).toEqual([delivered.id, draft.id])
+  })
+
+  it("keeps all successful generations when the final reply has no file references", () => {
+    expect(
+      selectConversationGeneratedImageIds({
+        items: [
+          ...items,
+          { ...generation("failed", []), generatedImageFileIds: undefined },
+        ],
+        turnId: "current",
+        filesById,
+        finalMessage: finalMessage("两张不同场景的图片已完成。"),
+      })
+    ).toEqual([draft.id, delivered.id])
+  })
+
+  it("keeps separately registered code outputs and deduplicates generated copies by checksum", () => {
+    const renamed = { ...delivered, id: "renamed", name: "final.png" }
+    expect(
+      selectConversationGeneratedImageIds({
+        items,
+        registeredFileIds: [renamed.id],
+        turnId: "current",
+        filesById: new Map([...filesById, [renamed.id, renamed]]),
+        finalMessage: finalMessage("图片已完成。"),
+      })
+    ).toEqual([renamed.id, draft.id])
+  })
+
+  it("keeps the final renamed output when automatic cards have already hidden its duplicate", () => {
+    const renamed = { ...delivered, id: "renamed", name: "final.png" }
+    expect(
+      selectConversationGeneratedImageIds({
+        items,
+        registeredFileIds: [],
+        turnId: "current",
+        filesById: new Map([...filesById, [renamed.id, renamed]]),
+        finalMessage: finalMessage("[下载](final.png)"),
+      })
+    ).toEqual([renamed.id])
+  })
+
+  it("does not promote an intermediate image when the final reply delivers a document", () => {
+    const report = {
+      ...image("report"),
+      name: "report.pdf",
+      mime_type: "application/pdf",
+    }
+    expect(
+      selectConversationGeneratedImageIds({
+        items,
+        turnId: "current",
+        filesById: new Map([...filesById, [report.id, report]]),
+        finalMessage: finalMessage("[报告](report.pdf)"),
+      })
+    ).toEqual([])
+  })
+
+  it("preserves missing image IDs for loading or unavailable feedback", () => {
+    expect(
+      selectConversationGeneratedImageIds({
+        items,
+        turnId: "current",
+        filesById: new Map(),
+        finalMessage: finalMessage("图片已完成。"),
+      })
+    ).toEqual([draft.id, delivered.id])
+  })
+
+  it("does not select another turn's files or user attachments", () => {
+    expect(
+      selectConversationGeneratedImageIds({
+        items,
+        turnId: "current",
+        filesById: new Map([
+          [draft.id, { ...draft, kind: "attachment" }],
+          [delivered.id, { ...delivered, turn_id: "previous" }],
+        ]),
+        finalMessage: finalMessage("图片已完成。"),
+      })
+    ).toEqual([])
   })
 })
