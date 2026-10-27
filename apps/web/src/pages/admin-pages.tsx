@@ -1456,7 +1456,7 @@ function UserManagementPage() {
             <div
               role="region"
               aria-label={t(editing ? "admin.editUser" : "admin.createUser")}
-              className={dialogBodyStyles("flex flex-col gap-3.5 py-1 pl-1")}
+              className={dialogBodyStyles("flex flex-col gap-3.5")}
             >
               {error && <StatusBanner variant="error">{error}</StatusBanner>}
               <div className="form-grid">

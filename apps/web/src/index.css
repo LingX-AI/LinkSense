@@ -577,40 +577,6 @@
   background: var(--app-canvas);
 }
 
-/* Shared shell sizing follows the content column, including sidebar resizing.
-   Account for page padding as well as the outer gutter: wide settings pages
-   have 52px of inner padding on each side. Only the placement mode lives here;
-   PoweredByLinkSense owns every visible edge inset. */
-@container shell-content (min-width: 79rem) {
-  .shell-content:not(
-      :has(
-        .knowledge-library-page,
-        .knowledge-preview-page,
-        .settings-content-administration,
-        .office-preview-pane
-      )
-    )
-    > .shell-attribution {
-    position: absolute;
-    padding: 0;
-  }
-}
-
-@container shell-content (min-width: 92rem) {
-  .shell-content:not(:has(.settings-content-administration, .office-preview-pane))
-    > .shell-attribution {
-    position: absolute;
-    padding: 0;
-  }
-}
-
-@container shell-content (min-width: 94rem) {
-  .shell-content:not(:has(.office-preview-pane)) > .shell-attribution {
-    position: absolute;
-    padding: 0;
-  }
-}
-
 .app-top-bar {
   position: absolute;
   inset: 0 0 auto;

@@ -53,8 +53,15 @@ describe("application attribution footer", () => {
         "shrink-0",
         "justify-end",
         "[--attribution-inset:18px]",
-        "pb-[var(--attribution-inset)]"
+        "absolute",
+        "w-max",
+        "bg-transparent",
+        "p-0",
+        "pointer-events-none",
+        "right-[var(--attribution-inset)]",
+        "bottom-[var(--attribution-inset)]"
       )
+      expect(attribution).toHaveClass("pointer-events-auto")
       expect(footer).not.toHaveClass("h-8", "h-12", "md:h-16", "fixed")
       expect(attribution).not.toHaveClass("fixed")
     }

@@ -126,7 +126,10 @@ describe("application details dialog", () => {
       expect(dialog).not.toHaveTextContent(id)
       expect(info.parentElement).toHaveClass(
         "overflow-y-auto",
-        "-mr-6",
+        "-mx-6",
+        "-my-1",
+        "px-6",
+        "py-1",
         "min-h-0"
       )
       expect(apiRequest).toHaveBeenCalledWith(

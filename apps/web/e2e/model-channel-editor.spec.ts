@@ -29,6 +29,108 @@ const settings: ModelProviderSettings = {
   title_model: null,
 }
 
+test("form focus indicators stay inside scroll clipping edges", async ({
+  page,
+}, testInfo) => {
+  await mockApi(page, settings, "en-US")
+  for (const width of [1440, 375]) {
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.emulateMedia({ colorScheme })
+      await page.goto("/admin/models")
+      await page.getByRole("button", { name: "Add model", exact: true }).click()
+      await page.getByRole("button", { name: "Enter a model manually" }).click()
+      for (const [role, name, group] of [
+        ["textbox", "Model ID", false],
+        ["combobox", "Model type", false],
+        ["combobox", "Select an available model", true],
+        ["button", "Get available models", false],
+      ] as const) {
+        const control = page.getByRole(role, { name, exact: true })
+        await expect(control).toBeEnabled()
+        await page.keyboard.press("Tab")
+        await control.focus()
+        await expect(control).toBeFocused()
+        const bounds = await control.evaluate(async (element, group) => {
+          const surface = group
+            ? element.closest('[data-slot="input-group"]')
+            : element
+          if (!surface) throw new Error("Missing control surface")
+          await Promise.all(
+            surface.getAnimations().map((animation) => animation.finished)
+          )
+          const style = getComputedStyle(surface)
+          const box = surface.getBoundingClientRect()
+          let outward = 0
+          let focusWidth = 0
+          for (const shadow of style.boxShadow.split(/,(?![^(]*\))/u)) {
+            const lengths = [...shadow.matchAll(/(-?[\d.]+)px/gu)].map(
+              (match) => Number(match[1])
+            )
+            const [x = 0, y = 0, blur = 0, spread = 0] = lengths
+            focusWidth = Math.max(focusWidth, spread)
+            if (!shadow.includes("inset"))
+              outward = Math.max(
+                outward,
+                spread + blur + Math.abs(x) + Math.abs(y)
+              )
+          }
+          const outlineWidth =
+            style.outlineStyle === "none" ? 0 : parseFloat(style.outlineWidth)
+          outward = Math.max(
+            outward,
+            outlineWidth + parseFloat(style.outlineOffset)
+          )
+          focusWidth = Math.max(focusWidth, outlineWidth)
+          const clipped: string[] = []
+          for (
+            let parent = surface.parentElement;
+            parent;
+            parent = parent.parentElement
+          ) {
+            const clipping = getComputedStyle(parent)
+            const edge = parent.getBoundingClientRect()
+            const left = edge.left + parent.clientLeft
+            const top = edge.top + parent.clientTop
+            if (
+              /(auto|hidden|scroll|clip)/u.test(clipping.overflowX) &&
+              (box.left - outward < left - 0.5 ||
+                box.right + outward > left + parent.clientWidth + 0.5)
+            )
+              clipped.push("horizontal")
+            if (
+              /(auto|hidden|scroll|clip)/u.test(clipping.overflowY) &&
+              (box.top - outward < top - 0.5 ||
+                box.bottom + outward > top + parent.clientHeight + 0.5)
+            )
+              clipped.push("vertical")
+          }
+          return {
+            focusWidth,
+            clipped,
+            shadow: style.boxShadow,
+            outlineWidth,
+            outlineOffset: style.outlineOffset,
+          }
+        }, group)
+        expect(
+          bounds.focusWidth,
+          `${name} retains a visible focus indicator`
+        ).toBeGreaterThan(0)
+        expect(bounds.clipped, `${name}: ${JSON.stringify(bounds)}`).toEqual([])
+      }
+      if (width === 1440 && colorScheme === "light") {
+        await page
+          .getByRole("textbox", { name: "Model ID", exact: true })
+          .focus()
+        await page.screenshot({
+          path: testInfo.outputPath("focus-model-form.png"),
+        })
+      }
+    }
+  }
+})
+
 for (const width of [1440, 375]) {
   for (const mode of ["create", "edit"] as const) {
     test(`${mode} channel keeps connection fields usable after every provider change at ${width}px`, async ({

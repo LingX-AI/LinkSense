@@ -6,14 +6,15 @@ import { cn } from "@/lib/utils"
 type AttributionPlacement = "shell" | "page" | "public" | "conversation"
 
 const placementClasses: Record<AttributionPlacement, string> = {
-  shell: "shell-attribution",
+  shell:
+    "shell-attribution pointer-events-none absolute w-max bg-transparent p-0",
   page: "",
   public: "-mx-[var(--public-shell-horizontal-padding)] mt-auto",
   // The bottom stack already has its own insets. Subtract them so the mark
   // keeps the same distance from the workspace edge in both grid and gutter.
   // Margins also work when the requested inset is smaller than the stack gutter.
   conversation:
-    "conversation-attribution mr-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))] mb-[calc(var(--attribution-inset)-var(--conversation-bottom-inset))] hidden justify-self-end md:flex @min-[90.5rem]/conversation-workspace:absolute @min-[90.5rem]/conversation-workspace:right-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))] @min-[90.5rem]/conversation-workspace:bottom-[calc(var(--attribution-inset)-var(--conversation-bottom-inset))] @min-[90.5rem]/conversation-workspace:m-0",
+    "conversation-attribution mt-4 mr-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))] mb-[calc(var(--attribution-inset)-var(--conversation-bottom-inset))] hidden justify-self-end md:flex @min-[90.5rem]/conversation-workspace:absolute @min-[90.5rem]/conversation-workspace:right-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))] @min-[90.5rem]/conversation-workspace:bottom-[calc(var(--attribution-inset)-var(--conversation-bottom-inset))] @min-[90.5rem]/conversation-workspace:m-0",
 }
 
 export function PoweredByLinkSense({
@@ -41,7 +42,7 @@ export function PoweredByLinkSense({
         target="_blank"
         rel="noopener noreferrer"
         aria-label={t("common.poweredByLinkSense")}
-        className="inline-flex h-5 shrink-0 items-center gap-1.5 text-xs leading-none whitespace-nowrap text-foreground no-underline visited:text-foreground hover:text-foreground hover:no-underline"
+        className="pointer-events-auto inline-flex h-5 shrink-0 items-center gap-1.5 text-xs leading-none whitespace-nowrap text-foreground no-underline visited:text-foreground hover:text-foreground hover:no-underline"
       >
         <span>{t("common.poweredBy")}</span>
         <img

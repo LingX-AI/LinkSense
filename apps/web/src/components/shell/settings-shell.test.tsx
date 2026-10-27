@@ -115,8 +115,13 @@ describe("SettingsShell administrator navigation", () => {
       "shrink-0",
       "justify-end",
       "[--attribution-inset:18px]",
-      "px-[var(--attribution-inset)]",
-      "pb-[var(--attribution-inset)]"
+      "absolute",
+      "w-max",
+      "bg-transparent",
+      "p-0",
+      "pointer-events-none",
+      "right-[var(--attribution-inset)]",
+      "bottom-[var(--attribution-inset)]"
     )
     const content = screen
       .getByTestId("settings-page-content")

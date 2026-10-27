@@ -64,4 +64,13 @@ describe("conversation attribution layout", () => {
       /@media \(width >= 48rem\)\s*\{\s*display:\s*flex;/u
     )
   })
+
+  it("adds space above the attribution when stacked below the composer and removes it in the wide gutter", () => {
+    expect(attributionStyles).toMatch(
+      /\.mt-4\s*\{\s*margin-top:\s*calc\(var\(--spacing\)\s*\*\s*4\);/u
+    )
+    expect(attributionStyles).toMatch(
+      /@container conversation-workspace \(width >= 90\.5rem\)\s*\{[^}]*margin:\s*0;/u
+    )
+  })
 })

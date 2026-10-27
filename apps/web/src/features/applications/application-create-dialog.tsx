@@ -102,9 +102,7 @@ export function ApplicationCreateDialog({
             {t("applications.createTypeDescription")}
           </DialogDescription>
         </DialogHeader>
-        <div
-          className={dialogBodyStyles("-ml-1 flex flex-col gap-3 py-1 pl-1")}
-        >
+        <div className={dialogBodyStyles("flex flex-col gap-3")}>
           <Button
             type="button"
             variant="ghost"

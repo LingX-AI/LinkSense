@@ -329,8 +329,10 @@ describe("LinkSense application", () => {
       "max-h-[min(60vh,32rem)]",
       "overflow-y-auto",
       "overscroll-contain",
-      "-mr-6",
-      "pr-6"
+      "-mx-6",
+      "-my-1",
+      "px-6",
+      "py-1"
     )
     expect(memberScrollport).not.toContainElement(
       within(dialog).getByRole("heading", { name: "IT 部门的成员" })
@@ -739,8 +741,10 @@ describe("LinkSense application", () => {
         "min-h-0",
         "overflow-y-auto",
         "overscroll-contain",
-        "-mr-6",
-        "pr-6"
+        "-mx-6",
+        "-my-1",
+        "px-6",
+        "py-1"
       )
       expect(content).toContainElement(
         within(dialog).getByRole("textbox", { name: i18n.t("common.name") })
