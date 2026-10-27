@@ -1,10 +1,12 @@
 import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { supportedLocales } from "@linksense/shared"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import i18n from "@/i18n"
-import { conversationSchema } from "@/api/contracts"
+import { conversationSchema, type Conversation } from "@/api/contracts"
 import { SidebarTaskGroups } from "./sidebar-task-groups"
+import { rememberSidebarProjectOpen } from "./sidebar-project-preference"
 
 const project = {
   icon: "folder" as const,
@@ -151,6 +153,151 @@ describe("sidebar task project controls", () => {
     )
     expect(screen.getByRole("link", { name: "归属任务" })).toBeVisible()
   })
+
+  it.each(supportedLocales)(
+    "shows one running indicator only on collapsed projects with running tasks in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
+      const runningTask = conversationSchema.parse({
+        id: "running-task",
+        title: "Running task",
+        project_id: project.id,
+        execution_status: "running",
+        updated_at: project.updated_at,
+      })
+      const otherProject = {
+        ...project,
+        id: `${project.id.slice(0, -1)}2`,
+        name: "Other project",
+      }
+      const view = (
+        recent: Conversation[],
+        reconnectFailedConversationIds?: ReadonlySet<string>
+      ) => (
+        <SidebarTaskGroups
+          userId="first"
+          pinned={[]}
+          recent={recent}
+          projects={[project, otherProject]}
+          loadingMore={false}
+          reconnectFailedConversationIds={reconnectFailedConversationIds}
+          onAction={vi.fn()}
+        >
+          {({ conversations }) =>
+            conversations.map((task) => (
+              <a key={task.id} href={`/conversations/${task.id}`}>
+                {task.title}
+              </a>
+            ))
+          }
+        </SidebarTaskGroups>
+      )
+      const tasks = [runningTask, { ...runningTask, id: "second-running-task" }]
+      const { rerender } = render(view(tasks))
+      const group = screen.getByRole("region", { name: project.name })
+      const folder = within(group).getByRole("button", { name: project.name })
+      const header = folder.parentElement!
+      expect(within(header).queryByRole("status")).not.toBeInTheDocument()
+
+      await interaction.click(folder)
+      const status = within(header).getByRole("status", {
+        name: i18n.t("statuses.running"),
+      })
+      expect(status).toHaveClass(
+        "right-2.5",
+        "pointer-events-none",
+        "group-hover/project:opacity-0",
+        "group-has-data-[popup-open]/project:opacity-0",
+        "group-has-[:focus-visible]/project:opacity-0",
+        "[@media(hover:none)]:right-8"
+      )
+      expect(status.querySelector("svg")).toHaveClass(
+        "size-3.5",
+        "animate-spin",
+        "[animation-duration:1.5s]",
+        "motion-reduce:animate-none"
+      )
+      expect(within(header).getAllByRole("status")).toHaveLength(1)
+      expect(within(group).queryByRole("link")).not.toBeInTheDocument()
+
+      await interaction.click(
+        screen.getByRole("button", { name: otherProject.name })
+      )
+      expect(
+        within(
+          screen.getByRole("region", { name: otherProject.name })
+        ).queryByRole("status")
+      ).not.toBeInTheDocument()
+
+      rerender(view([tasks[1]!]))
+      expect(within(header).getByRole("status")).toBeInTheDocument()
+      await interaction.click(folder)
+      expect(within(header).queryByRole("status")).not.toBeInTheDocument()
+      expect(
+        within(group).getByRole("link", { name: runningTask.title })
+      ).toBeVisible()
+      await interaction.click(folder)
+      rerender(view([{ ...runningTask, execution_status: "completed" }]))
+      expect(within(header).queryByRole("status")).not.toBeInTheDocument()
+      rerender(view([runningTask]))
+      expect(within(header).getByRole("status")).toBeInTheDocument()
+      rerender(view([runningTask], new Set([runningTask.id])))
+      expect(within(header).queryByRole("status")).not.toBeInTheDocument()
+      rerender(view([{ ...runningTask, project_id: otherProject.id }]))
+      expect(within(header).queryByRole("status")).not.toBeInTheDocument()
+      expect(
+        within(
+          screen.getByRole("region", { name: otherProject.name })
+        ).getByRole("status")
+      ).toBeInTheDocument()
+      rerender(view([]))
+      expect(within(header).queryByRole("status")).not.toBeInTheDocument()
+      expect(
+        within(
+          screen.getByRole("region", { name: otherProject.name })
+        ).queryByRole("status")
+      ).not.toBeInTheDocument()
+    }
+  )
+
+  it.each([
+    undefined,
+    "idle",
+    "pending",
+    "completed",
+    "failed",
+    "interrupted",
+  ] as const)(
+    "does not show a collapsed project as running for a task with status %s",
+    (executionStatus) => {
+      rememberSidebarProjectOpen("first", project.id, false)
+      render(
+        <SidebarTaskGroups
+          userId="first"
+          pinned={[]}
+          recent={[
+            conversationSchema.parse({
+              id: "task",
+              title: "Task",
+              project_id: project.id,
+              execution_status: executionStatus,
+              updated_at: project.updated_at,
+            }),
+          ]}
+          projects={[project]}
+          loadingMore={false}
+          onAction={vi.fn()}
+        >
+          {() => null}
+        </SidebarTaskGroups>
+      )
+      expect(
+        screen.getByRole("button", { name: project.name })
+      ).toHaveAttribute("aria-expanded", "false")
+      expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    }
+  )
 
   it("uses the same smaller adaptive font size for Pinned, Projects, and Recent headings", () => {
     renderGroups("first", [pinnedTask])

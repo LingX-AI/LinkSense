@@ -12,6 +12,8 @@ import {
   readNewProject,
   rememberNewProject,
 } from "@/features/projects/new-project-preference"
+import { rememberSidebarProjectOpen } from "@/features/projects/sidebar-project-preference"
+import { nativeReconnectStorageKeyPrefix } from "@/features/conversations/native-reconnect-simulation"
 
 import {
   setupApplicationTests,
@@ -499,6 +501,78 @@ describe("task projects", () => {
   })
 
   setupApplicationTests()
+
+  it.each([
+    { layout: "desktop", reconnectFailed: false },
+    { layout: "mobile", reconnectFailed: false },
+    { layout: "desktop", reconnectFailed: true },
+  ] as const)(
+    "reflects task activity on collapsed project headers in $layout with reconnectFailed=$reconnectFailed",
+    async ({ layout, reconnectFailed }) => {
+      installProjectApi()
+      rememberSidebarProjectOpen(user.id, workId, false)
+      if (reconnectFailed) {
+        window.localStorage.setItem(
+          `${nativeReconnectStorageKeyPrefix}:c1`,
+          JSON.stringify({
+            version: 2,
+            conversationId: "c1",
+            turnId: "turn-1",
+            phase: "failed",
+            round: 3,
+            attempt: 5,
+            startedAtMs: Date.now() - 75_000,
+            nextAttemptAtMs: null,
+          })
+        )
+      }
+      const interaction = userEvent.setup()
+      renderApp("/conversations/new")
+      if (layout === "mobile") {
+        await interaction.click(
+          await screen.findByRole("button", { name: "打开导航" })
+        )
+      }
+      const sidebar = await screen.findByRole(
+        layout === "mobile" ? "dialog" : "complementary",
+        {
+          name: layout === "mobile" ? "LinkSense" : "LinkSense 导航",
+        }
+      )
+      const folder = await within(sidebar).findByRole("button", {
+        name: "工作",
+      })
+      const header = folder.parentElement!
+      expect(folder).toHaveAttribute("aria-expanded", "false")
+      if (reconnectFailed) {
+        expect(within(header).queryByRole("status")).not.toBeInTheDocument()
+      } else {
+        expect(
+          await within(header).findByRole("status", { name: "执行中" })
+        ).toBeInTheDocument()
+      }
+      await interaction.click(folder)
+      expect(within(header).queryByRole("status")).not.toBeInTheDocument()
+      const task = await within(sidebar).findByRole("link", {
+        name: conversations[0].title,
+      })
+      const row = task.closest<HTMLElement>(".sidebar-conversation-item")!
+      if (reconnectFailed) {
+        expect(within(row).queryByRole("status")).not.toBeInTheDocument()
+      } else {
+        expect(
+          within(row).getByRole("status", { name: "执行中" })
+        ).toBeInTheDocument()
+      }
+      await interaction.click(folder)
+      expect(folder).toHaveAttribute("aria-expanded", "false")
+      if (!reconnectFailed) {
+        expect(
+          within(header).getByRole("status", { name: "执行中" })
+        ).toBeInTheDocument()
+      }
+    }
+  )
 
   it("waits for the remembered project to load before submitting a new task", async () => {
     let releaseProjects!: () => void
