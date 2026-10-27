@@ -5,6 +5,7 @@ import {
   modelProviderBaseUrlSchema,
 } from "./model-provider.js"
 import { pricingCurrency } from "./pricing-currency.js"
+import { normalizeModelTokenPrice } from "./model-pricing.js"
 
 export const imageGenerationProviderValues = [
   "alibaba_bailian",
@@ -403,7 +404,5 @@ export type ImageGenerationMcpFailure = z.infer<
 >
 
 export function normalizeImageGenerationPrice(value: string): string {
-  const [whole = "0", fraction = ""] = value.split(".")
-  const normalizedFraction = fraction.replace(/0+$/u, "")
-  return normalizedFraction === "" ? whole : `${whole}.${normalizedFraction}`
+  return normalizeModelTokenPrice(value)
 }
