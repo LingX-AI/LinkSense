@@ -376,16 +376,14 @@ describe("sidebar task project controls", () => {
     }
   )
 
-  it("uses the same adaptive font size for section headings and project names", () => {
+  it("uses the design hierarchy for small section labels and regular project names", () => {
     renderGroups("first", [pinnedTask])
     for (const name of ["置顶", "项目", "最近"]) {
       const heading = screen.getByRole("heading", { name })
-      expect(heading).toHaveClass("text-[length:var(--app-font-13)]")
+      expect(heading).toHaveClass("text-xs", "font-normal")
       expect(heading).not.toHaveClass("text-[length:var(--app-ui-font-size)]")
     }
-    expect(screen.getByText(project.name)).toHaveClass(
-      "text-[length:var(--app-font-13)]"
-    )
+    expect(screen.getByText(project.name)).toHaveClass("text-sm")
   })
 
   it.each([
@@ -474,7 +472,7 @@ describe("sidebar task project controls", () => {
     }
   )
 
-  it("keeps section arrows visible when expanded and collapsed without hovering", async () => {
+  it("reserves section arrows for hover, keyboard focus and touch without moving the labels", async () => {
     const interaction = userEvent.setup()
     renderGroups("first", [pinnedTask])
     for (const name of ["置顶", "项目", "最近"]) {
@@ -483,15 +481,25 @@ describe("sidebar task project controls", () => {
       expect(trigger.closest(".group\\/tasks-heading")).toContainElement(
         trigger
       )
-      const arrow = trigger.querySelector("svg")
+      const arrow = trigger.querySelector("[data-design-icon=chevron-down]")
       expect(arrow).toHaveAttribute("aria-hidden", "true")
       expect(arrow).toBeVisible()
-      expect(arrow).not.toHaveClass("opacity-0")
-      expect(arrow).toHaveClass("group-aria-expanded/section-trigger:rotate-90")
+      expect(arrow).toHaveClass(
+        "opacity-0",
+        "group-hover/tasks-heading:opacity-100",
+        "group-has-[:focus-visible]/tasks-heading:opacity-100",
+        "[@media(hover:none)]:opacity-100"
+      )
+      expect(arrow).toHaveClass("group-aria-expanded/section-trigger:rotate-0")
       await interaction.click(trigger)
       expect(trigger).toHaveAttribute("aria-expanded", "false")
       expect(arrow).toBeVisible()
-      expect(arrow).not.toHaveClass("opacity-0")
+      expect(arrow).toHaveClass(
+        "opacity-0",
+        "group-hover/tasks-heading:opacity-100",
+        "group-has-[:focus-visible]/tasks-heading:opacity-100",
+        "[@media(hover:none)]:opacity-100"
+      )
       await interaction.keyboard("{Enter}")
       expect(trigger).toHaveAttribute("aria-expanded", "true")
       expect(arrow).toBeVisible()
@@ -519,11 +527,12 @@ describe("sidebar task project controls", () => {
         "motion-reduce:transition-none"
       )
       expect(
-        within(section).getByRole("button", { name }).querySelector("svg")
+        within(section)
+          .getByRole("button", { name })
+          .querySelector("[data-design-icon=chevron-down]")
       ).toHaveClass(
-        "transition-transform",
-        "duration-200",
-        "ease-out",
+        "transition-[transform,opacity]",
+        "duration-150",
         "motion-reduce:transition-none"
       )
     }
@@ -597,20 +606,25 @@ describe("sidebar task project controls", () => {
     expect(folder).toHaveAttribute("aria-expanded", "true")
   })
 
-  it("keeps heading actions visible without hovering and preserves keyboard creation", async () => {
+  it("reveals heading actions without losing keyboard creation", async () => {
     const interaction = userEvent.setup()
     const onAction = renderGroups()
     const create = screen.getByRole("button", { name: "新建项目" })
-    const headingRow = create.parentElement
+    const headingRow = create.closest(".group\\/tasks-heading")
 
-    expect(headingRow).toHaveClass("group/tasks-heading", "pr-0.5")
+    expect(headingRow).toHaveClass("group/tasks-heading", "min-h-10")
     expect(headingRow).toContainElement(
       screen.getByRole("heading", { name: "项目" })
     )
     expect(headingRow).not.toContainElement(
       screen.getByRole("region", { name: project.name })
     )
-    expect(create).toHaveClass("size-7", "rounded-lg")
+    expect(create).toHaveClass("size-8", "rounded-lg")
+    expect(create.parentElement).toHaveClass(
+      "[&_button]:size-10",
+      "[&_button]:opacity-0",
+      "group-has-[:focus-visible]/tasks-heading:[&_button]:opacity-100"
+    )
     for (const action of [
       create,
       screen.getByRole("button", { name: "设置项目任务排序方式" }),
@@ -649,13 +663,13 @@ describe("sidebar task project controls", () => {
     )
     expect(header).toHaveClass(
       "relative",
-      "rounded-[10px]",
+      "rounded-lg",
       "hover:bg-[var(--app-sidebar-hover)]"
     )
     expect(folder).toHaveClass(
-      "h-9",
+      "h-10",
       "w-full",
-      "pr-9",
+      "pr-10",
       "hover:bg-transparent",
       "aria-expanded:bg-transparent"
     )
@@ -681,34 +695,30 @@ describe("sidebar task project controls", () => {
     const interaction = userEvent.setup()
     renderGroups()
     const folder = screen.getByRole("button", { name: project.name })
-    expect(folder.querySelectorAll("svg")).toHaveLength(1)
-    expect(folder.querySelector("svg")).toHaveClass(
-      "lucide-folder-open",
-      "size-3.5"
+    expect(folder.querySelectorAll("[data-design-icon=folder]")).toHaveLength(1)
+    expect(folder.querySelector("[data-design-icon=folder]")).toHaveClass(
+      "size-4"
     )
     expect(folder).toHaveAttribute("aria-expanded", "true")
 
     await interaction.click(folder)
     expect(folder).toHaveAttribute("aria-expanded", "false")
-    expect(folder.querySelector("svg")).toHaveClass(
-      "lucide-folder-closed",
-      "size-3.5"
+    expect(folder.querySelector("[data-design-icon=folder]")).toHaveClass(
+      "size-4"
     )
     expect(
       screen.queryByRole("link", { name: "归属任务" })
     ).not.toBeInTheDocument()
     await interaction.keyboard("{Enter}")
     expect(folder).toHaveAttribute("aria-expanded", "true")
-    expect(folder.querySelector("svg")).toHaveClass(
-      "lucide-folder-open",
-      "size-3.5"
+    expect(folder.querySelector("[data-design-icon=folder]")).toHaveClass(
+      "size-4"
     )
     expect(screen.getByRole("link", { name: "归属任务" })).toBeVisible()
     await interaction.keyboard(" ")
     expect(folder).toHaveAttribute("aria-expanded", "false")
-    expect(folder.querySelector("svg")).toHaveClass(
-      "lucide-folder-closed",
-      "size-3.5"
+    expect(folder.querySelector("[data-design-icon=folder]")).toHaveClass(
+      "size-4"
     )
   })
 
@@ -817,11 +827,11 @@ describe("sidebar task project controls", () => {
     renderGroups()
     const group = screen.getByRole("region", { name: project.name })
     const folder = within(group).getByRole("button", { name: project.name })
-    expect(folder).toHaveClass("pl-2.5", "gap-2", "border-transparent")
-    expect(folder.querySelector("svg")).toHaveClass("size-3.5")
-    expect(group).toHaveClass(
-      "[--sidebar-conversation-indent:calc(1.875rem-7px)]"
+    expect(folder).toHaveClass("pl-2", "gap-2", "border-transparent")
+    expect(folder.querySelector("[data-design-icon=folder]")).toHaveClass(
+      "size-4"
     )
+    expect(group).toHaveClass("[--sidebar-conversation-indent:1.5rem]")
     const panel = group.querySelector('[data-slot="collapsible-content"]')!
     expect(panel.className).not.toMatch(/\[--sidebar-conversation-indent:/u)
     expect(panel).toContainElement(

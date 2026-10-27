@@ -16,7 +16,6 @@ import {
   FlaskConicalIcon,
   Flower2Icon,
   FolderClosedIcon,
-  FolderOpenIcon,
   GlobeIcon,
   GraduationCapIcon,
   HeartIcon,
@@ -37,6 +36,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { DesignIcon } from "@/components/ui/design-icon"
 import { projectColorClasses } from "./project-colors"
 
 const icons: Record<ProjectIconName, LucideIcon> = {
@@ -75,15 +75,26 @@ const icons: Record<ProjectIconName, LucideIcon> = {
 export function ProjectIcon({
   icon = "folder",
   color = "default",
-  open = false,
+  variant = "navigation",
   className,
 }: {
   icon?: ProjectIconName
   color?: ProjectColor
   open?: boolean
+  variant?: "navigation" | "toolbar"
   className?: string
 }) {
-  const Icon = icon === "folder" && open ? FolderOpenIcon : icons[icon]
+  if (icon === "folder") {
+    return (
+      <DesignIcon
+        name={variant === "toolbar" ? "workspace" : "folder"}
+        data-project-icon={icon}
+        data-project-color={color}
+        className={cn(projectColorClasses[color], className)}
+      />
+    )
+  }
+  const Icon = icons[icon]
   return (
     <Icon
       aria-hidden="true"

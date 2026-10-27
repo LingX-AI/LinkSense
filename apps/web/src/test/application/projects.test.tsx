@@ -404,11 +404,11 @@ async function dragFirstTaskToPersonalProject() {
     expect(source).not.toHaveClass("invisible")
     expect(source).not.toHaveClass("hidden")
     expect(title).toBeVisible()
-    expect(title).toHaveClass("font-medium")
+    expect(title).toHaveClass("font-normal")
     const previewTitle = screen.getByText(conversations[0].title, {
       selector: '[aria-hidden="true"] span',
     })
-    expect(previewTitle).toHaveClass("font-medium")
+    expect(previewTitle).toHaveClass("font-normal")
     expect(previewTitle.parentElement).toHaveClass("opacity-80")
     expect(title.closest("a")).toHaveAttribute("draggable", "false")
     fireEvent.pointerMove(document, { clientX: 20, clientY: 10 })
@@ -907,7 +907,9 @@ describe("task projects", () => {
     )
     const projectOption = screen.getByRole("option", { name: "工作" })
     expect(projectOption).toHaveClass("px-2", "gap-2")
-    expect(projectOption.querySelector("svg")).toHaveClass("size-3.5")
+    expect(projectOption.querySelector("[data-project-icon]")).toHaveClass(
+      "size-3.5"
+    )
     const projectPopup = screen.getByRole("dialog", { name: "项目" })
     for (const name of ["新建项目"]) {
       const action = within(projectPopup).getByRole("button", { name })

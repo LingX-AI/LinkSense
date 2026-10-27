@@ -298,12 +298,12 @@ async function enableOfficeAnnotationMode() {
     name: "进入文件标注模式",
   })
   expect(toggle).toHaveTextContent("添加标注")
-  expect(toggle).toHaveClass("bg-[var(--app-selection)]", "text-white")
+  expect(toggle).toHaveClass("bg-primary-action", "text-primary-foreground")
   expect(toggle).toHaveAttribute("aria-pressed", "false")
   await interaction.click(toggle)
   expect(toggle).toHaveAttribute("aria-pressed", "true")
   expect(toggle).toHaveTextContent("标注中")
-  expect(toggle).toHaveClass("bg-[var(--app-selection)]", "text-white")
+  expect(toggle).toHaveClass("bg-primary-action", "text-primary-foreground")
 }
 
 describe("conversation Office preview", () => {
@@ -458,7 +458,7 @@ describe("conversation Office preview", () => {
       "px-2.5",
       "text-xs",
       "rounded-lg",
-      "bg-primary",
+      "bg-primary-action",
       "text-primary-foreground"
     )
     expect(processAllButton).toHaveTextContent("发送")

@@ -202,11 +202,11 @@ describe("sidebar task dragging between projects", () => {
       const previewTitle = screen.getByText("工作", {
         selector: '[aria-hidden="true"] span',
       })
-      expect(previewTitle).toHaveClass("font-medium")
-      expect(previewTitle.parentElement).toHaveClass("opacity-80", "h-8")
-      expect(previewTitle.parentElement?.querySelector("svg")).toHaveClass(
-        collapsed ? "lucide-folder-closed" : "lucide-folder-open"
-      )
+      expect(previewTitle).toHaveClass("font-normal")
+      expect(previewTitle.parentElement).toHaveClass("opacity-80", "h-10")
+      expect(
+        previewTitle.parentElement?.querySelector("[data-design-icon=folder]")
+      ).toHaveAttribute("data-project-icon", "folder")
       renderTask.mockClear()
       for (let y = 66; y < 74; y++)
         fireEvent.pointerMove(document, { clientX: 20, clientY: y })
@@ -413,8 +413,8 @@ describe("sidebar task dragging between projects", () => {
         selector: '[aria-hidden="true"] span',
       })
       const preview = previewTitle.parentElement!
-      expect(preview).toHaveClass("h-8", "items-center", "opacity-80")
-      expect(previewTitle).toHaveClass("font-medium")
+      expect(preview).toHaveClass("h-10", "items-center", "opacity-80")
+      expect(previewTitle).toHaveClass("font-normal")
       expect(preview.className).not.toMatch(
         /(?:^|\s)(?:ring|border|outline)(?:-|\s|$)/u
       )

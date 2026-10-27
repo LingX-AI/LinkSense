@@ -1,9 +1,10 @@
-import { ArchiveIcon, FolderInputIcon, MoreHorizontalIcon } from "lucide-react"
-import { TbPin, TbPinFilled } from "react-icons/tb"
+import { TbPinFilled } from "react-icons/tb"
 import { useTranslation } from "react-i18next"
+import { useRef } from "react"
 import type { Project } from "@linksense/shared"
 
 import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
 import { ProjectIcon } from "@/features/projects/project-icon"
 import {
   DropdownMenu,
@@ -52,12 +53,14 @@ export function SidebarConversationActions({
   onMoveToProject,
 }: SidebarConversationActionsProps) {
   const { t } = useTranslation()
+  const actionsRef = useRef<HTMLDivElement>(null)
   const pinLabel = t(pinned ? "conversation.unpin" : "conversation.pin")
   const archiveLabel = t("conversation.archive")
 
   return (
     <TooltipProvider delay={tooltipHoverDelay}>
       <div
+        ref={actionsRef}
         className="sidebar-conversation-actions pointer-events-none absolute top-1/2 right-1 flex -translate-y-1/2 cursor-default items-center gap-1 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100 has-data-[popup-open]:pointer-events-auto has-data-[popup-open]:opacity-100"
         onPointerDown={(event) => event.stopPropagation()}
       >
@@ -75,11 +78,7 @@ export function SidebarConversationActions({
               />
             }
           >
-            <ArchiveIcon
-              className="size-3.5"
-              strokeWidth={2}
-              aria-hidden="true"
-            />
+            <DesignIcon name="archive" />
           </TooltipTrigger>
           <ActionTooltipContent side="top">{archiveLabel}</ActionTooltipContent>
         </Tooltip>
@@ -96,23 +95,28 @@ export function SidebarConversationActions({
               />
             }
           >
-            <MoreHorizontalIcon
-              className="size-3.5"
-              strokeWidth={2}
-              aria-hidden="true"
-            />
+            <DesignIcon name="more" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-max min-w-40">
+          <DropdownMenuContent
+            anchor={() => actionsRef.current?.parentElement ?? null}
+            side="right"
+            sideOffset={8}
+            align="start"
+            className="w-55 p-2 [&_[data-slot=dropdown-menu-item]]:min-h-8 [&_[data-slot=dropdown-menu-item]]:font-normal"
+          >
             <DropdownMenuGroup>
               {onMoveToProject && (
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger disabled={moveDisabled}>
-                    <FolderInputIcon strokeWidth={2} aria-hidden="true" />
+                    <DesignIcon name="move-project" />
                     {t("projects.move")}
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent
                     side="right"
-                    className="max-w-[min(18rem,calc(100vw-2rem))] min-w-40"
+                    // Include the parent menu's 8px padding in the visible 8px gap.
+                    sideOffset={16}
+                    alignOffset={-8}
+                    className="w-55 max-w-[calc(100vw-2rem)] p-2"
                   >
                     <DropdownMenuGroup>
                       <DropdownMenuItem
@@ -152,12 +156,7 @@ export function SidebarConversationActions({
                     aria-hidden="true"
                   />
                 ) : (
-                  <TbPin
-                    className="size-4"
-                    data-icon="sidebar-pin"
-                    strokeWidth={2}
-                    aria-hidden="true"
-                  />
+                  <DesignIcon name="pin" />
                 )}
                 {pinLabel}
               </DropdownMenuItem>

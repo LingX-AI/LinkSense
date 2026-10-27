@@ -64,6 +64,7 @@ export function ApplicationDevelopmentCard({
   return (
     <>
       <ApplicationCard
+        layout="row"
         id={development.id}
         name={development.name}
         kind="interactive"

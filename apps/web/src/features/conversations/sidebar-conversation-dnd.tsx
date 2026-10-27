@@ -421,17 +421,17 @@ export function SidebarConversationDnd({
               {(activeTask || activeProject) && (
                 <div
                   aria-hidden="true"
-                  className="pointer-events-none flex h-8 items-center rounded-[10px] bg-popover px-2.5 text-[length:var(--app-ui-font-size)] text-popover-foreground opacity-80 shadow-sm"
+                  className="pointer-events-none flex h-10 items-center rounded-lg bg-popover px-2 text-sm text-popover-foreground opacity-80 shadow-sm"
                 >
                   {activeProject && (
                     <ProjectIcon
                       icon={activeProject.icon}
                       color={activeProject.color}
                       open={projectOpen}
-                      className="mr-1.5 size-3.5 shrink-0"
+                      className="mr-2 size-4 shrink-0"
                     />
                   )}
-                  <span className="min-w-0 flex-1 truncate font-medium">
+                  <span className="min-w-0 flex-1 truncate font-normal">
                     {activeProject?.name ||
                       activeTask?.title ||
                       t("conversation.untitled")}

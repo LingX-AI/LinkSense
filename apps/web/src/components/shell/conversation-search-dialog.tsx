@@ -61,10 +61,12 @@ export function ConversationSearchDialog({
   open,
   onOpenChange,
   onNavigate,
+  focusOnOpen = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onNavigate?: () => void
+  focusOnOpen?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const productName = useProductName()
@@ -112,7 +114,9 @@ export function ConversationSearchDialog({
       title={t("conversation.searchTitle")}
       description={t("conversation.searchPlaceholder")}
       initialFocus={() =>
-        shouldAutoFocusOnDesktop() ? searchInputRef.current : false
+        focusOnOpen || shouldAutoFocusOnDesktop()
+          ? searchInputRef.current
+          : false
       }
       className="conversation-search-dialog top-1/2 max-h-[calc(100svh_-_2rem)] w-[calc(100%_-_1.5rem)] max-w-[680px]! -translate-y-1/2 gap-0 rounded-xl! border border-border bg-[var(--app-popover)] p-0 shadow-[var(--app-dialog-shadow)] ring-0"
     >

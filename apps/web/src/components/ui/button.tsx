@@ -9,11 +9,11 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary-hover",
+          "bg-primary-action text-primary-foreground hover:bg-primary-hover active:bg-primary-hover",
         brand:
-          "bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary-hover",
+          "bg-primary-action text-primary-foreground hover:bg-primary-hover active:bg-primary-hover",
         annotation:
-          "bg-[var(--app-selection)] text-white hover:bg-[color-mix(in_srgb,var(--app-selection)_88%,var(--app-text))] focus-visible:ring-[var(--app-selection)]/30",
+          "bg-primary-action text-primary-foreground hover:bg-primary-hover focus-visible:ring-primary/30",
         outline:
           "border-border bg-background hover:bg-hover hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:bg-transparent",
         "outline-strong":
@@ -30,10 +30,10 @@ const buttonVariants = cva(
           "hover:bg-hover hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground",
         plain: "text-foreground",
         destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/60 focus-visible:ring-destructive/30 dark:hover:bg-destructive/90 dark:focus-visible:ring-destructive/40",
+          "bg-destructive text-destructive-foreground hover:bg-destructive-hover focus-visible:border-destructive/60 focus-visible:ring-destructive/30 dark:hover:bg-destructive-hover dark:focus-visible:ring-destructive/40",
         "destructive-ghost":
-          "bg-destructive/10 text-destructive hover:bg-destructive/15 focus-visible:border-destructive/40 focus-visible:ring-destructive/20",
-        link: "text-primary underline-offset-4 hover:underline",
+          "bg-destructive/10 text-destructive-text hover:bg-destructive/15 focus-visible:border-destructive/40 focus-visible:ring-destructive/20",
+        link: "text-link-foreground underline-offset-4 hover:underline",
       },
       size: {
         default:

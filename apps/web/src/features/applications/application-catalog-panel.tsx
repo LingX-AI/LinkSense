@@ -654,7 +654,7 @@ export function ApplicationCatalogPanel({
         />
       )}
       {catalogItems.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="flex min-w-0 flex-col">
           {catalogItems.map((entry) => {
             if (entry.type === "development") {
               return (
@@ -685,6 +685,7 @@ export function ApplicationCatalogPanel({
               organizationSharingEnabled && Boolean(shareTargetSummary)
             return (
               <ApplicationCard
+                layout="row"
                 key={application.id}
                 id={application.id}
                 name={application.name}

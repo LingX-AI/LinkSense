@@ -249,7 +249,7 @@ describe("conversation message spacing", () => {
     expect(sourceIconRule).toMatch(/vertical-align:\s*baseline;/u)
     expect(markdownLinkRule).toMatch(/color:\s*var\(--app-link\);/u)
     expect(markdownLinkHoverRule).toMatch(/color:\s*var\(--app-link-hover\);/u)
-    expect(conversationStyles).toMatch(/--app-link:\s*var\(--primary\);/u)
+    expect(conversationStyles).toMatch(/--app-link:\s*#0065df;/u)
     expect(conversationStyles).toMatch(
       /--app-link-hover:\s*var\(--primary-hover\);/u
     )
@@ -1153,7 +1153,9 @@ describe("conversation execution plan layout", () => {
     )?.[1]
 
     expect(overlayRule).toMatch(/position:\s*absolute;/u)
-    expect(overlayRule).toMatch(/top:\s*calc\(var\(--conversation-top-bar-height\) \+ 8px\);/u)
+    expect(overlayRule).toMatch(
+      /top:\s*calc\(var\(--conversation-top-bar-height\) \+ 8px\);/u
+    )
     expect(overlayRule).toMatch(/right:\s*24px;/u)
     expect(overlayRule).toMatch(/left:\s*24px;/u)
     expect(overlayRule).toMatch(/align-items:\s*center;/u)

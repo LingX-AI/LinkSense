@@ -64,13 +64,14 @@ export function ProjectComposerPicker({
               role="combobox"
               aria-label={t("projects.choose")}
               disabled={disabled || query.isPending}
-              className="max-w-full min-w-0 gap-2 bg-transparent px-1.5 text-[length:var(--app-font-13)] font-medium hover:bg-hover focus-visible:bg-hover data-popup-open:bg-hover"
+              className="max-w-full min-w-0 gap-2 bg-transparent px-1.5 text-sm font-normal hover:bg-hover focus-visible:bg-hover data-popup-open:bg-hover"
             >
               <ProjectIcon
                 icon={selected?.icon}
                 color={selected?.color}
+                variant="toolbar"
                 className={cn(
-                  "size-3.5 shrink-0",
+                  "size-5 shrink-0",
                   canClear && hovered && "opacity-0",
                   canClear &&
                     "group-has-[:focus-visible]/project-picker:opacity-0 [@media(hover:none)]:opacity-0"

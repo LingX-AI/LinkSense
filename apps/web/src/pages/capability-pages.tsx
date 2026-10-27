@@ -3666,14 +3666,11 @@ export function CapabilityManagementPage() {
             {view === "store" && (
               <TabsList
                 className="mb-6 justify-start"
+                variant="navigation"
                 aria-label={t("marketplace.catalogTabsLabel")}
               >
                 {capabilityCenterSections.map((value) => (
-                  <TabsTrigger
-                    key={value}
-                    value={value}
-                    className="flex-none"
-                  >
+                  <TabsTrigger key={value} value={value} className="flex-none">
                     {t(marketplaceCatalogSectionKeys[value])}
                   </TabsTrigger>
                 ))}

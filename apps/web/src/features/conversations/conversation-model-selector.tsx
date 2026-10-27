@@ -1,7 +1,7 @@
 import { memo, useContext, useState } from "react"
 import { Link } from "react-router-dom"
 import { AuthContext } from "@/app/auth-state"
-import { ChevronDownIcon, ChevronRightIcon, RotateCcwIcon } from "lucide-react"
+import { ChevronRightIcon, RotateCcwIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
   reasoningEffortValues,
@@ -10,6 +10,7 @@ import {
 } from "@linksense/shared"
 
 import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
 import {
   HoverCard,
   HoverCardContent,
@@ -115,7 +116,7 @@ export const ConversationModelSelector = memo(
             <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
               {t(`reasoningEffort.${selectedReasoningEffort}`)}
             </span>
-            <ChevronDownIcon className="size-3.5" aria-hidden="true" />
+            <DesignIcon name="chevron-down" />
           </PopoverTrigger>
           <PopoverContent
             side="top"

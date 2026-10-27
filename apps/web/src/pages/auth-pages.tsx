@@ -310,7 +310,7 @@ export function LoginPage() {
         </FieldShell>
         <div className="text-right">
           <Link
-            className="inline-flex min-h-7 items-center text-xs text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            className="inline-flex min-h-7 items-center text-xs text-link-foreground underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             to="/forgot-password"
           >
             {t("auth.forgotPassword")}

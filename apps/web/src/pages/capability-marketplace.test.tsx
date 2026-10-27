@@ -899,7 +899,7 @@ describe("capability marketplace pages", () => {
     const catalogTabs = await screen.findByRole("tablist", {
       name: "插件中心内容分类",
     })
-    expect(catalogTabs).toHaveAttribute("data-variant", "segmented")
+    expect(catalogTabs).toHaveAttribute("data-variant", "navigation")
     await interaction.click(
       within(catalogTabs).getByRole("tab", { name: "技能" })
     )
@@ -919,7 +919,9 @@ describe("capability marketplace pages", () => {
       name: "LinkSense 云端浏览器",
     })
     expect(installedCard).toBeVisible()
-    expect(within(installedCard).getByText("LinkSense 云端浏览器")).toBeVisible()
+    expect(
+      within(installedCard).getByText("LinkSense 云端浏览器")
+    ).toBeVisible()
     expect(installedCard.querySelector(".capability-library-type")).toBeNull()
     expect(within(installedCard).getByText("内置")).toHaveClass(
       "capability-built-in-badge"
@@ -2691,7 +2693,7 @@ describe("capability marketplace pages", () => {
     }
   )
 
-  it("renders wide two-column application cards with status and owner actions aligned", async () => {
+  it("renders continuous application rows with status and owner actions aligned", async () => {
     const longDescription =
       "通过结构化表单配置研究任务，并在应用内接收洞察、风险和行动建议。".repeat(
         12
@@ -2825,9 +2827,9 @@ describe("capability marketplace pages", () => {
     )
     const shareSummary = within(card).getByText("已共享 · 林老师、教务组…")
 
-    expect(grid).toHaveClass("grid", "md:grid-cols-2")
+    expect(grid).toHaveClass("flex", "flex-col")
     expect(grid).not.toHaveClass("xl:grid-cols-3")
-    expect(card).toHaveClass("gap-5", "shadow-none")
+    expect(card).toHaveClass("gap-3", "rounded-none", "shadow-none")
     expect(cardHeader).toHaveClass("flex", "flex-row", "gap-3")
     expect(cardHeader).toContainElement(
       within(card).getByRole("button", {
@@ -2836,7 +2838,7 @@ describe("capability marketplace pages", () => {
     )
     expect(description).toHaveClass(
       "line-clamp-2",
-      "min-h-10",
+      "min-h-0",
       "wrap-anywhere",
       "leading-5"
     )
@@ -2852,11 +2854,11 @@ describe("capability marketplace pages", () => {
     expect(
       card.querySelector('[data-slot="application-card-model"]')
     ).toBeNull()
-    expect(footer).toHaveClass("flex-wrap", "border-t")
+    expect(footer).toHaveClass("flex-wrap", "border-0")
     expect(footer).toContainElement(shareSummary)
     expect(statistics).not.toContainElement(shareSummary)
     expect(within(card).queryByText(/王老师/u)).toBeNull()
-    expect(iconTile).toHaveClass("size-12", "rounded-lg")
+    expect(iconTile).toHaveClass("size-10", "rounded-lg")
     expect(card.querySelector('[data-slot="avatar"]')).toHaveClass(
       "size-10",
       "after:border-0"
@@ -2875,7 +2877,7 @@ describe("capability marketplace pages", () => {
       within(fixedModelCard).getByText(longDescription)
     expect(fixedModelDescription).toHaveClass(
       "line-clamp-2",
-      "min-h-10",
+      "min-h-0",
       "wrap-anywhere"
     )
     const versionLabel = within(fixedModelCard).getByText("v1.1.0")

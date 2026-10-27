@@ -1,7 +1,7 @@
-import { MoreHorizontalIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,16 +35,20 @@ export function SidebarTaskSortMenu({
           <Button
             type="button"
             variant="ghost"
-            size="icon-sm"
+            size="icon"
             aria-label={t("conversation.taskSort.open", {
               section: sectionLabel,
             })}
           />
         }
       >
-        <MoreHorizontalIcon aria-hidden="true" />
+        <DesignIcon name="more" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-36">
+      <DropdownMenuContent
+        align="start"
+        sideOffset={8}
+        className="w-55 p-2 [&_[data-slot=dropdown-menu-radio-item]]:min-h-8 [&_[data-slot=dropdown-menu-radio-item]]:font-normal"
+      >
         <DropdownMenuGroup>
           <DropdownMenuLabel>
             {t("conversation.taskSort.label")}

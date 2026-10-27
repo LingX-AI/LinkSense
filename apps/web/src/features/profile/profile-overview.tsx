@@ -61,7 +61,10 @@ export function ProfileOverview({
           <p className="text-sm break-all text-muted-foreground">
             {user.email}
           </p>
-          <Badge variant="secondary" className="w-fit bg-accent text-primary">
+          <Badge
+            variant="secondary"
+            className="w-fit bg-accent text-link-foreground"
+          >
             {t(user.role === "admin" ? "common.admin" : "common.user")}
           </Badge>
         </div>

@@ -27,7 +27,7 @@ export function ConversationHeaderButton({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className={cn("text-muted-foreground", className)}
+            className={cn("size-9 text-foreground", className)}
             aria-label={label}
           />
         }

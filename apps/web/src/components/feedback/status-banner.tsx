@@ -43,14 +43,14 @@ export function StatusBanner({
     <Alert
       variant={variant === "error" ? "destructive" : "default"}
       className={cn(
-        "status-banner items-center border-0",
+        "status-banner items-center border-0 [&>svg]:translate-y-0",
         `status-banner-${variant}`,
         className
       )}
       role={variant === "error" ? "alert" : "status"}
     >
       {!hideIcon && (
-        <Icon className="size-4 shrink-0 self-start" aria-hidden="true" />
+        <Icon className="size-4 shrink-0 self-center" aria-hidden="true" />
       )}
       <div className="flex min-h-5 min-w-0 flex-1 flex-col justify-center">
         {title && (

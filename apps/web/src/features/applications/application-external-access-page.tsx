@@ -1019,9 +1019,9 @@ function codeTokenKind(token: string) {
 function codeTokenClassName(token: string) {
   const kind = codeTokenKind(token)
   if (kind === "comment") return "text-muted-foreground"
-  if (kind === "string") return "text-primary"
+  if (kind === "string") return "text-link-foreground"
   if (kind === "tag") return "text-foreground"
-  if (kind === "literal") return "text-primary"
+  if (kind === "literal") return "text-link-foreground"
   if (kind === "punctuation") return "text-muted-foreground"
   return "text-foreground"
 }

@@ -263,7 +263,7 @@ export function KnowledgeBaseListPage() {
             </header>
             <div className="mb-6">
               {" "}
-              <TabsList aria-label={t("library.tabsLabel")}>
+              <TabsList variant="pills" aria-label={t("library.tabsLabel")}>
                 <TabsTrigger value="knowledge">
                   {t("library.tabs.knowledge")}
                 </TabsTrigger>

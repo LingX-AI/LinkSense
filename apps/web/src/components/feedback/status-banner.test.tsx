@@ -35,7 +35,7 @@ describe("StatusBanner", () => {
     const alert = screen.getByRole("alert")
     expect(alert).toHaveAttribute("data-slot", "alert")
     const icon = alert.querySelector("svg")
-    expect(icon).toHaveClass("size-4", "shrink-0", "self-start")
+    expect(icon).toHaveClass("size-4", "shrink-0", "self-center")
     expect(icon).not.toHaveClass("mt-0.5")
   })
 

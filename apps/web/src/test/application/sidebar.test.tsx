@@ -422,10 +422,10 @@ describe("LinkSense application", () => {
     expect(link).not.toBeNull()
     expect(within(sidebar).getByRole("link", { name: longTitle })).toBe(link)
     expect(link).toHaveClass("sidebar-conversation-link")
-    expect(link).toHaveClass("h-8")
+    expect(link).toHaveClass("h-10")
     expect(link).not.toHaveClass("min-h-9", "py-2")
     expect(link).toHaveAttribute("aria-busy", "true")
-    expect(title).toHaveClass("sidebar-conversation-title-fade", "font-medium")
+    expect(title).toHaveClass("sidebar-conversation-title-fade", "font-normal")
     expect(title).not.toHaveClass("truncate")
     expect(title).not.toHaveClass("font-semibold")
     expect(title).not.toHaveAttribute("title")
@@ -478,12 +478,14 @@ describe("LinkSense application", () => {
       )
       expect(button).not.toHaveClass("hover:bg-[var(--app-sidebar-active)]")
     }
-    const moreIcon = moreButton.querySelector("svg")
-    const archiveIcon = archiveButton.querySelector("svg")
-    expect(moreIcon).toHaveClass("size-3.5")
-    expect(archiveIcon).toHaveClass("size-3.5")
-    expect(moreIcon).toHaveAttribute("stroke-width", "2")
-    expect(archiveIcon).toHaveAttribute("stroke-width", "2")
+    const moreIcon = moreButton.querySelector("[data-design-icon=more]")
+    const archiveIcon = archiveButton.querySelector(
+      "[data-design-icon=archive]"
+    )
+    expect(moreIcon).toHaveClass("size-4")
+    expect(archiveIcon).toHaveClass("size-4")
+    expect(moreIcon).toHaveAttribute("aria-hidden", "true")
+    expect(archiveIcon).toHaveAttribute("aria-hidden", "true")
     const actions = archiveButton.parentElement
     expect(actions).toContainElement(moreButton)
     expect(actions).toContainElement(archiveButton)
@@ -813,9 +815,9 @@ describe("LinkSense application", () => {
       })
     )
     const pinButton = await screen.findByRole("menuitem", { name: "置顶任务" })
-    expect(pinButton.querySelector("svg")).toHaveAttribute(
-      "data-icon",
-      "sidebar-pin"
+    expect(pinButton.querySelector("[data-design-icon=pin]")).toHaveAttribute(
+      "aria-hidden",
+      "true"
     )
     await interaction.click(pinButton)
 
@@ -1133,22 +1135,19 @@ describe("LinkSense application", () => {
     ).toBeTruthy()
     expect(searchButton).toHaveClass("h-10", "rounded-full", "bg-card")
     expect(searchButton).toHaveTextContent("搜索")
-    expect(searchButton.querySelector(".lucide-search")).toHaveAttribute(
-      "stroke-width",
-      "2"
-    )
-    expect(collapseButton.querySelector(".lucide-panel-left")).toHaveAttribute(
-      "stroke-width",
-      "2"
-    )
+    expect(
+      searchButton.querySelector("[data-design-icon=search]")
+    ).toHaveAttribute("aria-hidden", "true")
+    expect(
+      collapseButton.querySelector("[data-design-icon=sidebar]")
+    ).toHaveAttribute("aria-hidden", "true")
     expect(collapseButton).toHaveClass("sidebar-collapse-control")
-    expect(notificationButton.querySelector(".lucide-bell")).toHaveClass(
-      "size-3.5"
-    )
-    expect(notificationButton.querySelector(".lucide-bell")).toHaveAttribute(
-      "stroke-width",
-      "2"
-    )
+    expect(
+      notificationButton.querySelector("[data-design-icon=notification]")
+    ).toHaveClass("size-5")
+    expect(
+      notificationButton.querySelector("[data-design-icon=notification]")
+    ).toHaveAttribute("aria-hidden", "true")
     expect(
       notificationButton.querySelector("[data-automation-unread-indicator]")
     ).not.toBeInTheDocument()
@@ -1489,10 +1488,9 @@ describe("LinkSense application", () => {
     expect(expandButton).toHaveAttribute("aria-controls", "app-sidebar")
     expect(expandButton).toHaveAttribute("title", "展开侧边栏")
     expect(expandButton).toHaveClass("sidebar-collapse-control")
-    expect(expandButton.querySelector(".lucide-panel-left")).toHaveAttribute(
-      "stroke-width",
-      "2"
-    )
+    expect(
+      expandButton.querySelector("[data-design-icon=sidebar]")
+    ).toHaveAttribute("aria-hidden", "true")
     await interaction.hover(expandButton)
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
     await interaction.click(expandButton)
@@ -1529,9 +1527,9 @@ describe("LinkSense application", () => {
     const knowledgeBasesLink = within(sidebar).getByRole("link", {
       name: "资料库",
     })
-    expect(knowledgeBasesLink.querySelector("svg")).toHaveClass(
-      "lucide-library-big"
-    )
+    expect(
+      knowledgeBasesLink.querySelector("[data-design-icon=library]")
+    ).toHaveAttribute("aria-hidden", "true")
 
     expect(taskScroller).not.toBeNull()
     expect(taskScroller?.contains(newTaskLink)).toBe(false)
@@ -1584,7 +1582,7 @@ describe("LinkSense application", () => {
     expect(taskRegion).not.toHaveAttribute("data-overflow-y-start")
   })
 
-  it("uses the stronger navigation typography hierarchy across app and settings shells", async () => {
+  it("uses the design navigation typography hierarchy across app and settings shells", async () => {
     installApiMock()
     const interaction = userEvent.setup()
     renderApp()
@@ -1630,12 +1628,12 @@ describe("LinkSense application", () => {
       within(sidebar).queryByRole("link", { name: "已归档任务" })
     ).not.toBeInTheDocument()
     expect(within(sidebar).getByRole("heading", { name: "最近" })).toHaveClass(
-      "font-semibold",
-      "text-[length:var(--app-font-13)]"
+      "font-normal",
+      "text-xs"
     )
     expect(
       await within(sidebar).findByText(conversations[0]!.title)
-    ).toHaveClass("font-medium", "text-[length:var(--app-font-13)]")
+    ).toHaveClass("font-normal", "text-sm")
     expect(sidebar.querySelector("time")).toBeNull()
 
     const accountTrigger = within(sidebar).getByRole("button", {
@@ -1654,13 +1652,13 @@ describe("LinkSense application", () => {
     expect(accountTrigger.querySelector("svg")).toBeNull()
     expect(accountTrigger.querySelector('[data-slot="avatar"]')).toHaveClass(
       "sidebar-account-avatar",
-      "size-6"
+      "size-7"
     )
     expect(
       within(accountTrigger).getByText("林晓", {
         selector: "span.block.truncate",
       })
-    ).toHaveClass("font-semibold", "text-[length:var(--app-ui-font-size)]")
+    ).toHaveClass("font-normal", "text-[length:var(--app-ui-font-size)]")
     expect(within(accountTrigger).queryByText("管理员")).not.toBeInTheDocument()
     expect(
       within(accountTrigger).queryByText("lin@example.com")
@@ -1725,12 +1723,12 @@ describe("LinkSense application", () => {
     })
     expect(
       within(settingsSidebar).getByRole("heading", { name: "个人" })
-    ).toHaveClass("font-semibold")
+    ).toHaveClass("font-normal")
     const generalLink = within(settingsSidebar).getByRole("link", {
       name: "常规",
     })
     const generalLabel = within(generalLink).getByText("常规")
-    expect(generalLink).toHaveClass("font-medium")
+    expect(generalLink).toHaveClass("font-normal")
     expect(generalLabel).not.toHaveClass("font-semibold")
     const settingsNavigationLinks = settingsSidebar.querySelectorAll(
       ".settings-navigation-link"

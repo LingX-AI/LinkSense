@@ -523,7 +523,10 @@ export function AutomationPage() {
               }}
               className="gap-4"
             >
-              <TabsList aria-label={t("automation.filterLabel")}>
+              <TabsList
+                variant="pills"
+                aria-label={t("automation.filterLabel")}
+              >
                 {automationFilterValues.map((value) => (
                   <TabsTrigger key={value} value={value}>
                     {t(`automation.filter.${value}`)}
@@ -562,12 +565,27 @@ export function AutomationPage() {
 
                         return (
                           <article key={automation.id} role="listitem">
-                            {automation.monitoring && (automation.monitoring.max_runs || automation.monitoring.stop_condition || automation.monitoring.context_mode === "fresh_task") && (
-                              <p className="px-1 pt-2 text-xs text-muted-foreground">
-                                {t("monitoring.count", { count: automation.monitoring.automatic_run_count })}
-                                {automation.monitoring.stop_reason && <> · {t(`monitoring.${automation.monitoring.stop_reason}`)}</>}
-                              </p>
-                            )}
+                            {automation.monitoring &&
+                              (automation.monitoring.max_runs ||
+                                automation.monitoring.stop_condition ||
+                                automation.monitoring.context_mode ===
+                                  "fresh_task") && (
+                                <p className="px-1 pt-2 text-xs text-muted-foreground">
+                                  {t("monitoring.count", {
+                                    count:
+                                      automation.monitoring.automatic_run_count,
+                                  })}
+                                  {automation.monitoring.stop_reason && (
+                                    <>
+                                      {" "}
+                                      ·{" "}
+                                      {t(
+                                        `monitoring.${automation.monitoring.stop_reason}`
+                                      )}
+                                    </>
+                                  )}
+                                </p>
+                              )}
                             <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-1 py-3 sm:px-0">
                               <Tooltip>
                                 <TooltipTrigger
@@ -1047,18 +1065,58 @@ function AutomationFormFields({
       )}
 
       <fieldset className="flex flex-col gap-4 rounded-md border p-4">
-        <legend className="px-1 text-sm font-medium">{t("monitoring.title")}</legend>
-        <FieldShell id="automation-stop-condition" label={t("monitoring.stopCondition")} hint={t("monitoring.stopHint")}>
-          <Textarea id="automation-stop-condition" name="stop_condition" maxLength={500} value={form.stopCondition} onChange={event => updateForm("stopCondition", event.target.value)} />
+        <legend className="px-1 text-sm font-medium">
+          {t("monitoring.title")}
+        </legend>
+        <FieldShell
+          id="automation-stop-condition"
+          label={t("monitoring.stopCondition")}
+          hint={t("monitoring.stopHint")}
+        >
+          <Textarea
+            id="automation-stop-condition"
+            name="stop_condition"
+            maxLength={500}
+            value={form.stopCondition}
+            onChange={(event) =>
+              updateForm("stopCondition", event.target.value)
+            }
+          />
         </FieldShell>
-        <FieldShell id="automation-max-runs" label={t("monitoring.maxRuns")} hint={t("monitoring.maxHint")}>
-          <Input id="automation-max-runs" name="max_runs" type="number" min={1} max={10_000} step={1} value={form.maxRuns} onChange={event => updateForm("maxRuns", event.target.value)} />
+        <FieldShell
+          id="automation-max-runs"
+          label={t("monitoring.maxRuns")}
+          hint={t("monitoring.maxHint")}
+        >
+          <Input
+            id="automation-max-runs"
+            name="max_runs"
+            type="number"
+            min={1}
+            max={10_000}
+            step={1}
+            value={form.maxRuns}
+            onChange={(event) => updateForm("maxRuns", event.target.value)}
+          />
         </FieldShell>
         <div className="flex items-start gap-3">
-          <Checkbox id="automation-fresh-task" checked={form.freshTask} onCheckedChange={checked => updateForm("freshTask", checked === true)} />
+          <Checkbox
+            id="automation-fresh-task"
+            checked={form.freshTask}
+            onCheckedChange={(checked) =>
+              updateForm("freshTask", checked === true)
+            }
+          />
           <div className="space-y-1">
-            <Label htmlFor="automation-fresh-task" className="text-sm font-medium">{t("monitoring.freshTask")}</Label>
-            <p className="text-xs text-muted-foreground">{t("monitoring.freshHint")}</p>
+            <Label
+              htmlFor="automation-fresh-task"
+              className="text-sm font-medium"
+            >
+              {t("monitoring.freshTask")}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {t("monitoring.freshHint")}
+            </p>
           </div>
         </div>
       </fieldset>
@@ -1733,7 +1791,11 @@ function automationInputFromForm(form: AutomationForm): unknown {
     title: form.title,
     notification_target: form.notificationTarget,
     instruction: form.instruction,
-    monitoring: { stop_condition: form.stopCondition.trim() || null, max_runs: form.maxRuns.trim() ? Number(form.maxRuns) : null, context_mode: form.freshTask ? "fresh_task" : "reuse_task" },
+    monitoring: {
+      stop_condition: form.stopCondition.trim() || null,
+      max_runs: form.maxRuns.trim() ? Number(form.maxRuns) : null,
+      context_mode: form.freshTask ? "fresh_task" : "reuse_task",
+    },
     target:
       form.targetMode === "new_task"
         ? { mode: "new_task" }

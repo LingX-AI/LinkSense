@@ -49,16 +49,16 @@ describe("LinkSense application", () => {
     for (const label of labels) {
       const button = within(banner).getByRole("button", { name: label })
       expect(button).toHaveClass(
-        "size-7",
-        "text-muted-foreground",
+        "size-9",
+        "text-foreground",
         "hover:bg-hover",
         "hover:text-foreground"
       )
       expect(button.textContent).toBe("")
       expect(button).not.toHaveAttribute("title")
-      expect(button.querySelector("svg")).toHaveAttribute(
-        "stroke",
-        "currentColor"
+      expect(button.querySelector("[data-design-icon]")).toHaveAttribute(
+        "aria-hidden",
+        "true"
       )
       await interaction.hover(button)
       fireEvent.pointerEnter(button, { pointerType: "mouse" })

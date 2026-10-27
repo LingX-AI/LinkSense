@@ -1,6 +1,6 @@
 import { useCallback, useId, useState } from "react"
 import type { VirtualElement } from "@floating-ui/react-dom"
-import { DownloadIcon, ListIcon, LoaderCircleIcon } from "lucide-react"
+import { DownloadIcon, LoaderCircleIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import type {
@@ -10,6 +10,7 @@ import type {
 } from "@/api/contracts"
 import { FileTypeIcon } from "@/components/media/file-type-icon"
 import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
 import {
   Popover,
   PopoverContent,
@@ -107,7 +108,7 @@ export function ConversationTaskOverviewPanel({
           />
         }
       >
-        <ListIcon aria-hidden="true" />
+        <DesignIcon name="overview" />
       </PopoverTrigger>
       <PopoverContent
         anchor={anchor}

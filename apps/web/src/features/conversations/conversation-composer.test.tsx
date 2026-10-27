@@ -2748,16 +2748,16 @@ describe("conversation voice input", () => {
     expect(pasteEvent.defaultPrevented).toBe(false)
   })
 
-  it("gives the composer actions darker icons with a visually balanced plus", () => {
+  it("uses the original Figma plus at the toolbar icon size", () => {
     renderComposer()
 
     const addCapability = screen.getByRole("button", {
       name: "添加",
     })
 
-    expect(addCapability.querySelector("svg")).toHaveClass(
-      "size-[18px]",
-      "text-[var(--app-text)]"
+    expect(addCapability.querySelector("[data-design-icon=plus]")).toHaveClass(
+      "size-5",
+      "text-foreground"
     )
     expect(
       screen.queryByRole("button", { name: "添加附件" })

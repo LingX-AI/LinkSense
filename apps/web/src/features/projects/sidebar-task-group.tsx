@@ -1,10 +1,11 @@
-import { useContext, useState, type ReactNode } from "react"
+import { useContext, useRef, useState, type ReactNode } from "react"
 import { useSortable } from "@dnd-kit/sortable"
 import type { Project } from "@linksense/shared"
-import { MoreHorizontalIcon, PencilIcon, Trash2Icon } from "lucide-react"
+import { PencilIcon, Trash2Icon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
 import { Spinner } from "@/components/ui/spinner"
 import { ProjectIcon } from "./project-icon"
 import { cn } from "@/lib/utils"
@@ -47,6 +48,7 @@ export function SidebarTaskGroup({
   onAction: (action: ProjectAction) => void
 }) {
   const { t } = useTranslation()
+  const menuTriggerRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(() =>
     userId && project ? readSidebarProjectOpen(userId, project.id) : true
   )
@@ -90,12 +92,10 @@ export function SidebarTaskGroup({
         setOpen(nextOpen)
         if (userId) rememberSidebarProjectOpen(userId, project.id, nextOpen)
       }}
-      // Label offset: 10px padding + 14px icon + 6px gap + 1px border.
-      // Task rows already provide 8px of padding; inherit the remaining offset.
       render={
         <section
           aria-label={project.name}
-          className="relative [--sidebar-conversation-indent:calc(1.875rem-7px)]"
+          className="relative [--sidebar-conversation-indent:1.5rem]"
         />
       }
     >
@@ -103,7 +103,7 @@ export function SidebarTaskGroup({
         ref={setNodeRef}
         data-drop-target={isOver || undefined}
         data-dragging={isDragging || undefined}
-        className="group/project relative min-w-0 rounded-[10px] hover:bg-[var(--app-sidebar-hover)] has-data-[popup-open]:bg-[var(--app-sidebar-hover)] has-[:focus-visible]:bg-[var(--app-sidebar-hover)] data-[drop-target]:bg-[var(--app-sidebar-hover)]"
+        className="group/project relative min-w-0 rounded-lg hover:bg-[var(--app-sidebar-hover)] has-data-[popup-open]:bg-[var(--app-sidebar-hover)] has-[:focus-visible]:bg-[var(--app-sidebar-hover)] data-[drop-target]:bg-[var(--app-sidebar-hover)]"
       >
         <CollapsibleTrigger
           onPointerDown={(event) => listeners?.onPointerDown?.(event)}
@@ -113,7 +113,7 @@ export function SidebarTaskGroup({
               type="button"
               variant="ghost"
               className={cn(
-                "w-full min-w-0 justify-start rounded-[10px] pr-9 pl-2.5 hover:bg-transparent aria-expanded:bg-transparent",
+                "h-10 w-full min-w-0 justify-start gap-2 rounded-lg pr-10 pl-2 font-normal hover:bg-transparent aria-expanded:bg-transparent",
                 showRunningIndicator && "[@media(hover:none)]:pr-14",
                 !projectsDisabled && "cursor-grab active:cursor-grabbing"
               )}
@@ -124,10 +124,10 @@ export function SidebarTaskGroup({
             icon={project.icon}
             color={project.color}
             open={open}
-            className="size-3.5"
+            className="size-4"
           />
           <span
-            className="min-w-0 flex-1 truncate text-left text-[length:var(--app-font-13)]"
+            className="min-w-0 flex-1 truncate text-left text-sm"
             title={active ? undefined : project.name}
           >
             {project.name}
@@ -166,6 +166,7 @@ export function SidebarTaskGroup({
                 type="button"
                 variant="ghost"
                 size="icon-xs"
+                ref={menuTriggerRef}
                 className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-has-[:focus-visible]/project:pointer-events-auto group-has-[:focus-visible]/project:opacity-100 hover:bg-transparent aria-expanded:bg-transparent data-popup-open:pointer-events-auto data-popup-open:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
                 aria-label={t("common.moreActionsNamed", {
                   name: project.name,
@@ -173,9 +174,15 @@ export function SidebarTaskGroup({
               />
             }
           >
-            <MoreHorizontalIcon />
+            <DesignIcon name="more" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
+          <DropdownMenuContent
+            side="right"
+            sideOffset={8}
+            anchor={() => menuTriggerRef.current?.parentElement ?? null}
+            align="start"
+            className="w-55 p-2"
+          >
             <DropdownMenuGroup>
               <DropdownMenuItem
                 onClick={() => onAction({ mode: "edit", project })}
@@ -196,7 +203,7 @@ export function SidebarTaskGroup({
         <SidebarDropIndicator targetId={projectDropId(project.id)} />
       </div>
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-200 ease-out data-ending-style:h-0 data-ending-style:opacity-0 data-starting-style:h-0 data-starting-style:opacity-0 motion-reduce:transition-none">
-        {children}
+        <div className="flex flex-col gap-2 pt-2">{children}</div>
       </CollapsibleContent>
       <SidebarDropIndicator
         targetId={projectDropId(project.id)}

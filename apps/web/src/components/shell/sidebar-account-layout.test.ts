@@ -37,7 +37,7 @@ describe("sidebar account bar layout", () => {
       appShellSource.match(
         /<Avatar className="sidebar-account-avatar size-6 border-0">/gu
       )
-    ).toHaveLength(2)
+    ).toHaveLength(1)
     expect(appShellSource).toContain(
       '<DropdownMenuItem\n                  className="account-menu-quota min-h-7 justify-between gap-2'
     )

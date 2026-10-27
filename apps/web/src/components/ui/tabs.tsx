@@ -32,8 +32,11 @@ function TabsList({
   className,
   children,
   id,
+  variant = "segmented",
   ...props
-}: TabsPrimitive.List.Props) {
+}: TabsPrimitive.List.Props & {
+  variant?: "segmented" | "navigation" | "pills"
+}) {
   const reducedMotion = useReducedMotion()
   const [initialBackground] = useState<
     false | { x: number; y: number; width: number; height: number }
@@ -65,8 +68,15 @@ function TabsList({
     <TabsPrimitive.List
       id={id}
       data-slot="tabs-list"
-      data-variant="segmented"
-      className={cn(tabsListVariants(), className)}
+      data-variant={variant}
+      className={cn(
+        tabsListVariants(),
+        variant === "pills" &&
+          "gap-2 rounded-none bg-transparent p-0 group-data-horizontal/tabs:min-h-9 [&_[data-active]]:text-link-foreground [&_[data-slot=tabs-trigger]]:min-h-9 [&_[data-slot=tabs-trigger]]:font-normal",
+        variant === "navigation" &&
+          "w-full gap-4 rounded-none border-b border-border bg-transparent p-0 group-data-horizontal/tabs:min-h-11 [&_[data-active]]:text-link-foreground [&_[data-slot=tabs-trigger]]:h-11 [&_[data-slot=tabs-trigger]]:flex-none [&_[data-slot=tabs-trigger]]:rounded-none [&_[data-slot=tabs-trigger]]:font-normal",
+        className
+      )}
       render={
         <motion.div
           layout
@@ -88,13 +98,21 @@ function TabsList({
                 <motion.span
                   data-slot="tabs-indicator"
                   aria-hidden="true"
-                  className="pointer-events-none absolute top-0 left-0 z-0 rounded-lg bg-background shadow-sm"
+                  className={cn(
+                    "pointer-events-none absolute top-0 left-0 z-0 rounded-lg bg-background shadow-sm",
+                    variant === "pills" && "bg-accent shadow-none",
+                    variant === "navigation" &&
+                      "rounded-none bg-primary shadow-none"
+                  )}
                   initial={initialBackground}
                   animate={{
                     x: activeTabPosition.left,
-                    y: activeTabPosition.top,
+                    y:
+                      variant === "navigation"
+                        ? activeTabPosition.top + activeTabSize.height - 2
+                        : activeTabPosition.top,
                     width: activeTabSize.width,
-                    height: activeTabSize.height,
+                    height: variant === "navigation" ? 2 : activeTabSize.height,
                   }}
                   transition={
                     reducedMotion
@@ -115,7 +133,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
     <TabsPrimitive.Tab
       data-slot="tabs-trigger"
       className={cn(
-        "relative z-10 inline-flex h-auto min-h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-transparent! px-3 py-1.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start hover:text-foreground not-data-active:hover:bg-hover focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-active:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative z-10 inline-flex h-auto min-h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-transparent! px-3 py-1.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start hover:text-foreground not-data-active:hover:bg-hover focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-active:text-foreground forced-colors:data-active:border-[Highlight]! [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}

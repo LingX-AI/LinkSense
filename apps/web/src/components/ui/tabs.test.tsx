@@ -6,6 +6,31 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs"
 afterEach(cleanup)
 
 describe("segmented tabs", () => {
+  it("keeps navigation tabs keyboard accessible while rendering an underline track", async () => {
+    const user = userEvent.setup()
+    render(
+      <Tabs defaultValue="first">
+        <TabsList variant="navigation" aria-label="Modules">
+          <TabsTrigger value="first">First</TabsTrigger>
+          <TabsTrigger value="second">Second</TabsTrigger>
+        </TabsList>
+        <TabsContent value="first">First module</TabsContent>
+        <TabsContent value="second">Second module</TabsContent>
+      </Tabs>
+    )
+    expect(screen.getByRole("tablist", { name: "Modules" })).toHaveAttribute(
+      "data-variant",
+      "navigation"
+    )
+    await user.tab()
+    await user.keyboard("{ArrowRight}")
+    await user.keyboard("{Enter}")
+    expect(screen.getByRole("tab", { name: "Second" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    )
+    expect(screen.getByRole("tabpanel")).toHaveTextContent("Second module")
+  })
   it.each(["horizontal", "vertical"] as const)(
     "preserves %s keyboard selection without activating disabled segments",
     async (orientation) => {

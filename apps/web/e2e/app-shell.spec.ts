@@ -50,6 +50,311 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page)
 })
 
+test("sidebar groups match the design through hover, keyboard focus, and sorting", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.route("**/api/v1/conversations?**", (route) =>
+    ok(route, {
+      items: [
+        {
+          id: "20000000-0000-4000-8000-000000000001",
+          title: "Q3 enrollment data",
+          project_id: null,
+          updated_at: NOW,
+        },
+        {
+          id: "20000000-0000-4000-8000-000000000002",
+          title: "Grade 10 syllabus",
+          pinned_at: NOW,
+          project_id: null,
+          updated_at: NOW,
+        },
+      ],
+      next_cursor: null,
+    })
+  )
+  await page.goto("/conversations/20000000-0000-4000-8000-000000000001")
+  const sidebar = page.getByRole("complementary", { name: "LinkSense 导航" })
+  const section = sidebar.getByRole("region", { name: "最近", exact: true })
+  const heading = section.getByRole("button", { name: "最近", exact: true })
+  const sort = section.getByRole("button", { name: /排序/ })
+  await page.mouse.move(1000, 70)
+  await expect(heading).toHaveCSS("font-size", "12px")
+  await expect(heading).toHaveCSS("font-weight", "400")
+  await expect(heading).toHaveCSS("height", "40px")
+  await expect(sort).toHaveCSS("opacity", "0")
+  const row = section.getByRole("link", { name: "Q3 enrollment data" })
+  await expect(row).toHaveCSS("height", "40px")
+  await expect(row.locator("..")).toHaveCSS(
+    "background-color",
+    "rgb(233, 241, 255)"
+  )
+  const navIcon = sidebar.locator('[data-design-icon="automations"]')
+  await expect(navIcon).toHaveCSS("width", "16px")
+  await expect(navIcon).toHaveCSS("mask-image", /url\(/)
+  expect(
+    await page
+      .locator("html")
+      .evaluate((element) =>
+        getComputedStyle(element).getPropertyValue("--primary").trim()
+      )
+  ).toBe("#0874ff")
+  await expect(row.getByText("Q3 enrollment data")).toHaveCSS(
+    "font-weight",
+    "400"
+  )
+  const bounds = await heading.boundingBox()
+  await heading.hover()
+  await expect(sort).toHaveCSS("opacity", "1")
+  expect(await heading.boundingBox()).toEqual(bounds)
+  await sort.click()
+  const menu = page.getByRole("menu").filter({ hasText: "排序方式" })
+  await expect(menu).toBeVisible()
+  await expect(sort).toHaveCSS("opacity", "1")
+  await page.keyboard.press("Escape")
+  await expect(sort).toBeFocused()
+  await heading.click()
+  await expect(row).toBeHidden()
+  await heading.press("Enter")
+  await expect(row).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath("sidebar-design.png") })
+  await row.hover()
+  const preview = page.locator(".sidebar-conversation-preview")
+  await expect(preview).toBeVisible()
+  const rowBounds = await row.boundingBox()
+  await expect
+    .poll(async () => {
+      const rowRect = await row.boundingBox()
+      const popupRect = await preview.boundingBox()
+      return rowRect && popupRect
+        ? Math.round((popupRect.x - rowRect.x - rowRect.width) * 10) / 10
+        : null
+    })
+    .toBe(8)
+  const previewBounds = await preview.boundingBox()
+  if (!rowBounds || !previewBounds)
+    throw new Error("Missing task preview bounds")
+  expect(previewBounds.x - (rowBounds.x + rowBounds.width)).toBeCloseTo(8, 0)
+  await row
+    .locator("..")
+    .getByRole("button", { name: "Q3 enrollment data的更多操作" })
+    .click()
+  const taskMenu = page.getByRole("menu").filter({ hasText: "移动到项目" })
+  await expect(taskMenu).toBeVisible()
+  await expect
+    .poll(async () => {
+      const bounds = await taskMenu.boundingBox()
+      return bounds
+        ? Math.round((bounds.x - rowBounds.x - rowBounds.width) * 10) / 10
+        : null
+    })
+    .toBe(8)
+  const menuBounds = await taskMenu.boundingBox()
+  if (!menuBounds) throw new Error("Missing task menu bounds")
+  expect(menuBounds.x - (rowBounds.x + rowBounds.width)).toBeCloseTo(8, 0)
+  expect(menuBounds.y).toBeCloseTo(rowBounds.y, 0)
+  await taskMenu.getByRole("menuitem", { name: "移动到项目" }).hover()
+  const destinations = page.getByRole("menu").filter({ hasText: "公共空间" })
+  await expect(destinations).toBeVisible()
+  await expect
+    .poll(async () => {
+      const bounds = await destinations.boundingBox()
+      return bounds
+        ? Math.round((bounds.x - menuBounds.x - menuBounds.width) * 10) / 10
+        : null
+    })
+    .toBe(8)
+  const destinationsBounds = await destinations.boundingBox()
+  if (!destinationsBounds) throw new Error("Missing project destination bounds")
+  expect(destinationsBounds.x - (menuBounds.x + menuBounds.width)).toBeCloseTo(
+    8,
+    0
+  )
+  expect(destinationsBounds.y).toBeCloseTo(menuBounds.y, 0)
+  await page.keyboard.press("Escape")
+  await page.keyboard.press("Escape")
+  await page.keyboard.press("Control+k")
+  await expect(page.getByRole("dialog", { name: "搜索" })).toBeVisible()
+  await page.keyboard.press("Escape")
+  await page.keyboard.press("Meta+k")
+  await expect(page.getByRole("dialog", { name: "搜索" })).toBeVisible()
+  await page.keyboard.press("Escape")
+  await sidebar.getByRole("button", { name: "搜索", exact: true }).click()
+  await expect(page.getByRole("dialog", { name: "搜索" })).toBeVisible()
+})
+
+for (const width of [1440, 390]) {
+  test(`search shortcuts reach the app and settings at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto("/conversations/new")
+    await expect(
+      page.getByRole("textbox", { name: "任务输入框" })
+    ).toBeVisible()
+    await page.keyboard.press("Control+k")
+    const search = page.getByRole("dialog", { name: "搜索" })
+    await expect(search).toBeVisible()
+    await expect(search.getByRole("combobox")).toBeFocused()
+    await page.keyboard.press("Escape")
+    await page.goto("/settings/general")
+    await expect(
+      page.getByRole("heading", { name: "常规", exact: true })
+    ).toBeVisible()
+    await page.keyboard.press("Control+k")
+    await expect(page.getByRole("textbox", { name: "搜索设置" })).toBeFocused()
+    await page.getByRole("textbox", { name: "搜索设置" }).fill("常规")
+    await expect(
+      page.getByRole("link", { name: "常规", exact: true })
+    ).toBeVisible()
+    await expect(
+      page.getByRole("link", { name: "个人资料", exact: true })
+    ).toHaveCount(0)
+    await expectNoHorizontalOverflow(page)
+  })
+}
+
+for (const width of [1440, 390]) {
+  test(`published applications and existing drafts share the design list at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.route("**/api/v1/applications/catalog**", (route) =>
+      ok(route, {
+        items: [
+          {
+            type: "application",
+            development: null,
+            application: {
+              id: "50000000-0000-4000-8000-000000000001",
+              owner: { id: ADMIN.id, name: ADMIN.name },
+              name: "Published research assistant",
+              icon: { type: "preset", preset: "sparkles" },
+              description:
+                "A saved application with its original resources, permissions and actions.",
+              instructions: null,
+              model: null,
+              reasoning_effort: null,
+              status: "active",
+              is_owner: true,
+              can_manage: true,
+              access_source: "owner",
+              capability_count: 0,
+              knowledge_base_count: 0,
+              mcp_server_count: 0,
+              dependencies_available: true,
+              capabilities: [],
+              knowledge_bases: [],
+              mcp_servers: [],
+              created_at: NOW,
+              updated_at: NOW,
+            },
+          },
+          {
+            type: "development",
+            development: {
+              id: "50000000-0000-4000-8000-000000000002",
+              conversation_id: null,
+              name: "Existing unpublished draft",
+              capability_count: 0,
+              knowledge_base_count: 0,
+              mcp_server_count: 0,
+              has_changes: true,
+              updated_at: NOW,
+            },
+          },
+        ],
+        next_cursor: null,
+      })
+    )
+    await page.goto("/capabilities")
+    const published = page.getByRole("article", {
+      name: "Published research assistant",
+    })
+    const draft = page.getByRole("article", {
+      name: "Existing unpublished draft",
+    })
+    await expect(published).toBeVisible()
+    await expect(draft).toBeVisible()
+    for (const row of [published, draft]) {
+      await expect(row).toHaveCSS("border-radius", "0px")
+      await expect(row.getByRole("button").first()).toBeVisible()
+    }
+    const publishedBounds = await published.boundingBox()
+    const draftBounds = await draft.boundingBox()
+    if (!publishedBounds || !draftBounds)
+      throw new Error("Missing application list rows")
+    expect(draftBounds.x).toBeCloseTo(publishedBounds.x, 0)
+    expect(draftBounds.width).toBeCloseTo(publishedBounds.width, 0)
+    expect(draftBounds.y).toBeGreaterThanOrEqual(
+      publishedBounds.y + publishedBounds.height - 1
+    )
+    await expectNoHorizontalOverflow(page)
+    const contrast = await new AxeBuilder({ page })
+      .withRules(["color-contrast"])
+      .analyze()
+    expect(contrast.violations).toEqual([])
+    await page.screenshot({
+      path: test.info().outputPath(`application-design-rows-${width}.png`),
+    })
+  })
+}
+
+for (const theme of ["light", "dark"] as const) {
+  test(`profile foreground colors preserve badge geometry and avatar contrast in ${theme}`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto("/settings/profile")
+    const hero = page.locator(".profile-hero")
+    await expect(hero).toBeVisible()
+    const role = hero.locator('[data-slot="badge"]')
+    await expect(role).toHaveCSS("height", "20px")
+    await expect(role).toHaveCSS("text-decoration-line", "none")
+    await expect(role).toHaveCSS("font-size", "12px")
+    const contrast = await new AxeBuilder({ page })
+      .include(".profile-hero")
+      .withRules(["color-contrast"])
+      .analyze()
+    expect(contrast.violations).toEqual([])
+  })
+}
+
+test("design icon controls and selected navigation survive forced colors", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.emulateMedia({ forcedColors: "active" })
+  await page.goto("/conversations/new")
+  const sidebar = page.getByRole("complementary", { name: "LinkSense 导航" })
+  for (const name of ["sidebar", "automations", "plugins", "library"]) {
+    const icon = sidebar.locator(`[data-design-icon="${name}"]`)
+    await expect(icon).toHaveCSS("forced-color-adjust", "none")
+    await expect(icon).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+    await expect(icon).toHaveCSS("mask-image", /url\(/)
+  }
+  await sidebar.getByRole("button", { name: "搜索", exact: true }).click()
+  await page.keyboard.press("Escape")
+  await sidebar.getByRole("button", { name: "项目", exact: true }).hover()
+  await sidebar.getByRole("button", { name: "新建项目", exact: true }).click()
+  await expect(
+    page.getByRole("dialog").locator('[data-design-icon="close"]')
+  ).toHaveCSS("forced-color-adjust", "none")
+  await page.keyboard.press("Escape")
+  await sidebar.getByRole("link", { name: "插件中心" }).click()
+  const selected = page
+    .locator('[data-variant="navigation"]')
+    .getByRole("tab", { selected: true })
+  await expect(selected).not.toHaveCSS(
+    "border-bottom-color",
+    "rgba(0, 0, 0, 0)"
+  )
+  await page.screenshot({
+    path: test.info().outputPath("design-forced-colors.png"),
+  })
+})
+
 test("settings controls stack below their labels when their container is narrow", async ({
   page,
 }) => {
@@ -856,13 +1161,13 @@ for (const viewport of [
       await expect(page.getByRole("navigation", { name: "个人" })).toBeVisible()
       await expect(
         page.getByRole("link", { name: "常规", exact: true })
-      ).toHaveCSS("height", "32px")
+      ).toHaveCSS("height", "40px")
       await page.keyboard.press("Escape")
       await expect(navigation).toHaveAttribute("aria-expanded", "false")
     } else {
       await expect(
         page.getByRole("link", { name: "常规", exact: true })
-      ).toHaveCSS("height", "32px")
+      ).toHaveCSS("height", "40px")
       await page.getByRole("textbox", { name: "搜索设置" }).fill("安全")
       await expect(page.getByRole("link", { name: /安全/ })).toBeVisible()
       await expect(page.getByRole("link", { name: /个人资料/ })).toHaveCount(0)
@@ -1023,15 +1328,12 @@ test("sidebars share the design palette and preserve distinct active states in b
   await expect(appSidebar).toHaveCSS("background-color", "rgb(247, 248, 250)")
   await expect(
     appSidebar.locator(".sidebar-conversation-item.sidebar-link-active")
-  ).toHaveCSS(
-    "background-color",
-    "color(srgb 0.909804 0.941177 0.996078 / 0.65)"
-  )
+  ).toHaveCSS("background-color", "rgb(233, 241, 255)")
   const capabilitiesLink = appSidebar.getByRole("link", { name: "插件中心" })
   await capabilitiesLink.hover()
   await expect(capabilitiesLink).toHaveCSS(
     "background-color",
-    "rgb(238, 244, 254)"
+    "rgb(242, 246, 253)"
   )
 
   await page.goto("/settings/general")
@@ -1051,7 +1353,7 @@ test("sidebars share the design palette and preserve distinct active states in b
   await inactiveSettingsLink.hover()
   await expect(inactiveSettingsLink).toHaveCSS(
     "background-color",
-    "rgb(238, 244, 254)"
+    "rgb(242, 246, 253)"
   )
 
   await page.emulateMedia({ colorScheme: "dark" })
@@ -1444,7 +1746,7 @@ test("form controls and dropdown surfaces use partial radii", async ({
   await expect(page.getByRole("option").first()).toHaveCSS("font-weight", "500")
 })
 
-test("navigation, menus, and tabs use the stronger typography hierarchy", async ({
+test("navigation, menus, and tabs preserve the design typography hierarchy", async ({
   page,
 }) => {
   const longTaskTitle =
@@ -1485,7 +1787,7 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
   ).toHaveCount(0)
   await expect(
     sidebar.getByRole("heading", { name: "最近", exact: true })
-  ).toHaveCSS("font-weight", "600")
+  ).toHaveCSS("font-weight", "400")
   const recentTask = sidebar
     .locator(".sidebar-conversation-item")
     .filter({ hasText: longTaskTitle })
@@ -1494,7 +1796,7 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
   const taskStatus = recentTask.getByRole("status").first()
   const recentTaskActions = recentTask.locator(".sidebar-conversation-actions")
 
-  await expect(recentTaskTitle).toHaveCSS("font-weight", "500")
+  await expect(recentTaskTitle).toHaveCSS("font-weight", "400")
   await expect(recentTaskTitle).toHaveCSS("overflow", "hidden")
   await expect(recentTaskTitle).toHaveCSS("white-space", "nowrap")
   await expect(recentTaskTitle).toHaveCSS("text-overflow", "clip")
@@ -1512,7 +1814,7 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
       (element) => element.scrollWidth > element.clientWidth
     )
   ).toBe(true)
-  await expect(recentTaskLink).toHaveCSS("min-height", "32px")
+  await expect(recentTaskLink).toHaveCSS("min-height", "40px")
   await expect(recentTask.locator("time")).toHaveCount(0)
   await expect(taskStatus).toBeVisible()
   await expect(taskStatus).toHaveCSS("opacity", "1")
@@ -1544,8 +1846,8 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
   const personalHeading = settingsSidebar.getByRole("heading", {
     name: "个人",
   })
-  await expect(personalHeading).toHaveCSS("font-weight", "600")
-  await expect(personalHeading).toHaveCSS("font-size", "14px")
+  await expect(personalHeading).toHaveCSS("font-weight", "400")
+  await expect(personalHeading).toHaveCSS("font-size", "12px")
   await expect(
     settingsSidebar.getByRole("link", { name: "返回 LinkSense" })
   ).toHaveCSS("font-size", "14px")
@@ -1566,10 +1868,10 @@ test("navigation, menus, and tabs use the stronger typography hierarchy", async 
     settingsSidebar.locator(".settings-navigation-link > span > span")
   ).toHaveCount(0)
   await expect(generalLink.locator("span")).toHaveCount(1)
-  await expect(generalLink.locator("span")).toHaveCSS("font-weight", "500")
+  await expect(generalLink.locator("span")).toHaveCSS("font-weight", "400")
   await expect(generalLink).toHaveCSS("font-size", "14px")
-  await expect(generalLink).toHaveCSS("min-height", "32px")
-  await expect(generalLink).toHaveCSS("height", "32px")
+  await expect(generalLink).toHaveCSS("min-height", "40px")
+  await expect(generalLink).toHaveCSS("height", "40px")
   for (const description of [
     "界面语言",
     "姓名和头像",
@@ -2310,7 +2612,7 @@ test("assistant artifact cards use a transparent surface with hover feedback", a
   await artifactCard.hover()
   // The shared ghost button transitions to the theme hover color. Checking
   // transparency immediately after hover could pass before that transition.
-  await expect(artifactCard).toHaveCSS("background-color", "rgb(238, 244, 254)")
+  await expect(artifactCard).toHaveCSS("background-color", "rgb(242, 246, 253)")
   await page.mouse.move(0, 0)
   await expect(artifactCard).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
 })
@@ -3052,7 +3354,7 @@ test("settings navigation has no item dividers while tables and menus keep neces
     name: "管理",
   })
   for (const navigation of [personalNavigation, administrationNavigation]) {
-    await expect(navigation).toHaveCSS("row-gap", "2px")
+    await expect(navigation).toHaveCSS("row-gap", "4px")
     await expect(navigation).toHaveCSS("border-top-width", "0px")
     await expect(navigation).toHaveCSS("border-radius", "0px")
     await expect(navigation).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
@@ -3060,7 +3362,7 @@ test("settings navigation has no item dividers while tables and menus keep neces
   const activeLink = administrationNavigation.getByRole("link", {
     name: /角色与权限/,
   })
-  await expect(activeLink).toHaveCSS("border-radius", "9px")
+  await expect(activeLink).toHaveCSS("border-radius", "8px")
   await expect(activeLink).toHaveCSS("background-color", "rgb(233, 241, 255)")
   expect(
     await settingsSidebar

@@ -69,6 +69,37 @@ function showCard({
 }
 
 describe("application card presentation", () => {
+  it("keeps application details, resources and actions in the design list row", async () => {
+    await i18n.changeLanguage("en-US")
+    const onUse = vi.fn()
+    render(
+      <ApplicationCard
+        layout="row"
+        id={id}
+        name={name}
+        kind="interactive"
+        icon={icon}
+        status="active"
+        description="A research assistant"
+        footer="Published by you"
+        actions={<Button onClick={onUse}>Use application</Button>}
+      >
+        <ApplicationCardResources
+          capability_count={2}
+          knowledge_base_count={1}
+          mcp_server_count={0}
+        />
+      </ApplicationCard>
+    )
+    const row = screen.getByRole("article", { name })
+    expect(row).toHaveClass("rounded-none", "border-b")
+    expect(within(row).getByText("A research assistant")).toBeVisible()
+    expect(within(row).getByText("Published by you")).toBeVisible()
+    await userEvent
+      .setup()
+      .click(within(row).getByRole("button", { name: "Use application" }))
+    expect(onUse).toHaveBeenCalledOnce()
+  })
   it.each(supportedLocales)(
     "reserves the same footer action row with absent, empty and visible actions in %s",
     async (language) => {

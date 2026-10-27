@@ -55,6 +55,8 @@
   --container-account-form: 25rem;
   --color-input-hover: var(--input-hover, var(--ring));
   --color-primary-hover: var(--primary-hover, var(--primary));
+  --color-primary-action: var(--primary-action);
+  --color-link-foreground: var(--app-link);
   --color-heading: var(--app-heading);
   --text-page-title: calc(36px + var(--app-ui-font-delta));
   --text-page-title--line-height: 1.22;
@@ -111,6 +113,8 @@
   --color-divider: var(--app-divider);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-destructive-text: var(--destructive-text);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-application-create-accent: var(--app-selection);
@@ -174,7 +178,9 @@
   --card-foreground: #252b49;
   --popover: #ffffff;
   --popover-foreground: #252b49;
-  --primary: #0865da;
+  --primary: #0874ff;
+  /* White 14px labels need 4.5:1; the unmodified brand blue is 4.24:1. */
+  --primary-action: #0070f5;
   --primary-foreground: #ffffff;
   --secondary: #f5f7fa;
   --secondary-foreground: #252b49;
@@ -182,7 +188,9 @@
   --muted-foreground: #626e86;
   --accent: #e9f1ff;
   --accent-foreground: #252b49;
-  --destructive: #c52736;
+  --destructive: #d92d3a;
+  --destructive-hover: #c62532;
+  --destructive-text: #c52736;
   --destructive-foreground: #ffffff;
   --success: #07c160;
   --warning: #ca8a04;
@@ -191,15 +199,16 @@
   --field: #ffffff;
   --field-focus: #ffffff;
   --ring: #6288dd;
-  --input-focus-border: color-mix(in srgb, var(--ring) 18%, var(--input));
+  --input-focus-border: var(--ring);
   --radius: 0.5rem;
   /* Shared radius for cards and grouped content surfaces. */
   --app-card-radius: 12px;
   --sidebar: #f7f8fa;
   --sidebar-foreground: #252b49;
-  --sidebar-primary: #086de8;
+  --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #e9f1ff;
+  --sidebar-selection-border: #c9dbf5;
   --sidebar-accent-foreground: #252b49;
   --sidebar-border: #e5e8f0;
   --sidebar-ring: var(--ring);
@@ -213,8 +222,8 @@
   --provider-logo-openrouter: #6467f2;
   --provider-logo-vllm: #7c3aed;
 
-  --app-brand: #1866e1;
-  --app-brand-foreground: #ffffff;
+  --app-brand: var(--primary);
+  --app-brand-foreground: var(--primary-foreground);
 
   --app-sidebar-width: 272px;
   --app-settings-page-width: 1200px;
@@ -266,15 +275,15 @@
   --app-canvas: #fdfefe;
   --app-sidebar: #f7f8fa;
   --app-sidebar-muted: #64728b;
-  --app-sidebar-hover: #eef4fe;
+  --app-sidebar-hover: #f2f6fd;
   --app-sidebar-active: #e9f1ff;
-  --app-sidebar-avatar: var(--app-brand);
+  --app-sidebar-avatar: var(--primary-action);
   --app-sidebar-avatar-foreground: var(--app-brand-foreground);
   --app-mobile-sidebar-edge: rgb(32 32 32 / 8%);
   --app-topbar: #ffffff;
   --conversation-top-bar-height: 66px;
   --app-text: #252b49;
-  --app-muted: #626e86;
+  --app-muted: var(--muted-foreground);
   --app-scrollbar-size: 7px;
   --app-scrollbar-radius: 999px;
   --app-scrollbar-track: transparent;
@@ -284,9 +293,9 @@
     var(--app-muted) 34%,
     transparent
   );
-  --app-link: var(--primary);
+  --app-link: #0065df;
   --app-link-hover: var(--primary-hover);
-  --app-hover: #eef4fe;
+  --app-hover: #f2f6fd;
   --app-hover-subtle: #f7f9fd;
   --app-active: #e9f1ff;
   --app-control-surface: #f5f7fa;
@@ -303,7 +312,7 @@
   );
   --app-accent: var(--primary);
   --app-ring: var(--ring);
-  --app-selection: #086de8;
+  --app-selection: var(--primary);
   --app-usage-token-assistant: #7857f6;
   --app-usage-token-memory: #527fdd;
   --app-usage-token-document: #249dc5;
@@ -347,10 +356,10 @@
   --app-task-overview-shadow: 0 0 28px rgb(0 0 0 / 8%);
   --stop: #ca4c54;
   --stop-foreground: #ffffff;
-  --primary-hover: #075bc5;
+  --primary-hover: #0065df;
   --input-hover: #c9d8f0;
   --app-heading: #171b40;
-  --app-dialog-overlay: rgb(18 37 73 / 22%);
+  --app-dialog-overlay: rgb(23 27 64 / 24%);
   --app-dialog-shadow: 0 4px 12px rgb(27 39 69 / 8%);
 }
 
@@ -365,6 +374,7 @@
   --popover: #202020;
   --popover-foreground: #d8d8d8;
   --primary: #8bb6ff;
+  --primary-action: var(--primary);
   --primary-foreground: #142447;
   --secondary: #282828;
   --secondary-foreground: #d8d8d8;
@@ -373,6 +383,8 @@
   --accent: #293347;
   --accent-foreground: #d8d8d8;
   --destructive: #f1a4ae;
+  --destructive-hover: #d9949d;
+  --destructive-text: var(--destructive);
   --destructive-foreground: #201414;
   --success: #07c160;
   --warning: #facc15;
@@ -387,6 +399,7 @@
   --sidebar-primary: #8bb6ff;
   --sidebar-primary-foreground: #142447;
   --sidebar-accent: #293347;
+  --sidebar-selection-border: #435a7e;
   --sidebar-accent-foreground: #d8d8d8;
   --sidebar-border: #383e4b;
   --sidebar-ring: var(--ring);
@@ -396,7 +409,7 @@
   --app-sidebar-muted: #adb6c8;
   --app-sidebar-hover: #282c36;
   --app-sidebar-active: #293347;
-  --app-sidebar-avatar: var(--app-brand);
+  --app-sidebar-avatar: var(--primary-action);
   --app-sidebar-avatar-foreground: var(--app-brand-foreground);
   --app-mobile-sidebar-edge: rgb(255 255 255 / 5%);
   --app-topbar: #202020;
@@ -1038,16 +1051,16 @@
   min-width: 0;
   align-items: center;
   gap: 8px;
-  min-height: 32px;
-  border-radius: 10px;
-  padding: 6px 10px;
+  min-height: 40px;
+  border-radius: 8px;
+  padding: 0 8px;
   font-size: var(--app-ui-font-size);
   line-height: var(--app-ui-compact-line-height);
   text-decoration: none;
 }
 
 .sidebar-link {
-  color: var(--app-sidebar-muted);
+  color: var(--app-text);
   transition:
     background-color 160ms ease,
     color 160ms ease;
@@ -1055,7 +1068,6 @@
 
 .sidebar-conversation-link {
   padding: 0 8px;
-  padding-left: calc(8px + var(--sidebar-conversation-indent, 0px));
   color: var(--app-text);
   transition: none;
 }
@@ -1067,12 +1079,13 @@
 .sidebar-conversation-item {
   --sidebar-conversation-actions-width: 56px;
   content-visibility: auto;
-  contain-intrinsic-size: auto 32px;
+  contain-intrinsic-size: auto 40px;
 }
 
 .sidebar-conversation-item.sidebar-link-active,
 .sidebar-conversation-item[data-active="true"] {
-  background: color-mix(in srgb, var(--app-sidebar-active) 65%, transparent);
+  background: var(--app-sidebar-active);
+  box-shadow: inset 0 0 0 1px var(--sidebar-selection-border);
   color: var(--app-text);
 }
 
@@ -8789,24 +8802,25 @@ button.annotation-hover-file:focus-visible {
   position: relative;
 }
 
-.settings-search-field > svg {
+.settings-search-field > [data-design-icon] {
   position: absolute;
   top: 50%;
-  left: 10px;
+  left: 12px;
   z-index: 1;
-  width: 13px;
-  height: 13px;
+  width: 16px;
+  height: 16px;
   transform: translateY(-50%);
   color: var(--app-muted);
   pointer-events: none;
 }
 
 .settings-search-field input {
-  height: 32px;
-  padding-left: 30px;
-  background: color-mix(in srgb, var(--app-canvas) 72%, var(--app-sidebar));
+  height: 40px;
+  border-radius: 999px;
+  padding-inline: 36px 68px;
+  background: var(--card);
   font-size: var(--app-ui-font-size);
-  font-weight: 500;
+  font-weight: 400;
   line-height: var(--app-ui-compact-line-height);
 }
 
@@ -8816,16 +8830,16 @@ button.annotation-hover-file:focus-visible {
 }
 
 .settings-navigation-group h2 {
-  margin: 0 8px;
+  margin: 0;
   color: var(--app-muted);
-  font-size: var(--app-ui-font-size);
-  font-weight: 600;
-  line-height: var(--app-ui-compact-line-height);
+  font-size: var(--app-font-12);
+  font-weight: 400;
+  line-height: var(--app-line-18);
 }
 
 .settings-navigation-group nav {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -8833,11 +8847,11 @@ button.annotation-hover-file:focus-visible {
 
 .settings-navigation-link {
   display: flex;
-  min-height: 32px;
+  min-height: 40px;
   align-items: center;
-  gap: 9px;
-  border-radius: 9px;
-  padding: 6px 9px;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 8px;
   font-size: var(--app-ui-font-size);
   line-height: var(--app-ui-compact-line-height);
   transition:
@@ -8851,12 +8865,13 @@ button.annotation-hover-file:focus-visible {
 
 .settings-navigation-link-active {
   background: var(--app-sidebar-active);
+  box-shadow: inset 0 0 0 1px var(--sidebar-selection-border);
 }
 
 .settings-navigation-link > svg,
 .settings-navigation-link > img {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   flex: none;
 }
 
@@ -9514,7 +9529,7 @@ button.annotation-hover-file:focus-visible {
 
 .profile-hero-avatar,
 .profile-hero-avatar-fallback {
-  background: var(--app-brand);
+  background: var(--primary-action);
 }
 
 .profile-hero h2 {
@@ -10064,13 +10079,14 @@ button.annotation-hover-file:focus-visible {
   opacity: 0;
 }
 
-/* Preserve the approved account-access palette while product tokens are shared. */
+/* Account surfaces remain scoped while their primary colors follow the product. */
 .account-access-theme {
   --background: #ffffff;
   --foreground: #252b49;
   --card: #ffffff;
-  --primary: #0865da;
-  --primary-hover: #075bc5;
+  --primary: #0874ff;
+  --primary-action: #0070f5;
+  --primary-hover: #0065df;
   --primary-foreground: #ffffff;
   --muted-foreground: #626e86;
   --border: #e5e8f0;
@@ -10078,7 +10094,7 @@ button.annotation-hover-file:focus-visible {
   --field-focus: #ffffff;
   --ring: #6288dd;
   --input-hover: #c9d8f0;
-  --destructive: #c52736;
+  --destructive: #d92d3a;
   --app-text: var(--foreground);
   --app-muted: var(--muted-foreground);
 }
@@ -10088,6 +10104,7 @@ button.annotation-hover-file:focus-visible {
   --foreground: #d8d8d8;
   --card: #202020;
   --primary: #e8e8e8;
+  --primary-action: var(--primary);
   --primary-hover: #d8d8d8;
   --primary-foreground: #202020;
   --muted-foreground: #a9a9a9;
@@ -10155,26 +10172,17 @@ button.annotation-hover-file:focus-visible {
   --home-heading: #171b40;
   --home-card-shadow: 0 5px 14px rgb(27 39 69 / 3%);
   --home-icon-shadow: 0 2px 3px rgb(27 39 69 / 14%);
-  --task-file: #8759b5;
+  --task-file: #9035c6;
   --task-file-soft: #eedcff;
-  --task-knowledge: #c83f97;
+  --task-knowledge: #db339f;
   --task-knowledge-soft: #fde3f2;
-  --task-data: #00a98d;
+  --task-data: #06ae97;
   --task-data-soft: #d7faf1;
-  --task-deliverable: #e49b42;
+  --task-deliverable: #ef9211;
   --task-deliverable-soft: #fff1e2;
   --app-border: var(--border);
-  --app-divider: var(--border);
   --app-ring: var(--ring);
   --app-accent: var(--primary);
-}
-
-.workspace-theme {
-  --sidebar: #f7f8fa;
-  --app-sidebar: var(--sidebar);
-  --app-sidebar-muted: var(--foreground);
-  --app-sidebar-hover: #eef4fe;
-  --app-sidebar-active: #e8f0fe;
 }
 
 .dark .workspace-theme,
@@ -10190,9 +10198,6 @@ button.annotation-hover-file:focus-visible {
   --task-data-soft: #183a33;
   --task-deliverable: #edb46c;
   --task-deliverable-soft: #433323;
-  --sidebar: #202020;
-  --app-sidebar-hover: #282828;
-  --app-sidebar-active: #343434;
 }
 
 /* Bridge the new home into the existing measured composer layout. */

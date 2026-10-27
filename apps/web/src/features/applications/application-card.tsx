@@ -20,6 +20,7 @@ import {
 import { ApplicationIconDisplay } from "./application-icon"
 
 type ApplicationCardProps = {
+  layout?: "card" | "row"
   id: string
   name: string
   kind: Application["kind"]
@@ -38,9 +39,11 @@ type ApplicationCardProps = {
 function ApplicationCardIcon({
   icon,
   developing,
+  compact,
 }: {
   icon: ApplicationIcon
   developing: boolean
+  compact: boolean
 }) {
   const preset = icon.type === "custom" ? icon.fallback_preset : icon.preset
   const tone = ["shield-check", "briefcase-business", "landmark"].includes(
@@ -56,7 +59,8 @@ function ApplicationCardIcon({
     <div
       data-slot="application-card-icon"
       className={cn(
-        "relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg",
+        "relative flex shrink-0 items-center justify-center overflow-hidden rounded-lg",
+        compact ? "size-10" : "size-12",
         tone
       )}
     >
@@ -75,6 +79,7 @@ function ApplicationCardIcon({
 }
 
 export function ApplicationCard({
+  layout = "card",
   id,
   name,
   kind,
@@ -97,12 +102,25 @@ export function ApplicationCard({
       aria-label={name}
       className={cn(
         cardSpotlightProps.className,
-        "@container/application-card min-w-0 gap-5 shadow-none transition-colors hover:border-foreground/20"
+        "@container/application-card min-w-0 gap-5 shadow-none transition-colors hover:border-foreground/20",
+        layout === "row" &&
+          "grid grid-cols-1 gap-3 rounded-none border-x-0 border-t-0 border-b border-divider bg-transparent py-4 hover:bg-hover/50 @min-[42rem]/shell-content:grid-cols-[minmax(0,1fr)_auto]"
       )}
     >
-      <CardHeader className="@container-normal flex flex-row items-start justify-between gap-3">
+      <CardHeader
+        className={cn(
+          "@container-normal flex flex-row items-start justify-between gap-3",
+          layout === "row" && "p-0 @min-[42rem]/shell-content:col-start-1"
+        )}
+      >
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          {icon && <ApplicationCardIcon icon={icon} developing={developing} />}
+          {icon && (
+            <ApplicationCardIcon
+              icon={icon}
+              developing={developing}
+              compact={layout === "row"}
+            />
+          )}
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div data-slot="application-card-title-row" className="min-w-0">
               <CardTitle className="min-w-0">
@@ -148,13 +166,30 @@ export function ApplicationCard({
           </div>
         )}
       </CardHeader>
-      <CardContent className="flex min-w-0 flex-1 flex-col gap-4">
-        <CardDescription className="line-clamp-2 min-h-10 text-[length:var(--app-font-13)] leading-5 wrap-anywhere">
+      <CardContent
+        className={cn(
+          "flex min-w-0 flex-1 flex-col gap-4",
+          layout === "row" &&
+            "gap-2 p-0 @min-[42rem]/shell-content:col-start-1 @min-[42rem]/shell-content:pl-13"
+        )}
+      >
+        <CardDescription
+          className={cn(
+            "line-clamp-2 min-h-10 text-[length:var(--app-font-13)] leading-5 wrap-anywhere",
+            layout === "row" && "min-h-0"
+          )}
+        >
           {description || t("applications.noDescription")}
         </CardDescription>
         {children}
       </CardContent>
-      <CardFooter className="relative mt-auto min-w-0 flex-wrap justify-between gap-x-4 gap-y-3 border-t">
+      <CardFooter
+        className={cn(
+          "relative mt-auto min-w-0 flex-wrap justify-between gap-x-4 gap-y-3 border-t",
+          layout === "row" &&
+            "mt-0 border-0 p-0 @min-[42rem]/shell-content:col-start-2 @min-[42rem]/shell-content:row-span-2 @min-[42rem]/shell-content:row-start-1 @min-[42rem]/shell-content:max-w-80 @min-[42rem]/shell-content:flex-col @min-[42rem]/shell-content:items-end @min-[42rem]/shell-content:justify-center [&>div:first-child]:flex-none [&>div:first-child]:basis-auto"
+        )}
+      >
         <div className="min-w-0 flex-1 basis-32 text-xs text-muted-foreground">
           {footer}
         </div>

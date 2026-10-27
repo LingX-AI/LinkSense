@@ -1,11 +1,11 @@
 import { useContext, useMemo, type ReactNode } from "react"
 import { SortableContext, type SortingStrategy } from "@dnd-kit/sortable"
 import type { Project } from "@linksense/shared"
-import { PlusIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import type { Conversation } from "@/api/contracts"
 import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
 import { sortSidebarConversations } from "@/features/conversations/conversation-order"
 import { SidebarTaskSortMenu } from "@/features/conversations/sidebar-task-sort-menu"
 import {
@@ -108,7 +108,7 @@ export function SidebarTaskGroups({
     (id) => id !== null && !projects.some((project) => project.id === id)
   )
   return (
-    <>
+    <div className="flex flex-col gap-4">
       {sortedPinned.length > 0 && (
         <SidebarTaskSection
           key={JSON.stringify([userId, "pinned"])}
@@ -133,11 +133,11 @@ export function SidebarTaskGroups({
             <Button
               type="button"
               variant="ghost"
-              size="icon-sm"
+              size="icon"
               aria-label={t("projects.create")}
               onClick={() => onAction({ mode: "create" })}
             >
-              <PlusIcon />
+              <DesignIcon name="plus" />
             </Button>
           </>
         }
@@ -201,6 +201,6 @@ export function SidebarTaskGroups({
           </p>
         )}
       </SidebarTaskSection>
-    </>
+    </div>
   )
 }

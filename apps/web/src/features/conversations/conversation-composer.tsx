@@ -16,7 +16,6 @@ import {
   type SyntheticEvent,
 } from "react"
 import {
-  ArrowUpIcon,
   CircleAlertIcon,
   BookOpenIcon,
   FileIcon,
@@ -25,8 +24,6 @@ import {
   Link2Icon,
   LightbulbIcon,
   LoaderCircleIcon,
-  MicIcon,
-  PlusIcon,
   SquareIcon,
   TriangleAlertIcon,
   XIcon,
@@ -47,6 +44,7 @@ import {
 import { CapabilityIcon } from "@/components/capabilities/capability-icon"
 import { FileTypeIcon } from "@/components/media/file-type-icon"
 import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
 import {
   Command,
   CommandEmpty,
@@ -1869,10 +1867,7 @@ export const ConversationComposer = forwardRef<
                 />
               }
             >
-              <PlusIcon
-                className="size-[18px] text-[var(--app-text)]"
-                aria-hidden="true"
-              />
+              <DesignIcon name="plus" className="size-5 text-foreground" />
             </PopoverTrigger>
             <PopoverContent
               anchor={composerShellRef}
@@ -2137,10 +2132,7 @@ export const ConversationComposer = forwardRef<
                       />
                     }
                   >
-                    <BookOpenIcon
-                      className="size-[18px] text-[var(--app-text)]"
-                      aria-hidden="true"
-                    />
+                    <DesignIcon name="knowledge" className="text-foreground" />
                   </HoverCardTrigger>
                   <HoverCardContent
                     side="top"
@@ -2195,10 +2187,7 @@ export const ConversationComposer = forwardRef<
                       />
                     }
                   >
-                    <BookOpenIcon
-                      className="size-[18px] text-[var(--app-text)]"
-                      aria-hidden="true"
-                    />
+                    <DesignIcon name="knowledge" className="text-foreground" />
                   </PopoverTrigger>
                   <PopoverContent
                     anchor={composerShellRef}
@@ -2470,7 +2459,7 @@ export const ConversationComposer = forwardRef<
                     void voice.startRecording()
                   }}
                 >
-                  <MicIcon aria-hidden="true" />
+                  <DesignIcon name="microphone" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{t(voiceTooltipKey)}</TooltipContent>
@@ -2514,7 +2503,7 @@ export const ConversationComposer = forwardRef<
               {submitting ? (
                 <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
               ) : (
-                <ArrowUpIcon aria-hidden="true" />
+                <DesignIcon name="send" />
               )}
             </Button>
           )}

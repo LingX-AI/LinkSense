@@ -44,7 +44,6 @@ import {
   MessagesSquareIcon,
   PencilIcon,
   SearchIcon,
-  UploadIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react"
@@ -127,6 +126,7 @@ import type { ImagePreviewItem } from "@/components/media/image-preview"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { PageLayout } from "@/components/shell/page-layout"
 import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
 import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
 import { SearchInput } from "@/components/ui/search-input"
 import {
@@ -6066,7 +6066,7 @@ export function ConversationPage({
               aria-expanded={shareOpen}
               onClick={() => setShareOpen(true)}
             >
-              <UploadIcon aria-hidden="true" />
+              <DesignIcon name="share" />
             </ConversationHeaderButton>
           )}
           {!isNew && surfaceActive && (
@@ -6443,7 +6443,9 @@ export function ConversationPage({
                   onChange={(projectId) => {
                     chooseNewProject(projectId)
                     if (!isNew)
-                      patchConversationMutation.mutate({ project_id: projectId })
+                      patchConversationMutation.mutate({
+                        project_id: projectId,
+                      })
                   }}
                   disabled={
                     sendMutation.isPending ||

@@ -148,10 +148,10 @@ describe("settings center layout consistency", () => {
 
   it("aligns sidebar search and navigation rows to the same control height", () => {
     expect(lastCssRule(".settings-search-field input")).toContain(
-      "height: 32px;"
+      "height: 40px;"
     )
     expect(lastCssRule(".settings-navigation-link")).toContain(
-      "min-height: 32px;"
+      "min-height: 40px;"
     )
   })
 

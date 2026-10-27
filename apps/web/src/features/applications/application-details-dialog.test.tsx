@@ -143,7 +143,9 @@ describe("application details dialog", () => {
       const closeButton = within(dialog).getByRole("button", {
         name: i18n.t("common.close"),
       })
-      expect(closeButton.querySelector("svg")).toBeInTheDocument()
+      expect(
+        closeButton.querySelector("[data-design-icon=close]")
+      ).toBeInTheDocument()
       await userEvent.click(closeButton)
       expect(onClose).toHaveBeenCalledOnce()
     }
