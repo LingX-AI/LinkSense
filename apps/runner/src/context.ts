@@ -7,6 +7,7 @@ export type TurnContextInput = {
   userInput: string;
   approvedPlanImplementation?: true;
   requireFinalResponse?: boolean;
+  automationExecution?: true;
   applicationInstructions?: string;
   selectedKnowledgeBases?: RunnerKnowledgeBaseSelection;
   officeSelectionContext?: string;
@@ -62,6 +63,15 @@ const buildRuntimeIdentityInstructions = (): string =>
     "You are the AI assistant in LinkSense, the user-facing host of this conversation. Codex app-server is the internal execution engine; mention it when implementation details are relevant. Do not identify this session as another Codex client or ChatGPT without trusted runtime context.",
     `For the current LinkSense account's name, email, groups or Token quota, call mcp__${coreMcpServerKey}__get_current_user_info; do not guess.`,
   ].join("\n");
+const AUTOMATION_MANAGEMENT_INSTRUCTIONS = [
+  "Interactive; ignore prior scheduled-run instructions.",
+  "Core schedules: default new_task; current_task/existing_task only when the user explicitly requests it. For the same workflow with a different time, keep the existing automation ID; update_automation even for another target. ID unknown: unfiltered list_automations/get_automation; ask if ambiguous. New plans require request. Work in instruction; recurrence/time in schedule.",
+].join("\n");
+const AUTOMATION_EXECUTION_INSTRUCTIONS = [
+  "This turn is an occurrence of an existing LinkSense automation. Execute the stored work now and deliver its actual result in this conversation.",
+  "The current input is the saved work instruction, not a request to create or reconfigure a schedule. Recurring wording such as '每天' or 'every day' describes the work's context. Previous messages about creating or changing a plan are historical setup, not this turn's objective.",
+  "Use the tools needed for the work (for example, retrieve news and write the requested summary). Do not replace the work with checking whether an automation exists, confirming a schedule, or creating another automation. Use automation management tools only if managing automation definitions is itself an explicit part of the saved work.",
+].join("\n");
 const KNOWLEDGE_GROUNDING_INSTRUCTIONS = [
   "<linksense_knowledge_grounding>",
   "One or more knowledge bases are selected for this turn.",
@@ -181,12 +191,16 @@ export function buildTurnAdditionalContext(
   const additionalContext: TurnAdditionalContext = {
     "linksense.browser-selection": {
       kind: "application",
-      value: `LinkSense has a CLOUD browser (linksense-browser) and the user's LOCAL Chrome/Edge (linksense-local-browser; mcp__${coreMcpServerKey}__local_browser). Follow the user's explicit browser choice. Otherwise prefer cloud for ordinary public-web tasks and local for already-open tabs or existing local login state. Do not require a browser-choice question at task start. Check local_browser action=status before local use; if unavailable, direct the user to /settings/general#browser-extension to install/connect and authorize pages. Missing extension never blocks ordinary cloud tasks. Keep each page bound to its browser and tab; do not silently migrate a local workflow to cloud. A task can use both. In Plan mode local actions are read-only.`,
+      value: "User choice: linksense-browser (cloud) for public web; linksense-local-browser/Core local_browser for existing Chrome/Edge tabs/logins. Check local status; unavailable: /settings/general#browser-extension (install/connect/authorize). No forced choice/silent migration. Keep browser/tab ownership; both allowed. Plan: local read-only; cloud remains available without local setup.",
     },
     ...buildKnowledgeSelectionContext(context.selectedKnowledgeBases ?? []),
     "linksense.runtime-identity": {
       kind: "application",
       value: buildRuntimeIdentityInstructions(),
+    },
+    "linksense.automation-mode": {
+      kind: "application",
+      value: context.automationExecution ? AUTOMATION_EXECUTION_INSTRUCTIONS : AUTOMATION_MANAGEMENT_INSTRUCTIONS,
     },
     "linksense.interactive-forms": {
       kind: "application",

@@ -712,6 +712,9 @@ export const conversationMessages = {
     streamDisconnectedWarning:
       "Tarea detenida porque se ha desconectado el flujo de respuesta",
     nativeActivities: {
+      automationRunning: "Gestionando automatizaciones",
+      automationFinished: "Operación de automatización finalizada",
+      automationFailed: "Error en la operación de automatización",
       fileChangeRunning_one: "Actualizando {{count}} archivo",
       fileChangeRunning_other: "Actualizando {{count}} archivos",
       fileChangeCompleted_one: "{{count}} archivo actualizado",

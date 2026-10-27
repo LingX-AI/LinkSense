@@ -1,4 +1,4 @@
-import { internalAutomationMonitoringRoutes } from "./modules/automations/internal-routes.js";
+import { internalAutomationMonitoringRoutes, internalAutomationRoutes } from "./modules/automations/internal-routes.js";
 import { conversationBrowserRoutes } from "./modules/conversations/browser-routes.js";
 import { SamlSettingsService } from "./modules/saml/settings.js";
 import { SamlProtocol } from "./modules/saml/protocol.js";
@@ -615,6 +615,11 @@ export async function buildApi(
     sharedSecret: services.config.runnerSharedSecret,
     socketPath: `${localBrowserEndpoint.pathname}/socket`,
     intent: new BrowserUseIntentService(services.prisma, new RedisBrowserStore(services.redis.client), services.modelProviderSettings, services.usageAnalytics),
+  });
+  await app.register(internalAutomationRoutes, {
+    prefix: "/internal/automations",
+    service: services.conversationAutomations,
+    sharedSecret: services.config.runnerSharedSecret,
   });
   await app.register(auditRoutes, { prefix: "/api/v1/admin/audit", services });
   await app.register(usageAnalyticsRoutes, {

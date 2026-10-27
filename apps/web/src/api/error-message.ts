@@ -200,6 +200,8 @@ const errorCodeToKey: Record<string, string> = {
   AUTOMATION_TASK_IN_USE: "errors.automationTaskInUse",
   AUTOMATION_EMPTY_RESULT: "errors.automation.emptyResult",
   AUTOMATION_EXPIRED: "errors.automation.expired",
+  AUTOMATION_TARGET_ALREADY_CONFIGURED:
+    "errors.automation.targetAlreadyConfigured",
   CAPABILITY_NOT_FOUND: "errors.notFound",
   CREDENTIAL_NOT_FOUND: "errors.notFound",
   VALIDATION_ERROR: "errors.validation",

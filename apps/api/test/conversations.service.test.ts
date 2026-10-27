@@ -2077,7 +2077,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     ).resolves.toEqual({ status: "started", turnId: TURN_ID });
   });
 
-  it("requires a final response and waits for the projected turn when starting an unattended automation turn", async () => {
+  it.each(["automation:stable-key", "automation:manual:stable-key"])("requires a final response and execution context for an automation occurrence (%s)", async (idempotencyKey) => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findFirst.mockResolvedValue(
       conversationRow({ pinnedAt: NOW }),
@@ -2087,7 +2087,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
       OWNER_ID,
       CONVERSATION_ID,
       "Run the brief.",
-      "automation:stable-key",
+      idempotencyKey,
     );
 
     expect(result).toMatchObject({ status: "started" });
@@ -2097,6 +2097,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
         context: expect.objectContaining({
           userInput: "Run the brief.",
           requireFinalResponse: true,
+          automationExecution: true,
         }),
       }),
     );
@@ -7730,7 +7731,7 @@ describe("ConversationService pending and turn materialization", () => {
     expect(fixture.audit.write).not.toHaveBeenCalled();
   });
 
-  it("starts a native compaction continuation without creating or replaying a second logical turn", async () => {
+  it.each([false, true])("starts a native compaction continuation without creating or replaying a second logical turn (automation=%s)", async (automation) => {
     const fixture = await conversationFixture();
     const logicalTurnId = "40000000-0000-4000-8000-000000000091";
     const recoveryAttemptId = "41000000-0000-4000-8000-000000000002";
@@ -7770,6 +7771,7 @@ describe("ConversationService pending and turn materialization", () => {
       id: logicalTurnId,
       codexTurnId: sourceCodexTurnId,
       knowledgeBaseIdsJson: [KNOWLEDGE_BASE_ID],
+      idempotencyKey: automation ? "automation:legacy-saved-plan" : null,
     });
     const conversation = conversationRow({
       codexThreadId: "codex-thread-1",
@@ -7814,6 +7816,7 @@ describe("ConversationService pending and turn materialization", () => {
         }),
       }),
     );
+    expect(fixture.runner.startTurn.mock.calls[0]?.[0].context.automationExecution).toBe(automation ? true : undefined);
     expect(
       fixture.runner.startTurn.mock.calls[0]?.[0].context.userInput,
     ).not.toContain("original user request");

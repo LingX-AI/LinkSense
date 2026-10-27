@@ -1265,7 +1265,7 @@ type AssistantMarkdownProps = Readonly<{
 type AssistantMarkdownBlockContextValue = Readonly<{
   citations: NonNullable<ConversationMessage["knowledge_citations"]>
   components: Components
-  sourceContent: string
+  sourceContent?: string
   blockOffsets: readonly number[]
   citationOffsetBaseUtf16: number
 }>
@@ -1273,6 +1273,9 @@ type AssistantMarkdownBlockContextValue = Readonly<{
 const AssistantMarkdownBlockContext =
   createContext<AssistantMarkdownBlockContextValue | null>(null)
 const emptyAssistantMarkdownBlockOffsets: readonly number[] = []
+const emptyAssistantMarkdownCitations: NonNullable<
+  ConversationMessage["knowledge_citations"]
+> = []
 const emptyAssistantMarkdownRehypePlugins: NonNullable<
   BlockProps["rehypePlugins"]
 > = []
@@ -1674,20 +1677,26 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
     }),
     []
   )
+  const blockCitations = citations?.length
+    ? citations
+    : emptyAssistantMarkdownCitations
+  const citationSourceContent = blockCitations.length ? safeContent : undefined
   const markdownBlockContext = useMemo<AssistantMarkdownBlockContextValue>(
     () => ({
       blockOffsets: citationBlockOffsets,
-      citations: citations ?? [],
+      citations: blockCitations,
       components: markdownComponents,
-      sourceContent: safeContent,
+      // Only citation positioning needs the whole changing source. Passing it
+      // for ordinary replies invalidates every already-completed block.
+      sourceContent: citationSourceContent,
       citationOffsetBaseUtf16,
     }),
     [
       citationBlockOffsets,
       citationOffsetBaseUtf16,
-      citations,
+      blockCitations,
       markdownComponents,
-      safeContent,
+      citationSourceContent,
     ]
   )
   return (

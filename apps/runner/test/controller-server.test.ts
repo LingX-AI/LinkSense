@@ -139,6 +139,7 @@ describe("published service routing", () => {
     const headers = { authorization: `Bearer ${ownerWorkerSecret(ownerId, secret, session)}`, "x-linksense-owner-id": ownerId, "x-linksense-service-session": session }
     expect((await server.inject({ method: "POST", url: "/internal/skill-creator/confirm", headers, payload: { conversationId: session } })).statusCode).toBe(403)
     expect((await server.inject({ method: "POST", url: "/internal/application-builder", headers, payload: { conversationId: session } })).statusCode).toBe(403)
+    expect((await server.inject({ method: "POST", url: "/internal/automations/execute", headers, payload: { conversationId: session } })).statusCode).toBe(403)
     expect((await server.inject({ method: "POST", url: "/internal/runner/events", headers: { ...headers, "x-linksense-service-session": otherOwnerId }, payload: { conversationId: otherOwnerId } })).statusCode).toBe(401)
     expect(fetchMock).not.toHaveBeenCalled()
     expect((await server.inject({ method: "POST", url: "/internal/runner/events", headers, payload: { conversationId: session, events: [] } })).statusCode).toBe(200)
@@ -683,6 +684,33 @@ describe("controller authentication and routing", () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal)
     expect(timeoutSpy).toHaveBeenCalledWith(181_234)
     await server.close()
+  })
+
+  it("authenticates and relays automation operations with the owner identity and full timeout", async () => {
+    const { server } = await createServer()
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout")
+    const receipt = { operation: "delete", automation_id: ownerId }
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(receipt), { headers: { "content-type": "application/json" } }))
+    vi.stubGlobal("fetch", fetchMock)
+    const payload = { conversationId: ownerId, turnId: otherOwnerId, request: { operation: "delete", automation_id: ownerId } }
+    try {
+      for (const authorization of [undefined, `Bearer ${ownerWorkerSecret(otherOwnerId, secret)}`]) {
+        expect((await server.inject({ method: "POST", url: "/internal/automations/execute", headers: { ...(authorization ? { authorization } : {}), "x-linksense-owner-id": ownerId }, payload })).statusCode).toBe(401)
+      }
+      expect(fetchMock).not.toHaveBeenCalled()
+      const response = await server.inject({ method: "POST", url: "/internal/automations/execute", headers: { authorization: `Bearer ${ownerWorkerSecret(ownerId, secret)}`, "x-linksense-owner-id": ownerId }, payload })
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual(receipt)
+      expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://api:4000/internal/automations/execute")
+      const forwarded = fetchMock.mock.calls[0]?.[1]
+      expect(new Headers(forwarded?.headers).get("authorization")).toBe(`Bearer ${secret}`)
+      expect(new Headers(forwarded?.headers).get("x-linksense-owner-id")).toBe(ownerId)
+      expect(JSON.parse(String(forwarded?.body))).toEqual(payload)
+      expect(timeoutSpy).toHaveBeenCalledWith(60_000)
+    } finally {
+      timeoutSpy.mockRestore()
+      await server.close()
+    }
   })
 
   it("relays current user info through the scoped internal callback boundary", async () => {

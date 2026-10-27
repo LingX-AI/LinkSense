@@ -690,6 +690,9 @@ export const conversation = {
   streamDisconnectedWarning:
     "Tâche arrêtée après la déconnexion du flux de réponse",
   nativeActivities: {
+    automationRunning: "Gestion des automatisations",
+    automationFinished: "Opération d’automatisation terminée",
+    automationFailed: "Échec de l’opération d’automatisation",
     fileChangeRunning_one: "Modification de {{count}} fichier",
     fileChangeRunning_other: "Modification de {{count}} fichiers",
     fileChangeCompleted_one: "{{count}} fichier modifié",

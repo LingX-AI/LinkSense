@@ -2535,6 +2535,9 @@ export const enUS = {
     streamDisconnectedWarning:
       "Task stopped because the response stream disconnected",
     nativeActivities: {
+      automationRunning: "Managing automations",
+      automationFinished: "Automation operation finished",
+      automationFailed: "Automation operation failed",
       fileChangeRunning_one: "Updating {{count}} file",
       fileChangeRunning_other: "Updating {{count}} files",
       fileChangeCompleted_one: "Updated {{count}} file",
@@ -5636,6 +5639,8 @@ export const enUS = {
     turnCompletedWithoutOutput:
       "This run finished without producing displayable output. Run it again.",
     automation: {
+      targetAlreadyConfigured:
+        "This task already has an automation. Edit the existing plan, or explicitly request a separate one.",
       emptyResult:
         "The automation finished without producing displayable output. Run it again.",
       expired: "This automation has expired and can no longer run.",

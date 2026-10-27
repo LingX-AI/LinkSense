@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { getNativeCodexPayload } from "@/api/contracts"
+import {
+  isAutomationMutationItem,
+  refreshAutomationQueries,
+} from "@/features/conversations/automation-tool-activity"
 import {
   useInfiniteQuery,
   useMutation,
@@ -278,6 +283,13 @@ function BackgroundConversationExecutionEvents({
     conversation ? conversationId : undefined,
     useCallback(
       (event) => {
+        const native = getNativeCodexPayload(event)
+        if (
+          native?.method === "item/completed" &&
+          isAutomationMutationItem(native.params.item)
+        ) {
+          void refreshAutomationQueries(queryClient, conversationId)
+        }
         const transition = getConversationExecutionTransition(event)
         if (!transition) return
         const terminal = isTerminalConversationExecutionStatus(
@@ -1096,6 +1108,7 @@ function AppSidebarContent({
               userId={user?.id}
               pinned={pinnedConversations}
               recent={recentConversations}
+              reconnectFailedConversationIds={reconnectFailedConversationIds}
               projects={projectsQuery.data ?? []}
               projectsReady={projectsQuery.isSuccess}
               sortModes={taskSortModes}

@@ -137,6 +137,7 @@ import { PrismaAutomationRepository } from "./modules/automations/repository.js"
 import { AutomationScheduler } from "./modules/automations/scheduler.js";
 import { AutomationNotificationService } from "./modules/automations/notifications.js";
 import { AutomationService } from "./modules/automations/service.js";
+import { ConversationAutomationService } from "./modules/automations/conversation-service.js";
 import { CompletionNotificationService } from "./modules/completion-notifications/service.js";
 import {
   FeedbackService,
@@ -208,6 +209,7 @@ export type AppServices = {
   conversationShares: ConversationShareService;
   webSites: WebSiteService;
   automations: AutomationService;
+  conversationAutomations: ConversationAutomationService;
   completionNotifications: CompletionNotificationService;
   automationScheduler: AutomationScheduler;
   files: FileService;
@@ -875,6 +877,7 @@ export function createServices(input: {
     conversationShares,
     webSites: new WebSiteService(new WebSiteRepository(input.prisma), input.storage),
     automations,
+    conversationAutomations: new ConversationAutomationService(input.prisma, automations),
     completionNotifications,
     automationScheduler,
     files,

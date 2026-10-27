@@ -5,6 +5,7 @@ import { AutomationService } from "../src/modules/automations/service.js";
 import {
   AutomationTargetCollaborationModeError,
   AutomationTargetNotPinnedError,
+  AutomationTargetAlreadyConfiguredError,
   type AutomationRecord,
   type AutomationRepository,
   type AutomationWithConversationRecord,
@@ -137,6 +138,97 @@ describe("AutomationService", () => {
         {},
       ),
     ).rejects.toMatchObject({ code: "COLLABORATION_MODE_UNAVAILABLE" });
+  });
+
+  it("returns a conflict for a second chat-created plan without auditing a creation", async () => {
+    const fixture = automationFixture();
+    fixture.repository.createWithinOwnerLimit.mockRejectedValueOnce(
+      new AutomationTargetAlreadyConfiguredError(),
+    );
+
+    await expect(
+      fixture.service.create(
+        OWNER_ID,
+        {
+          title: "Evening brief",
+          instruction: "Summarize important updates.",
+          target: { mode: "existing_task", conversation_id: CONVERSATION_ID },
+          schedule: {
+            frequency: "daily",
+            interval: 1,
+            time: "19:00",
+            time_zone: "Asia/Shanghai",
+          },
+          expires_on: null,
+        },
+        {},
+        "zh-CN",
+        { allowAdditional: false },
+      ),
+    ).rejects.toMatchObject({ code: "AUTOMATION_TARGET_ALREADY_CONFIGURED" });
+    expect(fixture.audit.write).not.toHaveBeenCalled();
+    expect(fixture.conversations.createPinnedConversation).not.toHaveBeenCalled();
+  });
+
+  it("updates only the schedule when an existing news plan changes from 17:00 to 19:00", async () => {
+    const fixture = automationFixture();
+    const existing = automationRecord({
+      frequency: "daily",
+      minuteOfHour: null,
+      timeOfDayMinutes: 17 * 60,
+      timeZone: "Asia/Shanghai",
+      modelId: "model-a",
+      reasoningEffort: "high",
+      lastRunAt: new Date("2026-07-29T09:00:00.000Z"),
+    });
+    fixture.repository.findOwnedRecord.mockResolvedValueOnce(existing);
+    fixture.repository.updateOwned.mockImplementationOnce(
+      async (_ownerId: string, _automationId: string, input: UpdateAutomationRecord) =>
+        automationWithConversation({ ...existing, ...input }),
+    );
+
+    const result = await fixture.service.update(
+      OWNER_ID,
+      AUTOMATION_ID,
+      {
+        schedule: {
+          frequency: "daily",
+          interval: 1,
+          time: "19:00",
+          time_zone: "Asia/Shanghai",
+        },
+      },
+      {},
+    );
+
+    expect(result).toMatchObject({
+      id: AUTOMATION_ID,
+      title: existing.title,
+      instruction: existing.instruction,
+      conversation: { id: CONVERSATION_ID },
+      model_preference: { model_id: "model-a", reasoning_effort: "high" },
+      last_run_at: existing.lastRunAt?.toISOString(),
+      schedule: { time: "19:00" },
+      next_run_at: "2026-07-30T11:00:00.000Z",
+    });
+    expect(fixture.repository.updateOwned).toHaveBeenCalledWith(
+      OWNER_ID,
+      AUTOMATION_ID,
+      {
+        frequency: "daily",
+        intervalCount: 1,
+        minuteOfHour: null,
+        timeOfDayMinutes: 19 * 60,
+        weekdays: [],
+        dayOfMonth: null,
+        monthOfYear: null,
+        timeZone: "Asia/Shanghai",
+        anchorAt: NOW,
+        nextRunAt: new Date("2026-07-30T11:00:00.000Z"),
+      },
+    );
+    expect(fixture.repository.createWithinOwnerLimit).not.toHaveBeenCalled();
+    expect(fixture.conversations.createPinnedConversation).not.toHaveBeenCalled();
   });
 
   it("avoids redundant conversation reads before the locked update", async () => {
@@ -620,6 +712,60 @@ describe("AutomationService", () => {
   });
 });
 
+describe("automation creation request receipts", () => {
+  const input = {
+    title: "Morning brief", instruction: "Summarize important updates.",
+    target: { mode: "existing_task" as const, conversation_id: CONVERSATION_ID },
+    schedule: { frequency: "hourly" as const, interval: 1, minute: 0, time_zone: "UTC" },
+    expires_on: null,
+  };
+
+  it("returns the existing automation for a retried creation without another write", async () => {
+    const f = automationFixture();
+    f.repository.findById.mockResolvedValueOnce(automationRecord());
+    const result = await f.service.create(OWNER_ID, input, {}, "zh-CN", { creationId: AUTOMATION_ID });
+    expect(result.id).toBe(AUTOMATION_ID);
+    expect(f.repository.createWithinOwnerLimit).not.toHaveBeenCalled();
+    expect(f.conversations.createPinnedConversation).not.toHaveBeenCalled();
+    expect(f.audit.write).not.toHaveBeenCalled();
+  });
+
+  it("rejects a reused creation request with different parameters", async () => {
+    const f = automationFixture();
+    f.repository.findById.mockResolvedValueOnce(automationRecord());
+    await expect(f.service.create(OWNER_ID, { ...input, instruction: "Different work" }, {}, "zh-CN", { creationId: AUTOMATION_ID })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(f.repository.createWithinOwnerLimit).not.toHaveBeenCalled();
+  });
+
+  it.each([{ deletedAt: NOW }, { ownerId: "foreign-owner" }])("does not recreate a deleted or foreign creation receipt", async (overrides) => {
+    const f = automationFixture();
+    f.repository.findById.mockResolvedValueOnce(automationRecord(overrides));
+    await expect(f.service.create(OWNER_ID, input, {}, "zh-CN", { creationId: AUTOMATION_ID })).rejects.toMatchObject({ code: "AUTOMATION_NOT_FOUND" });
+    expect(f.repository.createWithinOwnerLimit).not.toHaveBeenCalled();
+  });
+
+  it("cleans up the extra new target when a concurrent request already created the plan", async () => {
+    const f = automationFixture();
+    f.repository.findById.mockResolvedValueOnce(null);
+    f.conversations.createPinnedConversation.mockResolvedValueOnce({ id: NEW_CONVERSATION_ID });
+    f.repository.createWithinOwnerLimit.mockResolvedValueOnce({ ...automationWithConversation(automationRecord()), wasCreated: false });
+    const result = await f.service.create(OWNER_ID, { ...input, target: { mode: "new_task" } }, {}, "zh-CN", { creationId: AUTOMATION_ID });
+    expect(result.conversation.id).toBe(CONVERSATION_ID);
+    expect(f.conversations.delete).toHaveBeenCalledWith(OWNER_ID, NEW_CONVERSATION_ID, {});
+    expect(f.audit.write).not.toHaveBeenCalled();
+    expect(f.repository.createWithinOwnerLimit).toHaveBeenCalledWith(expect.objectContaining({ id: AUTOMATION_ID }), 100, { pinTarget: false });
+  });
+
+  it("does not delete a committed new target when auditing fails", async () => {
+    const f = automationFixture();
+    f.conversations.createPinnedConversation.mockResolvedValueOnce({ id: NEW_CONVERSATION_ID });
+    f.repository.createWithinOwnerLimit.mockResolvedValueOnce(automationWithConversation(automationRecord({ conversationId: NEW_CONVERSATION_ID }), NEW_CONVERSATION_ID));
+    f.audit.write.mockRejectedValueOnce(new Error("audit unavailable"));
+    await expect(f.service.create(OWNER_ID, { ...input, target: { mode: "new_task" } }, {})).rejects.toThrow();
+    expect(f.conversations.delete).not.toHaveBeenCalled();
+  });
+});
+
 function automationFixture() {
   const repository = {
     listByOwner: vi.fn(async () => []),
@@ -710,10 +856,11 @@ function pinnedConversation(conversationId = CONVERSATION_ID) {
 function automationWithConversation(
   record: AutomationRecord,
   conversationId = record.conversationId,
-): AutomationWithConversationRecord {
+): AutomationWithConversationRecord & { wasCreated: boolean } {
   return {
     ...record,
     conversationId,
     conversation: pinnedConversation(conversationId),
+    wasCreated: true,
   };
 }

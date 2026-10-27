@@ -1198,6 +1198,8 @@ trust_level = "trusted"
     expect(childEnvironment.LINKSENSE_KNOWLEDGE_SERVICE_TOKEN).toBeTruthy();
     expect(childEnvironment.LINKSENSE_SKILL_CREATOR_ENDPOINT).toBeUndefined();
     expect(childEnvironment.LINKSENSE_SKILL_CREATOR_TOKEN).toBeUndefined();
+    expect(childEnvironment.LINKSENSE_AUTOMATION_ENDPOINT).toBeUndefined();
+    expect(childEnvironment.LINKSENSE_AUTOMATION_TOKEN).toBeUndefined();
     expect(childEnvironment.LINKSENSE_CURRENT_USER_ENDPOINT).toBeTruthy();
     expect(childEnvironment.LINKSENSE_CURRENT_USER_TOKEN).toBeTruthy();
     expect(controlled.args).not.toContain(
@@ -1545,6 +1547,29 @@ trust_level = "trusted"
       /stop:0:|sourcePath|entries|plan-stop-hook|private hook|private status|\/opt\/linksense/u,
     );
     await pool.closeAll();
+  });
+
+  it("binds automation management to the projection turn, scoped token and default mode", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-automation-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    await pool.startTurn(input);
+    const token = controlled.environment?.LINKSENSE_AUTOMATION_TOKEN;
+    if (!token) throw new Error("missing automation token");
+    expect(controlled.environment?.LINKSENSE_AUTOMATION_ENDPOINT).toContain(`/mcp-automations/${input.conversationId}/execute`);
+    await expect(pool.manageAutomation(input.conversationId, token, { operation: "list" })).resolves.toEqual({});
+    expect(eventSink.manageAutomation).toHaveBeenCalledWith({ conversationId: input.conversationId, turnId: input.projectionTurnId, request: { operation: "list" } });
+    await expect(pool.manageAutomation(input.conversationId, "wrong", { operation: "list" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(pool.manageAutomation("another-task", token, { operation: "list" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await pool.closeAll();
+    const planControlled = createControlledAppServer();
+    const plan = createStartOperationPool(root, planControlled.factory);
+    await plan.pool.startTurn({ ...input, collaborationMode: "plan" });
+    await expect(plan.pool.manageAutomation(input.conversationId, token, { operation: "list" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(plan.eventSink.manageAutomation).not.toHaveBeenCalled();
+    await plan.pool.closeAll();
   });
 
   it("binds application development to the projection turn, scoped token and normal mode", async () => {
@@ -11720,6 +11745,7 @@ function createStartOperationPool(
     listKnowledgeDocuments: vi.fn(async () => ({})),
     getKnowledgeDocumentMarkdown: vi.fn(async () => ({})),
     getCurrentUserInfo: vi.fn(async () => ({})),
+    manageAutomation: vi.fn(async () => ({})),
     accessConnection: vi.fn(async () => ({ kind: "connections", items: [] })),
     alignConversationThread: vi.fn(async () => undefined),
   } satisfies RunnerEventSink;

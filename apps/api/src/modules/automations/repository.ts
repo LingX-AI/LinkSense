@@ -14,12 +14,16 @@ import { Prisma } from "../../generated/prisma/client.js";
 import {
   AutomationTargetCollaborationModeError,
   AutomationTargetNotPinnedError,
+  AutomationTargetAlreadyConfiguredError,
+  type AutomationCreationOptions,
   type AutomationConversationRecord,
   type AutomationOccurrenceClaim,
   type AutomationRecord,
   type AutomationRepository,
   type AutomationRunRecord,
   type AutomationWithConversationRecord,
+  type AutomationCreationRecord,
+  type AutomationTargetOptions,
   type CreateAutomationRecord,
   type UpdateAutomationRecord,
 } from "./types.js";
@@ -136,23 +140,42 @@ export class PrismaAutomationRepository implements AutomationRepository {
   createWithinOwnerLimit(
     input: CreateAutomationRecord,
     limit: number,
-  ): Promise<AutomationWithConversationRecord | null> {
+    options?: AutomationCreationOptions,
+  ): Promise<AutomationCreationRecord | null> {
     return this.prisma.$transaction(async (transaction) => {
       await lockOwner(transaction, input.ownerId);
+      if (input.id) {
+        const existing = await transaction.automation.findUnique({ where: { id: input.id } });
+        if (existing) {
+          if (existing.ownerId !== input.ownerId || existing.deletedAt) throw new AutomationTargetNotPinnedError();
+          const conversation = await lockPinnedConversation(transaction, input.ownerId, existing.conversationId);
+          return { ...parseAutomationRecord(existing), conversation, wasCreated: false };
+        }
+      }
       const conversation = await lockPinnedConversation(
         transaction,
         input.ownerId,
         input.conversationId,
+        options?.pinTarget,
       );
+      if (options?.allowAdditional === false) {
+        const existingTarget = await transaction.automation.findFirst({
+          where: { ownerId: input.ownerId, conversationId: input.conversationId, deletedAt: null },
+          select: { id: true },
+        });
+        if (existingTarget) throw new AutomationTargetAlreadyConfiguredError();
+      }
       const count = await transaction.automation.count({
         where: { ownerId: input.ownerId, deletedAt: null },
       });
       if (count >= limit) return null;
+      if (options?.pinTarget) await pinAutomationTarget(transaction, conversation);
       const { notificationTarget, monitoring, ...data } = input;
       const created = await transaction.automation.create({ data: { ...data, ...(monitoring ? { monitoringJson: monitoring } : {}), ...(notificationTarget ? { notificationTargetJson: notificationTarget } : {}) } });
       return {
         ...parseAutomationRecord(created),
         conversation,
+        wasCreated: true,
       };
     });
   }
@@ -161,6 +184,7 @@ export class PrismaAutomationRepository implements AutomationRepository {
     ownerId: string,
     automationId: string,
     input: UpdateAutomationRecord,
+    options?: AutomationTargetOptions,
   ): Promise<AutomationWithConversationRecord | null> {
     return this.prisma.$transaction(async (transaction) => {
       await lockAutomation(transaction, automationId, false);
@@ -172,6 +196,7 @@ export class PrismaAutomationRepository implements AutomationRepository {
         transaction,
         ownerId,
         input.conversationId ?? current.conversationId,
+        options?.pinTarget,
       );
       // Conversation events lock the task before its plan; keep that same order.
       await lockAutomationMonitoring(transaction, automationId);
@@ -200,6 +225,7 @@ export class PrismaAutomationRepository implements AutomationRepository {
         next.stop_reason = "run_limit_reached";
         next.stop_requested_run_id = null;
       }
+      if (options?.pinTarget) await pinAutomationTarget(transaction, conversation);
       const updated = await transaction.automation.update({
         where: { id: automationId },
         data: { ...data, ...(monitoring || input.status === "active" ? { monitoringJson: next } : {}), ...(notificationTarget !== undefined ? { notificationTargetJson: notificationTarget ?? Prisma.DbNull } : {}) },
@@ -621,6 +647,7 @@ async function lockPinnedConversation(
   transaction: Prisma.TransactionClient,
   ownerId: string,
   conversationId: string,
+  pinTarget = false,
 ): Promise<AutomationConversationRecord> {
   const [row] = await transaction.$queryRaw<Array<unknown>>`
     SELECT
@@ -640,7 +667,7 @@ async function lockPinnedConversation(
   if (
     conversation.ownerId !== ownerId ||
     conversation.archiveStatus !== "active" ||
-    !conversation.pinnedAt
+    (!conversation.pinnedAt && !pinTarget)
   ) {
     throw new AutomationTargetNotPinnedError();
   }
@@ -654,6 +681,16 @@ async function lockPinnedConversation(
     archiveStatus: conversation.archiveStatus,
     pinnedAt: conversation.pinnedAt,
   };
+}
+
+async function pinAutomationTarget(transaction: Prisma.TransactionClient, conversation: AutomationConversationRecord): Promise<void> {
+  if (conversation.pinnedAt) return;
+  const pinned = await transaction.conversation.update({
+    where: { id: conversation.id },
+    data: { pinnedAt: new Date(), sortOrder: null },
+    select: { pinnedAt: true },
+  });
+  conversation.pinnedAt = pinned.pinnedAt;
 }
 
 async function findAvailableManualRunTimestamp(

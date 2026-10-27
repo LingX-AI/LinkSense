@@ -1416,6 +1416,14 @@ export const errorCatalog = {
       "en-US": "This automation has expired and can no longer run.",
     },
   },
+  AUTOMATION_TARGET_ALREADY_CONFIGURED: {
+    message_key: "errors.automation.targetAlreadyConfigured",
+    http_status: 409,
+    messages: {
+      "zh-CN": "此任务已有自动化。请编辑已有计划，或明确要求另建一条。",
+      "en-US": "This task already has an automation. Edit the existing plan, or explicitly request a separate one.",
+    },
+  },
   ACCESS_DENIED: {
     message_key: "errors.conversation.accessDenied",
     http_status: 403,

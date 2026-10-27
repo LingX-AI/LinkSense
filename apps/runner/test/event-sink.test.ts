@@ -388,6 +388,18 @@ describe("HttpRunnerEventSink", () => {
     await sink.close();
   });
 
+  it("forwards automation management with bound ownership and redacts upstream errors", async () => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse({ operation: "list" })).mockResolvedValueOnce(jsonResponse({ error_code: "AUTOMATION_NOT_FOUND", message: "private details" }, 404));
+    const sink = new HttpRunnerEventSink("http://127.0.0.1:4000/internal", "runner-shared-secret-value", workspaceManager, { fetch: fetchMock });
+    const input = { conversationId, turnId: "01900000-0000-7000-8000-000000000003", request: { operation: "list" as const } };
+    await expect(sink.manageAutomation(input)).resolves.toEqual({ operation: "list" });
+    await expect(sink.manageAutomation(input)).rejects.toMatchObject({ code: "AUTOMATION_NOT_FOUND", retryable: false, message: "AUTOMATION_NOT_FOUND" });
+    expect(fetchMock.mock.calls[0]?.[0]).toEqual(new URL("http://127.0.0.1:4000/internal/automations/execute"));
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ headers: expect.objectContaining({ "x-linksense-owner-id": ownerId }), body: JSON.stringify(input) });
+    await sink.close();
+  });
+
   it("forwards application development with the current owner and preserves safe rejection codes", async () => {
     const { workspaceManager } = await createWorkspaceManager();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse(null)).mockResolvedValueOnce(jsonResponse({ error_code: "APPLICATION_PACKAGE_INVALID", message: "private details" }, 422));

@@ -229,7 +229,7 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
       }
       pendingRequests.clear()
     }
-  }, [documentSource])
+  }, [documentSource, activeFrameState.status])
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -377,7 +377,7 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
         )}
         data-assistant-html-preview-surface="true"
       >
-        {documentSource && (
+        {documentSource && activeFrameState.status !== "error" && (
           <iframe
             key={`${previewId}:${activeFrameState.attempt}`}
             ref={frameRef}

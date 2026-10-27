@@ -181,6 +181,19 @@ describe("getErrorMessage", () => {
     ).toBe("自动化只能关联当前账号下已置顶的有效任务。")
   })
 
+  it.each(supportedLocales)(
+    "explains how to edit an existing automation instead of duplicating it in %s",
+    (locale) => {
+      const code = "AUTOMATION_TARGET_ALREADY_CONFIGURED"
+      expect(
+        getErrorMessage(
+          new ApiError({ status: 409, errorCode: code }),
+          i18n.getFixedT(locale)
+        )
+      ).toBe(localizedErrorMessage(code, locale))
+    }
+  )
+
   it("explains how to release a system model before deleting it", () => {
     expect(
       getErrorMessage(

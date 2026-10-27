@@ -113,6 +113,116 @@ describe("automation completion notifications", () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] })
   })
 
+  it.each([false, true])(
+    "shows the independent execution task after creation while leaving the configuration chat unchanged (background=%s)",
+    async (background) => {
+      let changed = false
+      let releaseEvent: () => void = () => undefined
+      const eventReady = new Promise<void>((resolve) => {
+        releaseEvent = resolve
+      })
+      const turnId = "30000000-0000-4000-8000-000000000001"
+      const executionTask = {
+        ...conversations[1],
+        id: "30000000-0000-4000-8000-000000000002",
+        title: "每日新闻汇总",
+        has_automation: true,
+        pinned_at: "2026-10-26T01:00:00.000Z",
+      }
+      const event = {
+        id: "60000000-0000-4000-8000-000000000090",
+        conversation_id: "20000000-0000-4000-8000-000000000001",
+        turn_id: turnId,
+        sequence_no: 90,
+        event_type: "item/completed",
+        visibility: "user_collapsed",
+        sse_event_id: "c1:90",
+        created_at: "2026-10-26T01:00:00.000Z",
+        payload: {
+          schema_version: 2,
+          source: "codex_app_server",
+          method: "item/completed",
+          params: {
+            threadId: "native-thread",
+            turnId: "native-turn",
+            item: {
+              id: "automation-tool",
+              type: "mcpToolCall",
+              server: "linksense_core",
+              tool: "create_automation",
+              status: "completed",
+            },
+          },
+        },
+      }
+      const { requests } = installApiMock({
+        conversationDetailResponse: async (conversationId) =>
+          json({
+            success: true,
+            data: {
+              ...conversation,
+              id: conversationId,
+              has_automation: false,
+              pinned_at: null,
+            },
+          }),
+        conversationListResponse: () =>
+          json({
+            success: true,
+            data: {
+              items: changed
+                ? [...conversations, executionTask]
+                : conversations,
+              next_cursor: null,
+            },
+          }),
+        eventStreamStart: eventReady,
+        eventStreamBody: `id: c1:90\nevent: item/completed\ndata: ${JSON.stringify(event)}\n\n`,
+      })
+      renderApp(background ? "/conversations/c2" : "/conversations/c1")
+      await screen.findByRole("complementary", { name: "LinkSense 导航" })
+      await waitFor(() =>
+        expect(
+          requests.some(
+            (request) => request.path === "/api/v1/conversations/c1/events"
+          )
+        ).toBe(true)
+      )
+      const previousReads = requests.filter(
+        (request) =>
+          request.path === "/api/v1/conversations" && request.method === "GET"
+      ).length
+      changed = true
+      await act(async () => {
+        releaseEvent()
+      })
+      await waitFor(() =>
+        expect(
+          requests.filter(
+            (request) =>
+              request.path === "/api/v1/conversations" &&
+              request.method === "GET"
+          ).length
+        ).toBeGreaterThan(previousReads)
+      )
+      const sidebar = screen.getByRole("complementary", {
+        name: "LinkSense 导航",
+      })
+      const target = await within(sidebar).findByRole("link", {
+        name: /每日新闻汇总/,
+      })
+      expect(
+        within(target).getByRole("img", { name: "自动化任务" })
+      ).toBeVisible()
+      const source = within(sidebar).getByRole("link", {
+        name: conversations[0]!.title,
+      })
+      expect(
+        within(source).queryByRole("img", { name: "自动化任务" })
+      ).not.toBeInTheDocument()
+    }
+  )
+
   it("keeps the bell unread after opening the latest task and opens the next unread task", async () => {
     const { complete, requests, targets } = installAutomationNotificationMock()
     const older = targets[0]!

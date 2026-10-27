@@ -8,6 +8,35 @@ import {
 } from "../src/context.js";
 
 describe("buildTurnInput", () => {
+  it("treats recurring wording as work to execute when an existing automation triggers the turn", () => {
+    const instruction = "每天检索最近24小时的重要科技新闻，输出中文摘要和来源链接。";
+    const context = { userInput: instruction, automationExecution: true as const, requireFinalResponse: true, attachments: [], priorityPlugins: [], prioritySkills: [] };
+    const output = buildTurnAdditionalContext(context);
+    expect(buildTurnInput(context, { plugins: [], skills: [] })).toBe(instruction);
+    expect(output?.["linksense.automation-mode"]?.kind).toBe("application");
+    expect(output?.["linksense.automation-mode"]?.value).toContain("Execute the stored work now");
+    expect(output?.["linksense.automation-mode"]?.value).toContain("not a request to create or reconfigure");
+    expect(output?.["linksense.runtime-identity"]?.value).not.toContain("For user-requested recurring work");
+  });
+
+  it("replaces the execution context with management guidance on a later human time-change request", () => {
+    const base = { attachments: [], priorityPlugins: [], prioritySkills: [] };
+    const execution = buildTurnAdditionalContext({ ...base, userInput: "每天整理新闻", automationExecution: true });
+    const interactive = buildTurnAdditionalContext({ ...base, userInput: "改成每天晚上7点" });
+    expect(execution?.["linksense.automation-mode"]?.value).not.toBe(interactive?.["linksense.automation-mode"]?.value);
+    expect(interactive?.["linksense.automation-mode"]?.value).toContain("keep the existing automation ID");
+    expect(interactive?.["linksense.automation-mode"]?.value).toContain("same workflow with a different time");
+  });
+
+  it("keeps the configuration chat separate from the automation's default execution task", () => {
+    const context = buildTurnAdditionalContext({
+      userInput: "我想每天下午5点查看下最新的新闻",
+      attachments: [], priorityPlugins: [], prioritySkills: [],
+    });
+    expect(context?.["linksense.automation-mode"]?.value).toContain("new_task");
+    expect(context?.["linksense.automation-mode"]?.value).toContain("only when the user explicitly requests");
+  });
+
   it("keeps ordinary platform contexts within the startup text budget", () => {
     const output = buildTurnAdditionalContext({
       userInput: "你好",
@@ -17,6 +46,7 @@ describe("buildTurnInput", () => {
     }, [{ name: "linksense-browser", path: "/workspace/.agents/skills/linksense-browser/SKILL.md" }]);
 
     expect(Object.keys(output ?? {}).sort()).toEqual([
+      "linksense.automation-mode",
       "linksense.browser-selection",
       "linksense.inline-html-preview",
       "linksense.interactive-forms",

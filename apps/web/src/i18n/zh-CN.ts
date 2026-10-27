@@ -2346,6 +2346,9 @@ export const zhCN = {
       "stream disconnected before completion.",
     streamDisconnectedWarning: "任务因流连接中断而终止",
     nativeActivities: {
+      automationRunning: "正在处理自动化任务",
+      automationFinished: "自动化操作已结束",
+      automationFailed: "自动化操作失败",
       fileChangeRunning_one: "正在更新 {{count}} 个文件",
       fileChangeRunning_other: "正在更新 {{count}} 个文件",
       fileChangeCompleted_one: "已更新 {{count}} 个文件",
@@ -5168,6 +5171,8 @@ export const zhCN = {
     turnCompletedWithoutOutput:
       "本轮执行已结束，但没有产出可展示的内容，请重新执行。",
     automation: {
+      targetAlreadyConfigured:
+        "此任务已有自动化。请编辑已有计划，或明确要求另建一条。",
       emptyResult: "自动化执行已结束，但没有产出可展示的内容，请重新执行。",
       expired: "该自动化已到期，不能继续执行。",
     },

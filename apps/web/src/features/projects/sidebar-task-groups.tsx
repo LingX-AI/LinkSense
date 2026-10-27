@@ -37,6 +37,7 @@ export function SidebarTaskGroups({
   projects,
   projectsReady = true,
   loadingMore,
+  reconnectFailedConversationIds,
   sortModes = defaultSidebarTaskSortModes,
   onSortModeChange,
   onAction,
@@ -48,6 +49,7 @@ export function SidebarTaskGroups({
   projects: Project[]
   projectsReady?: boolean
   loadingMore: boolean
+  reconnectFailedConversationIds?: ReadonlySet<string>
   sortModes?: SidebarTaskSortModes
   onSortModeChange?: (
     scope: SidebarTaskSortScope,
@@ -150,6 +152,13 @@ export function SidebarTaskGroups({
               userId={userId}
               label={project.name}
               project={project}
+              hasRunningTasks={byProject
+                .get(project.id)
+                ?.some(
+                  (conversation) =>
+                    conversation.execution_status === "running" &&
+                    !reconnectFailedConversationIds?.has(conversation.id)
+                )}
               onAction={onAction}
             >
               {renderProject(project.id)}

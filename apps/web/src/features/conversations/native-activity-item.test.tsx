@@ -504,6 +504,51 @@ describe("NativeActivityItem", () => {
   )
 
   it.each(supportedLanguages)(
+    "localizes automation activities and failure states in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const item = {
+        id: "automation-activity",
+        type: "mcpToolCall" as const,
+        server: "linksense_core",
+        tool: "create_automation",
+        status: "inProgress" as const,
+      }
+      const { rerender } = render(
+        <NativeActivityItem method="item/started" item={item} />
+      )
+      expect(
+        screen.getByText(
+          i18n.t("conversation.nativeActivities.automationRunning")
+        )
+      ).toBeVisible()
+      rerender(
+        <NativeActivityItem
+          method="item/completed"
+          item={{ ...item, status: "completed" }}
+        />
+      )
+      expect(
+        screen.getByText(
+          i18n.t("conversation.nativeActivities.automationFinished")
+        )
+      ).toBeVisible()
+      rerender(
+        <NativeActivityItem
+          method="item/completed"
+          item={{ ...item, status: "failed" }}
+        />
+      )
+      expect(
+        screen.getByText(
+          i18n.t("conversation.nativeActivities.automationFailed")
+        )
+      ).toBeVisible()
+      expect(screen.queryByText("linksense_core")).not.toBeInTheDocument()
+    }
+  )
+
+  it.each(supportedLanguages)(
     "keeps image generation outcomes on their localized activity record in %s",
     async (language) => {
       await i18n.changeLanguage(language)

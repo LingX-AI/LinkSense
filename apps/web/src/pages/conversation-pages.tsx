@@ -5,6 +5,10 @@ import {
   appendSideChatQuote,
   sideChatTurnInput,
 } from "@/features/conversations/conversation-message-selection"
+import {
+  isAutomationMutationItem,
+  refreshAutomationQueries,
+} from "@/features/conversations/automation-tool-activity"
 import type { ApplicationAnnotationSubmit } from "@/features/applications/application-annotation-submission"
 import { SiteShareButton } from "@/features/web-sites/site-share-button"
 import { FirstUseGuide } from "@/features/onboarding/first-use-guide"
@@ -319,6 +323,7 @@ import {
 import {
   appendReasoningContentEvent,
   areReasoningContentEventsReconciled,
+  removeReconciledReasoningContentEvents,
 } from "@/features/conversations/reasoning-activity-content"
 import { useConversationScroll } from "@/features/conversations/use-conversation-scroll"
 import { useConversationBottomStackHeight } from "@/features/conversations/use-conversation-bottom-stack-height"
@@ -2060,6 +2065,13 @@ export function ConversationPage({
 
         const native = getNativeCodexPayload(event)
         if (native) {
+          if (
+            conversationId &&
+            native.method === "item/completed" &&
+            isAutomationMutationItem(native.params.item)
+          ) {
+            void refreshAutomationQueries(queryClient, conversationId)
+          }
           if (isNativeStreamDisconnectRetry(event)) {
             startNativeReconnect()
           } else {
@@ -2584,6 +2596,29 @@ export function ConversationPage({
     hasConversation,
     liveReasoningContentEvents,
     turnExecutionActive,
+  ])
+
+  useEffect(() => {
+    if (
+      !conversation?.events?.length ||
+      conversation.id !== liveConversationIdRef.current
+    )
+      return
+    const timer = window.setTimeout(() => {
+      if (conversation.id !== liveConversationIdRef.current) return
+      setLiveReasoningContentEvents((current) =>
+        removeReconciledReasoningContentEvents(
+          current,
+          conversation.events ?? []
+        )
+      )
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [
+    conversation?.id,
+    conversation?.events,
+    liveConversationIdRef,
+    setLiveReasoningContentEvents,
   ])
 
   useEffect(() => {

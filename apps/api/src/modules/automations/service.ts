@@ -30,11 +30,14 @@ import {
 import {
   AutomationTargetCollaborationModeError,
   AutomationTargetNotPinnedError,
+  AutomationTargetAlreadyConfiguredError,
+  type AutomationCreationOptions,
   type AutomationOccurrenceClaim,
   type AutomationRecord,
   type AutomationRepository,
   type AutomationRunRecord,
   type AutomationWithConversationRecord,
+  type AutomationTargetOptions,
   type CreateAutomationRecord,
   type UpdateAutomationRecord,
 } from "./types.js";
@@ -109,9 +112,18 @@ export class AutomationService {
     rawInput: AutomationCreateInput,
     context: AuditContext,
     fallbackLocale?: Locale,
+    options?: AutomationCreationOptions & { creationId?: string },
   ): Promise<Automation> {
     const input = automationCreateInputSchema.parse(rawInput);
     const schedule = parseSchedule(input.schedule);
+    if (options?.creationId) {
+      const existing = await this.repository.findById(options.creationId);
+      if (existing) {
+        if (existing.ownerId !== ownerId || existing.deletedAt) throw new AppError("AUTOMATION_NOT_FOUND");
+        assertSameCreation(existing, input);
+        return this.get(ownerId, existing.id);
+      }
+    }
     const anchorAt = this.now();
     const expiresAt = input.expires_on
       ? parseExpiration(input.expires_on, schedule.time_zone)
@@ -142,6 +154,7 @@ export class AutomationService {
       }
       const created = await this.repository.createWithinOwnerLimit(
         {
+          ...(options?.creationId ? { id: options.creationId } : {}),
           ownerId,
           conversationId,
           notificationTarget: input.notification_target,
@@ -157,16 +170,26 @@ export class AutomationService {
           reasoningEffort: input.model_preference?.reasoning_effort ?? null,
         },
         AUTOMATION_LIMIT_PER_OWNER,
+        ...(options ? [{ pinTarget: options.pinTarget ?? false, ...(options.allowAdditional !== undefined ? { allowAdditional: options.allowAdditional } : {}) }] : []),
       );
       if (!created) throw new AppError("AUTOMATION_LIMIT_REACHED");
-      await this.writeAudit(context, {
-        actorId: ownerId,
-        action: "automation_created",
-        targetId: created.id,
-        conversationId: created.conversationId,
-        frequency: created.frequency,
-        status: created.status,
-      });
+      if (createdConversationId && created.conversationId !== createdConversationId) {
+        await this.conversations.delete(ownerId, createdConversationId, context);
+        createdConversationId = null;
+      }
+      if (options?.creationId) assertSameCreation(created, input);
+      // A committed target belongs to the saved automation, even if auditing fails.
+      createdConversationId = null;
+      if (created.wasCreated) {
+        await this.writeAudit(context, {
+          actorId: ownerId,
+          action: "automation_created",
+          targetId: created.id,
+          conversationId: created.conversationId,
+          frequency: created.frequency,
+          status: created.status,
+        });
+      }
       return projectAutomation(created);
     } catch (error) {
       if (createdConversationId) {
@@ -184,6 +207,7 @@ export class AutomationService {
     rawInput: AutomationUpdateInput,
     context: AuditContext,
     fallbackLocale?: Locale,
+    options?: AutomationTargetOptions,
   ): Promise<Automation> {
     const input = automationUpdateInputSchema.parse(rawInput);
     const existing = await this.repository.findOwnedRecord(
@@ -266,6 +290,7 @@ export class AutomationService {
         ownerId,
         automationId,
         update,
+        ...(options ? [options] : []),
       );
       if (!updated) throw new AppError("AUTOMATION_NOT_FOUND");
       await this.writeAudit(context, {
@@ -499,6 +524,17 @@ export class AutomationService {
   }
 }
 
+function assertSameCreation(existing: AutomationRecord, input: AutomationCreateInput): void {
+  if (
+    existing.title !== input.title || existing.instruction !== input.instruction ||
+    (input.target.mode === "existing_task" && existing.conversationId !== input.target.conversation_id) ||
+    JSON.stringify(scheduleFromRecord(existing)) !== JSON.stringify(parseSchedule(input.schedule)) ||
+    existing.modelId !== (input.model_preference?.model_id ?? null) ||
+    existing.reasoningEffort !== (input.model_preference?.reasoning_effort ?? null) ||
+    (existing.expiresAt ? automationExpirationOn(existing.expiresAt, existing.timeZone) : null) !== (input.expires_on ?? null)
+  ) throw new AppError("CONFLICT");
+}
+
 function parseSchedule(schedule: AutomationSchedule): AutomationSchedule {
   try {
     return normalizeAutomationSchedule(schedule);
@@ -680,6 +716,9 @@ function completedManualRunResult(
 }
 
 function mapAutomationError(error: unknown): unknown {
+  if (error instanceof AutomationTargetAlreadyConfiguredError) {
+    return new AppError("AUTOMATION_TARGET_ALREADY_CONFIGURED");
+  }
   if (error instanceof AutomationTargetCollaborationModeError) {
     return new AppError("COLLABORATION_MODE_UNAVAILABLE");
   }

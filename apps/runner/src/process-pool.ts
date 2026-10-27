@@ -132,6 +132,8 @@ import type {
 } from "./codex/protocol.js";
 import type { RunnerEventSink } from "./event-sink.js";
 import { CurrentUserInfoRequestError } from "./current-user-error.js";
+import { AutomationRequestError } from "./automation-error.js";
+import type { AutomationToolRequest } from "@linksense/shared";
 import { ConnectionRequestError } from "./connection-error.js";
 import type { ConnectionInput } from "@linksense/shared";
 import { FileServiceRequestError } from "./file-service-error.js";
@@ -186,6 +188,8 @@ const EMPTY_MCP_GENERATION =
 const MODEL_TRANSITION_NONCE_METADATA_KEY = "linksense_transition_nonce";
 const LINKSENSE_APPROVAL_POLICY = "never" as const satisfies AskForApproval;
 const PLAN_MUTATION_SERVICE_ENVIRONMENT_NAMES = new Set([
+  "LINKSENSE_AUTOMATION_ENDPOINT",
+  "LINKSENSE_AUTOMATION_TOKEN",
   "LINKSENSE_FILE_SERVICE_ENDPOINT",
   "LINKSENSE_FILE_SERVICE_TOKEN",
   "LINKSENSE_IMAGE_GENERATION_ENDPOINT",
@@ -722,6 +726,7 @@ type ManagedProcess = {
   skillCreatorToken: string;
   interactiveFormToken: string;
   currentUserToken: string;
+  automationToken: string;
   connectionToken: string;
   notificationQueue: OrderedBatchQueue<QueuedCodexNotification>;
   pendingUserInputRequests: Map<number, PendingUserInputRequest>;
@@ -1640,6 +1645,7 @@ export class AppServerProcessPool {
         const skillCreatorToken = randomBytes(32).toString("base64url");
         const interactiveFormToken = randomBytes(32).toString("base64url");
         const currentUserToken = randomBytes(32).toString("base64url");
+        const automationToken = randomBytes(32).toString("base64url");
         const connectionToken = randomBytes(32).toString("base64url");
         const transferredReservation = reservedProcessSlot;
         reservedProcessSlot = false;
@@ -1667,6 +1673,8 @@ export class AppServerProcessPool {
               LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/referenced-conversation`,
               LINKSENSE_AUTOMATION_STOP_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/stop-monitor`,
               LINKSENSE_CURRENT_USER_TOKEN: currentUserToken,
+              LINKSENSE_AUTOMATION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-automations/${input.conversationId}/execute`,
+              LINKSENSE_AUTOMATION_TOKEN: automationToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
               LINKSENSE_CONNECTION_TOKEN: connectionToken,
               LINKSENSE_CONVERSATION_ID: input.conversationId,
@@ -3754,6 +3762,7 @@ export class AppServerProcessPool {
         const skillCreatorToken = randomBytes(32).toString("base64url");
         const interactiveFormToken = randomBytes(32).toString("base64url");
         const currentUserToken = randomBytes(32).toString("base64url");
+        const automationToken = randomBytes(32).toString("base64url");
         const connectionToken = randomBytes(32).toString("base64url");
         managed = await this.getOrCreate(
           {
@@ -3779,6 +3788,8 @@ export class AppServerProcessPool {
               LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/referenced-conversation`,
               LINKSENSE_AUTOMATION_STOP_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/stop-monitor`,
               LINKSENSE_CURRENT_USER_TOKEN: currentUserToken,
+              LINKSENSE_AUTOMATION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-automations/${input.conversationId}/execute`,
+              LINKSENSE_AUTOMATION_TOKEN: automationToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
               LINKSENSE_CONNECTION_TOKEN: connectionToken,
               LINKSENSE_CONVERSATION_ID: input.conversationId,
@@ -4412,6 +4423,14 @@ export class AppServerProcessPool {
       ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
       ...(signal ? { signal } : {}),
     });
+  }
+
+  async manageAutomation(conversationId: string, token: string, request: AutomationToolRequest, signal?: AbortSignal): Promise<unknown> {
+    const managed = this.processes.get(conversationId);
+    if (!managed?.activeTurnId || !managed.activeProjectionTurnId) throw new AutomationRequestError("FORBIDDEN", false, 409);
+    if (!safeTokenEqual(token, managed.automationToken) || managed.activeCollaborationMode !== "default") throw new AutomationRequestError("FORBIDDEN", false, 403);
+    if (!this.options.eventSink.manageAutomation) throw new AutomationRequestError("INTERNAL_ERROR", true, 503);
+    return this.options.eventSink.manageAutomation({ conversationId, turnId: managed.activeProjectionTurnId, request, ...(signal ? { signal } : {}) });
   }
 
   async getCurrentUserInfo(
@@ -5384,6 +5403,8 @@ export class AppServerProcessPool {
         throw new CodexProtocolError("interactive form token is missing");
       }
       const currentUserToken = input.environment.LINKSENSE_CURRENT_USER_TOKEN;
+      const automationToken = input.environment.LINKSENSE_AUTOMATION_TOKEN;
+      if (!automationToken) throw new CodexProtocolError("automation token is missing");
       const connectionToken = input.environment.LINKSENSE_CONNECTION_TOKEN;
       if (!connectionToken) throw new CodexProtocolError("connection token is missing");
       if (!currentUserToken) {
@@ -5559,6 +5580,7 @@ export class AppServerProcessPool {
         skillCreatorToken,
         interactiveFormToken,
         currentUserToken,
+        automationToken,
         connectionToken,
         notificationQueue: new OrderedBatchQueue<QueuedCodexNotification>(
           async entries => this.handleNotification(

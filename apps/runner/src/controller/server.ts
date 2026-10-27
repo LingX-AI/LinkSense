@@ -1,4 +1,4 @@
-import { MICROSOFT_CONNECTION_BODY_LIMIT } from "@linksense/shared"
+import { AUTOMATION_TOOL_BODY_LIMIT, MICROSOFT_CONNECTION_BODY_LIMIT } from "@linksense/shared"
 import { timingSafeEqual } from "node:crypto"
 
 import Fastify, { type FastifyReply } from "fastify"
@@ -67,7 +67,7 @@ export function buildControllerServer(
     if (request.url.startsWith("/internal/local-browser/")) {
       return reply.code(403).send({ error_code: "FORBIDDEN" })
     }
-    if (request.url.startsWith("/internal/skill-creator/") || request.url === "/internal/application-builder") {
+    if (request.url.startsWith("/internal/skill-creator/") || request.url === "/internal/application-builder" || request.url.startsWith("/internal/automations/")) {
       return reply.code(403).send({ error_code: "RUNNER_SERVICE_SCOPE_MISMATCH" })
     }
   })
@@ -160,11 +160,12 @@ export function buildControllerServer(
     "/internal/local-browser/execute",
     "/internal/conversation-references/read",
     "/internal/automations/request-stop",
+    "/internal/automations/execute",
     "/internal/connections/execute",
     "/internal/application-events/emit",
     "/internal/application-builder",
   ]) {
-    app.post(route, { ...(route === "/internal/connections/execute" ? { bodyLimit: MICROSOFT_CONNECTION_BODY_LIMIT } : {}) }, async (request, reply) => {
+    app.post(route, { ...(route === "/internal/connections/execute" ? { bodyLimit: MICROSOFT_CONNECTION_BODY_LIMIT } : route === "/internal/automations/execute" ? { bodyLimit: AUTOMATION_TOOL_BODY_LIMIT } : {}) }, async (request, reply) => {
       const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
       if (!ownerId) {
         return reply.code(401).send({ error_code: "RUNNER_UNAUTHORIZED" })
@@ -189,7 +190,7 @@ export function buildControllerServer(
               ? 180_000
             : route === "/internal/runner/process-exit"
               ? 130_000
-            : route === "/internal/application-builder" || route === "/internal/connections/execute" || route === "/internal/local-browser/execute"
+            : route === "/internal/application-builder" || route === "/internal/connections/execute" || route === "/internal/local-browser/execute" || route === "/internal/automations/execute"
               ? 60_000
             : 15_000,
           controller.signal,

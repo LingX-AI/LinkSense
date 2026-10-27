@@ -49,6 +49,8 @@ export type AutomationWithConversationRecord = AutomationRecord & {
   conversation: AutomationConversationRecord | null;
 };
 
+export type AutomationCreationRecord = AutomationWithConversationRecord & { wasCreated: boolean };
+
 export type AutomationRunRecord = {
   executionContext?: AutomationRunContext | null;
   id: string;
@@ -76,7 +78,10 @@ export type CreateAutomationRecord = Omit<
   | "deletedAt"
   | "createdAt"
   | "updatedAt"
->;
+> & { id?: string };
+
+export type AutomationTargetOptions = { pinTarget?: boolean };
+export type AutomationCreationOptions = AutomationTargetOptions & { allowAdditional?: boolean };
 
 export type UpdateAutomationRecord = Partial<
   Pick<
@@ -130,11 +135,13 @@ export interface AutomationRepository {
   createWithinOwnerLimit(
     input: CreateAutomationRecord,
     limit: number,
-  ): Promise<AutomationWithConversationRecord | null>;
+    options?: AutomationCreationOptions,
+  ): Promise<AutomationCreationRecord | null>;
   updateOwned(
     ownerId: string,
     automationId: string,
     input: UpdateAutomationRecord,
+    options?: AutomationTargetOptions,
   ): Promise<AutomationWithConversationRecord | null>;
   softDeleteOwned(
     ownerId: string,
@@ -184,6 +191,13 @@ export class AutomationTargetNotPinnedError extends Error {
   constructor() {
     super("automation target is not an active pinned task");
     this.name = "AutomationTargetNotPinnedError";
+  }
+}
+
+export class AutomationTargetAlreadyConfiguredError extends Error {
+  constructor() {
+    super("automation target already has a plan");
+    this.name = "AutomationTargetAlreadyConfiguredError";
   }
 }
 
