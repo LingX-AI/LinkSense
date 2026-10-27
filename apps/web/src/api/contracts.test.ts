@@ -24,6 +24,25 @@ import {
 const now = "2026-07-11T00:00:00.000Z"
 
 describe("API response contracts", () => {
+  it("reuses validated native payloads across timeline readers while checking each envelope", () => {
+    const payload = nativeCommandPayload("pnpm test")
+    const event = { type: "item/completed", payload }
+    const first = getNativeCodexPayload(event)
+    expect(first).not.toBeNull()
+    expect(getNativeCodexPayload(event)).toBe(first)
+    expect(getNativeCodexPayload({ ...event })).toBe(first)
+    expect(getNativeCodexPayload({ ...event, type: "item/started" })).toBeNull()
+    expect(
+      getNativeCodexPayload({ event_type: "item/completed", payload })
+    ).toBe(first)
+    expect(
+      getNativeCodexPayload({
+        ...event,
+        payload: nativeCommandPayload("cat /private/secret"),
+      })
+    ).toBeNull()
+  })
+
   it("indexes preview files without projecting them as uploads or deliverables", () => {
     const preview = {
       id: "preview-1",
