@@ -1,0 +1,41 @@
+# LinkSense UI 适配复核 · 2026-10-28
+
+本轮在现有产品上补齐上一轮遗留的视觉与交互差异，保留真实接口、业务权限、资源状态、用户偏好和 Codex 执行行为。当前设计依据为用户指定的 [Figma 个人副本](https://www.figma.com/design/GfUnM6oiaNosrDDqZv19cK)。
+
+## 设计依据与实现
+
+已通过 Figma MCP 读取全文件目录、基础规范、侧栏组件及状态、相关变量、图标源，以及首页、聊天、自动化、应用、知识库和个人设置的代表结构与截图。大画板的稀疏响应仅用于定位，具体实现读取其可见子节点。没有将目录读取或代表页检查表述成全部 297 个状态画板的逐像素验收。
+
+- [侧栏与项目分组](https://www.figma.com/design/GfUnM6oiaNosrDDqZv19cK?node-id=179-200765)、[分组悬停状态](https://www.figma.com/design/GfUnM6oiaNosrDDqZv19cK?node-id=227-14137)：补齐标题层级、40px 行高、24px 子任务缩进、选中描边、悬停/键盘/触屏操作，以及任务、项目、排序和子菜单的定位。
+- [聊天](https://www.figma.com/design/GfUnM6oiaNosrDDqZv19cK?node-id=985-151957)：主要操作、输入工具和模型选择的相关图标采用原始资产；保留真实消息、运行、停止、审批、附件、预览、分享快照和项目选择行为。
+- [应用](https://www.figma.com/design/GfUnM6oiaNosrDDqZv19cK?node-id=985-272955)：一级模块导航采用下划线，二级范围继续使用分段控件；已发布应用、应用中心资源和已有开发草稿统一为连续列表，完整保留资源计数、状态、共享范围、创建者信息及操作。
+- [自动化](https://www.figma.com/design/GfUnM6oiaNosrDDqZv19cK?node-id=984-74401)、[资料库](https://www.figma.com/design/GfUnM6oiaNosrDDqZv19cK?node-id=985-290427)：相应内容导航采用浅蓝活动底色，共用现有容器内测量和滑动指示器。
+- [个人设置](https://www.figma.com/design/GfUnM6oiaNosrDDqZv19cK?node-id=985-306101)：同步导航行高、文字层级、选中边界与搜索入口。Ctrl/⌘K 在桌面、侧栏收起和窄屏均可打开或聚焦相应搜索。
+
+原始图标位置、节点和尺寸记录在 [资产来源](../../apps/web/src/assets/figma/README.md)。SVG 路径及导出尺寸未改写；通过主题前景色蒙版渲染，强制颜色模式使用系统颜色保持可见。现有应用图标、用户头像、自定义项目外观和产品自定义 Logo 继续使用真实数据。
+
+## 颜色与业务差异
+
+品牌蓝使用 Figma 原色 `#0874FF`。移除了旧 `.workspace-theme` 对全局悬停与选中颜色的覆盖，统一以共享语义 token 为来源。原稿白色小字与品牌蓝的实测对比度约为 4.24:1；小字实色动作采用 `#0070F5`，蓝色小字/链接使用独立可读性前景色，辅助文字保留可覆盖灰色表面的深度。品牌、活动底色、指示器和装饰语义仍使用设计色。暗色头像同时绑定对应前景色，避免白字落在浅蓝背景上。
+
+这些是明确的可访问性适配，依据 [W3C 文字对比要求](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum)；蒙版和选中标签的系统颜色适配依据 [MDN forced-colors](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/At-rules/%40media/forced-colors)。系统字体、用户字号、深色模式和无独立移动稿的布局沿用现有能力，不宣称所有主题与字体均有对应 Figma 画板。
+
+Figma 没有覆盖的完整项目空态、真实通知、应用资源信息、权限、管理设置及复杂任务状态继续保留。长标题保留原有单行呈现，同时在行右侧显示完整可换行的信息气泡。没有新增设计稿示例中的团队、奖励、模型或任务数据，也没有以静态截图代替界面。
+
+## Code review 与修正
+
+以任务开始的 `171fd51a897caec2b8ab10e0aa66b51c0959d04b` 为固定基线，分别进行了规范和需求审查。审查发现的草稿列表遗漏、小字/暗色头像对比度，以及强制颜色模式图标与选中态问题已修正。收尾复查还消除了新颜色工具类与旧 `.text-link` 布局类的冲突；新工具类使用 `text-link-foreground`，原有专用链接布局不变。两条审查轴的最终静态复查均无阻塞。
+
+运行回归还修正了两处真实交互问题：子菜单保留原生触发项锚点，将父菜单内边距纳入偏移，避免自定义锚点干扰原生悬停交互；窄屏键盘搜索通过弹窗/抽屉的原生 `initialFocus` 执行，避免焦点被后续焦点管理覆盖。窄屏指针打开搜索仍不自动弹出键盘。账户菜单 Esc 通过原生 `finalFocus` 恢复到触发按钮；错误提示图标不再沿用 grid 布局的垂直偏移。
+
+## 兼容性与验证
+
+没有改变数据库、共享 Zod 契约、认证、授权、资源身份、排序策略或本地偏好键。已有应用和草稿无需重建、重新导入或重新发布。浏览器夹具包含省略旧可选字段的应用及没有图标字段的已有草稿；原有资源操作与失败路径仍由现有测试覆盖。
+
+最终检查通过：Web 单元测试按现有 `test:unit` 的两阶段命令执行（额外输出 JSON），应用 336 项、组件/共享组件/Node 5,136 项，共 5,472 项全部通过；`pnpm --filter @linksense/web test:e2e --workers=2 --reporter=json` 的 140 项 Chromium 测试全部通过，无跳过或重试。`pnpm --filter @linksense/web typecheck`、`lint`、`build` 与 `git diff --check` 通过。lint 保留 TanStack Virtual 与 React Compiler 的一条既有兼容警告；构建保留 Office 等既有大分块提示，未增加依赖或放宽阈值。浏览器检查覆盖现有页面家族的桌面浅色、390px 窄屏和桌面深色，并重点核验菜单定位、键盘搜索、混合应用列表、对比度及强制颜色模式。未把模拟 API 测试视作真实 SSO、邮件、AI 执行或设备验证。
+
+Modern Web Guidance：本轮复用 `responsive-design` 的容器布局原则（“adapt to their parent container's size”）与 `size-aware-styling` 的容器声明要求（“first tell the browser which element is the container”）。列表使用既有 `shell-content` 容器；窄容器自然堆叠，未新增视口侦听或常驻动画循环。
+
+## 发布
+
+用户授权推送现有 `feat` 分支并更新既有 SERVER UAT。API 与 Web 的构建标识共同包含前后端源码，因此本轮采用同一源码快照构建与部署，不能仅替换静态 Web 后留下旧 API 构建标识。保留运行配置、数据库备份和持久卷；不执行数据库清空或破坏性迁移。发布操作须验证服务器 Git HEAD 与已推送版本一致、API/Web 构建标识一致、数据库备份和服务就绪。实际发布结果记录在当前任务与服务器部署日志。构建空间通过回收无容器引用的过期 LinkSense 镜像及其专用缓存恢复，当前/回滚镜像、其他应用和全部数据卷保留。
