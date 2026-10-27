@@ -1508,7 +1508,7 @@ test("Docker dependency installs consistently use the official Node package regi
   const registryUrl = "https://registry.npmjs.org/";
   assert.match(
     environmentExample,
-    new RegExp(`^LINKSENSE_NODE_PACKAGE_REGISTRY_URL=${registryUrl}$`, "mu"),
+    new RegExp(`^LINKSENSE_NODE_PACKAGE_REGISTRY_URL=${RegExp.escape(registryUrl)}$`, "mu"),
   );
   assert.ok(
     compose.includes(
