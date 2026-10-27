@@ -1,0 +1,86 @@
+{
+  "extensionName": {
+    "message": "LinkSense Browser Use"
+  },
+  "extensionDescription": {
+    "message": "Let LinkSense operate authorized Chrome/Edge pages using your existing login sessions."
+  },
+  "consent": {
+    "message": "Connect only to a LinkSense you trust. Authorized page content and screenshots can be sent to LinkSense and its configured model. Connecting replaces your previous browser connection."
+  },
+  "newTabs": {
+    "message": "Allow new tabs"
+  },
+  "connect": {
+    "message": "Reconnect"
+  },
+  "allow": {
+    "message": "Allow this page"
+  },
+  "release": {
+    "message": "Stop sharing this page"
+  },
+  "disconnect": {
+    "message": "Disconnect"
+  },
+  "connected": {
+    "message": "Connected"
+  },
+  "disconnected": {
+    "message": "Offline"
+  },
+  "startFromSettings": {
+    "message": "Open LinkSense and sign in"
+  },
+  "failed": {
+    "message": "Could not complete this action. Check the connection and try again."
+  },
+  "subtitle": {
+    "message": "Browser Use"
+  },
+  "server": {
+    "message": "LinkSense server"
+  },
+  "pending": {
+    "message": "Confirm"
+  },
+  "reconnecting": {
+    "message": "Connecting…"
+  },
+  "confirmHint": {
+    "message": "Approve this site once. Future connections are automatic."
+  },
+  "automaticHint": {
+    "message": "Ready for tasks. Reconnects automatically."
+  },
+  "disconnectedHint": {
+    "message": "Connects when you open LinkSense and sign in."
+  },
+  "confirm": {
+    "message": "Trust and connect"
+  },
+  "currentPage": {
+    "message": "Current page"
+  },
+  "shared": {
+    "message": "Shared"
+  },
+  "newTabsHint": {
+    "message": "Let the assistant open a page when a task needs it."
+  },
+  "privacyShort": {
+    "message": "Only shared pages"
+  },
+  "privacyDetails": {
+    "message": "Permissions and privacy"
+  },
+  "pageHint": {
+    "message": "Share this page so the assistant can read and interact with it."
+  },
+  "sharedHint": {
+    "message": "The assistant can use this page. Stop sharing at any time."
+  },
+  "restrictedPage": {
+    "message": "Switch to a webpage to share it. LinkSense and browser pages cannot be shared."
+  }
+}

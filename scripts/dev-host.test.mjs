@@ -183,6 +183,13 @@ for (const workspace of ["api", "runner"]) {
     const packageJson = JSON.parse(
       await readFile(new URL(`../apps/${workspace}/package.json`, import.meta.url), "utf8"),
     );
+    if (workspace === "api") {
+      await mkdir(join(appDirectory, "scripts"));
+      await writeFile(
+        join(appDirectory, "scripts/build-browser-extension.mjs"),
+        'process.stdout.write("browser-extension-built\\n");\n',
+      );
+    }
     const result = spawnSync("/bin/sh", [
       "-c",
       'tsx() { printf "%s\\n" "$@"; }\n' + packageJson.scripts.dev,
@@ -191,6 +198,7 @@ for (const workspace of ["api", "runner"]) {
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(result.stdout.trimEnd().split("\n"), [
+      ...(workspace === "api" ? ["browser-extension-built"] : []),
       "watch", "--include", "../../packages/shared/src/**/*.ts", "src/index.ts",
     ]);
   });

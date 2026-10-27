@@ -9,6 +9,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 import { localizedErrorMessage } from "@linksense/shared"
 
 export const ptBR = {
+  localBrowser: localBrowserMessages["pt-BR"],
   modelSetup: modelSetupMessages["pt-BR"],
   connections: connectionMessages["pt-BR"],
   sideChat: sideChatMessages["pt-BR"],
@@ -4464,6 +4465,7 @@ export const ptBR = {
       assistant_response: "Respostas de IA",
       memory_generation: "Geração de memórias",
       task_title_generation: "Nomeação automática de tarefas",
+      browser_use_intent: "Detecção de intenção de navegação",
       document_embedding: "Embeddings de documentos",
       query_embedding: "Embeddings de consultas",
       rerank: "Reordenação da busca",
@@ -6018,3 +6020,4 @@ export const ptBR = {
     teams: "SSO do Teams",
   },
 } satisfies TranslationResource<typeof enUS>
+import { localBrowserMessages } from "@/features/local-browser/messages"

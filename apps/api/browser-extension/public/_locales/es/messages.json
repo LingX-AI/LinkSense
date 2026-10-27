@@ -1,0 +1,86 @@
+{
+  "extensionName": {
+    "message": "LinkSense Browser Use"
+  },
+  "extensionDescription": {
+    "message": "Permite a LinkSense operar páginas autorizadas de Chrome/Edge con tus sesiones existentes."
+  },
+  "consent": {
+    "message": "Conecta solo a un LinkSense de confianza. El contenido y las capturas autorizados pueden enviarse a LinkSense y su modelo configurado. Esta conexión reemplaza la anterior."
+  },
+  "newTabs": {
+    "message": "Permitir pestañas nuevas"
+  },
+  "connect": {
+    "message": "Reconectar"
+  },
+  "allow": {
+    "message": "Autorizar esta página"
+  },
+  "release": {
+    "message": "Dejar de compartir esta página"
+  },
+  "disconnect": {
+    "message": "Desconectar"
+  },
+  "connected": {
+    "message": "Conectado"
+  },
+  "disconnected": {
+    "message": "Sin conexión"
+  },
+  "startFromSettings": {
+    "message": "Abre LinkSense e inicia sesión"
+  },
+  "failed": {
+    "message": "No se pudo completar la acción. Comprueba la conexión e inténtalo de nuevo."
+  },
+  "subtitle": {
+    "message": "Browser Use"
+  },
+  "server": {
+    "message": "Servidor de LinkSense"
+  },
+  "pending": {
+    "message": "Confirmar"
+  },
+  "reconnecting": {
+    "message": "Conectando…"
+  },
+  "confirmHint": {
+    "message": "Autoriza este sitio una vez. Las próximas conexiones serán automáticas."
+  },
+  "automaticHint": {
+    "message": "Listo para tareas. Reconexión automática."
+  },
+  "disconnectedHint": {
+    "message": "Se conecta al abrir LinkSense e iniciar sesión."
+  },
+  "confirm": {
+    "message": "Confiar y conectar"
+  },
+  "currentPage": {
+    "message": "Página actual"
+  },
+  "shared": {
+    "message": "Compartida"
+  },
+  "newTabsHint": {
+    "message": "Permite al asistente abrir páginas cuando la tarea lo requiera."
+  },
+  "privacyShort": {
+    "message": "Solo páginas compartidas"
+  },
+  "privacyDetails": {
+    "message": "Permisos y privacidad"
+  },
+  "pageHint": {
+    "message": "Comparte esta página para que el asistente pueda leerla e interactuar con ella."
+  },
+  "sharedHint": {
+    "message": "El asistente puede usar esta página. Puedes dejar de compartirla cuando quieras."
+  },
+  "restrictedPage": {
+    "message": "Cambia a una página web para compartirla. LinkSense y las páginas del navegador no se pueden compartir."
+  }
+}

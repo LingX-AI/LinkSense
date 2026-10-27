@@ -360,7 +360,7 @@ describe("conversation slash command resource panels", () => {
     ).toEqual([
       "Alpha Skill",
       "Zulu Skill",
-      "LinkSense 浏览器",
+      "LinkSense 云端浏览器",
       "LinkSense 文件服务",
     ])
   })

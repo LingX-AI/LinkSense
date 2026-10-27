@@ -1,0 +1,86 @@
+{
+  "extensionName": {
+    "message": "LinkSense Browser Use"
+  },
+  "extensionDescription": {
+    "message": "既存のログイン状態で、許可した Chrome/Edge のページを LinkSense が操作します。"
+  },
+  "consent": {
+    "message": "信頼できる LinkSense にのみ接続してください。許可したページの内容と画像は LinkSense と設定されたモデルに送信されます。接続すると以前のブラウザー接続が置き換わります。"
+  },
+  "newTabs": {
+    "message": "新しいタブを許可"
+  },
+  "connect": {
+    "message": "再接続"
+  },
+  "allow": {
+    "message": "このページを許可"
+  },
+  "release": {
+    "message": "このページの共有を停止"
+  },
+  "disconnect": {
+    "message": "切断"
+  },
+  "connected": {
+    "message": "接続済み"
+  },
+  "disconnected": {
+    "message": "未接続"
+  },
+  "startFromSettings": {
+    "message": "LinkSense を開いてログイン"
+  },
+  "failed": {
+    "message": "操作を完了できませんでした。接続を確認して再試行してください。"
+  },
+  "subtitle": {
+    "message": "Browser Use"
+  },
+  "server": {
+    "message": "接続先の LinkSense"
+  },
+  "pending": {
+    "message": "確認待ち"
+  },
+  "reconnecting": {
+    "message": "接続中…"
+  },
+  "confirmHint": {
+    "message": "初回にこのサイトを許可すると、次回から自動で接続します。"
+  },
+  "automaticHint": {
+    "message": "利用できます。切断時は自動で再接続します。"
+  },
+  "disconnectedHint": {
+    "message": "LinkSense を開いてログインすると接続します。"
+  },
+  "confirm": {
+    "message": "信頼して接続"
+  },
+  "currentPage": {
+    "message": "現在のページ"
+  },
+  "shared": {
+    "message": "共有中"
+  },
+  "newTabsHint": {
+    "message": "タスクに必要なとき、アシスタントによるページの作成を許可します。"
+  },
+  "privacyShort": {
+    "message": "共有したページのみ"
+  },
+  "privacyDetails": {
+    "message": "権限とプライバシー"
+  },
+  "pageHint": {
+    "message": "このページを共有すると、アシスタントが内容を読み取り、操作できます。"
+  },
+  "sharedHint": {
+    "message": "アシスタントはこのページを利用できます。いつでも共有を停止できます。"
+  },
+  "restrictedPage": {
+    "message": "共有するウェブページに切り替えてください。LinkSense とブラウザーの内部ページは共有できません。"
+  }
+}

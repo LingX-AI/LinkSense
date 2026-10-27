@@ -1528,6 +1528,7 @@ async function publishedRuntimeFixture() {
   await Promise.all([
     mkdir(path.join(skillsRoot, "reports"), { recursive: true }),
     mkdir(path.join(skillsRoot, "linksense-browser"), { recursive: true }),
+    mkdir(path.join(skillsRoot, "linksense-local-browser"), { recursive: true }),
     mkdir(path.join(skillsRoot, "linksense-document-reader"), {
       recursive: true,
     }),
@@ -1564,6 +1565,7 @@ async function publishedRuntimeFixture() {
   })}\n`
   await Promise.all([
     writeFile(path.join(skillsRoot, "reports", "SKILL.md"), "reports"),
+    writeFile(path.join(skillsRoot, "linksense-local-browser", "SKILL.md"), "local browser"),
     writeFile(
       path.join(skillsRoot, "linksense-browser", "SKILL.md"),
       "browser",
@@ -1602,6 +1604,7 @@ async function publishedRuntimeFixture() {
     [skillsRoot, 0o750],
     [path.join(skillsRoot, "reports"), 0o750],
     [path.join(skillsRoot, "linksense-browser"), 0o750],
+    [path.join(skillsRoot, "linksense-local-browser"), 0o750],
     [path.join(skillsRoot, "linksense-document-reader"), 0o750],
     [path.join(skillsRoot, "linksense-docs"), 0o750],
     [path.join(skillsRoot, "linksense-file-service"), 0o750],
@@ -1620,6 +1623,7 @@ async function publishedRuntimeFixture() {
   )
   const sourceFiles = [
     path.join(skillsRoot, "reports", "SKILL.md"),
+    path.join(skillsRoot, "linksense-local-browser", "SKILL.md"),
     path.join(skillsRoot, "linksense-browser", "SKILL.md"),
     path.join(skillsRoot, "linksense-document-reader", "SKILL.md"),
     path.join(skillsRoot, "linksense-docs", "SKILL.md"),

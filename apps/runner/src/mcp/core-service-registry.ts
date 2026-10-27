@@ -4,6 +4,7 @@ import { conversationReferenceCoreMcpModule } from "./core-services/conversation
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js"
 
 import { currentUserCoreMcpModule } from "./core-services/current-user-service.js"
+import { localBrowserCoreMcpModule } from "./core-services/local-browser-service.js"
 import { documentConversionCoreMcpModule } from "./core-services/document-conversion.js"
 import { fileServiceCoreMcpModule } from "./core-services/file-service.js"
 import { imageGenerationCoreMcpModule } from "./core-services/image-generation-service.js"
@@ -27,6 +28,7 @@ export const coreMcpModuleRegistry: readonly CoreMcpModuleDefinition[] = [
   fileServiceCoreMcpModule,
   documentConversionCoreMcpModule,
   currentUserCoreMcpModule,
+  localBrowserCoreMcpModule,
   imageGenerationCoreMcpModule,
   knowledgeCoreMcpModule,
   interactiveFormCoreMcpModule,

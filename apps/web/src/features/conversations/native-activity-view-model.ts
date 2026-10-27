@@ -393,7 +393,13 @@ export function buildNativeActivityViewModel(
   }
 
   if (item.type === "mcpToolCall") {
-    if (isKnowledgeSearchNativeItem(item)) {
+    if (item.server === coreMcpServerKey && item.tool === "local_browser") {
+      summaryKey =
+        method === "item/started"
+          ? "localBrowser.activityRunning"
+          : "localBrowser.activityFinished"
+      detailRows.push(...durationRow(item.durationMs))
+    } else if (isKnowledgeSearchNativeItem(item)) {
       summaryKey =
         method === "item/started"
           ? "conversation.nativeActivities.knowledgeSearchRunning"

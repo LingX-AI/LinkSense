@@ -9,6 +9,7 @@ import { errorCatalog, localizedErrorMessage } from "@linksense/shared"
 import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const zhCN = {
+  localBrowser: localBrowserMessages["zh-CN"],
   modelSetup: modelSetupMessages["zh-CN"],
   connections: connectionMessages["zh-CN"],
   sideChat: sideChatMessages["zh-CN"],
@@ -3855,6 +3856,7 @@ export const zhCN = {
       assistant_response: "AI 回答",
       memory_generation: "记忆生成",
       task_title_generation: "任务自动命名",
+      browser_use_intent: "浏览器意图检测",
       document_embedding: "文档向量化",
       query_embedding: "查询向量化",
       rerank: "检索重排",
@@ -5187,3 +5189,4 @@ export const zhCN = {
     teams: "Teams SSO",
   },
 } as const
+import { localBrowserMessages } from "@/features/local-browser/messages"

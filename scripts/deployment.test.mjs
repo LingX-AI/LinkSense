@@ -181,7 +181,10 @@ test("workspace tests bound parallel services before running the complete web su
     webPackage.scripts["test:unit"],
     "vitest run --project application --maxWorkers=2 && vitest run --project components --project shared-components --project node --maxWorkers=4",
   );
-  assert.equal(webPackage.scripts["test:e2e"], "playwright test");
+  assert.equal(
+    webPackage.scripts["test:e2e"],
+    "node ../api/scripts/build-browser-extension.mjs && playwright test",
+  );
   assert.equal(runnerPackage.scripts.test, "vitest run --pool=forks --maxWorkers=4");
 });
 
@@ -429,6 +432,31 @@ test("production stack Compose exposes the merged deployment through one platfor
   assert.doesNotMatch(compose, /(?:PASSWORD|SECRET|API_KEY)=/u);
 });
 
+for (const template of [
+  "deploy/nginx/default.conf.template",
+  "deploy/nginx/production-gateway.conf.template",
+  "deploy/release/gateway.conf.template",
+]) {
+  test(`${template} forwards the authenticated local browser WebSocket`, async () => {
+    const gateway = await readFile(resolve(template), "utf8");
+    const location = gateway.match(
+      /  location = \/api\/v1\/local-browser\/socket \{([\s\S]*?)\n  \}/u,
+    )?.[1];
+    assert.ok(location, "local browser WebSocket location is missing");
+    assert.match(location, /proxy_pass http:\/\/(?:api:4000|linksense_api);/u);
+    assert.match(location, /proxy_http_version 1\.1;/u);
+    assert.match(location, /proxy_set_header Host \$http_host;/u);
+    assert.match(location, /proxy_set_header X-Forwarded-Proto \$(?:scheme|linksense_forwarded_proto);/u);
+    assert.match(location, /proxy_set_header Upgrade \$http_upgrade;/u);
+    assert.match(location, /proxy_set_header Connection "upgrade";/u);
+    assert.match(location, /proxy_buffering off;/u);
+    assert.match(location, /proxy_read_timeout 1h;/u);
+    if (template === "deploy/nginx/production-gateway.conf.template") {
+      assert.match(location, /if \(-f \/tmp\/linksense-maintenance\) \{\s*return 503;/u);
+    }
+  });
+}
+
 test("production gateway preserves HTTPS proxy semantics, SSE, and signed MinIO paths", async () => {
   const [gateway, hostExample] = await Promise.all([
     readFile(productionGatewayPath, "utf8"),
@@ -473,7 +501,7 @@ test("production gateway preserves HTTPS proxy semantics, SSE, and signed MinIO 
     gateway.match(
       /if \(-f \/tmp\/linksense-maintenance\) \{\s*return 503;\s*\}/gu,
     ) ?? [];
-  assert.equal(maintenanceChecks.length, 5);
+  assert.equal(maintenanceChecks.length, 6);
   const siteLocation = section(gateway, "  location ^~ /web/", "  location /api/");
   assert.match(siteLocation, /if \(-f \/tmp\/linksense-maintenance\)/u);
   assert.match(siteLocation, /proxy_set_header X-Forwarded-Proto \$linksense_forwarded_proto;/u);
@@ -1146,7 +1174,7 @@ test("API image bundles the bilingual Help Center into the built-in documentatio
   assert.ok(copyEnglishDocsIndex < buildApiIndex);
   assert.match(
     apiPackage,
-    /tsc -p tsconfig\.build\.json && node dist\/commands\/bundle-linksense-docs\.js/u,
+    /tsc -p tsconfig\.build\.json && node scripts\/build-browser-extension\.mjs && node dist\/commands\/bundle-linksense-docs\.js/u,
   );
 });
 

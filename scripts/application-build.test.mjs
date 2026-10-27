@@ -21,7 +21,7 @@ test("Web and API share a deterministic source identity that changes with either
     writeFileSync(join(root, "apps/api/src/generated/prisma.ts"), "platform-specific code");
     assert.equal(applicationBuildId(root), first);
     let previous = first;
-    for (const input of ["apps/api/src/source.ts", "apps/web/src/source.ts", "packages/shared/src/source.ts", "pnpm-lock.yaml", "apps/api/tsconfig.json"]) {
+    for (const input of ["apps/api/src/source.ts", "apps/api/browser-extension/source.ts", "apps/api/scripts/source.ts", "apps/web/src/source.ts", "packages/shared/src/source.ts", "pnpm-lock.yaml", "apps/api/tsconfig.json"]) {
       writeFileSync(join(root, input), "changed");
       const next = applicationBuildId(root);
       assert.notEqual(next, previous);

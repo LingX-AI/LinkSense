@@ -209,6 +209,8 @@ import {
 import { ConversationLineSidebar } from "@/features/conversations/conversation-line-sidebar"
 import { buildOfficeAnnotationInput } from "@/features/conversations/conversation-office-annotation"
 import { ConversationOfficeLayout } from "@/features/conversations/conversation-presentation-layout"
+import { LocalBrowserPreview } from "@/features/local-browser/local-browser-preview"
+import { BrowserUsePrompt } from "@/features/local-browser/browser-use-prompt"
 import { DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO } from "@/features/conversations/conversation-presentation-width"
 import {
   readUrlEnum,
@@ -6094,6 +6096,18 @@ export function ConversationPage({
         variant="error"
         onDismiss={dismissError}
       />
+      {!isNew &&
+        conversationId &&
+        user &&
+        surfaceActive &&
+        !embedded &&
+        !readOnly && (
+          <LocalBrowserPreview
+            key={`${user.id}:${conversationId}`}
+            userId={user.id}
+            conversationId={conversationId}
+          />
+        )}
       {showConnectionWarning && (
         <div className="conversation-top-overlay-stack">
           <div className="conversation-banner-stack">
@@ -6364,6 +6378,20 @@ export function ConversationPage({
             <AlertDescription>{applicationUnavailableMessage}</AlertDescription>
           </Alert>
         )}
+        {showConversationComposer &&
+          user &&
+          surfaceActive &&
+          !embedded &&
+          !readOnly &&
+          !development &&
+          !isApplicationConversation && (
+            <BrowserUsePrompt
+              key={user.id}
+              userId={user.id}
+              conversationId={isNew ? undefined : conversationId}
+              messages={visibleMessages}
+            />
+          )}
         {showConversationComposer && (
           <ConversationDraftComposer
             ref={composerRef}

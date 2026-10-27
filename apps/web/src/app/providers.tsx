@@ -10,6 +10,7 @@ import { BrowserNotificationCenter } from "@/features/browser-notifications/brow
 import { BrowserNotificationPrompt } from "@/features/browser-notifications/browser-notification-prompt"
 import { ApiError } from "@/api/client"
 import { CreditQuotaRefreshCenter } from "@/features/usage/credit-quota-refresh-center"
+import { BrowserExtensionConnection } from "@/features/local-browser/browser-extension-connection"
 
 export function AppProviders({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -39,6 +40,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             <TooltipProvider>
               <CreditQuotaRefreshCenter />
               <BrowserNotificationCenter />
+              <BrowserExtensionConnection />
               {children}
               <BrowserNotificationPrompt />
             </TooltipProvider>

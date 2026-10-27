@@ -1,4 +1,11 @@
-import { useCallback, useMemo, useRef, useState, type FormEvent } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react"
 import {
   BrainIcon,
   EyeIcon,
@@ -9,7 +16,12 @@ import {
 import { SocialAccounts } from "@/features/social-auth/social-accounts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
-import { useBeforeUnload, useBlocker, useNavigate } from "react-router-dom"
+import {
+  useBeforeUnload,
+  useBlocker,
+  useLocation,
+  useNavigate,
+} from "react-router-dom"
 import { z } from "zod"
 
 import { apiRequest } from "@/api/client"
@@ -87,6 +99,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { ProfileOverview } from "@/features/profile/profile-overview"
 import { BrowserNotificationSettings } from "@/features/browser-notifications/browser-notification-settings"
+import { BrowserExtensionSettings } from "@/features/local-browser/browser-extension-settings"
 import { normalizeLanguage, supportedLanguages } from "@/i18n"
 import { useLanguageSelection } from "@/features/onboarding/use-language-selection"
 import { passwordSchema } from "@/lib/password"
@@ -101,7 +114,14 @@ import {
 const resetMemoriesNotificationId = "personalization-memories-reset"
 export function SettingsGeneralPage() {
   const { t } = useTranslation()
+  const location = useLocation()
   const { user, refreshUser } = useAuth()
+  useEffect(() => {
+    if (location.hash !== "#browser-extension") return
+    const target = document.getElementById("browser-extension")
+    target?.scrollIntoView({ block: "start", behavior: "instant" })
+    target?.focus({ preventScroll: true })
+  }, [location.key, location.hash])
   const {
     language,
     pending: languagePending,
@@ -244,6 +264,7 @@ export function SettingsGeneralPage() {
           </section>
         </SettingsCard>
         <BrowserNotificationSettings userId={user?.id} />
+        <BrowserExtensionSettings userId={user?.id} />
       </div>
     </SettingsPageFrame>
   )

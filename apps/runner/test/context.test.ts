@@ -8,7 +8,7 @@ import {
 } from "../src/context.js";
 
 describe("buildTurnInput", () => {
-  it("keeps the six ordinary platform contexts within the startup text budget", () => {
+  it("keeps ordinary platform contexts within the startup text budget", () => {
     const output = buildTurnAdditionalContext({
       userInput: "你好",
       attachments: [],
@@ -17,6 +17,7 @@ describe("buildTurnInput", () => {
     }, [{ name: "linksense-browser", path: "/workspace/.agents/skills/linksense-browser/SKILL.md" }]);
 
     expect(Object.keys(output ?? {}).sort()).toEqual([
+      "linksense.browser-selection",
       "linksense.inline-html-preview",
       "linksense.interactive-forms",
       "linksense.knowledge-selection",

@@ -10,6 +10,7 @@ import { errorCatalog, localizedErrorMessage } from "@linksense/shared"
 import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const enUS = {
+  localBrowser: localBrowserMessages["en-US"],
   modelSetup: modelSetupMessages["en-US"],
   connections: connectionMessages["en-US"],
   sideChat: sideChatMessages["en-US"],
@@ -4155,6 +4156,7 @@ export const enUS = {
       assistant_response: "AI responses",
       memory_generation: "Memory generation",
       task_title_generation: "Task auto naming",
+      browser_use_intent: "Browser intent detection",
       document_embedding: "Document embeddings",
       query_embedding: "Query embeddings",
       rerank: "Retrieval reranking",
@@ -5658,3 +5660,4 @@ export const enUS = {
     teams: "Teams SSO",
   },
 } as const
+import { localBrowserMessages } from "@/features/local-browser/messages"

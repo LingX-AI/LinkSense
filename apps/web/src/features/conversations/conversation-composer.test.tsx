@@ -3018,7 +3018,7 @@ describe("conversation voice input", () => {
     ).toEqual([
       "Alpha Skill",
       "Zulu Skill",
-      "LinkSense 浏览器",
+      "LinkSense 云端浏览器",
       "LinkSense 文件服务",
     ])
   })
@@ -3045,7 +3045,7 @@ describe("conversation voice input", () => {
     await interaction.click(screen.getByRole("button", { name: "添加" }))
 
     const option = await screen.findByRole("option", {
-      name: /LinkSense 浏览器/,
+      name: /LinkSense 云端浏览器/,
     })
     expect(option).not.toHaveAttribute("data-disabled", "true")
     expect(option).toHaveTextContent("内置")
@@ -3054,7 +3054,7 @@ describe("conversation voice input", () => {
 
     await interaction.click(screen.getByRole("button", { name: "添加" }))
     const selectedOption = await screen.findByRole("option", {
-      name: /LinkSense 浏览器/,
+      name: /LinkSense 云端浏览器/,
     })
     expect(selectedOption).toHaveAttribute("data-checked", "true")
     await interaction.click(selectedOption)

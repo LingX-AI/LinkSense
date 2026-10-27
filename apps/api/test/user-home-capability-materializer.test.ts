@@ -309,6 +309,8 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     const next = await materializer.resolvePublishedRuntimeWithinPublicationStartFence(input)
     expect(onStage).toHaveBeenCalledOnce()
     expect(next.verification.contentDigest).toBe(BUILT_IN_CAPABILITY_RUNTIME_REVISION)
+    expect(await readFile(join(next.skillsRoot, "linksense-local-browser", "SKILL.md"), "utf8")).toContain("LOCAL Chrome/Edge")
+    expect(await readFile(join(next.skillsRoot, "linksense-browser", "SKILL.md"), "utf8")).toContain("CLOUD managed Chromium")
     // Subsequent starts reuse the freshly published snapshot.
     await materializer.resolvePublishedRuntimeWithinPublicationStartFence(input)
     expect(onStage).toHaveBeenCalledOnce()

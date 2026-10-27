@@ -435,6 +435,7 @@ function capabilityPreviewResponse() {
 }
 
 function installApiMock(options?: {
+  browserUseIntent?: boolean
   showReasoning?: boolean
   conversationSourcesResponse?: () => Response | Promise<Response>
   initialized?: boolean
@@ -1716,6 +1717,8 @@ function installApiMock(options?: {
           data: { items: userGroups, next_cursor: null },
         })
       }
+      if (/^\/api\/v1\/conversations\/[^/]+\/browser-use-intent$/u.test(path))
+        return json({ success: true, data: options?.browserUseIntent ?? false })
       return json({ success: true, data: null })
     }
   )

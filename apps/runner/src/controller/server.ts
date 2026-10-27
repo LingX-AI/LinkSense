@@ -64,6 +64,9 @@ export function buildControllerServer(
     if (request.url.startsWith("/internal/connections/")) {
       return reply.code(403).send({ error_code: "CONNECTION_ACCESS_DENIED" })
     }
+    if (request.url.startsWith("/internal/local-browser/")) {
+      return reply.code(403).send({ error_code: "FORBIDDEN" })
+    }
     if (request.url.startsWith("/internal/skill-creator/") || request.url === "/internal/application-builder") {
       return reply.code(403).send({ error_code: "RUNNER_SERVICE_SCOPE_MISMATCH" })
     }
@@ -154,6 +157,7 @@ export function buildControllerServer(
     "/internal/skill-creator/preview",
     "/internal/skill-creator/confirm",
     "/internal/current-user/info",
+    "/internal/local-browser/execute",
     "/internal/conversation-references/read",
     "/internal/automations/request-stop",
     "/internal/connections/execute",
@@ -185,7 +189,7 @@ export function buildControllerServer(
               ? 180_000
             : route === "/internal/runner/process-exit"
               ? 130_000
-            : route === "/internal/application-builder" || route === "/internal/connections/execute"
+            : route === "/internal/application-builder" || route === "/internal/connections/execute" || route === "/internal/local-browser/execute"
               ? 60_000
             : 15_000,
           controller.signal,

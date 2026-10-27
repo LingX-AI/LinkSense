@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LinkSense</title>
+  <link rel="icon" href="icons/icon-32.png">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body class="w-94 bg-background font-sans text-sm leading-relaxed text-foreground antialiased">
+  <main class="grid gap-4 p-5">
+    <header class="flex items-center gap-3">
+      <img src="icons/icon-128.png" alt="" width="40" height="40" class="size-10 shrink-0">
+      <div class="min-w-0 flex-1">
+        <h1 class="text-lg leading-tight font-semibold tracking-tight">LinkSense</h1>
+        <p class="mt-0.5 text-xs text-muted-foreground" data-message="subtitle"></p>
+      </div>
+      <span id="connection-badge" class="group inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium data-[state=connected]:bg-success/10">
+        <span class="size-1.5 rounded-full bg-muted-foreground group-data-[state=connected]:bg-success"></span>
+        <span id="status" role="status" aria-live="polite"></span>
+      </span>
+    </header>
+
+    <section class="rounded-xl border border-border bg-muted/35 p-3.5" aria-labelledby="server-label">
+      <div class="flex items-center gap-2 text-xs text-muted-foreground">
+        <i data-lucide="monitor" class="size-3.5" aria-hidden="true"></i>
+        <h2 id="server-label" class="font-medium" data-message="server"></h2>
+      </div>
+      <p id="origin" class="mt-1.5 break-all font-medium"></p>
+      <p id="connection-hint" class="mt-1 text-xs text-muted-foreground"></p>
+      <button id="connect" type="button" class="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-45">
+        <i data-lucide="link-2" class="size-4" aria-hidden="true"></i><span id="connect-label" data-message="connect"></span>
+      </button>
+    </section>
+
+    <section id="page-card" class="rounded-xl border border-border p-3.5" aria-labelledby="page-label" hidden>
+      <div class="flex items-center justify-between gap-2">
+        <h2 id="page-label" class="text-xs font-medium text-muted-foreground" data-message="currentPage"></h2>
+        <span id="page-shared" class="inline-flex items-center gap-1 text-xs font-medium" hidden><i data-lucide="check" class="size-3.5 text-primary" aria-hidden="true"></i><span data-message="shared"></span></span>
+      </div>
+      <div class="mt-3 flex items-center gap-3">
+        <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"><i data-lucide="globe" class="size-4" aria-hidden="true"></i></span>
+        <div class="min-w-0"><p id="page-title" class="line-clamp-2 text-sm leading-snug font-medium"></p><p id="page-host" class="mt-0.5 truncate text-xs text-muted-foreground"></p></div>
+      </div>
+      <p id="page-hint" class="mt-3 text-xs text-muted-foreground"></p>
+      <button id="allow" type="button" class="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-45"><i data-lucide="mouse-pointer-2" class="size-4" aria-hidden="true"></i><span data-message="allow"></span></button>
+      <button id="release" type="button" class="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 font-medium transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-45" hidden><i data-lucide="unlink" class="size-4" aria-hidden="true"></i><span data-message="release"></span></button>
+    </section>
+
+    <label id="new-tabs-option" class="flex cursor-pointer items-start gap-3 rounded-lg px-0.5" for="new-tabs" hidden>
+      <input type="checkbox" id="new-tabs" name="new-tabs" aria-describedby="new-tabs-description" class="mt-0.5 size-4 shrink-0 cursor-pointer accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed">
+      <span class="min-w-0"><span class="block text-sm font-medium" data-message="newTabs"></span><span id="new-tabs-description" class="mt-0.5 block text-xs text-muted-foreground" data-message="newTabsHint"></span></span>
+    </label>
+
+    <div id="error-banner" class="flex items-start gap-2 rounded-lg bg-destructive/8 p-3 text-xs text-destructive" role="alert" hidden><i data-lucide="circle-alert" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true"></i><p id="error" class="min-w-0"></p></div>
+
+    <footer class="border-t border-border pt-3">
+      <div class="flex items-center justify-between gap-3">
+        <span class="flex items-center gap-1.5 text-xs text-muted-foreground"><i data-lucide="shield-check" class="size-3.5" aria-hidden="true"></i><span data-message="privacyShort"></span></span>
+        <button id="disconnect" type="button" class="inline-flex min-h-8 items-center gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-destructive/8 hover:text-destructive focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-45" hidden><i data-lucide="unplug" class="size-3.5" aria-hidden="true"></i><span data-message="disconnect"></span></button>
+      </div>
+      <details id="privacy-details" class="mt-2 text-xs text-muted-foreground"><summary class="w-fit cursor-pointer rounded-sm text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" data-message="privacyDetails"></summary><p class="mt-2 leading-relaxed" data-message="consent"></p></details>
+    </footer>
+  </main>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

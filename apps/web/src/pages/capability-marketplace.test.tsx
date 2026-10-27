@@ -916,10 +916,10 @@ describe("capability marketplace pages", () => {
     expect(screen.getByRole("heading", { name: "已安装" })).toBeVisible()
     const installedList = screen.getByRole("list", { name: "已安装的技能" })
     const installedCard = within(installedList).getByRole("article", {
-      name: "LinkSense 浏览器",
+      name: "LinkSense 云端浏览器",
     })
     expect(installedCard).toBeVisible()
-    expect(within(installedCard).getByText("LinkSense 浏览器")).toBeVisible()
+    expect(within(installedCard).getByText("LinkSense 云端浏览器")).toBeVisible()
     expect(installedCard.querySelector(".capability-library-type")).toBeNull()
     expect(within(installedCard).getByText("内置")).toHaveClass(
       "capability-built-in-badge"
@@ -939,11 +939,11 @@ describe("capability marketplace pages", () => {
     ).not.toBeInTheDocument()
     await interaction.click(
       within(installedCard).getByRole("button", {
-        name: "查看LinkSense 浏览器详情",
+        name: "查看LinkSense 云端浏览器详情",
       })
     )
     const builtInDetail = await screen.findByRole("dialog", {
-      name: "LinkSense 浏览器",
+      name: "LinkSense 云端浏览器",
     })
     expect(within(builtInDetail).getAllByText("内置")).toHaveLength(2)
     expect(within(builtInDetail).getByText(/平台自动装配/u)).toBeVisible()
@@ -1017,7 +1017,7 @@ describe("capability marketplace pages", () => {
     ).not.toBeInTheDocument()
     expect(
       within(personalCatalog).queryByRole("article", {
-        name: "LinkSense 浏览器",
+        name: "LinkSense 云端浏览器",
       })
     ).not.toBeInTheDocument()
     expect(

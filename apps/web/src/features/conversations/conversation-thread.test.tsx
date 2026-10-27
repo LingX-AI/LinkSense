@@ -2737,7 +2737,7 @@ describe("conversation turn responses", () => {
     )
 
     const userMessage = screen.getByRole("article", { name: "用户消息" })
-    const skillLabel = within(userMessage).getByText("LinkSense 浏览器")
+    const skillLabel = within(userMessage).getByText("LinkSense 云端浏览器")
     const knowledgeBaseLabel = within(userMessage).getByText("AISG Policy")
     expect(skillLabel).toBeVisible()
     expect(skillLabel).toHaveClass("user-message-capability-label")

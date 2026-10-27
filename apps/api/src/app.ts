@@ -7,6 +7,10 @@ import { samlRoutes } from "./modules/saml/routes.js";
 import { applicationCenterRoutes, adminApplicationCenterRoutes } from "./modules/applications/center-routes.js";
 import { applicationDevelopmentRoutes, internalApplicationBuilderRoutes } from "./modules/applications/development-routes.js";
 import { registerRunnerRuntimeScope } from "./modules/events/runtime-scope.js";
+import { registerLocalBrowserRoutes } from "./modules/local-browser/routes.js";
+import { LocalBrowserService } from "./modules/local-browser/service.js";
+import { BrowserUseIntentService } from "./modules/local-browser/intent.js";
+import { RedisBrowserStore } from "./modules/local-browser/store.js";
 import { finishTaskRequest, withTaskLatencyContext } from "./lib/task-latency.js";
 import cookie from "@fastify/cookie";
 import { socialAuthRoutes } from "./modules/social-auth/routes.js";
@@ -139,6 +143,8 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.body.verify_code",
   "req.body.app_secret",
   "req.body.ticket",
+  "req.body.code",
+  "req.body.pairing.code",
   "req.body.renewal_token",
   "req.body.values[*].value",
   "res.headers.set-cookie",
@@ -183,6 +189,7 @@ export async function buildApi(
     },
   });
   await app.register(authenticationPlugin, { prisma: services.prisma });
+  const localBrowserEndpoint = new URL("api/v1/local-browser", `${services.config.publicBaseUrl.replace(/\/$/, "")}/`);
   const authService = createAuthService(app, services);
   await authService.prepare();
   await services.jobs.start(authService, services.system);
@@ -601,6 +608,13 @@ export async function buildApi(
     prefix: "/internal",
     service: services.users,
     sharedSecret: services.config.runnerSharedSecret,
+  });
+  await registerLocalBrowserRoutes(app, {
+    service: new LocalBrowserService(new RedisBrowserStore(services.redis.client), localBrowserEndpoint.href),
+    prisma: services.prisma,
+    sharedSecret: services.config.runnerSharedSecret,
+    socketPath: `${localBrowserEndpoint.pathname}/socket`,
+    intent: new BrowserUseIntentService(services.prisma, new RedisBrowserStore(services.redis.client), services.modelProviderSettings, services.usageAnalytics),
   });
   await app.register(auditRoutes, { prefix: "/api/v1/admin/audit", services });
   await app.register(usageAnalyticsRoutes, {

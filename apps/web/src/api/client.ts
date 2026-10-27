@@ -116,6 +116,7 @@ type RequestOptions<TSchema extends z.ZodType> = {
   schema: TSchema
   signal?: AbortSignal
   cache?: RequestCache
+  priority?: RequestPriority
   skipRefresh?: boolean
 }
 
@@ -286,6 +287,7 @@ async function rawRequest<TSchema extends z.ZodType>(
       credentials: "include",
       signal: options.signal,
       cache: options.cache ?? "no-store",
+      ...(options.priority ? { priority: options.priority } : {}),
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {

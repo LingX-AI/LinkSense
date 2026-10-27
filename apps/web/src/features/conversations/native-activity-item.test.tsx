@@ -474,6 +474,36 @@ describe("NativeActivityItem", () => {
   })
 
   it.each(supportedLanguages)(
+    "identifies local browser execution in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const item = {
+        id: "local-browser",
+        type: "mcpToolCall" as const,
+        server: "linksense_core",
+        tool: "local_browser",
+        status: "inProgress" as const,
+      }
+      const { rerender } = render(
+        <NativeActivityItem method="item/started" item={item} />
+      )
+      expect(
+        screen.getByText(i18n.t("localBrowser.activityRunning"))
+      ).toBeVisible()
+      expect(screen.queryByText("local_browser")).toBeNull()
+      rerender(
+        <NativeActivityItem
+          method="item/completed"
+          item={{ ...item, status: "completed" }}
+        />
+      )
+      expect(
+        screen.getByText(i18n.t("localBrowser.activityFinished"))
+      ).toBeVisible()
+    }
+  )
+
+  it.each(supportedLanguages)(
     "keeps image generation outcomes on their localized activity record in %s",
     async (language) => {
       await i18n.changeLanguage(language)
@@ -929,12 +959,18 @@ describe("NativeActivityItem", () => {
       render(
         <NativeActivityItem
           method={method}
-          item={{ type: "imageView", id: "missing-preview", path: "$ABSOLUTE/crop.png" }}
+          item={{
+            type: "imageView",
+            id: "missing-preview",
+            path: "$ABSOLUTE/crop.png",
+          }}
           loadArtifactPreview={loadArtifactPreview}
           open
         />
       )
-      expect(screen.getByText("$ABSOLUTE/crop.png", { selector: "code" })).toBeVisible()
+      expect(
+        screen.getByText("$ABSOLUTE/crop.png", { selector: "code" })
+      ).toBeVisible()
       if (method === "item/completed") {
         expect(screen.getByRole("status")).toHaveTextContent("图片暂不可用")
       } else {
