@@ -628,9 +628,11 @@ describe("website management", () => {
       ).toHaveAttribute("aria-expanded", "false")
     )
     await userEvent.click(screen.getByRole("combobox", { name: "选择站点" }))
-    expect(
-      await screen.findByRole("combobox", { name: "搜索站点名称或链接" })
-    ).toHaveValue("")
+    const reopenedSearch = await screen.findByRole("combobox", {
+      name: "搜索站点名称或链接",
+    })
+    expect(reopenedSearch).toHaveValue("")
+    await waitFor(() => expect(reopenedSearch).toHaveFocus())
     expect(close).not.toHaveBeenCalled()
     await userEvent.keyboard("{Escape}")
     expect(close).not.toHaveBeenCalled()
@@ -676,7 +678,10 @@ describe("website management", () => {
       await choosePublishMode("updateExisting")
       const target = screen.getByRole("combobox", { name: "选择站点" })
       await userEvent.click(target)
-      await screen.findByRole("combobox", { name: "搜索站点名称或链接" })
+      const search = await screen.findByRole("combobox", {
+        name: "搜索站点名称或链接",
+      })
+      await waitFor(() => expect(search).toHaveFocus())
       if (state === "empty")
         expect(
           await screen.findByText(i18n.t("webSites.noUpdateTargets"))
