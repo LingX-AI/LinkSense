@@ -231,13 +231,8 @@ function webUrl(value: string): URL {
     throw new Error("LOCAL_BROWSER_ACCESS_DENIED");
   return url;
 }
-function secureEndpoint(value: string): URL {
+function connectionEndpoint(value: string): URL {
   const url = webUrl(value);
-  if (
-    url.protocol !== "https:" &&
-    !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
-  )
-    throw new Error("LOCAL_BROWSER_ACCESS_DENIED");
   if (!url.pathname.endsWith("/api/v1/local-browser") || url.search || url.hash)
     throw new Error("LOCAL_BROWSER_ACCESS_DENIED");
   return url;
@@ -660,7 +655,7 @@ async function connect(): Promise<void> {
     (await chrome.storage.session.get("session")).session,
   );
   if (previous !== generation) throw new Error("LOCAL_BROWSER_CANCELLED");
-  const url = secureEndpoint(session.endpoint);
+  const url = connectionEndpoint(session.endpoint);
   await chrome.storage.session.set({ connected: false });
   if (previous !== generation) throw new Error("LOCAL_BROWSER_CANCELLED");
   clearTimeout(reconnectTimer);
@@ -818,7 +813,7 @@ async function acceptPairing(
     const trust = automatic ? await trustedSite() : undefined;
     assertCurrent();
     if (automatic && !trust?.approval_id) throw new Error("denied");
-    const response = await fetch(`${secureEndpoint(pairing.endpoint).href}/pair`, {
+    const response = await fetch(`${connectionEndpoint(pairing.endpoint).href}/pair`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ code: pairing.code, ...(automatic ? { approval_id: trust?.approval_id } : {}) }), signal: AbortSignal.timeout(10_000),
       credentials: "omit", redirect: "error",
@@ -977,7 +972,7 @@ chrome.runtime.onMessage.addListener((raw: unknown, sender, respond) => {
       if (!sender.tab?.id || !sender.url || !message.pairing)
         throw new Error("denied");
       const origin = new URL(sender.url).origin;
-      const endpoint = secureEndpoint(message.pairing.endpoint);
+      const endpoint = connectionEndpoint(message.pairing.endpoint);
       if (endpoint.origin !== origin ||
           (!message.owner_id && !new URL(sender.url).pathname.endsWith("/settings/general")))
         throw new Error("denied");

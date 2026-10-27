@@ -49,9 +49,6 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
     browser === "edge" ? "edge://extensions" : "chrome://extensions"
   const [detected, setDetected] = useState<boolean | null>(null)
   const [pending, setPending] = useState(false)
-  const secureConnection =
-    location.protocol === "https:" ||
-    ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname)
   const queryKey = ["local-browser", userId] as const
   const status = useQuery({
     queryKey,
@@ -208,9 +205,6 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
         <p className="text-xs text-muted-foreground">
           {t("localBrowser.privacy")}
         </p>
-        {!secureConnection && (
-          <StatusBanner>{t("localBrowser.secureConnection")}</StatusBanner>
-        )}
         {supportedBrowser && (
           <div className="space-y-3">
             <h3 className="text-sm font-semibold">
@@ -281,12 +275,7 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
             {t("localBrowser.download")}
           </Button>
           <Button
-            disabled={
-              !supportedBrowser ||
-              !detected ||
-              !secureConnection ||
-              action.isPending
-            }
+            disabled={!supportedBrowser || !detected || action.isPending}
             onClick={() => action.mutate("connect")}
           >
             {t("localBrowser.connect")}

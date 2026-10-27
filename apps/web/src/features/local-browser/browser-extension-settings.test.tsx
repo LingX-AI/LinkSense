@@ -136,6 +136,33 @@ it("authors all six translations with matching keys and interpolation", () => {
   }
 })
 
+it("allows connecting from an HTTP network origin without the HTTPS restriction", async () => {
+  vi.stubGlobal("location", {
+    protocol: "http:",
+    hostname: "192.168.2.210",
+    href: "http://192.168.2.210:19090/settings/general",
+  })
+  vi.mocked(browserExtensionRequest).mockResolvedValue({
+    detected: true,
+    ok: true,
+  })
+  const pairing = {
+    code: "p".repeat(43),
+    endpoint: "http://192.168.2.210:19090/api/v1/local-browser",
+  }
+  vi.mocked(apiRequest).mockImplementation(async (path) =>
+    path === "/local-browser/pairing" ? pairing : { connected: false }
+  )
+  show()
+  const button = screen.getByRole("button", { name: "连接此浏览器" })
+  await waitFor(() => expect(button).toBeEnabled())
+  expect(screen.queryByText(/HTTPS 或 localhost/u)).not.toBeInTheDocument()
+  await userEvent.click(button)
+  expect(browserExtensionRequest).toHaveBeenCalledWith("pair", pairing, {
+    owner_id: "user",
+  })
+})
+
 it.each([...supportedLanguages, "de-DE"])(
   "renders five actionable steps with emphasized controls in %s and Chinese fallback",
   async (language) => {

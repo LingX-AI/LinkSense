@@ -8,7 +8,7 @@ import path from "node:path"
 import { createBrowserExtensionFixture } from "../../api/test/fixtures/local-browser-extension.js"
 import type { LocalBrowserRequest, LocalBrowserResult } from "@linksense/shared"
 
-test("an isolated Chrome extension pairs, reconnects, opens, observes and revokes a real tab", async ({
+test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, controls and revokes a real tab", async ({
   playwright,
 }, testInfo) => {
   test.setTimeout(60_000)
@@ -40,8 +40,13 @@ test("an isolated Chrome extension pairs, reconnects, opens, observes and revoke
   if (!targetAddress || typeof targetAddress === "string")
     throw new Error("fixture port missing")
   const targetUrl = `http://127.0.0.1:${targetAddress.port}/`
-  const { api, service, address, dropBrowserTransport } =
-    await createBrowserExtensionFixture(owner, date)
+  const {
+    api,
+    service,
+    address: fixtureAddress,
+    dropBrowserTransport,
+  } = await createBrowserExtensionFixture(owner, date)
+  const address = fixtureAddress.replace("127.0.0.1", "linksense-http.test")
   const directory = await mkdtemp(
     path.join(tmpdir(), "linksense-browser-extension-")
   )
@@ -53,6 +58,8 @@ test("an isolated Chrome extension pairs, reconnects, opens, observes and revoke
     channel: "chromium",
     headless: true,
     args: [
+      "--no-proxy-server",
+      "--host-resolver-rules=MAP linksense-http.test 127.0.0.1",
       `--disable-extensions-except=${extension}`,
       `--load-extension=${extension}`,
     ],
@@ -68,13 +75,17 @@ test("an isolated Chrome extension pairs, reconnects, opens, observes and revoke
   }
   try {
     const archiveResponse = await browser.request.get(
-      `${address}/api/v1/local-browser/extension`
+      `${fixtureAddress}/api/v1/local-browser/extension`
     )
     expect(archiveResponse.status()).toBe(200)
     const archive = await JSZip.loadAsync(await archiveResponse.body())
     expect(
       JSON.parse(await archive.file("manifest.json")!.async("string"))
-    ).toMatchObject({ manifest_version: 3, default_locale: "en" })
+    ).toMatchObject({
+      manifest_version: 3,
+      default_locale: "en",
+      version: "0.4.5",
+    })
     expect(archive.file("background.js")).not.toBeNull()
     expect(archive.file("ZOD-LICENSE")).not.toBeNull()
     expect(archive.file("LUCIDE-LICENSE")).not.toBeNull()
@@ -105,6 +116,7 @@ test("an isolated Chrome extension pairs, reconnects, opens, observes and revoke
     const extensionId = new URL(worker.url()).host
     const page = await browser.newPage()
     await page.goto(`${address}/settings/general`)
+    expect(await page.evaluate(() => window.isSecureContext)).toBe(false)
     const pair = await service.pairing(owner, date.toISOString())
     await page.evaluate(
       (pairing) =>

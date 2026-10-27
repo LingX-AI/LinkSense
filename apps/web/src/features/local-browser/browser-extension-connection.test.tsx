@@ -22,7 +22,35 @@ beforeEach(() => {
   auth.status = "authenticated"
   vi.mocked(browserExtensionRequest).mockResolvedValue({ detected: false })
 })
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
+it("pairs and resumes from an HTTP network origin", async () => {
+  vi.stubGlobal("location", { protocol: "http:", hostname: "192.168.2.210" })
+  const pairing = {
+    code: "p".repeat(43),
+    endpoint: "http://192.168.2.210:19090/api/v1/local-browser",
+  }
+  vi.mocked(browserExtensionRequest)
+    .mockResolvedValueOnce({ detected: true, pairing_mode: "automatic" })
+    .mockResolvedValue({ detected: true, pairing_mode: "connected" })
+  vi.mocked(apiRequest).mockResolvedValue(pairing)
+  show()
+  await waitFor(() =>
+    expect(browserExtensionRequest).toHaveBeenCalledWith("pair", pairing, {
+      owner_id: auth.user.id,
+      automatic: true,
+    })
+  )
+  window.dispatchEvent(new Event("focus"))
+  await waitFor(() =>
+    expect(browserExtensionRequest).toHaveBeenCalledWith("detect", undefined, {
+      owner_id: auth.user.id,
+      resume: true,
+    })
+  )
+})
 it("does not detect or pair an extension in an unsupported browser", () => {
   vi.mocked(browserUseBrowser).mockReturnValue(null)
   show()

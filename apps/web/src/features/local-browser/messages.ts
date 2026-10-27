@@ -25,8 +25,6 @@ export const localBrowserMessages = {
     previewUnavailable: "无法切换到此页，请确认浏览器已连接且页面仍在共享。",
     activityRunning: "正在使用 Browser Use",
     activityFinished: "Browser Use 操作已结束",
-    secureConnection:
-      "本地浏览器连接需要通过 HTTPS 或 localhost 访问 LinkSense。",
     title: "Browser Use",
     description:
       "云端浏览器无需安装。连接扩展后，助手还可操作这台电脑的 Chrome / Edge，复用你已有的登录态。",
@@ -83,8 +81,6 @@ export const localBrowserMessages = {
       "Cannot switch to this tab. Check that the browser is connected and the page is still shared.",
     activityRunning: "Using Browser Use",
     activityFinished: "Browser Use operation finished",
-    secureConnection:
-      "Open LinkSense over HTTPS or localhost to connect the local browser.",
     title: "Browser Use",
     description:
       "The cloud browser needs no installation. Connect the extension to let the assistant use Chrome / Edge on this computer with your existing login sessions.",
@@ -144,8 +140,6 @@ export const localBrowserMessages = {
       "No se puede cambiar a esta pestaña. Comprueba la conexión y que la página siga compartida.",
     activityRunning: "Usando Browser Use",
     activityFinished: "Operación de Browser Use finalizada",
-    secureConnection:
-      "Abre LinkSense mediante HTTPS o localhost para conectar el navegador local.",
     title: "Browser Use",
     description:
       "El navegador en la nube no requiere instalación. Conecta la extensión para que el asistente utilice Chrome / Edge en este equipo con tus sesiones existentes.",
@@ -206,8 +200,6 @@ export const localBrowserMessages = {
       "Não foi possível abrir esta aba. Confira a conexão e se a página ainda está compartilhada.",
     activityRunning: "Usando o Browser Use",
     activityFinished: "Operação do Browser Use encerrada",
-    secureConnection:
-      "Abra o LinkSense por HTTPS ou localhost para conectar o navegador local.",
     title: "Browser Use",
     description:
       "O navegador na nuvem não exige instalação. Conecte a extensão para o assistente usar o Chrome / Edge deste computador com suas sessões existentes.",
@@ -270,8 +262,6 @@ export const localBrowserMessages = {
       "Impossible d’ouvrir cet onglet. Vérifiez la connexion et que la page est toujours partagée.",
     activityRunning: "Utilisation de Browser Use",
     activityFinished: "Opération de Browser Use terminée",
-    secureConnection:
-      "Ouvrez LinkSense via HTTPS ou localhost pour connecter le navigateur local.",
     title: "Browser Use",
     description:
       "Le navigateur cloud ne nécessite aucune installation. Connectez l’extension pour que l’assistant utilise Chrome / Edge sur cet ordinateur avec vos sessions existantes.",
@@ -333,8 +323,6 @@ export const localBrowserMessages = {
       "このタブに切り替えられません。ブラウザーの接続とページの共有状態を確認してください。",
     activityRunning: "Browser Use を使用中",
     activityFinished: "Browser Use の操作が終了しました",
-    secureConnection:
-      "ローカルブラウザーを接続するには、HTTPS または localhost で LinkSense を開いてください。",
     title: "Browser Use",
     description:
       "クラウドブラウザーはインストール不要です。拡張機能を接続すると、このパソコンの Chrome / Edge を既存のログイン状態で操作できます。",
@@ -415,7 +403,6 @@ export const localBrowserMessages = {
     | "cloudDescription"
     | "localName"
     | "localDescription"
-    | "secureConnection"
     | "activityRunning"
     | "activityFinished",
     string

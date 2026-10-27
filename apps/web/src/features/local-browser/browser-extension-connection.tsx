@@ -11,12 +11,9 @@ export function BrowserExtensionConnection() {
   const { status, user } = useAuth()
   const ownerId = status === "authenticated" ? user?.id : undefined
   const supportedBrowser = browserUseBrowser() !== null
-  const secure =
-    location.protocol === "https:" ||
-    ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname)
   const { refetch } = useQuery({
     queryKey: browserExtensionConnectionKey(ownerId),
-    enabled: Boolean(ownerId) && secure && supportedBrowser,
+    enabled: Boolean(ownerId) && supportedBrowser,
     retry: false,
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
@@ -45,7 +42,7 @@ export function BrowserExtensionConnection() {
     },
   })
   useEffect(() => {
-    if (!ownerId || !secure || !supportedBrowser) return
+    if (!ownerId || !supportedBrowser) return
     const resume = () => {
       void browserExtensionRequest("detect", undefined, {
         owner_id: ownerId,
@@ -76,6 +73,6 @@ export function BrowserExtensionConnection() {
       window.removeEventListener("focus", resume)
       window.removeEventListener("message", requested)
     }
-  }, [ownerId, secure, supportedBrowser, refetch])
+  }, [ownerId, supportedBrowser, refetch])
   return null
 }

@@ -118,7 +118,7 @@ async function fixture(userAgent = "Chrome") {
     onclose?: (event: { code: number }) => void;
     onmessage?: (event: { data: string }) => void;
     send = vi.fn();
-    constructor() {
+    constructor(readonly url: URL) {
       sockets.push(this);
     }
     close(code = 1000) {
@@ -398,6 +398,40 @@ it("does not reconnect when the user disconnects before a pending pairing comple
   pairing.resolve(Response.json({ token: "y".repeat(43) }));
   await Promise.all([connecting, disconnecting]);
   expect(stored.session).toBeUndefined();
+});
+
+it.each(["http://192.168.2.210:19090", "http://linksense.example:19090"])(
+  "pairs an explicitly confirmed HTTP origin and connects over WebSocket: %s",
+  async (origin) => {
+    const { chrome, popup, stored, fetchPairing, sockets } = await fixture();
+    const endpoint = `${origin}/api/v1/local-browser`;
+    stored.pending = {
+      code: "p".repeat(43), endpoint, source_tab: 7, source_origin: origin,
+    };
+    chrome.tabs.get.mockResolvedValue({ id: 7, url: `${origin}/settings/general`, title: "Settings" });
+    fetchPairing.mockResolvedValue(Response.json({ token: "y".repeat(43) }));
+    expect(await popup("connect", { origin })).toEqual({ ok: true });
+    expect(fetchPairing).toHaveBeenCalledWith(`${endpoint}/pair`, expect.objectContaining({
+      method: "POST", credentials: "omit", redirect: "error",
+    }));
+    expect(String(sockets.at(-1)?.url)).toBe(`${endpoint.replace("http:", "ws:")}/socket`);
+  },
+);
+
+it.each([
+  "file:///api/v1/local-browser",
+  "ftp://linksense.example/api/v1/local-browser",
+  "http://user:password@linksense.example/api/v1/local-browser",
+  "http://linksense.example/other-endpoint",
+  "http://linksense.example/api/v1/local-browser?redirect=1",
+  "http://linksense.example/api/v1/local-browser#fragment",
+])("rejects invalid connection endpoints before exchanging credentials: %s", async (endpoint) => {
+  const { chrome, popup, stored, fetchPairing } = await fixture();
+  const origin = new URL(endpoint).origin;
+  stored.pending = { code: "p".repeat(43), endpoint, source_tab: 7, source_origin: origin };
+  chrome.tabs.get.mockResolvedValue({ id: 7, url: `${origin}/settings/general`, title: "Settings" });
+  expect(await popup("connect", { origin })).toEqual({ ok: false });
+  expect(fetchPairing).not.toHaveBeenCalled();
 });
 
 it("rejects a pending pairing if its server differs from the origin shown at confirmation", async () => {
