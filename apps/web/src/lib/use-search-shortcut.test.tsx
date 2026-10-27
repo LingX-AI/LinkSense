@@ -6,6 +6,26 @@ afterEach(cleanup)
 
 describe("search keyboard shortcut", () => {
   it.each(["ctrlKey", "metaKey"])(
+    "preserves %s+K during IME composition and opens after composition ends",
+    (modifier) => {
+      const onSearch = vi.fn()
+      renderHook(() => useSearchShortcut(onSearch))
+      expect(
+        fireEvent.keyDown(window, {
+          key: "k",
+          [modifier]: true,
+          isComposing: true,
+        })
+      ).toBe(true)
+      expect(onSearch).not.toHaveBeenCalled()
+      expect(fireEvent.keyDown(window, { key: "k", [modifier]: true })).toBe(
+        false
+      )
+      expect(onSearch).toHaveBeenCalledOnce()
+    }
+  )
+
+  it.each(["ctrlKey", "metaKey"])(
     "opens once for %s+K and uses the latest callback",
     (modifier) => {
       const first = vi.fn()

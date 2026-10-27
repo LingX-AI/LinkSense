@@ -6,6 +6,7 @@ export function useSearchShortcut(onSearch: () => void): void {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         event.defaultPrevented ||
+        event.isComposing ||
         event.repeat ||
         event.altKey ||
         event.shiftKey ||

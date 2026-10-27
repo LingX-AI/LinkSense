@@ -193,6 +193,13 @@ for (const width of [1440, 390]) {
     await expect(
       page.getByRole("textbox", { name: "任务输入框" })
     ).toBeVisible()
+    if (width === 390) {
+      await page.getByRole("button", { name: "打开导航", exact: true }).click()
+      await page.getByRole("button", { name: "搜索", exact: true }).click()
+      await expect(
+        page.getByRole("dialog", { name: "搜索" }).getByRole("combobox")
+      ).not.toBeFocused()
+    }
     await page.keyboard.press("Control+k")
     const search = page.getByRole("dialog", { name: "搜索" })
     await expect(search).toBeVisible()

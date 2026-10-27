@@ -1589,6 +1589,13 @@ export function AppShell() {
     setSearchActivation("pointer")
   }
   useSearchShortcut(() => {
+    if (searchActivation !== null) {
+      document
+        .querySelector<HTMLInputElement>(
+          '.conversation-search-dialog [data-slot="command-input"]'
+        )
+        ?.focus()
+    }
     setMobileOpen(false)
     setSearchActivation("keyboard")
   })

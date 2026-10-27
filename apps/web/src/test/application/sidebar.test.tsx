@@ -17,6 +17,33 @@ import {
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it.each(["ctrlKey", "metaKey"])(
+    "focuses an already open search with %s+K without clearing the query",
+    async (modifier) => {
+      installApiMock()
+      const interaction = userEvent.setup()
+      renderApp()
+      const sidebar = await screen.findByRole("complementary", {
+        name: "LinkSense 导航",
+      })
+      await interaction.click(
+        within(sidebar).getByRole("button", { name: "搜索" })
+      )
+      const dialog = await screen.findByRole("dialog", { name: "搜索" })
+      const input = within(dialog).getByRole("combobox")
+      fireEvent.change(input, { target: { value: "会议" } })
+      expect(input).not.toHaveFocus()
+      fireEvent.keyDown(window, { key: "k", [modifier]: true })
+      await waitFor(() => expect(input).toHaveFocus())
+      expect(input).toHaveValue("会议")
+      expect(screen.getAllByRole("dialog", { name: "搜索" })).toHaveLength(1)
+      dialog.focus()
+      fireEvent.keyDown(window, { key: "k", [modifier]: true })
+      expect(input).toHaveFocus()
+      expect(input).toHaveValue("会议")
+    }
+  )
+
   it.each([
     ["development", "应用开发任务"],
     ["preview", "应用调试对话"],
