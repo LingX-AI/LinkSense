@@ -172,7 +172,7 @@ describe("development metadata autosave", () => {
     )
     expect(
       screen.getByRole("button", { name: "编辑应用描述" })
-    ).toHaveTextContent(edited.replace("\n", " "))
+    ).toHaveTextContent(edited.replaceAll("\n", " "))
   })
   it.each([
     ["编辑应用名称", "text-sm", "md:text-sm", "font-semibold", "leading-5"],
