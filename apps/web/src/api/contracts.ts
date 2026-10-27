@@ -658,15 +658,26 @@ const conversationTimelineEventInputSchema = z.union([
   conversationEventRecordSchema.transform(toConversationTimelineEvent),
 ])
 
+// API and SSE payloads are immutable snapshots. Readers share their validated
+// projection; weak keys release large tool/reasoning bodies with the snapshot.
+const nativeCodexPayloadCache = new WeakMap<object, NativeCodexPayload | null>()
+
 export function getNativeCodexPayload(event: {
   type?: string
   event_type?: string
   payload?: unknown
 }): NativeCodexPayload | null {
-  const parsed = nativeCodexPayloadSchema.safeParse(event.payload)
-  if (!parsed.success) return null
+  const source = event.payload
+  if (typeof source !== "object" || source === null) return null
+  let payload = nativeCodexPayloadCache.get(source)
+  if (payload === undefined) {
+    const parsed = nativeCodexPayloadSchema.safeParse(source)
+    payload = parsed.success ? parsed.data : null
+    nativeCodexPayloadCache.set(source, payload)
+  }
+  if (!payload) return null
   const eventType = event.type ?? event.event_type
-  return !eventType || eventType === parsed.data.method ? parsed.data : null
+  return !eventType || eventType === payload.method ? payload : null
 }
 
 export const pendingRequestSchema = z

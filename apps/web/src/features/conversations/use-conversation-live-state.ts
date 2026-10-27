@@ -12,6 +12,8 @@ type ConversationLiveState = {
   events: ConversationEvent[]
 }
 
+export const conversationLiveStateCacheLimit = 8
+
 const emptyConversationLiveState: ConversationLiveState = {
   streamedMessages: {},
   reasoningSummaries: {},
@@ -51,7 +53,13 @@ function cacheConversationLiveStateField<
     cache.delete(conversationId)
     return
   }
+  cache.delete(conversationId)
   cache.set(conversationId, next)
+  while (cache.size > conversationLiveStateCacheLimit) {
+    const oldest = cache.keys().next().value
+    if (oldest === undefined) break
+    cache.delete(oldest)
+  }
 }
 
 export function useConversationLiveState(
@@ -167,6 +175,10 @@ export function useConversationLiveState(
       const restoredState = nextConversationId
         ? cacheRef.current.get(nextConversationId)
         : undefined
+      if (restoredState && nextConversationId) {
+        cacheRef.current.delete(nextConversationId)
+        cacheRef.current.set(nextConversationId, restoredState)
+      }
       conversationIdRef.current = nextConversationId
       setConversationId(nextConversationId)
       setStreamedMessagesState(

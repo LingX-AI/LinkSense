@@ -320,6 +320,7 @@ import {
 import {
   appendReasoningContentEvent,
   areReasoningContentEventsReconciled,
+  removeReconciledReasoningContentEvents,
 } from "@/features/conversations/reasoning-activity-content"
 import { useConversationScroll } from "@/features/conversations/use-conversation-scroll"
 import { useConversationBottomStackHeight } from "@/features/conversations/use-conversation-bottom-stack-height"
@@ -2560,6 +2561,29 @@ export function ConversationPage({
     hasConversation,
     liveReasoningContentEvents,
     turnExecutionActive,
+  ])
+
+  useEffect(() => {
+    if (
+      !conversation?.events?.length ||
+      conversation.id !== liveConversationIdRef.current
+    )
+      return
+    const timer = window.setTimeout(() => {
+      if (conversation.id !== liveConversationIdRef.current) return
+      setLiveReasoningContentEvents((current) =>
+        removeReconciledReasoningContentEvents(
+          current,
+          conversation.events ?? []
+        )
+      )
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [
+    conversation?.id,
+    conversation?.events,
+    liveConversationIdRef,
+    setLiveReasoningContentEvents,
   ])
 
   useEffect(() => {
