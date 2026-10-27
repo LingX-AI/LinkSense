@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
+import { streamText } from "ai"
+import { createTaskLanguageModel } from "../src/adapters/task-language-model.js"
 import { createModelProviderProbeClient, parseModelDiscovery, type ResolvedProviderProbe } from "../src/modules/system/model-provider-probe.js"
 import { probeReplyResponse } from "./model-provider-probe-fixture.js"
 
@@ -10,6 +12,55 @@ const channel: ResolvedProviderProbe = {
 
 
 describe("model provider discovery and connection probe", () => {
+  it.each(["chat_completions_bridge", "native_responses", "responses_tool_compat"] as const)("adapts /v1 in the default %s task SDK transport", async (protocolMode) => {
+    const endpoint = protocolMode === "chat_completions_bridge" ? "chat/completions" : "responses"
+    const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+      String(input) === `https://models.example.test/v1/${endpoint}`
+        ? probeReplyResponse(protocolMode)
+        : new Response(null, { status: 404 }))
+    try {
+      const result = streamText({
+        model: createTaskLanguageModel({ model: "test-model", apiKey: channel.api_key, baseUrl: "https://models.example.test", protocolMode }),
+        prompt: "hello", maxRetries: 0,
+      })
+      expect(await result.text).toBe("OK")
+      expect(fetcher).toHaveBeenCalledTimes(2)
+    } finally {
+      fetcher.mockRestore()
+    }
+  })
+
+  it.each([
+    ["https://models.example.test", "https://models.example.test/v1"],
+    ["https://models.example.test/proxy/v1", "https://models.example.test/proxy"],
+  ])("discovers models when %s needs a different /v1 suffix", async (base_url, resolvedBaseUrl) => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) =>
+      String(input) === `${resolvedBaseUrl}/models`
+        ? Response.json({ data: [{ id: "test-model" }] })
+        : new Response(null, { status: 404 }))
+
+    const result = await createModelProviderProbeClient(fetcher).discover({ ...channel, base_url })
+
+    expect(result.models).toMatchObject([{ id: "test-model" }])
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
+      `${base_url}/models`, `${resolvedBaseUrl}/models`,
+    ])
+  })
+
+  it.each(["chat_completions_bridge", "native_responses", "responses_tool_compat"] as const)("tests %s with automatic /v1 path adaptation", async (protocol_mode) => {
+    const endpoint = protocol_mode === "chat_completions_bridge" ? "chat/completions" : "responses"
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) =>
+      String(input) === `https://models.example.test/v1/${endpoint}`
+        ? probeReplyResponse(protocol_mode)
+        : new Response(null, { status: 404 }))
+
+    await expect(createModelProviderProbeClient(fetcher).testConnection({
+      ...channel, base_url: "https://models.example.test", protocol_mode, model_id: "test-model", kind: "chat",
+    })).resolves.toEqual({ status: "success", model_id: "test-model" })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(fetcher.mock.calls[1]?.[1]?.body).toBe(fetcher.mock.calls[0]?.[1]?.body)
+  })
+
   it("reads an OpenAI-compatible list without inventing prices or unavailable capabilities", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ data: [
       { id: "with-context", max_model_len: 8192, name: "Context model" },

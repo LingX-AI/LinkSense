@@ -15,7 +15,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ModelProviderSettings } from "@/api/contracts"
-import { ModelProviderSettingsForm } from "@/features/admin/model-provider-settings-form"
+import { ModelProviderSettingsFormHarness } from "./model-provider-settings-form.test-helper"
 import i18n, { supportedLanguages } from "@/i18n"
 
 const settings: ModelProviderSettings = {
@@ -66,7 +66,7 @@ function renderModels(value = settings) {
   })
   render(
     <QueryClientProvider client={queryClient}>
-      <ModelProviderSettingsForm settings={value} />
+      <ModelProviderSettingsFormHarness settings={value} />
     </QueryClientProvider>
   )
   return queryClient

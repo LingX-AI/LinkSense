@@ -9,7 +9,7 @@ import type { AppServices } from "../src/services.js"
 
 const userId = "01900000-0000-7000-8000-000000000099"
 const draft = { provider: "openai_compatible", base_url: "https://models.example.test/v1", protocol_mode: "chat_completions_bridge", api_key: "synthetic-key" }
-const paths = ["discover", "test-connection"] as const
+const paths = ["discover", "test-connection", "detect-protocol"] as const
 
 async function fixture(role: "admin" | "user" = "admin", enabled = true, status = "active") {
   const app = Fastify()
@@ -24,14 +24,46 @@ async function fixture(role: "admin" | "user" = "admin", enabled = true, status 
   })
   const discover = vi.fn().mockResolvedValue({ status: "supported", models: [{ id: "test-model", display_name: "Test Model", context_window: null, supports_image_input: null }], truncated: false })
   const testConnection = vi.fn().mockResolvedValue({ status: "success", model_id: "test-model" })
+  const detectProtocol = vi.fn().mockResolvedValue({ status: "detected", model_id: "test-model", protocol_mode: "responses_tool_compat" })
+  const discoverImages = vi.fn().mockResolvedValue({ status: "supported", models: [{ id: "image-model", display_name: "Image model", context_window: null, supports_image_input: null }], truncated: false })
   await app.register(adminSystemRoutes, { prefix: "/api/v1/admin", services: {
-    config: { adminModelManagementEnabled: enabled }, modelProviderSettings: { discover, testConnection },
+    config: { adminModelManagementEnabled: enabled }, modelProviderSettings: { discover, testConnection, detectProtocol },
+    imageGenerationSettings: { discover: discoverImages },
   } as unknown as AppServices })
   const headers = { authorization: `Bearer ${app.jwt.sign({ sub: userId, email: user.email, role, auth_valid_after: user.authValidAfter.toISOString() })}` }
-  return { app, headers, discover, testConnection }
+  return { app, headers, discover, testConnection, detectProtocol, discoverImages }
 }
 
 describe("administrator model provider probes", () => {
+  it.each([
+    { role: "admin" as const, enabled: true, authenticated: false, expected: 401 },
+    { role: "user" as const, enabled: true, authenticated: true, expected: 403 },
+    { role: "admin" as const, enabled: false, authenticated: true, expected: 403 },
+  ])("protects image discovery for $role with management enabled=$enabled", async ({ role, enabled, authenticated, expected }) => {
+    const { app, headers, discoverImages } = await fixture(role, enabled)
+    try {
+      const response = await app.inject({ method: "POST", url: "/api/v1/admin/image-generation-settings/discover", ...(authenticated ? { headers } : {}), payload: {} })
+      expect(response.statusCode).toBe(expected)
+      expect(discoverImages).not.toHaveBeenCalled()
+    } finally { await app.close() }
+  })
+
+  it("validates and returns uncached image model discovery without exposing its key", async () => {
+    const { app, headers, discoverImages } = await fixture()
+    try {
+      const input = { provider: "openai_compatible", base_url: draft.base_url, api_key: draft.api_key }
+      const invalid = await app.inject({ method: "POST", url: "/api/v1/admin/image-generation-settings/discover", headers, payload: { ...input, base_url: "file:///secret" } })
+      expect(invalid.statusCode).toBe(400)
+      expect(discoverImages).not.toHaveBeenCalled()
+      const response = await app.inject({ method: "POST", url: "/api/v1/admin/image-generation-settings/discover", headers, payload: input })
+      expect(response.statusCode).toBe(200)
+      expect(response.headers["cache-control"]).toBe("private, no-store")
+      expect(response.json().data.models).toMatchObject([{ id: "image-model" }])
+      expect(discoverImages).toHaveBeenCalledWith({ ...input, provider_options: { workspace_id: null, region: null } })
+      expect(response.body).not.toContain(input.api_key)
+    } finally { await app.close() }
+  })
+
   it.each(paths)("requires authentication for %s", async (path) => {
     const { app, discover, testConnection } = await fixture()
     try {
@@ -76,7 +108,7 @@ describe("administrator model provider probes", () => {
   })
 
   it("returns validated discovery and inference results without caching them", async () => {
-    const { app, headers, discover, testConnection } = await fixture()
+    const { app, headers, discover, testConnection, detectProtocol } = await fixture()
     try {
       const response = await app.inject({ method: "POST", url: "/api/v1/admin/model-provider-settings/discover", headers, payload: draft })
       expect(response.statusCode).toBe(200)
@@ -88,6 +120,26 @@ describe("administrator model provider probes", () => {
       expect(tested.json().data).toEqual({ status: "success", model_id: "test-model" })
       expect(testConnection).toHaveBeenCalledWith(expect.objectContaining({ kind: "chat", model_id: "test-model" }))
       expect(response.body + tested.body).not.toContain(draft.api_key)
+      const detected = await app.inject({ method: "POST", url: "/api/v1/admin/model-provider-settings/detect-protocol", headers, payload: draft })
+      expect(detected.statusCode).toBe(200)
+      expect(detected.headers["cache-control"]).toBe("private, no-store")
+      expect(detected.json().data).toEqual({ status: "detected", model_id: "test-model", protocol_mode: "responses_tool_compat" })
+      expect(detectProtocol).toHaveBeenCalledWith(expect.objectContaining(draft), expect.any(AbortSignal))
+      expect(detected.body).not.toContain(draft.api_key)
+    } finally { await app.close() }
+  })
+
+  it("validates detection inputs and redacts upstream failures", async () => {
+    const { app, headers, detectProtocol } = await fixture()
+    try {
+      const invalid = await app.inject({ method: "POST", url: "/api/v1/admin/model-provider-settings/detect-protocol", headers, payload: { ...draft, base_url: "file:///secret" } })
+      expect(invalid.statusCode).toBe(400)
+      expect(detectProtocol).not.toHaveBeenCalled()
+      detectProtocol.mockRejectedValue(new AppError("MODEL_PROVIDER_CONNECTION_FAILED"))
+      const failed = await app.inject({ method: "POST", url: "/api/v1/admin/model-provider-settings/detect-protocol", headers, payload: draft })
+      expect(failed.statusCode).toBe(502)
+      expect(failed.body).not.toContain(draft.api_key)
+      expect(failed.body).not.toContain(draft.base_url)
     } finally { await app.close() }
   })
 

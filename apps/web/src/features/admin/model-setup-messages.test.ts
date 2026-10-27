@@ -53,6 +53,16 @@ describe("model setup translations", () => {
       expect(instance.t("modelSetup.contextKnown", { count: 128000 })).toBe(
         modelSetupMessages[locale].contextKnown.replace("{{count}}", "128000")
       )
+      expect(
+        instance.t("modelSetup.protocolDetected", {
+          protocol: "Responses",
+          model: "demo-model",
+        })
+      ).toBe(
+        modelSetupMessages[locale].protocolDetected
+          .replace("{{protocol}}", "Responses")
+          .replace("{{model}}", "demo-model")
+      )
     }
   )
 

@@ -6,7 +6,7 @@ import {
   type UpdateImageGenerationSettings,
 } from "@linksense/shared"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -113,13 +113,241 @@ function installSaveMock(initial = settings) {
 
 describe("ImageGenerationSettingsForm", () => {
   it.each(supportedLanguages)(
+    "fetches the image model list with the saved connection and saves a selected model in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockImplementation(async (url, init) => {
+          if (String(url).endsWith("/discover"))
+            return Response.json({
+              success: true,
+              data: {
+                status: "supported",
+                truncated: false,
+                models: [
+                  {
+                    id: "gpt-image-test",
+                    display_name: "Image test model",
+                    context_window: null,
+                    supports_image_input: null,
+                  },
+                ],
+              },
+            })
+          const input = updateImageGenerationSettingsSchema.parse(
+            JSON.parse(String(init?.body))
+          )
+          return Response.json({
+            success: true,
+            data: {
+              code: "SYSTEM_SETTINGS_UPDATED",
+              settings: { ...settings, revision: 3, model: input.model },
+            },
+          })
+        })
+      vi.stubGlobal("fetch", fetcher)
+      renderSettings()
+      const user = userEvent.setup()
+      await user.click(
+        screen.getByRole("button", { name: i18n.t("modelSetup.discover") })
+      )
+      await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
+      expect(
+        JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))
+      ).toMatchObject({ provider: "openai", base_url: settings.base_url })
+      expect(
+        JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))
+      ).not.toHaveProperty("api_key")
+      const model = screen.getByRole("combobox", {
+        name: formLabelPattern(i18n.t("admin.imageGeneration.model")),
+      })
+      await user.clear(model)
+      await user.type(model, "Image test")
+      await user.click(
+        await screen.findByRole("option", {
+          name: "Image test model (gpt-image-test)",
+        })
+      )
+      expect(model).toHaveValue("gpt-image-test")
+      await user.click(saveControl())
+      await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
+      expect(
+        JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))
+      ).toMatchObject({ model: "gpt-image-test" })
+    }
+  )
+
+  it("requires a key for the new target before fetching its image models", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
+      Response.json({
+        success: true,
+        data: { status: "supported", models: [], truncated: false },
+      })
+    )
+    vi.stubGlobal("fetch", fetcher)
+    renderSettings()
+    const user = userEvent.setup()
+    await user.clear(baseUrlControl())
+    await user.type(baseUrlControl(), "https://new-images.example.test/v1")
+    const discover = screen.getByRole("button", {
+      name: i18n.t("modelSetup.discover"),
+    })
+    expect(discover).toBeDisabled()
+    expect(
+      screen.getByText(i18n.t("modelSetup.discoveryCredentialsChanged"))
+    ).toBeVisible()
+    await user.type(
+      screen.getByLabelText(
+        formLabelPattern(i18n.t("admin.imageGeneration.apiKey"))
+      ),
+      "new-image-key"
+    )
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("modelSetup.discover") })
+    )
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({
+      base_url: "https://new-images.example.test/v1",
+      api_key: "new-image-key",
+    })
+  })
+
+  it.each(["manual_required", "error"])(
+    "keeps manual image model entry available when discovery returns %s",
+    async (status) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>().mockImplementation(async () =>
+          status === "error"
+            ? Response.json(
+                {
+                  success: false,
+                  error_code: "MODEL_PROVIDER_DISCOVERY_FAILED",
+                },
+                { status: 502 }
+              )
+            : Response.json({
+                success: true,
+                data: { status, models: [], truncated: false },
+              })
+        )
+      )
+      renderSettings()
+      const user = userEvent.setup()
+      await user.click(
+        screen.getByRole("button", { name: i18n.t("modelSetup.discover") })
+      )
+      if (status === "error")
+        expect(await screen.findByRole("alert")).toBeVisible()
+      else
+        expect(
+          await screen.findByText(i18n.t("modelSetup.manualRequired"))
+        ).toBeVisible()
+      const model = screen.getByRole("combobox", {
+        name: formLabelPattern(i18n.t("admin.imageGeneration.model")),
+      })
+      expect(model).toHaveValue(settings.model)
+      await user.clear(model)
+      await user.type(model, "custom-image-model")
+      await user.tab()
+      expect(model).toHaveValue("custom-image-model")
+      expect(saveControl()).toBeEnabled()
+    }
+  )
+
+  it("discards a late image catalog after connection settings change", async () => {
+    let finish: (response: Response) => void = () => {
+      throw new Error("discovery not started")
+    }
+    const pending = new Promise<Response>((resolve) => {
+      finish = resolve
+    })
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (_url, init) => {
+        const body = JSON.parse(String(init?.body))
+        if (body.base_url === settings.base_url) return pending
+        return Response.json({
+          success: true,
+          data: {
+            status: "supported",
+            truncated: false,
+            models: [
+              {
+                id: "fresh-image",
+                display_name: "Fresh image",
+                context_window: null,
+                supports_image_input: null,
+              },
+            ],
+          },
+        })
+      })
+    vi.stubGlobal("fetch", fetcher)
+    renderSettings()
+    const user = userEvent.setup()
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("modelSetup.discover") })
+    )
+    await user.clear(baseUrlControl())
+    await user.type(baseUrlControl(), "https://new-images.example.test/v1")
+    expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
+    await user.type(
+      screen.getByLabelText(
+        formLabelPattern(i18n.t("admin.imageGeneration.apiKey"))
+      ),
+      "new-image-key"
+    )
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("modelSetup.discover") })
+    )
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      finish(
+        Response.json({
+          success: true,
+          data: {
+            status: "supported",
+            truncated: false,
+            models: [
+              {
+                id: "old-image",
+                display_name: "Old image",
+                context_window: null,
+                supports_image_input: null,
+              },
+            ],
+          },
+        })
+      )
+      await pending
+    })
+    const model = screen.getByRole("combobox", {
+      name: formLabelPattern(i18n.t("admin.imageGeneration.model")),
+    })
+    await user.clear(model)
+    await user.click(model)
+    expect(
+      await screen.findByRole("option", { name: "Fresh image (fresh-image)" })
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("option", { name: "Old image (old-image)" })
+    ).not.toBeInTheDocument()
+  })
+
+  it.each(supportedLanguages)(
     "selects and saves an OpenAI-compatible image connection in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)
       const requests = installSaveMock()
       renderSettings()
       const user = userEvent.setup()
-      await user.click(screen.getByRole("combobox"))
+      await user.click(
+        screen.getByRole("combobox", {
+          name: formLabelPattern(i18n.t("admin.imageGeneration.provider")),
+        })
+      )
       await user.keyboard("{ArrowDown}")
       await user.click(
         await screen.findByRole("option", {
@@ -137,7 +365,7 @@ describe("ImageGenerationSettingsForm", () => {
         formLabelPattern(i18n.t("admin.imageGeneration.apiKey"))
       )
       await user.type(apiKey, "synthetic-image-key")
-      const model = screen.getByRole("textbox", {
+      const model = screen.getByRole("combobox", {
         name: formLabelPattern(i18n.t("admin.imageGeneration.model")),
       })
       await user.clear(model)
@@ -203,7 +431,11 @@ describe("ImageGenerationSettingsForm", () => {
     renderSettings({ ...settings, base_url: "https://images.example.test/v1" })
     expect(baseUrlControl()).toHaveValue("https://images.example.test/v1")
     const user = userEvent.setup()
-    await user.click(screen.getByRole("combobox"))
+    await user.click(
+      screen.getByRole("combobox", {
+        name: formLabelPattern(i18n.t("admin.imageGeneration.provider")),
+      })
+    )
     await user.keyboard("{ArrowDown}")
     await user.click(await screen.findByRole("option", { name: "Together AI" }))
     expect(baseUrlControl()).toHaveValue("https://api.together.ai/v1")

@@ -3977,6 +3977,7 @@ function ModelSettingsPage() {
   const { t } = useTranslation()
   const { bootstrap } = useBootstrap()
   const knowledgeEnabled = bootstrap?.knowledge?.enabled !== false
+  const [selectedChannelId, setSelectedChannelId] = useState("")
   const [selectedTab, setSelectedTab] = useState<ModelSettingsTab>("channels")
   const activeTab =
     selectedTab === "knowledge" && !knowledgeEnabled ? "channels" : selectedTab
@@ -4117,6 +4118,8 @@ function ModelSettingsPage() {
               <ModelProviderSettingsForm
                 key={`model-channels-${modelProviderQuery.data.revision}-${tabRenderVersions.channels}`}
                 settings={modelProviderQuery.data}
+                selectedChannelId={selectedChannelId}
+                onSelectedChannelChange={setSelectedChannelId}
               />
             )}
         </TabsContent>

@@ -18,6 +18,9 @@ import {
   modelServiceProviderSchema,
   modelProviderSettingsSchema,
   modelProviderProbeInputSchema,
+  detectModelProviderProtocolInputSchema,
+  type DetectModelProviderProtocolInput,
+  type DetectModelProviderProtocolResult,
   testModelProviderConnectionInputSchema,
   reasoningEffortSchema,
   reasoningEffortValues,
@@ -394,6 +397,13 @@ export class ModelProviderSettingsService
     const input = testModelProviderConnectionInputSchema.parse(rawInput)
     const channel = await this.resolveProbeCredentials(input)
     return this.probeClient.testConnection({ ...channel, model_id: input.model_id, kind: input.kind })
+  }
+
+  async detectProtocol(rawInput: DetectModelProviderProtocolInput, signal?: AbortSignal): Promise<DetectModelProviderProtocolResult> {
+    this.assertProbeManagementEnabled()
+    const input = detectModelProviderProtocolInputSchema.parse(rawInput)
+    const channel = await this.resolveProbeCredentials(input)
+    return this.probeClient.detectProtocol({ ...channel, ...(input.model_id ? { model_id: input.model_id } : {}) }, signal)
   }
 
   private assertProbeManagementEnabled(): void {

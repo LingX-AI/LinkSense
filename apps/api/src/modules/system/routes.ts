@@ -10,6 +10,7 @@ import {
   updateExecutionConcurrencySettingsSchema,
   updateKnowledgeModelSettingsSchema,
   updateImageGenerationSettingsSchema,
+  discoverImageGenerationModelsInputSchema,
   updateVoiceTranscriptionSettingsSchema,
   updateImageUnderstandingSelectionSchema,
   updateMaintenanceSettingsSchema,
@@ -17,6 +18,8 @@ import {
   updateModelAvailabilitySchema,
   updateModelProviderSettingsSchema,
   modelProviderProbeInputSchema,
+  detectModelProviderProtocolInputSchema,
+  detectModelProviderProtocolResultSchema,
   testModelProviderConnectionInputSchema,
   discoverModelProviderResultSchema,
   testModelProviderConnectionResultSchema,
@@ -377,6 +380,20 @@ export const adminSystemRoutes: FastifyPluginAsync<{
     return reply.header("cache-control", "private, no-store").send(ok(testModelProviderConnectionResultSchema.parse(result), request.id))
   })
 
+  app.post("/model-provider-settings/detect-protocol", async (request, reply) => {
+    requireAdminModelManagement(services)
+    const input = detectModelProviderProtocolInputSchema.parse(request.body)
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    reply.raw.once("close", abort)
+    try {
+      const result = await services.modelProviderSettings.detectProtocol(input, controller.signal)
+      return reply.header("cache-control", "private, no-store").send(ok(detectModelProviderProtocolResultSchema.parse(result), request.id))
+    } finally {
+      reply.raw.off("close", abort)
+    }
+  })
+
   app.patch(
     "/model-provider-settings/models/availability",
     async (request, reply) => {
@@ -443,6 +460,12 @@ export const adminSystemRoutes: FastifyPluginAsync<{
       ok(await services.imageGenerationSettings.getAdminSettings(), request.id)
     )
   )
+
+  app.post("/image-generation-settings/discover", async (request, reply) => {
+    requireAdminModelManagement(services)
+    const result = await services.imageGenerationSettings.discover(discoverImageGenerationModelsInputSchema.parse(request.body))
+    return reply.header("cache-control", "private, no-store").send(ok(discoverModelProviderResultSchema.parse(result), request.id))
+  })
 
   app.get("/voice-transcription-settings", async (request, reply) =>
     reply.send(

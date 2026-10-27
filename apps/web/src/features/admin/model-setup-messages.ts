@@ -1,5 +1,17 @@
 export const modelSetupMessages = {
   "zh-CN": {
+    discoveryCredentialsChanged:
+      "连接设置已变更，请输入当前连接的 API Key 后获取模型列表。",
+    imageDiscoveryHint:
+      "从服务提供的模型列表中选择，或手动输入模型 ID。部分服务会返回其他类型的模型，请确认所选模型支持图片生成。",
+    detectProtocol: "检测协议",
+    detectingProtocol: "正在检测协议…",
+    protocolDetectionHint:
+      "填写 Base URL 和 API Key 后自动检测；未指定模型时从模型列表选择。会发送最小请求，可能产生少量费用。",
+    protocolDetected:
+      "已选择 {{protocol}}（测试模型：{{model}}），保存后生效。",
+    protocolModelRequired:
+      "无法自动获取聊天模型，请填写用于测试的模型 ID 后重新检测。",
     advanced: "高级设置",
     advancedHint: "仅在需要调整协议、模型能力或计费时修改。",
     discover: "获取可用模型",
@@ -35,6 +47,17 @@ export const modelSetupMessages = {
     retry: "重试",
   },
   "en-US": {
+    discoveryCredentialsChanged:
+      "The connection settings changed. Enter the API key for this connection to fetch its models.",
+    imageDiscoveryHint:
+      "Select a model from the service's list or enter its ID manually. Some services also list other model types; confirm that your selection supports image generation.",
+    detectProtocol: "Detect protocol",
+    detectingProtocol: "Detecting protocol…",
+    protocolDetectionHint:
+      "Detection starts after you finish entering the Base URL and API key. If no model is specified, one is chosen from the model list. Minimal requests may incur a small charge.",
+    protocolDetected: "Selected {{protocol}} using {{model}}. Save to apply.",
+    protocolModelRequired:
+      "A chat model could not be selected automatically. Enter a model ID to test, then detect again.",
     advanced: "Advanced settings",
     advancedHint:
       "Adjust only when you need to change the protocol, model capabilities, or billing.",
@@ -77,6 +100,18 @@ export const modelSetupMessages = {
     retry: "Retry",
   },
   "es-ES": {
+    discoveryCredentialsChanged:
+      "Los ajustes de conexión cambiaron. Introduzca la clave API de esta conexión para obtener sus modelos.",
+    imageDiscoveryHint:
+      "Seleccione un modelo de la lista del servicio o introduzca su ID manualmente. Algunos servicios incluyen otros tipos de modelos; confirme que el elegido permite generar imágenes.",
+    detectProtocol: "Detectar protocolo",
+    detectingProtocol: "Detectando protocolo…",
+    protocolDetectionHint:
+      "La detección comienza al terminar de introducir la URL base y la clave API. Si no especifica un modelo, se elige uno de la lista. Las solicitudes mínimas pueden generar un pequeño coste.",
+    protocolDetected:
+      "Se seleccionó {{protocol}} con {{model}}. Guarde para aplicar.",
+    protocolModelRequired:
+      "No se pudo seleccionar un modelo de chat automáticamente. Introduzca un ID de modelo y vuelva a detectar.",
     advanced: "Ajustes avanzados",
     advancedHint:
       "Modifique estos ajustes solo para cambiar el protocolo, las capacidades del modelo o la facturación.",
@@ -119,6 +154,18 @@ export const modelSetupMessages = {
     retry: "Reintentar",
   },
   "pt-BR": {
+    discoveryCredentialsChanged:
+      "As configurações de conexão mudaram. Informe a chave API desta conexão para obter os modelos.",
+    imageDiscoveryHint:
+      "Selecione um modelo da lista do serviço ou informe seu ID manualmente. Alguns serviços também listam outros tipos de modelos; confirme que o escolhido permite gerar imagens.",
+    detectProtocol: "Detectar protocolo",
+    detectingProtocol: "Detectando protocolo…",
+    protocolDetectionHint:
+      "A detecção começa após preencher a URL base e a chave API. Se nenhum modelo for informado, um será escolhido da lista. As solicitações mínimas podem gerar uma pequena cobrança.",
+    protocolDetected:
+      "{{protocol}} selecionado usando {{model}}. Salve para aplicar.",
+    protocolModelRequired:
+      "Não foi possível selecionar um modelo de chat automaticamente. Informe um ID de modelo para teste e detecte novamente.",
     advanced: "Configurações avançadas",
     advancedHint:
       "Altere apenas quando precisar ajustar o protocolo, os recursos do modelo ou a cobrança.",
@@ -161,6 +208,18 @@ export const modelSetupMessages = {
     retry: "Tentar novamente",
   },
   "fr-FR": {
+    discoveryCredentialsChanged:
+      "Les paramètres de connexion ont changé. Saisissez la clé API de cette connexion pour obtenir ses modèles.",
+    imageDiscoveryHint:
+      "Sélectionnez un modèle dans la liste du service ou saisissez son ID. Certains services proposent aussi d’autres types de modèles ; vérifiez que le modèle choisi permet de générer des images.",
+    detectProtocol: "Détecter le protocole",
+    detectingProtocol: "Détection du protocole…",
+    protocolDetectionHint:
+      "La détection commence après la saisie de l’URL de base et de la clé API. Si aucun modèle n’est indiqué, un modèle est choisi dans la liste. Ces requêtes minimales peuvent entraîner un faible coût.",
+    protocolDetected:
+      "{{protocol}} sélectionné avec {{model}}. Enregistrez pour appliquer.",
+    protocolModelRequired:
+      "Impossible de sélectionner automatiquement un modèle de chat. Saisissez un ID de modèle à tester, puis relancez la détection.",
     advanced: "Paramètres avancés",
     advancedHint:
       "Modifiez-les uniquement pour ajuster le protocole, les capacités du modèle ou la facturation.",
@@ -203,6 +262,18 @@ export const modelSetupMessages = {
     retry: "Réessayer",
   },
   "ja-JP": {
+    discoveryCredentialsChanged:
+      "接続設定が変更されました。この接続の API キーを入力してモデル一覧を取得してください。",
+    imageDiscoveryHint:
+      "サービスのモデル一覧から選ぶか、ID を手動で入力してください。他の種類のモデルも含まれる場合があるため、画像生成に対応しているか確認してください。",
+    detectProtocol: "プロトコルを検出",
+    detectingProtocol: "プロトコルを検出中…",
+    protocolDetectionHint:
+      "Base URL と API キーの入力完了後に自動検出します。モデル未指定の場合は一覧から選択します。最小限のリクエストでも少額の料金が発生する場合があります。",
+    protocolDetected:
+      "{{protocol}} を選択しました（テストモデル：{{model}}）。保存すると反映されます。",
+    protocolModelRequired:
+      "チャットモデルを自動選択できませんでした。テストするモデル ID を入力して再検出してください。",
     advanced: "詳細設定",
     advancedHint:
       "プロトコル、モデルの機能、料金を調整する場合のみ変更してください。",

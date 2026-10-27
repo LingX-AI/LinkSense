@@ -229,6 +229,20 @@ export const testModelProviderConnectionInputSchema = z.strictObject({
   kind: managedModelKindSchema.default("chat"),
 }).superRefine(validateProviderSpecificFields)
 
+export const detectModelProviderProtocolInputSchema = z.strictObject({
+  ...modelProviderProbeShape,
+  model_id: modelIdentifierSchema.optional(),
+}).superRefine(validateProviderSpecificFields)
+
+export const detectModelProviderProtocolResultSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("detected"),
+    protocol_mode: modelProviderProtocolModeSchema,
+    model_id: modelIdentifierSchema,
+  }),
+  z.strictObject({ status: z.literal("model_required") }),
+])
+
 export const discoveredProviderModelSchema = z.strictObject({
   id: modelIdentifierSchema,
   display_name: z.string().trim().min(1).max(120),
@@ -249,6 +263,8 @@ export const testModelProviderConnectionResultSchema = z.strictObject({
 
 export type ModelProviderProbeInput = z.input<typeof modelProviderProbeInputSchema>
 export type TestModelProviderConnectionInput = z.input<typeof testModelProviderConnectionInputSchema>
+export type DetectModelProviderProtocolInput = z.input<typeof detectModelProviderProtocolInputSchema>
+export type DetectModelProviderProtocolResult = z.infer<typeof detectModelProviderProtocolResultSchema>
 export type DiscoverModelProviderResult = z.infer<typeof discoverModelProviderResultSchema>
 export type DiscoveredProviderModel = z.infer<typeof discoveredProviderModelSchema>
 export type TestModelProviderConnectionResult = z.infer<typeof testModelProviderConnectionResultSchema>

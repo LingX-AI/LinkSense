@@ -1,10 +1,14 @@
 import { streamText } from "ai"
 import { z } from "zod"
 import {
+  createModelProviderFetch,
   discoveredProviderModelSchema,
   modelContextWindowSchema,
   modelIdentifierSchema,
   modelProviderProbeInputSchema,
+  modelProviderPresets,
+  modelProviderProtocolModeValues,
+  type DetectModelProviderProtocolResult,
   type DiscoverModelProviderResult,
   type DiscoveredProviderModel,
   type TestModelProviderConnectionResult,
@@ -16,7 +20,8 @@ import { AppError } from "../../lib/errors.js"
 export type ResolvedProviderProbe = Omit<z.infer<typeof modelProviderProbeInputSchema>, "channel_id" | "api_key"> & { api_key: string }
 
 export interface ModelProviderProbeClient {
-  discover(input: ResolvedProviderProbe): Promise<DiscoverModelProviderResult>
+  discover(input: ResolvedProviderProbe, signal?: AbortSignal): Promise<DiscoverModelProviderResult>
+  detectProtocol(input: ResolvedProviderProbe & { model_id?: string }, signal?: AbortSignal): Promise<DetectModelProviderProtocolResult>
   testConnection(input: ResolvedProviderProbe & {
     model_id: string
     kind: "chat" | "embedding" | "reranker"
@@ -28,6 +33,27 @@ const MODEL_LIMIT = 100
 const DISCOVERY_TIMEOUT_MS = 12_000
 const CONNECTION_TIMEOUT_MS = 60_000
 const CONNECTION_OUTPUT_TOKEN_LIMIT = 2_048
+const protocolProbeFunction = {
+  name: "linksense_protocol_probe",
+  description: "A placeholder tool. Do not call it; reply with OK.",
+  parameters: { type: "object", properties: {}, additionalProperties: false, required: [] },
+}
+const responsesProbeReplySchema = z.object({
+  status: z.literal("completed").optional(),
+  error: z.null().optional(),
+  output: z.array(z.object({
+    type: z.string(),
+    content: z.array(z.object({ type: z.string(), text: z.string().optional() })).optional(),
+  })),
+}).refine(({ output }) => output.some((item) => item.type === "message" &&
+  item.content?.some((part) => part.type === "output_text" && part.text?.trim())))
+const chatProbeReplySchema = z.object({
+  error: z.null().optional(),
+  choices: z.array(z.object({
+    message: z.object({ content: z.string().nullable() }),
+    finish_reason: z.enum(["stop", "length"]).nullable().optional(),
+  })),
+}).refine(({ choices }) => choices.some((choice) => choice.message.content?.trim()))
 const metadataModelSchema = z.object({
   id: modelIdentifierSchema,
   name: z.string().optional(),
@@ -61,7 +87,56 @@ export function createModelProviderProbeClient(
   timeoutMs?: number,
 ): ModelProviderProbeClient {
   return {
-    async discover(input) {
+    async detectProtocol(input, parentSignal) {
+      try {
+        const signal = AbortSignal.any([
+          AbortSignal.timeout(timeoutMs ?? CONNECTION_TIMEOUT_MS),
+          ...(parentSignal ? [parentSignal] : []),
+        ])
+        let modelId = input.model_id
+        if (!modelId) {
+          try {
+            const discovery = await this.discover(input, signal)
+            // shortcut: infer non-chat models from IDs until discovery supplies a reliable model kind.
+            modelId = discovery.models.find((model) => !/(embed|rerank|whisper|tts|dall-e)/iu.test(model.id))?.id
+          } catch {
+            signal.throwIfAborted()
+            return { status: "model_required" }
+          }
+        }
+        if (!modelId) return { status: "model_required" }
+        const preferred = modelProviderPresets[input.provider].protocol_mode
+        const modes = [preferred, ...modelProviderProtocolModeValues.filter((mode) => mode !== preferred)]
+        const boundedFetch = createBoundedModelProviderFetch(input.base_url, fetcher, signal)
+        for (const mode of modes) {
+          const chat = mode === "chat_completions_bridge"
+          const responsesTool = mode === "native_responses"
+            ? { type: "custom", name: protocolProbeFunction.name, description: protocolProbeFunction.description, format: { type: "text" } }
+            : { type: "function", ...protocolProbeFunction }
+          const tools = chat ? [{ type: "function", function: protocolProbeFunction }] : [responsesTool]
+          const message = { role: "user", content: "Please reply briefly with OK." }
+          const response = await boundedFetch(new URL(`${input.base_url}/${chat ? "chat/completions" : "responses"}`), {
+            method: "POST",
+            headers: { authorization: `Bearer ${input.api_key}`, "content-type": "application/json", accept: "application/json" },
+            body: JSON.stringify({
+              model: modelId, stream: false, tools, tool_choice: "none",
+              ...(chat ? { messages: [message], max_tokens: CONNECTION_OUTPUT_TOKEN_LIMIT } : { input: [message], max_output_tokens: CONNECTION_OUTPUT_TOKEN_LIMIT, store: false }),
+            }),
+            signal,
+          })
+          if ([400, 404, 405, 422].includes(response.status)) continue
+          if (!response.ok) throw new AppError("MODEL_PROVIDER_CONNECTION_FAILED")
+          const payload: unknown = await response.json().catch(() => null)
+          if ((chat ? chatProbeReplySchema : responsesProbeReplySchema).safeParse(payload).success) {
+            return { status: "detected", protocol_mode: mode, model_id: modelId }
+          }
+        }
+        throw new AppError("MODEL_PROVIDER_CONNECTION_FAILED")
+      } catch {
+        throw new AppError("MODEL_PROVIDER_CONNECTION_FAILED")
+      }
+    },
+    async discover(input, parentSignal) {
       if (input.provider === "azure_openai" || input.provider === "google_vertex") {
         return { status: "manual_required", models: [], truncated: false }
       }
@@ -69,7 +144,10 @@ export function createModelProviderProbeClient(
         return { status: "manual_required", models: [], truncated: false }
       }
       try {
-        const signal = AbortSignal.timeout(timeoutMs ?? DISCOVERY_TIMEOUT_MS)
+        const signal = AbortSignal.any([
+          AbortSignal.timeout(timeoutMs ?? DISCOVERY_TIMEOUT_MS),
+          ...(parentSignal ? [parentSignal] : []),
+        ])
         const boundedFetch = createBoundedModelProviderFetch(input.base_url, fetcher, signal)
         const url = new URL(`${input.base_url}/models`)
         const headers: Record<string, string> = { accept: "application/json" }
@@ -176,13 +254,14 @@ export function createBoundedModelProviderFetch(
   signal: AbortSignal,
 ): typeof fetch {
   const target = new URL(baseUrl)
+  const providerFetch = createModelProviderFetch(baseUrl, fetcher)
   return async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input))
     if (url.origin !== target.origin || !url.pathname.startsWith(`${target.pathname.replace(/\/+$/u, "")}/`)) {
       throw new Error("probe destination changed")
     }
     const requestSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
-    const response = await withAbort(fetcher(input, {
+    const response = await withAbort(providerFetch(input, {
       ...init,
       redirect: "manual",
       signal: requestSignal ? AbortSignal.any([signal, requestSignal]) : signal,

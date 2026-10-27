@@ -136,6 +136,15 @@ export const imageGenerationProviderOptionsSchema = z.strictObject({
     .default(null),
 })
 
+export const discoverImageGenerationModelsInputSchema = z.strictObject({
+  provider: imageGenerationProviderSchema,
+  provider_options: imageGenerationProviderOptionsSchema.default({ workspace_id: null, region: null }),
+  base_url: modelProviderBaseUrlSchema,
+  api_key: z.string().trim().min(1).max(16_384).optional(),
+})
+
+export type DiscoverImageGenerationModelsInput = z.input<typeof discoverImageGenerationModelsInputSchema>
+
 export const imageGenerationProviderDefinitionSchema = z.strictObject({
   key: imageGenerationProviderSchema,
   default_model: modelIdentifierSchema,

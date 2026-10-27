@@ -7,7 +7,7 @@ import { updateModelProviderSettingsSchema } from "@linksense/shared"
 import type { ModelProviderSettings } from "@/api/contracts"
 import i18n, { supportedLanguages } from "@/i18n"
 import { ChannelEditor, ModelEditor } from "./model-channel-editors"
-import { ModelProviderSettingsForm } from "./model-provider-settings-form"
+import { ModelProviderSettingsFormHarness } from "./model-provider-settings-form.test-helper"
 import { newModel } from "./model-settings-draft"
 
 const channel: ModelProviderSettings["providers"][number] = {
@@ -96,7 +96,7 @@ describe("model setup", () => {
     vi.stubGlobal("fetch", fetchMock)
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <ModelProviderSettingsForm
+        <ModelProviderSettingsFormHarness
           settings={{
             ...settings,
             providers: [{ ...channel, test_model_id: "saved-test-model" }],
@@ -151,7 +151,7 @@ describe("model setup", () => {
     vi.stubGlobal("fetch", fetchMock)
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <ModelProviderSettingsForm settings={settings} />
+        <ModelProviderSettingsFormHarness settings={settings} />
       </QueryClientProvider>
     )
     const user = userEvent.setup()
@@ -215,11 +215,16 @@ describe("model setup", () => {
     "discovers, selects and tests a model, then accepts a manual ID (saved channel: %s)",
     async (saved) => {
       const probes: Array<{ path: string; body: Record<string, unknown> }> = []
+      const detections: Record<string, unknown>[] = []
       vi.stubGlobal(
         "fetch",
         vi.fn(async (url, init?: RequestInit) => {
           const path = String(url)
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+          if (path.endsWith("/detect-protocol")) {
+            detections.push(body)
+            return response({ status: "model_required" })
+          }
           probes.push({ path, body })
           return response(
             path.endsWith("/discover")
@@ -290,6 +295,7 @@ describe("model setup", () => {
         "remote-model",
         "custom-model",
       ])
+      expect(detections).toHaveLength(saved ? 0 : 1)
     }
   )
 
@@ -381,7 +387,7 @@ describe("model setup", () => {
     )
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <ModelProviderSettingsForm settings={saved} />
+        <ModelProviderSettingsFormHarness settings={saved} />
       </QueryClientProvider>
     )
     const user = userEvent.setup()
@@ -419,11 +425,12 @@ describe("model setup", () => {
 
   it("ignores a late model list after connection settings change and permits a fresh request", async () => {
     let finish: ((result: Response) => void) | undefined
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          finish = resolve
-        })
+    const fetchMock = vi.fn((url: RequestInfo | URL) =>
+      String(url).endsWith("/detect-protocol")
+        ? Promise.resolve(response({ status: "model_required" }))
+        : new Promise<Response>((resolve) => {
+            finish = resolve
+          })
     )
     vi.stubGlobal("fetch", fetchMock)
     renderChannel()
@@ -459,7 +466,9 @@ describe("model setup", () => {
     await user.click(
       screen.getByRole("button", { name: "Get available models" })
     )
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(
+      fetchMock.mock.calls.map(([url]) => String(url).split("/").at(-1))
+    ).toEqual(["discover", "detect-protocol", "discover"])
     finish?.(
       response({ status: "supported", models: [foundModel], truncated: false })
     )
@@ -566,7 +575,7 @@ describe("model setup", () => {
     )
     render(
       <QueryClientProvider client={client}>
-        <ModelProviderSettingsForm settings={saved} />
+        <ModelProviderSettingsFormHarness settings={saved} />
       </QueryClientProvider>
     )
     const user = userEvent.setup()
@@ -852,13 +861,15 @@ describe("model setup", () => {
   })
 
   it("requires a new key to probe a changed saved endpoint and clears its old success", async () => {
-    const fetchMock = vi.fn<typeof fetch>(async (url) =>
-      response(
+    const fetchMock = vi.fn<typeof fetch>(async (url) => {
+      if (String(url).endsWith("/detect-protocol"))
+        return response({ status: "model_required" })
+      return response(
         String(url).endsWith("/discover")
           ? { status: "supported", models: [], truncated: false }
           : { status: "success", model_id: "model-a" }
       )
-    )
+    })
     vi.stubGlobal("fetch", fetchMock)
     render(
       <QueryClientProvider client={new QueryClient()}>
@@ -902,12 +913,26 @@ describe("model setup", () => {
     expect(
       screen.getByRole("button", { name: "Save model channel Primary" })
     ).toBeEnabled()
+    await user.tab()
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Test model connection" })
+      ).toBeEnabled()
+    )
     await user.click(
       screen.getByRole("button", { name: "Test model connection" })
     )
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
     expect(
-      JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))
+      fetchMock.mock.calls.map(([url]) => String(url).split("/").at(-1))
+    ).toEqual([
+      "discover",
+      "test-connection",
+      "detect-protocol",
+      "test-connection",
+    ])
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))
     ).toMatchObject({
       api_key: "new-key",
       base_url: `${channel.base_url}/other`,

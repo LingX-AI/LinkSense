@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Spinner } from "@/components/ui/spinner"
+import { ModelDiscovery } from "./model-provider-probe"
 
 const MASKED_API_KEY = "••••••••••••"
 
@@ -149,6 +150,24 @@ export function ImageGenerationSettingsForm({
     baseUrlOverride === null ||
     !baseUrlOverride.trim() ||
     modelProviderBaseUrlSchema.safeParse(baseUrlOverride.trim()).success
+  const savedDiscoveryTargetMatches =
+    !providerChanged &&
+    baseUrl.trim().replace(/\/+$/u, "") ===
+      settings.base_url?.replace(/\/+$/u, "") &&
+    (workspaceId.trim() || null) === settings.provider_options.workspace_id &&
+    (region.trim() || providerDefinition?.default_region || null) ===
+      (settings.provider_options.region ||
+        providerDefinition?.default_region ||
+        null)
+  const discoveryInput = {
+    provider: provider || undefined,
+    provider_options: {
+      workspace_id: workspaceId.trim() || null,
+      region: region.trim() || null,
+    },
+    base_url: baseUrl.trim(),
+    ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+  }
   const formValid =
     customBaseUrlValid &&
     (!enabled ||
@@ -390,23 +409,59 @@ export function ImageGenerationSettingsForm({
                 required={enabled && !apiKeyConfiguredForProvider}
               />
             </FieldShell>
-            <FieldShell
-              layout="settings"
-              id={`${idPrefix}-model`}
-              controlWidth="medium"
-              label={t("admin.imageGeneration.model")}
-              required={enabled}
-              hint={t("admin.imageGeneration.modelHint")}
-            >
-              <Input
-                id={`${idPrefix}-model`}
-                name="image-generation-model"
-                value={model}
-                disabled={readOnly}
-                onChange={(event) => setModel(event.target.value)}
-                required={enabled}
+            {provider ? (
+              <ModelDiscovery
+                key={JSON.stringify(discoveryInput)}
+                kind="image"
+                input={{ ...discoveryInput, provider }}
+                credentialsReady={
+                  Boolean(apiKey.trim()) ||
+                  Boolean(
+                    settings.api_key_configured && savedDiscoveryTargetMatches
+                  )
+                }
+                disabled={readOnly || mutation.isPending}
+                selectedId={model}
+                onSelect={(selected) => setModel(selected.id)}
+                manualEntry={{
+                  label: t("admin.imageGeneration.model"),
+                  name: "image-generation-model",
+                  onChange: setModel,
+                }}
+                hint={t(
+                  settings.api_key_configured &&
+                    !savedDiscoveryTargetMatches &&
+                    !apiKey.trim()
+                    ? "modelSetup.discoveryCredentialsChanged"
+                    : "modelSetup.imageDiscoveryHint"
+                )}
+                field={{
+                  id: `${idPrefix}-model`,
+                  layout: "settings",
+                  controlWidth: "wide",
+                  required: enabled,
+                  hint: t("admin.imageGeneration.modelHint"),
+                }}
               />
-            </FieldShell>
+            ) : (
+              <FieldShell
+                layout="settings"
+                id={`${idPrefix}-model`}
+                controlWidth="medium"
+                label={t("admin.imageGeneration.model")}
+                required={enabled}
+                hint={t("admin.imageGeneration.modelHint")}
+              >
+                <Input
+                  id={`${idPrefix}-model`}
+                  name="image-generation-model"
+                  value={model}
+                  disabled={readOnly}
+                  onChange={(event) => setModel(event.target.value)}
+                  required={enabled}
+                />
+              </FieldShell>
+            )}
             <FieldShell
               layout="settings"
               id={`${idPrefix}-price-per-image`}

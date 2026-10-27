@@ -24,6 +24,35 @@ const pricing = {
 }
 
 describe("knowledge model usage normalization", () => {
+  it.each(["https://embedding.example.test", "https://embedding.example.test/v1"])("uses an unversioned embedding endpoint configured as %s", async (baseUrl) => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) =>
+      String(input) === "https://embedding.example.test/embeddings"
+        ? jsonResponse({ data: [{ index: 0, embedding: [0.6, 0.8] }] })
+        : new Response(null, { status: 404 }))
+    const client = new EmbeddingClient({ baseUrl, model: "embedding-v1", dimensions: 2, maximumInputTokens: 100 }, fetcher, wordEstimator)
+
+    await expect(client.embedQuery("one two")).resolves.toMatchObject({ vector: [0.6, 0.8] })
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
+      "https://embedding.example.test/v1/embeddings", "https://embedding.example.test/embeddings",
+    ])
+  })
+
+  it.each([
+    ["https://rerank.example.test", "https://rerank.example.test/v1"],
+    ["https://rerank.example.test/v1", "https://rerank.example.test"],
+  ])("adapts /v1 for rerank channels configured as %s", async (baseUrl, resolvedBaseUrl) => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) =>
+      String(input) === `${resolvedBaseUrl}/rerank`
+        ? jsonResponse({ results: [{ index: 0, relevance_score: 0.9 }] })
+        : new Response(null, { status: 404 }))
+    const client = new RerankClient({ baseUrl, model: "rerank-v1", timeoutMs: 1_000, maximumInputTokens: 100 }, fetcher, wordEstimator)
+
+    await expect(client.health()).resolves.toBeUndefined()
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
+      `${baseUrl}/rerank`, `${resolvedBaseUrl}/rerank`,
+    ])
+  })
+
   it("does not duplicate the v1 segment in an embedding endpoint", async () => {
     const fetcher = vi.fn(async (input: string | URL | Request) => {
       expect(String(input)).toBe("https://embedding.example.test/v1/embeddings")

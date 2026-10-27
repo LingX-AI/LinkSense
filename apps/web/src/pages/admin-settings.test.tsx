@@ -585,9 +585,12 @@ describe("administrator authentication settings", () => {
         name: i18n.t(`admin.${domain}.provider`),
       })
       expectRequiredLabel(provider)
-      const model = screen.getByRole("textbox", {
-        name: i18n.t(`admin.${domain}.model`),
-      })
+      const model = screen.getByRole(
+        domain === "imageGeneration" ? "combobox" : "textbox",
+        {
+          name: i18n.t(`admin.${domain}.model`),
+        }
+      )
       expectRequiredLabel(model)
       const secret = document.querySelector<HTMLElement>(
         `input[name="${domain === "imageGeneration" ? "image-generation" : "voice-transcription"}-api-key"]`
@@ -2110,6 +2113,103 @@ describe("administrator authentication settings", () => {
     expect(screen.getAllByRole("row")).toHaveLength(2)
   })
 
+  it("keeps the selected channel after adding a model and refreshing the catalog", async () => {
+    let currentSettings = {
+      ...modelProviderSettings,
+      providers: [
+        modelProviderSettings.providers[0],
+        {
+          ...modelProviderSettings.providers[0],
+          id: "provider-b",
+          name: "Secondary",
+          models: [chatModel("model-b", "Model B")],
+        },
+      ],
+    }
+    const requests: RecordedRequest[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        requests.push({ path, ...(init ? { init } : {}) })
+        if (path.endsWith("/model-provider-settings/discover")) {
+          return envelope({
+            status: "supported",
+            models: [
+              {
+                id: "model-c",
+                display_name: "Model C",
+                context_window: null,
+                supports_image_input: null,
+              },
+            ],
+            truncated: false,
+          })
+        }
+        if (path.endsWith("/model-provider-settings")) {
+          if (init?.method === "PUT") {
+            currentSettings = {
+              ...currentSettings,
+              revision: currentSettings.revision + 1,
+              providers: currentSettings.providers.map((provider) =>
+                provider.id === "provider-b"
+                  ? {
+                      ...provider,
+                      models: [
+                        ...provider.models,
+                        chatModel("model-c", "Model C"),
+                      ],
+                    }
+                  : provider
+              ),
+            }
+            return envelope({
+              code: "SYSTEM_SETTINGS_UPDATED",
+              settings: currentSettings,
+            })
+          }
+          return envelope(currentSettings)
+        }
+        return envelope(settingsPayload(path))
+      })
+    )
+    const interaction = userEvent.setup()
+    renderSettings("models")
+    await selectChannel(interaction, "Secondary")
+    await interaction.click(screen.getByRole("button", { name: "添加模型" }))
+    const selection = await screen.findByRole("combobox", {
+      name: i18n.t("modelSetup.selectModel"),
+    })
+    await waitFor(() => expect(selection).toBeEnabled())
+    await interaction.click(selection)
+    await interaction.click(
+      await screen.findByRole("option", { name: "Model C (model-c)" })
+    )
+    await interaction.click(
+      screen.getByRole("button", { name: "保存模型 Model C" })
+    )
+    const update = await waitForModelProviderSettingsPut(requests)
+    expect(JSON.parse(String(update.init?.body))).toMatchObject({
+      providers: [
+        { id: "provider-a", models: [{ id: "model-a" }] },
+        { id: "provider-b", models: [{ id: "model-b" }, { id: "model-c" }] },
+      ],
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "当前渠道" })
+      ).toHaveTextContent("Secondary")
+    )
+    expect(screen.getByRole("row", { name: "Model C" })).toBeVisible()
+
+    await interaction.click(screen.getByRole("tab", { name: "语音转文字模型" }))
+    await interaction.click(screen.getByRole("tab", { name: "模型渠道" }))
+    expect(
+      await screen.findByRole("combobox", { name: "当前渠道" })
+    ).toHaveTextContent("Secondary")
+    expect(screen.getByRole("row", { name: "Model C" })).toBeVisible()
+  })
+
   it("saves knowledge retrieval selections without duplicating channel connection fields", async () => {
     const requests: Array<{ path: string; init?: RequestInit }> = []
     vi.stubGlobal(
@@ -2992,6 +3092,9 @@ describe("administrator authentication settings", () => {
       "fetch",
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         const path = new URL(String(input), window.location.origin).pathname
+        if (path.endsWith("/model-provider-settings/detect-protocol")) {
+          return Promise.resolve(envelope({ status: "model_required" }))
+        }
         if (
           path.endsWith("/model-provider-settings") &&
           init?.method === "PUT"
@@ -3021,6 +3124,15 @@ describe("administrator authentication settings", () => {
         await screen.findByRole("dialog", { name: "编辑渠道" })
       ).getByLabelText(formLabelPattern("API_KEY")),
       "replacement-secret"
+    )
+    await interaction.tab()
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("dialog", { name: "编辑渠道" })).getByRole(
+          "button",
+          { name: "保存模型渠道 模型渠道 1" }
+        )
+      ).toBeEnabled()
     )
     await interaction.click(
       within(screen.getByRole("dialog", { name: "编辑渠道" })).getByRole(

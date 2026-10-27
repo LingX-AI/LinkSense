@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { updateModelProviderSettingsSchema } from "@linksense/shared"
 import type { ModelProviderSettings } from "@/api/contracts"
 import i18n from "@/i18n"
-import { ModelProviderSettingsForm } from "./model-provider-settings-form"
+import { ModelProviderSettingsFormHarness } from "./model-provider-settings-form.test-helper"
 import { newModel } from "./model-settings-draft"
 
 const configuredModel = {
@@ -94,7 +94,7 @@ describe("channel test model persistence", () => {
       )
       render(
         <QueryClientProvider client={new QueryClient()}>
-          <ModelProviderSettingsForm settings={saved} />
+          <ModelProviderSettingsFormHarness settings={saved} />
         </QueryClientProvider>
       )
       const user = userEvent.setup()

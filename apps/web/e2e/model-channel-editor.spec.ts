@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test"
 import {
+  imageGenerationProviderDefinitions,
+  imageGenerationSettingsSchema,
+  updateImageGenerationSettingsSchema,
   managedConversationModelSchema,
   supportedLocales,
   type Locale,
@@ -28,6 +31,127 @@ const settings: ModelProviderSettings = {
   memory_extraction_model: null,
   title_model: null,
 }
+
+test("image generation models can be fetched, searched, selected and saved", async ({
+  page,
+}, testInfo) => {
+  await mockApi(page, settings, "en-US")
+  let imageSettings = imageGenerationSettingsSchema.parse({
+    configured: true,
+    revision: 1,
+    enabled: true,
+    provider: "openai",
+    provider_options: { workspace_id: null, region: null },
+    base_url: "https://images.example.test/v1",
+    api_key_configured: true,
+    model: "existing-image",
+    price_per_image: "0.1",
+    currency: "USD",
+    providers: imageGenerationProviderDefinitions,
+  })
+  const saves: string[] = []
+  await page.route(
+    "**/api/v1/admin/image-generation-settings",
+    async (route) => {
+      if (route.request().method() === "PUT") {
+        const input = updateImageGenerationSettingsSchema.parse(
+          route.request().postDataJSON()
+        )
+        saves.push(input.model ?? "")
+        imageSettings = {
+          ...imageSettings,
+          revision: imageSettings.revision + 1,
+          model: input.model,
+        }
+        return route.fulfill({
+          status: 200,
+          json: {
+            success: true,
+            data: { code: "SYSTEM_SETTINGS_UPDATED", settings: imageSettings },
+          },
+        })
+      }
+      return route.fulfill({
+        status: 200,
+        json: { success: true, data: imageSettings },
+      })
+    }
+  )
+  const discoveries: unknown[] = []
+  await page.route(
+    "**/api/v1/admin/image-generation-settings/discover",
+    (route) => {
+      discoveries.push(route.request().postDataJSON())
+      return route.fulfill({
+        status: 200,
+        json: {
+          success: true,
+          data: {
+            status: "supported",
+            truncated: false,
+            models: [
+              {
+                id: "browser-image",
+                display_name: "Browser image model",
+                context_window: null,
+                supports_image_input: null,
+              },
+            ],
+          },
+        },
+      })
+    }
+  )
+  for (const width of [1440, 375]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto("/admin/models")
+    await page
+      .getByRole("tab", { name: "Image generation model", exact: true })
+      .click()
+    await page.getByRole("button", { name: "Get available models" }).click()
+    const model = page.getByRole("combobox", {
+      name: "Image generation model name",
+      exact: true,
+    })
+    await expect(model).toBeEnabled()
+    await model.fill("Browser image")
+    const option = page.getByRole("option", {
+      name: "Browser image model (browser-image)",
+      exact: true,
+    })
+    await expect(option).toBeVisible()
+    if (width === 1440)
+      await page.screenshot({
+        path: testInfo.outputPath("image-model-list.png"),
+      })
+    await option.click()
+    await expect(model).toHaveValue("browser-image")
+    await page
+      .getByRole("button", {
+        name: "Save image generation model",
+        exact: true,
+      })
+      .click()
+    await expect.poll(() => saves.length).toBe(width === 1440 ? 1 : 2)
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    ).toBe(true)
+  }
+  expect(discoveries).toEqual([
+    {
+      provider: "openai",
+      provider_options: { workspace_id: null, region: null },
+      base_url: imageSettings.base_url,
+    },
+    {
+      provider: "openai",
+      provider_options: { workspace_id: null, region: null },
+      base_url: imageSettings.base_url,
+    },
+  ])
+})
 
 test("form focus indicators stay inside scroll clipping edges", async ({
   page,
