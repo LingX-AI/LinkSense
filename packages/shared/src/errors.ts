@@ -16,6 +16,14 @@ export const errorCatalog = {
   BROWSER_PANEL_UNAVAILABLE: {"message_key": "browserPanel.unavailable", "http_status": 409, "messages": {"zh-CN": "当前任务没有可查看的浏览器会话。", "en-US": "This task has no available browser session."}},
   BROWSER_CONTROL_BUSY: {"message_key": "browserPanel.busy", "http_status": 409, "messages": {"zh-CN": "浏览器正在执行操作，请稍后重试。", "en-US": "The browser is performing an action. Try again shortly."}},
   BROWSER_CONTROL_REQUIRED: {"message_key": "browserPanel.controlRequired", "http_status": 409, "messages": {"zh-CN": "接管已失效或由其他窗口持有，请重新接管。", "en-US": "Control expired or belongs to another window. Take control again."}},
+  LOCAL_BROWSER_PAIR_RATE_LIMITED: {
+    message_key: "errors.localBrowser.pairRateLimited",
+    http_status: 429,
+    messages: {
+      "zh-CN": "浏览器配对请求过于频繁，请稍后重试。",
+      "en-US": "Too many browser pairing requests. Please try again later.",
+    },
+  },
   CONNECTION_WRITE_REQUIRED: {"message_key": "connections.errors.writeRequired", "http_status": 409, "messages": {"zh-CN": "当前连接仅有读取权限，请在插件中心的「连接器」中启用读写并重新授权。", "en-US": "This connection only allows reading. Enable read and write in Plugin Center → Connectors and authorize again."}},
   CONNECTION_FILE_CONFLICT: {"message_key": "connections.errors.fileConflict", "http_status": 409, "messages": {"zh-CN": "文件已被修改或存在同名文件，请重新读取文件状态后再操作。", "en-US": "The file has changed or a file with this name already exists. Read its current state before trying again."}},
   CONNECTION_NOT_CONFIGURED: { message_key: "connections.errors.notConfigured", http_status: 503, messages: { "zh-CN": "管理员尚未配置此连接。", "en-US": "An administrator must configure this connection first." } },

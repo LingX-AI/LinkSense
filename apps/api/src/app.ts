@@ -610,6 +610,8 @@ export async function buildApi(
     sharedSecret: services.config.runnerSharedSecret,
   });
   await registerLocalBrowserRoutes(app, {
+    redis: services.redis.client,
+    rateLimitHmacSecret: services.config.loginRateLimitHmacSecret,
     service: new LocalBrowserService(new RedisBrowserStore(services.redis.client), localBrowserEndpoint.href),
     prisma: services.prisma,
     sharedSecret: services.config.runnerSharedSecret,

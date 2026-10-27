@@ -3,6 +3,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import type { FastifyInstance } from "fastify";
+import rateLimit, { normalizeIP } from "@fastify/rate-limit";
+import type { Redis } from "ioredis";
 import { WebSocket, WebSocketServer } from "ws";
 import { z } from "zod";
 import {
@@ -16,6 +18,7 @@ import {
 } from "@linksense/shared";
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
+import { hmacSha256 } from "../../lib/crypto.js";
 import { ok } from "../../lib/http.js";
 import { LocalBrowserService } from "./service.js";
 import { browserExtensionZip } from "./extension.js";
@@ -31,6 +34,8 @@ export async function registerLocalBrowserRoutes(
     sharedSecret: string;
     socketPath: string;
     intent: Pick<BrowserUseIntentService, "detect">;
+    redis: Redis;
+    rateLimitHmacSecret: string;
   },
 ): Promise<void> {
   const { service, prisma } = options;
@@ -91,18 +96,35 @@ export async function registerLocalBrowserRoutes(
     { prefix: "/api/v1" },
   );
 
-  app.post(
-    "/api/v1/local-browser/pair",
-    { bodyLimit: 1000 },
-    async (request, reply) => {
-      const { code, approval_id } = localBrowserPairExchangeSchema.parse(request.body);
+  await app.register(async (routes) => {
+    routes.addHook("onRequest", async (_request, reply) => {
       reply.header("cache-control", "no-store");
-      const token = await service.pair(code, approval_id);
-      const credential = await service.authenticate(token);
-      if (!credential) throw new AppError("AUTH_REQUIRED");
-      return { token, owner_id: credential.owner, approval_id: credential.approval_id };
-    },
-  );
+    });
+    await routes.register(rateLimit, {
+      redis: options.redis,
+      nameSpace: "linksense:local-browser-pair-rate:",
+      max: 10,
+      timeWindow: "1 minute",
+      skipOnError: false,
+      keyGenerator: (request) => hmacSha256(
+        options.rateLimitHmacSecret,
+        "local-browser-pair:ip:",
+        normalizeIP(request.ip),
+      ),
+      errorResponseBuilder: () => new AppError("LOCAL_BROWSER_PAIR_RATE_LIMITED"),
+    });
+    routes.post(
+      "/api/v1/local-browser/pair",
+      { bodyLimit: 1000 },
+      async (request) => {
+        const { code, approval_id } = localBrowserPairExchangeSchema.parse(request.body);
+        const token = await service.pair(code, approval_id);
+        const credential = await service.authenticate(token);
+        if (!credential) throw new AppError("AUTH_REQUIRED");
+        return { token, owner_id: credential.owner, approval_id: credential.approval_id };
+      },
+    );
+  });
 
   app.post(
     "/internal/local-browser/execute",

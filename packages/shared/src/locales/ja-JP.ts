@@ -1,6 +1,7 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  LOCAL_BROWSER_PAIR_RATE_LIMITED: "ブラウザーのペアリングリクエストが多すぎます。しばらくしてから再試行してください。",
   AUTOMATION_RUN_LIMIT_REACHED: "自動実行回数の上限に達しました。上限を増やすか解除してから再開してください。",
   BROWSER_PANEL_UNAVAILABLE: "このタスクには表示できるブラウザーセッションがありません。",
   BROWSER_CONTROL_BUSY: "ブラウザーが操作を実行中です。少し待って再試行してください。",

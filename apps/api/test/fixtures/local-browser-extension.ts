@@ -4,6 +4,7 @@ import { registerLocalBrowserRoutes } from "../../src/modules/local-browser/rout
 import { LocalBrowserService } from "../../src/modules/local-browser/service.js";
 import { MemoryBrowserStore } from "../local-browser-store.js";
 import type { Duplex } from "node:stream";
+import { createRedisFixture } from "./redis.js";
 
 export async function createBrowserExtensionFixture(owner: string, date: Date) {
   const api = Fastify();
@@ -30,7 +31,11 @@ export async function createBrowserExtensionFixture(owner: string, date: Date) {
       }),
     },
   };
+  const redis = await createRedisFixture();
+  api.addHook("onClose", async () => redis.close());
   await registerLocalBrowserRoutes(api, {
+    redis: redis.client,
+    rateLimitHmacSecret: "test-local-browser-rate-limit-secret",
     service,
     prisma: prisma as unknown as PrismaClient,
     sharedSecret: "test-runner",

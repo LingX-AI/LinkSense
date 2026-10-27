@@ -1,23 +1,41 @@
 import Fastify from "fastify";
 import { WebSocket } from "ws";
 import { once } from "node:events";
-import { afterEach, expect, it, vi } from "vitest";
+import type { Redis } from "ioredis";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
+import { localBrowserPairResponseSchema, localizedErrorMessage, supportedLocales } from "@linksense/shared";
 import type { PrismaClient } from "../src/generated/prisma/client.js";
 import { registerLocalBrowserRoutes } from "../src/modules/local-browser/routes.js";
 import { LocalBrowserService } from "../src/modules/local-browser/service.js";
 import { sendAppError } from "../src/lib/http.js";
 import { AppError } from "../src/lib/errors.js";
 import { MemoryBrowserStore } from "./local-browser-store.js";
+import { createRedisFixture } from "./fixtures/redis.js";
 
 const owner = "10000000-0000-4000-8000-000000000001";
 const task = "20000000-0000-4000-8000-000000000001";
 const turnId = "30000000-0000-4000-8000-000000000001";
 const authDate = new Date("2026-01-01T00:00:00.000Z");
 const apps: ReturnType<typeof Fastify>[] = [];
+let redis: Redis;
+let redisFixture: Awaited<ReturnType<typeof createRedisFixture>>;
+beforeAll(async () => {
+  redisFixture = await createRedisFixture();
+  redis = redisFixture.client;
+});
+beforeEach(async () => {
+  await redis.flushdb();
+});
 afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
 });
-async function fixture(endpoint = "http://127.0.0.1/api/v1/local-browser") {
+afterAll(async () => {
+  await redisFixture?.close();
+});
+async function fixture(
+  endpoint = "http://127.0.0.1/api/v1/local-browser",
+  rateLimitRedis = redis,
+) {
   const app = Fastify();
   apps.push(app);
   app.decorate("authenticate", async (request) => {
@@ -58,6 +76,8 @@ async function fixture(endpoint = "http://127.0.0.1/api/v1/local-browser") {
   );
   const intent = { detect: vi.fn().mockResolvedValue(true) };
   await registerLocalBrowserRoutes(app, {
+    redis: rateLimitRedis,
+    rateLimitHmacSecret: "test-local-browser-rate-limit-secret",
     service,
     prisma: prisma as unknown as PrismaClient,
     sharedSecret: "runner-secret",
@@ -80,6 +100,98 @@ it("requires login for browser settings and returns uncached status", async () =
   });
   expect(response.json()).toMatchObject({ data: { connected: false } });
   expect(response.headers["cache-control"]).toBe("private, no-store");
+});
+it.each([
+  ["x".repeat(43), 401],
+  ["bad", 400],
+])("blocks pairing after ten failed attempts with code %s without consuming a valid pairing code", async (code, status) => {
+  const { app, service } = await fixture();
+  const pair = (code: string) => app.inject({
+    method: "POST",
+    url: "/api/v1/local-browser/pair",
+    payload: { code },
+  });
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    expect((await pair(code)).statusCode).toBe(status);
+  }
+  const pairing = await service.pairing(owner, authDate.toISOString());
+  const response = await pair(pairing.code);
+  expect(response.statusCode).toBe(429);
+  expect(response.json()).toMatchObject({
+    success: false,
+    error_code: "LOCAL_BROWSER_PAIR_RATE_LIMITED",
+  });
+  expect(Number(response.headers["retry-after"])).toBeGreaterThan(0);
+  expect(response.headers["cache-control"]).toBe("no-store");
+  const allowed = await app.inject({
+    method: "POST", url: "/api/v1/local-browser/pair",
+    remoteAddress: "192.0.2.2", payload: { code: pairing.code },
+  });
+  expect(allowed.statusCode).toBe(200);
+  const credential = localBrowserPairResponseSchema.parse(allowed.json());
+  expect(await service.authenticate(credential.token)).toMatchObject({ owner });
+});
+it("shares the pairing quota across API instances and resets it after the fixed window", async ({ onTestFinished }) => {
+  const secondRedis = redis.duplicate();
+  onTestFinished(async () => { await secondRedis.quit(); });
+  const first = await fixture();
+  const second = await fixture(undefined, secondRedis);
+  const responses = await Promise.all(Array.from({ length: 11 }, (_, index) =>
+    (index % 2 === 0 ? first.app : second.app).inject({
+      method: "POST",
+      url: "/api/v1/local-browser/pair",
+      remoteAddress: index % 2 === 0 ? "192.0.2.1" : "::ffff:192.0.2.1",
+      headers: { "x-forwarded-for": `198.51.100.${index}` },
+      payload: { code: String(index).padStart(43, "x") },
+    }),
+  ));
+  expect(responses.map((response) => response.statusCode).sort()).toEqual([
+    ...Array.from({ length: 10 }, () => 401), 429,
+  ]);
+  const keys = await redis.keys("linksense:local-browser-pair-rate:*");
+  expect(keys).toHaveLength(1);
+  expect(keys[0]).not.toContain("192.0.2.1");
+  expect(await redis.pttl(keys[0]!)).toBeGreaterThan(0);
+  expect(await redis.pttl(keys[0]!)).toBeLessThanOrEqual(60_000);
+  await redis.pexpire(keys[0]!, 0);
+  const pairing = await first.service.pairing(owner, authDate.toISOString());
+  const response = await first.app.inject({
+    method: "POST", url: "/api/v1/local-browser/pair",
+    remoteAddress: "192.0.2.1", payload: { code: pairing.code },
+  });
+  expect(response.statusCode).toBe(200);
+  const { token, owner_id, approval_id } = localBrowserPairResponseSchema.parse(response.json());
+  expect(owner_id).toBe(owner);
+  expect(approval_id).toEqual(expect.any(String));
+  expect(await first.service.authenticate(token)).toMatchObject({ owner, approval_id });
+});
+it.each([...supportedLocales, "de-DE"] as const)("returns a localized pairing limit error for %s", async (locale) => {
+  const { app } = await fixture();
+  const pair = () => app.inject({
+    method: "POST", url: "/api/v1/local-browser/pair",
+    headers: { "accept-language": locale }, payload: { code: "x".repeat(43) },
+  });
+  for (let attempt = 0; attempt < 10; attempt += 1) await pair();
+  const response = await pair();
+  expect(response.statusCode).toBe(429);
+  expect(response.json()).toMatchObject({
+    error_code: "LOCAL_BROWSER_PAIR_RATE_LIMITED",
+    message: localizedErrorMessage("LOCAL_BROWSER_PAIR_RATE_LIMITED", locale === "de-DE" ? "zh-CN" : locale),
+  });
+});
+it("rejects pairing when Redis is unavailable without consuming the pairing code", async () => {
+  const unavailableRedis = redis.duplicate({ lazyConnect: true, enableOfflineQueue: false });
+  unavailableRedis.disconnect();
+  const { app, service } = await fixture(undefined, unavailableRedis);
+  const pair = vi.spyOn(service, "pair");
+  const pairing = await service.pairing(owner, authDate.toISOString());
+  const response = await app.inject({
+    method: "POST", url: "/api/v1/local-browser/pair", payload: { code: pairing.code },
+  });
+  expect(response.statusCode).toBe(500);
+  expect(response.json()).toMatchObject({ error_code: "INTERNAL_ERROR" });
+  expect(response.headers["cache-control"]).toBe("no-store");
+  expect(pair).not.toHaveBeenCalled();
 });
 it("authenticates and validates the boolean intent request before calling the classifier", async () => {
   const { app, intent } = await fixture();

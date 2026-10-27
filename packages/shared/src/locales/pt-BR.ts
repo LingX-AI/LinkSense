@@ -1,6 +1,7 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  LOCAL_BROWSER_PAIR_RATE_LIMITED: "Muitas solicitações de pareamento do navegador. Tente novamente mais tarde.",
   AUTOMATION_RUN_LIMIT_REACHED: "O limite de execuções automáticas foi atingido. Aumente ou remova o limite antes de retomar.",
   BROWSER_PANEL_UNAVAILABLE: "Esta tarefa não tem uma sessão de navegador disponível.",
   BROWSER_CONTROL_BUSY: "O navegador está executando uma ação. Tente novamente em instantes.",
