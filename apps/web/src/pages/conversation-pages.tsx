@@ -872,6 +872,19 @@ export function ConversationPage({
     routeConversationIdRef.current = currentRouteConversationId
   }, [currentRouteConversationId, location.key, newTaskResetVersion])
 
+  useEffect(() => {
+    if (isNew && surfaceActive && showComposer && !readOnly) {
+      composerRef.current?.focus()
+    }
+  }, [
+    isNew,
+    location.key,
+    newTaskResetVersion,
+    readOnly,
+    showComposer,
+    surfaceActive,
+  ])
+
   const regenerateOperationRef =
     useRef<Parameters<typeof stableOperationId>[0]["current"]>(null)
   const forkOperationRef = useRef<string | null>(null)
