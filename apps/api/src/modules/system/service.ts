@@ -3,6 +3,7 @@ import { access, constants, mkdir } from "node:fs/promises"
 import type { Readable } from "node:stream"
 import {
   maintenanceStatusSchema,
+  unavailableDiskUsage,
   maintenanceStateSchema,
   isLocale,
   supportedLocales,
@@ -788,6 +789,7 @@ export class SystemService {
           }
         : {}),
       docker_resource_usage: dockerResourceUsage,
+      disk_usage: runnerHealth?.disk_usage ?? unavailableDiskUsage(),
       ...(observedUnresolvedSlotCount === undefined
         ? {}
         : {

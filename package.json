@@ -36,6 +36,7 @@
     "test": "pnpm --filter @linksense/shared build && pnpm run '/^test:(deployment|packages)$/' && pnpm --filter @linksense/web test",
     "test:deployment": "node --test --test-concurrency=2 scripts/*.test.mjs",
     "test:runtime:standalone": "pnpm --filter @linksense/runner exec tsx ../../scripts/runtime-standalone-smoke.mts",
+    "test:runtime:disk-usage": "pnpm --filter @linksense/runner exec tsx ../../scripts/disk-usage-smoke.mts",
     "test:runtime:docker-shared-home": "pnpm --filter @linksense/runner build && tsx scripts/docker-shared-home-smoke.mts",
     "test:runtime:worker-isolation": "node scripts/worker-isolation-smoke.mjs",
     "benchmark:latency": "node scripts/latency-smoke.mjs",
