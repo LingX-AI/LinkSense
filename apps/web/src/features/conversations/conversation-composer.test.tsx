@@ -10,9 +10,11 @@ import {
   within,
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   MAX_VOICE_AUDIO_BYTES,
   MAX_VOICE_RECORDING_DURATION_MS,
+  maximumConversationReferences,
 } from "@linksense/shared"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -249,11 +251,20 @@ function renderStatefulComposer(
     )
   }
 
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
   return {
     props,
     onSelectedIdsChange,
     onSelectedKnowledgeBaseIdsChange,
-    ...render(<Harness />),
+    ...render(<Harness />, {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      ),
+    }),
   }
 }
 
@@ -901,19 +912,22 @@ describe("conversation voice input", () => {
     expect(props.onAttach).not.toHaveBeenCalled()
   })
 
-  it("consumes the slash token before starting a new task", async () => {
-    const interaction = userEvent.setup()
-    const onStartNewTask = vi.fn()
-    renderStatefulComposer({ onStartNewTask })
-    const input = screen.getByRole("textbox", { name: "任务输入框" })
+  it.each(["Enter", "Tab"])(
+    "consumes the slash token before starting a new task with %s",
+    async (key) => {
+      const interaction = userEvent.setup()
+      const onStartNewTask = vi.fn()
+      renderStatefulComposer({ onStartNewTask })
+      const input = screen.getByRole("textbox", { name: "任务输入框" })
 
-    await interaction.type(input, "/new")
-    fireEvent.keyDown(input, { key: "Enter", code: "Enter" })
+      await interaction.type(input, "/new")
+      await interaction.keyboard(`{${key}}`)
 
-    expect(onStartNewTask).toHaveBeenCalledTimes(1)
-    expect(input).toHaveValue("")
-    expect(screen.queryByLabelText("功能菜单")).not.toBeInTheDocument()
-  })
+      expect(onStartNewTask).toHaveBeenCalledTimes(1)
+      expect(input).toHaveValue("")
+      expect(screen.queryByLabelText("功能菜单")).not.toBeInTheDocument()
+    }
+  )
 
   it("dismisses the slash menu with Escape without submitting the draft", async () => {
     const interaction = userEvent.setup()
@@ -929,69 +943,75 @@ describe("conversation voice input", () => {
     expect(props.onSubmit).not.toHaveBeenCalled()
   })
 
-  it("opens the Skill picker with $, filters the available Skills, and selects from the keyboard", async () => {
-    const interaction = userEvent.setup()
-    const { onSelectedIdsChange, props } = renderStatefulComposer({
-      capabilities: [
-        capabilityFixture({
-          id: "skill-review",
-          name: "Code Review",
-          slug: "code-review",
-          description: "检查代码质量",
-        }),
-        capabilityFixture({
-          id: "skill-writing",
-          name: "Writing Assistant",
-          slug: "writing-assistant",
-          description: "优化文案",
-        }),
-        capabilityFixture({
-          id: "plugin-code",
-          name: "Code Plugin",
-          slug: "code-plugin",
-          type: "plugin",
-        }),
-        capabilityFixture({
-          id: "skill-disabled",
-          name: "Disabled Skill",
-          personally_disabled: true,
-        }),
-        capabilityFixture({
-          id: "skill-unselectable",
-          name: "Unavailable Skill",
-          can_select: false,
-        }),
-      ],
-    })
-    const input = screen.getByRole("textbox", { name: "任务输入框" })
+  it.each(["Enter", "Tab"])(
+    "opens the Skill picker with $, filters the available Skills, and selects with %s",
+    async (key) => {
+      const interaction = userEvent.setup()
+      const { onSelectedIdsChange, props } = renderStatefulComposer({
+        capabilities: [
+          capabilityFixture({
+            id: "skill-review",
+            name: "Code Review",
+            slug: "code-review",
+            description: "检查代码质量",
+          }),
+          capabilityFixture({
+            id: "skill-writing",
+            name: "Writing Assistant",
+            slug: "writing-assistant",
+            description: "优化文案",
+          }),
+          capabilityFixture({
+            id: "plugin-code",
+            name: "Code Plugin",
+            slug: "code-plugin",
+            type: "plugin",
+          }),
+          capabilityFixture({
+            id: "skill-disabled",
+            name: "Disabled Skill",
+            personally_disabled: true,
+          }),
+          capabilityFixture({
+            id: "skill-unselectable",
+            name: "Unavailable Skill",
+            can_select: false,
+          }),
+        ],
+      })
+      const input = screen.getByRole("textbox", { name: "任务输入框" })
 
-    await interaction.type(input, "$")
+      await interaction.type(input, "$")
 
-    expect(screen.getByLabelText("Skill 选择菜单")).toBeVisible()
-    expect(screen.getByRole("option", { name: /Code Review/ })).toBeVisible()
-    expect(
-      screen.getByRole("option", { name: /Writing Assistant/ })
-    ).toBeVisible()
-    expect(screen.queryByRole("option", { name: /Code Plugin/ })).toBeNull()
-    expect(screen.queryByRole("option", { name: /Disabled Skill/ })).toBeNull()
-    expect(
-      screen.queryByRole("option", { name: /Unavailable Skill/ })
-    ).toBeNull()
+      expect(screen.getByLabelText("Skill 选择菜单")).toBeVisible()
+      expect(screen.getByRole("option", { name: /Code Review/ })).toBeVisible()
+      expect(
+        screen.getByRole("option", { name: /Writing Assistant/ })
+      ).toBeVisible()
+      expect(screen.queryByRole("option", { name: /Code Plugin/ })).toBeNull()
+      expect(
+        screen.queryByRole("option", { name: /Disabled Skill/ })
+      ).toBeNull()
+      expect(
+        screen.queryByRole("option", { name: /Unavailable Skill/ })
+      ).toBeNull()
 
-    await interaction.type(input, "code")
+      await interaction.type(input, "code")
 
-    expect(screen.getByRole("option", { name: /Code Review/ })).toBeVisible()
-    expect(
-      screen.queryByRole("option", { name: /Writing Assistant/ })
-    ).toBeNull()
+      expect(screen.getByRole("option", { name: /Code Review/ })).toBeVisible()
+      expect(
+        screen.queryByRole("option", { name: /Writing Assistant/ })
+      ).toBeNull()
 
-    fireEvent.keyDown(input, { key: "Enter", code: "Enter" })
+      await interaction.keyboard(`{${key}}`)
 
-    expect(onSelectedIdsChange).toHaveBeenCalledWith(["skill-review"])
-    expect(input).toHaveValue("")
-    expect(screen.queryByLabelText("Skill 选择菜单")).not.toBeInTheDocument()
-    expect(props.onSubmit).not.toHaveBeenCalled()
-  })
+      expect(onSelectedIdsChange).toHaveBeenCalledWith(["skill-review"])
+      expect(input).toHaveValue("")
+      expect(input).toHaveFocus()
+      expect(screen.queryByLabelText("Skill 选择菜单")).not.toBeInTheDocument()
+      expect(props.onSubmit).not.toHaveBeenCalled()
+    }
+  )
 
   it("dismisses the $ Skill picker with Escape without changing the draft", async () => {
     const interaction = userEvent.setup()
@@ -1010,79 +1030,187 @@ describe("conversation voice input", () => {
     expect(props.onSubmit).not.toHaveBeenCalled()
   })
 
-  it("expands the Skill list inline and selects a Skill entirely from the keyboard", async () => {
-    const interaction = userEvent.setup()
-    const { onSelectedIdsChange, props } = renderStatefulComposer({
-      capabilities: [
-        capabilityFixture({
-          id: "skill-review",
-          name: "Code Review",
-          type: "skill",
-          description: "检查代码质量",
-        }),
-      ],
-    })
-    const input = screen.getByRole("textbox", { name: "任务输入框" })
+  it.each(["Enter", "Tab"])(
+    "expands the Skill list inline and selects the highlighted Skill with %s",
+    async (key) => {
+      const interaction = userEvent.setup()
+      const { onSelectedIdsChange, props } = renderStatefulComposer({
+        capabilities: [
+          capabilityFixture({
+            id: "skill-review",
+            name: "Code Review",
+            type: "skill",
+            description: "检查代码质量",
+          }),
+        ],
+      })
+      const input = screen.getByRole("textbox", { name: "任务输入框" })
 
-    await interaction.type(input, "/skill")
-    const skillCommand = screen.getByRole("option", { name: /Skill 列表/ })
-    expect(skillCommand).toBeVisible()
-    expect(screen.queryByRole("option", { name: /插件列表/ })).toBeNull()
+      await interaction.type(input, "/skill")
+      const skillCommand = screen.getByRole("option", { name: /Skill 列表/ })
+      expect(skillCommand).toBeVisible()
+      expect(screen.queryByRole("option", { name: /插件列表/ })).toBeNull()
 
-    fireEvent.keyDown(input, { key: "Enter", code: "Enter" })
-    const skill = screen.getByRole("option", { name: /Code Review/ })
-    const inlinePanel = document.getElementById(
-      "conversation-slash-panel-skills"
-    )
-    if (!inlinePanel) throw new Error("Expected the inline Skill panel")
-    expect(skillCommand).toHaveAttribute("aria-expanded", "true")
-    expect(skillCommand).toHaveAttribute(
-      "aria-controls",
-      "conversation-slash-panel-skills"
-    )
-    expect(inlinePanel).toContainElement(skill)
-    expect(skill.querySelector(".composer-slash-item-icon")).toBeNull()
-    expect(
-      skillCommand.compareDocumentPosition(inlinePanel) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-    expect(screen.queryByRole("heading", { name: "Skill" })).toBeNull()
-    expect(input).toHaveValue("/skill")
+      fireEvent.keyDown(input, { key: "Enter", code: "Enter" })
+      const skill = screen.getByRole("option", { name: /Code Review/ })
+      const inlinePanel = document.getElementById(
+        "conversation-slash-panel-skills"
+      )
+      if (!inlinePanel) throw new Error("Expected the inline Skill panel")
+      expect(skillCommand).toHaveAttribute("aria-expanded", "true")
+      expect(skillCommand).toHaveAttribute(
+        "aria-controls",
+        "conversation-slash-panel-skills"
+      )
+      expect(inlinePanel).toContainElement(skill)
+      expect(skill.querySelector(".composer-slash-item-icon")).toBeNull()
+      expect(
+        skillCommand.compareDocumentPosition(inlinePanel) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(screen.queryByRole("heading", { name: "Skill" })).toBeNull()
+      expect(input).toHaveValue("/skill")
 
-    fireEvent.keyDown(input, { key: "ArrowDown", code: "ArrowDown" })
-    fireEvent.keyDown(input, { key: "Enter", code: "Enter" })
-    expect(onSelectedIdsChange).toHaveBeenCalledWith(["skill-review"])
-    expect(props.onSubmit).not.toHaveBeenCalled()
-    expect(screen.queryByLabelText("功能菜单")).not.toBeInTheDocument()
-  })
+      fireEvent.keyDown(input, { key: "ArrowDown", code: "ArrowDown" })
+      await interaction.keyboard(`{${key}}`)
+      expect(onSelectedIdsChange).toHaveBeenCalledWith(["skill-review"])
+      expect(input).toHaveFocus()
+      expect(props.onSubmit).not.toHaveBeenCalled()
+      expect(screen.queryByLabelText("功能菜单")).not.toBeInTheDocument()
+    }
+  )
 
-  it("selects a concrete plugin directly from a slash query", async () => {
-    const interaction = userEvent.setup()
-    const { onSelectedIdsChange, props } = renderStatefulComposer({
-      capabilities: [
-        capabilityFixture({
-          id: "plugin-web",
-          name: "网页抓取插件",
-          slug: "web-fetch-plugin",
-          type: "plugin",
-          description: "抓取网页内容并整理摘要",
-        }),
-      ],
-    })
-    const input = screen.getByRole("textbox", { name: "任务输入框" })
+  it.each(["click", "Tab"])(
+    "selects a concrete plugin directly from a slash query with %s",
+    async (method) => {
+      const interaction = userEvent.setup()
+      const { onSelectedIdsChange, props } = renderStatefulComposer({
+        capabilities: [
+          capabilityFixture({
+            id: "plugin-web",
+            name: "网页抓取插件",
+            slug: "web-fetch-plugin",
+            type: "plugin",
+            description: "抓取网页内容并整理摘要",
+          }),
+        ],
+      })
+      const input = screen.getByRole("textbox", { name: "任务输入框" })
 
-    await interaction.type(input, "/web")
-    const plugin = screen.getByRole("option", { name: /网页抓取插件/ })
-    expect(plugin).toBeVisible()
-    expect(screen.queryByText("没有匹配的功能")).not.toBeInTheDocument()
-    expect(screen.queryByRole("option", { name: /插件列表/ })).toBeNull()
+      await interaction.type(input, "/web")
+      const plugin = screen.getByRole("option", { name: /网页抓取插件/ })
+      expect(plugin).toBeVisible()
+      expect(screen.queryByText("没有匹配的功能")).not.toBeInTheDocument()
+      expect(screen.queryByRole("option", { name: /插件列表/ })).toBeNull()
 
-    await interaction.click(plugin)
-    expect(onSelectedIdsChange).toHaveBeenCalledWith(["plugin-web"])
-    expect(props.onSubmit).not.toHaveBeenCalled()
-    expect(input).toHaveValue("")
-    expect(screen.queryByLabelText("功能菜单")).not.toBeInTheDocument()
-  })
+      if (method === "click") await interaction.click(plugin)
+      else await interaction.tab()
+      expect(onSelectedIdsChange).toHaveBeenCalledWith(["plugin-web"])
+      expect(props.onSubmit).not.toHaveBeenCalled()
+      expect(input).toHaveValue("")
+      expect(input).toHaveFocus()
+      expect(screen.queryByLabelText("功能菜单")).not.toBeInTheDocument()
+    }
+  )
+
+  it.each([
+    "ordinary text",
+    "/no-match-zzzz",
+    "$no-match-zzzz",
+    "/unavailable-skill",
+  ])(
+    "keeps native Tab navigation without an enabled shortcut for %s",
+    async (value) => {
+      const interaction = userEvent.setup()
+      const { onSelectedIdsChange, props } = renderStatefulComposer({
+        capabilities: [
+          capabilityFixture({
+            name: "Unavailable Skill",
+            slug: "unavailable-skill",
+            can_select: false,
+          }),
+        ],
+      })
+      const input = screen.getByRole("textbox", { name: "任务输入框" })
+
+      await interaction.type(input, value)
+      await interaction.tab()
+
+      expect(input).not.toHaveFocus()
+      expect(input).toHaveValue(value)
+      expect(onSelectedIdsChange).not.toHaveBeenCalled()
+      expect(props.onSubmit).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([0, maximumConversationReferences])(
+    "keeps native Tab navigation without selectable task references at count %i",
+    async (selectedCount) => {
+      const tasks = Array.from({ length: selectedCount + 1 }, (_, index) => ({
+        id: `11111111-1111-4111-8111-${String(index).padStart(12, "0")}`,
+        title: `Task ${index}`,
+      }))
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          success: true,
+          data: { items: selectedCount ? tasks : [], next_cursor: null },
+        })
+      )
+      vi.stubGlobal("fetch", fetcher)
+      const interaction = userEvent.setup()
+      const onTaskReferencesChange = vi.fn()
+      renderStatefulComposer({
+        value: "@no-matching-task",
+        taskReferences: tasks.slice(0, selectedCount),
+        onTaskReferencesChange,
+      })
+      const input = screen.getByRole("textbox", { name: "任务输入框" })
+      await interaction.click(input)
+      if (selectedCount) {
+        expect(
+          await screen.findByRole("option", { name: `Task ${selectedCount}` })
+        ).toHaveAttribute("aria-disabled", "true")
+      } else {
+        expect(
+          await screen.findByText(i18n.t("taskReferences.empty"))
+        ).toBeVisible()
+      }
+      await interaction.tab()
+
+      expect(input).not.toHaveFocus()
+      expect(input).toHaveValue("@no-matching-task")
+      expect(onTaskReferencesChange).not.toHaveBeenCalled()
+      expect(fetcher).toHaveBeenCalledTimes(1)
+    }
+  )
+
+  it.each([
+    { name: "Shift+Tab", shiftKey: true, isComposing: false },
+    { name: "IME composition", shiftKey: false, isComposing: true },
+  ])(
+    "does not accept a shortcut during $name",
+    async ({ shiftKey, isComposing }) => {
+      const interaction = userEvent.setup()
+      const { onSelectedIdsChange, props } = renderStatefulComposer({
+        capabilities: [capabilityFixture({ name: "Code Review" })],
+      })
+      const input = screen.getByRole("textbox", { name: "任务输入框" })
+      await interaction.type(input, "$")
+      const event = createEvent.keyDown(input, {
+        key: "Tab",
+        code: "Tab",
+        shiftKey,
+        isComposing,
+      })
+
+      fireEvent(input, event)
+
+      expect(event.defaultPrevented).toBe(false)
+      expect(input).toHaveValue("$")
+      expect(onSelectedIdsChange).not.toHaveBeenCalled()
+      expect(props.onSubmit).not.toHaveBeenCalled()
+    }
+  )
 
   it("reports an unavailable browser and leaves keyboard input usable", async () => {
     const interaction = userEvent.setup()

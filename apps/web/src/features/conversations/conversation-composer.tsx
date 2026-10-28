@@ -1125,6 +1125,20 @@ export const ConversationComposer = forwardRef<
         dismissCommandMenu()
         return
       }
+      if (event.key === "Tab" && !event.shiftKey && !taskReferenceMenuOpen) {
+        const item =
+          commandMenuRef.current?.querySelector<HTMLElement>(
+            '[data-slot="command-item"][aria-selected="true"]:not([aria-disabled="true"])'
+          ) ??
+          commandMenuRef.current?.querySelector<HTMLElement>(
+            '[data-slot="command-item"]:not([aria-disabled="true"])'
+          )
+        if (item) {
+          event.preventDefault()
+          item.click()
+          return
+        }
+      }
       if (
         event.key === "ArrowDown" ||
         event.key === "ArrowUp" ||
