@@ -287,6 +287,22 @@ setLinkSenseLocale("en-US")
 
 Built-in questions configured for the current origin appear in the new-task welcome area. Their text never changes with `locale`: users see exactly what the administrator entered. Selecting a question fills and focuses the composer but does not send it automatically.
 
+## Handing attachments to external MCP integrations
+
+A workspace path in an HTTP MCP argument is not a file transfer. First evaluate a business-owned STDIO MCP adapter: published applications already support STDIO, so an adapter can read selected task attachments and upload their bytes to fixed HTTPS endpoints. The destination owns storage and record association; no new LinkSense core endpoint is required.
+
+See `apps/runner/examples/attachment-handoff/README.md` in the repository for a runnable reference, launch commands and the destination contract. Model-visible arguments contain only a non-secret handoff ID. The trusted backend supplies the approved manifest, hashes, destination and scoped credential. Users must review and confirm the destination and selected files in an authenticated UI; prompt text, a model's assertion or a boolean argument is not backend authorization.
+
+The reference checks conversation scope, expiry, file paths and hashes, cancellation, size/type limits, partial failures and a stable retry key. The destination must still implement receiving/storage, persistent idempotency, transactional record association and localized errors. Repository tests use a simulated receiver, not a deployed business integration. Never put long-lived public download URLs, credentials or large Base64 payloads in tool arguments.
+
+## End-user presentation
+
+Enable **End-user presentation** in the application's external-access settings to generate embed code with `&presentation=end_user`, or add that parameter to the iframe `src` yourself. This hides commands, tool activity, reasoning summaries and execution timings. Localized progress, user follow-up instructions, final answers, references and attachments remain visible.
+
+Confirmation forms, submitted and cancelled results, stop controls, errors and connection feedback remain available. The option applies to both live turns and restored history. It does not change tool permissions, authentication or native turn semantics, and reconnection does not replay an action.
+
+Omitting the parameter or using `presentation=technical` preserves the existing technical view. Configuration is per iframe; existing applications and published versions need no migration. This is a display option, not a security boundary. Keep the technical view in a separate developer or maintenance embed when troubleshooting.
+
 ## Task list and automatic naming
 
 The embedded page's Task list shows only tasks created by the current external user in the current application. It never exposes another user or another application's tasks.
