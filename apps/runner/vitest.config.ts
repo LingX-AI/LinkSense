@@ -7,6 +7,7 @@ const isolatedTests = [
   "test/browser-init-page.test.ts",
   "test/controller-worker-contract.test.ts",
   "test/http-egress-proxy.test.ts",
+  "test/interactive-form-service.test.ts",
   "test/event-outbox.test.ts",
 ]
 

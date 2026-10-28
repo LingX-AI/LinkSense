@@ -1,5 +1,6 @@
 import {
-  conversationFormAutoResolutionMs,
+  conversationFormWaitingPolicySchema,
+  conversationFormWaitingPolicyMatchesSchema,
   conversationFormRequestedSchema,
   conversationFormResponseSemanticsMatchesSchema,
   conversationFormResponseSemanticsSchema,
@@ -9,6 +10,7 @@ import {
 } from "@linksense/shared"
 import type { Tool } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
+import { request as requestHttp } from "undici"
 
 import {
   requestUserFormSafetyInstructions,
@@ -117,6 +119,9 @@ const interactiveFormArgumentsSchema = z
         "Use approval only when this form explicitly approves or rejects a described action.",
       ),
     approval: approvalSemanticsSchema.optional(),
+    waiting_policy: conversationFormWaitingPolicySchema.default({ kind: "required" }).describe(
+      "required waits for the user without a deadline. optional requires a complete recommendation and automatically uses it after 3 minutes without a submitted answer. Approval forms must be required.",
+    ),
     fields: z.array(interactiveFormFieldSchema).min(1).max(20),
   })
   .superRefine((input, context) => {
@@ -295,30 +300,24 @@ export const interactiveFormCoreMcpModule = {
             ...(details ? { details } : {}),
           })
         }
-        const { requestedSchema, responseSemantics, uiHints } = formRequest
         try {
-          const response = await request(endpoint, {
+          const options = {
             method: "POST",
             headers: {
               authorization: `Bearer ${token}`,
               "content-type": "application/json",
             },
-            body: JSON.stringify({
-              message: arguments_.message,
-              requestedSchema,
-              uiHints,
-              responseSemantics,
-            }),
-            signal: withRequestTimeout(
-              input.signal,
-              conversationFormAutoResolutionMs + 15_000,
-            ),
-          })
+            body: JSON.stringify({ message: arguments_.message, ...formRequest }),
+            signal: input.signal,
+          } as const
+          // Fetch's transport-level header deadline is inappropriate while a
+          // human is answering. Keep the existing broker, using undici's
+          // documented timeout controls for this one long-lived request.
+          const response = request !== globalThis.fetch
+            ? await request(endpoint, options)
+            : await requestFormBroker(endpoint, options)
           if (!response.ok) {
-            return failureToolResult({
-              code: "INTERACTIVE_FORM_UNAVAILABLE",
-              retryable: response.status >= 500,
-            })
+            return failureToolResult({ code: "INTERACTIVE_FORM_UNAVAILABLE", retryable: response.status >= 500 })
           }
           const result = conversationUserInputResponseSchema.parse(
             await response.json(),
@@ -338,6 +337,22 @@ export const interactiveFormCoreMcpModule = {
     }
   },
 } satisfies CoreMcpModuleDefinition
+
+async function requestFormBroker(endpoint: string, options: {
+  method: "POST"
+  headers: Record<string, string>
+  body: string
+  signal: AbortSignal
+}): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> {
+  const response = await requestHttp(endpoint, {
+    ...options,
+    headersTimeout: 0,
+    bodyTimeout: 0,
+  })
+  const ok = response.statusCode >= 200 && response.statusCode < 300
+  if (!ok) await response.body.dump()
+  return { ok, status: response.statusCode, json: () => response.body.json() }
+}
 
 function buildFormRequest(
   input: z.infer<typeof interactiveFormArgumentsSchema>,
@@ -457,10 +472,14 @@ function buildFormRequest(
   ) {
     throw new Error("invalid form response semantics")
   }
+  if (!conversationFormWaitingPolicyMatchesSchema(input.waiting_policy, requestedSchema, responseSemantics)) {
+    throw new Error("invalid form waiting policy or recommendation")
+  }
   return {
     requestedSchema,
     responseSemantics,
     uiHints,
+    waitingPolicy: input.waiting_policy,
   }
 }
 
