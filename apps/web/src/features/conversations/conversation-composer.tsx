@@ -2148,7 +2148,7 @@ export const ConversationComposer = forwardRef<
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="composer-control h-8 cursor-not-allowed gap-2 px-0 font-normal opacity-50 @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs"
+                          className="composer-control -mx-1.5 h-8 cursor-not-allowed gap-2 px-1.5 font-normal opacity-50 @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs"
                           aria-label={t("conversation.addKnowledgeBase")}
                           aria-disabled="true"
                         />
@@ -2204,7 +2204,7 @@ export const ConversationComposer = forwardRef<
                           variant="ghost"
                           size="sm"
                           className={cn(
-                            "composer-control h-8 gap-2 px-0 font-normal @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs",
+                            "composer-control -mx-1.5 h-8 gap-2 px-1.5 font-normal @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs",
                             modelPreferenceBlockingActions &&
                               "disabled:opacity-100"
                           )}

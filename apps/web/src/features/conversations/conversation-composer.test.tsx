@@ -436,6 +436,14 @@ describe("conversation voice input", () => {
           name: i18n.t("conversation.addKnowledgeBase"),
         })
       ).toHaveTextContent(knowledgeLabel)
+      for (const key of [
+        "conversation.toolbarAttach",
+        "conversation.addKnowledgeBase",
+      ]) {
+        expect(
+          within(toolbar).getByRole("button", { name: i18n.t(key) })
+        ).toHaveClass("-mx-1.5", "px-1.5")
+      }
       expect(
         toolbar.querySelectorAll('[data-slot="composer-separator"]')
       ).toHaveLength(2)
@@ -3011,6 +3019,7 @@ describe("conversation voice input", () => {
     const knowledgeTrigger = screen.getByRole("button", {
       name: "添加知识库",
     })
+    expect(knowledgeTrigger).toHaveClass("-mx-1.5", "px-1.5")
     expect(knowledgeTrigger).toHaveAttribute("aria-disabled", "true")
     expect(
       screen.queryByRole("button", { name: "添加附件" })

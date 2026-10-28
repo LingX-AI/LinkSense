@@ -44,6 +44,11 @@ describe.each(["zh-CN", "en-US"])(
       )
       const primary = actions[0]
       if (!primary) throw new Error("Expected chat creation action")
+      expect(primary).not.toHaveClass("hover:bg-hover")
+      expect(primary.querySelector('[data-icon="inline-end"]')).toHaveClass(
+        "motion-safe:transition-transform",
+        "motion-safe:group-hover/creation:translate-x-0.5"
+      )
       expect(within(dialog).getAllByRole("button")).toHaveLength(4)
       expect(
         within(primary).getByText(i18n.t("applications.creation.recommended"))

@@ -105,7 +105,7 @@ export function ApplicationCreateDialog({
         <div className={dialogBodyStyles("flex flex-col gap-3")}>
           <Button
             type="button"
-            variant="ghost"
+            variant="plain"
             className="group/creation h-auto w-full shrink-0 justify-start overflow-hidden rounded-2xl p-0 text-left whitespace-normal"
             aria-labelledby={`${id}-development-title`}
             aria-describedby={`${id}-development-description`}
