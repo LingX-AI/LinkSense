@@ -1,3 +1,4 @@
+import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
@@ -5423,6 +5424,7 @@ export const ptBR = {
       "Infraestrutura, autenticação, segredos, simultaneidade e limites de arquivos são gerenciados pela implantação. Aqui é exibido apenas o status com dados sensíveis ocultados.",
   },
   health: {
+    disk: diskUsageMessages["pt-BR"],
     title: "Saúde do sistema",
     description:
       "Resumo somente leitura dos serviços e diretórios gerenciados do {{productName}}.",

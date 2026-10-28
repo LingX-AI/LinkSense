@@ -1,3 +1,4 @@
+import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
@@ -5335,6 +5336,7 @@ export const jaJP = {
       "インフラ、認証、シークレット、同時実行数、ファイル上限はデプロイ環境で管理します。ここでは機密情報を除いた状態のみ表示します。",
   },
   health: {
+    disk: diskUsageMessages["ja-JP"],
     title: "システム状態",
     description:
       "{{productName}} のサービスと管理対象ディレクトリの、読み取り専用の概要です。",

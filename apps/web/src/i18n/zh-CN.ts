@@ -1,3 +1,4 @@
+import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
@@ -4718,6 +4719,7 @@ export const zhCN = {
       "基础设施、认证、密钥、并发和文件限制由部署配置管理。此处仅展示脱敏状态。",
   },
   health: {
+    disk: diskUsageMessages["zh-CN"],
     title: "系统健康状态",
     description: "只读查看 {{productName}} 服务与受控目录的健康摘要。",
     overall: "总体状态",

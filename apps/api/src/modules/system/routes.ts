@@ -547,7 +547,7 @@ export const adminSystemRoutes: FastifyPluginAsync<{
   }
 
   app.get("/health", async (request, reply) =>
-    reply.send(
+    reply.header("cache-control", "no-store").send(
       ok(
         await services.system.health({ includeCleanupFailures: true }),
         request.id

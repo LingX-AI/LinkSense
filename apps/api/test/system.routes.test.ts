@@ -12,6 +12,19 @@ const ONE_PIXEL_PNG = Buffer.from(
 )
 
 describe("system routes", () => {
+  it("denies access to deployment disk diagnostics before invoking the health service", async () => {
+    const health = vi.fn()
+    const app = Fastify()
+    app.decorate("requireAdmin", async () => { throw new AppError("FORBIDDEN") })
+    app.setErrorHandler((_error, _request, reply) => { void reply.code(403).send({ error_code: "FORBIDDEN" }) })
+    await app.register(adminSystemRoutes, { prefix: "/api/v1/admin", services: { system: { health } } as unknown as AppServices })
+    try {
+      const result = await app.inject({ method: "GET", url: "/api/v1/admin/health" })
+      expect(result.statusCode).toBe(403)
+      expect(health).not.toHaveBeenCalled()
+      expect(result.json()).not.toHaveProperty("disk_usage")
+    } finally { await app.close() }
+  })
   it.each([200, 503])("never caches bootstrap responses with status %s", async (statusCode) => {
     const bootstrap = vi.fn(async () => {
       if (statusCode === 503) {
@@ -1268,6 +1281,7 @@ describe("admin system routes", () => {
       url: "/api/v1/admin/health",
     })
     expect(healthResponse.statusCode).toBe(200)
+    expect(healthResponse.headers["cache-control"]).toBe("no-store")
     expect(health).toHaveBeenCalledWith({ includeCleanupFailures: true })
     await app.close()
   })
