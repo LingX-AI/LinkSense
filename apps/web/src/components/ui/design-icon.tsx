@@ -3,6 +3,7 @@ import type { ComponentProps } from "react"
 
 const masks = {
   plus: "mask-[url(./assets/figma/icons/plus.svg)]",
+  "composer-add": "mask-[url(./assets/figma/icons/composer-add.svg)]",
   search: "mask-[url(./assets/figma/icons/search.svg)]",
   automations: "mask-[url(./assets/figma/icons/automations.svg)]",
   plugins: "mask-[url(./assets/figma/icons/plugins.svg)]",
@@ -43,6 +44,7 @@ export function DesignIcon({
       className={cn(
         "inline-block size-4 shrink-0 bg-current [mask-size:contain] mask-center mask-no-repeat forced-colors:bg-[ButtonText] forced-colors:forced-color-adjust-none",
         [
+          "composer-add",
           "help",
           "sidebar",
           "notification",
@@ -53,6 +55,7 @@ export function DesignIcon({
           "share",
           "overview",
         ].includes(name) && "size-5",
+        name === "composer-add" && "[mask-size:88.35%]",
         masks[name],
         className
       )}

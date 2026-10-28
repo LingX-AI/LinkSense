@@ -311,6 +311,8 @@
     var(--app-composer)
   );
   --app-accent: var(--primary);
+  --app-send-disabled: #e9ebf0;
+  --app-send-disabled-foreground: #9099b1;
   --app-ring: var(--ring);
   --app-selection: var(--primary);
   --app-usage-token-assistant: #7857f6;
@@ -433,6 +435,8 @@
     var(--app-composer)
   );
   --app-accent: var(--primary);
+  --app-send-disabled: #383e4b;
+  --app-send-disabled-foreground: #adb6c8;
   --app-ring: var(--ring);
   --app-selection: #8bb6ff;
   --app-usage-token-assistant: #9a83ff;
@@ -808,6 +812,14 @@
   min-height: 152px;
 }
 
+.composer-shell:not([data-drag-active="true"]):hover {
+  border-color: var(--input-hover);
+}
+
+.composer-shell:not([data-drag-active="true"]):has(.composer-input:focus) {
+  border-color: var(--ring);
+}
+
 .composer-shell[data-drag-active="true"] {
   border-color: color-mix(in srgb, var(--app-text) 26%, var(--app-border));
   background: color-mix(
@@ -922,6 +934,12 @@
 
 .send-button:hover {
   background: color-mix(in srgb, var(--app-accent) 84%, black);
+}
+
+.send-button:is(:disabled, [aria-disabled="true"]) {
+  background: var(--app-send-disabled);
+  color: var(--app-send-disabled-foreground);
+  opacity: 1;
 }
 
 .mobile-navigation-sheet {

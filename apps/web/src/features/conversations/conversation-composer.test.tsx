@@ -392,6 +392,65 @@ describe("conversation voice input", () => {
     )
   })
 
+  it.each([
+    ["zh-CN", "附件", "知识库"],
+    ["en-US", "Attach", "Knowledge"],
+    ["es-ES", "Adjuntar", "Conocimiento"],
+    ["pt-BR", "Anexar", "Conhecimento"],
+    ["fr-FR", "Joindre", "Connaissances"],
+    ["ja-JP", "添付", "ナレッジ"],
+    ["de-DE", "附件", "知识库"],
+  ])(
+    "shows localized toolbar labels and separators in %s",
+    async (language, attachmentLabel, knowledgeLabel) => {
+      await i18n.changeLanguage(language)
+      const { container } = renderComposer({
+        projectPicker: <button type="button">Project</button>,
+      })
+      const toolbar = container.querySelector('[data-slot="composer-toolbar"]')
+      if (!(toolbar instanceof HTMLElement)) throw new Error("Missing toolbar")
+
+      expect(
+        within(toolbar).getByRole("button", {
+          name: i18n.t("conversation.toolbarAttach"),
+        })
+      ).toHaveTextContent(attachmentLabel)
+      expect(
+        within(toolbar).getByRole("button", {
+          name: i18n.t("conversation.toolbarAttach"),
+        })
+      ).toHaveAccessibleDescription(i18n.t("conversation.addMenuTitle"))
+      expect(
+        within(toolbar).getByRole("button", {
+          name: i18n.t("conversation.addKnowledgeBase"),
+        })
+      ).toHaveTextContent(knowledgeLabel)
+      expect(
+        toolbar.querySelectorAll('[data-slot="composer-separator"]')
+      ).toHaveLength(2)
+    }
+  )
+
+  it("does not leave separators when optional toolbar controls are hidden", () => {
+    const { container, props, rerender } = renderComposer({
+      showKnowledgeBaseButton: false,
+    })
+    const toolbar = container.querySelector('[data-slot="composer-toolbar"]')
+    expect(
+      toolbar?.querySelectorAll('[data-slot="composer-separator"]')
+    ).toHaveLength(0)
+
+    rerender(
+      <ConversationComposer
+        {...props}
+        projectPicker={<button type="button">Project</button>}
+      />
+    )
+    expect(
+      toolbar?.querySelectorAll('[data-slot="composer-separator"]')
+    ).toHaveLength(1)
+  })
+
   it("anchors the capability and knowledge pickers above the full Composer width", async () => {
     const interaction = userEvent.setup()
     const { container } = renderComposer()
@@ -403,7 +462,7 @@ describe("conversation voice input", () => {
       new DOMRect(120, 500, 640, 120)
     )
 
-    const addButton = screen.getByRole("button", { name: "添加" })
+    const addButton = screen.getByRole("button", { name: "附件" })
     await interaction.click(addButton)
     const capabilityPopover = screen
       .getByPlaceholderText(i18n.t("conversation.capabilitySearch"))
@@ -559,7 +618,7 @@ describe("conversation voice input", () => {
       ],
     })
 
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
 
     const options = screen.getAllByRole("option")
     expect(options).toHaveLength(6)
@@ -591,7 +650,7 @@ describe("conversation voice input", () => {
     expect(
       screen.queryByRole("button", { name: "退出目标模式" })
     ).not.toBeInTheDocument()
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
     await interaction.click(screen.getByRole("option", { name: /目标/ }))
 
     expect(onGoalModeChange).toHaveBeenCalledWith(true)
@@ -607,7 +666,7 @@ describe("conversation voice input", () => {
     expect(
       screen.queryByRole("button", { name: "添加附件" })
     ).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "添加" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "附件" })).toBeEnabled()
     expect(screen.getByRole("textbox", { name: "任务输入框" })).toHaveAttribute(
       "placeholder",
       "描述你的目标，定义可衡量的成果，以获得最佳结果。"
@@ -624,7 +683,7 @@ describe("conversation voice input", () => {
     const onPlanModeChange = vi.fn()
     const { unmount } = renderStatefulComposer({ onPlanModeChange })
 
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
     await interaction.click(screen.getByRole("option", { name: /计划模式/ }))
 
     expect(onPlanModeChange).toHaveBeenCalledWith(true)
@@ -647,7 +706,7 @@ describe("conversation voice input", () => {
     const interaction = userEvent.setup()
     renderStatefulComposer({ planModeAvailable: false })
 
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
 
     expect(
       screen.queryByRole("option", { name: /计划模式/ })
@@ -660,7 +719,7 @@ describe("conversation voice input", () => {
     const interaction = userEvent.setup()
     renderStatefulComposer()
 
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
 
     const goalOption = screen.getByRole("option", { name: /目标/ })
     const description =
@@ -678,7 +737,7 @@ describe("conversation voice input", () => {
     const onGoalModeChange = vi.fn()
     renderStatefulComposer({ isRunning: true, onGoalModeChange })
 
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
     await interaction.click(screen.getByRole("option", { name: /目标/ }))
 
     expect(onGoalModeChange).toHaveBeenCalledWith(true)
@@ -697,7 +756,7 @@ describe("conversation voice input", () => {
     expect(
       screen.queryByRole("button", { name: "添加附件" })
     ).not.toBeInTheDocument()
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
 
     const fileOption = screen.getByRole("option", { name: "本地文件" })
     const folderOption = screen.getByRole("option", { name: "文件夹" })
@@ -719,7 +778,7 @@ describe("conversation voice input", () => {
     expect(clickSpy).toHaveBeenCalledTimes(1)
     expect(clickedInputs).toEqual(["添加附件"])
 
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
     await interaction.click(screen.getByRole("option", { name: "文件夹" }))
 
     expect(clickSpy).toHaveBeenCalledTimes(2)
@@ -1080,7 +1139,7 @@ describe("conversation voice input", () => {
       onModelPreferenceChange: vi.fn(),
     })
 
-    const addMenu = screen.getByRole("button", { name: "添加" })
+    const addMenu = screen.getByRole("button", { name: "附件" })
     expect(addMenu).toBeEnabled()
     expect(
       screen.queryByRole("button", { name: "添加知识库" })
@@ -1133,7 +1192,7 @@ describe("conversation voice input", () => {
     expect(
       screen.getByRole("button", { name: "选择模型与推理强度" })
     ).toBeVisible()
-    expect(screen.getByRole("button", { name: "添加" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "附件" })).toBeEnabled()
     expect(
       screen.queryByRole("button", { name: "添加知识库" })
     ).not.toBeInTheDocument()
@@ -1973,7 +2032,12 @@ describe("conversation voice input", () => {
 
     const stop = screen.getByRole("button", { name: "停止" })
     expect(stop).toBeVisible()
-    expect(stop).toHaveClass("send-button", "rounded-full", "size-8")
+    expect(stop).toHaveClass(
+      "send-button",
+      "rounded-full",
+      "size-10",
+      "@max-[48rem]/conversation-workspace:size-8"
+    )
     expect(stop.textContent).toBe("")
     expect(
       screen.queryByRole("button", { name: "发送" })
@@ -2614,7 +2678,7 @@ describe("conversation voice input", () => {
     })
 
     expect(screen.getByRole("button", { name: "发送" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "添加" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "附件" })).toBeDisabled()
     expect(screen.getByLabelText("添加附件")).toBeDisabled()
     expect(
       screen.getByRole("button", { name: "移除附件 处理中.pdf" })
@@ -2660,12 +2724,12 @@ describe("conversation voice input", () => {
     expect(input).toHaveFocus()
     expect(input.selectionStart).toBe(1)
     expect(input.selectionEnd).toBe(4)
-    expect(screen.getByRole("button", { name: "添加" })).toHaveClass(
+    expect(screen.getByRole("button", { name: "附件" })).toHaveClass(
       "disabled:opacity-100"
     )
 
     expect(screen.getByRole("button", { name: "发送" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "添加" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "附件" })).toBeDisabled()
     expect(screen.getByLabelText("添加附件")).toBeDisabled()
 
     fireEvent.keyDown(screen.getByRole("textbox", { name: "任务输入框" }), {
@@ -2686,7 +2750,7 @@ describe("conversation voice input", () => {
       />
     )
     expect(editorRender).toHaveBeenCalledTimes(renders)
-    expect(screen.getByRole("button", { name: "添加" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "附件" })).toBeEnabled()
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" })
     expect(props.onSubmit).toHaveBeenCalledExactlyOnceWith("Existing text")
   })
@@ -2748,17 +2812,16 @@ describe("conversation voice input", () => {
     expect(pasteEvent.defaultPrevented).toBe(false)
   })
 
-  it("uses the original Figma plus at the toolbar icon size", () => {
+  it("uses the original Figma toolbar add icon", () => {
     renderComposer()
 
     const addCapability = screen.getByRole("button", {
-      name: "添加",
+      name: "附件",
     })
 
-    expect(addCapability.querySelector("[data-design-icon=plus]")).toHaveClass(
-      "size-5",
-      "text-foreground"
-    )
+    expect(
+      addCapability.querySelector("[data-design-icon=composer-add]")
+    ).toHaveClass("size-5", "text-foreground", "[mask-size:88.35%]")
     expect(
       screen.queryByRole("button", { name: "添加附件" })
     ).not.toBeInTheDocument()
@@ -2776,7 +2839,9 @@ describe("conversation voice input", () => {
         screen.queryByRole("button", { name: buttonName })
       ).not.toBeInTheDocument()
       expect(
-        screen.getByRole("button", { name: i18n.t("conversation.addMenu") })
+        screen.getByRole("button", {
+          name: i18n.t("conversation.toolbarAttach"),
+        })
       ).toBeVisible()
       rerender(
         <ConversationComposer {...props} showKnowledgeBaseButton={undefined} />
@@ -2810,7 +2875,7 @@ describe("conversation voice input", () => {
       },
     })
 
-    expect(screen.getByRole("button", { name: "添加" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "附件" })).toBeEnabled()
     const knowledgeTrigger = screen.getByRole("button", {
       name: "添加知识库",
     })
@@ -2861,7 +2926,7 @@ describe("conversation voice input", () => {
         ],
         selectedIds: [],
       })
-      await interaction.click(screen.getByRole("button", { name: "添加" }))
+      await interaction.click(screen.getByRole("button", { name: "附件" }))
       await interaction.type(screen.getByRole("combobox"), query)
       const option = screen.getByRole("option", { name: /会议纪要助手/u })
       expect(option).not.toHaveTextContent("meeting-notes")
@@ -2887,7 +2952,7 @@ describe("conversation voice input", () => {
       selectedIds: ["skill-pptx"],
     })
 
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
 
     const selectedItem = screen.getByRole("option", { name: /Pptx/ })
     expect(selectedItem.closest('[data-slot="popover-content"]')).toHaveClass(
@@ -2943,7 +3008,7 @@ describe("conversation voice input", () => {
       screen.getByRole("button", { name: "移除 Optional Skill" })
     )
     expect(props.onSelectedIdsChange).toHaveBeenCalledWith([id])
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
     const requiredOption = screen.getByRole("option", {
       name: /LinkSense 交互式应用开发/,
     })
@@ -3005,7 +3070,7 @@ describe("conversation voice input", () => {
       ],
     })
 
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
 
     expect(
       screen
@@ -3042,7 +3107,7 @@ describe("conversation voice input", () => {
       ],
     })
     const interaction = userEvent.setup()
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
 
     const option = await screen.findByRole("option", {
       name: /LinkSense 云端浏览器/,
@@ -3052,7 +3117,7 @@ describe("conversation voice input", () => {
     await interaction.click(option)
     expect(onSelectedIdsChange).toHaveBeenLastCalledWith([builtInId])
 
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
     const selectedOption = await screen.findByRole("option", {
       name: /LinkSense 云端浏览器/,
     })
@@ -3065,7 +3130,7 @@ describe("conversation voice input", () => {
     const interaction = userEvent.setup()
     renderComposer()
 
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
 
     expect(screen.getByText("没有可用插件或 Skill")).toBeVisible()
     expect(screen.queryByText("插件")).not.toBeInTheDocument()
@@ -3085,7 +3150,7 @@ describe("conversation voice input", () => {
       ],
     })
 
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
 
     expect(screen.getByText("插件")).toBeVisible()
     expect(screen.queryByText("Skill")).not.toBeInTheDocument()
@@ -3105,7 +3170,7 @@ describe("conversation voice input", () => {
       ],
     })
 
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
     await interaction.click(screen.getByRole("option", { name: /Pptx/ }))
 
     expect(props.onSelectedIdsChange).toHaveBeenCalledWith(["skill-pptx"])
@@ -3121,7 +3186,7 @@ describe("conversation voice input", () => {
     const onRetryCapabilities = vi.fn()
     renderComposer({ onRetryCapabilities })
 
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
 
     expect(onRetryCapabilities).toHaveBeenCalledTimes(1)
   })

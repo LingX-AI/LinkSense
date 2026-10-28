@@ -164,7 +164,7 @@ describe("LinkSense application", () => {
     ).toBeInTheDocument()
     expect(screen.getByRole("banner")).toBeInTheDocument()
     expect(screen.getByRole("form", { name: "任务输入框" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "添加" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "附件" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "语音输入" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "停止" })).toBeInTheDocument()
   })

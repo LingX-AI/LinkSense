@@ -669,7 +669,7 @@ describe("task projects", () => {
 
   it.each([
     { projectId: workId, label: "工作" },
-    { projectId: null, label: "选择项目" },
+    { projectId: null, label: "公共空间" },
   ])(
     "inherits $label from the task detail instead of the last manual choice",
     async ({ projectId, label }) => {
@@ -998,7 +998,7 @@ describe("task projects", () => {
         expect(clear).toHaveFocus()
         await interaction.pointer({ target: clear, keys: "[/MouseLeft]" })
       }
-      await waitFor(() => expect(trigger).toHaveTextContent("选择项目"))
+      await waitFor(() => expect(trigger).toHaveTextContent("公共空间"))
       expect(
         screen.queryByRole("dialog", { name: "项目" })
       ).not.toBeInTheDocument()
@@ -1210,6 +1210,10 @@ describe("task projects", () => {
     expect(form).toContainElement(picker)
     expect(picker).toHaveClass("bg-transparent", "max-w-full", "min-w-0")
     expect(picker).toHaveTextContent("生活")
+    expect(picker).toHaveAccessibleDescription("生活")
+    expect(
+      picker.querySelector("[data-design-icon=chevron-down]")
+    ).toBeVisible()
     expect(
       requests.some(
         (request) =>

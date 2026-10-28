@@ -54,7 +54,7 @@ describe("LinkSense application", () => {
     const interaction = userEvent.setup()
     renderApp("/conversations/new")
 
-    await interaction.click(await screen.findByRole("button", { name: "添加" }))
+    await interaction.click(await screen.findByRole("button", { name: "附件" }))
     await interaction.click(screen.getByRole("option", { name: /计划模式/ }))
     expect(screen.getByRole("button", { name: "退出计划模式" })).toBeVisible()
     await interaction.type(
@@ -118,7 +118,7 @@ describe("LinkSense application", () => {
 
     const composer = await screen.findByRole("textbox", { name: "任务输入框" })
     await interaction.type(composer, planPrompt)
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
     await interaction.click(screen.getByRole("option", { name: /计划模式/ }))
 
     await waitFor(() =>

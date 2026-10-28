@@ -9,6 +9,7 @@ high-contrast foreground colors apply without rewriting the SVG.
 | Asset | Source node | Size |
 | --- | --- | --- |
 | plus | 76:5578 | 16 |
+| composer-add | 76:7383 | 20 canvas, 17.67 artwork |
 | search | 76:5588 | 16 |
 | automations | 76:5606 | 16 |
 | plugins | 76:5616 | 16 |

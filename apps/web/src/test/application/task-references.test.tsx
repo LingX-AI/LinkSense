@@ -118,7 +118,7 @@ describe("explicit cross-task references in the chat page", () => {
         await waitFor(() => expect(composer).toHaveValue(""))
       } else {
         await interaction.click(
-          await screen.findByRole("button", { name: "添加" })
+          await screen.findByRole("button", { name: "附件" })
         )
         await interaction.click(await screen.findByText("引用其他任务"))
         await interaction.click(

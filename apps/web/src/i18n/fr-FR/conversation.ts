@@ -269,6 +269,8 @@ export const conversation = {
     noMatches: "Aucune compétence correspondante",
   },
   addMenu: "Ajouter",
+  toolbarAttach: "Joindre",
+  toolbarKnowledge: "Connaissances",
   addMenuTitle: "Ajouter du contenu",
   addGroup: "Ajouter",
   attachFileMenuLabel: "Fichiers locaux",

@@ -1847,7 +1847,7 @@ export const ConversationComposer = forwardRef<
         className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 @min-[48rem]/conversation-workspace:mt-4"
         data-slot="composer-toolbar"
       >
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 @max-[28rem]/conversation-workspace:gap-x-1">
           <Popover
             open={menuOpen}
             onOpenChange={handleCapabilityMenuOpenChange}
@@ -1857,17 +1857,19 @@ export const ConversationComposer = forwardRef<
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon-sm"
+                  size="sm"
                   className={cn(
-                    "composer-control",
+                    "composer-control h-8 gap-2 px-0 font-normal @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs",
                     modelPreferenceBlockingActions && "disabled:opacity-100"
                   )}
-                  aria-label={t("conversation.addMenu")}
+                  aria-label={t("conversation.toolbarAttach")}
+                  aria-description={t("conversation.addMenuTitle")}
                   disabled={attachmentActionDisabled}
                 />
               }
             >
-              <DesignIcon name="plus" className="size-5 text-foreground" />
+              <DesignIcon name="composer-add" className="text-foreground" />
+              <span>{t("conversation.toolbarAttach")}</span>
             </PopoverTrigger>
             <PopoverContent
               anchor={composerShellRef}
@@ -2118,201 +2120,219 @@ export const ConversationComposer = forwardRef<
 
           {!managedApplicationName && showKnowledgeBaseButton && (
             <>
-              {knowledgeSearchUnavailable ? (
-                <HoverCard>
-                  <HoverCardTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="composer-control cursor-not-allowed opacity-50"
-                        aria-label={t("conversation.addKnowledgeBase")}
-                        aria-disabled="true"
+              <div className="flex items-center gap-3 @max-[28rem]/conversation-workspace:gap-1">
+                <span
+                  aria-hidden="true"
+                  className="h-4 w-px shrink-0 bg-divider"
+                  data-slot="composer-separator"
+                />
+                {knowledgeSearchUnavailable ? (
+                  <HoverCard>
+                    <HoverCardTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="composer-control h-8 cursor-not-allowed gap-2 px-0 font-normal opacity-50 @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs"
+                          aria-label={t("conversation.addKnowledgeBase")}
+                          aria-disabled="true"
+                        />
+                      }
+                    >
+                      <DesignIcon
+                        name="knowledge"
+                        className="text-foreground"
                       />
-                    }
-                  >
-                    <DesignIcon name="knowledge" className="text-foreground" />
-                  </HoverCardTrigger>
-                  <HoverCardContent
-                    side="top"
-                    align="start"
-                    sideOffset={10}
-                    aria-label={t(
-                      "knowledge.searchCapability.unavailableTitle"
-                    )}
-                    className="w-[min(360px,calc(100vw-2rem))]"
-                  >
-                    <div className="flex items-start gap-2.5">
-                      <TriangleAlertIcon
-                        className="mt-0.5 size-4 shrink-0 text-destructive"
-                        aria-hidden="true"
-                      />
-                      <div className="min-w-0">
-                        <p className="font-medium">
-                          {t("knowledge.searchCapability.unavailableTitle")}
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-[var(--app-muted)]">
-                          {t(
-                            getKnowledgeSearchUnavailableDescriptionKey(
-                              knowledgeSearchCapability
-                            )
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                  </HoverCardContent>
-                </HoverCard>
-              ) : (
-                <Popover
-                  open={knowledgeMenuOpen}
-                  onOpenChange={(open) => {
-                    setKnowledgeMenuOpen(open)
-                    if (open) onRetryKnowledgeBases?.()
-                  }}
-                >
-                  <PopoverTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className={cn(
-                          "composer-control",
-                          modelPreferenceBlockingActions &&
-                            "disabled:opacity-100"
-                        )}
-                        aria-label={t("conversation.addKnowledgeBase")}
-                        disabled={attachmentActionDisabled}
-                      />
-                    }
-                  >
-                    <DesignIcon name="knowledge" className="text-foreground" />
-                  </PopoverTrigger>
-                  <PopoverContent
-                    anchor={composerShellRef}
-                    side="top"
-                    align="start"
-                    sideOffset={4}
-                    className="capability-popover gap-2"
-                  >
-                    <PopoverHeader className="px-2 pt-1">
-                      <PopoverTitle className="text-sm">
-                        {t("conversation.knowledgeBaseTitle")}
-                      </PopoverTitle>
-                    </PopoverHeader>
-                    <Command className="bg-transparent">
-                      <CommandInput
-                        placeholder={t("conversation.knowledgeBaseSearch")}
-                        autoFocus={shouldAutoFocusOnDesktop()}
-                      />
-                      <CommandList>
-                        {knowledgeBasesLoading && (
-                          <div className="page-state" role="status">
-                            <LoaderCircleIcon
-                              className="size-3.5 animate-spin"
-                              aria-hidden="true"
-                            />
-                            {t("common.loading")}
-                          </div>
-                        )}
-                        {knowledgeBasesError && (
-                          <div className="search-error" role="alert">
-                            <p>{t("conversation.knowledgeBasesUnavailable")}</p>
-                            {onRetryKnowledgeBases && (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                className="mt-2"
-                                onClick={onRetryKnowledgeBases}
-                              >
-                                {t("common.retry")}
-                              </Button>
-                            )}
-                          </div>
-                        )}
-                        {!knowledgeBasesLoading && !knowledgeBasesError && (
-                          <CommandEmpty>
-                            {t("conversation.noKnowledgeBases")}
-                          </CommandEmpty>
-                        )}
-                        {!knowledgeBasesLoading && !knowledgeBasesError && (
-                          <CommandGroup>
-                            {knowledgeBases
-                              .filter(
-                                (knowledgeBase) =>
-                                  knowledgeBase.lifecycle_status === "active" &&
-                                  knowledgeBase.availability_status ===
-                                    "enabled"
+                      <span>{t("conversation.toolbarKnowledge")}</span>
+                    </HoverCardTrigger>
+                    <HoverCardContent
+                      side="top"
+                      align="start"
+                      sideOffset={10}
+                      aria-label={t(
+                        "knowledge.searchCapability.unavailableTitle"
+                      )}
+                      className="w-[min(360px,calc(100vw-2rem))]"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <TriangleAlertIcon
+                          className="mt-0.5 size-4 shrink-0 text-destructive"
+                          aria-hidden="true"
+                        />
+                        <div className="min-w-0">
+                          <p className="font-medium">
+                            {t("knowledge.searchCapability.unavailableTitle")}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-[var(--app-muted)]">
+                            {t(
+                              getKnowledgeSearchUnavailableDescriptionKey(
+                                knowledgeSearchCapability
                               )
-                              .map((knowledgeBase) => {
-                                const checked =
-                                  selectedKnowledgeBaseIds.includes(
-                                    knowledgeBase.id
-                                  )
-                                return (
-                                  <CommandItem
-                                    key={knowledgeBase.id}
-                                    value={`${knowledgeBase.name} ${knowledgeBase.description ?? ""}`}
-                                    data-checked={checked || undefined}
-                                    disabled={submitting}
-                                    onSelect={() =>
-                                      toggleKnowledgeBase(knowledgeBase.id)
-                                    }
-                                  >
-                                    <span className="capability-menu-icon">
-                                      <BookOpenIcon aria-hidden="true" />
-                                    </span>
-                                    <span
-                                      className="flex min-w-0 flex-1 items-center gap-2"
-                                      data-knowledge-base-labels=""
-                                    >
-                                      <span
-                                        className="max-w-[48%] shrink-0 truncate text-xs font-medium"
-                                        data-knowledge-base-name=""
-                                      >
-                                        {knowledgeBase.name}
-                                      </span>
-                                      <span
-                                        className="min-w-0 flex-1 truncate text-[length:var(--app-font-12)] font-normal text-[var(--app-muted)]"
-                                        data-knowledge-base-description=""
-                                      >
-                                        {knowledgeBase.description ||
-                                          t("knowledge.noDescription")}
-                                      </span>
-                                    </span>
-                                  </CommandItem>
-                                )
-                              })}
-                            {hasMoreKnowledgeBases &&
-                              onLoadMoreKnowledgeBases && (
-                                <div className="p-1">
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="w-full"
-                                    disabled={loadingMoreKnowledgeBases}
-                                    onClick={onLoadMoreKnowledgeBases}
-                                  >
-                                    {loadingMoreKnowledgeBases && (
-                                      <LoaderCircleIcon
-                                        className="animate-spin"
-                                        aria-hidden="true"
-                                      />
-                                    )}
-                                    {t("knowledge.loadMore")}
-                                  </Button>
-                                </div>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    </HoverCardContent>
+                  </HoverCard>
+                ) : (
+                  <Popover
+                    open={knowledgeMenuOpen}
+                    onOpenChange={(open) => {
+                      setKnowledgeMenuOpen(open)
+                      if (open) onRetryKnowledgeBases?.()
+                    }}
+                  >
+                    <PopoverTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className={cn(
+                            "composer-control h-8 gap-2 px-0 font-normal @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs",
+                            modelPreferenceBlockingActions &&
+                              "disabled:opacity-100"
+                          )}
+                          aria-label={t("conversation.addKnowledgeBase")}
+                          disabled={attachmentActionDisabled}
+                        />
+                      }
+                    >
+                      <DesignIcon
+                        name="knowledge"
+                        className="text-foreground"
+                      />
+                      <span>{t("conversation.toolbarKnowledge")}</span>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      anchor={composerShellRef}
+                      side="top"
+                      align="start"
+                      sideOffset={4}
+                      className="capability-popover gap-2"
+                    >
+                      <PopoverHeader className="px-2 pt-1">
+                        <PopoverTitle className="text-sm">
+                          {t("conversation.knowledgeBaseTitle")}
+                        </PopoverTitle>
+                      </PopoverHeader>
+                      <Command className="bg-transparent">
+                        <CommandInput
+                          placeholder={t("conversation.knowledgeBaseSearch")}
+                          autoFocus={shouldAutoFocusOnDesktop()}
+                        />
+                        <CommandList>
+                          {knowledgeBasesLoading && (
+                            <div className="page-state" role="status">
+                              <LoaderCircleIcon
+                                className="size-3.5 animate-spin"
+                                aria-hidden="true"
+                              />
+                              {t("common.loading")}
+                            </div>
+                          )}
+                          {knowledgeBasesError && (
+                            <div className="search-error" role="alert">
+                              <p>
+                                {t("conversation.knowledgeBasesUnavailable")}
+                              </p>
+                              {onRetryKnowledgeBases && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  className="mt-2"
+                                  onClick={onRetryKnowledgeBases}
+                                >
+                                  {t("common.retry")}
+                                </Button>
                               )}
-                          </CommandGroup>
-                        )}
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              )}
+                            </div>
+                          )}
+                          {!knowledgeBasesLoading && !knowledgeBasesError && (
+                            <CommandEmpty>
+                              {t("conversation.noKnowledgeBases")}
+                            </CommandEmpty>
+                          )}
+                          {!knowledgeBasesLoading && !knowledgeBasesError && (
+                            <CommandGroup>
+                              {knowledgeBases
+                                .filter(
+                                  (knowledgeBase) =>
+                                    knowledgeBase.lifecycle_status ===
+                                      "active" &&
+                                    knowledgeBase.availability_status ===
+                                      "enabled"
+                                )
+                                .map((knowledgeBase) => {
+                                  const checked =
+                                    selectedKnowledgeBaseIds.includes(
+                                      knowledgeBase.id
+                                    )
+                                  return (
+                                    <CommandItem
+                                      key={knowledgeBase.id}
+                                      value={`${knowledgeBase.name} ${knowledgeBase.description ?? ""}`}
+                                      data-checked={checked || undefined}
+                                      disabled={submitting}
+                                      onSelect={() =>
+                                        toggleKnowledgeBase(knowledgeBase.id)
+                                      }
+                                    >
+                                      <span className="capability-menu-icon">
+                                        <BookOpenIcon aria-hidden="true" />
+                                      </span>
+                                      <span
+                                        className="flex min-w-0 flex-1 items-center gap-2"
+                                        data-knowledge-base-labels=""
+                                      >
+                                        <span
+                                          className="max-w-[48%] shrink-0 truncate text-xs font-medium"
+                                          data-knowledge-base-name=""
+                                        >
+                                          {knowledgeBase.name}
+                                        </span>
+                                        <span
+                                          className="min-w-0 flex-1 truncate text-[length:var(--app-font-12)] font-normal text-[var(--app-muted)]"
+                                          data-knowledge-base-description=""
+                                        >
+                                          {knowledgeBase.description ||
+                                            t("knowledge.noDescription")}
+                                        </span>
+                                      </span>
+                                    </CommandItem>
+                                  )
+                                })}
+                              {hasMoreKnowledgeBases &&
+                                onLoadMoreKnowledgeBases && (
+                                  <div className="p-1">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="w-full"
+                                      disabled={loadingMoreKnowledgeBases}
+                                      onClick={onLoadMoreKnowledgeBases}
+                                    >
+                                      {loadingMoreKnowledgeBases && (
+                                        <LoaderCircleIcon
+                                          className="animate-spin"
+                                          aria-hidden="true"
+                                        />
+                                      )}
+                                      {t("knowledge.loadMore")}
+                                    </Button>
+                                  </div>
+                                )}
+                            </CommandGroup>
+                          )}
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                )}
+              </div>
 
               {goalMode && (
                 <>
@@ -2371,7 +2391,16 @@ export const ConversationComposer = forwardRef<
             </>
           )}
 
-          {projectPicker}
+          {projectPicker && (
+            <div className="flex min-w-0 items-center gap-3 @max-[28rem]/conversation-workspace:gap-1 @max-[24rem]/conversation-workspace:max-w-24">
+              <span
+                aria-hidden="true"
+                className="h-4 w-px shrink-0 bg-divider"
+                data-slot="composer-separator"
+              />
+              {projectPicker}
+            </div>
+          )}
           <Input
             ref={fileInputRef}
             type="file"
@@ -2393,7 +2422,7 @@ export const ConversationComposer = forwardRef<
         </div>
 
         <div
-          className="ml-auto flex min-w-0 flex-1 basis-64 items-center justify-end gap-1.5"
+          className="ml-auto flex min-w-0 flex-1 basis-64 items-center justify-end gap-3 @max-[48rem]/conversation-workspace:gap-1.5"
           data-testid="composer-primary-actions"
           data-slot="composer-primary-actions"
         >
@@ -2439,7 +2468,7 @@ export const ConversationComposer = forwardRef<
                   variant="ghost"
                   size="icon-sm"
                   className={cn(
-                    "composer-control",
+                    "composer-control size-10 @max-[48rem]/conversation-workspace:size-8",
                     voiceAvailable &&
                       !taskStartDisabled &&
                       modelPreferenceBlockingActions &&
@@ -2470,7 +2499,7 @@ export const ConversationComposer = forwardRef<
             <Button
               type="button"
               size="icon"
-              className="send-button rounded-full"
+              className="send-button size-10 rounded-full @max-[48rem]/conversation-workspace:size-8"
               aria-label={t(
                 interrupting ? "conversation.interrupting" : "conversation.stop"
               )}
@@ -2494,7 +2523,7 @@ export const ConversationComposer = forwardRef<
             <Button
               type="submit"
               size="icon"
-              className="send-button rounded-full aria-disabled:opacity-50"
+              className="send-button size-10 rounded-full @max-[48rem]/conversation-workspace:size-8"
               aria-label={t("conversation.send")}
               aria-disabled={!canSend}
               disabled={sendButtonDisabled}

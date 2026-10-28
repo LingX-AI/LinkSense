@@ -277,6 +277,8 @@ export const conversationMessages = {
       noMatches: "No hay Skills coincidentes",
     },
     addMenu: "Añadir",
+    toolbarAttach: "Adjuntar",
+    toolbarKnowledge: "Conocimiento",
     addMenuTitle: "Añadir contenido",
     addGroup: "Añadir",
     attachFileMenuLabel: "Archivos locales",

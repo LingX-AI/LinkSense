@@ -84,7 +84,7 @@ describe("LinkSense application", () => {
     installApiMock()
     const interaction = userEvent.setup()
     renderApp()
-    await interaction.click(await screen.findByRole("button", { name: "添加" }))
+    await interaction.click(await screen.findByRole("button", { name: "附件" }))
     expect(
       await screen.findByPlaceholderText("搜索可用插件或 Skill…")
     ).toBeInTheDocument()
