@@ -5,10 +5,12 @@ import { useTranslation } from "react-i18next"
 
 import {
   conversationFormResponseMatchesSchema,
+  conversationFormRecommendationDelayMs,
   conversationFormValueMatchesField,
   type ConversationFormPrimitive,
   type ConversationFormResponseContent,
   type ConversationFormUiHint,
+  type ConversationFormResponseValue,
   type ConversationUserInputResponse,
 } from "@linksense/shared"
 
@@ -37,6 +39,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { ConversationUserInputRequestFooter } from "@/features/conversations/conversation-user-input-request-footer"
+import { useFormRecommendationCountdown } from "@/features/conversations/use-form-recommendation-countdown"
 import { cn } from "@/lib/utils"
 
 type StructuredRequest = Extract<ConversationUserInputRequest, { kind: "form" }>
@@ -58,6 +61,15 @@ export function ConversationStructuredUserInputForm({
   onSubmit: (response: ConversationUserInputResponse) => void
 }) {
   const { t } = useTranslation()
+  const remainingSeconds = useFormRecommendationCountdown(request)
+  const recommendation =
+    request.waiting_policy?.kind === "optional"
+      ? request.waiting_policy.recommendation
+      : null
+  const waitingForRecommendation = remainingSeconds === 0
+  const formDisabled = disabled || waitingForRecommendation
+  const savedAnswer =
+    request.response_source !== null && request.response_content !== null
   const [values, setValues] = useState<Record<string, FormValue>>(() =>
     initialValues(request)
   )
@@ -90,7 +102,7 @@ export function ConversationStructuredUserInputForm({
     setShowErrors(true)
     const content = buildResponseContent(request, values)
     if (
-      disabled ||
+      formDisabled ||
       Object.keys(errors).length > 0 ||
       !conversationFormResponseMatchesSchema(request.requested_schema, content)
     ) {
@@ -109,7 +121,7 @@ export function ConversationStructuredUserInputForm({
       )}
       onSubmit={handleSubmit}
       noValidate
-      aria-readonly={terminal || undefined}
+      aria-readonly={terminal || savedAnswer || undefined}
     >
       <CardContent className="pb-(--card-spacing)">
         <FieldGroup className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
@@ -128,7 +140,8 @@ export function ConversationStructuredUserInputForm({
                   field={field}
                   value={values[fieldId]}
                   required={required.has(fieldId)}
-                  disabled={disabled}
+                  disabled={formDisabled || savedAnswer}
+                  recommendation={recommendation?.[fieldId]}
                   invalid={invalid}
                   error={invalid ? error : undefined}
                   uiHint={request.ui_hints[fieldId]}
@@ -146,10 +159,31 @@ export function ConversationStructuredUserInputForm({
       </CardContent>
       {!terminal && (
         <ConversationUserInputRequestFooter
-          disabled={disabled}
+          disabled={formDisabled}
           complete
           submitting={submitting}
-          onCancel={() => onSubmit({ action: "cancel" })}
+          hideCancel={!recommendation}
+          cancelLabel={t("conversation.userInput.useRecommendation")}
+          hint={
+            <FieldDescription
+              size="sm"
+              role={recommendation ? "timer" : undefined}
+            >
+              {recommendation
+                ? waitingForRecommendation
+                  ? t("conversation.userInput.applyingRecommendation")
+                  : t("conversation.userInput.recommendationCountdown", {
+                      seconds:
+                        remainingSeconds ??
+                        conversationFormRecommendationDelayMs / 1_000,
+                    })
+                : t("conversation.userInput.requiredWaiting")}
+            </FieldDescription>
+          }
+          onCancel={() =>
+            recommendation &&
+            onSubmit({ action: "accept", content: recommendation })
+          }
         />
       )}
     </form>
@@ -166,6 +200,7 @@ function StructuredField({
   invalid,
   error,
   uiHint,
+  recommendation,
   onBlur,
   onChange,
 }: {
@@ -178,6 +213,7 @@ function StructuredField({
   invalid: boolean
   error?: string
   uiHint?: ConversationFormUiHint
+  recommendation?: ConversationFormResponseValue
   onBlur: () => void
   onChange: (value: FormValue) => void
 }) {
@@ -208,6 +244,13 @@ function StructuredField({
       {field.description && (
         <FieldDescription id={descriptionId} size="sm" className="leading-4">
           {field.description}
+        </FieldDescription>
+      )}
+      {recommendation !== undefined && (
+        <FieldDescription size="sm" className="leading-4">
+          {t("conversation.userInput.recommendedAnswer", {
+            answer: formatRecommendation(field, recommendation, t),
+          })}
         </FieldDescription>
       )}
       {renderControl({
@@ -434,6 +477,42 @@ function renderControl(input: {
   )
 }
 
+function formatRecommendation(
+  field: ConversationFormPrimitive,
+  value: ConversationFormResponseValue,
+  t: TFunction
+): string {
+  if (typeof value === "boolean")
+    return t(
+      value
+        ? "conversation.userInput.booleanYes"
+        : "conversation.userInput.booleanNo"
+    )
+  const options =
+    field.type === "array"
+      ? "anyOf" in field.items
+        ? field.items.anyOf
+        : field.items.enum.map((value) => ({ const: value, title: value }))
+      : field.type === "string" && "oneOf" in field
+        ? field.oneOf
+        : field.type === "string" && "enum" in field
+          ? field.enum.map((value, index) => ({
+              const: value,
+              title:
+                "enumNames" in field
+                  ? (field.enumNames?.[index] ?? value)
+                  : value,
+            }))
+          : []
+  const label = (entry: string) =>
+    options.find((option) => option.const === entry)?.title ?? entry
+  return Array.isArray(value)
+    ? value.map(label).join(", ")
+    : typeof value === "string"
+      ? label(value)
+      : String(value)
+}
+
 function structuredFieldColumnClass(field: ConversationFormPrimitive): string {
   if ("format" in field && field.format === "date-time") {
     return "sm:col-span-2"
@@ -452,7 +531,12 @@ function structuredFieldColumnClass(field: ConversationFormPrimitive): string {
 }
 
 function initialValues(request: StructuredRequest): Record<string, FormValue> {
-  const persisted = request.response_content
+  const persisted =
+    request.response_content ??
+    ((request.status === "pending" || request.status === "answering") &&
+    request.waiting_policy?.kind === "optional"
+      ? request.waiting_policy.recommendation
+      : null)
   const useSchemaDefaults =
     persisted === null &&
     (request.status === "pending" || request.status === "answering")

@@ -2501,6 +2501,13 @@ export const ptBR = {
       title: "Sua resposta é necessária",
       formTitle: "Confirme estes detalhes",
       formResultTitle: "Formulário concluído",
+      requiredWaiting:
+        "Sua resposta é necessária. A tarefa continuará depois que você enviá-la.",
+      recommendationCountdown:
+        "Se você não enviar uma resposta, a tarefa continuará com a resposta recomendada em {{seconds}} segundos.",
+      applyingRecommendation: "Aplicando a resposta recomendada…",
+      recommendedAnswer: "Recomendação: {{answer}}",
+      useRecommendation: "Usar resposta recomendada",
       description:
         "Responda a estas perguntas para que o LinkSense possa continuar o plano.",
       autoResolveDescription:
@@ -2523,6 +2530,7 @@ export const ptBR = {
         pending: "Pendente",
         submitting: "Enviando",
         submitted: "Enviado",
+        recommended: "Resposta recomendada usada após o prazo",
         approved: "Aprovado",
         rejected: "Rejeitado",
         cancelled: "Cancelado",
