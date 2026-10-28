@@ -1093,6 +1093,22 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
     });
   });
 
+  it("persists required form waiting without a deadline", async () => {
+    const fixture = eventFixture();
+    await fixture.service.ingest(CONVERSATION_ID, {
+      method: "linksense/form/request", visibility: "user_visible",
+      params: {
+        threadId: "codex-thread-1", turnId: "codex-turn-1", itemId: "linksense-form-18", requestId: 18,
+        serverName: "linksense_core", message: "Provide a title",
+        requestedSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
+        uiHints: {}, responseSemantics: { kind: "input" }, waitingPolicy: { kind: "required" }, autoResolutionMs: null,
+      },
+    });
+    expect(fixture.tx.conversationUserInputRequest.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ formWaitingPolicyJson: { kind: "required" }, autoResolveAt: null }),
+    });
+  });
+
   it("projects a LinkSense form broker request into the durable interaction request", async () => {
     const fixture = eventFixture();
     const ingestStartedAt = Date.now();
@@ -1124,7 +1140,8 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
         },
         uiHints: { title: { control: "textarea" } },
         responseSemantics: { kind: "input" },
-        autoResolutionMs: 600_000,
+        waitingPolicy: { kind: "optional", recommendation: { title: "季度复盘", channel: "teams" } },
+        autoResolutionMs: 180_000,
       },
     });
     const ingestFinishedAt = Date.now();
@@ -1159,6 +1176,7 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
         },
         formUiHintsJson: { title: { control: "textarea" } },
         formResponseSemanticsJson: { kind: "input" },
+        formWaitingPolicyJson: { kind: "optional", recommendation: { title: "季度复盘", channel: "teams" } },
         status: "pending",
         autoResolveAt: expect.any(Date),
       },
@@ -1170,10 +1188,10 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
       throw new Error("Expected a form auto-resolution deadline");
     }
     expect(autoResolveAt.getTime()).toBeGreaterThanOrEqual(
-      ingestStartedAt + 600_000,
+      ingestStartedAt + 180_000,
     );
     expect(autoResolveAt.getTime()).toBeLessThanOrEqual(
-      ingestFinishedAt + 600_000,
+      ingestFinishedAt + 180_000,
     );
     expect(result).toMatchObject({
       accepted: true,

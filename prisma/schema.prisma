@@ -1065,6 +1065,8 @@ model ConversationUserInputRequest {
   formSchemaJson            Json?     @map("form_schema_json") @db.JsonB
   formUiHintsJson           Json?     @map("form_ui_hints_json") @db.JsonB
   formResponseSemanticsJson Json?     @map("form_response_semantics_json") @db.JsonB
+  formWaitingPolicyJson     Json?     @map("form_waiting_policy_json") @db.JsonB
+  responseSource            String?   @map("response_source") @db.VarChar(24)
   responseContentJson       Json?     @map("response_content_json") @db.JsonB
   responseDeliveryJson      Json?     @map("response_delivery_json") @db.JsonB
   status                    String    @db.VarChar(24)
@@ -1078,6 +1080,7 @@ model ConversationUserInputRequest {
   @@index([conversationId, status, createdAt], map: "conversation_user_input_requests_conversation_status_idx")
   @@index([codexThreadId, nativeRequestId], map: "conversation_user_input_requests_thread_request_idx")
   @@index([turnId, status], map: "conversation_user_input_requests_turn_status_idx")
+  @@index([requestKind, status, autoResolveAt], map: "conversation_user_input_requests_deadline_idx")
   @@map("conversation_user_input_requests")
 }
 

@@ -1266,7 +1266,8 @@ describe("shared boundary contracts", () => {
         },
         uiHints: {},
         responseSemantics: { kind: "input" },
-        autoResolutionMs: 600_000,
+        waitingPolicy: { kind: "required" },
+        autoResolutionMs: null,
       },
     } as const;
     expect(runnerLinkSenseEventSchema.safeParse(formEvent).success).toBe(true);
@@ -1274,7 +1275,7 @@ describe("shared boundary contracts", () => {
     expect(
       runnerLinkSenseEventSchema.safeParse({
         ...formEvent,
-        params: { ...formEvent.params, autoResolutionMs: 600_001 },
+        params: { ...formEvent.params, autoResolutionMs: 0 },
       }).success,
     ).toBe(false);
   });
