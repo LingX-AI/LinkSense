@@ -42,7 +42,7 @@ jobs:
           printf '%s\n' "$GITHUB_SHA" "$ARCHITECTURE" > "$RUNNER_TEMP/dependency-smoke/context/payload.txt"
           printf 'FROM scratch\nCOPY payload.txt /payload.txt\n' > "$RUNNER_TEMP/dependency-smoke/context/Dockerfile"
           node -e 'require("node:assert/strict").equal(process.versions.node.split(".")[0], "24")'
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
