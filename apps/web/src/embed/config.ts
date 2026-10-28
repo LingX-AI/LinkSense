@@ -1,12 +1,17 @@
 import { z } from "zod"
 
-import { applicationIconSchema, localeSchema } from "@linksense/shared"
+import {
+  applicationEmbedPresentationSchema,
+  applicationIconSchema,
+  localeSchema,
+} from "@linksense/shared"
 
 export const embedFrameConfigSchema = z.strictObject({
   app_id: z.string().min(16).max(80),
   parent_origin: z.string().url(),
   auth_mode: z.enum(["required", "public"]),
   locale: localeSchema,
+  presentation: applicationEmbedPresentationSchema.default("technical"),
   starter_questions: z.array(z.string().trim().min(1).max(500)).max(4),
   application: z.strictObject({
     id: z.string().uuid(),

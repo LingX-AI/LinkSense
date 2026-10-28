@@ -3351,6 +3351,9 @@ export const ptBR = {
     conversationManagedUserModelDescription:
       "com plugins, habilidades, bases de conhecimento e instruções",
     externalAccess: {
+      endUserPresentation: "Apresentação para o usuário final",
+      endUserPresentationHint:
+        "Aplica-se apenas ao código de incorporação gerado abaixo. Oculta atividades técnicas e duração, mas mantém respostas, anexos, confirmações e erros. Desative para a visualização técnica.",
       action: "Acesso externo",
       title: "Acesso externo ao aplicativo",
       description:

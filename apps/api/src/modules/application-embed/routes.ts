@@ -1,6 +1,7 @@
 import {
   VOICE_TRANSCRIPTION_REQUEST_BODY_LIMIT_BYTES,
   applicationEmbedAccessTokenClaimsSchema,
+  applicationEmbedPresentationSchema,
   applicationExternalOriginSchema,
   conversationEventSchema,
   conversationUserInputResponseSchema,
@@ -51,6 +52,7 @@ const userInputParams = z.strictObject({ requestId: z.string().uuid() });
 const parentOriginQuery = z.strictObject({
   parent_origin: z.string().trim().min(1).max(2_048),
   locale: z.unknown().optional(),
+  presentation: applicationEmbedPresentationSchema.default("technical"),
 });
 
 export const applicationExternalManagementRoutes: FastifyPluginAsync<{
@@ -182,6 +184,7 @@ export const applicationEmbedRoutes: FastifyPluginAsync<{
       parent_origin: query.parent_origin,
       auth_mode: frame.access.authMode,
       locale,
+      ...(query.presentation === "end_user" ? { presentation: query.presentation } : {}),
       starter_questions: frame.starter_questions,
       application: frame.application,
     };

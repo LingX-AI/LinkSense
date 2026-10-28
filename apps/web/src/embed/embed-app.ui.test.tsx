@@ -53,6 +53,7 @@ type MockComposerProps = Readonly<{
 }>
 
 type MockThreadProps = Readonly<{
+  activityPresentation?: "technical" | "end_user"
   scrollContainerRef?: Ref<HTMLDivElement>
   emptyStateContent?: ReactNode
 }>
@@ -445,21 +446,25 @@ describe("embedded application chat", () => {
     })
   })
 
-  it("uses the conversation thread as the only scroll container", async () => {
-    const view = render(<EmbedApp config={frameConfig()} />)
+  it.each(["technical", "end_user"] as const)(
+    "uses the conversation thread as the only scroll container in %s presentation",
+    async (presentation) => {
+      const view = render(<EmbedApp config={frameConfig({ presentation })} />)
 
-    await waitFor(() => {
-      expect(view.getByTestId("conversation-thread")).toBeInTheDocument()
-    })
+      await waitFor(() => {
+        expect(view.getByTestId("conversation-thread")).toBeInTheDocument()
+      })
 
-    expect(threadState.props?.scrollContainerRef).toBeDefined()
-    expect(
-      view.queryByRole("group", { name: "常用问题" })
-    ).not.toBeInTheDocument()
-    expect(view.container.querySelector(".embed-thread")).not.toHaveAttribute(
-      "style"
-    )
-  })
+      expect(threadState.props?.scrollContainerRef).toBeDefined()
+      expect(threadState.props?.activityPresentation).toBe(presentation)
+      expect(
+        view.queryByRole("group", { name: "常用问题" })
+      ).not.toBeInTheDocument()
+      expect(view.container.querySelector(".embed-thread")).not.toHaveAttribute(
+        "style"
+      )
+    }
+  )
 
   it("loads and updates the model selector when the application delegates model choice", async () => {
     const view = render(<EmbedApp config={frameConfig()} />)
@@ -603,6 +608,7 @@ function frameConfig(
     parent_origin: "https://partner.example.test",
     auth_mode: "public",
     locale: "zh-CN",
+    presentation: "technical",
     starter_questions: [],
     application: {
       id: "20000000-0000-4000-8000-000000000001",

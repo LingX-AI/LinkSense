@@ -376,6 +376,9 @@ export const applicationsMessages = {
     conversationManagedUserModelDescription:
       "con plugins, Skills, bases de conocimiento e instrucciones",
     externalAccess: {
+      endUserPresentation: "Presentación para el usuario final",
+      endUserPresentationHint:
+        "Se aplica solo al código de inserción generado a continuación. Oculta la actividad técnica y los tiempos, pero mantiene respuestas, adjuntos, confirmaciones y errores. Desactívala para ver los detalles técnicos.",
       action: "Acceso externo",
       title: "Acceso externo a la aplicación",
       description:

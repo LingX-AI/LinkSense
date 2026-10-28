@@ -28,6 +28,7 @@ import {
 import {
   coreMcpServerKey,
   officeAnnotationDisplaySchema,
+  type ApplicationEmbedPresentation,
   type OfficeAnnotationDisplay,
 } from "@linksense/shared"
 import type { TFunction } from "i18next"
@@ -3563,6 +3564,7 @@ function TurnSummary({
   selectedSubAgentId,
   onSubAgentSelect,
   onActivityDisclosureToggle,
+  activityPresentation,
 }: {
   turn: ConversationTurn
   conversationId: string
@@ -3608,6 +3610,7 @@ function TurnSummary({
   selectedSubAgentId?: string
   onSubAgentSelect?: (agent: NativeSubAgentViewModel) => void
   onActivityDisclosureToggle?: () => void
+  activityPresentation: ApplicationEmbedPresentation
 }) {
   const { t } = useTranslation()
   const productName = useProductName()
@@ -3962,6 +3965,73 @@ function TurnSummary({
     return fallback === fallbackKey
       ? t("conversation.activities.working")
       : fallback
+  }
+  if (activityPresentation === "end_user") {
+    const failed =
+      turn.status === "failed" ||
+      completedWithoutOutput ||
+      Boolean(terminalErrorActivity)
+    let simpleStatus = t(`statuses.${turn.status}`)
+    if (running && interruptRequestedAt)
+      simpleStatus = t("conversation.interrupting")
+    else if (nativeReconnectFailed)
+      simpleStatus = t("conversation.streamDisconnectedBeforeCompletion")
+    else if (reconnectingState)
+      simpleStatus = t("conversation.activities.reconnecting")
+    else if (hasBlockingRequest)
+      simpleStatus = t("conversation.userInput.title")
+    else if (failed) simpleStatus = t("statuses.failed")
+    else if (interruptedForDisplay) simpleStatus = t("statuses.interrupted")
+    else if (visuallyRunning)
+      simpleStatus = t("conversation.activities.working")
+    return (
+      <section
+        className="turn-summary"
+        aria-label={t("conversation.activity")}
+        data-testid={`turn-summary-${turn.id}`}
+      >
+        <div role={failed || nativeReconnectFailed ? "alert" : "status"}>
+          <p className="text-sm text-muted-foreground">{simpleStatus}</p>
+          {failed && (
+            <p className="text-sm text-destructive">
+              {completedWithoutOutput
+                ? t("errors.turnCompletedWithoutOutput")
+                : getPublicRuntimeMessage(
+                    turn.error_message ?? terminalErrorActivity?.label,
+                    t("errors.codexTurnFailed"),
+                    (key) => t(key)
+                  )}
+            </p>
+          )}
+        </div>
+        {timeline.map((entry) => {
+          if (entry.kind === "guided_message") {
+            return (
+              <div key={entry.id} className="turn-guidance-message">
+                {renderGuidedMessage(entry.message)}
+              </div>
+            )
+          }
+          if (entry.kind === "user_input_request") {
+            return (
+              <ConversationUserInputRequestCard
+                key={entry.id}
+                request={entry.request}
+                submitting={false}
+              />
+            )
+          }
+          return null
+        })}
+        <ArtifactFiles
+          files={artifacts}
+          loadPreview={loadArtifactPreview}
+          onPreviewOfficeDocument={onPreviewOfficeDocument}
+          onDownload={onDownload}
+          downloadingFileId={downloadingFileId}
+        />
+      </section>
+    )
   }
   const summaryHeading = (
     <Marker
@@ -4393,6 +4463,7 @@ export function ConversationThread({
   onActivityDisclosureToggle,
   embedded = false,
   defaultActivityOpen = false,
+  activityPresentation = "technical",
   hideMessageActions = false,
   navigationRef,
   onVisibleMessageChange,
@@ -4451,6 +4522,7 @@ export function ConversationThread({
   onActivityDisclosureToggle?: () => void
   embedded?: boolean
   defaultActivityOpen?: boolean
+  activityPresentation?: ApplicationEmbedPresentation
   hideMessageActions?: boolean
   navigationRef?: Ref<ConversationThreadNavigation>
   onVisibleMessageChange?: (ids: string[]) => void
@@ -4919,7 +4991,9 @@ export function ConversationThread({
           firstUserMessageByTurn.get(turn.id) === message.id
         )}
         goalCompletion={
-          message.id === completedGoalMessage?.id && completedGoalDurationLabel
+          activityPresentation === "technical" &&
+          message.id === completedGoalMessage?.id &&
+          completedGoalDurationLabel
             ? { durationLabel: completedGoalDurationLabel }
             : undefined
         }
@@ -5072,6 +5146,7 @@ export function ConversationThread({
     return (
       <TurnSummary
         key={`turn-summary-${turnRenderKey}`}
+        activityPresentation={activityPresentation}
         turn={turn}
         conversationId={conversation.id}
         running={turnRunning}

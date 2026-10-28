@@ -155,6 +155,7 @@ function ApplicationExternalAccessSettings({
   const [authMode, setAuthMode] = useState<"required" | "public">("required")
   const [originsText, setOriginsText] = useState("")
   const [activeEmbedOrigin, setActiveEmbedOrigin] = useState("")
+  const [endUserPresentation, setEndUserPresentation] = useState(false)
   const [activeStarterQuestionOrigin, setActiveStarterQuestionOrigin] =
     useState("")
   const [starterQuestionsByOrigin, setStarterQuestionsByOrigin] = useState<
@@ -234,10 +235,16 @@ function ApplicationExternalAccessSettings({
   const appSecret =
     authMode === "required" ? (configuredAccess?.app_secret ?? null) : null
   const embedLocale = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
+  const embedPresentation = endUserPresentation ? "end_user" : "technical"
   const embedConfigurations: EmbedConfiguration[] = effectiveAccess
     ? uniqueOrigins.map((origin) => ({
         origin,
-        iframeUrl: externalIframeUrl(effectiveAccess, origin, embedLocale),
+        iframeUrl: externalIframeUrl(
+          effectiveAccess,
+          origin,
+          embedLocale,
+          embedPresentation
+        ),
         iframeSnippet: externalIframeSnippet(
           effectiveAccess,
           origin,
@@ -247,7 +254,8 @@ function ApplicationExternalAccessSettings({
               "applications.externalAccess.snippetTicketComment"
             ),
           },
-          embedLocale
+          embedLocale,
+          embedPresentation
         ),
       }))
     : []
@@ -630,6 +638,21 @@ function ApplicationExternalAccessSettings({
                 id="external-embed-settings"
                 title={t("applications.externalAccess.embedSettingsSection")}
               >
+                <Field orientation="horizontal">
+                  <FieldContent>
+                    <FieldLabel htmlFor="embed-end-user-presentation">
+                      {t("applications.externalAccess.endUserPresentation")}
+                    </FieldLabel>
+                    <FieldDescription>
+                      {t("applications.externalAccess.endUserPresentationHint")}
+                    </FieldDescription>
+                  </FieldContent>
+                  <Switch
+                    id="embed-end-user-presentation"
+                    checked={endUserPresentation}
+                    onCheckedChange={setEndUserPresentation}
+                  />
+                </Field>
                 {embedConfigurations.length > 1 ? (
                   <Tabs
                     value={activeEmbedConfiguration.origin}

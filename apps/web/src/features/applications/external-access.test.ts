@@ -13,6 +13,23 @@ import {
 const PARENT_ORIGIN = "https://partner.example.test"
 
 describe("application external access embed code", () => {
+  it("supports an opt-in end-user presentation without changing existing iframe URLs", () => {
+    const access = externalAccess("public")
+    const url = externalIframeUrl(access, PARENT_ORIGIN, "en-US", "end_user")
+    expect(new URL(url).searchParams.get("presentation")).toBe("end_user")
+    expect(
+      externalIframeSnippet(
+        access,
+        PARENT_ORIGIN,
+        { title: "Assistant", ticketComment: "" },
+        "en-US",
+        "end_user"
+      )
+    ).toContain("presentation=end_user")
+    expect(externalIframeUrl(access, PARENT_ORIGIN)).not.toContain(
+      "presentation="
+    )
+  })
   it("creates a public iframe URL scoped to the selected parent origin", () => {
     const access = externalAccess("public")
 

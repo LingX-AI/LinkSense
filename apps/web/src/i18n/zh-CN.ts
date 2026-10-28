@@ -2835,6 +2835,9 @@ export const zhCN = {
       "模型、插件、Skill 和知识库由应用创建者维护",
     conversationManagedUserModelDescription: "插件、Skill、知识库和指令",
     externalAccess: {
+      endUserPresentation: "终端用户展示",
+      endUserPresentationHint:
+        "仅应用于下方生成的嵌入代码。隐藏技术过程和耗时，保留答复、附件、确认及错误；关闭时保留技术展示。",
       action: "外部访问",
       title: "应用外部访问",
       description: "把“{{name}}”嵌入到指定网站，让外部用户只使用这个应用。",

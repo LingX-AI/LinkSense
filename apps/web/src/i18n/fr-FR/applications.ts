@@ -380,6 +380,9 @@ export const applicationResources = {
     conversationManagedUserModelDescription:
       "avec les plugins, compétences, bases de connaissances et instructions",
     externalAccess: {
+      endUserPresentation: "Présentation pour l’utilisateur final",
+      endUserPresentationHint:
+        "S’applique uniquement au code d’intégration généré ci-dessous. Masque les activités techniques et leur durée, tout en conservant les réponses, pièces jointes, confirmations et erreurs. Désactivez cette option pour la vue technique.",
       action: "Accès externe",
       title: "Accès externe à l’application",
       description:

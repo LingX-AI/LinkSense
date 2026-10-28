@@ -461,6 +461,14 @@ describe("application external access page", () => {
     })
     expect(iframeCopyButton).toHaveClass("size-7")
     expect(iframeCopyButton.previousElementSibling).toBe(iframeValue)
+    const presentationSwitch = within(embedSection).getByRole("switch", {
+      name: "终端用户展示",
+    })
+    expect(presentationSwitch).not.toBeChecked()
+    await interaction.click(presentationSwitch)
+    expect(iframeValue).toHaveTextContent("presentation=end_user")
+    await interaction.click(presentationSwitch)
+    expect(iframeValue).not.toHaveTextContent("presentation=")
     const codeBlocks = view.container.querySelectorAll(
       '[data-slot="external-code-block"]'
     )

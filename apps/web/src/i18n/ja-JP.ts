@@ -3297,6 +3297,9 @@ export const jaJP = {
     conversationManagedUserModelDescription:
       "プラグイン、スキル、ナレッジベース、指示を使用",
     externalAccess: {
+      endUserPresentation: "エンドユーザー向け表示",
+      endUserPresentationHint:
+        "下に生成される埋め込みコードのみに適用されます。技術的な処理と所要時間を非表示にし、回答、添付ファイル、確認、エラーは表示します。オフにすると技術的な詳細を表示します。",
       action: "外部アクセス",
       title: "アプリケーションの外部アクセス",
       description:

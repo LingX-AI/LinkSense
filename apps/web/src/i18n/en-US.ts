@@ -3061,6 +3061,9 @@ export const enUS = {
     conversationManagedUserModelDescription:
       "with plugins, Skills, knowledge bases, and instructions",
     externalAccess: {
+      endUserPresentation: "End-user presentation",
+      endUserPresentationHint:
+        "Applies only to the embed code generated below. Hides technical activity and timings while keeping answers, attachments, confirmations and errors. Turn off for the technical view.",
       action: "External access",
       title: "Application external access",
       description:
