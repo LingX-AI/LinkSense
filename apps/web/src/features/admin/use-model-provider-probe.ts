@@ -3,7 +3,9 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import {
   discoverModelProviderResultSchema,
   discoverImageGenerationModelsInputSchema,
+  discoverVoiceTranscriptionModelsInputSchema,
   type DiscoverImageGenerationModelsInput,
+  type DiscoverVoiceTranscriptionModelsInput,
   detectModelProviderProtocolInputSchema,
   detectModelProviderProtocolResultSchema,
   type DetectModelProviderProtocolInput,
@@ -19,6 +21,7 @@ import { apiRequest } from "@/api/client"
 export type ModelDiscoverySource =
   | { kind?: "chat"; input: ModelProviderProbeInput }
   | { kind: "image"; input: DiscoverImageGenerationModelsInput }
+  | { kind: "voice"; input: DiscoverVoiceTranscriptionModelsInput }
 
 export function useDetectModelProtocol(
   input: DetectModelProviderProtocolInput,
@@ -108,12 +111,21 @@ export function useDiscoverModels(
             schema: discoverModelProviderResultSchema,
             signal,
           })
-        : apiRequest("/admin/model-provider-settings/discover", {
-            method: "POST",
-            body: modelProviderProbeInputSchema.parse(source.input),
-            schema: discoverModelProviderResultSchema,
-            signal,
-          }),
+        : source.kind === "voice"
+          ? apiRequest("/admin/voice-transcription-settings/discover", {
+              method: "POST",
+              body: discoverVoiceTranscriptionModelsInputSchema.parse(
+                source.input
+              ),
+              schema: discoverModelProviderResultSchema,
+              signal,
+            })
+          : apiRequest("/admin/model-provider-settings/discover", {
+              method: "POST",
+              body: modelProviderProbeInputSchema.parse(source.input),
+              schema: discoverModelProviderResultSchema,
+              signal,
+            }),
   })
 }
 

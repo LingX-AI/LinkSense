@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import {
   modelProviderProbeInputSchema,
   discoverImageGenerationModelsInputSchema,
+  discoverVoiceTranscriptionModelsInputSchema,
   testModelProviderConnectionInputSchema,
   type DiscoveredProviderModel,
   type TestModelProviderConnectionInput,
@@ -65,7 +66,9 @@ export function ModelDiscovery(
     credentialsReady &&
     (props.kind === "image"
       ? discoverImageGenerationModelsInputSchema
-      : modelProviderProbeInputSchema
+      : props.kind === "voice"
+        ? discoverVoiceTranscriptionModelsInputSchema
+        : modelProviderProbeInputSchema
     ).safeParse(input).success
   const discovery = useDiscoverModels(props, autoDiscover && canDiscover)
   const [open, setOpen] = useState(false)

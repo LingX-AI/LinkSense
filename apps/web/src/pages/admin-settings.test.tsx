@@ -585,12 +585,9 @@ describe("administrator authentication settings", () => {
         name: i18n.t(`admin.${domain}.provider`),
       })
       expectRequiredLabel(provider)
-      const model = screen.getByRole(
-        domain === "imageGeneration" ? "combobox" : "textbox",
-        {
-          name: i18n.t(`admin.${domain}.model`),
-        }
-      )
+      const model = screen.getByRole("combobox", {
+        name: i18n.t(`admin.${domain}.model`),
+      })
       expectRequiredLabel(model)
       const secret = document.querySelector<HTMLElement>(
         `input[name="${domain === "imageGeneration" ? "image-generation" : "voice-transcription"}-api-key"]`

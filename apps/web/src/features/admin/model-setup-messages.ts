@@ -4,6 +4,8 @@ export const modelSetupMessages = {
       "连接设置已变更，请输入当前连接的 API Key 后获取模型列表。",
     imageDiscoveryHint:
       "从服务提供的模型列表中选择，或手动输入模型 ID。部分服务会返回其他类型的模型，请确认所选模型支持图片生成。",
+    voiceDiscoveryHint:
+      "从服务提供的模型列表中选择，或手动输入模型 ID。部分服务会返回其他类型的模型，请确认所选模型支持语音转文字。",
     detectProtocol: "检测协议",
     detectingProtocol: "正在检测协议…",
     protocolDetectionHint:
@@ -51,6 +53,8 @@ export const modelSetupMessages = {
       "The connection settings changed. Enter the API key for this connection to fetch its models.",
     imageDiscoveryHint:
       "Select a model from the service's list or enter its ID manually. Some services also list other model types; confirm that your selection supports image generation.",
+    voiceDiscoveryHint:
+      "Select a model from the service's list or enter its ID manually. Some services also list other model types; confirm that your selection supports speech-to-text.",
     detectProtocol: "Detect protocol",
     detectingProtocol: "Detecting protocol…",
     protocolDetectionHint:
@@ -104,6 +108,8 @@ export const modelSetupMessages = {
       "Los ajustes de conexión cambiaron. Introduzca la clave API de esta conexión para obtener sus modelos.",
     imageDiscoveryHint:
       "Seleccione un modelo de la lista del servicio o introduzca su ID manualmente. Algunos servicios incluyen otros tipos de modelos; confirme que el elegido permite generar imágenes.",
+    voiceDiscoveryHint:
+      "Seleccione un modelo de la lista del servicio o introduzca su ID manualmente. Algunos servicios incluyen otros tipos de modelos; confirme que el elegido permite transcribir voz.",
     detectProtocol: "Detectar protocolo",
     detectingProtocol: "Detectando protocolo…",
     protocolDetectionHint:
@@ -158,6 +164,8 @@ export const modelSetupMessages = {
       "As configurações de conexão mudaram. Informe a chave API desta conexão para obter os modelos.",
     imageDiscoveryHint:
       "Selecione um modelo da lista do serviço ou informe seu ID manualmente. Alguns serviços também listam outros tipos de modelos; confirme que o escolhido permite gerar imagens.",
+    voiceDiscoveryHint:
+      "Selecione um modelo da lista do serviço ou informe seu ID manualmente. Alguns serviços também listam outros tipos de modelos; confirme que o escolhido permite transcrever áudio.",
     detectProtocol: "Detectar protocolo",
     detectingProtocol: "Detectando protocolo…",
     protocolDetectionHint:
@@ -212,6 +220,8 @@ export const modelSetupMessages = {
       "Les paramètres de connexion ont changé. Saisissez la clé API de cette connexion pour obtenir ses modèles.",
     imageDiscoveryHint:
       "Sélectionnez un modèle dans la liste du service ou saisissez son ID. Certains services proposent aussi d’autres types de modèles ; vérifiez que le modèle choisi permet de générer des images.",
+    voiceDiscoveryHint:
+      "Sélectionnez un modèle dans la liste du service ou saisissez son ID. Certains services proposent aussi d’autres types de modèles ; vérifiez que le modèle choisi permet de transcrire la parole.",
     detectProtocol: "Détecter le protocole",
     detectingProtocol: "Détection du protocole…",
     protocolDetectionHint:
@@ -266,6 +276,8 @@ export const modelSetupMessages = {
       "接続設定が変更されました。この接続の API キーを入力してモデル一覧を取得してください。",
     imageDiscoveryHint:
       "サービスのモデル一覧から選ぶか、ID を手動で入力してください。他の種類のモデルも含まれる場合があるため、画像生成に対応しているか確認してください。",
+    voiceDiscoveryHint:
+      "サービスのモデル一覧から選ぶか、ID を手動で入力してください。他の種類のモデルも含まれる場合があるため、音声文字起こしに対応しているか確認してください。",
     detectProtocol: "プロトコルを検出",
     detectingProtocol: "プロトコルを検出中…",
     protocolDetectionHint:

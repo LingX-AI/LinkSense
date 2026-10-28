@@ -11,6 +11,7 @@ import {
   updateKnowledgeModelSettingsSchema,
   updateImageGenerationSettingsSchema,
   discoverImageGenerationModelsInputSchema,
+  discoverVoiceTranscriptionModelsInputSchema,
   updateVoiceTranscriptionSettingsSchema,
   updateImageUnderstandingSelectionSchema,
   updateMaintenanceSettingsSchema,
@@ -475,6 +476,16 @@ export const adminSystemRoutes: FastifyPluginAsync<{
       ),
     ),
   )
+
+  app.post("/voice-transcription-settings/discover", async (request, reply) => {
+    requireAdminModelManagement(services)
+    const result = await services.voiceTranscriptionSettings.discover(
+      discoverVoiceTranscriptionModelsInputSchema.parse(request.body),
+    )
+    return reply.header("cache-control", "private, no-store").send(
+      ok(discoverModelProviderResultSchema.parse(result), request.id),
+    )
+  })
 
   app.put("/voice-transcription-settings", async (request, reply) => {
     requireAdminModelManagement(services)

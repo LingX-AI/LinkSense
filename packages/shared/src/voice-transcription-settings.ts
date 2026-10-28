@@ -121,6 +121,17 @@ export type VoiceTranscriptionProviderOptions = z.infer<
   typeof voiceTranscriptionProviderOptionsSchema
 >
 
+export const discoverVoiceTranscriptionModelsInputSchema = z.strictObject({
+  provider: voiceTranscriptionProviderSchema,
+  provider_options: voiceTranscriptionProviderOptionsSchema.default({ api_version: null }),
+  base_url: modelProviderBaseUrlSchema,
+  api_key: z.string().trim().min(1).max(16_384).optional(),
+})
+
+export type DiscoverVoiceTranscriptionModelsInput = z.input<
+  typeof discoverVoiceTranscriptionModelsInputSchema
+>
+
 export const voiceTranscriptionProviderDefinitionSchema = z.strictObject({
   key: voiceTranscriptionProviderSchema,
   default_model: modelIdentifierSchema,

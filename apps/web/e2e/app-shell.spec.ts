@@ -3,7 +3,11 @@ import { expect, test, type Page, type Route } from "@playwright/test"
 import { writeFile } from "node:fs/promises"
 import dayjs from "dayjs"
 import JSZip from "jszip"
-import { supportedLocales } from "@linksense/shared"
+import {
+  supportedLocales,
+  updateVoiceTranscriptionSettingsSchema,
+  voiceTranscriptionProviderDefinitions,
+} from "@linksense/shared"
 import { expectPopupPadding } from "./support/popup-padding"
 
 import {
@@ -1075,6 +1079,72 @@ test("task composer follows the toolbar design while remaining usable on narrow 
   await expect(workspace).toBeInViewport()
   await expect(send).toBeInViewport()
   expect((await composer.boundingBox())?.height).toBeLessThanOrEqual(160)
+})
+
+test("speech-to-text model settings fetch and select an available model", async ({
+  page,
+}) => {
+  let savedModel = "whisper-1"
+  const settings = () => ({
+    configured: true,
+    revision: 2,
+    enabled: true,
+    provider: "openai_compatible",
+    provider_options: { api_version: null },
+    base_url: "https://speech.example.test/v1",
+    api_key_configured: true,
+    model: savedModel,
+    providers: voiceTranscriptionProviderDefinitions,
+  })
+  await page.route("**/api/v1/admin/model-provider-settings", (route) =>
+    ok(route, {
+      management_enabled: true,
+      configured: false,
+      revision: 0,
+      providers: [],
+      default_model: null,
+      title_model: null,
+      memory_extraction_model: null,
+    })
+  )
+  await page.route("**/api/v1/admin/voice-transcription-settings", (route) => {
+    if (route.request().method() === "PUT") {
+      savedModel =
+        updateVoiceTranscriptionSettingsSchema.parse(
+          route.request().postDataJSON()
+        ).model ?? ""
+      return ok(route, {
+        code: "SYSTEM_SETTINGS_UPDATED",
+        settings: settings(),
+      })
+    }
+    return ok(route, settings())
+  })
+  await page.route(
+    "**/api/v1/admin/voice-transcription-settings/discover",
+    (route) =>
+      ok(route, {
+        status: "supported",
+        truncated: false,
+        models: [
+          {
+            id: "speech-test",
+            display_name: "Speech test",
+            context_window: null,
+            supports_image_input: null,
+          },
+        ],
+      })
+  )
+  await page.goto("/admin/models")
+  await page.getByRole("tab", { name: "语音转文字模型" }).click()
+  await page.getByRole("button", { name: "获取可用模型" }).click()
+  const model = page.getByRole("combobox", { name: "语音转文字模型名称" })
+  await model.fill("Speech test")
+  await page.getByRole("option", { name: "Speech test (speech-test)" }).click()
+  await expect(model).toHaveValue("speech-test")
+  await page.getByRole("button", { name: "保存语音转文字模型" }).click()
+  await expect.poll(() => savedModel).toBe("speech-test")
 })
 
 test("compact English task home keeps shortcuts and model controls readable", async ({

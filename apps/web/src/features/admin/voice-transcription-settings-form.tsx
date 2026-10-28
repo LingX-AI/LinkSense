@@ -34,6 +34,7 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { VoiceTranscriptionProviderLogo } from "./voice-transcription-provider-logo"
+import { ModelDiscovery } from "./model-provider-probe"
 
 const MASKED_API_KEY = "••••••••••••"
 type ProviderOptionKey = VoiceTranscriptionProvider | ""
@@ -61,6 +62,7 @@ export function VoiceTranscriptionSettingsForm({
     settings.provider_options.api_version ?? ""
   )
   const [error, setError] = useState<string | null>(null)
+  const [discoveryTargetVersion, setDiscoveryTargetVersion] = useState(0)
 
   const providerDefinition = useMemo(
     () =>
@@ -73,10 +75,23 @@ export function VoiceTranscriptionSettingsForm({
   const providerChanged = provider !== (settings.provider ?? "")
   const apiKeyConfiguredForProvider =
     settings.api_key_configured && !providerChanged
+  const parsedBaseUrl = modelProviderBaseUrlSchema.safeParse(baseUrl.trim())
+  const savedDiscoveryTargetMatches =
+    !providerChanged &&
+    parsedBaseUrl.success &&
+    settings.base_url !== null &&
+    new URL(parsedBaseUrl.data).href === new URL(settings.base_url).href &&
+    (apiVersion.trim() || null) === settings.provider_options.api_version
+  const discoveryInput = {
+    provider: provider || undefined,
+    provider_options: { api_version: apiVersion.trim() || null },
+    base_url: baseUrl.trim(),
+    ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+  }
   const formValid =
     !enabled ||
     (provider !== "" &&
-      modelProviderBaseUrlSchema.safeParse(baseUrl).success &&
+      parsedBaseUrl.success &&
       Boolean(model.trim()) &&
       (!providerDefinition?.requires_api_version ||
         Boolean(apiVersion.trim())) &&
@@ -98,6 +113,7 @@ export function VoiceTranscriptionSettingsForm({
         schema: voiceTranscriptionSettingsUpdateResultSchema,
       }),
     onSuccess: async (result) => {
+      setDiscoveryTargetVersion((version) => version + 1)
       setError(null)
       setRevision(result.settings.revision)
       setEnabled(result.settings.enabled)
@@ -168,6 +184,7 @@ export function VoiceTranscriptionSettingsForm({
                 value={provider}
                 disabled={readOnly}
                 onValueChange={(value) => {
+                  setDiscoveryTargetVersion((version) => version + 1)
                   const nextProvider = (value ?? "") as ProviderOptionKey
                   const definition = settings.providers.find(
                     (candidate) => candidate.key === nextProvider
@@ -225,7 +242,10 @@ export function VoiceTranscriptionSettingsForm({
                 name="voice-transcription-base-url"
                 value={baseUrl}
                 disabled={readOnly}
-                onChange={(event) => setBaseUrl(event.target.value)}
+                onChange={(event) => {
+                  setDiscoveryTargetVersion((version) => version + 1)
+                  setBaseUrl(event.target.value)
+                }}
                 required={enabled}
               />
             </FieldShell>
@@ -243,7 +263,10 @@ export function VoiceTranscriptionSettingsForm({
                   name="voice-transcription-api-version"
                   value={apiVersion}
                   disabled={readOnly}
-                  onChange={(event) => setApiVersion(event.target.value)}
+                  onChange={(event) => {
+                    setDiscoveryTargetVersion((version) => version + 1)
+                    setApiVersion(event.target.value)
+                  }}
                   required={enabled}
                 />
               </FieldShell>
@@ -269,30 +292,69 @@ export function VoiceTranscriptionSettingsForm({
                 value={apiKey}
                 disabled={readOnly}
                 placeholder={apiKeyConfiguredForProvider ? MASKED_API_KEY : ""}
-                onChange={(event) => setApiKey(event.target.value)}
+                onChange={(event) => {
+                  setDiscoveryTargetVersion((version) => version + 1)
+                  setApiKey(event.target.value)
+                }}
                 autoComplete="new-password"
                 required={enabled && !apiKeyConfiguredForProvider}
               />
             </FieldShell>
-            <FieldShell
-              layout="settings"
-              id={`${idPrefix}-model`}
-              controlWidth="medium"
-              label={t("admin.voiceTranscription.model")}
-              required={enabled}
-              hint={t("admin.voiceTranscription.modelHint")}
-            >
-              <Input
-                id={`${idPrefix}-model`}
-                name="voice-transcription-model"
-                value={model}
-                disabled={
-                  readOnly || providerDefinition?.model_editable === false
+            {provider && providerDefinition?.model_editable !== false ? (
+              <ModelDiscovery
+                key={discoveryTargetVersion}
+                kind="voice"
+                input={{ ...discoveryInput, provider }}
+                credentialsReady={
+                  Boolean(apiKey.trim()) ||
+                  Boolean(
+                    settings.api_key_configured && savedDiscoveryTargetMatches
+                  )
                 }
-                onChange={(event) => setModel(event.target.value)}
-                required={enabled}
+                disabled={readOnly || mutation.isPending}
+                selectedId={model}
+                onSelect={(selected) => setModel(selected.id)}
+                manualEntry={{
+                  label: t("admin.voiceTranscription.model"),
+                  name: "voice-transcription-model",
+                  onChange: setModel,
+                }}
+                hint={t(
+                  settings.api_key_configured &&
+                    !savedDiscoveryTargetMatches &&
+                    !apiKey.trim()
+                    ? "modelSetup.discoveryCredentialsChanged"
+                    : "modelSetup.voiceDiscoveryHint"
+                )}
+                field={{
+                  id: `${idPrefix}-model`,
+                  layout: "settings",
+                  controlWidth: "wide",
+                  required: enabled,
+                  hint: t("admin.voiceTranscription.modelHint"),
+                }}
               />
-            </FieldShell>
+            ) : (
+              <FieldShell
+                layout="settings"
+                id={`${idPrefix}-model`}
+                controlWidth="medium"
+                label={t("admin.voiceTranscription.model")}
+                required={enabled}
+                hint={t("admin.voiceTranscription.modelHint")}
+              >
+                <Input
+                  id={`${idPrefix}-model`}
+                  name="voice-transcription-model"
+                  value={model}
+                  disabled={
+                    readOnly || providerDefinition?.model_editable === false
+                  }
+                  onChange={(event) => setModel(event.target.value)}
+                  required={enabled}
+                />
+              </FieldShell>
+            )}
             <SettingsFieldRow
               id={`${idPrefix}-enabled`}
               label={t("admin.voiceTranscription.enabled")}

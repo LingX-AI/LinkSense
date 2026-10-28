@@ -26,15 +26,46 @@ async function fixture(role: "admin" | "user" = "admin", enabled = true, status 
   const testConnection = vi.fn().mockResolvedValue({ status: "success", model_id: "test-model" })
   const detectProtocol = vi.fn().mockResolvedValue({ status: "detected", model_id: "test-model", protocol_mode: "responses_tool_compat" })
   const discoverImages = vi.fn().mockResolvedValue({ status: "supported", models: [{ id: "image-model", display_name: "Image model", context_window: null, supports_image_input: null }], truncated: false })
+  const discoverVoice = vi.fn().mockResolvedValue({ status: "supported", models: [{ id: "speech-model", display_name: "Speech model", context_window: null, supports_image_input: null }], truncated: false })
   await app.register(adminSystemRoutes, { prefix: "/api/v1/admin", services: {
     config: { adminModelManagementEnabled: enabled }, modelProviderSettings: { discover, testConnection, detectProtocol },
     imageGenerationSettings: { discover: discoverImages },
+    voiceTranscriptionSettings: { discover: discoverVoice },
   } as unknown as AppServices })
   const headers = { authorization: `Bearer ${app.jwt.sign({ sub: userId, email: user.email, role, auth_valid_after: user.authValidAfter.toISOString() })}` }
-  return { app, headers, discover, testConnection, detectProtocol, discoverImages }
+  return { app, headers, discover, testConnection, detectProtocol, discoverImages, discoverVoice }
 }
 
 describe("administrator model provider probes", () => {
+  it.each([
+    { role: "admin" as const, enabled: true, authenticated: false, expected: 401 },
+    { role: "user" as const, enabled: true, authenticated: true, expected: 403 },
+    { role: "admin" as const, enabled: false, authenticated: true, expected: 403 },
+  ])("protects speech discovery for $role with management enabled=$enabled", async ({ role, enabled, authenticated, expected }) => {
+    const { app, headers, discoverVoice } = await fixture(role, enabled)
+    try {
+      const response = await app.inject({ method: "POST", url: "/api/v1/admin/voice-transcription-settings/discover", ...(authenticated ? { headers } : {}), payload: {} })
+      expect(response.statusCode).toBe(expected)
+      expect(discoverVoice).not.toHaveBeenCalled()
+    } finally { await app.close() }
+  })
+
+  it("validates speech discovery and returns an uncached result without exposing the key", async () => {
+    const { app, headers, discoverVoice } = await fixture()
+    try {
+      const input = { provider: "openai_compatible", base_url: draft.base_url, api_key: draft.api_key }
+      const invalid = await app.inject({ method: "POST", url: "/api/v1/admin/voice-transcription-settings/discover", headers, payload: { ...input, base_url: "file:///secret" } })
+      expect(invalid.statusCode).toBe(400)
+      expect(discoverVoice).not.toHaveBeenCalled()
+      const response = await app.inject({ method: "POST", url: "/api/v1/admin/voice-transcription-settings/discover", headers, payload: input })
+      expect(response.statusCode).toBe(200)
+      expect(response.headers["cache-control"]).toBe("private, no-store")
+      expect(response.json().data.models).toMatchObject([{ id: "speech-model" }])
+      expect(discoverVoice).toHaveBeenCalledWith({ ...input, provider_options: { api_version: null } })
+      expect(response.body).not.toContain(input.api_key)
+    } finally { await app.close() }
+  })
+
   it.each([
     { role: "admin" as const, enabled: true, authenticated: false, expected: 401 },
     { role: "user" as const, enabled: true, authenticated: true, expected: 403 },
