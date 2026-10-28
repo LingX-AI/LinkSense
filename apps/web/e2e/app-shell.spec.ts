@@ -1013,6 +1013,70 @@ for (const viewport of [
   })
 }
 
+test("task composer follows the toolbar design while remaining usable on narrow screens", async ({
+  page,
+}) => {
+  await mockTaskHomeApi(page)
+  await page.route("**/api/v1/auth/refresh", (route) =>
+    ok(route, createE2EAuthSession("en-US"))
+  )
+  await page.route("**/api/v1/me", (route) =>
+    ok(route, { ...ADMIN, language: "en-US", preferred_locale: "en-US" })
+  )
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto("/conversations/new")
+
+  const composer = page.locator(".composer-shell")
+  const toolbar = composer.locator('[data-slot="composer-toolbar"]')
+  const input = composer.getByRole("textbox", { name: "Task composer" })
+  const attach = toolbar.getByRole("button", { name: "Attach", exact: true })
+  const knowledge = toolbar.getByRole("button", { name: "Add knowledge base" })
+  const workspace = toolbar.getByRole("combobox", { name: "Project" })
+  const voice = toolbar.getByRole("button", { name: "Voice input" })
+  const send = toolbar.getByRole("button", { name: "Send", exact: true })
+
+  await expect(attach).toHaveText("Attach")
+  await expect(knowledge).toHaveText("Knowledge")
+  await expect(workspace).toContainText("Public workspace")
+  await expect(
+    workspace.locator('[data-design-icon="chevron-down"]')
+  ).toBeVisible()
+  await expect(toolbar.locator('[data-slot="composer-separator"]')).toHaveCount(
+    2
+  )
+  await expect(voice).toHaveCSS("width", "40px")
+  await expect(send).toHaveCSS("width", "40px")
+  await expect(send).toHaveAttribute("aria-disabled", "true")
+  await expect(send).toHaveCSS("background-color", "rgb(233, 235, 240)")
+  await input.blur()
+  await composer.hover()
+  await expect(composer).toHaveCSS("border-top-color", "rgb(201, 216, 240)")
+  await input.focus()
+  await expect(composer).toHaveCSS("border-top-color", "rgb(98, 136, 221)")
+  await input.fill("Review this document")
+  await expect(send).toHaveAttribute("aria-disabled", "false")
+  await expect(send).toHaveCSS("background-color", "rgb(8, 116, 255)")
+  await page.screenshot({
+    path: test.info().outputPath("composer-desktop.png"),
+  })
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expectNoHorizontalOverflow(page)
+  await expect(attach).toBeInViewport()
+  await expect(knowledge).toBeInViewport()
+  await expect(workspace).toBeInViewport()
+  await expect(send).toBeInViewport()
+  await page.screenshot({ path: test.info().outputPath("composer-mobile.png") })
+
+  await page.setViewportSize({ width: 320, height: 568 })
+  await expectNoHorizontalOverflow(page)
+  await expect(attach).toBeInViewport()
+  await expect(knowledge).toBeInViewport()
+  await expect(workspace).toBeInViewport()
+  await expect(send).toBeInViewport()
+  expect((await composer.boundingBox())?.height).toBeLessThanOrEqual(160)
+})
+
 test("compact English task home keeps shortcuts and model controls readable", async ({
   page,
 }) => {
