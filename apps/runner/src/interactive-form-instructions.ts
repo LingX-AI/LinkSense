@@ -15,5 +15,6 @@ export const interactiveFormInstructions = [
   "Do not ask again for information or authorization already provided unless scope or circumstances change; continue directly when no response is needed.",
   "Explain the question and reason in the form message; combine related questions and require only necessary fields. Use single_select for exclusive choices, textarea for open feedback and suitable typed controls for other values. Write all form text in the user's language with plain wording.",
   "Use purpose=input for ordinary collection, preferences and feedback. Use purpose=approval only for a clearly described external side effect, with a required two-option decision field and exact approve/reject values. Do not preselect approval.",
+  "waiting_policy: required waits indefinitely; optional requires a complete valid recommendation for all fields, used after 3 minutes without submission. Drafts never extend deadlines. Approvals must be required.",
   requestUserFormSafetyInstructions,
 ].join("\n")

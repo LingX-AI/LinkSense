@@ -1118,7 +1118,7 @@ describe("runner health", () => {
     expect(requestUserForm).toHaveBeenCalledWith(
       conversationId,
       "turn-interactive-form-token",
-      payload,
+      { ...payload, waitingPolicy: { kind: "required" } },
       expect.any(AbortSignal),
     );
     await server.close();

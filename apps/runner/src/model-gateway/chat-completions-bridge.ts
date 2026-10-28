@@ -463,14 +463,24 @@ function responsesInputToChatMessages(source: JsonObject): JsonObject[] {
       : [{ role: "user", content: "" }];
   }
   let pendingToolCalls: JsonObject[] = [];
-  const flushToolCalls = () => {
-    if (pendingToolCalls.length === 0) return;
-    messages.push({
-      role: "assistant",
-      content: "",
-      tool_calls: pendingToolCalls,
-    });
+  let pendingAssistantMessages: JsonObject[] = [];
+  const flushAssistant = () => {
+    if (pendingToolCalls.length > 0) {
+      // Responses emits text and calls as separate items in either order.
+      // Chat Completions needs one assistant message before its tool results.
+      messages.push({
+        role: "assistant",
+        content: pendingAssistantMessages
+          .map((message) => stringValue(message.content))
+          .filter((text) => text !== "")
+          .join("\n\n"),
+        tool_calls: pendingToolCalls,
+      });
+    } else {
+      messages.push(...pendingAssistantMessages);
+    }
     pendingToolCalls = [];
+    pendingAssistantMessages = [];
   };
   for (const item of source.input) {
     if (!isRecord(item)) continue;
@@ -493,7 +503,16 @@ function responsesInputToChatMessages(source: JsonObject): JsonObject[] {
       });
       continue;
     }
-    flushToolCalls();
+    if (item.type === "reasoning") continue;
+    const role = stringValue(item.role);
+    if (role === "assistant") {
+      pendingAssistantMessages.push({
+        role,
+        content: contentText(item.content),
+      });
+      continue;
+    }
+    flushAssistant();
     if (item.type === "function_call_output") {
       messages.push({
         role: "tool",
@@ -507,21 +526,16 @@ function responsesInputToChatMessages(source: JsonObject): JsonObject[] {
       });
       continue;
     }
-    if (item.type === "reasoning") continue;
-    const role = stringValue(item.role);
     if (role === "developer" || role === "system") {
       messages.push({ role: "system", content: contentText(item.content) });
-    } else if (role === "user" || role === "assistant") {
+    } else if (role === "user") {
       messages.push({
         role,
-        content:
-          role === "user"
-            ? userContentForChat(item.content)
-            : contentText(item.content),
+        content: userContentForChat(item.content),
       });
     }
   }
-  flushToolCalls();
+  flushAssistant();
   return messages.length > 0
     ? messages
     : [{ role: "user", content: "" }];

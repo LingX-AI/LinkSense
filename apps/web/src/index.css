@@ -7141,7 +7141,7 @@ button.annotation-hover-file:focus-visible {
 }
 
 .native-activity-details-inner {
-  padding: 2px 0 7px 22px;
+  padding-block: 2px 7px;
 }
 
 @media (prefers-reduced-motion: no-preference) {

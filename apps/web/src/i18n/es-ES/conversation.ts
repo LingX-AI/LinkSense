@@ -395,6 +395,13 @@ export const conversationMessages = {
       title: "Se necesita tu respuesta",
       formTitle: "Confirma estos detalles",
       formResultTitle: "Formulario completado",
+      requiredWaiting:
+        "Tu respuesta es necesaria. La tarea continuará cuando la envíes.",
+      recommendationCountdown:
+        "Si no envías una respuesta, la tarea continuará con la respuesta recomendada dentro de {{seconds}} segundos.",
+      applyingRecommendation: "Aplicando la respuesta recomendada…",
+      recommendedAnswer: "Recomendación: {{answer}}",
+      useRecommendation: "Usar respuesta recomendada",
       description:
         "Responde a estas preguntas para que LinkSense pueda continuar con el plan.",
       autoResolveDescription:
@@ -417,6 +424,7 @@ export const conversationMessages = {
         pending: "Pendiente",
         submitting: "Enviando",
         submitted: "Enviado",
+        recommended: "Respuesta recomendada utilizada al vencer el plazo",
         approved: "Aprobado",
         rejected: "Rechazado",
         cancelled: "Cancelado",

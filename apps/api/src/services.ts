@@ -715,6 +715,8 @@ export function createServices(input: {
   jobs.registerConversationPrewarmProcessor((job) =>
     conversations.executePrewarm(job),
   );
+  jobs.registerFormRecommendationProcessor(() => conversations.resolveFormRecommendations());
+  jobs.registerFormRecommendationDeliveryProcessor(input => conversations.deliverFormRecommendation(input));
   const conversationShares = new ConversationShareService(
     input.prisma,
     conversations,

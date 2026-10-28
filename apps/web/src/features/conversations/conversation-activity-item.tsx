@@ -127,7 +127,14 @@ export function ConversationActivityItem({
         <CollapsibleContent
           className={cn("native-activity-details", detailClassName)}
         >
-          <div className="native-activity-details-inner">{children}</div>
+          <div
+            className={cn(
+              "native-activity-details-inner",
+              summary.thinking ? "pl-0" : "pl-[22px]"
+            )}
+          >
+            {children}
+          </div>
         </CollapsibleContent>
       )}
     </Collapsible>

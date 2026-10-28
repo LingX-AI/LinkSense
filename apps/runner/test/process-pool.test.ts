@@ -2275,6 +2275,7 @@ trust_level = "trusted"
           },
           uiHints: { title: { control: "textarea" } },
           responseSemantics: { kind: "input" },
+          waitingPolicy: { kind: "required" },
         },
       )
       .then((result) => {
@@ -2295,6 +2296,13 @@ trust_level = "trusted"
       ),
     );
     expect(formResolved).toBe(false);
+    vi.useFakeTimers();
+    try {
+      await vi.advanceTimersByTimeAsync(20 * 60_000);
+      expect(formResolved).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
     const formEvent = eventSink.publish.mock.calls.find(
       ([, event]) => event.method === "linksense/form/request",
     )?.[1];

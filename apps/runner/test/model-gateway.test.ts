@@ -2161,6 +2161,104 @@ describe("ModelGateway", () => {
     );
   });
 
+  it.each(["native_responses", "responses_tool_compat"] as const)("preserves separate Responses history items in %s mode", async (protocolMode) => {
+    let upstreamBody: JsonObject | undefined;
+    const gateway = await startGateway({ fetch: async (url, init) => {
+      expect(String(url)).toBe("https://provider.example.test/v1/responses");
+      const body: unknown = JSON.parse(String(init?.body));
+      if (!isRecord(body)) throw new Error("Missing upstream request");
+      upstreamBody = body;
+      return Response.json({ id: "resp-history", status: "completed", output: [] });
+    } });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "responses-history", revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "test-provider-key",
+      protocolMode, model: "model-a",
+    });
+    const input = [
+      { type: "function_call", call_id: "call-search", name: "search", arguments: "{}" },
+      { type: "message", role: "assistant", content: [{ type: "output_text", text: "Searching." }] },
+      { type: "function_call_output", call_id: "call-search", output: "Contract found." },
+    ];
+
+    const response = await requestGateway(gateway, lease.token, { model: "model-a", input, tools: [{ type: "function", name: "search", parameters: { type: "object", properties: {} } }] });
+
+    expect(response.status).toBe(200);
+    await response.json();
+    expect(upstreamBody?.input).toEqual(input);
+    expect(upstreamBody).not.toHaveProperty("messages");
+  });
+
+  it.each([false, true])("continues a bridged tool call with commentary through the gateway when streaming is %s", async (stream) => {
+    const upstreamRequests: JsonObject[] = [];
+    let toolAlias = "";
+    const gateway = await startGateway({ fetch: async (url, init) => {
+      expect(String(url)).toBe("https://provider.example.test/v1/chat/completions");
+      const body: unknown = JSON.parse(String(init?.body));
+      if (!isRecord(body)) throw new Error("Missing upstream request");
+      upstreamRequests.push(body);
+      const tools = Array.isArray(body.tools) ? body.tools : [];
+      const tool = tools.find((entry) => isRecord(entry) && isRecord(entry.function));
+      if (!isRecord(tool) || !isRecord(tool.function) || typeof tool.function.name !== "string") {
+        throw new Error("Missing translated tool");
+      }
+      toolAlias = tool.function.name;
+      const first = upstreamRequests.length === 1;
+      const content = first ? "Searching." : "Found the contract.";
+      const toolCalls = [{ id: "call-search", type: "function", function: { name: toolAlias, arguments: '{"query":"contract"}' } }];
+      if (!stream) {
+        return Response.json({ choices: [{ message: { role: "assistant", content, ...(first ? { tool_calls: toolCalls } : {}) } }] });
+      }
+      const deltas = [
+        ...(first ? [{ tool_calls: toolCalls.map((call) => ({ ...call, index: 0 })) }] : []),
+        { content },
+      ];
+      return new Response(deltas.map((delta) => `data: ${JSON.stringify({ choices: [{ index: 0, delta }] })}\n\n`).join("") + "data: [DONE]\n\n", {
+        headers: { "content-type": "text/event-stream" },
+      });
+    } });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "tool-follow-up", revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "test-provider-key",
+      protocolMode: "chat_completions_bridge", model: "model-a",
+    });
+    const user = { role: "user", content: "Find the contract." };
+    const request = {
+      model: "model-a", stream, instructions: "Be concise.",
+      tools: [{ type: "namespace", name: "mcp__documents", tools: [{
+        name: "search", description: "Search documents", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+      }] }],
+    };
+    const readCompletion = async (response: Response): Promise<JsonObject> => {
+      expect(response.status).toBe(200);
+      const completed: unknown = stream
+        ? (await readSse(response)).find((event) => event.event === "response.completed")?.data.response
+        : await response.json();
+      if (!isRecord(completed)) throw new Error("Missing completed response");
+      return completed;
+    };
+
+    const first = await readCompletion(await requestGateway(gateway, lease.token, { ...request, input: [user] }));
+    if (!Array.isArray(first.output)) throw new Error("Missing first response output");
+    expect(first.output).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "function_call", namespace: "mcp__documents", name: "search", call_id: "call-search" }),
+      expect.objectContaining({ type: "message", role: "assistant" }),
+    ]));
+    const second = await readCompletion(await requestGateway(gateway, lease.token, {
+      ...request,
+      input: [user, ...first.output, { type: "function_call_output", call_id: "call-search", output: "Contract found." }],
+    }));
+
+    expect(second).toMatchObject({ status: "completed", output_text: "Found the contract." });
+    expect(upstreamRequests).toHaveLength(2);
+    expect(upstreamRequests[0]?.messages).toEqual([{ role: "system", content: "Be concise." }, user]);
+    expect(upstreamRequests[1]?.messages).toEqual([
+      { role: "system", content: "Be concise." }, user,
+      { role: "assistant", content: "Searching.", tool_calls: [{ id: "call-search", type: "function", function: { name: toolAlias, arguments: '{"query":"contract"}' } }] },
+      { role: "tool", tool_call_id: "call-search", content: "Contract found." },
+    ]);
+  });
+
   it("uses the authorized transition model throughout the Chat Completions bridge", async () => {
     let upstreamBody: JsonObject | undefined;
     const upstream = await startUpstream(async (request, response) => {

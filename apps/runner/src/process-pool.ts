@@ -40,7 +40,9 @@ import type {
 import {
   builtInSkillNames,
   codexModelReasoningCatalogSchema,
-  conversationFormAutoResolutionMs,
+  conversationFormRecommendationDelayMs,
+  conversationFormWaitingPolicySchema,
+  conversationFormWaitingPolicyMatchesSchema,
   conversationFormRequestsSensitiveValue,
   conversationFormResponseSemanticsMatchesSchema,
   conversationFormResponseMatchesSchema,
@@ -385,6 +387,7 @@ export type InteractiveFormRequestInput = {
   requestedSchema: ConversationFormRequestedSchema;
   uiHints: z.infer<typeof conversationFormUiHintsSchema>;
   responseSemantics: z.infer<typeof conversationFormResponseSemanticsSchema>;
+  waitingPolicy: z.infer<typeof conversationFormWaitingPolicySchema>;
 };
 
 const skillsListResponseSchema = z
@@ -2665,7 +2668,7 @@ export class AppServerProcessPool {
       !conversationFormResponseSemanticsMatchesSchema(
         input.responseSemantics,
         input.requestedSchema,
-      )
+      ) || !conversationFormWaitingPolicyMatchesSchema(input.waitingPolicy, input.requestedSchema, input.responseSemantics)
     ) {
       throw new InteractiveFormRequestError(
         "INTERACTIVE_FORM_INVALID",
@@ -2708,14 +2711,6 @@ export class AppServerProcessPool {
       return response;
     }
     signal?.addEventListener("abort", abortRequest, { once: true });
-    const pendingRequest = pending;
-    if (pendingRequest) {
-      pendingRequest.timer = setTimeout(
-        () => cancelPendingUserInputRequest(pendingRequest),
-        conversationFormAutoResolutionMs,
-      );
-      pendingRequest.timer.unref();
-    }
     try {
       await this.options.eventSink.publish(conversationId, {
         method: "linksense/form/request",
@@ -2730,7 +2725,8 @@ export class AppServerProcessPool {
           requestedSchema: input.requestedSchema,
           uiHints: input.uiHints,
           responseSemantics: input.responseSemantics,
-          autoResolutionMs: conversationFormAutoResolutionMs,
+          waitingPolicy: input.waitingPolicy,
+          autoResolutionMs: input.waitingPolicy.kind === "optional" ? conversationFormRecommendationDelayMs : null,
         },
       });
     } catch {
