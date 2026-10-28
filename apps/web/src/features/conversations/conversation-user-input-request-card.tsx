@@ -79,7 +79,10 @@ export function ConversationUserInputRequestCard({
   const disabled =
     submitting ||
     (request.status !== "pending" &&
-      !(request.kind === "async_questions" && request.status === "answering"))
+      !(
+        (request.kind === "async_questions" || request.kind === "form") &&
+        request.status === "answering"
+      ))
   const displayStatus = submitting
     ? "submitting"
     : getConversationUserInputDisplayStatus(request)
@@ -165,6 +168,7 @@ export function ConversationUserInputRequestCard({
     <AnsweredFormDetails
       key={request.id}
       message={request.message}
+      recommended={displayStatus === "recommended"}
       onInteractionStart={onInteractionStart}
     >
       {card}
@@ -176,10 +180,12 @@ export function ConversationUserInputRequestCard({
 
 function AnsweredFormDetails({
   message,
+  recommended,
   onInteractionStart,
   children,
 }: {
   message: string
+  recommended: boolean
   onInteractionStart?: () => void
   children: ReactNode
 }) {
@@ -203,6 +209,7 @@ function AnsweredFormDetails({
           aria-hidden="true"
         />
         <span className="min-w-0 flex-1 truncate">{summary}</span>
+        {recommended && <UserInputStatusBadge status="recommended" />}
         <ChevronRightIcon
           className="size-3.5 shrink-0 transition-transform group-data-panel-open:rotate-90"
           aria-hidden="true"
@@ -258,7 +265,9 @@ function UserInputStatusBadge({
       ? MessageCircleQuestionIcon
       : status === "submitting"
         ? LoaderCircleIcon
-        : status === "submitted" || status === "approved"
+        : status === "submitted" ||
+            status === "approved" ||
+            status === "recommended"
           ? CircleCheckIcon
           : status === "rejected"
             ? CircleXIcon
@@ -268,7 +277,11 @@ function UserInputStatusBadge({
   return (
     <Badge
       variant={status === "rejected" ? "destructive" : "secondary"}
-      className="shrink-0 rounded-full"
+      className={cn(
+        "shrink-0 rounded-full",
+        status === "recommended" &&
+          "h-auto max-w-[60%] text-left whitespace-normal"
+      )}
       role="status"
     >
       <Icon

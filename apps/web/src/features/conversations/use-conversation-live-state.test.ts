@@ -1,12 +1,46 @@
 import { act, renderHook } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
-import { useConversationLiveState } from "@/features/conversations/use-conversation-live-state"
+import {
+  conversationLiveStateCacheLimit,
+  useConversationLiveState,
+} from "@/features/conversations/use-conversation-live-state"
 
 const firstConversationId = "conversation-1"
 const secondConversationId = "conversation-2"
 
 describe("useConversationLiveState", () => {
+  it("bounds inactive conversation caches and keeps the most recently visited live projection", () => {
+    const { result } = renderHook(() =>
+      useConversationLiveState("conversation-0")
+    )
+    const write = () =>
+      act(() =>
+        result.current.setActivities([{ id: "activity", type: "tool_started" }])
+      )
+    write()
+    for (let index = 1; index < conversationLiveStateCacheLimit; index++) {
+      act(() => result.current.switchConversation(`conversation-${index}`))
+      write()
+    }
+    act(() => result.current.switchConversation("conversation-0"))
+    act(() => result.current.switchConversation("extra-conversation"))
+    write()
+    expect(result.current.hasConversationLiveState("conversation-0")).toBe(true)
+    expect(result.current.hasConversationLiveState("conversation-1")).toBe(
+      false
+    )
+    expect(result.current.activities).toEqual([
+      { id: "activity", type: "tool_started" },
+    ])
+    act(() => result.current.switchConversation("conversation-1"))
+    expect(result.current.activities).toEqual([])
+    // A missing cache makes the page fetch a fresh persisted replay boundary.
+    expect(result.current.hasConversationLiveState("conversation-1")).toBe(
+      false
+    )
+  })
+
   it("preserves and isolates every live projection while switching conversations", () => {
     const { result } = renderHook(() =>
       useConversationLiveState(firstConversationId)

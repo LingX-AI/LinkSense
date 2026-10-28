@@ -705,7 +705,7 @@ describe("WorkspaceManager", () => {
       'env_vars = ["LINKSENSE_COLLABORATION_MODE", "LINKSENSE_CONVERSATION_ID", "LINKSENSE_CURRENT_USER_ENDPOINT", "LINKSENSE_CURRENT_USER_TOKEN", "LINKSENSE_AUTOMATION_ENDPOINT", "LINKSENSE_AUTOMATION_TOKEN", "LINKSENSE_FILE_SERVICE_ENDPOINT", "LINKSENSE_FILE_SERVICE_TOKEN", "LINKSENSE_FORM_SERVICE_ENDPOINT", "LINKSENSE_FORM_SERVICE_TOKEN", "LINKSENSE_IMAGE_GENERATION_ENDPOINT", "LINKSENSE_IMAGE_GENERATION_TOKEN", "LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT", "LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS", "LINKSENSE_KNOWLEDGE_SERVICE_TOKEN", "LINKSENSE_SKILL_CREATOR_ENDPOINT", "LINKSENSE_SKILL_CREATOR_TOKEN", "LINKSENSE_APPLICATION_BUILDER_ENDPOINT", "LINKSENSE_APPLICATION_BUILDER_TOKEN"]',
     )
     expect(managedServiceConfig).toContain("required = true")
-    expect(managedServiceConfig).toContain("tool_timeout_sec = 630")
+    expect(managedServiceConfig).toContain("tool_timeout_sec = 3153600000")
     expect(managedServiceConfig).not.toContain(
       "[mcp_servers.linksense_file_service]",
     )
@@ -729,7 +729,7 @@ describe("WorkspaceManager", () => {
       'env_vars = ["HOME", "CODEX_HOME", "LINKSENSE_CONVERSATION_ID", "LINKSENSE_BROWSER_READ_ONLY"]',
     )
     expect(managedServiceConfig).toContain(
-      "tool_timeout_sec = 630",
+      "tool_timeout_sec = 3153600000",
     )
     expect(managedServiceConfig).toContain(
       "tool_timeout_sec = 130",

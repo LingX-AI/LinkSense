@@ -1,10 +1,11 @@
 // @vitest-environment node
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import type { ConversationEvent } from "@/api/contracts"
 import {
   appendReasoningContentEvent,
   areReasoningContentEventsReconciled,
+  removeReconciledReasoningContentEvents,
   selectReasoningActivities,
 } from "./reasoning-activity-content"
 
@@ -58,6 +59,65 @@ function snapshot(sequence: number, content?: string[]): ConversationEvent {
 }
 
 describe("complete reasoning content", () => {
+  it("does not rescan retained bodies when the ordered stream appends a new delta", () => {
+    const readPayload = vi.fn()
+    const live = Array.from({ length: 2_000 }, (_, index) => {
+      const event = delta(index + 1, "Text")
+      const payload = event.payload
+      return {
+        ...event,
+        get payload() {
+          readPayload()
+          return payload
+        },
+      }
+    })
+    const next = delta(2_001, "Next")
+    const appended = appendReasoningContentEvent(live, next)
+    expect(appended).toHaveLength(2_001)
+    expect(appended.at(-1)).toBe(next)
+    expect(readPayload).not.toHaveBeenCalled()
+    // An older replay still takes the full deduplication path.
+    expect(appendReasoningContentEvent(appended, delta(1, "Text"))).toBe(
+      appended
+    )
+  })
+
+  it("releases persisted live events during execution without discarding pending text or other turns", () => {
+    const live = [
+      delta(1, "First"),
+      delta(2, "Second"),
+      delta(3, "Pending"),
+      delta(4, "Other", 0, "turn-2"),
+    ]
+    expect(removeReconciledReasoningContentEvents(live, [])).toBe(live)
+    const retained = removeReconciledReasoningContentEvents(live, [
+      live[0]!,
+      live[1]!,
+    ])
+    expect(retained).toEqual(live.slice(2))
+    expect(
+      selectReasoningActivities("turn-1", retained, live.slice(0, 2))[0]
+        ?.content
+    ).toBe("FirstSecondPending")
+    const completed = snapshot(3, ["Authoritative body"])
+    expect(removeReconciledReasoningContentEvents(live, [completed])).toEqual([
+      live[3],
+    ])
+    expect(
+      removeReconciledReasoningContentEvents(live, [
+        { ...completed, turn_id: "different-turn" },
+      ])
+    ).toBe(live)
+    expect(
+      selectReasoningActivities(
+        "turn-1",
+        removeReconciledReasoningContentEvents(live, [completed]),
+        [completed]
+      )[0]?.content
+    ).toBe("Authoritative body")
+  })
+
   it("releases live content only after history contains its deltas or authoritative completion", () => {
     const first = delta(1, "First"),
       second = delta(2, "Second"),

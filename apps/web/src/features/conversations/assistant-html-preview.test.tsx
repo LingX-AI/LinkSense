@@ -383,6 +383,25 @@ describe("AssistantHtmlPreview actions", () => {
     expect(retryButton).toBeVisible()
     expect(retryButton).toHaveClass("bg-secondary", "shadow-none")
     expect(retryButton.parentElement).toHaveClass("mt-2")
+    expect(frame.isConnected).toBe(false)
+  })
+
+  it("releases a timed-out frame and creates a fresh runtime only on explicit retry", () => {
+    vi.useFakeTimers()
+    try {
+      render(
+        <AssistantHtmlPreview html="<!doctype html><html><body>Preview</body></html>" />
+      )
+      const frame = screen.getByTitle("AI 生成的交互式 HTML 页面")
+      act(() => vi.advanceTimersByTime(10_000))
+      expect(screen.getByRole("alert")).toBeVisible()
+      expect(frame.isConnected).toBe(false)
+      expect(screen.queryByTitle("AI 生成的交互式 HTML 页面")).toBeNull()
+      fireEvent.click(screen.getByRole("button", { name: "重试" }))
+      expect(screen.getByTitle("AI 生成的交互式 HTML 页面")).not.toBe(frame)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("downloads the original HTML document", async () => {

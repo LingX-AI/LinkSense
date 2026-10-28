@@ -1,6 +1,7 @@
 import { runtimeEnvironmentPath } from "@linksense/shared"
 import { chmod, chown, lstat, mkdir, realpath, rm } from "node:fs/promises"
 import path from "node:path"
+import { DiskUsageMonitor } from "../docker/disk-usage-monitor.js"
 
 import type { Logger } from "pino"
 import { z } from "zod"
@@ -132,6 +133,7 @@ type ResourceAccumulator = {
 }
 
 export class DockerWorkerProvider implements WorkerProvider {
+  private readonly diskUsage: DiskUsageMonitor
   readonly kind = "docker" as const
   readonly capabilities: WorkerProviderCapabilities = {
     isolation: "container",
@@ -154,7 +156,16 @@ export class DockerWorkerProvider implements WorkerProvider {
     private readonly config: RunnerConfig,
     private readonly docker: DockerEngine,
     private readonly logger: Logger,
-  ) {}
+  ) {
+    this.diskUsage = new DiskUsageMonitor((signal) => this.docker.collectDiskUsage({
+      project: this.config.LINKSENSE_DOCKER_COMPOSE_PROJECT_NAME,
+      instance: controllerInstanceKey(this.config),
+      image: this.config.LINKSENSE_WORKER_IMAGE,
+      userDataRoot: this.config.LINKSENSE_USER_DATA_ROOT,
+      userDataVolume: this.config.LINKSENSE_USER_DATA_VOLUME,
+      cpuQuotaMode: this.config.LINKSENSE_CPU_QUOTA_MODE,
+    }, signal))
+  }
 
   async initialize(): Promise<void> {
     await this.docker.assertCompatible()
@@ -169,6 +180,7 @@ export class DockerWorkerProvider implements WorkerProvider {
       )
     }
     await Promise.all(checks)
+    this.diskUsage.start()
   }
 
   async discover(): Promise<WorkerInstance[]> {
@@ -297,10 +309,13 @@ export class DockerWorkerProvider implements WorkerProvider {
     options: { includeResourceUsage?: boolean } = {},
   ): Promise<Record<string, unknown>> {
     if (options.includeResourceUsage === false) return {}
-    return { docker_resource_usage: await this.cachedResourceUsage(checkedAt) }
+    return {
+      docker_resource_usage: await this.cachedResourceUsage(checkedAt),
+      disk_usage: this.diskUsage.read(),
+    }
   }
 
-  async shutdown(): Promise<void> {}
+  async shutdown(): Promise<void> { await this.diskUsage.shutdown() }
 
   private async releaseContainer(id: string, state: string): Promise<void> {
     await releaseDockerContainer(this.docker, id, state === "running")

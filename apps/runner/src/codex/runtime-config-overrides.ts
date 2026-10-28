@@ -1,5 +1,5 @@
 import {
-  conversationFormAutoResolutionMs,
+  conversationFormToolTimeoutSeconds,
   coreMcpServerKey,
   managedBrowserMcpServerKey,
   modelAutoCompactTokenLimitFor,
@@ -62,7 +62,7 @@ const managedBrowserEnvironmentVariables = [
 ] as const;
 
 const coreMcpInteractiveFormToolTimeoutSeconds =
-  Math.ceil(conversationFormAutoResolutionMs / 1_000) + 30;
+  conversationFormToolTimeoutSeconds;
 
 export function linkSenseModelProviderConfigOverrides(input: {
   baseUrl: string;

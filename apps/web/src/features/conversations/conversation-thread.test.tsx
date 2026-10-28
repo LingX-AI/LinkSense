@@ -457,6 +457,8 @@ describe("conversation turn responses", () => {
               },
               ui_hints: {},
               response_semantics: { kind: "input" },
+              waiting_policy: null,
+              response_source: null,
               response_content: { title: "季度复盘" },
               status: "answered",
               auto_resolve_at: "2026-07-11T08:10:00.000Z",

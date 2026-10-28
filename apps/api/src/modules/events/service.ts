@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { z } from "zod";
 
 import {
   conversationCollaborationModeSchema,
-  conversationFormAutoResolutionMs,
+  conversationFormRecommendationDelayMs,
+  conversationFormWaitingPolicySchema,
+  conversationFormWaitingPolicyMatchesSchema,
   conversationFormResponseSemanticsMatchesSchema,
   conversationFormResponseSemanticsSchema,
   conversationFormRequestedSchema,
@@ -3716,11 +3719,8 @@ async function upsertUserInputRequest(
         requestedSchema: conversationFormRequestedSchema,
         uiHints: conversationFormUiHintsSchema,
         responseSemantics: conversationFormResponseSemanticsSchema,
-        autoResolutionMs: z
-          .number()
-          .int()
-          .min(60_000)
-          .max(conversationFormAutoResolutionMs),
+        autoResolutionMs: z.number().int().positive().nullable(),
+        waitingPolicy: conversationFormWaitingPolicySchema.default({ kind: "required" }),
       })
       .parse({
         serverName: params.serverName,
@@ -3729,8 +3729,9 @@ async function upsertUserInputRequest(
         uiHints: params.uiHints,
         responseSemantics: params.responseSemantics,
         autoResolutionMs: params.autoResolutionMs,
+        waitingPolicy: params.waitingPolicy,
       });
-    if (
+    if (!conversationFormWaitingPolicyMatchesSchema(form.waitingPolicy, form.requestedSchema, form.responseSemantics) ||
       !conversationFormResponseSemanticsMatchesSchema(
         form.responseSemantics,
         form.requestedSchema,
@@ -3758,7 +3759,8 @@ async function upsertUserInputRequest(
         JSON.stringify(existing.formUiHintsJson) !==
           JSON.stringify(form.uiHints) ||
         JSON.stringify(existing.formResponseSemanticsJson) !==
-          JSON.stringify(form.responseSemantics)
+          JSON.stringify(form.responseSemantics) ||
+        !isDeepStrictEqual(existing.formWaitingPolicyJson ?? { kind: "required" }, form.waitingPolicy)
       ) {
         throw new AppError("INTERNAL_ERROR");
       }
@@ -3780,8 +3782,9 @@ async function upsertUserInputRequest(
         formSchemaJson: form.requestedSchema,
         formUiHintsJson: form.uiHints,
         formResponseSemanticsJson: form.responseSemantics,
+        formWaitingPolicyJson: form.waitingPolicy,
         status: "pending",
-        autoResolveAt: new Date(Date.now() + form.autoResolutionMs),
+        autoResolveAt: form.waitingPolicy.kind === "optional" ? new Date(Date.now() + conversationFormRecommendationDelayMs) : null,
       },
     });
   }

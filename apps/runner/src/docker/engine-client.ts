@@ -1,6 +1,8 @@
 import { request as httpRequest, type IncomingMessage } from "node:http"
 
 import { z } from "zod"
+import type { DiskUsage } from "@linksense/shared"
+import { collectDockerDiskUsage, type DockerDiskUsageInput } from "./disk-usage.js"
 
 const versionSchema = z.object({ ApiVersion: z.string().regex(/^\d+\.\d+$/u) })
 const createResponseSchema = z.object({ Id: z.string().min(1) })
@@ -137,6 +139,7 @@ export interface DockerEngine {
   listContainersByLabels(labels: string[]): Promise<DockerContainerSummary[]>
   inspectContainerRunning(id: string): Promise<boolean>
   inspectContainerResourceStats(id: string): Promise<DockerContainerResourceStats>
+  collectDiskUsage(input: DockerDiskUsageInput, signal?: AbortSignal): Promise<DiskUsage>
   createContainer(name: string, body: DockerContainerCreate): Promise<string>
   startContainer(id: string): Promise<void>
   stopContainer(id: string): Promise<void>
@@ -222,6 +225,13 @@ export class DockerEngineClient implements DockerEngine {
     )
   }
 
+  async collectDiskUsage(input: DockerDiskUsageInput, signal?: AbortSignal): Promise<DiskUsage> {
+    return collectDockerDiskUsage(
+      (method, requestPath, body, timeoutMs) => this.request(method, `${this.versionPath}${requestPath}`, body, timeoutMs, method === "DELETE" ? undefined : signal),
+      input,
+    )
+  }
+
   async inspectNetwork(network: string): Promise<void> {
     await this.request(
       "GET",
@@ -282,6 +292,8 @@ export class DockerEngineClient implements DockerEngine {
     method: string,
     requestPath: string,
     body?: unknown,
+    timeoutMs = this.requestTimeoutMs,
+    signal?: AbortSignal,
   ): Promise<{ statusCode: number; body: string }> {
     const serialized = body === undefined ? undefined : JSON.stringify(body)
     return new Promise((resolve, reject) => {
@@ -290,6 +302,7 @@ export class DockerEngineClient implements DockerEngine {
           socketPath: this.socketPath,
           path: requestPath,
           method,
+          ...(signal ? { signal } : {}),
           headers: serialized
             ? {
                 "content-type": "application/json",
@@ -307,7 +320,7 @@ export class DockerEngineClient implements DockerEngine {
       )
       const timeout = setTimeout(() => {
         request.destroy(new DockerEngineError("Docker Engine request timed out"))
-      }, this.requestTimeoutMs)
+      }, timeoutMs)
       timeout.unref()
       const fail = (error: unknown) => {
         clearTimeout(timeout)

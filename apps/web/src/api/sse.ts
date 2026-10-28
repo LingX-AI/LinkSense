@@ -33,6 +33,8 @@ type ParsedSseFrame = {
 }
 
 const MAX_SSE_FRAME_BUFFER_CHARACTERS = 4_000_000
+const MAX_SSE_FRAMES_PER_TASK = 64
+const MAX_SSE_PROCESSING_MS = 8
 
 export function fetchConversationEventHistory(
   conversationId: string,
@@ -238,17 +240,37 @@ export function connectConversationEvents(
         try {
           const decoder = new TextDecoder()
           let buffer = ""
+          let processedFrames = 0
+          let processingStartedAt = performance.now()
           while (!controller.signal.aborted) {
             const chunk = await reader.read()
             if (chunk.done) break
             buffer += decoder.decode(chunk.value, { stream: true })
+            const frames = buffer.split(/\r?\n\r?\n/u)
+            buffer = frames.pop() ?? ""
             if (buffer.length > MAX_SSE_FRAME_BUFFER_CHARACTERS) {
               await reader.cancel()
               throw new Error("SSE_FRAME_TOO_LARGE")
             }
-            const frames = buffer.split(/\r?\n\r?\n/u)
-            buffer = frames.pop() ?? ""
             for (const rawFrame of frames) {
+              if (
+                processedFrames >= MAX_SSE_FRAMES_PER_TASK ||
+                (processedFrames > 0 &&
+                  performance.now() - processingStartedAt >=
+                    MAX_SSE_PROCESSING_MS)
+              ) {
+                // A resolved reader Promise only yields to microtasks. Use a
+                // cancellable task boundary so backlog replay permits input,
+                // animation-frame flushes and painting, even across chunks.
+                await waitForSseReconnectDelay(0, controller.signal)
+                processedFrames = 0
+                processingStartedAt = performance.now()
+              }
+              if (controller.signal.aborted) return
+              processedFrames += 1
+              if (rawFrame.length > MAX_SSE_FRAME_BUFFER_CHARACTERS) {
+                throw new Error("SSE_FRAME_TOO_LARGE")
+              }
               const frame = parseSseFrame(rawFrame)
               if (!frame) continue
               if (frame.retry !== undefined) {

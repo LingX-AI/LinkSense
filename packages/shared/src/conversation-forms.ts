@@ -2,7 +2,12 @@ import { z } from "zod";
 
 export const conversationFormMaximumFieldCount = 20;
 export const conversationFormMaximumOptionCount = 50;
-export const conversationFormAutoResolutionMs = 10 * 60 * 1_000;
+export const conversationFormRecommendationDelayMs = 3 * 60 * 1_000;
+// Codex's MCP configuration requires a finite duration. Use a human-unreachable
+// guard within Rust Instant's portable range, rather than an overflowing maximum.
+// Form waiting has no application deadline; other Core services remain bounded.
+// https://doc.rust-lang.org/std/time/struct.Instant.html#os-specific-behaviors
+export const conversationFormToolTimeoutSeconds = 100 * 365 * 24 * 60 * 60;
 
 export const conversationFormFieldIdSchema = z
   .string()
@@ -212,6 +217,31 @@ export const conversationFormResponseContentSchema = z
       Object.keys(content).length <= conversationFormMaximumFieldCount,
     "too_many_response_fields",
   );
+
+export const conversationFormWaitingPolicySchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("required") }),
+  z.strictObject({
+    kind: z.literal("optional"),
+    recommendation: conversationFormResponseContentSchema,
+  }),
+]);
+
+export type ConversationFormWaitingPolicy = z.infer<
+  typeof conversationFormWaitingPolicySchema
+>;
+
+export const conversationFormResponseSourceSchema = z.enum(["user", "recommendation"]);
+
+export function conversationFormWaitingPolicyMatchesSchema(
+  policy: ConversationFormWaitingPolicy,
+  schema: ConversationFormRequestedSchema,
+  semantics: ConversationFormResponseSemantics,
+): boolean {
+  if (policy.kind === "required") return true;
+  return semantics.kind === "input" &&
+    Object.keys(schema.properties).every((fieldId) => Object.hasOwn(policy.recommendation, fieldId)) &&
+    conversationFormResponseMatchesSchema(schema, policy.recommendation);
+}
 
 export const conversationAsyncUserInputMaximumQuestionCount = 100;
 export const conversationAsyncUserInputResponseContentSchema = z
@@ -423,7 +453,10 @@ export function conversationFormResponseMatchesSchema(
   if (Object.keys(content).some((fieldId) => !fieldIds.has(fieldId))) {
     return false;
   }
-  if ((schema.required ?? []).some((fieldId) => !(fieldId in content))) {
+  if ((schema.required ?? []).some((fieldId) => {
+    const value = content[fieldId];
+    return !Object.hasOwn(content, fieldId) || value === "" || (Array.isArray(value) && value.length === 0);
+  })) {
     return false;
   }
   return Object.entries(content).every(([fieldId, value]) => {

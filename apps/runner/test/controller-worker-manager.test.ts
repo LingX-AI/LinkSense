@@ -1909,6 +1909,7 @@ describe("dynamic worker container contract", () => {
 })
 
 class FakeDocker implements DockerEngine {
+  readonly collectDiskUsage = vi.fn(async () => ({ status: "unavailable" as const, checked_at: null, total_bytes: null, refreshing: false, categories: [] }))
   readonly assertCompatible = vi.fn(async () => undefined)
   readonly inspectImage = vi.fn(async () => undefined)
   readonly inspectNetwork = vi.fn(async () => undefined)

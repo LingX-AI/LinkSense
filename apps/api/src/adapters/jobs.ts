@@ -38,6 +38,8 @@ export interface SystemMaintenanceCleanup {
 }
 
 const maintenanceJobSchema = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("form-recommendation-resolution") }),
+  z.strictObject({ type: z.literal("form-recommendation-delivery"), ownerId: z.uuid(), conversationId: z.uuid(), requestId: z.uuid() }),
   z.strictObject({ type: z.literal("system-maintenance-expiry") }),
   z.strictObject({ type: z.literal("auth-token-cleanup") }),
   z.strictObject({
@@ -121,6 +123,8 @@ export class CleanupJobNotRetryableError extends Error {
 }
 
 export class BackgroundJobs {
+  private formRecommendationProcessor: (() => Promise<void>) | null = null
+  private formRecommendationDeliveryProcessor: ((input: { ownerId: string; conversationId: string; requestId: string }) => Promise<void>) | null = null
   private systemMaintenanceCleanup: SystemMaintenanceCleanup | null = null
   private readonly connection: ConnectionOptions
   private readonly queue: MaintenanceQueueControl
@@ -225,6 +229,10 @@ export class BackgroundJobs {
   async start(auth: AuthTokenCleanup, system: SystemMaintenanceCleanup): Promise<void> {
     if (this.worker) return
     this.systemMaintenanceCleanup = system
+    await this.queue.upsertJobScheduler(
+      "form-recommendation-resolution", { every: 1_000 },
+      { name: "form-recommendation-resolution", data: { type: "form-recommendation-resolution" }, opts: { attempts: 3, backoff: { type: "exponential", delay: 1_000 } } },
+    )
     await this.queue.upsertJobScheduler(
       "system-maintenance-expiry",
       { every: 5_000 },
@@ -333,6 +341,22 @@ export class BackgroundJobs {
     this.conversationPrewarmProcessor = processor
   }
 
+  registerFormRecommendationProcessor(processor: () => Promise<void>): void {
+    this.formRecommendationProcessor = processor
+  }
+
+  registerFormRecommendationDeliveryProcessor(processor: (input: { ownerId: string; conversationId: string; requestId: string }) => Promise<void>): void {
+    this.formRecommendationDeliveryProcessor = processor
+  }
+
+  async enqueueFormRecommendation(input: { ownerId: string; conversationId: string; requestId: string }): Promise<void> {
+    await this.queue.add("form-recommendation-delivery", { type: "form-recommendation-delivery", ...input }, {
+      jobId: `form-recommendation-${input.requestId}`,
+      attempts: 5, backoff: { type: "exponential", delay: 5_000 },
+      removeOnComplete: 500, removeOnFail: false,
+    })
+  }
+
   async enqueueConversationPrewarm(input: ConversationPrewarmInput): Promise<void> {
     const minuteBucket = Math.floor(Date.now() / 60_000)
     await this.queue.add(
@@ -409,6 +433,16 @@ export class BackgroundJobs {
       if (!this.systemMaintenanceCleanup) throw new Error("System maintenance cleanup is not configured")
       await this.systemMaintenanceCleanup.expireMaintenanceSettings()
       return { expired: true }
+    }
+    if (data.type === "form-recommendation-resolution") {
+      if (!this.formRecommendationProcessor) throw new Error("Form recommendation processor is not configured")
+      await this.formRecommendationProcessor()
+      return { resolved: true }
+    }
+    if (data.type === "form-recommendation-delivery") {
+      if (!this.formRecommendationDeliveryProcessor) throw new Error("Form recommendation delivery is not configured")
+      await this.formRecommendationDeliveryProcessor({ ownerId: data.ownerId, conversationId: data.conversationId, requestId: data.requestId })
+      return { delivered: true }
     }
     if (data.type === "object-delete") {
       await this.storage.removeObject(data.objectKey)
@@ -861,10 +895,12 @@ function isCleanupJob(
   data: MaintenanceJob,
 ): data is Exclude<
   MaintenanceJob,
-  { type: "auth-token-cleanup" | "runtime-cleanup-outbox-dispatch" | "system-maintenance-expiry" }
+  { type: "auth-token-cleanup" | "runtime-cleanup-outbox-dispatch" | "system-maintenance-expiry" | "form-recommendation-resolution" | "form-recommendation-delivery" }
 > {
   return (
     data.type !== "auth-token-cleanup" &&
+    data.type !== "form-recommendation-resolution" &&
+    data.type !== "form-recommendation-delivery" &&
     data.type !== "system-maintenance-expiry" &&
     data.type !== "runtime-cleanup-outbox-dispatch"
   )

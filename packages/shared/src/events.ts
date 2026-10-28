@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { timestampSchema, uuidSchema } from "./common.js";
 import {
-  conversationFormAutoResolutionMs,
+  conversationFormWaitingPolicySchema,
   conversationFormResponseSemanticsSchema,
   conversationFormRequestedSchema,
   conversationFormUiHintsSchema,
@@ -1496,11 +1496,8 @@ const runnerLinkSenseFormRequestParamsSchema = z.strictObject({
   requestedSchema: conversationFormRequestedSchema,
   uiHints: conversationFormUiHintsSchema,
   responseSemantics: conversationFormResponseSemanticsSchema,
-  autoResolutionMs: z
-    .number()
-    .int()
-    .min(60_000)
-    .max(conversationFormAutoResolutionMs),
+  waitingPolicy: conversationFormWaitingPolicySchema.default({ kind: "required" }),
+  autoResolutionMs: z.number().int().positive().nullable(),
 });
 export const runnerInteractiveApplicationCustomEventParamsSchema =
   z.strictObject({

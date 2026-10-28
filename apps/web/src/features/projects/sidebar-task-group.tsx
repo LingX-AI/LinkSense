@@ -5,6 +5,7 @@ import { MoreHorizontalIcon, PencilIcon, Trash2Icon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { ProjectIcon } from "./project-icon"
 import { cn } from "@/lib/utils"
 import {
@@ -34,12 +35,14 @@ export function SidebarTaskGroup({
   userId,
   project,
   label,
+  hasRunningTasks = false,
   children,
   onAction,
 }: {
   userId: string | undefined
   project?: Project
   label: string
+  hasRunningTasks?: boolean
   children: ReactNode
   onAction: (action: ProjectAction) => void
 }) {
@@ -47,6 +50,7 @@ export function SidebarTaskGroup({
   const [open, setOpen] = useState(() =>
     userId && project ? readSidebarProjectOpen(userId, project.id) : true
   )
+  const showRunningIndicator = !open && hasRunningTasks
   const { disabled, projectsDisabled } = useContext(
     SidebarConversationDragState
   )
@@ -110,6 +114,7 @@ export function SidebarTaskGroup({
               variant="ghost"
               className={cn(
                 "w-full min-w-0 justify-start rounded-[10px] pr-9 pl-2.5 hover:bg-transparent aria-expanded:bg-transparent",
+                showRunningIndicator && "[@media(hover:none)]:pr-14",
                 !projectsDisabled && "cursor-grab active:cursor-grabbing"
               )}
             />
@@ -145,6 +150,15 @@ export function SidebarTaskGroup({
             position: index + 1,
           })}
         </Button>
+        {showRunningIndicator && (
+          <span
+            role="status"
+            aria-label={t("statuses.running")}
+            className="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-[var(--app-muted)] group-hover/project:opacity-0 group-has-data-[popup-open]/project:opacity-0 group-has-[:focus-visible]/project:opacity-0 [@media(hover:none)]:right-8"
+          >
+            <Spinner className="size-3.5 [animation-duration:1.5s] motion-reduce:animate-none" />
+          </span>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
