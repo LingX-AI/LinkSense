@@ -2821,7 +2821,11 @@ describe("conversation voice input", () => {
 
     expect(
       addCapability.querySelector("[data-design-icon=composer-add]")
-    ).toHaveClass("size-5", "text-foreground", "[mask-size:88.35%]")
+    ).toHaveClass(
+      "size-[calc(var(--app-ui-font-size)+2px)]",
+      "text-foreground",
+      "[mask-size:88.35%]"
+    )
     expect(
       screen.queryByRole("button", { name: "添加附件" })
     ).not.toBeInTheDocument()

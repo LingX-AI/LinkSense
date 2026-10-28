@@ -79,7 +79,7 @@ export function ProjectComposerPicker({
                 color={selected?.color}
                 variant="toolbar"
                 className={cn(
-                  "size-5 shrink-0",
+                  "size-[calc(var(--app-ui-font-size)+2px)] shrink-0",
                   canClear && hovered && "opacity-0",
                   canClear &&
                     "group-has-[:focus-visible]/project-picker:opacity-0 [@media(hover:none)]:opacity-0"

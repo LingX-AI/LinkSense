@@ -1797,6 +1797,47 @@ test("appearance supports themes and a persistent UI font size without backend p
   expect(composerPlaceholderStyle.color).toBe("rgb(173, 182, 200)")
 })
 
+test("design icons follow the UI font size across the sidebar and conversation", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  for (const [fontSize, iconSize] of [
+    ["12", "14px"],
+    ["14", "16px"],
+    ["18", "20px"],
+  ]) {
+    await page.goto("/settings/appearance")
+    await page.getByRole("spinbutton", { name: "UI 字号" }).fill(fontSize)
+    await page.goto("/conversations/new")
+    const sidebar = page.getByRole("complementary", { name: "LinkSense 导航" })
+    for (const name of ["notification", "sidebar", "help", "automations"]) {
+      const icon = sidebar.locator(`[data-design-icon="${name}"]`)
+      await expect(icon).toHaveCSS("width", iconSize)
+      await expect(icon).toHaveCSS("height", iconSize)
+    }
+    const composer = page.locator(".composer-shell")
+    for (const name of [
+      "composer-add",
+      "knowledge",
+      "workspace",
+      "microphone",
+      "send",
+    ]) {
+      const icon = composer.locator(`[data-design-icon="${name}"]`)
+      await expect(icon).toHaveCSS("width", iconSize)
+      await expect(icon).toHaveCSS("height", iconSize)
+    }
+    await page.goto("/conversations/20000000-0000-4000-8000-000000000001")
+    for (const name of ["share", "overview"]) {
+      const icon = page.locator(
+        `.conversation-top-bar [data-design-icon="${name}"]`
+      )
+      await expect(icon).toHaveCSS("width", iconSize)
+      await expect(icon).toHaveCSS("height", iconSize)
+    }
+  }
+})
+
 test("security password fields use independent visibility controls", async ({
   page,
 }) => {

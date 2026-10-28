@@ -42,19 +42,7 @@ export function DesignIcon({
       aria-hidden="true"
       data-design-icon={name}
       className={cn(
-        "inline-block size-4 shrink-0 bg-current [mask-size:contain] mask-center mask-no-repeat forced-colors:bg-[ButtonText] forced-colors:forced-color-adjust-none",
-        [
-          "composer-add",
-          "help",
-          "sidebar",
-          "notification",
-          "send",
-          "workspace",
-          "knowledge",
-          "microphone",
-          "share",
-          "overview",
-        ].includes(name) && "size-5",
+        "inline-block size-[calc(var(--app-ui-font-size)+2px)] shrink-0 bg-current [mask-size:contain] mask-center mask-no-repeat forced-colors:bg-[ButtonText] forced-colors:forced-color-adjust-none",
         name === "composer-add" && "[mask-size:88.35%]",
         masks[name],
         className

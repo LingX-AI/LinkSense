@@ -509,8 +509,8 @@ describe("LinkSense application", () => {
     const archiveIcon = archiveButton.querySelector(
       "[data-design-icon=archive]"
     )
-    expect(moreIcon).toHaveClass("size-4")
-    expect(archiveIcon).toHaveClass("size-4")
+    expect(moreIcon).toHaveClass("size-[calc(var(--app-ui-font-size)+2px)]")
+    expect(archiveIcon).toHaveClass("size-[calc(var(--app-ui-font-size)+2px)]")
     expect(moreIcon).toHaveAttribute("aria-hidden", "true")
     expect(archiveIcon).toHaveAttribute("aria-hidden", "true")
     const actions = archiveButton.parentElement
@@ -1135,6 +1135,7 @@ describe("LinkSense application", () => {
     const notificationButton = within(sidebar).getByRole("button", {
       name: "自动化通知",
     })
+    const helpButton = within(sidebar).getByRole("button", { name: "使用帮助" })
 
     expect(notificationButton).toHaveAttribute("title", "自动化通知")
     expect(collapseButton).toHaveAttribute("title", "折叠侧边栏")
@@ -1167,14 +1168,20 @@ describe("LinkSense application", () => {
     ).toHaveAttribute("aria-hidden", "true")
     expect(
       collapseButton.querySelector("[data-design-icon=sidebar]")
-    ).toHaveAttribute("aria-hidden", "true")
+    ).toHaveClass("size-[calc(var(--app-ui-font-size)+2px)]")
     expect(collapseButton).toHaveClass("sidebar-collapse-control")
     expect(
       notificationButton.querySelector("[data-design-icon=notification]")
-    ).toHaveClass("size-5")
-    expect(
-      notificationButton.querySelector("[data-design-icon=notification]")
-    ).toHaveAttribute("aria-hidden", "true")
+    ).toHaveClass("size-[calc(var(--app-ui-font-size)+2px)]")
+    expect(helpButton.querySelector("[data-design-icon=help]")).toHaveClass(
+      "size-[calc(var(--app-ui-font-size)+2px)]"
+    )
+    for (const button of [notificationButton, collapseButton, helpButton]) {
+      expect(button.querySelector("[data-design-icon]")).toHaveAttribute(
+        "aria-hidden",
+        "true"
+      )
+    }
     expect(
       notificationButton.querySelector("[data-automation-unread-indicator]")
     ).not.toBeInTheDocument()
@@ -1517,7 +1524,7 @@ describe("LinkSense application", () => {
     expect(expandButton).toHaveClass("sidebar-collapse-control")
     expect(
       expandButton.querySelector("[data-design-icon=sidebar]")
-    ).toHaveAttribute("aria-hidden", "true")
+    ).toHaveClass("size-[calc(var(--app-ui-font-size)+2px)]")
     await interaction.hover(expandButton)
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
     await interaction.click(expandButton)
