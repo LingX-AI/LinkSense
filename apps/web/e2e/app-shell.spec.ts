@@ -1040,6 +1040,12 @@ test("task composer follows the toolbar design while remaining usable on narrow 
   const send = toolbar.getByRole("button", { name: "Send", exact: true })
 
   await expect(attach).toHaveText("Attach")
+  await expect(attach).toHaveCSS("padding-left", "6px")
+  await expect(attach).toHaveCSS("padding-right", "6px")
+  await expect(attach).toHaveCSS("margin-left", "-6px")
+  await expect(attach).toHaveCSS("margin-right", "-6px")
+  await attach.hover()
+  await expect(attach).toHaveCSS("background-color", "rgb(242, 246, 253)")
   await expect(knowledge).toHaveText("Knowledge")
   await expect(workspace).toContainText("Public workspace")
   await expect(

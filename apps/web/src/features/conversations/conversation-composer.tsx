@@ -1873,7 +1873,7 @@ export const ConversationComposer = forwardRef<
                   variant="ghost"
                   size="sm"
                   className={cn(
-                    "composer-control h-8 gap-2 px-0 font-normal @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs",
+                    "composer-control -mx-1.5 h-8 gap-2 px-1.5 font-normal @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs",
                     modelPreferenceBlockingActions && "disabled:opacity-100"
                   )}
                   aria-label={t("conversation.toolbarAttach")}
