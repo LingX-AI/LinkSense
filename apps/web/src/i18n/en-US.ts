@@ -5646,6 +5646,10 @@ export const enUS = {
       emptyResult:
         "The automation finished without producing displayable output. Run it again.",
       expired: "This automation has expired and can no longer run.",
+      expirationInPast: localizedErrorMessage(
+        "AUTOMATION_EXPIRATION_IN_PAST",
+        "en-US"
+      ),
     },
     userDisabled: "This user is disabled. Contact an administrator.",
     conflict:

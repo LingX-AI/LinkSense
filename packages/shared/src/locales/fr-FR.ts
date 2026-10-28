@@ -1,6 +1,7 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  AUTOMATION_EXPIRATION_IN_PAST: "La date d’expiration ne peut pas être antérieure à aujourd’hui dans le fuseau horaire de l’automatisation. Choisissez une autre date.",
   LOCAL_BROWSER_PAIR_RATE_LIMITED: "Trop de demandes d’association du navigateur. Veuillez réessayer plus tard.",
   AUTOMATION_RUN_LIMIT_REACHED: "La limite d’exécutions automatiques est atteinte. Augmentez-la ou supprimez-la avant de reprendre.",
   BROWSER_PANEL_UNAVAILABLE: "Cette tâche ne dispose d’aucune session de navigateur.",

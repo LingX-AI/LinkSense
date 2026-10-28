@@ -360,6 +360,10 @@ export const errors = {
     emptyResult:
       "L’automatisation s’est terminée sans résultat affichable. Relancez-la.",
     expired: "Cette automatisation a expiré et ne peut plus s’exécuter.",
+    expirationInPast: localizedErrorMessage(
+      "AUTOMATION_EXPIRATION_IN_PAST",
+      "fr-FR"
+    ),
   },
   userDisabled: "Cet utilisateur est désactivé. Contactez un administrateur.",
   conflict:

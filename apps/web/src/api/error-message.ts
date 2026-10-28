@@ -8,6 +8,8 @@ import {
 } from "@/lib/public-copy"
 
 const errorCodeToKey: Record<string, string> = {
+  AUTOMATION_EXPIRATION_IN_PAST:
+    errorCatalog.AUTOMATION_EXPIRATION_IN_PAST.message_key,
   AUTOMATION_RUN_LIMIT_REACHED: errorCatalog.AUTOMATION_RUN_LIMIT_REACHED.message_key,
   BROWSER_PANEL_UNAVAILABLE: errorCatalog.BROWSER_PANEL_UNAVAILABLE.message_key,
   BROWSER_CONTROL_BUSY: errorCatalog.BROWSER_CONTROL_BUSY.message_key,

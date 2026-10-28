@@ -1,6 +1,7 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages = {
+  AUTOMATION_EXPIRATION_IN_PAST: "La fecha de caducidad no puede ser anterior a hoy en la zona horaria de la automatización. Selecciona otra fecha.",
   LOCAL_BROWSER_PAIR_RATE_LIMITED: "Demasiadas solicitudes de vinculación del navegador. Inténtalo de nuevo más tarde.",
   AUTOMATION_RUN_LIMIT_REACHED: "Se agotó el límite de ejecuciones automáticas. Auméntalo o elimínalo antes de reanudar.",
   BROWSER_PANEL_UNAVAILABLE: "Esta tarea no tiene una sesión de navegador disponible.",

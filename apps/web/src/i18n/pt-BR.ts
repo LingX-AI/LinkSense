@@ -6005,6 +6005,10 @@ export const ptBR = {
       emptyResult:
         "A automação terminou sem produzir um resultado exibível. Execute novamente.",
       expired: "Esta automação expirou e não pode mais ser executada.",
+      expirationInPast: localizedErrorMessage(
+        "AUTOMATION_EXPIRATION_IN_PAST",
+        "pt-BR"
+      ),
     },
     userDisabled:
       "Este usuário está desativado. Entre em contato com um administrador.",

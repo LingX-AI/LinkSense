@@ -1416,6 +1416,14 @@ export const errorCatalog = {
         "The automation finished without producing displayable output. Run it again.",
     },
   },
+  AUTOMATION_EXPIRATION_IN_PAST: {
+    message_key: "errors.automation.expirationInPast",
+    http_status: 422,
+    messages: {
+      "zh-CN": "到期日期不能早于任务时区的今天，请重新选择。",
+      "en-US": "The expiration date cannot be before today in the automation's time zone. Please select another date.",
+    },
+  },
   AUTOMATION_EXPIRED: {
     message_key: "errors.automation.expired",
     http_status: 409,

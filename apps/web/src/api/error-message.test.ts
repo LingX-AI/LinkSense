@@ -10,6 +10,7 @@ describe("getErrorMessage", () => {
     "localizes model discovery, connection and image editing errors in %s",
     (locale) => {
       for (const code of [
+        "AUTOMATION_EXPIRATION_IN_PAST",
         "MODEL_PROVIDER_CREDENTIAL_REQUIRED",
         "MODEL_PROVIDER_DISCOVERY_FAILED",
         "MODEL_PROVIDER_CONNECTION_FAILED",

@@ -128,6 +128,9 @@ export class AutomationService {
     const expiresAt = input.expires_on
       ? parseExpiration(input.expires_on, schedule.time_zone)
       : null;
+    if (isAutomationExpired(expiresAt, anchorAt)) {
+      throw new AppError("AUTOMATION_EXPIRATION_IN_PAST");
+    }
     const nextRunAt = nextAutomationRunBeforeExpiration(
       schedule,
       anchorAt,
@@ -267,6 +270,15 @@ export class AutomationService {
           schedule.time_zone,
         );
         update.expiresAt = expiresAt;
+      }
+
+      // Historical expired plans remain editable unless their expiration changes.
+      if (
+        (input.expires_on !== undefined || input.schedule !== undefined) &&
+        expiresAt?.getTime() !== existing.expiresAt?.getTime() &&
+        isAutomationExpired(expiresAt, now)
+      ) {
+        throw new AppError("AUTOMATION_EXPIRATION_IN_PAST");
       }
 
       const nextStatus = input.status ?? existing.status;

@@ -5901,6 +5901,10 @@ export const jaJP = {
       emptyResult:
         "自動化は終了しましたが、表示可能な出力がありません。再実行してください。",
       expired: "この自動化の有効期限が切れたため、実行できません。",
+      expirationInPast: localizedErrorMessage(
+        "AUTOMATION_EXPIRATION_IN_PAST",
+        "ja-JP"
+      ),
     },
     userDisabled: "このユーザーは無効です。管理者にお問い合わせください。",
     conflict:

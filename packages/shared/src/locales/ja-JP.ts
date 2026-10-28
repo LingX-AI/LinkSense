@@ -1,6 +1,7 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  AUTOMATION_EXPIRATION_IN_PAST: "有効期限に自動化のタイムゾーンで今日より前の日付は指定できません。別の日付を選択してください。",
   LOCAL_BROWSER_PAIR_RATE_LIMITED: "ブラウザーのペアリングリクエストが多すぎます。しばらくしてから再試行してください。",
   AUTOMATION_RUN_LIMIT_REACHED: "自動実行回数の上限に達しました。上限を増やすか解除してから再開してください。",
   BROWSER_PANEL_UNAVAILABLE: "このタスクには表示できるブラウザーセッションがありません。",

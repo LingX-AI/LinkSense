@@ -5177,6 +5177,10 @@ export const zhCN = {
         "此任务已有自动化。请编辑已有计划，或明确要求另建一条。",
       emptyResult: "自动化执行已结束，但没有产出可展示的内容，请重新执行。",
       expired: "该自动化已到期，不能继续执行。",
+      expirationInPast: localizedErrorMessage(
+        "AUTOMATION_EXPIRATION_IN_PAST",
+        "zh-CN"
+      ),
     },
     userDisabled: "该用户已被禁用，请联系管理员。",
     conflict: "当前状态与此操作冲突，请刷新后重试。",
