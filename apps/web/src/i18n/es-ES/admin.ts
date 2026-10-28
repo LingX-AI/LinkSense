@@ -1,3 +1,4 @@
+import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import type { enUS } from "@/i18n/en-US"
 import type { TranslationResource } from "@/i18n/types"
 
@@ -813,6 +814,7 @@ export const adminMessages = {
       "La infraestructura, la autenticación, los secretos, la simultaneidad y los límites de archivos se gestionan desde la implementación. Aquí solo se muestra el estado con los datos sensibles ocultos.",
   },
   health: {
+    disk: diskUsageMessages["es-ES"],
     title: "Estado del sistema",
     description:
       "Resumen de solo lectura de los servicios y directorios gestionados de {{productName}}.",

@@ -1,3 +1,4 @@
+import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 import { samlenUS } from "@/features/saml/messages"
@@ -5087,6 +5088,7 @@ export const enUS = {
       "Infrastructure, authentication, secrets, concurrency, and file limits are deployment-managed. Only redacted status is shown here.",
   },
   health: {
+    disk: diskUsageMessages["en-US"],
     title: "System health",
     description:
       "Read-only summary of {{productName}} services and managed directories.",

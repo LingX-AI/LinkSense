@@ -215,6 +215,10 @@ import { VoiceTranscriptionSettingsForm } from "@/features/admin/voice-transcrip
 import { KnowledgeModelSettingsForm } from "@/features/admin/knowledge-model-settings-form"
 import { MaintenanceSettingsForm } from "@/features/admin/maintenance-settings-form"
 import { SystemUpdateSettings } from "@/features/admin/system-update"
+import { SystemDiskUsage } from "@/features/admin/system-disk-usage"
+import { hasCompleteDiskUsage } from "@/features/admin/system-disk-usage-state"
+import { formatResourceBytes } from "@/features/admin/resource-format"
+import { cn } from "@/lib/utils"
 
 type AdminPage =
   | "users"
@@ -5010,7 +5014,8 @@ function HealthPage() {
     queryKey: ["admin", "health"],
     queryFn: ({ signal }) =>
       apiRequest("/admin/health", { schema: healthSchema, signal }),
-    refetchInterval: 30_000,
+    refetchInterval: (query) =>
+      query.state.data?.disk_usage?.refreshing ? 5_000 : 30_000,
   })
   const retryCleanup = useMutation({
     mutationFn: (id: string) =>
@@ -5372,7 +5377,14 @@ function HealthContent({
   }
   return (
     <>
-      <section className="health-summary" aria-label={t("health.overall")}>
+      <section
+        className={cn(
+          "health-summary",
+          hasCompleteDiskUsage(health.disk_usage) &&
+            "[--health-summary-columns:5]"
+        )}
+        aria-label={t("health.overall")}
+      >
         <div>
           <span>{t("health.overall")}</span>
           <strong>{t(`health.${health.overall_status}`)}</strong>
@@ -5389,6 +5401,7 @@ function HealthContent({
           <span>{t("health.concurrency")}</span>
           <strong>{health.concurrency_limit ?? "—"}</strong>
         </div>
+        <SystemDiskUsage usage={health.disk_usage} language={language} />
       </section>
       <DockerResourceUsageSection
         usage={health.docker_resource_usage}
@@ -5673,29 +5686,6 @@ function formatResourceMemory(
   if (used === "—" && limit === "—") return "—"
   if (limit === "—") return used
   return `${used} / ${limit}`
-}
-
-function formatResourceBytes(
-  value: number | null | undefined,
-  language: SupportedLanguage
-) {
-  if (value === null || value === undefined || !Number.isFinite(value))
-    return "—"
-  const gib = 1024 * 1024 * 1024
-  const mib = 1024 * 1024
-  const kib = 1024
-  const [unit, divisor] =
-    value >= gib
-      ? (["gigabyte", gib] as const)
-      : value >= mib
-        ? (["megabyte", mib] as const)
-        : (["kilobyte", kib] as const)
-  return new Intl.NumberFormat(language, {
-    style: "unit",
-    unit,
-    unitDisplay: "short",
-    maximumFractionDigits: value / divisor >= 10 ? 0 : 1,
-  }).format(value / divisor)
 }
 
 export function AdminPages({ page }: { page: AdminPage }) {
