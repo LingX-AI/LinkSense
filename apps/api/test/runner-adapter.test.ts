@@ -542,6 +542,23 @@ describe("RunnerClient model catalog", () => {
 })
 
 describe("RunnerClient health", () => {
+  it("validates and preserves complete disk diagnostics without accepting private path fields", async () => {
+    const disk_usage = {
+      status: "available", checked_at: "2026-10-28T08:00:00.000Z", total_bytes: 4096, refreshing: false,
+      categories: [{ key: "user_data", status: "available", used_bytes: 4096 }],
+    };
+    const health = {
+      status: "available", checked_at: "2026-10-28T08:00:00.000Z", workspace: componentHealth(), codex_home: componentHealth(),
+      codex_app_server: { ...componentHealth(), cached: true }, running_turns: 0, app_server_processes: 0,
+      concurrency_limit: 20, app_server_process_limit: 20, process_limit: 20,
+      turn_start_contract_version: RUNNER_TURN_START_CONTRACT_VERSION, disk_usage,
+    };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse(health))
+      .mockResolvedValueOnce(jsonResponse({ ...health, disk_usage: { ...disk_usage, path: "/private/data" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(new RunnerClient(testConfig()).health()).resolves.toMatchObject({ disk_usage });
+    await expect(new RunnerClient(testConfig()).health()).rejects.toThrow();
+  });
   it("waits through refused connections and unready responses before startup succeeds", async () => {
     vi.useFakeTimers();
     const health = {

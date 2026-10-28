@@ -21,6 +21,16 @@ const healthStatus = {
   running_turn_count: 1,
   app_server_process_count: 2,
   concurrency_limit: 5,
+  disk_usage: {
+    status: "available",
+    checked_at: checkedAt,
+    total_bytes: 3 * 1024 ** 3,
+    refreshing: false,
+    categories: [
+      { key: "user_data", used_bytes: 2 * 1024 ** 3, status: "available" },
+      { key: "file_storage", used_bytes: 1024 ** 3, status: "available" },
+    ],
+  },
   docker_resource_usage: {
     status: "available",
     checked_at: checkedAt,
@@ -348,6 +358,40 @@ describe("administrator health page", () => {
       }
     }
   )
+
+  it("shows the other health information immediately and adds disk usage after its background sample completes", async () => {
+    await i18n.changeLanguage("zh-CN")
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        envelope({
+          ...healthStatus,
+          disk_usage: {
+            status: "collecting",
+            total_bytes: null,
+            checked_at: null,
+            refreshing: true,
+            categories: [],
+          },
+        })
+      )
+      .mockImplementation(() => Promise.resolve(envelope(healthStatus)))
+    vi.stubGlobal("fetch", fetchMock)
+    renderHealth()
+    expect(
+      await screen.findByRole("heading", { name: "API 容器" })
+    ).toBeVisible()
+    expect(screen.getByText("并发上限")).toBeVisible()
+    expect(
+      screen.queryByRole("group", { name: "磁盘占用" })
+    ).not.toBeInTheDocument()
+    const refresh = screen.getByRole("button", { name: "刷新" })
+    await userEvent.click(refresh)
+    expect(await screen.findByRole("group", { name: "磁盘占用" })).toBeVisible()
+    expect(
+      within(screen.getByRole("group", { name: "磁盘占用" })).getByText("3 GB")
+    ).toBeVisible()
+  })
 
   it("marks docker resource meters with usage pressure levels", async () => {
     await i18n.changeLanguage("zh-CN")

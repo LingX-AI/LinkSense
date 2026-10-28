@@ -32,6 +32,16 @@ export function appendReasoningContentEvent(
 ): ConversationEvent[] {
   const itemId = reasoningItemId(event)
   if (itemId === null) return current
+  const native = getNativeCodexPayload(event)
+  // Ordered deltas cannot be covered by an earlier completion. Check only
+  // envelope metadata in this hot path, without inspecting every retained body.
+  if (
+    native?.method !== "item/completed" &&
+    current.every(
+      (value) => value.id !== event.id && value.sequence_no < event.sequence_no
+    )
+  )
+    return [...current, event]
   const matchesItem = (value: ConversationEvent) =>
     value.turn_id === event.turn_id && reasoningItemId(value) === itemId
   if (
@@ -59,6 +69,25 @@ export function areReasoningContentEventsReconciled(
   liveEvents: readonly ConversationEvent[],
   persistedEvents: readonly ConversationEvent[]
 ): boolean {
+  return liveEvents.every(
+    reasoningContentReconciliationPredicate(persistedEvents)
+  )
+}
+
+/** Release overlap on every detail refresh, including while the turn is running. */
+export function removeReconciledReasoningContentEvents(
+  liveEvents: ConversationEvent[],
+  persistedEvents: readonly ConversationEvent[]
+): ConversationEvent[] {
+  if (liveEvents.length === 0 || persistedEvents.length === 0) return liveEvents
+  const reconciled = reasoningContentReconciliationPredicate(persistedEvents)
+  const remaining = liveEvents.filter((event) => !reconciled(event))
+  return remaining.length === liveEvents.length ? liveEvents : remaining
+}
+
+function reasoningContentReconciliationPredicate(
+  persistedEvents: readonly ConversationEvent[]
+): (event: ConversationEvent) => boolean {
   const persistedIds = new Set<string>()
   const completedSequences = new Map<string, number>()
   for (const event of persistedEvents) {
@@ -73,7 +102,7 @@ export function areReasoningContentEventsReconciled(
       )
     }
   }
-  return liveEvents.every((event) => {
+  return (event) => {
     const itemId = reasoningItemId(event)
     if (itemId === null) return true
     const key = `${event.turn_id}\u0000${itemId}`
@@ -81,7 +110,7 @@ export function areReasoningContentEventsReconciled(
       persistedIds.has(`${key}\u0000${event.id}`) ||
       (completedSequences.get(key) ?? -1) >= event.sequence_no
     )
-  })
+  }
 }
 
 /** Full native text only: summaries never stand in for a missing body. */

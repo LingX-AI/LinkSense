@@ -1087,6 +1087,7 @@ function AppSidebarContent({
               userId={user?.id}
               pinned={pinnedConversations}
               recent={recentConversations}
+              reconnectFailedConversationIds={reconnectFailedConversationIds}
               projects={projectsQuery.data ?? []}
               sortModes={taskSortModes}
               onSortModeChange={handleTaskSortModeChange}

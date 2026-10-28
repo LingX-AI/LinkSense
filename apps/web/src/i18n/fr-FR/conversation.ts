@@ -382,6 +382,13 @@ export const conversation = {
     title: "Votre réponse est nécessaire",
     formTitle: "Veuillez confirmer ces informations",
     formResultTitle: "Formulaire rempli",
+    requiredWaiting:
+      "Votre réponse est nécessaire. La tâche reprendra après son envoi.",
+    recommendationCountdown:
+      "Sans réponse envoyée, la tâche reprendra avec la réponse recommandée dans {{seconds}} secondes.",
+    applyingRecommendation: "Application de la réponse recommandée…",
+    recommendedAnswer: "Recommandation : {{answer}}",
+    useRecommendation: "Utiliser la réponse recommandée",
     description:
       "Répondez à ces questions pour que LinkSense poursuive le plan.",
     autoResolveDescription:
@@ -404,6 +411,7 @@ export const conversation = {
       pending: "En attente",
       submitting: "Envoi",
       submitted: "Envoyé",
+      recommended: "Réponse recommandée utilisée à expiration du délai",
       approved: "Approuvé",
       rejected: "Rejeté",
       cancelled: "Annulé",

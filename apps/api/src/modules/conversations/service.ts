@@ -77,8 +77,9 @@ import {
   conversationFormResponseContentSchema,
   conversationFormResponseSemanticsSchema,
   conversationFormRequestedSchema,
-  conversationFormResponseMatchesSchema,
   conversationFormUiHintsSchema,
+  conversationFormWaitingPolicySchema,
+  conversationFormResponseSourceSchema,
   officeAnnotationRequestText,
   conversationCollaborationModeSchema,
   CONVERSATION_HISTORY_PAGE_TURN_LIMIT,
@@ -154,6 +155,7 @@ import {
   type ConversationGoalRow,
 } from "./goals.js";
 import { respondToAsyncUserInput } from "./async-user-input.js";
+import { respondToFormUserInput } from "./form-user-input.js";
 import { buildReasoningEventsQuery } from "./reasoning-events-query.js";
 import { forkImageFileBinding, includeReferencedImageAttachments, referencedImageTurnIds } from "./image-preview-files.js";
 
@@ -323,6 +325,7 @@ function projectRunnerCapabilities(
 export interface RuntimeCleanupScheduler {
   enqueueRuntimeCleanup(ownerId: string, conversationId: string, serviceSessionId?: string): Promise<void>;
   enqueueConversationPrewarm(input: ConversationPrewarmInput): Promise<void>;
+  enqueueFormRecommendation(input: { ownerId: string; conversationId: string; requestId: string }): Promise<void>;
 }
 
 type TurnSubmissionBase = {
@@ -5866,6 +5869,53 @@ export class ConversationService {
     return { code: RUNNER_TURN_INTERRUPT_REQUESTED, turn_id: localTurnId };
   }
 
+  async resolveFormRecommendations(): Promise<void> {
+    const requests = await this.prisma.conversationUserInputRequest.findMany({
+      where: {
+        requestKind: "form", autoResolveAt: { lte: new Date() },
+        formWaitingPolicyJson: { path: ["kind"], equals: "optional" },
+        responseDeliveryJson: { equals: Prisma.DbNull },
+        OR: [{ status: "pending" }, { status: "answering", updatedAt: { lte: new Date(Date.now() - 30_000) } }],
+      },
+      orderBy: [{ autoResolveAt: "asc" }, { id: "asc" }], take: 25,
+    });
+    for (const request of requests) {
+      await this.cleanup.enqueueFormRecommendation({ ownerId: request.ownerId, conversationId: request.conversationId, requestId: request.id });
+      // Queue identity survives API crashes between enqueueing and marking the
+      // durable request. Failed jobs stay queued here and retain their retry cap.
+      await this.prisma.conversationUserInputRequest.updateMany({
+        where: { id: request.id, responseDeliveryJson: { equals: Prisma.DbNull } },
+        data: { responseDeliveryJson: { kind: "form_recommendation_job", requestId: request.id } },
+      });
+    }
+  }
+
+  async deliverFormRecommendation(input: { ownerId: string; conversationId: string; requestId: string }): Promise<void> {
+    try {
+      const result = await this.resolveFormUserInput(input, { actorId: null });
+      if (result.status === "pending" || result.status === "answering") throw new AppError("CONFLICT");
+    } catch (error) {
+      if (!(error instanceof AppError && error.code === "USER_INPUT_REQUEST_UNAVAILABLE")) throw error;
+    }
+  }
+
+  private async resolveFormUserInput(
+    input: { ownerId: string; conversationId: string; requestId: string; response?: ConversationUserInputResponse },
+    context: AuditContext,
+  ) {
+    const result = await respondToFormUserInput({ prisma: this.prisma, runner: this.runner, ...input });
+    if (result.event) {
+      await this.audit.write({
+        ...context, actorId: input.response ? input.ownerId : null,
+        action: "conversation_user_input_request_responded",
+        targetType: "conversation_user_input_request", targetId: input.requestId, result: "success",
+        metadata: { conversation_id: input.conversationId, turn_id: result.request.turnId, action: result.request.resolvedAction, response_source: result.request.responseSource },
+      });
+      await this.redis.publishConversationEvent(input.conversationId, projectStoredEvent(result.event));
+    }
+    return projectUserInputRequest(result.request);
+  }
+
   async respondToUserInputRequest(
     ownerId: string,
     conversationId: string,
@@ -5875,6 +5925,12 @@ export class ConversationService {
   ) {
     const response = conversationUserInputResponseSchema.parse(rawResponse);
     await this.assertOwner(ownerId, conversationId);
+    const formRequest = await this.prisma.conversationUserInputRequest.findFirst({
+      where: { id: requestId, conversationId, ownerId, requestKind: "form" },
+    });
+    if (formRequest?.requestKind === "form") {
+      return this.resolveFormUserInput({ ownerId, conversationId, requestId, response }, context);
+    }
     const asyncRequest = await this.prisma.conversationUserInputRequest.findFirst({
       where: { id: requestId, conversationId, ownerId, requestKind: "async_questions" },
     });
@@ -5928,7 +5984,6 @@ export class ConversationService {
       nativeRequestId: bigint | null;
       requestKind: string;
       questionsJson: unknown;
-      formSchemaJson: unknown;
     };
     try {
       request = await this.prisma.$transaction(async (tx) => {
@@ -5941,7 +5996,7 @@ export class ConversationService {
         const stored = await tx.conversationUserInputRequest.findFirst({
           where: { id: requestId, conversationId, ownerId },
         });
-        if (!stored || stored.status !== "pending") {
+        if (!stored || stored.requestKind !== "questions" || stored.status !== "pending") {
           throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
         }
         const [conversation, turn] = await Promise.all([
@@ -5965,14 +6020,6 @@ export class ConversationService {
           data: {
             status: "answering",
             resolvedAction: response.action,
-            ...(stored.requestKind === "form"
-              ? {
-                  responseContentJson:
-                    response.action === "accept"
-                      ? (response.content as Prisma.InputJsonValue)
-                      : Prisma.DbNull,
-                }
-              : {}),
           },
         });
         if (claimed.count !== 1) {
@@ -7138,6 +7185,10 @@ export class ConversationService {
                         replacements,
                       ) as Prisma.InputJsonValue)
                     : Prisma.DbNull,
+                  formWaitingPolicyJson: request.formWaitingPolicyJson
+                    ? (remapForkedJson(request.formWaitingPolicyJson, replacements) as Prisma.InputJsonValue)
+                    : Prisma.DbNull,
+                  responseSource: request.responseSource,
                   // A fork must not reuse an in-flight answer operation from its source.
                   responseDeliveryJson: Prisma.DbNull,
                   responseContentJson: unresolvedAsyncQuestion
@@ -10258,6 +10309,8 @@ function projectUserInputRequest(row: {
   formSchemaJson: unknown;
   formUiHintsJson: unknown;
   formResponseSemanticsJson: unknown;
+  formWaitingPolicyJson?: unknown;
+  responseSource?: string | null;
   responseContentJson: unknown;
   status: string;
   autoResolveAt: Date | null;
@@ -10321,6 +10374,8 @@ function projectUserInputRequest(row: {
     response_semantics: conversationFormResponseSemanticsSchema.parse(
       row.formResponseSemanticsJson,
     ),
+    waiting_policy: conversationFormWaitingPolicySchema.nullable().parse(row.formWaitingPolicyJson ?? null),
+    response_source: conversationFormResponseSourceSchema.nullable().parse(row.responseSource ?? null),
     response_content: conversationFormResponseContentSchema
       .nullable()
       .parse(row.responseContentJson),
@@ -10357,18 +10412,10 @@ function validateConversationUserInputResponse(
   stored: {
     requestKind: string;
     questionsJson: unknown;
-    formSchemaJson: unknown;
   },
   response: ConversationUserInputResponse,
 ): void {
   if (response.action !== "accept") return;
-  if (stored.requestKind === "form") {
-    const schema = conversationFormRequestedSchema.parse(stored.formSchemaJson);
-    if (!conversationFormResponseMatchesSchema(schema, response.content)) {
-      throw new AppError("VALIDATION_ERROR");
-    }
-    return;
-  }
   if (stored.requestKind !== "questions") {
     throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
   }

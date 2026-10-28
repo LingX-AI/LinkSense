@@ -19,6 +19,35 @@ afterEach(async () => {
 })
 
 describe("Docker Engine client", () => {
+  it("cancels a long disk scan and removes its probe before shutdown completes", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "linksense-disk-cancel-"))
+    roots.push(root)
+    const socket = path.join(root, "docker.sock")
+    let startedWaiting!: () => void
+    const waiting = new Promise<void>((resolve) => { startedWaiting = resolve })
+    let removed = false
+    const server = createServer((request, response) => {
+      request.resume()
+      const url = request.url ?? ""
+      if (url.includes("/wait?")) { startedWaiting(); return }
+      response.writeHead(200, { "content-type": "application/json" })
+      if (url.endsWith("/containers/json?all=1")) response.end("[]")
+      else if (url.endsWith("/info")) response.end(JSON.stringify({ DockerRootDir: "/docker" }))
+      else if (url.includes("/images/")) response.end(JSON.stringify({ Size: 0, GraphDriver: { Data: null } }))
+      else if (url.includes("/containers/create?")) response.end(JSON.stringify({ Id: "disk-probe" }))
+      else { if (request.method === "DELETE") removed = true; response.end("{}") }
+    })
+    await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socket, resolve) })
+    try {
+      const abort = new AbortController()
+      const client = new DockerEngineClient(socket, "v1.45", 1000)
+      const result = client.collectDiskUsage({ project: "fixture", instance: "fixture", image: "worker", userDataRoot: "/fixture" }, abort.signal)
+      await waiting
+      abort.abort()
+      await expect(result).resolves.toMatchObject({ total_bytes: null })
+      expect(removed).toBe(true)
+    } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())) }
+  })
   it("inspects a configured managed volume by its exact name", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "linksense-docker-socket-"))
     roots.push(root)

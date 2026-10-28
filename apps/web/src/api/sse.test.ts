@@ -12,6 +12,97 @@ const CONVERSATION_ID = "20000000-0000-4000-8000-000000000001"
 const TURN_ID = "30000000-0000-4000-8000-000000000001"
 
 describe("conversation SSE", () => {
+  it.each([false, true])(
+    "yields during event bursts across network chunks (one frame per chunk: %s)",
+    async (onePerChunk) => {
+      vi.useFakeTimers()
+      const delivered: number[] = []
+      let inputHandledAfterEvents = -1
+      window.setTimeout(() => {
+        inputHandledAfterEvents = delivered.length
+      }, 0)
+      const count = 512
+      let started: () => void = () => {}
+      const firstDelivery = new Promise<void>((resolve) => {
+        started = resolve
+      })
+      const frames = Array.from(
+        { length: count },
+        (_, index) => `data: ${JSON.stringify(completedEvent(index + 1))}\n\n`
+      )
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const chunk of onePerChunk ? frames : [frames.join("")]) {
+            controller.enqueue(new TextEncoder().encode(chunk))
+          }
+        },
+      })
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(stream)))
+      const disconnect = connectConversationEvents(CONVERSATION_ID, {
+        onEvent: (event) => {
+          delivered.push(event.sequence_no)
+          started()
+        },
+      })
+      try {
+        await firstDelivery
+        // A network backlog must leave a task boundary for input, painting and cancellation.
+        await Promise.resolve()
+        expect(delivered.length).toBeLessThan(count)
+        await vi.runAllTimersAsync()
+        expect(inputHandledAfterEvents).toBeGreaterThan(0)
+        expect(inputHandledAfterEvents).toBeLessThan(count)
+        expect(delivered).toEqual(
+          Array.from({ length: count }, (_, index) => index + 1)
+        )
+        expect(
+          window.sessionStorage.getItem(
+            `linksense.sse.${CONVERSATION_ID}.lastEventId`
+          )
+        ).toBe(`${CONVERSATION_ID}:${count}`)
+      } finally {
+        disconnect()
+      }
+    }
+  )
+
+  it("stops a buffered event burst immediately when the page disconnects", async () => {
+    vi.useFakeTimers()
+    const onEvent = vi.fn()
+    let started: () => void = () => {}
+    const firstDelivery = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const frames = Array.from(
+      { length: 512 },
+      (_, index) => `data: ${JSON.stringify(completedEvent(index + 1))}\n\n`
+    ).join("")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode(frames))
+            },
+          })
+        )
+      )
+    )
+    const disconnect = connectConversationEvents(CONVERSATION_ID, {
+      onEvent: (event) => {
+        onEvent(event)
+        started()
+      },
+    })
+    await firstDelivery
+    const delivered = onEvent.mock.calls.length
+    disconnect()
+    await vi.runAllTimersAsync()
+    expect(onEvent).toHaveBeenCalledTimes(delivered)
+    expect(delivered).toBeLessThan(512)
+  })
+
   beforeEach(() => {
     window.sessionStorage.clear()
     setAccessToken("access-token")
@@ -21,6 +112,79 @@ describe("conversation SSE", () => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
+
+  it("accepts a large backlog of individually valid frames without reconnecting", async () => {
+    vi.useFakeTimers()
+    const received: number[] = []
+    let started: () => void = () => {}
+    const firstDelivery = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    // SSE comments do not affect event contents. This chunk exceeds the
+    // per-frame safety limit in total while every individual frame is small.
+    const frames = Array.from(
+      { length: 80 },
+      (_, index) =>
+        `: ${"x".repeat(55_000)}\ndata: ${JSON.stringify(completedEvent(index + 1))}\n\n`
+    ).join("")
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(frames))
+          },
+        })
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const disconnect = connectConversationEvents(CONVERSATION_ID, {
+      onEvent: (event) => {
+        received.push(event.sequence_no)
+        started()
+      },
+    })
+    try {
+      await firstDelivery
+      await vi.runAllTimersAsync()
+      expect(received).toEqual(
+        Array.from({ length: 80 }, (_, index) => index + 1)
+      )
+      expect(fetchMock).toHaveBeenCalledOnce()
+    } finally {
+      disconnect()
+    }
+  })
+
+  it.each(["", "\n\n"])(
+    "rejects an oversized individual frame (terminator: %j)",
+    async (terminator) => {
+      const cancel = vi.fn()
+      const onEvent = vi.fn()
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${"x".repeat(4_000_001)}${terminator}`
+            )
+          )
+        },
+        cancel,
+      })
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(stream)))
+      const disconnect = connectConversationEvents(CONVERSATION_ID, { onEvent })
+      try {
+        await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce())
+        expect(onEvent).not.toHaveBeenCalled()
+        expect(
+          window.sessionStorage.getItem(
+            `linksense.sse.${CONVERSATION_ID}.lastEventId`
+          )
+        ).toBeNull()
+      } finally {
+        disconnect()
+      }
+    }
+  )
 
   it("parses multiline frames, comments, retry, and IDs", () => {
     expect(

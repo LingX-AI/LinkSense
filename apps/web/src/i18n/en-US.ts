@@ -1,3 +1,4 @@
+import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
@@ -2229,6 +2230,13 @@ export const enUS = {
       title: "Your answer is needed",
       formTitle: "Please confirm these details",
       formResultTitle: "Completed form",
+      requiredWaiting:
+        "Your answer is required. The task will continue after you submit it.",
+      recommendationCountdown:
+        "If you do not submit, the task will continue with the recommended answer in {{seconds}} seconds.",
+      applyingRecommendation: "Applying the recommended answer…",
+      recommendedAnswer: "Recommended: {{answer}}",
+      useRecommendation: "Use recommended answer",
       description: "Answer these questions so LinkSense can continue the plan.",
       autoResolveDescription:
         "Please answer promptly. This question will close automatically when time runs out.",
@@ -2249,6 +2257,7 @@ export const enUS = {
         pending: "Pending",
         submitting: "Submitting",
         submitted: "Submitted",
+        recommended: "Recommended answer used after timeout",
         approved: "Approved",
         rejected: "Rejected",
         cancelled: "Cancelled",
@@ -5081,6 +5090,7 @@ export const enUS = {
       "Infrastructure, authentication, secrets, concurrency, and file limits are deployment-managed. Only redacted status is shown here.",
   },
   health: {
+    disk: diskUsageMessages["en-US"],
     title: "System health",
     description:
       "Read-only summary of {{productName}} services and managed directories.",

@@ -1,3 +1,4 @@
+import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
@@ -2062,6 +2063,12 @@ export const zhCN = {
         "你可以稍后回答，LinkSense 会继续工作；任务结束后仍可提交回答。",
       formTitle: "需要你确认信息",
       formResultTitle: "已处理的表单",
+      requiredWaiting: "此问题需要你回答，提交后任务才会继续。",
+      recommendationCountdown:
+        "未提交时，将在 {{seconds}} 秒后自动采用推荐答案继续任务。",
+      applyingRecommendation: "正在采用推荐答案…",
+      recommendedAnswer: "推荐：{{answer}}",
+      useRecommendation: "使用推荐答案",
       description: "回答以下问题后，LinkSense 会继续完善计划。",
       autoResolveDescription: "请及时回答；超时后这个问题会自动结束。",
       other: "其他",
@@ -2081,6 +2088,7 @@ export const zhCN = {
         pending: "待填写",
         submitting: "正在提交",
         submitted: "已提交",
+        recommended: "超时后已采用推荐答案",
         approved: "已同意",
         rejected: "已拒绝",
         cancelled: "已取消",
@@ -4711,6 +4719,7 @@ export const zhCN = {
       "基础设施、认证、密钥、并发和文件限制由部署配置管理。此处仅展示脱敏状态。",
   },
   health: {
+    disk: diskUsageMessages["zh-CN"],
     title: "系统健康状态",
     description: "只读查看 {{productName}} 服务与受控目录的健康摘要。",
     overall: "总体状态",

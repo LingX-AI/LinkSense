@@ -954,7 +954,8 @@ function formRequestEvent(): LinkSensePublishedEvent {
         approve_value: "approve",
         reject_value: "reject",
       },
-      autoResolutionMs: 600_000,
+      waitingPolicy: { kind: "required" },
+      autoResolutionMs: null,
     },
   };
 }

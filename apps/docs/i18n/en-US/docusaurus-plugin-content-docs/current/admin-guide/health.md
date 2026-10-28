@@ -23,6 +23,18 @@ It shows redacted summaries and recommendations, not credentials, connection str
 - Document parsing or retrieval can be unavailable without making all LinkSense features unavailable.
 - An unconfigured ranker is valid; RRF remains available.
 
+## Disk usage
+
+Disk usage is a compact total in the top health summary. It includes all users' project spaces, task artifacts and attachments, environments and caches, plus databases, knowledge indexes, backups, logs, and service programs for the current deployment. Retained files from completed or archived tasks are also included.
+
+Measurements use allocated filesystem space. Sparse files use their allocated size; shared directories, hard links, and image layers are counted once. Separate stored copies are counted separately. This is not the host's total disk usage. Other deployments, global build caches, and historical images without confirmed ownership are excluded. Storage shared with another deployment is marked unmeasured when it cannot be attributed. Databases, object storage, and indexes on external servers are excluded from local disk usage and must be checked separately in those services.
+
+Sampling starts once at service startup and then runs hourly in the background. A new scan is never started while the previous scan is still running. Large directories have independent time and resource limits. Other health information appears immediately. Disk usage is added to the summary automatically after the first complete measurement. Pending or incomplete measurements remain hidden; a subtotal is never shown as the total. Hover over the indicator to view the sample time. Scanning does not block readiness checks or task execution, and a sampling failure does not itself change service readiness.
+
+Docker deployments use the existing Worker image for a temporary, read-only container without networking. It measures filesystem metadata without reading file contents and is removed afterward. This requires the existing Docker socket permission and container capabilities for read-only scanning. Storage drivers that do not expose image or writable layer locations leave those categories unmeasured. Local-process deployments cannot currently report complete deployment disk usage.
+
+There is no database migration or user file modification, relocation, or cleanup. Update Runner, API, and Web to measure existing storage; tasks, projects, and applications do not need to be recreated.
+
 ## Service resource usage
 
 **Service resource usage** shows the latest available Docker container snapshot. An unobservable result normally means that the Runner controller lacks a usable Docker socket or permission; it does not mean every container stopped. The cards are diagnostic and cannot restart or stop containers.

@@ -1,3 +1,4 @@
+import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
@@ -2460,6 +2461,13 @@ export const jaJP = {
       title: "回答が必要です",
       formTitle: "以下の内容をご確認ください",
       formResultTitle: "回答済みフォーム",
+      requiredWaiting:
+        "この質問への回答が必要です。送信するとタスクが続行されます。",
+      recommendationCountdown:
+        "回答を送信しない場合、{{seconds}} 秒後に推奨の回答でタスクを続行します。",
+      applyingRecommendation: "推奨の回答を適用しています…",
+      recommendedAnswer: "推奨：{{answer}}",
+      useRecommendation: "推奨の回答を使用",
       description: "LinkSense が計画を続行できるよう、質問に回答してください。",
       autoResolveDescription:
         "お早めに回答してください。制限時間が過ぎると、この質問は自動的に閉じます。",
@@ -2480,6 +2488,7 @@ export const jaJP = {
         pending: "保留中",
         submitting: "送信中",
         submitted: "送信済み",
+        recommended: "時間切れのため推奨の回答を使用",
         approved: "承認済み",
         rejected: "却下",
         cancelled: "キャンセル済み",
@@ -5327,6 +5336,7 @@ export const jaJP = {
       "インフラ、認証、シークレット、同時実行数、ファイル上限はデプロイ環境で管理します。ここでは機密情報を除いた状態のみ表示します。",
   },
   health: {
+    disk: diskUsageMessages["ja-JP"],
     title: "システム状態",
     description:
       "{{productName}} のサービスと管理対象ディレクトリの、読み取り専用の概要です。",

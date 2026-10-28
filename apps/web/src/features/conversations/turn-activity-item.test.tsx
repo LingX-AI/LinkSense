@@ -193,6 +193,52 @@ describe("TurnActivityItem", () => {
     expect(screen.queryByRole("button")).toBeNull()
   })
 
+  it("aligns image-view tools with the thinking heading while keeping their own details indented", () => {
+    const imageTools: TurnActivitySource = {
+      kind: "native",
+      grouped: false,
+      activities: [
+        {
+          method: "item/completed",
+          item: {
+            id: "viewed-image",
+            type: "imageView",
+            path: "$WORKSPACE/attachments/image.png",
+          },
+        },
+      ],
+    }
+    const { container, rerender } = render(
+      <TurnActivityItem source={imageTools} progress="thinking" />
+    )
+
+    fireEvent.click(screen.getByRole("button"))
+    const toolList = container.querySelector('[data-slot="thinking-tool-list"]')
+    expect(toolList).toBeVisible()
+    const thinkingDetails = toolList?.closest(".native-activity-details-inner")
+    expect(thinkingDetails).toHaveClass("pl-0")
+    expect(thinkingDetails).not.toHaveClass("pl-[22px]")
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "展开“已查看图像”的详情" })
+    )
+    const imagePath = screen.getByText("$WORKSPACE/attachments/image.png")
+    expect(imagePath).toBeVisible()
+    expect(imagePath.closest(".native-activity-details-inner")).toHaveClass(
+      "pl-[22px]"
+    )
+
+    rerender(<TurnActivityItem source={imageTools} stopped />)
+    const settledPath = screen.getByText("$WORKSPACE/attachments/image.png")
+    expect(settledPath).toBeVisible()
+    expect(settledPath.closest(".native-activity-details-inner")).toHaveClass(
+      "pl-[22px]"
+    )
+    expect(
+      container.querySelector('[data-slot="thinking-tool-list"]')
+    ).toBeNull()
+  })
+
   it("shows completed history immediately and prevents a delayed tool label from returning", () => {
     const { container, rerender } = render(
       <TurnActivityItem source={completedTools} progress="thinking" />

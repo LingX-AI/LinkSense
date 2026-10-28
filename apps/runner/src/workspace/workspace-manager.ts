@@ -18,7 +18,7 @@ import path from "node:path"
 import { isDeepStrictEqual } from "node:util"
 
 import {
-  conversationFormAutoResolutionMs,
+  conversationFormToolTimeoutSeconds,
   userWorkspacePathSchema,
   coreMcpServerKey,
   DEFAULT_TASK_AUTO_NAMING,
@@ -80,7 +80,7 @@ const personalizationFileName = "personalization.json"
 const globalAgentsFileName = "AGENTS.md"
 const managedCodexFileNames = ["config.toml", "auth.json", globalAgentsFileName]
 const coreMcpInteractiveFormToolTimeoutSeconds =
-  Math.ceil(conversationFormAutoResolutionMs / 1_000) + 30
+  conversationFormToolTimeoutSeconds
 const personalizationStateSchema = z.strictObject({
   version: z.literal(1),
   revision: z.uuid(),
