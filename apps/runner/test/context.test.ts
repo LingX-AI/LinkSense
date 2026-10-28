@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { encode } from "gpt-tokenizer/encoding/o200k_base";
 
 import {
@@ -8,6 +8,26 @@ import {
 } from "../src/context.js";
 
 describe("buildTurnInput", () => {
+  it("supplies a fresh UTC instant and explicit time-zone conversion guidance for each automation run", () => {
+    vi.useFakeTimers();
+    try {
+      const context = { userInput: "Reply with Beijing time", automationExecution: true as const, attachments: [], priorityPlugins: [], prioritySkills: [] };
+      vi.setSystemTime(new Date("2026-10-27T06:28:37Z"));
+      const first = buildTurnAdditionalContext(context)?.["linksense.current-time"];
+      expect(first?.kind).toBe("application");
+      expect(first?.value).toContain("2026-10-27T06:28:37.000Z");
+      expect(first?.value).toContain("2026-10-27 14:28:37");
+      expect(first?.value).toContain("Asia/Shanghai");
+      expect(first?.value).toContain("Intl.DateTimeFormat");
+      expect(first?.value).toContain("zoneinfo");
+      vi.setSystemTime(new Date("2026-10-27T07:28:37Z"));
+      expect(buildTurnAdditionalContext(context)?.["linksense.current-time"]?.value).toContain("2026-10-27T07:28:37.000Z");
+      expect(buildTurnAdditionalContext({ userInput: "Interactive request", attachments: [], priorityPlugins: [], prioritySkills: [] })).not.toHaveProperty("linksense.current-time");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("treats recurring wording as work to execute when an existing automation triggers the turn", () => {
     const instruction = "每天检索最近24小时的重要科技新闻，输出中文摘要和来源链接。";
     const context = { userInput: instruction, automationExecution: true as const, requireFinalResponse: true, attachments: [], priorityPlugins: [], prioritySkills: [] };

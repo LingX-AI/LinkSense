@@ -210,6 +210,17 @@ export function buildTurnAdditionalContext(
       ].join("\n"),
     },
   };
+  if (context.automationExecution) {
+    const now = new Date();
+    additionalContext["linksense.current-time"] = {
+      kind: "application",
+      value: [
+        `Current UTC instant at turn start: ${now.toISOString()}. This is not local wall-clock time.`,
+        `Beijing time (Asia/Shanghai) at turn start: ${new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", dateStyle: "short", timeStyle: "long" }).format(now)}.`,
+        "Convert to the user's requested IANA time zone before answering (Beijing = Asia/Shanghai). For a fresh clock use Node Intl.DateTimeFormat with an explicit timeZone. Shell TZ may silently return UTC when system zoneinfo is absent; never relabel an unconverted UTC value as local time.",
+      ].join("\n"),
+    };
+  }
   if (customInstructions) additionalContext["linksense.personalization"] = { kind: "application", value: customInstructions };
   if (collaborationMode !== "plan") {
     additionalContext["linksense.local-web-server-policy"] = {
