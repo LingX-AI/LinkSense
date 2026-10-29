@@ -1939,6 +1939,11 @@ export const jaJP = {
     selectionStatus: "テキストを選択中",
   },
   htmlPreview: {
+    resourcesIncomplete: "ページの一部を読み込めませんでした",
+    sessionExpired: "プレビューの接続が切れました",
+    resourcesHelp:
+      "一部のスタイルや操作を利用できない場合があります。再読み込みしてください。問題が続く場合は、ページに必要なファイルを含めるようタスクに依頼してください。",
+    resourceDetails: "読み込めなかったファイルを表示",
     frameTitle: "HTML ドキュメント {{name}}",
     annotate: "注釈を付ける",
     annotating: "注釈モード",

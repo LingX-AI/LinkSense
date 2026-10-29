@@ -1973,6 +1973,11 @@ export const ptBR = {
     selectionStatus: "Texto selecionado",
   },
   htmlPreview: {
+    resourcesIncomplete: "Parte do conteúdo da página não foi carregada",
+    sessionExpired: "A conexão da prévia expirou",
+    resourcesHelp:
+      "Alguns estilos ou interações podem estar indisponíveis. Recarregue a prévia. Se o problema continuar, peça à tarefa para incluir os arquivos necessários.",
+    resourceDetails: "Ver arquivos que não foram carregados",
     frameTitle: "Documento HTML {{name}}",
     annotate: "Anotar",
     annotating: "Anotando",

@@ -1582,6 +1582,11 @@ export const zhCN = {
     selectionStatus: "已选择文本",
   },
   htmlPreview: {
+    resourcesIncomplete: "页面的部分内容未能加载",
+    sessionExpired: "预览连接已失效",
+    resourcesHelp:
+      "部分样式或交互可能不可用。请重新加载；如果问题仍然存在，请让任务补齐网页所需的文件。",
+    resourceDetails: "查看未加载的文件",
     frameTitle: "HTML 文档 {{name}}",
     annotate: "标注",
     annotating: "标注中",

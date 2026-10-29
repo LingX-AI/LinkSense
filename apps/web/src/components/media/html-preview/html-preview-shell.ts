@@ -1,27 +1,11 @@
 import { z } from "zod"
+export { interactiveHtmlPreviewSandbox } from "@linksense/shared"
 
 export const htmlPreviewShellPath = "/assistant-html-preview-shell.html"
 export const htmlPreviewShellReadyMessageType =
   "linksense:assistant-html-preview:shell-ready"
 export const htmlPreviewShellInitializeMessageType =
   "linksense:assistant-html-preview:initialize"
-
-// Generated documents may use browser features freely, while the opaque-origin
-// boundary keeps their scripts outside the LinkSense application context.
-export const interactiveHtmlPreviewSandbox = [
-  "allow-downloads",
-  "allow-forms",
-  "allow-modals",
-  "allow-orientation-lock",
-  "allow-pointer-lock",
-  "allow-popups",
-  "allow-popups-to-escape-sandbox",
-  "allow-presentation",
-  "allow-scripts",
-  "allow-storage-access-by-user-activation",
-  "allow-top-navigation-by-user-activation",
-  "allow-top-navigation-to-custom-protocols",
-].join(" ")
 
 const htmlPreviewShellReadyMessageSchema = z.object({
   type: z.literal(htmlPreviewShellReadyMessageType),
@@ -30,9 +14,10 @@ const htmlPreviewShellReadyMessageSchema = z.object({
 
 export function buildHtmlPreviewShellSource(
   previewId: string,
-  attempt: number
+  attempt: number,
+  entryUrl = htmlPreviewShellPath
 ) {
-  return `${htmlPreviewShellPath}?previewId=${encodeURIComponent(
+  return `${entryUrl}?previewId=${encodeURIComponent(
     previewId
   )}&attempt=${attempt}`
 }

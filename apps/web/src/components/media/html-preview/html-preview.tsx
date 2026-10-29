@@ -1,4 +1,12 @@
 import { MessageCirclePlusIcon } from "lucide-react"
+import type { HtmlPreviewSource } from "@linksense/shared"
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "@/components/ui/collapsible"
+import { resourceErrorMessageSchema } from "./html-preview-resource-errors"
 import {
   useCallback,
   useEffect,
@@ -75,6 +83,8 @@ type InteractionFrameState = Readonly<{
 
 export type HtmlPreviewProps = Readonly<{
   document: HtmlDocumentState
+  source?: HtmlPreviewSource
+  renewalFailed?: boolean
   fileName: string
   selectionAction?: HtmlSelectionAction
   annotationMarkers?: readonly HtmlAnnotationMarker[]
@@ -90,6 +100,8 @@ export type HtmlPreviewProps = Readonly<{
 
 export function HtmlPreview({
   document,
+  source,
+  renewalFailed = false,
   fileName,
   selectionAction,
   annotationMarkers = emptyHtmlAnnotationMarkers,
@@ -111,6 +123,10 @@ export function HtmlPreview({
   const interactionFitAnimationFrameRef = useRef<number | null>(null)
   const handledAnnotationNavigationSequenceRef = useRef<number | null>(null)
   const [zoom, setZoom] = useState(1)
+  const [resourceErrors, setResourceErrors] = useState<{
+    html: string | null
+    resources: string[]
+  }>({ html: null, resources: [] })
   const [annotationState, setAnnotationState] = useState<
     Readonly<{ source: string | null; enabled: boolean }>
   >({ source: null, enabled: false })
@@ -184,7 +200,19 @@ export function HtmlPreview({
   const interactionShellSource =
     interactionHtml === null
       ? null
-      : buildHtmlPreviewShellSource(previewId, interactionFrameAttempt)
+      : buildHtmlPreviewShellSource(
+          previewId,
+          interactionFrameAttempt,
+          source?.entry_url
+        )
+  const failedResources = [
+    ...new Set([
+      ...(source?.missing_resources ?? []),
+      ...(resourceErrors.html === interactionHtml
+        ? resourceErrors.resources
+        : []),
+    ]),
+  ]
 
   const clearSelection = useCallback(() => {
     setSelection(null)
@@ -393,6 +421,19 @@ export function HtmlPreview({
         }
         return
       }
+      const resourceError = resourceErrorMessageSchema.safeParse(event.data)
+      if (resourceError.success) {
+        setResourceErrors((current) => ({
+          html: interactionHtml,
+          resources: [
+            ...new Set([
+              ...(current.html === interactionHtml ? current.resources : []),
+              resourceError.data.resource,
+            ]),
+          ].slice(0, 50),
+        }))
+        return
+      }
       const frames = parseHtmlPreviewAnnotationFrames(event.data)
       if (frames !== null) {
         setAnnotationGeometry({
@@ -464,6 +505,45 @@ export function HtmlPreview({
       updateAction={updateAction}
       onClose={onClose}
       floatingContent={floatingContent}
+      notice={
+        (renewalFailed || failedResources.length > 0) && (
+          <Alert className="shrink-0 rounded-none border-x-0 border-t-0">
+            <AlertTitle>
+              {t(
+                renewalFailed
+                  ? "htmlPreview.sessionExpired"
+                  : "htmlPreview.resourcesIncomplete"
+              )}
+            </AlertTitle>
+            <AlertDescription>
+              <p>{t("htmlPreview.resourcesHelp")}</p>
+              {failedResources.length > 0 && (
+                <Collapsible>
+                  <CollapsibleTrigger
+                    render={<Button variant="ghost" size="sm" />}
+                  >
+                    {t("htmlPreview.resourceDetails")}
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <ul className="max-h-24 overflow-auto">
+                      {failedResources.map((resource) => (
+                        <li className="break-all" key={resource}>
+                          {resource}
+                        </li>
+                      ))}
+                    </ul>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+              {onRetry && (
+                <Button variant="outline" size="sm" onClick={onRetry}>
+                  {t("common.retry")}
+                </Button>
+              )}
+            </AlertDescription>
+          </Alert>
+        )
+      }
       controls={
         <>
           {toolbarActions}
@@ -523,6 +603,7 @@ export function HtmlPreview({
           data-html-preview-attempt={interactionFrameAttempt}
           title={t("htmlPreview.frameTitle", { name: fileName })}
           sandbox={interactiveHtmlPreviewSandbox}
+          referrerPolicy="no-referrer"
           aria-hidden="false"
           src={interactionShellSource ?? undefined}
           onLoad={handleInteractionFrameLoad}

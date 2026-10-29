@@ -1,3 +1,4 @@
+import { openHtmlPreview } from "@/features/conversations/html-preview-api"
 import { createRandomUuid } from "@/lib/random-uuid"
 import {
   isAutomationMutationItem,
@@ -5023,6 +5024,14 @@ export function ConversationPage({
     [conversationId, isNew, loadArtifactPreview, loadAttachmentPreview]
   )
 
+  const loadHtmlPreview = useCallback(
+    (file: ConversationFile, signal: AbortSignal, sessionId?: string) => {
+      if (!conversationId || isNew) throw new Error("conversation_id_required")
+      return openHtmlPreview(conversationId, file.id, signal, sessionId)
+    },
+    [conversationId, isNew]
+  )
+
   const loadOfficeContent = useCallback(
     async (file: ConversationFile, signal: AbortSignal) => {
       if (!conversationId || isNew) {
@@ -5673,6 +5682,7 @@ export function ConversationPage({
             }
             animateEntrance={officePreview?.animateEntrance}
             loadContent={loadOfficeContent}
+            loadHtmlPreview={loadHtmlPreview}
             loadPreviewSource={loadFilePreviewSource}
             onAskSelection={askOfficeSelection}
             selectionDisabled={

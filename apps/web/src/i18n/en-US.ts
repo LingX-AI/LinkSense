@@ -1722,6 +1722,11 @@ export const enUS = {
     selectionStatus: "Text selected",
   },
   htmlPreview: {
+    resourcesIncomplete: "Some page content could not load",
+    sessionExpired: "Preview connection expired",
+    resourcesHelp:
+      "Some styles or interactions may be unavailable. Reload the preview. If the issue continues, ask the task to include the files this page needs.",
+    resourceDetails: "View files that did not load",
     frameTitle: "HTML document {{name}}",
     annotate: "Annotate",
     annotating: "Annotating",
