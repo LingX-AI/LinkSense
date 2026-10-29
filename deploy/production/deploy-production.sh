@@ -85,7 +85,7 @@ fi
 
 deployment_root="${LINKSENSE_DEPLOYMENT_ROOT:-$(pwd)}"
 environment_file="${LINKSENSE_ENVIRONMENT_FILE:-${deployment_root}/.env.production}"
-compose_file="${LINKSENSE_COMPOSE_FILE:-${deployment_root}/docker-compose.production-stack.yml}"
+compose_file="${LINKSENSE_COMPOSE_FILE:-${deployment_root}/deploy/compose/docker-compose.production-stack.yml}"
 metadata_file="${LINKSENSE_DEPLOYMENT_METADATA_FILE:-${deployment_root}/.data/deployment-metadata}"
 gateway_template="${deployment_root}/deploy/nginx/production-gateway.conf.template"
 remote_name="${LINKSENSE_DEPLOY_REMOTE:-origin}"
@@ -1220,7 +1220,7 @@ worker_source_fingerprint() {
       "$(environment_value LINKSENSE_NODE_PACKAGE_REGISTRY_URL https://registry.npmjs.org/)"
     git ls-tree -r "$target_revision" -- \
       .dockerignore \
-      Dockerfile.runner \
+      deploy/docker/Dockerfile.runner \
       deploy/baselines/images.lock.json \
       package.json \
       pnpm-lock.yaml \
@@ -1281,7 +1281,7 @@ worker_rebuild_changed_paths() {
   worker_rebuild_base="$1"
   git diff --name-only "$worker_rebuild_base" "$target_revision" -- \
     .dockerignore \
-    Dockerfile.runner \
+    deploy/docker/Dockerfile.runner \
     deploy/baselines/images.lock.json \
     package.json \
     pnpm-lock.yaml \

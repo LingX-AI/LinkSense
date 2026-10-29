@@ -29,7 +29,7 @@ test("recipe changes can be checked before maintenance but still block applicati
   writeFileSync(recipe, readFileSync(recipe, "utf8") + "\n# pending security maintenance\n");
   assert.equal(adoption.checkBaselineDockerDefaults(directory).id, baseline.id);
   assert.throws(() => checkBaselineAdoption(directory), /Maintain and verify a new baseline/u);
-  const worker = join(directory, "Dockerfile.runner");
+  const worker = join(directory, "deploy/docker/Dockerfile.runner");
   const original = readFileSync(worker, "utf8");
   writeFileSync(worker, original.replace(/^ARG BASELINE_WORKER_IMAGE=.+$/mu, "ARG BASELINE_WORKER_IMAGE=unverified:latest"));
   assert.throws(() => adoption.checkBaselineDockerDefaults(directory), /Adopt the verified baseline/u);
@@ -38,23 +38,23 @@ test("baseline adoption mechanically updates only Docker defaults and rejects mi
   const baseline = { runtimes: { node: "registry/node@sha256:fixed", worker: "registry/worker@sha256:fixed" } };
   const source = "ARG BASELINE_NODE_IMAGE=old\nARG BASELINE_WORKER_IMAGE\nFROM ${BASELINE_NODE_IMAGE} AS toolchain\n";
   const expected = "ARG BASELINE_NODE_IMAGE=registry/node@sha256:fixed\nARG BASELINE_WORKER_IMAGE=registry/worker@sha256:fixed\nFROM ${BASELINE_NODE_IMAGE} AS toolchain\n";
-  assert.equal(baselineDockerfileDefaults(baseline, "Dockerfile.runner", source), expected);
-  assert.equal(baselineDockerfileDefaults(baseline, "Dockerfile.runner", expected), expected);
-  for (const invalid of [source.replace("ARG BASELINE_WORKER_IMAGE\n", ""), source + "ARG BASELINE_NODE_IMAGE=duplicate\n"]) assert.throws(() => baselineDockerfileDefaults(baseline, "Dockerfile.runner", invalid));
+  assert.equal(baselineDockerfileDefaults(baseline, "deploy/docker/Dockerfile.runner", source), expected);
+  assert.equal(baselineDockerfileDefaults(baseline, "deploy/docker/Dockerfile.runner", expected), expected);
+  for (const invalid of [source.replace("ARG BASELINE_WORKER_IMAGE\n", ""), source + "ARG BASELINE_NODE_IMAGE=duplicate\n"]) assert.throws(() => baselineDockerfileDefaults(baseline, "deploy/docker/Dockerfile.runner", invalid));
 });
 test("application images inherit frozen environments and API installs only its FFmpeg feature dependency", () => {
-  for (const name of ["Dockerfile.api", "Dockerfile.web", "Dockerfile.runner"]) {
+  for (const name of ["deploy/docker/Dockerfile.api", "deploy/docker/Dockerfile.web", "deploy/docker/Dockerfile.runner"]) {
     const source = readFileSync(name, "utf8");
     const audioDependency = "RUN apt-get update \\\n  && apt-get install --yes --no-install-recommends ffmpeg \\\n  && ffmpeg -version \\\n  && rm -rf /var/lib/apt/lists/*";
-    if (name === "Dockerfile.api") {
+    if (name === "deploy/docker/Dockerfile.api") {
       assert.equal(source.split(audioDependency).length - 1, 1);
       assert.ok(source.indexOf(audioDependency) > source.indexOf("FROM ${BASELINE_API_IMAGE} AS runtime"));
     }
-    const environmentSource = name === "Dockerfile.api" ? source.replace(audioDependency, "") : source;
+    const environmentSource = name === "deploy/docker/Dockerfile.api" ? source.replace(audioDependency, "") : source;
     assert.doesNotMatch(environmentSource, /apt-get|apk upgrade|uv sync|pip install|pnpm add --global|corepack prepare|install-browser|worker-cached-browser|SECURITY_REBUILD_ID/u);
     assert.match(source, /FROM \$\{BASELINE_NODE_IMAGE\}/u);
   }
-  const worker = readFileSync("Dockerfile.runner", "utf8");
+  const worker = readFileSync("deploy/docker/Dockerfile.runner", "utf8");
   assert.match(worker, /FROM \$\{BASELINE_WORKER_IMAGE\} AS worker/u);
   assert.match(worker, /linksense-browser open-workspace-html/u);
   assert.match(worker, /\/opt\/linksense\/runtime\/fonts\/verify\.sh/u);

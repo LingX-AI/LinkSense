@@ -25,7 +25,7 @@ const until = async (predicate, description, timeout = 30_000) => {
 };
 
 try {
-  const config = JSON.parse(await docker(["compose", "--env-file", ".env.example", "-f", "docker-compose.yml", "-f", "docker-compose.dev.yml", "config", "--format", "json"]));
+  const config = JSON.parse(await docker(["compose", "--env-file", ".env.example", "-f", "docker-compose.yml", "-f", "deploy/compose/docker-compose.dev.yml", "config", "--format", "json"]));
   const source = join(directory, "index.ts");
   await writeFile(source, `import { createServer } from "node:http";
 const buffers: Buffer[] = [];

@@ -197,49 +197,49 @@ jobs:
       matrix:
         include:
           - name: api
-            dockerfile: Dockerfile.api
+            dockerfile: deploy/docker/Dockerfile.api
             target: runtime
             architecture: amd64
             platform: linux/amd64
             runner: ubuntu-24.04
           - name: api
-            dockerfile: Dockerfile.api
+            dockerfile: deploy/docker/Dockerfile.api
             target: runtime
             architecture: arm64
             platform: linux/arm64
             runner: ubuntu-24.04-arm
           - name: web
-            dockerfile: Dockerfile.web
+            dockerfile: deploy/docker/Dockerfile.web
             target: runtime
             architecture: amd64
             platform: linux/amd64
             runner: ubuntu-24.04
           - name: web
-            dockerfile: Dockerfile.web
+            dockerfile: deploy/docker/Dockerfile.web
             target: runtime
             architecture: arm64
             platform: linux/arm64
             runner: ubuntu-24.04-arm
           - name: migrate
-            dockerfile: Dockerfile.api
+            dockerfile: deploy/docker/Dockerfile.api
             target: migration
             architecture: amd64
             platform: linux/amd64
             runner: ubuntu-24.04
           - name: migrate
-            dockerfile: Dockerfile.api
+            dockerfile: deploy/docker/Dockerfile.api
             target: migration
             architecture: arm64
             platform: linux/arm64
             runner: ubuntu-24.04-arm
           - name: runner
-            dockerfile: Dockerfile.runner
+            dockerfile: deploy/docker/Dockerfile.runner
             target: controller
             architecture: amd64
             platform: linux/amd64
             runner: ubuntu-24.04
           - name: runner
-            dockerfile: Dockerfile.runner
+            dockerfile: deploy/docker/Dockerfile.runner
             target: controller
             architecture: arm64
             platform: linux/arm64
@@ -343,7 +343,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           context: .
-          file: Dockerfile.runner
+          file: deploy/docker/Dockerfile.runner
           target: worker
           platforms: ${{ matrix.platform }}
           build-args: |

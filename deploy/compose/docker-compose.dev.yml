@@ -25,7 +25,7 @@ services:
     image: linksense-api-dev:${LINKSENSE_DEV_IMAGE_TAG:-local}
     build: !override
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: deploy/docker/Dockerfile.dev
       target: development
       labels:
         com.linksense.development.owner: ${LINKSENSE_DEV_RESOURCE_OWNER:-unmanaged}
@@ -114,7 +114,7 @@ services:
       retries: 3
     build: !override
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: deploy/docker/Dockerfile.dev
       target: development
       labels:
         com.linksense.development.owner: ${LINKSENSE_DEV_RESOURCE_OWNER:-unmanaged}
@@ -168,7 +168,7 @@ services:
     image: linksense-web-dev:${LINKSENSE_DEV_IMAGE_TAG:-local}
     build: !override
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: deploy/docker/Dockerfile.dev
       target: development
       labels:
         com.linksense.development.owner: ${LINKSENSE_DEV_RESOURCE_OWNER:-unmanaged}
@@ -283,7 +283,7 @@ services:
     image: linksense-docs-dev:${LINKSENSE_DEV_IMAGE_TAG:-local}
     build:
       context: .
-      dockerfile: Dockerfile.web
+      dockerfile: deploy/docker/Dockerfile.web
       target: docs-runtime
       labels:
         com.linksense.development.owner: ${LINKSENSE_DEV_RESOURCE_OWNER:-unmanaged}
@@ -308,7 +308,7 @@ services:
           path: ./apps/docs
           ignore: [node_modules/, build/, .docusaurus/]
         - action: rebuild
-          path: ./Dockerfile.web
+          path: ./deploy/docker/Dockerfile.web
         - action: rebuild
           path: ./deploy/nginx/help-location.conf
         - action: rebuild
