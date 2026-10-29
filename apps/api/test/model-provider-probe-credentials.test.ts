@@ -27,7 +27,10 @@ function fixture(version = 9, enabled = true) {
   const transaction = vi.fn().mockRejectedValue(new Error("probe must not persist"))
   const prisma = { systemSetting: { findUnique }, $transaction: transaction } as unknown as PrismaClient
   const probe = {
-    detectProtocol: vi.fn().mockResolvedValue({ status: "detected", protocol_mode: "native_responses", model_id: "test-model" }),
+    detectProtocol: vi.fn().mockResolvedValue({
+      status: "detected", protocol_mode: "native_responses", model_id: "test-model",
+      probes: [{ protocol_mode: "native_responses", status: "success", latency_ms: 25 }],
+    }),
     discover: vi.fn().mockResolvedValue({ status: "supported", models: [], truncated: false }),
     testConnection: vi.fn().mockResolvedValue({ status: "success", model_id: "test-model" }),
   }

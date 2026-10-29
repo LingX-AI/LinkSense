@@ -219,7 +219,7 @@ export function ChannelEditor({
   channel,
   ...actions
 }: EditorActions & { channel: ModelChannel | null }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const id = useId()
   const [initial] = useState<ModelChannelUpdate>(() =>
     channel
@@ -527,9 +527,57 @@ export function ChannelEditor({
                   ),
                   model: detection.data.model_id,
                 })
-              : t("modelSetup.protocolModelRequired")}
+              : detection.data.status === "unsupported"
+                ? t("modelSetup.protocolUnsupported")
+                : t("modelSetup.protocolModelRequired")}
           </StatusBanner>
         )}
+        {detection.data &&
+          detection.data.status !== "model_required" &&
+          detection.data.probes.length > 0 && (
+            <ul
+              className="flex flex-col gap-1"
+              aria-label={t("modelSetup.protocolProbeResults")}
+            >
+              {detection.data.probes.map((probe) => (
+                <li
+                  key={probe.protocol_mode}
+                  className="flex items-center justify-between gap-3 rounded-md bg-muted px-3 py-1.5 text-xs"
+                >
+                  <span className="text-muted-foreground">
+                    {t(
+                      `admin.modelProvider.protocolModes.${probe.protocol_mode}`
+                    )}
+                  </span>
+                  <span
+                    className={
+                      probe.status === "success"
+                        ? "text-success"
+                        : "text-destructive-text"
+                    }
+                  >
+                    {probe.status === "success"
+                      ? t("modelSetup.protocolProbeSuccess", {
+                          seconds: (
+                            (probe.latency_ms ?? 0) / 1000
+                          ).toLocaleString(i18n.resolvedLanguage ?? "zh-CN", {
+                            minimumFractionDigits: 1,
+                            maximumFractionDigits: 1,
+                          }),
+                        })
+                      : t(
+                          {
+                            unsupported: "modelSetup.protocolProbeUnsupported",
+                            invalid_response:
+                              "modelSetup.protocolProbeInvalidResponse",
+                            failed: "modelSetup.protocolProbeFailed",
+                          }[probe.status]
+                        )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         <ModelSettingsSelect
           label={t("admin.modelProvider.protocolMode")}
           value={value.protocol_mode ?? "native_responses"}

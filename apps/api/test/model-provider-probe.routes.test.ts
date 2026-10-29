@@ -24,7 +24,10 @@ async function fixture(role: "admin" | "user" = "admin", enabled = true, status 
   })
   const discover = vi.fn().mockResolvedValue({ status: "supported", models: [{ id: "test-model", display_name: "Test Model", context_window: null, supports_image_input: null }], truncated: false })
   const testConnection = vi.fn().mockResolvedValue({ status: "success", model_id: "test-model" })
-  const detectProtocol = vi.fn().mockResolvedValue({ status: "detected", model_id: "test-model", protocol_mode: "responses_tool_compat" })
+  const detectProtocol = vi.fn().mockResolvedValue({
+    status: "detected", model_id: "test-model", protocol_mode: "responses_tool_compat",
+    probes: [{ protocol_mode: "responses_tool_compat", status: "success", latency_ms: 25 }],
+  })
   const discoverImages = vi.fn().mockResolvedValue({ status: "supported", models: [{ id: "image-model", display_name: "Image model", context_window: null, supports_image_input: null }], truncated: false })
   const discoverVoice = vi.fn().mockResolvedValue({ status: "supported", models: [{ id: "speech-model", display_name: "Speech model", context_window: null, supports_image_input: null }], truncated: false })
   await app.register(adminSystemRoutes, { prefix: "/api/v1/admin", services: {
@@ -154,7 +157,10 @@ describe("administrator model provider probes", () => {
       const detected = await app.inject({ method: "POST", url: "/api/v1/admin/model-provider-settings/detect-protocol", headers, payload: draft })
       expect(detected.statusCode).toBe(200)
       expect(detected.headers["cache-control"]).toBe("private, no-store")
-      expect(detected.json().data).toEqual({ status: "detected", model_id: "test-model", protocol_mode: "responses_tool_compat" })
+      expect(detected.json().data).toEqual({
+        status: "detected", model_id: "test-model", protocol_mode: "responses_tool_compat",
+        probes: [{ protocol_mode: "responses_tool_compat", status: "success", latency_ms: 25 }],
+      })
       expect(detectProtocol).toHaveBeenCalledWith(expect.objectContaining(draft), expect.any(AbortSignal))
       expect(detected.body).not.toContain(draft.api_key)
     } finally { await app.close() }

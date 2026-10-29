@@ -23,7 +23,22 @@ const detected = (
 ) =>
   Response.json({
     success: true,
-    data: { status: "detected", protocol_mode, model_id },
+    data: {
+      status: "detected",
+      protocol_mode,
+      model_id,
+      probes: [
+        { protocol_mode, status: "success", latency_ms: 1_600 },
+        {
+          protocol_mode:
+            protocol_mode === "native_responses"
+              ? "responses_tool_compat"
+              : "native_responses",
+          status: "failed",
+          latency_ms: 2_000,
+        },
+      ],
+    },
   })
 
 afterEach(() => {
@@ -154,6 +169,20 @@ describe("automatic channel protocol selection", () => {
           })
         )
       ).toBeVisible()
+      const probeResults = screen.getByRole("list", {
+        name: i18n.t("modelSetup.protocolProbeResults"),
+      })
+      expect(probeResults).toHaveTextContent(
+        i18n.t("admin.modelProvider.protocolModes.responses_tool_compat")
+      )
+      expect(probeResults).toHaveTextContent(
+        i18n.t("modelSetup.protocolProbeSuccess", {
+          seconds: ["es-ES", "pt-BR", "fr-FR"].includes(locale) ? "1,6" : "1.6",
+        })
+      )
+      expect(probeResults).toHaveTextContent(
+        i18n.t("modelSetup.protocolProbeFailed")
+      )
       expect(
         fetcher.mock.calls.filter(([url]) =>
           String(url).endsWith("/detect-protocol")

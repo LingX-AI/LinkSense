@@ -6,6 +6,13 @@ export const modelSetupMessages = {
       "从服务提供的模型列表中选择，或手动输入模型 ID。部分服务会返回其他类型的模型，请确认所选模型支持图片生成。",
     voiceDiscoveryHint:
       "从服务提供的模型列表中选择，或手动输入模型 ID。部分服务会返回其他类型的模型，请确认所选模型支持语音转文字。",
+    protocolUnsupported:
+      "当前地址没有匹配的协议，请确认 Base URL 或手动选择协议。",
+    protocolProbeResults: "协议检测结果",
+    protocolProbeSuccess: "{{seconds}} 秒",
+    protocolProbeUnsupported: "不支持",
+    protocolProbeInvalidResponse: "响应无效",
+    protocolProbeFailed: "检测失败",
     detectProtocol: "检测协议",
     detectingProtocol: "正在检测协议…",
     protocolDetectionHint:
@@ -55,6 +62,13 @@ export const modelSetupMessages = {
       "Select a model from the service's list or enter its ID manually. Some services also list other model types; confirm that your selection supports image generation.",
     voiceDiscoveryHint:
       "Select a model from the service's list or enter its ID manually. Some services also list other model types; confirm that your selection supports speech-to-text.",
+    protocolUnsupported:
+      "No matching protocol found for this address. Check the base URL or select a protocol manually.",
+    protocolProbeResults: "Protocol check results",
+    protocolProbeSuccess: "{{seconds}} s",
+    protocolProbeUnsupported: "Not supported",
+    protocolProbeInvalidResponse: "Invalid response",
+    protocolProbeFailed: "Check failed",
     detectProtocol: "Detect protocol",
     detectingProtocol: "Detecting protocol…",
     protocolDetectionHint:
@@ -110,6 +124,13 @@ export const modelSetupMessages = {
       "Seleccione un modelo de la lista del servicio o introduzca su ID manualmente. Algunos servicios incluyen otros tipos de modelos; confirme que el elegido permite generar imágenes.",
     voiceDiscoveryHint:
       "Seleccione un modelo de la lista del servicio o introduzca su ID manualmente. Algunos servicios incluyen otros tipos de modelos; confirme que el elegido permite transcribir voz.",
+    protocolUnsupported:
+      "No se encontró ningún protocolo compatible con esta dirección. Comprueba la URL base o selecciona un protocolo manualmente.",
+    protocolProbeResults: "Resultados de comprobación de protocolos",
+    protocolProbeSuccess: "{{seconds}} s",
+    protocolProbeUnsupported: "No compatible",
+    protocolProbeInvalidResponse: "Respuesta no válida",
+    protocolProbeFailed: "Error de comprobación",
     detectProtocol: "Detectar protocolo",
     detectingProtocol: "Detectando protocolo…",
     protocolDetectionHint:
@@ -166,6 +187,13 @@ export const modelSetupMessages = {
       "Selecione um modelo da lista do serviço ou informe seu ID manualmente. Alguns serviços também listam outros tipos de modelos; confirme que o escolhido permite gerar imagens.",
     voiceDiscoveryHint:
       "Selecione um modelo da lista do serviço ou informe seu ID manualmente. Alguns serviços também listam outros tipos de modelos; confirme que o escolhido permite transcrever áudio.",
+    protocolUnsupported:
+      "Nenhum protocolo compatível encontrado para este endereço. Verifique a URL base ou selecione um protocolo manualmente.",
+    protocolProbeResults: "Resultados da verificação de protocolos",
+    protocolProbeSuccess: "{{seconds}} s",
+    protocolProbeUnsupported: "Não suportado",
+    protocolProbeInvalidResponse: "Resposta inválida",
+    protocolProbeFailed: "Falha na verificação",
     detectProtocol: "Detectar protocolo",
     detectingProtocol: "Detectando protocolo…",
     protocolDetectionHint:
@@ -222,6 +250,13 @@ export const modelSetupMessages = {
       "Sélectionnez un modèle dans la liste du service ou saisissez son ID. Certains services proposent aussi d’autres types de modèles ; vérifiez que le modèle choisi permet de générer des images.",
     voiceDiscoveryHint:
       "Sélectionnez un modèle dans la liste du service ou saisissez son ID. Certains services proposent aussi d’autres types de modèles ; vérifiez que le modèle choisi permet de transcrire la parole.",
+    protocolUnsupported:
+      "Aucun protocole compatible trouvé pour cette adresse. Vérifiez l’URL de base ou sélectionnez un protocole manuellement.",
+    protocolProbeResults: "Résultats de détection des protocoles",
+    protocolProbeSuccess: "{{seconds}} s",
+    protocolProbeUnsupported: "Non pris en charge",
+    protocolProbeInvalidResponse: "Réponse invalide",
+    protocolProbeFailed: "Échec de la vérification",
     detectProtocol: "Détecter le protocole",
     detectingProtocol: "Détection du protocole…",
     protocolDetectionHint:
@@ -278,6 +313,13 @@ export const modelSetupMessages = {
       "サービスのモデル一覧から選ぶか、ID を手動で入力してください。他の種類のモデルも含まれる場合があるため、画像生成に対応しているか確認してください。",
     voiceDiscoveryHint:
       "サービスのモデル一覧から選ぶか、ID を手動で入力してください。他の種類のモデルも含まれる場合があるため、音声文字起こしに対応しているか確認してください。",
+    protocolUnsupported:
+      "このアドレスに一致するプロトコルが見つかりません。ベース URL を確認するか、プロトコルを手動で選択してください。",
+    protocolProbeResults: "プロトコル検出結果",
+    protocolProbeSuccess: "{{seconds}} 秒",
+    protocolProbeUnsupported: "非対応",
+    protocolProbeInvalidResponse: "応答が無効",
+    protocolProbeFailed: "検出失敗",
     detectProtocol: "プロトコルを検出",
     detectingProtocol: "プロトコルを検出中…",
     protocolDetectionHint:

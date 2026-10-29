@@ -234,11 +234,23 @@ export const detectModelProviderProtocolInputSchema = z.strictObject({
   model_id: modelIdentifierSchema.optional(),
 }).superRefine(validateProviderSpecificFields)
 
+export const modelProviderProtocolProbeSchema = z.strictObject({
+  protocol_mode: modelProviderProtocolModeSchema,
+  status: z.enum(["success", "unsupported", "invalid_response", "failed"]),
+  latency_ms: z.number().int().nonnegative().nullable(),
+})
+
 export const detectModelProviderProtocolResultSchema = z.discriminatedUnion("status", [
   z.strictObject({
     status: z.literal("detected"),
     protocol_mode: modelProviderProtocolModeSchema,
     model_id: modelIdentifierSchema,
+    probes: z.array(modelProviderProtocolProbeSchema),
+  }),
+  z.strictObject({
+    status: z.literal("unsupported"),
+    model_id: modelIdentifierSchema,
+    probes: z.array(modelProviderProtocolProbeSchema),
   }),
   z.strictObject({ status: z.literal("model_required") }),
 ])

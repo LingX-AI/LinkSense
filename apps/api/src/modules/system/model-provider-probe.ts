@@ -8,6 +8,7 @@ import {
   modelProviderProbeInputSchema,
   modelProviderPresets,
   modelProviderProtocolModeValues,
+  modelProviderProtocolProbeSchema,
   type DetectModelProviderProtocolResult,
   type DiscoverModelProviderResult,
   type DiscoveredProviderModel,
@@ -108,30 +109,50 @@ export function createModelProviderProbeClient(
         const preferred = modelProviderPresets[input.provider].protocol_mode
         const modes = [preferred, ...modelProviderProtocolModeValues.filter((mode) => mode !== preferred)]
         const boundedFetch = createBoundedModelProviderFetch(input.base_url, fetcher, signal)
+        const probes: z.infer<typeof modelProviderProtocolProbeSchema>[] = []
         for (const mode of modes) {
-          const chat = mode === "chat_completions_bridge"
-          const responsesTool = mode === "native_responses"
-            ? { type: "custom", name: protocolProbeFunction.name, description: protocolProbeFunction.description, format: { type: "text" } }
-            : { type: "function", ...protocolProbeFunction }
-          const tools = chat ? [{ type: "function", function: protocolProbeFunction }] : [responsesTool]
-          const message = { role: "user", content: "Please reply briefly with OK." }
-          const response = await boundedFetch(new URL(`${input.base_url}/${chat ? "chat/completions" : "responses"}`), {
-            method: "POST",
-            headers: { authorization: `Bearer ${input.api_key}`, "content-type": "application/json", accept: "application/json" },
-            body: JSON.stringify({
-              model: modelId, stream: false, tools, tool_choice: "none",
-              ...(chat ? { messages: [message], max_tokens: CONNECTION_OUTPUT_TOKEN_LIMIT } : { input: [message], max_output_tokens: CONNECTION_OUTPUT_TOKEN_LIMIT, store: false }),
-            }),
-            signal,
-          })
-          if ([400, 404, 405, 422].includes(response.status)) continue
-          if (!response.ok) throw new AppError("MODEL_PROVIDER_CONNECTION_FAILED")
-          const payload: unknown = await response.json().catch(() => null)
-          if ((chat ? chatProbeReplySchema : responsesProbeReplySchema).safeParse(payload).success) {
-            return { status: "detected", protocol_mode: mode, model_id: modelId }
+          const startedAt = Date.now()
+          try {
+            const chat = mode === "chat_completions_bridge"
+            const responsesTool = mode === "native_responses"
+              ? { type: "custom", name: protocolProbeFunction.name, description: protocolProbeFunction.description, format: { type: "text" } }
+              : { type: "function", ...protocolProbeFunction }
+            const tools = chat ? [{ type: "function", function: protocolProbeFunction }] : [responsesTool]
+            const message = { role: "user", content: "Please reply briefly with OK." }
+            const response = await boundedFetch(new URL(`${input.base_url}/${chat ? "chat/completions" : "responses"}`), {
+              method: "POST",
+              headers: { authorization: `Bearer ${input.api_key}`, "content-type": "application/json", accept: "application/json" },
+              body: JSON.stringify({
+                model: modelId, stream: false, tools, tool_choice: "none",
+                ...(chat ? { messages: [message], max_tokens: CONNECTION_OUTPUT_TOKEN_LIMIT } : { input: [message], max_output_tokens: CONNECTION_OUTPUT_TOKEN_LIMIT, store: false }),
+              }),
+              signal,
+            })
+            const latency_ms = Date.now() - startedAt
+            if ([400, 404, 405, 422].includes(response.status)) {
+              probes.push({ protocol_mode: mode, status: "unsupported", latency_ms })
+              continue
+            }
+            if (!response.ok) throw new AppError("MODEL_PROVIDER_CONNECTION_FAILED")
+            const payload: unknown = await response.json().catch(() => null)
+            const succeeded = (chat ? chatProbeReplySchema : responsesProbeReplySchema).safeParse(payload).success
+            probes.push({ protocol_mode: mode, status: succeeded ? "success" : "invalid_response", latency_ms })
+          } catch {
+            parentSignal?.throwIfAborted()
+            if (!probes.some((probe) => probe.status === "success")) {
+              throw new AppError("MODEL_PROVIDER_CONNECTION_FAILED")
+            }
+            // Optional comparisons must not invalidate an already verified protocol.
+            probes.push({ protocol_mode: mode, status: "failed", latency_ms: Date.now() - startedAt })
+            if (signal.aborted) break
           }
         }
-        throw new AppError("MODEL_PROVIDER_CONNECTION_FAILED")
+        parentSignal?.throwIfAborted()
+        // Keep the provider's preferred order when several modes succeed.
+        const winner = probes.find((probe) => probe.status === "success")
+        return winner
+          ? { status: "detected", protocol_mode: winner.protocol_mode, model_id: modelId, probes }
+          : { status: "unsupported", model_id: modelId, probes }
       } catch {
         throw new AppError("MODEL_PROVIDER_CONNECTION_FAILED")
       }
