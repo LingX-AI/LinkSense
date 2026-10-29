@@ -30,10 +30,13 @@ Commands, resource requirements, and verification below are specific to LinkSens
 ## 1. Check the host and choose the path
 
 Check OS/architecture, Docker CLI and `docker info`, local disk availability, and
-the [deployment sizing table](README.md#deployment-sizing). On macOS, start
+the [Core sizing](docs/setup/core.md#1-check-prerequisites-and-resources) or
+[Full sizing](docs/setup/full.md#1-check-prerequisites-and-resources). On macOS, start
 Docker Desktop and use the current account **without sudo**. Its VM must report
-at least 8 GiB usable memory for Core or 24 GiB for a new Full installation;
-leave overhead above those thresholds. A 16 GiB Mac should start with Core.
+at least 8 GiB usable memory for Core or 10 GiB for a new Full installation in the
+current source release configuration. The selected release manifest is authoritative;
+older releases may require more. Leave overhead above those thresholds.
+A 16 GiB Mac should start with Core.
 
 Linux x86_64/ARM64 and macOS Intel/Apple Silicon are supported. The released
 installer requires a local Docker Unix socket, Engine API 1.45+, and Compose
