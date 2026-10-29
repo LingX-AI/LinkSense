@@ -419,6 +419,61 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     await expect(
       targetPage.getByRole("button", { name: "Upper action clicked" })
     ).toBeVisible()
+    const resetOrdinalTargets = () =>
+      targetPage.evaluate(() => {
+        document.querySelector("#ordinal-targets")?.remove()
+        const row = document.createElement("div")
+        row.id = "ordinal-targets"
+        row.style.cssText =
+          "position:fixed;left:286px;top:450px;display:flex;gap:8px"
+        for (let ordinal = 1; ordinal <= 6; ordinal++) {
+          const button = document.createElement("button")
+          button.textContent = "Delete"
+          button.dataset.ordinal = String(ordinal)
+          button.style.cssText =
+            "box-sizing:border-box;width:94px;height:40px;margin:0;padding:0"
+          button.addEventListener("click", () => button.remove())
+          row.append(button)
+        }
+        document.body.append(row)
+      })
+    const remainingOrdinals = () =>
+      targetPage.locator("#ordinal-targets button").evaluateAll((buttons) =>
+        buttons.map((button) => button.getAttribute("data-ordinal"))
+      )
+    await resetOrdinalTargets()
+    // Replay #68's wrong x=376: the first button spans 286..380, not the second.
+    await execute({ action: "click_at", tab_id: tabId, x: 376, y: 470 })
+    expect(await remainingOrdinals()).toEqual(["2", "3", "4", "5", "6"])
+    await resetOrdinalTargets()
+    const ordinalSnapshot = await execute({
+      action: "snapshot",
+      tab_id: tabId,
+    })
+    const deleteButtons = ordinalSnapshot.data.elements?.filter(
+      (element) => element.role === "button" && element.name === "Delete"
+    )
+    expect(deleteButtons).toHaveLength(6)
+    await execute({
+      action: "click",
+      tab_id: tabId,
+      ref: deleteButtons![1]!.ref,
+    })
+    expect(await remainingOrdinals()).toEqual(["1", "3", "4", "5", "6"])
+    const ordinalClick = await targetPage.evaluate(
+      () =>
+        JSON.parse(document.body.dataset.controlClick ?? "{}") as {
+          x: number
+          trusted: boolean
+        }
+    )
+    expect(ordinalClick).toMatchObject({ x: 435, trusted: true })
+    await targetPage.screenshot({
+      path: testInfo.outputPath("ordinal-target-verified.png"),
+    })
+    await targetPage.evaluate(() =>
+      document.querySelector("#ordinal-targets")?.remove()
+    )
     await execute({ action: "click", tab_id: tabId, ref: input!.ref })
     await page.bringToFront()
     // Headless Chrome emulates page visibility; the browser's selected-tab state is authoritative.

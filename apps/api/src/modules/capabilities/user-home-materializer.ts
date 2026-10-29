@@ -58,7 +58,7 @@ export const PLUGIN_STDIO_LAUNCHER_COMMAND = "linksense-plugin-stdio"
 // The regression test intentionally pins it to the actual generated tree so
 // every built-in writer or bundled documentation change must update it.
 export const BUILT_IN_CAPABILITY_RUNTIME_REVISION =
-  "774e4ed09ce3c44a844beaf3be198a00e82ff60f645d0e16803ad88be1c6d44e"
+  "1176c02d70f68a670e3be337c1a892021dcbc111e079fa1e7009369219d73b41"
 
 const BUILT_IN_BROWSER_SKILL_NAME = "linksense-browser"
 const BUILT_IN_DOCUMENT_READER_SKILL_NAME = "linksense-document-reader"
@@ -2257,10 +2257,18 @@ browser for every task. Installing the extension does not make every task local.
 2. Call action=tabs to list pages the user allowed, or action=open with an HTTP(S)
    URL when the user enabled new tabs. Never read arbitrary unapproved tabs.
 3. Keep the returned tab_id for this page. Call snapshot for accessibility refs,
-   then click with a fresh ref. After navigation re-observe; refs are document-bound.
-4. For canvas/iframe controls use screenshot and click_at/scroll with CSS viewport
-   coordinates (image pixels may have a different scale). Click an input before
-   type; clear=true replaces its existing text. key supports bounded browser keys.
+   then click with the intended target's fresh ref. For same-name DOM controls
+   selected by ordinal (for example, the second Delete button), use the target's
+   ref rather than estimating screenshot coordinates. Do not assume accessibility
+   order proves visual order; if the requested ordering is unclear, do not guess.
+   Re-observe after navigation or DOM mutations before choosing another ordinal.
+   Refs are document-bound. Verify the intended target changed: a smaller button
+   count alone does not prove which button was deleted. Never replay an uncertain
+   deletion to correct a suspected miss.
+4. Reserve screenshot and click_at for canvas/iframe controls without usable refs.
+   click_at/scroll use CSS viewport coordinates (image pixels may have a different
+   scale). Click an input before type; clear=true replaces its existing text. key
+   supports bounded browser keys.
 5. release ends this task's claim without closing the user's page. A tab claimed
    by another task is unavailable until released or re-authorized by the user.
 

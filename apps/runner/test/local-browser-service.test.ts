@@ -5,6 +5,23 @@ const environment = {
     "http://127.0.0.1/mcp-current-user/task/info",
   LINKSENSE_CURRENT_USER_TOKEN: "x".repeat(32),
 };
+it("directs ordinal same-name DOM controls to fresh refs instead of estimated coordinates", () => {
+  const module = localBrowserCoreMcpModule.create({
+    environment,
+    workspaceRoot: "/tmp",
+    fetch: vi.fn(),
+  });
+  const tool = module.tools[0];
+  expect(tool?.description).toMatch(/ordinal.*fresh snapshot.*ref/u);
+  expect(tool?.description).toContain("Do not estimate");
+  expect(tool?.inputSchema.properties?.ref).toMatchObject({
+    description: expect.stringContaining("DOM controls"),
+  });
+  for (const key of ["x", "y"])
+    expect(tool?.inputSchema.properties?.[key]).toMatchObject({
+      description: expect.stringContaining("canvas"),
+    });
+});
 it("binds requests to the native task endpoint and returns screenshots as MCP images", async () => {
   const fetcher = vi
     .fn()
