@@ -77,6 +77,8 @@ services:
     restart: "no"
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      LINKSENSE_CREDENTIAL_MASTER_KEY: ${LINKSENSE_CREDENTIAL_MASTER_KEY}
+      LINKSENSE_CREDENTIAL_KEY_ID: ${LINKSENSE_CREDENTIAL_KEY_ID}
     depends_on:
       postgres:
         condition: service_healthy

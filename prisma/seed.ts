@@ -1,5 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../apps/api/src/generated/prisma/client";
+import { initialSettings } from "./initial-settings.js";
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -11,15 +12,6 @@ const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({ adapter });
 
 const SYSTEM_SETTINGS_ID = "00000000-0000-4000-8000-000000000001";
-
-const initialSettings = {
-  organization_display_name: "LinkSense",
-  default_locale: "zh-CN",
-  system_initialized: false,
-  self_registration: { enabled: false },
-  agents_template_version: "1",
-  agents_template_updated_at: null,
-};
 
 async function main(): Promise<void> {
   await prisma.systemSetting.upsert({

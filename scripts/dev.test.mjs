@@ -992,6 +992,7 @@ async function withIsolatedImageInputs(check) {
       "deploy/baselines/images.lock.json", "deploy/docker/configure-debian-apt.sh", "deploy/docker/bootstrap-ubuntu-node.sh",
       "deploy/docker/patch-tooling-libraries.mjs", "deploy/docker/verify-tooling-libraries.mjs", "deploy/runtime/tooling-security/package.json",
       "deploy/migration/package.json", "deploy/migration/pnpm-lock.yaml", "prisma/schema.prisma", "prisma.config.ts",
+      "apps/api/src/lib/crypto.ts", "packages/shared/src/connection-settings.ts", "packages/shared/src/connections.ts",
       "package.json", "packages/shared/package.json", "pnpm-workspace.yaml", "tsconfig.base.json", "patches/example.patch",
       "apps/api/package.json", "apps/runner/package.json", "apps/web/package.json", "apps/docs/package.json",
       "apps/docs/docusaurus.config.ts", "apps/docs/sidebars.ts", "apps/docs/tsconfig.json", "apps/docs/docs/index.md",
@@ -1071,7 +1072,7 @@ test("migration image reuse depends on its isolated runtime rather than applicat
       await writeFile(resolve(root, path), "unrelated application dependency change\n");
       assert.equal(migrationImageFingerprint(root), previous, `${path} is not a migration build input`);
     }
-    for (const path of ["deploy/migration/package.json", "deploy/migration/pnpm-lock.yaml", "prisma/schema.prisma", "prisma.config.ts", "Dockerfile.api", "deploy/baselines/images.lock.json"]) {
+    for (const path of ["deploy/migration/package.json", "deploy/migration/pnpm-lock.yaml", "prisma/schema.prisma", "prisma.config.ts", "Dockerfile.api", "deploy/baselines/images.lock.json", "apps/api/src/lib/crypto.ts", "packages/shared/src/connection-settings.ts", "packages/shared/src/connections.ts"]) {
       const before = migrationImageFingerprint(root);
       await writeFile(resolve(root, path), "changed migration input\n");
       assert.notEqual(migrationImageFingerprint(root), before, `${path} must invalidate the image`);
