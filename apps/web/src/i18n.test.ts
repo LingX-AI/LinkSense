@@ -3,6 +3,7 @@ import {
   applicationIconPresets,
   taskArtifactFileTypeSchema,
   modelGatewayErrorMessages,
+  localizedErrorMessage,
 } from "@linksense/shared"
 
 import i18n, {
@@ -56,6 +57,21 @@ function interpolationTokens(value: string): string[] {
 }
 
 describe("i18n resources", () => {
+  it.each(supportedLanguages)(
+    "localizes Skill uninstall protection in %s with Chinese fallback",
+    (locale) => {
+      const key = "errors.skillManagement.uninstallNotAllowed"
+      expect(i18n.t(key, { lng: locale })).toBe(
+        localizedErrorMessage("SKILL_UNINSTALL_NOT_ALLOWED", locale)
+      )
+      const fallback = i18n.cloneInstance({ forkResourceStore: true })
+      fallback.removeResourceBundle(locale, "translation")
+      if (locale !== "zh-CN")
+        expect(fallback.t(key, { lng: locale })).toBe(
+          localizedErrorMessage("SKILL_UNINSTALL_NOT_ALLOWED", "zh-CN")
+        )
+    }
+  )
   it.each(supportedLanguages)(
     "localizes gateway failures and historical JSON in %s",
     (locale) => {

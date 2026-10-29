@@ -55,8 +55,12 @@ describe("WeixinChannelPage", () => {
     })
     const { container } = renderPage()
     await waitFor(async () => {
-      expect(await findChannelButton("企业微信", "连接")).toBeEnabled()
+      expect(await findChannelButton("钉钉", "扫码连接")).toBeEnabled()
     })
+    expect(await findChannelButton("企业微信", "关联我的账号")).toBeDisabled()
+    expect(
+      await findChannelButton("Microsoft Teams", "关联我的账号")
+    ).toBeDisabled()
 
     const cards = container.querySelectorAll('[data-slot="card"]')
     expect(cards).toHaveLength(1)
@@ -64,8 +68,13 @@ describe("WeixinChannelPage", () => {
     expect(card).toHaveClass("rounded-card", "border", "channel-access-list")
     const rows = card.querySelectorAll("article")
     expect(rows).toHaveLength(5)
+    expect(
+      Array.from(rows, (row) => within(row).getByRole("heading").textContent)
+    ).toEqual(["微信", "飞书", "钉钉", "企业微信", "Microsoft Teams"])
     for (const row of rows) {
-      const connect = within(row).getByRole("button", { name: "连接" })
+      const connect = within(row).getByRole("button", {
+        name: /^(连接|扫码连接|关联我的账号)$/u,
+      })
       expect(connect).toHaveClass("bg-secondary", "text-secondary-foreground")
       expect(connect).not.toHaveClass("bg-primary")
     }
@@ -193,7 +202,7 @@ describe("WeixinChannelPage", () => {
     expect(screen.getByRole("heading", { name: "企业微信" })).toBeVisible()
     expect(screen.getByRole("heading", { name: "钉钉" })).toBeVisible()
     expect(screen.queryByText("即将支持")).not.toBeInTheDocument()
-    expect(await findChannelButton("企业微信", "连接")).toBeInTheDocument()
+    expect(await findChannelButton("企业微信", "关联我的账号")).toBeDisabled()
     expect(screen.queryByText("已连接账号 ****1234")).not.toBeInTheDocument()
     expect(
       screen.queryByText("仅扫码账号本人 · 文本与语音转写")

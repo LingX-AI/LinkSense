@@ -516,21 +516,21 @@ export const zhCN = {
     clientId: "应用 Client ID",
     secret: "应用密钥",
     tenantId: "租户 ID",
-    sender: "允许使用的成员 ID",
-    groups: "允许该成员在群内 @ 机器人发起任务",
+    groups: "允许成员在群内 @ 机器人发起任务",
     callback: "消息接收地址",
     callbackHelp:
       "将此地址填入 Azure Bot 的消息传送终结点。地址必须能通过公网 HTTPS 访问。",
     replaceHelp: "如需更换应用或密钥，请断开连接后重新配置。",
     disconnectHelp:
       "断开后将停止接收和回复该渠道的消息，尚未处理的消息和待发送回复会被移除。已创建的 LinkSense 任务会保留。",
-    invalid: "请检查所有必填项，并完整填写平台提供的应用、租户和成员 ID。",
+    invalid: "请完整填写应用连接信息，Teams 的应用和租户 ID 应为有效的 UUID。",
     status: {
       connecting: "连接中",
       online: "在线",
       waiting_message: "等待消息验证",
       error: "连接异常",
       disconnected: "未连接",
+      disabled: "已暂停",
     },
     description: {
       wecom:
@@ -541,19 +541,48 @@ export const zhCN = {
     },
     setup: {
       wecom:
-        "在企业微信创建 API 模式的智能机器人，选择长连接，然后填写机器人 ID、密钥和允许使用的成员。",
+        "在企业微信创建 API 模式的智能机器人并启用长连接，然后填写机器人 ID 和密钥。",
       dingtalk:
-        "在钉钉开放平台创建企业内部应用，启用 Stream 模式机器人并发布，开通机器人单聊和群聊发送权限。",
+        "使用手机钉钉扫描二维码，按页面提示创建并授权机器人。完成后关联你的 LinkSense 账号。",
       teams:
         "创建单租户 Azure Bot 并启用 Microsoft Teams 渠道。保存后将消息接收地址填入 Azure，并在 Teams 安装包含该机器人的应用。",
     },
-    senderHelp: {
-      wecom:
-        "填写企业微信通讯录中该成员的账号（userid），仅此成员可以使用你的 LinkSense 助手。",
-      dingtalk:
-        "填写钉钉组织中该成员的 UserId，仅此成员可以使用你的 LinkSense 助手。",
-      teams:
-        "填写 Microsoft Entra 中该用户的对象 ID，仅此用户可以使用你的 LinkSense 助手。",
+    adminTitle: "组织消息渠道",
+    adminHelp:
+      "统一配置企业微信和 Teams。组织成员关联自己的 LinkSense 账号后即可使用，任务使用各自的权限和资源。",
+    organizationHelp:
+      "由管理员统一维护。关联你自己的 LinkSense 账号后使用，未注册或已停用的账号无法发起任务。",
+    personalHelp: "使用钉钉扫码创建并授权你的个人机器人，再关联本人账号。",
+    notConfigured: "等待管理员配置",
+    scanConnect: "扫码连接",
+    scanTitle: "连接钉钉",
+    scanHelp:
+      "使用手机钉钉扫描二维码，按页面提示创建并授权机器人。完成后关联你的 LinkSense 账号。",
+    qrLabel: "钉钉连接二维码",
+    waitingScan: "请使用钉钉扫码并完成授权。",
+    generateQr: "生成二维码",
+    regenerate: "重新生成",
+    linkAccount: "关联我的账号",
+    linked: "账号已关联",
+    linkTitle: "关联{{name}}账号",
+    linkHelp:
+      "将确认消息发送给机器人（私聊），即可关联当前 LinkSense 账号。请勿将确认消息转发给他人。",
+    confirmationMessage: "确认消息",
+    linkExpiry:
+      "确认消息 10 分钟内有效，且只能使用一次。发送后，此页面会自动显示关联结果。",
+    getConfirmation: "获取确认消息",
+    copy: "复制确认消息",
+    copied: "已复制",
+    copyFailed: "复制失败，请手动选择并复制确认消息。",
+    unlink: "解除账号关联",
+    unlinkHelp:
+      "解除后，该渠道账号将无法继续发起任务，已有 LinkSense 任务会保留。",
+    enable: "启用",
+    pause: "暂停",
+    registrationStatus: {
+      connected: "扫码授权完成，请继续关联本人账号。",
+      expired: "二维码已过期，请重新生成。",
+      failed: "授权未完成，请重试。",
     },
   },
   channelAccess: {
@@ -4908,6 +4937,12 @@ export const zhCN = {
     riskRequired: "请先确认来源和风险提示。",
   },
   errors: {
+    skillManagement: {
+      uninstallNotAllowed: localizedErrorMessage(
+        "SKILL_UNINSTALL_NOT_ALLOWED",
+        "zh-CN"
+      ),
+    },
     socialClientInUse: errorCatalog.SOCIAL_CLIENT_IN_USE.messages["zh-CN"],
     socialLastMethod: errorCatalog.SOCIAL_LAST_METHOD.messages["zh-CN"],
     socialAuthFailed: errorCatalog.SOCIAL_AUTH_FAILED.messages["zh-CN"],
