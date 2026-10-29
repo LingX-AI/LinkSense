@@ -1,6 +1,8 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  CONNECTION_CLIENT_SECRET_REQUIRED: "Informe o segredo do aplicativo. Ao alterar o ID, informe também o segredo do novo aplicativo.",
+  CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Contas autorizadas: {{count}}. Alterar o ID do aplicativo exige que esses usuários se conectem novamente. Confirme esse efeito antes de salvar.",
   SKILL_UNINSTALL_NOT_ALLOWED: "Esta habilidade não pode ser desinstalada. As habilidades integradas são fornecidas pelo sistema.",
   IMAGE_GENERATION_INPUT_INVALID: "Não foi possível ler a imagem para edição. Use PNG, JPEG ou WebP de até 8 MB por imagem e 10 MB no total, incluindo a máscara. A máscara deve ser um PNG transparente com as mesmas dimensões da primeira imagem.",
   IMAGE_GENERATION_EDIT_UNSUPPORTED: "O modelo atual não aceita esta edição. Use menos imagens de referência, remova a máscara ou peça ao administrador para selecionar um modelo compatível.",
@@ -259,6 +261,7 @@ export const errorMessages: Record<ErrorCode, string> = {
 
 export const auditMessages = {
   "actions": {
+    connection_settings_updated: "Configuração do conector atualizada",
     connection_authorized: "Conexão autorizada",
     connection_disconnected: "Conexão desconectada",
     connection_enabled: "Conexão ativada",
@@ -474,6 +477,7 @@ export const auditMessages = {
     "weixin_connection_updated": "Conexão com o Weixin atualizada"
   },
   "targetTypes": {
+    connection_provider: "Conector",
     connection: "Conexão pessoal",
     "web_site": "Site compartilhado",
     "application": "Aplicativo",
