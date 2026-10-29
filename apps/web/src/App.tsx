@@ -23,6 +23,11 @@ const AdminQuotaPage = lazy(() =>
     default: module.AdminQuotaPage,
   }))
 )
+const AdminConnectorsPage = lazy(() =>
+  import("@/pages/admin-connectors-page").then((module) => ({
+    default: module.AdminConnectorsPage,
+  }))
+)
 
 const AdminPages = lazy(() =>
   import("@/pages/admin-pages").then((module) => ({
@@ -278,6 +283,10 @@ export function App() {
               />
 
               <Route element={<AdminRoute />}>
+                <Route
+                  path="/admin/connectors"
+                  element={<AdminConnectorsPage />}
+                />
                 <Route
                   path="/admin/users"
                   element={<AdminPages page="users" />}
