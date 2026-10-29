@@ -23,7 +23,7 @@ import { promisify } from "node:util";
 
 const nginxConfigPath = resolve("deploy/nginx/default.conf.template");
 const assistantHtmlPreviewShellPath = resolve(
-  "apps/web/public/assistant-html-preview-shell.html",
+  "packages/shared/src/html-preview-shell-document.ts",
 );
 const apiDockerfilePath = resolve("Dockerfile.api");
 const developmentDockerfilePath = resolve("Dockerfile.dev");
@@ -473,7 +473,7 @@ test("production gateway preserves HTTPS proxy semantics, SSE, and signed MinIO 
     gateway.match(
       /if \(-f \/tmp\/linksense-maintenance\) \{\s*return 503;\s*\}/gu,
     ) ?? [];
-  assert.equal(maintenanceChecks.length, 5);
+  assert.equal(maintenanceChecks.length, 6);
   const siteLocation = section(gateway, "  location ^~ /web/", "  location /api/");
   assert.match(siteLocation, /if \(-f \/tmp\/linksense-maintenance\)/u);
   assert.match(siteLocation, /proxy_set_header X-Forwarded-Proto \$linksense_forwarded_proto;/u);
@@ -1045,7 +1045,7 @@ test("interactive HTML previews use a policy-free isolated shell", async () => {
   assert.match(previewLocation, /Cache-Control "no-store"/u);
   assert.match(shell, /linksense:assistant-html-preview:shell-ready/u);
   assert.match(shell, /linksense:assistant-html-preview:initialize/u);
-  assert.match(shell, /maximumDocumentLength = 20 \* 1024 \* 1024/u);
+  assert.match(shell, /maximumDocumentLength = 21 \* 1024 \* 1024/u);
   assert.match(shell, /document\.write\(message\.html\)/u);
 });
 
