@@ -469,14 +469,14 @@ docker compose --env-file .env.example build \
 
 ```bash
 docker buildx build --platform linux/amd64,linux/arm64 --target runtime \
-  -f Dockerfile.api -t <registry>/linksense-api:<tag> --push .
+  -f deploy/docker/Dockerfile.api -t <registry>/linksense-api:<tag> --push .
 ```
 
 | 文件 | 构建目标 | 产物 |
 | --- | --- | --- |
-| `Dockerfile.api` | `runtime` / `migration` | API / 数据库迁移 |
-| `Dockerfile.web` | `runtime` | Web + 帮助中心 |
-| `Dockerfile.runner` | `controller` / `worker` | Runner 控制器 / 任务 Worker |
+| `deploy/docker/Dockerfile.api` | `runtime` / `migration` | API / 数据库迁移 |
+| `deploy/docker/Dockerfile.web` | `runtime` | Web + 帮助中心 |
+| `deploy/docker/Dockerfile.runner` | `controller` / `worker` | Runner 控制器 / 任务 Worker |
 
 接近生产环境的本地运行方案：
 

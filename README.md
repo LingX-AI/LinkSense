@@ -582,14 +582,14 @@ Multi-platform build:
 
 ```bash
 docker buildx build --platform linux/amd64,linux/arm64 --target runtime \
-  -f Dockerfile.api -t <registry>/linksense-api:<tag> --push .
+  -f deploy/docker/Dockerfile.api -t <registry>/linksense-api:<tag> --push .
 ```
 
 | File | Target | Output |
 | --- | --- | --- |
-| `Dockerfile.api` | `runtime` / `migration` | API / database migration |
-| `Dockerfile.web` | `runtime` | Web + Help Center |
-| `Dockerfile.runner` | `controller` / `worker` | Runner controller / Task Worker |
+| `deploy/docker/Dockerfile.api` | `runtime` / `migration` | API / database migration |
+| `deploy/docker/Dockerfile.web` | `runtime` | Web + Help Center |
+| `deploy/docker/Dockerfile.runner` | `controller` / `worker` | Runner controller / Task Worker |
 
 Production-like local stack:
 

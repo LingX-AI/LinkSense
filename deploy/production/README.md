@@ -1,6 +1,6 @@
 # LinkSense 生产 Git 发布
 
-生产服务器使用 `main` 分支和仓库内的平台无关入口 `docker-compose.production-stack.yml`。不要把用户名、密码或访问令牌写入 Git remote URL、`.env.production`、Compose 文件或发布日志。
+生产服务器使用 `main` 分支和仓库内的平台无关入口 `deploy/compose/docker-compose.production-stack.yml`。不要把用户名、密码或访问令牌写入 Git remote URL、`.env.production`、Compose 文件或发布日志。
 
 此部署方式使用外置的 Elasticsearch 和 Docling。安装知识库组件前，请在实际承载这些服务的主机或虚拟机上核对[虚拟机 CPU 要求](../../README.zh-CN.md#虚拟机-cpu-要求)；API / Runner 所在主机的 CPU 检查不能代表外置服务的运行环境。
 
@@ -174,7 +174,7 @@ sudo ./deploy/production/deploy-production.sh --allow-migrations
 
 发布流程会先校验两个 external volume 的 driver、Options、标签以及 Docker data-root，再在旧服务在线时构建固定生产标签 `pro-latest` 的镜像；随后让**现有 Gateway 容器持续监听端口并保持维护标记**，阻止新请求，按共享短暂宽限窗口停止 API/Runner、精确移除本部署的动态 Worker，并保存任务中止状态，不等待任务自然结束；随后把经过 `pg_restore --list` 验证的 PostgreSQL custom-format 备份直接发布到 backup external volume。Web/API 更新完成后只 reload Gateway 配置，不重建 Gateway；脚本在维护状态下验证 migration、Compose 健康、网关探针及 Worker 镜像指纹，并原子提交发布元数据，最后才关闭维护页。这样服务替换期间不会因为 Gateway 被删除而暴露 Nginx 502。
 
-为缩短日常发布时间，Worker 镜像不再按每个 Git 提交重建。脚本会根据上一次成功部署 revision 到本次 target revision 之间的 `Dockerfile.runner`、runner/shared 源码、基线清单、公共 Python/Node/浏览器运行时、Codex 模板、lockfile 以及相关构建输入判断是否需要重建；只有这些路径变化、`pro-latest` 镜像缺失，或显式设置 `LINKSENSE_FORCE_REBUILD=1` 时才重建 `linksense-runner-worker:pro-latest`。普通 API/Web 修改复用现有 Worker 镜像。重建应用 Worker 时固定继承已经独立验证的环境基线，不再重新下载 Chromium、安装系统工具或编译公共运行时。环境变更先通过 GitHub Actions 的 `Maintain image baselines` 维护，并提交 `deploy/baselines/images.lock.json` 与同步的 Docker 默认摘要。旧的 `worker-cached-browser`、`LINKSENSE_WORKER_BUILD_TARGET` 和 `LINKSENSE_BROWSER_RUNTIME_CACHE_IMAGE` 路径已移除；既有环境文件中的这些旧键不再控制构建。
+为缩短日常发布时间，Worker 镜像不再按每个 Git 提交重建。脚本会根据上一次成功部署 revision 到本次 target revision 之间的 `deploy/docker/Dockerfile.runner`、runner/shared 源码、基线清单、公共 Python/Node/浏览器运行时、Codex 模板、lockfile 以及相关构建输入判断是否需要重建；只有这些路径变化、`pro-latest` 镜像缺失，或显式设置 `LINKSENSE_FORCE_REBUILD=1` 时才重建 `linksense-runner-worker:pro-latest`。普通 API/Web 修改复用现有 Worker 镜像。重建应用 Worker 时固定继承已经独立验证的环境基线，不再重新下载 Chromium、安装系统工具或编译公共运行时。环境变更先通过 GitHub Actions 的 `Maintain image baselines` 维护，并提交 `deploy/baselines/images.lock.json` 与同步的 Docker 默认摘要。旧的 `worker-cached-browser`、`LINKSENSE_WORKER_BUILD_TARGET` 和 `LINKSENSE_BROWSER_RUNTIME_CACHE_IMAGE` 路径已移除；既有环境文件中的这些旧键不再控制构建。
 
 如果只是从历史提交标签切换到固定 `pro-latest`，且本次发布没有改变 runner/shared/runtime/lockfile 等 Worker 运行时输入，可以临时设置 `LINKSENSE_REUSE_PREVIOUS_WORKER_IMAGE=1`。脚本会先校验这些输入路径没有变化，再把上一版已验证 Worker 镜像重新标记为 `linksense-runner-worker:pro-latest`；一旦运行时输入发生变化会拒绝复用，要求正常重建。
 
@@ -183,7 +183,7 @@ sudo ./deploy/production/deploy-production.sh --allow-migrations
 ## 发布后核对
 
 ```bash
-docker compose -f docker-compose.production-stack.yml --env-file .env.production ps
+docker compose -f deploy/compose/docker-compose.production-stack.yml --env-file .env.production ps
 curl --fail http://127.0.0.1:8080/health/live
 git status --short --branch
 ```

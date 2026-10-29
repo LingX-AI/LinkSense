@@ -117,7 +117,7 @@ On macOS, add `$HOME/.local/bin` to the current PATH if necessary to locate
 
 If a checkout is already open, use it. Otherwise clone
 `https://github.com/LingX-AI/linksense.git` into a new directory and enter it.
-Confirm `package.json`, `pnpm-lock.yaml`, `docker-compose.dev.yml`, and `AGENTS.md`
+Confirm `package.json`, `pnpm-lock.yaml`, `deploy/compose/docker-compose.dev.yml`, and `AGENTS.md`
 exist; read the repository instructions before continuing.
 
 Required host tools: Node.js 24+, pnpm 10.34.6, working Docker Engine/Compose,

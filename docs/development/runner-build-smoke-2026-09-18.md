@@ -2,7 +2,7 @@
 
 ## 根因与影响
 
-本次 `pnpm dev` 在 `Dockerfile.runner` 的 `build 5/5` 退出，错误为 `Core MCP in Default mode exposed an unexpected tool registry`，退出码为 1。
+本次 `pnpm dev` 在 `deploy/docker/Dockerfile.runner` 的 `build 5/5` 退出，错误为 `Core MCP in Default mode exposed an unexpected tool registry`，退出码为 1。
 
 应用开发模块已经注册 `update_application_metadata`，Default 模式实际提供 15 个工具；`deploy/docker/runner-runtime-smoke.mjs` 手工维护的预期列表只有 14 个。工具注册合法，但构建检查因重复清单没有同步而失败。现有部署测试主要匹配脚本文本，没有启动实际 MCP 进程验证两者一致性。
 

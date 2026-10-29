@@ -25,19 +25,19 @@ const nginxConfigPath = resolve("deploy/nginx/default.conf.template");
 const assistantHtmlPreviewShellPath = resolve(
   "apps/web/public/assistant-html-preview-shell.html",
 );
-const apiDockerfilePath = resolve("Dockerfile.api");
-const developmentDockerfilePath = resolve("Dockerfile.dev");
-const runnerDockerfilePath = resolve("Dockerfile.runner");
+const apiDockerfilePath = resolve("deploy/docker/Dockerfile.api");
+const developmentDockerfilePath = resolve("deploy/docker/Dockerfile.dev");
+const runnerDockerfilePath = resolve("deploy/docker/Dockerfile.runner");
 const baselineDockerfilePath = resolve("deploy/baselines/Dockerfile.runtime");
 const runnerRuntimeSmokePath = resolve(
   "deploy/docker/runner-runtime-smoke.mjs",
 );
-const webDockerfilePath = resolve("Dockerfile.web");
+const webDockerfilePath = resolve("deploy/docker/Dockerfile.web");
 const composePath = resolve("docker-compose.yml");
-const developmentComposePath = resolve("docker-compose.dev.yml");
-const productionComposePath = resolve("docker-compose.production.yml");
+const developmentComposePath = resolve("deploy/compose/docker-compose.dev.yml");
+const productionComposePath = resolve("deploy/compose/docker-compose.production.yml");
 const productionStackComposePath = resolve(
-  "docker-compose.production-stack.yml",
+  "deploy/compose/docker-compose.production-stack.yml",
 );
 const productionGatewayPath = resolve(
   "deploy/nginx/production-gateway.conf.template",
@@ -419,9 +419,9 @@ test("production stack Compose exposes the merged deployment through one platfor
 
   assert.match(compose, /^name: linksense$/mu);
   assert.match(compose, /^include:$/mu);
-  assert.match(compose, /^\s+- \.\/docker-compose\.yml$/mu);
+  assert.match(compose, /^\s+- \.\.\/\.\.\/docker-compose\.yml$/mu);
   assert.match(compose, /^\s+- \.\/docker-compose\.production\.yml$/mu);
-  assert.match(compose, /^\s+project_directory: \.$/mu);
+  assert.match(compose, /^\s+project_directory: \.\.\/\.\.$/mu);
   assert.match(
     compose,
     /^\s+env_file: \$\{LINKSENSE_COMPOSE_ENV_FILE:-\.env\.production\}$/mu,
@@ -728,7 +728,7 @@ test("production Git deployment is serialized, migration-gated, force-stopped, a
   assert.match(script, /^umask 077$/mu);
   assert.match(script, /deploy-production\.sh must run as root/u);
   assert.match(script, /deploy_branch="main"/u);
-  assert.match(script, /docker-compose\.production-stack\.yml/u);
+  assert.match(script, /deploy\/compose\/docker-compose\.production-stack\.yml/u);
   assert.match(
     script,
     /production_image_tag="\$\{LINKSENSE_PRODUCTION_IMAGE_TAG:-pro-latest\}"/u,

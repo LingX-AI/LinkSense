@@ -83,7 +83,7 @@ test("development ready message shows the browser URL and actual published Web p
 
 test("development publishes HTTP 18172 and HTTPS 18173 while preserving the internal Vite port", async () => {
   const manifest = JSON.parse(await readFile(resolve("apps/web/package.json"), "utf8"));
-  const compose = await readFile(resolve("docker-compose.dev.yml"), "utf8");
+  const compose = await readFile(resolve("deploy/compose/docker-compose.dev.yml"), "utf8");
   const example = await readFile(resolve(".env.example"), "utf8");
 
   assert.match(manifest.scripts.dev, /--port 18173 --strictPort/u);
@@ -418,7 +418,7 @@ test("worker images rebuild when their runtime source fingerprint is stale", () 
 });
 
 test("image reuse includes effective build arguments and ignores the fingerprint label itself", () => {
-  const base = { dockerfile: "Dockerfile.runner", target: "worker", args: { PNPM_VERSION: "10", WORKER_IMAGE_FINGERPRINT: "previous" } };
+  const base = { dockerfile: "deploy/docker/Dockerfile.runner", target: "worker", args: { PNPM_VERSION: "10", WORKER_IMAGE_FINGERPRINT: "previous" } };
   const fingerprint = fingerprintBuildConfiguration("source", base);
   assert.equal(fingerprintBuildConfiguration("source", { ...base, args: { ...base.args, WORKER_IMAGE_FINGERPRINT: "next" } }), fingerprint);
   assert.notEqual(fingerprintBuildConfiguration("source", { ...base, args: { ...base.args, PNPM_VERSION: "11" } }), fingerprint);
@@ -435,7 +435,7 @@ test("Compose argument builders keep development and production modes separate",
       "-f",
       "docker-compose.yml",
       "-f",
-      "docker-compose.dev.yml",
+      "deploy/compose/docker-compose.dev.yml",
       "up",
       "-d",
       "api",
@@ -903,13 +903,13 @@ test("worker rebuild still refreshes both runner images when no controller is ru
 });
 
 test("development Compose runs Web, API, and runner from source-aware images", async () => {
-  const compose = await readFile(resolve("docker-compose.dev.yml"), "utf8");
+  const compose = await readFile(resolve("deploy/compose/docker-compose.dev.yml"), "utf8");
   const webCompose = compose.slice(compose.indexOf("  web:"));
 
   assert.match(compose, /^  api:\n    image:/mu);
   assert.match(compose, /^  runner:\n    image:/mu);
   assert.match(compose, /^  web:\n    image:/mu);
-  assert.match(compose, /dockerfile: Dockerfile\.dev/u);
+  assert.match(compose, /dockerfile: deploy\/docker\/Dockerfile\.dev/u);
   assert.match(compose, /action: sync/u);
   assert.match(compose, /action: rebuild/u);
   assert.match(
@@ -937,7 +937,7 @@ test("development prepares only the host-backed user data root", async () => {
   const [baseCompose, developmentCompose, developmentScript] =
     await Promise.all([
       readFile(resolve("docker-compose.yml"), "utf8"),
-      readFile(resolve("docker-compose.dev.yml"), "utf8"),
+      readFile(resolve("deploy/compose/docker-compose.dev.yml"), "utf8"),
       readFile(resolve("scripts/dev.mjs"), "utf8"),
     ]);
 
@@ -988,7 +988,7 @@ async function withIsolatedImageInputs(check) {
   const root = await mkdtemp(resolve(tmpdir(), "linksense-image-inputs-"));
   try {
     for (const path of [
-      ".dockerignore", "Dockerfile.api", "Dockerfile.web", "LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE",
+      ".dockerignore", "deploy/docker/Dockerfile.api", "deploy/docker/Dockerfile.web", "LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE",
       "deploy/baselines/images.lock.json", "deploy/docker/configure-debian-apt.sh", "deploy/docker/bootstrap-ubuntu-node.sh",
       "deploy/docker/patch-tooling-libraries.mjs", "deploy/docker/verify-tooling-libraries.mjs", "deploy/runtime/tooling-security/package.json",
       "deploy/migration/package.json", "deploy/migration/pnpm-lock.yaml", "prisma/schema.prisma", "prisma.config.ts",
@@ -1046,7 +1046,7 @@ test("Help Center reuse still detects its dependencies, package integrity and bu
     lockfile.snapshots["renderer@1.0.0"].dependencies = { sharp: "0.35.5" };
     await writeLockfile();
     assert.notEqual(docsImageFingerprint(root), previous);
-    for (const path of ["apps/docs/package.json", "apps/docs/docs/index.md", "apps/docs/i18n/en-US/index.md", "patches/example.patch", "package.json", "pnpm-workspace.yaml", "deploy/baselines/images.lock.json", "Dockerfile.web", "deploy/nginx/help-location.conf"]) {
+    for (const path of ["apps/docs/package.json", "apps/docs/docs/index.md", "apps/docs/i18n/en-US/index.md", "patches/example.patch", "package.json", "pnpm-workspace.yaml", "deploy/baselines/images.lock.json", "deploy/docker/Dockerfile.web", "deploy/nginx/help-location.conf"]) {
       previous = docsImageFingerprint(root);
       await writeFile(resolve(root, path), "changed input\n");
       assert.notEqual(docsImageFingerprint(root), previous, `${path} must invalidate the image`);
@@ -1071,7 +1071,7 @@ test("migration image reuse depends on its isolated runtime rather than applicat
       await writeFile(resolve(root, path), "unrelated application dependency change\n");
       assert.equal(migrationImageFingerprint(root), previous, `${path} is not a migration build input`);
     }
-    for (const path of ["deploy/migration/package.json", "deploy/migration/pnpm-lock.yaml", "prisma/schema.prisma", "prisma.config.ts", "Dockerfile.api", "deploy/baselines/images.lock.json"]) {
+    for (const path of ["deploy/migration/package.json", "deploy/migration/pnpm-lock.yaml", "prisma/schema.prisma", "prisma.config.ts", "deploy/docker/Dockerfile.api", "deploy/baselines/images.lock.json"]) {
       const before = migrationImageFingerprint(root);
       await writeFile(resolve(root, path), "changed migration input\n");
       assert.notEqual(migrationImageFingerprint(root), before, `${path} must invalidate the image`);
@@ -1084,7 +1084,7 @@ test("changing the repository Codex pin or isolation smoke rebuilds the developm
   try {
     // Use real build inputs; only the repository pin changes between checks.
     for (const input of [
-      ".dockerignore", "Dockerfile.runner", "LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE", "package.json",
+      ".dockerignore", "deploy/docker/Dockerfile.runner", "LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE", "package.json",
       "deploy/baselines/images.lock.json",
       "pnpm-lock.yaml", "pnpm-workspace.yaml", "tsconfig.base.json", "patches",
       "apps/api/package.json", "apps/docs/package.json", "apps/web/package.json",

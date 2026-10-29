@@ -88,7 +88,7 @@
 | 6 | Core / Full 选择与一条安装命令的预览 | 可操作的安装入口，完整前置条件放部署页，命令始终可复制和阅读。 |
 | 7 | 常见问题、文档和社区、最后一次行动入口 | 可开可关的 FAQ 与大字号页尾；保留键盘操作和清楚的链接。 |
 
-不需要用虚构客户 Logo、虚构使用人数或未经授权的评价补齐原站的客户证明区。[ADOPTERS.md](../../ADOPTERS.md) 目前只有待填写模板，不能充当客户证据。
+不需要用虚构客户 Logo、虚构使用人数或未经授权的评价补齐原站的客户证明区。[ADOPTERS.md](../community/ADOPTERS.md) 目前只有待填写模板，不能充当客户证据。
 
 后续实现的动效范围应单独验收：首屏文字、圆角演示、内容揭示、场景悬停、按钮填充、桌面上下文光标、分隔线、菜单及 FAQ 的打开与关闭；多路由时还包括出入场转场。当前阶段不宣称上述效果已完成。
 
@@ -251,7 +251,7 @@ curl -fsSL https://raw.githubusercontent.com/LingX-AI/linksense/main/upgrade.sh 
 - [D12] [`sign-in.md`](../../apps/docs/docs/user-guide/getting-started/sign-in.md)、[`registration.md`](../../apps/docs/docs/user-guide/getting-started/registration.md)、[`password-and-sso.md`](../../apps/docs/docs/user-guide/getting-started/password-and-sso.md)：成员登录和条件化认证入口。
 - [D13] [`apps/docs/docs/admin-guide/health.md`](../../apps/docs/docs/admin-guide/health.md)：健康页能力与限制。
 - [D14] [`apps/docs/docs/admin-guide/system-update.md`](../../apps/docs/docs/admin-guide/system-update.md)：版本检查、发行升级和 main 分支部署差异。
-- [D15] [`SECURITY.md`](../../SECURITY.md)：执行权限、文件共享、出站网络、云元数据及 Docker 控制面边界。
+- [D15] [`SECURITY.md`](../../.github/SECURITY.md)：执行权限、文件共享、出站网络、云元数据及 Docker 控制面边界。
 - [D16] [`LICENSE`](../../LICENSE)、[`LICENSE-EXCEPTIONS.md`](../../LICENSE-EXCEPTIONS.md)、[`ATTRIBUTION.md`](../../ATTRIBUTION.md)、[`TRADEMARK.md`](../../TRADEMARK.md)：CPAL、内部部署例外、署名与品牌边界。
 - [D17] [`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md)：第三方服务发行物、独立许可和版本来源。
 
