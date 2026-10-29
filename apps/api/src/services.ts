@@ -1,3 +1,5 @@
+import { HtmlPreviewService, RedisHtmlPreviewSessionStore } from "./modules/html-preview/service.js";
+import { WebArtifactResources } from "./modules/web-sites/artifact-resources.js";
 import { assertExecutionPrincipalActive } from "./lib/execution-principal.js";
 import { ApplicationDevelopmentService } from "./modules/applications/development-service.js";
 import { ApplicationDevelopmentRepository } from "./modules/applications/development-repository.js";
@@ -208,6 +210,7 @@ export type AppServices = {
   conversations: ConversationService;
   conversationShares: ConversationShareService;
   webSites: WebSiteService;
+  htmlPreviews: HtmlPreviewService;
   automations: AutomationService;
   conversationAutomations: ConversationAutomationService;
   completionNotifications: CompletionNotificationService;
@@ -870,6 +873,7 @@ export function createServices(input: {
     conversations,
     conversationShares,
     webSites: new WebSiteService(new WebSiteRepository(input.prisma), input.storage),
+    htmlPreviews: new HtmlPreviewService(new WebArtifactResources(new WebSiteRepository(input.prisma), input.storage), new RedisHtmlPreviewSessionStore(input.redis), async ownerId => Boolean(await input.prisma.user.count({ where: { id: ownerId, status: "active" } }))),
     automations,
     conversationAutomations: new ConversationAutomationService(input.prisma, automations),
     completionNotifications,

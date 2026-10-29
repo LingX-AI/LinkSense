@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
-import { webSiteSchema } from "@linksense/shared";
+import { webSiteSchema, htmlPreviewSourceSchema } from "@linksense/shared";
 import { createPrismaClient } from "../../src/db.js";
 import { testConfig } from "../test-config.js";
 import { LinkSenseRedis } from "../../src/adapters/redis.js";
@@ -98,6 +98,9 @@ try {
   const storage = createObjectStorage(config);
   await storage.ensureBucket();
   await storage.putObject("legacy/index.html", legacyHtml);
+  const incompleteHtml = Buffer.from('<!doctype html><title>缺资源示例</title><link rel="stylesheet" href="assets/missing.css"><h1>仍可阅读的网页内容</h1>');
+  await storage.putObject("missing-resources/index.html", incompleteHtml);
+  await db.conversationFile.create({ data: { conversationId: task.id, kind: "artifact", source: "agent_generated", status: "registered", filename: "缺资源示例.html", mimeType: "text/html", sizeBytes: incompleteHtml.length, storageBackend: "minio", minioObjectKey: "missing-resources/index.html", downloadable: true, downloadCardEventId: randomUUID() } });
   services = createServices({ config, prisma: db, redis, runner: new RunnerClient(config), storage });
   await db.systemSetting.create({ data: { settingsJson: { system_initialized: true } } });
   app = await buildApi(services);
@@ -127,8 +130,9 @@ try {
   const workspace = join(config.userDataRoot, task.workspaceRelPath);
   const publicDirectory = join(workspace, "artifacts/site");
   await mkdir(join(publicDirectory, "assets"), { recursive: true });
-  const html = `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>山海集</title><link rel="stylesheet" href="/assets/style.css"></head><body><main><p>LINKSENSE · WEBSITE CHECK</p><h1>山海集</h1><p id="version">正在加载</p><img width="64" height="64" src="/assets/logo.svg" alt="山海标志"><button id="counter">点击 0</button><p id="data">数据加载中</p><p id="isolation">隔离检查中</p><a href="about.html">关于本期</a></main><script type="module" src="/assets/main.js"></script></body></html>`;
-  await writeFile(join(publicDirectory, "index.html"), html);
+  const html = `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>山海集</title><link rel="stylesheet" href="/assets/style.css"></head><body><main><p>LINKSENSE · WEBSITE CHECK</p><h1>山海集</h1><p id="version">正在加载</p><img width="64" height="64" src="/assets/logo.svg" alt="山海标志"><button id="counter">点击 0</button><p id="data">数据加载中</p><p id="isolation">隔离检查中</p><p id="fonts">字体加载中</p><a href="about.html">关于本期</a></main><script type="module" src="/assets/main.js"></script></body></html>`;
+  await writeFile(join(publicDirectory, "index.html"), html.replace('<button id="counter">', '<svg width="64" height="64" aria-label="Sprite icon"><use href="./assets/sprite.svg#star"/></svg><button id="counter">'));
+  await writeFile(join(publicDirectory, "assets/sprite.svg"), '<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="gold"><stop stop-color="#e7bb6d"/><stop offset="1" stop-color="#fff"/></linearGradient></defs><symbol id="star" viewBox="0 0 64 64"><path fill="url(#gold)" d="M32 2 40 22 62 24 46 40 50 62 32 50 14 62 18 40 2 24 24 22Z"/></symbol></svg>');
   await writeFile(join(publicDirectory, "about.html"), '<!doctype html><title>关于本期</title><h1>关于本期</h1><a href="index.html">返回首页</a>');
   await writeFile(join(publicDirectory, "assets/style.css"), '@font-face{font-family:Demo;src:url("/assets/font.woff2")}body{background:#132421;color:#f6edcf;font-family:Demo,system-ui;margin:0}main{max-width:760px;margin:auto;padding:48px 24px}h1{font-size:clamp(36px,8vw,64px)}p{line-height:1.6}button{background:#e7bb6d;color:#132421;border:0;border-radius:24px;padding:12px 24px;display:block;margin:24px 0}a{color:#e7bb6d}');
   const font = createRequire(join(repo, "apps/web/package.json")).resolve("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2");
@@ -136,7 +140,7 @@ try {
   await writeFile(join(publicDirectory, "assets/logo.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#e7bb6d"/><path d="M10 42 26 18 40 38 49 24 59 42Z" fill="#132421"/></svg>');
   await writeFile(join(publicDirectory, "data.json"), JSON.stringify({ message: "配套 JSON 数据加载成功" }));
   await writeFile(join(publicDirectory, "assets/counter.js"), 'export const label = "第一版";');
-  await writeFile(join(publicDirectory, "assets/main.js"), `import {label} from "/assets/counter.js";document.querySelector('#version').textContent=label;let count=0;document.querySelector('#counter').onclick=()=>{document.querySelector('#counter').textContent='点击 '+(++count)};const data=await fetch('./data.json').then(r=>r.json());document.querySelector('#data').textContent=data.message;let protectedCount=0;try{void parent.document.body}catch{protectedCount++}try{void localStorage.length}catch{protectedCount++}document.querySelector('#isolation').textContent='隔离检查 '+protectedCount+'/2';`);
+  await writeFile(join(publicDirectory, "assets/main.js"), `import {label} from "/assets/counter.js";document.querySelector('#version').textContent=label;let count=0;document.querySelector('#counter').onclick=()=>{document.querySelector('#counter').textContent='点击 '+(++count)};const data=await fetch('./data.json').then(r=>r.json());document.querySelector('#data').textContent=data.message;let protectedCount=0;try{void parent.document.body}catch{protectedCount++}try{if(localStorage.getItem('linksense.auth.access-session')===null)protectedCount++}catch{protectedCount++}document.querySelector('#isolation').textContent='隔离检查 '+protectedCount+'/2';await document.fonts.ready;document.querySelector('#fonts').textContent=document.fonts.check('16px Demo')?'配套字体加载成功':'字体加载失败';`);
   await db.conversationTurn.create({ data: { conversationId: task.id, submittedBy: owner.id, sequenceNo: 1, codexThreadId: "qa-thread", codexTurnId: "qa-turn", status: "running", submitMode: "normal", capabilityGeneration: "a".repeat(64), capabilitiesJson: [], startedAt: new Date() } });
   const register = () => services!.files.registerArtifact({ ownerId: owner.id, conversationId: task.id, codexTurnId: "qa-turn", workspaceRelativePath: "artifacts/site/index.html", displayName: "山海集.html", mimeType: "text/html", webRootRelativePath: "artifacts/site" });
   const first = await register();
@@ -212,6 +216,27 @@ try {
   console.log("PASS: permanent deletion releases every address; same and different owners can reuse it; old releases stay inaccessible; concurrent publishers cannot claim the same address.");
   await db.conversationTurn.updateMany({ where: { conversationId: task.id }, data: { status: "completed", completedAt: new Date() } });
   console.log("PASS: additive migration preserves existing rows; real registration/storage; owner authorization; UUID/slug; concurrent creation; immutable updates; stop/resume; rename; download; delete/recreate.");
+  const previewUrl = `/api/v1/conversations/${task.id}/files/${first.file_id}/html-preview`;
+  assert.equal((await api.inject({ method: "POST", url: previewUrl, payload: {} })).statusCode, 401);
+  const previewResponse = await api.inject({ method: "POST", url: previewUrl, headers, payload: {} });
+  assert.equal(previewResponse.statusCode, 200, previewResponse.body);
+  const preview = htmlPreviewSourceSchema.parse(previewResponse.json().data);
+  assert.deepEqual(preview.missing_resources, []);
+  assert.match(preview.html, /href="#ls-svg-/u);
+  const previewBase = preview.entry_url.slice(0, preview.entry_url.lastIndexOf("/") + 1);
+  for (const resource of ["index.html", "assets/style.css", "assets/main.js", "assets/counter.js", "assets/font.woff2", "data.json"]) {
+    const result = await api.inject({ url: previewBase + resource, headers: { origin: "null" } });
+    assert.equal(result.statusCode, 200, result.body.slice(0, 300));
+    assert.equal(result.headers["access-control-allow-origin"], "*");
+    assert.equal(result.headers["access-control-allow-credentials"], undefined);
+  }
+  const renewed = await api.inject({ method: "POST", url: previewUrl, headers, payload: { session_id: preview.session_id } });
+  assert.equal(renewed.json().data.entry_url, preview.entry_url);
+  await db.user.update({ where: { id: owner.id }, data: { status: "disabled" } });
+  assert.equal((await api.inject(preview.entry_url)).statusCode, 404);
+  await db.user.update({ where: { id: owner.id }, data: { status: "active" } });
+  assert.equal((await api.inject(preview.entry_url)).statusCode, 200);
+  console.log("PASS: real Redis preview session, anonymous resources, stylesheet/font/module dependencies, inline SVG gradients, stable renewal, and account revocation.");
   if (serve) {
     await api.listen({ host: "127.0.0.1", port: 19541 });
     await writeFile(join(tmpdir(), "linksense-web-sites-qa.json"), JSON.stringify({ token, taskId: task.id, fileId: first.file_id, secondFileId: second.file_id, siteId: site.id, root, apiUrl: "http://127.0.0.1:19541", publicBaseUrl }), { mode: 0o600 });

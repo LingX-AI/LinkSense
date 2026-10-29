@@ -1,3 +1,4 @@
+import { htmlPreviewRoutes, htmlPreviewResourceRoutes } from "./modules/html-preview/routes.js";
 import { SamlSettingsService } from "./modules/saml/settings.js";
 import { SamlProtocol } from "./modules/saml/protocol.js";
 import { RedisSamlStateStore } from "./modules/saml/state.js";
@@ -142,6 +143,7 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.body.verify_code",
   "req.body.app_secret",
   "req.body.ticket",
+  "req.body.session_id",
   "req.body.renewal_token",
   "req.body.values[*].value",
   "res.headers.set-cookie",
@@ -529,6 +531,8 @@ export async function buildApi(
     prefix: "/api/v1/shared-conversations",
     service: services.conversationShares,
   });
+  await app.register(htmlPreviewRoutes, { prefix: "/api/v1/conversations", service: services.htmlPreviews });
+  await app.register(htmlPreviewResourceRoutes, { prefix: "/html-preview", service: services.htmlPreviews });
   await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: services.webSites });
   await app.register(publicWebSiteRoutes, { prefix: "/web", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl });
   await app.register(automationRoutes, {
@@ -730,7 +734,7 @@ export function sanitizeRequestForLog(request: unknown) {
     numberValue(rawSocket.remotePort);
   return {
     method: stringValue(value.method) ?? "UNKNOWN",
-    url: requestPathname(stringValue(value.url) ?? "/"),
+    url: requestPathname(stringValue(value.url) ?? "/").replace(/^\/html-preview\/[^/]+/u, "/html-preview/[redacted]"),
     ...(host ? { host } : {}),
     ...(requestId ? { requestId } : {}),
     ...(remoteAddress ? { remoteAddress } : {}),
