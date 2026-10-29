@@ -71,6 +71,7 @@ import { toast } from "sonner"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
 import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
+import { ShellHeaderActions } from "@/components/shell/shell-header-actions"
 import { requestTurnStart } from "@/features/conversations/turn-start-request"
 import {
   conversationInterruptPollIntervalMs,
@@ -138,7 +139,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ConversationScrollToBottomIndicator } from "@/features/conversations/conversation-scroll-to-bottom-indicator"
+import { ConversationScrollToBottomButton } from "@/features/conversations/conversation-scroll-to-bottom-indicator"
 import {
   Card,
   CardAction,
@@ -6066,7 +6067,10 @@ export function ConversationPage({
               aria-expanded={shareOpen}
               onClick={() => setShareOpen(true)}
             >
-              <DesignIcon name="share" />
+              <DesignIcon
+                name="share"
+                className="size-[calc(var(--app-ui-font-size)+6px)]"
+              />
             </ConversationHeaderButton>
           )}
           {!isNew && surfaceActive && (
@@ -6115,6 +6119,7 @@ export function ConversationPage({
               )}
             </Button>
           )}
+          {showHeader && !embedded && surfaceActive && <ShellHeaderActions />}
         </div>
       </header>
 
@@ -6308,20 +6313,18 @@ export function ConversationPage({
         }
       />
 
+      {showConversationComposer && (
+        <div className="conversation-bottom-fade" aria-hidden="true" />
+      )}
       <div ref={bottomStackRef} className="conversation-bottom-stack">
         {showScrollToBottom && visibleMessages.length > 0 && (
           <div className="conversation-scroll-to-bottom-row">
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon-lg"
-              className="conversation-scroll-to-bottom-button"
-              aria-label={t("conversation.scrollToBottom")}
-              title={t("conversation.scrollToBottom")}
-              onClick={handleScrollToBottom}
-            >
-              <ConversationScrollToBottomIndicator running={visuallyRunning} />
-            </Button>
+            <ConversationScrollToBottomButton
+              key={displayConversation.id}
+              messages={visibleMessages}
+              running={visuallyRunning}
+              onScrollToBottom={handleScrollToBottom}
+            />
           </div>
         )}
         {!blockingPanelActive && runningPlan && runningPlan.total > 0 && (
@@ -6586,9 +6589,12 @@ export function ConversationPage({
             onError={setError}
           />
         )}
-        {!embedded && !developmentRole && !isApplicationConversation && (
-          <PoweredByLinkSense placement="conversation" />
-        )}
+        {!isNew &&
+          !embedded &&
+          !developmentRole &&
+          !isApplicationConversation && (
+            <PoweredByLinkSense placement="conversation" />
+          )}
       </div>
 
       <ConversationRenameDialog

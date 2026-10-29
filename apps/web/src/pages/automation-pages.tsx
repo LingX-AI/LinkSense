@@ -55,7 +55,6 @@ import { FieldShell } from "@/components/forms/form-field"
 import { TimePicker } from "@/components/forms/time-picker"
 import { PageLayout } from "@/components/shell/page-layout"
 import { Button } from "@/components/ui/button"
-import { cardSpotlightProps } from "@/components/ui/card-spotlight"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
@@ -794,7 +793,7 @@ function AutomationSuggestions({
       >
         {t("automation.suggestions.title")}
       </h2>
-      <ul className="grid grid-cols-1 gap-4 @min-[60rem]/shell-content:grid-cols-3">
+      <ul className="flex flex-col gap-1">
         {automationTemplates.map((template) => {
           const Icon = template.icon
           const title = t(`automation.suggestions.${template.id}.title`)
@@ -804,13 +803,9 @@ function AutomationSuggestions({
           return (
             <li key={template.id}>
               <Button
-                {...cardSpotlightProps}
                 type="button"
-                variant="outline"
-                className={cn(
-                  cardSpotlightProps.className,
-                  "h-full min-h-40 w-full flex-col items-stretch justify-start gap-4 rounded-xl border-border bg-card p-4 text-left whitespace-normal hover:border-input-hover"
-                )}
+                variant="ghost"
+                className="h-auto w-full items-start justify-start gap-3 rounded-xl px-2 py-3 text-left whitespace-normal hover:bg-accent"
                 aria-label={t("automation.suggestions.useTemplateNamed", {
                   name: title,
                 })}
@@ -819,15 +814,15 @@ function AutomationSuggestions({
               >
                 <span
                   className={cn(
-                    "flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent",
+                    "flex size-6 shrink-0 items-center justify-center rounded-md bg-accent",
                     template.iconClassName
                   )}
                   aria-hidden="true"
                 >
-                  <Icon />
+                  <Icon className="size-4" />
                 </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-3">
-                  <span className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                <span className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                     <span className="text-sm font-medium text-heading">
                       {title}
                     </span>

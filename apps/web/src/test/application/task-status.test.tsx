@@ -586,6 +586,7 @@ describe("LinkSense application", () => {
       .closest("a")
     expect(completedTaskLink).not.toBeNull()
     expect(unreadDot).toBeVisible()
+    expect(unreadDot).toHaveClass("bg-primary")
 
     await interaction.click(completedTaskLink as HTMLAnchorElement)
 

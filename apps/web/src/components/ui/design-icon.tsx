@@ -18,12 +18,18 @@ const masks = {
   send: "mask-[url(./assets/figma/icons/send.svg)]",
   workspace: "mask-[url(./assets/figma/icons/workspace.svg)]",
   knowledge: "mask-[url(./assets/figma/icons/knowledge.svg)]",
+  "image-generation": "mask-[url(./assets/figma/icons/image-generation.svg)]",
   microphone: "mask-[url(./assets/figma/icons/microphone.svg)]",
   "move-project": "mask-[url(./assets/figma/icons/move-project.svg)]",
   pin: "mask-[url(./assets/figma/icons/pin.svg)]",
   share: "mask-[url(./assets/figma/icons/share.svg)]",
   overview: "mask-[url(./assets/figma/icons/overview.svg)]",
   close: "mask-[url(./assets/figma/icons/close.svg)]",
+  "sort-priority":
+    "mask-[url(./assets/figma/icons/sort-priority.svg)] [mask-position:64.2857%_center] [mask-size:78.125%_84.375%]",
+  "sort-updated":
+    "mask-[url(./assets/figma/icons/sort-updated.svg)] [mask-size:84.375%]",
+  "sort-manual": "mask-[url(./assets/figma/icons/sort-manual.svg)]",
 } as const
 
 export type DesignIconName = keyof typeof masks

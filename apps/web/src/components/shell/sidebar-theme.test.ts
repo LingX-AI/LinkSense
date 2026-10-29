@@ -320,7 +320,7 @@ describe("sidebar theme", () => {
       "outline: none;"
     )
     expect(cssRule(".sidebar-link")).toMatch(
-      /transition:\s*background-color 160ms ease,\s*color 160ms ease;/u
+      /transition:\s*background-color 160ms ease,\s*box-shadow 160ms ease,\s*color 160ms ease;/u
     )
     expect(sidebarStyles).not.toMatch(
       /\.sidebar-conversation-item:focus-within\s+\.sidebar-conversation-link/u

@@ -124,6 +124,25 @@ describe("EmptyState", () => {
     expect(screen.getByRole("button", { name: "新建自动化" })).toBeVisible()
   })
 
+  it("falls back to a default icon and description when none is given", () => {
+    const { container } = render(<EmptyState title="暂无数据" />)
+
+    expect(
+      container.querySelector("[data-slot='empty-icon']")
+    ).not.toBeNull()
+    expect(screen.getByText("有内容后会显示在这里。")).toBeVisible()
+  })
+
+  it("renders an optional icon above the title", () => {
+    render(
+      <EmptyState title="暂无数据" icon={<span data-testid="empty-icon" />} />
+    )
+
+    const empty = screen.getByText("暂无数据").closest("[data-slot='empty']")
+
+    expect(empty?.querySelector("[data-testid='empty-icon']")).not.toBeNull()
+  })
+
   it.each([
     ["中文句号", "暂无数据。", "暂无数据"],
     ["英文句号", "No data.", "No data"],

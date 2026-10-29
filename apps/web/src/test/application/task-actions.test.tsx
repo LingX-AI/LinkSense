@@ -772,7 +772,10 @@ describe("LinkSense application", () => {
     expect(
       titleActions?.querySelector(".conversation-title-application-icon")
     ).toBeNull()
-    expect(within(banner).getAllByRole("button")).toHaveLength(3)
+    expect(within(banner).getAllByRole("button")).toHaveLength(4)
+    expect(
+      within(banner).getByRole("button", { name: "自动化通知" })
+    ).toBeVisible()
     expect(
       within(banner).queryByRole("button", { name: "查看任务浏览器" })
     ).not.toBeInTheDocument()

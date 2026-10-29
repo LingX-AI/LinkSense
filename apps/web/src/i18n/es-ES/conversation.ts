@@ -7,11 +7,11 @@ export const conversationMessages = {
     title: "Tarea",
     taskSort: {
       open: "Configurar el orden de las tareas de {{section}}",
-      label: "Orden de las tareas",
+      label: "Ordenar tareas",
       priority: "Prioridad",
       priorityDescription:
         "Las tareas que necesitan tu respuesta y las no leídas aparecen primero.",
-      updated_at: "Última actualización",
+      updated_at: "Actualizadas recientemente",
       manual: "Orden manual",
     },
     share: {
@@ -139,6 +139,8 @@ export const conversationMessages = {
     historyViewExchange: "Haz clic para ver este intercambio",
     historyRetry: "No se han podido cargar los mensajes. Reintentar",
     scrollToBottom: "Ir al final",
+    newReplies_one: "{{count}} respuesta nueva",
+    newReplies_other: "{{count}} respuestas nuevas",
     placeholder: "Describe lo que quieres que haga {{productName}}…",
     followUpPlaceholder: "Añade un mensaje de seguimiento…",
     send: "Enviar",

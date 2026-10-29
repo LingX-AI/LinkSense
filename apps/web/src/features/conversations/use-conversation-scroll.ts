@@ -9,8 +9,22 @@ import {
 } from "react"
 import type { ConversationThreadNavigation } from "@/features/conversations/conversation-message-list"
 
-export const CONVERSATION_SCROLL_BUTTON_THRESHOLD_PX = 500
+export const CONVERSATION_SCROLL_BUTTON_SHOW_THRESHOLD_PX = 80
+export const CONVERSATION_SCROLL_BUTTON_HIDE_THRESHOLD_PX = 24
 export const CONVERSATION_SCROLL_TO_BOTTOM_DURATION_MS = 180
+
+/** Show past 80px, hide inside 24px, and hold the current state in between. */
+export function shouldShowConversationScrollButton(
+  distanceFromBottom: number,
+  visible: boolean
+) {
+  return (
+    distanceFromBottom >
+    (visible
+      ? CONVERSATION_SCROLL_BUTTON_HIDE_THRESHOLD_PX
+      : CONVERSATION_SCROLL_BUTTON_SHOW_THRESHOLD_PX)
+  )
+}
 export const CONVERSATION_STREAM_FOLLOW_HALF_LIFE_MS = 28
 
 const CONVERSATION_BOTTOM_RESUME_TOLERANCE_PX = 1
@@ -105,11 +119,9 @@ export function useConversationScroll(
       setShowScrollToBottom(false)
       return
     }
-    const shouldShow =
-      getConversationDistanceFromBottom(element) >
-      CONVERSATION_SCROLL_BUTTON_THRESHOLD_PX
+    const distance = getConversationDistanceFromBottom(element)
     setShowScrollToBottom((current) =>
-      current === shouldShow ? current : shouldShow
+      shouldShowConversationScrollButton(distance, current)
     )
   }, [])
 
@@ -299,9 +311,11 @@ export function useConversationScroll(
           element.scrollTop = targetTop
         }
         lastScrollTopRef.current = element.scrollTop
-        setShowScrollToBottom(
-          getConversationDistanceFromBottom(element) >
-            CONVERSATION_SCROLL_BUTTON_THRESHOLD_PX
+        setShowScrollToBottom((visible) =>
+          shouldShowConversationScrollButton(
+            getConversationDistanceFromBottom(element),
+            visible
+          )
         )
         return
       }
@@ -312,9 +326,11 @@ export function useConversationScroll(
       if (Math.abs(distance) <= 1) {
         element.scrollTop = targetTop
         lastScrollTopRef.current = targetTop
-        setShowScrollToBottom(
-          getConversationDistanceFromBottom(element) >
-            CONVERSATION_SCROLL_BUTTON_THRESHOLD_PX
+        setShowScrollToBottom((visible) =>
+          shouldShowConversationScrollButton(
+            getConversationDistanceFromBottom(element),
+            visible
+          )
         )
         return
       }
@@ -339,9 +355,11 @@ export function useConversationScroll(
         element.scrollTop = targetTop
         lastScrollTopRef.current = targetTop
         scrollAnimationFrameRef.current = null
-        setShowScrollToBottom(
-          getConversationDistanceFromBottom(element) >
-            CONVERSATION_SCROLL_BUTTON_THRESHOLD_PX
+        setShowScrollToBottom((visible) =>
+          shouldShowConversationScrollButton(
+            getConversationDistanceFromBottom(element),
+            visible
+          )
         )
       }
 

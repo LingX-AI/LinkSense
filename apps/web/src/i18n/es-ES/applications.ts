@@ -213,6 +213,8 @@ export const applicationsMessages = {
       "Aplicación actualizada. Los próximos turnos de las tareas usarán automáticamente la configuración más reciente.",
     deleted: "Aplicación eliminada.",
     emptyTitle: "Todavía no hay aplicaciones disponibles",
+    emptyDescription:
+      "Los elementos aparecerán aquí cuando los crees o los añadas.",
     createdByMe: "Creada por mí",
     createdBy: "Creada por {{name}}",
     status: { active: "Activada", disabled: "Desactivada" },

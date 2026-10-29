@@ -9,8 +9,6 @@ import { useTranslation } from "react-i18next"
 
 import welcomeBackground from "@/assets/home/welcome-background.svg"
 import { Button } from "@/components/ui/button"
-import { cardSpotlightProps } from "@/components/ui/card-spotlight"
-import { cn } from "@/lib/utils"
 
 import { WelcomeOrb } from "./welcome-orb"
 
@@ -102,13 +100,9 @@ export function NewTaskWelcome({
           {starterQuestions.map(({ id, icon: Icon, tone, colors }) => (
             <Button
               key={id}
-              {...cardSpotlightProps}
               type="button"
               variant="outline"
-              className={cn(
-                cardSpotlightProps.className,
-                "conversation-starter-question h-auto min-h-24 min-w-0 items-start justify-start gap-3 rounded-xl border-border bg-card p-3 text-left whitespace-normal shadow-home-card hover:border-input-hover hover:bg-card focus-visible:border-ring focus-visible:ring-2 @min-[44rem]/task-home:min-h-32 @min-[44rem]/task-home:flex-col @min-[44rem]/task-home:gap-4 @min-[44rem]/task-home:p-4 @min-[60rem]/task-home:min-h-49.5 @min-[60rem]/task-home:gap-6 @min-[60rem]/task-home:p-5"
-              )}
+              className="conversation-starter-question h-auto min-h-24 min-w-0 items-start justify-start gap-3 rounded-xl border-border bg-card p-3 text-left whitespace-normal shadow-home-card hover:border-input-hover hover:bg-card focus-visible:border-ring focus-visible:ring-0! @min-[44rem]/task-home:min-h-32 @min-[44rem]/task-home:flex-col @min-[44rem]/task-home:gap-4 @min-[44rem]/task-home:p-4 @min-[60rem]/task-home:min-h-49.5 @min-[60rem]/task-home:gap-6 @min-[60rem]/task-home:p-5"
               onClick={() =>
                 onSelect(t(`conversation.starterQuestions.${id}.prompt`))
               }

@@ -23,13 +23,14 @@ afterEach(cleanup)
 
 describe("project composer clear selection", () => {
   it.each([null, "daily"])(
-    "matches the Attach hover padding without shifting the icon when value is %s",
+    "preserves label width with the Attach hover padding when value is %s",
     (value) => {
       render(<ProjectComposerPicker value={value} onChange={vi.fn()} />)
 
       expect(screen.getByRole("combobox", { name: "项目" })).toHaveClass(
         "-mx-1.5",
-        "px-1.5"
+        "px-1.5",
+        "max-w-[calc(100%+--spacing(3))]"
       )
     }
   )

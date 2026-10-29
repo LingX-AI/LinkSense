@@ -52,6 +52,10 @@ export const frFR = {
     search: "Rechercher",
     loading: "Chargement…",
     pageLoading: "Chargement…",
+    emptyDescription:
+      "Les éléments apparaîtront ici lorsqu'ils seront disponibles.",
+    notFoundDescription:
+      "La page a peut-être été déplacée ou supprimée.",
     actions: "Actions",
     status: "État",
     name: "Nom",

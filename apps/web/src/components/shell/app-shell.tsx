@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  ShellHeaderActions,
+  ShellHeaderActionsPortal,
+  ShellHeaderActionsProvider,
+} from "@/components/shell/shell-header-actions"
 import { getNativeCodexPayload } from "@/api/contracts"
 import {
   isAutomationMutationItem,
@@ -928,6 +933,35 @@ function AppSidebarContent({
 
   return (
     <>
+      {observeBackgroundExecutions && (
+        <ShellHeaderActionsPortal>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-lg"
+            className="relative text-foreground"
+            title={t("nav.automationNotifications")}
+            aria-label={t(
+              visibleAutomationNotification
+                ? "nav.automationNotificationsUnread"
+                : "nav.automationNotifications"
+            )}
+            onClick={handleOpenAutomationNotifications}
+          >
+            <DesignIcon
+              name="notification"
+              className="size-5"
+            />
+            {visibleAutomationNotification && (
+              <span
+                className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-warning ring-1 ring-card"
+                data-automation-unread-indicator
+                aria-hidden="true"
+              />
+            )}
+          </Button>
+        </ShellHeaderActionsPortal>
+      )}
       {observeBackgroundExecutions &&
         backgroundRunningConversationIds.map((conversationId) => (
           <BackgroundConversationExecutionEvents
@@ -942,34 +976,12 @@ function AppSidebarContent({
             className="sidebar-brand-logo min-w-0"
           />
           <div className="sidebar-header-actions -mr-1 flex shrink-0 items-center gap-0.5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="sidebar-nav-item relative border-0 bg-transparent shadow-none"
-              title={t("nav.automationNotifications")}
-              aria-label={t(
-                visibleAutomationNotification
-                  ? "nav.automationNotificationsUnread"
-                  : "nav.automationNotifications"
-              )}
-              onClick={handleOpenAutomationNotifications}
-            >
-              <DesignIcon name="notification" />
-              {visibleAutomationNotification && (
-                <span
-                  className="absolute top-1 right-1 size-1.5 rounded-full bg-[var(--app-selection)] ring-1 ring-[var(--app-sidebar)]"
-                  data-automation-unread-indicator
-                  aria-hidden="true"
-                />
-              )}
-            </Button>
             {onCollapse && (
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                className="sidebar-collapse-control sidebar-nav-item border-0 bg-transparent shadow-none"
+                className="sidebar-collapse-control border-0 bg-transparent text-foreground shadow-none"
                 aria-label={t("nav.collapseSidebar")}
                 title={t("nav.collapseSidebar")}
                 aria-controls="app-sidebar"
@@ -992,7 +1004,7 @@ function AppSidebarContent({
               to={to}
               state={newTaskNavigationState}
               onClick={onNavigate}
-              className="flex min-h-10 min-w-0 items-center justify-center gap-3 rounded-full border border-border bg-card px-3 py-2 text-sm text-foreground shadow-sm transition-colors hover:border-input-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              className="flex min-h-10 min-w-0 items-center justify-center gap-3 rounded-full border border-border bg-card px-3 py-2 text-sm text-foreground shadow-[var(--app-sidebar-primary-shadow)] transition-[background-color,border-color,box-shadow] hover:border-input-hover hover:bg-[var(--app-sidebar-primary-hover-bg)] hover:shadow-[var(--app-sidebar-primary-hover-shadow)] focus-visible:border-ring focus-visible:outline-none"
             >
               <DesignIcon name="plus" />
               <span>{t(labelKey)}</span>
@@ -1263,7 +1275,7 @@ function AppSidebarContent({
                                   <span
                                     role="status"
                                     aria-label={t("nav.unreadCompletion")}
-                                    className="size-2 shrink-0 rounded-full bg-destructive"
+                                    className="size-2 shrink-0 rounded-full bg-primary"
                                   />
                                 ))}
                             </span>
@@ -1275,7 +1287,7 @@ function AppSidebarContent({
                             aria-label={title}
                             initialFocus={false}
                             finalFocus={false}
-                            className="sidebar-conversation-preview flex w-72 max-w-[calc(100vw-1rem)] flex-col items-stretch gap-2 shadow-md!"
+                            className="sidebar-conversation-preview flex w-75! max-w-[calc(100vw-1rem)] flex-col items-stretch gap-2 p-3! shadow-[var(--app-dialog-shadow)]!"
                           >
                             <span className="sidebar-conversation-preview-title w-full min-w-0 text-sm leading-[var(--app-line-22)] font-normal break-words whitespace-normal">
                               {title}
@@ -1576,6 +1588,14 @@ function AppSidebarContent({
 }
 
 export function AppShell() {
+  return (
+    <ShellHeaderActionsProvider>
+      <AppShellContent />
+    </ShellHeaderActionsProvider>
+  )
+}
+
+function AppShellContent() {
   const { t } = useTranslation()
   const productName = useProductName()
   const location = useLocation()
@@ -1650,6 +1670,7 @@ export function AppShell() {
           >
             <MenuIcon aria-hidden="true" />
           </Button>
+          <ShellHeaderActions fallback />
           <SystemUpdateNotice />
           <Outlet />
         </main>

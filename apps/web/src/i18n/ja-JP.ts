@@ -285,6 +285,8 @@ export const jaJP = {
     search: "検索",
     loading: "読み込み中…",
     pageLoading: "読み込み中…",
+    emptyDescription: "項目が利用可能になると、ここに表示されます。",
+    notFoundDescription: "ページが移動または削除された可能性があります。",
     actions: "操作",
     status: "ステータス",
     name: "名前",
@@ -2094,10 +2096,10 @@ export const jaJP = {
     title: "タスク",
     taskSort: {
       open: "{{section}} のタスクの順序を設定",
-      label: "タスクの順序",
+      label: "タスクの並べ替え",
       priority: "優先順位",
       priorityDescription: "入力が必要なタスクと未読のタスクを先に表示します。",
-      updated_at: "最終更新",
+      updated_at: "最近更新",
       manual: "手動の順序",
     },
     share: {
@@ -2221,6 +2223,8 @@ export const jaJP = {
     historyViewExchange: "クリックしてこのやり取りを表示",
     historyRetry: "メッセージを読み込めませんでした。再試行",
     scrollToBottom: "一番下へスクロール",
+    newReplies_one: "{{count}} 件の新しい返信",
+    newReplies_other: "{{count}} 件の新しい返信",
     placeholder: "{{productName}} にしてほしいことを入力してください…",
     followUpPlaceholder: "追加の依頼を入力…",
     send: "送信",
@@ -3138,6 +3142,7 @@ export const jaJP = {
       "アプリケーションを更新しました。今後のタスクのターンでは、最新の設定が自動で使用されます。",
     deleted: "アプリケーションを削除しました。",
     emptyTitle: "利用可能なアプリケーションはまだありません",
+    emptyDescription: "作成または追加すると、ここに項目が表示されます。",
     createdByMe: "自分が作成",
     createdBy: "作成者：{{name}}",
     status: {

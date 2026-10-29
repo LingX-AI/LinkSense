@@ -235,16 +235,14 @@ describe("automation completion notifications", () => {
       name: "LinkSense 导航",
     })
     await interaction.click(
-      await within(sidebar).findByRole("button", {
+      await screen.findByRole("button", {
         name: "自动化通知，有已完成的未读任务",
       })
     )
     expect(await screen.findByText(`${latest.title}的结果`)).toBeVisible()
     await waitFor(() => {
       expect(
-        within(sidebar).getByRole("button", {
-          name: "自动化通知，有已完成的未读任务",
-        })
+        screen.getByRole("button", { name: "自动化通知，有已完成的未读任务" })
       ).toBeVisible()
       expect(
         within(sidebar).getAllByRole("status", {
@@ -253,15 +251,11 @@ describe("automation completion notifications", () => {
       ).toHaveLength(1)
     })
     await interaction.click(
-      within(sidebar).getByRole("button", {
-        name: "自动化通知，有已完成的未读任务",
-      })
+      screen.getByRole("button", { name: "自动化通知，有已完成的未读任务" })
     )
     expect(await screen.findByText(`${older.title}的结果`)).toBeVisible()
     await waitFor(() => {
-      expect(
-        within(sidebar).getByRole("button", { name: "自动化通知" })
-      ).toBeVisible()
+      expect(screen.getByRole("button", { name: "自动化通知" })).toBeVisible()
       expect(
         within(sidebar).queryByRole("status", {
           name: "任务已完成，尚未查看",
@@ -297,9 +291,7 @@ describe("automation completion notifications", () => {
       name: "LinkSense 导航",
     })
     await within(sidebar).findByRole("link", { name: new RegExp(target.title) })
-    expect(
-      within(sidebar).getByRole("button", { name: "自动化通知" })
-    ).toBeVisible()
+    expect(screen.getByRole("button", { name: "自动化通知" })).toBeVisible()
     complete(target.id, "2026-10-06T03:00:00.000Z")
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000)
@@ -313,9 +305,7 @@ describe("automation completion notifications", () => {
     ).toBeGreaterThanOrEqual(2)
     await waitFor(() => {
       expect(
-        within(sidebar).getByRole("button", {
-          name: "自动化通知，有已完成的未读任务",
-        })
+        screen.getByRole("button", { name: "自动化通知，有已完成的未读任务" })
       ).toBeVisible()
       expect(
         within(sidebar).getByRole("status", {
@@ -335,12 +325,12 @@ describe("automation completion notifications", () => {
       name: "LinkSense 导航",
     })
     await interaction.click(
-      await within(sidebar).findByRole("button", {
+      await screen.findByRole("button", {
         name: "自动化通知，有已完成的未读任务",
       })
     )
     expect(await screen.findByText(`${target.title}的结果`)).toBeVisible()
-    await within(sidebar).findByRole("button", { name: "自动化通知" })
+    await screen.findByRole("button", { name: "自动化通知" })
     await interaction.click(
       within(sidebar).getByRole("link", { name: "新任务" })
     )
@@ -350,7 +340,7 @@ describe("automation completion notifications", () => {
       await vi.advanceTimersByTimeAsync(10_000)
     })
     await interaction.click(
-      await within(sidebar).findByRole("button", {
+      await screen.findByRole("button", {
         name: "自动化通知，有已完成的未读任务",
       })
     )
@@ -364,9 +354,7 @@ describe("automation completion notifications", () => {
               JSON.stringify({ completion_read: true })
         )
       ).toHaveLength(2)
-      expect(
-        within(sidebar).getByRole("button", { name: "自动化通知" })
-      ).toBeVisible()
+      expect(screen.getByRole("button", { name: "自动化通知" })).toBeVisible()
     })
   })
 
@@ -390,7 +378,7 @@ describe("automation completion notifications", () => {
             JSON.stringify({ completion_read: true })
       )
     await interaction.click(
-      await within(sidebar).findByRole("button", {
+      await screen.findByRole("button", {
         name: "自动化通知，有已完成的未读任务",
       })
     )
@@ -404,15 +392,11 @@ describe("automation completion notifications", () => {
     expect(readRequests()).toHaveLength(1)
     setRejectReads(false)
     await interaction.click(
-      within(sidebar).getByRole("button", {
-        name: "自动化通知，有已完成的未读任务",
-      })
+      screen.getByRole("button", { name: "自动化通知，有已完成的未读任务" })
     )
     await waitFor(() => {
       expect(readRequests()).toHaveLength(2)
-      expect(
-        within(sidebar).getByRole("button", { name: "自动化通知" })
-      ).toBeVisible()
+      expect(screen.getByRole("button", { name: "自动化通知" })).toBeVisible()
     })
     expect(
       within(sidebar).queryByText("你没有权限执行此操作。")

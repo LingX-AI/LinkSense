@@ -214,6 +214,8 @@ export const applicationResources = {
       "Application mise à jour. Les prochains tours de tâche utiliseront automatiquement la configuration actuelle.",
     deleted: "Application supprimée.",
     emptyTitle: "Aucune application disponible",
+    emptyDescription:
+      "Les éléments apparaîtront ici lorsque vous les créerez ou les ajouterez.",
     createdByMe: "Créée par moi",
     createdBy: "Créée par {{name}}",
     status: { active: "Activée", disabled: "Désactivée" },

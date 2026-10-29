@@ -52,6 +52,32 @@ describe("sidebar task project controls", () => {
     vi.restoreAllMocks()
   })
 
+  it("separates Projects from Recent even when there are no projects", () => {
+    render(
+      <SidebarTaskGroups
+        userId="first"
+        pinned={[]}
+        recent={[]}
+        projects={[]}
+        loadingMore={false}
+        onAction={vi.fn()}
+      >
+        {() => null}
+      </SidebarTaskGroups>
+    )
+    const divider = screen.getByRole("separator")
+    const projects = screen.getByRole("region", { name: "项目" })
+    const recent = screen.getByRole("region", { name: "最近" })
+    expect(
+      projects.compareDocumentPosition(divider) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      divider.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(divider).toHaveClass("bg-divider", "data-horizontal:h-px")
+  })
+
   it("separates project tasks from Recent while preserving pinned and unavailable-project tasks", () => {
     const task = (id: string, projectId: string | null) =>
       conversationSchema.parse({

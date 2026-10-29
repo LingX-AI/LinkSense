@@ -1,3 +1,4 @@
+import { InfoIcon } from "lucide-react"
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 
@@ -10,6 +11,7 @@ import {
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
+  EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
@@ -53,19 +55,34 @@ export function LoadingState({
 export function EmptyState({
   title,
   description,
+  icon,
   action,
 }: {
   title: string
   description?: string
+  icon?: ReactNode
   action?: ReactNode
 }) {
+  const { t } = useTranslation()
   const normalizedTitle = title.replace(/[。.]+$/u, "")
+  const resolvedDescription =
+    description === undefined ? t("common.emptyDescription") : description
 
   return (
     <Empty className="empty-state">
       <EmptyHeader>
+        <EmptyMedia>
+          {icon ?? (
+            <InfoIcon
+              className="size-4 text-muted-foreground"
+              aria-hidden="true"
+            />
+          )}
+        </EmptyMedia>
         <EmptyTitle>{normalizedTitle}</EmptyTitle>
-        {description && <EmptyDescription>{description}</EmptyDescription>}
+        {resolvedDescription && (
+          <EmptyDescription>{resolvedDescription}</EmptyDescription>
+        )}
       </EmptyHeader>
       {action && <EmptyContent>{action}</EmptyContent>}
     </Empty>

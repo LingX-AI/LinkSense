@@ -401,6 +401,11 @@ describe("conversation voice input", () => {
       "bg-transparent",
       "focus-visible:bg-transparent"
     )
+    expect(screen.getByRole("form", { name: "任务输入框" })).toHaveClass(
+      "has-[.composer-input:focus-visible]:outline",
+      "has-[.composer-input:focus-visible]:-outline-offset-1",
+      "has-[.composer-input:focus-visible]:outline-muted-foreground"
+    )
   })
 
   it.each([
@@ -470,7 +475,7 @@ describe("conversation voice input", () => {
     ).toHaveLength(1)
   })
 
-  it("anchors the capability and knowledge pickers above the full Composer width", async () => {
+  it("anchors the compact Add menu to its trigger and the knowledge picker to the Composer", async () => {
     const interaction = userEvent.setup()
     const { container } = renderComposer()
     const composer = container.querySelector(".composer-shell")
@@ -482,6 +487,9 @@ describe("conversation voice input", () => {
     )
 
     const addButton = screen.getByRole("button", { name: "附件" })
+    vi.spyOn(addButton, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(128, 580, 90, 32)
+    )
     await interaction.click(addButton)
     const capabilityPopover = screen
       .getByPlaceholderText(i18n.t("conversation.capabilitySearch"))
@@ -490,11 +498,11 @@ describe("conversation voice input", () => {
     await waitFor(() =>
       expect(
         capabilityPositioner?.style.getPropertyValue("--anchor-width")
-      ).toBe("640px")
+      ).toBe("90px")
     )
     expect(capabilityPositioner).toHaveAttribute("data-side", "top")
     expect(capabilityPositioner).toHaveStyle({
-      transform: "translate(120px, 496px)",
+      transform: "translate(128px, 572px)",
     })
 
     await interaction.click(addButton)
@@ -734,7 +742,7 @@ describe("conversation voice input", () => {
     expect(screen.getByRole("option", { name: "文件夹" })).toBeVisible()
   })
 
-  it("renders the native Goal option description inline with Skill-style typography", async () => {
+  it("keeps the native Goal description accessible without widening the menu row", async () => {
     const interaction = userEvent.setup()
     renderStatefulComposer()
 
@@ -746,9 +754,13 @@ describe("conversation voice input", () => {
     const labels = description.closest("[data-goal-labels]")
 
     expect(labels).not.toBeNull()
-    expect(labels).toHaveClass("flex", "items-center", "gap-2")
+    expect(labels).toHaveClass("min-w-0", "flex-1")
     expect(within(labels as HTMLElement).getByText("目标")).toBeVisible()
-    expect(description).toHaveClass("text-[length:var(--app-font-12)]")
+    expect(description).toHaveClass("sr-only")
+    expect(goalOption).toHaveAttribute(
+      "title",
+      "持续执行，直到完成或需要你处理"
+    )
   })
 
   it("keeps native Goal mode selectable while a turn is running", async () => {
@@ -3098,7 +3110,8 @@ describe("conversation voice input", () => {
     const selectedItem = screen.getByRole("option", { name: /Pptx/ })
     expect(selectedItem.closest('[data-slot="popover-content"]')).toHaveClass(
       "capability-picker-popover",
-      "gap-2"
+      "w-80",
+      "rounded-xl"
     )
     expect(
       screen.queryByText(
@@ -3110,13 +3123,47 @@ describe("conversation voice input", () => {
     expect(selectedItem).toHaveAttribute("data-checked", "true")
     expect(selectedItem.querySelectorAll("svg.lucide-check")).toHaveLength(1)
     const labels = selectedItem.querySelector("[data-capability-labels]")
-    expect(labels).toHaveClass("flex", "items-center")
+    expect(labels).toHaveClass("min-w-0", "flex-1")
     expect(labels?.querySelector("[data-capability-name]")).toHaveTextContent(
       "Pptx"
     )
     const description = labels?.querySelector("[data-capability-description]")
     expect(description).toHaveTextContent("Create presentation files")
-    expect(description).toHaveClass("text-[length:var(--app-font-12)]")
+    expect(description).toHaveClass("sr-only")
+    expect(selectedItem).toHaveAttribute("title", "Create presentation files")
+  })
+
+  it.each([
+    [
+      "linksense-document-reader",
+      "capability.builtIns.documentReader.name",
+      '[data-file-icon-kind="word"]',
+    ],
+    [
+      "linksense-knowledge-base",
+      "capability.builtIns.knowledgeBase.name",
+      '[data-design-icon="knowledge"]',
+    ],
+    [
+      "linksense-image-generation",
+      "capability.builtIns.imageGeneration.name",
+      '[data-design-icon="image-generation"]',
+    ],
+  ])("uses the designed menu icon for %s", async (key, nameKey, selector) => {
+    const interaction = userEvent.setup()
+    renderComposer({
+      capabilities: [
+        capabilityFixture({ is_builtin: true, builtin_key: key }),
+      ],
+    })
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
+    const option = screen
+      .getByText(i18n.t(nameKey, { productName: "LinkSense" }))
+      .closest('[role="option"]')
+    expect(option?.querySelector(selector)).not.toBeNull()
+    expect(
+      option?.querySelector("[data-default-capability-icon]")
+    ).toBeNull()
   })
 
   it("selects the required development Skill automatically and prevents removal while other Skills remain editable", async () => {

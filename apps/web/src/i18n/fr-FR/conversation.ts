@@ -3,11 +3,11 @@ export const conversation = {
   title: "Tâche",
   taskSort: {
     open: "Définir l’ordre des tâches de {{section}}",
-    label: "Ordre des tâches",
+    label: "Trier les tâches",
     priority: "Priorité",
     priorityDescription:
       "Les tâches nécessitant votre réponse et les tâches non lues apparaissent en premier.",
-    updated_at: "Dernière modification",
+    updated_at: "Récemment mises à jour",
     manual: "Ordre manuel",
   },
   share: {
@@ -134,6 +134,8 @@ export const conversation = {
   historyViewExchange: "Cliquez pour voir cet échange",
   historyRetry: "Impossible de charger les messages. Réessayer",
   scrollToBottom: "Aller en bas",
+  newReplies_one: "{{count}} nouvelle réponse",
+  newReplies_other: "{{count}} nouvelles réponses",
   placeholder: "Décrivez ce que vous souhaitez confier à {{productName}}…",
   followUpPlaceholder: "Ajoutez une demande…",
   send: "Envoyer",

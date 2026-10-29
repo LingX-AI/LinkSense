@@ -19,11 +19,12 @@ import {
   CircleAlertIcon,
   BookOpenIcon,
   FileIcon,
-  FolderOpenIcon,
+  FileInputIcon,
   GoalIcon,
   Link2Icon,
   LightbulbIcon,
   LoaderCircleIcon,
+  PaperclipIcon,
   SquareIcon,
   TriangleAlertIcon,
   XIcon,
@@ -52,6 +53,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandSeparator,
 } from "@/components/ui/command"
 import { Input } from "@/components/ui/input"
 import { FieldDescription } from "@/components/ui/field"
@@ -148,6 +150,24 @@ const voiceWaveHeightClasses = [
   "h-5",
   "h-6",
 ] as const
+
+function ConversationCapabilityMenuIcon({
+  capability,
+}: {
+  capability: CapabilitySummary
+}): ReactNode {
+  if (capability.is_builtin && !capability.logo_url?.trim()) {
+    switch (capability.builtin_key) {
+      case "linksense-document-reader":
+        return <FileTypeIcon filename="document.docx" className="size-5" />
+      case "linksense-knowledge-base":
+        return <DesignIcon name="knowledge" className="size-5" />
+      case "linksense-image-generation":
+        return <DesignIcon name="image-generation" className="size-5" />
+    }
+  }
+  return <CapabilityIcon type={capability.type} logoUrl={capability.logo_url} />
+}
 
 function formatVoiceDuration(seconds: number) {
   const safeSeconds = Math.max(0, Math.floor(seconds))
@@ -1388,7 +1408,7 @@ export const ConversationComposer = forwardRef<
   return (
     <form
       ref={composerShellRef}
-      className="composer-shell"
+      className="composer-shell has-[.composer-input:focus-visible]:outline has-[.composer-input:focus-visible]:-outline-offset-1 has-[.composer-input:focus-visible]:outline-muted-foreground"
       aria-label={t("conversation.messageInput")}
       data-slash-menu-open={commandMenuOpen || undefined}
       data-drag-active={isDraggingFiles || undefined}
@@ -1886,33 +1906,32 @@ export const ConversationComposer = forwardRef<
               <span>{t("conversation.toolbarAttach")}</span>
             </PopoverTrigger>
             <PopoverContent
-              anchor={composerShellRef}
               side="top"
               align="start"
-              sideOffset={4}
-              className="capability-popover capability-picker-popover gap-2"
+              sideOffset={8}
+              className="capability-picker-popover max-h-(--available-height) w-80 max-w-[calc(100vw-2rem)] gap-1 overflow-hidden rounded-xl border border-border p-2 shadow-sm ring-0"
             >
               <PopoverHeader className="sr-only">
                 <PopoverTitle>{t("conversation.addMenuTitle")}</PopoverTitle>
               </PopoverHeader>
-              <Command className="bg-transparent">
+              <Command className="min-h-0 rounded-none bg-transparent p-0 [&_[data-slot=command-input-wrapper]]:p-0 [&_[data-slot=input-group]]:h-10! [&_[data-slot=input-group]]:bg-muted/40">
                 {!managedApplicationName && (
                   <CommandInput
                     placeholder={t("conversation.capabilitySearch")}
                     autoFocus={shouldAutoFocusOnDesktop()}
                   />
                 )}
-                <CommandList className="[&_[data-slot=command-item]]:rounded-md">
-                  <CommandGroup heading={t("conversation.addGroup")}>
+                <CommandList className="max-h-128 min-h-0 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-items]]:space-y-1 [&_[data-slot=command-group]]:p-0 [&_[data-slot=command-item]]:min-h-8 [&_[data-slot=command-item]]:rounded-md [&_[data-slot=command-item]]:py-1 [&_[data-slot=command-item]]:font-normal">
+                  <CommandGroup aria-label={t("conversation.addGroup")}>
                     <CommandItem
                       value={t("conversation.attachFileMenuSearchValue")}
                       disabled={attachmentActionDisabled}
                       onSelect={openAttachmentFilePicker}
                     >
-                      <span className="capability-menu-icon capability-menu-action-icon">
-                        <FileIcon aria-hidden="true" />
+                      <span className="grid size-5 shrink-0 place-items-center [&>svg]:size-5">
+                        <PaperclipIcon aria-hidden="true" />
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                      <span className="min-w-0 flex-1 truncate text-sm">
                         {t("conversation.attachFileMenuLabel")}
                       </span>
                     </CommandItem>
@@ -1922,10 +1941,10 @@ export const ConversationComposer = forwardRef<
                         disabled={attachmentActionDisabled}
                         onSelect={openReferenceFilePicker}
                       >
-                        <span className="capability-menu-icon capability-menu-action-icon">
-                          <Link2Icon aria-hidden="true" />
+                        <span className="grid size-5 shrink-0 place-items-center [&>svg]:size-5">
+                          <FileInputIcon aria-hidden="true" />
                         </span>
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                        <span className="min-w-0 flex-1 truncate text-sm">
                           {t("conversation.referenceFile.menuLabel")}
                         </span>
                       </CommandItem>
@@ -1939,10 +1958,10 @@ export const ConversationComposer = forwardRef<
                           setTaskReferenceOpen(true)
                         }}
                       >
-                        <span className="capability-menu-icon capability-menu-action-icon">
+                        <span className="grid size-5 shrink-0 place-items-center [&>svg]:size-5">
                           <Link2Icon aria-hidden="true" />
                         </span>
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                        <span className="min-w-0 flex-1 truncate text-sm">
                           {t("taskReferences.title")}
                         </span>
                         <kbd
@@ -1958,30 +1977,28 @@ export const ConversationComposer = forwardRef<
                       disabled={attachmentActionDisabled}
                       onSelect={openAttachmentFolderPicker}
                     >
-                      <span className="capability-menu-icon capability-menu-action-icon">
-                        <FolderOpenIcon aria-hidden="true" />
+                      <span className="grid size-5 shrink-0 place-items-center">
+                        <DesignIcon name="folder" className="size-5" />
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                      <span className="min-w-0 flex-1 truncate text-sm">
                         {t("conversation.attachFolderMenuLabel")}
                       </span>
                     </CommandItem>
                     {!managedApplicationName && goalModeAvailable && (
                       <CommandItem
                         value={t("conversation.goal.menuSearchValue")}
+                        title={t("conversation.goal.menuDescription")}
                         disabled={attachmentActionDisabled}
                         onSelect={enableGoalMode}
                       >
-                        <span className="capability-menu-icon capability-menu-action-icon">
+                        <span className="grid size-5 shrink-0 place-items-center [&>svg]:size-5">
                           <GoalIcon aria-hidden="true" />
                         </span>
-                        <span
-                          className="flex min-w-0 flex-1 items-center gap-2"
-                          data-goal-labels=""
-                        >
-                          <span className="max-w-[48%] shrink-0 truncate text-xs font-medium">
+                        <span className="min-w-0 flex-1" data-goal-labels="">
+                          <span className="block truncate text-sm">
                             {t("conversation.goal.menuLabel")}
                           </span>
-                          <span className="min-w-0 flex-1 truncate text-[length:var(--app-font-12)] font-normal text-[var(--app-muted)]">
+                          <span className="sr-only">
                             {t("conversation.goal.menuDescription")}
                           </span>
                         </span>
@@ -1990,18 +2007,19 @@ export const ConversationComposer = forwardRef<
                     {planModeAvailable && (
                       <CommandItem
                         value={t("conversation.plan.menuSearchValue")}
+                        title={t("conversation.plan.menuDescription")}
                         data-checked={planMode || undefined}
                         disabled={attachmentActionDisabled || planModeDisabled}
                         onSelect={togglePlanMode}
                       >
-                        <span className="capability-menu-icon capability-menu-action-icon">
+                        <span className="grid size-5 shrink-0 place-items-center [&>svg]:size-5">
                           <LightbulbIcon aria-hidden="true" />
                         </span>
-                        <span className="flex min-w-0 flex-1 items-center gap-2">
-                          <span className="max-w-[48%] shrink-0 truncate text-xs font-medium">
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm">
                             {t("conversation.plan.menuLabel")}
                           </span>
-                          <span className="min-w-0 flex-1 truncate text-[length:var(--app-font-12)] font-normal text-[var(--app-muted)]">
+                          <span className="sr-only">
                             {t("conversation.plan.menuDescription")}
                           </span>
                         </span>
@@ -2010,6 +2028,7 @@ export const ConversationComposer = forwardRef<
                   </CommandGroup>
                   {!managedApplicationName && (
                     <>
+                      <CommandSeparator />
                       {capabilitiesLoading && (
                         <div className="page-state" role="status">
                           <LoaderCircleIcon
@@ -2075,6 +2094,10 @@ export const ConversationComposer = forwardRef<
                                 <CommandItem
                                   key={capability.id}
                                   value={`${capability.name} ${presentation.name} ${presentation.description ?? ""}`}
+                                  title={
+                                    presentation.description ??
+                                    presentation.name
+                                  }
                                   data-checked={
                                     selectedIds.includes(capability.id) ||
                                     undefined
@@ -2090,25 +2113,25 @@ export const ConversationComposer = forwardRef<
                                     }
                                   }}
                                 >
-                                  <span className="capability-menu-icon">
-                                    <CapabilityIcon
-                                      type={capability.type}
-                                      logoUrl={capability.logo_url}
+                                  <span className="grid size-5 shrink-0 place-items-center [&>img]:size-full">
+                                    <ConversationCapabilityMenuIcon
+                                      capability={capability}
                                     />
                                   </span>
                                   <span
-                                    className="flex min-w-0 flex-1 items-center gap-2"
+                                    className="min-w-0 flex-1"
                                     data-capability-labels=""
                                   >
                                     <span
-                                      className="max-w-[48%] shrink-0 truncate text-xs font-medium"
+                                      className="block truncate text-sm"
                                       data-capability-name=""
+                                      title={presentation.name}
                                     >
                                       {presentation.name}
                                     </span>
                                     {presentation.description && (
                                       <span
-                                        className="min-w-0 flex-1 truncate text-[length:var(--app-font-12)] font-normal text-[var(--app-muted)]"
+                                        className="sr-only"
                                         data-capability-description=""
                                       >
                                         {presentation.description}
@@ -2116,7 +2139,7 @@ export const ConversationComposer = forwardRef<
                                     )}
                                   </span>
                                   {capability.is_builtin && (
-                                    <span className="shrink-0 text-[length:var(--app-font-10)] text-[var(--app-muted)]">
+                                    <span className="sr-only">
                                       {t("capability.builtIn")}
                                     </span>
                                   )}
@@ -2526,8 +2549,8 @@ export const ConversationComposer = forwardRef<
                   aria-hidden="true"
                 />
               ) : (
-                <SquareIcon
-                  className="size-3 fill-current"
+                <span
+                  className="size-3 rounded-[2px] bg-current"
                   aria-hidden="true"
                 />
               )}
@@ -2546,7 +2569,7 @@ export const ConversationComposer = forwardRef<
               {submitting ? (
                 <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
               ) : (
-                <DesignIcon name="send" />
+                <DesignIcon name="send" className="size-5" />
               )}
             </Button>
           )}

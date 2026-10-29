@@ -228,6 +228,7 @@ describe("LinkSense application", () => {
     expect(
       screen.queryByRole("textbox", { name: "任务输入框" })
     ).not.toBeInTheDocument()
+    expect(document.querySelector(".conversation-bottom-fade")).toBeNull()
 
     await interaction.click(
       screen.getByRole("button", { name: "是，实施此计划" })
@@ -251,6 +252,8 @@ describe("LinkSense application", () => {
         screen.queryByRole("heading", { name: "实施此计划？" })
       ).not.toBeInTheDocument()
     )
+    await screen.findByRole("textbox", { name: "任务输入框" })
+    expect(document.querySelector(".conversation-bottom-fade")).not.toBeNull()
     expect(screen.queryByText("Implement the plan.")).not.toBeInTheDocument()
   })
 

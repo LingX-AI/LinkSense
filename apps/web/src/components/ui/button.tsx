@@ -25,7 +25,7 @@ const buttonVariants = cva(
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         input:
-          "bg-field text-foreground hover:bg-field aria-expanded:bg-field aria-expanded:text-foreground",
+          "border-border bg-field text-foreground hover:border-input-hover hover:bg-field aria-expanded:bg-field aria-expanded:text-foreground",
         ghost:
           "hover:bg-hover hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground",
         plain: "text-foreground",
@@ -48,6 +48,14 @@ const buttonVariants = cva(
         "icon-lg": "size-9",
       },
     },
+    compoundVariants: [
+      {
+        // Form-field triggers match Input and Select instead of the button height.
+        variant: "input",
+        size: "default",
+        class: "h-10 px-3",
+      },
+    ],
     defaultVariants: {
       variant: "default",
       size: "default",

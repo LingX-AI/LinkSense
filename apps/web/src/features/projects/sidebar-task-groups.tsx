@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next"
 import type { Conversation } from "@/api/contracts"
 import { Button } from "@/components/ui/button"
 import { DesignIcon } from "@/components/ui/design-icon"
+import { Separator } from "@/components/ui/separator"
 import { sortSidebarConversations } from "@/features/conversations/conversation-order"
 import { SidebarTaskSortMenu } from "@/features/conversations/sidebar-task-sort-menu"
 import {
@@ -188,6 +189,7 @@ export function SidebarTaskGroups({
             </p>
           )}
       </SidebarTaskSection>
+      <Separator className="data-horizontal:h-px" />
       <SidebarTaskSection
         key={JSON.stringify([userId, "recent"])}
         titleId="recent-conversations-title"

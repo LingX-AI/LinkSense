@@ -108,7 +108,10 @@ export function ConversationTaskOverviewPanel({
           />
         }
       >
-        <DesignIcon name="overview" />
+        <DesignIcon
+          name="overview"
+          className="size-[calc(var(--app-ui-font-size)+6px)]"
+        />
       </PopoverTrigger>
       <PopoverContent
         anchor={anchor}

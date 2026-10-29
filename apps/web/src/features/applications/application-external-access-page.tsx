@@ -137,7 +137,10 @@ export function ApplicationExternalAccessPage() {
       ) : application.data ? (
         <ApplicationExternalAccessSettings application={application.data} />
       ) : (
-        <EmptyState title={t("common.notFound")} />
+        <EmptyState
+          title={t("common.notFound")}
+          description={t("common.notFoundDescription")}
+        />
       )}
     </PageLayout>
   )

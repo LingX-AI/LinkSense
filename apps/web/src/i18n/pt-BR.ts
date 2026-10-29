@@ -284,6 +284,8 @@ export const ptBR = {
     search: "Pesquisar",
     loading: "Carregando…",
     pageLoading: "Carregando…",
+    emptyDescription: "Os itens aparecerão aqui quando estiverem disponíveis.",
+    notFoundDescription: "A página pode ter sido movida ou removida.",
     actions: "Ações",
     status: "Status",
     name: "Nome",
@@ -2123,11 +2125,11 @@ export const ptBR = {
     title: "Tarefa",
     taskSort: {
       open: "Definir a ordem das tarefas em {{section}}",
-      label: "Ordem das tarefas",
+      label: "Ordenar tarefas",
       priority: "Prioridade",
       priorityDescription:
         "Tarefas que precisam da sua resposta e tarefas não lidas aparecem primeiro.",
-      updated_at: "Última atualização",
+      updated_at: "Atualizadas recentemente",
       manual: "Ordem manual",
     },
     share: {
@@ -2257,6 +2259,8 @@ export const ptBR = {
     historyViewExchange: "Clique para visualizar esta interação",
     historyRetry: "Não foi possível carregar as mensagens. Tentar novamente",
     scrollToBottom: "Rolar até o final",
+    newReplies_one: "{{count}} nova resposta",
+    newReplies_other: "{{count}} novas respostas",
     placeholder: "Descreva o que você quer que o {{productName}} faça…",
     followUpPlaceholder: "Adicione uma nova mensagem…",
     send: "Enviar",
@@ -3191,6 +3195,8 @@ export const ptBR = {
       "Aplicativo atualizado. Os próximos turnos das tarefas usarão automaticamente a configuração mais recente.",
     deleted: "Aplicativo excluído.",
     emptyTitle: "Nenhum aplicativo disponível ainda",
+    emptyDescription:
+      "Os itens aparecerão aqui quando você criá-los ou adicioná-los.",
     createdByMe: "Criadas por mim",
     createdBy: "Criado por {{name}}",
     status: {

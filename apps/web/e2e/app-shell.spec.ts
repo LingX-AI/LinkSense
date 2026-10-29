@@ -1017,6 +1017,96 @@ for (const viewport of [
   })
 }
 
+for (const viewport of [
+  { width: 1440, height: 900, theme: "light" },
+  { width: 390, height: 844, theme: "light" },
+  { width: 1440, height: 900, theme: "dark" },
+] as const) {
+  test(`UI acceptance fixes keep header actions and single borders at ${viewport.width}px in ${viewport.theme}`, async ({
+    page,
+  }) => {
+    await mockTaskHomeApi(page)
+    await page.setViewportSize(viewport)
+    await page.emulateMedia({ colorScheme: viewport.theme })
+    await page.goto("/conversations/new")
+    await expect(
+      page.locator('[data-slot="powered-by-linksense"]')
+    ).toHaveCount(0)
+    const header = page.getByRole("banner")
+    const notification = header.getByRole("button", { name: "自动化通知" })
+    await expect(notification).toBeInViewport()
+    await expect(notification).toHaveCSS("width", "36px")
+    await expect(notification.locator("[data-design-icon]")).toHaveCSS(
+      "width",
+      "20px"
+    )
+    const sidebar = page.locator("#app-sidebar")
+    await expect(
+      sidebar.getByRole("button", { name: /自动化通知/ })
+    ).toHaveCount(0)
+    await expect(sidebar.locator('[data-slot="separator"]')).toHaveCSS(
+      "height",
+      "1px"
+    )
+    const composer = page.locator(".composer-shell")
+    const input = composer.getByRole("textbox", { name: "任务输入框" })
+    await input.blur()
+    await page.mouse.move(1, 1)
+    const border = await composer.evaluate(
+      (element) => getComputedStyle(element).borderColor
+    )
+    await composer.hover()
+    await expect(composer).toHaveCSS("border-color", border)
+    await input.focus()
+    await expect(composer).toHaveCSS("border-color", border)
+    await expect(composer).toHaveCSS("outline-width", "1px")
+    await expect(composer).toHaveCSS("outline-offset", "-1px")
+    await expect(composer).toHaveCSS(
+      "outline-color",
+      await input.evaluate(
+        (element) => getComputedStyle(element, "::placeholder").color
+      )
+    )
+    const card = page.locator(".conversation-starter-question").first()
+    await card.hover()
+    await expect(card).not.toHaveClass(/card-spotlight/u)
+    await expect
+      .poll(() =>
+        card.evaluate((element) => {
+          return {
+            borderWidth: getComputedStyle(element).borderTopWidth,
+            overlay: getComputedStyle(element, "::after").content,
+          }
+        })
+      )
+      .toEqual({
+        borderWidth: "1px",
+        overlay: "none",
+      })
+    await page.screenshot({
+      path: test.info().outputPath("ui-acceptance-home.png"),
+    })
+    if (viewport.width >= 768) {
+      const collapse = sidebar.getByRole("button", { name: "折叠侧边栏" })
+      await expect(collapse).toHaveCSS(
+        "color",
+        await notification.evaluate(
+          (element) => getComputedStyle(element).color
+        )
+      )
+      await collapse.click()
+      await expect(notification).toBeInViewport()
+    }
+    await page.goto("/automations")
+    await expect(
+      page.locator('[data-slot="page-top-bar"]').getByRole("button", {
+        name: "自动化通知",
+      })
+    ).toBeInViewport()
+    await expectNoHorizontalOverflow(page)
+  })
+}
+
 test("task composer follows the toolbar design while remaining usable on narrow screens", async ({
   page,
 }) => {
@@ -1059,10 +1149,14 @@ test("task composer follows the toolbar design while remaining usable on narrow 
   await expect(send).toHaveAttribute("aria-disabled", "true")
   await expect(send).toHaveCSS("background-color", "rgb(233, 235, 240)")
   await input.blur()
+  await page.mouse.move(1, 1)
+  const neutralBorder = await composer.evaluate(
+    (element) => getComputedStyle(element).borderTopColor
+  )
   await composer.hover()
-  await expect(composer).toHaveCSS("border-top-color", "rgb(201, 216, 240)")
+  await expect(composer).toHaveCSS("border-top-color", neutralBorder)
   await input.focus()
-  await expect(composer).toHaveCSS("border-top-color", "rgb(98, 136, 221)")
+  await expect(composer).toHaveCSS("border-top-color", neutralBorder)
   await input.fill("Review this document")
   await expect(send).toHaveAttribute("aria-disabled", "false")
   await expect(send).toHaveCSS("background-color", "rgb(8, 116, 255)")
@@ -1779,7 +1873,7 @@ test("appearance supports themes and a persistent UI font size without backend p
     "font-size",
     "18px"
   )
-  await expect(page.locator(".sidebar-nav-item").first()).toHaveCSS(
+  await expect(page.locator("#app-sidebar .sidebar-link").first()).toHaveCSS(
     "font-size",
     "18px"
   )
@@ -1816,30 +1910,38 @@ test("design icons follow the UI font size across the sidebar and conversation",
     await page.getByRole("spinbutton", { name: "UI 字号" }).fill(fontSize)
     await page.goto("/conversations/new")
     const sidebar = page.getByRole("complementary", { name: "LinkSense 导航" })
-    for (const name of ["notification", "sidebar", "help", "automations"]) {
+    for (const name of ["sidebar", "help", "automations"]) {
       const icon = sidebar.locator(`[data-design-icon="${name}"]`)
       await expect(icon).toHaveCSS("width", iconSize)
       await expect(icon).toHaveCSS("height", iconSize)
     }
+    const notification = page
+      .getByRole("banner")
+      .locator('[data-design-icon="notification"]')
+    await expect(notification).toHaveCSS("width", "20px")
+    await expect(notification).toHaveCSS("height", "20px")
     const composer = page.locator(".composer-shell")
     for (const name of [
       "composer-add",
       "knowledge",
       "workspace",
       "microphone",
-      "send",
     ]) {
       const icon = composer.locator(`[data-design-icon="${name}"]`)
       await expect(icon).toHaveCSS("width", iconSize)
       await expect(icon).toHaveCSS("height", iconSize)
     }
+    const sendIcon = composer.locator('[data-design-icon="send"]')
+    await expect(sendIcon).toHaveCSS("width", "20px")
+    await expect(sendIcon).toHaveCSS("height", "20px")
     await page.goto("/conversations/20000000-0000-4000-8000-000000000001")
     for (const name of ["share", "overview"]) {
       const icon = page.locator(
         `.conversation-top-bar [data-design-icon="${name}"]`
       )
-      await expect(icon).toHaveCSS("width", iconSize)
-      await expect(icon).toHaveCSS("height", iconSize)
+      const headerIconSize = `${Number(fontSize) + 6}px`
+      await expect(icon).toHaveCSS("width", headerIconSize)
+      await expect(icon).toHaveCSS("height", headerIconSize)
     }
   }
 })
@@ -2563,8 +2665,8 @@ test("long task follows new content without interrupting historical reading", as
   await expect(scrollToBottom).toHaveClass(
     /conversation-scroll-to-bottom-button/u
   )
-  await expect(scrollToBottom).toHaveCSS("width", "36px")
-  await expect(scrollToBottom).toHaveCSS("height", "36px")
+  await expect(scrollToBottom).toHaveCSS("width", "40px")
+  await expect(scrollToBottom).toHaveCSS("height", "40px")
   await expectButtonAboveComposer()
 
   const historicalScrollTop = await conversationScroll.evaluate(

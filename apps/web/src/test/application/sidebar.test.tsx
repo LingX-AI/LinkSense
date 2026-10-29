@@ -17,6 +17,159 @@ import {
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it("keeps notifications in the main header when navigating or collapsing the sidebar", async () => {
+    installApiMock()
+    const interaction = userEvent.setup()
+    renderApp()
+    const sidebar = await screen.findByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+    const header = await screen.findByRole("banner")
+    expect(
+      await within(header).findByRole("button", { name: "自动化通知" })
+    ).toBeVisible()
+    expect(
+      within(sidebar).queryByRole("button", { name: "自动化通知" })
+    ).not.toBeInTheDocument()
+
+    await interaction.click(
+      within(sidebar).getByRole("link", { name: "自动化" })
+    )
+    await screen.findByRole("heading", { name: "自动化" })
+    const topBar = document.querySelector('[data-slot="page-top-bar"]')
+    expect(topBar).toContainElement(
+      await screen.findByRole("button", { name: "自动化通知" })
+    )
+    await interaction.click(
+      within(sidebar).getByRole("button", { name: "折叠侧边栏" })
+    )
+    expect(screen.getByRole("button", { name: "自动化通知" })).toBeVisible()
+  })
+
+  it.each([false, true])(
+    "keeps one reachable notification bell when interactive chat is closed, compact: %s",
+    async (compact) => {
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn((query: string) => ({
+          matches: compact && query === "(max-width: 767px)",
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn(),
+        }))
+      )
+      const application = {
+        id: "50000000-0000-4000-8000-000000000001",
+        name: "交互应用通知测试",
+        kind: "interactive",
+        package_id: "40000000-0000-4000-8000-000000000001",
+      }
+      const { fetchMock } = installApiMock({
+        conversationOverride: { application },
+      })
+      const baseFetch = fetchMock.getMockImplementation()
+      if (!baseFetch) throw new Error("Application API mock is missing")
+      fetchMock.mockImplementation(async (input, init) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        if (path === `/api/v1/applications/${application.id}`) {
+          return json({
+            success: true,
+            data: {
+              id: application.id,
+              name: application.name,
+              kind: application.kind,
+              icon: { type: "preset", preset: "bot" },
+              owner: {
+                id: "10000000-0000-4000-8000-000000000001",
+                name: "林晓",
+              },
+              description: null,
+              instructions: null,
+              model: null,
+              reasoning_effort: null,
+              status: "active",
+              is_owner: true,
+              can_manage: true,
+              access_source: "owner",
+              capability_count: 0,
+              knowledge_base_count: 0,
+              mcp_server_count: 0,
+              dependencies_available: true,
+              capabilities: [],
+              knowledge_bases: [],
+              mcp_servers: [],
+              created_at: conversation.updated_at,
+              updated_at: conversation.updated_at,
+            },
+          })
+        }
+        if (
+          path ===
+          `/api/v1/applications/${application.id}/interactive-runtime-token`
+        ) {
+          return json({
+            success: true,
+            data: {
+              runtime_url:
+                "/api/v1/interactive-app-runtime/notifications/index.html",
+              expires_at: "2099-09-18T00:00:00.000Z",
+              manifest: {
+                schema_version: 1,
+                id: "notification-test",
+                name: application.name,
+                version: "1.0.0",
+                sdk_version: 1,
+              },
+            },
+          })
+        }
+        return baseFetch(input, init)
+      })
+      const interaction = userEvent.setup()
+      renderApp(`/applications/${application.id}/run/c1`)
+      await screen.findByTitle(application.name)
+      if (!compact) {
+        await interaction.click(
+          screen.getByRole("button", { name: "隐藏聊天" })
+        )
+      }
+      await screen.findByRole("button", { name: "显示对话" })
+      const bell = await screen.findByRole("button", { name: "自动化通知" })
+      expect(screen.getAllByRole("button", { name: "自动化通知" })).toHaveLength(
+        1
+      )
+      expect(bell.closest('[inert], [aria-hidden="true"]')).toBeNull()
+      await interaction.click(bell)
+      expect(await screen.findByText("暂无未读的自动化通知")).toBeVisible()
+      await interaction.click(
+        screen.getByRole("button", { name: "显示对话" })
+      )
+      const restoredBell = await screen.findByRole("button", {
+        name: "自动化通知",
+      })
+      expect(screen.getAllByRole("button", { name: "自动化通知" })).toHaveLength(
+        1
+      )
+      expect(restoredBell.closest('[inert], [aria-hidden="true"]')).toBeNull()
+    }
+  )
+
+  it("keeps a usable notification bell on routes without a page header", async () => {
+    installApiMock()
+    const interaction = userEvent.setup()
+    renderApp("/missing-page")
+    await screen.findByText("页面不存在")
+    const bell = await screen.findByRole("button", { name: "自动化通知" })
+    expect(screen.getAllByRole("button", { name: "自动化通知" })).toHaveLength(1)
+    expect(screen.getByRole("main")).toContainElement(bell)
+    await interaction.click(bell)
+    expect(await screen.findByText("暂无未读的自动化通知")).toBeVisible()
+  })
+
   it.each(["ctrlKey", "metaKey"])(
     "focuses an already open search with %s+K without clearing the query",
     async (modifier) => {
@@ -1117,7 +1270,7 @@ describe("LinkSense application", () => {
     })
   })
 
-  it("keeps notification and collapse beside the logo with a separate search field", async () => {
+  it("keeps collapse beside the logo and notifications in the main header", async () => {
     installApiMock()
     const interaction = userEvent.setup()
     renderApp()
@@ -1132,7 +1285,8 @@ describe("LinkSense application", () => {
     const collapseButton = within(sidebar).getByRole("button", {
       name: "折叠侧边栏",
     })
-    const notificationButton = within(sidebar).getByRole("button", {
+    const header = await screen.findByRole("banner")
+    const notificationButton = await within(header).findByRole("button", {
       name: "自动化通知",
     })
     const helpButton = within(sidebar).getByRole("button", { name: "使用帮助" })
@@ -1152,15 +1306,8 @@ describe("LinkSense application", () => {
     )
     expect(brand.parentElement).not.toContainElement(searchButton)
     expect(brand.parentElement).toContainElement(collapseButton)
-    expect(brand.parentElement).toContainElement(notificationButton)
-    expect(
-      notificationButton.compareDocumentPosition(searchButton) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-    expect(
-      notificationButton.compareDocumentPosition(collapseButton) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
+    expect(brand.parentElement).not.toContainElement(notificationButton)
+    expect(header).toContainElement(notificationButton)
     expect(searchButton).toHaveClass("h-10", "rounded-full", "bg-card")
     expect(searchButton).toHaveTextContent("搜索")
     expect(
@@ -1172,7 +1319,7 @@ describe("LinkSense application", () => {
     expect(collapseButton).toHaveClass("sidebar-collapse-control")
     expect(
       notificationButton.querySelector("[data-design-icon=notification]")
-    ).toHaveClass("size-[calc(var(--app-ui-font-size)+2px)]")
+    ).toHaveClass("size-5")
     expect(helpButton.querySelector("[data-design-icon=help]")).toHaveClass(
       "size-[calc(var(--app-ui-font-size)+2px)]"
     )
@@ -1292,29 +1439,32 @@ describe("LinkSense application", () => {
     }
     const closeButton = within(sheet).getByRole("button", { name: "关闭" })
     const searchButton = within(sheet).getByRole("button", { name: "搜索" })
-    const notificationButton = within(sheet).getByRole("button", {
-      name: "自动化通知",
-    })
-
     expect(closeButton).toHaveClass("mobile-navigation-close")
     expect(closeButton).not.toHaveClass("bg-secondary")
-    expect(notificationButton.parentElement).toHaveClass(
-      "sidebar-header-actions"
-    )
+    expect(
+      within(sheet).queryByRole("button", { name: /自动化通知/ })
+    ).not.toBeInTheDocument()
+    expect(
+      document.querySelectorAll(
+        '[data-slot="shell-header-actions"] [data-design-icon="notification"]'
+      )
+    ).toHaveLength(1)
     expect(searchButton).toHaveTextContent("搜索")
-    expect(notificationButton).toBeVisible()
+    await interaction.click(closeButton)
+    expect(screen.getByRole("button", { name: "自动化通知" })).toBeVisible()
   })
 
   it("shows feedback without navigating when the notification bell has no unread item", async () => {
     const { requests } = installApiMock()
     const interaction = userEvent.setup()
     renderApp()
-    const sidebar = await screen.findByRole(
+    await screen.findByRole(
       "complementary",
       { name: "LinkSense 导航" },
       { timeout: 3_000 }
     )
-    const notificationButton = within(sidebar).getByRole("button", {
+    const header = await screen.findByRole("banner")
+    const notificationButton = await within(header).findByRole("button", {
       name: "自动化通知",
     })
 
@@ -1400,10 +1550,10 @@ describe("LinkSense application", () => {
     })
     const interaction = userEvent.setup()
     renderApp()
-    const sidebar = await screen.findByRole("complementary", {
+    await screen.findByRole("complementary", {
       name: "LinkSense 导航",
     })
-    const notificationButton = await within(sidebar).findByRole("button", {
+    const notificationButton = await screen.findByRole("button", {
       name: "自动化通知，有已完成的未读任务",
     })
     const indicator = notificationButton.querySelector(
@@ -1411,7 +1561,7 @@ describe("LinkSense application", () => {
     )
 
     expect(indicator).toBeInTheDocument()
-    expect(indicator).toHaveClass("rounded-full", "bg-[var(--app-selection)]")
+    expect(indicator).toHaveClass("rounded-full", "bg-warning")
 
     await interaction.click(notificationButton)
 
@@ -1438,7 +1588,7 @@ describe("LinkSense application", () => {
         )
       ).toBe(true)
       expect(
-        within(sidebar)
+        screen
           .getByRole("button", { name: "自动化通知" })
           .querySelector("[data-automation-unread-indicator]")
       ).not.toBeInTheDocument()
@@ -1470,7 +1620,7 @@ describe("LinkSense application", () => {
     })
 
     renderApp()
-    const sidebar = await screen.findByRole("complementary", {
+    await screen.findByRole("complementary", {
       name: "LinkSense 导航",
     })
     await waitFor(() => {
@@ -1484,7 +1634,7 @@ describe("LinkSense application", () => {
         )
       ).toBe(true)
       expect(
-        within(sidebar)
+        screen
           .getByRole("button", { name: "自动化通知" })
           .querySelector("[data-automation-unread-indicator]")
       ).not.toBeInTheDocument()

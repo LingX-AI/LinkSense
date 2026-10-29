@@ -66,6 +66,8 @@ export const enUS = {
     search: "Search",
     loading: "Loading…",
     pageLoading: "Loading…",
+    emptyDescription: "Items will appear here when available.",
+    notFoundDescription: "The page may have been moved or removed.",
     actions: "Actions",
     status: "Status",
     name: "Name",
@@ -1867,11 +1869,11 @@ export const enUS = {
     title: "Task",
     taskSort: {
       open: "Set the task order for {{section}}",
-      label: "Task order",
+      label: "Sort tasks",
       priority: "Priority",
       priorityDescription:
         "Tasks needing your input and unread tasks come first.",
-      updated_at: "Last updated",
+      updated_at: "Recently updated",
       manual: "Manual order",
     },
     share: {
@@ -1992,6 +1994,8 @@ export const enUS = {
     historyViewExchange: "Click to view this exchange",
     historyRetry: "Couldn’t load messages. Retry",
     scrollToBottom: "Scroll to bottom",
+    newReplies_one: "{{count}} new reply",
+    newReplies_other: "{{count}} new replies",
     placeholder: "Describe what you want {{productName}} to do…",
     followUpPlaceholder: "Add a follow-up…",
     send: "Send",
@@ -2903,6 +2907,7 @@ export const enUS = {
       "Application updated. Future task turns will automatically use the latest configuration.",
     deleted: "Application deleted.",
     emptyTitle: "No applications are available yet",
+    emptyDescription: "Items will appear here when you create or add them.",
     createdByMe: "Created by me",
     createdBy: "Created by {{name}}",
     status: {

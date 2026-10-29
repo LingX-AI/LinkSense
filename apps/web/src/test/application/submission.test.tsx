@@ -194,6 +194,7 @@ describe("LinkSense application", () => {
     expect(
       screen.queryByRole("textbox", { name: "任务输入框" })
     ).not.toBeInTheDocument()
+    expect(document.querySelector(".conversation-bottom-fade")).toBeNull()
     await interaction.click(
       screen.getByRole("radio", { name: /完整实现（推荐）/ })
     )

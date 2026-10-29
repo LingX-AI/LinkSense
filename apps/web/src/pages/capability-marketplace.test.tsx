@@ -29,6 +29,7 @@ import { ThemeProvider } from "@/app/theme-context"
 import { notify } from "@/components/feedback/notification"
 import { NotificationCenter } from "@/components/feedback/notification-toast"
 import i18n from "@/i18n"
+import { ApplicationCreatePage } from "@/features/applications/application-catalog-panel"
 import { ApplicationOpeningPage } from "@/features/applications/application-opening-page"
 import {
   AdminCapabilityManagementPage,
@@ -341,6 +342,33 @@ function renderUserPage(
         <QueryClientProvider client={queryClient}>
           <TestAuthProvider registrationSource={registrationSource}>
             <CapabilityManagementPage />
+          </TestAuthProvider>
+        </QueryClientProvider>
+      </MemoryRouter>
+      <NotificationCenter />
+    </ThemeProvider>
+  )
+}
+
+function renderUserPageWithApplicationCreateRoute() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  return render(
+    <ThemeProvider>
+      <MemoryRouter initialEntries={["/capabilities?section=plugin"]}>
+        <QueryClientProvider client={queryClient}>
+          <TestAuthProvider registrationSource="organization_invitation">
+            <Routes>
+              <Route
+                path="/capabilities"
+                element={<CapabilityManagementPage />}
+              />
+              <Route
+                path="/capabilities/applications/new"
+                element={<ApplicationCreatePage />}
+              />
+            </Routes>
           </TestAuthProvider>
         </QueryClientProvider>
       </MemoryRouter>
@@ -3434,7 +3462,7 @@ describe("capability marketplace pages", () => {
       )
       vi.stubGlobal("fetch", fetchMock)
       const interaction = userEvent.setup()
-      renderUserPage()
+      renderUserPageWithApplicationCreateRoute()
 
       const catalogTabs = await screen.findByRole("tablist", {
         name: "插件中心内容分类",
@@ -3445,7 +3473,7 @@ describe("capability marketplace pages", () => {
       const createApplicationButtons = await screen.findAllByRole("button", {
         name: "创建应用",
       })
-      expect(createApplicationButtons).toHaveLength(1)
+      expect(createApplicationButtons).toHaveLength(2)
       await interaction.click(createApplicationButtons[0]!)
 
       const typeDialog = await screen.findByRole("dialog", { name: "创建应用" })
@@ -3470,47 +3498,29 @@ describe("capability marketplace pages", () => {
       )
       await interaction.click(standardApplicationOption)
 
-      const dialog = await screen.findByRole("dialog", { name: "创建应用" })
-      const dialogHeader = dialog.querySelector<HTMLElement>(
-        '[data-slot="dialog-header"]'
-      )
-      const dialogBody = dialog.querySelector<HTMLElement>(
-        '[data-slot="application-editor-body"]'
-      )
-      const dialogFooter = dialog.querySelector<HTMLElement>(
-        '[data-slot="dialog-footer"]'
-      )
-      expect(dialogHeader).not.toBeNull()
-      expect(dialogBody).not.toBeNull()
-      expect(dialogFooter).not.toBeNull()
-      expect(dialogBody).toHaveClass("overflow-y-auto")
-      expect(dialogBody).not.toContainElement(dialogHeader)
-      expect(dialogBody).not.toContainElement(dialogFooter)
-      const leftColumn = dialog.querySelector<HTMLElement>(
-        '[data-slot="application-editor-left"]'
-      )
-      const rightColumn = dialog.querySelector<HTMLElement>(
-        '[data-slot="application-editor-right"]'
-      )
-      expect(leftColumn).not.toBeNull()
-      expect(rightColumn).not.toBeNull()
-      expect(leftColumn).toContainElement(
-        within(dialog).getByRole("textbox", { name: "名称" })
-      )
-      expect(leftColumn).toContainElement(
-        within(dialog).getByRole("combobox", { name: "状态" })
-      )
-      expect(rightColumn).toContainElement(
-        within(dialog).getByRole("textbox", { name: "应用指令" })
-      )
-      expect(rightColumn).toContainElement(
-        within(dialog).getByRole("combobox", { name: "插件" })
-      )
-      expect(rightColumn).toContainElement(
-        within(dialog).getByRole("combobox", { name: "Skill" })
-      )
+      const heading = await screen.findByRole("heading", {
+        level: 1,
+        name: "创建应用",
+      })
+      const page = heading.closest<HTMLElement>(".management-page")
+      expect(page).not.toBeNull()
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+
+      // Standard applications are configured on their own page: the actions
+      // live in the page header and the form is one full-width column.
+      expect(within(page!).getByRole("button", { name: "取消" })).toBeVisible()
+      expect(within(page!).getByRole("button", { name: "创建" })).toBeVisible()
+      expect(page!.querySelector('[data-slot="card"]')).toBeNull()
+      expect(
+        page!.querySelector('[data-slot="application-create-form"]')
+      ).not.toBeNull()
+      expect(
+        page!.querySelectorAll(
+          '[data-slot="application-editor-left"], [data-slot="application-editor-right"]'
+        )
+      ).toHaveLength(0)
       for (const fieldId of ["application-name", "application-instructions"]) {
-        const label = dialog.querySelector<HTMLLabelElement>(
+        const label = page!.querySelector<HTMLLabelElement>(
           `label[for="${fieldId}"]`
         )
         expect(label).not.toBeNull()
@@ -3519,48 +3529,42 @@ describe("capability marketplace pages", () => {
         )
       }
       expect(
-        within(dialog).getByRole("textbox", { name: "名称" })
+        within(page!).getByRole("textbox", { name: "名称" })
       ).toBeRequired()
       expect(
-        within(dialog).getByRole("textbox", { name: "应用指令" })
+        within(page!).getByRole("textbox", { name: "应用指令" })
       ).toBeRequired()
       expect(
-        within(dialog).getByRole("textbox", { name: "应用指令" })
-      ).toHaveClass("h-48", "max-h-48", "min-h-48", "overflow-y-auto")
+        within(page!).getByRole("textbox", { name: "应用指令" })
+      ).toHaveClass("h-25", "min-h-25", "overflow-y-auto")
       for (const fieldId of [
         "application-model",
         "application-reasoning-effort",
       ]) {
-        const label = dialog.querySelector<HTMLLabelElement>(
+        const label = page!.querySelector<HTMLLabelElement>(
           `label[for="${fieldId}"]`
         )
         expect(label).not.toBeNull()
         expect(label?.querySelector('[aria-hidden="true"]')).toBeNull()
       }
       expect(
-        within(dialog).getByRole("combobox", { name: "模型" })
+        within(page!).getByRole("combobox", { name: "模型" })
       ).not.toHaveAttribute("aria-required")
       expect(
-        within(dialog).getByRole("combobox", { name: "推理强度" })
+        within(page!).getByRole("combobox", { name: "推理强度" })
       ).not.toHaveAttribute("aria-required")
       expect(
-        within(dialog).getByText(
+        within(page!).getByText(
           "不指定时，用户可以在聊天界面选择模型和推理强度。"
         )
       ).toBeVisible()
       expect(
-        within(dialog).getByRole("textbox", { name: "说明" })
+        within(page!).getByRole("textbox", { name: "说明" })
       ).not.toBeRequired()
-      const selectedIconPreview = dialog.querySelector(
-        '[data-slot="application-editor-left"] [data-slot="avatar"]'
-      )
+      const selectedIconPreview = page!.querySelector('[data-slot="avatar"]')
       expect(selectedIconPreview?.querySelector("svg")).toHaveClass("size-full")
-      const iconPresetGroup = within(dialog).getByLabelText("内置应用图标")
-      expect(iconPresetGroup).toHaveClass(
-        "grid",
-        "grid-cols-5",
-        "sm:grid-cols-10"
-      )
+      const iconPresetGroup = within(page!).getByLabelText("内置应用图标")
+      expect(iconPresetGroup).toHaveClass("flex-wrap", "gap-2")
       expect(within(iconPresetGroup).getAllByRole("button")).toHaveLength(20)
       for (const label of [
         "机器人",
@@ -3588,7 +3592,7 @@ describe("capability marketplace pages", () => {
           within(iconPresetGroup).getByRole("button", { name: label })
         ).toBeVisible()
       }
-      const iconInput = within(dialog).getByLabelText("上传图片")
+      const iconInput = within(page!).getByLabelText("上传图片")
       await interaction.upload(
         iconInput,
         new File(
@@ -3598,22 +3602,22 @@ describe("capability marketplace pages", () => {
         )
       )
       expect(
-        within(dialog).getByText("请选择符合格式、体积和尺寸限制的图片。")
+        within(page!).getByText("请选择符合格式、体积和尺寸限制的图片。")
       ).toHaveAttribute("role", "alert")
       await interaction.click(
-        within(dialog).getByRole("button", { name: "数据分析" })
+        within(page!).getByRole("button", { name: "数据分析" })
       )
-      expect(within(dialog).queryByRole("alert")).toBeNull()
+      expect(within(page!).queryByRole("alert")).toBeNull()
       await interaction.type(
-        within(dialog).getByRole("textbox", { name: "名称" }),
+        within(page!).getByRole("textbox", { name: "名称" }),
         "财务助手"
       )
       await interaction.type(
-        within(dialog).getByRole("textbox", { name: "应用指令" }),
+        within(page!).getByRole("textbox", { name: "应用指令" }),
         "只回答内部财务制度。"
       )
       await interaction.click(
-        within(dialog).getByRole("combobox", { name: "模型" })
+        within(page!).getByRole("combobox", { name: "模型" })
       )
       expect(
         await screen.findByRole("option", { name: "由用户在聊天中选择" })
@@ -3622,28 +3626,28 @@ describe("capability marketplace pages", () => {
         await screen.findByRole("option", { name: "Model A" })
       )
       expect(
-        within(dialog).getByRole("combobox", { name: "模型" })
+        within(page!).getByRole("combobox", { name: "模型" })
       ).toHaveTextContent("Model A")
       expect(
-        within(dialog).getByRole("combobox", { name: "推理强度" })
+        within(page!).getByRole("combobox", { name: "推理强度" })
       ).toHaveTextContent("中")
       expect(
-        within(dialog).getByRole("combobox", { name: "推理强度" })
+        within(page!).getByRole("combobox", { name: "推理强度" })
       ).not.toHaveTextContent("medium")
       await interaction.click(
-        within(dialog).getByRole("combobox", { name: "模型" })
+        within(page!).getByRole("combobox", { name: "模型" })
       )
       await interaction.click(
         await screen.findByRole("option", { name: "由用户在聊天中选择" })
       )
       expect(
-        within(dialog).getByRole("combobox", { name: "推理强度" })
+        within(page!).getByRole("combobox", { name: "推理强度" })
       ).toBeDisabled()
 
-      const pluginSelector = within(dialog).getByRole("combobox", {
+      const pluginSelector = within(page!).getByRole("combobox", {
         name: "插件",
       })
-      const skillSelector = within(dialog).getByRole("combobox", {
+      const skillSelector = within(page!).getByRole("combobox", {
         name: "Skill",
       })
       expect(pluginSelector).toHaveAttribute("placeholder", "选择插件…")
@@ -3665,7 +3669,7 @@ describe("capability marketplace pages", () => {
       expect(screen.queryByRole("option", { name: /safe-plugin/u })).toBeNull()
       await interaction.click(skillOption)
       expect(
-        within(dialog).getByRole("button", { name: "移除 dashi-ppt" })
+        within(page!).getByRole("button", { name: "移除 dashi-ppt" })
       ).toBeVisible()
 
       await interaction.click(pluginSelector)
@@ -3680,7 +3684,7 @@ describe("capability marketplace pages", () => {
         await screen.findByRole("option", { name: /safe-plugin/u })
       )
       expect(
-        within(dialog).getByRole("button", { name: "移除 safe-plugin" })
+        within(page!).getByRole("button", { name: "移除 safe-plugin" })
       ).toBeVisible()
 
       await interaction.clear(pluginSelector)
@@ -3692,10 +3696,10 @@ describe("capability marketplace pages", () => {
       expect(within(credentialPlugin).getByText("使用插件凭据")).toBeVisible()
       await interaction.click(credentialPlugin)
       expect(
-        within(dialog).getByRole("button", { name: "移除 credential-plugin" })
+        within(page!).getByRole("button", { name: "移除 credential-plugin" })
       ).toBeVisible()
 
-      const knowledgeBaseSelector = within(dialog).getByRole("combobox", {
+      const knowledgeBaseSelector = within(page!).getByRole("combobox", {
         name: "知识库",
       })
       await interaction.click(knowledgeBaseSelector)
@@ -3705,17 +3709,17 @@ describe("capability marketplace pages", () => {
       )
       expect(knowledgeBaseSelector).toHaveAttribute("aria-expanded", "false")
       expect(
-        within(dialog).getByRole("button", { name: "移除 AISG Policy" })
+        within(page!).getByRole("button", { name: "移除 AISG Policy" })
       ).toBeVisible()
 
       await interaction.click(
-        within(dialog).getByRole("button", { name: "创建" })
+        within(page!).getByRole("button", { name: "创建" })
       )
 
       await waitFor(() => expect(submittedBody).not.toBeNull())
       await waitFor(() =>
         expect(
-          screen.queryByRole("dialog", { name: "创建应用" })
+          screen.queryByRole("heading", { level: 1, name: "创建应用" })
         ).not.toBeInTheDocument()
       )
       expect(fetchMock).toHaveBeenCalledWith(

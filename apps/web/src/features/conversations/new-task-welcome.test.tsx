@@ -38,6 +38,10 @@ describe("new task home", () => {
         name: i18n.t("conversation.starterQuestions.label"),
       })
       expect(within(group).getAllByRole("button")).toHaveLength(4)
+      for (const card of within(group).getAllByRole("button")) {
+        expect(card).not.toHaveClass("card-spotlight")
+        expect(card).toHaveClass("focus-visible:ring-0!")
+      }
       expect(onSelect).not.toHaveBeenCalled()
       for (const id of [
         "analyzeFile",

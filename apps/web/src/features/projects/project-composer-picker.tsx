@@ -72,7 +72,7 @@ export function ProjectComposerPicker({
               aria-label={t("projects.choose")}
               aria-describedby={labelId}
               disabled={disabled || query.isPending}
-              className="-mx-1.5 h-8 max-w-full min-w-0 gap-2 bg-transparent px-1.5 text-sm font-normal text-muted-foreground hover:bg-hover focus-visible:bg-hover data-popup-open:bg-hover @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs"
+              className="-mx-1.5 h-8 max-w-[calc(100%+--spacing(3))] min-w-0 gap-2 bg-transparent px-1.5 text-sm font-normal text-muted-foreground hover:bg-hover focus-visible:bg-hover data-popup-open:bg-hover @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs"
             >
               <ProjectIcon
                 icon={selected?.icon}

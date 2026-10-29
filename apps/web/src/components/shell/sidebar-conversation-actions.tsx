@@ -25,7 +25,7 @@ import {
 
 const tooltipHoverDelay = 300
 const actionButtonClassName =
-  "w-5 text-[var(--app-muted)] transition-none hover:bg-transparent hover:text-[var(--app-text)] aria-expanded:bg-transparent dark:hover:bg-transparent"
+  "w-5 text-[var(--app-sidebar-icon)] transition-none hover:bg-transparent hover:text-[var(--app-text)] aria-expanded:bg-transparent dark:hover:bg-transparent"
 
 type SidebarConversationActionsProps = {
   title: string

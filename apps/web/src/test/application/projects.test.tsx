@@ -1208,7 +1208,11 @@ describe("task projects", () => {
     expect(bar?.closest('[data-slot="composer-toolbar"]')).toBeInTheDocument()
     expect(form).toContainElement(bar)
     expect(form).toContainElement(picker)
-    expect(picker).toHaveClass("bg-transparent", "max-w-full", "min-w-0")
+    expect(picker).toHaveClass(
+      "bg-transparent",
+      "max-w-[calc(100%+--spacing(3))]",
+      "min-w-0"
+    )
     expect(picker).toHaveTextContent("生活")
     expect(picker).toHaveAccessibleDescription("生活")
     expect(

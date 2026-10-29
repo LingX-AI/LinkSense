@@ -96,6 +96,8 @@ import {
 } from "@/features/conversations/conversation-message-list"
 import { ConversationForkSourceMarker } from "@/features/conversations/conversation-fork-source-marker"
 import { NewTaskWelcome } from "@/features/conversations/new-task-welcome"
+import { ConversationThinkingOrb } from "@/features/conversations/conversation-thinking-orb"
+import { getConversationMessageRenderKey } from "@/features/conversations/streaming-messages"
 import { ConversationGeneratedImages } from "@/features/conversations/conversation-generated-images"
 import {
   NativeSubAgentActivityGroup,
@@ -3286,16 +3288,6 @@ function recoverAssistantMessageTurnIds(
   })
 }
 
-function getConversationMessageRenderKey(message: ConversationMessage) {
-  if (message.client_render_key) return message.client_render_key
-  // The database message id replaces the temporary streaming id at completion,
-  // while the native Codex item id remains stable for the whole lifecycle.
-  if (message.role === "assistant" && message.item_id) {
-    return `assistant-item-${message.item_id}`
-  }
-  return `message-${message.id}`
-}
-
 function getConversationActivityRenderKey(activity: ConversationActivity) {
   return activity.item_id
     ? `legacy-item-${activity.item_id}`
@@ -4033,6 +4025,13 @@ function TurnSummary({
       </section>
     )
   }
+  const showThinkingOrb =
+    visuallyRunning &&
+    !interruptRequestedAt &&
+    !nativeReconnectState &&
+    !hasBlockingRequest &&
+    !terminalErrorActivity &&
+    !finalAnswerVisible
   const summaryHeading = (
     <Marker
       render={<span />}
@@ -4042,6 +4041,7 @@ function TurnSummary({
       aria-busy={visuallyRunning || undefined}
       role={visuallyRunning ? "status" : undefined}
     >
+      {showThinkingOrb && <ConversationThinkingOrb />}
       <MarkerContent
         className={cn(
           "turn-summary-marker-content",

@@ -275,10 +275,15 @@
   --app-canvas: #fdfefe;
   --app-sidebar: #f7f8fa;
   --app-sidebar-muted: #64728b;
+  --app-sidebar-icon: #8b95b4;
   --app-sidebar-hover: #f2f6fd;
   --app-sidebar-active: #e9f1ff;
   --app-sidebar-avatar: var(--primary-action);
   --app-sidebar-avatar-foreground: var(--app-brand-foreground);
+  --app-sidebar-primary-hover-bg: #f6f9ff;
+  --app-sidebar-primary-shadow: 0 3px 3.5px rgb(27 39 69 / 6%);
+  --app-sidebar-primary-hover-shadow:
+    0 1px 1.5px rgb(41 66 117 / 3%), 0 5px 6.5px rgb(41 66 117 / 9%);
   --app-mobile-sidebar-edge: rgb(32 32 32 / 8%);
   --app-topbar: #ffffff;
   --conversation-top-bar-height: 66px;
@@ -311,6 +316,11 @@
     var(--app-composer)
   );
   --app-accent: var(--primary);
+  --app-send: #0874ff;
+  --app-send-hover: #093dff;
+  --app-send-active: #0630cc;
+  --app-send-foreground: #ffffff;
+  --app-send-focus: #6288dd;
   --app-send-disabled: #e9ebf0;
   --app-send-disabled-foreground: #9099b1;
   --app-ring: var(--ring);
@@ -409,10 +419,15 @@
   --app-canvas: #141414;
   --app-sidebar: #202020;
   --app-sidebar-muted: #adb6c8;
+  --app-sidebar-icon: #adb6c8;
   --app-sidebar-hover: #282c36;
   --app-sidebar-active: #293347;
   --app-sidebar-avatar: var(--primary-action);
   --app-sidebar-avatar-foreground: var(--app-brand-foreground);
+  --app-sidebar-primary-hover-bg: var(--app-sidebar-hover);
+  --app-sidebar-primary-shadow: 0 3px 3.5px rgb(0 0 0 / 24%);
+  --app-sidebar-primary-hover-shadow:
+    0 1px 1.5px rgb(0 0 0 / 16%), 0 5px 6.5px rgb(0 0 0 / 32%);
   --app-mobile-sidebar-edge: rgb(255 255 255 / 5%);
   --app-topbar: #202020;
   --app-text: #d8d8d8;
@@ -435,8 +450,6 @@
     var(--app-composer)
   );
   --app-accent: var(--primary);
-  --app-send-disabled: #383e4b;
-  --app-send-disabled-foreground: #adb6c8;
   --app-ring: var(--ring);
   --app-selection: #8bb6ff;
   --app-usage-token-assistant: #9a83ff;
@@ -812,14 +825,6 @@
   min-height: 152px;
 }
 
-.composer-shell:not([data-drag-active="true"]):hover {
-  border-color: var(--input-hover);
-}
-
-.composer-shell:not([data-drag-active="true"]):has(.composer-input:focus) {
-  border-color: var(--ring);
-}
-
 .composer-shell[data-drag-active="true"] {
   border-color: color-mix(in srgb, var(--app-text) 26%, var(--app-border));
   background: color-mix(
@@ -928,12 +933,22 @@
 }
 
 .send-button {
-  background: var(--app-accent);
-  color: var(--primary-foreground);
+  background: var(--app-send);
+  color: var(--app-send-foreground);
 }
 
-.send-button:hover {
-  background: color-mix(in srgb, var(--app-accent) 84%, black);
+.send-button:hover:not(:disabled, [aria-disabled="true"]) {
+  background: var(--app-send-hover);
+}
+
+.send-button:active:not(:disabled, [aria-disabled="true"]) {
+  background: var(--app-send-active);
+}
+
+.send-button:focus-visible:not(:disabled, [aria-disabled="true"]) {
+  border-color: var(--app-send-focus);
+  box-shadow: none;
+  outline: none;
 }
 
 .send-button:is(:disabled, [aria-disabled="true"]) {
@@ -1081,6 +1096,7 @@
   color: var(--app-text);
   transition:
     background-color 160ms ease,
+    box-shadow 160ms ease,
     color 160ms ease;
 }
 
@@ -1189,6 +1205,7 @@
 
 .sidebar-link-active {
   background: var(--app-sidebar-active);
+  box-shadow: inset 0 0 0 1px var(--sidebar-selection-border);
   color: var(--app-text);
 }
 
@@ -1211,6 +1228,7 @@
   color: var(--app-muted);
 }
 
+.app-main:has([data-slot="page-top-bar"]) > .desktop-sidebar-trigger,
 .app-main[data-compact-top-bar="true"] > .desktop-sidebar-trigger {
   top: calc((var(--conversation-top-bar-height) - 28px) / 2);
 }
@@ -4095,6 +4113,29 @@
   stroke-width: 3.2;
 }
 
+.conversation-bottom-fade {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 20;
+  height: 128px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--app-canvas));
+}
+
+/* ponytail: one masked blur layer stands in for the 0→6px progressive blur. */
+.conversation-bottom-fade::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  backdrop-filter: blur(6px);
+  mask-image: linear-gradient(to bottom, transparent 40%, #000);
+}
+
+.conversation-workspace:has(.conversation-welcome) > .conversation-bottom-fade {
+  display: none;
+}
+
 .conversation-scroll-to-bottom-row {
   display: flex;
   justify-content: center;
@@ -4102,19 +4143,39 @@
 }
 
 .conversation-scroll-to-bottom-button {
-  width: 36px;
-  height: 36px;
-  border: 1px solid var(--app-border);
+  width: 40px;
+  height: 40px;
+  border: 0;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--app-canvas) 92%, transparent);
+  background: var(--app-popover);
   color: var(--app-text);
   box-shadow: var(--app-shadow);
   pointer-events: auto;
-  backdrop-filter: blur(10px);
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .conversation-scroll-to-bottom-button:hover {
-  background: linear-gradient(var(--app-hover), var(--app-hover)), var(--card);
+  background: var(--app-hover);
+}
+
+.conversation-scroll-to-bottom-button:active {
+  background: var(--app-sidebar-active);
+}
+
+.conversation-scroll-to-bottom-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.conversation-scroll-to-bottom-button[data-count] {
+  width: auto;
+  gap: 8px;
+  padding-inline: 16px;
+  font-size: var(--app-ui-font-size);
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .conversation-running-dot {
@@ -4149,8 +4210,8 @@
 }
 
 .conversation-scroll-to-bottom-button > svg {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
 }
 
 .composer-context-row {
@@ -10250,6 +10311,7 @@ button.annotation-hover-file:focus-visible {
   max-width: min(12rem, 100%);
   min-height: 0;
   margin: 0;
+  overflow: visible;
   border: 0;
   border-radius: 0;
   padding: 0;

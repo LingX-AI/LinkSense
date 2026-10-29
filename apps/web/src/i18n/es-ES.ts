@@ -56,6 +56,10 @@ export const esES = {
     search: "Buscar",
     loading: "Cargando…",
     pageLoading: "Cargando…",
+    emptyDescription:
+      "Los elementos aparecerán aquí cuando estén disponibles.",
+    notFoundDescription:
+      "Es posible que la página se haya movido o eliminado.",
     actions: "Acciones",
     status: "Estado",
     name: "Nombre",

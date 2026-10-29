@@ -156,6 +156,11 @@ const ApplicationExternalAccessPage = lazy(() =>
     })
   )
 )
+const ApplicationCreatePage = lazy(() =>
+  import("@/features/applications/application-catalog-panel").then((module) => ({
+    default: module.ApplicationCreatePage,
+  }))
+)
 const InitializePage = lazy(() =>
   import("@/pages/initialize-page").then((module) => ({
     default: module.InitializePage,
@@ -191,7 +196,10 @@ function NotFoundPage() {
   const { t } = useTranslation()
   return (
     <div className="management-scroll">
-      <EmptyState title={t("common.notFound")} />
+      <EmptyState
+        title={t("common.notFound")}
+        description={t("common.notFoundDescription")}
+      />
     </div>
   )
 }
@@ -356,6 +364,10 @@ export function App() {
               <Route
                 path="/capabilities"
                 element={<CapabilityManagementPage />}
+              />
+              <Route
+                path="/capabilities/applications/new"
+                element={<ApplicationCreatePage />}
               />
               <Route
                 path="/capabilities/applications/:applicationId/external-access"
