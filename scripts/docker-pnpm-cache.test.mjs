@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("development prepares a writable Corepack cache before installing dependencies as node", async () => {
-  const source = await readFile(new URL("../Dockerfile.dev", import.meta.url), "utf8");
+  const source = await readFile(new URL("../deploy/docker/Dockerfile.dev", import.meta.url), "utf8");
   const instructions = source.replace(/\\\r?\n/g, " ").split(/\r?\n/);
   const prepare = instructions.findIndex((line) => line.startsWith("RUN ") && line.includes("corepack prepare"));
   const transfer = instructions.findIndex((line) => line.startsWith("RUN ") && /chown\s+-R\s+node:node\s+"\$\{COREPACK_HOME\}"/u.test(line));
@@ -17,8 +17,8 @@ test("development prepares a writable Corepack cache before installing dependenc
 test("development Compose pnpm defaults match the workspace package manager", async () => {
   const [manifest, dockerfile, compose] = await Promise.all([
     readFile(new URL("../package.json", import.meta.url), "utf8"),
-    readFile(new URL("../Dockerfile.dev", import.meta.url), "utf8"),
-    readFile(new URL("../docker-compose.dev.yml", import.meta.url), "utf8"),
+    readFile(new URL("../deploy/docker/Dockerfile.dev", import.meta.url), "utf8"),
+    readFile(new URL("../deploy/compose/docker-compose.dev.yml", import.meta.url), "utf8"),
   ]);
   const version = JSON.parse(manifest).packageManager.replace(/^pnpm@/u, "");
   assert.equal(/^ARG PNPM_VERSION=(.+)$/mu.exec(dockerfile)?.[1], version);
@@ -28,10 +28,10 @@ test("development Compose pnpm defaults match the workspace package manager", as
 });
 
 for (const [file, expectedInstalls, user] of [
-  ["Dockerfile.dev", 1, "node"],
-  ["Dockerfile.api", 2, "root"],
-  ["Dockerfile.runner", 1, "root"],
-  ["Dockerfile.web", 1, "root"],
+  ["deploy/docker/Dockerfile.dev", 1, "node"],
+  ["deploy/docker/Dockerfile.api", 2, "root"],
+  ["deploy/docker/Dockerfile.runner", 1, "root"],
+  ["deploy/docker/Dockerfile.web", 1, "root"],
   ["deploy/baselines/Dockerfile.runtime", 3, "root"],
 ]) {
   test(`${file} reuses pnpm downloads after dependency layers change`, async () => {
@@ -76,7 +76,7 @@ test("browser binaries survive an interrupted baseline build and are copied into
   assert.match(install, /export PLAYWRIGHT_BROWSERS_PATH=\/var\/cache\/linksense-playwright/);
   assert.match(install, /cp -a "\$\{PLAYWRIGHT_BROWSERS_PATH\}\/\." \/opt\/linksense\/runtime\/browser-browsers\//);
   assert.doesNotMatch(install, /target=\/pnpm\/store/);
-  const application = await readFile(new URL("../Dockerfile.runner", import.meta.url), "utf8");
+  const application = await readFile(new URL("../deploy/docker/Dockerfile.runner", import.meta.url), "utf8");
   assert.match(application, /FROM \$\{BASELINE_WORKER_IMAGE\} AS worker/u);
   assert.doesNotMatch(application, /install-browser|browser-runtime-cache/u);
 });
