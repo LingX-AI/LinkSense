@@ -44,6 +44,7 @@ export * from "./settings.js";
 export * from "./system-update.js";
 export * from "./system-disk-usage.js";
 export * from "./skill-creator.js";
+export * from "./skill-management.js";
 export * from "./credit-limits.js";
 export * from "./task-artifacts.js";
 export * from "./upload-files.js";
@@ -67,6 +68,8 @@ export * from "./application-version.js";
 export * from "./application-distribution.js";
 export * from "./client-build.js";
 export * from "./web-sites.js";
+export * from "./html-preview.js";
+export * from "./html-preview-shell-document.js";
 export * from "./application-development.js";
 export * from "./application-catalog.js";
 
@@ -75,6 +78,7 @@ export * from "./social-auth.js"
 export * from "./saml.js";
 export * from "./connections.js";
 export * from "./conversation-side-chat.js";
+export * from "./connection-settings.js";
 export * from "./connection-plugins.js";
 export * from "./workspace-connections.js";
 export * from "./conversation-references.js";

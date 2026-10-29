@@ -1,8 +1,7 @@
 import * as oidc from "openid-client";
 import { z } from "zod";
-import type { ConnectionProvider } from "@linksense/shared";
+import type { ConnectionProvider, ConnectionConfiguration } from "@linksense/shared";
 import { AppError } from "../../lib/errors.js";
-import type { SocialConfiguration } from "../social-auth/settings.js";
 import {
   connectionIdentityProvider,
   connectionScopes,
@@ -26,7 +25,7 @@ export class GoogleConnectionProtocol implements ConnectionProtocol {
     ).toString();
   }
   private configuration(
-    settings: SocialConfiguration,
+    settings: ConnectionConfiguration,
   ): Promise<oidc.Configuration> {
     return oidc.discovery(
       new URL("https://accounts.google.com"),
@@ -38,7 +37,7 @@ export class GoogleConnectionProtocol implements ConnectionProtocol {
   }
   async start(
     provider: ConnectionProvider,
-    settings: SocialConfiguration,
+    settings: ConnectionConfiguration,
     checks: ConnectionChecks,
   ): Promise<string> {
     return oidc
@@ -57,7 +56,7 @@ export class GoogleConnectionProtocol implements ConnectionProtocol {
   }
   async complete(
     provider: ConnectionProvider,
-    settings: SocialConfiguration,
+    settings: ConnectionConfiguration,
     parameters: Record<string, string>,
     checks: ConnectionChecks,
   ): Promise<{ token: ConnectionToken; accountName: string }> {
@@ -99,7 +98,7 @@ export class GoogleConnectionProtocol implements ConnectionProtocol {
   }
   async refresh(
     provider: ConnectionProvider,
-    settings: SocialConfiguration,
+    settings: ConnectionConfiguration,
     current: ConnectionToken,
   ): Promise<ConnectionToken> {
     try {
@@ -144,14 +143,14 @@ export class ProviderConnectionProtocol implements ConnectionProtocol {
   }
   start(
     provider: ConnectionProvider,
-    config: SocialConfiguration,
+    config: ConnectionConfiguration,
     checks: ConnectionChecks,
   ): Promise<string> {
     return this.for(provider).start(provider, config, checks);
   }
   complete(
     provider: ConnectionProvider,
-    config: SocialConfiguration,
+    config: ConnectionConfiguration,
     parameters: Record<string, string>,
     checks: ConnectionChecks,
   ): Promise<{ token: ConnectionToken; accountName: string }> {
@@ -159,7 +158,7 @@ export class ProviderConnectionProtocol implements ConnectionProtocol {
   }
   refresh(
     provider: ConnectionProvider,
-    config: SocialConfiguration,
+    config: ConnectionConfiguration,
     token: ConnectionToken,
   ): Promise<ConnectionToken> {
     return this.for(provider).refresh(provider, config, token);

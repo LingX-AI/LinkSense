@@ -24,6 +24,20 @@ export const errorCatalog = {
       "en-US": "Too many browser pairing requests. Please try again later.",
     },
   },
+  CONNECTION_CLIENT_SECRET_REQUIRED: {
+    message_key: "adminConnections.secretRequired", http_status: 400,
+    messages: {
+      "zh-CN": "请填写应用密钥；更换应用 ID 时必须同时填写新应用的密钥。",
+      "en-US": "Enter the app secret. Changing the app ID also requires the new app's secret.",
+    },
+  },
+  CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: {
+    message_key: "adminConnections.reauthorizationRequired", http_status: 409,
+    messages: {
+      "zh-CN": "已有授权账号数：{{count}}。更换应用 ID 会要求这些用户重新连接，请先确认此影响。",
+      "en-US": "Authorized accounts: {{count}}. Changing the app ID requires these users to reconnect. Acknowledge this before saving.",
+    },
+  },
   CONNECTION_WRITE_REQUIRED: {"message_key": "connections.errors.writeRequired", "http_status": 409, "messages": {"zh-CN": "当前连接仅有读取权限，请在插件中心的「连接器」中启用读写并重新授权。", "en-US": "This connection only allows reading. Enable read and write in Plugin Center → Connectors and authorize again."}},
   CONNECTION_FILE_CONFLICT: {"message_key": "connections.errors.fileConflict", "http_status": 409, "messages": {"zh-CN": "文件已被修改或存在同名文件，请重新读取文件状态后再操作。", "en-US": "The file has changed or a file with this name already exists. Read its current state before trying again."}},
   CONNECTION_NOT_CONFIGURED: { message_key: "connections.errors.notConfigured", http_status: 503, messages: { "zh-CN": "管理员尚未配置此连接。", "en-US": "An administrator must configure this connection first." } },
@@ -172,8 +186,8 @@ export const errorCatalog = {
     message_key: "errors.botChannels.BOT_CHANNEL_BUSY",
     http_status: 409,
     messages: {
-      "zh-CN": "该渠道正在处理消息，请稍后再断开。",
-      "en-US": "This channel is processing a message. Try disconnecting again shortly.",
+      "zh-CN": "该渠道正在处理其他操作，请稍后重试。",
+      "en-US": "This channel is busy with another operation. Please try again shortly.",
     },
   },
   BOT_CHANNEL_CONNECTION_FAILED: {
@@ -338,6 +352,14 @@ export const errorCatalog = {
     messages: {
       "zh-CN": "未找到该插件或 Skill。",
       "en-US": "The plugin or skill was not found.",
+    },
+  },
+  SKILL_UNINSTALL_NOT_ALLOWED: {
+    message_key: "errors.skillManagement.uninstallNotAllowed",
+    http_status: 403,
+    messages: {
+      "zh-CN": "此技能不能卸载。内置技能由系统提供。",
+      "en-US": "This skill cannot be uninstalled. Built-in skills are provided by the system.",
     },
   },
   MCP_SERVER_NOT_FOUND: {

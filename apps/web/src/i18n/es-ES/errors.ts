@@ -5,6 +5,12 @@ import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 
 export const errorMessages = {
   errors: {
+    skillManagement: {
+      uninstallNotAllowed: localizedErrorMessage(
+        "SKILL_UNINSTALL_NOT_ALLOWED",
+        "es-ES"
+      ),
+    },
     socialClientInUse:
       "Hay cuentas vinculadas a esta aplicación. No se puede cambiar su ID; puedes renovar su secreto o desactivar el acceso.",
     socialLastMethod:

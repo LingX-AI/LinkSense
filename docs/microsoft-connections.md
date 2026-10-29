@@ -26,7 +26,7 @@
 
 ## Microsoft Entra 配置
 
-复用 **设置 → 系统设置 → 登录方式 → Microsoft** 中的 Client ID 与 Client Secret。登录回调与连接回调、令牌和状态各自独立，不使用登录时的访问令牌。关闭 Microsoft 登录开关不会撤销单独授权的数据连接。
+管理员使用设置管理分组中独立的 **连接器** 菜单，分别配置 OneDrive、SharePoint 和 Outlook 的应用 ID 与应用密钥。每个连接器单独保存配置，页面提供对应的授权回调地址、权限清单和平台配置指引。第三方登录配置与连接器配置独立；修改或关闭 Microsoft 登录不影响连接器，连接器也不使用登录令牌。完整的配置、升级顺序与密钥更新说明见[连接器配置](workspace-connections.md#configuration)。
 
 - 应用支持 **任何组织目录中的账号和个人 Microsoft 账号**。OneDrive 使用 `common`，SharePoint 使用 `organizations` 授权端点。
 - Microsoft Graph 使用 **委托权限**：OneDrive 请求 `Files.ReadWrite`；SharePoint 请求 `Files.ReadWrite.All` 和 `Sites.Read.All`，分别用于文件读写和站点发现。两者同时请求 `openid profile offline_access User.Read`。不需要后台应用权限。

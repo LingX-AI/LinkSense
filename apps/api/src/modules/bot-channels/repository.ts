@@ -6,7 +6,11 @@ import type {
   BotChannelPeerSession,
   PrismaClient,
 } from "../../generated/prisma/client.js";
-import { isLocale, type BotChannelProvider, type Locale } from "@linksense/shared";
+import {
+  isLocale,
+  type BotChannelProvider,
+  type Locale,
+} from "@linksense/shared";
 
 export type PendingBotChannelInbound = {
   connection: BotChannelConnection;
@@ -27,7 +31,7 @@ export class PrismaBotChannelRepository {
 
   listForOwner(ownerId: string): Promise<BotChannelConnection[]> {
     return this.prisma.botChannelConnection.findMany({
-      where: { ownerId, status: "active" },
+      where: { OR: [{ ownerId }, { ownerId: null }] },
       orderBy: { createdAt: "asc" },
     });
   }
@@ -36,7 +40,7 @@ export class PrismaBotChannelRepository {
     id: string,
   ): Promise<BotChannelConnection | null> {
     return this.prisma.botChannelConnection.findFirst({
-      where: { id, ownerId, status: "active" },
+      where: { id, ownerId },
     });
   }
   async listActiveConnections(limit = 500): Promise<BotChannelConnection[]> {
@@ -56,24 +60,27 @@ export class PrismaBotChannelRepository {
   }
   async createConnection(input: {
     id: string;
-    ownerId: string;
+    ownerId: string | null;
     provider: BotChannelProvider;
     externalId: string;
-    allowedSenderId: string;
     allowGroupMessages: boolean;
     encryptedCredentials: string;
     encryptionKeyId: string;
   }): Promise<BotChannelConnection> {
     return this.prisma.botChannelConnection.create({ data: input });
   }
-  async deleteConnection(ownerId: string, id: string): Promise<boolean> {
+  async deleteConnection(ownerId: string | null, id: string): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const found = await tx.botChannelConnection.updateMany({
-        where: { id, ownerId, status: "active" },
+        where: { id, ownerId },
         data: { status: "disconnecting" },
       });
       if (!found.count) return false;
-      await cancelConnectionNotifications(tx, ownerId, id);
+      await tx.automationNotificationDelivery.updateMany({
+        where: { status: { in: ["pending", "processing"] }, targetJson: { path: ["connection_id"], equals: id } },
+        data: { status: "cancelled", processingToken: null },
+      });
+      await tx.botChannelIdentity.deleteMany({ where: { connectionId: id } });
       await tx.botChannelOutboundDelivery.deleteMany({
         where: { connectionId: id },
       });
@@ -87,6 +94,111 @@ export class PrismaBotChannelRepository {
       return true;
     });
   }
+  listOrganizationConnections(): Promise<BotChannelConnection[]> {
+    return this.prisma.botChannelConnection.findMany({
+      where: { ownerId: null },
+      orderBy: { createdAt: "asc" },
+    });
+  }
+  async setEnabled(id: string, enabled: boolean): Promise<boolean> {
+    const changed = await this.prisma.botChannelConnection.updateMany({
+      where: { id, ownerId: null },
+      data: {
+        status: enabled ? "active" : "disabled",
+        lastErrorCode: null,
+        lastErrorAt: null,
+      },
+    });
+    return changed.count === 1;
+  }
+  async findAccessibleConnection(
+    userId: string,
+    id: string,
+    includeDisabled = false,
+  ): Promise<BotChannelConnection | null> {
+    return this.prisma.botChannelConnection.findFirst({
+      where: {
+        id,
+        status: includeDisabled ? { in: ["active", "disabled"] } : "active",
+        OR: [{ ownerId: userId }, { ownerId: null }],
+      },
+    });
+  }
+  async linkedConnectionIds(userId: string): Promise<Set<string>> {
+    const identities = await this.prisma.botChannelIdentity.findMany({
+      where: { userId },
+      select: { connectionId: true },
+    });
+    return new Set(identities.map((item) => item.connectionId));
+  }
+  async resolveSenderOwner(
+    connectionId: string,
+    senderId: string,
+  ): Promise<string | null> {
+    const identity = await this.prisma.botChannelIdentity.findUnique({
+      where: { connectionId_senderId: { connectionId, senderId } },
+    });
+    if (!identity) return null;
+    const [user, connection] = await Promise.all([
+      this.prisma.user.findFirst({
+        where: { id: identity.userId, status: "active" },
+        select: { id: true },
+      }),
+      this.prisma.botChannelConnection.findFirst({
+        where: {
+          id: connectionId,
+          status: "active",
+          OR: [{ ownerId: null }, { ownerId: identity.userId }],
+        },
+        select: { id: true },
+      }),
+    ]);
+    return user && connection ? user.id : null;
+  }
+  async bindIdentity(
+    connectionId: string,
+    userId: string,
+    senderId: string,
+  ): Promise<boolean> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        // Serialize binding with channel deletion and other binding attempts.
+        const rows = await tx.$queryRaw<
+          Array<{ id: string }>
+        >`SELECT id FROM bot_channel_connections WHERE id = ${connectionId}::uuid AND status = 'active' AND (owner_id IS NULL OR owner_id = ${userId}::uuid) FOR UPDATE`;
+        if (
+          rows.length !== 1 ||
+          !(await tx.user.findFirst({
+            where: { id: userId, status: "active" },
+            select: { id: true },
+          }))
+        )
+          return false;
+        const existing = await tx.botChannelIdentity.findFirst({
+          where: { connectionId, OR: [{ userId }, { senderId }] },
+        });
+        if (existing)
+          return existing.userId === userId && existing.senderId === senderId;
+        await tx.botChannelIdentity.create({
+          data: { connectionId, userId, senderId },
+        });
+        return true;
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      )
+        return false;
+      throw error;
+    }
+  }
+  async unlinkIdentity(connectionId: string, userId: string): Promise<void> {
+    await this.prisma.botChannelIdentity.deleteMany({
+      where: { connectionId, userId },
+    });
+  }
+
   async markConnected(id: string, now: Date): Promise<void> {
     await this.prisma.botChannelConnection.updateMany({
       where: { id, status: "active" },
@@ -104,6 +216,7 @@ export class PrismaBotChannelRepository {
     });
   }
   async persistInbound(input: {
+    ownerId: string;
     id: string;
     connectionId: string;
     messageKey: string;
@@ -221,6 +334,7 @@ export class PrismaBotChannelRepository {
         where: {
           connectionId: message.connectionId,
           chatId: message.chatId,
+          ownerId: message.ownerId,
           status: { in: ["pending", "processing"] },
           ingestOrder: { lt: message.ingestOrder },
         },
@@ -262,9 +376,10 @@ export class PrismaBotChannelRepository {
   findPeerSession(
     connectionId: string,
     chatId: string,
+    ownerId: string,
   ): Promise<BotChannelPeerSession | null> {
     return this.prisma.botChannelPeerSession.findUnique({
-      where: { connectionId_chatId: { connectionId, chatId } },
+      where: { connectionId_chatId_ownerId: { connectionId, chatId, ownerId } },
     });
   }
 
@@ -280,6 +395,7 @@ export class PrismaBotChannelRepository {
   }
 
   upsertPeerSession(input: {
+    ownerId: string;
     id: string;
     connectionId: string;
     chatId: string;
@@ -289,7 +405,8 @@ export class PrismaBotChannelRepository {
   }): Promise<BotChannelPeerSession> {
     return this.prisma.botChannelPeerSession.upsert({
       where: {
-        connectionId_chatId: {
+        connectionId_chatId_ownerId: {
+          ownerId: input.ownerId,
           connectionId: input.connectionId,
           chatId: input.chatId,
         },
@@ -328,8 +445,9 @@ export class PrismaBotChannelRepository {
   async hasUnsentDeliveryForChat(
     connectionId: string,
     chatId: string,
+    ownerId: string,
   ): Promise<boolean> {
-    const peer = await this.findPeerSession(connectionId, chatId);
+    const peer = await this.findPeerSession(connectionId, chatId, ownerId);
     if (!peer) return false;
     return (
       (await this.prisma.botChannelOutboundDelivery.count({
@@ -656,13 +774,19 @@ export class PrismaBotChannelRepository {
     if (connections.length === 0) return [];
     const owners = await this.prisma.user.findMany({
       where: {
-        id: { in: [...new Set(connections.map((item) => item.ownerId))] },
+        id: {
+          in: connections.flatMap((item) =>
+            item.ownerId ? [item.ownerId] : [],
+          ),
+        },
         status: "active",
       },
       select: { id: true },
     });
     const activeOwnerIds = new Set(owners.map((owner) => owner.id));
-    return connections.filter((item) => activeOwnerIds.has(item.ownerId));
+    return connections.filter(
+      (item) => item.ownerId === null || activeOwnerIds.has(item.ownerId),
+    );
   }
 }
 
@@ -709,4 +833,3 @@ function isUuid(value: string): boolean {
     value,
   );
 }
-import { cancelConnectionNotifications } from "../automations/notification-cancellation.js";

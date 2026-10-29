@@ -376,7 +376,7 @@ export function developmentDependencyFingerprint(
 
 export function migrationImageFingerprint(rootDirectory = repositoryRoot) {
   // The migration target installs deploy/migration's standalone lockfile. It
-  // does not copy or install any workspace application manifests or packages.
+  // also copies the small credential/schema sources used by the data upgrade.
   return sourceFingerprint(rootDirectory, [
     ".dockerignore",
     "deploy/docker/Dockerfile.api",
@@ -385,6 +385,9 @@ export function migrationImageFingerprint(rootDirectory = repositoryRoot) {
     "deploy/migration",
     "prisma",
     "prisma.config.ts",
+    "apps/api/src/lib/crypto.ts",
+    "packages/shared/src/connection-settings.ts",
+    "packages/shared/src/connections.ts",
   ]);
 }
 

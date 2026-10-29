@@ -1595,6 +1595,34 @@ trust_level = "trusted"
     await plan.pool.closeAll();
   });
 
+  it.each(["default", "plan"] as const)("binds Skill management to the logical turn and scoped token in %s mode", async collaborationMode => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-skill-management-token-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+    const input = { ...startOperationInput(), collaborationMode };
+    await pool.startTurn(input);
+    const token = controlled.environment?.LINKSENSE_SKILL_MANAGEMENT_TOKEN;
+    if (!token) throw new Error("missing Skill management token");
+    expect(controlled.environment?.LINKSENSE_SKILL_MANAGEMENT_ENDPOINT).toContain(`/mcp-skills/${input.conversationId}/execute`);
+    expect(controlled.environment?.LINKSENSE_CONVERSATION_ID).toBe(input.conversationId);
+    await expect(pool.manageSkills(input.conversationId, token, { operation: "list" })).resolves.toEqual({});
+    expect(eventSink.manageSkills).toHaveBeenCalledWith({ conversationId: input.conversationId, turnId: input.projectionTurnId, request: { operation: "list" } });
+    for (const [target, suppliedToken] of [[input.conversationId, "wrong-token"], ["another-task", token]] as const) {
+      await expect(pool.manageSkills(target, suppliedToken, { operation: "list" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    }
+    const request = { operation: "uninstall" as const, skill_id: "10000000-0000-4000-8000-000000000001" };
+    if (collaborationMode === "plan") {
+      await expect(pool.manageSkills(input.conversationId, token, request)).rejects.toMatchObject({ code: "COLLABORATION_MODE_UNAVAILABLE" });
+      expect(eventSink.manageSkills).toHaveBeenCalledOnce();
+    } else {
+      await expect(pool.manageSkills(input.conversationId, token, request)).resolves.toEqual({});
+      expect(eventSink.manageSkills).toHaveBeenLastCalledWith({ conversationId: input.conversationId, turnId: input.projectionTurnId, request });
+    }
+    await pool.closeAll();
+    await expect(pool.manageSkills(input.conversationId, token, { operation: "list" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
   it("binds Skill preview and install to the active native turn and creator token", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-skill-creator-token-"),
@@ -11749,6 +11777,7 @@ function createStartOperationPool(
     previewSkillZip: vi.fn(async () => ({})),
     applicationBuilder: vi.fn(async () => null),
     confirmSkillInstall: vi.fn(async () => ({})),
+    manageSkills: vi.fn(async () => ({})),
     searchKnowledge: vi.fn(async () => ({})),
     listKnowledgeDocuments: vi.fn(async () => ({})),
     getKnowledgeDocumentMarkdown: vi.fn(async () => ({})),

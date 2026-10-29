@@ -23,7 +23,7 @@ import { promisify } from "node:util";
 
 const nginxConfigPath = resolve("deploy/nginx/default.conf.template");
 const assistantHtmlPreviewShellPath = resolve(
-  "apps/web/public/assistant-html-preview-shell.html",
+  "packages/shared/src/html-preview-shell-document.ts",
 );
 const apiDockerfilePath = resolve("deploy/docker/Dockerfile.api");
 const developmentDockerfilePath = resolve("deploy/docker/Dockerfile.dev");
@@ -1073,7 +1073,7 @@ test("interactive HTML previews use a policy-free isolated shell", async () => {
   assert.match(previewLocation, /Cache-Control "no-store"/u);
   assert.match(shell, /linksense:assistant-html-preview:shell-ready/u);
   assert.match(shell, /linksense:assistant-html-preview:initialize/u);
-  assert.match(shell, /maximumDocumentLength = 20 \* 1024 \* 1024/u);
+  assert.match(shell, /maximumDocumentLength = 21 \* 1024 \* 1024/u);
   assert.match(shell, /document\.write\(message\.html\)/u);
 });
 
@@ -1384,6 +1384,26 @@ test("development Web proxies browser OIDC callbacks to the API service", async 
   );
   assert.match(viteConfig, /["']\/api["']:\s*\{/u);
   assert.match(viteConfig, /process\.env\.LINKSENSE_DEV_API_PROXY_TARGET/u);
+});
+
+test("migration startup uses the API credential key for default and explicit key IDs", async () => {
+  for (const keyId of ["", "test-rotated-key"]) {
+    const { stdout } = await execFileAsync("docker", [
+      "compose", "--env-file", environmentExamplePath,
+      "-f", composePath, "config", "--format", "json",
+    ], {
+      maxBuffer: 4 * 1024 * 1024,
+      env: {
+        ...process.env,
+        LINKSENSE_CREDENTIAL_MASTER_KEY: "test-only-migration-master-key-00000000000",
+        LINKSENSE_CREDENTIAL_KEY_ID: keyId,
+      },
+    });
+    const { services } = JSON.parse(stdout);
+    assert.equal(services.api.environment.LINKSENSE_CREDENTIAL_KEY_ID, keyId || "v1");
+    assert.equal(services.migrate.environment.LINKSENSE_CREDENTIAL_KEY_ID, services.api.environment.LINKSENSE_CREDENTIAL_KEY_ID);
+    assert.equal(services.migrate.environment.LINKSENSE_CREDENTIAL_MASTER_KEY, services.api.environment.LINKSENSE_CREDENTIAL_MASTER_KEY);
+  }
 });
 
 test("development applications are independently managed and promptly report failed readiness", async () => {

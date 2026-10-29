@@ -85,6 +85,11 @@ export const miscResources = {
     selectionStatus: "Texte sélectionné",
   },
   htmlPreview: {
+    resourcesIncomplete: "Une partie de la page n’a pas pu être chargée",
+    sessionExpired: "La connexion de l’aperçu a expiré",
+    resourcesHelp:
+      "Certains styles ou interactions peuvent être indisponibles. Rechargez l’aperçu. Si le problème persiste, demandez à la tâche d’inclure les fichiers nécessaires.",
+    resourceDetails: "Voir les fichiers non chargés",
     frameTitle: "Document HTML {{name}}",
     annotate: "Annoter",
     annotating: "Annotation en cours",

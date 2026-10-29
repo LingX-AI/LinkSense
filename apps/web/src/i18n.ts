@@ -21,6 +21,7 @@ import { applicationSetupMessages } from "@/features/applications/application-se
 import { accountAccessMessages } from "@/components/auth/account-access-messages"
 import { workspaceHomeMessages } from "@/features/conversations/workspace-home-messages"
 import { settingsInterfaceMessages } from "@/components/settings/interface-messages"
+import { adminConnectionMessages } from "@/features/connections/admin-messages"
 
 export const supportedLanguages = supportedLocales
 export type SupportedLanguage = Locale
@@ -82,6 +83,7 @@ void i18n.use(initReactI18next).init({
         taskReferences: taskReferenceMessages["zh-CN"],
         automationNotifications: automationNotificationMessages["zh-CN"],
         applicationSetup: applicationSetupMessages["zh-CN"],
+        adminConnections: adminConnectionMessages["zh-CN"],
         onboarding: onboardingMessages["zh-CN"],
         auditValues: auditTranslationResource("zh-CN"),
       },
@@ -97,6 +99,7 @@ void i18n.use(initReactI18next).init({
         taskReferences: taskReferenceMessages["en-US"],
         automationNotifications: automationNotificationMessages["en-US"],
         applicationSetup: applicationSetupMessages["en-US"],
+        adminConnections: adminConnectionMessages["en-US"],
         onboarding: onboardingMessages["en-US"],
         auditValues: auditTranslationResource("en-US"),
       },
@@ -112,6 +115,7 @@ void i18n.use(initReactI18next).init({
         taskReferences: taskReferenceMessages["es-ES"],
         automationNotifications: automationNotificationMessages["es-ES"],
         applicationSetup: applicationSetupMessages["es-ES"],
+        adminConnections: adminConnectionMessages["es-ES"],
         onboarding: onboardingMessages["es-ES"],
         auditValues: auditTranslationResource("es-ES"),
       },
@@ -127,6 +131,7 @@ void i18n.use(initReactI18next).init({
         taskReferences: taskReferenceMessages["pt-BR"],
         automationNotifications: automationNotificationMessages["pt-BR"],
         applicationSetup: applicationSetupMessages["pt-BR"],
+        adminConnections: adminConnectionMessages["pt-BR"],
         onboarding: onboardingMessages["pt-BR"],
         auditValues: auditTranslationResource("pt-BR"),
       },
@@ -142,6 +147,7 @@ void i18n.use(initReactI18next).init({
         taskReferences: taskReferenceMessages["fr-FR"],
         automationNotifications: automationNotificationMessages["fr-FR"],
         applicationSetup: applicationSetupMessages["fr-FR"],
+        adminConnections: adminConnectionMessages["fr-FR"],
         onboarding: onboardingMessages["fr-FR"],
         auditValues: auditTranslationResource("fr-FR"),
       },
@@ -157,6 +163,7 @@ void i18n.use(initReactI18next).init({
         taskReferences: taskReferenceMessages["ja-JP"],
         automationNotifications: automationNotificationMessages["ja-JP"],
         applicationSetup: applicationSetupMessages["ja-JP"],
+        adminConnections: adminConnectionMessages["ja-JP"],
         onboarding: onboardingMessages["ja-JP"],
         auditValues: auditTranslationResource("ja-JP"),
       },

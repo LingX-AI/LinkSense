@@ -8,6 +8,9 @@ export const errorMessages: Record<ErrorCode, string> = {
   BROWSER_CONTROL_BUSY: "Le navigateur effectue une action. Réessayez dans un instant.",
   BROWSER_CONTROL_REQUIRED: "Le contrôle a expiré ou appartient à une autre fenêtre. Reprenez le contrôle.",
 
+  CONNECTION_CLIENT_SECRET_REQUIRED: "Saisissez le secret de l’application. Si vous changez son identifiant, saisissez aussi le secret de la nouvelle application.",
+  CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Comptes autorisés : {{count}}. Changer l’identifiant de l’application impose à ces utilisateurs de se reconnecter. Confirmez cet effet avant d’enregistrer.",
+  SKILL_UNINSTALL_NOT_ALLOWED: "Cette compétence ne peut pas être désinstallée. Les compétences intégrées sont fournies par le système.",
   IMAGE_GENERATION_INPUT_INVALID: "Impossible de lire l’image à modifier. Utilisez des images PNG, JPEG ou WebP de 8 Mo maximum chacune et 10 Mo au total, masque compris. Le masque doit être un PNG transparent aux mêmes dimensions que la première image.",
   IMAGE_GENERATION_EDIT_UNSUPPORTED: "Le modèle actuel ne prend pas en charge cette modification. Réduisez le nombre d’images de référence, retirez le masque ou demandez à un administrateur de choisir un modèle compatible.",
   MODEL_PROVIDER_CREDENTIAL_REQUIRED: "Saisissez une clé API. Une nouvelle clé est nécessaire après un changement de fournisseur, d’adresse du service ou de projet cloud.",
@@ -48,7 +51,7 @@ export const errorMessages: Record<ErrorCode, string> = {
  PROJECT_NAME_EXISTS: "Un projet porte déjà ce nom. Choisissez un autre nom",
  PROJECT_TASK_ACTIVE: "Terminez les tâches actives avant de les déplacer ou de retirer leur projet",
  BOT_CHANNEL_CONNECTION_CONFLICT: "Ce canal ou ce bot est déjà connecté. Déconnectez d’abord la connexion existante.",
- BOT_CHANNEL_BUSY: "Ce canal traite un message. Réessayez de le déconnecter dans un instant.",
+ BOT_CHANNEL_BUSY: "Ce canal effectue une autre opération. Réessayez dans un instant.",
  BOT_CHANNEL_CONNECTION_FAILED: "Connexion impossible. Vérifiez la configuration de l’application, les autorisations et le réseau.",
  BOT_CHANNEL_DELIVERY_FAILED: "Le message n’a pas pu être remis. Vérifiez l’état du canal et les autorisations de messagerie.",
  BOT_CHANNEL_PROTOCOL_INVALID: "Le canal de messagerie a renvoyé une réponse invalide.",
@@ -265,6 +268,7 @@ export const errorMessages: Record<ErrorCode, string> = {
 
 export const auditMessages = {
  actions: {
+    connection_settings_updated: "Configuration du connecteur mise à jour",
     connection_authorized: "Connexion autorisée",
     connection_disconnected: "Connexion déconnectée",
     connection_enabled: "Connexion activée",
@@ -282,6 +286,7 @@ export const auditMessages = {
  user_admin_self_change_rejected: "Modification de ses propres droits par l’administrateur refusée", user_avatar_replaced: "Avatar de l’utilisateur remplacé", user_created: "Utilisateur créé", user_disabled: "Utilisateur désactivé", user_email_change_rejected: "Modification de l’e-mail utilisateur refusée", user_email_changed: "E-mail utilisateur modifié", user_enabled: "Utilisateur activé", user_group_created: "Groupe d’utilisateurs créé", user_group_deleted: "Groupe d’utilisateurs supprimé", user_group_updated: "Groupe d’utilisateurs mis à jour", user_last_enabled_admin_change_rejected: "Modification du dernier administrateur activé refusée", user_password_changed: "Mot de passe utilisateur modifié", user_profile_updated: "Profil utilisateur mis à jour", user_self_registered: "Inscription autonome de l’utilisateur terminée", user_signed_in: "Utilisateur connecté", user_updated: "Utilisateur mis à jour", users_imported: "Utilisateurs importés", quota_settings_updated: "Paramètres de quotas mis à jour", member_credit_quotas_reset: "Quotas de crédits des membres réinitialisés", member_credit_limits_applied: "Limites de crédits des membres appliquées", users_credit_limits_updated: "Quotas de crédits des utilisateurs mis à jour", weixin_connection_created: "Connexion Weixin créée", weixin_connection_deleted: "Connexion Weixin supprimée", weixin_connection_reconnected: "Connexion Weixin rétablie", weixin_connection_updated: "Connexion Weixin mise à jour",
  },
  targetTypes: {
+    connection_provider: "Connecteur",
     connection: "Connexion personnelle", web_site: "Site partagé", application: "Application", application_distribution: "Partage et référencement d’application", application_external_access: "Accès externe d’application", application_external_session: "Session externe d’application", application_grant: "Autorisation d’application", authentication_provider: "Fournisseur d’authentification", automation: "Automatisation", automation_run: "Exécution d’automatisation", capability: "Plugin ou compétence", conversation: "Tâche", conversation_file: "Fichier de tâche", conversation_goal: "Objectif de tâche", conversation_plan_review: "Révision du plan de tâche", conversation_turn: "Tour de tâche", conversation_turn_attempt: "Tentative de tour de tâche", conversation_user_input_request: "Demande de saisie de tâche", codex_turn: "Tour d’exécution", credential: "Identifiants", document: "Document", document_version: "Version de document", feedback: "Avis utilisateur", bot_channel_connection: "Connexion de canal de messagerie", feishu_connection: "Connexion Feishu", image_generation: "Configuration de génération d’images", image_understanding: "Configuration d’analyse d’images", knowledge_base: "Base de connaissances", knowledge_base_maintenance_task: "Tâche de maintenance de base", knowledge_base_source: "Source de base de connaissances", knowledge_model: "Modèle de connaissances", knowledge_source_provider: "Fournisseur de source de connaissances", maintenance_job: "Tâche de maintenance", marketplace_listing: "Élément du catalogue", mcp_server: "Serveur MCP", model_provider: "Fournisseur de modèles", model_provider_model: "Modèle fournisseur", object: "Objet de stockage", pending_request: "Demande en attente", system: "Système", system_settings: "Paramètres système", user: "Utilisateur", user_batch: "Lot d’utilisateurs", user_group: "Groupe d’utilisateurs", user_import: "Import d’utilisateurs", voice_transcription: "Configuration de transcription vocale", weixin_connection: "Connexion Weixin" },
  results: { failure: "Échec", rejected: "Refusé", success: "Succès" },
 } as const;

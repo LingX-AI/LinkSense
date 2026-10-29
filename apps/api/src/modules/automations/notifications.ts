@@ -25,13 +25,18 @@ export class AutomationNotificationService {
   async close(): Promise<void> { await this.work.close(); }
 
   async listTargets(ownerId: string): Promise<AutomationNotificationTargets> {
-    const [feishu, bots] = await Promise.all([
+    const [feishu, identities] = await Promise.all([
       this.db.feishuConnection.findMany({ where: { ownerId, status: "active" }, select: { id: true } }),
-      this.db.botChannelConnection.findMany({ where: { ownerId, status: "active", OR: [{ provider: "dingtalk" }, { allowGroupMessages: true }] }, select: { id: true, provider: true } }),
+      this.db.botChannelIdentity.findMany({ where: { userId: ownerId }, select: { connectionId: true, senderId: true } }),
     ]);
+    const bots = await this.db.botChannelConnection.findMany({ where: {
+      id: { in: identities.map(row => row.connectionId) }, status: "active",
+      AND: [{ OR: [{ ownerId }, { ownerId: null }] }, { OR: [{ provider: "dingtalk" }, { allowGroupMessages: true }] }],
+    }, select: { id: true, provider: true } });
+    const botIds = new Set(bots.map(row => row.id));
     const [peers, botPeers] = await Promise.all([
       this.db.feishuPeerSession.findMany({ where: { connectionId: { in: feishu.map(row => row.id) } }, orderBy: { lastInboundAt: "desc" }, take: 50 }),
-      this.db.botChannelPeerSession.findMany({ where: { connectionId: { in: bots.map(row => row.id) } }, orderBy: { lastInboundAt: "desc" }, take: 50 }),
+      this.db.botChannelPeerSession.findMany({ where: { ownerId, OR: identities.filter(row => botIds.has(row.connectionId)).map(row => ({ connectionId: row.connectionId, senderId: row.senderId })) }, orderBy: { lastInboundAt: "desc" }, take: 50 }),
     ]);
     const titles = await this.db.conversation.findMany({ where: { id: { in: [...peers, ...botPeers].map(row => row.conversationId) }, ownerId }, select: { id: true, title: true } });
     const byId = new Map(titles.map(row => [row.id, row.title]));
@@ -48,10 +53,11 @@ export class AutomationNotificationService {
       if (!connection || !peer) throw new AppError("FORBIDDEN");
       return { kind: "feishu" as const, connection, peer };
     }
-    const connection = await this.db.botChannelConnection.findFirst({ where: { id: target.connection_id, ownerId, status: "active" } });
+    const connection = await this.db.botChannelConnection.findFirst({ where: { id: target.connection_id, status: "active", OR: [{ ownerId }, { ownerId: null }] } });
     if (connection && connection.provider !== "dingtalk" && !connection.allowGroupMessages) throw new AppError("FORBIDDEN");
-    const peer = connection && await this.db.botChannelPeerSession.findFirst({ where: { id: target.peer_session_id, connectionId: connection.id, senderId: connection.allowedSenderId } });
-    const inbound = peer && await this.db.botChannelInboundMessage.findFirst({ where: { connectionId: connection!.id, peerSessionId: peer.id, chatId: peer.chatId, senderId: peer.senderId, status: "accepted" }, orderBy: { ingestOrder: "desc" } });
+    const identity = connection && await this.db.botChannelIdentity.findUnique({ where: { connectionId_userId: { connectionId: connection.id, userId: ownerId } } });
+    const peer = identity && await this.db.botChannelPeerSession.findFirst({ where: { id: target.peer_session_id, connectionId: connection!.id, ownerId, senderId: identity.senderId } });
+    const inbound = peer && await this.db.botChannelInboundMessage.findFirst({ where: { connectionId: connection!.id, peerSessionId: peer.id, ownerId, chatId: peer.chatId, senderId: peer.senderId, status: "accepted" }, orderBy: { ingestOrder: "desc" } });
     if (!connection || !peer || !inbound) throw new AppError("FORBIDDEN");
     return { kind: "bot_channel" as const, connection, peer, inbound };
   }

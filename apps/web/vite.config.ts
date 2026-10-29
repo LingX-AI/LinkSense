@@ -7,6 +7,9 @@ import type { Plugin } from "vite"
 import { defineConfig } from "vitest/config"
 import { sharedDomTests } from "./src/test/shared-dom-files"
 import { applicationBuildId } from "../../scripts/application-build.mjs"
+// Config is bundled before Vite applies development export conditions; Docker
+// development has shared sources only, so do not depend on shared/dist here.
+import { htmlPreviewShellDocument } from "../../packages/shared/src/html-preview-shell-document"
 
 const embedStylesheetFileName = "assets/embed-app.css"
 const applicationTests = ["src/App.test.tsx", "src/test/application/*.test.tsx"]
@@ -78,6 +81,27 @@ function emitBuildInfo(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    {
+      name: "linksense-html-preview-shell",
+      configureServer(server) {
+        server.middlewares.use((request, response, next) => {
+          if (
+            request.url?.split("?")[0] !== "/assistant-html-preview-shell.html"
+          )
+            return next()
+          response.setHeader("Content-Type", "text/html; charset=utf-8")
+          response.setHeader("Cache-Control", "no-store")
+          response.end(htmlPreviewShellDocument)
+        })
+      },
+      generateBundle() {
+        this.emitFile({
+          type: "asset",
+          fileName: "assistant-html-preview-shell.html",
+          source: htmlPreviewShellDocument,
+        })
+      },
+    },
     emitBuildInfo(),
     fileViewerRenderers({
       autoPresets: ["lite", "office"],
@@ -93,6 +117,10 @@ export default defineConfig({
   ],
   server: {
     proxy: {
+      "/html-preview": {
+        target:
+          process.env.LINKSENSE_DEV_API_PROXY_TARGET ?? "http://localhost:4000",
+      },
       "/web": {
         target:
           process.env.LINKSENSE_DEV_API_PROXY_TARGET ?? "http://localhost:4000",

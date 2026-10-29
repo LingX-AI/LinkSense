@@ -1,14 +1,38 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { accessSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import test from "node:test";
 import { checkBaselineAdoption } from "./baseline-adoption.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
+const { parse: parseYaml } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml");
 
 test("the existing verified runtime baseline stays usable after repository organization", () => {
   const baseline = checkBaselineAdoption(root);
   assert.match(baseline.id, /^baseline-\d+-\d+$/u);
+});
+
+test("release and verification workflows resolve every application Dockerfile from the repository context", () => {
+  const expected = ["deploy/docker/Dockerfile.api", "deploy/docker/Dockerfile.runner", "deploy/docker/Dockerfile.web"];
+  for (const file of [".github/workflows/release.yml", ".github/workflows/verify-application-images.yml"]) {
+    const workflow = parseYaml(readFileSync(path.join(root, file), "utf8"));
+    const dockerfiles = new Set();
+    for (const job of Object.values(workflow.jobs)) {
+      const matrix = job.strategy?.matrix;
+      for (const entry of [...(matrix?.include ?? []), ...(matrix?.application ?? [])]) {
+        if (entry.dockerfile) dockerfiles.add(entry.dockerfile);
+      }
+      for (const step of job.steps ?? []) {
+        if (!step.uses?.startsWith("docker/build-push-action@")) continue;
+        assert.equal(step.with.context, ".");
+        if (!step.with.file.startsWith("${{")) dockerfiles.add(step.with.file);
+      }
+    }
+    assert.deepEqual([...dockerfiles].sort(), expected, file);
+    for (const dockerfile of dockerfiles) accessSync(path.join(root, dockerfile));
+  }
 });
 
 test("relocated Compose entrypoints keep build contexts and production mounts at the repository root", () => {

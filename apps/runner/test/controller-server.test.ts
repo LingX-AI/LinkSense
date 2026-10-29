@@ -138,6 +138,7 @@ describe("published service routing", () => {
     vi.stubGlobal("fetch", fetchMock)
     const headers = { authorization: `Bearer ${ownerWorkerSecret(ownerId, secret, session)}`, "x-linksense-owner-id": ownerId, "x-linksense-service-session": session }
     expect((await server.inject({ method: "POST", url: "/internal/skill-creator/confirm", headers, payload: { conversationId: session } })).statusCode).toBe(403)
+    expect((await server.inject({ method: "POST", url: "/internal/skills/execute", headers, payload: { conversationId: session } })).statusCode).toBe(403)
     expect((await server.inject({ method: "POST", url: "/internal/application-builder", headers, payload: { conversationId: session } })).statusCode).toBe(403)
     expect((await server.inject({ method: "POST", url: "/internal/automations/execute", headers, payload: { conversationId: session } })).statusCode).toBe(403)
     expect((await server.inject({ method: "POST", url: "/internal/runner/events", headers: { ...headers, "x-linksense-service-session": otherOwnerId }, payload: { conversationId: otherOwnerId } })).statusCode).toBe(401)
@@ -711,6 +712,25 @@ describe("controller authentication and routing", () => {
       timeoutSpy.mockRestore()
       await server.close()
     }
+  })
+
+  it("relays Skill management through the authenticated owner callback boundary", async () => {
+    const { server } = await createServer()
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout")
+    const result = { success: true, operation: "list", items: [] }
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(result), { status: 200, headers: { "content-type": "application/json" } }))
+    vi.stubGlobal("fetch", fetchMock)
+    const payload = { conversationId: "01900000-0000-7000-8000-000000000001", turnId: "01900000-0000-7000-8000-000000000004", request: { operation: "list" } }
+    const response = await server.inject({ method: "POST", url: "/internal/skills/execute", headers: { authorization: `Bearer ${ownerWorkerSecret(ownerId, secret)}`, "x-linksense-owner-id": ownerId }, payload })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual(result)
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(String(url)).toBe("http://api:4000/internal/skills/execute")
+    expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${secret}`)
+    expect(new Headers(init?.headers).get("x-linksense-owner-id")).toBe(ownerId)
+    expect(JSON.parse(String(init?.body))).toEqual(payload)
+    expect(timeoutSpy).toHaveBeenCalledWith(60_000)
+    await server.close()
   })
 
   it("relays current user info through the scoped internal callback boundary", async () => {

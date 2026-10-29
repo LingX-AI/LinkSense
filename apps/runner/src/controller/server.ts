@@ -67,7 +67,7 @@ export function buildControllerServer(
     if (request.url.startsWith("/internal/local-browser/")) {
       return reply.code(403).send({ error_code: "FORBIDDEN" })
     }
-    if (request.url.startsWith("/internal/skill-creator/") || request.url === "/internal/application-builder" || request.url.startsWith("/internal/automations/")) {
+    if (request.url.startsWith("/internal/skill-creator/") || request.url.startsWith("/internal/skills/") || request.url === "/internal/application-builder" || request.url.startsWith("/internal/automations/")) {
       return reply.code(403).send({ error_code: "RUNNER_SERVICE_SCOPE_MISMATCH" })
     }
   })
@@ -156,6 +156,7 @@ export function buildControllerServer(
     "/internal/knowledge/document-markdown",
     "/internal/skill-creator/preview",
     "/internal/skill-creator/confirm",
+    "/internal/skills/execute",
     "/internal/current-user/info",
     "/internal/local-browser/execute",
     "/internal/conversation-references/read",
@@ -190,7 +191,7 @@ export function buildControllerServer(
               ? 180_000
             : route === "/internal/runner/process-exit"
               ? 130_000
-            : route === "/internal/application-builder" || route === "/internal/connections/execute" || route === "/internal/local-browser/execute" || route === "/internal/automations/execute"
+            : route === "/internal/application-builder" || route === "/internal/connections/execute" || route === "/internal/local-browser/execute" || route === "/internal/automations/execute" || route === "/internal/skills/execute"
               ? 60_000
             : 15_000,
           controller.signal,

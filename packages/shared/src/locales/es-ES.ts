@@ -7,6 +7,9 @@ export const errorMessages = {
   BROWSER_PANEL_UNAVAILABLE: "Esta tarea no tiene una sesión de navegador disponible.",
   BROWSER_CONTROL_BUSY: "El navegador está realizando una acción. Vuelve a intentarlo en breve.",
   BROWSER_CONTROL_REQUIRED: "El control caducó o pertenece a otra ventana. Toma el control de nuevo.",
+  CONNECTION_CLIENT_SECRET_REQUIRED: "Introduce el secreto de la aplicación. Si cambias el ID, también debes introducir el secreto de la nueva aplicación.",
+  CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Cuentas autorizadas: {{count}}. Cambiar el ID de la aplicación obliga a estos usuarios a volver a conectarse. Confirma este efecto antes de guardar.",
+  SKILL_UNINSTALL_NOT_ALLOWED: "Esta habilidad no se puede desinstalar. El sistema proporciona las habilidades integradas.",
   IMAGE_GENERATION_INPUT_INVALID: "No se puede leer la imagen para editarla. Usa PNG, JPEG o WebP de hasta 8 MB por imagen y 10 MB en total, incluida la máscara. La máscara debe ser un PNG transparente del mismo tamaño que la primera imagen.",
   IMAGE_GENERATION_EDIT_UNSUPPORTED: "El modelo actual no admite esta edición. Usa menos imágenes de referencia, elimina la máscara o pide al administrador que seleccione un modelo compatible.",
   MODEL_PROVIDER_CREDENTIAL_REQUIRED: "Introduce una clave de API. Debes introducir una nueva clave si cambias el proveedor, la dirección del servicio o el proyecto en la nube.",
@@ -47,7 +50,7 @@ export const errorMessages = {
   "PROJECT_NAME_EXISTS": "Ya existe un proyecto con este nombre. Elige otro nombre",
   "PROJECT_TASK_ACTIVE": "Finaliza las tareas activas antes de moverlas o eliminar su proyecto",
   "BOT_CHANNEL_CONNECTION_CONFLICT": "Este canal o bot ya está conectado. Desconecta primero la conexión existente.",
-  "BOT_CHANNEL_BUSY": "Este canal está procesando un mensaje. Intenta desconectarlo de nuevo en unos instantes.",
+  "BOT_CHANNEL_BUSY": "Este canal está realizando otra operación. Inténtalo de nuevo en unos instantes.",
   "BOT_CHANNEL_CONNECTION_FAILED": "No se pudo conectar. Comprueba la configuración de la aplicación, los permisos y la red.",
   "BOT_CHANNEL_DELIVERY_FAILED": "No se pudo entregar el mensaje. Comprueba el estado del canal y los permisos de mensajería.",
   "BOT_CHANNEL_PROTOCOL_INVALID": "El canal de mensajería devolvió una respuesta no válida.",
@@ -264,6 +267,7 @@ export const errorMessages = {
 
 export const auditMessages = {
   "actions": {
+    connection_settings_updated: "Configuración del conector actualizada",
     connection_authorized: "Conexión autorizada",
     connection_disconnected: "Conexión desconectada",
     connection_enabled: "Conexión activada",
@@ -479,6 +483,7 @@ export const auditMessages = {
     "weixin_connection_updated": "Conexión de Weixin actualizada"
   },
   "targetTypes": {
+    connection_provider: "Conector",
     connection: "Conexión personal",
     "web_site": "Sitio compartido",
     "application": "Aplicación",

@@ -59,6 +59,8 @@ import {
   runnerTextDeltaBatchKey,
   isRunnerTextDeltaEvent,
   skillCreatorArchivePathSchema,
+  skillManagementRequestSchema,
+  type SkillManagementRequest,
 } from "@linksense/shared";
 
 import {
@@ -145,6 +147,7 @@ import { InteractiveFormRequestError } from "./interactive-form-error.js";
 import { KnowledgeSearchRequestError } from "./knowledge-search-error.js";
 import { KnowledgeServiceRequestError } from "./knowledge-service-error.js";
 import { SkillCreatorRequestError } from "./skill-creator-error.js";
+import { SkillManagementRequestError } from "./skill-management-error.js";
 import { DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS } from "./knowledge-search-timeout.js";
 import type { UserMcpProxyTarget } from "./mcp/http-egress-proxy.js";
 import { encodePersonalStdioDescriptor } from "./mcp/personal-stdio-launcher.js";
@@ -727,6 +730,7 @@ type ManagedProcess = {
   imageGenerationToken: string;
   knowledgeServiceToken: string;
   skillCreatorToken: string;
+  skillManagementToken: string;
   interactiveFormToken: string;
   currentUserToken: string;
   automationToken: string;
@@ -876,6 +880,7 @@ export class AppServerProcessPool {
       imageGenerationMcpEndpointBase?: string;
       knowledgeMcpEndpointBase?: string;
       skillCreatorMcpEndpointBase?: string;
+      skillManagementMcpEndpointBase?: string;
       interactiveFormMcpEndpointBase?: string;
       currentUserMcpEndpointBase?: string;
       knowledgeSearchTimeoutMs?: number;
@@ -1646,6 +1651,7 @@ export class AppServerProcessPool {
         const imageGenerationToken = randomBytes(32).toString("base64url");
         const knowledgeServiceToken = randomBytes(32).toString("base64url");
         const skillCreatorToken = randomBytes(32).toString("base64url");
+        const skillManagementToken = randomBytes(32).toString("base64url");
         const interactiveFormToken = randomBytes(32).toString("base64url");
         const currentUserToken = randomBytes(32).toString("base64url");
         const automationToken = randomBytes(32).toString("base64url");
@@ -1670,6 +1676,8 @@ export class AppServerProcessPool {
               LINKSENSE_KNOWLEDGE_SERVICE_TOKEN: knowledgeServiceToken,
               LINKSENSE_SKILL_CREATOR_ENDPOINT: `${this.skillCreatorMcpEndpointBase}/${input.conversationId}`,
               LINKSENSE_SKILL_CREATOR_TOKEN: skillCreatorToken,
+              LINKSENSE_SKILL_MANAGEMENT_ENDPOINT: `${this.skillManagementMcpEndpointBase}/${input.conversationId}/execute`,
+              LINKSENSE_SKILL_MANAGEMENT_TOKEN: skillManagementToken,
               LINKSENSE_APPLICATION_BUILDER_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-application-builder/${input.conversationId}`,
               LINKSENSE_APPLICATION_BUILDER_TOKEN: skillCreatorToken,
               LINKSENSE_CURRENT_USER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/info`,
@@ -3756,6 +3764,7 @@ export class AppServerProcessPool {
         const imageGenerationToken = randomBytes(32).toString("base64url");
         const knowledgeServiceToken = randomBytes(32).toString("base64url");
         const skillCreatorToken = randomBytes(32).toString("base64url");
+        const skillManagementToken = randomBytes(32).toString("base64url");
         const interactiveFormToken = randomBytes(32).toString("base64url");
         const currentUserToken = randomBytes(32).toString("base64url");
         const automationToken = randomBytes(32).toString("base64url");
@@ -3778,6 +3787,8 @@ export class AppServerProcessPool {
               LINKSENSE_KNOWLEDGE_SERVICE_TOKEN: knowledgeServiceToken,
               LINKSENSE_SKILL_CREATOR_ENDPOINT: `${this.skillCreatorMcpEndpointBase}/${input.conversationId}`,
               LINKSENSE_SKILL_CREATOR_TOKEN: skillCreatorToken,
+              LINKSENSE_SKILL_MANAGEMENT_ENDPOINT: `${this.skillManagementMcpEndpointBase}/${input.conversationId}/execute`,
+              LINKSENSE_SKILL_MANAGEMENT_TOKEN: skillManagementToken,
               LINKSENSE_APPLICATION_BUILDER_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-application-builder/${input.conversationId}`,
               LINKSENSE_APPLICATION_BUILDER_TOKEN: skillCreatorToken,
               LINKSENSE_CURRENT_USER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/info`,
@@ -4300,6 +4311,23 @@ export class AppServerProcessPool {
     });
   }
 
+  async manageSkills(conversationId: string, token: string, rawRequest: SkillManagementRequest, signal?: AbortSignal): Promise<unknown> {
+    const managed = this.processes.get(conversationId);
+    if (!managed?.activeTurnId || !managed.activeProjectionTurnId) throw new SkillManagementRequestError("FORBIDDEN", false, 409);
+    if (!safeTokenEqual(token, managed.skillManagementToken)) throw new SkillManagementRequestError("FORBIDDEN", false, 403);
+    const request = skillManagementRequestSchema.parse(rawRequest);
+    if (request.operation === "uninstall" && managed.activeCollaborationMode !== "default") {
+      throw new SkillManagementRequestError("COLLABORATION_MODE_UNAVAILABLE", false, 403);
+    }
+    if (!this.options.eventSink.manageSkills) throw new SkillManagementRequestError("INTERNAL_ERROR", false, 503);
+    return this.options.eventSink.manageSkills({
+      conversationId,
+      turnId: managed.activeProjectionTurnId,
+      request,
+      ...(signal ? { signal } : {}),
+    });
+  }
+
   async searchKnowledge(
     conversationId: string,
     token: string,
@@ -4540,6 +4568,10 @@ export class AppServerProcessPool {
     return (
       this.options.skillCreatorMcpEndpointBase ?? this.options.mcpEndpointBase
     );
+  }
+
+  private get skillManagementMcpEndpointBase(): string {
+    return this.options.skillManagementMcpEndpointBase ?? `${new URL(this.options.mcpEndpointBase).origin}/mcp-skills`;
   }
 
   private get interactiveFormMcpEndpointBase(): string {
@@ -5393,6 +5425,8 @@ export class AppServerProcessPool {
       if (!skillCreatorToken) {
         throw new CodexProtocolError("skill creator token is missing");
       }
+      const skillManagementToken = input.environment.LINKSENSE_SKILL_MANAGEMENT_TOKEN;
+      if (!skillManagementToken) throw new CodexProtocolError("skill management token is missing");
       const interactiveFormToken =
         input.environment.LINKSENSE_FORM_SERVICE_TOKEN;
       if (!interactiveFormToken) {
@@ -5574,6 +5608,7 @@ export class AppServerProcessPool {
         imageGenerationToken,
         knowledgeServiceToken,
         skillCreatorToken,
+        skillManagementToken,
         interactiveFormToken,
         currentUserToken,
         automationToken,

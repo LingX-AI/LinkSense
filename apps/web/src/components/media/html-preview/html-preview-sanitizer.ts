@@ -1,4 +1,8 @@
 import DOMPurify from "dompurify"
+import {
+  installHtmlResourceDiagnostics,
+  resourceErrorMessageType,
+} from "./html-preview-resource-errors"
 import { officeAnnotationCursor } from "@/components/media/office-preview/office-annotation-cursor"
 import { installOfficeAnnotationHover } from "@/components/media/office-preview/office-annotation-hover-controller"
 import { maximumOfficeAnnotationCount } from "@linksense/shared"
@@ -194,6 +198,7 @@ export function installHtmlPreviewStorageFallback(targetWindow: Window) {
 
 const fitRuntime = `
 (() => {
+  (${installHtmlResourceDiagnostics.toString()})(window, ${JSON.stringify(resourceErrorMessageType)});
   const installStorageFallback = (${installHtmlPreviewStorageFallback.toString()});
   installStorageFallback(window);
   const getBoundingRect = (${getHtmlPreviewBoundingRect.toString()});

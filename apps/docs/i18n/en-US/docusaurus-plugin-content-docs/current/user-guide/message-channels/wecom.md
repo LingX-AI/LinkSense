@@ -1,29 +1,31 @@
 ---
 title: Connect and use WeCom
-description: Use an organization bot to send text tasks to LinkSense.
+description: Administrators configure a shared bot, and members link their own LinkSense accounts.
 ---
 
 # Connect and use WeCom
 
-## Setup
+## Administrator setup
 
-1. Create an internal WeCom intelligent bot in API mode with a persistent connection. Obtain its bot ID and secret and make it available to the member who will use it.
-2. Open Settings → Message channels → Connect WeCom. Enter the bot ID, secret and the allowed member’s WeCom directory userid.
-3. Save and wait for Online. Send text in a private chat, or add the bot to a group and mention it as the allowed member.
+1. Create an internal WeCom intelligent bot in API mode with a long connection. Make it available to the members who need access.
+2. In LinkSense, open **Administration → System settings → Organization message channels** and choose **Connect WeCom**.
+3. Enter the bot ID and secret, choose whether members may mention the bot in groups, and save. Wait for the connection to come online. There is no single allowed-member setting.
 
-## Supported messages
+Administrators maintain the connection and can pause, enable, or disconnect it. Members do not need bot credentials. Pausing keeps account associations and existing tasks.
 
-- Text private messages and group mentions from the one configured member. Disable group messages if you only need private chats.
-- Each private or group chat continues its corresponding LinkSense task.
-- Replies are visible to other members of the same group. Complete execution details, files and very long results remain available in LinkSense.
-- Images, files, voice messages and cards are not supported. WeCom customer messages are outside this integration.
+## Member access
 
-## Connection issues
+1. Sign in to your own existing, active LinkSense account and open **Settings → Message channels**.
+2. Choose **Link my account** on the WeCom card and get a confirmation message.
+3. Send the complete message to the WeCom bot in a private chat. It is valid for 10 minutes and one use. Do not forward it to anyone else.
+4. Once the page shows **Account linked**, send private text or mention the bot in an allowed group.
 
-Check the application credentials, member ID, application permissions and network access. Ensure the sender is the configured member and mentions the bot in a group. An installed application may also need administrator approval.
+Tasks use the sender's own LinkSense permissions, resources, and quota. Unregistered, disabled, or unlinked accounts cannot start tasks. Different members in the same group have separate task contexts; replies in the group remain visible to its members.
 
-A public callback endpoint is not required. Keep LinkSense running with outbound HTTPS and WebSocket access to the platform.
+## Scope and troubleshooting
 
-## Disconnect or replace credentials
+Internal member text messages and group mentions are supported. Customer messages, images, files, voice, and cards are not supported yet.
 
-Choose Disconnect and confirm. Pending channel messages and replies are removed; existing LinkSense tasks and the platform application remain. Reconnect to replace the application or its credentials.
+Ask an administrator to configure or enable an unavailable channel. Administrators should check bot credentials, visibility, and network access when a connection fails. Members can choose **Unlink account** on their Message channels page.
+
+To replace the bot or its secret, an administrator disconnects and configures it again; members then link their accounts again. Disconnecting removes associations and queued channel messages while keeping existing LinkSense tasks.

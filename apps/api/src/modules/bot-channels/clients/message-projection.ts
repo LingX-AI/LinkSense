@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { toThreadedConversationId } from "@microsoft/teams.apps";
-import type { BotChannelCreate } from "@linksense/shared";
+import type { BotChannelCredentials } from "@linksense/shared";
 import type { ChannelInbound } from "../types.js";
 
 const id = z.string().min(1).max(1024);
@@ -20,7 +20,8 @@ const dingMessage = z.object({
   robotCode: id,
   conversationId: id,
   conversationType: z.enum(["1", "2"]),
-  senderStaffId: z.string().min(1).max(256),
+  senderId: z.string().min(1).max(256),
+  senderStaffId: z.string().max(256).optional(),
   isInAtList: z.boolean().optional(),
   msgtype: z.literal("text"),
   text: z.object({ content: text }),
@@ -67,9 +68,10 @@ export function validTeamsServiceUrl(value: string): boolean {
 }
 
 export function projectChannelMessage(
-  credentials: BotChannelCreate,
+  credentials: BotChannelCredentials,
   payload: unknown,
   now = new Date(),
+  allowGroupMessages = true,
 ): ChannelInbound | null {
   if (credentials.provider === "wecom") {
     const parsed = wecomMessage.safeParse(payload);
@@ -78,8 +80,7 @@ export function projectChannelMessage(
     const group = m.chattype === "group";
     if (
       m.aibotid !== credentials.bot_id ||
-      m.from.userid !== credentials.allowed_sender_id ||
-      (group && (!credentials.allow_group_messages || !m.chatid))
+      (group && (!allowGroupMessages || !m.chatid))
     )
       return null;
     const chatId = group ? m.chatid : m.from.userid;
@@ -101,21 +102,20 @@ export function projectChannelMessage(
     const group = m.conversationType === "2";
     if (
       m.robotCode !== credentials.client_id ||
-      m.senderStaffId !== credentials.allowed_sender_id ||
-      (group && (!credentials.allow_group_messages || m.isInAtList !== true))
+      (group && (!allowGroupMessages || m.isInAtList !== true))
     )
       return null;
     return {
       messageKey: m.msgId,
       chatId: m.conversationId,
-      senderId: m.senderStaffId,
+      senderId: m.senderId,
       text: m.text.content,
       group,
       receivedAt: now,
       context: {
         provider: "dingtalk",
         chatId: m.conversationId,
-        senderId: m.senderStaffId,
+        recipientId: m.senderStaffId?.trim() || m.senderId,
         group,
       },
     };
@@ -131,12 +131,10 @@ export function projectChannelMessage(
     ) === true;
   if (
     m.from.role === "bot" ||
-    m.from.aadObjectId.toLowerCase() !==
-      credentials.allowed_sender_id.toLowerCase() ||
     m.channelData.tenant.id.toLowerCase() !==
       credentials.tenant_id.toLowerCase() ||
     !validTeamsServiceUrl(m.serviceUrl) ||
-    (group && (!credentials.allow_group_messages || !isBotMentioned))
+    (group && (!allowGroupMessages || !isBotMentioned))
   )
     return null;
   const content = m.text.replace(/<at\b[^>]*>[\s\S]*?<\/at>/giu, "").trim();

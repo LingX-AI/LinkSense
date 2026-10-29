@@ -1,18 +1,11 @@
-import { Fragment, useState, type FormEvent } from "react"
+import { Fragment, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { AiFillDingtalkCircle, AiFillWechatWork } from "react-icons/ai"
 import { BiLogoMicrosoftTeams } from "react-icons/bi"
-import { LinkIcon } from "lucide-react"
-import {
-  botChannelCreateSchema,
-  type BotChannelConnection,
-  type BotChannelProvider,
-} from "@linksense/shared"
 import { getErrorMessage } from "@/api/error-message"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -21,378 +14,220 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
-import { useBotChannels } from "./use-bot-channels"
-
+import { BotChannelLinkDialog } from "./bot-channel-link-dialog"
+import { DingtalkRegistrationDialog } from "./dingtalk-registration-dialog"
+import { useBotChannels, useDingtalkRegistration } from "./use-bot-channels"
 const channels = [
-  { provider: "wecom", icon: AiFillWechatWork },
   { provider: "dingtalk", icon: AiFillDingtalkCircle },
+  { provider: "wecom", icon: AiFillWechatWork },
   { provider: "teams", icon: BiLogoMicrosoftTeams },
 ] as const
-
 export function BotChannelCards() {
   const controls = useBotChannels()
+  const registration = useDingtalkRegistration()
   const { t } = useTranslation()
+  const [linkId, setLinkId] = useState<string | null>(null)
+  const [scanOpen, setScanOpen] = useState(false)
+  const [remove, setRemove] = useState<{
+    id: string
+    personal: boolean
+  } | null>(null)
+  const linked = controls.query.data?.items.find((item) => item.id === linkId)
+  const error =
+    controls.query.error ?? controls.disconnect.error ?? controls.unlink.error
+  const busy = controls.disconnect.isPending || controls.unlink.isPending
   return (
     <>
       {controls.query.isPending && <Spinner aria-label={t("common.loading")} />}
-      {controls.query.isError && (
+      {error && (
         <Alert variant="destructive">
           <AlertDescription>
-            {getErrorMessage(controls.query.error, t)}
+            {getErrorMessage(error, t)}
             <Button
               variant="outline"
-              onClick={() => void controls.query.refetch()}
+              onClick={() => {
+                controls.disconnect.reset()
+                controls.unlink.reset()
+                void controls.query.refetch()
+              }}
             >
               {t("botChannels.retry")}
             </Button>
           </AlertDescription>
         </Alert>
       )}
-      {channels.map(({ provider, icon: Icon }, index) => (
-        <Fragment key={provider}>
-          {index > 0 && <Separator />}
-          <BotChannelCard
-            provider={provider}
-            connection={
-              controls.query.data?.items.find(
-                (item) => item.provider === provider
-              ) ?? null
-            }
-            controls={controls}
-            icon={<Icon />}
-          />
-        </Fragment>
-      ))}
-    </>
-  )
-}
-
-function BotChannelCard({
-  provider,
-  connection,
-  controls,
-  icon,
-}: {
-  provider: BotChannelProvider
-  connection: BotChannelConnection | null
-  controls: ReturnType<typeof useBotChannels>
-  icon: React.ReactNode
-}) {
-  const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
-  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
-  const [appId, setAppId] = useState("")
-  const [secret, setSecret] = useState("")
-  const [tenantId, setTenantId] = useState("")
-  const [senderId, setSenderId] = useState("")
-  const [groups, setGroups] = useState(true)
-  const [invalid, setInvalid] = useState(false)
-  const name = t(`channelAccess.${provider}.name`)
-  const busy = controls.create.isPending || controls.disconnect.isPending
-  const openSettings = () => {
-    controls.create.reset()
-    setInvalid(false)
-    setSecret("")
-    setOpen(true)
-  }
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (busy) return
-    const access = { allowed_sender_id: senderId, allow_group_messages: groups }
-    const parsed = botChannelCreateSchema.safeParse(
-      provider === "wecom"
-        ? { provider, bot_id: appId, secret, ...access }
-        : provider === "dingtalk"
-          ? { provider, client_id: appId, client_secret: secret, ...access }
-          : {
-              provider,
-              client_id: appId,
-              client_secret: secret,
-              tenant_id: tenantId,
-              ...access,
-            }
-    )
-    setInvalid(!parsed.success)
-    if (!parsed.success) return
-    try {
-      await controls.create.mutateAsync(parsed.data)
-      controls.create.reset()
-      setSecret("")
-      setOpen(false)
-    } catch {
-      /* Mutation error is rendered in the dialog. */
-    }
-  }
-  return (
-    <>
-      <article className="channel-access-card channel-access-card-manageable">
-        <div className="channel-access-card-header">
-          <div className="channel-access-heading">
-            <span
-              className={`channel-access-icon channel-access-icon-${provider}`}
-              data-channel={provider}
-              data-testid={`${provider}-channel-brand-icon`}
-              aria-hidden="true"
-            >
-              {icon}
-            </span>
-            <div className="min-w-0">
-              <div className="channel-access-title-row">
-                <h2>{name}</h2>
-                <Badge variant="secondary">
+      {channels.map(({ provider, icon: Icon }, index) => {
+        const connection = controls.query.data?.items.find(
+          (item) => item.provider === provider
+        )
+        const personal = provider === "dingtalk"
+        const available = connection && connection.runtime_status !== "disabled"
+        return (
+          <Fragment key={provider}>
+            {index > 0 && <Separator />}
+            <article className="channel-access-card channel-access-card-manageable">
+              <div className="channel-access-card-header">
+                <div className="channel-access-heading">
+                  <span
+                    className={`channel-access-icon channel-access-icon-${provider}`}
+                    data-channel={provider}
+                    data-testid={`${provider}-channel-brand-icon`}
+                    aria-hidden="true"
+                  >
+                    <Icon />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="channel-access-title-row">
+                      <h2>{t(`channelAccess.${provider}.name`)}</h2>
+                      <Badge variant="secondary">
+                        {t(
+                          connection
+                            ? `botChannels.status.${connection.runtime_status}`
+                            : personal
+                              ? "botChannels.status.disconnected"
+                              : "botChannels.notConfigured"
+                        )}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+                <p className="channel-access-description">
                   {t(
-                    connection
-                      ? `botChannels.status.${connection.runtime_status}`
-                      : "botChannels.status.disconnected"
+                    personal
+                      ? "botChannels.personalHelp"
+                      : "botChannels.organizationHelp"
                   )}
-                </Badge>
+                </p>
               </div>
-            </div>
-          </div>
-          <p className="channel-access-description">
-            {t(`botChannels.description.${provider}`)}
-          </p>
-        </div>
-        <div className="channel-access-actions">
-          <Button
-            variant={connection ? "outline" : "secondary"}
-            disabled={busy || !controls.query.isSuccess}
-            onClick={openSettings}
-          >
-            {!connection && (
-              <LinkIcon data-icon="inline-start" aria-hidden="true" />
-            )}
-            {t(connection ? "botChannels.settings" : "botChannels.connect")}
-          </Button>
-          {connection && (
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={() => {
-                controls.disconnect.reset()
-                setConfirmDisconnect(true)
-              }}
-            >
-              {t("botChannels.disconnect", { name })}
-            </Button>
-          )}
-        </div>
-      </article>
-      <Dialog
-        open={open}
-        onOpenChange={(value) => {
-          if (!busy) {
-            setOpen(value)
-            if (!value) setSecret("")
-          }
-        }}
-      >
-        <DialogContent
-          closeLabel={t("common.close")}
-          className="max-h-[90dvh] overflow-y-auto"
-        >
-          <DialogHeader>
-            <DialogTitle>{t("botChannels.setupTitle", { name })}</DialogTitle>
-            <DialogDescription>
-              {t(`botChannels.setup.${provider}`)}
-            </DialogDescription>
-          </DialogHeader>
-          {connection ? (
-            <FieldGroup>
-              <Field>
-                <FieldLabel>{t("botChannels.account")}</FieldLabel>
-                <p className="break-all">{connection.account_hint}</p>
-              </Field>
-              <Field>
-                <FieldLabel>{t("botChannels.sender")}</FieldLabel>
-                <p className="break-all">{connection.allowed_sender_id}</p>
-              </Field>
-              {connection.callback_url && (
-                <Field>
-                  <FieldLabel htmlFor={`${provider}-callback`}>
-                    {t("botChannels.callback")}
-                  </FieldLabel>
-                  <Input
-                    id={`${provider}-callback`}
-                    value={connection.callback_url}
-                    readOnly
-                  />
-                  <FieldDescription>
-                    {t("botChannels.callbackHelp")}
-                  </FieldDescription>
-                </Field>
-              )}
-              <Alert>
-                <AlertDescription>
-                  {connection.last_error_code
-                    ? t("botChannels.connectionError")
-                    : t(`botChannels.status.${connection.runtime_status}`)}
-                </AlertDescription>
-              </Alert>
-              <FieldDescription>
-                {t("botChannels.replaceHelp")}
-              </FieldDescription>
-            </FieldGroup>
-          ) : (
-            <form
-              onSubmit={(event) => void submit(event)}
-              className="flex flex-col gap-6"
-            >
-              <FieldGroup>
-                <Field data-invalid={invalid}>
-                  <FieldLabel htmlFor={`${provider}-app`} required>
+              <div className="channel-access-actions">
+                {personal && !connection ? (
+                  <Button
+                    variant="secondary"
+                    disabled={
+                      !controls.query.isSuccess || registration.isPending
+                    }
+                    onClick={() => {
+                      registration.reset()
+                      setScanOpen(true)
+                      registration.mutate()
+                    }}
+                  >
+                    {t("botChannels.scanConnect")}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    disabled={!available || !controls.query.isSuccess || busy}
+                    onClick={() => connection && setLinkId(connection.id)}
+                  >
                     {t(
-                      provider === "wecom"
-                        ? "botChannels.botId"
-                        : "botChannels.clientId"
+                      connection?.identity_linked
+                        ? "botChannels.linked"
+                        : "botChannels.linkAccount"
                     )}
-                  </FieldLabel>
-                  <Input
-                    id={`${provider}-app`}
-                    required
-                    maxLength={128}
-                    value={appId}
-                    onChange={(event) => setAppId(event.target.value)}
-                    aria-invalid={invalid}
-                    disabled={busy}
-                  />
-                </Field>
-                <Field data-invalid={invalid}>
-                  <FieldLabel htmlFor={`${provider}-secret`} required>
-                    {t("botChannels.secret")}
-                  </FieldLabel>
-                  <Input
-                    id={`${provider}-secret`}
-                    type="password"
-                    autoComplete="new-password"
-                    required
-                    maxLength={4096}
-                    value={secret}
-                    onChange={(event) => setSecret(event.target.value)}
-                    aria-invalid={invalid}
-                    disabled={busy}
-                  />
-                </Field>
-                {provider === "teams" && (
-                  <Field data-invalid={invalid}>
-                    <FieldLabel htmlFor="teams-tenant" required>
-                      {t("botChannels.tenantId")}
-                    </FieldLabel>
-                    <Input
-                      id="teams-tenant"
-                      required
-                      value={tenantId}
-                      onChange={(event) => setTenantId(event.target.value)}
-                      aria-invalid={invalid}
-                      disabled={busy}
-                    />
-                  </Field>
+                  </Button>
                 )}
-                <Field data-invalid={invalid}>
-                  <FieldLabel htmlFor={`${provider}-sender`} required>
-                    {t("botChannels.sender")}
-                  </FieldLabel>
-                  <Input
-                    id={`${provider}-sender`}
-                    required
-                    maxLength={256}
-                    value={senderId}
-                    onChange={(event) => setSenderId(event.target.value)}
-                    aria-invalid={invalid}
+                {connection?.identity_linked && (
+                  <Button
+                    variant="ghost"
                     disabled={busy}
-                  />
-                  <FieldDescription>
-                    {t(`botChannels.senderHelp.${provider}`)}
-                  </FieldDescription>
-                </Field>
-                <Field orientation="horizontal">
-                  <Checkbox
-                    id={`${provider}-groups`}
-                    checked={groups}
-                    onCheckedChange={setGroups}
+                    onClick={() =>
+                      setRemove({ id: connection.id, personal: false })
+                    }
+                  >
+                    {t("botChannels.unlink")}
+                  </Button>
+                )}
+                {personal && connection && (
+                  <Button
+                    variant="ghost"
                     disabled={busy}
-                  />
-                  <FieldLabel htmlFor={`${provider}-groups`}>
-                    {t("botChannels.groups")}
-                  </FieldLabel>
-                </Field>
-              </FieldGroup>
-              {invalid && (
-                <Alert variant="destructive">
-                  <AlertDescription>
-                    {t("botChannels.invalid")}
-                  </AlertDescription>
-                </Alert>
-              )}
-              {controls.create.isError && (
-                <Alert variant="destructive">
-                  <AlertDescription>
-                    {getErrorMessage(controls.create.error, t)}
-                  </AlertDescription>
-                </Alert>
-              )}
-              <DialogFooter>
-                <Button type="submit" disabled={busy}>
-                  {busy && <Spinner data-icon="inline-start" />}
-                  {t("botChannels.save")}
-                </Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
+                    onClick={() =>
+                      setRemove({ id: connection.id, personal: true })
+                    }
+                  >
+                    {t("botChannels.disconnect", {
+                      name: t("channelAccess.dingtalk.name"),
+                    })}
+                  </Button>
+                )}
+              </div>
+            </article>
+          </Fragment>
+        )
+      })}
+      {scanOpen && (
+        <DingtalkRegistrationDialog
+          registration={registration}
+          onClose={() => {
+            setScanOpen(false)
+            void controls.refresh()
+          }}
+          onConnected={(id) => {
+            setScanOpen(false)
+            void controls.refresh()
+            setLinkId(id)
+          }}
+        />
+      )}
+      {linkId && (
+        <BotChannelLinkDialog
+          key={linkId}
+          connectionId={linkId}
+          linked={linked?.identity_linked ?? false}
+          name={t(`channelAccess.${linked?.provider ?? "dingtalk"}.name`)}
+          onClose={() => {
+            setLinkId(null)
+            void controls.refresh()
+          }}
+        />
+      )}
       <Dialog
-        open={confirmDisconnect}
-        onOpenChange={(value) => {
-          if (!busy) setConfirmDisconnect(value)
+        open={remove !== null}
+        onOpenChange={(open) => {
+          if (!open && !busy) setRemove(null)
         }}
       >
         <DialogContent closeLabel={t("common.close")}>
           <DialogHeader>
-            <DialogTitle>{t("botChannels.disconnect", { name })}</DialogTitle>
+            <DialogTitle>
+              {t(
+                remove?.personal
+                  ? "botChannels.confirmDisconnect"
+                  : "botChannels.unlink"
+              )}
+            </DialogTitle>
             <DialogDescription>
-              {t("botChannels.disconnectHelp")}
+              {t(
+                remove?.personal
+                  ? "botChannels.disconnectHelp"
+                  : "botChannels.unlinkHelp"
+              )}
             </DialogDescription>
           </DialogHeader>
-          {controls.disconnect.isError && (
-            <Alert variant="destructive">
-              <AlertDescription>
-                {getErrorMessage(controls.disconnect.error, t)}
-              </AlertDescription>
-            </Alert>
-          )}
           <DialogFooter>
             <Button
               variant="outline"
               disabled={busy}
-              onClick={() => setConfirmDisconnect(false)}
+              onClick={() => setRemove(null)}
             >
-              {t("botChannels.cancel")}
+              {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
               disabled={busy}
-              onClick={async () => {
-                if (!connection || busy) return
-                try {
-                  await controls.disconnect.mutateAsync(connection.id)
-                  setConfirmDisconnect(false)
-                } catch {
-                  /* Render mutation error. */
-                }
+              onClick={() => {
+                if (!remove) return
+                const action = remove.personal
+                  ? controls.disconnect
+                  : controls.unlink
+                action.mutate(remove.id, { onSuccess: () => setRemove(null) })
               }}
             >
               {busy && <Spinner data-icon="inline-start" />}
-              {t("botChannels.confirmDisconnect")}
+              {t("common.confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>

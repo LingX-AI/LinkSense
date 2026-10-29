@@ -2,6 +2,12 @@ import { localizedErrorMessage } from "@linksense/shared"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 
 export const errors = {
+  skillManagement: {
+    uninstallNotAllowed: localizedErrorMessage(
+      "SKILL_UNINSTALL_NOT_ALLOWED",
+      "fr-FR"
+    ),
+  },
   socialClientInUse:
     "Des comptes sont associés à cette application. Son identifiant ne peut pas être modifié ; vous pouvez renouveler son secret ou désactiver la connexion.",
   socialLastMethod:

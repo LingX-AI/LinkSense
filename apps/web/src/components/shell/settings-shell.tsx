@@ -15,6 +15,7 @@ import {
   MessageSquareTextIcon,
   MessagesSquareIcon,
   PanelLeftIcon,
+  PlugIcon,
   RefreshCwIcon,
   ServerCogIcon,
   Settings2Icon,
@@ -146,6 +147,12 @@ const administratorItems: SettingsNavigationItem[] = [
     labelKey: "nav.adminCapabilities",
     descriptionKey: "settings.adminCapabilitiesDescription",
     icon: ShieldCheckIcon,
+  },
+  {
+    to: "/admin/connectors",
+    labelKey: "adminConnections.title",
+    descriptionKey: "adminConnections.description",
+    icon: PlugIcon,
   },
   {
     to: "/admin/knowledge-bases",

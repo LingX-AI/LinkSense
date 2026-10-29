@@ -1,5 +1,6 @@
 import { internalAutomationMonitoringRoutes, internalAutomationRoutes } from "./modules/automations/internal-routes.js";
 import { conversationBrowserRoutes } from "./modules/conversations/browser-routes.js";
+import { htmlPreviewRoutes, htmlPreviewResourceRoutes } from "./modules/html-preview/routes.js";
 import { SamlSettingsService } from "./modules/saml/settings.js";
 import { SamlProtocol } from "./modules/saml/protocol.js";
 import { RedisSamlStateStore } from "./modules/saml/state.js";
@@ -21,6 +22,8 @@ import { ProviderConnectionProtocol } from "./modules/connections/google-protoco
 import { WorkspaceConnections } from "./modules/connections/workspace-adapter.js";
 import { MicrosoftFilesGraph } from "./modules/connections/graph.js";
 import { SocialSettingsService } from "./modules/social-auth/settings.js";
+import { ConnectionSettingsService } from "./modules/connections/settings.js";
+import { connectionSettingsRoutes } from "./modules/connections/settings-routes.js";
 import { PrismaSocialRepository } from "./modules/social-auth/repository.js";
 import { RedisSocialStateStore } from "./modules/social-auth/state.js";
 import { OpenIdSocialProtocol } from "./modules/social-auth/protocol.js";
@@ -66,6 +69,7 @@ import {
 import { ACCESS_TOKEN_TTL_SECONDS } from "./config.js";
 import { capabilityRoutes } from "./modules/capabilities/routes.js";
 import { internalSkillCreatorRoutes } from "./modules/capabilities/internal-skill-creator-routes.js";
+import { internalSkillManagementRoutes } from "./modules/capabilities/internal-skill-management-routes.js";
 import { credentialRoutes } from "./modules/credentials/routes.js";
 import { adminUserRoutes, meRoutes } from "./modules/users/routes.js";
 import {
@@ -132,6 +136,7 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.body.environment",
   "req.body.json",
   "req.body.client_secret",
+  "req.body.secret",
   "req.body.signing_private_key",
   "req.body.SAMLResponse",
   "req.body.RelayState",
@@ -145,6 +150,7 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.body.ticket",
   "req.body.code",
   "req.body.pairing.code",
+  "req.body.session_id",
   "req.body.renewal_token",
   "req.body.values[*].value",
   "res.headers.set-cookie",
@@ -269,9 +275,11 @@ export async function buildApi(
   });
   const socialSettings = new SocialSettingsService(services.prisma, services.config);
   const socialRepository = new PrismaSocialRepository(services.prisma, socialSettings);
+  const connectionSettings = new ConnectionSettingsService(services.prisma, services.config);
+  await app.register(connectionSettingsRoutes, { settings: connectionSettings });
   const connections = new ConnectionService({
     repository: new PrismaConnectionRepository(services.prisma),
-    settings: socialSettings,
+    settings: connectionSettings,
     states: new RedisSocialStateStore(services.redis),
     workspace: new WorkspaceConnections(),
     protocol: new ProviderConnectionProtocol(services.config.publicBaseUrl),
@@ -532,6 +540,8 @@ export async function buildApi(
     service: services.conversationShares,
   });
   await app.register(conversationBrowserRoutes, { prefix: "/api/v1/conversations", services });
+  await app.register(htmlPreviewRoutes, { prefix: "/api/v1/conversations", service: services.htmlPreviews });
+  await app.register(htmlPreviewResourceRoutes, { prefix: "/html-preview", service: services.htmlPreviews });
   await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: services.webSites });
   await app.register(publicWebSiteRoutes, { prefix: "/web", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl });
   await app.register(automationRoutes, {
@@ -588,6 +598,11 @@ export async function buildApi(
   await app.register(internalSkillCreatorRoutes, {
     prefix: "/internal/skill-creator",
     service: services.skillCreator,
+    sharedSecret: services.config.runnerSharedSecret,
+  });
+  await app.register(internalSkillManagementRoutes, {
+    prefix: "/internal/skills",
+    service: services.skillManagement,
     sharedSecret: services.config.runnerSharedSecret,
   });
   await app.register(applicationDevelopmentRoutes, { prefix: "/api/v1/application-developments", service: services.applicationDevelopment });
@@ -739,7 +754,7 @@ export function sanitizeRequestForLog(request: unknown) {
     numberValue(rawSocket.remotePort);
   return {
     method: stringValue(value.method) ?? "UNKNOWN",
-    url: requestPathname(stringValue(value.url) ?? "/"),
+    url: requestPathname(stringValue(value.url) ?? "/").replace(/^\/html-preview\/[^/]+/u, "/html-preview/[redacted]"),
     ...(host ? { host } : {}),
     ...(requestId ? { requestId } : {}),
     ...(remoteAddress ? { remoteAddress } : {}),

@@ -4,10 +4,13 @@ import { webBundleManifestSchema, webSiteSchema, type WebBundleManifest, type We
 import type { ObjectStorage } from "../../adapters/object-storage.js";
 import { AppError } from "../../lib/errors.js";
 import type { SiteAndRelease, SiteListInput, WebSiteStore } from "./repository.js";
-import { bundleSize, prepareWebResource, readResource, sha256 } from "./resources.js";
+import { bundleSize, prepareWebResource } from "./resources.js";
+
+import { WebArtifactResources } from "./artifact-resources.js";
 
 export class WebSiteService {
-  constructor(private readonly store: WebSiteStore, private readonly storage: ObjectStorage) {}
+  private readonly resources: WebArtifactResources;
+  constructor(private readonly store: WebSiteStore, private readonly storage: ObjectStorage) { this.resources = new WebArtifactResources(store, storage); }
   async list(ownerId: string, input: SiteListInput) {
     const rows = await this.store.list(ownerId, input);
     const items = rows.slice(0, input.limit).map(projectSite);
@@ -34,40 +37,22 @@ export class WebSiteService {
   async resource(slug: string, releaseId: string, path: string): Promise<{ data: Buffer; mimeType: string }> {
     const { release } = await this.store.publicSite(slug, releaseId);
     const manifest = webBundleManifestSchema.parse(release.manifestJson);
-    const normalized = path.endsWith("/") ? `${path}index.html` : path;
-    const file = manifest.files.find(candidate => candidate.path === normalized);
-    if (!file) throw new AppError("WEB_SITE_NOT_FOUND");
-    const data = await this.read(file);
-    return { data: await prepareWebResource(data, file.path, new Set(manifest.files.map(asset => asset.path))), mimeType: file.mime_type };
+    return this.resources.resource(manifest, path);
   }
   async download(ownerId: string, id: string): Promise<{ data: Buffer; filename: string }> {
     const { site, release } = await this.store.owned(ownerId, id);
     const manifest = webBundleManifestSchema.parse(release.manifestJson);
     const zip = new JSZip();
     const paths = new Set(manifest.files.map(file => file.path));
-    for (const file of manifest.files) zip.file(file.path, await prepareWebResource(await this.read(file), file.path, paths));
+    for (const file of manifest.files) zip.file(file.path, await prepareWebResource(await this.resources.read(file), file.path, paths));
     return { data: await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 1 } }), filename: `${site.slug}.zip` };
   }
-  private async read(file: WebBundleManifest["files"][number]): Promise<Buffer> {
-    const data = await readResource(await this.storage.getObjectStream(file.object_key), file.size_bytes);
-    if (sha256(data) !== file.checksum_sha256) throw new AppError("WEB_SITE_BUNDLE_INVALID");
-    return data;
-  }
   private async sourceBundle(ownerId: string, conversationId: string | null, fileId: string): Promise<{ manifest: WebBundleManifest; sourceTitle: string; conversationId: string }> {
-    const { conversation, file, bundle } = await this.store.source(ownerId, conversationId, fileId);
-    if (bundle) {
-      const manifest = webBundleManifestSchema.parse(bundle.manifestJson);
-      // Verify existence before publishing. Resource reads verify checksums too.
-      for (const asset of manifest.files) if (await this.storage.getObjectSize(asset.object_key) !== asset.size_bytes) throw new AppError("WEB_SITE_BUNDLE_INVALID");
-      return { sourceTitle: conversation.title, conversationId: conversation.id, manifest };
-    }
-    if (!file.minioObjectKey) throw new AppError("WEB_SITE_SOURCE_UNAVAILABLE");
-    const data = await readResource(await this.storage.getObjectStream(file.minioObjectKey), Number(file.sizeBytes));
-    if (file.checksumSha256 && sha256(data) !== file.checksumSha256) throw new AppError("WEB_SITE_BUNDLE_INVALID");
-    await prepareWebResource(data, "index.html", new Set(["index.html"]));
-    return { sourceTitle: conversation.title, conversationId: conversation.id, manifest: webBundleManifestSchema.parse({ entry_path: "index.html", files: [{
-      path: "index.html", object_key: file.minioObjectKey, mime_type: "text/html", size_bytes: data.length, checksum_sha256: sha256(data),
-    }] }) };
+    const source = await this.resources.source(ownerId, conversationId, fileId);
+    for (const asset of source.manifest.files) if (await this.storage.getObjectSize(asset.object_key) !== asset.size_bytes) throw new AppError("WEB_SITE_BUNDLE_INVALID");
+    // Validate the rendered entry too, including local SVG symbol references.
+    await this.resources.resource(source.manifest, source.manifest.entry_path);
+    return source;
   }
 }
 export function projectSite({ site, release }: SiteAndRelease): WebSite {

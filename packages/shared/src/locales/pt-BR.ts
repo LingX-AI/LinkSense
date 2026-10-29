@@ -8,6 +8,9 @@ export const errorMessages: Record<ErrorCode, string> = {
   BROWSER_CONTROL_BUSY: "O navegador está executando uma ação. Tente novamente em instantes.",
   BROWSER_CONTROL_REQUIRED: "O controle expirou ou pertence a outra janela. Assuma o controle novamente.",
 
+  CONNECTION_CLIENT_SECRET_REQUIRED: "Informe o segredo do aplicativo. Ao alterar o ID, informe também o segredo do novo aplicativo.",
+  CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Contas autorizadas: {{count}}. Alterar o ID do aplicativo exige que esses usuários se conectem novamente. Confirme esse efeito antes de salvar.",
+  SKILL_UNINSTALL_NOT_ALLOWED: "Esta habilidade não pode ser desinstalada. As habilidades integradas são fornecidas pelo sistema.",
   IMAGE_GENERATION_INPUT_INVALID: "Não foi possível ler a imagem para edição. Use PNG, JPEG ou WebP de até 8 MB por imagem e 10 MB no total, incluindo a máscara. A máscara deve ser um PNG transparente com as mesmas dimensões da primeira imagem.",
   IMAGE_GENERATION_EDIT_UNSUPPORTED: "O modelo atual não aceita esta edição. Use menos imagens de referência, remova a máscara ou peça ao administrador para selecionar um modelo compatível.",
   MODEL_PROVIDER_CREDENTIAL_REQUIRED: "Informe uma chave de API. Informe uma nova chave após alterar o provedor, o endereço do serviço ou o projeto na nuvem.",
@@ -48,7 +51,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   "PROJECT_NAME_EXISTS": "Já existe um projeto com este nome. Escolha outro nome",
   "PROJECT_TASK_ACTIVE": "Conclua as tarefas ativas antes de movê-las ou remover seu projeto",
   "BOT_CHANNEL_CONNECTION_CONFLICT": "Este canal ou bot já está conectado. Desconecte a conexão existente primeiro.",
-  "BOT_CHANNEL_BUSY": "Este canal está processando uma mensagem. Tente desconectar novamente em breve.",
+  "BOT_CHANNEL_BUSY": "Este canal está realizando outra operação. Tente novamente em breve.",
   "BOT_CHANNEL_CONNECTION_FAILED": "Não foi possível conectar. Verifique a configuração do aplicativo, as permissões e a rede.",
   "BOT_CHANNEL_DELIVERY_FAILED": "Não foi possível entregar a mensagem. Verifique o status do canal e as permissões de mensagens.",
   "BOT_CHANNEL_PROTOCOL_INVALID": "O canal de mensagens retornou uma resposta inválida.",
@@ -265,6 +268,7 @@ export const errorMessages: Record<ErrorCode, string> = {
 
 export const auditMessages = {
   "actions": {
+    connection_settings_updated: "Configuração do conector atualizada",
     connection_authorized: "Conexão autorizada",
     connection_disconnected: "Conexão desconectada",
     connection_enabled: "Conexão ativada",
@@ -480,6 +484,7 @@ export const auditMessages = {
     "weixin_connection_updated": "Conexão com o Weixin atualizada"
   },
   "targetTypes": {
+    connection_provider: "Conector",
     connection: "Conexão pessoal",
     "web_site": "Site compartilhado",
     "application": "Aplicativo",

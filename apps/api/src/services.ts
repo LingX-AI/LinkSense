@@ -1,3 +1,5 @@
+import { HtmlPreviewService, RedisHtmlPreviewSessionStore } from "./modules/html-preview/service.js";
+import { WebArtifactResources } from "./modules/web-sites/artifact-resources.js";
 import { assertExecutionPrincipalActive } from "./lib/execution-principal.js";
 import { ApplicationDevelopmentService } from "./modules/applications/development-service.js";
 import { ApplicationDevelopmentRepository } from "./modules/applications/development-repository.js";
@@ -53,6 +55,7 @@ import {
   CapabilityPackageImporter,
   CapabilityService,
   ConversationSkillCreatorService,
+  ConversationSkillManagementService,
   PrismaCapabilityStore,
   UserHomeCapabilityMaterializer,
   UserHomeCapabilityMaterializationError,
@@ -208,6 +211,7 @@ export type AppServices = {
   conversations: ConversationService;
   conversationShares: ConversationShareService;
   webSites: WebSiteService;
+  htmlPreviews: HtmlPreviewService;
   automations: AutomationService;
   conversationAutomations: ConversationAutomationService;
   completionNotifications: CompletionNotificationService;
@@ -222,6 +226,7 @@ export type AppServices = {
   clawHub: ClawHubService;
   clawHubScheduler: ClawHubSyncScheduler;
   skillCreator: ConversationSkillCreatorService;
+  skillManagement: ConversationSkillManagementService;
   applicationDevelopment: ApplicationDevelopmentService;
   marketplace: MarketplaceService;
   applications: ApplicationService;
@@ -878,6 +883,7 @@ export function createServices(input: {
     conversations,
     conversationShares,
     webSites: new WebSiteService(new WebSiteRepository(input.prisma), input.storage),
+    htmlPreviews: new HtmlPreviewService(new WebArtifactResources(new WebSiteRepository(input.prisma), input.storage), new RedisHtmlPreviewSessionStore(input.redis), async ownerId => Boolean(await input.prisma.user.count({ where: { id: ownerId, status: "active" } }))),
     automations,
     conversationAutomations: new ConversationAutomationService(input.prisma, automations),
     completionNotifications,
@@ -892,6 +898,7 @@ export function createServices(input: {
     clawHub,
     clawHubScheduler,
     skillCreator,
+    skillManagement: new ConversationSkillManagementService(input.prisma, capabilities),
     applicationDevelopment: new ApplicationDevelopmentService({
       store: new ApplicationDevelopmentRepository(input.prisma), applications, conversations,
       assets: { get: (key) => input.storage.getObjectStream(key) }, workspaceRoot: input.config.workspaceRoot,

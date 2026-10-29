@@ -35,7 +35,12 @@ export async function connectWecom(
     input.onError(new ChannelProtocolError("BOT_CHANNEL_CONNECTION_FAILED")),
   );
   client.on("message.text", (frame) => {
-    const message = projectChannelMessage(input.credentials, frame.body);
+    const message = projectChannelMessage(
+      input.credentials,
+      frame.body,
+      new Date(),
+      input.allowGroupMessages,
+    );
     if (message) void input.onMessage(message).catch(input.onError);
   });
   const abort = () => client.disconnect();

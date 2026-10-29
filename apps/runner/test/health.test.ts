@@ -15,6 +15,7 @@ import { FileServiceRequestError } from "../src/file-service-error.js";
 import { KnowledgeSearchRequestError } from "../src/knowledge-search-error.js";
 import { KnowledgeServiceRequestError } from "../src/knowledge-service-error.js";
 import { SkillCreatorRequestError } from "../src/skill-creator-error.js";
+import { SkillManagementRequestError } from "../src/skill-management-error.js";
 import type { RunnerEventSink } from "../src/event-sink.js";
 import {
   AppServerProcessPool,
@@ -975,6 +976,35 @@ describe("runner health", () => {
       retryable: true,
     });
     expect(unavailable.body).not.toContain("private backend stack");
+    await server.close();
+  });
+
+  it("serves Skill management through its scoped token and validates both inputs and outputs", async () => {
+    const workspaceManager = new WorkspaceManager(join(directory, "users"));
+    const manageSkills = vi.fn().mockResolvedValueOnce({ success: true, operation: "list", items: [] })
+      .mockResolvedValueOnce({ success: true, operation: "uninstall", skill_id: "01900000-0000-7000-8000-000000000005", name: "notes" })
+      .mockRejectedValueOnce(new SkillManagementRequestError("SKILL_UNINSTALL_NOT_ALLOWED", false, 403))
+      .mockRejectedValueOnce(new Error("private backend stack"));
+    const pool = { manageSkills } as unknown as AppServerProcessPool;
+    const config = parseRunnerConfig({ LINKSENSE_USER_DATA_ROOT: join(directory, "users"), LINKSENSE_RUNNER_SHARED_SECRET: "runner-555555555555555555555555555555", LINKSENSE_API_INTERNAL_URL: "http://127.0.0.1:4000/internal" });
+    const server = buildRunnerServer(config, pool, workspaceManager);
+    const conversationId = "01900000-0000-7000-8000-000000000001";
+    const request = { method: "POST" as const, url: `/mcp-skills/${conversationId}/execute`, headers: { authorization: "Bearer turn-skill-management-token" }, payload: { operation: "list" } };
+    expect((await server.inject({ ...request, headers: {} })).statusCode).toBe(401);
+    expect((await server.inject({ ...request, payload: { operation: "list", owner_id: conversationId } })).statusCode).toBe(400);
+    expect(manageSkills).not.toHaveBeenCalled();
+    const listed = await server.inject(request);
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toEqual({ success: true, operation: "list", items: [] });
+    expect(manageSkills).toHaveBeenCalledWith(conversationId, "turn-skill-management-token", { operation: "list" }, expect.any(AbortSignal));
+    const removed = await server.inject({ ...request, payload: { operation: "uninstall", skill_id: "01900000-0000-7000-8000-000000000005" } });
+    expect(removed.statusCode).toBe(200);
+    const protectedResponse = await server.inject(request);
+    expect(protectedResponse.statusCode).toBe(403);
+    expect(protectedResponse.json()).toEqual({ code: "SKILL_UNINSTALL_NOT_ALLOWED", retryable: false });
+    const failed = await server.inject(request);
+    expect(failed.statusCode).toBe(503);
+    expect(failed.body).not.toContain("private");
     await server.close();
   });
 

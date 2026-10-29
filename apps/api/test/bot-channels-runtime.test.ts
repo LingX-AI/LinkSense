@@ -40,10 +40,31 @@ describe.each(testCredentials)("$provider runtime", (credentials) => {
     const fixture = harness(credentials);
     await fixture.runtime.start();
     await vi.advanceTimersByTimeAsync(0);
-    await fixture.runtime.sendNotification({ ownerId: fixture.connection.ownerId, connectionId: fixture.connection.id, inbound: fixture.message, text: "A completed scheduled result", beforeSend: async () => undefined });
+    await fixture.runtime.sendNotification({ ownerId: fixture.message.ownerId, connectionId: fixture.connection.id, inbound: fixture.message, text: "A completed scheduled result", beforeSend: async () => undefined });
     expect(fixture.send).toHaveBeenCalledWith(expect.any(Object), "A completed scheduled result");
     expect(fixture.conversations.acceptTurn).not.toHaveBeenCalled();
     expect(fixture.runtime.notificationConnectionIds()).toContain(fixture.connection.id);
+    expect(fixture.coordinator.acquireLease).toHaveBeenCalledWith("connection", fixture.connection.id, expect.any(Number));
+  });
+  it("retries rather than silently accepting a notice when its connection is busy", async () => {
+    const fixture = harness(credentials);
+    await fixture.runtime.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fixture.coordinator.acquireLease.mockResolvedValueOnce(null);
+    const beforeSend = vi.fn(async () => undefined);
+    await expect(fixture.runtime.sendNotification({ ownerId: fixture.message.ownerId, connectionId: fixture.connection.id, inbound: fixture.message, text: "Private result", beforeSend })).rejects.toThrow("BOT_CHANNEL_DELIVERY_FAILED");
+    expect(beforeSend).not.toHaveBeenCalled();
+    expect(fixture.send).not.toHaveBeenCalled();
+  });
+  it("does not send a proactive notice after its member identity is revoked", async () => {
+    const fixture = harness(credentials);
+    await fixture.runtime.start();
+    await vi.advanceTimersByTimeAsync(0);
+    fixture.repository.resolveSenderOwner.mockResolvedValue(null);
+    const beforeSend = vi.fn(async () => undefined);
+    await expect(fixture.runtime.sendNotification({ ownerId: fixture.message.ownerId, connectionId: fixture.connection.id, inbound: fixture.message, text: "Private result", beforeSend })).rejects.toThrow("BOT_CHANNEL_DELIVERY_FAILED");
+    expect(beforeSend).not.toHaveBeenCalled();
+    expect(fixture.send).not.toHaveBeenCalled();
   });
   it("rejects a different owner before sending a proactive notice", async () => {
     const fixture = harness(credentials);
@@ -59,7 +80,7 @@ describe.each(testCredentials)("$provider runtime", (credentials) => {
     let grantLease: ((lease: { key: string; token: string }) => void) | undefined;
     fixture.coordinator.acquireLease.mockImplementationOnce(() => new Promise(resolve => { grantLease = resolve; }));
     const beforeSend = vi.fn(async () => { throw new Error("delivery revoked"); });
-    const operation = fixture.runtime.sendNotification({ ownerId: fixture.connection.ownerId, connectionId: fixture.connection.id, inbound: fixture.message, text: "Private result", beforeSend });
+    const operation = fixture.runtime.sendNotification({ ownerId: fixture.message.ownerId, connectionId: fixture.connection.id, inbound: fixture.message, text: "Private result", beforeSend });
     expect(beforeSend).not.toHaveBeenCalled();
     grantLease!({ key: "lease", token: "token" });
     await expect(operation).rejects.toThrow("delivery revoked");
@@ -196,10 +217,9 @@ function harness(credentials: (typeof testCredentials)[number]) {
   };
   const connection: BotChannelConnection = {
     id: "connection",
-    ownerId: "owner",
+    ownerId: credentials.provider === "dingtalk" ? "owner" : null,
     provider: credentials.provider,
     externalId: "app",
-    allowedSenderId: credentials.allowed_sender_id,
     allowGroupMessages: true,
     encryptedCredentials: encryptChannelCredentials(
       "connection",
@@ -221,6 +241,7 @@ function harness(credentials: (typeof testCredentials)[number]) {
     platformPayload(credentials.provider),
   )!;
   const message: BotChannelInboundMessage = {
+    ownerId: "owner",
     id: "message",
     connectionId: connection.id,
     messageKey: incoming.messageKey,
@@ -267,6 +288,11 @@ function harness(credentials: (typeof testCredentials)[number]) {
   let pending = false;
   let outbound = false;
   const repository = {
+    bindIdentity: vi.fn(async () => true),
+    resolveSenderOwner: vi
+      .fn<PrismaBotChannelRepository["resolveSenderOwner"]>()
+      .mockResolvedValue("owner"),
+    markInboundFailed: vi.fn(async () => undefined),
     listActiveConnections: vi.fn(async () => [connection]),
     findActiveConnection: vi.fn(async () => connection),
     markConnected: vi.fn(async () => undefined),
@@ -319,7 +345,9 @@ function harness(credentials: (typeof testCredentials)[number]) {
     markDeliveryRetry: vi.fn(async () => undefined),
   };
   const coordinator = {
-    acquireLease: vi.fn(async (scope: string, id: string) => ({
+    allowIdentityNotice: vi.fn(async () => true),
+    consumeLinkCode: vi.fn(async () => "10000000-0000-4000-8000-000000000001"),
+    acquireLease: vi.fn<RedisBotChannelCoordinator["acquireLease"]>(async (scope, id) => ({
       key: `${scope}:${id}`,
       token: "token",
     })),
@@ -363,9 +391,89 @@ function harness(credentials: (typeof testCredentials)[number]) {
     send,
     close,
     isConnected,
-    receive: async () => {
+    receive: async (overrides: Partial<typeof incoming> = {}) => {
       expect(input).toBeDefined();
-      await input!.onMessage(incoming);
+      await input!.onMessage({ ...incoming, ...overrides });
     },
   };
 }
+
+it("executes an organization message as its linked member rather than the configuring administrator", async () => {
+  const f = harness(testCredentials[0]!);
+  f.message.ownerId = "actual-member";
+  f.repository.resolveSenderOwner.mockResolvedValue("actual-member");
+  await f.runtime.start();
+  await vi.advanceTimersByTimeAsync(0);
+  await f.receive();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.connection.ownerId).toBeNull();
+  expect(f.repository.persistInbound).toHaveBeenCalledWith(
+    expect.objectContaining({ ownerId: "actual-member" }),
+  );
+  expect(f.conversations.acceptTurn).toHaveBeenCalledWith(
+    "actual-member",
+    "conversation",
+    expect.anything(),
+    expect.objectContaining({ actorId: "actual-member" }),
+  );
+});
+it("refuses unknown or disabled senders before persisting task content", async () => {
+  const f = harness(testCredentials[0]!);
+  f.repository.resolveSenderOwner.mockResolvedValue(null);
+  await f.runtime.start();
+  await vi.advanceTimersByTimeAsync(0);
+  await f.receive();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.repository.persistInbound).not.toHaveBeenCalled();
+  expect(f.conversations.acceptTurn).not.toHaveBeenCalled();
+  expect(f.send).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.stringContaining("LinkSense"),
+  );
+});
+it("rechecks the member after inbox admission and refuses tasks when the identity was revoked", async () => {
+  const f = harness(testCredentials[0]!);
+  f.repository.resolveSenderOwner
+    .mockResolvedValueOnce("owner")
+    .mockResolvedValue(null);
+  await f.runtime.start();
+  await vi.advanceTimersByTimeAsync(0);
+  await f.receive();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(f.repository.markInboundFailed).toHaveBeenCalledWith(
+    "message",
+    "token",
+    "FORBIDDEN",
+    expect.any(Date),
+  );
+  expect(f.conversations.acceptTurn).not.toHaveBeenCalled();
+});
+it("consumes identity confirmation in private chat without creating a task containing the code", async () => {
+  const f = harness(testCredentials[1]!);
+  await f.runtime.start();
+  await vi.advanceTimersByTimeAsync(0);
+  await f.receive({ text: "LINK " + "AB".repeat(12) });
+  expect(f.repository.bindIdentity).toHaveBeenCalled();
+  expect(f.repository.persistInbound).not.toHaveBeenCalled();
+  expect(f.send).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.stringContaining("已关联"),
+  );
+});
+
+it("withholds a completed reply when the member loses access before delivery", async () => {
+  const f = harness(testCredentials[0]!);
+  f.repository.resolveSenderOwner
+    .mockResolvedValueOnce("owner")
+    .mockResolvedValueOnce("owner")
+    .mockResolvedValue(null);
+  await f.runtime.start();
+  await vi.advanceTimersByTimeAsync(0);
+  await f.receive();
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.conversations.acceptTurn).toHaveBeenCalledOnce();
+  expect(f.send).not.toHaveBeenCalled();
+  expect(f.repository.markDeliveryRetry).toHaveBeenCalledWith(
+    expect.objectContaining({ errorCode: "FORBIDDEN", terminal: true }),
+  );
+});

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BotChannelCreate } from "@linksense/shared";
+import type { BotChannelCredentials } from "@linksense/shared";
 
 const chatId = z.string().min(1).max(1024);
 export const replyContextSchema = z.discriminatedUnion("provider", [
@@ -7,7 +7,7 @@ export const replyContextSchema = z.discriminatedUnion("provider", [
   z.strictObject({
     provider: z.literal("dingtalk"),
     chatId,
-    senderId: z.string().min(1).max(256),
+    recipientId: z.string().min(1).max(256),
     group: z.boolean(),
   }),
   z.strictObject({
@@ -40,7 +40,8 @@ export type ChannelSession = {
 };
 export type ChannelConnectInput = {
   id: string;
-  credentials: BotChannelCreate;
+  credentials: BotChannelCredentials;
+  allowGroupMessages: boolean;
   signal: AbortSignal;
   onMessage(message: ChannelInbound): Promise<void>;
   onError(error: unknown): void;

@@ -86,6 +86,11 @@ export const previewMessages = {
     selectionStatus: "Texto seleccionado",
   },
   htmlPreview: {
+    resourcesIncomplete: "No se pudo cargar parte de la página",
+    sessionExpired: "La conexión de vista previa ha caducado",
+    resourcesHelp:
+      "Es posible que algunos estilos o interacciones no estén disponibles. Recarga la vista previa. Si el problema continúa, pide a la tarea que incluya los archivos necesarios.",
+    resourceDetails: "Ver archivos que no se cargaron",
     frameTitle: "Documento HTML {{name}}",
     annotate: "Anotar",
     annotating: "Anotando",

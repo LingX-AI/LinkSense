@@ -44,7 +44,7 @@ export async function readResource(stream: Readable, expectedSize: number): Prom
  * Runtime-computed URLs must already use the webpage's base, never the app root.
  * External resources remain browser requests; the API never fetches them.
  */
-export async function prepareWebResource(data: Buffer, path: string, paths: ReadonlySet<string>): Promise<Buffer> {
+export async function prepareWebResource(data: Buffer, path: string, paths: ReadonlySet<string>, missing?: Set<string>): Promise<Buffer> {
   const extension = posix.extname(path).toLowerCase();
   if (![".html", ".htm", ".css", ".js", ".mjs"].includes(extension)) return data;
   const reference = (value: string, required = true): string => {
@@ -56,7 +56,10 @@ export async function prepareWebResource(data: Buffer, path: string, paths: Read
     let target: string;
     try { target = decodeURIComponent(url.pathname).slice(1); } catch { throw new AppError("WEB_SITE_BUNDLE_INVALID"); }
     if (target.endsWith("/") && required) target += "index.html";
-    if (required && !paths.has(target)) throw new AppError("WEB_SITE_RESOURCES_MISSING", { path: target.slice(0, 240) });
+    if (required && !paths.has(target)) {
+      if (!missing) throw new AppError("WEB_SITE_RESOURCES_MISSING", { path: target.slice(0, 240) });
+      if (missing.size < 50) missing.add(target.slice(0, 240));
+    }
     if (!trimmed.startsWith("/")) return value;
     const relative = posix.relative(posix.dirname(path), target);
     return `${relative.startsWith(".") ? "" : "./"}${relative}${target.endsWith("/") && relative ? "/" : ""}${url.search}${url.hash}`;
@@ -117,6 +120,7 @@ export async function prepareWebResource(data: Buffer, path: string, paths: Read
           if (["src", "poster"].includes(attribute.name)) attribute.value = reference(attribute.value);
           if (["srcset", "imagesrcset"].includes(attribute.name)) attribute.value = srcset.stringify(srcset.parse(attribute.value).map(item => ({ ...item, url: reference(item.url) })));
           if (attribute.name === "href" && node.tagName === "link") attribute.value = reference(attribute.value);
+          if (attribute.name === "href" && node.tagName === "use") attribute.value = reference(attribute.value);
           if (attribute.name === "href" && node.tagName === "a") attribute.value = reference(attribute.value, false);
           if (attribute.name === "style") attribute.value = css(attribute.value);
         }

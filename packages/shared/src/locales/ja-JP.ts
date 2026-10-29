@@ -8,6 +8,9 @@ export const errorMessages: Record<ErrorCode, string> = {
   BROWSER_CONTROL_BUSY: "ブラウザーが操作を実行中です。少し待って再試行してください。",
   BROWSER_CONTROL_REQUIRED: "操作権が失効したか別のウィンドウが使用中です。もう一度引き継いでください。",
 
+  CONNECTION_CLIENT_SECRET_REQUIRED: "アプリのシークレットを入力してください。アプリ ID を変更する場合は、新しいアプリのシークレットも必要です。",
+  CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "認可済みアカウント数：{{count}}。アプリ ID を変更すると、これらのユーザーは再接続が必要になります。保存前にこの影響を確認してください。",
+  SKILL_UNINSTALL_NOT_ALLOWED: "このスキルはアンインストールできません。組み込みスキルはシステムによって提供されます。",
   IMAGE_GENERATION_INPUT_INVALID: "編集用の画像を読み取れません。PNG、JPEG、WebP 形式で、1 枚 8 MB 以下、マスクを含め合計 10 MB 以下にしてください。マスクは最初の画像と同じ寸法の透明 PNG が必要です。",
   IMAGE_GENERATION_EDIT_UNSUPPORTED: "現在の画像モデルはこの編集に対応していません。参照画像を減らすか、マスクを外すか、対応するモデルの選択を管理者に依頼してください。",
   MODEL_PROVIDER_CREDENTIAL_REQUIRED: "API キーを入力してください。プロバイダー、サービスのアドレス、クラウドプロジェクトを変更した場合は、新しいキーの入力が必要です。",
@@ -48,7 +51,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   PROJECT_NAME_EXISTS: "同名のプロジェクトが既に存在します。別の名前を指定してください",
   PROJECT_TASK_ACTIVE: "タスクを移動したりプロジェクトを削除したりする前に、実行中のタスクを完了してください",
   BOT_CHANNEL_CONNECTION_CONFLICT: "このチャネルまたはボットは既に接続されています。先に既存の接続を解除してください。",
-  BOT_CHANNEL_BUSY: "このチャネルはメッセージを処理中です。少し待ってから接続解除を再試行してください。",
+  BOT_CHANNEL_BUSY: "このチャネルは別の操作を処理中です。しばらくしてから再試行してください。",
   BOT_CHANNEL_CONNECTION_FAILED: "接続できません。アプリの設定、権限、ネットワークを確認してください。",
   BOT_CHANNEL_DELIVERY_FAILED: "メッセージを配信できませんでした。チャネルの状態とメッセージ権限を確認してください。",
   BOT_CHANNEL_PROTOCOL_INVALID: "メッセージチャネルから無効な応答が返されました。",
@@ -265,6 +268,7 @@ export const errorMessages: Record<ErrorCode, string> = {
 
 export const auditMessages = {
   actions: {
+    connection_settings_updated: "コネクタ設定を更新",
     connection_authorized: "接続を認証",
     connection_disconnected: "接続を解除",
     connection_enabled: "接続を有効化",
@@ -480,6 +484,7 @@ export const auditMessages = {
     weixin_connection_updated: "Weixin の接続を更新",
   },
   targetTypes: {
+    connection_provider: "コネクタ",
     connection: "個人用接続",
     web_site: "共有サイト", application: "アプリケーション",
     application_distribution: "アプリケーションの共有と掲載",

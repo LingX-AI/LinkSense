@@ -567,8 +567,7 @@ export const enUS = {
     clientId: "App Client ID",
     secret: "App secret",
     tenantId: "Tenant ID",
-    sender: "Allowed member ID",
-    groups: "Allow this member to start tasks by mentioning the bot in groups",
+    groups: "Allow members to start tasks by mentioning the bot in groups",
     callback: "Messaging endpoint",
     callbackHelp:
       "Set this URL as the Azure Bot messaging endpoint. It must be publicly reachable over HTTPS.",
@@ -577,13 +576,14 @@ export const enUS = {
     disconnectHelp:
       "Disconnecting stops receiving and replying through this channel and removes pending messages and replies. Existing LinkSense tasks are kept.",
     invalid:
-      "Check all required fields. Teams app, tenant, and member IDs must be valid UUIDs.",
+      "Complete the app connection details. Teams application and tenant IDs must be valid UUIDs.",
     status: {
       connecting: "Connecting",
       online: "Online",
       waiting_message: "Waiting for a message",
       error: "Connection error",
       disconnected: "Not connected",
+      disabled: "Paused",
     },
     description: {
       wecom:
@@ -594,19 +594,50 @@ export const enUS = {
     },
     setup: {
       wecom:
-        "Create an intelligent bot in WeCom using API mode and a persistent connection, then enter its ID, secret, and allowed member.",
+        "Create an intelligent bot in WeCom using API mode and a persistent connection, then enter its bot ID and secret.",
       dingtalk:
-        "Create an internal app on the DingTalk developer platform, enable and publish its Stream bot, and grant direct and group messaging permissions.",
+        "Scan with DingTalk on your phone and follow the steps to create and authorize a bot. Then link your LinkSense account.",
       teams:
         "Create a single-tenant Azure Bot and enable Microsoft Teams. After saving, configure its messaging endpoint in Azure and install the bot app in Teams.",
     },
-    senderHelp: {
-      wecom:
-        "Enter the member userid from your WeCom directory. Only this member can use your LinkSense assistant.",
-      dingtalk:
-        "Enter the member UserId from your DingTalk organization. Only this member can use your LinkSense assistant.",
-      teams:
-        "Enter the user object ID from Microsoft Entra. Only this user can use your LinkSense assistant.",
+    adminTitle: "Organization message channels",
+    adminHelp:
+      "Configure WeCom and Teams for the organization. Members link their own LinkSense accounts and run tasks with their own permissions and resources.",
+    organizationHelp:
+      "Managed by an administrator. Link your own LinkSense account to use this channel. Unregistered or disabled accounts cannot start tasks.",
+    personalHelp:
+      "Scan with DingTalk to create and authorize your personal bot, then link your account.",
+    notConfigured: "Awaiting administrator setup",
+    scanConnect: "Connect by QR code",
+    scanTitle: "Connect DingTalk",
+    scanHelp:
+      "Scan with DingTalk on your phone and follow the steps to create and authorize a bot. Then link your LinkSense account.",
+    qrLabel: "DingTalk connection QR code",
+    waitingScan: "Scan with DingTalk and complete authorization.",
+    generateQr: "Generate QR code",
+    regenerate: "Generate again",
+    linkAccount: "Link my account",
+    linked: "Account linked",
+    linkTitle: "Link your {{name}} account",
+    linkHelp:
+      "Send the confirmation message to the bot in a private chat to link your current LinkSense account. Do not forward it to anyone else.",
+    confirmationMessage: "Confirmation message",
+    linkExpiry:
+      "Valid for 10 minutes and one use only. This page updates automatically after you send it.",
+    getConfirmation: "Get confirmation message",
+    copy: "Copy confirmation message",
+    copied: "Copied",
+    copyFailed:
+      "Copy failed. Select and copy the confirmation message manually.",
+    unlink: "Unlink account",
+    unlinkHelp:
+      "This channel identity will no longer be able to start tasks. Existing LinkSense tasks are kept.",
+    enable: "Enable",
+    pause: "Pause",
+    registrationStatus: {
+      connected: "QR authorization completed. Continue to link your account.",
+      expired: "The QR code expired. Generate a new one.",
+      failed: "Authorization was not completed. Try again.",
     },
   },
   channelAccess: {
@@ -1697,6 +1728,11 @@ export const enUS = {
     selectionStatus: "Text selected",
   },
   htmlPreview: {
+    resourcesIncomplete: "Some page content could not load",
+    sessionExpired: "Preview connection expired",
+    resourcesHelp:
+      "Some styles or interactions may be unavailable. Reload the preview. If the issue continues, ask the task to include the files this page needs.",
+    resourceDetails: "View files that did not load",
     frameTitle: "HTML document {{name}}",
     annotate: "Annotate",
     annotating: "Annotating",
@@ -5314,6 +5350,12 @@ export const enUS = {
     riskRequired: "Review and confirm the source and risk notice first.",
   },
   errors: {
+    skillManagement: {
+      uninstallNotAllowed: localizedErrorMessage(
+        "SKILL_UNINSTALL_NOT_ALLOWED",
+        "en-US"
+      ),
+    },
     socialClientInUse: errorCatalog.SOCIAL_CLIENT_IN_USE.messages["en-US"],
     socialLastMethod: errorCatalog.SOCIAL_LAST_METHOD.messages["en-US"],
     socialAuthFailed: errorCatalog.SOCIAL_AUTH_FAILED.messages["en-US"],

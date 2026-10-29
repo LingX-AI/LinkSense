@@ -109,6 +109,8 @@ describe("Core MCP module registry", () => {
       "knowledge",
       "interactive_form",
       "skill_creator",
+      "skill_management_read",
+      "skill_management_write",
       "application_builder",
       "automations",
     ])
@@ -123,6 +125,8 @@ describe("Core MCP module registry", () => {
       "knowledge",
       "interactive_form",
       "skill_creator",
+      "skill_management_read",
+      "skill_management_write",
       "application_builder",
       "automations",
     ])
@@ -169,6 +173,7 @@ describe("Core MCP module registry", () => {
       "local_browser",
       "knowledge",
       "interactive_form",
+      "skill_management_read",
     ])
     expect(registry.tools.map((tool) => tool.name)).toEqual([
       "read_referenced_conversation",
@@ -180,6 +185,7 @@ describe("Core MCP module registry", () => {
       "get_knowledge_document_markdown",
       "request_user_form",
       "emit_application_event",
+      "list_skills",
     ])
     expect(registry.tools.map((tool) => tool.name)).toEqual(
       coreMcpToolNamesFor("plan"),

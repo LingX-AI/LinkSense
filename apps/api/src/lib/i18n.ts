@@ -11,6 +11,7 @@ import { backendMessages as esMessages } from "./locales/es-ES.js";
 import { backendMessages as ptMessages } from "./locales/pt-BR.js";
 import { backendMessages as frMessages } from "./locales/fr-FR.js";
 import { backendMessages as jaMessages } from "./locales/ja-JP.js";
+import { channelIdentityMessages } from "./locales/channel-identities.js";
 import { supplementalBackendMessages } from "./locales/supplemental.js";
 
 type SourceLocale = "zh-CN" | "en-US";
@@ -366,6 +367,7 @@ function backendTranslationResource(locale: Locale): Record<string, string> {
   if (locale !== "zh-CN" && locale !== "en-US") {
     return {
       ...translations(locale),
+      ...channelIdentityMessages[locale],
       ...backendMessages[locale],
       ...auditFlatTranslations(locale),
       ...supplementalBackendMessages[locale],
@@ -375,6 +377,7 @@ function backendTranslationResource(locale: Locale): Record<string, string> {
   const chinese = source === "zh-CN";
   const resource = {
     ...translations(locale),
+    ...channelIdentityMessages[locale],
     ...mailTranslations[source],
     ...usageExportTranslations[source],
     ...userImportTranslations[source],
