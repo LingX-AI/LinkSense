@@ -78,7 +78,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       LINKSENSE_CREDENTIAL_MASTER_KEY: ${LINKSENSE_CREDENTIAL_MASTER_KEY}
-      LINKSENSE_CREDENTIAL_KEY_ID: ${LINKSENSE_CREDENTIAL_KEY_ID}
+      LINKSENSE_CREDENTIAL_KEY_ID: ${LINKSENSE_CREDENTIAL_KEY_ID:-v1}
     depends_on:
       postgres:
         condition: service_healthy
