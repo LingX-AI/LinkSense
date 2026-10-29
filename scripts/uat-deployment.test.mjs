@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import test from "node:test";
 import { prepareUat } from "../deploy/uat/prepare.mjs";
 
+const { parse } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml");
 const revision = "a".repeat(40);
 function fixture(t) {
   const root = mkdtempSync(resolve(tmpdir(), "linksense-uat-test-"));
@@ -54,4 +56,21 @@ test("proxy-loaded baseline aliases keep the frozen image digests in their ident
   const cached = prepareUat(root, { revision, publicUrl: "http://localhost:19090", cachedBaselines: true });
   for (const role of ["POSTGRES", "REDIS", "MINIO", "MINIO_CLIENT", "BUSYBOX", "GATEWAY"]) assert.equal(cached[`${role}_IMAGE`], `linksense-uat-cache/${role.toLowerCase()}:${original[`${role}_IMAGE`].split("sha256:")[1]}`);
   assert.equal(cached.POSTGRES_PASSWORD, original.POSTGRES_PASSWORD);
+});
+
+test("UAT builds use relocated Dockerfiles without changing source roots or build targets", () => {
+  const compose = parse(readFileSync(new URL("../deploy/uat/compose.yml", import.meta.url), "utf8"));
+  for (const [service, dockerfile, target] of [
+    ["migrate", "api", "migration"],
+    ["worker-image", "runner", "worker"],
+    ["runner", "runner", "controller"],
+    ["api", "api", "runtime"],
+    ["web", "web", "runtime"],
+  ]) {
+    const build = compose.services[service].build;
+    assert.equal(build.context, "${LINKSENSE_SOURCE_ROOT}", service);
+    assert.equal(build.dockerfile, `deploy/docker/Dockerfile.${dockerfile}`, service);
+    assert.equal(build.target, target, service);
+    assert.ok(statSync(new URL(`../${build.dockerfile}`, import.meta.url)).isFile(), service);
+  }
 });

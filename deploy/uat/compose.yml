@@ -2,29 +2,29 @@ services:
   migrate:
     build:
       context: ${LINKSENSE_SOURCE_ROOT}
-      dockerfile: Dockerfile.api
+      dockerfile: deploy/docker/Dockerfile.api
       target: migration
   worker-image:
     build:
       context: ${LINKSENSE_SOURCE_ROOT}
-      dockerfile: Dockerfile.runner
+      dockerfile: deploy/docker/Dockerfile.runner
       target: worker
       args:
         WORKER_IMAGE_FINGERPRINT: ${LINKSENSE_WORKER_IMAGE_REVISION}
   runner:
     build:
       context: ${LINKSENSE_SOURCE_ROOT}
-      dockerfile: Dockerfile.runner
+      dockerfile: deploy/docker/Dockerfile.runner
       target: controller
   api:
     build:
       context: ${LINKSENSE_SOURCE_ROOT}
-      dockerfile: Dockerfile.api
+      dockerfile: deploy/docker/Dockerfile.api
       target: runtime
   web:
     build:
       context: ${LINKSENSE_SOURCE_ROOT}
-      dockerfile: Dockerfile.web
+      dockerfile: deploy/docker/Dockerfile.web
       target: runtime
   gateway:
     volumes:
