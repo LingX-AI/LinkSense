@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   connectionProviderSchema,
   type ConnectionProvider,
+  type ConnectionConfiguration,
 } from "@linksense/shared";
 import { ConnectionService } from "../src/modules/connections/service.js";
 import type {
@@ -104,9 +105,8 @@ function fixture() {
     }),
   };
   const settings = {
-    resolve: vi.fn(async () => ({
+    resolve: vi.fn<((provider: ConnectionProvider) => Promise<ConnectionConfiguration | null>)>(async () => ({
       revision: 1,
-      enabled: false,
       client_id: "test-client",
       client_secret: "test-only-app-secret",
     })),
@@ -212,7 +212,7 @@ describe("personal Microsoft connections", () => {
     });
     expect(JSON.stringify(result)).not.toContain("damaged-secret");
   });
-  it("preserves accounts without any connection and separates file access from disabled Microsoft sign-in", async () => {
+  it("preserves accounts without any connection and uses independent connector credentials", async () => {
     const f = fixture();
     expect(await f.service.list(owner)).toEqual(
       connectionProviderSchema.options.map((provider) => ({
@@ -426,7 +426,7 @@ describe("workspace connection isolation", () => {
         accountName: "google@example.test",
       });
       await f.connect(provider);
-      expect(f.settings.resolve).toHaveBeenCalledWith("google");
+      expect(f.settings.resolve).toHaveBeenCalledWith(provider);
       expect((await f.service.list(owner)).find(item => item.provider === provider)).toMatchObject({
         status: "connected",
         access_mode: "read_write",
@@ -515,5 +515,60 @@ describe("workspace connection isolation", () => {
       }),
     ).rejects.toMatchObject({ code: "CONNECTION_REQUIRED" });
     expect(f.rows.get(`${owner}:outlook`)?.status).toBe("reconnect_required");
+  });
+});
+
+
+describe("connector-specific application credentials", () => {
+  it("uses the latest app after waiting to update an existing grant", async () => {
+    const f = fixture();
+    await f.connect();
+    const mutate = f.repository.mutate;
+    f.repository.mutate = (id, provider, transform) => {
+      f.settings.resolve.mockResolvedValue({ revision: 2, client_id: "replacement-app", client_secret: "replacement-secret" });
+      return mutate(id, provider, transform);
+    };
+    await expect(f.service.execute(owner, conversation, turn, { operation: "list_drives", provider: "onedrive" })).rejects.toMatchObject({ code: "CONNECTION_REQUIRED" });
+    expect(f.graph.execute).not.toHaveBeenCalled();
+    expect(f.rows.get(`${owner}:onedrive`)?.status).toBe("reconnect_required");
+  });
+  it("rejects an authorization if the app changes while the provider exchanges the code", async () => {
+    const f = fixture();
+    const parameters = await f.begin();
+    f.protocol.complete.mockImplementation(async () => {
+      f.settings.resolve.mockResolvedValue({ revision: 2, client_id: "replacement-app", client_secret: "replacement-secret" });
+      return { token: f.token, accountName: "member@example.test" };
+    });
+    await expect(f.service.complete("onedrive", parameters, "browser-one")).rejects.toMatchObject({ code: "CONNECTION_AUTH_FAILED" });
+    expect(f.rows.get(`${owner}:onedrive`)?.status).toBe("disconnected");
+  });
+  it.each(connectionProviderSchema.options)("uses the saved %s app for authorization and refresh", async (provider) => {
+    const f = fixture();
+    const configuration = { revision: 1, client_id: provider + "-app", client_secret: provider + "-secret" };
+    f.settings.resolve.mockImplementation(async (requested) => requested === provider ? configuration : null);
+    const google = { clientId: configuration.client_id, accountId: f.token.accountId, accessToken: f.token.accessToken, refreshToken: f.token.refreshToken, expiresAt: f.token.expiresAt, scopes: f.token.scopes };
+    const token = provider === "google_docs" || provider === "gmail" ? google : { ...google, tenantId: other };
+    f.protocol.complete.mockResolvedValue({ token, accountName: "member@example.test" });
+    await f.connect(provider);
+    expect(f.protocol.start).toHaveBeenCalledWith(provider, configuration, expect.any(Object));
+    expect((await f.service.list(owner)).find((item) => item.provider === provider)).toMatchObject({ configured: true, status: "connected" });
+    f.advance();
+    if (provider === "onedrive" || provider === "sharepoint") {
+      await f.service.execute(owner, conversation, turn, { operation: "list_drives", provider });
+    } else if (provider === "google_docs") {
+      await f.service.execute(owner, conversation, turn, { operation: "search_documents", provider, query: "report" });
+    } else {
+      await f.service.execute(owner, conversation, turn, { operation: "search_mail", provider, query: "report" });
+    }
+    expect(f.protocol.refresh).toHaveBeenCalledWith(provider, configuration, expect.objectContaining({ clientId: configuration.client_id }));
+  });
+  it("marks only the connector whose application changed as requiring reauthorization", async () => {
+    const f = fixture();
+    await f.connect("onedrive");
+    await f.connect("sharepoint");
+    f.settings.resolve.mockImplementation(async (provider) => ({ revision: 2, client_id: provider === "onedrive" ? "new-app" : "test-client", client_secret: "new-secret" }));
+    const items = await f.service.list(owner);
+    expect(items.find((item) => item.provider === "onedrive")).toMatchObject({ status: "reconnect_required" });
+    expect(items.find((item) => item.provider === "sharepoint")).toMatchObject({ status: "connected" });
   });
 });

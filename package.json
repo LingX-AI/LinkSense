@@ -28,7 +28,7 @@
     "dev:down": "node scripts/dev.mjs --down",
     "build": "pnpm -r --filter './apps/**' --filter './packages/**' --if-present build",
     "db:generate": "prisma generate",
-    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:deploy": "prisma migrate deploy && tsx --env-file-if-exists=.env prisma/initialize-connection-settings.ts",
     "db:seed": "prisma db seed",
     "db:validate": "prisma validate",
     "knowledge:reset-storage": "pnpm --filter @linksense/api knowledge:reset-storage",

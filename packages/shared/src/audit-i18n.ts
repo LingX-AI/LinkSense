@@ -4,6 +4,7 @@ import { localizedAuditMessages } from "./locale-messages.js"
 type AuditMessages = Readonly<Record<string, readonly [string, string]>>
 
 const actionMessages = {
+  connection_settings_updated: ["已更新连接器配置", "Connector configuration updated"],
   connection_authorized: ["已授权连接", "Connection authorized"],
   connection_disconnected: ["已断开连接", "Connection disconnected"],
   connection_enabled: ["已启用连接", "Connection enabled"],
@@ -223,6 +224,7 @@ const actionMessages = {
 } as const satisfies AuditMessages
 
 const targetTypeMessages = {
+  connection_provider: ["连接器", "Connector"],
   connection: ["个人连接", "Personal connection"],
   web_site: ["分享站点", "Shared site"],
   application: ["应用", "Application"],

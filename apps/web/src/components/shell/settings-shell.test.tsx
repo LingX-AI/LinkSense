@@ -85,6 +85,7 @@ describe("SettingsShell administrator navigation", () => {
     "/admin/groups",
     "/admin/roles",
     "/admin/capabilities",
+    "/admin/connectors",
     "/admin/knowledge-bases",
     "/admin/knowledge-sources",
     "/admin/models",

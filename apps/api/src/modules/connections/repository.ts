@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { connectionProviderSchema, type ConnectionProvider } from "@linksense/shared";
+import { connectionProviderSchema, connectionSettingsStorage, type ConnectionProvider } from "@linksense/shared";
 import type { PrismaClient, UserConnection } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
 
@@ -67,6 +67,9 @@ export class PrismaConnectionRepository implements ConnectionRepository {
     // token can be rotated twice concurrently or resurrected after disconnect.
     return this.prisma.$transaction(
       async (tx) => {
+        // Configuration updates take the exclusive lock. Keep grant changes
+        // and the administrator's affected-account count in the same order.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtextextended(${connectionSettingsStorage.lockKey}, 0))`;
         const key = `linksense-connection:${ownerId}:${provider}`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
         const where = { ownerId_provider: { ownerId, provider } };

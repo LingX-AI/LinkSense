@@ -14,6 +14,7 @@ import { ptBR } from "@/i18n/pt-BR"
 import { zhCN } from "@/i18n/zh-CN"
 import { onboardingMessages } from "@/features/onboarding/messages"
 import { applicationSetupMessages } from "@/features/applications/application-setup-messages"
+import { adminConnectionMessages } from "@/features/connections/admin-messages"
 
 export const supportedLanguages = supportedLocales
 export type SupportedLanguage = Locale
@@ -68,6 +69,7 @@ void i18n.use(initReactI18next).init({
       translation: {
         ...zhCN,
         applicationSetup: applicationSetupMessages["zh-CN"],
+        adminConnections: adminConnectionMessages["zh-CN"],
         onboarding: onboardingMessages["zh-CN"],
         auditValues: auditTranslationResource("zh-CN"),
       },
@@ -76,6 +78,7 @@ void i18n.use(initReactI18next).init({
       translation: {
         ...enUS,
         applicationSetup: applicationSetupMessages["en-US"],
+        adminConnections: adminConnectionMessages["en-US"],
         onboarding: onboardingMessages["en-US"],
         auditValues: auditTranslationResource("en-US"),
       },
@@ -84,6 +87,7 @@ void i18n.use(initReactI18next).init({
       translation: {
         ...esES,
         applicationSetup: applicationSetupMessages["es-ES"],
+        adminConnections: adminConnectionMessages["es-ES"],
         onboarding: onboardingMessages["es-ES"],
         auditValues: auditTranslationResource("es-ES"),
       },
@@ -92,6 +96,7 @@ void i18n.use(initReactI18next).init({
       translation: {
         ...ptBR,
         applicationSetup: applicationSetupMessages["pt-BR"],
+        adminConnections: adminConnectionMessages["pt-BR"],
         onboarding: onboardingMessages["pt-BR"],
         auditValues: auditTranslationResource("pt-BR"),
       },
@@ -100,6 +105,7 @@ void i18n.use(initReactI18next).init({
       translation: {
         ...frFR,
         applicationSetup: applicationSetupMessages["fr-FR"],
+        adminConnections: adminConnectionMessages["fr-FR"],
         onboarding: onboardingMessages["fr-FR"],
         auditValues: auditTranslationResource("fr-FR"),
       },
@@ -108,6 +114,7 @@ void i18n.use(initReactI18next).init({
       translation: {
         ...jaJP,
         applicationSetup: applicationSetupMessages["ja-JP"],
+        adminConnections: adminConnectionMessages["ja-JP"],
         onboarding: onboardingMessages["ja-JP"],
         auditValues: auditTranslationResource("ja-JP"),
       },

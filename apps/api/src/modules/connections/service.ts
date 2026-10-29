@@ -9,6 +9,7 @@ import {
   type ConnectionProvider,
   type ConnectionInput,
   type ConnectionResult,
+  type ConnectionConfiguration,
 } from "@linksense/shared";
 import {
   encryptJson,
@@ -17,10 +18,7 @@ import {
   sha256,
 } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
-import type {
-  SocialSettingsService,
-  SocialConfiguration,
-} from "../social-auth/settings.js";
+import type { ConnectionSettingsReader } from "./settings.js";
 import type { SocialStateStore } from "../social-auth/state.js";
 import type { AuditService } from "../audit/service.js";
 import {
@@ -32,7 +30,6 @@ import {
 import {
   hasConnectionWriteAccess,
   parseConnectionToken,
-  connectionIdentityProvider,
   type ConnectionProtocol,
   type ConnectionToken,
 } from "./protocol.js";
@@ -57,7 +54,7 @@ const cursorSchema = z.strictObject({
 });
 type Options = {
   repository: ConnectionRepository;
-  settings: Pick<SocialSettingsService, "resolve">;
+  settings: ConnectionSettingsReader;
   states: SocialStateStore;
   protocol: ConnectionProtocol;
   graph: ConnectionGraph;
@@ -76,14 +73,12 @@ export class ConnectionService {
 
   async list(ownerId: string): Promise<Connection[]> {
     await this.options.repository.authVersion(ownerId);
-    const [rows, microsoft, google] = await Promise.all([
+    const [rows, configurations] = await Promise.all([
       this.options.repository.list(ownerId),
-      this.options.settings.resolve("microsoft"),
-      this.options.settings.resolve("google"),
+      Promise.all(connectionProviderSchema.options.map((provider) => this.options.settings.resolve(provider))),
     ]);
-    return connectionProviderSchema.options.map((provider) => {
-      const settings =
-        connectionIdentityProvider(provider) === "google" ? google : microsoft;
+    return connectionProviderSchema.options.map((provider, index) => {
+      const settings = configurations[index];
       const configured = Boolean(settings?.client_id && settings.client_secret);
       const row = rows.find((value) => value.provider === provider);
       let accessMode: "read" | "read_write" | null = null;
@@ -199,9 +194,11 @@ export class ConnectionService {
       flow.ownerId,
       provider,
       async (current) => {
+        const configuration = await this.settings(provider);
         if (
           !current ||
           current.revision !== flow.revision ||
+          configuration.client_id !== flow.clientId ||
           (await this.options.repository.authVersion(flow.ownerId)) !==
             flow.authVersion
         )
@@ -335,11 +332,11 @@ export class ConnectionService {
     ownerId: string,
     provider: ConnectionProvider,
   ): Promise<{ token: ConnectionToken; revision: number }> {
-    const settings = await this.settings(provider);
     const row = await this.options.repository.mutate(
       ownerId,
       provider,
       async (current) => {
+        const settings = await this.settings(provider);
         if (
           !current ||
           current.status !== "connected" ||
@@ -410,12 +407,8 @@ export class ConnectionService {
   }
   private async settings(
     provider: ConnectionProvider,
-  ): Promise<SocialConfiguration> {
-    const settings = await this.options.settings.resolve(
-      connectionIdentityProvider(provider),
-    );
-    // Sign-in and data access are independent; disabling Microsoft sign-in
-    // does not revoke a user's separately consented file connection.
+  ): Promise<ConnectionConfiguration> {
+    const settings = await this.options.settings.resolve(provider);
     if (!settings?.client_id || !settings.client_secret)
       throw new AppError("CONNECTION_NOT_CONFIGURED");
     return settings;

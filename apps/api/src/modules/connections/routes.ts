@@ -7,7 +7,7 @@ import {
   MICROSOFT_CONNECTION_BODY_LIMIT,
 } from "@linksense/shared";
 import { z } from "zod";
-import { AppError } from "../../lib/errors.js";
+import { AppError, normalizeError } from "../../lib/errors.js";
 import { ok } from "../../lib/http.js";
 import { randomToken } from "../../lib/crypto.js";
 import { assertCookieRequestOrigin } from "../auth/routes.js";
@@ -66,11 +66,15 @@ export const connectionRoutes: FastifyPluginAsync<Options> = async (app, options
         parametersSchema.parse(request.query),
         request.cookies[`linksense_connection_${provider}`] ?? "",
       );
-    } catch {
+    } catch (error) {
       // Provider exceptions contain codes, tokens and response bodies. Never log
       // them or include provider-supplied error text in the redirect.
       result = "failed";
-      request.log.warn({ event: "connection_authorization_failed", provider });
+      request.log.warn({
+        event: "connection_authorization_failed",
+        provider,
+        error_code: normalizeError(error).code,
+      });
     }
     reply.clearCookie(`linksense_connection_${provider}`, cookieOptions);
     return reply.redirect(

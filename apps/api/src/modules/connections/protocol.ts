@@ -1,8 +1,7 @@
 import * as oidc from "openid-client";
 import { z } from "zod";
-import type { ConnectionProvider } from "@linksense/shared";
+import type { ConnectionProvider, ConnectionConfiguration } from "@linksense/shared";
 import { AppError } from "../../lib/errors.js";
-import type { SocialConfiguration } from "../social-auth/settings.js";
 
 export const microsoftTokenSchema = z.strictObject({
   clientId: z.string().min(1).max(512),
@@ -27,18 +26,18 @@ export type ConnectionChecks = {
 export interface ConnectionProtocol {
   start(
     provider: ConnectionProvider,
-    config: SocialConfiguration,
+    config: ConnectionConfiguration,
     checks: ConnectionChecks,
   ): Promise<string>;
   complete(
     provider: ConnectionProvider,
-    config: SocialConfiguration,
+    config: ConnectionConfiguration,
     parameters: Record<string, string>,
     checks: ConnectionChecks,
   ): Promise<{ token: ConnectionToken; accountName: string }>;
   refresh(
     provider: ConnectionProvider,
-    config: SocialConfiguration,
+    config: ConnectionConfiguration,
     token: ConnectionToken,
   ): Promise<ConnectionToken>;
 }
@@ -140,7 +139,7 @@ export class MicrosoftConnectionProtocol implements ConnectionProtocol {
   }
   private configuration(
     provider: ConnectionProvider,
-    settings: SocialConfiguration,
+    settings: ConnectionConfiguration,
   ): Promise<oidc.Configuration> {
     // openid-client's Entra discovery support validates the tenant-specific
     // issuer, audience, nonce and signature, including common/organizations.
@@ -156,7 +155,7 @@ export class MicrosoftConnectionProtocol implements ConnectionProtocol {
   }
   async start(
     provider: ConnectionProvider,
-    settings: SocialConfiguration,
+    settings: ConnectionConfiguration,
     checks: ConnectionChecks,
   ): Promise<string> {
     const config = await this.configuration(provider, settings);
@@ -176,7 +175,7 @@ export class MicrosoftConnectionProtocol implements ConnectionProtocol {
   }
   async complete(
     provider: ConnectionProvider,
-    settings: SocialConfiguration,
+    settings: ConnectionConfiguration,
     parameters: Record<string, string>,
     checks: ConnectionChecks,
   ): Promise<{ token: ConnectionToken; accountName: string }> {
@@ -222,7 +221,7 @@ export class MicrosoftConnectionProtocol implements ConnectionProtocol {
   }
   async refresh(
     provider: ConnectionProvider,
-    settings: SocialConfiguration,
+    settings: ConnectionConfiguration,
     value: ConnectionToken,
   ): Promise<MicrosoftToken> {
     const current = microsoftTokenSchema.parse(value);

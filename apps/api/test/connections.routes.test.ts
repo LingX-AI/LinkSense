@@ -13,7 +13,17 @@ afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
 });
 async function fixture() {
-  const app = Fastify();
+  const logLines: string[] = [];
+  const app = Fastify({
+    logger: {
+      level: "warn",
+      stream: {
+        write(line: string) {
+          logLines.push(line);
+        },
+      },
+    },
+  });
   apps.push(app);
   await app.register(cookie);
   app.decorate("authenticate", async (request: FastifyRequest) => {
@@ -61,7 +71,7 @@ async function fixture() {
     service,
     sharedSecret: "runner-secret",
   });
-  return { app, service };
+  return { app, service, logLines };
 }
 describe("connection routes", () => {
   it("accepts an authenticated upload above the default JSON body limit", async () => {
@@ -123,6 +133,37 @@ describe("connection routes", () => {
     );
     expect(response.body).not.toContain("secret");
   });
+  it.each([
+    {
+      error: new AppError("CONNECTION_AUTH_FAILED", {
+        detail: "private-provider-detail",
+      }),
+      expectedCode: "CONNECTION_AUTH_FAILED",
+    },
+    {
+      error: Object.assign(new Error("private-provider-detail"), {
+        code: "private-provider-code",
+      }),
+      expectedCode: "INTERNAL_ERROR",
+    },
+  ])(
+    "logs only the normalized failure code $expectedCode for an authorization failure",
+    async ({ error, expectedCode }) => {
+      const { app, service, logLines } = await fixture();
+      service.complete.mockRejectedValue(error);
+      const response = await app.inject({
+        url: "/api/v1/connectors/google_docs/callback?state=private-state&code=private-code",
+      });
+      expect(response.statusCode).toBe(302);
+      expect(logLines).toHaveLength(1);
+      expect(JSON.parse(logLines.join(""))).toMatchObject({
+        event: "connection_authorization_failed",
+        provider: "google_docs",
+        error_code: expectedCode,
+      });
+      expect(logLines.join("")).not.toContain("private-");
+    },
+  );
   it("returns a successful authorization to the connector tab", async () => {
     const { app } = await fixture();
     const response = await app.inject({

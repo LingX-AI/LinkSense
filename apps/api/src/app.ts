@@ -15,6 +15,8 @@ import { ProviderConnectionProtocol } from "./modules/connections/google-protoco
 import { WorkspaceConnections } from "./modules/connections/workspace-adapter.js";
 import { MicrosoftFilesGraph } from "./modules/connections/graph.js";
 import { SocialSettingsService } from "./modules/social-auth/settings.js";
+import { ConnectionSettingsService } from "./modules/connections/settings.js";
+import { connectionSettingsRoutes } from "./modules/connections/settings-routes.js";
 import { PrismaSocialRepository } from "./modules/social-auth/repository.js";
 import { RedisSocialStateStore } from "./modules/social-auth/state.js";
 import { OpenIdSocialProtocol } from "./modules/social-auth/protocol.js";
@@ -263,9 +265,11 @@ export async function buildApi(
   });
   const socialSettings = new SocialSettingsService(services.prisma, services.config);
   const socialRepository = new PrismaSocialRepository(services.prisma, socialSettings);
+  const connectionSettings = new ConnectionSettingsService(services.prisma, services.config);
+  await app.register(connectionSettingsRoutes, { settings: connectionSettings });
   const connections = new ConnectionService({
     repository: new PrismaConnectionRepository(services.prisma),
-    settings: socialSettings,
+    settings: connectionSettings,
     states: new RedisSocialStateStore(services.redis),
     workspace: new WorkspaceConnections(),
     protocol: new ProviderConnectionProtocol(services.config.publicBaseUrl),

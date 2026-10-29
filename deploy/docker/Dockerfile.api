@@ -84,6 +84,8 @@ COPY deploy/migration/package.json ./package.json
 COPY prisma.config.ts ./prisma.config.ts
 COPY prisma ./prisma
 COPY --from=migration-dependencies /migration-runtime/apps/api/src/generated ./apps/api/src/generated
+COPY apps/api/src/lib/crypto.ts ./apps/api/src/lib/crypto.ts
+COPY packages/shared/src/connection-settings.ts packages/shared/src/connections.ts ./packages/shared/src/
 CMD ["sh", "-c", "pnpm db:migrate:deploy && pnpm db:seed"]
 
 FROM ${BASELINE_API_IMAGE} AS runtime

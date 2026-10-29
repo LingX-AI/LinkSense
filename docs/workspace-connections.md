@@ -4,9 +4,15 @@ These are three independent official connection packages, alongside OneDrive/Sha
 
 ## Configuration
 
-The API reuses the encrypted Google/Microsoft OAuth client configuration from social sign-in, independently of whether social sign-in is enabled. No additional secrets are needed. Before enabling these providers, run `pnpm db:migrate:deploy` against the deployment database. Migration `20260924040000_expand_user_connection_providers` expands the existing provider CHECK constraint to accept Google Docs, Gmail and Outlook. It preserves all existing rows, encrypted grants, fields and indexes; do not modify the already-applied table-creation migration. Without this upgrade, all three authorization-start endpoints fail with HTTP 500 before opening the provider consent page. Existing OneDrive/SharePoint grants remain usable in the same encrypted record format.
+Administrators configure these services from the separate **Settings → Connectors** administration menu (`/admin/connectors`). Each of the five connectors has its own app ID and secret, configuration status, callback URL, and required permissions. App IDs and secrets are encrypted in system settings; saved secrets are never returned to the browser. Users still authorize their own accounts from Plugin Center. Third-party sign-in settings are independent of connector configuration.
 
-Register each **Web** redirect path below under its Google or Microsoft client for every deployment origin. The current registered origins are:
+Before starting the updated API, run `pnpm db:migrate:deploy` against the deployment database. Besides Prisma migrations, this command initializes the independent encrypted connector configuration. On an existing installation, it copies the previously shared Microsoft app into OneDrive, SharePoint and Outlook, and the Google app into Google Docs and Gmail. This is an idempotent deployment data upgrade: it leaves login configuration, user authorization records, account IDs, grants and existing settings intact. Later runs do not overwrite independently edited connector settings or import subsequent login changes. OAuth requests read only the new connector configuration; there is no runtime fallback to sign-in settings. The migration environment must receive the existing `LINKSENSE_CREDENTIAL_MASTER_KEY` and `LINKSENSE_CREDENTIAL_KEY_ID`; initialization fails instead of replacing an unreadable configuration. Deploy the migration image before the API and Web changes. No new table, column, or Prisma migration is required for this configuration split.
+
+Saving the same app ID with an empty secret field retains the current secret. Secret rotation takes effect for subsequent token refreshes. Changing an app ID requires the new app's secret and explicit acknowledgement if user grants already exist; those users must reconnect. Other connectors and sign-in settings remain independent. Configuration changes are audited without storing credential values.
+
+The existing migration `20260924040000_expand_user_connection_providers` expands the provider CHECK constraint to accept Google Docs, Gmail and Outlook. It preserves all existing rows, encrypted grants, fields and indexes; do not modify the already-applied table-creation migration. Without this upgrade, all three authorization-start endpoints fail with HTTP 500 before opening the provider consent page. Existing OneDrive/SharePoint grants remain usable in the same encrypted record format.
+
+Register each connector's **Web** redirect path below under its configured Google or Microsoft client for every deployment origin. Multiple connectors may use the same external app, but their settings are saved separately. Previously registered origins include:
 
 - `http://localhost:18172` (development)
 - `https://linksense.lingx-ai.com`
@@ -14,17 +20,15 @@ Register each **Web** redirect path below under its Google or Microsoft client f
 
 | Client | Redirect path |
 | --- | --- |
-| Google | `/api/v1/auth/social/google/callback` |
 | Google | `/api/v1/connectors/google_docs/callback` |
 | Google | `/api/v1/connectors/gmail/callback` |
-| Microsoft | `/api/v1/auth/social/microsoft/callback` |
 | Microsoft | `/api/v1/connectors/onedrive/callback` |
 | Microsoft | `/api/v1/connectors/sharepoint/callback` |
 | Microsoft | `/api/v1/connectors/outlook/callback` |
 
 On 2026-09-24, the Google Cloud and Microsoft Entra LinkSense applications were updated and their saved configuration verified in the consoles. Each hosted origin has all seven applicable callback URLs above, and the existing localhost callbacks were retained. Google also registers both HTTPS origins as authorized JavaScript origins; its authorized domains include `lingx-ai.com` and `linksense.org`. No client secrets, consent scopes, or social-login enablement settings were changed.
 
-Each deployment must set `LINKSENSE_PUBLIC_BASE_URL` to its own canonical HTTPS origin and configure the matching OAuth clients in its social-sign-in settings. Both sign-in and connector callback URLs are derived from that value, not from the incoming request host. Registering two domains in the provider consoles does not make one API instance dynamically select a different callback origin for each request. Server deployment settings were not changed as part of this registration. End-to-end hosted sign-in and connector authorization remain to be verified; in particular, `explore.linksense.org` was unavailable at configuration time. Google's console advises that OAuth client changes may take five minutes to several hours to propagate.
+Each deployment must set `LINKSENSE_PUBLIC_BASE_URL` to its own canonical HTTPS origin and configure matching OAuth apps in **Connectors**. The public origin and credential encryption master key remain deployment environment variables. Both sign-in and connector callback URLs are derived from the public origin, not from the incoming request host. Registering two domains in the provider consoles does not make one API instance dynamically select a different callback origin for each request. The historical console-registration check did not change server deployment settings. End-to-end hosted sign-in and connector authorization remain to be verified; in particular, `explore.linksense.org` was unavailable at that time. Google's console advises that OAuth client changes may take five minutes to several hours to propagate.
 
 Enable **Google Docs API**, **Google Drive API**, and **Gmail API**. Register these Google consent scopes:
 
@@ -66,7 +70,7 @@ Deploy API, controller and worker together because the internal transport change
 
 Unit tests cover OAuth state/nonce/signature/refresh, account isolation and encrypted paging, Graph/Gmail request structures, draft/send separation, attachments, error redaction, retry behavior, Plan restrictions, plugin selection and locally bundled logos. These checks mock provider network boundaries and do not send real mail. Live provider access still requires the individual user to authorize each connection.
 
-Run `pnpm test:connections:postgres` for the real PostgreSQL persistence regression. It creates a disposable PostgreSQL 16 container, reproduces the three failures on the historical schema, deploys the forward migration, and verifies fresh-install and upgrade writes for every provider in the shared contract. It also checks preservation and continued usability of existing grants, unchanged historical migration checksums, owner isolation, uniqueness, status and payload constraints, and repeated deployment. It never loads the application database configuration.
+Run `pnpm test:connections:postgres` for the real PostgreSQL persistence regression. It creates a disposable PostgreSQL 16 container, reproduces the three failures on the historical schema, deploys the forward migration, and verifies fresh-install and upgrade writes for every provider in the shared contract. It also runs the actual connector-settings initialization command, checks preservation and continued usability of pre-split encrypted grants, configures new connectors, rotates secrets, changes a login app independently, and verifies reconnect after an acknowledged connector app change. Historical migration checksums, owner isolation, uniqueness, status and payload constraints, and repeated deployment are checked. Provider network calls are mocked; no real user documents or mail are accessed. It never loads the application database configuration.
 
 Official API references:
 - https://developers.google.com/workspace/docs/api/reference/rest
