@@ -4,9 +4,9 @@ import { pathToFileURL } from "node:url";
 import { readBaseline } from "../deploy/baselines/tools/baseline-images.mjs";
 
 export const baselineDockerfiles = {
-  "Dockerfile.api": ["node", "api"],
-  "Dockerfile.web": ["node", "web"],
-  "Dockerfile.runner": ["node", "worker"],
+  "deploy/docker/Dockerfile.api": ["node", "api"],
+  "deploy/docker/Dockerfile.web": ["node", "web"],
+  "deploy/docker/Dockerfile.runner": ["node", "worker"],
 };
 
 // The reviewed descriptor is authoritative. Docker defaults are a mechanically

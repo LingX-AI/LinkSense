@@ -32,7 +32,7 @@ import {
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
-const developmentComposeFile = "docker-compose.dev.yml";
+const developmentComposeFile = "deploy/compose/docker-compose.dev.yml";
 const { parse: parseYaml } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml");
 
 function required(source, name) {
@@ -354,7 +354,7 @@ export function developmentDependencyFingerprint(
 ) {
   return sourceFingerprint(rootDirectory, [
     ".dockerignore",
-    "Dockerfile.dev",
+    "deploy/docker/Dockerfile.dev",
     "apps/api/package.json",
     "apps/docs/package.json",
     "apps/runner/package.json",
@@ -379,7 +379,7 @@ export function migrationImageFingerprint(rootDirectory = repositoryRoot) {
   // does not copy or install any workspace application manifests or packages.
   return sourceFingerprint(rootDirectory, [
     ".dockerignore",
-    "Dockerfile.api",
+    "deploy/docker/Dockerfile.api",
     "deploy/baselines/images.lock.json",
     "LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE",
     "deploy/migration",
@@ -398,7 +398,7 @@ export function docsImageFingerprint(rootDirectory = repositoryRoot) {
   // and global settings so dependency changes still conservatively rebuild.
   // This deliberately avoids maintaining our own pnpm dependency-graph walker.
   const sources = sourceFingerprint(rootDirectory, [
-    ".dockerignore", "Dockerfile.web", "deploy/baselines/images.lock.json", "LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE", "package.json", "pnpm-workspace.yaml", "patches", "tsconfig.base.json",
+    ".dockerignore", "deploy/docker/Dockerfile.web", "deploy/baselines/images.lock.json", "LICENSE", "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE", "package.json", "pnpm-workspace.yaml", "patches", "tsconfig.base.json",
     "apps/docs/package.json", "apps/docs/docusaurus.config.ts", "apps/docs/sidebars.ts", "apps/docs/tsconfig.json",
     "apps/docs/docs", "apps/docs/i18n", "apps/docs/src", "apps/docs/static",
     "deploy/nginx/development-docs.conf", "deploy/nginx/help-location.conf",
@@ -409,7 +409,7 @@ export function docsImageFingerprint(rootDirectory = repositoryRoot) {
 export function workerImageFingerprint(rootDirectory = repositoryRoot) {
   return sourceFingerprint(rootDirectory, [
     ".dockerignore",
-    "Dockerfile.runner",
+    "deploy/docker/Dockerfile.runner",
     "deploy/baselines/images.lock.json",
     "LICENSE",
     "LICENSE-EXCEPTIONS.md", "ATTRIBUTION.md", "TRADEMARK.md", "NOTICE",
@@ -1467,7 +1467,7 @@ export async function main(argumentsList = process.argv.slice(2)) {
   await measure("storage", () => {
     const statePath = preparationStatePath(repositoryRoot, environmentFile, composeEnvironment);
     const directory = composeEnvironment.LINKSENSE_USER_DATA_ROOT;
-    const configuration = sourceFingerprint(repositoryRoot, ["docker-compose.yml", "docker-compose.dev.yml"]);
+    const configuration = sourceFingerprint(repositoryRoot, ["docker-compose.yml", "deploy/compose/docker-compose.dev.yml"]);
     if (storageNeedsInitialization(statePath, directory, configuration)) {
       run("docker", composeArguments(developmentStorageInitializationCommand()), composeEnvironment);
       recordStoragePreparation(statePath, directory, configuration);

@@ -95,7 +95,7 @@ Runner 保留 `agentMessage.delivery = "async"`、问题和选项；API 将其�
 
 升级功能脚本使用真正的固定版本 Codex、LinkSense 网关和 shell 执行，验证实际文件写入、计划事件、原生问题历史及恰好一次答案消息。模型供应商由本地确定性服务替代，因此这些结果不代表所有外部供应商或新模型都已验证。
 
-第一轮 Linux 验证使用单独构建的临时 worker 镜像，在原有 Linux 运行环境中更新 Codex，并只读挂载本次编译的 Runner/Shared。随后通过仓库的完整 `Dockerfile.runner` 构建 `worker-cached-browser` 目标，生成镜像 `e103fde7d34f`，包含本次编译的生产代码和依赖。没有挂载用户数据或替换运行中的服务。
+第一轮 Linux 验证使用单独构建的临时 worker 镜像，在原有 Linux 运行环境中更新 Codex，并只读挂载本次编译的 Runner/Shared。随后通过仓库的完整 `deploy/docker/Dockerfile.runner` 构建 `worker-cached-browser` 目标，生成镜像 `e103fde7d34f`，包含本次编译的生产代码和依赖。没有挂载用户数据或替换运行中的服务。
 
 最终完整镜像只挂载转译后的测试入口，直接使用镜像内的 Runner、Shared、Codex 和配置模板，全部 6 项功能检查通过，没有覆盖镜像中的生产代码。
 

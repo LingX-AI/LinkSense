@@ -37,7 +37,7 @@ describe("Codex template feature policy", () => {
 
   it("keeps the production template traversable and readable regardless of the deploy host umask", async () => {
     const dockerfile = await readFile(
-      fileURLToPath(new URL("../../../Dockerfile.runner", import.meta.url)),
+      fileURLToPath(new URL("../../../deploy/docker/Dockerfile.runner", import.meta.url)),
       "utf8",
     )
 

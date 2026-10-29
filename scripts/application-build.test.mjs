@@ -69,7 +69,7 @@ if verify_release; then exit 0; else exit 1; fi
 });
 
 test("both production Docker builds derive their identity from the full source snapshot", () => {
-  for (const name of ["Dockerfile.api", "Dockerfile.web"]) {
+  for (const name of ["deploy/docker/Dockerfile.api", "deploy/docker/Dockerfile.web"]) {
     const dockerfile = readFileSync(resolve(name), "utf8");
     assert.match(dockerfile, /--mount=type=bind,target=\/source[\s\S]*application-build\.mjs id \/source/u);
     assert.match(dockerfile, /LINKSENSE_BUILD_ID="\$\(cat \/linksense-build-id\)" pnpm --filter @linksense\/(api|web) build/u);
