@@ -328,6 +328,14 @@ export const errorCatalog = {
       "en-US": "The plugin or skill was not found.",
     },
   },
+  SKILL_UNINSTALL_NOT_ALLOWED: {
+    message_key: "errors.skillManagement.uninstallNotAllowed",
+    http_status: 403,
+    messages: {
+      "zh-CN": "此技能不能卸载。内置技能由系统提供。",
+      "en-US": "This skill cannot be uninstalled. Built-in skills are provided by the system.",
+    },
+  },
   MCP_SERVER_NOT_FOUND: {
     message_key: "errors.mcp.notFound",
     http_status: 404,

@@ -106,6 +106,8 @@ describe("Core MCP module registry", () => {
       "knowledge",
       "interactive_form",
       "skill_creator",
+      "skill_management_read",
+      "skill_management_write",
       "application_builder",
       "automations",
     ])
@@ -117,6 +119,8 @@ describe("Core MCP module registry", () => {
       "knowledge",
       "interactive_form",
       "skill_creator",
+      "skill_management_read",
+      "skill_management_write",
       "application_builder",
       "automations",
     ])
@@ -161,6 +165,7 @@ describe("Core MCP module registry", () => {
       "current_user",
       "knowledge",
       "interactive_form",
+      "skill_management_read",
     ])
     expect(registry.tools.map((tool) => tool.name)).toEqual([
       "convert_document_to_markdown",
@@ -170,6 +175,7 @@ describe("Core MCP module registry", () => {
       "get_knowledge_document_markdown",
       "request_user_form",
       "emit_application_event",
+      "list_skills",
     ])
     expect(registry.tools.map((tool) => tool.name)).toEqual(
       coreMcpToolNamesFor("plan"),

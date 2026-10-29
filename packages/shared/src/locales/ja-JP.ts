@@ -1,6 +1,7 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  SKILL_UNINSTALL_NOT_ALLOWED: "このスキルはアンインストールできません。組み込みスキルはシステムによって提供されます。",
   IMAGE_GENERATION_INPUT_INVALID: "編集用の画像を読み取れません。PNG、JPEG、WebP 形式で、1 枚 8 MB 以下、マスクを含め合計 10 MB 以下にしてください。マスクは最初の画像と同じ寸法の透明 PNG が必要です。",
   IMAGE_GENERATION_EDIT_UNSUPPORTED: "現在の画像モデルはこの編集に対応していません。参照画像を減らすか、マスクを外すか、対応するモデルの選択を管理者に依頼してください。",
   MODEL_PROVIDER_CREDENTIAL_REQUIRED: "API キーを入力してください。プロバイダー、サービスのアドレス、クラウドプロジェクトを変更した場合は、新しいキーの入力が必要です。",

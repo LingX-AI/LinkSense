@@ -1,6 +1,7 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  SKILL_UNINSTALL_NOT_ALLOWED: "Esta habilidade não pode ser desinstalada. As habilidades integradas são fornecidas pelo sistema.",
   IMAGE_GENERATION_INPUT_INVALID: "Não foi possível ler a imagem para edição. Use PNG, JPEG ou WebP de até 8 MB por imagem e 10 MB no total, incluindo a máscara. A máscara deve ser um PNG transparente com as mesmas dimensões da primeira imagem.",
   IMAGE_GENERATION_EDIT_UNSUPPORTED: "O modelo atual não aceita esta edição. Use menos imagens de referência, remova a máscara ou peça ao administrador para selecionar um modelo compatível.",
   MODEL_PROVIDER_CREDENTIAL_REQUIRED: "Informe uma chave de API. Informe uma nova chave após alterar o provedor, o endereço do serviço ou o projeto na nuvem.",

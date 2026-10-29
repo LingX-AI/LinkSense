@@ -43,6 +43,7 @@ export * from "./settings.js";
 export * from "./system-update.js";
 export * from "./system-disk-usage.js";
 export * from "./skill-creator.js";
+export * from "./skill-management.js";
 export * from "./credit-limits.js";
 export * from "./task-artifacts.js";
 export * from "./upload-files.js";

@@ -362,6 +362,7 @@ describe("LinkSense Core MCP subprocess", () => {
       "get_current_user_info",
       "get_knowledge_document_markdown",
       "list_knowledge_documents",
+      "list_skills",
       "request_user_form",
       "search_knowledge_base",
     ]);

@@ -54,6 +54,8 @@ import { InteractiveFormRequestError } from "./interactive-form-error.js";
 import { KnowledgeSearchRequestError } from "./knowledge-search-error.js";
 import { KnowledgeServiceRequestError } from "./knowledge-service-error.js";
 import { SkillCreatorRequestError } from "./skill-creator-error.js";
+import { SkillManagementRequestError } from "./skill-management-error.js";
+import { skillManagementRequestSchema, skillManagementResultSchema } from "@linksense/shared";
 import {
   ConversationOwnerMismatchError,
   ConversationOwnerRegistry,
@@ -809,6 +811,7 @@ export function buildRunnerServer(
       request.url.startsWith("/mcp-image-generation/") ||
       request.url.startsWith("/mcp-knowledge-service/") ||
       request.url.startsWith("/mcp-skill-creator/") ||
+      request.url.startsWith("/mcp-skills/") ||
       request.url.startsWith("/mcp-application-builder/") ||
       request.url.startsWith("/mcp-current-user/") ||
       request.url.startsWith("/mcp-automations/") ||
@@ -1293,6 +1296,32 @@ export function buildRunnerServer(
         return await pool.confirmSkillInstall(conversationId, token, body);
       } catch (error) {
         return sendSkillCreatorFailure(request, reply, conversationId, error);
+      }
+    },
+  );
+
+  app.post<{ Params: { conversationId: string } }>(
+    "/mcp-skills/:conversationId/execute",
+    async (request, reply) => {
+      const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "") ?? "";
+      if (!token) return reply.code(401).send({ code: "FORBIDDEN", retryable: false });
+      const conversationId = uuid.safeParse(request.params.conversationId);
+      const body = skillManagementRequestSchema.safeParse(request.body);
+      if (!conversationId.success || !body.success) return reply.code(400).send({ code: "VALIDATION_ERROR", retryable: false });
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      const abortDisconnected = () => { if (!reply.raw.writableEnded) controller.abort(); };
+      request.raw.once("aborted", abort);
+      reply.raw.once("close", abortDisconnected);
+      try {
+        return skillManagementResultSchema.parse(await pool.manageSkills(conversationId.data, token, body.data, controller.signal));
+      } catch (error) {
+        const failure = error instanceof SkillManagementRequestError ? error : new SkillManagementRequestError("INTERNAL_ERROR", false, 503);
+        request.log.warn({ conversationId: conversationId.data, reasonCode: failure.code }, "skill management request rejected");
+        return reply.code(failure.statusCode).send({ code: failure.code, retryable: false });
+      } finally {
+        request.raw.off("aborted", abort);
+        reply.raw.off("close", abortDisconnected);
       }
     },
   );

@@ -20,6 +20,42 @@ afterEach(async () => {
 })
 
 describe("LinkSense Core MCP Skill creator module", () => {
+  it.each(["default", "plan"] as const)("discovers and calls Skill management over MCP in %s mode", async mode => {
+    const requests: Array<{ url: string; authorization: string | undefined; body: unknown }> = []
+    const skillId = "40000000-0000-4000-8000-000000000001"
+    const server = createServer((request, response) => {
+      const chunks: Buffer[] = []
+      request.on("data", (chunk: Buffer) => chunks.push(chunk))
+      request.on("end", () => {
+        requests.push({ url: request.url ?? "", authorization: request.headers.authorization, body: JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown })
+        response.writeHead(200, { "content-type": "application/json" })
+        response.end(JSON.stringify(requests.length === 1
+          ? { success: true, operation: "list", items: [] }
+          : { success: true, operation: "uninstall", skill_id: skillId, name: "my-skill" }))
+      })
+    })
+    servers.push(server)
+    await listen(server)
+    const address = server.address()
+    if (!address || typeof address === "string") throw new Error("missing test port")
+    const token = "turn-skill-management-token-".repeat(3)
+    const rpc = rpcClient(startMcpServer(`http://127.0.0.1:${address.port}`, token, mode))
+    await rpc.call(1, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } })
+    const discovered = await rpc.call(2, "tools/list", {})
+    expect(discovered).toMatchObject({ tools: expect.arrayContaining([expect.objectContaining({ name: "list_skills", annotations: expect.objectContaining({ readOnlyHint: true }) })]) })
+    await expect(rpc.call(3, "tools/call", { name: "list_skills", arguments: {} })).resolves.toEqual({ isError: false, content: [{ type: "text", text: JSON.stringify({ success: true, operation: "list", items: [] }) }] })
+    if (mode === "default") {
+      expect(discovered).toMatchObject({ tools: expect.arrayContaining([expect.objectContaining({ name: "uninstall_skill" })]) })
+      await expect(rpc.call(4, "tools/call", { name: "uninstall_skill", arguments: { skill_id: skillId } })).resolves.toMatchObject({ isError: false })
+    } else {
+      expect(discovered).not.toMatchObject({ tools: expect.arrayContaining([expect.objectContaining({ name: "uninstall_skill" })]) })
+    }
+    expect(requests).toEqual([
+      { url: "/execute", authorization: `Bearer ${token}`, body: { operation: "list" } },
+      ...(mode === "default" ? [{ url: "/execute", authorization: `Bearer ${token}`, body: { operation: "uninstall", skill_id: skillId } }] : []),
+    ])
+  })
+
   it("previews and confirms an opaque Skill installation over protected HTTP", async () => {
     const requests: Array<{
       url: string
@@ -145,6 +181,7 @@ describe("LinkSense Core MCP Skill creator module", () => {
 function startMcpServer(
   endpoint: string,
   token: string,
+  mode: "default" | "plan" = "default",
 ): ChildProcessWithoutNullStreams {
   const tsxCli = fileURLToPath(import.meta.resolve("tsx/cli"))
   const script = fileURLToPath(
@@ -169,11 +206,13 @@ function startMcpServer(
         "unused-knowledge-token-0000000000000000000000000000",
       LINKSENSE_SKILL_CREATOR_ENDPOINT: endpoint,
       LINKSENSE_SKILL_CREATOR_TOKEN: token,
+      LINKSENSE_SKILL_MANAGEMENT_ENDPOINT: `${endpoint}/execute`,
+      LINKSENSE_SKILL_MANAGEMENT_TOKEN: token,
       LINKSENSE_CURRENT_USER_ENDPOINT: "http://127.0.0.1:1/current-user",
       LINKSENSE_CURRENT_USER_TOKEN:
         "unused-current-user-token-0000000000000000000000",
       LINKSENSE_CONVERSATION_ID: CONVERSATION_ID,
-      LINKSENSE_COLLABORATION_MODE: "default",
+      LINKSENSE_COLLABORATION_MODE: mode,
     },
     stdio: "pipe",
   })

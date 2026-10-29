@@ -64,7 +64,7 @@ export function buildControllerServer(
     if (request.url.startsWith("/internal/connections/")) {
       return reply.code(403).send({ error_code: "CONNECTION_ACCESS_DENIED" })
     }
-    if (request.url.startsWith("/internal/skill-creator/") || request.url === "/internal/application-builder" || request.url.startsWith("/internal/automations/")) {
+    if (request.url.startsWith("/internal/skill-creator/") || request.url.startsWith("/internal/skills/") || request.url === "/internal/application-builder" || request.url.startsWith("/internal/automations/")) {
       return reply.code(403).send({ error_code: "RUNNER_SERVICE_SCOPE_MISMATCH" })
     }
   })
@@ -153,6 +153,7 @@ export function buildControllerServer(
     "/internal/knowledge/document-markdown",
     "/internal/skill-creator/preview",
     "/internal/skill-creator/confirm",
+    "/internal/skills/execute",
     "/internal/current-user/info",
     "/internal/automations/execute",
     "/internal/connections/execute",

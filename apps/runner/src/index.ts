@@ -338,6 +338,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     imageGenerationMcpEndpointBase: `http://127.0.0.1:${config.LINKSENSE_RUNNER_PORT}/mcp-image-generation`,
     knowledgeMcpEndpointBase: `http://127.0.0.1:${config.LINKSENSE_RUNNER_PORT}/mcp-knowledge-service`,
     skillCreatorMcpEndpointBase: `http://127.0.0.1:${config.LINKSENSE_RUNNER_PORT}/mcp-skill-creator`,
+    skillManagementMcpEndpointBase: `http://127.0.0.1:${config.LINKSENSE_RUNNER_PORT}/mcp-skills`,
     interactiveFormMcpEndpointBase: `http://127.0.0.1:${config.LINKSENSE_RUNNER_PORT}/mcp-interactive-form`,
     knowledgeSearchTimeoutMs:
       config.LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS,
