@@ -46,6 +46,7 @@ export const OfficePreviewShell = forwardRef<
     fileName: string
     mimeType: string
     controls?: ReactNode
+    notice?: ReactNode
     floatingContent?: ReactNode
     children?: ReactNode
     onRetry?: () => void
@@ -63,6 +64,7 @@ export const OfficePreviewShell = forwardRef<
     fileName,
     mimeType,
     controls,
+    notice,
     floatingContent,
     children,
     onRetry,
@@ -170,6 +172,7 @@ export const OfficePreviewShell = forwardRef<
           </div>
         </header>
 
+        {notice}
         <div className={cn("office-preview-body", bodyClassName)}>
           {document.status === "loading" && (
             <OfficePreviewLoadingState

@@ -1,4 +1,5 @@
 import { SiteShareButton } from "@/features/web-sites/site-share-button"
+import { openHtmlPreview } from "@/features/conversations/html-preview-api"
 
 import { useRef } from "react"
 import { useTranslation } from "react-i18next"
@@ -42,6 +43,9 @@ export function TaskArtifactPreview({
   return (
     <ConversationFilePreview
       file={file}
+      loadHtmlPreview={(candidate, signal, sessionId) =>
+        openHtmlPreview(file.conversation_id, candidate.id, signal, sessionId)
+      }
       toolbarActions={
         <SiteShareButton file={file} conversationId={file.conversation_id} />
       }

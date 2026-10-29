@@ -1,4 +1,5 @@
-<!doctype html>
+/** Shared by inline previews and resource-backed previews served at their entry path. */
+export const htmlPreviewShellDocument = String.raw`<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -18,10 +19,10 @@
       ;(() => {
         const shellReadyType = "linksense:assistant-html-preview:shell-ready"
         const initializeType = "linksense:assistant-html-preview:initialize"
-        // Artifact HTML is capped at 10 MiB before sanitization. Leave room for
+        // Bundle HTML is capped at 20 MiB before preparation. Leave room for
         // the injected fit runtime and CSP metadata without accepting an
         // unbounded cross-window payload.
-        const maximumDocumentLength = 20 * 1024 * 1024
+        const maximumDocumentLength = 21 * 1024 * 1024
         const previewId = new URLSearchParams(window.location.search).get(
           "previewId"
         )
@@ -69,3 +70,4 @@
     </script>
   </body>
 </html>
+`;

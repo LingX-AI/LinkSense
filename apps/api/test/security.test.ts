@@ -207,6 +207,7 @@ describe("security boundaries", () => {
         url: "/reset-password?token=reset-secret",
       }).url,
     ).toBe("/reset-password");
+    expect(sanitizeRequestForLog({ method: "GET", url: `/html-preview/${"a".repeat(64)}/assets/main.js?private=value` }).url).toBe("/html-preview/[redacted]/assets/main.js");
   });
 
   it("redacts sensitive request bodies if request-body logging is enabled", () => {
@@ -220,6 +221,7 @@ describe("security boundaries", () => {
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.app_secret");
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.secret");
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.ticket");
+    expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.session_id");
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.renewal_token");
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.values[*].value");
   });

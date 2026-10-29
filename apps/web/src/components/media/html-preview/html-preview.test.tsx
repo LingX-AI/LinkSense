@@ -99,6 +99,38 @@ const selectionAction = (onSubmit = vi.fn().mockResolvedValue(undefined)) => ({
 })
 
 describe("HTML preview", () => {
+  it("uses the resource entry directory and displays recoverable incomplete-content details", async () => {
+    const retry = vi.fn()
+    const source = {
+      session_id: "a".repeat(64),
+      entry_url: `/html-preview/${"a".repeat(64)}/pages/index.html`,
+      html: "<h1>Content</h1>",
+      expires_at: "2099-01-01T00:00:00.000Z",
+      missing_resources: ["assets/style.css"],
+    }
+    render(
+      <HtmlPreview
+        document={{
+          status: "ready",
+          content: new TextEncoder().encode(source.html),
+        }}
+        source={source}
+        fileName="page.html"
+        onRetry={retry}
+      />
+    )
+    const frame = await screen.findByTestId("html-preview-interaction-frame")
+    expect(frame.getAttribute("src")).toContain(
+      `${source.entry_url}?previewId=`
+    )
+    expect(frame).toHaveAttribute("referrerpolicy", "no-referrer")
+    expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin")
+    expect(screen.getByText("页面的部分内容未能加载")).toBeVisible()
+    await userEvent.click(screen.getByText("查看未加载的文件"))
+    expect(screen.getByText("assets/style.css")).toBeVisible()
+    await userEvent.click(screen.getByRole("button", { name: "重试" }))
+    expect(retry).toHaveBeenCalledOnce()
+  })
   it("loads the complete interactive artifact and local selection runtime through the isolated shell", async () => {
     render(
       <HtmlPreview

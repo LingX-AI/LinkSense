@@ -31,6 +31,8 @@ const preview = vi.hoisted(() => ({
   >,
   htmlFileNames: [] as string[],
   htmlContents: [] as string[],
+  htmlSources: [] as Array<string | undefined>,
+  htmlRenewalFailed: [] as boolean[],
   generic: [] as Array<{
     kind: string
     status: string
@@ -163,6 +165,8 @@ vi.mock("@/components/media/spreadsheet-preview/spreadsheet-preview", () => ({
 
 vi.mock("@/components/media/html-preview/html-preview", () => ({
   default: (props: {
+    source?: { entry_url: string }
+    renewalFailed?: boolean
     document: { status: string; content?: Uint8Array }
     fileName: string
     selectionAction?: {
@@ -173,6 +177,8 @@ vi.mock("@/components/media/html-preview/html-preview", () => ({
   }) => {
     preview.kinds.push(`html:${props.document.status}`)
     preview.htmlFileNames.push(props.fileName)
+    preview.htmlSources.push(props.source?.entry_url)
+    preview.htmlRenewalFailed.push(Boolean(props.renewalFailed))
     if (props.document.content) {
       preview.htmlContents.push(
         new TextDecoder().decode(props.document.content)
@@ -318,6 +324,8 @@ describe("conversation Office preview", () => {
     preview.wordNavigation = []
     preview.htmlFileNames = []
     preview.htmlContents = []
+    preview.htmlSources = []
+    preview.htmlRenewalFailed = []
     preview.generic = []
     await i18n.changeLanguage("zh-CN")
   })
@@ -716,6 +724,78 @@ describe("conversation Office preview", () => {
         request: "改为英文",
       },
     ])
+  })
+
+  it("loads an artifact resource session and renews its URL without reloading the page content", async () => {
+    const file = {
+      ...officeFile("html-bundle", "index.html", "text/html"),
+      kind: "artifact" as const,
+    }
+    const source = {
+      session_id: "a".repeat(64),
+      entry_url: `/html-preview/${"a".repeat(64)}/index.html`,
+      html: "<h1>Bundle</h1>",
+      expires_at: new Date(Date.now() + 120_000).toISOString(),
+      missing_resources: [],
+    }
+    const loadHtmlPreview = vi
+      .fn()
+      .mockResolvedValueOnce(source)
+      .mockResolvedValueOnce({
+        ...source,
+        expires_at: new Date(Date.now() + 900_000).toISOString(),
+      })
+    const loadContent = vi.fn()
+    render(
+      <ConversationOfficePreview
+        file={file}
+        loadContent={loadContent}
+        loadHtmlPreview={loadHtmlPreview}
+      />
+    )
+    await waitFor(() => expect(preview.htmlContents).toContain(source.html))
+    await waitFor(() => expect(loadHtmlPreview).toHaveBeenCalledTimes(2), {
+      timeout: 2_500,
+    })
+    expect(loadHtmlPreview).toHaveBeenLastCalledWith(
+      file,
+      expect.any(AbortSignal),
+      source.session_id
+    )
+    expect(new Set(preview.htmlSources.filter(Boolean))).toEqual(
+      new Set([source.entry_url])
+    )
+    expect(loadContent).not.toHaveBeenCalled()
+  })
+
+  it("retains loaded content and exposes a reload action when a resource session cannot renew", async () => {
+    const file = {
+      ...officeFile("html-bundle", "index.html", "text/html"),
+      kind: "artifact" as const,
+    }
+    const source = {
+      session_id: "a".repeat(64),
+      entry_url: `/html-preview/${"a".repeat(64)}/index.html`,
+      html: "<h1>Bundle</h1>",
+      expires_at: new Date(Date.now() + 120_000).toISOString(),
+      missing_resources: [],
+    }
+    const loadHtmlPreview = vi
+      .fn()
+      .mockResolvedValueOnce(source)
+      .mockRejectedValueOnce(new Error("expired"))
+    render(
+      <ConversationOfficePreview
+        file={file}
+        loadContent={vi.fn()}
+        loadHtmlPreview={loadHtmlPreview}
+      />
+    )
+    await waitFor(() => expect(preview.htmlRenewalFailed).toContain(true), {
+      timeout: 2_500,
+    })
+    expect(preview.kinds.at(-1)).toBe("html:ready")
+    expect(preview.htmlContents.at(-1)).toBe(source.html)
   })
 
   it("forwards the loaded Office bytes when the preview download action is used", async () => {

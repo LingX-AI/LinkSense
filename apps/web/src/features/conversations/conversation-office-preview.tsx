@@ -9,7 +9,10 @@ import {
 } from "react"
 import { MessageCirclePlusIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { maximumOfficeAnnotationCount } from "@linksense/shared"
+import {
+  maximumOfficeAnnotationCount,
+  type HtmlPreviewSource,
+} from "@linksense/shared"
 
 import type { ConversationFile } from "@/api/contracts"
 import { useProductName } from "@/app/product-branding"
@@ -90,6 +93,11 @@ export type LoadConversationFileContent = (
 ) => Promise<Uint8Array>
 
 export type LoadConversationOfficeDocument = LoadConversationFileContent
+export type LoadHtmlPreview = (
+  file: ConversationFile,
+  signal: AbortSignal,
+  sessionId?: string
+) => Promise<HtmlPreviewSource>
 
 export type DownloadConversationOfficeDocument = (
   file: ConversationFile,
@@ -109,6 +117,7 @@ type ConversationOfficePreviewProps = Readonly<{
   file: ConversationFile
   toolbarActions?: ReactNode
   loadContent: LoadConversationFileContent
+  loadHtmlPreview?: LoadHtmlPreview
   onAskSelection?: (
     file: ConversationFile,
     requests: readonly ConversationOfficeAnnotationRequest[]
@@ -137,6 +146,7 @@ function ConversationOfficePreviewContent({
   file,
   toolbarActions,
   loadContent,
+  loadHtmlPreview,
   onAskSelection,
   selectionDisabled = false,
   updateAction,
@@ -167,6 +177,8 @@ function ConversationOfficePreviewContent({
   const [loadResult, setLoadResult] = useState<{
     requestKey: string
     document: OfficeDocumentState
+    htmlSource?: HtmlPreviewSource
+    renewalFailed?: boolean
   }>({ requestKey, document: { status: "loading" } })
 
   const document = useMemo<OfficeDocumentState>(
@@ -180,6 +192,53 @@ function ConversationOfficePreviewContent({
   useEffect(() => {
     if (!documentKind) return
     const controller = new AbortController()
+    let renewal: ReturnType<typeof setTimeout> | undefined
+    if (
+      documentKind === "html" &&
+      file.kind === "artifact" &&
+      loadHtmlPreview
+    ) {
+      const open = async (sessionId?: string) => {
+        try {
+          const source = await loadHtmlPreview(
+            file,
+            controller.signal,
+            sessionId
+          )
+          if (controller.signal.aborted) return
+          setLoadResult((current) => ({
+            requestKey,
+            document:
+              current.requestKey === requestKey &&
+              current.htmlSource?.html === source.html
+                ? current.document
+                : { status: "ready", content: textEncoder.encode(source.html) },
+            htmlSource: source,
+          }))
+          renewal = setTimeout(
+            () => {
+              void open(source.session_id)
+            },
+            Math.max(
+              1_000,
+              Date.parse(source.expires_at) - Date.now() - 120_000
+            )
+          )
+        } catch {
+          if (!controller.signal.aborted)
+            setLoadResult((current) =>
+              sessionId
+                ? { ...current, renewalFailed: true }
+                : { requestKey, document: { status: "error" } }
+            )
+        }
+      }
+      void open()
+      return () => {
+        controller.abort()
+        clearTimeout(renewal)
+      }
+    }
     void loadContent(file, controller.signal)
       .then((content) => {
         if (controller.signal.aborted) return
@@ -195,7 +254,7 @@ function ConversationOfficePreviewContent({
         }
       })
     return () => controller.abort()
-  }, [documentKind, file, loadContent, requestKey])
+  }, [documentKind, file, loadContent, loadHtmlPreview, requestKey])
 
   const genericRequestKey = `generic:${file.id}:${loadKey}`
   const [genericLoadResult, setGenericLoadResult] = useState<{
@@ -273,8 +332,12 @@ function ConversationOfficePreviewContent({
 
   const handleDownload = useCallback(() => {
     if (document.status !== "ready") return
+    if (loadResult.htmlSource && onDownloadSource) {
+      void onDownloadSource(file)
+      return
+    }
     onDownload?.(file, document.content)
-  }, [document, file, onDownload])
+  }, [document, file, onDownload, onDownloadSource, loadResult.htmlSource])
   const handleGenericContentDownload = useCallback(() => {
     if (genericDocument.status !== "ready" || !genericDocument.content) return
     onDownload?.(file, genericDocument.content)
@@ -567,6 +630,14 @@ function ConversationOfficePreviewContent({
       />
     ) : documentKind === "html" ? (
       <HtmlPreview
+        source={
+          loadResult.requestKey === requestKey
+            ? loadResult.htmlSource
+            : undefined
+        }
+        renewalFailed={
+          loadResult.requestKey === requestKey && loadResult.renewalFailed
+        }
         toolbarActions={toolbarActions}
         key={requestKey}
         {...commonProps}
