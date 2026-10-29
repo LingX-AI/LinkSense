@@ -257,7 +257,7 @@ Worker 不直接加入 PostgreSQL 或 Redis 的服务网络。目前允许互联
 
 普通执行模式使用 Codex 的 `approvalPolicy: never` 和完全访问沙箱策略，不会逐条要求命令审批。网页、上传文件或工具返回内容中的提示词注入如果成功诱导任务执行命令，可能读取、修改或外传该用户的共享文件。Plan 模式使用只读且禁止网络的沙箱；它不改变普通执行模式的权限。
 
-当前应用没有默认屏蔽云元数据地址。云部署应在网络或实例配置中限制元数据访问并控制出站范围，实例角色只授予必要权限。控制器还持有 Docker socket，应视为可信管理组件；执行任务的 Worker 不挂载该 socket。详见[安全边界](./SECURITY.md#execution-boundaries)。
+当前应用没有默认屏蔽云元数据地址。云部署应在网络或实例配置中限制元数据访问并控制出站范围，实例角色只授予必要权限。控制器还持有 Docker socket，应视为可信管理组件；执行任务的 Worker 不挂载该 socket。详见[安全边界](./.github/SECURITY.md#execution-boundaries)。
 
 ### 执行路径
 
@@ -491,23 +491,23 @@ pnpm dev:prod:stop
 
 ## 安全
 
-参阅 [SECURITY.md](./SECURITY.md)。
+参阅 [SECURITY.md](./.github/SECURITY.md)。
 
 安全问题报告：`security@linksense.org`
 
 ## 贡献
 
-参阅 [CONTRIBUTING.md](./CONTRIBUTING.md) 和 [`AGENTS.md`](./AGENTS.md)。
+参阅 [CONTRIBUTING.md](./.github/CONTRIBUTING.md) 和 [`AGENTS.md`](./AGENTS.md)。
 
-贡献代码需要签署[贡献者许可协议](./CLA.md)。CONTRIBUTING.md 解释了具体原因，以及我们相应作出的承诺。
+贡献代码需要签署[贡献者许可协议](./docs/legal/CLA.md)。CONTRIBUTING.md 解释了具体原因，以及我们相应作出的承诺。
 
 ## 谁在使用 LinkSense
 
-如果你的组织在使用 LinkSense，我们很希望了解，欢迎在 [ADOPTERS.md](./ADOPTERS.md) 中添加一行。登记完全自愿，我们不会擅自添加任何组织。不希望公开？请联系 `hello@linksense.org`。
+如果你的组织在使用 LinkSense，我们很希望了解，欢迎在 [ADOPTERS.md](./docs/community/ADOPTERS.md) 中添加一行。登记完全自愿，我们不会擅自添加任何组织。不希望公开？请联系 `hello@linksense.org`。
 
 ## 获取支持
 
-参阅 [SUPPORT.md](./SUPPORT.md)。
+参阅 [SUPPORT.md](./.github/SUPPORT.md)。
 
 ## 开源协议
 

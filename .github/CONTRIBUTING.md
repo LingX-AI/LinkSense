@@ -23,6 +23,22 @@ pnpm --filter <package-name> <script>
 
 Use `uv` consistently for Python commands and dependencies.
 
+### Repository layout / 仓库目录
+
+Dockerfiles live in `deploy/docker/`; development and production Compose overrides
+live in `deploy/compose/`. Run `pnpm dev` from the repository root as before. The
+default `docker-compose.yml`, installation guide, and install/repair/upgrade scripts
+remain at the root so their public entrypoints stay stable. Community policies
+live in `.github/`, contributor agreements in `docs/legal/`, and adopter listings
+in `docs/community/`. Distributed license notices stay at the root to preserve
+offline links and the verified runtime baseline.
+
+Dockerfile 统一放在 `deploy/docker/`，开发和生产 Compose 配置放在 `deploy/compose/`。
+仍从仓库根目录执行 `pnpm dev`；默认 `docker-compose.yml`、安装指南和安装、修复、升级脚本
+保留在根目录，继续使用原有公开入口。社区规范位于 `.github/`，贡献者协议位于 `docs/legal/`，
+使用者名单位于 `docs/community/`。随产品分发的许可说明保留在根目录，以保持离线链接和已验证
+运行时基线有效。
+
 ### Development image caching / 开发镜像缓存
 
 `pnpm dev` reuses images when their tracked build inputs are unchanged. A changed
@@ -63,7 +79,7 @@ Dockerfile 中的 BuildKit pnpm 缓存会复用已下载的包，只下载缓存
 - Use Prisma migrations for database schema changes, and clearly describe data-loss and compatibility risks in the pull request.
 - Before submitting, run the affected tests, type checks, linting, and build, and record the results in the pull request.
 
-By contributing, you agree to license your contribution under this repository's [CPAL-1.0](./LICENSE). Before an external pull request is merged, its contributor must also agree to the [Contributor License Agreement](./CLA.md). A maintainer will request and record that agreement on the pull request. You retain your copyright; the CLA permits the project to offer additional licensing terms while keeping the contribution available in the open-source edition.
+By contributing, you agree to license your contribution under this repository's [CPAL-1.0](../LICENSE). Before an external pull request is merged, its contributor must also agree to the [Contributor License Agreement](../docs/legal/CLA.md). A maintainer will request and record that agreement on the pull request. You retain your copyright; the CLA permits the project to offer additional licensing terms while keeping the contribution available in the open-source edition.
 
 ## Contributor acknowledgements / 贡献者展示
 
