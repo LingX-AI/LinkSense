@@ -1,544 +1,101 @@
 # LinkSense
 
-[English](./README.md) | 简体中文
-
-**面向组织的开源Agent工作平台**（企业级开源WorkBuddy替代方案）
-
-让组织中的每个人都拥有 Codex 级的 AI Agent——部署在您自己的基础设施上，并自由选择使用的模型。
-
-[在线体验](https://explore.linksense.org/) · [一句话安装](#一句话-agent-安装) · [快速开始](#快速开始) · [工作方式](#组织能力) · [系统架构](#系统架构) · [基于 LinkSense 扩展](#基于-linksense-扩展)
-
 <p align="center">
-  <img src="./docs/demo/Hero.gif" alt="工程师在自己的工作空间中构建技能并发布到组织，同事无需重新编写即可安装和运行。" width="960" />
+  <a href="./README.md">English</a> | 简体中文
 </p>
 
-<p align="center"><em>面向组织的开源 WorkBuddy 替代方案。</em></p>
+<p align="center">
+  <strong>面向组织的开源Agent工作平台</strong>（企业级开源WorkBuddy替代方案）
+</p>
 
----
+<p align="center">
+  LinkSense 是面向组织的开源 Agent 工作平台，可部署在自有服务器或私有云中。<strong>内置完整的 Agent 执行能力</strong>，支持网页浏览、代码执行、文件处理与数据分析。管理员统一部署平台，管理成员、模型、权限与用量；技能和应用配置发布后，其他成员无需重新编写即可安装和运行。成员可通过网页访问各自的 AI 工作空间，发起并执行任务、发布技能和应用。成员也可接入微信、飞书、企业微信、钉钉和 Microsoft Teams 等<a href="./apps/docs/docs/user-guide/message-channels/overview.md">消息渠道</a>发起任务。
+</p>
 
-## 为什么选择 LinkSense
+<p align="center">
+  <strong>自主部署，模型自选，组织级能力开源。</strong> 您可以选择不同厂商或本地模型，在自己的基础设施上存储任务记录、文件、知识索引与凭据。接入外部模型、工具或消息渠道时，相关数据会按配置发送至对应服务。具体说明见<a href="./docs/product-guide.zh-CN.md#开源自主部署由你掌控">部署与数据边界</a>，使用与分发条件见<a href="./docs/license-guide.zh-CN.md">开源许可说明</a>。
+</p>
 
-### 真正能完成工作的AI Agent
+<p align="center">
+  <a href="https://explore.linksense.org/">在线体验</a> · <a href="./apps/docs/docs/user-guide/overview.md">用户指南</a> · <a href="#为什么使用-linksense">为什么使用 LinkSense</a> · <a href="#安装">安装</a> · <a href="#文档导航">文档导航</a>
+</p>
 
-为每位用户提供完整的 Agent 工作环境，可以进行研究、浏览网页、运行代码、分析数据、处理文件，并创建文档和其他工作成果。
+## 为什么使用 LinkSense
 
-### 您的服务器，您的模型
+- **完整的 Agent 工作空间**：研究、浏览、执行代码、分析数据和处理文件，生成文档、表格、演示文稿等成果，支持[定时任务](./apps/docs/docs/user-guide/automations/create-and-manage.md)。
+- **可复用的团队知识与经验**：将知识、技能和工具按用户或用户组共享，支持审核、发布与版本维护。[了解共享机制](./docs/capabilities.zh-CN.md)
+- **灵活组合的场景应用**：提供聊天式与自定义交互界面，支持安装包、在线服务及[外部系统嵌入](./apps/docs/docs/user-guide/plugin-center/application-access.md)。
+- **开放的业务连接**：通过连接器与 MCP 接入文档、邮件及业务 API，在授权范围内读取数据、调用操作。[了解系统接入](./docs/product-guide.zh-CN.md#构建基于-mcp-的插件)
+- **统一的组织管理**：集中管理成员、模型、凭据、权限和使用额度，支持用量统计与操作审计。[管理员指南](./apps/docs/docs/admin-guide/overview.md)
+- **自主部署与模型选择**：在自有服务器或私有云运行，自由接入云端或本地模型，组织级能力完整开源。[部署与数据边界](./docs/product-guide.zh-CN.md#开源自主部署由你掌控)
 
-将 LinkSense 部署在自己的服务器或私有云中。您可以自由选择 OpenAI、Anthropic、Gemini、DeepSeek、Qwen，或接入自己的本地大模型服务。
+## 安装
 
-### 完全开源，包括企业级能力
+**以下两种安装方式任选其一，无需重复执行。**
 
-用户、用户组、知识库、Skills、Plugins、MCP、Applications、治理等组织级能力都包含在开源版本中，而不是被锁在企业版之后。
-
-### 为整个组织而设计
-
-统一管理用户、模型、知识、MCP、凭据和访问权限。个人验证有效的 Skills 和 Applications，可以在组织内进行审核、发布、管理和复用。
-
----
-
-## 一句话 Agent 安装
-
-将下面这句话交给 Codex、Claude Code、Cursor、Windsurf 或其他编程助手：
+### 方式一：编程助手安装
 
 ```text
 请按照 https://raw.githubusercontent.com/LingX-AI/linksense/main/Install.md 帮我安装并启动 LinkSense。
 ```
 
-[Agent 安装指南](./Install.md) 默认使用已发布的 Core 镜像，检查主机和两条网络通道，保留已有安装，并报告真实启动结果。如果需要克隆源码进行开发，在提示中加上“用于本地源码开发”。启动后在管理界面配置模型凭据，助手无需读取你的密钥。
+### 方式二：手动安装
+
+同一开源产品，两种部署方案。先选择所需能力，再进入对应的独立安装流程：
+
+#### 部署方案与配置要求
+
+| 部署方案 | 包含能力 | 起步配置 | 推荐配置（适合团队） | 额外要求 | 安装入口 |
+| --- | --- | --- | --- | --- | --- |
+| **Core** | Agent 工作空间、技能、插件、MCP、应用共享与组织管理 | 4+ vCPU、8+ GiB 内存、60+ GiB 可用 SSD | 16 vCPU、32 GiB 内存、200 GiB 可用 SSD | — | [安装 Core](./docs/setup/core.zh-CN.md) |
+| **Full** | Core 全部能力，加上完整知识库解析、索引与检索服务 | 8+ vCPU、10+ GiB 内存、120+ GiB 可用 SSD | 16 vCPU、32 GiB 内存、200 GiB 可用 SSD | x86_64 / amd64 主机或虚拟机需支持并暴露 `x86-64-v2`。<br>10 GiB 为当前源码发行配置的内存下限，允许内存超配；大文档、OCR 和并发任务需额外余量，以所选发行包预检为准。 | [安装 Full](./docs/setup/full.zh-CN.md) |
+
+- **运行环境**：Linux 或 macOS，支持 x86_64 / ARM64；Docker Engine API v1.45+、Docker Compose v2.24.4+，并安装 `curl`。macOS 使用 Docker Desktop。
+- **内存与容量**：内存指 Docker Engine 实际可用值，Docker Desktop 需预留虚拟机开销。以上为使用外部模型 API 时的规划建议，不是并发用户数保证，团队部署需按实际并发与任务负载调整；本地模型与 GPU 另行配置。
+
+详细检查方法见[环境与 CPU 要求](./docs/setup/operations.zh-CN.md)。
+
+已有安装的诊断、修复与升级：[运维参考](./docs/setup/operations.zh-CN.md)。
 
 ## 快速开始
 
-同一仓库提供两种部署方案：
+### 启动后
 
-**Core** — AI 工作空间 + 组织能力平台
-**Full** — Core + 完整的文档处理与知识检索
+1. 打开安装器打印的地址，使用初始化凭据创建首位管理员。默认地址：Linux 为 `http://<server-address>:18081`，macOS 为 `http://localhost:18081`。
+2. 在管理界面配置模型渠道，验证一次简短对话和一次使用工具的任务。
+3. 参照[首个任务指南](./apps/docs/docs/user-guide/getting-started/first-task.md)开始使用；Full 用户还需配置[知识库所需模型与文档处理](./apps/docs/docs/user-guide/knowledge-bases/create-and-manage.md)。
 
-### 运行应用
-
-#### 部署配置建议
-
-下表可作为选型起点。推荐配置为镜像构建、浏览器工具、文档处理和宿主机其他服务预留余量，属于容量规划建议，不是经过压测的用户数保证。
-
-| 部署场景 | 起步配置 | 推荐配置 | 说明 |
-| --- | --- | --- | --- |
-| Core 评估 | 4+ vCPU、8+ GiB 内存、60+ GiB 可用 SSD | 8 vCPU、16 GiB、100 GiB 可用 SSD | 新安装默认允许 1 个并发对话。 |
-| Core 共享服务器 | 8 vCPU、16 GiB 内存、120 GiB 可用 SSD | 16 vCPU、32 GiB、200 GiB 可用 SSD | 每个活跃用户的 Worker 默认内存上限为 4 GiB，需单独规划并发容量。 |
-| Full（新安装） | 8+ vCPU、10+ GiB 内存、120+ GiB 可用 SSD | 16 vCPU、32 GiB、200 GiB 可用 SSD | 最低配置允许内存超配；OCR、大文档及并发任务需额外余量。 |
-| Docker 源码开发 / `pnpm dev` | 8 vCPU、24 GiB 内存、120 GiB 可用 SSD | 16 vCPU、32 GiB、200 GiB 可用 SSD | 构建并运行开发栈，包含知识服务和任务 Worker。 |
-
-以上配置覆盖使用外部模型 API 的 LinkSense。本地大模型及其 GPU 需单独计算。长期共享部署优先使用 Linux + Docker；macOS + Docker Desktop 可用于评估和开发，但虚拟机必须获得足够资源。16 GiB Mac 建议先选 Core。
-
-内存预检读取 Docker Engine 实际可用内存。使用 Docker Desktop 时，这指虚拟机分配的内存，而非宿主机总内存；标称分配 8 GB 时，实际可用值可能不足 8 GiB。请在 Settings → Resources → Advanced → Memory limit 调整分配，Core 建议至少 10–12 GB，Full 也应为 10 GiB 的实际可用最低要求留出余量，然后应用更改并重启 Docker Desktop。Full 的服务内存上限合计超过可用内存时告警并继续，不降低各容器上限，也不保证峰值内存足够。旧安装修复和升级保留已有配置。
-自动工具适配、资源配置、CPU 兼容模式、代理及恢复方式见[安装器主机适配说明](deploy/release/HOST-ADAPTATION.md)。
-完整要求见[部署参考](#部署参考)。
-
-> **x86_64 虚拟机安装 Full 前，请确认来宾 CPU 支持 `x86-64-v2`。** 宿主机支持这些指令集，并不代表虚拟机已暴露它们。检查方法和 CPU 模式设置见[虚拟机 CPU 要求](#虚拟机-cpu-要求)。
-
-#### 方案一：已发布 Docker 镜像（推荐）
-
-无需克隆源码，也无需在宿主机安装 Node.js 或 pnpm。安装器检查主机后会启动应用；请先安装并启动 Docker。
-
-##### Linux
-
-```bash
-# Core
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh && sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
-
-# Full
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh && sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-full.sh
-```
-
-然后打开 `http://<server-address>:18081`。
-
-Linux 命令通过 `sudo` 仅保留代理环境变量，确保 bootstrap 与 curl 使用同一终端代理。如果 sudo 策略不允许保留这些变量，请由主机管理员为提权环境配置代理。
-
-##### macOS
-
-```bash
-# Core：下载成功后再执行；不使用 sudo
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh && sh install-core.sh
-
-# Full
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh && sh install-full.sh
-```
-
-然后打开 `http://localhost:18081`。
-
-终端下载和 Docker 拉取需要分别配置代理。Docker PATH、HTTP/SOCKS5 端口、镜像加速和新版网络诊断见[网络与代理说明](deploy/release/HOST-ADAPTATION.md#network-and-proxies)。
-
-如果希望先阅读脚本，请只运行上述对应命令的下载部分，用 `less install-core.sh`（或 `less install-full.sh`）打开文件，再按当前系统的命令执行。
-
-安装器会在写入持久化状态前检查主机，并自动生成运行时密钥。初始化步骤见下文。
-
-Linux 将部署文件保存在 `/opt/linksense`，macOS 使用 `~/.linksense`。
-
-本地启动不强制要求域名和 HTTPS。公开部署应在 `18081` 端口前配置 HTTPS 反向代理。
-
-#### 方案二：Docker 源码开发
-
-修改代码所需的环境、启动命令和开发端口见[本地开发](#本地开发)；构建镜像见[使用 Docker 从源码构建](#使用-docker-从源码构建)。
-
-#### 启动后
-
-1. 打开安装器打印的地址，使用初始化凭据创建首位管理员，并妥善保管凭据。
-2. 在管理界面配置模型渠道，分别验证简短对话和使用工具的任务。部署健康不代表模型兼容性已经验证。
-3. 发行版的操作见[命令行管理](#命令行管理)；源码监听和开发环境管理见[本地开发](#本地开发)。
-
-### 还没准备好安装？
-
-发起一条[讨论](../../discussions)，告诉我们你希望完成什么，我们会阅读每一条。如果你正在为组织评估 LinkSense，我们正在与少量早期设计合作伙伴协作，并会帮助你部署：`hello@linksense.org`。
-
----
-
-## 组织能力
-
-LinkSense 为每位用户提供自己的 AI 工作空间，同时提供组织层面的能力管理，让个人构建的成果转化为跨团队共享、治理和复用的能力。
-
-| 能力对象 | 在组织中的作用 |
-| --- | --- |
-| **知识库** | 在访问控制下，为 AI 提供组织上下文 |
-| **技能（Skills）** | 将有效的工作方法转化为可复用的能力 |
-| **MCP 服务** | 将 AI 连接到组织的系统与操作 |
-| **插件（Plugins）** | 将技能和 MCP 集成打包，经审核后分发 |
-
-这些能力可以从个人实践起步，逐步成为整个组织可复用的能力。
-
-<p align="center">
-  <img src="./docs/diagrams/organizational-capability-lifecycle.svg" alt="个人工作空间 → 创建与测试 → 组织能力。发布版本 → 审核 → 组织发布；授权 → 用户 / 用户组；连接 → 系统。所有路径都指向共享与复用。" width="680" />
-</p>
-
-技能和插件可以从个人开发开始，经过不可变版本发布、管理员审核、组织发布、安装和显式更新。
-
-知识库可以授权给指定用户和用户组。MCP 连接与凭据保持独立管理，让 AI 能力可以连接组织系统，而不必将底层凭据分发给每位用户。
-
-**委托执行，而非共享凭据。**
-
-### 应用 — 将能力转化为他人可用的体验
-
-应用是这些能力汇集的地方。
-
-应用将持续维护的指令与模型配置，同组织知识、技能、插件和 MCP 连接组合起来，再将这种体验提供给获得授权的用户和用户组。
-
-<p align="center">
-  <img src="./docs/diagrams/application-composition.svg" alt="指令和模型配置与知识库、技能、插件及 MCP 服务组合成应用。获得授权的用户 / 用户组可以发起各自的任务。" width="960" />
-</p>
-
-例如：
-
-<p align="center">
-  <img src="./docs/diagrams/finance-application.svg" alt="财务知识 + 财务技能 + ERP 集成 → 财务应用 → 财务团队。" width="900" />
-</p>
-
-用户无需自行重新搭建底层配置。他们打开获得授权的应用，即可发起自己的任务，所需能力已经按该使用场景组合并维护好。
-
-应用**不是自主智能体**，而是可复用的 AI 工作入口。每位获得授权的用户发起并拥有自己的任务，应用则提供背后持续维护的配置和组织能力。
-
-应用还可以提供对创建者维护的知识和 MCP 能力的受控访问，而不必授予用户直接管理权限，也不会通过 LinkSense 的常规界面暴露底层凭据。
-
-围绕这些能力，LinkSense 提供身份、归属、用户 / 用户组授权、发布与审核、凭据管理、模型管理、用量、审计和运行维护。
-
-它们共同构成了**连接前沿 AI 与组织的开放能力层。**
-
-<p align="center">
-  <img src="./docs/diagrams/open-capability-layer.svg" alt="前沿 AI、模型和 Codex 为 LinkSense 提供动力：个人 AI 工作空间；组织知识库、技能、MCP 服务、插件和应用；身份、共享、治理、凭据、运行时和运维。LinkSense 将人与数据及系统连接起来。" width="840" />
-</p>
-
----
-
-## 基于开源 Codex 运行时
-
-LinkSense 在自己管理的 Worker 中运行开源 Codex 运行时，无需依赖 Codex 网页应用或由 LinkSense 托管的 Codex 服务。
-
-LinkSense 通过以下方式直接运行官方 `@openai/codex` 包：
-
-```bash
-codex app-server --stdio
-```
-
-并通过 Codex app-server JSON-RPC 协议与其通信。
-
-Codex 运行时在 LinkSense 部署环境内执行。模型推理单独配置：组织可以接入自行选择的模型提供商或兼容的私有服务端点。
-
-LinkSense **不**分叉 Codex、不修改其源码，也不重新实现智能体循环。
-
-| Codex | LinkSense |
-| --- | --- |
-| 智能体推理与轮次（Turns） | 组织工作空间 |
-| 原生工具与执行 | 身份、共享和治理 |
-| 技能与插件 | 发布与组织生命周期 |
-| 模型与子智能体 | 应用、知识和 MCP 管理 |
-| 沙箱语义 | Worker、持久化、用量和运维 |
-
-> **Codex 决定智能体如何执行。LinkSense 决定它能访问什么、在哪里运行、能力如何共享和治理，以及执行如何持久化和运维。**
-
-Codex 运行时由 OpenAI 以 Apache-2.0 许可发布，并以未修改的形式随项目交付；其 `NOTICE` 文件包含在我们的镜像中。参阅 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)。
-
-*Codex 是 OpenAI 的商标。LinkSense 是独立项目，与 OpenAI 无关联，也未获得 OpenAI 的赞助或认可。*
-
----
-
-## 开源。自主部署。由你掌控。
-
-在自己的服务器、私有云或 VPC 中运行完整平台。查看源码、修改平台、自主选择模型与集成服务，并在自己掌控的基础设施中运行。没有强制依赖的闭源企业运行时、LinkSense 云端控制平面或在线运行时许可激活心跳。
-
-使用私有模型、本地知识和本地 MCP 服务时，提示词、文件、任务状态、知识索引、凭据、审计记录和结果都可以保留在你掌控的基础设施中。
-
-配置的外部服务仍可能产生外部网络请求，因此 LinkSense 将自己描述为**支持自主部署、适合私有网络**，而非正式的完全离线隔离系统。
-
-**模型：** OpenAI · Azure OpenAI · Anthropic · Google / Vertex · Alibaba · DeepSeek · OpenRouter · OpenAI 兼容端点
-
-内部部署例外、署名要求和品牌使用许可见[开源协议](#开源协议)。
-
----
-
-## 系统架构
-
-<p align="center">
-  <img src="./docs/diagrams/system-architecture.svg" alt="浏览器 → 网关 / Nginx → Web 和 API。API 连接 PostgreSQL、Redis、MinIO、BullMQ 及完整知识处理组件，并通过经过身份验证的 HTTP 控制 Runner。Runner 通过 Docker Engine 管理每用户一个的 Worker，其中包括用户共享的工作区和 CODEX_HOME、官方 Codex app-server、模型网关、MCP，以及 Chromium / Playwright。" width="960" />
-</p>
-
-### Worker 模型
-
-LinkSense 为每位活跃用户动态管理一个 Docker Worker。
-
-同一用户的多个任务可以复用该 Worker，并共享用户的 `HOME` 和 `HOME/.codex`（`CODEX_HOME`）。无项目任务共享 `workspace`，同一项目的任务共享 `projects/<projectId>`；任务控制数据按任务分别存放。
-
-**隔离边界是用户的 Worker，而非同一用户的任务目录**。同一用户的普通执行任务可以访问该用户的其他项目和任务文件。
-
-闲置 Worker 会被回收。每用户的软件包环境可以在回收后保留，生成的交付成果则独立持久化到对象存储中。
-
-Worker 控制包括可配置的 CPU / 内存 / PID 限制、只读根文件系统、`no-new-privileges`、移除 Linux capabilities、非特权容器、以非 root 身份运行任务进程，以及独立的控制网络和出站网络。
-
-Worker 不直接加入 PostgreSQL 或 Redis 的服务网络。目前允许互联网出站访问；LinkSense 不强制执行通用域名白名单或默认拒绝全部出站流量的策略。
-
-普通执行模式使用 Codex 的 `approvalPolicy: never` 和完全访问沙箱策略，不会逐条要求命令审批。网页、上传文件或工具返回内容中的提示词注入如果成功诱导任务执行命令，可能读取、修改或外传该用户的共享文件。Plan 模式使用只读且禁止网络的沙箱；它不改变普通执行模式的权限。
-
-当前应用没有默认屏蔽云元数据地址。云部署应在网络或实例配置中限制元数据访问并控制出站范围，实例角色只授予必要权限。控制器还持有 Docker socket，应视为可信管理组件；执行任务的 Worker 不挂载该 socket。详见[安全边界](./SECURITY.md#execution-boundaries)。
-
-### 执行路径
-
-实时任务通常沿以下路径执行：
-
-<p align="center">
-  <img src="./docs/diagrams/realtime-execution-path.svg" alt="正常的实时执行路径：用户 → API（持久化任务 / 待处理请求）→ Runner → 用户专属 Worker → Codex。" width="960" />
-</p>
-
-执行前通常不会先进入 BullMQ。
-
-BullMQ 主要处理自动化、定时与后台任务、Worker 维护、恢复、邮件、计费、知识同步与处理，以及清理工作。
-
-### 事件传递
-
-<p align="center">
-  <img src="./docs/diagrams/event-delivery.svg" alt="Codex → Worker → Runner 映射 / 脱敏 → 持久化事件 outbox → API → PostgreSQL → Redis Pub/Sub → SSE → 浏览器。" width="680" />
-</p>
-
----
-
-## 基于 LinkSense 扩展
-
-LinkSense 提供三种主要扩展方式，无需修改 LinkSense 源码。
-
-### 构建技能
-
-使用原生 Codex 技能格式，将可复用的方法、工作流、领域实践、脚本、参考资料和辅助资源交给 AI。
-
-<p align="center">
-  <img src="./docs/diagrams/skill-directory-structure.svg" alt="my-skill/ 包含 SKILL.md、agents/openai.yaml、scripts/、references/ 和 assets/。" width="480" />
-</p>
-
-技能既可以由 Codex 原生发现，也可以由用户和应用显式选择。
-
-### 构建基于 MCP 的插件
-
-通过 MCP 连接外部系统与 API，再将 MCP 声明、技能和辅助资源一起打包。
-
-<p align="center">
-  <img src="./docs/diagrams/plugin-package-structure.svg" alt="插件包含技能、MCP 声明、脚本 / 资源和 .codex-plugin/plugin.json。" width="620" />
-</p>
-
-对于 CRM、ERP、SaaS、监控系统和内部 API，通常推荐将 MCP 作为集成边界。
-
-凭据与插件包保持分离。
-
-### 构建交互式应用
-
-基于已授权的 LinkSense 能力，构建面向特定用途的界面和工作流。
-
-交互式应用包含 `manifest.json`、HTML、JavaScript、CSS 和资源文件，并在沙箱化的 iframe 中运行。
-
-其 SDK 可以请求明确获准的能力，例如访问用户资料、发现能力、访问知识库、发现 MCP 服务，以及创建任务。
-
-交互式应用与普通应用相互独立，普通应用主要是配置和能力组合对象。
-
----
-
-## 部署参考
-
-### 环境要求
-
-各部署场景的 CPU、内存和磁盘配置见[部署配置建议](#部署配置建议)。
-
-- Linux：具备所需 Docker 和内核能力的 x86_64 或 ARM64 系统，包括 Ubuntu、Debian、Deepin、Fedora、RHEL、Rocky Linux、AlmaLinux 和 CentOS
-- macOS：配备 Docker Desktop 的 Intel 或 Apple Silicon 设备
-- 发行镜像支持 `linux/amd64` 和 `linux/arm64`
-- Docker Engine API v1.45+
-- Docker Compose v2.24.4+
-- `curl`
-- 默认 TCP 端口 `18081` 可用
-
-### 虚拟机 CPU 要求
-
-Full 在 `x86_64` / `amd64` 上运行 RAG 知识库组件（Elasticsearch、Docling）时，Docker Engine 所在主机或虚拟机需要向容器暴露至少 `x86-64-v2` 指令集。当前 [Docling v1.36.0 上游镜像](https://github.com/docling-project/docling-serve/blob/v1.36.0/Containerfile)基于 CentOS Stream 9，后者采用 [x86-64-v2 基线](https://blog.centos.org/2023/08/centos-isa-sig-performance-investigation/)。Elasticsearch 的 CPU 要求取决于具体版本和基础镜像。此项 x86 指令集要求不适用于原生 ARM64 部署。
-
-虚拟化平台的通用 CPU 模式可能屏蔽宿主机已有的指令集；CPU 型号、年代、vCPU 数量或 `uname -m` 输出不足以判断兼容性。请在**实际运行 Docker Engine 的 Linux 虚拟机内**检查：
-
-```bash
-LC_ALL=C lscpu
-grep -m1 '^flags' /proc/cpuinfo
-```
-
-除 x86-64 基础能力外，CPU flags 应包含 `cx16`、`lahf_lm`、`popcnt`、`ssse3`、`sse4_1`、`sse4_2` 和 SSE3（Linux 通常显示为 `pni`，也可能为 `sse3`）。仅有 `sse4_1` 和 `popcnt` 不能证明满足完整的 `x86-64-v2` 要求。
-
-发行包的安装、修复和升级脚本会对 Full 的 `linux/amd64` 部署自动检查 Docker 实际可见的 CPU flags，在修改运行配置、创建数据卷或停止现有服务前报告缺失项并退出。检查使用发行清单中固定摘要的 BusyBox 镜像，首次使用时可能需要拉取；临时容器只读、无网络、不挂载数据卷，结束后自动删除。
-
-此预检随包含该变更的发行包提供，旧安装目录中的脚本不会自动更新。若要在首次升级前获得预检，请在新版发行包发布后使用下文在线 `upgrade.sh` 命令获取新版升级脚本。
-
-若缺失所需指令集，或容器日志出现 `Fatal glibc error: CPU does not support x86-64-v2`：
-
-1. 正常关闭虚拟机，在虚拟化平台调整 CPU 模式。Proxmox VE 可选择宿主机支持的 `host` 或 `x86-64-v2-AES`；KVM/libvirt 可使用 [`host-passthrough`](https://libvirt.org/formatdomain.html#cpu-model-and-topology)。避免使用屏蔽所需指令集的 `kvm64` / `qemu64` 模式。
-2. 重新开机，在虚拟机内再次检查上述 flags。仅重启容器不会应用虚拟 CPU 模式变更。需要跨宿主机迁移时，应选择所有目标宿主机共同支持、且满足 `x86-64-v2` 的 CPU 模型。
-3. 检查通过后，新安装重新执行原 Full 安装命令；已有安装按[修复与升级](#修复与升级)操作，再按[命令行管理](#命令行管理)检查服务状态。
-
-宿主机物理 CPU 本身不支持所需指令集时，需要换用兼容的宿主机；增加 vCPU 或内存无法补齐指令集。
-
-### 自定义端口
-
-按[快速开始](#快速开始)下载所选安装器后，在执行时指定端口。以 Full 为例：
-
-```bash
-# Linux
-sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_HTTP_PORT=19090 sh install-full.sh
-# macOS
-env LINKSENSE_HTTP_PORT=19090 sh install-full.sh
-```
-
-### 命令行管理
-
-| 操作 | 命令 |
-| --- | --- |
-| 检查服务状态 | `linksense status` |
-| 启动 / 停止 / 重启 | `linksense start` / `linksense stop` / `linksense restart` |
-| 查看访问地址 | `linksense address` |
-| 修改 HTTP 端口 | `linksense port 19090` |
-| 查看初始化凭据 | `linksense credential` |
-| 查看服务日志 | `linksense logs api` / `linksense logs runner` |
-| 检查已部署服务的健康状态 | `linksense doctor` |
-| 检查下载与镜像拉取 | `linksense doctor --network` |
-| 修复当前发行版 | `linksense repair` |
-| 升级当前安装 | `linksense upgrade` |
-
-不带参数运行 `linksense`，可打开交互式管理菜单。
-
-新版 Linux 管理工具会在需要时请求 `sudo`，仅保留代理变量。macOS 请将 `$HOME/.local/bin` 加入 `PATH`，并在不使用 `sudo` 的情况下执行命令。
-
-网络诊断需要包含新版安装器和管理工具的发行版本。诊断会拉取 BusyBox/API 发行镜像，不启动容器；镜像会保留在本地缓存。
-
-### 修复与升级
-
-修复沿用已安装的发行版本。升级会识别 Core / Full，等待正在运行的工作结束，并在迁移前将经过校验的 PostgreSQL 备份保存到 `volume://linksense-backups/postgres/`。
-
-不会删除数据卷。迁移开始后若发生失败，不会自动回滚数据库；请保留输出的备份位置，查看诊断信息后重新执行升级。
-
-如果已安装的管理工具不可用，请下载 [repair-core.sh](./repair-core.sh) 或 [repair-full.sh](./repair-full.sh)，阅读后按[快速开始](#快速开始)中对应系统的执行方式运行。旧安装的首次升级步骤见[安装器主机适配说明](deploy/release/HOST-ADAPTATION.md#fresh-resource-profiles)。
-
----
-
-## 技术栈
-
-| 层 | 技术 |
-| --- | --- |
-| Web | React 19 · TypeScript · Vite · React Router · TanStack Query · shadcn/ui · Base UI · Tailwind · i18next |
-| API | Node.js · TypeScript · Fastify 5 · Zod · Prisma · PostgreSQL · Redis · BullMQ · MinIO |
-| Runner | Node.js · TypeScript · Fastify · Docker · 官方 Codex app-server · Chromium / Playwright |
-| 知识 | Docling · Elasticsearch · BM25 + 向量检索 · RRF · 可选重排序 |
-
----
-
-## 本地开发
-
-需要 Node.js 24+、pnpm 10.34.6、Docker Engine / Compose、rsync，以及用于本地 HTTPS 证书的 [mkcert](https://github.com/FiloSottile/mkcert)。首次启动可能请求将 mkcert 的本地证书颁发机构加入系统信任。
-
-应用及其依赖在 Linux 容器中运行，宿主机上的 rsync 仅用于同步源码。开发默认配置不能用于公开生产部署。
-
-API 和开发镜像内置 FFmpeg，录音提交到所配置的服务前会统一转换为 16 kHz、单声道 PCM WAV；OpenAI 兼容语音服务使用 `response_format=json`，不请求时间戳。直接在宿主机运行 API 时，需要确保 `PATH` 中可以找到 `ffmpeg`。升级时需部署新的 API 镜像，已有模型配置和网关密钥继续使用。可运行 `pnpm --filter @linksense/api test:voice:audio` 验证实际音频格式转换。
-
-```bash
-corepack enable
-corepack prepare pnpm@10.34.6 --activate
-pnpm install --frozen-lockfile
-pnpm dev:prepare
-pnpm dev
-```
-
-默认地址：
-
-- Web：`http://localhost:18172`
-- Web HTTPS：`https://localhost:18173`
-- API：`http://localhost:4000`
-- Runner：`http://localhost:4010`
-
-常用命令：
-
-```bash
-pnpm dev:stop
-pnpm dev:rebuild
-pnpm dev:worker:rebuild
-pnpm test
-pnpm typecheck
-pnpm lint
-pnpm build
-```
-
-`pnpm dev:prepare` 会构建应用镜像、生产任务 Worker 和双语帮助中心，检查基础设施与数据库初始化，启动服务，并预热运行时缓存。
-
-`pnpm dev` 会自动准备缺失的输入，并接入源码监听和日志。
-
-### AI 开发指南
-
-使用 Codex 或其他 AI 编程工具前，请阅读 [`AGENTS.md`](./AGENTS.md)。
-
-AI 生成的功能和行为变更与其他贡献一样，需要配套测试。提交前请运行受影响的测试、类型检查、lint 和构建。
-
-不要提交密钥、个人数据、内部需求文档或生成产物。
-
----
-
-## 使用 Docker 从源码构建
-
-```bash
-docker compose --env-file .env.example build \
-  migrate api runner runner-worker-image web
-```
-
-多平台构建：
-
-```bash
-docker buildx build --platform linux/amd64,linux/arm64 --target runtime \
-  -f Dockerfile.api -t <registry>/linksense-api:<tag> --push .
-```
-
-| 文件 | 构建目标 | 产物 |
-| --- | --- | --- |
-| `Dockerfile.api` | `runtime` / `migration` | API / 数据库迁移 |
-| `Dockerfile.web` | `runtime` | Web + 帮助中心 |
-| `Dockerfile.runner` | `controller` / `worker` | Runner 控制器 / 任务 Worker |
-
-接近生产环境的本地运行方案：
-
-```bash
-pnpm dev:prod
-pnpm dev:prod:stop
-```
-
-生产环境优先使用经过验证、以不可变摘要固定的发行镜像，而不是直接在生产主机上构建源码。
-
----
+服务启动后，还需配置模型并测试对话与工具任务能否正常运行。详细步骤见 [Core 安装指南](./docs/setup/core.zh-CN.md)或 [Full 安装指南](./docs/setup/full.zh-CN.md)。
 
 ## 安全
 
-参阅 [SECURITY.md](./SECURITY.md)。
+隔离边界是用户 Worker，同一用户的普通任务可访问该用户的其他任务文件。普通执行允许互联网出站，不逐条要求命令审批；接入外部模型或工具时，相关数据会按配置发送至对应服务。
 
-安全问题报告：`security@linksense.org`
+向更多用户开放或对外部署前，请阅读[安全边界](./SECURITY.md#execution-boundaries)与[部署要求](./docs/setup/operations.zh-CN.md)。安全问题报告：`security@linksense.org`。
 
-## 贡献
+## 文档导航
 
-参阅 [CONTRIBUTING.md](./CONTRIBUTING.md) 和 [`AGENTS.md`](./AGENTS.md)。
+| 我想要…… | 阅读文档 |
+| --- | --- |
+| 完成任务、创建自动化或接入 IM | [用户指南](./apps/docs/docs/user-guide/overview.md) |
+| 管理成员、模型、权限与用量 | [管理员指南](./apps/docs/docs/admin-guide/overview.md) |
+| 共享知识、技能、插件与应用 | [组织能力详解](./docs/capabilities.zh-CN.md) |
+| 连接业务系统、构建应用 | [扩展指南](./docs/product-guide.zh-CN.md#基于-linksense-扩展) · [交互式应用](./apps/docs/docs/developer-guide/interactive-application.md) |
+| 部署、排查、升级与迁移 | [Core](./docs/setup/core.zh-CN.md) · [Full](./docs/setup/full.zh-CN.md) · [运维参考](./docs/setup/operations.zh-CN.md) |
+| 了解架构与执行机制 | [系统架构与运行时](./docs/architecture.zh-CN.md) |
 
-贡献代码需要签署[贡献者许可协议](./CLA.md)。CONTRIBUTING.md 解释了具体原因，以及我们相应作出的承诺。
+## 开发
 
-## 谁在使用 LinkSense
+修改源码或构建镜像，请参阅[源码开发与镜像构建](./docs/setup/development.zh-CN.md)。参与开发前阅读 [AGENTS.md](./AGENTS.md) 与[贡献指南](./CONTRIBUTING.md)；代码贡献需要签署 [CLA](./CLA.md)。
 
-如果你的组织在使用 LinkSense，我们很希望了解，欢迎在 [ADOPTERS.md](./ADOPTERS.md) 中添加一行。登记完全自愿，我们不会擅自添加任何组织。不希望公开？请联系 `hello@linksense.org`。
+## 社区与支持
 
-## 获取支持
+使用问题与需求交流：[GitHub Discussions](../../discussions) · [支持说明](./SUPPORT.md)。组织部署与合作：`hello@linksense.org`。
 
-参阅 [SUPPORT.md](./SUPPORT.md)。
+欢迎自愿在 [ADOPTERS.md](./ADOPTERS.md) 登记使用 LinkSense 的组织。
 
 ## 开源协议
 
-LinkSense 采用 [CPAL-1.0](./LICENSE) 开源，这是一项[经 OSI 批准](https://opensource.org/licenses)的许可证，在 Mozilla Public License 1.1 基础上加入了小型署名要求和网络使用条款。
+LinkSense 采用 [CPAL-1.0](./LICENSE) 开源。内部部署、署名、定制品牌与商标的具体规定，请阅读[许可说明](./docs/license-guide.zh-CN.md)、[内部部署例外](./LICENSE-EXCEPTIONS.md)、[署名要求](./ATTRIBUTION.md)与[商标政策](./TRADEMARK.md)。其他许可需求：`licensing@linksense.org`。
 
-**任何规模的内部运行，无论是否修改，都没有公开任何内容的义务。**[内部部署例外](./LICENSE-EXCEPTIONS.md)对此作出了明确规定。在你自己文件中编写的专有插件和扩展仍归你所有；CPAL 的 copyleft 以文件为单位，不会延伸到你的代码。
-
-**两项义务，触发方式各不相同**，这也是最容易被混淆的部分：
-
-| | 触发条件 | 内部部署 |
-|---|---|---|
-| 公开你的修改 | 再分发，或向第三方提供服务 | **否** |
-| 展示署名 | 通过图形界面启动 | **是** |
-
-### LinkSense 希望你保留什么
-
-图形界面的署名是一行小型标识，由 `Powered by` 和我们的标志组成，高度为 18–24px。当前界面实现会链接到我们的网站，但许可证本身不要求 URL，也不要求显示版权行。它位于界面底部的一个固定区域，并在用户切换页面时保持显示，因此每个页面不必各自重复放置。[具体样式见这里](./ATTRIBUTION.md)。
-
-以下**无需展示**的情况已写入许可证，无需自行解释：
-
-| | |
-|---|---|
-| 对话框、菜单、工具提示 | 不重复展示，底层页面已经包含署名 |
-| 全屏编辑、预览、演示 | 可以隐藏，退出后恢复即可 |
-| **用户导出的文档、演示文稿和图片** | **不要求任何形式的水印，始终如此** |
-| 命令行、无界面服务、仅 API | 不承担展示义务 |
-
-**商标单独授权。**你可以分叉、重命名、分发，甚至与我们竞争，只是不要将其命名为 LinkSense。参阅 [TRADEMARK.md](./TRADEMARK.md)。
-
-**不追溯收紧条款。**以 CPAL-1.0 发布的每个版本都将永久保留 CPAL-1.0 许可。我们不会追溯收紧条款，这项承诺已[明确写入附加许可](./LICENSE-EXCEPTIONS.md)。
-
-**以你自己的品牌部署。**重命名、调整样式、在顶部放置自己的标志，都无需另行许可。保留的只是一行署名。如果也需要移除署名，或需要其他许可条款，请联系 `licensing@linksense.org`。
-
-第三方组件保留各自的许可证，参阅 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)。
+平台使用的官方开源 Codex 运行时以 Apache-2.0 许可原样交付。LinkSense 是独立项目，与 OpenAI 无关联，也未获得其赞助或认可。参阅[第三方声明](./THIRD-PARTY-NOTICES.md)。
