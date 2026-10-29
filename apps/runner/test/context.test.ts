@@ -22,6 +22,8 @@ describe("buildTurnInput", () => {
       expect(first?.value).toContain("zoneinfo");
       vi.setSystemTime(new Date("2026-10-27T07:28:37Z"));
       expect(buildTurnAdditionalContext(context)?.["linksense.current-time"]?.value).toContain("2026-10-27T07:28:37.000Z");
+      vi.setSystemTime(new Date("2026-10-27T20:28:37Z"));
+      expect(buildTurnAdditionalContext(context)?.["linksense.current-time"]?.value).toContain("2026-10-28 04:28:37");
       expect(buildTurnAdditionalContext({ userInput: "Interactive request", attachments: [], priorityPlugins: [], prioritySkills: [] })).not.toHaveProperty("linksense.current-time");
     } finally {
       vi.useRealTimers();
