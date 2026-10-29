@@ -339,7 +339,7 @@ The application does not block cloud metadata addresses by default. Cloud deploy
 should restrict metadata access and outbound traffic through network or instance
 configuration, and grant instance roles only the permissions they need. The controller
 also holds the Docker socket and must be treated as a trusted management component;
-Task Workers do not mount that socket. See [Execution boundaries](./SECURITY.md#execution-boundaries).
+Task Workers do not mount that socket. See [Execution boundaries](./.github/SECURITY.md#execution-boundaries).
 
 ### Execution path
 
@@ -605,26 +605,26 @@ building source directly on the production host.
 
 ## Security
 
-See [SECURITY.md](./SECURITY.md).
+See [SECURITY.md](./.github/SECURITY.md).
 
 Security reports: `security@linksense.org`
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) and [`AGENTS.md`](./AGENTS.md).
+See [CONTRIBUTING.md](./.github/CONTRIBUTING.md) and [`AGENTS.md`](./AGENTS.md).
 
-Contributions require a [Contributor License Agreement](./CLA.md) — CONTRIBUTING.md
+Contributions require a [Contributor License Agreement](./docs/legal/CLA.md) — CONTRIBUTING.md
 explains exactly why, and what we committed to in return.
 
 ## Who is using LinkSense
 
 If your organization runs LinkSense, we would like to know — add a row to
-[ADOPTERS.md](./ADOPTERS.md). Listing is entirely optional, and we never add anyone who
+[ADOPTERS.md](./docs/community/ADOPTERS.md). Listing is entirely optional, and we never add anyone who
 did not ask. Would rather not be public? `hello@linksense.org`.
 
 ## Support
 
-See [SUPPORT.md](./SUPPORT.md).
+See [SUPPORT.md](./.github/SUPPORT.md).
 
 ## License
 

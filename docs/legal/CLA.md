@@ -19,7 +19,7 @@ contributions under these terms.
 CPAL is a copyleft license. Contributions arrive licensed under CPAL to everyone,
 including us — and that would quietly break a promise we've made publicly.
 
-In [`LICENSE-EXCEPTIONS.md`](./LICENSE-EXCEPTIONS.md) §6 we tell users that if they
+In [`LICENSE-EXCEPTIONS.md`](../../LICENSE-EXCEPTIONS.md) §6 we tell users that if they
 need to redistribute LinkSense without the attribution notice, they can come to us for
 a commercial license. For code contributed by others, **we would have no right to grant
 terms other than CPAL** — so that promise would be empty for any version containing
@@ -29,7 +29,7 @@ So this CLA is not us reaching for extra rights. It is what makes a commitment w
 already published actually deliverable.
 
 **And we bound ourselves in return** — see Section 3 and
-[`LICENSE-EXCEPTIONS.md`](./LICENSE-EXCEPTIONS.md) §4. This agreement gives us the
+[`LICENSE-EXCEPTIONS.md`](../../LICENSE-EXCEPTIONS.md) §4. This agreement gives us the
 ability to license your work *in addition to* CPAL. It gives us no ability to take it
 closed.
 
@@ -64,7 +64,7 @@ Contribution in our commercial distributions.
 **In return, we commit** that your Contribution will **always** continue to be
 available under CPAL-1.0 in the open source edition of LinkSense. This clause lets us
 license work *additionally*; it does not let us take published code closed. This
-matches the commitment in [`LICENSE-EXCEPTIONS.md`](./LICENSE-EXCEPTIONS.md) §4.
+matches the commitment in [`LICENSE-EXCEPTIONS.md`](../../LICENSE-EXCEPTIONS.md) §4.
 
 ## 4. Patent license
 
