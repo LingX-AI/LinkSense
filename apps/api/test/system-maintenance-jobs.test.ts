@@ -43,6 +43,35 @@ describe("system maintenance expiry jobs", () => {
     await jobs.close()
   })
 
+  it("schedules recommendation resolution independently of browser activity and dispatches the registered processor", async () => {
+    const { queue, jobs, auth, system } = setup()
+    const resolve = vi.fn(async () => undefined)
+    jobs.registerFormRecommendationProcessor(resolve)
+    await jobs.start(auth, system)
+    expect(queue.upsertJobScheduler).toHaveBeenCalledWith("form-recommendation-resolution", { every: 1_000 }, {
+      name: "form-recommendation-resolution", data: { type: "form-recommendation-resolution" }, opts: { attempts: 3, backoff: { type: "exponential", delay: 1_000 } },
+    })
+    const job = { data: { type: "form-recommendation-resolution" } } as Job<MaintenanceJob>
+    await jobs["process"](job, auth)
+    expect(resolve).toHaveBeenCalledOnce()
+    resolve.mockRejectedValueOnce(new Error("Database unavailable"))
+    await expect(jobs["process"](job, auth)).rejects.toThrow("Database unavailable")
+    await jobs.close()
+  })
+
+  it("uses one durable recommendation job per form with bounded retries", async () => {
+    const { queue, jobs, auth } = setup()
+    const input = { ownerId: "10000000-0000-4000-8000-000000000001", conversationId: "20000000-0000-4000-8000-000000000001", requestId: "30000000-0000-4000-8000-000000000001" }
+    const deliver = vi.fn(async () => undefined)
+    jobs.registerFormRecommendationDeliveryProcessor(deliver)
+    await jobs.enqueueFormRecommendation(input)
+    expect(queue.add).toHaveBeenCalledWith("form-recommendation-delivery", { type: "form-recommendation-delivery", ...input }, {
+      jobId: `form-recommendation-${input.requestId}`, attempts: 5, backoff: { type: "exponential", delay: 5_000 }, removeOnComplete: 500, removeOnFail: false,
+    })
+    await jobs["process"]({ data: { type: "form-recommendation-delivery", ...input } } as Job<MaintenanceJob>, auth)
+    expect(deliver).toHaveBeenCalledExactlyOnceWith(input)
+  })
+
   it("propagates database errors so BullMQ can retry cleanup", async () => {
     const { jobs, auth, system } = setup()
     await jobs.start(auth, system)

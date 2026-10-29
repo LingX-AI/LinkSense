@@ -6074,6 +6074,65 @@ describe("ConversationService turn interruption", () => {
 });
 
 describe("ConversationService native user input", () => {
+  it.each(["user", "recommendation"] as const)("projects the %s form answer and publishes its result without logging answer content", async source => {
+    const fixture = await conversationFixture();
+    const content = { scope: "summary" };
+    const policy = source === "recommendation" ? { kind: "optional", recommendation: content } : null;
+    const pending = userInputRequestRow({
+      requestKind: "form", serverName: "linksense_core", messageText: "Choose scope", questionsJson: [],
+      formSchemaJson: { type: "object", properties: { scope: { type: "string" } }, required: ["scope"] },
+      formUiHintsJson: {}, formResponseSemanticsJson: { kind: "input" }, formWaitingPolicyJson: policy,
+      responseSource: null, autoResolveAt: source === "recommendation" ? new Date(Date.now() - 1_000) : null,
+    });
+    const answered = { ...pending, status: "answered", responseSource: source, responseContentJson: content, resolvedAction: "accept", resolvedAt: NOW };
+    fixture.prisma.conversationUserInputRequest.findFirst.mockResolvedValue(pending);
+    const tx = fixture.defaultTransaction;
+    tx.conversation.findFirst.mockResolvedValue(conversationRow({ codexThreadId: pending.codexThreadId }));
+    tx.conversationTurn.findFirst.mockResolvedValue(turnRow());
+    tx.conversationUserInputRequest.findFirst.mockResolvedValue(pending);
+    tx.conversationUserInputRequest.update.mockResolvedValue({ ...answered, status: "answering" });
+    tx.conversationUserInputRequest.updateMany.mockResolvedValue({ count: 1 });
+    tx.conversationUserInputRequest.findUniqueOrThrow.mockResolvedValue(answered);
+    tx.conversationEvent.create.mockImplementation(async ({ data }) => eventRow(data));
+    const input = { ownerId: OWNER_ID, conversationId: CONVERSATION_ID, requestId: USER_INPUT_REQUEST_ID };
+    if (source === "user") {
+      const result = await fixture.service.respondToUserInputRequest(OWNER_ID, CONVERSATION_ID, USER_INPUT_REQUEST_ID, { action: "accept", content }, {});
+      expect(result).toMatchObject({ kind: "form", status: "answered", waiting_policy: null, response_source: "user", response_content: content });
+    } else {
+      await fixture.service.deliverFormRecommendation(input);
+    }
+    expect(fixture.audit.write).toHaveBeenCalledWith(expect.objectContaining({ actorId: source === "user" ? OWNER_ID : null, metadata: expect.objectContaining({ response_source: source }) }));
+    expect(JSON.stringify(fixture.audit.write.mock.calls)).not.toContain("summary");
+    expect(fixture.redis.publishConversationEvent).toHaveBeenCalledWith(CONVERSATION_ID, expect.objectContaining({ event_type: "conversation.user_input_request.updated" }));
+  });
+
+  it("queues due optional forms once without relying on a connected browser", async () => {
+    const fixture = await conversationFixture();
+    const pending = userInputRequestRow({ requestKind: "form" });
+    fixture.prisma.conversationUserInputRequest.findMany.mockResolvedValueOnce([pending]);
+    await fixture.service.resolveFormRecommendations();
+    expect(fixture.prisma.conversationUserInputRequest.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        requestKind: "form", formWaitingPolicyJson: { path: ["kind"], equals: "optional" },
+        autoResolveAt: { lte: expect.any(Date) }, responseDeliveryJson: { equals: Prisma.DbNull },
+      }),
+    }));
+    expect(fixture.cleanup.enqueueFormRecommendation).toHaveBeenCalledExactlyOnceWith({ ownerId: OWNER_ID, conversationId: CONVERSATION_ID, requestId: USER_INPUT_REQUEST_ID });
+    expect(fixture.prisma.conversationUserInputRequest.updateMany).toHaveBeenCalledWith({
+      where: { id: USER_INPUT_REQUEST_ID, responseDeliveryJson: { equals: Prisma.DbNull } },
+      data: { responseDeliveryJson: { kind: "form_recommendation_job", requestId: USER_INPUT_REQUEST_ID } },
+    });
+    expect(fixture.runner.respondUserInputRequest).not.toHaveBeenCalled();
+  });
+
+  it("leaves a due form available for redispatch when enqueueing fails", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversationUserInputRequest.findMany.mockResolvedValueOnce([userInputRequestRow({ requestKind: "form" })]);
+    fixture.cleanup.enqueueFormRecommendation.mockRejectedValueOnce(new Error("Queue unavailable"));
+    await expect(fixture.service.resolveFormRecommendations()).rejects.toThrow("Queue unavailable");
+    expect(fixture.prisma.conversationUserInputRequest.updateMany).not.toHaveBeenCalled();
+  });
+
   it.each([true, false])("routes a 25-answer async submission through the durable user-message operation with active=%s", async (active) => {
     const fixture = await conversationFixture();
     const questions = Array.from({ length: 25 }, (_, index) => ({
@@ -6245,6 +6304,7 @@ describe("ConversationService native user input", () => {
     const answeredRequest = {
       ...pendingRequest,
       status: "answered",
+      responseSource: "user",
       resolvedAction: "accept",
       resolvedAt: NOW,
       responseContentJson: { title: "季度复盘", channel: "teams" },
@@ -6252,13 +6312,16 @@ describe("ConversationService native user input", () => {
     fixture.prisma.conversation.findFirst.mockResolvedValue(
       conversationRow({ codexThreadId: turn.codexThreadId }),
     );
-    fixture.prisma.conversationTurn.findUnique.mockResolvedValue(turn);
+    fixture.prisma.conversationUserInputRequest.findFirst.mockResolvedValue(pendingRequest);
+    fixture.defaultTransaction.conversation.findFirst.mockResolvedValue(conversationRow({ codexThreadId: turn.codexThreadId }));
+    fixture.defaultTransaction.conversationTurn.findFirst.mockResolvedValue(turn);
     fixture.defaultTransaction.conversationUserInputRequest.findFirst.mockResolvedValue(
       pendingRequest,
     );
-    fixture.defaultTransaction.conversationUserInputRequest.findUnique.mockResolvedValue(
+    fixture.defaultTransaction.conversationUserInputRequest.findUniqueOrThrow.mockResolvedValue(
       answeredRequest,
     );
+    fixture.defaultTransaction.conversationUserInputRequest.update.mockResolvedValue({ ...answeredRequest, status: "answering" });
     fixture.defaultTransaction.conversationUserInputRequest.updateMany.mockResolvedValue(
       { count: 1 },
     );
@@ -6296,18 +6359,19 @@ describe("ConversationService native user input", () => {
       response,
     });
     expect(
-      fixture.defaultTransaction.conversationUserInputRequest.updateMany,
-    ).toHaveBeenNthCalledWith(1, {
-      where: { id: USER_INPUT_REQUEST_ID, status: "pending" },
+      fixture.defaultTransaction.conversationUserInputRequest.update,
+    ).toHaveBeenCalledWith({
+      where: { id: USER_INPUT_REQUEST_ID },
       data: {
         status: "answering",
         resolvedAction: "accept",
+        responseSource: "user",
         responseContentJson: response.content,
       },
     });
   });
 
-  it("cancels a persisted MCP form without sending field content", async () => {
+  it("keeps a required persisted MCP form waiting when cancellation is submitted", async () => {
     const fixture = await conversationFixture();
     const turn = turnRow();
     const pendingRequest = userInputRequestRow({
@@ -6326,24 +6390,14 @@ describe("ConversationService native user input", () => {
       formResponseSemanticsJson: { kind: "input" },
       responseContentJson: null,
     });
-    const cancelledRequest = {
-      ...pendingRequest,
-      status: "cancelled",
-      resolvedAction: "cancel",
-      resolvedAt: NOW,
-    };
     fixture.prisma.conversation.findFirst.mockResolvedValue(
       conversationRow({ codexThreadId: turn.codexThreadId }),
     );
-    fixture.prisma.conversationTurn.findUnique.mockResolvedValue(turn);
+    fixture.prisma.conversationUserInputRequest.findFirst.mockResolvedValue(pendingRequest);
+    fixture.defaultTransaction.conversation.findFirst.mockResolvedValue(conversationRow({ codexThreadId: turn.codexThreadId }));
+    fixture.defaultTransaction.conversationTurn.findFirst.mockResolvedValue(turn);
     fixture.defaultTransaction.conversationUserInputRequest.findFirst.mockResolvedValue(
       pendingRequest,
-    );
-    fixture.defaultTransaction.conversationUserInputRequest.findUnique.mockResolvedValue(
-      cancelledRequest,
-    );
-    fixture.defaultTransaction.conversationUserInputRequest.updateMany.mockResolvedValue(
-      { count: 1 },
     );
 
     await expect(
@@ -6354,24 +6408,11 @@ describe("ConversationService native user input", () => {
         { action: "cancel" },
         { ipAddress: "127.0.0.1", userAgent: "test" },
       ),
-    ).resolves.toMatchObject({
-      kind: "form",
-      status: "cancelled",
-      resolved_action: "cancel",
-    });
-    expect(fixture.runner.respondUserInputRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ response: { action: "cancel" } }),
-    );
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(fixture.runner.respondUserInputRequest).not.toHaveBeenCalled();
     expect(
-      fixture.defaultTransaction.conversationUserInputRequest.updateMany,
-    ).toHaveBeenNthCalledWith(2, {
-      where: { id: USER_INPUT_REQUEST_ID, status: "answering" },
-      data: {
-        status: "cancelled",
-        resolvedAction: "cancel",
-        resolvedAt: expect.any(Date),
-      },
-    });
+      fixture.defaultTransaction.conversationUserInputRequest.update,
+    ).not.toHaveBeenCalled();
   });
 
   it("rejects MCP form content outside the persisted schema before calling Runner", async () => {
@@ -6380,9 +6421,7 @@ describe("ConversationService native user input", () => {
     fixture.prisma.conversation.findFirst.mockResolvedValue(
       conversationRow({ codexThreadId: turn.codexThreadId }),
     );
-    fixture.prisma.conversationTurn.findUnique.mockResolvedValue(turn);
-    fixture.defaultTransaction.conversationUserInputRequest.findFirst.mockResolvedValue(
-      userInputRequestRow({
+    const pendingRequest = userInputRequestRow({
         requestKind: "form",
         questionsJson: [],
         serverName: "linksense_core",
@@ -6400,8 +6439,11 @@ describe("ConversationService native user input", () => {
         formUiHintsJson: {},
         formResponseSemanticsJson: { kind: "input" },
         responseContentJson: null,
-      }),
-    );
+      });
+    fixture.prisma.conversationUserInputRequest.findFirst.mockResolvedValue(pendingRequest);
+    fixture.defaultTransaction.conversation.findFirst.mockResolvedValue(conversationRow({ codexThreadId: turn.codexThreadId }));
+    fixture.defaultTransaction.conversationTurn.findFirst.mockResolvedValue(turn);
+    fixture.defaultTransaction.conversationUserInputRequest.findFirst.mockResolvedValue(pendingRequest);
 
     await expect(
       fixture.service.respondToUserInputRequest(
@@ -12431,6 +12473,7 @@ async function conversationFixture() {
   const cleanup = {
     enqueueRuntimeCleanup: vi.fn(async () => undefined),
     enqueueConversationPrewarm: vi.fn(async () => undefined),
+    enqueueFormRecommendation: vi.fn(async () => undefined),
   };
   const titleRefresh = { scheduleForUserMessage: vi.fn() };
   const creditLimits = {
@@ -12635,6 +12678,11 @@ function createService(
     audit: unknown;
     preflight: unknown;
     cleanup: {
+      enqueueFormRecommendation(input: {
+        ownerId: string;
+        conversationId: string;
+        requestId: string;
+      }): Promise<void>;
       enqueueRuntimeCleanup(
         ownerId: string,
         conversationId: string,
@@ -13249,6 +13297,9 @@ function userInputRequestRow(overrides: Record<string, unknown> = {}) {
     formSchemaJson: null,
     formUiHintsJson: null,
     formResponseSemanticsJson: null,
+    formWaitingPolicyJson: null,
+    responseSource: null,
+    responseDeliveryJson: null,
     responseContentJson: null,
     status: "pending",
     autoResolveAt: null,

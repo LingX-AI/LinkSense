@@ -721,7 +721,14 @@ describe("conversation activity typography", () => {
       /\.native-activity-details\s*\{[^}]*font-size:\s*var\(--app-font-13\);[^}]*font-weight:\s*500;[^}]*line-height:\s*var\(--app-ui-copy-line-height\);/u
     )
     expect(conversationStyles).toMatch(
-      /\.native-activity-details-inner\s*\{[^}]*padding:\s*2px 0 7px 22px;/u
+      /\.native-activity-details-inner\s*\{[^}]*padding-block:\s*2px 7px;/u
+    )
+    expect(
+      conversationStyles.match(
+        /\.native-activity-details-inner\s*\{([^}]*)\}/u
+      )?.[1]
+    ).not.toMatch(
+      /(?:padding|padding-left|padding-right|padding-inline(?:-start|-end)?):/u
     )
     expect(conversationStyles).toMatch(
       /\.native-command-activity-details \.native-activity-details-inner\s*\{[^}]*padding-left:\s*0;/u

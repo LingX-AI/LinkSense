@@ -1,3 +1,4 @@
+import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 export const operationsResources = {
   usage: {
     title: "Analyse de l’utilisation",
@@ -197,6 +198,7 @@ export const operationsResources = {
       "Les coûts sont stockés et agrégés à pleine précision, puis affichés avec deux décimales. Les écarts d’arrondi sont répartis proportionnellement pour que les détails affichés correspondent au total. Le coût d’entrée ordinaire exclut l’entrée en cache, facturée à son propre tarif. Prix et coûts sont fixés lors de l’enregistrement de chaque appel ; les changements ultérieurs ne recalculent jamais l’historique.",
   },
   health: {
+    disk: diskUsageMessages["fr-FR"],
     title: "État du système",
     description:
       "Vue en lecture seule des services et répertoires gérés de {{productName}}.",

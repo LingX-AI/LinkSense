@@ -20,6 +20,8 @@ import {
   conversationFormResponseSemanticsSchema,
   conversationFormRequestedSchema,
   conversationFormUiHintsSchema,
+  conversationFormWaitingPolicySchema,
+  conversationFormResponseSourceSchema,
 } from "./conversation-forms.js";
 import {
   knowledgeBaseIdsSchema,
@@ -350,6 +352,8 @@ export const conversationUserInputRequestSchema = z.discriminatedUnion("kind", [
     requested_schema: conversationFormRequestedSchema,
     ui_hints: conversationFormUiHintsSchema,
     response_semantics: conversationFormResponseSemanticsSchema,
+    waiting_policy: conversationFormWaitingPolicySchema.nullable(),
+    response_source: conversationFormResponseSourceSchema.nullable(),
     response_content: conversationFormResponseContentSchema.nullable(),
   }),
 ]);

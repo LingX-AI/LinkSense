@@ -1,5 +1,6 @@
 import {
   INTERACTIVE_APPLICATION_FILE_SOURCE,
+  diskUsageSchema,
   conversationStartingTurnSchema,
   skillDisplayNameSchema,
   currentUserCreditQuotaPeriodSchema,
@@ -1479,6 +1480,7 @@ export const healthSchema = z.preprocess(
       app_server_process_count: z.number().optional(),
       concurrency_limit: z.number().optional(),
       docker_resource_usage: dockerResourceUsageSchema.optional(),
+      disk_usage: diskUsageSchema.optional(),
       cleanup_failures: z.array(cleanupFailureSchema).optional(),
       cleanup_failure_summary: z
         .object({

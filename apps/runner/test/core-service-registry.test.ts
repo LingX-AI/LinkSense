@@ -11,6 +11,50 @@ const conversationId = "01900000-0000-7000-8000-000000000001"
 const token = "turn-token-00000000000000000000000000000000"
 
 describe("Core MCP module registry", () => {
+  it("keeps required forms on the existing broker with only the caller's cancellation signal", async () => {
+    const request = formBrokerFetch({ action: "accept", content: { scope: "full" } })
+    const controller = new AbortController()
+    const registry = createCoreMcpRegistry({ environment: defaultEnvironment(), fetch: request })
+    await registry.callTool({ toolName: "request_user_form", argumentsValue: {
+      message: "请选择范围", fields: [{ id: "scope", label: "范围", control: "text", required: true }],
+    }, signal: controller.signal })
+    expect(request.mock.calls[0]?.[1]?.signal).toBe(controller.signal)
+    expect(formBrokerBody(request)).toMatchObject({ waitingPolicy: { kind: "required" } })
+  })
+
+  it("sends a complete optional recommendation through the existing form broker", async () => {
+    const request = formBrokerFetch({ action: "accept", content: { scope: "small" } })
+    const registry = createCoreMcpRegistry({ environment: defaultEnvironment(), fetch: request })
+    const result = await registry.callTool({ toolName: "request_user_form", argumentsValue: {
+      message: "请选择范围", waiting_policy: { kind: "optional", recommendation: { scope: "small" } },
+      fields: [{ id: "scope", label: "范围", control: "single_select", required: true, options: [{ value: "small", label: "精简" }, { value: "full", label: "完整" }] }],
+    }, signal: new AbortController().signal })
+    expect(result.isError).toBe(false)
+    expect(formBrokerBody(request)).toMatchObject({ waitingPolicy: { kind: "optional", recommendation: { scope: "small" } } })
+  })
+
+  it.each([{}, { scope: "invalid" }])("rejects an incomplete or invalid recommendation %j before opening a form", async recommendation => {
+    const request = formBrokerFetch({ action: "cancel" })
+    const registry = createCoreMcpRegistry({ environment: defaultEnvironment(), fetch: request })
+    const result = await registry.callTool({ toolName: "request_user_form", argumentsValue: {
+      message: "请选择范围", waiting_policy: { kind: "optional", recommendation },
+      fields: [{ id: "scope", label: "范围", control: "single_select", required: true, options: [{ value: "small", label: "精简" }] }],
+    }, signal: new AbortController().signal })
+    expect(result.isError).toBe(true)
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it("rejects optional approval forms before waiting for a response", async () => {
+    const request = formBrokerFetch({ action: "cancel" })
+    const registry = createCoreMcpRegistry({ environment: defaultEnvironment(), fetch: request })
+    const result = await registry.callTool({ toolName: "request_user_form", argumentsValue: {
+      message: "是否批准发布", purpose: "approval", approval: { decision_field_id: "decision", approve_value: "yes", reject_value: "no" },
+      waiting_policy: { kind: "optional", recommendation: { decision: "yes" } },
+      fields: [{ id: "decision", label: "是否批准", control: "single_select", required: true, options: [{ value: "yes", label: "同意" }, { value: "no", label: "拒绝" }] }],
+    }, signal: new AbortController().signal })
+    expect(result.isError).toBe(true)
+    expect(request).not.toHaveBeenCalled()
+  })
   it.each(["default", "plan"] as const)("leaves personal Microsoft connections out of Core in %s mode", (mode) => {
     const registry = createCoreMcpRegistry({ mode, environment: defaultEnvironment() })
     expect(registry.tools.map((tool) => tool.name)).not.toContain("microsoft_files")

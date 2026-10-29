@@ -51,6 +51,23 @@ describe("system health", () => {
     expect(runnerHealth).toHaveBeenCalledWith({ includeResourceUsage: true })
   })
 
+  it("returns the deployment disk subtotal and does not make incomplete storage diagnostics a readiness gate", async () => {
+    const disk_usage = {
+      status: "partial", checked_at: "2026-10-28T08:00:00.000Z", total_bytes: 4096, refreshing: false,
+      categories: [{ key: "user_data", status: "available", used_bytes: 4096 }, { key: "images", status: "unavailable", used_bytes: null }],
+    }
+    const fixture = createSystemService(directory, { runnerHealth: vi.fn().mockResolvedValue({ ...healthyRunnerMetadata(), disk_usage }) })
+    const result = await fixture.service.health()
+    expect(result.disk_usage).toEqual(disk_usage)
+    expect(result.readiness).toBe("ready")
+  })
+
+  it("does not invent a zero total when the runner cannot provide a disk measurement", async () => {
+    const fixture = createSystemService(directory)
+    const result = await fixture.service.health()
+    expect(result.disk_usage).toMatchObject({ status: "unavailable", total_bytes: null })
+  })
+
   it("keeps both health and readiness unavailable when a required dependency fails", async () => {
     const { service } = createSystemService(directory, {
       redisPing: async () => { throw new Error("private Redis failure") },

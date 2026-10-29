@@ -1,4 +1,11 @@
-import { cleanup, render, screen, within } from "@testing-library/react"
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { supportedLocales } from "@linksense/shared"
@@ -140,6 +147,8 @@ const formRequest: Extract<ConversationUserInputRequest, { kind: "form" }> = {
     retries: { control: "number", placeholder: "0～3" },
   },
   response_semantics: { kind: "input" },
+  waiting_policy: null,
+  response_source: null,
   response_content: null,
   status: "pending",
   auto_resolve_at: "2026-08-14T08:10:00.000Z",
@@ -162,6 +171,224 @@ function getStructuredField(card: HTMLElement, label: string): HTMLElement {
 }
 
 describe("ConversationUserInputRequestCard", () => {
+  const optionalRequest: typeof formRequest = {
+    ...formRequest,
+    requested_schema: {
+      type: "object",
+      properties: {
+        scope: {
+          type: "string",
+          title: "范围",
+          oneOf: [
+            { const: "small", title: "精简范围" },
+            { const: "full", title: "完整范围" },
+          ],
+        },
+      },
+      required: ["scope"],
+    },
+    waiting_policy: { kind: "optional", recommendation: { scope: "small" } },
+    auto_resolve_at: "2999-01-01T00:03:00.000Z",
+  }
+
+  it.each(["required", "optional"] as const)(
+    "places the %s waiting hint in the bottom-left footer with smaller text and actions on the right",
+    (kind) => {
+      render(
+        <ConversationUserInputRequestCard
+          request={kind === "optional" ? optionalRequest : formRequest}
+          submitting={false}
+        />
+      )
+      const hint =
+        kind === "optional"
+          ? screen.getByRole("timer")
+          : screen.getByText(i18n.t("conversation.userInput.requiredWaiting"))
+      const submit = screen.getByRole("button", { name: "提交回答" })
+      const footer = submit.closest('[data-slot="card-footer"]')
+      expect(footer).toContainElement(hint)
+      expect(footer?.firstElementChild).toContainElement(hint)
+      expect(hint).toHaveClass("text-xs", "text-left")
+      expect(submit.parentElement).toHaveClass("ml-auto", "flex-wrap")
+      expect(footer).toHaveClass("flex-wrap")
+      expect(
+        document.querySelector('[data-slot="card-content"]')
+      ).not.toContainElement(hint)
+    }
+  )
+
+  it("shows and fills the recommended option and lets the user adopt it immediately", async () => {
+    const onSubmit = vi.fn()
+    const interaction = userEvent.setup()
+    render(
+      <ConversationUserInputRequestCard
+        request={optionalRequest}
+        submitting={false}
+        onSubmit={onSubmit}
+      />
+    )
+    expect(screen.getByText("推荐：精简范围")).toBeVisible()
+    expect(screen.getByRole("combobox", { name: "范围" })).toHaveTextContent(
+      "精简范围"
+    )
+    await interaction.click(
+      screen.getByRole("button", { name: "使用推荐答案" })
+    )
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith({
+      action: "accept",
+      content: { scope: "small" },
+    })
+  })
+
+  it("lets a user replace a recommended text answer before submitting", async () => {
+    const onSubmit = vi.fn()
+    const interaction = userEvent.setup()
+    render(
+      <ConversationUserInputRequestCard
+        request={{
+          ...optionalRequest,
+          requested_schema: {
+            type: "object",
+            properties: { scope: { type: "string", title: "范围" } },
+            required: ["scope"],
+          },
+        }}
+        submitting={false}
+        onSubmit={onSubmit}
+      />
+    )
+    const answer = screen.getByRole("textbox", { name: "范围" })
+    await interaction.clear(answer)
+    await interaction.type(answer, "full")
+    await interaction.click(screen.getByRole("button", { name: "提交回答" }))
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith({
+      action: "accept",
+      content: { scope: "full" },
+    })
+  })
+
+  it("marks an automatic recommendation distinctly from a user submission", () => {
+    render(
+      <ConversationUserInputRequestCard
+        request={{
+          ...optionalRequest,
+          status: "answered",
+          response_source: "recommendation",
+          response_content: { scope: "small" },
+          resolved_action: "accept",
+        }}
+        submitting={false}
+      />
+    )
+    expect(screen.getByRole("status")).toHaveTextContent("超时后已采用推荐答案")
+    expect(screen.queryByRole("button", { name: "提交回答" })).toBeNull()
+  })
+
+  it.each(["pending", "answering"] as const)(
+    "lets a saved required %s answer be submitted again without changing its content",
+    async (status) => {
+      const onSubmit = vi.fn()
+      render(
+        <ConversationUserInputRequestCard
+          request={{
+            ...optionalRequest,
+            status,
+            waiting_policy: { kind: "required" },
+            auto_resolve_at: null,
+            response_source: "user",
+            response_content: { scope: "small" },
+            resolved_action: "accept",
+          }}
+          submitting={false}
+          onSubmit={onSubmit}
+        />
+      )
+      expect(screen.getByRole("combobox", { name: "范围" })).toBeDisabled()
+      expect(screen.queryByRole("button", { name: "取消" })).toBeNull()
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "提交回答" }))
+      expect(onSubmit).toHaveBeenCalledExactlyOnceWith({
+        action: "accept",
+        content: { scope: "small" },
+      })
+    }
+  )
+
+  it("keeps the original deadline while editing and never submits an unfinished draft at expiry", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-27T00:00:00Z"))
+    const onSubmit = vi.fn()
+    render(
+      <ConversationUserInputRequestCard
+        request={{
+          ...optionalRequest,
+          auto_resolve_at: "2026-10-27T00:03:00Z",
+          requested_schema: {
+            type: "object",
+            properties: { scope: { type: "string", title: "范围" } },
+            required: ["scope"],
+          },
+        }}
+        submitting={false}
+        onSubmit={onSubmit}
+      />
+    )
+    act(() => vi.advanceTimersByTime(120_000))
+    const answer = screen.getByRole("textbox", { name: "范围" })
+    fireEvent.change(answer, { target: { value: "Unsubmitted draft" } })
+    expect(screen.getByRole("timer")).toHaveTextContent("60")
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(answer).toBeDisabled()
+    expect(screen.getByRole("timer")).toHaveTextContent(
+      i18n.t("conversation.userInput.applyingRecommendation")
+    )
+    fireEvent.click(screen.getByRole("button", { name: "提交回答" }))
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it.each(supportedLocales)(
+    "translates the waiting and recommendation messages in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      render(
+        <ConversationUserInputRequestCard
+          request={optionalRequest}
+          submitting={false}
+        />
+      )
+      expect(screen.getByRole("timer")).not.toHaveTextContent(
+        "conversation.userInput."
+      )
+      expect(
+        screen.getByRole("button", {
+          name: i18n.t("conversation.userInput.useRecommendation"),
+        })
+      ).toBeVisible()
+      expect(
+        screen.getByText(
+          i18n.t("conversation.userInput.recommendedAnswer", {
+            answer: "精简范围",
+          })
+        )
+      ).toBeVisible()
+      for (const key of [
+        "requiredWaiting",
+        "recommendationCountdown",
+        "applyingRecommendation",
+        "recommendedAnswer",
+        "useRecommendation",
+        "status.recommended",
+      ]) {
+        expect(
+          i18n.exists(`conversation.userInput.${key}`, {
+            lng: locale,
+            fallbackLng: false,
+          })
+        ).toBe(true)
+      }
+    }
+  )
   it.each(["questions", "async_questions"] as const)(
     "marks each required %s answer after the question text",
     (kind) => {
@@ -307,6 +534,7 @@ describe("ConversationUserInputRequestCard", () => {
 
   afterEach(async () => {
     cleanup()
+    vi.useRealTimers()
     await i18n.changeLanguage("zh-CN")
     vi.restoreAllMocks()
   })
@@ -572,8 +800,7 @@ describe("ConversationUserInputRequestCard", () => {
     expect(productCheckbox).not.toHaveClass("data-checked:border-transparent")
   })
 
-  it("cancels without submitting field content", async () => {
-    const interaction = userEvent.setup()
+  it("keeps required forms waiting without a skip action", () => {
     const onSubmit = vi.fn()
     render(
       <ConversationUserInputRequestCard
@@ -582,9 +809,11 @@ describe("ConversationUserInputRequestCard", () => {
         onSubmit={onSubmit}
       />
     )
-
-    await interaction.click(screen.getByRole("button", { name: "取消" }))
-    expect(onSubmit).toHaveBeenCalledWith({ action: "cancel" })
+    expect(screen.queryByRole("button", { name: "取消" })).toBeNull()
+    expect(
+      screen.getByText("此问题需要你回答，提交后任务才会继续。")
+    ).toBeVisible()
+    expect(onSubmit).not.toHaveBeenCalled()
   })
 
   it("collapses a submitted form and expands persisted values with no active controls", async () => {
@@ -985,7 +1214,12 @@ describe("ConversationUserInputRequestCard", () => {
     expect(
       screen.getByRole("heading", { name: "Please confirm these details" })
     ).toBeVisible()
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeVisible()
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull()
+    expect(
+      screen.getByText(
+        "Your answer is required. The task will continue after you submit it."
+      )
+    ).toBeVisible()
     const input = screen.getByRole("textbox", { name: /Contact email/ })
     await interaction.type(input, "invalid-address")
     await interaction.click(

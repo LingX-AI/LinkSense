@@ -7009,7 +7009,7 @@ button.annotation-hover-file:focus-visible {
 }
 
 .native-activity-details-inner {
-  padding: 2px 0 7px 22px;
+  padding-block: 2px 7px;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -9926,7 +9926,7 @@ button.annotation-hover-file:focus-visible {
 .health-summary {
   display: grid;
   width: 100%;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--health-summary-columns, 4), minmax(0, 1fr));
   gap: 8px;
 }
 

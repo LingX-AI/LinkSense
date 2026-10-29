@@ -8,6 +8,7 @@ import {
   conversationUserInputRequestSchema,
   conversationUserInputResponseSchema,
   codexAsyncUserInputQuestionsSchema,
+  conversationFormWaitingPolicyMatchesSchema,
 } from "../src/index.js";
 
 const requestedSchema = conversationFormRequestedSchema.parse({
@@ -68,6 +69,44 @@ const requestedSchema = conversationFormRequestedSchema.parse({
 });
 
 describe("conversation form contracts", () => {
+  it("requires recommendations for optional fields too, including fields named after object properties", () => {
+    const schema = conversationFormRequestedSchema.parse({
+      type: "object",
+      properties: { title: { type: "string" }, constructor: { type: "string" } },
+      required: ["constructor"],
+    });
+    expect(conversationFormWaitingPolicyMatchesSchema({ kind: "optional", recommendation: { title: "Report" } }, schema, { kind: "input" })).toBe(false);
+    expect(conversationFormWaitingPolicyMatchesSchema({ kind: "optional", recommendation: { constructor: "Value" } }, schema, { kind: "input" })).toBe(false);
+    expect(conversationFormResponseMatchesSchema(schema, { title: "Report" })).toBe(false);
+  });
+
+  it("rejects empty required answers in both submissions and recommendations", () => {
+    const schema = conversationFormRequestedSchema.parse({
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        channels: { type: "array", items: { type: "string", enum: ["email"] } },
+      },
+      required: ["title", "channels"],
+    });
+    for (const content of [{ title: "", channels: ["email"] }, { title: "Report", channels: [] }]) {
+      expect(conversationFormResponseMatchesSchema(schema, content)).toBe(false);
+      expect(conversationFormWaitingPolicyMatchesSchema({ kind: "optional", recommendation: content }, schema, { kind: "input" })).toBe(false);
+    }
+  });
+
+  it("requires a complete valid recommendation for optional input and never automatically approves an action", () => {
+    const schema = conversationFormRequestedSchema.parse({
+      type: "object",
+      properties: { channel: { type: "string", enum: ["email", "teams"] } },
+      required: ["channel"],
+    });
+    expect(conversationFormWaitingPolicyMatchesSchema({ kind: "required" }, schema, { kind: "input" })).toBe(true);
+    expect(conversationFormWaitingPolicyMatchesSchema({ kind: "optional", recommendation: { channel: "teams" } }, schema, { kind: "input" })).toBe(true);
+    expect(conversationFormWaitingPolicyMatchesSchema({ kind: "optional", recommendation: {} }, schema, { kind: "input" })).toBe(false);
+    expect(conversationFormWaitingPolicyMatchesSchema({ kind: "optional", recommendation: { channel: "sms" } }, schema, { kind: "input" })).toBe(false);
+    expect(conversationFormWaitingPolicyMatchesSchema({ kind: "optional", recommendation: { channel: "teams" } }, schema, { kind: "approval", decision_field_id: "channel", approve_value: "teams", reject_value: "email" })).toBe(false);
+  });
   it.each([null, []])("accepts native free-text async questions with options=%j", (options) => {
     expect(codexAsyncUserInputQuestionsSchema.safeParse([{ title: "Constraints?", options }]).success).toBe(true);
   });
@@ -87,6 +126,8 @@ describe("conversation form contracts", () => {
           retries: { control: "number", placeholder: "0～3" },
         },
         response_semantics: { kind: "input" },
+        waiting_policy: null,
+        response_source: null,
         response_content: null,
         status: "pending",
         auto_resolve_at: "2026-08-14T08:10:00.000Z",

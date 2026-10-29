@@ -184,7 +184,7 @@ function verifyAnonymousImages(t, deniedReference) {
   writeFileSync(path.join(assets, "release-manifest.env"), manifest)
   writeFileSync(path.join(assets, "release-manifest.env.sha256"), `${createHash("sha256").update(manifest).digest("hex")}  release-manifest.env\n`)
   const calls = path.join(directory, "docker-calls")
-  writeFileSync(path.join(bin, "docker"), `#!${process.execPath}
+  writeFileSync(path.join(bin, "docker"), `#!/usr/bin/env node
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const args = process.argv.slice(2);
@@ -378,7 +378,7 @@ function check(t, overrides = {}) {
   assert.ok(preflight, "Release authorization step must be present")
   const directory = mkdtempSync(path.join(tmpdir(), "linksense-release-gate-"))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
-  writeFileSync(path.join(directory, "gh"), `#!${process.execPath}
+  writeFileSync(path.join(directory, "gh"), `#!/usr/bin/env node
 const args = process.argv.slice(2)
 const request = args.join(" ")
 if (process.env.FAKE_API_FAILURE === "1") process.exit(1)

@@ -1,5 +1,5 @@
 import { browserPanelRequestSchema, browserPanelStateSchema, browserPanelErrorCodes, type BrowserPanelRequest, type BrowserPanelState } from "@linksense/shared";
-import { runtimePlacementSchema, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, type RuntimePlacement } from "@linksense/shared";
+import { diskUsageSchema, runtimePlacementSchema, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, type RuntimePlacement } from "@linksense/shared";
 import type { AppConfig } from "../config.js";
 import { AppError } from "../lib/errors.js";
 import {
@@ -91,6 +91,7 @@ const runnerHealthSchema = z.strictObject({
   turn_start_contract_version: z.literal(RUNNER_TURN_START_CONTRACT_VERSION),
   runner_instance_id: z.uuid().optional(),
   docker_resource_usage: runnerDockerResourceUsageSchema.optional(),
+  disk_usage: diskUsageSchema.optional(),
   worker_provider: runnerWorkerProviderSchema.optional(),
 });
 

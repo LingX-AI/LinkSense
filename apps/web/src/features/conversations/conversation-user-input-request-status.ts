@@ -6,6 +6,7 @@ export type ConversationUserInputDisplayStatus =
   | "pending"
   | "submitting"
   | "submitted"
+  | "recommended"
   | "approved"
   | "rejected"
   | "cancelled"
@@ -48,6 +49,7 @@ export function getConversationUserInputDisplayStatus(
     return "terminated"
   }
   if (request.kind === "form") {
+    if (request.response_source === "recommendation") return "recommended"
     return conversationFormAcceptedOutcome(
       request.response_semantics,
       request.response_content

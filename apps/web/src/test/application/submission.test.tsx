@@ -244,6 +244,8 @@ describe("LinkSense application", () => {
             turn_id: requestTurnId,
             item_id: "linksense-form-31",
             kind: "form",
+            waiting_policy: null,
+            response_source: null,
             server_name: "linksense_core",
             message: "请确认是否创建草稿。",
             requested_schema: {

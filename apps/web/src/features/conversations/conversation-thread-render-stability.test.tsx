@@ -372,6 +372,8 @@ describe("conversation stream render stability", () => {
               requested_schema: { type: "object", properties: {} },
               ui_hints: {},
               response_semantics: { kind: "input" },
+              waiting_policy: null,
+              response_source: null,
               response_content: null,
               status: "pending",
               auto_resolve_at: null,

@@ -19,6 +19,7 @@ import {
   conversationFormRequestedSchema,
   conversationFormResponseSemanticsSchema,
   conversationFormUiHintsSchema,
+  conversationFormWaitingPolicySchema,
   conversationUserInputResponseSchema,
   emitInteractiveApplicationCustomEventInputSchema,
   getKnowledgeDocumentMarkdownInputSchema,
@@ -107,6 +108,7 @@ const mcpInteractiveFormBodySchema = z.strictObject({
   requestedSchema: conversationFormRequestedSchema,
   uiHints: conversationFormUiHintsSchema,
   responseSemantics: conversationFormResponseSemanticsSchema,
+  waitingPolicy: conversationFormWaitingPolicySchema.default({ kind: "required" }),
 });
 const mcpInteractiveApplicationEventBodySchema =
   emitInteractiveApplicationCustomEventInputSchema;
