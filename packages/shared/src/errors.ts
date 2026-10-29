@@ -160,8 +160,8 @@ export const errorCatalog = {
     message_key: "errors.botChannels.BOT_CHANNEL_BUSY",
     http_status: 409,
     messages: {
-      "zh-CN": "该渠道正在处理消息，请稍后再断开。",
-      "en-US": "This channel is processing a message. Try disconnecting again shortly.",
+      "zh-CN": "该渠道正在处理其他操作，请稍后重试。",
+      "en-US": "This channel is busy with another operation. Please try again shortly.",
     },
   },
   BOT_CHANNEL_CONNECTION_FAILED: {

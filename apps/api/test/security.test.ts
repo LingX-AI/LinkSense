@@ -218,6 +218,7 @@ describe("security boundaries", () => {
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.json");
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.instruction");
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.app_secret");
+    expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.secret");
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.ticket");
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.renewal_token");
     expect(SENSITIVE_REQUEST_LOG_PATHS).toContain("req.body.values[*].value");

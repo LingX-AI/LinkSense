@@ -31,7 +31,12 @@ export async function connectDingtalk(
         client.socketCallBackResponse(frame.headers.messageId, {});
         return;
       }
-      const message = projectChannelMessage(credentials, payload);
+      const message = projectChannelMessage(
+        credentials,
+        payload,
+        new Date(),
+        input.allowGroupMessages,
+      );
       if (message) await input.onMessage(message);
       // Acknowledge only after the durable inbox has accepted the message.
       client.socketCallBackResponse(frame.headers.messageId, {});
@@ -111,7 +116,7 @@ export async function connectDingtalk(
             msgParam: JSON.stringify({ content: text }),
             ...(context.group
               ? { openConversationId: context.chatId }
-              : { userIds: [context.senderId] }),
+              : { userIds: [context.recipientId] }),
           },
           token.value,
         );

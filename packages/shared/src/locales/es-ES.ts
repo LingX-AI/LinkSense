@@ -42,7 +42,7 @@ export const errorMessages = {
   "PROJECT_NAME_EXISTS": "Ya existe un proyecto con este nombre. Elige otro nombre",
   "PROJECT_TASK_ACTIVE": "Finaliza las tareas activas antes de moverlas o eliminar su proyecto",
   "BOT_CHANNEL_CONNECTION_CONFLICT": "Este canal o bot ya está conectado. Desconecta primero la conexión existente.",
-  "BOT_CHANNEL_BUSY": "Este canal está procesando un mensaje. Intenta desconectarlo de nuevo en unos instantes.",
+  "BOT_CHANNEL_BUSY": "Este canal está realizando otra operación. Inténtalo de nuevo en unos instantes.",
   "BOT_CHANNEL_CONNECTION_FAILED": "No se pudo conectar. Comprueba la configuración de la aplicación, los permisos y la red.",
   "BOT_CHANNEL_DELIVERY_FAILED": "No se pudo entregar el mensaje. Comprueba el estado del canal y los permisos de mensajería.",
   "BOT_CHANNEL_PROTOCOL_INVALID": "El canal de mensajería devolvió una respuesta no válida.",

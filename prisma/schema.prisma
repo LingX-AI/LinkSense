@@ -2300,10 +2300,9 @@ model SystemSetting {
 
 model BotChannelConnection {
   id                   String    @id @default(uuid()) @db.Uuid
-  ownerId              String    @map("owner_id") @db.Uuid
+  ownerId              String?    @map("owner_id") @db.Uuid
   provider             String    @db.VarChar(16)
   externalId           String    @map("external_id") @db.VarChar(128)
-  allowedSenderId      String    @map("allowed_sender_id") @db.VarChar(256)
   allowGroupMessages   Boolean   @default(true) @map("allow_group_messages")
   encryptedCredentials String    @map("encrypted_credentials") @db.Text
   encryptionKeyId      String    @map("encryption_key_id") @db.VarChar(80)
@@ -2322,7 +2321,21 @@ model BotChannelConnection {
   @@map("bot_channel_connections")
 }
 
+model BotChannelIdentity {
+  id           String   @id @default(uuid()) @db.Uuid
+  connectionId String   @map("connection_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  senderId     String   @map("sender_id") @db.VarChar(256)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([connectionId, senderId], map: "bot_channel_identities_connection_sender_key")
+  @@unique([connectionId, userId], map: "bot_channel_identities_connection_user_key")
+  @@index([userId], map: "bot_channel_identities_user_idx")
+  @@map("bot_channel_identities")
+}
+
 model BotChannelPeerSession {
+  ownerId        String   @map("owner_id") @db.Uuid
   id             String   @id @default(uuid()) @db.Uuid
   connectionId   String   @map("connection_id") @db.Uuid
   chatId         String   @map("chat_id") @db.VarChar(1024)
@@ -2332,13 +2345,14 @@ model BotChannelPeerSession {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  @@unique([connectionId, chatId], map: "bot_channel_peer_sessions_connection_chat_key")
+  @@unique([connectionId, chatId, ownerId], map: "bot_channel_peer_sessions_connection_chat_owner_key")
   @@index([conversationId], map: "bot_channel_peer_sessions_conversation_idx")
   @@index([connectionId, lastInboundAt(sort: Desc)], map: "bot_channel_peer_sessions_connection_inbound_idx")
   @@map("bot_channel_peer_sessions")
 }
 
 model BotChannelInboundMessage {
+  ownerId          String    @map("owner_id") @db.Uuid
   encryptedContext String    @map("encrypted_context") @db.Text
   encryptionKeyId  String    @map("encryption_key_id") @db.VarChar(80)
   id               String    @id @default(uuid()) @db.Uuid
@@ -2363,7 +2377,7 @@ model BotChannelInboundMessage {
 
   @@unique([connectionId, messageKey], map: "bot_channel_inbound_messages_connection_message_key")
   @@index([status, nextAttemptAt, ingestOrder], map: "bot_channel_inbound_messages_status_next_ingest_idx")
-  @@index([connectionId, chatId, status, ingestOrder], map: "bot_channel_inbound_messages_chat_queue_idx")
+  @@index([connectionId, chatId, ownerId, status, ingestOrder], map: "bot_channel_inbound_messages_chat_queue_idx")
   @@index([conversationId, turnId], map: "bot_channel_inbound_messages_turn_idx")
   @@map("bot_channel_inbound_messages")
 }

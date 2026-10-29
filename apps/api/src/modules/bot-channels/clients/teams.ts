@@ -124,7 +124,12 @@ export async function connectTeams(
     },
   });
   app.on("message", async ({ activity }) => {
-    const message = projectChannelMessage(credentials, activity);
+    const message = projectChannelMessage(
+      credentials,
+      activity,
+      new Date(),
+      input.allowGroupMessages,
+    );
     if (message) await input.onMessage(message);
   });
   await app.initialize();

@@ -128,6 +128,7 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.body.environment",
   "req.body.json",
   "req.body.client_secret",
+  "req.body.secret",
   "req.body.signing_private_key",
   "req.body.SAMLResponse",
   "req.body.RelayState",

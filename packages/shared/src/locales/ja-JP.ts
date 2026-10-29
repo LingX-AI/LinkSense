@@ -42,7 +42,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   PROJECT_NAME_EXISTS: "同名のプロジェクトが既に存在します。別の名前を指定してください",
   PROJECT_TASK_ACTIVE: "タスクを移動したりプロジェクトを削除したりする前に、実行中のタスクを完了してください",
   BOT_CHANNEL_CONNECTION_CONFLICT: "このチャネルまたはボットは既に接続されています。先に既存の接続を解除してください。",
-  BOT_CHANNEL_BUSY: "このチャネルはメッセージを処理中です。少し待ってから接続解除を再試行してください。",
+  BOT_CHANNEL_BUSY: "このチャネルは別の操作を処理中です。しばらくしてから再試行してください。",
   BOT_CHANNEL_CONNECTION_FAILED: "接続できません。アプリの設定、権限、ネットワークを確認してください。",
   BOT_CHANNEL_DELIVERY_FAILED: "メッセージを配信できませんでした。チャネルの状態とメッセージ権限を確認してください。",
   BOT_CHANNEL_PROTOCOL_INVALID: "メッセージチャネルから無効な応答が返されました。",

@@ -42,7 +42,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   "PROJECT_NAME_EXISTS": "Já existe um projeto com este nome. Escolha outro nome",
   "PROJECT_TASK_ACTIVE": "Conclua as tarefas ativas antes de movê-las ou remover seu projeto",
   "BOT_CHANNEL_CONNECTION_CONFLICT": "Este canal ou bot já está conectado. Desconecte a conexão existente primeiro.",
-  "BOT_CHANNEL_BUSY": "Este canal está processando uma mensagem. Tente desconectar novamente em breve.",
+  "BOT_CHANNEL_BUSY": "Este canal está realizando outra operação. Tente novamente em breve.",
   "BOT_CHANNEL_CONNECTION_FAILED": "Não foi possível conectar. Verifique a configuração do aplicativo, as permissões e a rede.",
   "BOT_CHANNEL_DELIVERY_FAILED": "Não foi possível entregar a mensagem. Verifique o status do canal e as permissões de mensagens.",
   "BOT_CHANNEL_PROTOCOL_INVALID": "O canal de mensagens retornou uma resposta inválida.",
