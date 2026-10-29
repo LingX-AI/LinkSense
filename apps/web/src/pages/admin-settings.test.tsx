@@ -1100,6 +1100,7 @@ describe("administrator authentication settings", () => {
       "产品设置",
       "认证邮件",
       "登录方式",
+      "组织消息渠道",
       "任务并发",
       "系统维护",
     ])

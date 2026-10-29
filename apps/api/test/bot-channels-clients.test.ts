@@ -35,6 +35,7 @@ afterEach(async () => {
 function input(provider: "wecom" | "dingtalk" | "teams"): ChannelConnectInput {
   return {
     id: "10000000-0000-4000-8000-000000000001",
+    allowGroupMessages: true,
     credentials: testCredentials.find((item) => item.provider === provider)!,
     signal: new AbortController().signal,
     onMessage: vi.fn(async () => undefined),
@@ -180,7 +181,7 @@ it.each([false, true])(
     const context = {
       provider: "dingtalk" as const,
       chatId: "group1",
-      senderId: "member",
+      recipientId: "member",
       group,
     };
     await session.send(context, "reply");
@@ -217,7 +218,7 @@ it("does not mark a rejected DingTalk recipient as sent", async () => {
       {
         provider: "dingtalk",
         chatId: "chat",
-        senderId: "member",
+        recipientId: "member",
         group: false,
       },
       "reply",
@@ -257,4 +258,22 @@ describe("real Teams SDK authentication boundary", () => {
       await session.handleRequest?.({ body: {}, headers: {} }),
     ).toMatchObject({ status: 400 });
   });
+});
+
+it("respects WeCom group policy while keeping direct identity confirmation available", async () => {
+  const emitter = new EventEmitter();
+  const client = Object.assign(emitter, {
+    isConnected: true,
+    connect: vi.fn(() => emitter.emit("authenticated")),
+    disconnect: vi.fn(),
+    sendMessage: vi.fn(async () => undefined),
+  });
+  sdk.wecom.mockReturnValue(client);
+  const args = input("wecom");
+  args.allowGroupMessages = false;
+  sessions.push(await connectWecom(args));
+  emitter.emit("message.text", { body: platformPayload("wecom", true) });
+  expect(args.onMessage).not.toHaveBeenCalled();
+  emitter.emit("message.text", { body: platformPayload("wecom") });
+  await vi.waitFor(() => expect(args.onMessage).toHaveBeenCalledOnce());
 });

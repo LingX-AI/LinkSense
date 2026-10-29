@@ -15,9 +15,8 @@ export const channelResources = {
     clientId: "Identifiant client de l’application",
     secret: "Secret de l’application",
     tenantId: "Identifiant du locataire",
-    sender: "Identifiant du membre autorisé",
     groups:
-      "Autoriser ce membre à démarrer des tâches en mentionnant le bot dans les groupes",
+      "Autoriser les membres à lancer des tâches en mentionnant le bot dans les groupes",
     callback: "Point d’accès de messagerie",
     callbackHelp:
       "Définissez cette URL comme point d’accès de messagerie Azure Bot. Elle doit être accessible publiquement en HTTPS.",
@@ -26,13 +25,14 @@ export const channelResources = {
     disconnectHelp:
       "La déconnexion arrête la réception et l’envoi de messages par ce canal et supprime les messages et réponses en attente. Les tâches LinkSense existantes sont conservées.",
     invalid:
-      "Vérifiez tous les champs obligatoires. Les identifiants d’application, de locataire et de membre Teams doivent être des UUID valides.",
+      "Renseignez les paramètres de connexion. Les identifiants d’application et de locataire Teams doivent être des UUID valides.",
     status: {
       connecting: "Connexion en cours",
       online: "En ligne",
       waiting_message: "En attente d’un message",
       error: "Erreur de connexion",
       disconnected: "Non connecté",
+      disabled: "Suspendu",
     },
     description: {
       wecom:
@@ -44,19 +44,51 @@ export const channelResources = {
     },
     setup: {
       wecom:
-        "Créez un bot intelligent WeCom en mode API avec une connexion persistante, puis saisissez son identifiant, son secret et le membre autorisé.",
+        "Créez un bot intelligent dans WeCom en mode API avec une connexion persistante, puis saisissez son identifiant et son secret.",
       dingtalk:
-        "Créez une application interne sur la plateforme développeur DingTalk, activez et publiez son bot Stream, puis accordez les autorisations de messagerie directe et de groupe.",
+        "Scannez avec DingTalk sur votre téléphone et suivez les étapes pour créer et autoriser un bot. Associez ensuite votre compte LinkSense.",
       teams:
         "Créez un Azure Bot à locataire unique et activez Microsoft Teams. Après enregistrement, configurez son point d’accès de messagerie dans Azure et installez l’application du bot dans Teams.",
     },
-    senderHelp: {
-      wecom:
-        "Saisissez le userid du membre figurant dans l’annuaire WeCom. Seul ce membre pourra utiliser votre assistant LinkSense.",
-      dingtalk:
-        "Saisissez le UserId du membre de votre organisation DingTalk. Seul ce membre pourra utiliser votre assistant LinkSense.",
-      teams:
-        "Saisissez l’identifiant d’objet de l’utilisateur dans Microsoft Entra. Seul cet utilisateur pourra utiliser votre assistant LinkSense.",
+    adminTitle: "Canaux de messagerie de l’organisation",
+    adminHelp:
+      "Configurez WeCom et Teams pour l’organisation. Les membres associent leur propre compte LinkSense et exécutent les tâches avec leurs propres autorisations et ressources.",
+    organizationHelp:
+      "Géré par un administrateur. Associez votre compte LinkSense pour utiliser ce canal. Les comptes non inscrits ou désactivés ne peuvent pas lancer de tâches.",
+    personalHelp:
+      "Scannez avec DingTalk pour créer et autoriser votre bot personnel, puis associez votre compte.",
+    notConfigured: "En attente de configuration par l’administrateur",
+    scanConnect: "Connexion par code QR",
+    scanTitle: "Connecter DingTalk",
+    scanHelp:
+      "Scannez avec DingTalk sur votre téléphone et suivez les étapes pour créer et autoriser un bot. Associez ensuite votre compte LinkSense.",
+    qrLabel: "Code QR de connexion DingTalk",
+    waitingScan: "Scannez avec DingTalk et terminez l’autorisation.",
+    generateQr: "Générer le code QR",
+    regenerate: "Générer à nouveau",
+    linkAccount: "Associer mon compte",
+    linked: "Compte associé",
+    linkTitle: "Associer votre compte {{name}}",
+    linkHelp:
+      "Envoyez le message de confirmation au bot dans une conversation privée pour associer votre compte LinkSense actuel. Ne le transmettez à personne.",
+    confirmationMessage: "Message de confirmation",
+    linkExpiry:
+      "Valable 10 minutes et une seule fois. Cette page se met à jour automatiquement après l’envoi.",
+    getConfirmation: "Obtenir le message de confirmation",
+    copy: "Copier le message de confirmation",
+    copied: "Copié",
+    copyFailed:
+      "La copie a échoué. Sélectionnez et copiez le message manuellement.",
+    unlink: "Dissocier le compte",
+    unlinkHelp:
+      "Cette identité du canal ne pourra plus lancer de tâches. Les tâches LinkSense existantes sont conservées.",
+    enable: "Activer",
+    pause: "Suspendre",
+    registrationStatus: {
+      connected:
+        "Autorisation QR terminée. Continuez pour associer votre compte.",
+      expired: "Le code QR a expiré. Générez-en un nouveau.",
+      failed: "L’autorisation n’a pas abouti. Réessayez.",
     },
   },
   channelAccess: {

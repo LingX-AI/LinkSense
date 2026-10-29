@@ -1,26 +1,20 @@
-import type { BotChannelCreate } from "@linksense/shared";
-export const testCredentials: BotChannelCreate[] = [
+import type { BotChannelCredentials } from "@linksense/shared";
+export const testCredentials: BotChannelCredentials[] = [
   {
     provider: "wecom",
     bot_id: "aib-test",
     secret: "test-secret",
-    allowed_sender_id: "member",
-    allow_group_messages: true,
   },
   {
     provider: "dingtalk",
     client_id: "ding-test",
     client_secret: "test-secret",
-    allowed_sender_id: "member",
-    allow_group_messages: true,
   },
   {
     provider: "teams",
     client_id: "11111111-1111-4111-8111-111111111111",
     client_secret: "test-secret",
     tenant_id: "22222222-2222-4222-8222-222222222222",
-    allowed_sender_id: "33333333-3333-4333-8333-333333333333",
-    allow_group_messages: true,
   },
 ];
 export function platformPayload(provider: string, group = false) {
@@ -40,6 +34,7 @@ export function platformPayload(provider: string, group = false) {
       robotCode: "ding-test",
       conversationId: "group1",
       conversationType: group ? "2" : "1",
+      senderId: "member",
       senderStaffId: "member",
       msgtype: "text",
       text: { content: "hello" },

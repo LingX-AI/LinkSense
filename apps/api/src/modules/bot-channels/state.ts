@@ -1,6 +1,6 @@
 import {
-  botChannelCreateSchema,
-  type BotChannelCreate,
+  botChannelCredentialsSchema,
+  type BotChannelCredentials,
 } from "@linksense/shared";
 import type {
   BotChannelConnection,
@@ -13,11 +13,11 @@ export type ChannelEncryption = { masterKey: string; keyId: string };
 
 export function encryptChannelCredentials(
   id: string,
-  value: BotChannelCreate,
+  value: BotChannelCredentials,
   encryption: ChannelEncryption,
 ): string {
   return encryptJson(
-    botChannelCreateSchema.parse(value),
+    botChannelCredentialsSchema.parse(value),
     encryption.masterKey,
     encryption.keyId,
     `bot-channel:${id}`,
@@ -26,8 +26,8 @@ export function encryptChannelCredentials(
 export function decryptChannelCredentials(
   row: BotChannelConnection,
   encryption: ChannelEncryption,
-): BotChannelCreate {
-  return botChannelCreateSchema.parse(
+): BotChannelCredentials {
+  return botChannelCredentialsSchema.parse(
     decryptJson(
       row.encryptedCredentials,
       encryption.masterKey,

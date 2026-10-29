@@ -25,8 +25,100 @@ export class BotChannelCoordinationError extends Error {
 }
 export class RedisBotChannelCoordinator {
   constructor(private readonly redis: Redis) {}
+  async setRegistration(
+    id: string,
+    encryptedValue: string,
+    ttlSeconds: number,
+  ): Promise<void> {
+    await this.redis.set(
+      "linksense:v2:bot-registration:" + id,
+      encryptedValue,
+      "EX",
+      ttlSeconds,
+    );
+  }
+  getRegistration(id: string): Promise<string | null> {
+    return this.redis.get("linksense:v2:bot-registration:" + id);
+  }
+  async issueLinkCode(
+    connectionId: string,
+    userId: string,
+    code: string,
+    ttlSeconds: number,
+  ): Promise<void> {
+    const ownerKey =
+      "linksense:v2:bot-link-owner:" + digest(connectionId + ":" + userId);
+    const tokenKey =
+      "linksense:v2:bot-link-code:" + digest(connectionId + ":" + code);
+    await this.redis.eval(
+      `
+local previous = redis.call('GET', KEYS[1])
+if previous then redis.call('DEL', previous) end
+redis.call('SET', KEYS[1], KEYS[2], 'EX', ARGV[2])
+redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])
+return 1`,
+      2,
+      ownerKey,
+      tokenKey,
+      userId,
+      ttlSeconds,
+    );
+  }
+  async revokeLinkCode(connectionId: string, userId: string): Promise<void> {
+    await this.redis.eval(
+      `local previous = redis.call('GET', KEYS[1]); if previous then redis.call('DEL', previous) end; return redis.call('DEL', KEYS[1])`,
+      1,
+      "linksense:v2:bot-link-owner:" + digest(connectionId + ":" + userId),
+    );
+  }
+  async activateRegistration(ownerId: string, id: string): Promise<void> {
+    await this.redis.set(
+      "linksense:v2:bot-active-registration:" + digest(ownerId),
+      id,
+      "EX",
+      7500,
+    );
+  }
+  async isActiveRegistration(ownerId: string, id: string): Promise<boolean> {
+    return (
+      (await this.redis.get(
+        "linksense:v2:bot-active-registration:" + digest(ownerId),
+      )) === id
+    );
+  }
+  async cancelRegistration(ownerId: string): Promise<void> {
+    await this.redis.del(
+      "linksense:v2:bot-active-registration:" + digest(ownerId),
+    );
+  }
+  async consumeLinkCode(
+    connectionId: string,
+    code: string,
+  ): Promise<string | null> {
+    return this.redis.getdel(
+      "linksense:v2:bot-link-code:" + digest(connectionId + ":" + code),
+    );
+  }
+  async allowIdentityNotice(
+    connectionId: string,
+    senderId: string,
+  ): Promise<boolean> {
+    return (
+      (await this.redis.set(
+        "linksense:v2:bot-identity-notice:" +
+          digest(connectionId + ":" + senderId),
+        "1",
+        "EX",
+        60,
+        "NX",
+      )) === "OK"
+    );
+  }
+
   async acquireLease(
     scope:
+      | "registration"
+      | "registration-owner"
       | "inbound"
       | "delivery"
       | "websocket"
@@ -81,6 +173,8 @@ export class RedisBotChannelCoordinator {
 
 function leaseKey(
   scope:
+    | "registration"
+    | "registration-owner"
     | "inbound"
     | "delivery"
     | "websocket"

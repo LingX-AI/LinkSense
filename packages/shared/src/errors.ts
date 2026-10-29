@@ -160,8 +160,8 @@ export const errorCatalog = {
     message_key: "errors.botChannels.BOT_CHANNEL_BUSY",
     http_status: 409,
     messages: {
-      "zh-CN": "该渠道正在处理消息，请稍后再断开。",
-      "en-US": "This channel is processing a message. Try disconnecting again shortly.",
+      "zh-CN": "该渠道正在处理其他操作，请稍后重试。",
+      "en-US": "This channel is busy with another operation. Please try again shortly.",
     },
   },
   BOT_CHANNEL_CONNECTION_FAILED: {
@@ -326,6 +326,14 @@ export const errorCatalog = {
     messages: {
       "zh-CN": "未找到该插件或 Skill。",
       "en-US": "The plugin or skill was not found.",
+    },
+  },
+  SKILL_UNINSTALL_NOT_ALLOWED: {
+    message_key: "errors.skillManagement.uninstallNotAllowed",
+    http_status: 403,
+    messages: {
+      "zh-CN": "此技能不能卸载。内置技能由系统提供。",
+      "en-US": "This skill cannot be uninstalled. Built-in skills are provided by the system.",
     },
   },
   MCP_SERVER_NOT_FOUND: {

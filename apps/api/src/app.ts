@@ -60,6 +60,7 @@ import {
 import { ACCESS_TOKEN_TTL_SECONDS } from "./config.js";
 import { capabilityRoutes } from "./modules/capabilities/routes.js";
 import { internalSkillCreatorRoutes } from "./modules/capabilities/internal-skill-creator-routes.js";
+import { internalSkillManagementRoutes } from "./modules/capabilities/internal-skill-management-routes.js";
 import { credentialRoutes } from "./modules/credentials/routes.js";
 import { adminUserRoutes, meRoutes } from "./modules/users/routes.js";
 import {
@@ -127,6 +128,7 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.body.environment",
   "req.body.json",
   "req.body.client_secret",
+  "req.body.secret",
   "req.body.signing_private_key",
   "req.body.SAMLResponse",
   "req.body.RelayState",
@@ -577,6 +579,11 @@ export async function buildApi(
   await app.register(internalSkillCreatorRoutes, {
     prefix: "/internal/skill-creator",
     service: services.skillCreator,
+    sharedSecret: services.config.runnerSharedSecret,
+  });
+  await app.register(internalSkillManagementRoutes, {
+    prefix: "/internal/skills",
+    service: services.skillManagement,
     sharedSecret: services.config.runnerSharedSecret,
   });
   await app.register(applicationDevelopmentRoutes, { prefix: "/api/v1/application-developments", service: services.applicationDevelopment });

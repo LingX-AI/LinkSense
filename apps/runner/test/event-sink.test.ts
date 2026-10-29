@@ -411,6 +411,22 @@ describe("HttpRunnerEventSink", () => {
     await sink.close();
   });
 
+  it("relays Skill management with the owner scope, cancellation and safe errors without repeating uninstallation", async () => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ success: true, operation: "list", items: [] }))
+      .mockResolvedValueOnce(jsonResponse({ error_code: "CAPABILITY_HOME_SYNC_FAILED", message: "private backend details" }, 503));
+    const sink = new HttpRunnerEventSink("http://127.0.0.1:4000/internal", "runner-shared-secret-value", workspaceManager, { fetch: fetchMock });
+    const signal = new AbortController().signal;
+    const input = { conversationId, turnId: "01900000-0000-7000-8000-000000000004", request: { operation: "list" as const } };
+    await expect(sink.manageSkills({ ...input, signal })).resolves.toHaveProperty("items", []);
+    await expect(sink.manageSkills({ ...input, request: { operation: "uninstall", skill_id: "01900000-0000-7000-8000-000000000005" } })).rejects.toMatchObject({ code: "CAPABILITY_HOME_SYNC_FAILED", retryable: false, statusCode: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://127.0.0.1:4000/internal/skills/execute");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ headers: expect.objectContaining({ "x-linksense-owner-id": ownerId }), body: JSON.stringify(input), signal: expect.any(AbortSignal) });
+    await sink.close();
+  });
+
   it("forwards Skill creator operations with owner identity and maps safe API failures", async () => {
     const { workspaceManager } = await createWorkspaceManager();
     const fetchMock = vi

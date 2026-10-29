@@ -1,3 +1,4 @@
+import { AdminBotChannels } from "@/features/bot-channels/admin-bot-channels"
 import { SamlSettingsForm } from "@/features/saml/settings-form"
 import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { Separator } from "@/components/ui/separator"
@@ -236,6 +237,7 @@ const systemSettingsSections = [
   "product",
   "smtp",
   "login",
+  "channels",
   "concurrency",
   "maintenance",
 ] as const
@@ -3714,6 +3716,9 @@ function ProductSettingsEditor({
         </TabsTrigger>
         <TabsTrigger value="smtp">{t("admin.settingsTabs.smtp")}</TabsTrigger>
         <TabsTrigger value="login">{t("admin.settingsTabs.login")}</TabsTrigger>
+        <TabsTrigger value="channels">
+          {t("botChannels.adminTitle")}
+        </TabsTrigger>
         <TabsTrigger value="concurrency">
           {t("admin.settingsTabs.concurrency")}
         </TabsTrigger>
@@ -3722,6 +3727,9 @@ function ProductSettingsEditor({
         </TabsTrigger>
       </TabsList>
 
+      <TabsContent value="channels" className="min-w-0">
+        <AdminBotChannels />
+      </TabsContent>
       <TabsContent value="product" className="min-w-0" keepMounted>
         <NotificationToast id="product-settings-saved" message={message} />
         {error && <StatusBanner variant="error">{error}</StatusBanner>}

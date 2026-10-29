@@ -8,6 +8,7 @@ import {
   RedisBotChannelCoordinator,
   type BotChannelLease,
 } from "./coordinator.js";
+import { BotChannelIdentityService } from "./identity.js";
 import { PrismaBotChannelRepository } from "./repository.js";
 import {
   decryptChannelCredentials,
@@ -69,6 +70,11 @@ export class BotChannelRuntime {
     private readonly encryption: ChannelEncryption,
     private readonly now: () => Date = () => new Date(),
     private readonly createId: () => string = uuidv7,
+    private readonly identity = new BotChannelIdentityService(
+      repository,
+      coordinator,
+      now,
+    ),
   ) {
     this.inboundWork = new DurableWorkDispatcher({
       concurrency: 20,
@@ -224,6 +230,7 @@ export class BotChannelRuntime {
       const session = await this.client.connect({
         id: row.id,
         credentials: decryptChannelCredentials(row, this.encryption),
+        allowGroupMessages: row.allowGroupMessages,
         signal: controller.signal,
         onMessage: (message) => this.#receive(row.id, message),
         onError: () => {
@@ -285,12 +292,46 @@ export class BotChannelRuntime {
     if (
       !row ||
       row.provider !== message.context.provider ||
-      row.allowedSenderId !== message.senderId ||
       (message.group && !row.allowGroupMessages)
     )
       return;
+    const entry = this.sessions.get(connectionId);
+    if (!entry?.session.isConnected() || entry.controller.signal.aborted)
+      throw new ChannelProtocolError("BOT_CHANNEL_CONNECTION_FAILED");
+    const command = await this.identity.handleCommand(
+      connectionId,
+      message.senderId,
+      message.text,
+      message.group,
+    );
+    const ownerId = await this.repository.resolveSenderOwner(
+      connectionId,
+      message.senderId,
+    );
+    if (command || !ownerId) {
+      if (
+        command === "linked" ||
+        (await this.coordinator.allowIdentityNotice(
+          connectionId,
+          message.senderId,
+        ))
+      ) {
+        const locale = ownerId
+          ? await this.repository.getOwnerLocale(ownerId)
+          : "zh-CN";
+        await entry.session.send(
+          message.context,
+          translateBackend(
+            `botChannels.identity.${command ?? "unlinked"}`,
+            locale,
+          ),
+        );
+      }
+      return;
+    }
     const id = this.createId();
     const persisted = await this.repository.persistInbound({
+      ownerId,
       id,
       connectionId,
       messageKey: message.messageKey,
@@ -391,25 +432,35 @@ export class BotChannelRuntime {
       }
       item.connection = connection;
       if (
+        (await this.repository.resolveSenderOwner(
+          connection.id,
+          claimed.senderId,
+        )) !== claimed.ownerId
+      ) {
+        await this.repository.markInboundFailed(
+          claimed.id,
+          lease.token,
+          "FORBIDDEN",
+          this.now(),
+        );
+        return;
+      }
+      if (
         (await this.repository.hasEarlierPendingMessage(claimed)) ||
         (await this.repository.hasUnsentDeliveryForChat(
           connection.id,
           claimed.chatId,
+          claimed.ownerId,
         ))
       ) {
         await this.#deferInbound(claimed.id, lease.token);
         return;
       }
       guard.assertActive();
-      await this.#acceptInbound(
-        connection.ownerId,
-        claimed,
-        lease.token,
-        () => {
-          guard.assertActive();
-          assertConnectionActive();
-        },
-      );
+      await this.#acceptInbound(claimed.ownerId, claimed, lease.token, () => {
+        guard.assertActive();
+        assertConnectionActive();
+      });
     } catch (error) {
       if (error instanceof BotChannelLeaseLostError || !claimed) return;
       if (!guard.isActive()) return;
@@ -499,6 +550,7 @@ export class BotChannelRuntime {
     let peer = await this.repository.findPeerSession(
       message.connectionId,
       message.chatId,
+      ownerId,
     );
     if (
       peer &&
@@ -516,6 +568,7 @@ export class BotChannelRuntime {
       });
       assertActive();
       peer = await this.repository.upsertPeerSession({
+        ownerId,
         id: this.createId(),
         connectionId: message.connectionId,
         chatId: message.chatId,
@@ -525,6 +578,7 @@ export class BotChannelRuntime {
       });
     } else {
       peer = await this.repository.upsertPeerSession({
+        ownerId,
         id: peer.id,
         connectionId: message.connectionId,
         chatId: message.chatId,
@@ -665,17 +719,37 @@ export class BotChannelRuntime {
         await this.#deferDelivery(claimed.id, lease.token);
         return;
       }
+      if (
+        (await this.repository.resolveSenderOwner(
+          connection.id,
+          item.inbound.senderId,
+        )) !== item.inbound.ownerId ||
+        !(await this.repository.conversationIsAvailable(
+          item.inbound.ownerId,
+          claimed.conversationId,
+        ))
+      ) {
+        await this.repository.markDeliveryRetry({
+          deliveryId: claimed.id,
+          processingToken: lease.token,
+          attempts: claimed.attempts,
+          errorCode: "FORBIDDEN",
+          nextAttemptAt: this.now(),
+          terminal: true,
+        });
+        return;
+      }
       const outcome = await this.repository.getTurnOutcome(claimed.turnId);
       if (outcome.status === "running") {
         await this.#deferDelivery(claimed.id, lease.token);
         return;
       }
       await this.#withLocks(
-        connection.ownerId,
+        item.inbound.ownerId,
         claimed.conversationId,
         async (assertLocksActive) => {
           const locale = await this.repository.getOwnerLocale(
-            connection.ownerId,
+            item.inbound.ownerId,
           );
           const text =
             outcome.status === "completed"
@@ -695,7 +769,18 @@ export class BotChannelRuntime {
               this.repository.findClaimedDelivery(claimed!.id, lease.token),
               this.repository.findActiveConnection(connection.id),
             ]);
-            if (!currentDelivery || !activeConnection) {
+            if (
+              !currentDelivery ||
+              !activeConnection ||
+              (await this.repository.resolveSenderOwner(
+                connection.id,
+                item.inbound.senderId,
+              )) !== item.inbound.ownerId ||
+              !(await this.repository.conversationIsAvailable(
+                item.inbound.ownerId,
+                claimed!.conversationId,
+              ))
+            ) {
               throw new BotChannelLeaseLostError();
             }
             if (currentDelivery.sentChunkCount >= index + 1) continue;
@@ -753,15 +838,23 @@ export class BotChannelRuntime {
     assertConnectionActive: () => void,
   ): Promise<void> {
     await this.#withLocks(
-      item.connection.ownerId,
+      item.message.ownerId,
       item.message.conversationId,
       async (assertLocksActive) => {
         const [claimed, connection, locale] = await Promise.all([
           this.repository.findClaimedInbound(item.message.id, processingToken),
           this.repository.findActiveConnection(item.connection.id),
-          this.repository.getOwnerLocale(item.connection.ownerId),
+          this.repository.getOwnerLocale(item.message.ownerId),
         ]);
-        if (!claimed || !connection) throw new BotChannelLeaseLostError();
+        if (
+          !claimed ||
+          !connection ||
+          (await this.repository.resolveSenderOwner(
+            connection.id,
+            claimed.senderId,
+          )) !== claimed.ownerId
+        )
+          throw new BotChannelLeaseLostError();
         assertConnectionActive();
         assertLocksActive();
         await this.#send(
@@ -917,10 +1010,7 @@ function stableRuntimeErrorCode(error: unknown): string {
 function retryDelayMilliseconds(attempts: number): number {
   return Math.min(2 ** Math.min(attempts, 8) * 1000, 300_000);
 }
-export function boundedChunks(
-  text: string,
-  locale: Locale,
-): string[] {
+export function boundedChunks(text: string, locale: Locale): string[] {
   const chunks: string[] = [];
   let chunk = "";
   let bytes = 0;

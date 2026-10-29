@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  botChannelCreateSchema,
+  botChannelCredentialsSchema,
   botChannelConnectionSchema,
 } from "@linksense/shared";
 import {
@@ -26,7 +26,10 @@ describe.each(testCredentials)("$provider message boundary", (credentials) => {
     );
     expect(message).toMatchObject({
       text: "hello",
-      senderId: credentials.allowed_sender_id,
+      senderId:
+        credentials.provider === "teams"
+          ? "33333333-3333-4333-8333-333333333333"
+          : "member",
       group: false,
       context: { provider: credentials.provider },
     });
@@ -39,17 +42,24 @@ describe.each(testCredentials)("$provider message boundary", (credentials) => {
       ),
     ).toMatchObject({ text: "hello", group: true });
   });
-  it("rejects a different sender and groups disabled by the owner", () => {
+  it("leaves sender authorization to the identity service and respects disabled groups", () => {
+    const payload = platformPayload(credentials.provider);
+    const senderId = "44444444-4444-4444-8444-444444444444";
+    const otherMember =
+      credentials.provider === "wecom"
+        ? { ...payload, from: { userid: senderId } }
+        : credentials.provider === "dingtalk"
+          ? { ...payload, senderId }
+          : { ...payload, from: { aadObjectId: senderId, role: "user" } };
+    expect(projectChannelMessage(credentials, otherMember)).toMatchObject({
+      senderId,
+    });
     expect(
       projectChannelMessage(
-        { ...credentials, allowed_sender_id: "another" },
-        platformPayload(credentials.provider),
-      ),
-    ).toBeNull();
-    expect(
-      projectChannelMessage(
-        { ...credentials, allow_group_messages: false },
+        credentials,
         platformPayload(credentials.provider, true),
+        new Date(),
+        false,
       ),
     ).toBeNull();
   });
@@ -64,12 +74,15 @@ describe.each(testCredentials)("$provider message boundary", (credentials) => {
       expect(projectChannelMessage(credentials, value)).toBeNull();
   });
   it("validates configuration without permitting extra credentials or empty secrets", () => {
-    expect(botChannelCreateSchema.safeParse(credentials).success).toBe(true);
+    expect(botChannelCredentialsSchema.safeParse(credentials).success).toBe(
+      true,
+    );
     expect(
-      botChannelCreateSchema.safeParse({ ...credentials, secret: "" }).success,
+      botChannelCredentialsSchema.safeParse({ ...credentials, secret: "" })
+        .success,
     ).toBe(false);
     expect(
-      botChannelCreateSchema.safeParse({ ...credentials, arbitrary: true })
+      botChannelCredentialsSchema.safeParse({ ...credentials, arbitrary: true })
         .success,
     ).toBe(false);
   });
@@ -108,6 +121,28 @@ it("rejects DingTalk group callbacks without a bot mention", () => {
       isInAtList: false,
     }),
   ).toBeNull();
+});
+
+it("uses the same DingTalk identity across private and group chats and keeps the employee ID only for delivery", () => {
+  const credentials = testCredentials[1]!;
+  const direct = projectChannelMessage(credentials, {
+    ...platformPayload("dingtalk"),
+    senderId: "encrypted-member",
+    senderStaffId: undefined,
+  });
+  const group = projectChannelMessage(credentials, {
+    ...platformPayload("dingtalk", true),
+    senderId: "encrypted-member",
+    senderStaffId: "employee-id",
+  });
+  expect(direct).toMatchObject({
+    senderId: "encrypted-member",
+    context: { recipientId: "encrypted-member" },
+  });
+  expect(group).toMatchObject({
+    senderId: "encrypted-member",
+    context: { recipientId: "employee-id" },
+  });
 });
 
 it("restricts Teams reply destinations to the public Teams service", () => {

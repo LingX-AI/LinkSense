@@ -53,6 +53,7 @@ import {
   CapabilityPackageImporter,
   CapabilityService,
   ConversationSkillCreatorService,
+  ConversationSkillManagementService,
   PrismaCapabilityStore,
   UserHomeCapabilityMaterializer,
   UserHomeCapabilityMaterializationError,
@@ -221,6 +222,7 @@ export type AppServices = {
   clawHub: ClawHubService;
   clawHubScheduler: ClawHubSyncScheduler;
   skillCreator: ConversationSkillCreatorService;
+  skillManagement: ConversationSkillManagementService;
   applicationDevelopment: ApplicationDevelopmentService;
   marketplace: MarketplaceService;
   applications: ApplicationService;
@@ -882,6 +884,7 @@ export function createServices(input: {
     clawHub,
     clawHubScheduler,
     skillCreator,
+    skillManagement: new ConversationSkillManagementService(input.prisma, capabilities),
     applicationDevelopment: new ApplicationDevelopmentService({
       store: new ApplicationDevelopmentRepository(input.prisma), applications, conversations,
       assets: { get: (key) => input.storage.getObjectStream(key) }, workspaceRoot: input.config.workspaceRoot,

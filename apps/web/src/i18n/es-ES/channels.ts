@@ -18,9 +18,8 @@ export const channelMessages = {
     clientId: "ID de cliente de la aplicación",
     secret: "Secreto de la aplicación",
     tenantId: "ID del inquilino",
-    sender: "ID del miembro autorizado",
     groups:
-      "Permitir que este miembro inicie tareas mencionando al bot en grupos",
+      "Permitir que los miembros inicien tareas mencionando al bot en grupos",
     callback: "Punto de conexión de mensajería",
     callbackHelp:
       "Configura esta URL como punto de conexión de mensajería de Azure Bot. Debe ser accesible públicamente mediante HTTPS.",
@@ -29,13 +28,14 @@ export const channelMessages = {
     disconnectHelp:
       "La desconexión detiene la recepción y respuesta de mensajes por este canal y elimina los mensajes y respuestas pendientes. Se conservan las tareas existentes de LinkSense.",
     invalid:
-      "Comprueba todos los campos obligatorios. Los ID de aplicación, inquilino y miembro de Teams deben ser UUID válidos.",
+      "Completa los datos de conexión. Los ID de aplicación e inquilino de Teams deben ser UUID válidos.",
     status: {
       connecting: "Conectando",
       online: "En línea",
       waiting_message: "Esperando un mensaje",
       error: "Error de conexión",
       disconnected: "Sin conexión",
+      disabled: "En pausa",
     },
     description: {
       wecom:
@@ -47,19 +47,50 @@ export const channelMessages = {
     },
     setup: {
       wecom:
-        "Crea un bot inteligente en WeCom con modo API y conexión persistente, e introduce su ID, secreto y miembro autorizado.",
+        "Crea un bot inteligente en WeCom con modo API y conexión persistente, e introduce su ID y secreto.",
       dingtalk:
-        "Crea una aplicación interna en la plataforma de desarrolladores de DingTalk, activa y publica su bot Stream y concede permisos para mensajes directos y de grupo.",
+        "Escanea con DingTalk en tu teléfono y sigue los pasos para crear y autorizar un bot. Después vincula tu cuenta de LinkSense.",
       teams:
         "Crea un Azure Bot de inquilino único y activa Microsoft Teams. Tras guardar, configura su punto de conexión de mensajería en Azure e instala la aplicación del bot en Teams.",
     },
-    senderHelp: {
-      wecom:
-        "Introduce el userid del miembro de tu directorio de WeCom. Solo este miembro podrá usar tu asistente de LinkSense.",
-      dingtalk:
-        "Introduce el UserId del miembro de tu organización de DingTalk. Solo este miembro podrá usar tu asistente de LinkSense.",
-      teams:
-        "Introduce el ID de objeto del usuario de Microsoft Entra. Solo este usuario podrá usar tu asistente de LinkSense.",
+    adminTitle: "Canales de mensajes de la organización",
+    adminHelp:
+      "Configura WeCom y Teams para la organización. Cada miembro vincula su cuenta de LinkSense y ejecuta tareas con sus propios permisos y recursos.",
+    organizationHelp:
+      "Gestionado por un administrador. Vincula tu cuenta de LinkSense para usar este canal. Las cuentas no registradas o desactivadas no pueden iniciar tareas.",
+    personalHelp:
+      "Escanea con DingTalk para crear y autorizar tu bot personal y después vincula tu cuenta.",
+    notConfigured: "Pendiente de configuración del administrador",
+    scanConnect: "Conectar con código QR",
+    scanTitle: "Conectar DingTalk",
+    scanHelp:
+      "Escanea con DingTalk en tu teléfono y sigue los pasos para crear y autorizar un bot. Después vincula tu cuenta de LinkSense.",
+    qrLabel: "Código QR de conexión de DingTalk",
+    waitingScan: "Escanea con DingTalk y completa la autorización.",
+    generateQr: "Generar código QR",
+    regenerate: "Generar de nuevo",
+    linkAccount: "Vincular mi cuenta",
+    linked: "Cuenta vinculada",
+    linkTitle: "Vincular tu cuenta de {{name}}",
+    linkHelp:
+      "Envía el mensaje de confirmación al bot en un chat privado para vincular tu cuenta actual de LinkSense. No lo reenvíes a otras personas.",
+    confirmationMessage: "Mensaje de confirmación",
+    linkExpiry:
+      "Válido durante 10 minutos y para un solo uso. Esta página se actualiza automáticamente después del envío.",
+    getConfirmation: "Obtener mensaje de confirmación",
+    copy: "Copiar mensaje de confirmación",
+    copied: "Copiado",
+    copyFailed: "No se pudo copiar. Selecciona y copia el mensaje manualmente.",
+    unlink: "Desvincular cuenta",
+    unlinkHelp:
+      "Esta identidad del canal ya no podrá iniciar tareas. Se conservan las tareas existentes de LinkSense.",
+    enable: "Activar",
+    pause: "Pausar",
+    registrationStatus: {
+      connected:
+        "Autorización QR completada. Continúa para vincular tu cuenta.",
+      expired: "El código QR ha caducado. Genera uno nuevo.",
+      failed: "No se completó la autorización. Inténtalo de nuevo.",
     },
   },
   channelAccess: {

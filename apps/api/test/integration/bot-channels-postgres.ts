@@ -171,13 +171,12 @@ try {
     connectionIds.push(id);
     await repository.createConnection({
       id,
-      ownerId,
+      ownerId: credentials.provider === "dingtalk" ? ownerId : null,
       provider: credentials.provider,
       externalId:
         credentials.provider === "wecom"
           ? credentials.bot_id
           : credentials.client_id,
-      allowedSenderId: credentials.allowed_sender_id,
       allowGroupMessages: true,
       encryptedCredentials: encryptChannelCredentials(
         id,
@@ -186,6 +185,16 @@ try {
       ),
       encryptionKeyId: encryption.keyId,
     });
+    assert.equal(
+      await repository.bindIdentity(
+        id,
+        ownerId,
+        credentials.provider === "teams"
+          ? "33333333-3333-4333-8333-333333333333"
+          : "member",
+      ),
+      true,
+    );
   }
   runtime = createRuntime();
   await runtime.start();
@@ -236,13 +245,11 @@ try {
     credentials,
     platformPayload("wecom", true),
   )!;
-  await inputs
-    .get(firstId)!
-    .onMessage({
-      ...base,
-      senderId: "unauthorized",
-      messageKey: "unauthorized",
-    });
+  await inputs.get(firstId)!.onMessage({
+    ...base,
+    senderId: "unauthorized",
+    messageKey: "unauthorized",
+  });
   assert.equal(
     await prisma.botChannelInboundMessage.count({
       where: { messageKey: "unauthorized" },
@@ -250,11 +257,9 @@ try {
     0,
   );
   // Two messages in the same chat must use its existing task, preserving order.
-  await Promise.all(
-    ["ordered-1", "ordered-2"].map((messageKey) =>
-      inputs.get(firstId)!.onMessage({ ...base, messageKey }),
-    ),
-  );
+  // Establish a deterministic admission order; execution still uses the concurrent dispatchers.
+  for (const messageKey of ["ordered-1", "ordered-2"])
+    await inputs.get(firstId)!.onMessage({ ...base, messageKey });
   await until(
     async () =>
       (await prisma.botChannelOutboundDelivery.count({
@@ -315,7 +320,8 @@ try {
     where: { id: ownerId },
     data: { status: "disabled" },
   });
-  assert.equal(await repository.findActiveConnection(firstId), null);
+  assert.notEqual(await repository.findActiveConnection(firstId), null);
+  assert.equal(await repository.resolveSenderOwner(firstId, "member"), null);
   await inputs.get(firstId)!.onMessage({ ...base, messageKey: "suspended" });
   assert.equal(
     await prisma.botChannelInboundMessage.count({
@@ -326,7 +332,14 @@ try {
   await runtime.close();
   runtime = undefined;
   for (const id of connectionIds)
-    assert.equal(await repository.deleteConnection(ownerId, id), true);
+    assert.equal(
+      await repository.deleteConnection(
+        (await prisma.botChannelConnection.findUnique({ where: { id } }))
+          ?.ownerId ?? null,
+        id,
+      ),
+      true,
+    );
   assert.equal(
     await prisma.botChannelPeerSession.count({
       where: { connectionId: { in: connectionIds } },
@@ -353,7 +366,11 @@ try {
   await apiWorker?.close();
   await runtime?.close();
   for (const id of connectionIds)
-    await repository.deleteConnection(ownerId, id);
+    await repository.deleteConnection(
+      (await prisma.botChannelConnection.findUnique({ where: { id } }))
+        ?.ownerId ?? null,
+      id,
+    );
   const records = await prisma.conversation.findMany({
     where: { ownerId },
     select: { id: true },

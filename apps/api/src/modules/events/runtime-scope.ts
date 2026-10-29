@@ -18,7 +18,7 @@ export function registerRunnerRuntimeScope(
     const expected = Buffer.from(sharedSecret);
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new AppError("AUTH_REQUIRED");
     const serviceSessionId = z.uuid().optional().parse(request.headers[runtimeServiceSessionHeader]);
-    if (serviceSessionId && request.url.startsWith("/internal/skill-creator/")) throw new AppError("FORBIDDEN");
+    if (serviceSessionId && (request.url.startsWith("/internal/skill-creator/") || request.url.startsWith("/internal/skills/"))) throw new AppError("FORBIDDEN");
     const body = z.object({ conversationId: z.uuid().optional(), conversation_id: z.uuid().optional() }).passthrough().safeParse(request.body);
     if (!body.success) return;
     const conversationId = body.data.conversationId ?? body.data.conversation_id;

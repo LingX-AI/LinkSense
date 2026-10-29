@@ -776,9 +776,7 @@ export const jaJP = {
     clientId: "アプリのクライアント ID",
     secret: "アプリシークレット",
     tenantId: "テナント ID",
-    sender: "許可するメンバーの ID",
-    groups:
-      "このメンバーがグループでボットにメンションしてタスクを開始することを許可",
+    groups: "グループでボットにメンションしてタスクを開始できるようにする",
     callback: "メッセージングエンドポイント",
     callbackHelp:
       "この URL を Azure Bot のメッセージングエンドポイントに設定してください。HTTPS で外部からアクセスできる必要があります。",
@@ -787,13 +785,14 @@ export const jaJP = {
     disconnectHelp:
       "接続を解除すると、このチャネルでの受信と返信が停止し、待機中のメッセージと返信が削除されます。既存の LinkSense タスクは保持されます。",
     invalid:
-      "必須項目をすべて確認してください。Teams のアプリ ID、テナント ID、メンバー ID は有効な UUID である必要があります。",
+      "接続情報をすべて入力してください。Teams のアプリ ID とテナント ID は有効な UUID が必要です。",
     status: {
       connecting: "接続中",
       online: "オンライン",
       waiting_message: "メッセージを待機中",
       error: "接続エラー",
       disconnected: "未接続",
+      disabled: "一時停止中",
     },
     description: {
       wecom:
@@ -805,19 +804,51 @@ export const jaJP = {
     },
     setup: {
       wecom:
-        "WeCom で API モードと常時接続を使用するインテリジェントボットを作成し、ID、シークレット、許可するメンバーを入力してください。",
+        "WeCom で API モードと常時接続を使用するインテリジェントボットを作成し、ボット ID とシークレットを入力してください。",
       dingtalk:
-        "DingTalk 開発者プラットフォームで組織内アプリを作成し、Stream ボットを有効にして公開し、個別・グループメッセージの権限を付与してください。",
+        "スマートフォンの DingTalk で読み取り、画面に従ってボットを作成・承認してください。その後、LinkSense アカウントを連携します。",
       teams:
         "単一テナントの Azure Bot を作成し、Microsoft Teams を有効にしてください。保存後、Azure でメッセージングエンドポイントを設定し、Teams にボットアプリをインストールしてください。",
     },
-    senderHelp: {
-      wecom:
-        "WeCom の連絡先一覧にあるメンバーの userid を入力してください。このメンバーのみがあなたの LinkSense アシスタントを使用できます。",
-      dingtalk:
-        "DingTalk 組織のメンバーの UserId を入力してください。このメンバーのみがあなたの LinkSense アシスタントを使用できます。",
-      teams:
-        "Microsoft Entra のユーザーオブジェクト ID を入力してください。このユーザーのみがあなたの LinkSense アシスタントを使用できます。",
+    adminTitle: "組織のメッセージチャネル",
+    adminHelp:
+      "組織の WeCom と Teams を一括設定します。メンバーは自分の LinkSense アカウントを連携し、自分の権限とリソースでタスクを実行します。",
+    organizationHelp:
+      "管理者が一括管理します。自分の LinkSense アカウントを連携して利用してください。未登録または無効化されたアカウントではタスクを開始できません。",
+    personalHelp:
+      "DingTalk で QR コードを読み取り、個人用ボットを作成・承認してから、自分のアカウントを連携します。",
+    notConfigured: "管理者の設定待ち",
+    scanConnect: "QR コードで接続",
+    scanTitle: "DingTalk に接続",
+    scanHelp:
+      "スマートフォンの DingTalk で読み取り、画面に従ってボットを作成・承認してください。その後、LinkSense アカウントを連携します。",
+    qrLabel: "DingTalk 接続用 QR コード",
+    waitingScan: "DingTalk で読み取り、承認を完了してください。",
+    generateQr: "QR コードを生成",
+    regenerate: "再生成",
+    linkAccount: "自分のアカウントを連携",
+    linked: "アカウント連携済み",
+    linkTitle: "{{name}} アカウントを連携",
+    linkHelp:
+      "確認メッセージをボットとの個別チャットに送信し、現在の LinkSense アカウントを連携します。このメッセージを他の人に転送しないでください。",
+    confirmationMessage: "確認メッセージ",
+    linkExpiry:
+      "有効期限は 10 分間で、1 回のみ使用できます。送信後、このページに連携結果が自動表示されます。",
+    getConfirmation: "確認メッセージを取得",
+    copy: "確認メッセージをコピー",
+    copied: "コピー済み",
+    copyFailed:
+      "コピーできませんでした。確認メッセージを選択して手動でコピーしてください。",
+    unlink: "アカウント連携を解除",
+    unlinkHelp:
+      "解除後、このチャネルのアカウントではタスクを開始できなくなります。既存の LinkSense タスクは保持されます。",
+    enable: "有効にする",
+    pause: "一時停止",
+    registrationStatus: {
+      connected:
+        "QR コードによる承認が完了しました。アカウントの連携に進んでください。",
+      expired: "QR コードの有効期限が切れました。再生成してください。",
+      failed: "承認が完了しませんでした。再試行してください。",
     },
   },
   channelAccess: {
@@ -5541,6 +5572,12 @@ export const jaJP = {
       "先に提供元とリスクに関する注意事項を確認し、同意してください。",
   },
   errors: {
+    skillManagement: {
+      uninstallNotAllowed: localizedErrorMessage(
+        "SKILL_UNINSTALL_NOT_ALLOWED",
+        "ja-JP"
+      ),
+    },
     socialClientInUse:
       "このアプリには連携済みアカウントがあるため、アプリ ID は変更できません。シークレットの更新やログインの無効化は可能です。",
     socialLastMethod:
