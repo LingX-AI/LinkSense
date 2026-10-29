@@ -12,7 +12,7 @@ test("the CPAL text is pinned and the 4.4 exhibits identify the shipped attribut
     read("vendor/CPAL-1.0.txt"),
     read("vendor/CPAL-1.0.txt.sha256"),
     read("LICENSE"),
-    read("attribution.json").then(JSON.parse),
+    read("docs/legal/attribution.json").then(JSON.parse),
     read("apps/web/src/components/brand/powered-by-linksense.tsx"),
   ])
 

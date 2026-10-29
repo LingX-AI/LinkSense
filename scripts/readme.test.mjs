@@ -11,6 +11,19 @@ const readBoth = () => Promise.all([
   readFile(chinesePath, "utf8"),
 ])
 
+test("relocated community and legal documents keep their local links usable", async () => {
+  for (const file of [
+    ".github/CONTRIBUTING.md", ".github/CODE_OF_CONDUCT.md",
+    ".github/SECURITY.md", ".github/SUPPORT.md",
+    "docs/community/ADOPTERS.md", "docs/legal/CLA.md",
+  ]) {
+    const source = await readFile(path.join(root, file), "utf8")
+    for (const [, target] of source.matchAll(/\]\((\.\.?\/[^)#]+)(?:#[^)]+)?\)/gu)) {
+      await access(path.resolve(root, path.dirname(file), target))
+    }
+  }
+})
+
 test("the bilingual READMEs follow the current public section order", async () => {
   const [english, chinese] = await readBoth()
   assert.match(chinese, /\[English\]\(\.\/README\.md\)/u)
@@ -43,8 +56,8 @@ test("the bilingual READMEs follow the current public section order", async () =
     for (const required of [
       "60+ GiB", "120+ GiB", "Intel", "Apple Silicon", "v1.45", "v2.24.4",
       "CPAL-1.0", "Apache-2.0", "18–24px", "security@linksense.org",
-      "hello@linksense.org", "licensing@linksense.org", "./ADOPTERS.md",
-      "./CLA.md", "./THIRD-PARTY-NOTICES.md", "../../discussions",
+      "hello@linksense.org", "licensing@linksense.org", "./docs/community/ADOPTERS.md",
+      "./docs/legal/CLA.md", "./THIRD-PARTY-NOTICES.md", "../../discussions",
       "volume://linksense-backups/postgres/", "linux/amd64", "linux/arm64",
       "x86-64-v2", "host-passthrough", "x86-64-v2-AES",
       "cx16", "lahf_lm", "popcnt", "ssse3", "sse4_1", "sse4_2", "pni",

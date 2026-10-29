@@ -42,7 +42,7 @@ function fixture(t) {
   const reference = name => `ghcr.io/lingx-ai/linksense-${name}@sha256:${indexHash}`
   const baseline = { schemaVersion: 1, id: "baseline-123-1", recipeFingerprint: baselineFingerprint(source), sourceCommit: "b".repeat(40), workflowUrl: "https://github.com/LingX-AI/LinkSense/actions/runs/123", builtAt: "2026-10-06T00:00:00Z", runtimes: Object.fromEntries(runtimeNames.map(name => [name, reference(`runtime-${name}`)])), services: Object.fromEntries(serviceNames.map(name => [name, vendorComponents[name] ? reference(vendorComponents[name]) : `docker.io/${name === "MINIO" ? "pgsty/silo" : "library/busybox"}@sha256:${indexHash}`])) }
   writeFileSync(path.join(source, "deploy/baselines/images.lock.json"), JSON.stringify(baseline))
-  for (const name of ["Dockerfile.api", "Dockerfile.web", "Dockerfile.runner"]) writeFileSync(path.join(source, name), baselineDockerfileDefaults(baseline, name, readFileSync(path.join(root, name), "utf8")))
+  for (const name of ["deploy/docker/Dockerfile.api", "deploy/docker/Dockerfile.web", "deploy/docker/Dockerfile.runner"]) writeFileSync(path.join(source, name), baselineDockerfileDefaults(baseline, name, readFileSync(path.join(root, name), "utf8")))
   writeFileSync(path.join(bin, "gh"), `#!${process.execPath}
 if (process.env.RELEASE_TEST_PROOF_FAILURE) process.exit(1);
 process.stdout.write(JSON.stringify({id:123,run_attempt:1,head_sha:'b'.repeat(40),head_branch:'main',event:'workflow_dispatch',conclusion:'success',path:'.github/workflows/maintain-baselines.yml',repository:{full_name:'LingX-AI/LinkSense'}}));

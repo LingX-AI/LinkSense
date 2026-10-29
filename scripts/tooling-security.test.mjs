@@ -57,8 +57,8 @@ test("header-only evidence permits only a complete non-executable userspace head
 });
 
 test("migration and worker inherit baselines with pinned real library replacements and verified headers", () => {
-  const api = readFileSync("Dockerfile.api", "utf8");
-  const runner = readFileSync("Dockerfile.runner", "utf8");
+  const api = readFileSync("deploy/docker/Dockerfile.api", "utf8");
+  const runner = readFileSync("deploy/docker/Dockerfile.runner", "utf8");
   const baseline = readFileSync("deploy/baselines/Dockerfile.runtime", "utf8");
   assert.match(api, /FROM \$\{BASELINE_NODE_IMAGE\} AS migration/u);
   assert.match(runner, /FROM \$\{BASELINE_WORKER_IMAGE\} AS worker/u);

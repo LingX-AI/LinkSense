@@ -33,7 +33,7 @@ test("the worker baseline installs verified fonts and the application rechecks t
     assert.match(worker, /fc-cache -f[\s\S]*setpriv --reuid=1001 --regid=1000 --clear-groups sh \/opt\/linksense\/runtime\/fonts\/verify.sh/u);
   }
   assert.doesNotMatch(dockerfile, /font-runtime-build|linksense-microsoft|downloads\.sha256|install\.sh/u);
-  const application = await readFile("Dockerfile.runner", "utf8");
+  const application = await readFile("deploy/docker/Dockerfile.runner", "utf8");
   assert.match(application, /FROM \$\{BASELINE_WORKER_IMAGE\} AS worker/u);
   assert.match(application, /setpriv --reuid=1001 --regid=1000 --clear-groups sh \/opt\/linksense\/runtime\/fonts\/verify.sh/u);
   assert.doesNotMatch(application, /apt-get|worker-cached-browser/u);

@@ -1145,7 +1145,7 @@ test("Full runs the official Docling image offline as a constrained non-root use
 
 test("every LinkSense release image contains the CPAL license and separate permissions", async () => {
   const [api, web, runner] = await Promise.all(
-    ["Dockerfile.api", "Dockerfile.web", "Dockerfile.runner"].map((filename) =>
+    ["deploy/docker/Dockerfile.api", "deploy/docker/Dockerfile.web", "deploy/docker/Dockerfile.runner"].map((filename) =>
       readFile(path.join(root, filename), "utf8"),
     ),
   )
