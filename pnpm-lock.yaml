@@ -19,6 +19,7 @@ overrides:
   body-parser@>=2.0.0 <2.4.0: 2.4.0
   brace-expansion@<5.0.11: 5.0.11
   deepmerge-ts@<8.0.2: 8.0.2
+  query-string@7.1.3>decode-uri-component: 0.5.1
   dompurify@<3.4.17: 3.4.17
   fast-uri@>=3.0.0 <3.1.7: 3.1.7
   fast-uri@>=4.0.0 <4.1.4: 4.1.4
@@ -59,6 +60,9 @@ patchedDependencies:
   pptx-react-viewer@1.17.0:
     hash: e27c36014491f63b3c876bf880e4ed3dfb3e9755da8a228b317c546c7d976ce2
     path: patches/pptx-react-viewer@1.17.0.patch
+  query-string@7.1.3:
+    hash: ab570de5fdb98805ab6bef9224850be4431b234a18a7378415518463b1e0924e
+    path: patches/query-string@7.1.3.patch
 
 importers:
 
@@ -6321,9 +6325,9 @@ packages:
   decode-named-character-reference@1.3.0:
     resolution: {integrity: sha512-GtpQYB283KrPp6nRw50q3U9/VfOutZOe103qlN7BPP6Ad27xYnOIWv4lPzo8HCAL+mMZofJ9KEy30fq6MfaK6Q==}
 
-  decode-uri-component@0.2.2:
-    resolution: {integrity: sha512-FqUYQ+8o158GyGTrMFJms9qh3CqTKvAqgqsTnkLI8sKu0028orqBhxNMFkFen0zGyg6epACD32pjVk58ngIErQ==}
-    engines: {node: '>=0.10'}
+  decode-uri-component@0.5.1:
+    resolution: {integrity: sha512-vWHQkXgg2cE3BB4rR0c+PYw9BCQzLoNIRMI7AunIkZst74tw/vpPp7VLoYtsR/cy1f55g3XDWUslfeCZjiZJyA==}
+    engines: {node: '>=14.16'}
 
   decompress-response@6.0.0:
     resolution: {integrity: sha512-aW35yZM6Bb/4oJlZncMH2LCoZtJXTRxES17vE3hoRiowU2kWHaJKFkSBDnDR+cm9J+9QhXmREyIfv0pji9ejCQ==}
@@ -18612,7 +18616,7 @@ snapshots:
     dependencies:
       character-entities: 2.0.2
 
-  decode-uri-component@0.2.2: {}
+  decode-uri-component@0.5.1: {}
 
   decompress-response@6.0.0:
     dependencies:
@@ -21502,7 +21506,7 @@ snapshots:
       ipaddr.js: 2.4.0
       lodash: 4.18.1
       mime-types: 2.1.35
-      query-string: 7.1.3
+      query-string: 7.1.3(patch_hash=ab570de5fdb98805ab6bef9224850be4431b234a18a7378415518463b1e0924e)
       stream-json: 1.9.1
       through2: 4.0.2
       xml2js: 0.6.2
@@ -22774,9 +22778,9 @@ snapshots:
       es-define-property: 1.0.1
       side-channel: 1.1.1
 
-  query-string@7.1.3:
+  query-string@7.1.3(patch_hash=ab570de5fdb98805ab6bef9224850be4431b234a18a7378415518463b1e0924e):
     dependencies:
-      decode-uri-component: 0.2.2
+      decode-uri-component: 0.5.1
       filter-obj: 1.1.0
       split-on-first: 1.1.0
       strict-uri-encode: 2.0.0
