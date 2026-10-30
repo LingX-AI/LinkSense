@@ -2,3 +2,7 @@
 # probe route test fixture in this historical commit. This fingerprint does not
 # exclude the file, a rule, or any subsequent commit from scanning.
 682f524738b8c0cb54e66e1c1a49bd6a3a6fa67e:apps/api/test/model-provider-probe.routes.test.ts:generic-api-key:18
+
+# Verified internal callback URL assertion, not a credential. Only this exact
+# historical finding is excluded; future commits and other findings are scanned.
+bf10ae15c516e0b4222571d8ef13056903179e33:apps/runner/test/controller-server.test.ts:generic-api-key:705
