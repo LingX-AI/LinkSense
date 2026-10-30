@@ -36,8 +36,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import {
+  ActionTooltipContent,
   Tooltip,
-  TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
@@ -411,7 +411,9 @@ export function OfficeSelectionPrompt<TSelection>({
                         <MicIcon className="size-4" aria-hidden="true" />
                       </InputGroupButton>
                     </TooltipTrigger>
-                    <TooltipContent>{t(voiceTooltipKey)}</TooltipContent>
+                    <ActionTooltipContent>
+                      {t(voiceTooltipKey)}
+                    </ActionTooltipContent>
                   </Tooltip>
                 )}
                 {voice.phase === "recording" && (

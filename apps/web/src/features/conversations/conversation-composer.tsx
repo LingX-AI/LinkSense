@@ -72,8 +72,8 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
 import {
+  ActionTooltipContent,
   Tooltip,
-  TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ConversationAttachmentPreviews } from "@/features/conversations/conversation-attachment-previews"
@@ -2528,7 +2528,7 @@ export const ConversationComposer = forwardRef<
                   <DesignIcon name="microphone" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>{t(voiceTooltipKey)}</TooltipContent>
+              <ActionTooltipContent>{t(voiceTooltipKey)}</ActionTooltipContent>
             </Tooltip>
           )}
 

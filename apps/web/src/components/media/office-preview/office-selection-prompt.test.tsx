@@ -249,11 +249,17 @@ describe("OfficeSelectionPrompt", () => {
     expect(voiceButton).toHaveClass("opacity-50")
 
     await user.hover(voiceButton.parentElement!)
-    expect(
-      await screen.findByRole("tooltip", {
-        name: "语音转文字服务尚未配置",
-      })
-    ).toBeVisible()
+    const tooltip = await screen.findByRole("tooltip", {
+      name: "语音转文字服务尚未配置",
+    })
+    expect(tooltip).toBeVisible()
+    expect(tooltip).toHaveClass(
+      "rounded-md",
+      "border",
+      "bg-[var(--app-popover)]",
+      "text-[var(--app-text)]"
+    )
+    expect(tooltip.childElementCount).toBe(0)
     expect(voiceInput.startRecording).not.toHaveBeenCalled()
   })
 

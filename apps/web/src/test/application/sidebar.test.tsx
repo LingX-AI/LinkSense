@@ -395,7 +395,7 @@ describe("LinkSense application", () => {
         "border-[var(--app-border)]",
         "bg-[var(--app-popover)]",
         "text-[var(--app-text)]",
-        "font-medium"
+        "font-normal"
       )
       expect(tooltip.children).toHaveLength(0)
       expect(

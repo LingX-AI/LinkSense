@@ -9001,7 +9001,7 @@ describe("conversation turn responses", () => {
       "border",
       "border-[var(--app-border)]",
       "bg-[var(--app-popover)]",
-      "font-medium",
+      "font-normal",
       "text-[var(--app-text)]"
     )
     expect(copyTooltip).not.toHaveClass("rounded-full", "rounded-xl")
@@ -9018,7 +9018,7 @@ describe("conversation turn responses", () => {
       "border",
       "border-[var(--app-border)]",
       "bg-[var(--app-popover)]",
-      "font-medium",
+      "font-normal",
       "text-[var(--app-text)]"
     )
     expect(forkTooltip).not.toHaveClass("rounded-full", "rounded-xl")

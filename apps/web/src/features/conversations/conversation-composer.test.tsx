@@ -1256,11 +1256,17 @@ describe("conversation voice input", () => {
     const trigger = voiceButton.parentElement
     expect(trigger).not.toBeNull()
     await interaction.hover(trigger!)
-    expect(
-      await screen.findByRole("tooltip", {
-        name: "语音转文字服务尚未配置",
-      })
-    ).toBeVisible()
+    const tooltip = await screen.findByRole("tooltip", {
+      name: "语音转文字服务尚未配置",
+    })
+    expect(tooltip).toBeVisible()
+    expect(tooltip).toHaveClass(
+      "rounded-md",
+      "border",
+      "bg-[var(--app-popover)]",
+      "text-[var(--app-text)]"
+    )
+    expect(tooltip.childElementCount).toBe(0)
   })
 
   it("hides model, capability, and knowledge controls for an application-managed conversation", async () => {
