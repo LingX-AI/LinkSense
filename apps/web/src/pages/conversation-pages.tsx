@@ -614,6 +614,10 @@ export function ConversationPage({
   const [taskOverviewOpen, setTaskOverviewOpen] = useState(() =>
     embedded ? false : readTaskOverviewOpenPreference()
   )
+  const [taskOverviewElement, setTaskOverviewElement] =
+    useState<HTMLDivElement | null>(null)
+  const [browserPreviewToolbar, setBrowserPreviewToolbar] =
+    useState<HTMLDivElement | null>(null)
   const [
     pendingFirstMessageConversationId,
     setPendingFirstMessageConversationId,
@@ -5742,6 +5746,12 @@ export function ConversationPage({
     !blockingPanelActive
   const taskOverviewSuppressed =
     taskOverviewSuppressedConversationId === conversationId
+  const taskOverviewVisible =
+    surfaceActive &&
+    !isNew &&
+    !taskOverviewSuppressed &&
+    taskOverviewOpen &&
+    !sideChat.open
   const composerInstanceId = isNewTaskPromotion
     ? newConversationPlaceholderId
     : displayConversation.id
@@ -5779,13 +5789,7 @@ export function ConversationPage({
   return (
     <ConversationOfficeLayout
       previewBlocksWorkspace={sideChat.open}
-      taskOverviewOpen={
-        surfaceActive &&
-        !isNew &&
-        !taskOverviewSuppressed &&
-        taskOverviewOpen &&
-        !sideChat.open
-      }
+      taskOverviewOpen={taskOverviewVisible}
       defaultPreviewViewportRatio={
         sideChat.open
           ? 0.4
@@ -6077,6 +6081,10 @@ export function ConversationPage({
               />
             </ConversationHeaderButton>
           )}
+          <div
+            ref={setBrowserPreviewToolbar}
+            className="min-w-0 empty:hidden"
+          />
           {!isNew && surfaceActive && (
             <ConversationTaskOverviewPanel
               key={conversationId}
@@ -6090,11 +6098,13 @@ export function ConversationPage({
                   void sourcesQuery.refetch()
                 },
               }}
-              defaultOpen={!taskOverviewSuppressed && taskOverviewOpen}
+              open={taskOverviewVisible}
+              panelRef={setTaskOverviewElement}
               subAgentSummariesByTurnId={subAgentSummariesByTurnId}
               downloadingFileId={downloadingFileId}
               onDownload={handleDownloadArtifact}
               onOpenChange={(open) => {
+                if (open) sideChat.close()
                 setTaskOverviewSuppressedConversationId(null)
                 setTaskOverviewOpen(open)
               }}
@@ -6150,6 +6160,9 @@ export function ConversationPage({
             key={`${user.id}:${conversationId}`}
             userId={user.id}
             conversationId={conversationId}
+            overviewElement={taskOverviewVisible ? taskOverviewElement : null}
+            compactContainer={browserPreviewToolbar}
+            onExpand={() => setTaskOverviewOpen(false)}
           />
         )}
       {showConnectionWarning && (

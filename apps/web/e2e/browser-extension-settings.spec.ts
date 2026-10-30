@@ -38,6 +38,8 @@ async function mockConversation(
     else if (path.endsWith("/browser-use-intent"))
       data = intent ? await intent : true
     else if (path === "/projects") data = []
+    else if (path === `/conversations/${conversationId}/sources`)
+      data = { items: [] }
     else if (path === "/me/personalization")
       data = {
         custom_instructions: "",
@@ -518,6 +520,215 @@ test("local browser snapshots drag to all four corners, stay reachable and activ
   })
   await panel.getByRole("button", { name: "隐藏浏览器预览" }).click()
   await expect(panel).toBeHidden()
+})
+
+test("browser preview avoids task overview and uses a reachable compact control when space runs out", async ({
+  page,
+}, testInfo) => {
+  const conversationId = "20000000-0000-4000-8000-000000000001"
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "linksense.browser-preview-corner:10000000-0000-4000-8000-000000000001",
+      "top-right"
+    )
+    localStorage.setItem("linksense.taskOverviewOpen", "true")
+    window.addEventListener("message", (event) => {
+      const data = event.data
+      if (event.source !== window || data?.source !== "linksense-web") return
+      const result =
+        data.type === "preview"
+          ? {
+              detected: true,
+              ok: true,
+              preview: {
+                tab_id: 7,
+                title: "Reference workspace",
+                url: "https://example.test/",
+                image:
+                  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aksAAAAASUVORK5CYII=",
+                captured_at: 1,
+              },
+            }
+          : { detected: true, ok: true, pairing_mode: "connected" }
+      window.postMessage(
+        { source: "linksense-extension", id: data.id, result },
+        location.origin
+      )
+    })
+  })
+  await mockConversation(page, conversationId)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto(`/conversations/${conversationId}`)
+  const panel = page.getByRole("complementary", {
+    name: "Browser Use",
+    exact: true,
+  })
+  const overview = page.getByRole("region", { name: "任务概览", exact: true })
+  await expect(panel).toBeVisible()
+  await expect(overview).toBeVisible()
+  const clear = async () => {
+    const card = await panel.boundingBox()
+    const task = await overview.boundingBox()
+    return Boolean(
+      card &&
+      task &&
+      (card.x + card.width <= task.x ||
+        card.x >= task.x + task.width ||
+        card.y + card.height <= task.y ||
+        card.y >= task.y + task.height)
+    )
+  }
+  await expect.poll(clear).toBe(true)
+  await page.screenshot({
+    path: testInfo.outputPath("overview-preview-desktop.png"),
+  })
+
+  const preferenceKey = `linksense.browser-preview-corner:${E2E_ADMIN.id}`
+  await expect
+    .poll(() =>
+      page.evaluate((key) => localStorage.getItem(key), preferenceKey)
+    )
+    .toBe("top-right")
+  await page.getByRole("button", { name: "关闭任务概览", exact: true }).click()
+  await expect(overview).toBeHidden()
+  const bounds = page.locator("[data-local-browser-preview-boundary]")
+  await expect
+    .poll(async () => {
+      const card = await panel.boundingBox()
+      const boundary = await bounds.boundingBox()
+      return Boolean(
+        card &&
+        boundary &&
+        Math.abs(card.y - boundary.y) < 1 &&
+        Math.abs(card.x + card.width - boundary.x - boundary.width) < 1
+      )
+    })
+    .toBe(true)
+
+  for (const viewport of [
+    { width: 390, height: 600 },
+    { width: 800, height: 480 },
+  ]) {
+    await page.setViewportSize(viewport)
+    if (viewport.width === 800)
+      await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" })
+    await page
+      .getByRole("button", { name: "打开任务概览", exact: true })
+      .click()
+    const expand = page.getByRole("button", {
+      name: "展开浏览器预览：Reference workspace",
+    })
+    await expect(expand).toBeVisible()
+    await expect(panel).toBeHidden()
+    await expect(overview).toBeVisible()
+    await expect(overview).toHaveCSS("opacity", "1")
+    expect(
+      await expand.evaluate((element) => {
+        const rect = element.getBoundingClientRect()
+        return element.contains(
+          document.elementFromPoint(
+            rect.x + rect.width / 2,
+            rect.y + rect.height / 2
+          )
+        )
+      })
+    ).toBe(true)
+    await page.screenshot({
+      path: testInfo.outputPath(
+        `overview-preview-compact-${viewport.width}.png`
+      ),
+    })
+    await expand.focus()
+    await page.keyboard.press("Enter")
+    await expect(panel).toBeVisible()
+    await expect(overview).toBeHidden()
+    await expect(panel).toHaveCSS("transition-property", "none")
+    await expect(
+      panel.getByRole("button", { name: "拖动预览到四角，或使用方向键移动" })
+    ).toBeFocused()
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem("linksense.taskOverviewOpen")
+      )
+    ).toBe("true")
+    expect(
+      await page.evaluate((key) => localStorage.getItem(key), preferenceKey)
+    ).toBe("top-right")
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    ).toBe(true)
+  }
+})
+
+test("task overview action icons remain visible in forced colors", async ({
+  page,
+}) => {
+  const conversationId = "20000000-0000-4000-8000-000000000001"
+  await mockConversation(page, conversationId)
+  await page.addInitScript(() =>
+    localStorage.setItem("linksense.taskOverviewOpen", "true")
+  )
+  await page.route(`**/api/v1/conversations/${conversationId}`, (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: {
+          conversation: {
+            id: conversationId,
+            title: "Overview",
+            archive_status: "active",
+            project_id: null,
+            execution_status: "completed",
+            updated_at: "2026-10-30T00:00:00Z",
+          },
+          messages: [],
+          files: [
+            {
+              id: "overview-file",
+              filename: "report.pdf",
+              mime_type: "application/pdf",
+              size_bytes: 1024,
+              kind: "artifact",
+              status: "available",
+              downloadable: true,
+            },
+          ],
+        },
+      }),
+    })
+  )
+  await page.route(
+    `**/api/v1/conversations/${conversationId}/sources`,
+    (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          data: {
+            items: [{ url: "https://example.test/guide", title: "Guide" }],
+          },
+        }),
+      })
+  )
+  await page.emulateMedia({ forcedColors: "active" })
+  await page.goto(`/conversations/${conversationId}`)
+  const overview = page.getByRole("region", { name: "任务概览", exact: true })
+  await expect(overview).toBeVisible()
+  for (const name of ["download", "open-source"]) {
+    const icon = overview.locator(`[data-design-icon="${name}"]`)
+    await expect(icon).toHaveCSS("forced-color-adjust", "none")
+    await expect(icon).not.toHaveCSS("mask-image", "none")
+    expect(
+      await icon.evaluate(
+        (element) =>
+          getComputedStyle(element).backgroundColor !==
+          getComputedStyle(document.body).backgroundColor
+      )
+    ).toBe(true)
+  }
 })
 
 test("the real extension automatically supplies and updates the chat picture in picture", async ({

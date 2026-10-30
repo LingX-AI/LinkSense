@@ -22,6 +22,7 @@ export const localBrowserMessages = {
     previewMove: "拖动预览到四角，或使用方向键移动",
     previewClose: "隐藏浏览器预览",
     previewActivate: "切换到标签页：{{title}}",
+    previewExpand: "展开浏览器预览：{{title}}",
     previewUnavailable: "无法切换到此页，请确认浏览器已连接且页面仍在共享。",
     activityRunning: "正在使用 Browser Use",
     activityFinished: "Browser Use 操作已结束",
@@ -77,6 +78,7 @@ export const localBrowserMessages = {
     previewMove: "Drag the preview to a corner, or move it with arrow keys",
     previewClose: "Hide browser preview",
     previewActivate: "Switch to tab: {{title}}",
+    previewExpand: "Expand browser preview: {{title}}",
     previewUnavailable:
       "Cannot switch to this tab. Check that the browser is connected and the page is still shared.",
     activityRunning: "Using Browser Use",
@@ -136,6 +138,7 @@ export const localBrowserMessages = {
     previewMove: "Arrastra la vista a una esquina o muévela con las flechas",
     previewClose: "Ocultar vista del navegador",
     previewActivate: "Cambiar a la pestaña: {{title}}",
+    previewExpand: "Ampliar la vista del navegador: {{title}}",
     previewUnavailable:
       "No se puede cambiar a esta pestaña. Comprueba la conexión y que la página siga compartida.",
     activityRunning: "Usando Browser Use",
@@ -196,6 +199,7 @@ export const localBrowserMessages = {
     previewMove: "Arraste a prévia para um canto ou mova-a com as setas",
     previewClose: "Ocultar prévia do navegador",
     previewActivate: "Ir para a aba: {{title}}",
+    previewExpand: "Expandir prévia do navegador: {{title}}",
     previewUnavailable:
       "Não foi possível abrir esta aba. Confira a conexão e se a página ainda está compartilhada.",
     activityRunning: "Usando o Browser Use",
@@ -258,6 +262,7 @@ export const localBrowserMessages = {
       "Faites glisser l’aperçu vers un coin ou déplacez-le avec les flèches",
     previewClose: "Masquer l’aperçu du navigateur",
     previewActivate: "Aller à l’onglet : {{title}}",
+    previewExpand: "Développer l’aperçu du navigateur : {{title}}",
     previewUnavailable:
       "Impossible d’ouvrir cet onglet. Vérifiez la connexion et que la page est toujours partagée.",
     activityRunning: "Utilisation de Browser Use",
@@ -319,6 +324,7 @@ export const localBrowserMessages = {
     previewMove: "プレビューを四隅にドラッグするか、矢印キーで移動",
     previewClose: "ブラウザープレビューを非表示",
     previewActivate: "タブに切り替え：{{title}}",
+    previewExpand: "ブラウザープレビューを展開：{{title}}",
     previewUnavailable:
       "このタブに切り替えられません。ブラウザーの接続とページの共有状態を確認してください。",
     activityRunning: "Browser Use を使用中",
@@ -378,6 +384,7 @@ export const localBrowserMessages = {
     | "previewMove"
     | "previewClose"
     | "previewActivate"
+    | "previewExpand"
     | "previewUnavailable"
     | "title"
     | "description"

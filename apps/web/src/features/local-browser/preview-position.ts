@@ -6,6 +6,7 @@ export const previewCorners = [
 ] as const
 export type PreviewCorner = (typeof previewCorners)[number]
 export type PreviewBounds = { width: number; height: number }
+type PreviewRect = PreviewBounds & { x: number; y: number }
 
 export function previewCornerPosition(
   corner: PreviewCorner,
@@ -18,6 +19,31 @@ export function previewCornerPosition(
       ? Math.max(0, bounds.height - panel.height)
       : 0,
   }
+}
+
+export function previewPositionWithoutOverlap(
+  corner: PreviewCorner,
+  bounds: PreviewBounds,
+  panel: PreviewBounds,
+  obstacle?: PreviewRect | null
+): { x: number; y: number } | null {
+  const preferred = previewCornerPosition(corner, bounds, panel)
+  if (!obstacle || obstacle.width <= 0 || obstacle.height <= 0) return preferred
+  const clearance = 12
+  const clear = (position: { x: number; y: number }) =>
+    position.x + panel.width + clearance <= obstacle.x ||
+    position.x >= obstacle.x + obstacle.width + clearance ||
+    position.y + panel.height + clearance <= obstacle.y ||
+    position.y >= obstacle.y + obstacle.height + clearance
+  if (clear(preferred)) return preferred
+  const distance = (position: { x: number; y: number }) =>
+    Math.abs(position.x - preferred.x) + Math.abs(position.y - preferred.y)
+  return (
+    previewCorners
+      .map((next) => previewCornerPosition(next, bounds, panel))
+      .sort((left, right) => distance(left) - distance(right))
+      .find(clear) ?? null
+  )
 }
 
 export function nearestPreviewCorner(

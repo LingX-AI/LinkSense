@@ -133,6 +133,7 @@ it("authors all six translations with matching keys and interpolation", () => {
     expect(messages.cloudName.match(/{{\w+}}/g)).toEqual(["{{productName}}"])
     expect(messages.localName.match(/{{\w+}}/g)).toEqual(["{{productName}}"])
     expect(messages.previewActivate.match(/{{\w+}}/g)).toEqual(["{{title}}"])
+    expect(messages.previewExpand.match(/{{\w+}}/g)).toEqual(["{{title}}"])
   }
 })
 

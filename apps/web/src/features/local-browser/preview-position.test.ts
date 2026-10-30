@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import {
   nearestPreviewCorner,
   previewCornerPosition,
+  previewPositionWithoutOverlap,
   readPreviewCorner,
 } from "./preview-position"
 
@@ -52,4 +53,58 @@ it("validates the saved corner and works without local storage", () => {
     throw new Error("unavailable")
   })
   expect(readPreviewCorner("position")).toBe("bottom-right")
+})
+
+it("keeps a preferred corner that is already clear of the overview", () => {
+  expect(
+    previewPositionWithoutOverlap(
+      "bottom-right",
+      { width: 1000, height: 700 },
+      { width: 288, height: 220 },
+      { x: 700, y: 0, width: 300, height: 300 }
+    )
+  ).toEqual({ x: 712, y: 480 })
+})
+
+it("uses the nearest clear corner instead of placing the preview under the overview", () => {
+  expect(
+    previewPositionWithoutOverlap(
+      "top-right",
+      { width: 1000, height: 700 },
+      { width: 288, height: 220 },
+      { x: 700, y: 0, width: 300, height: 300 }
+    )
+  ).toEqual({ x: 712, y: 480 })
+})
+
+it("moves left when the right side has no clear vertical space", () => {
+  expect(
+    previewPositionWithoutOverlap(
+      "top-right",
+      { width: 640, height: 400 },
+      { width: 288, height: 220 },
+      { x: 340, y: 0, width: 300, height: 400 }
+    )
+  ).toEqual({ x: 0, y: 0 })
+})
+
+it("requests a compact preview when every corner would overlap", () => {
+  expect(
+    previewPositionWithoutOverlap(
+      "bottom-right",
+      { width: 320, height: 260 },
+      { width: 288, height: 220 },
+      { x: 12, y: 16, width: 296, height: 200 }
+    )
+  ).toBeNull()
+})
+
+it("restores the preferred position when the overview closes", () => {
+  expect(
+    previewPositionWithoutOverlap(
+      "top-right",
+      { width: 320, height: 260 },
+      { width: 288, height: 220 }
+    )
+  ).toEqual({ x: 32, y: 0 })
 })
