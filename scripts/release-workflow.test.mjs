@@ -198,6 +198,7 @@ assert.equal(args.length, 4);
 assert.match(args[3], /^registry\\.example\\/[a-z_]+@sha256:[0-9a-f]{64}$/u);
 if (args[3] === process.env.ANONYMOUS_TEST_DENIED) process.exit(1);
 `, { mode: 0o755 })
+  writeFileSync(path.join(bin, "timeout"), '#!/bin/sh\n[ "$1" = "--kill-after=30s" ] && [ "$2" = 120 ] || exit 2\nshift 2\nexec "$@"\n', { mode: 0o755 })
   const step = parse(workflow).jobs.release.steps.find(item => item.name === "Verify anonymous access to every LinkSense image candidate")
   assert.equal(step["continue-on-error"], undefined)
   const result = spawnSync("bash", ["-c", step.run], {
@@ -206,7 +207,7 @@ if (args[3] === process.env.ANONYMOUS_TEST_DENIED) process.exit(1);
     timeout: 10_000,
     env: {
       ...process.env,
-      PATH: `${bin}:${process.env.PATH}`,
+      PATH: `${bin}:${path.dirname(process.execPath)}:${process.env.PATH}`,
       ANONYMOUS_TEST_CALLS: calls,
       ANONYMOUS_TEST_DENIED: deniedReference ? references[3] : "",
     },

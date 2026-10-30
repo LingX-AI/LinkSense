@@ -30,7 +30,7 @@ function fixture(t, options = {}) {
   writeFileSync(path.join(inputs, "runtime-images.env"), ["node", "api", "web", "worker"].map(name => `BASELINE_${name.toUpperCase()}_IMAGE=ghcr.io/lingx-ai/linksense-runtime-${name}@${indexDigest}`).join("\n") + "\n")
   const calls = path.join(directory, "calls.jsonl")
   const timeoutCalls = path.join(directory, "timeouts.log")
-  const mock = `#!${process.execPath}
+  const mock = `#!/usr/bin/env node
 const fs = require('node:fs');
 const path = require('node:path');
 const args = process.argv.slice(2);
@@ -77,7 +77,7 @@ if(command==='docker') {
   for (const command of ["docker", "trivy"]) writeFileSync(path.join(bin, command), mock, { mode: 0o755 })
   writeFileSync(path.join(bin, "timeout"), '#!/bin/sh\nprintf "%s %s\\n" "$1" "$2" >> "$IMAGE_TEST_TIMEOUTS"\ncase "$1" in --kill-after=*) shift ;; esac\nshift\nexec "$@"\n', { mode: 0o755 })
   const report = path.join(directory, "reports")
-  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, IMAGE_TEST_CALLS: calls, IMAGE_TEST_TIMEOUTS: timeoutCalls, IMAGE_TEST_INDEX: path.join(directory, "index.json"), IMAGE_TEST_MODE: options.mode ?? "clean" }
+  const env = { ...process.env, PATH: `${bin}:${path.dirname(process.execPath)}:${process.env.PATH}`, IMAGE_TEST_CALLS: calls, IMAGE_TEST_TIMEOUTS: timeoutCalls, IMAGE_TEST_INDEX: path.join(directory, "index.json"), IMAGE_TEST_MODE: options.mode ?? "clean" }
   const scan = (platform = "linux/amd64", scope = "application") => spawnSync("sh", [script, images, inputs, report, platform, scope], { env, encoding: "utf8", timeout: 20_000 })
   const commands = () => existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n").map(JSON.parse) : []
   const timeouts = () => existsSync(timeoutCalls) ? readFileSync(timeoutCalls, "utf8").trim().split("\n") : []

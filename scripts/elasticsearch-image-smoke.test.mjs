@@ -21,7 +21,7 @@ test("a failed Elasticsearch startup retains its crash logs until owned cleanup"
   const directory = mkdtempSync(path.join(tmpdir(), "linksense-es-smoke-test-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const calls = path.join(directory, "calls.jsonl");
-  writeFileSync(path.join(directory, "docker"), `#!${process.execPath}
+  writeFileSync(path.join(directory, "docker"), `#!/usr/bin/env node
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.SMOKE_TEST_CALLS, JSON.stringify(args) + "\\n");
@@ -40,7 +40,7 @@ if (args[0] === "run") {
 } else if (args[0] !== "rm") process.exit(1);
 `, { mode: 0o755 });
   const result = spawnSync(process.execPath, ["scripts/elasticsearch-image-smoke.mjs", `ghcr.io/example/elasticsearch@sha256:${"b".repeat(64)}`], {
-    env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, SMOKE_TEST_CALLS: calls },
+    env: { ...process.env, PATH: `${directory}:${path.dirname(process.execPath)}:${process.env.PATH}`, SMOKE_TEST_CALLS: calls },
     encoding: "utf8", timeout: 10_000,
   });
   assert.notEqual(result.status, 0);
