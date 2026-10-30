@@ -353,9 +353,9 @@ describe("AutomationService", () => {
     );
   });
 
-  it.each(["scheduled", "manual"] as const)("creates a stable fresh task for a %s run without changing the saved instruction", async trigger => {
+  it.each(["scheduled", "manual"] as const)("creates a stable fresh task for a %s run using its frozen source without changing the saved instruction", async trigger => {
     const fixture = automationFixture();
-    const automation = automationRecord({ monitoring: readAutomationMonitoring({ context_mode: "fresh_task", stop_condition: "Checklist complete" }) });
+    const automation = automationRecord({ conversationId: "20000000-0000-4000-8000-000000000099", monitoring: readAutomationMonitoring({ context_mode: "fresh_task", stop_condition: "Checklist complete" }) });
     const claim = {
       automation,
       run: {
@@ -376,7 +376,7 @@ describe("AutomationService", () => {
     fixture.conversations.submitScheduledTurn.mockResolvedValueOnce({ status: "started", turnId: TURN_ID });
     if (trigger === "scheduled") await fixture.service.dispatchOccurrence(AUTOMATION_ID, NOW);
     else await fixture.service.runNow(OWNER_ID, AUTOMATION_ID, REQUEST_ID, {});
-    expect(fixture.conversations.createPinnedConversation).toHaveBeenCalledWith(OWNER_ID, automation.title, undefined, NEW_CONVERSATION_ID);
+    expect(fixture.conversations.createPinnedConversation).toHaveBeenCalledWith(OWNER_ID, automation.title, undefined, NEW_CONVERSATION_ID, CONVERSATION_ID);
     expect(fixture.conversations.submitScheduledTurn).toHaveBeenCalledWith(OWNER_ID, NEW_CONVERSATION_ID, "Summarize important updates.", `automation:${trigger}:test`, undefined);
     expect(automation.instruction).toBe("Summarize important updates.");
   });
@@ -388,6 +388,7 @@ describe("AutomationService", () => {
     fixture.repository.claimOccurrence.mockResolvedValueOnce({ automation, run: { id: RUN_ID, conversationId: NEW_CONVERSATION_ID, executionContext: { trigger: "scheduled", context_mode: "fresh_task", stop_condition: null } }, shouldDispatch: true });
     fixture.conversations.createPinnedConversation.mockRejectedValueOnce(new Error("storage unavailable"));
     await fixture.service.dispatchOccurrence(AUTOMATION_ID, NOW);
+    expect(fixture.conversations.createPinnedConversation).toHaveBeenCalledWith(OWNER_ID, automation.title, undefined, NEW_CONVERSATION_ID, CONVERSATION_ID);
     expect(fixture.conversations.submitScheduledTurn).not.toHaveBeenCalled();
     expect(fixture.conversations.delete).not.toHaveBeenCalled();
     expect(fixture.repository.markRunFailed).toHaveBeenCalledWith(expect.objectContaining({ runId: RUN_ID, errorCode: "INTERNAL_ERROR" }));

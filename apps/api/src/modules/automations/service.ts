@@ -422,7 +422,13 @@ export class AutomationService {
         throw new AppError("AUTOMATION_EXPIRED");
       }
       if (claim.run.executionContext?.context_mode === "fresh_task") {
-        await this.conversations.createPinnedConversation(claim.automation.ownerId, claim.automation.title, undefined, claim.run.conversationId);
+        await this.conversations.createPinnedConversation(
+          claim.automation.ownerId,
+          claim.automation.title,
+          undefined,
+          claim.run.conversationId,
+          claim.run.executionContext.target_conversation_id ?? claim.automation.conversationId,
+        );
       }
       const conversation = await this.repository.findPinnedConversation(
         claim.automation.ownerId,

@@ -1850,6 +1850,74 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
   });
 
+  it.each([null, APPLICATION_ID])("inherits the source project %s without copying its conversation history", async projectId => {
+    const fixture = await conversationFixture();
+    const source = conversationRow({ pinnedAt: NOW, projectId, workspaceRelPath: projectWorkspaceRelativePath(OWNER_ID, projectId), codexThreadId: "source-thread" });
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(null);
+    fixture.prisma.conversation.findFirst.mockResolvedValue(source);
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{ projectId }]);
+    fixture.prisma.conversation.create.mockImplementation(async ({ data }) => conversationRow(data));
+
+    const created = await fixture.service.createPinnedConversation(OWNER_ID, "Fresh monitor", undefined, SECOND_CONVERSATION_ID, CONVERSATION_ID);
+
+    expect(created).toMatchObject({ id: SECOND_CONVERSATION_ID, projectId, workspaceRelPath: source.workspaceRelPath, codexThreadId: null, applicationId: null });
+    expect(fixture.prisma.conversation.findFirst).toHaveBeenCalledWith({
+      where: { id: CONVERSATION_ID, ownerId: OWNER_ID, archiveStatus: "active", pinnedAt: { not: null }, collaborationMode: "default" },
+      select: { projectId: true },
+    });
+    expect(fixture.runner.prepareRuntime).toHaveBeenCalledWith(SECOND_CONVERSATION_ID, OWNER_ID, projectId ? `projects/${projectId}` : "workspace", undefined);
+    expect(fixture.runner.forkThread).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unavailable or unauthorized source before preparing fresh task storage", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(null);
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(null);
+
+    await expect(fixture.service.createPinnedConversation(OWNER_ID, "Fresh monitor", undefined, SECOND_CONVERSATION_ID, CONVERSATION_ID)).rejects.toMatchObject({ code: "AUTOMATION_TASK_NOT_PINNED" });
+    expect(fixture.prisma.conversation.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: CONVERSATION_ID, ownerId: OWNER_ID }) }));
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+  });
+
+  it("does not attach a fresh task to a deleted or another user's project", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(null);
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({ pinnedAt: NOW, projectId: APPLICATION_ID }));
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([]);
+
+    await expect(fixture.service.createPinnedConversation(OWNER_ID, "Fresh monitor", undefined, SECOND_CONVERSATION_ID, CONVERSATION_ID)).rejects.toMatchObject({ code: "PROJECT_NOT_FOUND" });
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.cleanup.enqueueRuntimeCleanup).toHaveBeenCalledWith(OWNER_ID, SECOND_CONVERSATION_ID, undefined);
+  });
+
+  it.each([
+    { rows: [], code: "AUTOMATION_TASK_NOT_PINNED" },
+    { rows: [{ projectId: APPLICATION_ID }], code: "CONFLICT" },
+  ])("rechecks source availability and project assignment before committing a fresh task: $code", async ({ rows, code }) => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(null);
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({ pinnedAt: NOW }));
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue(rows);
+
+    await expect(fixture.service.createPinnedConversation(OWNER_ID, "Fresh monitor", undefined, SECOND_CONVERSATION_ID, CONVERSATION_ID)).rejects.toMatchObject({ code });
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.cleanup.enqueueRuntimeCleanup).toHaveBeenCalledWith(OWNER_ID, SECOND_CONVERSATION_ID, undefined);
+  });
+
+  it("keeps the already created fresh task's project when an idempotent dispatch is resumed", async () => {
+    const fixture = await conversationFixture();
+    const existing = conversationRow({ pinnedAt: NOW, projectId: APPLICATION_ID, workspaceRelPath: projectWorkspaceRelativePath(OWNER_ID, APPLICATION_ID) });
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(existing);
+
+    const result = await fixture.service.createPinnedConversation(OWNER_ID, "Fresh monitor", undefined, CONVERSATION_ID, SECOND_CONVERSATION_ID);
+
+    expect(result).toBe(existing);
+    expect(fixture.prisma.conversation.findFirst).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+  });
+
   it.each([
     { ownerId: SECOND_CONVERSATION_ID },
     { archiveStatus: "archived" },

@@ -7369,6 +7369,7 @@ export class ConversationService {
     title: string,
     fallbackLocale?: Locale,
     idempotentConversationId?: string,
+    sourceConversationId?: string,
   ) {
     return this.withActiveUserRuntimeLease(ownerId, async () => {
       if (idempotentConversationId) {
@@ -7378,9 +7379,18 @@ export class ConversationService {
           return existing;
         }
       }
+      const source = sourceConversationId
+        ? await this.prisma.conversation.findFirst({
+            where: { id: sourceConversationId, ownerId, archiveStatus: "active", pinnedAt: { not: null }, collaborationMode: "default" },
+            select: { projectId: true },
+          })
+        : null;
+      if (sourceConversationId && !source) throw new AppError("AUTOMATION_TASK_NOT_PINNED");
       return this.createConversation(ownerId, fallbackLocale, undefined, {
         title,
         pinned: true,
+        projectId: source?.projectId ?? null,
+        ...(sourceConversationId ? { projectSourceConversationId: sourceConversationId } : {}),
         ...(idempotentConversationId ? { conversationId: idempotentConversationId, reusePinnedCreation: true } : {}),
       });
     });
@@ -7408,6 +7418,7 @@ export class ConversationService {
       collaborationMode?: ConversationCollaborationMode;
       conversationId?: string;
       projectId?: string | null;
+      projectSourceConversationId?: string;
       sideChat?: { parentId: string; workspaceRelPath: string; reference: SideChatReference; preferredModel: string | null; knowledgeBaseIds: Prisma.JsonValue };
     },
     prewarmedConversationId?: string,
@@ -7489,6 +7500,15 @@ export class ConversationService {
       return await this.prisma.$transaction(async (tx) => {
         if (options?.projectId) {
           await lockOwnedProject(tx, ownerId, options.projectId);
+        }
+        if (options?.projectSourceConversationId) {
+          const [source] = await tx.$queryRaw<Array<{ projectId: string | null }>>`
+            SELECT project_id AS "projectId" FROM conversations
+            WHERE id = ${options.projectSourceConversationId}::uuid AND owner_id = ${ownerId}::uuid
+              AND archive_status = 'active' AND pinned_at IS NOT NULL AND collaboration_mode = 'default'
+            FOR SHARE`;
+          if (!source) throw new AppError("AUTOMATION_TASK_NOT_PINNED");
+          if (source.projectId !== (options.projectId ?? null)) throw new AppError("CONFLICT");
         }
         if (options?.sideChat) {
           const [parent] = await tx.$queryRaw<Array<{ id: string; projectId: string | null; workspaceRelPath: string }>>`
