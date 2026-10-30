@@ -31,6 +31,15 @@ high-contrast foreground colors apply without rewriting the SVG.
 | overview | 139:149022 | 20 |
 | close | 171:8211 | 16 |
 
+The task menu also uses unchanged SVG exports from the
+[current LinkSense copy](https://www.figma.com/design/2u3B2wBn8wm7wn8FKhCBHq)
+retrieved with Figma MCP on 2026-10-30:
+
+| Asset | Source node | Size |
+| --- | --- | --- |
+| rename | 1:2403 | 16 |
+| delete | 1:2408 | 16 |
+
 The expanded folder source `226:13739` has the same geometry as `226:13734`.
 Project expansion remains indicated by the actual child list and `aria-expanded`.
 Custom project icons/colors, configured product logos and application identities

@@ -365,7 +365,9 @@
   --app-media-control-hover: #e9e9e9;
   --app-media-foreground: #242424;
   --app-shadow: 0 7px 20px rgb(27 39 69 / 5%);
-  --app-task-overview-shadow: 0 0 28px rgb(0 0 0 / 8%);
+  --app-task-overview-shadow: var(--app-dialog-shadow);
+  --app-task-overview-muted: #69758d;
+  --app-task-overview-icon: #333955;
   --stop: #ca4c54;
   --stop-foreground: #ffffff;
   --primary-hover: #0065df;
@@ -384,6 +386,8 @@
   --card-subtle: var(--card);
   --card-foreground: #d8d8d8;
   --popover: #202020;
+  --app-task-overview-muted: var(--muted-foreground);
+  --app-task-overview-icon: var(--foreground);
   --popover-foreground: #d8d8d8;
   --primary: #8bb6ff;
   --primary-action: var(--primary);
@@ -493,7 +497,6 @@
   --app-media-control-hover: #393939;
   --app-media-foreground: #ffffff;
   --app-shadow: 0 7px 20px rgb(0 0 0 / 20%);
-  --app-task-overview-shadow: 0 0 28px rgb(0 0 0 / 24%);
   --stop: #d65d66;
   --stop-foreground: #ffffff;
   --primary-hover: #a5c7ff;
@@ -1253,7 +1256,7 @@
 }
 
 .conversation-workspace {
-  --conversation-task-overview-lane-width: 20rem;
+  --conversation-task-overview-lane-width: 21.75rem;
   --conversation-task-overview-shift-x: 0px;
   --conversation-bottom-stack-height: 0px;
   --conversation-bottom-stack-clearance: 42px;

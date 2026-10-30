@@ -35,7 +35,6 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query"
 import {
-  ArchiveIcon,
   ArchiveRestoreIcon,
   ArrowDownWideNarrowIcon,
   CircleAlertIcon,
@@ -43,12 +42,11 @@ import {
   FolderIcon,
   InfoIcon,
   MessagesSquareIcon,
-  PencilIcon,
   SearchIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react"
-import { TbPin, TbPinFilled } from "react-icons/tb"
+import { TbPinFilled } from "react-icons/tb"
 import { useTranslation } from "react-i18next"
 import {
   Navigate,
@@ -5989,9 +5987,9 @@ export function ConversationPage({
               <DropdownMenuContent align="start" className="min-w-40">
                 <DropdownMenuGroup>
                   <DropdownMenuItem onClick={openRenameDialog}>
-                    <PencilIcon
-                      className="size-3.5 text-[var(--app-muted)] opacity-70"
-                      aria-hidden="true"
+                    <DesignIcon
+                      name="rename"
+                      className="size-4 text-[var(--app-muted)]"
                     />{" "}
                     {t("conversation.rename")}
                   </DropdownMenuItem>
@@ -6005,16 +6003,15 @@ export function ConversationPage({
                   >
                     {displayConversation.pinned_at ? (
                       <TbPinFilled
-                        className="size-3.5 text-[var(--app-muted)] opacity-70"
+                        className="size-4 text-[var(--app-muted)]"
                         data-icon="conversation-pin-filled"
                         aria-hidden="true"
                       />
                     ) : (
-                      <TbPin
-                        className="size-3.5 text-[var(--app-muted)] opacity-70"
+                      <DesignIcon
+                        name="pin"
+                        className="size-4 text-[var(--app-muted)]"
                         data-icon="conversation-pin"
-                        strokeWidth={2}
-                        aria-hidden="true"
                       />
                     )}{" "}
                     {t(
@@ -6040,9 +6037,9 @@ export function ConversationPage({
                         aria-hidden="true"
                       />
                     ) : (
-                      <ArchiveIcon
-                        className="size-3.5 text-[var(--app-muted)] opacity-70"
-                        aria-hidden="true"
+                      <DesignIcon
+                        name="archive"
+                        className="size-4 text-[var(--app-muted)]"
                       />
                     )}{" "}
                     {t(
@@ -6058,10 +6055,7 @@ export function ConversationPage({
                     variant="destructive"
                     onClick={() => setDeleteOpen(true)}
                   >
-                    <Trash2Icon
-                      className="size-3.5 opacity-70"
-                      aria-hidden="true"
-                    />{" "}
+                    <DesignIcon name="delete" className="size-4" />{" "}
                     {t("conversation.delete")}
                   </DropdownMenuItem>
                 </DropdownMenuGroup>

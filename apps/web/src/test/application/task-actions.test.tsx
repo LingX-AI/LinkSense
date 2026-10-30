@@ -802,17 +802,16 @@ describe("LinkSense application", () => {
     const deleteItem = screen.getByRole("menuitem", { name: "删除任务" })
     expect(archiveItem).toBeVisible()
     expect(deleteItem).toBeVisible()
-    for (const item of [renameItem, archiveItem]) {
-      expect(item.querySelector("svg")).toHaveClass(
-        "size-3.5",
-        "text-[var(--app-muted)]",
-        "opacity-70"
-      )
+    for (const [item, name] of [
+      [renameItem, "rename"],
+      [archiveItem, "archive"],
+      [deleteItem, "delete"],
+    ] as const) {
+      const icon = item.querySelector(`[data-design-icon="${name}"]`)
+      expect(icon).toHaveClass("size-4")
+      expect(icon).toHaveAttribute("aria-hidden", "true")
+      expect(icon).not.toHaveClass("opacity-70")
     }
-    expect(deleteItem.querySelector("svg")).toHaveClass(
-      "size-3.5",
-      "opacity-70"
-    )
 
     await interaction.click(archiveItem)
 
@@ -844,10 +843,8 @@ describe("LinkSense application", () => {
     const pinItem = await screen.findByRole("menuitem", {
       name: "置顶任务",
     })
-    expect(pinItem.querySelector('[data-icon="conversation-pin"]')).toHaveClass(
-      "size-3.5",
-      "text-[var(--app-muted)]",
-      "opacity-70"
+    expect(pinItem.querySelector('[data-design-icon="pin"]')).toHaveClass(
+      "size-4"
     )
     await interaction.click(pinItem)
 
@@ -867,7 +864,7 @@ describe("LinkSense application", () => {
     })
     expect(
       unpinItem.querySelector('[data-icon="conversation-pin-filled"]')
-    ).toHaveClass("size-3.5", "text-[var(--app-muted)]", "opacity-70")
+    ).toHaveClass("size-4", "text-[var(--app-muted)]")
     await interaction.click(unpinItem)
 
     await waitFor(() =>
