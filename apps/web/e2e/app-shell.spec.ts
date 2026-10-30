@@ -54,6 +54,39 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page)
 })
 
+test("a delayed new-task route preserves an already opened account menu", async ({
+  page,
+}) => {
+  let release!: () => void
+  const ready = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let requested = false
+  await page.route("**/assets/conversation-pages-*.js", async (route) => {
+    requested = true
+    await ready
+    await route.continue()
+  })
+  try {
+    await page.goto("/conversations/new", { waitUntil: "domcontentloaded" })
+    await expect.poll(() => requested).toBe(true)
+    const account = page.getByRole("button", { name: "Eli", exact: true })
+    await account.press("Enter")
+    const menu = page.getByRole("menu", { name: "Eli", exact: true })
+    await expect(menu).toBeVisible()
+    await expect(menu.getByRole("menuitem").first()).toBeFocused()
+    release()
+    await expect(
+      page.getByRole("textbox", { name: "任务输入框" })
+    ).toBeVisible()
+    await expect(menu).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(account).toBeFocused()
+  } finally {
+    release()
+  }
+})
+
 test("sidebar groups match the design through hover, keyboard focus, and sorting", async ({
   page,
 }) => {
@@ -113,8 +146,9 @@ test("sidebar groups match the design through hover, keyboard focus, and sorting
   await expect(sort).toHaveCSS("opacity", "1")
   expect(await heading.boundingBox()).toEqual(bounds)
   await sort.click()
-  const menu = page.getByRole("menu").filter({ hasText: "排序方式" })
+  const menu = page.getByRole("menu", { name: "设置最近任务排序方式" })
   await expect(menu).toBeVisible()
+  await expect(menu.getByText("任务排序", { exact: true })).toBeVisible()
   await expect(sort).toHaveCSS("opacity", "1")
   await page.keyboard.press("Escape")
   await expect(sort).toBeFocused()
@@ -1644,6 +1678,21 @@ test("account menu follows keyboard dismissal and routes to standalone settings"
   await expect(
     page.getByRole("heading", { name: "常规", exact: true })
   ).toBeVisible()
+})
+
+test("clicking the account-menu quota opens personal quota usage", async ({
+  page,
+}) => {
+  await page.goto("/conversations/new")
+  await page.getByRole("button", { name: "Eli", exact: true }).click()
+  const quota = page.getByRole("menuitem", { name: /额度/u })
+  await expect(quota).toHaveAttribute("href", "/settings/quota")
+  await quota.click()
+  await expect(page).toHaveURL(/\/settings\/quota$/u)
+  await expect(
+    page.getByRole("heading", { level: 1, name: "额度使用" })
+  ).toBeVisible()
+  await expect(page.getByRole("menu")).toHaveCount(0)
 })
 
 test("200 percent zoom keeps settings controls available without page overflow", async ({
@@ -4419,9 +4468,13 @@ for (const locale of supportedLocales) {
       }
       if (width === 1440) {
         await page.goto("/conversations/new")
-        await page.getByRole("button", { name: "Eli", exact: true }).click()
+        const account = page.getByRole("button", { name: "Eli", exact: true })
+        await account.click()
         await expectPopupPadding(page.getByRole("menu"), '[role="menuitem"]')
         await page.keyboard.press("Escape")
+        await expect(
+          page.locator('[data-slot="dropdown-menu-content"]')
+        ).toHaveCount(0)
         await page
           .locator(
             '[data-slot="dropdown-menu-trigger"][aria-label*="项目数据分析"]'
