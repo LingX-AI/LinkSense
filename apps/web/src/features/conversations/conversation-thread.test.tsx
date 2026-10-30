@@ -586,8 +586,19 @@ describe("conversation turn responses", () => {
       const firstImage = await screen.findByRole("img", {
         name: files[0]!.name,
       })
-      const gallery = firstImage.closest('[data-slot="generated-image-call"]')
+      const gallery = firstImage.closest<HTMLDivElement>(
+        '[data-slot="generated-image-call"]'
+      )
       if (!gallery) throw new Error("Missing image gallery")
+      const assistantMessage = screen.getByRole("article", {
+        name: "助手回复",
+      })
+      const actions = within(assistantMessage).getByLabelText("消息操作")
+      expect(assistantMessage).toContainElement(gallery)
+      expect(
+        gallery.compareDocumentPosition(actions) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
       expect(
         screen
           .getByText(/这三张照片都是写实风格/u)
@@ -618,6 +629,11 @@ describe("conversation turn responses", () => {
       expect(screen.getAllByRole("tab")).toHaveLength(3)
       expect(screen.getByRole("img", { name: files[2]!.name })).toBeVisible()
       expect(loadArtifactPreview).toHaveBeenCalledTimes(3)
+      expect(assistantMessage).toContainElement(gallery)
+      expect(
+        gallery.compareDocumentPosition(actions) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
     }
   )
 
@@ -4634,9 +4650,20 @@ describe("conversation turn responses", () => {
         />
       )
       const image = await screen.findByRole("img", { name: final.name })
-      const gallery = image.closest('[data-slot="generated-image-call"]')
+      const gallery = image.closest<HTMLDivElement>(
+        '[data-slot="generated-image-call"]'
+      )
       expect(gallery).not.toBeNull()
       if (!gallery) throw new Error("Missing final image gallery")
+      const assistantMessage = screen.getByRole("article", {
+        name: "助手回复",
+      })
+      const actions = within(assistantMessage).getByLabelText("消息操作")
+      expect(assistantMessage).toContainElement(gallery)
+      expect(
+        gallery.compareDocumentPosition(actions) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
       expect(
         screen.getByText("请查收最终图片。").compareDocumentPosition(gallery) &
           Node.DOCUMENT_POSITION_FOLLOWING
@@ -8156,6 +8183,88 @@ describe("conversation turn responses", () => {
     expect(within(summary).queryByText("思考内容")).toBeNull()
     expect(summary.querySelector(".reasoning-activity-row")).toBeNull()
   })
+
+  it.each(supportedLanguages)(
+    "places late registered images before the existing footer of a historical reply in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const image: ConversationFile = {
+        id: "30000000-0000-4000-8000-000000000046",
+        name: "landscape.png",
+        mime_type: "image/png",
+        size: 1024,
+        kind: "artifact",
+        turn_id: "turn-1",
+        download_available: true,
+      }
+      const props = {
+        conversation: completedConversation,
+        onDownload: vi.fn(),
+        onForkMessage: vi.fn().mockResolvedValue(undefined),
+        loadArtifactPreview: vi.fn().mockResolvedValue({
+          url: "https://files.example.test/landscape.png",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        }),
+      }
+      const { rerender } = render(<ConversationThread {...props} />)
+      const assistantMessage = screen.getByRole("article", {
+        name: i18n.t("conversation.assistantMessage"),
+      })
+      const actions = within(assistantMessage).getByLabelText(
+        i18n.t("conversation.messageActions")
+      )
+      expect(screen.queryByRole("img", { name: image.name })).toBeNull()
+
+      const conversation = { ...completedConversation, artifacts: [image] }
+      rerender(<ConversationThread {...props} conversation={conversation} />)
+      const thumbnail = await screen.findByRole("img", { name: image.name })
+      const gallery = thumbnail.closest<HTMLDivElement>(
+        '[data-slot="generated-image-call"]'
+      )
+      if (!gallery) throw new Error("Missing late image gallery")
+      expect(assistantMessage).toContainElement(gallery)
+      expect(
+        gallery.compareDocumentPosition(actions) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(
+        within(assistantMessage).getAllByLabelText(
+          i18n.t("conversation.messageActions")
+        )
+      ).toEqual([actions])
+      expect(
+        within(actions).getByRole("button", {
+          name: i18n.t("conversation.copyMessage"),
+        })
+      ).toBeVisible()
+      fireEvent.click(
+        within(actions).getByRole("button", {
+          name: i18n.t("conversation.forkMessage"),
+        })
+      )
+      await waitFor(() =>
+        expect(props.onForkMessage).toHaveBeenCalledExactlyOnceWith(
+          completedConversation.messages![1]
+        )
+      )
+
+      rerender(
+        <ConversationThread
+          {...props}
+          conversation={conversation}
+          hideMessageActions
+        />
+      )
+      expect(thumbnail).toBeVisible()
+      expect(assistantMessage).toContainElement(gallery)
+      expect(
+        within(assistantMessage).queryByLabelText(
+          i18n.t("conversation.messageActions")
+        )
+      ).toBeNull()
+      expect(props.loadArtifactPreview).toHaveBeenCalledTimes(1)
+    }
+  )
 
   it("renders a registered image in the gallery once and opens the shared preview", async () => {
     const interaction = userEvent.setup()
