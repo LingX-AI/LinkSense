@@ -3109,6 +3109,7 @@ function areMessagePropsEqual(previous: MessageProps, next: MessageProps) {
     previous.goalCompletion?.durationLabel ===
       next.goalCompletion?.durationLabel &&
     previous.proposedPlan === next.proposedPlan &&
+    previous.hideActions === next.hideActions &&
     previous.generatedImages === next.generatedImages
   )
 }

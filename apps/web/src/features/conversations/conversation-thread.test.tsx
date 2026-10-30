@@ -8844,6 +8844,42 @@ describe("conversation turn responses", () => {
     ).toHaveAttribute("aria-expanded", "true")
   })
 
+  it("updates message actions when a historical reply is hidden and shown", async () => {
+    const props = {
+      conversation: completedConversation,
+      onDownload: vi.fn(),
+      onForkMessage: vi.fn().mockResolvedValue(undefined),
+    }
+    const { rerender } = render(<ConversationThread {...props} />)
+    const assistantMessage = screen.getByRole("article", {
+      name: "助手回复",
+    })
+    expect(
+      within(assistantMessage).getByLabelText("消息操作")
+    ).toBeVisible()
+
+    rerender(<ConversationThread {...props} hideMessageActions />)
+    expect(screen.queryByLabelText("消息操作")).toBeNull()
+    expect(assistantMessage).toBeInTheDocument()
+
+    rerender(<ConversationThread {...props} hideMessageActions={false} />)
+    const actions = within(assistantMessage).getByLabelText("消息操作")
+    expect(actions).toBeVisible()
+    expect(
+      within(actions).getByRole("button", { name: "复制消息" })
+    ).toBeVisible()
+    fireEvent.click(
+      within(actions).getByRole("button", {
+        name: i18n.t("conversation.forkMessage"),
+      })
+    )
+    await waitFor(() =>
+      expect(props.onForkMessage).toHaveBeenCalledExactlyOnceWith(
+        completedConversation.messages?.[1]
+      )
+    )
+  })
+
   it("exposes role-specific message actions and copies either message", async () => {
     const interaction = userEvent.setup()
     const execCommand = mockExecCommand(true)
