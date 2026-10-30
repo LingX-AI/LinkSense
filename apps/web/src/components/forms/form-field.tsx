@@ -143,7 +143,9 @@ export function SettingsFieldRow({
           {label}
         </FieldLabel>
         {hint && (
-          <FieldDescription className="form-hint">{hint}</FieldDescription>
+          <FieldDescription id={`${id}-hint`} className="form-hint">
+            {hint}
+          </FieldDescription>
         )}
       </FieldContent>
       <FieldContent

@@ -53,7 +53,9 @@ describe("settings form fields", () => {
           hint="Allow access"
           controlWidth="compact"
         >
-          <button id="enabled">Toggle</button>
+          <button id="enabled" aria-describedby="enabled-hint">
+            Toggle
+          </button>
         </SettingsFieldRow>
       </SettingsFieldGroup>
     )
@@ -75,6 +77,9 @@ describe("settings form fields", () => {
     expect(screen.getByText("Allow access").parentElement).toContainElement(
       screen.getByText("Enabled")
     )
+    expect(
+      screen.getByRole("button", { name: "Enabled" })
+    ).toHaveAccessibleDescription("Allow access")
   })
 
   it("keeps the default field layout unchanged for dialogs", () => {
