@@ -41,6 +41,14 @@ compose() {
     -f "$root/deploy/release/compose.common.yml" -f "$root/deploy/release/compose.core.yml" \
     -f "$root/deploy/uat/compose.yml" "$@"
 }
+active_operation_count() {
+  count=$(compose exec -T postgres sh -ec \
+    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "SELECT (SELECT count(*) FROM conversation_turns WHERE status = '\''running'\'') + (SELECT count(*) FROM conversation_turn_start_intents) + (SELECT count(*) FROM automation_runs WHERE status = '\''dispatching'\'');"')
+  case "$count" in
+    ''|*[!0-9]*) echo "Could not read the UAT active operation count" >&2; return 1 ;;
+  esac
+  printf '%s\n' "$count"
+}
 compose config --quiet
 for role in POSTGRES REDIS MINIO USER_DATA BACKUP; do
   volume=$(python3 -c 'import json,sys; key="LINKSENSE_"+sys.argv[1]+"_VOLUME"; print(next(json.loads(line.split("=",1)[1]) for line in open(".data/uat/runtime.env") if line.startswith(key+"=")))' "$role")
@@ -82,8 +90,16 @@ fi
 compose up -d --wait --wait-timeout 180 postgres redis minio
 schema_present=$(compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT to_regclass('\''public.conversation_turns'\'') IS NOT NULL"')
 if [ "$schema_present" = t ]; then
-  active=$(compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM conversation_turns WHERE status = '\''running'\''"')
-  test "$active" = 0 || { echo "UAT has running tasks; stop them before updating" >&2; exit 1; }
+  active=$(active_operation_count)
+  test "$active" = 0 || { echo "UAT has $active active operation(s); let them finish before updating" >&2; exit 1; }
+  # Stop HTTP and schedulers before their Controller, then verify the offline boundary.
+  for service in api runner; do
+    compose stop --timeout 60 "$service" || { echo "Could not stop UAT $service; no backup or migration has run" >&2; exit 1; }
+  done
+  running=$(compose ps --status running --services api runner)
+  test -z "$running" || { echo "UAT API or Runner is still running; refusing to back up or migrate" >&2; exit 1; }
+  active=$(active_operation_count)
+  test "$active" = 0 || { echo "UAT has $active active operation(s) after stopping; restart its existing API and Runner containers to let them finish before retrying" >&2; exit 1; }
   backup=$root/.data/uat/database-$(date -u +%Y%m%dT%H%M%SZ).dump
   compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup.partial"
   compose exec -T postgres pg_restore --list < "$backup.partial" >/dev/null
