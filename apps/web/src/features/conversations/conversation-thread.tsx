@@ -2453,6 +2453,7 @@ type MessageProps = Readonly<{
   proposedPlan?: boolean
   hideActions?: boolean
   messageReferenceAction?: MessageReferenceAction
+  generatedImages?: ReactNode
 }>
 
 const Message = memo(function Message({
@@ -2483,6 +2484,7 @@ const Message = memo(function Message({
   proposedPlan = false,
   hideActions = false,
   messageReferenceAction,
+  generatedImages,
 }: MessageProps) {
   const { t, i18n } = useTranslation()
   const user = message.role === "user"
@@ -3080,6 +3082,7 @@ const Message = memo(function Message({
           </div>
         )
       )}
+      {generatedImages}
       {showMessageActions && (
         <div
           className={cn(
@@ -3190,7 +3193,9 @@ function areMessagePropsEqual(previous: MessageProps, next: MessageProps) {
     previous.isGoalTask === next.isGoalTask &&
     previous.goalCompletion?.durationLabel ===
       next.goalCompletion?.durationLabel &&
-    previous.proposedPlan === next.proposedPlan
+    previous.proposedPlan === next.proposedPlan &&
+    previous.hideActions === next.hideActions &&
+    previous.generatedImages === next.generatedImages
   )
 }
 
@@ -4857,6 +4862,7 @@ export function ConversationThread({
     }
     imageArtifactIdsByTurn.set(turnId, imageIds)
   }
+  const turnsWithDeliveredImages = new Set<string>()
   for (const [turnId, finalMessage] of finalMessageByTurn) {
     for (const id of selectConversationGeneratedImageIds({
       items: imageGenerationItemsByTurn.get(turnId) ?? [],
@@ -4866,6 +4872,7 @@ export function ConversationThread({
       finalMessage,
     })) {
       generatedImageFileIds.add(id)
+      turnsWithDeliveredImages.add(turnId)
     }
   }
   const guidedMessagesByTurn = new Map<string, ConversationMessage[]>()
@@ -4880,6 +4887,41 @@ export function ConversationThread({
     const guidedMessages = guidedMessagesByTurn.get(message.turn_id) ?? []
     guidedMessages.push(message)
     guidedMessagesByTurn.set(message.turn_id, guidedMessages)
+  }
+  const renderGeneratedImages = (turn: ConversationTurn) => {
+    const items = imageGenerationItemsByTurn.get(turn.id) ?? []
+    const registeredFileIds = imageArtifactIdsByTurn.get(turn.id) ?? []
+    if (
+      items.length === 0 &&
+      registeredFileIds.length === 0 &&
+      !turnsWithDeliveredImages.has(turn.id)
+    )
+      return null
+    const finalMessage = finalMessageByTurn.get(turn.id)
+    return (
+      <ConversationGeneratedImages
+        key={`turn-images-${getTurnRenderKey(turn)}`}
+        items={items}
+        registeredFileIds={registeredFileIds}
+        finalMessage={
+          finalMessage?.streaming === true ? undefined : finalMessage
+        }
+        turnId={turn.id}
+        turnStatus={turn.status}
+        running={
+          isTurnActiveRunning(turn) &&
+          !(
+            nativeReconnectState?.turnId === turn.id &&
+            nativeReconnectState.phase === "failed"
+          )
+        }
+        filesById={conversationFilesById}
+        loadPreview={loadArtifactPreview}
+        onPreviewImage={onPreviewImage}
+        onDownload={onDownload}
+        downloadingFileId={downloadingFileId}
+      />
+    )
   }
   const renderConversationMessage = (
     message: ConversationMessage,
@@ -4972,6 +5014,9 @@ export function ConversationThread({
         }
         proposedPlan={isProposedPlanMessage(message)}
         hideActions={hideMessageActions}
+        generatedImages={
+          isFinal && turn ? renderGeneratedImages(turn) : undefined
+        }
       />
     )
   }
@@ -5418,32 +5463,9 @@ export function ConversationThread({
       render: () => {
         const nodes = row.renderers.flatMap((render) => render())
         const turn = row.turnId ? turnById.get(row.turnId) : undefined
-        if (!turn) return nodes
-        const finalMessage = finalMessageByTurn.get(turn.id)
-        nodes.push(
-          <ConversationGeneratedImages
-            key={`turn-images-${getTurnRenderKey(turn)}`}
-            items={imageGenerationItemsByTurn.get(turn.id) ?? []}
-            registeredFileIds={imageArtifactIdsByTurn.get(turn.id) ?? []}
-            finalMessage={
-              finalMessage?.streaming === true ? undefined : finalMessage
-            }
-            turnId={turn.id}
-            turnStatus={turn.status}
-            running={
-              isTurnActiveRunning(turn) &&
-              !(
-                nativeReconnectState?.turnId === turn.id &&
-                nativeReconnectState.phase === "failed"
-              )
-            }
-            filesById={conversationFilesById}
-            loadPreview={loadArtifactPreview}
-            onPreviewImage={onPreviewImage}
-            onDownload={onDownload}
-            downloadingFileId={downloadingFileId}
-          />
-        )
+        if (turn && !finalMessageByTurn.has(turn.id)) {
+          nodes.push(renderGeneratedImages(turn))
+        }
         return nodes
       },
     })
