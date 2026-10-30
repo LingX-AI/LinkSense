@@ -53,6 +53,68 @@ describe("automation result notifications", () => {
     expect(senders.feishu).toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining("failed") }));
     expect(db.automationNotificationDelivery.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "sent" }) }));
   });
+  it.each(["scheduled", "manual"])("notifies a failed %s fresh dispatch when its task was never created", async trigger => {
+    const { db, row, senders, service } = fixture();
+    const freshTask = "33333333-3333-4333-8333-333333333333";
+    db.automationRun.findFirst.mockResolvedValue({
+      id, conversationId: freshTask, turnId: null, status: "failed", completedAt: null,
+      executionContextJson: { trigger, context_mode: "fresh_task", stop_condition: null, target_conversation_id: id },
+    });
+    db.conversation.findFirst.mockImplementation(async ({ where }: { where: { id: string; ownerId: string } }) =>
+      where.id === id && where.ownerId === id ? { id } : null);
+    await service.deliver(row);
+    expect(senders.feishu).toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining("failed") }));
+    expect(senders.outcome).not.toHaveBeenCalled();
+    expect(db.conversation.findFirst).toHaveBeenLastCalledWith({ where: { id, ownerId: id }, select: { id: true } });
+    expect(db.automationNotificationDelivery.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "sent" }) }));
+  });
+  it.each([undefined, null])("keeps a failed legacy run usable with execution context %s", async executionContextJson => {
+    const { db, row, senders, service } = fixture();
+    db.automationRun.findFirst.mockResolvedValue({ id, conversationId: id, turnId: null, status: "failed", completedAt: null, executionContextJson });
+    await service.deliver(row);
+    expect(senders.feishu).toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining("failed") }));
+    expect(db.conversation.findFirst).toHaveBeenCalledTimes(2);
+  });
+  it.each([
+    undefined,
+    null,
+    { trigger: "scheduled", context_mode: "reuse_task", stop_condition: null, target_conversation_id: id },
+    { trigger: "scheduled", context_mode: "fresh_task", stop_condition: null },
+    { context_mode: "fresh_task", target_conversation_id: id },
+  ])("does not invent a fallback for a missing task with invalid or legacy context %j", async executionContextJson => {
+    const { db, row, senders, service } = fixture();
+    db.automationRun.findFirst.mockResolvedValue({ id, conversationId: "33333333-3333-4333-8333-333333333333", turnId: null, status: "failed", completedAt: null, executionContextJson });
+    db.conversation.findFirst.mockResolvedValue(null);
+    await service.deliver(row);
+    expect(senders.feishu).not.toHaveBeenCalled();
+    expect(db.conversation.findFirst).toHaveBeenCalledOnce();
+    expect(db.automationNotificationDelivery.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "cancelled" }) }));
+  });
+  it.each([null, "44444444-4444-4444-8444-444444444444"])("does not notify a failed fresh dispatch when the original task is deleted or owned by %s", async sourceOwner => {
+    const { db, row, senders, service } = fixture();
+    db.automationRun.findFirst.mockResolvedValue({
+      id, conversationId: "33333333-3333-4333-8333-333333333333", turnId: null, status: "failed", completedAt: null,
+      executionContextJson: { trigger: "scheduled", context_mode: "fresh_task", stop_condition: null, target_conversation_id: id },
+    });
+    db.conversation.findFirst.mockImplementation(async ({ where }: { where: { id: string; ownerId: string } }) =>
+      where.id === id && where.ownerId === sourceOwner ? { id } : null);
+    await service.deliver(row);
+    expect(senders.feishu).not.toHaveBeenCalled();
+    expect(db.conversation.findFirst).toHaveBeenLastCalledWith({ where: { id, ownerId: id }, select: { id: true } });
+    expect(db.automationNotificationDelivery.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "cancelled" }) }));
+  });
+  it("rechecks the original task before sending a failed fresh-dispatch notification", async () => {
+    const { db, row, senders, service } = fixture();
+    db.automationRun.findFirst.mockResolvedValue({
+      id, conversationId: "33333333-3333-4333-8333-333333333333", turnId: null, status: "failed", completedAt: null,
+      executionContextJson: { trigger: "scheduled", context_mode: "fresh_task", stop_condition: null, target_conversation_id: id },
+    });
+    db.conversation.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id }).mockResolvedValueOnce(null);
+    await service.deliver(row);
+    await expect(senders.feishu.mock.results[0]?.value).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.conversation.findFirst).toHaveBeenLastCalledWith({ where: { id, ownerId: id }, select: { id: true } });
+    expect(db.automationNotificationDelivery.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "cancelled" }) }));
+  });
   it("resolves the original turn of a queued run and includes its final answer", async () => {
     const { db, row, senders, service } = fixture();
     db.automationRun.findFirst.mockResolvedValue({ id, conversationId: id, turnId: null, idempotencyKey: "scheduled-run", status: "queued", completedAt: new Date() });

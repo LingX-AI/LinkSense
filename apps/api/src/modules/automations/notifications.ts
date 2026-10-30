@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { automationNotificationTargetSchema, automationNotificationTargetsSchema, type AutomationNotificationTarget, type AutomationNotificationTargets } from "@linksense/shared";
+import { automationNotificationTargetSchema, automationNotificationTargetsSchema, automationRunContextSchema, type AutomationNotificationTarget, type AutomationNotificationTargets } from "@linksense/shared";
 import type { AutomationNotificationDelivery, PrismaClient, BotChannelInboundMessage, Prisma, FeishuConnection, FeishuPeerSession, BotChannelConnection, BotChannelPeerSession } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
 import { translateBackend } from "../../lib/i18n.js";
@@ -83,8 +83,14 @@ export class AutomationNotificationService {
       const target = automationNotificationTargetSchema.safeParse(row.targetJson);
       const current = automationNotificationTargetSchema.safeParse(automation?.notificationTargetJson);
       if (!automation || !actor || !run || !target.success || !current.success || JSON.stringify(target.data) !== JSON.stringify(current.data)) { await settle({ status: "cancelled" }); return; }
-      const conversation = await this.db.conversation.findFirst({ where: { id: run.conversationId, ownerId: row.ownerId }, select: { id: true } });
+      let conversation = await this.db.conversation.findFirst({ where: { id: run.conversationId, ownerId: row.ownerId }, select: { id: true } });
+      const context = automationRunContextSchema.safeParse(run.executionContextJson);
+      // A fresh-task dispatch may fail before creation; only its frozen source can authorize the notice.
+      if (!conversation && run.status === "failed" && context.success && context.data.context_mode === "fresh_task" && context.data.target_conversation_id) {
+        conversation = await this.db.conversation.findFirst({ where: { id: context.data.target_conversation_id, ownerId: row.ownerId }, select: { id: true } });
+      }
       if (!conversation) { await settle({ status: "cancelled" }); return; }
+      const sourceConversationId = conversation.id;
       // Queued runs keep their original idempotency key instead of a turn ID.
       const turnId = run.turnId ?? (run.status !== "failed" ? await this.db.conversationTurn.findFirst({ where: { conversationId: run.conversationId, submittedBy: row.ownerId, idempotencyKey: run.idempotencyKey }, select: { id: true } }) : null)?.id;
       const outcome = turnId && run.status !== "failed" ? await this.senders.outcome(turnId) : null;
@@ -100,7 +106,7 @@ export class AutomationNotificationService {
         const [active, actor, source] = await Promise.all([
           this.db.automationNotificationDelivery.findFirst({ where: { id: row.id, processingToken: token, status: "processing", nextAttemptAt: { gt: this.now() } }, select: { id: true } }),
           this.db.user.findFirst({ where: { id: row.ownerId, status: "active" }, select: { id: true } }),
-          this.db.conversation.findFirst({ where: { id: run.conversationId, ownerId: row.ownerId }, select: { id: true } }),
+          this.db.conversation.findFirst({ where: { id: sourceConversationId, ownerId: row.ownerId }, select: { id: true } }),
         ]);
         if (!active || !actor || !source) throw new AppError("FORBIDDEN");
       };
