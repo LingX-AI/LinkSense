@@ -1,5 +1,10 @@
 import DOMPurify from "dompurify"
 import {
+  htmlPreviewResourceWaitMs,
+  htmlPreviewRuntimeStartedMessageType,
+  installHtmlPreviewReadiness,
+} from "./html-preview-readiness"
+import {
   installHtmlResourceDiagnostics,
   resourceErrorMessageType,
 } from "./html-preview-resource-errors"
@@ -235,7 +240,6 @@ const fitRuntime = `
   const minimumPageWidthRatio = 0.5;
   const currentPageSelector = ${JSON.stringify(htmlPreviewCurrentPageSelector)};
   let requestedZoom = 1;
-  let hasReportedReady = false;
   let deferredFit = false;
 
   const intersectsViewport = (
@@ -365,21 +369,12 @@ const fitRuntime = `
       );
     const fitScale = Math.min(1, viewportWidth / contentWidth);
     const appliedScale = fitScale * requestedZoom;
+    deferredFit = false;
     root.style.zoom = String(appliedScale);
     root.dataset.linksenseFitScale = String(fitScale);
     root.dataset.linksenseAppliedScale = String(appliedScale);
     annotationController.refresh();
     annotationsController.refresh();
-    if (!hasReportedReady) {
-      hasReportedReady = true;
-      parent.postMessage(
-        {
-          type: ${JSON.stringify(htmlPreviewReadyMessageType)},
-          deferredFit,
-        },
-        "*"
-      );
-    }
     return true;
   };
 
@@ -402,7 +397,16 @@ const fitRuntime = `
   });
   window.addEventListener("resize", () => requestAnimationFrame(fitToWidth));
   window.addEventListener("load", () => requestAnimationFrame(fitToWidth));
-  requestAnimationFrame(fitToWidth);
+  document.addEventListener("load", () => requestAnimationFrame(fitToWidth), true);
+  document.fonts?.addEventListener("loadingdone", () => requestAnimationFrame(fitToWidth));
+  parent.postMessage({ type: ${JSON.stringify(htmlPreviewRuntimeStartedMessageType)} }, "*");
+  (${installHtmlPreviewReadiness.toString()})(window, {
+    timeoutMs: ${htmlPreviewResourceWaitMs},
+    prepare: fitToWidth,
+    onReady: (resourceState) => parent.postMessage({
+      type: ${JSON.stringify(htmlPreviewReadyMessageType)}, deferredFit, resourceState,
+    }, "*"),
+  });
 })();
 `
 

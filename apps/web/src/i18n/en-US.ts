@@ -1723,6 +1723,9 @@ export const enUS = {
   },
   htmlPreview: {
     resourcesIncomplete: "Some page content could not load",
+    resourcesSlow: "Some page content is still loading",
+    resourcesSlowHelp:
+      "Available content is shown. Some styles may appear later. Retry if the page does not finish loading.",
     sessionExpired: "Preview connection expired",
     resourcesHelp:
       "Some styles or interactions may be unavailable. Reload the preview. If the issue continues, ask the task to include the files this page needs.",
