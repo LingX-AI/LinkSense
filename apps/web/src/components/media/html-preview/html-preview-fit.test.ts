@@ -300,6 +300,7 @@ describe("HTML preview fit-to-width", () => {
       isHtmlPreviewReadyResponse({
         type: htmlPreviewReadyMessageType,
         deferredFit: false,
+        resourceState: "complete",
       })
     ).toBe(true)
     expect(

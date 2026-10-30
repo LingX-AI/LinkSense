@@ -1035,6 +1035,7 @@ describe("conversation turn responses", () => {
           data: {
             type: assistantHtmlPreviewReadyMessageType,
             previewId,
+            resourceState: "complete",
           },
         })
       )

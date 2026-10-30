@@ -1585,6 +1585,9 @@ export const zhCN = {
   },
   htmlPreview: {
     resourcesIncomplete: "页面的部分内容未能加载",
+    resourcesSlow: "页面的部分内容仍在加载",
+    resourcesSlowHelp:
+      "已显示可用内容，部分样式可能稍后出现。如果长时间没有恢复，请重试。",
     sessionExpired: "预览连接已失效",
     resourcesHelp:
       "部分样式或交互可能不可用。请重新加载；如果问题仍然存在，请让任务补齐网页所需的文件。",

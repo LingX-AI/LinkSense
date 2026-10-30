@@ -8,6 +8,11 @@ import {
 } from "@/components/ui/collapsible"
 import { resourceErrorMessageSchema } from "./html-preview-resource-errors"
 import {
+  htmlPreviewResourceWaitMs,
+  htmlPreviewRuntimeStartedMessageType,
+  type HtmlPreviewResourceState,
+} from "./html-preview-readiness"
+import {
   useCallback,
   useEffect,
   useId,
@@ -73,12 +78,14 @@ const zoomStep = 0.1
 const interactionFrameReadyTimeoutMs = 1_500
 const maximumInteractionFrameRetries = 1
 const emptyHtmlAnnotationMarkers: readonly HtmlAnnotationMarker[] = []
-type InteractionFrameStatus = "loading" | "ready" | "error"
+type InteractionFrameStatus = "loading" | "preparing" | "ready" | "error"
 
 type InteractionFrameState = Readonly<{
   source: string | null
   attempt: number
+  automaticRetries: number
   status: InteractionFrameStatus
+  resourceState: HtmlPreviewResourceState
 }>
 
 export type HtmlPreviewProps = Readonly<{
@@ -125,8 +132,9 @@ export function HtmlPreview({
   const [zoom, setZoom] = useState(1)
   const [resourceErrors, setResourceErrors] = useState<{
     html: string | null
+    attempt: number
     resources: string[]
-  }>({ html: null, resources: [] })
+  }>({ html: null, attempt: 0, resources: [] })
   const [annotationState, setAnnotationState] = useState<
     Readonly<{ source: string | null; enabled: boolean }>
   >({ source: null, enabled: false })
@@ -134,7 +142,9 @@ export function HtmlPreview({
     useState<InteractionFrameState>({
       source: null,
       attempt: 0,
+      automaticRetries: 0,
       status: "loading",
+      resourceState: "complete",
     })
   const [mountedInteractionSource, setMountedInteractionSource] = useState<
     string | null
@@ -181,6 +191,10 @@ export function HtmlPreview({
     interactionFrameState.source === interactionHtml
       ? interactionFrameState.attempt
       : 0
+  const resourceState =
+    interactionFrameState.source === interactionHtml
+      ? interactionFrameState.resourceState
+      : "complete"
   const interactionFrameMounted =
     interactionHtml !== null && mountedInteractionSource === interactionHtml
   const annotationFrames =
@@ -208,7 +222,8 @@ export function HtmlPreview({
   const failedResources = [
     ...new Set([
       ...(source?.missing_resources ?? []),
-      ...(resourceErrors.html === interactionHtml
+      ...(resourceErrors.html === interactionHtml &&
+      resourceErrors.attempt === interactionFrameAttempt
         ? resourceErrors.resources
         : []),
     ]),
@@ -244,17 +259,26 @@ export function HtmlPreview({
     })
   }, [cancelScheduledInteractionFit, zoom])
 
-  const markInteractionFrameReady = useCallback(() => {
-    if (interactionHtml === null) return
-    setInteractionFrameState((current) => {
-      if (current.source !== interactionHtml) {
-        return { source: interactionHtml, attempt: 0, status: "ready" }
-      }
-      return current.status === "ready"
-        ? current
-        : { ...current, status: "ready" }
-    })
-  }, [interactionHtml])
+  const markInteractionFrameReady = useCallback(
+    (resourceState: HtmlPreviewResourceState) => {
+      if (interactionHtml === null) return
+      setInteractionFrameState((current) => {
+        if (current.source !== interactionHtml) {
+          return {
+            source: interactionHtml,
+            attempt: 0,
+            automaticRetries: 0,
+            status: "ready",
+            resourceState,
+          }
+        }
+        return current.status === "ready"
+          ? current
+          : { ...current, status: "ready", resourceState }
+      })
+    },
+    [interactionHtml]
+  )
 
   const initializeInteractionFrame = useCallback(
     (frameWindow: Window) => {
@@ -276,18 +300,23 @@ export function HtmlPreview({
             : {
                 source: interactionHtml,
                 attempt: 0,
+                automaticRetries: 0,
                 status: "loading" as const,
+                resourceState: "complete" as const,
               }
         if (
           mode === "automatic" &&
-          currentFrame.attempt >= maximumInteractionFrameRetries
+          currentFrame.automaticRetries >= maximumInteractionFrameRetries
         ) {
           return { ...currentFrame, status: "error" }
         }
         return {
           source: interactionHtml,
-          attempt: mode === "manual" ? 0 : currentFrame.attempt + 1,
+          attempt: currentFrame.attempt + 1,
+          automaticRetries:
+            mode === "manual" ? 0 : currentFrame.automaticRetries + 1,
           status: "loading",
+          resourceState: "complete",
         }
       })
     },
@@ -333,18 +362,29 @@ export function HtmlPreview({
   }, [interactionFrameAttempt, interactionFrameMounted, scheduleInteractionFit])
 
   useEffect(() => {
-    if (!interactionFrameMounted || interactionFrameStatus !== "loading") {
+    if (
+      !interactionFrameMounted ||
+      !["loading", "preparing"].includes(interactionFrameStatus)
+    ) {
       return
     }
-    const timeout = window.setTimeout(() => {
-      recoverInteractionFrame("automatic")
-    }, interactionFrameReadyTimeoutMs)
+    const timeout = window.setTimeout(
+      () => {
+        if (interactionFrameStatus === "preparing")
+          markInteractionFrameReady("timeout")
+        else recoverInteractionFrame("automatic")
+      },
+      interactionFrameStatus === "preparing"
+        ? htmlPreviewResourceWaitMs + 1_000
+        : interactionFrameReadyTimeoutMs
+    )
     return () => window.clearTimeout(timeout)
   }, [
     interactionFrameAttempt,
     interactionFrameMounted,
     interactionFrameStatus,
     recoverInteractionFrame,
+    markInteractionFrameReady,
   ])
 
   useEffect(
@@ -413,11 +453,32 @@ export function HtmlPreview({
         initializeInteractionFrame(frameWindow)
         return
       }
+      if (
+        typeof event.data === "object" &&
+        event.data !== null &&
+        "type" in event.data &&
+        event.data.type === htmlPreviewRuntimeStartedMessageType
+      ) {
+        setInteractionFrameState((current) =>
+          current.source === interactionHtml
+            ? current.status === "ready"
+              ? current
+              : { ...current, status: "preparing" }
+            : {
+                source: interactionHtml,
+                attempt: 0,
+                automaticRetries: 0,
+                status: "preparing",
+                resourceState: "complete",
+              }
+        )
+        return
+      }
       if (isHtmlPreviewReadyResponse(event.data)) {
         if (event.data.deferredFit) {
           recoverInteractionFrame("automatic")
         } else {
-          markInteractionFrameReady()
+          markInteractionFrameReady(event.data.resourceState)
         }
         return
       }
@@ -425,9 +486,13 @@ export function HtmlPreview({
       if (resourceError.success) {
         setResourceErrors((current) => ({
           html: interactionHtml,
+          attempt: interactionFrameAttempt,
           resources: [
             ...new Set([
-              ...(current.html === interactionHtml ? current.resources : []),
+              ...(current.html === interactionHtml &&
+              current.attempt === interactionFrameAttempt
+                ? current.resources
+                : []),
               resourceError.data.resource,
             ]),
           ].slice(0, 50),
@@ -506,17 +571,27 @@ export function HtmlPreview({
       onClose={onClose}
       floatingContent={floatingContent}
       notice={
-        (renewalFailed || failedResources.length > 0) && (
+        (renewalFailed ||
+          failedResources.length > 0 ||
+          resourceState !== "complete") && (
           <Alert className="shrink-0 rounded-none border-x-0 border-t-0">
             <AlertTitle>
               {t(
                 renewalFailed
                   ? "htmlPreview.sessionExpired"
-                  : "htmlPreview.resourcesIncomplete"
+                  : resourceState === "timeout"
+                    ? "htmlPreview.resourcesSlow"
+                    : "htmlPreview.resourcesIncomplete"
               )}
             </AlertTitle>
             <AlertDescription>
-              <p>{t("htmlPreview.resourcesHelp")}</p>
+              <p>
+                {t(
+                  resourceState === "timeout"
+                    ? "htmlPreview.resourcesSlowHelp"
+                    : "htmlPreview.resourcesHelp"
+                )}
+              </p>
               {failedResources.length > 0 && (
                 <Collapsible>
                   <CollapsibleTrigger
@@ -535,11 +610,13 @@ export function HtmlPreview({
                   </CollapsibleContent>
                 </Collapsible>
               )}
-              {onRetry && (
-                <Button variant="outline" size="sm" onClick={onRetry}>
-                  {t("common.retry")}
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRetry ?? (() => recoverInteractionFrame("manual"))}
+              >
+                {t("common.retry")}
+              </Button>
             </AlertDescription>
           </Alert>
         )
@@ -561,7 +638,10 @@ export function HtmlPreview({
               aria-pressed={annotationMode}
               onClick={toggleAnnotationMode}
               disabled={interactionFrameStatus !== "ready"}
-              aria-busy={interactionFrameStatus === "loading"}
+              aria-busy={
+                interactionFrameStatus === "loading" ||
+                interactionFrameStatus === "preparing"
+              }
             >
               <MessageCirclePlusIcon
                 data-icon="inline-start"
@@ -604,7 +684,8 @@ export function HtmlPreview({
           title={t("htmlPreview.frameTitle", { name: fileName })}
           sandbox={interactiveHtmlPreviewSandbox}
           referrerPolicy="no-referrer"
-          aria-hidden="false"
+          aria-hidden={interactionFrameStatus !== "ready"}
+          tabIndex={interactionFrameStatus === "ready" ? 0 : -1}
           src={interactionShellSource ?? undefined}
           onLoad={handleInteractionFrameLoad}
           onError={handleInteractionFrameError}
@@ -638,7 +719,8 @@ export function HtmlPreview({
       )}
       {interactionHtml && interactionFrameStatus !== "ready" && (
         <div className="html-preview-frame-state">
-          {interactionFrameStatus === "loading" ? (
+          {interactionFrameStatus === "loading" ||
+          interactionFrameStatus === "preparing" ? (
             <OfficePreviewLoadingState label={t("officePreview.loading")} />
           ) : (
             <div className="office-preview-state" role="alert">
