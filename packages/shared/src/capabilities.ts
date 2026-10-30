@@ -10,6 +10,7 @@ import {
 
 export const builtInSkillNames = [
   "linksense-browser",
+  "linksense-local-browser",
   "linksense-document-reader",
   "linksense-docs",
   "linksense-file-service",

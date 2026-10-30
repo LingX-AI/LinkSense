@@ -32,6 +32,25 @@ const settings: ModelProviderSettings = {
 }
 
 describe("model settings drafts", () => {
+  it.each(["probe-only-model", null])(
+    "preserves the channel test model %j when editing a configured model",
+    (test_model_id) => {
+      const configuredChannel = { ...channel, test_model_id }
+      const configured = { ...settings, providers: [configuredChannel] }
+      expect(settingsDraft(configured).providers[0]).toMatchObject({
+        test_model_id,
+      })
+      expect(
+        replaceModel(
+          configured,
+          configuredChannel,
+          { ...first, display_name: "Renamed" },
+          first.id
+        ).providers[0]
+      ).toMatchObject({ test_model_id })
+    }
+  )
+
   it("preserves the selected memory model when renaming it", () => {
     const configured = { ...settings, memory_extraction_model: "beta" }
     const renamed = replaceModel(

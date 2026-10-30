@@ -669,7 +669,6 @@ function UsersAndGroupsManagementLayout({
     <PageLayout
       title={t("admin.usersAndGroupsTitle")}
       className="[&>.management-header]:mb-4!"
-      contentWidth={activeTab === "users" ? "wide" : "standard"}
       description={t("admin.usersAndGroupsDescription")}
       actions={actions}
     >
@@ -683,6 +682,7 @@ function UsersAndGroupsManagementLayout({
         }}
       >
         <TabsList
+          id="admin-users-groups-tabs"
           aria-label={t("admin.usersAndGroupsTabsLabel")}
           className="max-w-full justify-start overflow-x-auto"
         >
@@ -1466,7 +1466,7 @@ function UserManagementPage() {
             <div
               role="region"
               aria-label={t(editing ? "admin.editUser" : "admin.createUser")}
-              className={dialogBodyStyles("flex flex-col gap-3.5 py-1 pl-1")}
+              className={dialogBodyStyles("flex flex-col gap-3.5")}
             >
               {error && <StatusBanner variant="error">{error}</StatusBanner>}
               <div className="form-grid">
@@ -1933,7 +1933,6 @@ function RoleOverviewPage() {
   return (
     <PageLayout
       title={t("admin.rolesTitle")}
-      contentWidth="wide"
       description={t("admin.rolesDescription", { productName })}
     >
       {summaryQuery.isLoading && <LoadingState />}
@@ -2580,7 +2579,6 @@ function AuditPage() {
     <PageLayout
       title={t("admin.auditTitle")}
       className="[&>.management-header]:mb-4!"
-      contentWidth="wide"
       description={t("admin.auditDescription")}
       actions={
         <Button
@@ -3995,6 +3993,7 @@ function ModelSettingsPage() {
   const { t } = useTranslation()
   const { bootstrap } = useBootstrap()
   const knowledgeEnabled = bootstrap?.knowledge?.enabled !== false
+  const [selectedChannelId, setSelectedChannelId] = useState("")
   const [selectedTab, setSelectedTab] = useState<ModelSettingsTab>("channels")
   const activeTab =
     selectedTab === "knowledge" && !knowledgeEnabled ? "channels" : selectedTab
@@ -4093,7 +4092,6 @@ function ModelSettingsPage() {
   return (
     <PageLayout
       title={t("settings.modelSettings")}
-      contentWidth={activeTab === "channels" ? "wide" : "standard"}
       description={t("settings.modelSettingsDescription")}
     >
       {modelProviderQuery.data?.management_enabled === false && (
@@ -4136,6 +4134,8 @@ function ModelSettingsPage() {
               <ModelProviderSettingsForm
                 key={`model-channels-${modelProviderQuery.data.revision}-${tabRenderVersions.channels}`}
                 settings={modelProviderQuery.data}
+                selectedChannelId={selectedChannelId}
+                onSelectedChannelChange={setSelectedChannelId}
               />
             )}
         </TabsContent>

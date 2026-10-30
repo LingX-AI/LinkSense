@@ -144,6 +144,8 @@ export class ConversationAutomationService {
             schedule: request.schedule,
             expires_on: request.expires_on,
             model_preference: request.model_preference,
+            notification_target: request.notification_target,
+            ...(request.monitoring ? { monitoring: request.monitoring } : {}),
             target: resolveTarget(target),
           },
           context,

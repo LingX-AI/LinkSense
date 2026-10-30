@@ -45,7 +45,7 @@ describe("conversation message navigation layout", () => {
       /--conversation-bottom-stack-fallback:\s*220px;/u
     )
     expect(columnRule).toMatch(
-      /padding:\s*46px var\(--conversation-message-inner-padding\)\s*max\(\s*var\(--conversation-bottom-stack-fallback\),\s*calc\(\s*var\(--conversation-bottom-stack-height\)\s*\+\s*var\(--conversation-bottom-stack-clearance\)\s*\)\s*\);/u
+      /padding:\s*calc\(var\(--conversation-top-bar-height\) \+ 24px\)\s*var\(--conversation-message-inner-padding\)\s*max\(\s*var\(--conversation-bottom-stack-fallback\),\s*calc\(\s*var\(--conversation-bottom-stack-height\)\s*\+\s*var\(--conversation-bottom-stack-clearance\)\s*\)\s*\);/u
     )
     expect(composerDockRule).toMatch(
       /padding-inline:\s*var\(--conversation-horizontal-gutter\);/u
@@ -110,72 +110,6 @@ describe("conversation message navigation layout", () => {
     expect(glowRule).toMatch(/assistant-html-preview-loading-breathe 1\.9s/u)
     expect(conversationStyles).toMatch(
       /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.assistant-html-preview-loading-glow\s*\{[^}]*animation:\s*none;/u
-    )
-  })
-
-  it("uses 24px medium-weight typography for the new-task welcome title", () => {
-    const titleRule = conversationStyles.match(
-      /\.conversation-welcome h2\s*\{([^}]*)\}/u
-    )?.[1]
-
-    expect(titleRule).toMatch(/font-size:\s*var\(--app-font-24\);/u)
-    expect(titleRule).toMatch(/font-weight:\s*500;/u)
-    expect(titleRule).toMatch(/line-height:\s*var\(--app-line-32\);/u)
-  })
-
-  it("places the new-task welcome group slightly below the geometric center", () => {
-    const welcomeColumnRule = conversationStyles.match(
-      /\.conversation-column-welcome\s*\{([^}]*)\}/u
-    )?.[1]
-    const welcomeRule = conversationStyles.match(
-      /\.conversation-welcome\s*\{([^}]*)\}/u
-    )?.[1]
-
-    expect(welcomeColumnRule).toMatch(
-      /--conversation-welcome-offset-y:\s*clamp\(28px,\s*3vh,\s*36px\);/u
-    )
-    expect(welcomeRule).toMatch(
-      /transform:\s*translateY\(var\(--conversation-welcome-offset-y\)\);/u
-    )
-    expect(conversationStyles).toMatch(
-      /@media \(max-width:\s*767px\)[\s\S]*?\.conversation-column-welcome\s*\{[^}]*--conversation-welcome-offset-y:\s*14px;/u
-    )
-  })
-
-  it("lays out the four new-task starter questions as a responsive two-by-two grid", () => {
-    const gridRule = conversationStyles.match(
-      /\.conversation-starter-questions\s*\{([^}]*)\}/u
-    )?.[1]
-    const questionRule = conversationStyles.match(
-      /\.conversation-starter-question\s*\{([^}]*)\}/u
-    )?.[1]
-    const interactiveRule = conversationStyles.match(
-      /\.conversation-starter-question:hover,\s*\.conversation-starter-question:focus-visible\s*\{([^}]*)\}/u
-    )?.[1]
-
-    expect(gridRule).toMatch(
-      /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/u
-    )
-    expect(gridRule).toMatch(/gap:\s*16px;/u)
-    expect(gridRule).toMatch(/width:\s*min\(100%,\s*780px\);/u)
-    expect(questionRule).toMatch(/border-color:\s*var\(--app-border\);/u)
-    expect(questionRule).toMatch(/border-radius:\s*18px;/u)
-    expect(questionRule).toMatch(/min-height:\s*112px;/u)
-    expect(questionRule).toMatch(/gap:\s*18px;/u)
-    expect(questionRule).toMatch(/padding:\s*18px 20px;/u)
-    expect(questionRule).toMatch(/box-shadow:\s*none;/u)
-    expect(interactiveRule).toMatch(/background:\s*var\(--app-hover-subtle\);/u)
-    expect(conversationStyles).toMatch(
-      /\.conversation-starter-question-icon\s*\{[^}]*width:\s*32px;[^}]*height:\s*32px;[^}]*background:\s*transparent;/u
-    )
-    expect(conversationStyles).toMatch(
-      /\.conversation-starter-question-icon > svg\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/u
-    )
-    expect(conversationStyles).toMatch(
-      /--app-starter-file:\s*#4f73c7;[\s\S]*--app-starter-knowledge:\s*#8661bb;[\s\S]*--app-starter-data:\s*#23877a;[\s\S]*--app-starter-deliverable:\s*#b87532;/u
-    )
-    expect(conversationStyles).toMatch(
-      /@media \(max-width:\s*767px\)[\s\S]*?\.conversation-starter-questions\s*\{[^}]*gap:\s*12px;[^}]*\}[\s\S]*?\.conversation-starter-question\s*\{[^}]*min-height:\s*148px;[^}]*flex-direction:\s*column;[^}]*padding:\s*14px;[\s\S]*?\.conversation-starter-question-icon\s*\{[^}]*width:\s*30px;[^}]*height:\s*30px;/u
     )
   })
 
@@ -315,8 +249,10 @@ describe("conversation message spacing", () => {
     expect(sourceIconRule).toMatch(/vertical-align:\s*baseline;/u)
     expect(markdownLinkRule).toMatch(/color:\s*var\(--app-link\);/u)
     expect(markdownLinkHoverRule).toMatch(/color:\s*var\(--app-link-hover\);/u)
-    expect(conversationStyles).toMatch(/--app-link:\s*#174a7e;/u)
-    expect(conversationStyles).toMatch(/--app-link-hover:\s*#123b68;/u)
+    expect(conversationStyles).toMatch(/--app-link:\s*#0065df;/u)
+    expect(conversationStyles).toMatch(
+      /--app-link-hover:\s*var\(--primary-hover\);/u
+    )
   })
 
   it("renders knowledge citation markers as compact borderless gray numbered circles", () => {
@@ -1224,7 +1160,9 @@ describe("conversation execution plan layout", () => {
     )?.[1]
 
     expect(overlayRule).toMatch(/position:\s*absolute;/u)
-    expect(overlayRule).toMatch(/top:\s*50px;/u)
+    expect(overlayRule).toMatch(
+      /top:\s*calc\(var\(--conversation-top-bar-height\) \+ 8px\);/u
+    )
     expect(overlayRule).toMatch(/right:\s*24px;/u)
     expect(overlayRule).toMatch(/left:\s*24px;/u)
     expect(overlayRule).toMatch(/align-items:\s*center;/u)
@@ -1827,7 +1765,7 @@ describe("conversation message editor", () => {
       /\.message-edit-textarea\s*\{([^}]*)\}/u
     )?.[1]
 
-    expect(conversationStyles).toContain("--app-message-edit-surface: #f8f8f8;")
+    expect(conversationStyles).toContain("--app-message-edit-surface: #f5f7fa;")
     expect(editorSurfaceRule).toMatch(/border:\s*0;/u)
     expect(editorSurfaceRule).toMatch(/padding:\s*12px;/u)
     expect(editorSurfaceRule).toMatch(

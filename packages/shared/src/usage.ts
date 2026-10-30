@@ -95,6 +95,7 @@ export const modelUsageWorkloadValues = [
   "image_generation",
   "memory_generation",
   "task_title_generation",
+  "browser_use_intent",
 ] as const;
 export const usageWorkloadValues = [
   "assistant_response",

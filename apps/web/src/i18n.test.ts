@@ -57,6 +57,21 @@ function interpolationTokens(value: string): string[] {
 }
 
 describe("i18n resources", () => {
+  it.each([
+    ["zh-CN", "1 条新回复", "2 条新回复"],
+    ["en-US", "1 new reply", "2 new replies"],
+    ["es-ES", "1 respuesta nueva", "2 respuestas nuevas"],
+    ["pt-BR", "1 nova resposta", "2 novas respostas"],
+    ["fr-FR", "1 nouvelle réponse", "2 nouvelles réponses"],
+    ["ja-JP", "1 件の新しい返信", "2 件の新しい返信"],
+  ])("pluralizes new replies in %s", (lng, one, other) => {
+    expect(i18n.t("conversation.newReplies", { lng, count: 1 })).toBe(one)
+    expect(i18n.t("conversation.newReplies", { lng, count: 2 })).toBe(other)
+    expect(i18n.t("conversation.newReplies", { lng: "de-DE", count: 1 })).toBe(
+      "1 条新回复"
+    )
+  })
+
   it.each(supportedLanguages)(
     "translates sign-in field descriptions and callback copy messages in %s with Chinese fallback",
     (locale) => {

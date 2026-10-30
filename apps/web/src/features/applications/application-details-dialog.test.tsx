@@ -126,7 +126,10 @@ describe("application details dialog", () => {
       expect(dialog).not.toHaveTextContent(id)
       expect(info.parentElement).toHaveClass(
         "overflow-y-auto",
-        "-mr-6",
+        "-mx-6",
+        "-my-1",
+        "px-6",
+        "py-1",
         "min-h-0"
       )
       expect(apiRequest).toHaveBeenCalledWith(
@@ -140,7 +143,9 @@ describe("application details dialog", () => {
       const closeButton = within(dialog).getByRole("button", {
         name: i18n.t("common.close"),
       })
-      expect(closeButton.querySelector("svg")).toBeInTheDocument()
+      expect(
+        closeButton.querySelector("[data-design-icon=close]")
+      ).toBeInTheDocument()
       await userEvent.click(closeButton)
       expect(onClose).toHaveBeenCalledOnce()
     }

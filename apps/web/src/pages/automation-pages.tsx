@@ -75,6 +75,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -92,7 +93,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { ConversationOfficeLayout } from "@/features/conversations/conversation-presentation-layout"
 import { normalizeLanguage, type SupportedLanguage } from "@/i18n"
 import { readUrlEnum, updateUrlSearchParams } from "@/lib/url-search-params"
@@ -100,8 +100,12 @@ import { formatDateTime, formatRelativeDate } from "@/i18n/date"
 import { cn } from "@/lib/utils"
 
 type AutomationForm = {
+  notificationTarget: AutomationNotificationTarget | null
   title: string
   instruction: string
+  stopCondition: string
+  maxRuns: string
+  freshTask: boolean
   targetMode: "existing_task" | "new_task"
   conversationId: string
   frequency: AutomationSchedule["frequency"]
@@ -518,7 +522,10 @@ export function AutomationPage() {
               }}
               className="gap-4"
             >
-              <TabsList aria-label={t("automation.filterLabel")}>
+              <TabsList
+                variant="pills"
+                aria-label={t("automation.filterLabel")}
+              >
                 {automationFilterValues.map((value) => (
                   <TabsTrigger key={value} value={value}>
                     {t(`automation.filter.${value}`)}
@@ -557,6 +564,27 @@ export function AutomationPage() {
 
                         return (
                           <article key={automation.id} role="listitem">
+                            {automation.monitoring &&
+                              (automation.monitoring.max_runs ||
+                                automation.monitoring.stop_condition ||
+                                automation.monitoring.context_mode ===
+                                  "fresh_task") && (
+                                <p className="px-1 pt-2 text-xs text-muted-foreground">
+                                  {t("monitoring.count", {
+                                    count:
+                                      automation.monitoring.automatic_run_count,
+                                  })}
+                                  {automation.monitoring.stop_reason && (
+                                    <>
+                                      {" "}
+                                      ·{" "}
+                                      {t(
+                                        `monitoring.${automation.monitoring.stop_reason}`
+                                      )}
+                                    </>
+                                  )}
+                                </p>
+                              )}
                             <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-1 py-3 sm:px-0">
                               <Tooltip>
                                 <TooltipTrigger
@@ -662,7 +690,7 @@ export function AutomationPage() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent
                                   align="end"
-                                  className="w-44"
+                                  className="min-w-44"
                                 >
                                   <DropdownMenuGroup>
                                     <DropdownMenuItem
@@ -680,7 +708,7 @@ export function AutomationPage() {
                                     <DropdownMenuItem
                                       render={
                                         <Link
-                                          to={`/conversations/${automation.conversation.id}`}
+                                          to={`/conversations/${automation.monitoring?.last_run_conversation_id ?? automation.conversation.id}`}
                                         />
                                       }
                                     >
@@ -756,12 +784,12 @@ function AutomationSuggestions({
 }) {
   return (
     <section
-      className="flex w-full max-w-2xl flex-col gap-3 py-4 sm:py-8"
+      className="mt-8 flex w-full flex-col gap-4"
       aria-labelledby="automation-suggestions-title"
     >
       <h2
         id="automation-suggestions-title"
-        className="px-3 text-sm font-semibold text-muted-foreground sm:px-4"
+        className="text-lg font-medium text-heading"
       >
         {t("automation.suggestions.title")}
       </h2>
@@ -777,7 +805,7 @@ function AutomationSuggestions({
               <Button
                 type="button"
                 variant="ghost"
-                className="h-auto w-full items-start justify-start gap-4 rounded-2xl px-3 py-3 text-left whitespace-normal sm:px-4 sm:py-4"
+                className="h-auto w-full items-start justify-start gap-3 rounded-xl px-2 py-3 text-left whitespace-normal hover:bg-accent"
                 aria-label={t("automation.suggestions.useTemplateNamed", {
                   name: title,
                 })}
@@ -786,28 +814,28 @@ function AutomationSuggestions({
               >
                 <span
                   className={cn(
-                    "flex size-7 shrink-0 items-center justify-center",
+                    "flex size-6 shrink-0 items-center justify-center rounded-md bg-accent",
                     template.iconClassName
                   )}
                   aria-hidden="true"
                 >
-                  <Icon />
+                  <Icon className="size-4" />
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                    <span className="text-sm font-semibold text-foreground">
+                  <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <span className="text-sm font-medium text-heading">
                       {title}
                     </span>
                     <span
                       id={scheduleId}
-                      className="text-sm font-normal text-muted-foreground"
+                      className="text-xs font-normal text-muted-foreground"
                     >
                       {t(`automation.suggestions.${template.id}.schedule`)}
                     </span>
                   </span>
                   <span
                     id={descriptionId}
-                    className="text-xs leading-5 font-normal text-muted-foreground"
+                    className="text-sm leading-[var(--app-line-22)] font-normal text-muted-foreground"
                   >
                     {t(`automation.suggestions.${template.id}.description`)}
                   </span>
@@ -969,25 +997,23 @@ function AutomationFormFields({
 
       <Field className="gap-2">
         <FieldLabel required>{t("automation.runIn")}</FieldLabel>
-        <ToggleGroup
-          value={[form.targetMode]}
-          variant="outline"
-          spacing={0}
-          aria-label={t("automation.runIn")}
-          onValueChange={(values) => {
-            const value = values[0]
+        <Tabs
+          value={form.targetMode}
+          onValueChange={(value) => {
             if (value === "existing_task" || value === "new_task") {
               updateForm("targetMode", value)
             }
           }}
         >
-          <ToggleGroupItem value="existing_task">
-            {t("automation.existingTask")}
-          </ToggleGroupItem>
-          <ToggleGroupItem value="new_task">
-            {t("automation.newTask")}
-          </ToggleGroupItem>
-        </ToggleGroup>
+          <TabsList aria-label={t("automation.runIn")}>
+            <TabsTrigger value="existing_task">
+              {t("automation.existingTask")}
+            </TabsTrigger>
+            <TabsTrigger value="new_task">
+              {t("automation.newTask")}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
         <FieldDescription>
           {t(
             form.targetMode === "new_task"
@@ -1033,6 +1059,67 @@ function AutomationFormFields({
         </FieldShell>
       )}
 
+      <fieldset className="flex flex-col gap-4 rounded-md border p-4">
+        <legend className="px-1 text-sm font-medium">
+          {t("monitoring.title")}
+        </legend>
+        <FieldShell
+          id="automation-stop-condition"
+          label={t("monitoring.stopCondition")}
+          hint={t("monitoring.stopHint")}
+        >
+          <Textarea
+            id="automation-stop-condition"
+            name="stop_condition"
+            maxLength={500}
+            value={form.stopCondition}
+            onChange={(event) =>
+              updateForm("stopCondition", event.target.value)
+            }
+          />
+        </FieldShell>
+        <FieldShell
+          id="automation-max-runs"
+          label={t("monitoring.maxRuns")}
+          hint={t("monitoring.maxHint")}
+        >
+          <Input
+            id="automation-max-runs"
+            name="max_runs"
+            type="number"
+            min={1}
+            max={10_000}
+            step={1}
+            value={form.maxRuns}
+            onChange={(event) => updateForm("maxRuns", event.target.value)}
+          />
+        </FieldShell>
+        <div className="flex items-start gap-3">
+          <Checkbox
+            id="automation-fresh-task"
+            checked={form.freshTask}
+            onCheckedChange={(checked) =>
+              updateForm("freshTask", checked === true)
+            }
+          />
+          <div className="space-y-1">
+            <Label
+              htmlFor="automation-fresh-task"
+              className="text-sm font-medium"
+            >
+              {t("monitoring.freshTask")}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {t("monitoring.freshHint")}
+            </p>
+          </div>
+        </div>
+      </fieldset>
+
+      <AutomationNotificationField
+        value={form.notificationTarget}
+        onChange={(value) => updateForm("notificationTarget", value)}
+      />
       <div className="rounded-[min(var(--radius-4xl),24px)] border border-[color:var(--app-border)] p-4">
         <FieldGroup className="gap-4">
           <FieldShell
@@ -1571,8 +1658,12 @@ function resolveDefaultReasoningEffort(
 
 function createDefaultForm(): AutomationForm {
   return {
+    notificationTarget: null,
     title: "",
     instruction: "",
+    stopCondition: "",
+    maxRuns: "",
+    freshTask: false,
     targetMode: "existing_task",
     conversationId: "",
     frequency: "daily",
@@ -1616,9 +1707,13 @@ function formFromAutomation(
   modelPreference: ModelPreference | null
 ): AutomationForm {
   const form = createDefaultForm()
+  form.notificationTarget = automation.notification_target ?? null
   const schedule = automation.schedule
   form.title = automation.title
   form.instruction = automation.instruction
+  form.stopCondition = automation.monitoring?.stop_condition ?? ""
+  form.maxRuns = automation.monitoring?.max_runs?.toString() ?? ""
+  form.freshTask = automation.monitoring?.context_mode === "fresh_task"
   form.targetMode = "existing_task"
   form.conversationId = automation.conversation.id
   form.frequency = schedule.frequency
@@ -1689,7 +1784,13 @@ function automationInputFromForm(form: AutomationForm): unknown {
             : { ...scheduleBase, frequency: "daily", time: form.time }
   return {
     title: form.title,
+    notification_target: form.notificationTarget,
     instruction: form.instruction,
+    monitoring: {
+      stop_condition: form.stopCondition.trim() || null,
+      max_runs: form.maxRuns.trim() ? Number(form.maxRuns) : null,
+      context_mode: form.freshTask ? "fresh_task" : "reuse_task",
+    },
     target:
       form.targetMode === "new_task"
         ? { mode: "new_task" }
@@ -1771,3 +1872,5 @@ function isWeekdayValue(
 ): value is (typeof weekdayValues)[number] {
   return weekdayValues.some((weekday) => weekday === value)
 }
+import { type AutomationNotificationTarget } from "@linksense/shared"
+import { AutomationNotificationField } from "@/features/conversations/automation-notification-field"

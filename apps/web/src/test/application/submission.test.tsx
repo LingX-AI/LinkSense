@@ -84,7 +84,7 @@ describe("LinkSense application", () => {
     installApiMock()
     const interaction = userEvent.setup()
     renderApp()
-    await interaction.click(await screen.findByRole("button", { name: "添加" }))
+    await interaction.click(await screen.findByRole("button", { name: "附件" }))
     expect(
       await screen.findByPlaceholderText("搜索可用插件或 Skill…")
     ).toBeInTheDocument()
@@ -194,6 +194,7 @@ describe("LinkSense application", () => {
     expect(
       screen.queryByRole("textbox", { name: "任务输入框" })
     ).not.toBeInTheDocument()
+    expect(document.querySelector(".conversation-bottom-fade")).toBeNull()
     await interaction.click(
       screen.getByRole("radio", { name: /完整实现（推荐）/ })
     )

@@ -53,14 +53,31 @@ describe("application attribution footer", () => {
         "shrink-0",
         "justify-end",
         "[--attribution-inset:18px]",
-        "pb-[var(--attribution-inset)]"
+        "absolute",
+        "w-max",
+        "bg-transparent",
+        "p-0",
+        "pointer-events-none",
+        "right-[var(--attribution-inset)]",
+        "bottom-[var(--attribution-inset)]"
       )
+      expect(attribution).toHaveClass("pointer-events-auto")
       expect(footer).not.toHaveClass("h-8", "h-12", "md:h-16", "fixed")
       expect(attribution).not.toHaveClass("fixed")
     }
   )
 
-  it.each(["/conversations/new", "/conversations/c1"])(
+  it("omits the attribution mark from the new task entry page", async () => {
+    installApiMock()
+    renderApp("/conversations/new")
+    await screen.findByRole("textbox", { name: "任务输入框" })
+    expect(
+      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument()
+  })
+
+  it.each(["/conversations/c1"])(
     "uses workspace-relative attribution without reserving a shell footer at %s",
     async (path) => {
       installApiMock()
@@ -79,7 +96,7 @@ describe("application attribution footer", () => {
       expect(frame).toHaveClass(
         "hidden",
         "md:flex",
-        "@min-[76rem]/conversation-workspace:absolute"
+        "@min-[90.5rem]/conversation-workspace:absolute"
       )
       expect(frame).not.toHaveClass("absolute", "fixed")
       expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument()
@@ -111,10 +128,10 @@ describe("application attribution footer", () => {
     ).toBeVisible()
     expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument()
     expect(
-      within(screen.getByRole("main")).getByRole("link", {
+      within(screen.getByRole("main")).queryByRole("link", {
         name: "由 LinkSense 提供支持",
-      }).parentElement
-    ).toHaveClass("hidden", "md:flex")
+      })
+    ).not.toBeInTheDocument()
   })
 
   it("keeps attribution outside the overview translation when the panel is toggled", async () => {
@@ -141,7 +158,7 @@ describe("application attribution footer", () => {
       expect(attribution.closest(shiftSelector)).toBeNull()
       expect(frame?.parentElement).toBe(bottomStack)
       expect(frame).toHaveClass(
-        "@min-[76rem]/conversation-workspace:right-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))]"
+        "@min-[90.5rem]/conversation-workspace:right-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))]"
       )
     }
 

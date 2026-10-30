@@ -74,8 +74,10 @@ describe("settings center layout consistency", () => {
     ).not.toContain("background-image")
   })
 
-  it("centers all settings pages and widens only administration pages explicitly marked wide", () => {
-    expect(firstCssRule(":root")).toContain("--app-settings-page-width: 920px;")
+  it("centers settings pages and keeps all administration pages at one width independent of the active tab", () => {
+    expect(firstCssRule(":root")).toContain(
+      "--app-settings-page-width: 1200px;"
+    )
     for (const selector of [".settings-content", ".management-page"]) {
       expect(firstCssRule(selector)).toContain(
         "width: min(100%, var(--app-settings-page-width));"
@@ -83,16 +85,12 @@ describe("settings center layout consistency", () => {
       expect(firstCssRule(selector)).toContain("margin-inline: auto;")
     }
     expect(firstCssRule(":root")).toContain(
-      "--app-administration-page-width: 1200px;"
+      "--app-administration-page-width: 1440px;"
     )
-    expect(firstCssRule(".settings-content-administration")).toBeUndefined()
-    expect(
-      firstCssRule(
-        '.settings-content-administration:has( .management-page[data-content-width="wide"] )'
-      )
-    ).toContain(
+    expect(firstCssRule(".settings-content-administration")).toContain(
       "--app-settings-page-width: var(--app-administration-page-width);"
     )
+    expect(appStyles).not.toContain("data-content-width")
   })
 
   it("lets settings sections fill their shared page instead of imposing local widths", () => {
@@ -112,15 +110,15 @@ describe("settings center layout consistency", () => {
 
   it("uses one desktop and mobile inset for personal and administration pages", () => {
     const selector = ".settings-content :is(.settings-page, .management-page)"
-    expect(firstCssRule(selector)).toContain("padding: 44px 52px 72px;")
+    expect(firstCssRule(selector)).toContain("padding: 28px 28px 72px;")
     expect(lastCssRule(selector)).toContain("padding: 24px 16px 52px;")
   })
 
   it("keeps personal and administration page headers on the same rhythm", () => {
     expect(firstCssRule(".settings-page-header")).toContain(
-      "margin-bottom: 28px;"
+      "margin-bottom: 24px;"
     )
-    expect(firstCssRule(".management-header")).toContain("margin-bottom: 28px;")
+    expect(firstCssRule(".management-header")).toContain("margin-bottom: 24px;")
   })
 
   it("uses the same section-title tier across setting page variants", () => {
@@ -150,10 +148,10 @@ describe("settings center layout consistency", () => {
 
   it("aligns sidebar search and navigation rows to the same control height", () => {
     expect(lastCssRule(".settings-search-field input")).toContain(
-      "height: 32px;"
+      "height: 40px;"
     )
     expect(lastCssRule(".settings-navigation-link")).toContain(
-      "min-height: 32px;"
+      "min-height: 40px;"
     )
   })
 

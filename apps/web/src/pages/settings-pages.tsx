@@ -1,8 +1,27 @@
-import { useCallback, useMemo, useRef, useState, type FormEvent } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react"
+import {
+  BrainIcon,
+  EyeIcon,
+  FileTextIcon,
+  ShieldCheckIcon,
+  SlidersHorizontalIcon,
+} from "lucide-react"
 import { SocialAccounts } from "@/features/social-auth/social-accounts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
-import { useBeforeUnload, useBlocker, useNavigate } from "react-router-dom"
+import {
+  useBeforeUnload,
+  useBlocker,
+  useLocation,
+  useNavigate,
+} from "react-router-dom"
 import { z } from "zod"
 
 import { apiRequest } from "@/api/client"
@@ -40,7 +59,6 @@ import { SettingsCard } from "@/components/settings/settings-card"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
 import { TaskAutoNamingSettings } from "@/components/settings/task-auto-naming-settings"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -81,6 +99,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { ProfileOverview } from "@/features/profile/profile-overview"
 import { BrowserNotificationSettings } from "@/features/browser-notifications/browser-notification-settings"
+import { BrowserExtensionSettings } from "@/features/local-browser/browser-extension-settings"
 import { normalizeLanguage, supportedLanguages } from "@/i18n"
 import { useLanguageSelection } from "@/features/onboarding/use-language-selection"
 import { passwordSchema } from "@/lib/password"
@@ -95,7 +114,14 @@ import {
 const resetMemoriesNotificationId = "personalization-memories-reset"
 export function SettingsGeneralPage() {
   const { t } = useTranslation()
+  const location = useLocation()
   const { user, refreshUser } = useAuth()
+  useEffect(() => {
+    if (location.hash !== "#browser-extension") return
+    const target = document.getElementById("browser-extension")
+    target?.scrollIntoView({ block: "start", behavior: "instant" })
+    target?.focus({ preventScroll: true })
+  }, [location.key, location.hash])
   const {
     language,
     pending: languagePending,
@@ -134,100 +160,112 @@ export function SettingsGeneralPage() {
       {(languageError || error) && (
         <StatusBanner variant="error">{languageError || error}</StatusBanner>
       )}
-      <Card className="gap-0 px-4 py-0 sm:px-5">
-        <section
-          className="py-4 sm:py-5"
-          aria-labelledby="interface-language-heading"
+      <div className="grid min-w-0 gap-8">
+        <SettingsCard
+          layout="split"
+          icon={<SlidersHorizontalIcon />}
+          header={
+            <SettingsSectionHeader
+              id="interface-preferences-heading"
+              title={t("settingsInterface.preferences")}
+              description={t("settingsInterface.description")}
+            />
+          }
         >
-          <SettingsSectionHeader
-            id="interface-language-heading"
-            title={t("settings.interfaceLanguage")}
-            description={t("settings.interfaceLanguageDescription")}
-            descriptionId="interface-language-description"
-            actionAlignment="center"
-            action={
-              <Select
-                value={language}
-                onValueChange={changeLanguage}
-                disabled={languagePending}
-              >
-                <SelectTrigger
-                  id="settings-language"
-                  aria-labelledby="interface-language-heading"
-                  aria-describedby="interface-language-description"
-                  className="w-44 rounded-md"
+          <section
+            className="py-4 sm:py-5"
+            aria-labelledby="interface-language-heading"
+          >
+            <SettingsSectionHeader
+              id="interface-language-heading"
+              title={t("settings.interfaceLanguage")}
+              description={t("settings.interfaceLanguageDescription")}
+              descriptionId="interface-language-description"
+              actionAlignment="center"
+              action={
+                <Select
+                  value={language}
+                  onValueChange={changeLanguage}
+                  disabled={languagePending}
                 >
-                  <SelectValue>{t(languageLabelKey(language))}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {supportedLanguages.map((supportedLanguage) => (
-                      <SelectItem
-                        key={supportedLanguage}
-                        value={supportedLanguage}
-                      >
-                        {t(languageLabelKey(supportedLanguage))}
+                  <SelectTrigger
+                    id="settings-language"
+                    aria-labelledby="interface-language-heading"
+                    aria-describedby="interface-language-description"
+                    className="w-full rounded-md @2xl/settings-section:w-44"
+                  >
+                    <SelectValue>{t(languageLabelKey(language))}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {supportedLanguages.map((supportedLanguage) => (
+                        <SelectItem
+                          key={supportedLanguage}
+                          value={supportedLanguage}
+                        >
+                          {t(languageLabelKey(supportedLanguage))}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              }
+            />
+          </section>
+          <Separator className="bg-[var(--app-divider)]" />
+          <section
+            className="py-4 sm:py-5"
+            aria-labelledby="running-message-action-heading"
+          >
+            <SettingsSectionHeader
+              id="running-message-action-heading"
+              title={t("settings.runningMessageAction")}
+              description={t("settings.runningMessageActionDescription")}
+              descriptionId="running-message-action-description"
+              actionAlignment="center"
+              action={
+                <Select
+                  value={runningMessageAction}
+                  onValueChange={(value) => {
+                    if (value !== "steer" && value !== "queue") return
+                    setRunningMessageAction(value)
+                    setError(null)
+                    runningMessageActionMutation.mutate(value)
+                  }}
+                  disabled={runningMessageActionMutation.isPending}
+                >
+                  <SelectTrigger
+                    id="settings-running-message-action"
+                    aria-labelledby="running-message-action-heading"
+                    aria-describedby="running-message-action-description"
+                    className="w-full @2xl/settings-section:w-56"
+                  >
+                    <SelectValue className="min-w-0 truncate">
+                      {t(
+                        runningMessageAction === "steer"
+                          ? "settings.runningMessageActionSteer"
+                          : "settings.runningMessageActionQueue"
+                      )}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="steer">
+                        {t("settings.runningMessageActionSteer")}
                       </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            }
-          />
-        </section>
-        <Separator className="bg-[var(--app-divider)]" />
-        <section
-          className="py-4 sm:py-5"
-          aria-labelledby="running-message-action-heading"
-        >
-          <SettingsSectionHeader
-            id="running-message-action-heading"
-            title={t("settings.runningMessageAction")}
-            description={t("settings.runningMessageActionDescription")}
-            descriptionId="running-message-action-description"
-            actionAlignment="center"
-            action={
-              <Select
-                value={runningMessageAction}
-                onValueChange={(value) => {
-                  if (value !== "steer" && value !== "queue") return
-                  setRunningMessageAction(value)
-                  setError(null)
-                  runningMessageActionMutation.mutate(value)
-                }}
-                disabled={runningMessageActionMutation.isPending}
-              >
-                <SelectTrigger
-                  id="settings-running-message-action"
-                  aria-labelledby="running-message-action-heading"
-                  aria-describedby="running-message-action-description"
-                  className="w-44 max-w-[45vw] sm:w-56"
-                >
-                  <SelectValue className="min-w-0 truncate">
-                    {t(
-                      runningMessageAction === "steer"
-                        ? "settings.runningMessageActionSteer"
-                        : "settings.runningMessageActionQueue"
-                    )}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="steer">
-                      {t("settings.runningMessageActionSteer")}
-                    </SelectItem>
-                    <SelectItem value="queue">
-                      {t("settings.runningMessageActionQueue")}
-                    </SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            }
-          />
-        </section>
-        <Separator className="bg-[var(--app-divider)]" />
+                      <SelectItem value="queue">
+                        {t("settings.runningMessageActionQueue")}
+                      </SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              }
+            />
+          </section>
+        </SettingsCard>
         <BrowserNotificationSettings userId={user?.id} />
-      </Card>
+        <BrowserExtensionSettings userId={user?.id} />
+      </div>
     </SettingsPageFrame>
   )
 }
@@ -572,6 +610,8 @@ export function SettingsPersonalizationPage() {
         <div className="grid min-w-0 gap-8">
           <SettingsCard
             aria-labelledby="custom-instructions-heading"
+            layout="split"
+            icon={<FileTextIcon />}
             header={
               <SettingsSectionHeader
                 id="custom-instructions-heading"
@@ -626,6 +666,8 @@ export function SettingsPersonalizationPage() {
 
           <SettingsCard
             aria-labelledby="memory-heading"
+            layout="split"
+            icon={<BrainIcon />}
             header={
               <SettingsSectionHeader
                 id="memory-heading"
@@ -681,6 +723,8 @@ export function SettingsPersonalizationPage() {
                 description={t("settings.thinkingDisplayDescription")}
               />
             }
+            layout="split"
+            icon={<EyeIcon />}
           >
             <SettingsFieldGroup>
               <SettingsFieldRow
@@ -815,49 +859,43 @@ export function SettingsAppearancePage() {
       title={t("settings.appearance")}
       description={t("settings.appearancePageDescription", { productName })}
     >
-      <div className="grid min-w-0 gap-8">
-        <FieldSet className="min-w-0 gap-3">
-          <FieldLegend className="mb-0 text-sm font-semibold">
-            {t("settings.theme")}
-          </FieldLegend>
-          <RadioGroup
-            className="grid grid-cols-3 gap-3 sm:gap-4"
-            aria-label={t("settings.theme")}
-            value={theme}
-            onValueChange={(value) => {
-              if (value === "system" || value === "light" || value === "dark")
-                setTheme(value)
-            }}
-          >
-            {themePreferences.map((preference) => (
-              <RadioGroupOption
-                key={preference}
-                htmlFor={`appearance-theme-${preference}`}
-                className="group/theme-option flex w-full min-w-0 flex-col items-stretch gap-2 rounded-none border-0 bg-transparent p-0 has-[[aria-checked=true]]:bg-transparent"
-              >
-                <RadioGroupItem
-                  id={`appearance-theme-${preference}`}
-                  value={preference}
-                  className="sr-only"
-                />
-                <ThemePreview
-                  preference={preference}
-                  selected={theme === preference}
-                />
-                <span
-                  className={cn(
-                    "text-center text-sm font-medium",
-                    theme === preference
-                      ? "text-foreground"
-                      : "text-muted-foreground"
-                  )}
+      <div className="grid min-w-0 gap-6">
+        <div className="min-w-0 rounded-card border border-border bg-card p-6">
+          <FieldSet className="min-w-0 gap-5">
+            <FieldLegend className="mb-0 text-lg font-medium text-heading">
+              {t("settings.theme")}
+            </FieldLegend>
+            <RadioGroup
+              className="grid grid-cols-1 gap-4 sm:grid-cols-3"
+              aria-label={t("settings.theme")}
+              value={theme}
+              onValueChange={(value) => {
+                if (value === "system" || value === "light" || value === "dark")
+                  setTheme(value)
+              }}
+            >
+              {themePreferences.map((preference) => (
+                <RadioGroupOption
+                  key={preference}
+                  htmlFor={`appearance-theme-${preference}`}
+                  className="group/theme-option flex w-full min-w-0 flex-col items-stretch gap-3 rounded-xl border border-border bg-card p-3 has-[[aria-checked=true]]:border-primary has-[[aria-checked=true]]:bg-card"
                 >
-                  {t(themeLabelKeys[preference])}
-                </span>
-              </RadioGroupOption>
-            ))}
-          </RadioGroup>
-        </FieldSet>
+                  <ThemePreview
+                    preference={preference}
+                    selected={theme === preference}
+                  />
+                  <span className="flex items-center justify-between gap-2 text-sm font-medium">
+                    <span>{t(themeLabelKeys[preference])}</span>
+                    <RadioGroupItem
+                      id={`appearance-theme-${preference}`}
+                      value={preference}
+                    />
+                  </span>
+                </RadioGroupOption>
+              ))}
+            </RadioGroup>
+          </FieldSet>
+        </div>
         <SettingsCard>
           <SettingsFieldGroup>
             <SettingsFieldRow
@@ -895,6 +933,9 @@ export function SettingsAppearancePage() {
               </div>
             </SettingsFieldRow>
           </SettingsFieldGroup>
+          <p className="border-t border-divider py-4 text-sm text-foreground">
+            {t("workspaceHome.description")}
+          </p>
         </SettingsCard>
       </div>
     </SettingsPageFrame>
@@ -908,62 +949,68 @@ function ThemePreview({
   preference: ThemePreference
   selected: boolean
 }) {
-  const system = preference === "system"
+  const previews = preference === "system" ? ["light", "dark"] : [preference]
   return (
     <span
       className={cn(
-        "appearance-theme-preview relative block aspect-[10/7] w-full overflow-hidden rounded-card border-2 transition-colors group-has-[:focus-visible]/theme-option:ring-2 group-has-[:focus-visible]/theme-option:ring-ring group-has-[:focus-visible]/theme-option:ring-offset-2",
-        selected ? "border-foreground" : "border-[color:var(--app-border)]",
-        system
-          ? "bg-[linear-gradient(90deg,#a0a0a0_50%,#5c5c5c_50%)]"
-          : preference === "dark"
-            ? "bg-[#5c5c5c]"
-            : "bg-[#f4f4f4]"
+        "appearance-theme-preview flex aspect-[12/5] w-full overflow-hidden rounded-md border transition-colors",
+        selected ? "border-primary/30" : "border-border"
       )}
       data-preview-theme={preference}
       aria-hidden="true"
     >
-      {system && (
-        <span className="absolute inset-x-[4%] top-[28%] bottom-0 rounded-t-xl bg-[linear-gradient(90deg,#f4f4f4_50%,#383838_50%)]" />
-      )}
-      <span
-        className={cn(
-          "absolute left-1/2 block h-[5%] w-[45%] -translate-x-1/2 rounded-full",
-          system
-            ? "top-[49%] w-[16%] bg-[linear-gradient(90deg,#cecece_50%,#787878_50%)]"
-            : preference === "dark"
-              ? "top-[22%] bg-[#a0a0a0]"
-              : "top-[22%] bg-[#cecece]"
-        )}
-      />
-      <span
-        className={cn(
-          "absolute left-1/2 block h-[3%] -translate-x-1/2 rounded-full",
-          system
-            ? "top-[57%] w-[38%] bg-[linear-gradient(90deg,#dedede_50%,#888888_50%)]"
-            : preference === "dark"
-              ? "top-[30%] w-[68%] bg-[#929292]"
-              : "top-[30%] w-[68%] bg-[#dedede]"
-        )}
-      />
-      <span
-        className={cn(
-          "absolute bottom-[-10%] flex flex-col overflow-hidden rounded-t-xl",
-          system
-            ? "inset-x-[15%] top-[64%] bg-[linear-gradient(90deg,#ffffff_50%,#505050_50%)]"
-            : "inset-x-[9%] top-[37%] bg-white"
-        )}
-      >
-        {["first", "second", "third"].map((row) => (
+      {previews.map((preview) => (
+        <span
+          key={preview}
+          className={cn(
+            "flex min-w-0 flex-1 flex-col",
+            preview === "dark" ? "bg-[#141414]" : "bg-white"
+          )}
+        >
           <span
-            key={row}
-            className="flex h-1/3 shrink-0 flex-col justify-center gap-[15%] border-b border-[#f2f2f2] px-[5%]"
+            className={cn(
+              "flex h-4 shrink-0 items-center gap-1 px-2",
+              preview === "dark" ? "bg-[#202020]" : "bg-[#f7f8fa]"
+            )}
           >
-            <span className="block h-[24%] w-[36%] rounded-full bg-[#dedede]" />
-            <span className="block h-[8%] w-[52%] bg-[#f4f4f4]" />
+            {[0, 1, 2].map((dot) => (
+              <span key={dot} className="size-1 rounded-full bg-[#69758d]/40" />
+            ))}
           </span>
-        ))}
-      </span>
+          <span className="flex min-h-0 flex-1">
+            <span
+              className={cn(
+                "flex w-1/4 flex-col gap-2 p-2",
+                preview === "dark" ? "bg-[#202020]" : "bg-[#f7f8fa]"
+              )}
+            >
+              <span className="h-1 w-full rounded-full bg-[#69758d]/40" />
+              <span className="h-1 w-4/5 rounded-full bg-[#69758d]/20" />
+              <span className="h-1 w-3/5 rounded-full bg-[#69758d]/20" />
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col gap-2 p-3">
+              <span className="h-1.5 w-2/5 rounded-full bg-[#69758d]" />
+              <span className="h-1 w-full rounded-full bg-[#69758d]/20" />
+              <span className="h-1 w-4/5 rounded-full bg-[#69758d]/20" />
+              <span
+                className={cn(
+                  "mt-auto flex h-7 items-center rounded border px-2",
+                  preview === "dark"
+                    ? "border-[#383e4b] bg-[#202020]"
+                    : "border-[#e5e8f0] bg-white"
+                )}
+              >
+                <span
+                  className={cn(
+                    "size-2 rounded-xs",
+                    preview === "dark" ? "bg-[#8bb6ff]" : "bg-[#0874ff]"
+                  )}
+                />
+              </span>
+            </span>
+          </span>
+        </span>
+      ))}
     </span>
   )
 }
@@ -1000,6 +1047,8 @@ export function SettingsSecurityPage() {
         {error && <StatusBanner variant="error">{error}</StatusBanner>}
         <SettingsCard
           aria-labelledby="change-password-heading"
+          layout="split"
+          icon={<ShieldCheckIcon />}
           header={
             <SettingsSectionHeader
               id="change-password-heading"

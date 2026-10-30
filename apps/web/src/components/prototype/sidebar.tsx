@@ -150,7 +150,7 @@ export function SidebarContent({
           <DropdownMenuContent
             side="top"
             align="start"
-            className="w-52 border-0 bg-[var(--app-popover)] text-[var(--app-text)] ring-0"
+            className="min-w-52 border-0 bg-[var(--app-popover)] text-[var(--app-text)] ring-0"
           >
             <DropdownMenuGroup>
               <DropdownMenuLabel>{t("common.language")}</DropdownMenuLabel>

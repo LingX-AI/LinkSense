@@ -1,4 +1,4 @@
-export const DEFAULT_SIDEBAR_WIDTH = 248
+export const DEFAULT_SIDEBAR_WIDTH = 272
 export const MIN_SIDEBAR_WIDTH = 200
 export const MAX_SIDEBAR_WIDTH = 440
 export const SIDEBAR_WIDTH_STORAGE_KEY = "linksense.sidebarWidth"

@@ -181,6 +181,7 @@ export const previewMessages = {
     taskActive:
       "Finaliza las tareas activas antes de moverlas o eliminar su proyecto",
     empty: "Todavía no hay tareas",
+    emptyList: "Todavía no hay proyectos",
     create: "Nuevo proyecto",
     createDescription:
       "Las tareas de un proyecto comparten archivos y mantienen historiales de mensajes separados.",

@@ -1,6 +1,13 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  AUTOMATION_EXPIRATION_IN_PAST: "La date d’expiration ne peut pas être antérieure à aujourd’hui dans le fuseau horaire de l’automatisation. Choisissez une autre date.",
+  LOCAL_BROWSER_PAIR_RATE_LIMITED: "Trop de demandes d’association du navigateur. Veuillez réessayer plus tard.",
+  AUTOMATION_RUN_LIMIT_REACHED: "La limite d’exécutions automatiques est atteinte. Augmentez-la ou supprimez-la avant de reprendre.",
+  BROWSER_PANEL_UNAVAILABLE: "Cette tâche ne dispose d’aucune session de navigateur.",
+  BROWSER_CONTROL_BUSY: "Le navigateur effectue une action. Réessayez dans un instant.",
+  BROWSER_CONTROL_REQUIRED: "Le contrôle a expiré ou appartient à une autre fenêtre. Reprenez le contrôle.",
+
   CONNECTION_CLIENT_SECRET_REQUIRED: "Saisissez le secret de l’application. Si vous changez son identifiant, saisissez aussi le secret de la nouvelle application.",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Comptes autorisés : {{count}}. Changer l’identifiant de l’application impose à ces utilisateurs de se reconnecter. Confirmez cet effet avant d’enregistrer.",
   SKILL_UNINSTALL_NOT_ALLOWED: "Cette compétence ne peut pas être désinstallée. Les compétences intégrées sont fournies par le système.",

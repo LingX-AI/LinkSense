@@ -5,6 +5,7 @@ import {
   modelProviderBaseUrlSchema,
 } from "./model-provider.js"
 import { pricingCurrency } from "./pricing-currency.js"
+import { normalizeModelTokenPrice } from "./model-pricing.js"
 
 export const imageGenerationProviderValues = [
   "alibaba_bailian",
@@ -135,6 +136,15 @@ export const imageGenerationProviderOptionsSchema = z.strictObject({
     .nullable()
     .default(null),
 })
+
+export const discoverImageGenerationModelsInputSchema = z.strictObject({
+  provider: imageGenerationProviderSchema,
+  provider_options: imageGenerationProviderOptionsSchema.default({ workspace_id: null, region: null }),
+  base_url: modelProviderBaseUrlSchema,
+  api_key: z.string().trim().min(1).max(16_384).optional(),
+})
+
+export type DiscoverImageGenerationModelsInput = z.input<typeof discoverImageGenerationModelsInputSchema>
 
 export const imageGenerationProviderDefinitionSchema = z.strictObject({
   key: imageGenerationProviderSchema,
@@ -394,7 +404,5 @@ export type ImageGenerationMcpFailure = z.infer<
 >
 
 export function normalizeImageGenerationPrice(value: string): string {
-  const [whole = "0", fraction = ""] = value.split(".")
-  const normalizedFraction = fraction.replace(/0+$/u, "")
-  return normalizedFraction === "" ? whole : `${whole}.${normalizedFraction}`
+  return normalizeModelTokenPrice(value)
 }

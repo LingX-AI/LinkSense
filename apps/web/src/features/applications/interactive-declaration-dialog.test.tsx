@@ -421,7 +421,14 @@ it.each(["zh-CN", "en-US"])(
     )
     expect(resourceColumn).not.toContainElement(previewColumn)
     const body = dialog.querySelector(".overflow-y-auto")
-    expect(body).toHaveClass("-mr-6", "pr-6", "w-auto", "min-h-0")
+    expect(body).toHaveClass(
+      "-mx-6",
+      "-my-1",
+      "px-6",
+      "py-1",
+      "w-auto",
+      "min-h-0"
+    )
     expect(body).toContainElement(first)
     expect(body).not.toContainElement(
       dialog.querySelector('[data-slot="dialog-header"]')
@@ -431,7 +438,7 @@ it.each(["zh-CN", "en-US"])(
       screen.getByRole("textbox", {
         name: i18n.t("applications.declaration.preview"),
       })
-    ).not.toHaveClass("-mr-6")
+    ).not.toHaveClass("-mx-6")
     expect(first.closest('[data-slot="field-group"]')).toHaveClass(
       "grid",
       "grid-cols-1",

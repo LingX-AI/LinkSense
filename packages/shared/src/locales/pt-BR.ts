@@ -1,6 +1,13 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  AUTOMATION_EXPIRATION_IN_PAST: "A data de expiração não pode ser anterior a hoje no fuso horário da automação. Selecione outra data.",
+  LOCAL_BROWSER_PAIR_RATE_LIMITED: "Muitas solicitações de pareamento do navegador. Tente novamente mais tarde.",
+  AUTOMATION_RUN_LIMIT_REACHED: "O limite de execuções automáticas foi atingido. Aumente ou remova o limite antes de retomar.",
+  BROWSER_PANEL_UNAVAILABLE: "Esta tarefa não tem uma sessão de navegador disponível.",
+  BROWSER_CONTROL_BUSY: "O navegador está executando uma ação. Tente novamente em instantes.",
+  BROWSER_CONTROL_REQUIRED: "O controle expirou ou pertence a outra janela. Assuma o controle novamente.",
+
   CONNECTION_CLIENT_SECRET_REQUIRED: "Informe o segredo do aplicativo. Ao alterar o ID, informe também o segredo do novo aplicativo.",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Contas autorizadas: {{count}}. Alterar o ID do aplicativo exige que esses usuários se conectem novamente. Confirme esse efeito antes de salvar.",
   SKILL_UNINSTALL_NOT_ALLOWED: "Esta habilidade não pode ser desinstalada. As habilidades integradas são fornecidas pelo sistema.",

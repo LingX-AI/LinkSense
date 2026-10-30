@@ -16,6 +16,20 @@ export type StreamingAssistantMessages = Record<
   StreamingAssistantMessage
 >
 
+export function getConversationMessageRenderKey(
+  message: Pick<
+    ConversationMessage,
+    "id" | "role" | "item_id" | "client_render_key"
+  >
+): string {
+  if (message.client_render_key) return message.client_render_key
+  // The database ID changes at completion; the native item ID stays stable.
+  if (message.role === "assistant" && message.item_id) {
+    return `assistant-item-${message.item_id}`
+  }
+  return `message-${message.id}`
+}
+
 export function removeStreamingMessageItems(
   current: StreamingAssistantMessages,
   itemIds: ReadonlySet<string>

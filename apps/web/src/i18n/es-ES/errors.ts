@@ -376,6 +376,10 @@ export const errorMessages = {
       emptyResult:
         "La automatización terminó sin resultados que se puedan mostrar. Ejecútala de nuevo.",
       expired: "Esta automatización ha caducado y ya no se puede ejecutar.",
+      expirationInPast: localizedErrorMessage(
+        "AUTOMATION_EXPIRATION_IN_PAST",
+        "es-ES"
+      ),
     },
     userDisabled:
       "Este usuario está desactivado. Contacta con un administrador.",

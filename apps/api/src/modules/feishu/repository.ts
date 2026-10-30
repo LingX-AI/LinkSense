@@ -129,6 +129,7 @@ export class PrismaFeishuRepository {
         throw new FeishuConnectionConflictError();
       }
       if (current) {
+        await cancelConnectionNotifications(tx, input.ownerId, current.id);
         await tx.feishuOutboundDelivery.deleteMany({
           where: { connectionId: current.id },
         });
@@ -190,6 +191,7 @@ export class PrismaFeishuRepository {
         select: { id: true },
       });
       if (!connection) return;
+      await cancelConnectionNotifications(tx, ownerId, connectionId);
       await tx.feishuOutboundDelivery.deleteMany({ where: { connectionId } });
       await tx.feishuInboundMessage.deleteMany({ where: { connectionId } });
       await tx.feishuPeerSession.deleteMany({ where: { connectionId } });
@@ -844,3 +846,4 @@ function isUuid(value: string): boolean {
     value,
   );
 }
+import { cancelConnectionNotifications } from "../automations/notification-cancellation.js";

@@ -9,6 +9,17 @@ const projectDockClass = projectPickerSource.match(
 )?.[1]
 
 describe("conversation composer capability chips", () => {
+  it("keeps the same neutral composer border on hover and focus", () => {
+    expect(
+      composerStyles.match(/\.composer-shell\s*\{([^}]*)\}/u)?.[1]
+    ).toContain("border: 1px solid var(--app-border);")
+    expect(
+      /\.composer-shell:not\(\[data-drag-active="true"\]\)(?::hover|:has\(\.composer-input:focus\))/u.test(
+        composerStyles
+      )
+    ).toBe(false)
+  })
+
   it("uses one flat borderless surface for project, queued request, and goal bars", () => {
     expect(projectDockClass).toBeDefined()
     const sharedSurface = composerStyles.match(
@@ -25,7 +36,7 @@ describe("conversation composer capability chips", () => {
   })
 
   it.each([
-    { theme: "light", selector: /:root\s*\{([^}]*)\}/u, background: "#f5f5f5" },
+    { theme: "light", selector: /:root\s*\{([^}]*)\}/u, background: "#fafbfd" },
     { theme: "dark", selector: /\.dark\s*\{([^}]*)\}/u, background: "#292929" },
   ])(
     "uses the $theme gray surface above the composer",
@@ -66,6 +77,17 @@ describe("conversation composer capability chips", () => {
         "u"
       )
     )
+  })
+
+  it("keeps the inline project picker hover and focus corners unclipped", () => {
+    const inlineDockRule = composerStyles.match(
+      new RegExp(
+        String.raw`\.composer-shell\s+\.${projectDockClass}\s*\{([^}]*)\}`,
+        "u"
+      )
+    )?.[1]
+
+    expect(inlineDockRule).toMatch(/overflow:\s*visible;/u)
   })
 
   it("matches both resource pickers to the Composer width", () => {

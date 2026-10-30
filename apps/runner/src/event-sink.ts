@@ -118,6 +118,9 @@ export interface RunnerEventSink {
     conversationId: string;
     turnId: string;
   }): Promise<unknown>;
+  readConversationReference?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ReadConversationReferenceInput }): Promise<unknown>;
+  localBrowser?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").LocalBrowserRequest; signal?: AbortSignal }): Promise<unknown>;
+  requestMonitoringStop?(input: { conversationId: string; turnId: string }): Promise<unknown>;
   emitInteractiveApplicationEvent?(input: {
     conversationId: string;
     codexTurnId: string;
@@ -408,6 +411,17 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     if (!response.ok) throw applicationBuilderErrorFromApi(response.status, body);
     return body;
   }
+  async readConversationReference(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ReadConversationReferenceInput }): Promise<unknown> {
+    const response = await this.request("/internal/conversation-references/read", input, this.workspaceManager.ownerFor(input.conversationId));
+    if (!response.ok) throw new ConversationReferenceRequestError(response.status);
+    return parseResponseBody(response);
+  }
+
+  async requestMonitoringStop(input: { conversationId: string; turnId: string }): Promise<unknown> {
+    const response = await this.request("/internal/automations/request-stop", input, this.workspaceManager.ownerFor(input.conversationId));
+    if (!response.ok) throw new ConversationReferenceRequestError(response.status);
+    return response.json();
+  }
 
   confirmSkillInstall(input: {
     conversationId: string;
@@ -514,6 +528,13 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     const value = await parseResponseBody(response);
     if (!response.ok) throw connectionErrorFromApi(response.status, value);
     return value;
+  }
+
+  async localBrowser(input: { conversationId: string; turnId: string; input: import("@linksense/shared").LocalBrowserRequest; signal?: AbortSignal }): Promise<unknown> {
+    const { signal, ...body } = input;
+    const response = await this.request("/internal/local-browser/execute", body, this.workspaceManager.ownerFor(input.conversationId), signal);
+    if (!response.ok) return { ok: false, code: "LOCAL_BROWSER_ACCESS_DENIED", retryable: false, help_path: "/settings/general#browser-extension" };
+    return parseResponseBody(response);
   }
 
   async emitInteractiveApplicationEvent(input: {
@@ -821,7 +842,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
         ).workerRelayMs
       : pathname.startsWith("/internal/image-generation/")
         ? 180_000
-      : pathname === "/internal/application-builder" || pathname.startsWith("/internal/connections/") || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000
+      : pathname === "/internal/application-builder" || pathname.startsWith("/internal/connections/") || pathname === "/internal/local-browser/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000
       : pathname === "/internal/runner/process-exit"
         ? (this.options.processExitTimeoutMs ?? 150_000)
         : (this.options.requestTimeoutMs ?? 15_000);
@@ -899,3 +920,4 @@ function abortableDelay(
 function isPowerOfTwo(value: number): boolean {
   return value > 0 && (value & (value - 1)) === 0;
 }
+import { ConversationReferenceRequestError } from "./conversation-reference-error.js";

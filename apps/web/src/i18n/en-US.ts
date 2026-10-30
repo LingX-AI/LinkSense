@@ -11,6 +11,7 @@ import { errorCatalog, localizedErrorMessage } from "@linksense/shared"
 import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const enUS = {
+  localBrowser: localBrowserMessages["en-US"],
   modelSetup: modelSetupMessages["en-US"],
   connections: connectionMessages["en-US"],
   sideChat: sideChatMessages["en-US"],
@@ -65,6 +66,8 @@ export const enUS = {
     search: "Search",
     loading: "Loading…",
     pageLoading: "Loading…",
+    emptyDescription: "Items will appear here when available.",
+    notFoundDescription: "The page may have been moved or removed.",
     actions: "Actions",
     status: "Status",
     name: "Name",
@@ -202,6 +205,7 @@ export const enUS = {
     helpCenter: "Help Center",
     helpCenterNewTab: "Open Help Center in a new tab",
     automationNotifications: "Automation notifications",
+    automationNotificationsEmpty: "No unread automation notifications",
     automationNotificationsUnread:
       "Automation notifications, with an unread completed task",
     automationTask: "Automation task",
@@ -1815,6 +1819,7 @@ export const enUS = {
     notFound: errorCatalog.PROJECT_NOT_FOUND.messages["en-US"],
     taskActive: errorCatalog.PROJECT_TASK_ACTIVE.messages["en-US"],
     empty: "No tasks yet",
+    emptyList: "No projects yet",
     create: "New project",
     createDescription:
       "Tasks in a project share files and keep separate message histories.",
@@ -1890,7 +1895,7 @@ export const enUS = {
     search: "Search projects",
     noResults: "No matching projects",
     choose: "Project",
-    projectless: "Common workspace",
+    projectless: "Public workspace",
     selectPlaceholder: "Select project",
     clearSelection: "Clear project selection",
     unavailable: "Project unavailable",
@@ -1903,11 +1908,11 @@ export const enUS = {
     title: "Task",
     taskSort: {
       open: "Set the task order for {{section}}",
-      label: "Task order",
+      label: "Sort tasks",
       priority: "Priority",
       priorityDescription:
         "Tasks needing your input and unread tasks come first.",
-      updated_at: "Last updated",
+      updated_at: "Recently updated",
       manual: "Manual order",
     },
     share: {
@@ -1923,6 +1928,10 @@ export const enUS = {
         "The link couldn't be copied. Check browser permissions and try again.",
       unavailable: "This shared link doesn't exist or is no longer available.",
       continueInProduct: "Continue in {{productName}}",
+      snapshotDate: "Shared snapshot · {{date}}",
+      sharedConversation: "Shared conversation",
+      readOnly: "Read-only",
+      snapshotNotice: "This is a snapshot. Later messages are not included.",
     },
     rename: "Rename",
     archive: "Archive task",
@@ -2024,6 +2033,8 @@ export const enUS = {
     historyViewExchange: "Click to view this exchange",
     historyRetry: "Couldn’t load messages. Retry",
     scrollToBottom: "Scroll to bottom",
+    newReplies_one: "{{count}} new reply",
+    newReplies_other: "{{count}} new replies",
     placeholder: "Describe what you want {{productName}} to do…",
     followUpPlaceholder: "Add a follow-up…",
     send: "Send",
@@ -2155,6 +2166,8 @@ export const enUS = {
       noMatches: "No matching Skills",
     },
     addMenu: "Add",
+    toolbarAttach: "Attach",
+    toolbarKnowledge: "Knowledge",
     addMenuTitle: "Add content",
     addGroup: "Add",
     attachFileMenuLabel: "Local files",
@@ -2425,6 +2438,7 @@ export const enUS = {
     messageCopied: "Message copied",
     copyMessageFailed: "Unable to copy the message. Try again.",
     forkMessage: "Branch to new chat",
+    forkMessageTooltip: "Branch",
     forkingMessage: "Creating branch…",
     forkMessageFailed: "Unable to create the branched task. Try again.",
     forkSource: {
@@ -2932,6 +2946,7 @@ export const enUS = {
       "Application updated. Future task turns will automatically use the latest configuration.",
     deleted: "Application deleted.",
     emptyTitle: "No applications are available yet",
+    emptyDescription: "Items will appear here when you create or add them.",
     createdByMe: "Created by me",
     createdBy: "Created by {{name}}",
     status: {
@@ -3099,6 +3114,9 @@ export const enUS = {
     conversationManagedUserModelDescription:
       "with plugins, Skills, knowledge bases, and instructions",
     externalAccess: {
+      endUserPresentation: "End-user presentation",
+      endUserPresentationHint:
+        "Applies only to the embed code generated below. Hides technical activity and timings while keeping answers, attachments, confirmations and errors. Turn off for the technical view.",
       action: "External access",
       title: "Application external access",
       description:
@@ -4199,6 +4217,7 @@ export const enUS = {
       assistant_response: "AI responses",
       memory_generation: "Memory generation",
       task_title_generation: "Task auto naming",
+      browser_use_intent: "Browser intent detection",
       document_embedding: "Document embeddings",
       query_embedding: "Query embeddings",
       rerank: "Retrieval reranking",
@@ -5413,8 +5432,10 @@ export const enUS = {
         "The image-understanding model failed image input, structured output, or thinking-disable validation. Check the model and provider configuration.",
     },
     imageGeneration: {
-      inputInvalid: "The editing image could not be read. Use PNG, JPEG or WebP images up to 8 MB each and 10 MB in total, including the mask. Masks must be transparent PNGs matching the first image's dimensions.",
-      editUnsupported: "The current image model does not support this edit. Use fewer reference images, remove the mask, or ask an administrator to select a model that supports the requested editing features.",
+      inputInvalid:
+        "The editing image could not be read. Use PNG, JPEG or WebP images up to 8 MB each and 10 MB in total, including the mask. Masks must be transparent PNGs matching the first image's dimensions.",
+      editUnsupported:
+        "The current image model does not support this edit. Use fewer reference images, remove the mask, or ask an administrator to select a model that supports the requested editing features.",
       notConfigured:
         "The image generation model is not configured or is not enabled.",
       forbidden: "This task cannot call image generation.",
@@ -5699,6 +5720,10 @@ export const enUS = {
       emptyResult:
         "The automation finished without producing displayable output. Run it again.",
       expired: "This automation has expired and can no longer run.",
+      expirationInPast: localizedErrorMessage(
+        "AUTOMATION_EXPIRATION_IN_PAST",
+        "en-US"
+      ),
     },
     userDisabled: "This user is disabled. Contact an administrator.",
     conflict:
@@ -5720,3 +5745,4 @@ export const enUS = {
     teams: "Teams SSO",
   },
 } as const
+import { localBrowserMessages } from "@/features/local-browser/messages"

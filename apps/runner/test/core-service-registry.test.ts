@@ -99,9 +99,12 @@ describe("Core MCP module registry", () => {
     })
 
     expect(coreMcpModuleRegistry.map((module) => module.key)).toEqual([
+      "automation_monitoring",
+      "conversation_references",
       "file_service",
       "document_conversion",
       "current_user",
+      "local_browser",
       "image_generation",
       "knowledge",
       "interactive_form",
@@ -112,9 +115,12 @@ describe("Core MCP module registry", () => {
       "automations",
     ])
     expect(registry.modules.map((module) => module.key)).toEqual([
+      "automation_monitoring",
+      "conversation_references",
       "file_service",
       "document_conversion",
       "current_user",
+      "local_browser",
       "image_generation",
       "knowledge",
       "interactive_form",
@@ -161,15 +167,19 @@ describe("Core MCP module registry", () => {
     })
 
     expect(registry.modules.map((module) => module.key)).toEqual([
+      "conversation_references",
       "document_conversion",
       "current_user",
+      "local_browser",
       "knowledge",
       "interactive_form",
       "skill_management_read",
     ])
     expect(registry.tools.map((tool) => tool.name)).toEqual([
+      "read_referenced_conversation",
       "convert_document_to_markdown",
       "get_current_user_info",
+      "local_browser",
       "search_knowledge_base",
       "list_knowledge_documents",
       "get_knowledge_document_markdown",

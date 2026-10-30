@@ -87,12 +87,13 @@ export function ProjectDialog({
       }}
     >
       <DialogContent
+        className="gap-4"
         closeLabel={t("common.close")}
         showCloseButton={!mutation.isPending}
       >
-        <DialogHeader>
+        <DialogHeader className="gap-4">
           <DialogTitle>{title}</DialogTitle>
-          {action.mode === "create" && (
+          {action.mode !== "delete" && (
             <DialogDescription>
               {t("projects.createDescription")}
             </DialogDescription>
@@ -109,6 +110,7 @@ export function ProjectDialog({
           className="flex min-w-0 flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault()
+            event.stopPropagation()
             if (!mutation.isPending && (!nameRequired || validName.success))
               mutation.mutate()
           }}
@@ -126,7 +128,7 @@ export function ProjectDialog({
                     : undefined
                 }
               >
-                <InputGroup className="h-12 rounded-xl">
+                <InputGroup className="h-11 rounded-lg">
                   <InputGroupInput
                     id={inputId}
                     aria-required="true"
@@ -143,7 +145,7 @@ export function ProjectDialog({
                   />
                   <InputGroupAddon
                     align="inline-start"
-                    className="self-stretch border-r border-border pr-2"
+                    className="self-stretch pr-3 pl-3"
                   >
                     <ProjectAppearancePicker
                       value={appearance}
@@ -161,7 +163,8 @@ export function ProjectDialog({
           <DialogFooter>
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
+              className="min-w-22"
               disabled={mutation.isPending}
               onClick={onClose}
             >
@@ -169,6 +172,7 @@ export function ProjectDialog({
             </Button>
             <Button
               type="submit"
+              className="min-w-22"
               variant={action.mode === "delete" ? "destructive" : "default"}
               disabled={
                 mutation.isPending || (nameRequired && !validName.success)

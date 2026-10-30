@@ -138,6 +138,7 @@ import {
 } from "./modules/mcp/index.js";
 import { PrismaAutomationRepository } from "./modules/automations/repository.js";
 import { AutomationScheduler } from "./modules/automations/scheduler.js";
+import { AutomationNotificationService } from "./modules/automations/notifications.js";
 import { AutomationService } from "./modules/automations/service.js";
 import { ConversationAutomationService } from "./modules/automations/conversation-service.js";
 import { CompletionNotificationService } from "./modules/completion-notifications/service.js";
@@ -814,10 +815,19 @@ export function createServices(input: {
     weixinEncryption,
     weixinRuntime,
   );
+  const automationNotifications = new AutomationNotificationService(input.prisma, {
+    botConnectionIds: () => botChannelRuntime.notificationConnectionIds(),
+    outcome: turnId => feishuRepository.getTurnOutcome(turnId),
+    feishu: value => feishuRuntime.sendNotification(value),
+    bot: value => botChannelRuntime.sendNotification(value),
+  });
+  botChannelRuntime.attachNotificationWork(automationNotifications);
   const automations = new AutomationService(
     new PrismaAutomationRepository(input.prisma),
     conversations,
     audit,
+    undefined,
+    automationNotifications,
   );
   const completionNotifications = new CompletionNotificationService(
     input.prisma,

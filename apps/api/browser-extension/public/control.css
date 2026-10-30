@@ -1,0 +1,13 @@
+@import "./popup.css";
+
+@theme inline { --color-control-pointer: var(--control-pointer); }
+
+/* The page's CSS must not change or clip the extension's control surface. */
+:host {
+  all: initial !important;
+  position: fixed !important;
+  inset: 0 !important;
+  pointer-events: none !important;
+  z-index: 2147483647 !important;
+}
+.control-surface::backdrop { background: transparent; pointer-events: none; }

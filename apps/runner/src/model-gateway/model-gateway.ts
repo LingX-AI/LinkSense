@@ -28,6 +28,9 @@ import type {
   RunnerMemoryUsageCapture,
 } from "@linksense/shared";
 import {
+  createModelProviderFetch,
+  isModelProviderEndpointMissing,
+  modelProviderFallbackUrl,
   modelGatewayErrorMessages,
   modelGatewayFailureCode,
 } from "@linksense/shared";
@@ -509,7 +512,13 @@ export class ModelGateway implements ModelGatewayRuntime {
         lease,
         request,
         context,
-        handshakeAbort.signal,
+        AbortSignal.any([
+          handshakeAbort.signal,
+          AbortSignal.timeout(Math.min(
+            this.options.upstreamHeaderTimeoutMs ?? DEFAULT_UPSTREAM_HEADER_TIMEOUT_MS,
+            DEFAULT_UPSTREAM_WEBSOCKET_HANDSHAKE_TIMEOUT_MS,
+          )),
+        ]),
       );
     } catch (error) {
       this.webSocketSessions.delete(session);
@@ -598,8 +607,9 @@ export class ModelGateway implements ModelGatewayRuntime {
     request: IncomingMessage,
     context: ModelGatewayRequestContext,
     signal: AbortSignal,
+    alternateUrl?: URL,
   ): Promise<UpstreamWebSocketConnection> {
-    const url = endpointWebSocketUrl(lease.upstreamBaseUrl, "responses");
+    const url = alternateUrl ?? endpointWebSocketUrl(lease.upstreamBaseUrl, "responses");
     const headers: Record<string, string> = {
       authorization: `Bearer ${lease.apiKey}`,
       "openai-beta":
@@ -740,6 +750,15 @@ export class ModelGateway implements ModelGatewayRuntime {
       upstream.once("error", onError);
       upstream.once("open", onOpen);
       if (signal.aborted) onAbort();
+    }).catch((error: unknown) => {
+      if (!alternateUrl && !signal.aborted && error instanceof UpstreamWebSocketHandshakeError && isModelProviderEndpointMissing(error.statusCode)) {
+        const alternate = modelProviderFallbackUrl(lease.upstreamBaseUrl, endpointUrl(lease.upstreamBaseUrl, "responses"));
+        if (alternate) {
+          alternate.protocol = url.protocol;
+          return this.connectUpstreamWebSocket(lease, request, context, signal, alternate);
+        }
+      }
+      throw error;
     });
   }
 
@@ -1332,7 +1351,8 @@ export class ModelGateway implements ModelGatewayRuntime {
     context: ModelGatewayRequestContext,
   ): Promise<void> {
     const upstream = await this.callUpstream(
-      endpointUrl(lease.upstreamBaseUrl, "responses"),
+      lease.upstreamBaseUrl,
+      "responses",
       lease.apiKey,
       body,
       abort,
@@ -1410,7 +1430,8 @@ export class ModelGateway implements ModelGatewayRuntime {
   ): Promise<void> {
     let memoryOperation = requestContext.memoryOperation;
     const upstream = await this.callUpstream(
-      endpointUrl(lease.upstreamBaseUrl, "responses"),
+      lease.upstreamBaseUrl,
+      "responses",
       lease.apiKey,
       body,
       abort,
@@ -1503,7 +1524,8 @@ export class ModelGateway implements ModelGatewayRuntime {
     const streamRequested = body.stream === true;
     let memoryOperation = requestContext.memoryOperation;
     const upstream = await this.callUpstream(
-      endpointUrl(lease.upstreamBaseUrl, "chat/completions"),
+      lease.upstreamBaseUrl,
+      "chat/completions",
       lease.apiKey,
       buildChatCompletionRequest(body, streamRequested),
       abort,
@@ -1586,7 +1608,8 @@ export class ModelGateway implements ModelGatewayRuntime {
   }
 
   private async callUpstream(
-    url: URL,
+    baseUrl: string,
+    endpoint: string,
     apiKey: string,
     body: JsonObject,
     abort: ModelGatewayRequestAbort,
@@ -1619,12 +1642,12 @@ export class ModelGateway implements ModelGatewayRuntime {
         redirect: "manual" as const,
         signal: abort.controller.signal,
       };
-      const upstream = this.options.fetch
-        ? await this.options.fetch(url, requestInit)
-        : (await undiciFetch(url, {
-        ...requestInit,
-        dispatcher: this.httpProxyDispatcher,
-      })) as unknown as Response;
+      const fetcher: typeof fetch = this.options.fetch ?? (async (input) =>
+        await undiciFetch(input instanceof Request ? input.url : input, {
+          ...requestInit,
+          dispatcher: this.httpProxyDispatcher,
+        }) as unknown as Response);
+      const upstream = await createModelProviderFetch(baseUrl, fetcher)(endpointUrl(baseUrl, endpoint), requestInit);
       context.upstreamStreaming = isEventStream(upstream.headers.get("content-type"));
       latency.mark("upstream_headers");
       if (!upstream.ok || !upstream.body) return upstream;

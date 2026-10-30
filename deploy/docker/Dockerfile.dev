@@ -79,6 +79,7 @@ RUN --mount=type=cache,id=linksense-pnpm-node24-${TARGETARCH}${TARGETVARIANT}-no
   pnpm install --frozen-lockfile --prefer-offline --store-dir=/pnpm/store --package-import-method=copy
 
 COPY --chown=node:node prisma prisma
+COPY --chown=node:node LICENSE LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE ./
 COPY --chown=node:node apps/api apps/api
 COPY --chown=node:node apps/docs apps/docs
 COPY --chown=node:node apps/runner apps/runner

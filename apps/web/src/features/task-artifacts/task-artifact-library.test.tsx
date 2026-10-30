@@ -165,7 +165,7 @@ describe("task artifact library", () => {
       )
     ).toBeVisible()
     const tabs = screen.getByRole("tablist", { name: "资料库内容" })
-    expect(tabs).toHaveAttribute("data-variant", "default")
+    expect(tabs).toHaveAttribute("data-variant", "pills")
     expect(within(tabs).getByRole("tab", { name: "任务产物" })).toHaveAttribute(
       "data-active",
       ""

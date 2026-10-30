@@ -174,6 +174,15 @@ describe("bounded HTML preview readiness", () => {
     await paint()
     expect(f.onReady).toHaveBeenCalledExactlyOnceWith("incomplete")
   })
+  it("does not wait for an inline CSS import whose media does not match", async () => {
+    const f = setup()
+    const style = document.createElement("style")
+    style.textContent = '@import url("/assets/print.css") print;'
+    document.head.append(style)
+    parsed()
+    await paint()
+    expect(f.onReady).toHaveBeenCalledExactlyOnceWith("complete")
+  })
   it("ignores disabled stylesheets that do not affect the first view", async () => {
     const f = setup()
     const link = addStylesheet()

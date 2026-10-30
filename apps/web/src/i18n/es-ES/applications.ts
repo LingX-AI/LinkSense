@@ -213,6 +213,8 @@ export const applicationsMessages = {
       "Aplicación actualizada. Los próximos turnos de las tareas usarán automáticamente la configuración más reciente.",
     deleted: "Aplicación eliminada.",
     emptyTitle: "Todavía no hay aplicaciones disponibles",
+    emptyDescription:
+      "Los elementos aparecerán aquí cuando los crees o los añadas.",
     createdByMe: "Creada por mí",
     createdBy: "Creada por {{name}}",
     status: { active: "Activada", disabled: "Desactivada" },
@@ -376,6 +378,9 @@ export const applicationsMessages = {
     conversationManagedUserModelDescription:
       "con plugins, Skills, bases de conocimiento e instrucciones",
     externalAccess: {
+      endUserPresentation: "Presentación para el usuario final",
+      endUserPresentationHint:
+        "Se aplica solo al código de inserción generado a continuación. Oculta la actividad técnica y los tiempos, pero mantiene respuestas, adjuntos, confirmaciones y errores. Desactívala para ver los detalles técnicos.",
       action: "Acceso externo",
       title: "Acceso externo a la aplicación",
       description:

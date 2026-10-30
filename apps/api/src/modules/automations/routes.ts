@@ -18,6 +18,10 @@ export const automationRoutes: FastifyPluginAsync<{
   services: AppServices;
 }> = async (app, { services }) => {
   app.addHook("preHandler", app.authenticate);
+  app.get("/notification-targets", async (request, reply) => {
+    const user = (request as AuthenticatedRequest).authUser;
+    return reply.send(ok(await services.automations.listNotificationTargets(user.id), request.id));
+  });
 
   app.get("/", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;

@@ -80,6 +80,7 @@ export const backendMessages = {
   "usageExport.workloads.assistant_response": "AI の回答",
   "usageExport.workloads.memory_generation": "メモリ生成",
   "usageExport.workloads.task_title_generation": "タスクの自動命名",
+  "usageExport.workloads.browser_use_intent": "ブラウザー操作の意図検出",
   "usageExport.workloads.document_embedding": "ドキュメントのベクトル化",
   "usageExport.workloads.query_embedding": "クエリのベクトル化",
   "usageExport.workloads.rerank": "検索結果の再ランキング",

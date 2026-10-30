@@ -13,9 +13,9 @@ describe("capability card layout", () => {
     )
   })
 
-  it("top-aligns the icon, content, and actions for variable-height cards", () => {
+  it("centers icons and content in full-width catalog rows", () => {
     expect(capabilityPageStyles).toMatch(
-      /\.capability-library-row\s*\{[^}]*align-items:\s*flex-start;/u
+      /\.capability-library-row\s*\{[^}]*align-items:\s*center;/u
     )
   })
 

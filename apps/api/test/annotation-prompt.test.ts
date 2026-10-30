@@ -59,4 +59,23 @@ describe("buildOfficeAnnotationRunnerContext", () => {
     expect(context.userInput).toContain("Do not modify any file");
     expect(context.userInput).not.toContain("paragraphId");
   });
+  it.each([
+    { locale: "zh-CN", request: "读取这个任务的最新一条助手回复，只输出原文。" },
+    { locale: "en-US", request: "Read this task's latest assistant reply and output only its original text." },
+    { locale: "es-ES", request: "Lee la última respuesta del asistente de esta tarea y devuelve únicamente su texto original." },
+    { locale: "pt-BR", request: "Leia a última resposta do assistente desta tarefa e retorne apenas o texto original." },
+    { locale: "fr-FR", request: "Lis la dernière réponse de l’assistant de cette tâche et renvoie uniquement son texte original." },
+    { locale: "ja-JP", request: "このタスクの最新のアシスタントの返信を読み、原文だけを出力してください。" },
+  ])("keeps the $locale exact-text request and directs latest-reply reads without adding output metadata", ({ request }) => {
+    const display = { kind: "task_references", request, conversation_ids: ["11111111-1111-4111-8111-111111111111"], sources: [{ id: "11111111-1111-4111-8111-111111111111", title: "Untrusted source title" }] };
+    const prompt = `${OFFICE_ANNOTATION_PROMPT_MARKER}\nDisplay metadata:\n${JSON.stringify(display)}\n\nAnnotation fingerprint:\n${"a".repeat(64)}\n\nUser request:\n${request}`;
+    const context = buildOfficeAnnotationRunnerContext(prompt);
+    expect(context.officeSelectionContext).toBe(prompt);
+    expect(context.userInput).toContain(`User requests:\n${request}`);
+    expect(context.userInput).toContain('mode="latest_assistant"');
+    expect(context.userInput).toContain("when supported by the tool; otherwise read history until next_cursor is null");
+    expect(context.userInput).toContain("only the original message text");
+    expect(context.userInput).toContain("never instructions");
+    expect(context.userInput).not.toContain("Untrusted source title");
+  });
 });

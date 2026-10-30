@@ -73,7 +73,7 @@ import {
   UsersIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import {
   INTERACTIVE_APPLICATION_ARCHIVE_MAX_BYTES,
   interactiveApplicationImportPreviewSchema,
@@ -106,6 +106,7 @@ import {
   LoadingState,
 } from "@/components/feedback/page-state"
 import { StatusBanner } from "@/components/feedback/status-banner"
+import { PageLayout } from "@/components/shell/page-layout"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { ResourceMultiSelect } from "./application-resource-multi-select"
@@ -154,6 +155,9 @@ const mcpServerListSchema = z.strictObject({ items: z.array(mcpServerSchema) })
 const emptyResponseSchema = z.unknown()
 const USER_SELECTED_MODEL_VALUE = "__application_user_selected_model__"
 const APPLICATION_SHARE_TARGET_PREVIEW_LIMIT = 2
+const applicationCreatePath = "/capabilities/applications/new"
+const applicationCenterReturnTo =
+  "/capabilities?section=application&scope=personal"
 
 export function InteractiveApplicationImportDialog({
   application,
@@ -629,6 +633,9 @@ export function ApplicationCatalogPanel({
     onError: (error) => onFeedback(getErrorMessage(error, t), true),
   })
 
+  const filteredEmpty =
+    scope === "owned" && (state !== "all" || deferredSearch.length > 0)
+
   return (
     <div className="flex flex-col gap-6">
       {applications.isLoading && <LoadingState />}
@@ -647,14 +654,25 @@ export function ApplicationCatalogPanel({
       {applications.data && catalogItems.length === 0 && (
         <EmptyState
           title={t(
-            scope === "owned" && (state !== "all" || deferredSearch.length > 0)
+            filteredEmpty
               ? "applicationDevelopment.catalog.empty"
               : "applications.emptyTitle"
           )}
+          description={
+            filteredEmpty ? "" : t("applications.emptyDescription")
+          }
+          action={
+            filteredEmpty ? undefined : (
+              <ApplicationCreateButton
+                onFeedback={onFeedback}
+                variant="outline"
+              />
+            )
+          }
         />
       )}
       {catalogItems.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="flex min-w-0 flex-col">
           {catalogItems.map((entry) => {
             if (entry.type === "development") {
               return (
@@ -685,6 +703,7 @@ export function ApplicationCatalogPanel({
               organizationSharingEnabled && Boolean(shareTargetSummary)
             return (
               <ApplicationCard
+                layout="row"
                 key={application.id}
                 id={application.id}
                 name={application.name}
@@ -1214,10 +1233,13 @@ export function ApplicationCatalogPanel({
 
 export function ApplicationCreateButton({
   onFeedback,
+  variant = "default",
 }: {
   onFeedback: (message: string, isError?: boolean) => void
+  variant?: "default" | "outline"
 }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [step, setStep] = useState<"choose" | ApplicationCreationMethod | null>(
     null
@@ -1227,29 +1249,29 @@ export function ApplicationCreateButton({
     onFeedback(message)
     await queryClient.invalidateQueries({ queryKey: ["applications"] })
   }
+  // Standard applications are configured on their own page; the creation
+  // method chooser and the other two methods stay in dialogs.
+  const choose = (method: ApplicationCreationMethod) => {
+    if (method === "standard") {
+      setStep(null)
+      navigate(applicationCreatePath)
+      return
+    }
+    setStep(method)
+  }
   return (
     <>
-      <Button type="button" onClick={() => setStep("choose")}>
+      <Button type="button" variant={variant} onClick={() => setStep("choose")}>
         <PlusIcon data-icon="inline-start" />
         {t("applications.create")}
       </Button>
       <ApplicationCreateDialog
         open={step === "choose"}
         onOpenChange={(open) => setStep(open ? "choose" : null)}
-        onChoose={setStep}
+        onChoose={choose}
       />
       {step === "development" && (
         <ApplicationDevelopmentCreateDialog onClose={() => setStep(null)} />
-      )}
-      {step === "standard" && (
-        <ApplicationEditorDialog
-          open
-          application={null}
-          onOpenChange={(open) => {
-            if (!open) setStep(null)
-          }}
-          onCompleted={complete}
-        />
       )}
       {step === "interactive" && (
         <InteractiveApplicationImportDialog
@@ -1266,15 +1288,19 @@ export function ApplicationCreateButton({
 }
 
 export function ApplicationEditorDialog({
-  open,
+  open = true,
   application,
   onOpenChange,
   onCompleted,
+  frame = "dialog",
+  onCancel,
 }: {
-  open: boolean
+  open?: boolean
   application: Application | null
-  onOpenChange: (open: boolean) => void
+  onOpenChange?: (open: boolean) => void
   onCompleted: (message: string) => Promise<void>
+  frame?: "dialog" | "page"
+  onCancel?: () => void
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -1549,11 +1575,401 @@ export function ApplicationEditorDialog({
       (!versionInvalid && (!application || settings.isSuccess))) &&
     !iconReading
 
+  const closeEditor = () => {
+    if (onCancel) onCancel()
+    else onOpenChange?.(false)
+  }
+
+  const cancelButton = (
+    <Button
+      type="button"
+      variant="outline"
+      disabled={save.isPending}
+      onClick={closeEditor}
+    >
+      {t("common.cancel")}
+    </Button>
+  )
+
+  const submitButton = (
+    <Button
+      type="button"
+      disabled={
+        !valid || save.isPending || models.isLoading || mcpServers.isLoading
+      }
+      aria-busy={save.isPending || undefined}
+      onClick={() => {
+        setError(null)
+        save.mutate()
+      }}
+    >
+      {save.isPending && <Spinner data-icon="inline-start" />}
+      {t(
+        application
+          ? publishesStandard
+            ? "applications.editAndPublish"
+            : "common.save"
+          : "applications.createAndPublish"
+      )}
+    </Button>
+  )
+
+  const errorBanners = error && (
+    <>
+      <StatusBanner variant="error">{error}</StatusBanner>
+      {createdApplicationId && (
+        <StatusBanner>{t("applications.createPublicationRetry")}</StatusBanner>
+      )}
+    </>
+  )
+
+  const iconField = (
+    <ApplicationIconField
+      value={form.icon}
+      onChange={(icon) => setForm((current) => ({ ...current, icon }))}
+      onReadingChange={setIconReading}
+      disabled={save.isPending}
+    />
+  )
+
+  const nameField = (
+    <Field>
+      <RequiredFieldLabel htmlFor="application-name">
+        {t("common.name")}
+      </RequiredFieldLabel>
+      <Input
+        id="application-name"
+        value={form.name}
+        maxLength={160}
+        required
+        onChange={(event) =>
+          setForm((current) => ({
+            ...current,
+            name: event.target.value,
+          }))
+        }
+      />
+    </Field>
+  )
+
+  const DescriptionInput = frame === "page" ? Input : Textarea
+  const descriptionField = (
+    <Field>
+      <FieldLabel htmlFor="application-description">
+        {t("common.description")}
+      </FieldLabel>
+      <DescriptionInput
+        id="application-description"
+        value={form.description}
+        maxLength={4_000}
+        onChange={(event) =>
+          setForm((current) => ({
+            ...current,
+            description: event.target.value,
+          }))
+        }
+      />
+    </Field>
+  )
+
+  const versionField = publishesStandard && (
+    <Field
+      data-invalid={versionInvalid && (!application || settings.isSuccess)}
+    >
+      <RequiredFieldLabel htmlFor="application-version">
+        {t("applications.distribution.versionNumber")}
+      </RequiredFieldLabel>
+      <ApplicationVersionNumberInput
+        id="application-version"
+        value={version}
+        onValueChange={setVersion}
+        required
+        disabled={
+          save.isPending || (Boolean(application) && !settings.isSuccess)
+        }
+        aria-invalid={versionInvalid && (!application || settings.isSuccess)}
+        aria-describedby="application-version-hint"
+      />
+      {application && settings.error ? (
+        <ErrorState
+          message={getErrorMessage(settings.error, t)}
+          onRetry={() => void settings.refetch()}
+        />
+      ) : application && settings.isPending ? (
+        <LoadingState />
+      ) : versionInvalid ? (
+        <FieldError id="application-version-hint">
+          {t(
+            versionStatus === "lower" || versionStatus === "same"
+              ? "applications.distribution.editVersionLower"
+              : "applications.distribution.versionInvalid",
+            { version: settings.data?.highest_version_number }
+          )}
+        </FieldError>
+      ) : (
+        <FieldDescription id="application-version-hint">
+          {t(
+            application
+              ? "applications.distribution.editVersionHint"
+              : "applications.distribution.versionHint"
+          )}
+        </FieldDescription>
+      )}
+    </Field>
+  )
+
+  const modelField = (
+    <Field>
+      <FieldLabel htmlFor="application-model">
+        {t("applications.model")}
+      </FieldLabel>
+      <Select
+        items={modelItems}
+        value={form.model || USER_SELECTED_MODEL_VALUE}
+        onValueChange={(value) => {
+          if (value === USER_SELECTED_MODEL_VALUE) {
+            setForm((current) => ({
+              ...current,
+              model: "",
+              reasoningEffort: "",
+            }))
+            return
+          }
+          const model = models.data?.models.find(
+            (candidate) => candidate.id === value
+          )
+          setForm((current) => ({
+            ...current,
+            model: value ?? "",
+            reasoningEffort: model?.default_reasoning_effort ?? "medium",
+          }))
+        }}
+      >
+        <SelectTrigger id="application-model" aria-label={t("applications.model")}>
+          <SelectValue placeholder={t("common.select")} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {modelItems.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+      <FieldDescription>
+        {t("applications.modelOptionalDescription")}
+      </FieldDescription>
+    </Field>
+  )
+
+  const reasoningEffortField = (
+    <Field>
+      <FieldLabel
+        htmlFor="application-reasoning-effort"
+        required={Boolean(form.model)}
+      >
+        {t("applications.reasoningEffort")}
+      </FieldLabel>
+      <Select
+        items={reasoningEffortItems}
+        value={form.reasoningEffort}
+        disabled={!selectedModel}
+        onValueChange={(value) =>
+          setForm((current) => ({
+            ...current,
+            reasoningEffort: value as ReasoningEffort,
+          }))
+        }
+      >
+        <SelectTrigger
+          id="application-reasoning-effort"
+          aria-label={t("applications.reasoningEffort")}
+          aria-required={Boolean(form.model) || undefined}
+        >
+          <SelectValue placeholder={t("common.select")} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {reasoningEffortItems.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </Field>
+  )
+
+  const statusField = (
+    <Field>
+      <FieldLabel>{t("common.status")}</FieldLabel>
+      <Select
+        items={statusItems}
+        value={form.status}
+        onValueChange={(value) =>
+          setForm((current) => ({
+            ...current,
+            status: value as "active" | "disabled",
+          }))
+        }
+      >
+        <SelectTrigger aria-label={t("common.status")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {statusItems.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </Field>
+  )
+
+  const instructionsField = (
+    <Field>
+      <RequiredFieldLabel htmlFor="application-instructions">
+        {t("applications.instructions")}
+      </RequiredFieldLabel>
+      <Textarea
+        id="application-instructions"
+        value={form.instructions}
+        maxLength={20_000}
+        className={
+          frame === "page"
+            ? "h-25 min-h-25 overflow-y-auto"
+            : "h-48 max-h-48 min-h-48 overflow-y-auto"
+        }
+        required
+        onChange={(event) =>
+          setForm((current) => ({
+            ...current,
+            instructions: event.target.value,
+          }))
+        }
+      />
+      <FieldDescription>
+        {t("applications.instructionsDescription")}
+      </FieldDescription>
+    </Field>
+  )
+
+  const pluginsField = (
+    <ResourceMultiSelect
+      id="application-plugins"
+      title={t("applications.plugins")}
+      description={t("applications.pluginsDescription")}
+      items={capabilityOptions.plugins}
+      selectedIds={form.pluginIds}
+      onChange={(pluginIds) =>
+        setForm((current) => ({ ...current, pluginIds }))
+      }
+      emptyLabel={t("applications.noPlugins")}
+      placeholder={t("applications.pluginSelectPlaceholder")}
+      searchPlaceholder={t("applications.pluginSearchPlaceholder")}
+    />
+  )
+
+  const skillsField = (
+    <ResourceMultiSelect
+      id="application-skills"
+      title={t("applications.skills")}
+      description={t("applications.skillsDescription")}
+      items={capabilityOptions.skills}
+      selectedIds={form.skillIds}
+      onChange={(skillIds) => setForm((current) => ({ ...current, skillIds }))}
+      emptyLabel={t("applications.noSkills")}
+      placeholder={t("applications.skillSelectPlaceholder")}
+      searchPlaceholder={t("applications.skillSearchPlaceholder")}
+    />
+  )
+
+  const knowledgeBasesField = (
+    <ResourceMultiSelect
+      id="application-knowledge-bases"
+      title={t("applications.knowledgeBases")}
+      description={t("applications.knowledgeBasesDescription")}
+      items={knowledgeBaseOptions}
+      selectedIds={form.knowledgeBaseIds}
+      onChange={(knowledgeBaseIds) =>
+        setForm((current) => ({ ...current, knowledgeBaseIds }))
+      }
+      emptyLabel={t("applications.noKnowledgeBases")}
+      placeholder={t("applications.knowledgeBaseSelectPlaceholder")}
+      searchPlaceholder={t("applications.knowledgeBaseSearchPlaceholder")}
+    />
+  )
+
+  const mcpServersField = (
+    <ResourceMultiSelect
+      id="application-mcp-servers"
+      title={t("applications.mcpServers")}
+      description={t("applications.mcpServersDescription")}
+      items={mcpServerOptions}
+      selectedIds={form.mcpServerIds}
+      onChange={(mcpServerIds) =>
+        setForm((current) => ({ ...current, mcpServerIds }))
+      }
+      emptyLabel={t("applications.noMcpServers")}
+      placeholder={t("applications.mcpServerSelectPlaceholder")}
+      searchPlaceholder={t("applications.mcpServerSearchPlaceholder")}
+    />
+  )
+
+  if (frame === "page") {
+    return (
+      <PageLayout
+        navigationTitle={t("nav.capabilities")}
+        title={t("applications.createTitle")}
+        description={t("applications.editorDescription")}
+        className="[&>.management-header]:items-start!"
+        actions={
+          <>
+            {cancelButton}
+            {submitButton}
+          </>
+        }
+      >
+        <div data-slot="application-create-form">
+          <FieldGroup className="gap-5 [&_[data-slot=field]]:gap-2">
+            <div className="grid gap-6 @2xl/field-group:grid-cols-2">
+              {nameField}
+              {descriptionField}
+            </div>
+            {iconField}
+            {instructionsField}
+            <div className="grid gap-5 @2xl/field-group:grid-cols-2">
+              {modelField}
+              <div className="col-start-1">{reasoningEffortField}</div>
+            </div>
+            <div className="grid gap-6 @2xl/field-group:grid-cols-2">
+              {versionField}
+              {statusField}
+            </div>
+            {pluginsField}
+            {skillsField}
+            {knowledgeBasesField}
+            {mcpServersField}
+          </FieldGroup>
+          {errorBanners && (
+            <div className="mt-5 flex flex-col gap-3">{errorBanners}</div>
+          )}
+        </div>
+      </PageLayout>
+    )
+  }
+
   return (
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (!save.isPending) onOpenChange(nextOpen)
+        if (!save.isPending) onOpenChange?.(nextOpen)
       }}
     >
       <DialogContent
@@ -1592,208 +2008,15 @@ export function ApplicationEditorDialog({
                 {t("applications.basicInformation")}
               </h3>
               <FieldGroup>
-                <ApplicationIconField
-                  value={form.icon}
-                  onChange={(icon) =>
-                    setForm((current) => ({ ...current, icon }))
-                  }
-                  onReadingChange={setIconReading}
-                  disabled={save.isPending}
-                />
-                <Field>
-                  <RequiredFieldLabel htmlFor="application-name">
-                    {t("common.name")}
-                  </RequiredFieldLabel>
-                  <Input
-                    id="application-name"
-                    value={form.name}
-                    maxLength={160}
-                    required
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        name: event.target.value,
-                      }))
-                    }
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="application-description">
-                    {t("common.description")}
-                  </FieldLabel>
-                  <Textarea
-                    id="application-description"
-                    value={form.description}
-                    maxLength={4_000}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        description: event.target.value,
-                      }))
-                    }
-                  />
-                </Field>
-                {publishesStandard && (
-                  <Field
-                    data-invalid={
-                      versionInvalid && (!application || settings.isSuccess)
-                    }
-                  >
-                    <RequiredFieldLabel htmlFor="application-version">
-                      {t("applications.distribution.versionNumber")}
-                    </RequiredFieldLabel>
-                    <ApplicationVersionNumberInput
-                      id="application-version"
-                      value={version}
-                      onValueChange={setVersion}
-                      required
-                      disabled={
-                        save.isPending ||
-                        (Boolean(application) && !settings.isSuccess)
-                      }
-                      aria-invalid={
-                        versionInvalid && (!application || settings.isSuccess)
-                      }
-                      aria-describedby="application-version-hint"
-                    />
-                    {application && settings.error ? (
-                      <ErrorState
-                        message={getErrorMessage(settings.error, t)}
-                        onRetry={() => void settings.refetch()}
-                      />
-                    ) : application && settings.isPending ? (
-                      <LoadingState />
-                    ) : versionInvalid ? (
-                      <FieldError id="application-version-hint">
-                        {t(
-                          versionStatus === "lower" || versionStatus === "same"
-                            ? "applications.distribution.editVersionLower"
-                            : "applications.distribution.versionInvalid",
-                          { version: settings.data?.highest_version_number }
-                        )}
-                      </FieldError>
-                    ) : (
-                      <FieldDescription id="application-version-hint">
-                        {t(
-                          application
-                            ? "applications.distribution.editVersionHint"
-                            : "applications.distribution.versionHint"
-                        )}
-                      </FieldDescription>
-                    )}
-                  </Field>
-                )}
+                {iconField}
+                {nameField}
+                {descriptionField}
+                {versionField}
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field>
-                    <FieldLabel htmlFor="application-model">
-                      {t("applications.model")}
-                    </FieldLabel>
-                    <Select
-                      items={modelItems}
-                      value={form.model || USER_SELECTED_MODEL_VALUE}
-                      onValueChange={(value) => {
-                        if (value === USER_SELECTED_MODEL_VALUE) {
-                          setForm((current) => ({
-                            ...current,
-                            model: "",
-                            reasoningEffort: "",
-                          }))
-                          return
-                        }
-                        const model = models.data?.models.find(
-                          (candidate) => candidate.id === value
-                        )
-                        setForm((current) => ({
-                          ...current,
-                          model: value ?? "",
-                          reasoningEffort:
-                            model?.default_reasoning_effort ?? "medium",
-                        }))
-                      }}
-                    >
-                      <SelectTrigger
-                        id="application-model"
-                        aria-label={t("applications.model")}
-                      >
-                        <SelectValue placeholder={t("common.select")} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {modelItems.map((item) => (
-                            <SelectItem key={item.value} value={item.value}>
-                              {item.label}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <FieldDescription>
-                      {t("applications.modelOptionalDescription")}
-                    </FieldDescription>
-                  </Field>
-                  <Field>
-                    <FieldLabel
-                      htmlFor="application-reasoning-effort"
-                      required={Boolean(form.model)}
-                    >
-                      {t("applications.reasoningEffort")}
-                    </FieldLabel>
-                    <Select
-                      items={reasoningEffortItems}
-                      value={form.reasoningEffort}
-                      disabled={!selectedModel}
-                      onValueChange={(value) =>
-                        setForm((current) => ({
-                          ...current,
-                          reasoningEffort: value as ReasoningEffort,
-                        }))
-                      }
-                    >
-                      <SelectTrigger
-                        id="application-reasoning-effort"
-                        aria-label={t("applications.reasoningEffort")}
-                        aria-required={Boolean(form.model) || undefined}
-                      >
-                        <SelectValue placeholder={t("common.select")} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {reasoningEffortItems.map((item) => (
-                            <SelectItem key={item.value} value={item.value}>
-                              {item.label}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </Field>
+                  {modelField}
+                  {reasoningEffortField}
                 </div>
-                <Field>
-                  <FieldLabel>{t("common.status")}</FieldLabel>
-                  <Select
-                    items={statusItems}
-                    value={form.status}
-                    onValueChange={(value) =>
-                      setForm((current) => ({
-                        ...current,
-                        status: value as "active" | "disabled",
-                      }))
-                    }
-                  >
-                    <SelectTrigger aria-label={t("common.status")}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {statusItems.map((item) => (
-                          <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </Field>
+                {statusField}
               </FieldGroup>
             </section>
             <section
@@ -1808,132 +2031,41 @@ export function ApplicationEditorDialog({
                 {t("applications.runtimeConfiguration")}
               </h3>
               <FieldGroup>
-                <Field>
-                  <RequiredFieldLabel htmlFor="application-instructions">
-                    {t("applications.instructions")}
-                  </RequiredFieldLabel>
-                  <Textarea
-                    id="application-instructions"
-                    value={form.instructions}
-                    maxLength={20_000}
-                    className="h-48 max-h-48 min-h-48 overflow-y-auto"
-                    required
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        instructions: event.target.value,
-                      }))
-                    }
-                  />
-                  <FieldDescription>
-                    {t("applications.instructionsDescription")}
-                  </FieldDescription>
-                </Field>
-                <ResourceMultiSelect
-                  id="application-plugins"
-                  title={t("applications.plugins")}
-                  description={t("applications.pluginsDescription")}
-                  items={capabilityOptions.plugins}
-                  selectedIds={form.pluginIds}
-                  onChange={(pluginIds) =>
-                    setForm((current) => ({ ...current, pluginIds }))
-                  }
-                  emptyLabel={t("applications.noPlugins")}
-                  placeholder={t("applications.pluginSelectPlaceholder")}
-                  searchPlaceholder={t("applications.pluginSearchPlaceholder")}
-                />
-                <ResourceMultiSelect
-                  id="application-skills"
-                  title={t("applications.skills")}
-                  description={t("applications.skillsDescription")}
-                  items={capabilityOptions.skills}
-                  selectedIds={form.skillIds}
-                  onChange={(skillIds) =>
-                    setForm((current) => ({ ...current, skillIds }))
-                  }
-                  emptyLabel={t("applications.noSkills")}
-                  placeholder={t("applications.skillSelectPlaceholder")}
-                  searchPlaceholder={t("applications.skillSearchPlaceholder")}
-                />
-                <ResourceMultiSelect
-                  id="application-knowledge-bases"
-                  title={t("applications.knowledgeBases")}
-                  description={t("applications.knowledgeBasesDescription")}
-                  items={knowledgeBaseOptions}
-                  selectedIds={form.knowledgeBaseIds}
-                  onChange={(knowledgeBaseIds) =>
-                    setForm((current) => ({ ...current, knowledgeBaseIds }))
-                  }
-                  emptyLabel={t("applications.noKnowledgeBases")}
-                  placeholder={t("applications.knowledgeBaseSelectPlaceholder")}
-                  searchPlaceholder={t(
-                    "applications.knowledgeBaseSearchPlaceholder"
-                  )}
-                />
-                <ResourceMultiSelect
-                  id="application-mcp-servers"
-                  title={t("applications.mcpServers")}
-                  description={t("applications.mcpServersDescription")}
-                  items={mcpServerOptions}
-                  selectedIds={form.mcpServerIds}
-                  onChange={(mcpServerIds) =>
-                    setForm((current) => ({ ...current, mcpServerIds }))
-                  }
-                  emptyLabel={t("applications.noMcpServers")}
-                  placeholder={t("applications.mcpServerSelectPlaceholder")}
-                  searchPlaceholder={t(
-                    "applications.mcpServerSearchPlaceholder"
-                  )}
-                />
+                {instructionsField}
+                {pluginsField}
+                {skillsField}
+                {knowledgeBasesField}
+                {mcpServersField}
               </FieldGroup>
             </section>
           </div>
-          {error && (
-            <div className="mt-5">
-              <StatusBanner variant="error">{error}</StatusBanner>
-              {createdApplicationId && (
-                <StatusBanner>
-                  {t("applications.createPublicationRetry")}
-                </StatusBanner>
-              )}
-            </div>
+          {errorBanners && (
+            <div className="mt-5 flex flex-col gap-3">{errorBanners}</div>
           )}
         </div>
         <DialogFooter className="shrink-0 border-t border-divider px-6 py-4">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={save.isPending}
-            onClick={() => onOpenChange(false)}
-          >
-            {t("common.cancel")}
-          </Button>
-          <Button
-            type="button"
-            disabled={
-              !valid ||
-              save.isPending ||
-              models.isLoading ||
-              mcpServers.isLoading
-            }
-            aria-busy={save.isPending || undefined}
-            onClick={() => {
-              setError(null)
-              save.mutate()
-            }}
-          >
-            {save.isPending && <Spinner data-icon="inline-start" />}
-            {t(
-              application
-                ? publishesStandard
-                  ? "applications.editAndPublish"
-                  : "common.save"
-                : "applications.createAndPublish"
-            )}
-          </Button>
+          {cancelButton}
+          {submitButton}
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+export function ApplicationCreatePage() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  return (
+    <ApplicationEditorDialog
+      frame="page"
+      application={null}
+      onCancel={() => navigate(applicationCenterReturnTo)}
+      onCompleted={async (message) => {
+        notify.success(message, { id: "capability-action-success" })
+        await queryClient.invalidateQueries({ queryKey: ["applications"] })
+        navigate(applicationCenterReturnTo)
+      }}
+    />
   )
 }
 

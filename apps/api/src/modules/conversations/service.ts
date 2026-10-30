@@ -1,4 +1,6 @@
+import { settleCancelledAutomationPending, monitoringInstructionsForStart } from "../automations/monitoring.js";
 import { projectInteractiveTaskState } from "./interactive-task-state.js";
+import { prepareTaskReferences } from "./task-references.js";
 import { indexStopHookSupersededAssistantMessageIds } from "./message-visibility.js";
 import { buildSideChatReference, prepareConversationReference, projectSideChat } from "./side-chat.js";
 import { type SideChat, type SideChatReference, type SideChatSelection } from "@linksense/shared";
@@ -811,6 +813,15 @@ export class ConversationService {
 
   runnerForRecovery(): RunnerClient {
     return this.runner;
+  }
+
+  async browserPanel(ownerId: string, conversationId: string, request: import("@linksense/shared").BrowserPanelRequest): Promise<import("@linksense/shared").BrowserPanelState> {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
+      const conversation = await this.assertOwner(ownerId, conversationId);
+      await this.applicationRuntimeForConversation(ownerId, conversation.applicationId, conversation.applicationChannel);
+      if ((conversation.collaborationMode === "plan" || conversation.archiveStatus !== "active") && request.action !== "frame") throw new AppError("FORBIDDEN");
+      return this.runner.browserPanel(ownerId, conversationId, request);
+    });
   }
 
   private async applicationRuntimeForConversation(
@@ -3687,7 +3698,7 @@ export class ConversationService {
         ? input.inputText
         : "";
     const preservesStagedAttachments =
-      Boolean(officeAnnotation && officeAnnotation.kind !== "conversation_reference") || input.preserveStagedAttachments === true;
+      Boolean(officeAnnotation && officeAnnotation.kind !== "conversation_reference" && officeAnnotation.kind !== "task_references") || input.preserveStagedAttachments === true;
     const lock = await this.acquireConversationLock(conversationId);
     try {
       const result = await this.prisma.$transaction(async (tx) => {
@@ -3750,6 +3761,15 @@ export class ConversationService {
             idempotencyKey: input.idempotencyKey ?? null,
           },
         });
+        if (preparedAnnotation?.display.kind === "task_references") {
+          const referenceSequence = await nextConversationEventSequence(tx, conversationId);
+          await tx.conversationEvent.create({ data: {
+            conversationId, turnId: activeTurnId, sequenceNo: referenceSequence,
+            eventType: "conversation.references.pending", visibility: "internal_sanitized",
+            payloadJson: { pending_request_id: pending.id, display: preparedAnnotation.display },
+            sseEventId: `${conversationId}:${referenceSequence}`,
+          } });
+        }
         if (!preservesStagedAttachments) {
           await tx.conversationFile.updateMany({
             where: {
@@ -3969,6 +3989,7 @@ export class ConversationService {
           where: { pendingRequestId: pendingId, status: "pending" },
           data: { pendingRequestId: null, status: "staged" },
         });
+        await settleCancelledAutomationPending(tx, pending);
         await tx.pendingRequest.delete({ where: { id: pendingId } });
         const sequenceNo = await nextConversationEventSequence(
           tx,
@@ -4075,6 +4096,7 @@ export class ConversationService {
           where: { pendingRequestId: pendingId, status: "pending" },
           data: { pendingRequestId: null, status: "staged" },
         });
+        await settleCancelledAutomationPending(tx, pending);
         await tx.pendingRequest.delete({ where: { id: pendingId } });
         const sequenceNo = await nextConversationEventSequence(
           tx,
@@ -5513,6 +5535,7 @@ export class ConversationService {
         head?.id !== pending.id ||
         pending.status !== "waiting_previous_turn" ||
         pending.inputText.trim().length === 0 ||
+        inspectOfficeAnnotationPrompt(pending.inputText).suspected ||
         jsonStringArray(pending.priorityCapabilityIdsJson).length > 0 ||
         jsonStringArray(pending.knowledgeBaseIdsJson).length > 0 ||
         attachment ||
@@ -5656,6 +5679,7 @@ export class ConversationService {
           sseEventId: `${input.conversationId}:${messageSequenceNo}`,
         },
       });
+      await settleCancelledAutomationPending(tx, pending);
       await tx.pendingRequest.delete({ where: { id: pending.id } });
       const cancelledSequenceNo = messageSequenceNo + 1n;
       const cancelledEvent = await tx.conversationEvent.create({
@@ -7344,13 +7368,32 @@ export class ConversationService {
     ownerId: string,
     title: string,
     fallbackLocale?: Locale,
+    idempotentConversationId?: string,
+    sourceConversationId?: string,
   ) {
-    return this.withActiveUserRuntimeLease(ownerId, () =>
-      this.createConversation(ownerId, fallbackLocale, undefined, {
+    return this.withActiveUserRuntimeLease(ownerId, async () => {
+      if (idempotentConversationId) {
+        const existing = await this.prisma.conversation.findUnique({ where: { id: idempotentConversationId } });
+        if (existing) {
+          if (existing.ownerId !== ownerId || existing.applicationId || existing.archiveStatus !== "active" || !existing.pinnedAt || existing.collaborationMode !== "default") throw new AppError("CONFLICT");
+          return existing;
+        }
+      }
+      const source = sourceConversationId
+        ? await this.prisma.conversation.findFirst({
+            where: { id: sourceConversationId, ownerId, archiveStatus: "active", pinnedAt: { not: null }, collaborationMode: "default" },
+            select: { projectId: true },
+          })
+        : null;
+      if (sourceConversationId && !source) throw new AppError("AUTOMATION_TASK_NOT_PINNED");
+      return this.createConversation(ownerId, fallbackLocale, undefined, {
         title,
         pinned: true,
-      }),
-    );
+        projectId: source?.projectId ?? null,
+        ...(sourceConversationId ? { projectSourceConversationId: sourceConversationId } : {}),
+        ...(idempotentConversationId ? { conversationId: idempotentConversationId, reusePinnedCreation: true } : {}),
+      });
+    });
   }
 
   private async createConversation(
@@ -7371,9 +7414,11 @@ export class ConversationService {
       developmentSource?: DevelopmentConversationCreation;
       title?: string;
       pinned?: boolean;
+      reusePinnedCreation?: boolean;
       collaborationMode?: ConversationCollaborationMode;
       conversationId?: string;
       projectId?: string | null;
+      projectSourceConversationId?: string;
       sideChat?: { parentId: string; workspaceRelPath: string; reference: SideChatReference; preferredModel: string | null; knowledgeBaseIds: Prisma.JsonValue };
     },
     prewarmedConversationId?: string,
@@ -7456,6 +7501,15 @@ export class ConversationService {
         if (options?.projectId) {
           await lockOwnedProject(tx, ownerId, options.projectId);
         }
+        if (options?.projectSourceConversationId) {
+          const [source] = await tx.$queryRaw<Array<{ projectId: string | null }>>`
+            SELECT project_id AS "projectId" FROM conversations
+            WHERE id = ${options.projectSourceConversationId}::uuid AND owner_id = ${ownerId}::uuid
+              AND archive_status = 'active' AND pinned_at IS NOT NULL AND collaboration_mode = 'default'
+            FOR SHARE`;
+          if (!source) throw new AppError("AUTOMATION_TASK_NOT_PINNED");
+          if (source.projectId !== (options.projectId ?? null)) throw new AppError("CONFLICT");
+        }
         if (options?.sideChat) {
           const [parent] = await tx.$queryRaw<Array<{ id: string; projectId: string | null; workspaceRelPath: string }>>`
             SELECT id, project_id AS "projectId", workspace_rel_path AS "workspaceRelPath"
@@ -7527,6 +7581,10 @@ export class ConversationService {
         return created;
       });
     } catch (error) {
+      if (options?.reusePinnedCreation) {
+        const existing = await this.prisma.conversation.findUnique({ where: { id } });
+        if (existing?.ownerId === ownerId && !existing.applicationId && existing.archiveStatus === "active" && existing.pinnedAt) return existing;
+      }
       await this.cleanup
         .enqueueRuntimeCleanup(ownerId, id, serviceSessionId)
         .catch(() => undefined);
@@ -7541,6 +7599,7 @@ export class ConversationService {
     inputText: string;
     display: OfficeAnnotationDisplay;
   }> {
+    if (annotation.kind === "task_references") return prepareTaskReferences(this.prisma, conversationId, annotation);
     if (annotation.kind === "conversation_reference") {
       return prepareConversationReference(this.prisma, conversationId, annotation, officeAnnotationFingerprint(annotation));
     }
@@ -7557,7 +7616,7 @@ export class ConversationService {
     assertOfficeAnnotationSemantics(annotation);
 
     const display = buildOfficeAnnotationDisplay(annotation, file.filename);
-    if (display.kind === "application_annotation" || display.kind === "conversation_reference") throw new AppError("VALIDATION_ERROR");
+    if (display.kind === "application_annotation" || display.kind === "conversation_reference" || display.kind === "task_references") throw new AppError("VALIDATION_ERROR");
     return {
       inputText: buildOfficeAnnotationPrompt(annotation, display),
       display,
@@ -8055,6 +8114,7 @@ export class ConversationService {
         input.prepared.messageDisplay &&
         input.prepared.messageDisplay.kind !== "interactive_application" &&
         input.prepared.messageDisplay.kind !== "conversation_reference" &&
+        input.prepared.messageDisplay.kind !== "task_references" &&
         input.prepared.messageDisplay.kind !== "application_annotation"
       ) {
         await tx.$queryRaw<Array<{ id: string }>>`
@@ -8082,6 +8142,8 @@ export class ConversationService {
         }
       }
 
+      const monitoringInstructions = await monitoringInstructionsForStart(tx, input.ownerId, input.conversationId, input.prepared.idempotencyKey);
+      const developmentInstructions = input.applicationRuntime ? null : await this.developmentInstructions?.(input.ownerId, input.conversationId) ?? null;
       return parseTurnStartIntent(
         await tx.conversationTurnStartIntent.create({
           data: {
@@ -8096,11 +8158,8 @@ export class ConversationService {
             applicationId: input.applicationRuntime?.applicationId ?? null,
             applicationUpdatedAt:
               input.applicationRuntime?.applicationUpdatedAt ?? null,
-            applicationInstructions:
-              input.applicationRuntime?.instructions ?? null,
-            developmentInstructions: input.applicationRuntime
-              ? null
-              : await this.developmentInstructions?.(input.ownerId, input.conversationId) ?? null,
+            applicationInstructions: input.applicationRuntime ? [input.applicationRuntime.instructions, monitoringInstructions].filter(Boolean).join("\n\n") || null : null,
+            developmentInstructions: input.applicationRuntime ? null : [developmentInstructions, monitoringInstructions].filter(Boolean).join("\n\n") || null,
             inputText: input.prepared.inputText,
             taskKind: input.prepared.goal ? "goal" : "turn",
             collaborationMode: input.prepared.collaborationMode,
@@ -9038,6 +9097,8 @@ export class ConversationService {
     }
     const ownerStatus = await executionPrincipalStatus(tx, intent.ownerId);
     if (ownerStatus === "disabled") {
+      const pending = await tx.pendingRequest.findFirst({ where: { id: intent.pendingRequestId, conversationId: intent.conversationId, submittedBy: intent.ownerId } });
+      if (pending) await settleCancelledAutomationPending(tx, pending, "AUTH_SESSION_EXPIRED");
       await tx.conversationFile.updateMany({
         where: {
           conversationId: intent.conversationId,
@@ -9263,7 +9324,7 @@ export class ConversationService {
       }
       const officeAnnotation = submissionOfficeAnnotation(submission);
       const preservesStagedAttachments =
-        Boolean(officeAnnotation && officeAnnotation.kind !== "conversation_reference") ||
+        Boolean(officeAnnotation && officeAnnotation.kind !== "conversation_reference" && officeAnnotation.kind !== "task_references") ||
         (submission.preserveStagedAttachments === true &&
           !pendingId &&
           !regeneration);
@@ -9276,6 +9337,16 @@ export class ConversationService {
         ? inspectOfficeAnnotationPrompt(submission.inputText).display : null;
       if (queuedDisplay?.kind === "application_annotation") {
         await validateApplicationAnnotationSnapshot(this.prisma, this.workspaceRoot, conversationId, queuedDisplay);
+      }
+      if (queuedDisplay?.kind === "task_references") {
+        if (!pendingId) throw new AppError("FORBIDDEN");
+        const selected = await this.prisma.conversationEvent.findFirst({ where: {
+          conversationId, eventType: "conversation.references.pending",
+          payloadJson: { path: ["pending_request_id"], equals: pendingId },
+        }, select: { payloadJson: true } });
+        const grant = z.object({ display: userMessageDisplaySchema }).safeParse(selected?.payloadJson);
+        if (!grant.success || JSON.stringify(grant.data.display) !== JSON.stringify(queuedDisplay)) throw new AppError("FORBIDDEN");
+        await prepareTaskReferences(this.prisma, conversationId, queuedDisplay);
       }
       const input: PreparedTurnSubmission = {
         inputText: preparedAnnotation
@@ -9317,7 +9388,7 @@ export class ConversationService {
           : {}),
         messageDisplay:
           preparedAnnotation?.display ??
-          (queuedDisplay?.kind === "application_annotation" || queuedDisplay?.kind === "conversation_reference" ? queuedDisplay : null) ??
+          (queuedDisplay?.kind === "application_annotation" || queuedDisplay?.kind === "conversation_reference" || queuedDisplay?.kind === "task_references" ? queuedDisplay : null) ??
           (fromInteractiveApplication && applicationRuntime
             ? {
                 kind: "interactive_application",
@@ -10566,6 +10637,7 @@ function matchesAnnotationFile(
   switch (kind) {
     case "application_annotation":
     case "conversation_reference":
+    case "task_references":
       return false;
     case "presentation_annotation":
       return file.mimeType === PPTX_MIME_TYPE && lowerName.endsWith(".pptx");
@@ -10799,8 +10871,8 @@ function buildHtmlAnnotationSection(
 }
 
 function buildOfficeAnnotationPrompt(
-  annotation: Exclude<OfficeAnnotationInput, { kind: "application_annotation" | "conversation_reference" }>,
-  display: Exclude<OfficeAnnotationDisplay, { kind: "application_annotation" | "conversation_reference" }>,
+  annotation: Exclude<OfficeAnnotationInput, { kind: "application_annotation" | "conversation_reference" | "task_references" }>,
+  display: Exclude<OfficeAnnotationDisplay, { kind: "application_annotation" | "conversation_reference" | "task_references" }>,
 ): string {
   if (annotation.kind !== display.kind) throw new AppError("VALIDATION_ERROR");
 
@@ -10994,6 +11066,10 @@ function resolveUserMessageProjection(
   }
   if (inspected.display?.kind === "conversation_reference") {
     const display = storedDisplay?.kind === "conversation_reference" && storedDisplay.reference_id === inspected.display.reference_id ? storedDisplay : null;
+    return { contentText: inspected.request ?? "", display, selectedCapabilities };
+  }
+  if (inspected.display?.kind === "task_references") {
+    const display = storedDisplay?.kind === "task_references" && JSON.stringify(storedDisplay) === JSON.stringify(inspected.display) ? storedDisplay : null;
     return { contentText: inspected.request ?? "", display, selectedCapabilities };
   }
   if (inspected.display) {

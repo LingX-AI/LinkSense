@@ -81,15 +81,36 @@ describe("PoweredByLinkSense", () => {
         expect(frame).toHaveClass(
           "flex",
           "justify-end",
-          "px-[var(--attribution-inset)]",
-          "pb-[var(--attribution-inset)]",
           "right-[var(--attribution-inset)]",
           "bottom-[var(--attribution-inset)]"
         )
         expect(styles).toMatch(/right:\s*var\(--attribution-inset\);/u)
         expect(styles).toMatch(/bottom:\s*var\(--attribution-inset\);/u)
-        expect(styles).toMatch(/padding-inline:\s*var\(--attribution-inset\);/u)
-        expect(styles).toMatch(/padding-bottom:\s*var\(--attribution-inset\);/u)
+        if (placement === "shell") {
+          expect(frame).toHaveClass(
+            "absolute",
+            "w-max",
+            "bg-transparent",
+            "p-0"
+          )
+          expect(frame).toHaveClass("pointer-events-none")
+          expect(attribution).toHaveClass("pointer-events-auto")
+          expect(styles).toMatch(/\.absolute\s*\{\s*position:\s*absolute;/u)
+          expect(styles).toMatch(/width:\s*max-content;/u)
+          expect(styles).toMatch(/background-color:\s*transparent;/u)
+          expect(styles).toMatch(/padding:\s*0;/u)
+        } else {
+          expect(frame).toHaveClass(
+            "px-[var(--attribution-inset)]",
+            "pb-[var(--attribution-inset)]"
+          )
+          expect(styles).toMatch(
+            /padding-inline:\s*var\(--attribution-inset\);/u
+          )
+          expect(styles).toMatch(
+            /padding-bottom:\s*var\(--attribution-inset\);/u
+          )
+        }
       }
 
       if (placement === "public") {

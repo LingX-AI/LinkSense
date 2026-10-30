@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readAutomationMonitoring } from "@linksense/shared";
 
 import { AutomationService } from "../src/modules/automations/service.js";
 import {
@@ -23,6 +24,60 @@ const REQUEST_ID = "70000000-0000-4000-8000-000000000001";
 const NOW = new Date("2026-07-30T00:00:00.000Z");
 
 describe("AutomationService", () => {
+  it("rejects creating an automation with a past expiration before creating its task", async () => {
+    const fixture = automationFixture();
+    fixture.conversations.createPinnedConversation.mockResolvedValueOnce({ id: NEW_CONVERSATION_ID });
+    fixture.repository.createWithinOwnerLimit.mockResolvedValueOnce(
+      automationWithConversation(automationRecord()),
+    );
+    await expect(fixture.service.create(OWNER_ID, {
+      title: "Morning brief",
+      instruction: "Summarize important updates.",
+      target: { mode: "new_task" },
+      schedule: { frequency: "daily", interval: 1, time: "09:00", time_zone: "Asia/Shanghai" },
+      expires_on: "2026-07-29",
+    }, {})).rejects.toMatchObject({ code: "AUTOMATION_EXPIRATION_IN_PAST" });
+    expect(fixture.conversations.createPinnedConversation).not.toHaveBeenCalled();
+    expect(fixture.repository.createWithinOwnerLimit).not.toHaveBeenCalled();
+  });
+
+  it("rejects a newly selected past expiration without modifying an existing automation", async () => {
+    const fixture = automationFixture();
+    fixture.repository.updateOwned.mockResolvedValueOnce(
+      automationWithConversation(automationRecord()),
+    );
+    await expect(fixture.service.update(OWNER_ID, AUTOMATION_ID, {
+      expires_on: "2026-07-29",
+    }, {})).rejects.toMatchObject({ code: "AUTOMATION_EXPIRATION_IN_PAST" });
+    expect(fixture.repository.updateOwned).not.toHaveBeenCalled();
+  });
+
+  it.each(["2026-07-29", "2026-07-30"])("allows the current calendar date in the selected time zone (%s)", async (expiresOn) => {
+    const fixture = automationFixture();
+    const existing = automationRecord({ timeZone: "America/Los_Angeles" });
+    fixture.repository.findOwnedRecord.mockResolvedValueOnce(existing);
+    fixture.repository.updateOwned.mockImplementationOnce(async (_owner, _id, update: UpdateAutomationRecord) =>
+      automationWithConversation({ ...existing, ...update }));
+    await expect(fixture.service.update(OWNER_ID, AUTOMATION_ID, {
+      expires_on: expiresOn,
+    }, {})).resolves.toMatchObject({ expires_on: expiresOn });
+  });
+
+  it("allows unchanged past dates on historical automations while editing or pausing them", async () => {
+    const fixture = automationFixture();
+    const existing = automationRecord({ expiresAt: new Date("2026-07-29T00:00:00Z") });
+    fixture.repository.findOwnedRecord.mockResolvedValue(existing);
+    fixture.repository.updateOwned.mockImplementation(async (_owner, _id, update: UpdateAutomationRecord) =>
+      automationWithConversation({ ...existing, ...update }));
+    await expect(fixture.service.update(OWNER_ID, AUTOMATION_ID, {
+      title: "Updated title",
+      expires_on: "2026-07-28",
+    }, {})).resolves.toMatchObject({ title: "Updated title" });
+    await expect(fixture.service.update(OWNER_ID, AUTOMATION_ID, {
+      status: "paused",
+    }, {})).resolves.toMatchObject({ status: "paused" });
+  });
+
   it("creates a new pinned task once and persists it as the reusable target", async () => {
     const fixture = automationFixture();
     fixture.conversations.createPinnedConversation.mockResolvedValueOnce({
@@ -296,6 +351,56 @@ describe("AutomationService", () => {
     expect(fixture.repository.latestUnreadCompletion).toHaveBeenCalledWith(
       OWNER_ID,
     );
+  });
+
+  it.each(["scheduled", "manual"] as const)("creates a stable fresh task for a %s run using its frozen source without changing the saved instruction", async trigger => {
+    const fixture = automationFixture();
+    const automation = automationRecord({ conversationId: "20000000-0000-4000-8000-000000000099", monitoring: readAutomationMonitoring({ context_mode: "fresh_task", stop_condition: "Checklist complete" }) });
+    const claim = {
+      automation,
+      run: {
+        id: RUN_ID, automationId: AUTOMATION_ID, ownerId: OWNER_ID,
+        conversationId: NEW_CONVERSATION_ID, scheduledFor: NOW,
+        idempotencyKey: `automation:${trigger}:test`, status: "dispatching",
+        turnId: null, pendingRequestId: null, errorCode: null,
+        completedAt: null, completionReadAt: null, createdAt: NOW, updatedAt: NOW,
+        executionContext: { trigger, context_mode: "fresh_task", stop_condition: "Checklist complete", target_conversation_id: CONVERSATION_ID },
+      },
+      shouldDispatch: true,
+    };
+    fixture.repository.findById.mockResolvedValueOnce(automation);
+    fixture.repository.claimOccurrence.mockResolvedValueOnce(claim);
+    fixture.repository.claimManualRun.mockResolvedValueOnce(claim);
+    fixture.repository.findPinnedConversation.mockResolvedValueOnce(pinnedConversation(NEW_CONVERSATION_ID));
+    fixture.conversations.createPinnedConversation.mockResolvedValueOnce({ id: NEW_CONVERSATION_ID });
+    fixture.conversations.submitScheduledTurn.mockResolvedValueOnce({ status: "started", turnId: TURN_ID });
+    if (trigger === "scheduled") await fixture.service.dispatchOccurrence(AUTOMATION_ID, NOW);
+    else await fixture.service.runNow(OWNER_ID, AUTOMATION_ID, REQUEST_ID, {});
+    expect(fixture.conversations.createPinnedConversation).toHaveBeenCalledWith(OWNER_ID, automation.title, undefined, NEW_CONVERSATION_ID, CONVERSATION_ID);
+    expect(fixture.conversations.submitScheduledTurn).toHaveBeenCalledWith(OWNER_ID, NEW_CONVERSATION_ID, "Summarize important updates.", `automation:${trigger}:test`, undefined);
+    expect(automation.instruction).toBe("Summarize important updates.");
+  });
+
+  it("does not submit or remove a fresh task after its preparation fails", async () => {
+    const fixture = automationFixture();
+    const automation = automationRecord({ monitoring: readAutomationMonitoring({ context_mode: "fresh_task" }) });
+    fixture.repository.findById.mockResolvedValueOnce(automation);
+    fixture.repository.claimOccurrence.mockResolvedValueOnce({ automation, run: { id: RUN_ID, conversationId: NEW_CONVERSATION_ID, executionContext: { trigger: "scheduled", context_mode: "fresh_task", stop_condition: null } }, shouldDispatch: true });
+    fixture.conversations.createPinnedConversation.mockRejectedValueOnce(new Error("storage unavailable"));
+    await fixture.service.dispatchOccurrence(AUTOMATION_ID, NOW);
+    expect(fixture.conversations.createPinnedConversation).toHaveBeenCalledWith(OWNER_ID, automation.title, undefined, NEW_CONVERSATION_ID, CONVERSATION_ID);
+    expect(fixture.conversations.submitScheduledTurn).not.toHaveBeenCalled();
+    expect(fixture.conversations.delete).not.toHaveBeenCalled();
+    expect(fixture.repository.markRunFailed).toHaveBeenCalledWith(expect.objectContaining({ runId: RUN_ID, errorCode: "INTERNAL_ERROR" }));
+  });
+
+  it("restores the next schedule when an in-flight run limit is raised", async () => {
+    const fixture = automationFixture();
+    const existing = automationRecord({ nextRunAt: null, monitoring: readAutomationMonitoring({ automatic_run_count: 1, max_runs: 1, stop_reason: "run_limit_reached", stop_requested_run_id: RUN_ID }) });
+    fixture.repository.findOwnedRecord.mockResolvedValueOnce(existing);
+    fixture.repository.updateOwned.mockImplementationOnce(async (_ownerId, _automationId, input) => automationWithConversation({ ...existing, ...input }));
+    await fixture.service.update(OWNER_ID, AUTOMATION_ID, { monitoring: { max_runs: 2 } }, {});
+    expect(fixture.repository.updateOwned).toHaveBeenCalledWith(OWNER_ID, AUTOMATION_ID, expect.objectContaining({ nextRunAt: new Date("2026-07-30T01:00:00.000Z") }));
   });
 
   it("does not report notifications when every task is already read", async () => {
@@ -678,6 +783,18 @@ describe("automation creation request receipts", () => {
     expect(f.repository.createWithinOwnerLimit).not.toHaveBeenCalled();
     expect(f.conversations.createPinnedConversation).not.toHaveBeenCalled();
     expect(f.audit.write).not.toHaveBeenCalled();
+  });
+
+  it("returns a historical creation receipt even after its unchanged expiration has passed", async () => {
+    const f = automationFixture();
+    f.repository.findById.mockResolvedValueOnce(
+      automationRecord({ expiresAt: new Date("2026-07-29T00:00:00Z") }),
+    );
+    await expect(f.service.create(OWNER_ID, { ...input, expires_on: "2026-07-28" }, {}, "zh-CN", { creationId: AUTOMATION_ID })).resolves.toMatchObject({
+      id: AUTOMATION_ID,
+    });
+    expect(f.repository.createWithinOwnerLimit).not.toHaveBeenCalled();
+    expect(f.conversations.createPinnedConversation).not.toHaveBeenCalled();
   });
 
   it("rejects a reused creation request with different parameters", async () => {

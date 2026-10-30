@@ -959,7 +959,7 @@ export function CredentialManagementPage() {
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="justify-self-end sm:mt-[25px]"
+                        className="justify-self-end sm:mt-[calc(var(--app-line-22)+5px)]"
                         aria-label={t("credential.removeSecretField")}
                         onClick={() =>
                           setSecretEntries((entries) =>

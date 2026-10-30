@@ -82,9 +82,9 @@ describe("knowledge-base detail page layout", () => {
     const filePreviewRule = appStyles.match(
       /\.knowledge-file-preview\s*\{([^}]*)\}/u
     )?.[1]
-    const mobileFilePreviewRule = appStyles.match(
-      /@media\s*\([^)]*max-width:\s*767px[^)]*\)\s*\{[\s\S]*?\.knowledge-file-preview\s*\{([^}]*)\}/u
-    )?.[1]
+    const mobileFilePreviewRule = Array.from(
+      appStyles.matchAll(/\.knowledge-file-preview\s*\{([^}]*)\}/gu)
+    ).at(-1)?.[1]
 
     expect(appStyles).toMatch(
       /\.knowledge-preview-page\s*\{[^}]*display:\s*flex;[^}]*padding-bottom:\s*24px;/u
@@ -189,8 +189,8 @@ describe("knowledge-base detail page layout", () => {
     expect(headingRule).toMatch(/gap:\s*8px;/u)
     expect(titleRule).toMatch(/min-width:\s*0;/u)
     expect(titleRule).toMatch(/flex:\s*0 1 auto;/u)
-    expect(titleRule).toMatch(/font-size:\s*var\(--app-font-15\);/u)
-    expect(titleRule).toMatch(/line-height:\s*var\(--app-line-22\);/u)
+    expect(titleRule).toMatch(/font-size:\s*var\(--app-font-16\);/u)
+    expect(titleRule).toMatch(/line-height:\s*var\(--app-line-24\);/u)
     expect(iconRule).toMatch(/width:\s*24px;/u)
     expect(iconRule).toMatch(/height:\s*24px;/u)
     expect(iconRule).toMatch(/color:\s*var\(--app-text\);/u)
@@ -268,9 +268,9 @@ describe("knowledge-base detail page layout", () => {
     const actionsHeaderRule = appStyles.match(
       /\.knowledge-document-table\s+\[data-slot="table-head"\]\.knowledge-document-actions-column\s*\{([^}]*)\}/u
     )?.[1]
-    const mobileActionsColumnRule = appStyles.match(
-      /@media\s*\([^)]*max-width:\s*767px[^)]*\)\s*\{[\s\S]*?\.knowledge-document-actions-column\s*\{([^}]*)\}/u
-    )?.[1]
+    const mobileActionsColumnRule = Array.from(
+      appStyles.matchAll(/\.knowledge-document-actions-column\s*\{([^}]*)\}/gu)
+    ).at(-1)?.[1]
 
     expect(appStyles).toMatch(
       /\.knowledge-document-table table\s*\{[^}]*min-width:\s*980px;/u

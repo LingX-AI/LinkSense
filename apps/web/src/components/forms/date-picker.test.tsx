@@ -86,6 +86,7 @@ describe("DatePicker", () => {
       const interaction = userEvent.setup()
       render(<DatePickerHarness initialValue="2026-07-11" size={size} />)
       const trigger = screen.getByLabelText("测试日期")
+      expect(trigger).toHaveClass("h-9")
       const clear = screen.getByRole("button", { name: "清除日期" })
       expect(trigger.parentElement).toHaveClass("relative")
       expect(clear).toHaveClass(

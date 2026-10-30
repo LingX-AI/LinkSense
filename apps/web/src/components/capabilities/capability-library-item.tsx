@@ -8,6 +8,7 @@ import {
   McpIcon,
 } from "@/components/capabilities/capability-icon"
 import { Button } from "@/components/ui/button"
+import { cardSpotlightProps } from "@/components/ui/card-spotlight"
 import { cn } from "@/lib/utils"
 
 type CapabilityType = CapabilitySummary["type"]
@@ -85,7 +86,9 @@ export function CapabilityLibraryItem({
 
   return (
     <article
+      {...cardSpotlightProps}
       className={cn(
+        cardSpotlightProps.className,
         "capability-library-row",
         (metadata || notice) && "capability-library-row-detailed"
       )}

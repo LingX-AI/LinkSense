@@ -73,8 +73,9 @@ function ActionTooltipContent({
   return (
     <TooltipContent
       showArrow={false}
+      sideOffset={8}
       className={cn(
-        "rounded-md border border-[var(--app-border)] bg-[var(--app-popover)] font-medium text-[var(--app-text)]",
+        "rounded-md border border-[var(--app-border)] bg-[var(--app-popover)] px-2 leading-[var(--app-line-18)] font-normal text-[var(--app-text)] shadow-[var(--app-dialog-shadow)]",
         className
       )}
       {...props}

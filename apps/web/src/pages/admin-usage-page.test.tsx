@@ -540,13 +540,11 @@ describe("administrator usage analytics page", () => {
 
       const { container } = renderUsagePage()
       await screen.findByRole("heading", { name: "用量统计" })
-      expect(
-        screen.getByRole("banner").closest(".management-page")
-      ).toHaveAttribute("data-content-width", "wide")
+      const page = screen.getByRole("banner").closest(".management-page")
+      expect(page).not.toHaveAttribute("data-content-width")
       await interaction.click(screen.getByRole("tab", { name: "账单" }))
-      expect(
-        screen.getByRole("banner").closest(".management-page")
-      ).toHaveAttribute("data-content-width", "standard")
+      expect(screen.getByRole("banner").closest(".management-page")).toBe(page)
+      expect(page).not.toHaveAttribute("data-content-width")
 
       expect(await screen.findByText("月度账单")).toBeVisible()
       expect(screen.getByText("账单将在自然月结束后自动生成。")).toBeVisible()

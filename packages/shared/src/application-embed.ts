@@ -7,6 +7,9 @@ export const APPLICATION_EMBED_ACCESS_TOKEN_TTL_SECONDS = 2 * 60 * 60;
 export const APPLICATION_EMBED_RENEWAL_TOKEN_TTL_SECONDS = 8 * 60 * 60;
 export const APPLICATION_EMBED_SESSION_ABSOLUTE_TTL_SECONDS = 7 * 24 * 60 * 60;
 
+export const applicationEmbedPresentationSchema = z.enum(["technical", "end_user"]);
+export type ApplicationEmbedPresentation = z.infer<typeof applicationEmbedPresentationSchema>;
+
 export const applicationExternalAuthModeSchema = z.enum([
   "required",
   "public",

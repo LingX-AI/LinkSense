@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
+import { PageTopBar } from "@/components/shell/page-top-bar"
 
 export function PageLayout({
   title,
@@ -10,7 +11,8 @@ export function PageLayout({
   beforeHeader,
   afterHeader,
   className,
-  contentWidth = "standard",
+  navigationTitle,
+  navigationActions,
   children,
 }: {
   title: string
@@ -20,15 +22,17 @@ export function PageLayout({
   beforeHeader?: ReactNode
   afterHeader?: ReactNode
   className?: string
-  contentWidth?: "standard" | "wide"
+  navigationTitle?: string
+  navigationActions?: ReactNode
   children: ReactNode
 }) {
   return (
-    <div className="management-scroll">
-      <div
-        className={cn("management-page", className)}
-        data-content-width={contentWidth}
-      >
+    <div className="management-scroll scrollbar-gutter-stable">
+      <PageTopBar
+        title={navigationTitle ?? title}
+        actions={navigationActions}
+      />
+      <div className={cn("management-page", className)}>
         {beforeHeader && <div className="mb-6">{beforeHeader}</div>}
         <header className="management-header" role="banner">
           <div className="min-w-0">

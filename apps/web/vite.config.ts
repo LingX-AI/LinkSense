@@ -132,6 +132,7 @@ export default defineConfig({
       },
       // Azure redirects to the API callback; keep the same public origin in development.
       "/api": {
+        ws: true,
         target:
           process.env.LINKSENSE_DEV_API_PROXY_TARGET ?? "http://localhost:4000",
       },

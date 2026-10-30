@@ -113,12 +113,11 @@ describe("LinkSense application", () => {
         name: "由 LinkSense 提供支持",
       })
       expect(badge).toBeVisible()
-      expect(badge.parentElement).toHaveAttribute("data-placement", "public")
+      expect(badge.parentElement).toHaveAttribute("data-placement", "page")
       expect(badge.parentElement).toHaveClass(
         "[--attribution-inset:18px]",
         "px-[var(--attribution-inset)]",
-        "pb-[var(--attribution-inset)]",
-        "mt-auto"
+        "pb-[var(--attribution-inset)]"
       )
       view.unmount()
     }
@@ -331,7 +330,7 @@ describe("LinkSense application", () => {
       await screen.findByRole("heading", { name: "设置新密码" })
     ).toBeVisible()
     expect(screen.getAllByRole("img", { name: "LinkSense" })[0]).toHaveClass(
-      "public-brand-logo"
+      "product-logo"
     )
     expect(
       screen.queryByText("密码设置链接无效或已过期，请重新申请。")

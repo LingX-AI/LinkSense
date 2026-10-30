@@ -1,13 +1,16 @@
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 
-import { reasoningEffortSchema } from "@linksense/shared";
+import { reasoningEffortSchema, automationNotificationTargetSchema, readAutomationMonitoring, automationRunContextSchema } from "@linksense/shared";
+import { AppError } from "../../lib/errors.js";
+import { lockAutomationMonitoring } from "./monitoring.js";
 
 import type {
   Automation as PrismaAutomation,
   AutomationRun as PrismaAutomationRun,
   PrismaClient,
 } from "../../generated/prisma/client.js";
-import type { Prisma } from "../../generated/prisma/client.js";
+import { Prisma } from "../../generated/prisma/client.js";
 import {
   AutomationTargetCollaborationModeError,
   AutomationTargetNotPinnedError,
@@ -167,7 +170,8 @@ export class PrismaAutomationRepository implements AutomationRepository {
       });
       if (count >= limit) return null;
       if (options?.pinTarget) await pinAutomationTarget(transaction, conversation);
-      const created = await transaction.automation.create({ data: input });
+      const { notificationTarget, monitoring, ...data } = input;
+      const created = await transaction.automation.create({ data: { ...data, ...(monitoring ? { monitoringJson: monitoring } : {}), ...(notificationTarget ? { notificationTargetJson: notificationTarget } : {}) } });
       return {
         ...parseAutomationRecord(created),
         conversation,
@@ -183,8 +187,8 @@ export class PrismaAutomationRepository implements AutomationRepository {
     options?: AutomationTargetOptions,
   ): Promise<AutomationWithConversationRecord | null> {
     return this.prisma.$transaction(async (transaction) => {
-      await lockAutomation(transaction, automationId);
-      const current = await transaction.automation.findFirst({
+      await lockAutomation(transaction, automationId, false);
+      let current = await transaction.automation.findFirst({
         where: { id: automationId, ownerId, deletedAt: null },
       });
       if (!current) return null;
@@ -194,11 +198,40 @@ export class PrismaAutomationRepository implements AutomationRepository {
         input.conversationId ?? current.conversationId,
         options?.pinTarget,
       );
+      // Conversation events lock the task before its plan; keep that same order.
+      await lockAutomationMonitoring(transaction, automationId);
+      current = await transaction.automation.findFirst({ where: { id: automationId, ownerId, deletedAt: null } });
+      if (!current) return null;
+      if ((input.conversationId ?? current.conversationId) !== conversation.id) throw new AppError("CONFLICT");
+      const { notificationTarget, monitoring, ...data } = input;
+      const previous = readAutomationMonitoring(current.monitoringJson);
+      const next = monitoring ? { ...previous, stop_condition: monitoring.stop_condition, max_runs: monitoring.max_runs, context_mode: monitoring.context_mode } : previous;
+      if (input.status === "active" && next.max_runs !== null && next.automatic_run_count >= next.max_runs) throw new AppError("AUTOMATION_RUN_LIMIT_REACHED");
+      if (input.status === "active") {
+        next.stop_reason = null;
+        next.stop_requested_run_id = null;
+      }
+      if (previous.stop_reason === "condition_met" && next.stop_condition !== previous.stop_condition) {
+        next.stop_reason = null;
+        next.stop_requested_run_id = null;
+      }
+      if (previous.stop_reason === "run_limit_reached" && (next.max_runs === null || next.automatic_run_count < next.max_runs)) {
+        next.stop_reason = null;
+        next.stop_requested_run_id = null;
+      }
+      if (monitoring && (input.status ?? current.status) === "active" && next.max_runs !== null && next.automatic_run_count >= next.max_runs) {
+        data.status = "paused";
+        data.nextRunAt = null;
+        next.stop_reason = "run_limit_reached";
+        next.stop_requested_run_id = null;
+      }
       if (options?.pinTarget) await pinAutomationTarget(transaction, conversation);
       const updated = await transaction.automation.update({
         where: { id: automationId },
-        data: input,
+        data: { ...data, ...(monitoring || input.status === "active" ? { monitoringJson: next } : {}), ...(notificationTarget !== undefined ? { notificationTargetJson: notificationTarget ?? Prisma.DbNull } : {}) },
       });
+      const previousTarget = current.notificationTargetJson ? automationNotificationTargetSchema.parse(current.notificationTargetJson) : null;
+      if (input.notificationTarget !== undefined && JSON.stringify(input.notificationTarget) !== JSON.stringify(previousTarget)) await transaction.automationNotificationDelivery.updateMany({ where: { automationId, ownerId, status: { in: ["pending", "processing"] } }, data: { status: "cancelled", processingToken: null } });
       return { ...parseAutomationRecord(updated), conversation };
     });
   }
@@ -214,6 +247,7 @@ export class PrismaAutomationRepository implements AutomationRepository {
         where: { id: automationId, ownerId, deletedAt: null },
       });
       if (!current) return null;
+      await transaction.automationNotificationDelivery.updateMany({ where: { automationId, ownerId, status: { in: ["pending", "processing"] } }, data: { status: "cancelled", processingToken: null } });
       return parseAutomationRecord(
         await transaction.automation.update({
           where: { id: automationId },
@@ -230,6 +264,10 @@ export class PrismaAutomationRepository implements AutomationRepository {
         deletedAt: null,
         nextRunAt: { lte: now },
         OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        AND: [{ OR: [
+          { monitoringJson: { equals: Prisma.DbNull } },
+          { monitoringJson: { path: ["stop_requested_run_id"], equals: Prisma.AnyNull } },
+        ] }],
       },
       orderBy: [{ nextRunAt: "asc" }, { id: "asc" }],
       take: limit,
@@ -281,6 +319,7 @@ export class PrismaAutomationRepository implements AutomationRepository {
       });
       if (!automationRow) return null;
       const automation = parseAutomationRecord(automationRow);
+      const monitoring = readAutomationMonitoring(automation.monitoring);
       const existingRun = await transaction.automationRun.findUnique({
         where: {
           automationId_scheduledFor: {
@@ -296,7 +335,7 @@ export class PrismaAutomationRepository implements AutomationRepository {
           automation.status !== "active" ||
           (automation.expiresAt !== null &&
             automation.expiresAt.getTime() <= input.claimedAt.getTime()) ||
-          automation.conversationId !== run.conversationId
+          (automation.conversationId !== (run.executionContext?.target_conversation_id ?? run.conversationId))
         ) {
           if (run.status === "dispatching") {
             const failed = await transaction.automationRun.update({
@@ -327,26 +366,38 @@ export class PrismaAutomationRepository implements AutomationRepository {
       if (
         automation.deletedAt ||
         automation.status !== "active" ||
+        monitoring.stop_requested_run_id !== null ||
+        (monitoring.max_runs !== null && monitoring.automatic_run_count >= monitoring.max_runs) ||
         (automation.expiresAt !== null &&
           automation.expiresAt.getTime() <= input.claimedAt.getTime()) ||
         automation.nextRunAt?.getTime() !== input.scheduledFor.getTime()
       ) {
         return null;
       }
+      const runId = randomUUID();
+      const count = monitoring.automatic_run_count + 1;
+      const exhausted = monitoring.max_runs !== null && count >= monitoring.max_runs;
+      const conversationId = monitoring.context_mode === "fresh_task" ? randomUUID() : automation.conversationId;
       const updatedAutomation = await transaction.automation.update({
         where: { id: automation.id },
-        data: { nextRunAt: input.nextRunAt },
+        data: {
+          nextRunAt: input.nextRunAt,
+          monitoringJson: { ...monitoring, automatic_run_count: count, ...(exhausted ? { stop_reason: "run_limit_reached", stop_requested_run_id: runId } : {}) },
+        },
       });
       const run = await transaction.automationRun.create({
         data: {
+          id: runId,
           automationId: automation.id,
           ownerId: automation.ownerId,
-          conversationId: automation.conversationId,
+          conversationId,
+          executionContextJson: { trigger: "scheduled", context_mode: monitoring.context_mode, stop_condition: monitoring.stop_condition, target_conversation_id: automation.conversationId },
           scheduledFor: input.scheduledFor,
           idempotencyKey: input.idempotencyKey,
           status: "dispatching",
         },
       });
+      if (automation.notificationTarget) await transaction.automationNotificationDelivery.create({ data: { automationId: automation.id, runId: run.id, ownerId: automation.ownerId, targetJson: automation.notificationTarget } });
       return {
         automation: parseAutomationRecord(updatedAutomation),
         run: parseAutomationRunRecord(run),
@@ -386,7 +437,7 @@ export class PrismaAutomationRepository implements AutomationRepository {
         if (
           run.automationId !== automation.id ||
           run.ownerId !== automation.ownerId ||
-          automation.conversationId !== run.conversationId
+          (automation.conversationId !== (run.executionContext?.target_conversation_id ?? run.conversationId))
         ) {
           return null;
         }
@@ -406,12 +457,14 @@ export class PrismaAutomationRepository implements AutomationRepository {
         data: {
           automationId: automation.id,
           ownerId: automation.ownerId,
-          conversationId: automation.conversationId,
+          conversationId: automation.monitoring?.context_mode === "fresh_task" ? randomUUID() : automation.conversationId,
+          executionContextJson: { trigger: "manual", context_mode: automation.monitoring?.context_mode ?? "reuse_task", stop_condition: automation.monitoring?.stop_condition ?? null, target_conversation_id: automation.conversationId },
           scheduledFor,
           idempotencyKey: input.idempotencyKey,
           status: "dispatching",
         },
       });
+      if (automation.notificationTarget) await transaction.automationNotificationDelivery.create({ data: { automationId: automation.id, runId: run.id, ownerId: automation.ownerId, targetJson: automation.notificationTarget } });
       return {
         automation,
         run: parseAutomationRunRecord(run),
@@ -504,6 +557,7 @@ export class PrismaAutomationRepository implements AutomationRepository {
     pause: boolean;
   }): Promise<void> {
     return this.prisma.$transaction(async (transaction) => {
+      await lockAutomation(transaction, input.automationId);
       const updated = await transaction.automationRun.updateMany({
         where: {
           id: input.runId,
@@ -518,13 +572,19 @@ export class PrismaAutomationRepository implements AutomationRepository {
         },
       });
       if (updated.count !== 1) return;
+      const automation = await transaction.automation.findUnique({ where: { id: input.automationId } });
+      if (!automation) return;
+      const monitoring = readAutomationMonitoring(automation.monitoringJson);
+      const stopAfterFailure = input.status === "failed" && monitoring.stop_requested_run_id === input.runId;
+      const run = input.status !== "failed" ? await transaction.automationRun.findUnique({ where: { id: input.runId } }) : null;
       await transaction.automation.updateMany({
         where: { id: input.automationId },
         data: {
           lastRunAt: input.triggeredAt,
           lastRunStatus: input.status,
           lastErrorCode: input.errorCode,
-          ...(input.pause ? { status: "paused", nextRunAt: null } : {}),
+          ...(run || stopAfterFailure ? { monitoringJson: { ...monitoring, ...(run ? { last_run_conversation_id: run.conversationId } : {}), ...(stopAfterFailure ? { stop_requested_run_id: null } : {}) } } : {}),
+          ...(input.pause || stopAfterFailure ? { status: "paused", nextRunAt: null } : {}),
         },
       });
     });
@@ -534,6 +594,8 @@ export class PrismaAutomationRepository implements AutomationRepository {
 function parseAutomationRecord(row: PrismaAutomation): AutomationRecord {
   return {
     ...row,
+    monitoring: readAutomationMonitoring(row.monitoringJson),
+    notificationTarget: row.notificationTargetJson ? automationNotificationTargetSchema.parse(row.notificationTargetJson) : null,
     status: automationStatusSchema.parse(row.status),
     frequency: automationFrequencySchema.parse(row.frequency),
     lastRunStatus:
@@ -552,6 +614,7 @@ function parseAutomationRunRecord(
 ): AutomationRunRecord {
   return {
     ...row,
+    executionContext: row.executionContextJson ? automationRunContextSchema.parse(row.executionContextJson) : null,
     status: automationRunStatusSchema.parse(row.status),
   };
 }
@@ -570,12 +633,14 @@ async function lockOwner(
 async function lockAutomation(
   transaction: Prisma.TransactionClient,
   automationId: string,
+  lockRow = true,
 ): Promise<void> {
   await transaction.$executeRaw`
     SELECT pg_advisory_xact_lock(
       hashtextextended(${`linksense:automation:${automationId}`}, 0)
     )
   `;
+  if (lockRow) await lockAutomationMonitoring(transaction, automationId);
 }
 
 async function lockPinnedConversation(

@@ -84,6 +84,7 @@ export function DatePicker({
               size={size === "sm" ? "default" : "lg"}
               className={cn(
                 "min-w-0 flex-1 justify-between px-3 font-normal focus-visible:ring-0",
+                size === "sm" && "h-9",
                 !selectedDate && "text-muted-foreground"
               )}
               disabled={disabled}

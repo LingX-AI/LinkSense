@@ -156,6 +156,7 @@ export const usageMessages = {
       assistant_response: "Respuestas de IA",
       memory_generation: "Generación de memoria",
       task_title_generation: "Nombres automáticos de tareas",
+      browser_use_intent: "Detección de intención de navegación",
       document_embedding: "Representaciones vectoriales de documentos",
       query_embedding: "Representaciones vectoriales de consultas",
       rerank: "Reordenación de resultados de búsqueda",

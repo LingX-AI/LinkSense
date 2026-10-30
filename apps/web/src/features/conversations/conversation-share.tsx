@@ -146,7 +146,6 @@ function ConversationShareSession({
           <p>{t("conversation.share.anyoneWithLink")}</p>
           <Button
             type="button"
-            variant="outline"
             className="conversation-share-copy-button"
             disabled={
               createShareMutation.isPending || snapshot.messages.length === 0

@@ -35,7 +35,6 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query"
 import {
-  ArchiveIcon,
   ArchiveRestoreIcon,
   ArrowDownWideNarrowIcon,
   CircleAlertIcon,
@@ -43,13 +42,11 @@ import {
   FolderIcon,
   InfoIcon,
   MessagesSquareIcon,
-  PencilIcon,
   SearchIcon,
-  UploadIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react"
-import { TbPin, TbPinFilled } from "react-icons/tb"
+import { TbPinFilled } from "react-icons/tb"
 import { useTranslation } from "react-i18next"
 import {
   Navigate,
@@ -73,6 +70,7 @@ import { toast } from "sonner"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
 import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
+import { ShellHeaderActions } from "@/components/shell/shell-header-actions"
 import { requestTurnStart } from "@/features/conversations/turn-start-request"
 import {
   conversationInterruptPollIntervalMs,
@@ -128,6 +126,7 @@ import type { ImagePreviewItem } from "@/components/media/image-preview"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { PageLayout } from "@/components/shell/page-layout"
 import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
 import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
 import { SearchInput } from "@/components/ui/search-input"
 import {
@@ -139,7 +138,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ConversationScrollToBottomIndicator } from "@/features/conversations/conversation-scroll-to-bottom-indicator"
+import { ConversationScrollToBottomButton } from "@/features/conversations/conversation-scroll-to-bottom-indicator"
 import {
   Card,
   CardAction,
@@ -214,6 +213,8 @@ import {
 import { ConversationLineSidebar } from "@/features/conversations/conversation-line-sidebar"
 import { buildOfficeAnnotationInput } from "@/features/conversations/conversation-office-annotation"
 import { ConversationOfficeLayout } from "@/features/conversations/conversation-presentation-layout"
+import { LocalBrowserPreview } from "@/features/local-browser/local-browser-preview"
+import { BrowserUsePrompt } from "@/features/local-browser/browser-use-prompt"
 import { DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO } from "@/features/conversations/conversation-presentation-width"
 import {
   readUrlEnum,
@@ -248,6 +249,7 @@ import { useNewProject } from "@/features/projects/use-new-project"
 import { newProjectNavigationState } from "@/features/projects/new-project-preference"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import { ConversationTaskOverviewPanel } from "@/features/conversations/conversation-task-overview-panel"
+import { ConversationHeaderButton } from "@/features/conversations/conversation-header-button"
 import {
   conversationSourcesQueryKey,
   conversationSourcesQueryOptions,
@@ -348,6 +350,7 @@ const artifactPreviewLinkSchema = z.object({
 })
 const reconnectingConversationRefetchIntervalMs = 1_500
 const newConversationPlaceholderId = "new"
+const emptyTaskReferences: { id: string; title: string }[] = []
 const conversationForkNotificationId = "conversation-fork-loading"
 const goalClearResultSchema = z.strictObject({ cleared: z.boolean() })
 const emptyPersistedMessageRenderKeys: ReadonlyMap<string, string> = new Map()
@@ -399,6 +402,7 @@ type ComposerSubmission = Readonly<{
   collaborationMode: ConversationCollaborationMode
   optimisticId?: string
   referenceId?: string
+  taskReferences?: { id: string; title: string }[]
 }>
 
 type PlanReviewActionSubmission =
@@ -610,6 +614,10 @@ export function ConversationPage({
   const [taskOverviewOpen, setTaskOverviewOpen] = useState(() =>
     embedded ? false : readTaskOverviewOpenPreference()
   )
+  const [taskOverviewElement, setTaskOverviewElement] =
+    useState<HTMLDivElement | null>(null)
+  const [browserPreviewToolbar, setBrowserPreviewToolbar] =
+    useState<HTMLDivElement | null>(null)
   const [
     pendingFirstMessageConversationId,
     setPendingFirstMessageConversationId,
@@ -835,6 +843,14 @@ export function ConversationPage({
   const composerSubmissionInFlightRef = useRef(false)
   const composerAttachmentOperationInFlightRef = useRef(false)
   const composerModelPreferenceOperationInFlightRef = useRef(false)
+  const [taskReferenceSelection, setTaskReferenceSelection] = useState<{
+    scope: string | undefined
+    items: { id: string; title: string }[]
+  }>({ scope: conversationId, items: [] })
+  const taskReferences =
+    taskReferenceSelection.scope === conversationId
+      ? taskReferenceSelection.items
+      : emptyTaskReferences
   const attachmentMutationTargetConversationIdRef = useRef<string | null>(null)
   const currentRouteConversationId = isNew ? null : (conversationId ?? null)
   const routeConversationIdRef = useRef<string | null>(
@@ -866,6 +882,19 @@ export function ConversationPage({
     routeEpochRef.current += 1
     routeConversationIdRef.current = currentRouteConversationId
   }, [currentRouteConversationId, location.key, newTaskResetVersion])
+
+  useEffect(() => {
+    if (isNew && surfaceActive && showComposer && !readOnly) {
+      composerRef.current?.focus()
+    }
+  }, [
+    isNew,
+    location.key,
+    newTaskResetVersion,
+    readOnly,
+    showComposer,
+    surfaceActive,
+  ])
 
   const regenerateOperationRef =
     useRef<Parameters<typeof stableOperationId>[0]["current"]>(null)
@@ -939,6 +968,7 @@ export function ConversationPage({
     pauseAutoFollow,
     preserveScrollPositionForInteraction,
   } = useConversationScroll(conversationId ?? newConversationPlaceholderId, {
+    initialPosition: isNew ? "top" : "bottom",
     preservePositionOnConversationChange: isNewTaskPromotion,
     navigationRef: threadNavigationRef,
     followBehavior:
@@ -1474,6 +1504,7 @@ export function ConversationPage({
     setNewTaskCollaborationMode("default")
     setSelectedCapabilityIds([])
     setSelectedKnowledgeBaseIds([])
+    setTaskReferenceSelection({ scope: conversationId, items: [] })
     setOfficePreview(null)
     setOfficePreviewUpdate(null)
     setImagePreview(null)
@@ -1536,8 +1567,13 @@ export function ConversationPage({
     setValue(draft.input)
     setSelectedCapabilityIds([...draft.capabilityIds])
     setSelectedKnowledgeBaseIds([...draft.knowledgeBaseIds])
+    setTaskReferenceSelection({
+      scope: conversationId,
+      items: [...(draft.taskReferences ?? [])],
+    })
   }, [
     conversation,
+    conversationId,
     localDraftScope,
     newTaskResetVersion,
     user,
@@ -1558,6 +1594,7 @@ export function ConversationPage({
           input: composerValue.getSnapshot(),
           capabilityIds: selectedCapabilityIds,
           knowledgeBaseIds: selectedKnowledgeBaseIds,
+          taskReferences,
         }
       )
     }
@@ -1567,6 +1604,7 @@ export function ConversationPage({
     localDraftScope,
     selectedCapabilityIds,
     selectedKnowledgeBaseIds,
+    taskReferences,
     user,
     composerValue,
   ])
@@ -2712,12 +2750,14 @@ export function ConversationPage({
     initialInput = "",
     initialCapabilityIds = [],
     initialKnowledgeBaseIds = selectedKnowledgeBaseIds,
+    initialTaskReferences = taskReferences,
     initialCollaborationMode = collaborationMode,
   }: {
     suppressEmptyStateUntilFirstMessage?: boolean
     initialInput?: string
     initialCapabilityIds?: string[]
     initialKnowledgeBaseIds?: string[]
+    initialTaskReferences?: ComposerSubmission["taskReferences"]
     initialCollaborationMode?: ConversationCollaborationMode
   } = {}) => {
     if (routeConversationIdRef.current) return routeConversationIdRef.current
@@ -2752,6 +2792,7 @@ export function ConversationPage({
             input: initialInput,
             capabilityIds: initialCapabilityIds,
             knowledgeBaseIds: initialKnowledgeBaseIds,
+            taskReferences: initialTaskReferences,
           }
         )
         clearLocalConversationDraft(window.localStorage, user.id, "new")
@@ -3090,6 +3131,7 @@ export function ConversationPage({
         initialInput: requestedInput,
         initialCapabilityIds: requestedCapabilityIds,
         initialKnowledgeBaseIds: requestedKnowledgeBaseIds,
+        initialTaskReferences: submission.taskReferences ?? [],
         initialCollaborationMode: submission.collaborationMode,
       })
       sendSubmissionConversationIdRef.current = id
@@ -3112,6 +3154,7 @@ export function ConversationPage({
         ...(submission.referenceId
           ? { reference_id: submission.referenceId }
           : {}),
+        task_references: submission.taskReferences,
         priority_capability_ids: requestedCapabilityIds,
         knowledge_base_ids: requestedKnowledgeBaseIds,
         attachment_ids: nextAttachments.map((attachment) => attachment.id),
@@ -3136,6 +3179,7 @@ export function ConversationPage({
           optimisticId: submission.optimisticId,
           idempotencyKey,
           message: {
+            ...optimisticSubmission?.message,
             id:
               optimisticSubmission?.message.id ??
               `optimistic-${idempotencyKey}`,
@@ -3182,6 +3226,7 @@ export function ConversationPage({
           ...sideChatTurnInput({
             input: requestedInput,
             referenceId: submission.referenceId,
+            taskReferences: submission.taskReferences,
           }),
           priority_capability_ids: requestedCapabilityIds,
           knowledge_base_ids: requestedKnowledgeBaseIds,
@@ -3311,6 +3356,14 @@ export function ConversationPage({
       )
       setSelectedKnowledgeBaseIds((current) =>
         current.length > 0 ? current : [...submission.knowledgeBaseIds]
+      )
+      setTaskReferenceSelection((current) =>
+        current.scope === conversationId && current.items.length
+          ? current
+          : {
+              scope: conversationId,
+              items: [...(submission.taskReferences ?? [])],
+            }
       )
       setTurnAdmissionError(nextError)
       sendSubmissionConversationIdRef.current = null
@@ -3611,6 +3664,14 @@ export function ConversationPage({
       )
       setSelectedKnowledgeBaseIds((current) =>
         current.length > 0 ? current : [...submission.knowledgeBaseIds]
+      )
+      setTaskReferenceSelection((current) =>
+        current.scope === conversationId && current.items.length
+          ? current
+          : {
+              scope: conversationId,
+              items: [...(submission.taskReferences ?? [])],
+            }
       )
       setOptimisticGoal((current) =>
         current?.goal.objective === submission.input.trim() ? null : current
@@ -4426,6 +4487,14 @@ export function ConversationPage({
       setSelectedKnowledgeBaseIds((current) =>
         current.length > 0 ? current : [...submission.knowledgeBaseIds]
       )
+      setTaskReferenceSelection((current) =>
+        current.scope === conversationId && current.items.length
+          ? current
+          : {
+              scope: conversationId,
+              items: [...(submission.taskReferences ?? [])],
+            }
+      )
       setError(getErrorMessage(nextError, t))
       steerSubmissionConversationIdRef.current = null
     },
@@ -4439,6 +4508,7 @@ export function ConversationPage({
       const targetConversationId = conversationId
       const idempotencyKey = await stableOperationId(pendingOperationRef, {
         operation: "pending_create",
+        task_references: submission.taskReferences,
         conversation_id: targetConversationId,
         collaboration_mode: submission.collaborationMode,
       })
@@ -4503,6 +4573,14 @@ export function ConversationPage({
       )
       setSelectedKnowledgeBaseIds((current) =>
         current.length > 0 ? current : [...submission.knowledgeBaseIds]
+      )
+      setTaskReferenceSelection((current) =>
+        current.scope === conversationId && current.items.length
+          ? current
+          : {
+              scope: conversationId,
+              items: [...(submission.taskReferences ?? [])],
+            }
       )
       setError(getErrorMessage(nextError, t))
       pendingSubmissionConversationIdRef.current = null
@@ -4876,6 +4954,12 @@ export function ConversationPage({
       return
     const submission: ComposerSubmission = {
       input,
+      ...(!goalMode &&
+      !isApplicationConversation &&
+      !sideChatReference &&
+      taskReferences.length
+        ? { taskReferences: [...taskReferences] }
+        : {}),
       ...(sideChatReference ? { referenceId: sideChatReference.id } : {}),
       capabilityIds: [...selectedCapabilityIds],
       knowledgeBaseIds: [...validSelectedKnowledgeBaseIds],
@@ -4923,6 +5007,18 @@ export function ConversationPage({
           id: `optimistic-${optimisticId}`,
           role: "user",
           content: submission.input,
+          ...(submission.taskReferences?.length
+            ? {
+                display: {
+                  kind: "task_references" as const,
+                  request: submission.input,
+                  conversation_ids: submission.taskReferences.map(
+                    (source) => source.id
+                  ),
+                  sources: submission.taskReferences,
+                },
+              }
+            : {}),
           turn_id: null,
           created_at: new Date().toISOString(),
           attachments: submission.attachments,
@@ -4953,12 +5049,14 @@ export function ConversationPage({
       composerSubmissionInFlightRef.current = true
       setValue("")
       setSelectedCapabilityIds([])
+      setTaskReferenceSelection({ scope: conversationId, items: [] })
       sendMutation.mutate({ ...submission, optimisticId })
       return
     }
 
     const canSteer =
       running &&
+      !submission.taskReferences?.length &&
       attachments.length === 0 &&
       submission.capabilityIds.length === 0
     if (runningMessageAction === "steer" && canSteer) {
@@ -4983,6 +5081,7 @@ export function ConversationPage({
     composerSubmissionInFlightRef.current = true
     setValue("")
     setSelectedCapabilityIds([])
+    setTaskReferenceSelection({ scope: conversationId, items: [] })
     pendingMutation.mutate(submission)
   }
 
@@ -5647,6 +5746,12 @@ export function ConversationPage({
     !blockingPanelActive
   const taskOverviewSuppressed =
     taskOverviewSuppressedConversationId === conversationId
+  const taskOverviewVisible =
+    surfaceActive &&
+    !isNew &&
+    !taskOverviewSuppressed &&
+    taskOverviewOpen &&
+    !sideChat.open
   const composerInstanceId = isNewTaskPromotion
     ? newConversationPlaceholderId
     : displayConversation.id
@@ -5684,13 +5789,7 @@ export function ConversationPage({
   return (
     <ConversationOfficeLayout
       previewBlocksWorkspace={sideChat.open}
-      taskOverviewOpen={
-        surfaceActive &&
-        !isNew &&
-        !taskOverviewSuppressed &&
-        taskOverviewOpen &&
-        !sideChat.open
-      }
+      taskOverviewOpen={taskOverviewVisible}
       defaultPreviewViewportRatio={
         sideChat.open
           ? 0.4
@@ -5827,7 +5926,11 @@ export function ConversationPage({
               className="conversation-title-application-icon size-5 shrink-0"
             />
           )}
-          <h1>{displayConversation.title || t("conversation.untitled")}</h1>
+          <h1>
+            {isNew
+              ? t("nav.newConversation")
+              : displayConversation.title || t("conversation.untitled")}
+          </h1>
           {displayConversation.application && (
             <HoverCard>
               <HoverCardTrigger
@@ -5888,9 +5991,9 @@ export function ConversationPage({
               <DropdownMenuContent align="start" className="min-w-40">
                 <DropdownMenuGroup>
                   <DropdownMenuItem onClick={openRenameDialog}>
-                    <PencilIcon
-                      className="size-3.5 text-[var(--app-muted)] opacity-70"
-                      aria-hidden="true"
+                    <DesignIcon
+                      name="rename"
+                      className="size-4 text-[var(--app-muted)]"
                     />{" "}
                     {t("conversation.rename")}
                   </DropdownMenuItem>
@@ -5904,16 +6007,15 @@ export function ConversationPage({
                   >
                     {displayConversation.pinned_at ? (
                       <TbPinFilled
-                        className="size-3.5 text-[var(--app-muted)] opacity-70"
+                        className="size-4 text-[var(--app-muted)]"
                         data-icon="conversation-pin-filled"
                         aria-hidden="true"
                       />
                     ) : (
-                      <TbPin
-                        className="size-3.5 text-[var(--app-muted)] opacity-70"
+                      <DesignIcon
+                        name="pin"
+                        className="size-4 text-[var(--app-muted)]"
                         data-icon="conversation-pin"
-                        strokeWidth={2}
-                        aria-hidden="true"
                       />
                     )}{" "}
                     {t(
@@ -5939,9 +6041,9 @@ export function ConversationPage({
                         aria-hidden="true"
                       />
                     ) : (
-                      <ArchiveIcon
-                        className="size-3.5 text-[var(--app-muted)] opacity-70"
-                        aria-hidden="true"
+                      <DesignIcon
+                        name="archive"
+                        className="size-4 text-[var(--app-muted)]"
                       />
                     )}{" "}
                     {t(
@@ -5957,10 +6059,7 @@ export function ConversationPage({
                     variant="destructive"
                     onClick={() => setDeleteOpen(true)}
                   >
-                    <Trash2Icon
-                      className="size-3.5 opacity-70"
-                      aria-hidden="true"
-                    />{" "}
+                    <DesignIcon name="delete" className="size-4" />{" "}
                     {t("conversation.delete")}
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
@@ -5970,17 +6069,22 @@ export function ConversationPage({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {!isNew && showConversationActions && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="conversation-share-trigger"
+            <ConversationHeaderButton
+              label={t("conversation.share.action")}
+              aria-haspopup="dialog"
+              aria-expanded={shareOpen}
               onClick={() => setShareOpen(true)}
             >
-              <UploadIcon aria-hidden="true" />
-              {t("conversation.share.action")}
-            </Button>
+              <DesignIcon
+                name="share"
+                className="size-[calc(var(--app-ui-font-size)+6px)]"
+              />
+            </ConversationHeaderButton>
           )}
+          <div
+            ref={setBrowserPreviewToolbar}
+            className="min-w-0 empty:hidden"
+          />
           {!isNew && surfaceActive && (
             <ConversationTaskOverviewPanel
               key={conversationId}
@@ -5994,11 +6098,13 @@ export function ConversationPage({
                   void sourcesQuery.refetch()
                 },
               }}
-              defaultOpen={!taskOverviewSuppressed && taskOverviewOpen}
+              open={taskOverviewVisible}
+              panelRef={setTaskOverviewElement}
               subAgentSummariesByTurnId={subAgentSummariesByTurnId}
               downloadingFileId={downloadingFileId}
               onDownload={handleDownloadArtifact}
               onOpenChange={(open) => {
+                if (open) sideChat.close()
                 setTaskOverviewSuppressedConversationId(null)
                 setTaskOverviewOpen(open)
               }}
@@ -6006,16 +6112,13 @@ export function ConversationPage({
           )}
           {headerActions}
           {sideChat.data && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label={t("sideChat.reopen")}
+            <ConversationHeaderButton
+              label={t("sideChat.reopen")}
               aria-expanded={sideChat.open}
               onClick={sideChat.show}
             >
               <MessagesSquareIcon aria-hidden="true" />
-            </Button>
+            </ConversationHeaderButton>
           )}
           {!showComposer && !executionBlocked && visuallyRunning && (
             <Button
@@ -6030,6 +6133,7 @@ export function ConversationPage({
               )}
             </Button>
           )}
+          {showHeader && !embedded && surfaceActive && <ShellHeaderActions />}
         </div>
       </header>
 
@@ -6046,6 +6150,21 @@ export function ConversationPage({
         variant="error"
         onDismiss={dismissError}
       />
+      {!isNew &&
+        conversationId &&
+        user &&
+        surfaceActive &&
+        !embedded &&
+        !readOnly && (
+          <LocalBrowserPreview
+            key={`${user.id}:${conversationId}`}
+            userId={user.id}
+            conversationId={conversationId}
+            overviewElement={taskOverviewVisible ? taskOverviewElement : null}
+            compactContainer={browserPreviewToolbar}
+            onExpand={() => setTaskOverviewOpen(false)}
+          />
+        )}
       {showConnectionWarning && (
         <div className="conversation-top-overlay-stack">
           <div className="conversation-banner-stack">
@@ -6083,12 +6202,14 @@ export function ConversationPage({
           onReturnSideChatSelection
             ? {
                 label: t("sideChat.carry"),
+                tooltipLabel: t("sideChat.carryTooltip"),
                 mode: "return",
                 onSelect: (_message, text) => onReturnSideChatSelection(text),
               }
             : !embedded && !developmentRole && !readOnly
               ? {
                   label: t("sideChat.ask"),
+                  tooltipLabel: t("sideChat.title"),
                   mode: "ask",
                   disabled: sideChat.pending,
                   onSelect: (message, text) =>
@@ -6156,6 +6277,7 @@ export function ConversationPage({
           visiblePendingRequests.length > 0
         }
         showNewTaskWelcome={isNew}
+        newTaskUserName={user?.name}
         newTaskGuide={
           isNew &&
           !embedded &&
@@ -6208,20 +6330,18 @@ export function ConversationPage({
         }
       />
 
+      {showConversationComposer && (
+        <div className="conversation-bottom-fade" aria-hidden="true" />
+      )}
       <div ref={bottomStackRef} className="conversation-bottom-stack">
-        {showScrollToBottom && (
+        {showScrollToBottom && visibleMessages.length > 0 && (
           <div className="conversation-scroll-to-bottom-row">
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon-lg"
-              className="conversation-scroll-to-bottom-button"
-              aria-label={t("conversation.scrollToBottom")}
-              title={t("conversation.scrollToBottom")}
-              onClick={handleScrollToBottom}
-            >
-              <ConversationScrollToBottomIndicator running={visuallyRunning} />
-            </Button>
+            <ConversationScrollToBottomButton
+              key={displayConversation.id}
+              messages={visibleMessages}
+              running={visuallyRunning}
+              onScrollToBottom={handleScrollToBottom}
+            />
           </div>
         )}
         {!blockingPanelActive && runningPlan && runningPlan.total > 0 && (
@@ -6303,28 +6423,6 @@ export function ConversationPage({
               }
             />
           )}
-        {showComposer &&
-          !readOnly &&
-          !blockingPanelActive &&
-          !taskStartDisabledByCreditQuota &&
-          !development &&
-          (isNew || !isApplicationConversation) &&
-          visibleMessages.length === 0 && (
-            <ProjectComposerPicker
-              value={isNew ? newProjectId : displayConversation.project_id}
-              onChange={(projectId) => {
-                chooseNewProject(projectId)
-                if (!isNew)
-                  patchConversationMutation.mutate({ project_id: projectId })
-              }}
-              disabled={
-                sendMutation.isPending ||
-                goalStartMutation.isPending ||
-                attachmentOperationPending ||
-                patchConversationMutation.isPending
-              }
-            />
-          )}
         {showApplicationUnavailableNotice && applicationUnavailableMessage && (
           <Alert
             role="status"
@@ -6335,9 +6433,49 @@ export function ConversationPage({
             <AlertDescription>{applicationUnavailableMessage}</AlertDescription>
           </Alert>
         )}
+        {showConversationComposer &&
+          user &&
+          surfaceActive &&
+          !embedded &&
+          !readOnly &&
+          !development &&
+          !isApplicationConversation && (
+            <BrowserUsePrompt
+              key={user.id}
+              userId={user.id}
+              conversationId={isNew ? undefined : conversationId}
+              messages={visibleMessages}
+            />
+          )}
         {showConversationComposer && (
           <ConversationDraftComposer
             ref={composerRef}
+            projectPicker={
+              showComposer &&
+              !readOnly &&
+              !blockingPanelActive &&
+              !taskStartDisabledByCreditQuota &&
+              !development &&
+              (isNew || !isApplicationConversation) &&
+              visibleMessages.length === 0 && (
+                <ProjectComposerPicker
+                  value={isNew ? newProjectId : displayConversation.project_id}
+                  onChange={(projectId) => {
+                    chooseNewProject(projectId)
+                    if (!isNew)
+                      patchConversationMutation.mutate({
+                        project_id: projectId,
+                      })
+                  }}
+                  disabled={
+                    sendMutation.isPending ||
+                    goalStartMutation.isPending ||
+                    attachmentOperationPending ||
+                    patchConversationMutation.isPending
+                  }
+                />
+              )
+            }
             voiceTranscriptionAvailability={voiceTranscriptionAvailability}
             key={`${composerInstanceId}:${newTaskResetVersion}`}
             draft={composerValue}
@@ -6430,6 +6568,13 @@ export function ConversationPage({
                 : undefined
             }
             onSubmit={submitComposer}
+            taskReferences={goalMode ? [] : taskReferences}
+            onTaskReferencesChange={
+              !goalMode && !isApplicationConversation && !sideChatReference
+                ? (items) =>
+                    setTaskReferenceSelection({ scope: conversationId, items })
+                : undefined
+            }
             onCompact={startContextCompaction}
             compactAvailable={compactionAvailable}
             compacting={contextCompactionMutation.isPending}
@@ -6461,9 +6606,12 @@ export function ConversationPage({
             onError={setError}
           />
         )}
-        {!embedded && !developmentRole && !isApplicationConversation && (
-          <PoweredByLinkSense placement="conversation" />
-        )}
+        {!isNew &&
+          !embedded &&
+          !developmentRole &&
+          !isApplicationConversation && (
+            <PoweredByLinkSense placement="conversation" />
+          )}
       </div>
 
       <ConversationRenameDialog

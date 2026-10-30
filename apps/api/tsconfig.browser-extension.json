@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "lib": ["ES2023", "DOM", "DOM.Iterable"], "types": ["chrome"], "moduleResolution": "Bundler", "module": "ESNext", "noEmit": true },
+  "include": ["browser-extension/**/*.ts"]
+}

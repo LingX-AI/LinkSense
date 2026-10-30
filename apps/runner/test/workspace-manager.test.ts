@@ -702,7 +702,7 @@ describe("WorkspaceManager", () => {
     )
     expect(managedServiceConfig).toContain('args = ["core-service.js"]')
     expect(managedServiceConfig).toContain(
-      'env_vars = ["LINKSENSE_COLLABORATION_MODE", "LINKSENSE_CONVERSATION_ID", "LINKSENSE_CURRENT_USER_ENDPOINT", "LINKSENSE_CURRENT_USER_TOKEN", "LINKSENSE_AUTOMATION_ENDPOINT", "LINKSENSE_AUTOMATION_TOKEN", "LINKSENSE_FILE_SERVICE_ENDPOINT", "LINKSENSE_FILE_SERVICE_TOKEN", "LINKSENSE_FORM_SERVICE_ENDPOINT", "LINKSENSE_FORM_SERVICE_TOKEN", "LINKSENSE_IMAGE_GENERATION_ENDPOINT", "LINKSENSE_IMAGE_GENERATION_TOKEN", "LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT", "LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS", "LINKSENSE_KNOWLEDGE_SERVICE_TOKEN", "LINKSENSE_SKILL_CREATOR_ENDPOINT", "LINKSENSE_SKILL_CREATOR_TOKEN", "LINKSENSE_SKILL_MANAGEMENT_ENDPOINT", "LINKSENSE_SKILL_MANAGEMENT_TOKEN", "LINKSENSE_APPLICATION_BUILDER_ENDPOINT", "LINKSENSE_APPLICATION_BUILDER_TOKEN"]',
+      'env_vars = ["LINKSENSE_COLLABORATION_MODE", "LINKSENSE_CONVERSATION_ID", "LINKSENSE_CURRENT_USER_ENDPOINT", "LINKSENSE_CURRENT_USER_TOKEN", "LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT", "LINKSENSE_AUTOMATION_STOP_ENDPOINT", "LINKSENSE_AUTOMATION_ENDPOINT", "LINKSENSE_AUTOMATION_TOKEN", "LINKSENSE_FILE_SERVICE_ENDPOINT", "LINKSENSE_FILE_SERVICE_TOKEN", "LINKSENSE_FORM_SERVICE_ENDPOINT", "LINKSENSE_FORM_SERVICE_TOKEN", "LINKSENSE_IMAGE_GENERATION_ENDPOINT", "LINKSENSE_IMAGE_GENERATION_TOKEN", "LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT", "LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS", "LINKSENSE_KNOWLEDGE_SERVICE_TOKEN", "LINKSENSE_SKILL_CREATOR_ENDPOINT", "LINKSENSE_SKILL_CREATOR_TOKEN", "LINKSENSE_SKILL_MANAGEMENT_ENDPOINT", "LINKSENSE_SKILL_MANAGEMENT_TOKEN", "LINKSENSE_APPLICATION_BUILDER_ENDPOINT", "LINKSENSE_APPLICATION_BUILDER_TOKEN"]',
     )
     expect(managedServiceConfig).toContain("required = true")
     expect(managedServiceConfig).toContain("tool_timeout_sec = 3153600000")
@@ -1528,6 +1528,7 @@ async function publishedRuntimeFixture() {
   await Promise.all([
     mkdir(path.join(skillsRoot, "reports"), { recursive: true }),
     mkdir(path.join(skillsRoot, "linksense-browser"), { recursive: true }),
+    mkdir(path.join(skillsRoot, "linksense-local-browser"), { recursive: true }),
     mkdir(path.join(skillsRoot, "linksense-document-reader"), {
       recursive: true,
     }),
@@ -1564,6 +1565,7 @@ async function publishedRuntimeFixture() {
   })}\n`
   await Promise.all([
     writeFile(path.join(skillsRoot, "reports", "SKILL.md"), "reports"),
+    writeFile(path.join(skillsRoot, "linksense-local-browser", "SKILL.md"), "local browser"),
     writeFile(
       path.join(skillsRoot, "linksense-browser", "SKILL.md"),
       "browser",
@@ -1602,6 +1604,7 @@ async function publishedRuntimeFixture() {
     [skillsRoot, 0o750],
     [path.join(skillsRoot, "reports"), 0o750],
     [path.join(skillsRoot, "linksense-browser"), 0o750],
+    [path.join(skillsRoot, "linksense-local-browser"), 0o750],
     [path.join(skillsRoot, "linksense-document-reader"), 0o750],
     [path.join(skillsRoot, "linksense-docs"), 0o750],
     [path.join(skillsRoot, "linksense-file-service"), 0o750],
@@ -1620,6 +1623,7 @@ async function publishedRuntimeFixture() {
   )
   const sourceFiles = [
     path.join(skillsRoot, "reports", "SKILL.md"),
+    path.join(skillsRoot, "linksense-local-browser", "SKILL.md"),
     path.join(skillsRoot, "linksense-browser", "SKILL.md"),
     path.join(skillsRoot, "linksense-document-reader", "SKILL.md"),
     path.join(skillsRoot, "linksense-docs", "SKILL.md"),

@@ -17,6 +17,186 @@ import {
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it("keeps notifications in the main header when navigating or collapsing the sidebar", async () => {
+    installApiMock()
+    const interaction = userEvent.setup()
+    renderApp()
+    const sidebar = await screen.findByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+    const header = await screen.findByRole("banner")
+    expect(
+      await within(header).findByRole("button", { name: "自动化通知" })
+    ).toBeVisible()
+    expect(
+      within(sidebar).queryByRole("button", { name: "自动化通知" })
+    ).not.toBeInTheDocument()
+
+    await interaction.click(
+      within(sidebar).getByRole("link", { name: "自动化" })
+    )
+    await screen.findByRole("heading", { name: "自动化" })
+    const topBar = document.querySelector('[data-slot="page-top-bar"]')
+    expect(topBar).toContainElement(
+      await screen.findByRole("button", { name: "自动化通知" })
+    )
+    await interaction.click(
+      within(sidebar).getByRole("button", { name: "折叠侧边栏" })
+    )
+    expect(screen.getByRole("button", { name: "自动化通知" })).toBeVisible()
+  })
+
+  it.each([false, true])(
+    "keeps one reachable notification bell when interactive chat is closed, compact: %s",
+    async (compact) => {
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn((query: string) => ({
+          matches: compact && query === "(max-width: 767px)",
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn(),
+        }))
+      )
+      const application = {
+        id: "50000000-0000-4000-8000-000000000001",
+        name: "交互应用通知测试",
+        kind: "interactive",
+        package_id: "40000000-0000-4000-8000-000000000001",
+      }
+      const { fetchMock } = installApiMock({
+        conversationOverride: { application },
+      })
+      const baseFetch = fetchMock.getMockImplementation()
+      if (!baseFetch) throw new Error("Application API mock is missing")
+      fetchMock.mockImplementation(async (input, init) => {
+        const path = new URL(String(input), window.location.origin).pathname
+        if (path === `/api/v1/applications/${application.id}`) {
+          return json({
+            success: true,
+            data: {
+              id: application.id,
+              name: application.name,
+              kind: application.kind,
+              icon: { type: "preset", preset: "bot" },
+              owner: {
+                id: "10000000-0000-4000-8000-000000000001",
+                name: "林晓",
+              },
+              description: null,
+              instructions: null,
+              model: null,
+              reasoning_effort: null,
+              status: "active",
+              is_owner: true,
+              can_manage: true,
+              access_source: "owner",
+              capability_count: 0,
+              knowledge_base_count: 0,
+              mcp_server_count: 0,
+              dependencies_available: true,
+              capabilities: [],
+              knowledge_bases: [],
+              mcp_servers: [],
+              created_at: conversation.updated_at,
+              updated_at: conversation.updated_at,
+            },
+          })
+        }
+        if (
+          path ===
+          `/api/v1/applications/${application.id}/interactive-runtime-token`
+        ) {
+          return json({
+            success: true,
+            data: {
+              runtime_url:
+                "/api/v1/interactive-app-runtime/notifications/index.html",
+              expires_at: "2099-09-18T00:00:00.000Z",
+              manifest: {
+                schema_version: 1,
+                id: "notification-test",
+                name: application.name,
+                version: "1.0.0",
+                sdk_version: 1,
+              },
+            },
+          })
+        }
+        return baseFetch(input, init)
+      })
+      const interaction = userEvent.setup()
+      renderApp(`/applications/${application.id}/run/c1`)
+      await screen.findByTitle(application.name)
+      if (!compact) {
+        await interaction.click(
+          screen.getByRole("button", { name: "隐藏聊天" })
+        )
+      }
+      await screen.findByRole("button", { name: "显示对话" })
+      const bell = await screen.findByRole("button", { name: "自动化通知" })
+      expect(screen.getAllByRole("button", { name: "自动化通知" })).toHaveLength(
+        1
+      )
+      expect(bell.closest('[inert], [aria-hidden="true"]')).toBeNull()
+      await interaction.click(bell)
+      expect(await screen.findByText("暂无未读的自动化通知")).toBeVisible()
+      await interaction.click(
+        screen.getByRole("button", { name: "显示对话" })
+      )
+      const restoredBell = await screen.findByRole("button", {
+        name: "自动化通知",
+      })
+      expect(screen.getAllByRole("button", { name: "自动化通知" })).toHaveLength(
+        1
+      )
+      expect(restoredBell.closest('[inert], [aria-hidden="true"]')).toBeNull()
+    }
+  )
+
+  it("keeps a usable notification bell on routes without a page header", async () => {
+    installApiMock()
+    const interaction = userEvent.setup()
+    renderApp("/missing-page")
+    await screen.findByText("页面不存在")
+    const bell = await screen.findByRole("button", { name: "自动化通知" })
+    expect(screen.getAllByRole("button", { name: "自动化通知" })).toHaveLength(1)
+    expect(screen.getByRole("main")).toContainElement(bell)
+    await interaction.click(bell)
+    expect(await screen.findByText("暂无未读的自动化通知")).toBeVisible()
+  })
+
+  it.each(["ctrlKey", "metaKey"])(
+    "focuses an already open search with %s+K without clearing the query",
+    async (modifier) => {
+      installApiMock()
+      const interaction = userEvent.setup()
+      renderApp()
+      const sidebar = await screen.findByRole("complementary", {
+        name: "LinkSense 导航",
+      })
+      await interaction.click(
+        within(sidebar).getByRole("button", { name: "搜索" })
+      )
+      const dialog = await screen.findByRole("dialog", { name: "搜索" })
+      const input = within(dialog).getByRole("combobox")
+      fireEvent.change(input, { target: { value: "会议" } })
+      expect(input).not.toHaveFocus()
+      fireEvent.keyDown(window, { key: "k", [modifier]: true })
+      await waitFor(() => expect(input).toHaveFocus())
+      expect(input).toHaveValue("会议")
+      expect(screen.getAllByRole("dialog", { name: "搜索" })).toHaveLength(1)
+      dialog.focus()
+      fireEvent.keyDown(window, { key: "k", [modifier]: true })
+      expect(input).toHaveFocus()
+      expect(input).toHaveValue("会议")
+    }
+  )
+
   it.each([
     ["development", "应用开发任务"],
     ["preview", "应用调试对话"],
@@ -215,7 +395,7 @@ describe("LinkSense application", () => {
         "border-[var(--app-border)]",
         "bg-[var(--app-popover)]",
         "text-[var(--app-text)]",
-        "font-medium"
+        "font-normal"
       )
       expect(tooltip.children).toHaveLength(0)
       expect(
@@ -422,10 +602,10 @@ describe("LinkSense application", () => {
     expect(link).not.toBeNull()
     expect(within(sidebar).getByRole("link", { name: longTitle })).toBe(link)
     expect(link).toHaveClass("sidebar-conversation-link")
-    expect(link).toHaveClass("h-8")
+    expect(link).toHaveClass("h-10")
     expect(link).not.toHaveClass("min-h-9", "py-2")
     expect(link).toHaveAttribute("aria-busy", "true")
-    expect(title).toHaveClass("sidebar-conversation-title-fade", "font-medium")
+    expect(title).toHaveClass("sidebar-conversation-title-fade", "font-normal")
     expect(title).not.toHaveClass("truncate")
     expect(title).not.toHaveClass("font-semibold")
     expect(title).not.toHaveAttribute("title")
@@ -478,12 +658,14 @@ describe("LinkSense application", () => {
       )
       expect(button).not.toHaveClass("hover:bg-[var(--app-sidebar-active)]")
     }
-    const moreIcon = moreButton.querySelector("svg")
-    const archiveIcon = archiveButton.querySelector("svg")
-    expect(moreIcon).toHaveClass("size-3.5")
-    expect(archiveIcon).toHaveClass("size-3.5")
-    expect(moreIcon).toHaveAttribute("stroke-width", "2")
-    expect(archiveIcon).toHaveAttribute("stroke-width", "2")
+    const moreIcon = moreButton.querySelector("[data-design-icon=more]")
+    const archiveIcon = archiveButton.querySelector(
+      "[data-design-icon=archive]"
+    )
+    expect(moreIcon).toHaveClass("size-[calc(var(--app-ui-font-size)+2px)]")
+    expect(archiveIcon).toHaveClass("size-[calc(var(--app-ui-font-size)+2px)]")
+    expect(moreIcon).toHaveAttribute("aria-hidden", "true")
+    expect(archiveIcon).toHaveAttribute("aria-hidden", "true")
     const actions = archiveButton.parentElement
     expect(actions).toContainElement(moreButton)
     expect(actions).toContainElement(archiveButton)
@@ -813,9 +995,9 @@ describe("LinkSense application", () => {
       })
     )
     const pinButton = await screen.findByRole("menuitem", { name: "置顶任务" })
-    expect(pinButton.querySelector("svg")).toHaveAttribute(
-      "data-icon",
-      "sidebar-pin"
+    expect(pinButton.querySelector("[data-design-icon=pin]")).toHaveAttribute(
+      "aria-hidden",
+      "true"
     )
     await interaction.click(pinButton)
 
@@ -1088,7 +1270,7 @@ describe("LinkSense application", () => {
     })
   })
 
-  it("places search, notification, and collapse controls beside the LinkSense logo", async () => {
+  it("keeps collapse beside the logo and notifications in the main header", async () => {
     installApiMock()
     const interaction = userEvent.setup()
     renderApp()
@@ -1103,10 +1285,14 @@ describe("LinkSense application", () => {
     const collapseButton = within(sidebar).getByRole("button", {
       name: "折叠侧边栏",
     })
-    const notificationButton = within(sidebar).getByRole("button", {
+    const header = await screen.findByRole("banner")
+    const notificationButton = await within(header).findByRole("button", {
       name: "自动化通知",
     })
+    const helpButton = within(sidebar).getByRole("button", { name: "使用帮助" })
 
+    expect(notificationButton).toHaveAttribute("title", "自动化通知")
+    expect(collapseButton).toHaveAttribute("title", "折叠侧边栏")
     expect(brand).toHaveClass("sidebar-brand-logo")
     expect(brand).toHaveAttribute(
       "src",
@@ -1118,39 +1304,31 @@ describe("LinkSense application", () => {
     expect(brand.parentElement).not.toHaveClass(
       "text-[length:var(--app-font-15)]"
     )
-    expect(brand.parentElement).toContainElement(searchButton)
+    expect(brand.parentElement).not.toContainElement(searchButton)
     expect(brand.parentElement).toContainElement(collapseButton)
-    expect(brand.parentElement).toContainElement(notificationButton)
+    expect(brand.parentElement).not.toContainElement(notificationButton)
+    expect(header).toContainElement(notificationButton)
+    expect(searchButton).toHaveClass("h-10", "rounded-full", "bg-card")
+    expect(searchButton).toHaveTextContent("搜索")
     expect(
-      searchButton.compareDocumentPosition(notificationButton) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
+      searchButton.querySelector("[data-design-icon=search]")
+    ).toHaveAttribute("aria-hidden", "true")
     expect(
-      notificationButton.compareDocumentPosition(collapseButton) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-    expect(searchButton).toHaveClass(
-      "sidebar-nav-item",
-      "size-7",
-      "bg-transparent"
-    )
-    expect(searchButton).toHaveTextContent("")
-    expect(searchButton.querySelector(".lucide-search")).toHaveAttribute(
-      "stroke-width",
-      "2"
-    )
-    expect(collapseButton.querySelector(".lucide-panel-left")).toHaveAttribute(
-      "stroke-width",
-      "2"
-    )
+      collapseButton.querySelector("[data-design-icon=sidebar]")
+    ).toHaveClass("size-[calc(var(--app-ui-font-size)+2px)]")
     expect(collapseButton).toHaveClass("sidebar-collapse-control")
-    expect(notificationButton.querySelector(".lucide-bell")).toHaveClass(
-      "size-3.5"
+    expect(
+      notificationButton.querySelector("[data-design-icon=notification]")
+    ).toHaveClass("size-5")
+    expect(helpButton.querySelector("[data-design-icon=help]")).toHaveClass(
+      "size-[calc(var(--app-ui-font-size)+2px)]"
     )
-    expect(notificationButton.querySelector(".lucide-bell")).toHaveAttribute(
-      "stroke-width",
-      "2"
-    )
+    for (const button of [notificationButton, collapseButton, helpButton]) {
+      expect(button.querySelector("[data-design-icon]")).toHaveAttribute(
+        "aria-hidden",
+        "true"
+      )
+    }
     expect(
       notificationButton.querySelector("[data-automation-unread-indicator]")
     ).not.toBeInTheDocument()
@@ -1261,31 +1439,38 @@ describe("LinkSense application", () => {
     }
     const closeButton = within(sheet).getByRole("button", { name: "关闭" })
     const searchButton = within(sheet).getByRole("button", { name: "搜索" })
-    const notificationButton = within(sheet).getByRole("button", {
-      name: "自动化通知",
-    })
-
     expect(closeButton).toHaveClass("mobile-navigation-close")
     expect(closeButton).not.toHaveClass("bg-secondary")
-    expect(searchButton.parentElement).toHaveClass("sidebar-header-actions")
-    expect(notificationButton).toBeVisible()
+    expect(
+      within(sheet).queryByRole("button", { name: /自动化通知/ })
+    ).not.toBeInTheDocument()
+    expect(
+      document.querySelectorAll(
+        '[data-slot="shell-header-actions"] [data-design-icon="notification"]'
+      )
+    ).toHaveLength(1)
+    expect(searchButton).toHaveTextContent("搜索")
+    await interaction.click(closeButton)
+    expect(screen.getByRole("button", { name: "自动化通知" })).toBeVisible()
   })
 
-  it("does nothing when the notification bell has no unread item", async () => {
+  it("shows feedback without navigating when the notification bell has no unread item", async () => {
     const { requests } = installApiMock()
     const interaction = userEvent.setup()
     renderApp()
-    const sidebar = await screen.findByRole(
+    await screen.findByRole(
       "complementary",
       { name: "LinkSense 导航" },
       { timeout: 3_000 }
     )
-    const notificationButton = within(sidebar).getByRole("button", {
+    const header = await screen.findByRole("banner")
+    const notificationButton = await within(header).findByRole("button", {
       name: "自动化通知",
     })
 
     await interaction.click(notificationButton)
 
+    expect(await screen.findByText("暂无未读的自动化通知")).toBeVisible()
     expect(
       screen.queryByRole("heading", { name: "自动化" })
     ).not.toBeInTheDocument()
@@ -1365,10 +1550,10 @@ describe("LinkSense application", () => {
     })
     const interaction = userEvent.setup()
     renderApp()
-    const sidebar = await screen.findByRole("complementary", {
+    await screen.findByRole("complementary", {
       name: "LinkSense 导航",
     })
-    const notificationButton = await within(sidebar).findByRole("button", {
+    const notificationButton = await screen.findByRole("button", {
       name: "自动化通知，有已完成的未读任务",
     })
     const indicator = notificationButton.querySelector(
@@ -1376,7 +1561,7 @@ describe("LinkSense application", () => {
     )
 
     expect(indicator).toBeInTheDocument()
-    expect(indicator).toHaveClass("rounded-full", "bg-[var(--app-selection)]")
+    expect(indicator).toHaveClass("rounded-full", "bg-warning")
 
     await interaction.click(notificationButton)
 
@@ -1403,7 +1588,7 @@ describe("LinkSense application", () => {
         )
       ).toBe(true)
       expect(
-        within(sidebar)
+        screen
           .getByRole("button", { name: "自动化通知" })
           .querySelector("[data-automation-unread-indicator]")
       ).not.toBeInTheDocument()
@@ -1435,7 +1620,7 @@ describe("LinkSense application", () => {
     })
 
     renderApp()
-    const sidebar = await screen.findByRole("complementary", {
+    await screen.findByRole("complementary", {
       name: "LinkSense 导航",
     })
     await waitFor(() => {
@@ -1449,7 +1634,7 @@ describe("LinkSense application", () => {
         )
       ).toBe(true)
       expect(
-        within(sidebar)
+        screen
           .getByRole("button", { name: "自动化通知" })
           .querySelector("[data-automation-unread-indicator]")
       ).not.toBeInTheDocument()
@@ -1485,11 +1670,11 @@ describe("LinkSense application", () => {
       "true"
     )
     expect(expandButton).toHaveAttribute("aria-controls", "app-sidebar")
+    expect(expandButton).toHaveAttribute("title", "展开侧边栏")
     expect(expandButton).toHaveClass("sidebar-collapse-control")
-    expect(expandButton.querySelector(".lucide-panel-left")).toHaveAttribute(
-      "stroke-width",
-      "2"
-    )
+    expect(
+      expandButton.querySelector("[data-design-icon=sidebar]")
+    ).toHaveClass("size-[calc(var(--app-ui-font-size)+2px)]")
     await interaction.hover(expandButton)
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
     await interaction.click(expandButton)
@@ -1526,9 +1711,9 @@ describe("LinkSense application", () => {
     const knowledgeBasesLink = within(sidebar).getByRole("link", {
       name: "资料库",
     })
-    expect(knowledgeBasesLink.querySelector("svg")).toHaveClass(
-      "lucide-library-big"
-    )
+    expect(
+      knowledgeBasesLink.querySelector("[data-design-icon=library]")
+    ).toHaveAttribute("aria-hidden", "true")
 
     expect(taskScroller).not.toBeNull()
     expect(taskScroller?.contains(newTaskLink)).toBe(false)
@@ -1581,7 +1766,7 @@ describe("LinkSense application", () => {
     expect(taskRegion).not.toHaveAttribute("data-overflow-y-start")
   })
 
-  it("uses the stronger navigation typography hierarchy across app and settings shells", async () => {
+  it("uses the design navigation typography hierarchy across app and settings shells", async () => {
     installApiMock()
     const interaction = userEvent.setup()
     renderApp()
@@ -1590,8 +1775,8 @@ describe("LinkSense application", () => {
     })
 
     expect(within(sidebar).getByRole("button", { name: "搜索" })).toHaveClass(
-      "sidebar-nav-item",
-      "size-7"
+      "h-10",
+      "font-normal"
     )
     expect(
       within(sidebar).queryByRole("link", { name: "任务" })
@@ -1627,12 +1812,12 @@ describe("LinkSense application", () => {
       within(sidebar).queryByRole("link", { name: "已归档任务" })
     ).not.toBeInTheDocument()
     expect(within(sidebar).getByRole("heading", { name: "最近" })).toHaveClass(
-      "font-semibold",
-      "text-[length:var(--app-font-13)]"
+      "font-normal",
+      "text-xs"
     )
     expect(
       await within(sidebar).findByText(conversations[0]!.title)
-    ).toHaveClass("font-medium", "text-[length:var(--app-ui-font-size)]")
+    ).toHaveClass("font-normal", "text-sm")
     expect(sidebar.querySelector("time")).toBeNull()
 
     const accountTrigger = within(sidebar).getByRole("button", {
@@ -1641,23 +1826,23 @@ describe("LinkSense application", () => {
     expect(accountTrigger).toHaveClass("sidebar-user-button")
     expect(accountTrigger).toHaveClass("py-1.5")
     expect(accountTrigger.closest(".sidebar-account-bar")).toHaveClass(
-      "-mx-3",
+      "-mx-4",
       "mt-1",
       "border-t",
-      "border-[color:var(--app-divider)]",
-      "px-3",
+      "border-border",
+      "px-4",
       "pt-1"
     )
     expect(accountTrigger.querySelector("svg")).toBeNull()
     expect(accountTrigger.querySelector('[data-slot="avatar"]')).toHaveClass(
       "sidebar-account-avatar",
-      "size-6"
+      "size-7"
     )
     expect(
       within(accountTrigger).getByText("林晓", {
         selector: "span.block.truncate",
       })
-    ).toHaveClass("font-semibold", "text-[length:var(--app-ui-font-size)]")
+    ).toHaveClass("font-normal", "text-[length:var(--app-ui-font-size)]")
     expect(within(accountTrigger).queryByText("管理员")).not.toBeInTheDocument()
     expect(
       within(accountTrigger).queryByText("lin@example.com")
@@ -1667,7 +1852,8 @@ describe("LinkSense application", () => {
       name: "设置",
     })
     expect(screen.getByRole("menu")).toHaveClass(
-      "w-(--anchor-width)",
+      "w-max",
+      "min-w-(--anchor-width)",
       "max-w-[calc(100vw-24px)]"
     )
     expect(settingsMenuItem).toHaveClass(
@@ -1721,12 +1907,12 @@ describe("LinkSense application", () => {
     })
     expect(
       within(settingsSidebar).getByRole("heading", { name: "个人" })
-    ).toHaveClass("font-semibold")
+    ).toHaveClass("font-normal")
     const generalLink = within(settingsSidebar).getByRole("link", {
       name: "常规",
     })
     const generalLabel = within(generalLink).getByText("常规")
-    expect(generalLink).toHaveClass("font-medium")
+    expect(generalLink).toHaveClass("font-normal")
     expect(generalLabel).not.toHaveClass("font-semibold")
     const settingsNavigationLinks = settingsSidebar.querySelectorAll(
       ".settings-navigation-link"

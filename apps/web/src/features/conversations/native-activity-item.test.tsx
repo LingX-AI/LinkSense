@@ -474,6 +474,36 @@ describe("NativeActivityItem", () => {
   })
 
   it.each(supportedLanguages)(
+    "identifies local browser execution in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const item = {
+        id: "local-browser",
+        type: "mcpToolCall" as const,
+        server: "linksense_core",
+        tool: "local_browser",
+        status: "inProgress" as const,
+      }
+      const { rerender } = render(
+        <NativeActivityItem method="item/started" item={item} />
+      )
+      expect(
+        screen.getByText(i18n.t("localBrowser.activityRunning"))
+      ).toBeVisible()
+      expect(screen.queryByText("local_browser")).toBeNull()
+      rerender(
+        <NativeActivityItem
+          method="item/completed"
+          item={{ ...item, status: "completed" }}
+        />
+      )
+      expect(
+        screen.getByText(i18n.t("localBrowser.activityFinished"))
+      ).toBeVisible()
+    }
+  )
+
+  it.each(supportedLanguages)(
     "localizes automation activities and failure states in %s",
     async (language) => {
       await i18n.changeLanguage(language)

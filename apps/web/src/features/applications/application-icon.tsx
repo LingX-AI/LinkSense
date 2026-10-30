@@ -105,7 +105,7 @@ export function ApplicationPresetIcon({
   return (
     <span
       data-application-icon-preset={preset}
-      className="inline-flex size-8 items-center justify-center rounded-lg border border-border/60 bg-transparent p-0.5"
+      className="inline-flex size-10 items-center justify-center overflow-hidden rounded-[10px]"
       aria-hidden="true"
     >
       <PresetIcon className="size-full" />

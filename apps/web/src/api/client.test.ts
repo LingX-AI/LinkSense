@@ -19,6 +19,21 @@ function json(data: unknown, status = 200) {
   })
 }
 
+it("passes low priority to optional background requests", async () => {
+  const fetch = vi.fn().mockResolvedValue(json({ success: true, data: true }))
+  vi.stubGlobal("fetch", fetch)
+  await apiRequest("/conversations/task/browser-use-intent", {
+    method: "POST",
+    body: { message_id: "message" },
+    schema: z.boolean(),
+    priority: "low",
+  })
+  expect(fetch).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.objectContaining({ priority: "low" })
+  )
+})
+
 const refreshedAccessToken = "refreshed-access-token".padEnd(48, "x")
 const refreshedStreamToken = "refreshed-stream-token".padEnd(48, "x")
 

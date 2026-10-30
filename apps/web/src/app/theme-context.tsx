@@ -2,15 +2,18 @@ import {
   useCallback,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react"
+import { flushSync } from "react-dom"
 
 import {
   SYSTEM_THEME_QUERY,
   applyThemePreference,
   persistThemePreference,
   readStoredThemePreference,
+  resolveThemePreference,
   type ThemePreference,
 } from "@/app/theme"
 import {
@@ -25,6 +28,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemePreference>(
     readStoredThemePreference
   )
+  const latestTheme = useRef(theme)
   const [uiFontSize, setUiFontSizeState] = useState(readStoredUiFontSize)
 
   useLayoutEffect(() => {
@@ -44,9 +48,27 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [uiFontSize])
 
   const setTheme = useCallback((nextTheme: ThemePreference) => {
+    latestTheme.current = nextTheme
     persistThemePreference(nextTheme)
-    applyThemePreference(nextTheme)
-    setThemeState(nextTheme)
+    const updateTheme = () => {
+      if (latestTheme.current !== nextTheme) return
+      applyThemePreference(nextTheme)
+      setThemeState(nextTheme)
+    }
+    const resolvedTheme = resolveThemePreference(
+      nextTheme,
+      window.matchMedia(SYSTEM_THEME_QUERY).matches
+    )
+    if (
+      typeof document.startViewTransition !== "function" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      document.documentElement.dataset.theme === resolvedTheme
+    ) {
+      updateTheme()
+      return
+    }
+    const transition = document.startViewTransition(() => flushSync(updateTheme))
+    void transition.ready.catch(() => transition.skipTransition())
   }, [])
 
   const setUiFontSize = useCallback((nextFontSize: number) => {

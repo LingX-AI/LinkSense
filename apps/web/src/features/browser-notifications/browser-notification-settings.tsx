@@ -1,7 +1,9 @@
 import { useTranslation } from "react-i18next"
+import { BellIcon } from "lucide-react"
 
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
+import { SettingsCard } from "@/components/settings/settings-card"
 import { Switch } from "@/components/ui/switch"
 import { useBrowserNotificationActivation } from "@/features/browser-notifications/use-browser-notification-activation"
 
@@ -47,33 +49,39 @@ export function BrowserNotificationSettings({
                       : null
 
   return (
-    <section
-      className="py-4 sm:py-5"
+    <SettingsCard
+      layout="split"
+      icon={<BellIcon />}
       aria-labelledby="browser-notifications-heading"
+      header={
+        <SettingsSectionHeader
+          id="browser-notifications-heading"
+          title={t("browserNotifications.settingsTitle")}
+          description={t("browserNotifications.settingsDescription")}
+          descriptionId="browser-notifications-description"
+        />
+      }
     >
-      <SettingsSectionHeader
-        id="browser-notifications-heading"
-        title={t("browserNotifications.settingsTitle")}
-        description={t("browserNotifications.settingsDescription")}
-        descriptionId="browser-notifications-description"
-        titleAction={
-          <Switch
-            id="browser-notifications-enabled"
-            checked={preference.enabled}
-            disabled={unavailable}
-            aria-label={t("browserNotifications.enable")}
-            aria-describedby="browser-notifications-description"
-            onCheckedChange={(checked) => {
-              clearFeedback()
-              if (!checked) {
-                disable()
-                return
-              }
-              requestPermissionAndActivate()
-            }}
-          />
-        }
-      />
+      <div className="flex min-h-20 items-center justify-between gap-6 py-4">
+        <span className="min-w-0 text-sm font-medium">
+          {t("browserNotifications.enable")}
+        </span>
+        <Switch
+          id="browser-notifications-enabled"
+          checked={preference.enabled}
+          disabled={unavailable}
+          aria-label={t("browserNotifications.enable")}
+          aria-describedby="browser-notifications-description"
+          onCheckedChange={(checked) => {
+            clearFeedback()
+            if (!checked) {
+              disable()
+              return
+            }
+            requestPermissionAndActivate()
+          }}
+        />
+      </div>
       {statusMessage && (
         <StatusBanner
           variant={
@@ -91,6 +99,6 @@ export function BrowserNotificationSettings({
           {statusMessage}
         </StatusBanner>
       )}
-    </section>
+    </SettingsCard>
   )
 }

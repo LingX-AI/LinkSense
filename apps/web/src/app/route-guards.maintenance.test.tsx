@@ -581,7 +581,7 @@ describe("maintenance route guard", () => {
     await screen.findByRole("dialog", { name: "已开启系统维护" })
     const overlay = document.querySelector('[data-slot="dialog-overlay"]')
     expect(overlay).toHaveClass(
-      "bg-black/30",
+      "bg-[var(--app-dialog-overlay)]",
       "supports-backdrop-filter:backdrop-blur-none"
     )
     expect(overlay).not.toHaveClass("supports-backdrop-filter:backdrop-blur-sm")

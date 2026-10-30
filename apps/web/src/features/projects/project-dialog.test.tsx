@@ -39,11 +39,15 @@ describe("dedicated development project editing", () => {
       const input = screen.getByRole("textbox", {
         name: i18n.t("projects.name"),
       })
-      const label = document.querySelector(`label[for="${input.id}"]`)
-      expect(
-        label?.querySelector("span.text-destructive[aria-hidden='true']")
-      ).toHaveTextContent("*")
       expect(input).toHaveAttribute("aria-required", "true")
+      expect(
+        document.querySelector(
+          `label[for="${input.id}"] span.text-destructive[aria-hidden='true']`
+        )
+      ).toHaveTextContent("*")
+      expect(
+        screen.getByText(i18n.t("projects.createDescription"))
+      ).toBeVisible()
       client.clear()
     }
   )
@@ -68,11 +72,15 @@ describe("dedicated development project editing", () => {
         </QueryClientProvider>
       )
       const input = screen.getByRole("textbox")
+      expect(input).toHaveAttribute("aria-required", "true")
       expect(
         document.querySelector(
           `label[for="${input.id}"] span.text-destructive[aria-hidden='true']`
         )
       ).toHaveTextContent("*")
+      expect(
+        screen.getByText(i18n.t("projects.createDescription"))
+      ).toBeVisible()
       if (name === APPLICATION_DEVELOPMENT_PROJECT_NAME) {
         expect(input).toHaveAttribute("readonly")
         expect(

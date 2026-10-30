@@ -7,11 +7,11 @@ export const conversationMessages = {
     title: "Tarea",
     taskSort: {
       open: "Configurar el orden de las tareas de {{section}}",
-      label: "Orden de las tareas",
+      label: "Ordenar tareas",
       priority: "Prioridad",
       priorityDescription:
         "Las tareas que necesitan tu respuesta y las no leídas aparecen primero.",
-      updated_at: "Última actualización",
+      updated_at: "Actualizadas recientemente",
       manual: "Orden manual",
     },
     share: {
@@ -27,6 +27,11 @@ export const conversationMessages = {
         "No se ha podido copiar el enlace. Comprueba los permisos del navegador e inténtalo de nuevo.",
       unavailable: "Este enlace compartido no existe o ya no está disponible.",
       continueInProduct: "Continuar en {{productName}}",
+      snapshotDate: "Instantánea compartida · {{date}}",
+      sharedConversation: "Conversación compartida",
+      readOnly: "Solo lectura",
+      snapshotNotice:
+        "Esta es una instantánea. No incluye los mensajes posteriores.",
     },
     rename: "Cambiar nombre",
     archive: "Archivar tarea",
@@ -134,6 +139,8 @@ export const conversationMessages = {
     historyViewExchange: "Haz clic para ver este intercambio",
     historyRetry: "No se han podido cargar los mensajes. Reintentar",
     scrollToBottom: "Ir al final",
+    newReplies_one: "{{count}} respuesta nueva",
+    newReplies_other: "{{count}} respuestas nuevas",
     placeholder: "Describe lo que quieres que haga {{productName}}…",
     followUpPlaceholder: "Añade un mensaje de seguimiento…",
     send: "Enviar",
@@ -272,6 +279,8 @@ export const conversationMessages = {
       noMatches: "No hay Skills coincidentes",
     },
     addMenu: "Añadir",
+    toolbarAttach: "Adjuntar",
+    toolbarKnowledge: "Conocimiento",
     addMenuTitle: "Añadir contenido",
     addGroup: "Añadir",
     attachFileMenuLabel: "Archivos locales",
@@ -558,6 +567,7 @@ export const conversationMessages = {
     messageCopied: "Mensaje copiado",
     copyMessageFailed: "No se ha podido copiar el mensaje. Inténtalo de nuevo.",
     forkMessage: "Crear una rama en una nueva conversación",
+    forkMessageTooltip: "Crear rama",
     forkingMessage: "Creando rama…",
     forkMessageFailed:
       "No se ha podido crear la tarea ramificada. Inténtalo de nuevo.",

@@ -1,12 +1,13 @@
 import { createRandomUuid } from "@/lib/random-uuid"
 import { ModelServiceProviderLogo } from "./model-service-provider-logo"
 import type { ModelSettingsDraft } from "./model-settings-draft"
-import { useId, useState } from "react"
+import { useId, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   modelServiceProviderValues,
   modelProviderProtocolModeValues,
   modelProviderPresets,
+  detectModelProviderProtocolInputSchema,
   type DiscoveredProviderModel,
   type ModelProviderProbeInput,
   type ManagedPricedModel,
@@ -16,6 +17,10 @@ import { FieldShell } from "@/components/forms/form-field"
 import { FieldGroup } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
+import { StatusBanner } from "@/components/feedback/status-banner"
+import { getErrorMessage } from "@/api/error-message"
+import { useDetectModelProtocol } from "./use-model-provider-probe"
 import { ModelAdvancedSettings } from "./model-advanced-settings"
 import { ModelConnectionTest, ModelDiscovery } from "./model-provider-probe"
 import { ModelSettingsEditor } from "./model-settings-editor"
@@ -129,6 +134,7 @@ export function ModelEditor({
         <>
           <ModelDiscovery
             key={JSON.stringify(probe)}
+            autoDiscover
             input={probe}
             credentialsReady={channel.api_key_configured}
             disabled={actions.pending}
@@ -213,12 +219,16 @@ export function ChannelEditor({
   channel,
   ...actions
 }: EditorActions & { channel: ModelChannel | null }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const id = useId()
   const [initial] = useState<ModelChannelUpdate>(() =>
     channel
       ? {
           ...toSettingsProviderUpdate(channel),
+          test_model_id:
+            channel.test_model_id === undefined
+              ? channel.models.find((model) => model.kind === "chat")?.id
+              : channel.test_model_id,
           name:
             channel.name ??
             t("admin.modelProvider.providerTitle", {
@@ -241,9 +251,8 @@ export function ChannelEditor({
   )
   const [value, setValue] = useState(initial)
   const [apiKey, setApiKey] = useState("")
-  const [testModelId, setTestModelId] = useState(
-    channel?.models.find((model) => model.kind === "chat")?.id ?? ""
-  )
+  const manualProtocolRef = useRef(false)
+  const testModelId = value.test_model_id ?? ""
   const draft = replaceChannel(actions.settings, {
     ...value,
     ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
@@ -283,6 +292,31 @@ export function ChannelEditor({
     provider_location: value.provider_location,
     ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
   }
+  const detectionInput = {
+    ...probe,
+    ...(testModelId.trim() ? { model_id: testModelId.trim() } : {}),
+  }
+  const detection = useDetectModelProtocol(detectionInput, (result) => {
+    setValue((current) => ({
+      ...current,
+      protocol_mode: result.protocol_mode,
+      test_model_id: result.model_id,
+    }))
+  })
+  function changeConnection(next: ModelChannelUpdate) {
+    detection.cancel()
+    setValue(next)
+  }
+  function detectAutomatically() {
+    if (
+      !actions.pending &&
+      credentialsReady &&
+      !manualProtocolRef.current &&
+      (!channel || !savedTargetMatches || apiKey.trim())
+    ) {
+      detection.detect()
+    }
+  }
   return (
     <ModelSettingsEditor
       title={
@@ -294,6 +328,7 @@ export function ChannelEditor({
       saveLabel={t("admin.modelProvider.saveProvider", { name: value.name })}
       dirty={dirty}
       valid={
+        !detection.isPending &&
         (!keyRequired || Boolean(apiKey.trim())) &&
         isSettingsDraftValid(draft, actions.settings)
       }
@@ -311,7 +346,8 @@ export function ChannelEditor({
           }))}
           onChange={(provider) => {
             const preset = modelProviderPresets[provider]
-            setValue({
+            manualProtocolRef.current = false
+            changeConnection({
               ...value,
               provider,
               base_url: preset.base_url ?? "",
@@ -370,8 +406,9 @@ export function ChannelEditor({
             maxLength={2048}
             required
             onChange={(event) =>
-              setValue({ ...value, base_url: event.target.value })
+              changeConnection({ ...value, base_url: event.target.value })
             }
+            onBlur={detectAutomatically}
           />
         </FieldShell>
         <FieldShell
@@ -397,7 +434,11 @@ export function ChannelEditor({
             placeholder={
               channel?.api_key_configured ? "••••••••••••" : undefined
             }
-            onChange={(event) => setApiKey(event.target.value)}
+            onChange={(event) => {
+              detection.cancel()
+              setApiKey(event.target.value)
+            }}
+            onBlur={detectAutomatically}
           />
         </FieldShell>
         {value.provider === "google_vertex" && (
@@ -413,8 +454,12 @@ export function ChannelEditor({
                 required
                 value={value.provider_project ?? ""}
                 onChange={(event) =>
-                  setValue({ ...value, provider_project: event.target.value })
+                  changeConnection({
+                    ...value,
+                    provider_project: event.target.value,
+                  })
                 }
+                onBlur={detectAutomatically}
               />
             </FieldShell>
             <FieldShell
@@ -428,14 +473,111 @@ export function ChannelEditor({
                 required
                 value={value.provider_location ?? ""}
                 onChange={(event) =>
-                  setValue({ ...value, provider_location: event.target.value })
+                  changeConnection({
+                    ...value,
+                    provider_location: event.target.value,
+                  })
                 }
+                onBlur={detectAutomatically}
               />
             </FieldShell>
           </>
         )}
       </FieldGroup>
       <ModelAdvancedSettings>
+        <p className="text-xs text-muted-foreground">
+          {t("modelSetup.protocolDetectionHint")}
+        </p>
+        <Button
+          type="button"
+          variant="secondary"
+          className="self-start"
+          disabled={
+            actions.pending ||
+            detection.isPending ||
+            !credentialsReady ||
+            !detectModelProviderProtocolInputSchema.safeParse(detectionInput)
+              .success
+          }
+          aria-busy={detection.isPending || undefined}
+          onClick={() => detection.detect(true)}
+        >
+          {detection.isPending && <Spinner data-icon="inline-start" />}
+          {t(
+            detection.isPending
+              ? "modelSetup.detectingProtocol"
+              : "modelSetup.detectProtocol"
+          )}
+        </Button>
+        {detection.error && (
+          <StatusBanner variant="error">
+            {getErrorMessage(detection.error, t)}
+          </StatusBanner>
+        )}
+        {detection.data && (
+          <StatusBanner
+            variant={
+              detection.data.status === "detected" ? "success" : "warning"
+            }
+          >
+            {detection.data.status === "detected"
+              ? t("modelSetup.protocolDetected", {
+                  protocol: t(
+                    `admin.modelProvider.protocolModes.${detection.data.protocol_mode}`
+                  ),
+                  model: detection.data.model_id,
+                })
+              : detection.data.status === "unsupported"
+                ? t("modelSetup.protocolUnsupported")
+                : t("modelSetup.protocolModelRequired")}
+          </StatusBanner>
+        )}
+        {detection.data &&
+          detection.data.status !== "model_required" &&
+          detection.data.probes.length > 0 && (
+            <ul
+              className="flex flex-col gap-1"
+              aria-label={t("modelSetup.protocolProbeResults")}
+            >
+              {detection.data.probes.map((probe) => (
+                <li
+                  key={probe.protocol_mode}
+                  className="flex items-center justify-between gap-3 rounded-md bg-muted px-3 py-1.5 text-xs"
+                >
+                  <span className="text-muted-foreground">
+                    {t(
+                      `admin.modelProvider.protocolModes.${probe.protocol_mode}`
+                    )}
+                  </span>
+                  <span
+                    className={
+                      probe.status === "success"
+                        ? "text-success"
+                        : "text-destructive-text"
+                    }
+                  >
+                    {probe.status === "success"
+                      ? t("modelSetup.protocolProbeSuccess", {
+                          seconds: (
+                            (probe.latency_ms ?? 0) / 1000
+                          ).toLocaleString(i18n.resolvedLanguage ?? "zh-CN", {
+                            minimumFractionDigits: 1,
+                            maximumFractionDigits: 1,
+                          }),
+                        })
+                      : t(
+                          {
+                            unsupported: "modelSetup.protocolProbeUnsupported",
+                            invalid_response:
+                              "modelSetup.protocolProbeInvalidResponse",
+                            failed: "modelSetup.protocolProbeFailed",
+                          }[probe.status]
+                        )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         <ModelSettingsSelect
           label={t("admin.modelProvider.protocolMode")}
           value={value.protocol_mode ?? "native_responses"}
@@ -443,7 +585,10 @@ export function ChannelEditor({
             value: mode,
             label: t(`admin.modelProvider.protocolModes.${mode}`),
           }))}
-          onChange={(protocol_mode) => setValue({ ...value, protocol_mode })}
+          onChange={(protocol_mode) => {
+            manualProtocolRef.current = true
+            changeConnection({ ...value, protocol_mode })
+          }}
         />
         <p className="text-xs text-muted-foreground">
           {t(
@@ -453,14 +598,18 @@ export function ChannelEditor({
       </ModelAdvancedSettings>
       <ModelDiscovery
         key={JSON.stringify(probe)}
+        autoDiscover={savedTargetMatches && !apiKey.trim()}
         input={probe}
         credentialsReady={credentialsReady}
         disabled={actions.pending}
         selectedId={testModelId}
-        onSelect={(model) => setTestModelId(model.id)}
+        onSelect={(model) =>
+          changeConnection({ ...value, test_model_id: model.id })
+        }
         manualEntry={{
           label: t("modelSetup.testModel"),
-          onChange: setTestModelId,
+          onChange: (modelId) =>
+            changeConnection({ ...value, test_model_id: modelId || null }),
         }}
       />
       <ModelConnectionTest
@@ -470,7 +619,7 @@ export function ChannelEditor({
         credentialsChanged={Boolean(
           channel?.api_key_configured && !savedTargetMatches && !apiKey.trim()
         )}
-        disabled={actions.pending}
+        disabled={actions.pending || detection.isPending}
       />
     </ModelSettingsEditor>
   )

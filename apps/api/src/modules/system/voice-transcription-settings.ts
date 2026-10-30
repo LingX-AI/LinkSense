@@ -1,6 +1,7 @@
 import {
   modelIdentifierSchema,
   modelProviderBaseUrlSchema,
+  discoverVoiceTranscriptionModelsInputSchema,
   updateVoiceTranscriptionSettingsSchema,
   voiceTranscriptionAvailabilitySchema,
   voiceTranscriptionProviderDefinitions,
@@ -8,6 +9,8 @@ import {
   voiceTranscriptionProviderSchema,
   voiceTranscriptionSettingsSchema,
   type UpdateVoiceTranscriptionSettings,
+  type DiscoverModelProviderResult,
+  type DiscoverVoiceTranscriptionModelsInput,
   type VoiceTranscriptionAvailability,
   type VoiceTranscriptionSettings,
 } from "@linksense/shared"
@@ -28,6 +31,7 @@ import type {
   VoiceTranscriptionInput,
   VoiceTranscriptionProvider,
 } from "../voice/service.js"
+import { discoverVoiceTranscriptionModels } from "./voice-transcription-model-discovery.js"
 
 const SYSTEM_SETTINGS_ID = "00000000-0000-4000-8000-000000000001"
 const ENCRYPTED_SETTINGS_KEY = "voice_transcription_settings_encrypted"
@@ -57,6 +61,7 @@ export class VoiceTranscriptionSettingsService
     private readonly config: AppConfig,
     private readonly runner: VoiceTranscriptionRunner =
       createVoiceTranscriptionRunner(),
+    private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
   async getAdminSettings(): Promise<VoiceTranscriptionSettings> {
@@ -67,6 +72,29 @@ export class VoiceTranscriptionSettingsService
     return voiceTranscriptionAvailabilitySchema.parse({
       available: isRuntimeAvailable(await this.readStoredSettings()),
     })
+  }
+
+  async discover(
+    rawInput: DiscoverVoiceTranscriptionModelsInput,
+  ): Promise<DiscoverModelProviderResult> {
+    if (!this.config.adminModelManagementEnabled) {
+      throw new AppError("MODEL_MANAGEMENT_DISABLED")
+    }
+    const input = discoverVoiceTranscriptionModelsInputSchema.parse(rawInput)
+    let apiKey = input.api_key
+    if (!apiKey) {
+      const current = await this.readStoredSettings()
+      if (
+        current?.provider === input.provider &&
+        current.baseUrl &&
+        new URL(current.baseUrl).href === new URL(input.base_url).href &&
+        current.providerOptions.api_version === input.provider_options.api_version
+      ) {
+        apiKey = current.apiKey ?? undefined
+      }
+    }
+    if (!apiKey) throw new AppError("MODEL_PROVIDER_CREDENTIAL_REQUIRED")
+    return discoverVoiceTranscriptionModels({ ...input, api_key: apiKey }, this.fetchImpl)
   }
 
   async update(

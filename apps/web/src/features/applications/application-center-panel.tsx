@@ -115,7 +115,7 @@ export function ApplicationsWorkspacePanel(
         {organizationSharingEnabled && (
           <TabsList
             aria-label={t("applications.scopeLabel")}
-            className="h-auto w-full flex-wrap justify-start overflow-visible"
+            className="justify-start"
           >
             <TabsTrigger value="owned" className="flex-none">
               {t("applications.distribution.myApplications")}
@@ -277,9 +277,10 @@ export function ApplicationCenterPanel({
           title={t("applications.distribution.noCenterApplications")}
         />
       )}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="flex min-w-0 flex-col">
         {query.data?.items.map((item) => (
           <ApplicationCard
+            layout="row"
             key={item.id}
             id={item.application_id}
             name={item.name}

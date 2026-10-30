@@ -8,9 +8,12 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/80",
+        default:
+          "bg-primary-action text-primary-foreground hover:bg-primary-hover active:bg-primary-hover",
+        brand:
+          "bg-primary-action text-primary-foreground hover:bg-primary-hover active:bg-primary-hover",
         annotation:
-          "bg-[var(--app-selection)] text-white hover:bg-[color-mix(in_srgb,var(--app-selection)_88%,var(--app-text))] focus-visible:ring-[var(--app-selection)]/30",
+          "bg-primary-action text-primary-foreground hover:bg-primary-hover focus-visible:ring-primary/30",
         outline:
           "border-border bg-background hover:bg-hover hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:bg-transparent",
         "outline-strong":
@@ -22,19 +25,19 @@ const buttonVariants = cva(
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         input:
-          "bg-field text-foreground hover:bg-field aria-expanded:bg-field aria-expanded:text-foreground",
+          "border-border bg-field text-foreground hover:border-input-hover hover:bg-field aria-expanded:bg-field aria-expanded:text-foreground",
         ghost:
           "hover:bg-hover hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground",
         plain: "text-foreground",
         destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:border-destructive/60 focus-visible:ring-destructive/30 dark:hover:bg-destructive/90 dark:focus-visible:ring-destructive/40",
+          "bg-destructive text-destructive-foreground hover:bg-destructive-hover focus-visible:border-destructive/60 focus-visible:ring-destructive/30 dark:hover:bg-destructive-hover dark:focus-visible:ring-destructive/40",
         "destructive-ghost":
-          "bg-destructive/10 text-destructive hover:bg-destructive/15 focus-visible:border-destructive/40 focus-visible:ring-destructive/20",
-        link: "text-primary underline-offset-4 hover:underline",
+          "bg-destructive/10 text-destructive-text hover:bg-destructive/15 focus-visible:border-destructive/40 focus-visible:ring-destructive/20",
+        link: "text-link-foreground underline-offset-4 hover:underline",
       },
       size: {
         default:
-          "h-8 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5",
+          "h-9 gap-2 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
         xs: "h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
         lg: "h-9 gap-1.5 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
@@ -45,6 +48,14 @@ const buttonVariants = cva(
         "icon-lg": "size-9",
       },
     },
+    compoundVariants: [
+      {
+        // Form-field triggers match Input and Select instead of the button height.
+        variant: "input",
+        size: "default",
+        class: "h-10 px-3",
+      },
+    ],
     defaultVariants: {
       variant: "default",
       size: "default",

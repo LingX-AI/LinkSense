@@ -10,6 +10,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 import { localizedErrorMessage } from "@linksense/shared"
 
 export const jaJP = {
+  localBrowser: localBrowserMessages["ja-JP"],
   modelSetup: modelSetupMessages["ja-JP"],
   connections: connectionMessages["ja-JP"],
   sideChat: sideChatMessages["ja-JP"],
@@ -284,6 +285,8 @@ export const jaJP = {
     search: "検索",
     loading: "読み込み中…",
     pageLoading: "読み込み中…",
+    emptyDescription: "項目が利用可能になると、ここに表示されます。",
+    notFoundDescription: "ページが移動または削除された可能性があります。",
     actions: "操作",
     status: "ステータス",
     name: "名前",
@@ -425,6 +428,7 @@ export const jaJP = {
     helpCenter: "ヘルプセンター",
     helpCenterNewTab: "ヘルプセンターを新しいタブで開く",
     automationNotifications: "自動化通知",
+    automationNotificationsEmpty: "未読の自動化通知はありません",
     automationNotificationsUnread: "未読の完了タスクがある自動化通知",
     automationTask: "自動化タスク",
     unreadCompletion: "完了後、まだ確認されていないタスク",
@@ -2039,6 +2043,7 @@ export const jaJP = {
     taskActive:
       "タスクを移動したりプロジェクトを削除したりする前に、実行中のタスクを完了してください",
     empty: "タスクはまだありません",
+    emptyList: "プロジェクトはまだありません",
     create: "新しいプロジェクト",
     createDescription:
       "プロジェクト内のタスクはファイルを共有し、メッセージ履歴はそれぞれ個別に保持します。",
@@ -2130,10 +2135,10 @@ export const jaJP = {
     title: "タスク",
     taskSort: {
       open: "{{section}} のタスクの順序を設定",
-      label: "タスクの順序",
+      label: "タスクの並べ替え",
       priority: "優先順位",
       priorityDescription: "入力が必要なタスクと未読のタスクを先に表示します。",
-      updated_at: "最終更新",
+      updated_at: "最近更新",
       manual: "手動の順序",
     },
     share: {
@@ -2149,6 +2154,11 @@ export const jaJP = {
         "リンクをコピーできませんでした。ブラウザーの権限を確認して再試行してください。",
       unavailable: "この共有リンクは存在しないか、利用できなくなっています。",
       continueInProduct: "{{productName}} で続行",
+      snapshotDate: "共有スナップショット · {{date}}",
+      sharedConversation: "共有された会話",
+      readOnly: "読み取り専用",
+      snapshotNotice:
+        "これは会話のスナップショットです。以降のメッセージは含まれません。",
     },
     rename: "名前を変更",
     archive: "タスクをアーカイブ",
@@ -2252,6 +2262,8 @@ export const jaJP = {
     historyViewExchange: "クリックしてこのやり取りを表示",
     historyRetry: "メッセージを読み込めませんでした。再試行",
     scrollToBottom: "一番下へスクロール",
+    newReplies_one: "{{count}} 件の新しい返信",
+    newReplies_other: "{{count}} 件の新しい返信",
     placeholder: "{{productName}} にしてほしいことを入力してください…",
     followUpPlaceholder: "追加の依頼を入力…",
     send: "送信",
@@ -2385,6 +2397,8 @@ export const jaJP = {
       noMatches: "一致するスキルがありません",
     },
     addMenu: "追加",
+    toolbarAttach: "添付",
+    toolbarKnowledge: "ナレッジ",
     addMenuTitle: "コンテンツを追加",
     addGroup: "追加",
     attachFileMenuLabel: "ローカルファイル",
@@ -2661,6 +2675,7 @@ export const jaJP = {
     copyMessageFailed:
       "メッセージをコピーできませんでした。再試行してください。",
     forkMessage: "新しいチャットに分岐",
+    forkMessageTooltip: "分岐",
     forkingMessage: "分岐を作成中…",
     forkMessageFailed:
       "分岐したタスクを作成できませんでした。再試行してください。",
@@ -3166,6 +3181,7 @@ export const jaJP = {
       "アプリケーションを更新しました。今後のタスクのターンでは、最新の設定が自動で使用されます。",
     deleted: "アプリケーションを削除しました。",
     emptyTitle: "利用可能なアプリケーションはまだありません",
+    emptyDescription: "作成または追加すると、ここに項目が表示されます。",
     createdByMe: "自分が作成",
     createdBy: "作成者：{{name}}",
     status: {
@@ -3334,6 +3350,9 @@ export const jaJP = {
     conversationManagedUserModelDescription:
       "プラグイン、スキル、ナレッジベース、指示を使用",
     externalAccess: {
+      endUserPresentation: "エンドユーザー向け表示",
+      endUserPresentationHint:
+        "下に生成される埋め込みコードのみに適用されます。技術的な処理と所要時間を非表示にし、回答、添付ファイル、確認、エラーは表示します。オフにすると技術的な詳細を表示します。",
       action: "外部アクセス",
       title: "アプリケーションの外部アクセス",
       description:
@@ -4443,6 +4462,7 @@ export const jaJP = {
       assistant_response: "AI の回答",
       memory_generation: "メモリ生成",
       task_title_generation: "タスクの自動命名",
+      browser_use_intent: "ブラウザー操作の意図検出",
       document_embedding: "ドキュメントのベクトル化",
       query_embedding: "クエリのベクトル化",
       rerank: "検索結果の再ランキング",
@@ -5665,8 +5685,10 @@ export const jaJP = {
         "画像理解モデルが、画像、構造化出力、または思考機能の無効化の検証に合格しませんでした。",
     },
     imageGeneration: {
-      inputInvalid: "編集用の画像を読み取れません。PNG、JPEG、WebP 形式で、1 枚 8 MB 以下、マスクを含め合計 10 MB 以下にしてください。マスクは最初の画像と同じ寸法の透明 PNG が必要です。",
-      editUnsupported: "現在の画像モデルはこの編集に対応していません。参照画像を減らすか、マスクを外すか、対応するモデルの選択を管理者に依頼してください。",
+      inputInvalid:
+        "編集用の画像を読み取れません。PNG、JPEG、WebP 形式で、1 枚 8 MB 以下、マスクを含め合計 10 MB 以下にしてください。マスクは最初の画像と同じ寸法の透明 PNG が必要です。",
+      editUnsupported:
+        "現在の画像モデルはこの編集に対応していません。参照画像を減らすか、マスクを外すか、対応するモデルの選択を管理者に依頼してください。",
       notConfigured: "管理者が画像生成モデルをまだ設定していません。",
       forbidden: "このタスクのターンでは画像生成を利用できません。",
       turnInactive:
@@ -5954,6 +5976,10 @@ export const jaJP = {
       emptyResult:
         "自動化は終了しましたが、表示可能な出力がありません。再実行してください。",
       expired: "この自動化の有効期限が切れたため、実行できません。",
+      expirationInPast: localizedErrorMessage(
+        "AUTOMATION_EXPIRATION_IN_PAST",
+        "ja-JP"
+      ),
     },
     userDisabled: "このユーザーは無効です。管理者にお問い合わせください。",
     conflict:
@@ -5974,3 +6000,4 @@ export const jaJP = {
     teams: "Teams SSO",
   },
 } satisfies TranslationResource<typeof enUS>
+import { localBrowserMessages } from "@/features/local-browser/messages"

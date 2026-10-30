@@ -1,7 +1,10 @@
 import { z } from "zod"
+import { automationMonitoringCoreMcpModule } from "./core-services/automation-monitoring-service.js"
+import { conversationReferenceCoreMcpModule } from "./core-services/conversation-reference-service.js"
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js"
 
 import { currentUserCoreMcpModule } from "./core-services/current-user-service.js"
+import { localBrowserCoreMcpModule } from "./core-services/local-browser-service.js"
 import { documentConversionCoreMcpModule } from "./core-services/document-conversion.js"
 import { fileServiceCoreMcpModule } from "./core-services/file-service.js"
 import { imageGenerationCoreMcpModule } from "./core-services/image-generation-service.js"
@@ -22,9 +25,12 @@ import type {
 const collaborationModeSchema = z.enum(["default", "plan"])
 
 export const coreMcpModuleRegistry: readonly CoreMcpModuleDefinition[] = [
+  automationMonitoringCoreMcpModule,
+  conversationReferenceCoreMcpModule,
   fileServiceCoreMcpModule,
   documentConversionCoreMcpModule,
   currentUserCoreMcpModule,
+  localBrowserCoreMcpModule,
   imageGenerationCoreMcpModule,
   knowledgeCoreMcpModule,
   interactiveFormCoreMcpModule,

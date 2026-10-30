@@ -59,7 +59,10 @@ describe("LinkSense application", () => {
     ).not.toBeInTheDocument()
     const clearButton = screen.getByRole("button", { name: "清除全部" })
     expect(clearButton).toBeEnabled()
-    expect(clearButton).toHaveClass("bg-destructive/10", "text-destructive")
+    expect(clearButton).toHaveClass(
+      "bg-destructive/10",
+      "text-destructive-text"
+    )
     expect(clearButton.querySelector("svg")).toHaveAttribute(
       "data-icon",
       "inline-start"
@@ -132,7 +135,7 @@ describe("LinkSense application", () => {
     expect(deleteButton).toHaveClass("hover:bg-hover")
     expect(deleteButton).not.toHaveClass(
       "bg-destructive/10",
-      "text-destructive"
+      "text-destructive-text"
     )
     expect(deleteButton.querySelector("svg")).toHaveClass(
       "text-muted-foreground"

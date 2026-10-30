@@ -37,24 +37,25 @@ describe("task source list", () => {
     expect(first).toHaveAttribute("target", "_blank")
     expect(first).toHaveAttribute("rel", "noopener noreferrer")
   })
-  it("uses balanced padding, a single title line and smaller link icons", () => {
+  it("uses counted, two-line source cards with the design's icon slots", () => {
     render(
       <ConversationSourcesList
         sources={[{ url: "https://example.test/guide", title: "Guide" }]}
       />
     )
     const region = screen.getByRole("region")
-    expect(region).toHaveClass("px-4")
+    expect(region).toHaveClass("gap-2")
     const scroll = screen.getByTestId("conversation-sources-scroll")
     expect(scroll.querySelector('[class*="pr-"]')).not.toBeInTheDocument()
     const link = screen.getByRole("link", { name: "Guide" })
-    expect(link).toHaveClass("px-1.5")
-    expect(link.textContent).toBe("Guide")
-    expect(screen.queryByText("example.test")).not.toBeInTheDocument()
+    expect(link).toHaveClass("min-h-14", "px-2", "border-border")
+    expect(within(link).getByText("example.test")).toBeVisible()
+    expect(within(region).getByText("1")).toHaveClass("text-xs")
     expect(within(link).getByText("Guide")).toHaveClass("truncate")
-    const icons = link.querySelectorAll("svg")
-    expect(icons[0]).toHaveClass("size-3.5")
-    expect(icons[1]).toHaveClass("size-3.5")
+    expect(link.firstElementChild).toHaveClass("size-7")
+    expect(link.lastElementChild).toHaveClass("size-7")
+    expect(link.firstElementChild?.firstElementChild).toHaveClass("size-5")
+    expect(link.lastElementChild?.firstElementChild).toHaveClass("size-5")
   })
   it("does not open a URL popup when a source is hovered or focused", () => {
     vi.useFakeTimers()
@@ -107,6 +108,26 @@ describe("task source list", () => {
     )
     expect(screen.queryByText("https://example.test/a")).not.toBeInTheDocument()
     expect(screen.getByText("New source")).toBeVisible()
+  })
+  it("uses a file-type icon for file URLs and preserves the URL's real origin", () => {
+    const { container } = render(
+      <ConversationSourcesList
+        sources={[
+          {
+            url: "https://example.test/enrollment.csv?download=1",
+            title: "Enrollment data",
+          },
+        ]}
+      />
+    )
+    expect(
+      container.querySelector('[data-file-icon-kind="excel"]')
+    ).toHaveClass("size-5")
+    expect(screen.getByText("CSV")).toBeInTheDocument()
+    expect(screen.getByText("example.test")).toBeVisible()
+    expect(
+      screen.getByRole("link", { name: "Enrollment data" })
+    ).toHaveAttribute("href", "https://example.test/enrollment.csv?download=1")
   })
   it.each(["zh-CN", "en-US", "de-DE"])(
     "waits without a loading placeholder and localizes settled states in %s",

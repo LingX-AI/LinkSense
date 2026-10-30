@@ -404,11 +404,11 @@ async function dragFirstTaskToPersonalProject() {
     expect(source).not.toHaveClass("invisible")
     expect(source).not.toHaveClass("hidden")
     expect(title).toBeVisible()
-    expect(title).toHaveClass("font-medium")
+    expect(title).toHaveClass("font-normal")
     const previewTitle = screen.getByText(conversations[0].title, {
       selector: '[aria-hidden="true"] span',
     })
-    expect(previewTitle).toHaveClass("font-medium")
+    expect(previewTitle).toHaveClass("font-normal")
     expect(previewTitle.parentElement).toHaveClass("opacity-80")
     expect(title.closest("a")).toHaveAttribute("draggable", "false")
     fireEvent.pointerMove(document, { clientX: 20, clientY: 10 })
@@ -669,7 +669,7 @@ describe("task projects", () => {
 
   it.each([
     { projectId: workId, label: "工作" },
-    { projectId: null, label: "选择项目" },
+    { projectId: null, label: "公共空间" },
   ])(
     "inherits $label from the task detail instead of the last manual choice",
     async ({ projectId, label }) => {
@@ -907,7 +907,9 @@ describe("task projects", () => {
     )
     const projectOption = screen.getByRole("option", { name: "工作" })
     expect(projectOption).toHaveClass("px-2", "gap-2")
-    expect(projectOption.querySelector("svg")).toHaveClass("size-3.5")
+    expect(projectOption.querySelector("[data-project-icon]")).toHaveClass(
+      "size-3.5"
+    )
     const projectPopup = screen.getByRole("dialog", { name: "项目" })
     for (const name of ["新建项目"]) {
       const action = within(projectPopup).getByRole("button", { name })
@@ -996,7 +998,7 @@ describe("task projects", () => {
         expect(clear).toHaveFocus()
         await interaction.pointer({ target: clear, keys: "[/MouseLeft]" })
       }
-      await waitFor(() => expect(trigger).toHaveTextContent("选择项目"))
+      await waitFor(() => expect(trigger).toHaveTextContent("公共空间"))
       expect(
         screen.queryByRole("dialog", { name: "项目" })
       ).not.toBeInTheDocument()
@@ -1191,7 +1193,7 @@ describe("task projects", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("places project selection in a separate bar directly above the new task input", async () => {
+  it("places project selection in the input toolbar without losing its accessible controls", async () => {
     const { requests } = installProjectApi()
     const interaction = userEvent.setup()
     renderApp("/conversations/new")
@@ -1199,15 +1201,23 @@ describe("task projects", () => {
     const picker = screen.getByRole("combobox", { name: "项目" })
     const input = screen.getByRole("textbox", { name: "任务输入框" })
     const form = input.closest("form")
-    const bar = picker.closest(".conversation-project-dock")
+    const bar = picker.closest<HTMLElement>(".conversation-project-dock")
 
     expect(form).not.toBeNull()
     expect(bar).toHaveClass("min-h-10", "min-w-0", "flex-wrap")
-    expect(bar?.parentElement).toBe(form?.parentElement)
-    expect(bar?.nextElementSibling).toBe(form)
-    expect(form).not.toContainElement(picker)
-    expect(picker).toHaveClass("bg-transparent", "max-w-full", "min-w-0")
+    expect(bar?.closest('[data-slot="composer-toolbar"]')).toBeInTheDocument()
+    expect(form).toContainElement(bar)
+    expect(form).toContainElement(picker)
+    expect(picker).toHaveClass(
+      "bg-transparent",
+      "max-w-[calc(100%+--spacing(3))]",
+      "min-w-0"
+    )
     expect(picker).toHaveTextContent("生活")
+    expect(picker).toHaveAccessibleDescription("生活")
+    expect(
+      picker.querySelector("[data-design-icon=chevron-down]")
+    ).toBeVisible()
     expect(
       requests.some(
         (request) =>
@@ -1559,9 +1569,9 @@ describe("task projects", () => {
         body: { project_id: personalId },
       })
     )
-    expect(
-      screen.getByRole("combobox", { name: "项目" }).closest("form")
-    ).toBeNull()
+    expect(screen.getByRole("combobox", { name: "项目" }).closest("form")).toBe(
+      screen.getByRole("textbox", { name: "任务输入框" }).closest("form")
+    )
     expect(screen.getByRole("textbox", { name: "任务输入框" })).toHaveValue(
       "请整理附件"
     )

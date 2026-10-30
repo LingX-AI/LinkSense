@@ -7,4 +7,4 @@ include:
       - ../../docker-compose.yml
       - ./docker-compose.production.yml
     project_directory: ../..
-    env_file: ${LINKSENSE_COMPOSE_ENV_FILE:-.env.production}
+    env_file: ${LINKSENSE_COMPOSE_ENV_FILE:-../../.env.production}

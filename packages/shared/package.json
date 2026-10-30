@@ -7,6 +7,11 @@
   "main": "./dist/index.js",
   "types": "./src/index.ts",
   "exports": {
+    "./local-browser": {
+      "types": "./src/local-browser.ts",
+      "development": "./src/local-browser.ts",
+      "import": "./dist/local-browser.js"
+    },
     ".": {
       "types": "./src/index.ts",
       "development": "./src/index.ts",

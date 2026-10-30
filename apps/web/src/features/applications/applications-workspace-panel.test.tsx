@@ -1455,7 +1455,7 @@ describe("three application categories", () => {
     }
   )
 
-  it("wraps English application tabs and keeps the search and filter within the toolbar", async () => {
+  it("keeps English application tabs scrollable and the search and filter within the toolbar", async () => {
     await i18n.changeLanguage("en-US")
     mockCatalog()
     show()
@@ -1471,8 +1471,8 @@ describe("three application categories", () => {
       name: i18n.t("applicationDevelopment.catalog.filter"),
     })
 
-    expect(tabs).toHaveClass("w-full", "flex-wrap", "overflow-visible")
-    expect(tabs).not.toHaveClass("overflow-x-auto")
+    expect(tabs).toHaveClass("w-fit", "max-w-full", "overflow-x-auto")
+    expect(tabs).not.toHaveClass("flex-wrap", "overflow-visible")
     for (const tab of within(tabs).getAllByRole("tab")) {
       expect(tab).toHaveClass("flex-none")
     }

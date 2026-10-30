@@ -138,7 +138,6 @@ import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
 import { cn } from "@/lib/utils"
@@ -2707,13 +2706,9 @@ function MarketplaceCatalogPanel({
                 />
                 <Separator />
                 <div className="capability-center-scope-row">
-                  <ToggleGroup
-                    value={[scope]}
-                    variant="default"
-                    spacing={2}
-                    aria-label={t("marketplace.catalogScopesLabel")}
-                    onValueChange={(values) => {
-                      const value = values[0]
+                  <Tabs
+                    value={scope}
+                    onValueChange={(value) => {
                       if (
                         (value === "public" && publicScopeAvailable) ||
                         value === "personal" ||
@@ -2723,20 +2718,22 @@ function MarketplaceCatalogPanel({
                       }
                     }}
                   >
-                    <ToggleGroupItem value="personal">
-                      {t("marketplace.scopes.personal")}
-                    </ToggleGroupItem>
-                    {publicScopeAvailable && (
-                      <ToggleGroupItem value="public">
-                        {t("marketplace.scopes.public")}
-                      </ToggleGroupItem>
-                    )}
-                    {section === "skill" && (
-                      <ToggleGroupItem value="clawhub">
-                        {t("clawHub.repository")}
-                      </ToggleGroupItem>
-                    )}
-                  </ToggleGroup>
+                    <TabsList aria-label={t("marketplace.catalogScopesLabel")}>
+                      <TabsTrigger value="personal">
+                        {t("marketplace.scopes.personal")}
+                      </TabsTrigger>
+                      {publicScopeAvailable && (
+                        <TabsTrigger value="public">
+                          {t("marketplace.scopes.public")}
+                        </TabsTrigger>
+                      )}
+                      {section === "skill" && (
+                        <TabsTrigger value="clawhub">
+                          {t("clawHub.repository")}
+                        </TabsTrigger>
+                      )}
+                    </TabsList>
+                  </Tabs>
                 </div>
                 <section
                   className="capability-center-directory"
@@ -3620,41 +3617,30 @@ export function CapabilityManagementPage() {
         )
       }}
     >
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 pt-4 pr-4 pl-14 sm:pr-6">
-        {view === "store" && (
-          <TabsList
-            className="max-w-full overflow-x-auto"
-            aria-label={t("marketplace.catalogTabsLabel")}
-          >
-            {capabilityCenterSections.map((value) => (
-              <TabsTrigger key={value} value={value}>
-                {t(marketplaceCatalogSectionKeys[value])}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        )}
-        {organizationMarketplaceEnabled && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={cn("shrink-0", view === "store" && "ml-auto")}
-            onClick={() => setView(view === "store" ? "publishing" : "store")}
-          >
-            {view === "store" ? (
-              <UploadIcon data-icon="inline-start" />
-            ) : (
-              <ArrowLeftIcon data-icon="inline-start" />
-            )}
-            {t(
-              view === "store"
-                ? "marketplace.tabs.publishing"
-                : "marketplace.backToCenter"
-            )}
-          </Button>
-        )}
-      </div>
       <PageLayout
+        navigationTitle={t("nav.capabilities")}
+        navigationActions={
+          organizationMarketplaceEnabled && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={cn("shrink-0", view === "store" && "ml-auto")}
+              onClick={() => setView(view === "store" ? "publishing" : "store")}
+            >
+              {view === "store" ? (
+                <UploadIcon data-icon="inline-start" />
+              ) : (
+                <ArrowLeftIcon data-icon="inline-start" />
+              )}
+              {t(
+                view === "store"
+                  ? "marketplace.tabs.publishing"
+                  : "marketplace.backToCenter"
+              )}
+            </Button>
+          )
+        }
         title={t(
           view === "store"
             ? marketplaceCatalogSectionKeys[section]
@@ -3676,7 +3662,22 @@ export function CapabilityManagementPage() {
           ) : undefined
         }
         afterHeader={
-          view !== "publishing" && error ? <Feedback error={error} /> : null
+          <>
+            {view === "store" && (
+              <TabsList
+                className="mb-6 justify-start"
+                variant="navigation"
+                aria-label={t("marketplace.catalogTabsLabel")}
+              >
+                {capabilityCenterSections.map((value) => (
+                  <TabsTrigger key={value} value={value} className="flex-none">
+                    {t(marketplaceCatalogSectionKeys[value])}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            )}
+            {view !== "publishing" && error ? <Feedback error={error} /> : null}
+          </>
         }
       >
         {view === "store" && section === "connector" && (

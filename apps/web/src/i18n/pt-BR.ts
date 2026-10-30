@@ -10,6 +10,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 import { localizedErrorMessage } from "@linksense/shared"
 
 export const ptBR = {
+  localBrowser: localBrowserMessages["pt-BR"],
   modelSetup: modelSetupMessages["pt-BR"],
   connections: connectionMessages["pt-BR"],
   sideChat: sideChatMessages["pt-BR"],
@@ -283,6 +284,8 @@ export const ptBR = {
     search: "Pesquisar",
     loading: "Carregando…",
     pageLoading: "Carregando…",
+    emptyDescription: "Os itens aparecerão aqui quando estiverem disponíveis.",
+    notFoundDescription: "A página pode ter sido movida ou removida.",
     actions: "Ações",
     status: "Status",
     name: "Nome",
@@ -424,6 +427,7 @@ export const ptBR = {
     helpCenter: "Central de ajuda",
     helpCenterNewTab: "Abrir a Central de ajuda em uma nova aba",
     automationNotifications: "Notificações de automações",
+    automationNotificationsEmpty: "Nenhuma notificação de automação não lida",
     automationNotificationsUnread:
       "Notificações de automações, com uma tarefa concluída não lida",
     automationTask: "Tarefa de automação",
@@ -2070,6 +2074,7 @@ export const ptBR = {
     taskActive:
       "Conclua as tarefas ativas antes de movê-las ou remover seu projeto",
     empty: "Nenhuma tarefa ainda",
+    emptyList: "Nenhum projeto ainda",
     create: "Novo projeto",
     createDescription:
       "As tarefas de um projeto compartilham arquivos e mantêm históricos de mensagens separados.",
@@ -2160,11 +2165,11 @@ export const ptBR = {
     title: "Tarefa",
     taskSort: {
       open: "Definir a ordem das tarefas em {{section}}",
-      label: "Ordem das tarefas",
+      label: "Ordenar tarefas",
       priority: "Prioridade",
       priorityDescription:
         "Tarefas que precisam da sua resposta e tarefas não lidas aparecem primeiro.",
-      updated_at: "Última atualização",
+      updated_at: "Atualizadas recentemente",
       manual: "Ordem manual",
     },
     share: {
@@ -2182,6 +2187,11 @@ export const ptBR = {
       unavailable:
         "Este link compartilhado não existe ou não está mais disponível.",
       continueInProduct: "Continuar no {{productName}}",
+      snapshotDate: "Registro compartilhado · {{date}}",
+      sharedConversation: "Conversa compartilhada",
+      readOnly: "Somente leitura",
+      snapshotNotice:
+        "Este é um registro da conversa. Mensagens posteriores não estão incluídas.",
     },
     rename: "Renomear",
     archive: "Arquivar tarefa",
@@ -2289,6 +2299,8 @@ export const ptBR = {
     historyViewExchange: "Clique para visualizar esta interação",
     historyRetry: "Não foi possível carregar as mensagens. Tentar novamente",
     scrollToBottom: "Rolar até o final",
+    newReplies_one: "{{count}} nova resposta",
+    newReplies_other: "{{count}} novas respostas",
     placeholder: "Descreva o que você quer que o {{productName}} faça…",
     followUpPlaceholder: "Adicione uma nova mensagem…",
     send: "Enviar",
@@ -2424,6 +2436,8 @@ export const ptBR = {
       noMatches: "Nenhuma habilidade correspondente",
     },
     addMenu: "Adicionar",
+    toolbarAttach: "Anexar",
+    toolbarKnowledge: "Conhecimento",
     addMenuTitle: "Adicionar conteúdo",
     addGroup: "Adicionar",
     attachFileMenuLabel: "Arquivos locais",
@@ -2707,6 +2721,7 @@ export const ptBR = {
     messageCopied: "Mensagem copiada",
     copyMessageFailed: "Não foi possível copiar a mensagem. Tente novamente.",
     forkMessage: "Ramificar para uma nova conversa",
+    forkMessageTooltip: "Ramificar",
     forkingMessage: "Criando ramificação…",
     forkMessageFailed:
       "Não foi possível criar a tarefa ramificada. Tente novamente.",
@@ -3220,6 +3235,8 @@ export const ptBR = {
       "Aplicativo atualizado. Os próximos turnos das tarefas usarão automaticamente a configuração mais recente.",
     deleted: "Aplicativo excluído.",
     emptyTitle: "Nenhum aplicativo disponível ainda",
+    emptyDescription:
+      "Os itens aparecerão aqui quando você criá-los ou adicioná-los.",
     createdByMe: "Criadas por mim",
     createdBy: "Criado por {{name}}",
     status: {
@@ -3389,6 +3406,9 @@ export const ptBR = {
     conversationManagedUserModelDescription:
       "com plugins, habilidades, bases de conhecimento e instruções",
     externalAccess: {
+      endUserPresentation: "Apresentação para o usuário final",
+      endUserPresentationHint:
+        "Aplica-se apenas ao código de incorporação gerado abaixo. Oculta atividades técnicas e duração, mas mantém respostas, anexos, confirmações e erros. Desative para a visualização técnica.",
       action: "Acesso externo",
       title: "Acesso externo ao aplicativo",
       description:
@@ -4508,6 +4528,7 @@ export const ptBR = {
       assistant_response: "Respostas de IA",
       memory_generation: "Geração de memórias",
       task_title_generation: "Nomeação automática de tarefas",
+      browser_use_intent: "Detecção de intenção de navegação",
       document_embedding: "Embeddings de documentos",
       query_embedding: "Embeddings de consultas",
       rerank: "Reordenação da busca",
@@ -5760,8 +5781,10 @@ export const ptBR = {
         "O modelo de compreensão de imagens falhou na validação de entrada de imagens, saída estruturada ou desativação do raciocínio. Verifique a configuração do modelo e do provedor.",
     },
     imageGeneration: {
-      inputInvalid: "Não foi possível ler a imagem para edição. Use PNG, JPEG ou WebP de até 8 MB por imagem e 10 MB no total, incluindo a máscara. A máscara deve ser um PNG transparente com as mesmas dimensões da primeira imagem.",
-      editUnsupported: "O modelo atual não aceita esta edição. Use menos imagens de referência, remova a máscara ou peça ao administrador para selecionar um modelo compatível.",
+      inputInvalid:
+        "Não foi possível ler a imagem para edição. Use PNG, JPEG ou WebP de até 8 MB por imagem e 10 MB no total, incluindo a máscara. A máscara deve ser um PNG transparente com as mesmas dimensões da primeira imagem.",
+      editUnsupported:
+        "O modelo atual não aceita esta edição. Use menos imagens de referência, remova a máscara ou peça ao administrador para selecionar um modelo compatível.",
       notConfigured:
         "O modelo de geração de imagens não está configurado ou ativado.",
       forbidden: "Esta tarefa não pode chamar a geração de imagens.",
@@ -6059,6 +6082,10 @@ export const ptBR = {
       emptyResult:
         "A automação terminou sem produzir um resultado exibível. Execute novamente.",
       expired: "Esta automação expirou e não pode mais ser executada.",
+      expirationInPast: localizedErrorMessage(
+        "AUTOMATION_EXPIRATION_IN_PAST",
+        "pt-BR"
+      ),
     },
     userDisabled:
       "Este usuário está desativado. Entre em contato com um administrador.",
@@ -6081,3 +6108,4 @@ export const ptBR = {
     teams: "SSO do Teams",
   },
 } satisfies TranslationResource<typeof enUS>
+import { localBrowserMessages } from "@/features/local-browser/messages"

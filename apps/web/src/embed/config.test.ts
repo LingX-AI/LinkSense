@@ -30,22 +30,26 @@ describe("embedded application configuration", () => {
   )
 
   it("keeps the application model-selection policy in the trusted frame configuration", () => {
+    const parsed = embedFrameConfigSchema.parse({
+      app_id: "lsa_application_identifier_1234",
+      parent_origin: "https://partner.example.test",
+      auth_mode: "required",
+      locale: "en-US",
+      starter_questions: ["How do I apply?"],
+      application: {
+        id: "20000000-0000-4000-8000-000000000001",
+        name: "Partner operations",
+        description: null,
+        icon: { type: "preset", preset: "bot" },
+        allows_user_model_selection: true,
+      },
+    })
+    expect(parsed.application.allows_user_model_selection).toBe(true)
+    expect(parsed.presentation).toBe("technical")
     expect(
-      embedFrameConfigSchema.parse({
-        app_id: "lsa_application_identifier_1234",
-        parent_origin: "https://partner.example.test",
-        auth_mode: "required",
-        locale: "en-US",
-        starter_questions: ["How do I apply?"],
-        application: {
-          id: "20000000-0000-4000-8000-000000000001",
-          name: "Partner operations",
-          description: null,
-          icon: { type: "preset", preset: "bot" },
-          allows_user_model_selection: true,
-        },
-      }).application.allows_user_model_selection
-    ).toBe(true)
+      embedFrameConfigSchema.parse({ ...parsed, presentation: "end_user" })
+        .presentation
+    ).toBe("end_user")
   })
 
   it("rejects more than four starter questions", () => {

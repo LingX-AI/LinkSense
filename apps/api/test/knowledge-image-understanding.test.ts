@@ -34,6 +34,24 @@ afterEach(() => {
 })
 
 describe("image-model configuration probe", () => {
+  it.each([
+    ["https://models.example.test/proxy", "https://models.example.test/proxy/v1"],
+    ["https://models.example.test/proxy/v1", "https://models.example.test/proxy"],
+  ])("adapts /v1 for the scoped image-model endpoint %s", async (baseUrl, resolvedBaseUrl) => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) =>
+      String(input) === `${resolvedBaseUrl}/chat/completions`
+        ? imageModelResponse(JSON.stringify({ description: "A document image." }))
+        : new Response(null, { status: 404 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(new VercelAiImageUnderstandingClient().describe(imageUnderstandingInput(), {
+      ...runtime("openai_compatible", "qwen3.8-flash", "vllm_qwen_disabled"), baseUrl,
+    })).resolves.toEqual({ description: "A document image." })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(fetchMock.mock.calls[0]?.[1])
+    expect(fetchMock.mock.calls[1]?.[1]?.redirect).toBe("error")
+  })
+
   it("sends Alibaba a strictly decodable PNG above the Qwen minimum dimensions", async () => {
     let serializedRequestBody = ""
     vi.stubGlobal(

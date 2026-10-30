@@ -1,8 +1,9 @@
-import { useRef, useState } from "react"
+import { useId, useRef, useState } from "react"
 import { PlusIcon, XIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
 import {
   Command,
   CommandEmpty,
@@ -37,9 +38,15 @@ export function ProjectComposerPicker({
   const [open, setOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [hovered, setHovered] = useState(false)
+  const labelId = useId()
   const triggerRef = useRef<HTMLButtonElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const canClear = value !== null && !disabled && !query.isPending
+  const projectLabel = query.isPending
+    ? t("common.loading")
+    : value === null
+      ? t("projects.projectless")
+      : (selected?.name ?? t("projects.unavailable"))
   const choose = (id: string | null) => {
     if (disabled) return
     onChange(id)
@@ -63,26 +70,25 @@ export function ProjectComposerPicker({
               render={<Button variant="ghost" />}
               role="combobox"
               aria-label={t("projects.choose")}
+              aria-describedby={labelId}
               disabled={disabled || query.isPending}
-              className="max-w-full min-w-0 gap-2 bg-transparent px-1.5 text-[length:var(--app-font-13)] font-medium hover:bg-hover focus-visible:bg-hover data-popup-open:bg-hover"
+              className="-mx-1.5 h-8 max-w-[calc(100%+--spacing(3))] min-w-0 gap-2 bg-transparent px-1.5 text-sm font-normal text-muted-foreground hover:bg-hover focus-visible:bg-hover data-popup-open:bg-hover @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs"
             >
               <ProjectIcon
                 icon={selected?.icon}
                 color={selected?.color}
+                variant="toolbar"
                 className={cn(
-                  "size-3.5 shrink-0",
+                  "size-[calc(var(--app-ui-font-size)+2px)] shrink-0",
                   canClear && hovered && "opacity-0",
                   canClear &&
                     "group-has-[:focus-visible]/project-picker:opacity-0 [@media(hover:none)]:opacity-0"
                 )}
               />
-              <span className="truncate">
-                {query.isPending
-                  ? t("common.loading")
-                  : value === null
-                    ? t("projects.selectPlaceholder")
-                    : (selected?.name ?? t("projects.unavailable"))}
+              <span id={labelId} className="truncate" title={projectLabel}>
+                {projectLabel}
               </span>
+              <DesignIcon name="chevron-down" />
             </PopoverTrigger>
             {canClear && (
               <Button
@@ -91,7 +97,7 @@ export function ProjectComposerPicker({
                 size="icon-xs"
                 aria-label={t("projects.clearSelection")}
                 className={cn(
-                  "absolute inset-y-0 left-1 my-auto size-5 rounded-full group-has-[:focus-visible]/project-picker:pointer-events-auto group-has-[:focus-visible]/project-picker:opacity-100 active:not-aria-[haspopup]:translate-y-0 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
+                  "absolute inset-y-0 left-0 my-auto size-5 rounded-full group-has-[:focus-visible]/project-picker:pointer-events-auto group-has-[:focus-visible]/project-picker:opacity-100 active:not-aria-[haspopup]:translate-y-0 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
                   hovered
                     ? "pointer-events-auto opacity-100"
                     : "pointer-events-none opacity-0"

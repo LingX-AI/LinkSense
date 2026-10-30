@@ -12,18 +12,24 @@ function cssRule(selector: string) {
 }
 
 describe("sidebar theme", () => {
-  it("indents category task content inside full-width rows", () => {
+  it("indents the entire project task row so its selection follows the design", () => {
+    expect(appShellSource).toContain(
+      "ml-[var(--sidebar-conversation-indent,0px)]"
+    )
     expect(sidebarStyles).toMatch(
-      /(?:^|\n)\.sidebar-conversation-link\s*\{[^}]*padding-left:\s*calc\(8px \+ var\(--sidebar-conversation-indent, 0px\)\);/u
+      /(?:^|\n)\.sidebar-conversation-link\s*\{[^}]*padding:\s*0 8px;/u
     )
     expect(cssRule(".sidebar-conversation-item")).not.toMatch(
       /margin-left|padding-left/u
     )
   })
 
-  it("softens active task backgrounds without changing other sidebar selections", () => {
+  it("uses the design active task surface and an inset selection border", () => {
     expect(cssRule('.sidebar-conversation-item[data-active="true"]')).toMatch(
-      /background:\s*color-mix\(\s*in srgb,\s*var\(--app-sidebar-active\) 65%,\s*transparent\s*\);/u
+      /background:\s*var\(--app-sidebar-active\);/u
+    )
+    expect(cssRule('.sidebar-conversation-item[data-active="true"]')).toContain(
+      "box-shadow: inset 0 0 0 1px var(--sidebar-selection-border);"
     )
     expect(sidebarStyles).toContain(
       ".sidebar-conversation-item.sidebar-link-active,"
@@ -50,8 +56,8 @@ describe("sidebar theme", () => {
       "--sidebar-conversation-actions-width: 56px;"
     )
   })
-  it("uses the documented 248px default for task and settings sidebars", () => {
-    expect(cssRule(":root")).toContain("--app-sidebar-width: 248px;")
+  it("uses the documented 272px default for task and settings sidebars", () => {
+    expect(cssRule(":root")).toContain("--app-sidebar-width: 272px;")
     expect(cssRule(".prototype-shell")).toContain(
       "grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);"
     )
@@ -64,18 +70,21 @@ describe("sidebar theme", () => {
     const lightTheme = cssRule(":root")
     const darkTheme = cssRule(".dark")
 
-    expect(lightTheme).toContain("--sidebar: #f5f5f5;")
-    expect(lightTheme).toContain("--app-sidebar: #f5f5f5;")
-    expect(lightTheme).toContain("--app-sidebar-muted: #626262;")
-    expect(lightTheme).toContain("--sidebar-accent: rgb(32 32 32 / 3%);")
-    expect(lightTheme).toContain("--app-sidebar-hover: rgb(32 32 32 / 3%);")
-    expect(lightTheme).toContain("--app-hover-subtle: rgb(32 32 32 / 2%);")
-    expect(lightTheme).toContain("--app-sidebar-active: rgb(32 32 32 / 8%);")
-    expect(lightTheme).toContain("--app-user-surface: #f5f5f5;")
-    expect(lightTheme).toContain("--app-brand: #1866e1;")
-    expect(lightTheme).toContain("--app-brand-foreground: #ffffff;")
-    expect(lightTheme).toContain("--destructive: #b84048;")
-    expect(lightTheme).toContain("--app-sidebar-avatar: var(--app-brand);")
+    expect(lightTheme).toContain("--sidebar: #f7f8fa;")
+    expect(lightTheme).toContain("--app-sidebar: #f7f8fa;")
+    expect(lightTheme).toContain("--app-sidebar-muted: #64728b;")
+    expect(lightTheme).toContain("--sidebar-accent: #e9f1ff;")
+    expect(lightTheme).toContain("--app-sidebar-hover: #f2f6fd;")
+    expect(lightTheme).toContain("--app-hover-subtle: #f7f9fd;")
+    expect(lightTheme).toContain("--app-sidebar-active: #e9f1ff;")
+    expect(lightTheme).toContain("--app-user-surface: #f3f5f8;")
+    expect(lightTheme).toContain("--primary: #0874ff;")
+    expect(lightTheme).toContain("--app-brand: var(--primary);")
+    expect(lightTheme).toContain(
+      "--app-brand-foreground: var(--primary-foreground);"
+    )
+    expect(lightTheme).toContain("--destructive: #d92d3a;")
+    expect(lightTheme).toContain("--app-sidebar-avatar: var(--primary-action);")
     expect(lightTheme).toContain(
       "--app-sidebar-avatar-foreground: var(--app-brand-foreground);"
     )
@@ -84,13 +93,13 @@ describe("sidebar theme", () => {
     )
     expect(darkTheme).toContain("--sidebar: #202020;")
     expect(darkTheme).toContain("--app-sidebar: #202020;")
-    expect(darkTheme).toContain("--sidebar-accent: #282828;")
-    expect(darkTheme).toContain("--app-sidebar-hover: #282828;")
-    expect(darkTheme).toContain("--app-hover-subtle: rgb(255 255 255 / 3%);")
-    expect(darkTheme).toContain("--app-sidebar-active: #343434;")
+    expect(darkTheme).toContain("--sidebar-accent: #293347;")
+    expect(darkTheme).toContain("--app-sidebar-hover: #282c36;")
+    expect(darkTheme).toContain("--app-hover-subtle: #222630;")
+    expect(darkTheme).toContain("--app-sidebar-active: #293347;")
     expect(darkTheme).toContain("--app-user-surface: #292929;")
-    expect(darkTheme).toContain("--app-sidebar-muted: #b3b3b3;")
-    expect(darkTheme).toContain("--app-sidebar-avatar: var(--app-brand);")
+    expect(darkTheme).toContain("--app-sidebar-muted: #adb6c8;")
+    expect(darkTheme).toContain("--app-sidebar-avatar: var(--primary-action);")
     expect(darkTheme).toContain(
       "--app-sidebar-avatar-foreground: var(--app-brand-foreground);"
     )
@@ -100,11 +109,11 @@ describe("sidebar theme", () => {
     const lightTheme = cssRule(":root")
     const darkTheme = cssRule(".dark")
 
-    expect(lightTheme).toContain("--accent: #e9e9e9;")
-    expect(lightTheme).toContain("--app-hover: rgb(32 32 32 / 4%);")
+    expect(lightTheme).toContain("--accent: #e9f1ff;")
+    expect(lightTheme).toContain("--app-hover: #f2f6fd;")
     expect(lightTheme).toContain("--app-media-control-hover: #e9e9e9;")
-    expect(darkTheme).toContain("--accent: #2c2c2c;")
-    expect(darkTheme).toContain("--app-hover: rgb(255 255 255 / 6%);")
+    expect(darkTheme).toContain("--accent: #293347;")
+    expect(darkTheme).toContain("--app-hover: #282c36;")
     expect(darkTheme).toContain("--app-media-control-hover: #393939;")
     expect(sidebarStyles).toContain("--color-hover: var(--app-hover);")
   })
@@ -114,11 +123,11 @@ describe("sidebar theme", () => {
 
     expect(darkTheme).toContain("--background: #141414;")
     expect(darkTheme).toContain("--app-canvas: #141414;")
-    expect(darkTheme).toContain("--app-topbar: rgb(20 20 20 / 94%);")
-    expect(darkTheme).toContain("--card: #252525;")
-    expect(darkTheme).toContain("--app-composer: #252525;")
-    expect(darkTheme).toContain("--app-popover: #252525;")
-    expect(darkTheme).toContain("--app-control-surface: #303030;")
+    expect(darkTheme).toContain("--app-topbar: #202020;")
+    expect(darkTheme).toContain("--card: #202020;")
+    expect(darkTheme).toContain("--app-composer: #202020;")
+    expect(darkTheme).toContain("--app-popover: #202020;")
+    expect(darkTheme).toContain("--app-control-surface: #282828;")
   })
 
   it("uses sidebar-specific avatar colors for the account identity", () => {
@@ -134,9 +143,7 @@ describe("sidebar theme", () => {
     expect(sidebarStyles).toMatch(
       /\.sidebar-nav-item,[^}]*color:\s*var\(--app-sidebar-muted\);/u
     )
-    expect(cssRule(".sidebar-link")).toContain(
-      "color: var(--app-sidebar-muted);"
-    )
+    expect(cssRule(".sidebar-link")).toContain("color: var(--app-text);")
     expect(sidebarStyles).toMatch(
       /\.sidebar-nav-item:not\(\[data-active="true"\]\):hover,[^}]*background:\s*var\(--app-sidebar-hover\);/u
     )
@@ -234,7 +241,7 @@ describe("sidebar theme", () => {
       )
     ).toContain("top: calc((var(--conversation-top-bar-height) - 28px) / 2);")
     expect(cssRule(".desktop-sidebar-trigger:hover")).toContain(
-      "background: transparent;"
+      "background: var(--app-hover);"
     )
     expect(
       cssRule(
@@ -253,7 +260,6 @@ describe("sidebar theme", () => {
     for (const selector of [
       ".settings-back-link",
       ".settings-search-field input",
-      ".settings-navigation-group h2",
       ".settings-navigation-link",
       ".settings-navigation-empty",
     ]) {
@@ -264,9 +270,9 @@ describe("sidebar theme", () => {
     }
   })
 
-  it("matches the 32px category rows without vertical padding inflating task height", () => {
+  it("matches the 40px design rows without vertical padding inflating task height", () => {
     expect(sidebarStyles).toMatch(
-      /\.sidebar-link,\s*\.sidebar-conversation-link\s*\{[^}]*min-height:\s*32px;/u
+      /\.sidebar-link,\s*\.sidebar-conversation-link\s*\{[^}]*min-height:\s*40px;/u
     )
     expect(sidebarStyles).toMatch(
       /(?:^|\n)\.sidebar-conversation-link\s*\{[^}]*padding:\s*0 8px;/u
@@ -275,10 +281,10 @@ describe("sidebar theme", () => {
       /(?:^|\n)\.sidebar-conversation-link\s*\{[^}]*min-height:\s*36px;/u
     )
     expect(appShellSource).toContain(
-      'className="sidebar-conversation-link h-8"'
+      'className="sidebar-conversation-link h-10"'
     )
     expect(cssRule(".sidebar-conversation-item")).toContain(
-      "contain-intrinsic-size: auto 32px;"
+      "contain-intrinsic-size: auto 40px;"
     )
   })
 
@@ -314,7 +320,7 @@ describe("sidebar theme", () => {
       "outline: none;"
     )
     expect(cssRule(".sidebar-link")).toMatch(
-      /transition:\s*background-color 160ms ease,\s*color 160ms ease;/u
+      /transition:\s*background-color 160ms ease,\s*box-shadow 160ms ease,\s*color 160ms ease;/u
     )
     expect(sidebarStyles).not.toMatch(
       /\.sidebar-conversation-item:focus-within\s+\.sidebar-conversation-link/u

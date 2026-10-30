@@ -722,11 +722,9 @@ describe("knowledge-base document and access management", () => {
       expect(tabs.querySelector("svg")).not.toBeInTheDocument()
       const header = screen.getByRole("banner")
       expect(header).toHaveClass("pb-5")
-      expect(header.closest(".knowledge-library-page")).not.toContainElement(
-        tabs
-      )
+      expect(header.closest(".knowledge-library-page")).toContainElement(tabs)
       expect(
-        tabs.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING
+        header.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING
       ).toBeTruthy()
       expect(tabs.closest('[data-slot="tabs"]')).toContainElement(header)
       expect(

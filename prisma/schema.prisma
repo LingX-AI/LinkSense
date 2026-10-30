@@ -1961,6 +1961,8 @@ model ConversationMessageKnowledgeCitationAnchor {
 }
 
 model Automation {
+  monitoringJson Json? @map("monitoring_json") @db.JsonB
+  notificationTargetJson Json? @map("notification_target_json") @db.JsonB
   id               String    @id @default(uuid()) @db.Uuid
   ownerId          String    @map("owner_id") @db.Uuid
   conversationId   String    @map("conversation_id") @db.Uuid
@@ -1993,7 +1995,29 @@ model Automation {
   @@map("automations")
 }
 
+model AutomationNotificationDelivery {
+  id String @id @default(uuid()) @db.Uuid
+  automationId String @map("automation_id") @db.Uuid
+  runId String @unique(map: "automation_notifications_run_key") @map("run_id") @db.Uuid
+  ownerId String @map("owner_id") @db.Uuid
+  targetJson Json @map("target_json") @db.JsonB
+  status String @default("pending") @db.VarChar(24)
+  attempts Int @default(0)
+  processingToken String? @map("processing_token") @db.Uuid
+  nextAttemptAt DateTime @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  lastErrorCode String? @map("last_error_code") @db.VarChar(120)
+  sentAt DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, nextAttemptAt], map: "automation_notifications_due_idx")
+  @@index([ownerId], map: "automation_notifications_owner_idx")
+  @@index([automationId], map: "automation_notifications_automation_idx")
+  @@map("automation_notification_deliveries")
+}
+
 model AutomationRun {
+  executionContextJson Json? @map("execution_context_json") @db.JsonB
   id               String    @id @default(uuid()) @db.Uuid
   automationId     String    @map("automation_id") @db.Uuid
   ownerId          String    @map("owner_id") @db.Uuid

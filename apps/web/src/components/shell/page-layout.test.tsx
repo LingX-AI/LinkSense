@@ -3,24 +3,20 @@ import { describe, expect, it } from "vitest"
 
 import { PageLayout } from "./page-layout"
 
-describe("PageLayout content width", () => {
-  it("defaults to personal settings width and changes width with the selected page", () => {
+describe("PageLayout shared sizing", () => {
+  it("keeps the same shell-sized container when the page content changes", () => {
     const { rerender } = render(<PageLayout title="Settings">Form</PageLayout>)
     const page = screen.getByRole("banner").parentElement
-    expect(page).toHaveAttribute("data-content-width", "standard")
+    expect(page).toHaveClass("management-page")
+    expect(page).not.toHaveAttribute("data-content-width")
+    expect(page?.parentElement).toHaveClass("scrollbar-gutter-stable")
 
-    rerender(
-      <PageLayout title="Table" contentWidth="wide">
-        Loading
-      </PageLayout>
-    )
-    expect(page).toHaveAttribute("data-content-width", "wide")
+    rerender(<PageLayout title="Table">Loading</PageLayout>)
+    expect(screen.getByRole("banner").parentElement).toBe(page)
+    expect(page).toHaveTextContent("Loading")
 
-    rerender(
-      <PageLayout title="Form" contentWidth="standard">
-        Form
-      </PageLayout>
-    )
-    expect(page).toHaveAttribute("data-content-width", "standard")
+    rerender(<PageLayout title="Form">Form</PageLayout>)
+    expect(screen.getByRole("banner").parentElement).toBe(page)
+    expect(page).not.toHaveAttribute("data-content-width")
   })
 })

@@ -163,29 +163,84 @@ describe("conversation search dialog", () => {
     vi.unstubAllGlobals()
   })
 
+  it.each([true, false])(
+    "closes with Enter without navigating when results are available: %s",
+    async (hasResults) => {
+      vi.stubGlobal(
+        "fetch",
+        createSearchFetchMock({
+          conversations: hasResults ? [searchResults[1]] : [],
+          knowledgeBases: [],
+          artifacts: [],
+          plugins: [],
+          skills: [],
+        })
+      )
+      const interaction = userEvent.setup()
+      renderSearchDialog()
+      const dialog = await screen.findByRole("dialog", { name: "搜索" })
+      if (hasResults) {
+        await waitFor(() =>
+          expect(
+            within(dialog).getByRole("option", { name: "整理项目会议纪要" })
+          ).toHaveAttribute("aria-selected", "true")
+        )
+      } else {
+        await within(dialog).findByText("没有找到结果")
+      }
+      await waitFor(() =>
+        expect(within(dialog).getByRole("combobox")).toHaveFocus()
+      )
+      await interaction.tab()
+      expect(within(dialog).getByRole("button", { name: "关闭" })).toHaveFocus()
+      await interaction.keyboard("{Enter}")
+      await waitFor(() => expect(dialog).not.toBeInTheDocument())
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/conversations/conversation-1"
+      )
+      await interaction.click(
+        screen.getByRole("button", { name: "重新打开搜索" })
+      )
+      const reopened = await screen.findByRole("dialog", { name: "搜索" })
+      await waitFor(() =>
+        expect(within(reopened).getByRole("combobox")).toHaveFocus()
+      )
+      await interaction.tab()
+      expect(
+        within(reopened).getByRole("button", { name: "关闭" })
+      ).toHaveFocus()
+      await interaction.keyboard("{Escape}")
+      await waitFor(() => expect(reopened).not.toBeInTheDocument())
+    }
+  )
+
   it("uses the wider grouped palette layout with localized metadata", async () => {
     renderSearchDialog()
 
     const dialog = await screen.findByRole("dialog", { name: "搜索" })
     expect(dialog).toHaveClass(
       "conversation-search-dialog",
-      "max-w-[640px]!",
+      "max-w-[680px]!",
       "top-1/2",
       "-translate-y-1/2",
-      "rounded-[20px]!"
+      "rounded-xl!"
     )
     expect(
       dialog.querySelector(".conversation-search-command")?.className
-    ).toContain("[&_[data-slot=command-input-wrapper]]:px-5")
+    ).toContain("[&_[data-slot=command-input-wrapper]]:p-0")
     expect(dialog.querySelector('[data-slot="command-list"]')).toHaveClass(
-      "h-[min(76svh,34rem)]",
-      "max-h-[min(76svh,34rem)]!"
+      "h-[min(60svh,24rem)]",
+      "max-h-[min(60svh,24rem)]!"
     )
 
     const input = within(dialog).getByPlaceholderText(
       "搜索标题、消息、附件、产物、插件或 Skill…"
     )
     await waitFor(() => expect(input).toHaveFocus())
+    expect(input).toHaveClass("border-0", "bg-transparent", "outline-none")
+    expect(input).toHaveAccessibleName("搜索")
+    expect(dialog.querySelector('[data-design-icon="search"]')).toBeVisible()
+    expect(within(dialog).getByRole("button", { name: "关闭" })).toBeVisible()
     for (const heading of ["任务", "知识库", "任务产物", "插件", "技能"]) {
       expect(
         await within(dialog).findByText(heading, {
@@ -199,39 +254,53 @@ describe("conversation search dialog", () => {
     ).closest('[data-slot="command-item"]')
     expect(firstResult).toHaveClass(
       "conversation-search-result",
-      "rounded-xl!",
+      "rounded-lg!",
+      "min-h-16",
       "gap-3"
     )
     expect(firstResult?.querySelector(".lucide-message-square")).toHaveClass(
-      "ml-3",
-      "size-3.5",
-      "opacity-60"
+      "size-4.5"
     )
     expect(firstResult?.querySelector("time")).toHaveAttribute("datetime", now)
-    expect(firstResult?.querySelector("time")?.parentElement).toHaveClass(
-      "text-[length:var(--app-font-12)]"
-    )
     const knowledgeBaseResult = within(dialog)
       .getByText("多目录知识库")
       .closest('[data-slot="command-item"]')
     expect(knowledgeBaseResult).not.toBeNull()
     expect(knowledgeBaseResult?.querySelector(".lucide-book-open")).toHaveClass(
-      "ml-3",
-      "size-3.5",
-      "opacity-60"
+      "size-4.5"
     )
-    const knowledgeBaseTitleRow = within(
-      knowledgeBaseResult as HTMLElement
-    ).getByText("多目录知识库").parentElement
-    expect(knowledgeBaseTitleRow).toHaveClass("flex", "items-baseline")
     expect(
-      within(knowledgeBaseResult as HTMLElement).getByText(
-        "按目录管理的内部资料"
-      ).parentElement
-    ).toBe(knowledgeBaseTitleRow)
+      within(knowledgeBaseResult as HTMLElement).getByText("多目录知识库")
+    ).toHaveClass("truncate")
+    expect(knowledgeBaseResult).toHaveTextContent("按目录管理的内部资料")
     expect(within(dialog).getByText("季度总结.pdf")).toBeVisible()
     expect(within(dialog).getByText("网页抓取插件")).toBeVisible()
     expect(within(dialog).getByText("PPT 生成技能")).toBeVisible()
+
+    for (const [title, description] of [
+      ["多目录知识库", "按目录管理的内部资料"],
+      ["季度总结.pdf", "整理项目会议纪要"],
+      ["网页抓取插件", "抓取网页内容并整理摘要"],
+      ["PPT 生成技能", "生成可演示的 PPT 文稿"],
+    ] as const) {
+      const option = within(dialog).getByRole("option", { name: title })
+      expect(option).toHaveClass("min-h-16", "rounded-lg!", "gap-3")
+      expect(
+        option.querySelector('[data-slot="search-result-icon"]')
+      ).toHaveClass("size-9", "shrink-0")
+      expect(within(option).getByText(description)).toHaveAttribute(
+        "title",
+        description
+      )
+      expect(option).toHaveAccessibleDescription(
+        expect.stringContaining(description)
+      )
+    }
+
+    await userEvent
+      .setup()
+      .click(within(dialog).getByRole("button", { name: "关闭" }))
+    await waitFor(() => expect(dialog).not.toBeInTheDocument())
   })
 
   it("searches every supported source and navigates to the selected result", async () => {

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
+import { AccountAccessLayout } from "@/components/auth/account-access-layout"
 
 export function SocialCallbackPage() {
   const { t } = useTranslation()
@@ -75,8 +76,8 @@ export function SocialCallbackPage() {
   const failure = !["success", "linked", "verify_email"].includes(result)
   const showResultError = failure && (!initial.token || verify.isSuccess)
   return (
-    <div className="public-shell">
-      <main className="public-panel">
+    <AccountAccessLayout>
+      <div className="public-panel">
         <header>
           <h1>
             {t(
@@ -155,7 +156,7 @@ export function SocialCallbackPage() {
         <Link className="public-link" to="/settings/security">
           {t("social.returnSettings")}
         </Link>
-      </main>
-    </div>
+      </div>
+    </AccountAccessLayout>
   )
 }

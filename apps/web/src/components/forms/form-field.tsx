@@ -18,16 +18,16 @@ type FieldShellProps = {
   error?: string
   children: ReactNode
   className?: string
-  layout?: "default" | "settings"
+  layout?: "default" | "settings" | "account"
   controlWidth?: "compact" | "medium" | "wide" | "full"
   multiline?: boolean
 }
 
 const settingsControlWidths = {
-  compact: "md:max-w-48",
-  medium: "md:max-w-sm",
-  wide: "md:max-w-xl",
-  full: "md:max-w-none",
+  compact: "@2xl/field-group:max-w-48",
+  medium: "@2xl/field-group:max-w-sm",
+  wide: "@2xl/field-group:max-w-xl",
+  full: "@2xl/field-group:max-w-none",
 } as const
 
 export function FieldShell({
@@ -49,7 +49,7 @@ export function FieldShell({
         className={cn(
           "settings-field-row min-w-0 gap-3 py-4 first:pt-0 last:pb-0",
           !multiline &&
-            "md:grid md:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)] md:items-center md:gap-8",
+            "@2xl/field-group:grid @2xl/field-group:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)] @2xl/field-group:items-center @2xl/field-group:gap-8",
           className
         )}
         data-invalid={error ? true : undefined}
@@ -68,7 +68,7 @@ export function FieldShell({
         </FieldContent>
         <FieldContent
           className={cn(
-            "min-w-0 gap-1.5 md:w-full md:items-stretch md:justify-self-end",
+            "min-w-0 gap-1.5 @2xl/field-group:w-full @2xl/field-group:items-stretch @2xl/field-group:justify-self-end",
             !multiline && settingsControlWidths[controlWidth]
           )}
         >
@@ -85,10 +85,21 @@ export function FieldShell({
 
   return (
     <Field
-      className={cn("form-field gap-1.5", className)}
+      className={cn(
+        layout === "account" ? "grid min-w-0 gap-2" : "form-field gap-1.5",
+        className
+      )}
       data-invalid={error ? true : undefined}
     >
-      <FieldLabel htmlFor={id} className="form-label" required={required}>
+      <FieldLabel
+        htmlFor={id}
+        className={
+          layout === "account"
+            ? "text-sm leading-[var(--app-line-22)] font-medium"
+            : "form-label"
+        }
+        required={required}
+      >
         {label}
       </FieldLabel>
       {children}
@@ -133,7 +144,7 @@ export function SettingsFieldRow({
     <Field
       orientation="vertical"
       className={cn(
-        "settings-field-row min-w-0 gap-3 py-4 first:pt-0 last:pb-0 md:grid md:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)] md:items-center md:gap-8",
+        "settings-field-row min-w-0 gap-3 py-4 first:pt-0 last:pb-0 @2xl/field-group:grid @2xl/field-group:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)] @2xl/field-group:items-center @2xl/field-group:gap-8",
         className
       )}
       data-layout="settings"
@@ -150,7 +161,7 @@ export function SettingsFieldRow({
       </FieldContent>
       <FieldContent
         className={cn(
-          "min-w-0 md:w-full md:items-end md:justify-self-end",
+          "min-w-0 items-start @2xl/field-group:w-full @2xl/field-group:items-end @2xl/field-group:justify-self-end",
           settingsControlWidths[controlWidth]
         )}
       >

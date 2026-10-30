@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 // Rsync uses Docker exec as its transport. Dependencies and generated Prisma
 // code stay in the image; source is synchronized onto the Linux filesystem.
 export const developmentSourcePaths = {
-  api: ["apps/api/src", "apps/api/tsconfig.json", "packages/shared/src", "apps/docs/docs", "apps/docs/i18n/en-US/docusaurus-plugin-content-docs/current"],
+  api: ["apps/api/src", "apps/api/browser-extension", "apps/api/scripts", "apps/api/tsconfig.json", "apps/api/tsconfig.browser-extension.json", "apps/web/public/linksense-appicon.svg", "apps/web/src/index.css", "packages/shared/src", "apps/docs/docs", "apps/docs/i18n/en-US/docusaurus-plugin-content-docs/current"],
   runner: ["apps/runner/src", "apps/runner/tsconfig.json", "packages/shared/src"],
   web: ["apps/web/src", "apps/web/public", "apps/web/index.html", "apps/web/vite.config.ts", "packages/shared/src", "scripts/application-build.mjs", "scripts/source-fingerprint.mjs", "scripts/application-build.d.mts"],
 };

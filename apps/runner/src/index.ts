@@ -353,6 +353,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
             userHome,
             codexHome,
             workspace,
+            preserveHumanControl,
           }) =>
             cleanupManagedBrowserSession({
               command: browserCommand,
@@ -360,6 +361,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
               userHome,
               codexHome,
               workspace,
+              ...(preserveHumanControl ? { preserveHumanControl } : {}),
               ...(isWorker && !isLocalProcessWorker
                 ? { processIdentity: containerTaskProcessIdentity }
                 : {}),

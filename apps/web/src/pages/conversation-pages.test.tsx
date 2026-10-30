@@ -227,8 +227,16 @@ describe("archived conversation pagination", () => {
     vi.unstubAllGlobals()
   })
 
-  it("positions the LinkSense credit at the lower-right on desktop and hides it without extra spacing on mobile", async () => {
+  it("omits the new-task credit and keeps the existing-task credit at the lower-right without mobile spacing", async () => {
+    const interaction = userEvent.setup()
     renderPrewarmPage()
+    await screen.findByRole("textbox", { name: "任务输入框" })
+    expect(
+      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+    ).not.toBeInTheDocument()
+    await interaction.click(
+      screen.getByRole("button", { name: "测试切换已有任务" })
+    )
 
     const badge = await screen.findByRole("link", {
       name: "由 LinkSense 提供支持",
@@ -707,11 +715,13 @@ describe("conversation knowledge base snapshots", () => {
       expect(
         header.getByRole("button", { name: i18n.t("common.actions") })
       ).toBeVisible()
+      const shareButton = header.getByRole("button", {
+        name: i18n.t("conversation.share.action"),
+      })
+      expect(shareButton).toBeVisible()
       expect(
-        header.getByRole("button", {
-          name: i18n.t("conversation.share.action"),
-        })
-      ).toBeVisible()
+        shareButton.querySelector("[data-design-icon='share']")
+      ).toHaveClass("size-[calc(var(--app-ui-font-size)+6px)]")
       await waitFor(() => expect(client.isFetching()).toBe(0))
       if (hidden) {
         expect(
@@ -1014,7 +1024,7 @@ describe("conversation knowledge base snapshots", () => {
     expect(
       await screen.findByRole("button", { name: "移除附件 goal-brief.pdf" })
     ).toBeVisible()
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
     await interaction.click(screen.getByRole("option", { name: /目标/ }))
     await interaction.type(composer, objective)
     await interaction.click(screen.getByRole("button", { name: "发送" }))
@@ -1913,7 +1923,9 @@ describe("conversation knowledge base snapshots", () => {
     await interaction.keyboard("{Enter}")
 
     await waitFor(() => expect(turnStartAttempts).toBe(1))
-    expect(await screen.findByText("正在启动任务", { exact: true })).toBeVisible()
+    expect(
+      await screen.findByText("正在启动任务", { exact: true })
+    ).toBeVisible()
     await waitFor(() => expect(eventController).toBeDefined())
     const emitCompaction = (
       method: "item/started" | "item/completed",

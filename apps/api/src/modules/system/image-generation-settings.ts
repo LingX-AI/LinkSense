@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto"
 
 import {
   generatedImagePayloadSchema,
+  discoverImageGenerationModelsInputSchema,
+  type DiscoverImageGenerationModelsInput,
+  type DiscoverModelProviderResult,
   imageGenerationInternalResultSchema,
   imageGenerationPricePerImageSchema,
   imageGenerationProviderDefinitions,
@@ -31,6 +34,7 @@ import { detectSafeRasterImage } from "../../lib/safe-raster-image.js"
 import type { AuditContext } from "../audit/service.js"
 import type { ModelUsageRecorder } from "../usage/model-usage.js"
 import { inputImageDataUrl, validateImageEditingRequest } from "./image-editing.js"
+import { discoverImageGenerationModels } from "./image-generation-model-discovery.js"
 import {
   ImageTransparencyValidationError,
   prepareGeneratedImage,
@@ -145,6 +149,30 @@ export class ImageGenerationSettingsService {
 
   async getAdminSettings(): Promise<ImageGenerationSettings> {
     return projectAdminSettings(await this.readStoredSettings())
+  }
+
+  async discover(
+    rawInput: DiscoverImageGenerationModelsInput,
+  ): Promise<DiscoverModelProviderResult> {
+    if (!this.config.adminModelManagementEnabled) throw new AppError("MODEL_MANAGEMENT_DISABLED")
+    const input = discoverImageGenerationModelsInputSchema.parse(rawInput)
+    let apiKey = input.api_key
+    if (!apiKey) {
+      const current = await this.readStoredSettings()
+      const currentOptions = normalizedProviderOptions(
+        current?.provider ?? null,
+        current?.providerOptions ?? imageGenerationProviderOptionsSchema.parse({}),
+      )
+      const draftOptions = normalizedProviderOptions(input.provider, input.provider_options)
+      if (current?.provider === input.provider &&
+        new URL(resolveProviderBaseUrl(current.provider, current.providerOptions, current.baseUrl)).href === new URL(input.base_url).href &&
+        currentOptions.workspace_id === draftOptions.workspace_id &&
+        currentOptions.region === draftOptions.region) {
+        apiKey = current.apiKey ?? undefined
+      }
+    }
+    if (!apiKey) throw new AppError("MODEL_PROVIDER_CREDENTIAL_REQUIRED")
+    return discoverImageGenerationModels({ ...input, api_key: apiKey }, this.fetchImpl)
   }
 
   async update(

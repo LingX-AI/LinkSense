@@ -1,4 +1,5 @@
 import { useLayoutEffect, type RefObject } from "react"
+import { getConversationScrollViewport } from "./conversation-scroll-viewport"
 
 export const assistantHtmlPreviewViewportClassName =
   "h-[min(560px,var(--assistant-html-preview-height,70dvh))]"
@@ -10,7 +11,7 @@ export function useAssistantHtmlPreviewViewport(
 ): void {
   useLayoutEffect(() => {
     const preview = previewRef.current
-    const scroller = preview?.closest<HTMLElement>(".conversation-scroll")
+    const scroller = getConversationScrollViewport(preview)
     if (!preview || !scroller) return
     const workspace = scroller.closest(".conversation-workspace")
     const header = workspace?.querySelector(".conversation-top-bar")

@@ -1,6 +1,12 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages = {
+  AUTOMATION_EXPIRATION_IN_PAST: "La fecha de caducidad no puede ser anterior a hoy en la zona horaria de la automatización. Selecciona otra fecha.",
+  LOCAL_BROWSER_PAIR_RATE_LIMITED: "Demasiadas solicitudes de vinculación del navegador. Inténtalo de nuevo más tarde.",
+  AUTOMATION_RUN_LIMIT_REACHED: "Se agotó el límite de ejecuciones automáticas. Auméntalo o elimínalo antes de reanudar.",
+  BROWSER_PANEL_UNAVAILABLE: "Esta tarea no tiene una sesión de navegador disponible.",
+  BROWSER_CONTROL_BUSY: "El navegador está realizando una acción. Vuelve a intentarlo en breve.",
+  BROWSER_CONTROL_REQUIRED: "El control caducó o pertenece a otra ventana. Toma el control de nuevo.",
   CONNECTION_CLIENT_SECRET_REQUIRED: "Introduce el secreto de la aplicación. Si cambias el ID, también debes introducir el secreto de la nueva aplicación.",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Cuentas autorizadas: {{count}}. Cambiar el ID de la aplicación obliga a estos usuarios a volver a conectarse. Confirma este efecto antes de guardar.",
   SKILL_UNINSTALL_NOT_ALLOWED: "Esta habilidad no se puede desinstalar. El sistema proporciona las habilidades integradas.",

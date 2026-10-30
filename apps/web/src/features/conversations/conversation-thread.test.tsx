@@ -166,6 +166,56 @@ describe("conversation turn responses", () => {
     restoreUrlMethod("revokeObjectURL", originalRevokeObjectUrl)
   })
 
+  it.each(["running", "completed", "failed"] as const)(
+    "keeps end-user answers and confirmations without technical details for a %s turn",
+    (status) => {
+      const turn = {
+        ...completedConversation.turns![0]!,
+        status,
+        error_message: status === "failed" ? "Unable to finish." : null,
+      }
+      render(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            turns: [turn],
+            messages: completedConversation.messages?.map((message) =>
+              message.role === "assistant"
+                ? { ...message, phase: "final_answer" as const }
+                : message
+            ),
+            running_turn: status === "running" ? turn : null,
+            activities: [
+              {
+                id: "private-tool",
+                turn_id: "turn-1",
+                type: "tool_completed",
+                label: "Technical command details",
+              },
+            ],
+          }}
+          activityPresentation="end_user"
+          defaultActivityOpen
+          blockingPanel={<button>Confirm business action</button>}
+          onDownload={vi.fn()}
+        />
+      )
+      expect(screen.getByText("处理完成")).toBeVisible()
+      expect(
+        screen.getByRole("button", { name: "Confirm business action" })
+      ).toBeVisible()
+      expect(screen.queryByText("Technical command details")).toBeNull()
+      expect(
+        screen.queryByLabelText(i18n.t("conversation.expandActivity"))
+      ).toBeNull()
+      expect(document.querySelector(".turn-duration")).toBeNull()
+      if (status === "failed") {
+        expect(screen.getByText("Unable to finish.")).toBeVisible()
+        expect(screen.getByRole("alert")).toHaveTextContent("Unable to finish.")
+      }
+    }
+  )
+
   it("branches from the final terminal assistant message", async () => {
     const interaction = userEvent.setup()
     const onForkMessage = vi.fn(async () => undefined)
@@ -433,82 +483,130 @@ describe("conversation turn responses", () => {
     ).toBeVisible()
   })
 
-  it("hides a submitted form with collapsed activity and preserves its result when reopened", async () => {
-    const interaction = userEvent.setup()
-    render(
-      <ConversationThread
-        conversation={{
-          ...completedConversation,
-          user_input_requests: [
-            {
-              id: "30000000-0000-4000-8000-000000000007",
-              conversation_id: completedConversation.id,
-              turn_id: "turn-1",
-              item_id: "linksense-form-18",
-              kind: "form",
-              server_name: "linksense_core",
-              message: "请确认发布信息。",
-              requested_schema: {
-                type: "object",
-                properties: {
-                  title: { type: "string", title: "标题" },
-                },
-                required: ["title"],
+  it.each(["technical", "end_user"] as const)(
+    "preserves a submitted form result in %s presentation",
+    async (presentation) => {
+      const interaction = userEvent.setup()
+      render(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            messages: [
+              completedConversation.messages![0]!,
+              {
+                id: "guidance-before-confirmation",
+                role: "user",
+                turn_id: "turn-1",
+                usage_type: "steer_current_turn",
+                content: "Use the quarterly report.",
+                created_at: "2026-07-11T08:00:30.000Z",
               },
-              ui_hints: {},
-              response_semantics: { kind: "input" },
-              waiting_policy: null,
-              response_source: null,
-              response_content: { title: "季度复盘" },
-              status: "answered",
-              auto_resolve_at: "2026-07-11T08:10:00.000Z",
-              resolved_at: "2026-07-11T08:02:00.000Z",
-              resolved_action: "accept",
-              created_at: "2026-07-11T08:01:00.000Z",
-              updated_at: "2026-07-11T08:02:00.000Z",
-            },
-          ],
-        }}
-        onDownload={vi.fn()}
-      />
-    )
+              {
+                id: "guidance-after-confirmation",
+                role: "user",
+                turn_id: "turn-1",
+                usage_type: "steer_current_turn",
+                content: "Wait before publishing.",
+                created_at: "2026-07-11T08:03:00.000Z",
+              },
+              completedConversation.messages![1]!,
+            ],
+            user_input_requests: [
+              {
+                id: "30000000-0000-4000-8000-000000000007",
+                conversation_id: completedConversation.id,
+                turn_id: "turn-1",
+                item_id: "linksense-form-18",
+                kind: "form",
+                server_name: "linksense_core",
+                message: "请确认发布信息。",
+                requested_schema: {
+                  type: "object",
+                  properties: {
+                    title: { type: "string", title: "标题" },
+                  },
+                  required: ["title"],
+                },
+                ui_hints: {},
+                response_semantics: { kind: "input" },
+                waiting_policy: null,
+                response_source: null,
+                response_content: { title: "季度复盘" },
+                status: "answered",
+                auto_resolve_at: "2026-07-11T08:10:00.000Z",
+                resolved_at: "2026-07-11T08:02:00.000Z",
+                resolved_action: "accept",
+                created_at: "2026-07-11T08:01:00.000Z",
+                updated_at: "2026-07-11T08:02:00.000Z",
+              },
+            ],
+          }}
+          activityPresentation={presentation}
+          onDownload={vi.fn()}
+        />
+      )
 
-    const summary = screen.getByTestId("turn-summary-turn-1")
-    const finalReply = screen.getByRole("article", { name: "助手回复" })
-    expect(screen.queryByTestId("conversation-user-input-request")).toBeNull()
-    expect(within(finalReply).getByText("处理完成")).toBeVisible()
-
-    for (let cycle = 0; cycle < 2; cycle++) {
-      await interaction.click(
-        within(summary).getByRole("button", { name: "展开中间过程" })
-      )
-      const formSummary = within(summary).getByRole("button", {
-        name: "请确认发布信息。",
-      })
-      expect(formSummary).toHaveAttribute("aria-expanded", "false")
-      expect(within(summary).queryByRole("textbox")).toBeNull()
-      await interaction.click(formSummary)
-      const card = within(summary).getByTestId(
-        "conversation-user-input-request"
-      )
-      expect(card).toBeVisible()
-      expect(card).toHaveAttribute("data-request-status", "submitted")
-      expect(within(card).getByText("已提交")).toBeVisible()
-      expect(within(card).getByRole("textbox", { name: /标题/ })).toHaveValue(
-        "季度复盘"
-      )
-      expect(within(card).getByRole("textbox", { name: /标题/ })).toBeDisabled()
-      expect(
-        screen.getAllByTestId("conversation-user-input-request")
-      ).toHaveLength(1)
-
-      await interaction.click(
-        within(summary).getByRole("button", { name: "收起中间过程" })
-      )
-      expect(screen.queryByTestId("conversation-user-input-request")).toBeNull()
+      const summary = screen.getByTestId("turn-summary-turn-1")
+      const finalReply = screen.getByRole("article", { name: "助手回复" })
+      if (presentation === "technical")
+        expect(
+          screen.queryByTestId("conversation-user-input-request")
+        ).toBeNull()
       expect(within(finalReply).getByText("处理完成")).toBeVisible()
+
+      for (let cycle = 0; cycle < 2; cycle++) {
+        if (presentation === "technical") {
+          await interaction.click(
+            within(summary).getByRole("button", { name: "展开中间过程" })
+          )
+        }
+        const formSummary = within(summary).getByRole("button", {
+          name: "请确认发布信息。",
+        })
+        expect(
+          within(summary)
+            .getByText("Use the quarterly report.")
+            .compareDocumentPosition(formSummary) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+        expect(
+          formSummary.compareDocumentPosition(
+            within(summary).getByText("Wait before publishing.")
+          ) & Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+        expect(formSummary).toHaveAttribute("aria-expanded", "false")
+        expect(within(summary).queryByRole("textbox")).toBeNull()
+        await interaction.click(formSummary)
+        const card = within(summary).getByTestId(
+          "conversation-user-input-request"
+        )
+        expect(card).toBeVisible()
+        expect(card).toHaveAttribute("data-request-status", "submitted")
+        expect(within(card).getByText("已提交")).toBeVisible()
+        expect(within(card).getByRole("textbox", { name: /标题/ })).toHaveValue(
+          "季度复盘"
+        )
+        expect(
+          within(card).getByRole("textbox", { name: /标题/ })
+        ).toBeDisabled()
+        expect(
+          screen.getAllByTestId("conversation-user-input-request")
+        ).toHaveLength(1)
+
+        if (presentation === "technical") {
+          await interaction.click(
+            within(summary).getByRole("button", { name: "收起中间过程" })
+          )
+          expect(
+            screen.queryByTestId("conversation-user-input-request")
+          ).toBeNull()
+        } else {
+          await interaction.click(formSummary)
+        }
+        expect(within(finalReply).getByText("处理完成")).toBeVisible()
+      }
     }
-  })
+  )
 
   it("keeps streamed assistant markdown stable while work is still running", () => {
     const { container } = render(
@@ -2756,7 +2854,7 @@ describe("conversation turn responses", () => {
     )
 
     const userMessage = screen.getByRole("article", { name: "用户消息" })
-    const skillLabel = within(userMessage).getByText("LinkSense 浏览器")
+    const skillLabel = within(userMessage).getByText("LinkSense 云端浏览器")
     const knowledgeBaseLabel = within(userMessage).getByText("AISG Policy")
     expect(skillLabel).toBeVisible()
     expect(skillLabel).toHaveClass("user-message-capability-label")
@@ -9007,9 +9105,23 @@ describe("conversation turn responses", () => {
   it("shows assistant action names immediately without tooltip arrows", () => {
     render(
       <ConversationThread
-        conversation={completedConversation}
+        conversation={{
+          ...completedConversation,
+          messages: completedConversation.messages?.map((message) =>
+            message.role === "assistant"
+              ? { ...message, id: "30000000-0000-4000-8000-000000000001" }
+              : message
+          ),
+        }}
         onDownload={vi.fn()}
         onForkMessage={vi.fn().mockResolvedValue(undefined)}
+        onRegenerateMessage={vi.fn().mockResolvedValue(undefined)}
+        messageReferenceAction={{
+          mode: "ask",
+          label: "旁边问这段",
+          tooltipLabel: "旁聊",
+          onSelect: vi.fn(),
+        }}
       />
     )
 
@@ -9028,13 +9140,13 @@ describe("conversation turn responses", () => {
     fireEvent.mouseEnter(copyButton)
     fireEvent.mouseMove(copyButton, { movementX: 3, movementY: 0 })
     const copyTooltip = screen.getByRole("tooltip")
-    expect(copyTooltip).toHaveTextContent("复制消息")
+    expect(copyTooltip.textContent).toBe("复制")
     expect(copyTooltip).toHaveClass(
       "rounded-md",
       "border",
       "border-[var(--app-border)]",
       "bg-[var(--app-popover)]",
-      "font-medium",
+      "font-normal",
       "text-[var(--app-text)]"
     )
     expect(copyTooltip).not.toHaveClass("rounded-full", "rounded-xl")
@@ -9045,16 +9157,31 @@ describe("conversation turn responses", () => {
     fireEvent.mouseEnter(forkButton)
     fireEvent.mouseMove(forkButton, { movementX: 3, movementY: 0 })
     const forkTooltip = screen.getByRole("tooltip")
-    expect(forkTooltip).toHaveTextContent("分支到新聊天")
+    expect(forkTooltip.textContent).toBe("分支")
     expect(forkTooltip).toHaveClass(
       "rounded-md",
       "border",
       "border-[var(--app-border)]",
       "bg-[var(--app-popover)]",
-      "font-medium",
+      "font-normal",
       "text-[var(--app-text)]"
     )
     expect(forkTooltip).not.toHaveClass("rounded-full", "rounded-xl")
+    fireEvent.pointerLeave(forkButton, { pointerType: "mouse" })
+    fireEvent.mouseLeave(forkButton)
+    const sideChatButton = within(assistantMessage).getByRole("button", {
+      name: "旁边问这段",
+    })
+    fireEvent.pointerEnter(sideChatButton, { pointerType: "mouse" })
+    fireEvent.mouseEnter(sideChatButton)
+    fireEvent.mouseMove(sideChatButton, { movementX: 3, movementY: 0 })
+    expect(screen.getByRole("tooltip").textContent).toBe("旁聊")
+    expect(
+      within(screen.getByRole("article", { name: "用户消息" })).getByRole(
+        "button",
+        { name: "编辑消息" }
+      )
+    ).toHaveAttribute("title", "编辑")
     expect(document.querySelector(".rotate-45")).not.toBeInTheDocument()
   })
 

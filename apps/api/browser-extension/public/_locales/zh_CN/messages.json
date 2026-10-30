@@ -1,0 +1,86 @@
+{
+  "extensionName": {
+    "message": "LinkSense Browser Use"
+  },
+  "extensionDescription": {
+    "message": "让 LinkSense 使用已有登录态操作你授权的 Chrome/Edge 网页。"
+  },
+  "consent": {
+    "message": "请仅连接你信任的 LinkSense。授权页面的信息与截图会发送给 LinkSense 及其配置的模型。连接将替换之前的浏览器连接。"
+  },
+  "newTabs": {
+    "message": "允许新建标签页"
+  },
+  "connect": {
+    "message": "重新连接"
+  },
+  "allow": {
+    "message": "授权当前网页"
+  },
+  "release": {
+    "message": "停止共享当前网页"
+  },
+  "disconnect": {
+    "message": "断开连接"
+  },
+  "connected": {
+    "message": "已连接"
+  },
+  "disconnected": {
+    "message": "未连接"
+  },
+  "startFromSettings": {
+    "message": "打开 LinkSense 并登录"
+  },
+  "failed": {
+    "message": "操作未完成，请检查连接后重试。"
+  },
+  "subtitle": {
+    "message": "Browser Use"
+  },
+  "server": {
+    "message": "连接的 LinkSense"
+  },
+  "pending": {
+    "message": "待确认"
+  },
+  "reconnecting": {
+    "message": "连接中…"
+  },
+  "confirmHint": {
+    "message": "首次确认此站点后，之后会自动连接。"
+  },
+  "automaticHint": {
+    "message": "已就绪，断线后会自动重连。"
+  },
+  "disconnectedHint": {
+    "message": "打开 LinkSense 并登录后自动连接。"
+  },
+  "confirm": {
+    "message": "信任并连接"
+  },
+  "currentPage": {
+    "message": "当前网页"
+  },
+  "shared": {
+    "message": "已共享"
+  },
+  "newTabsHint": {
+    "message": "任务需要时，允许助手打开新的网页。"
+  },
+  "privacyShort": {
+    "message": "仅操作共享网页"
+  },
+  "privacyDetails": {
+    "message": "权限与隐私"
+  },
+  "pageHint": {
+    "message": "共享此页后，助手可以读取内容并操作网页。"
+  },
+  "sharedHint": {
+    "message": "助手可以使用此页，你可随时停止共享。"
+  },
+  "restrictedPage": {
+    "message": "请切换到需要共享的普通网页。LinkSense 和浏览器内部页不可共享。"
+  }
+}

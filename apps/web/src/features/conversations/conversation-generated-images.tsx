@@ -183,7 +183,7 @@ export function ConversationGeneratedImages({
                   aria-label={t("conversation.imageGeneration.selectImage", {
                     name: file.name,
                   })}
-                  className="size-14 min-h-0 flex-none shrink-0 overflow-hidden rounded-xl p-0 data-active:ring-2 data-active:ring-ring data-active:ring-offset-2 data-active:ring-offset-background"
+                  className="size-14 min-h-0 flex-none shrink-0 overflow-hidden p-0.5 data-active:ring-2 data-active:ring-ring data-active:ring-offset-2 data-active:ring-offset-background"
                 >
                   <AssistantMarkdownImage
                     source={`linksense-artifact:${file.id}`}

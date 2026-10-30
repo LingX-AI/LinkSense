@@ -22,6 +22,27 @@ afterEach(async () => {
 });
 
 describe("application embed routes", () => {
+  it.each([undefined, "technical", "end_user"])("validates embed presentation without changing access policy (%s)", async (presentation) => {
+    const { app } = await routeFixture("public");
+    const response = await app.inject({
+      url: `/api/v1/embed/frame/${APP_ID}?parent_origin=${encodeURIComponent(ORIGIN)}${presentation ? `&presentation=${presentation}` : ""}`,
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    if (presentation === "end_user") {
+      expect(response.body).toContain("&quot;presentation&quot;:&quot;end_user&quot;");
+    } else {
+      // Existing cached clients use a strict config schema without this field.
+      expect(response.body).not.toContain("&quot;presentation&quot;");
+    }
+    expect(response.headers["content-security-policy"]).toContain(`frame-ancestors ${ORIGIN}`);
+  });
+
+  it("rejects unknown embed presentation values", async () => {
+    const { app } = await routeFixture("public");
+    const response = await app.inject({ url: `/api/v1/embed/frame/${APP_ID}?parent_origin=${encodeURIComponent(ORIGIN)}&presentation=unsafe` });
+    expect(response.statusCode).toBe(400);
+  });
+
   it.each(["public", "required"] as const)("blocks %s embedded business requests while keeping the frame available during maintenance", async (authMode) => {
     const { app, external, acceptTurn, getMaintenanceStatus } = await routeFixture(authMode, { maintenanceActive: true });
     for (const headers of [

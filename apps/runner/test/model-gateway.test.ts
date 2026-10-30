@@ -35,6 +35,80 @@ afterEach(async () => {
 });
 
 describe("ModelGateway", () => {
+  it.each([404, 405, 401, 503])("bounds WebSocket path adaptation on HTTP %i without sending model input", async (rejectUpgradeStatus) => {
+    const onUpgrade = vi.fn();
+    const onConnection = vi.fn();
+    const upstream = await startWebSocketUpstream({ rejectUpgradeStatus, onUpgrade, onConnection });
+    const gateway = await startGateway();
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "missing-websocket-path", revision: 1,
+      upstreamBaseUrl: `${upstream.baseUrl}/v1`, apiKey: "provider-key", protocolMode: "native_responses", model: "model-a",
+    });
+
+    expect(await rejectedWebSocketStatus(gateway, lease.token)).not.toBe(101);
+    expect(onUpgrade).toHaveBeenCalledTimes(rejectUpgradeStatus === 404 || rejectUpgradeStatus === 405 ? 2 : 1);
+    expect(onConnection).not.toHaveBeenCalled();
+  });
+
+  it.each(["native_responses", "responses_tool_compat", "chat_completions_bridge"] as const)("adapts /v1 for actual %s HTTP requests", async (protocolMode) => {
+    for (const [basePath, resolvedPath] of [["/proxy", "/proxy/v1"], ["/proxy/v1", "/proxy"]]) {
+      const endpoint = protocolMode === "chat_completions_bridge" ? "chat/completions" : "responses";
+      const fetchUpstream = vi.fn<typeof fetch>().mockImplementation(async (input) =>
+        String(input) === `https://provider.example.test${resolvedPath}/${endpoint}`
+          ? Response.json(protocolMode === "chat_completions_bridge"
+            ? { id: "completion-auto-path", choices: [{ message: { content: "OK" } }] }
+            : { id: "resp-auto-path", status: "completed", output: [] })
+          : new Response(null, { status: 404 }));
+      const gateway = await startGateway({ fetch: fetchUpstream });
+      const lease = gateway.issueLease({
+        ...leaseMetering, conversationId: `auto-path-${basePath}`, revision: 1,
+        upstreamBaseUrl: `https://provider.example.test${basePath}`, apiKey: "provider-key",
+        protocolMode, model: "model-a",
+      });
+
+      const response = await requestGateway(gateway, lease.token, { model: "model-a", input: "hello", stream: false });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ status: "completed" });
+      expect(fetchUpstream.mock.calls.map(([url]) => String(url))).toEqual([
+        `https://provider.example.test${basePath}/${endpoint}`, `https://provider.example.test${resolvedPath}/${endpoint}`,
+      ]);
+      expect(fetchUpstream.mock.calls[1]?.[1]).toEqual(fetchUpstream.mock.calls[0]?.[1]);
+    }
+  });
+
+  it.each(["native_responses", "responses_tool_compat"] as const)("adapts /v1 before sending any %s WebSocket inference", async (protocolMode) => {
+    for (const [basePath, resolvedPath] of [["/proxy", "/proxy/v1"], ["/proxy/v1", "/proxy"]]) {
+      const upgrades: string[] = [];
+      let receivedMessages = 0;
+      const upstream = await startWebSocketUpstream({
+        upgradePath: `${resolvedPath}/responses`,
+        onUpgrade(request: IncomingMessage) {
+          upgrades.push(request.url ?? "");
+        },
+        onConnection(socket: WebSocket) {
+          socket.on("message", () => {
+            receivedMessages += 1;
+            socket.send(JSON.stringify({ type: "response.completed", response: { id: "resp-auto-path", status: "completed", output: [] } }));
+          });
+        },
+      });
+      const gateway = await startGateway();
+      const lease = gateway.issueLease({
+        ...leaseMetering, conversationId: `auto-path-ws-${basePath}`, revision: 1,
+        upstreamBaseUrl: `${upstream.baseUrl}${basePath}`, apiKey: "provider-key", protocolMode, model: "model-a",
+      });
+      const downstream = await connectGatewayWebSocket(gateway, lease.token);
+      const completed = nextWebSocketJson(downstream.socket);
+      downstream.socket.send(JSON.stringify({ type: "response.create", model: "model-a", input: "hello" }));
+
+      expect(await completed).toMatchObject({ type: "response.completed" });
+      expect(upgrades).toEqual([`${basePath}/responses`, `${resolvedPath}/responses`]);
+      expect(receivedMessages).toBe(1);
+      await closeWebSocket(downstream.socket);
+    }
+  });
+
   it("accepts HTTP requests above 32 MiB under the new 128 MiB limit", async () => {
     let receivedBytes = 0;
     const gateway = await startGateway({ fetch: async (_url, init) => {
@@ -2829,6 +2903,7 @@ async function startWebSocketUpstream(
   options: {
     responseHeaders?: Readonly<Record<string, string>>;
     rejectUpgradeStatus?: number;
+    upgradePath?: string;
     onUpgrade?: (request: IncomingMessage) => void;
     onConnection?: (socket: WebSocket, request: IncomingMessage) => void;
     onHttpRequest?: (
@@ -2862,10 +2937,11 @@ async function startWebSocketUpstream(
   });
   server.on("upgrade", (request, socket, head) => {
     options.onUpgrade?.(request);
-    if (options.rejectUpgradeStatus) {
+    const rejectedStatus = options.rejectUpgradeStatus ?? (options.upgradePath && request.url !== options.upgradePath ? 404 : undefined);
+    if (rejectedStatus) {
       socket.end(
         [
-          `HTTP/1.1 ${options.rejectUpgradeStatus} Service Unavailable`,
+          `HTTP/1.1 ${rejectedStatus} Service Unavailable`,
           "Connection: close",
           "Content-Length: 0",
           "",

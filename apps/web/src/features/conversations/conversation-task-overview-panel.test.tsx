@@ -1,4 +1,11 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -8,8 +15,9 @@ import type {
   NativeCodexItem,
 } from "@/api/contracts"
 import { ConversationTaskOverviewPanel } from "@/features/conversations/conversation-task-overview-panel"
-import i18n from "@/i18n"
+import i18n, { supportedLanguages } from "@/i18n"
 import appStyles from "@/index.css?raw"
+import { formatFileSize } from "@/i18n/date"
 
 const agentKeyA = `agent_${"a".repeat(24)}`
 const agentKeyB = `agent_${"b".repeat(24)}`
@@ -121,7 +129,7 @@ describe("ConversationTaskOverviewPanel", () => {
     expect(resizeCallbacks.has(header)).toBe(true)
     const positioner = popup.parentElement
     await waitFor(() =>
-      expect(positioner).toHaveStyle("transform: translate(1788px, 68px)")
+      expect(positioner).toHaveStyle("transform: translate(1772px, 76px)")
     )
 
     for (const nextRight of [1100, 1350, 950, 1800, 1100, 1800]) {
@@ -129,7 +137,7 @@ describe("ConversationTaskOverviewPanel", () => {
       act(() => resizeCallbacks.get(header)?.())
       await waitFor(() =>
         expect(positioner).toHaveStyle(
-          `transform: translate(${nextRight - 12}px, 68px)`
+          `transform: translate(${nextRight - 28}px, 76px)`
         )
       )
       expect(screen.getByRole("region", { name: "任务概览" })).toBe(popup)
@@ -144,7 +152,7 @@ describe("ConversationTaskOverviewPanel", () => {
     })
     await waitFor(() =>
       expect(reopenedPopup.parentElement).toHaveStyle(
-        "transform: translate(1438px, 68px)"
+        "transform: translate(1422px, 76px)"
       )
     )
     expect(resizeCallbacks.has(header)).toBe(true)
@@ -153,7 +161,7 @@ describe("ConversationTaskOverviewPanel", () => {
     expect(disconnect).toHaveBeenCalled()
   })
 
-  it("uses compact rows and matching action icons for files and sources", async () => {
+  it("matches the design's panel spacing, counted groups, and two-line file cards", async () => {
     const props = {
       events: [],
       files: [artifact, { ...artifact, id: "artifact-2", name: "second.pdf" }],
@@ -170,12 +178,39 @@ describe("ConversationTaskOverviewPanel", () => {
     const links = screen.getAllByRole("link")
     expect(downloads).toHaveLength(2)
     expect(links).toHaveLength(2)
-    for (const row of [...downloads, ...links]) {
-      expect(row).toHaveClass("h-8")
-      expect(row.lastElementChild).toHaveClass("size-3.5")
+    const panel = screen.getByRole("region", { name: "任务概览" })
+    expect(panel).toHaveClass("w-80", "p-4", "gap-5", "rounded-card")
+    for (const name of ["产出文件", "来源"]) {
+      const group = within(panel).getByRole("region", { name })
+      expect(within(group).getByText("2")).toHaveClass("text-xs", "font-normal")
+      expect(group).toHaveClass("gap-2")
+      expect(group).not.toHaveClass("px-4", "py-3")
     }
-    expect(downloads[0].parentElement).toHaveClass("flex", "flex-col", "gap-0")
-    expect(links[0].closest("ul")).toHaveClass("gap-0")
+    for (const row of [...downloads, ...links]) {
+      expect(row).toHaveClass(
+        "min-h-14",
+        "border",
+        "border-border",
+        "bg-(--app-activity-surface)",
+        "rounded-lg",
+        "px-2"
+      )
+      expect(row.firstElementChild).toHaveClass("size-7")
+      expect(row.lastElementChild).toHaveClass("size-7")
+      expect(row.lastElementChild?.firstElementChild).toHaveClass(
+        "size-5",
+        "forced-colors:bg-[ButtonText]",
+        "forced-colors:forced-color-adjust-none"
+      )
+    }
+    expect(downloads[0].parentElement).toHaveClass("flex", "flex-col", "gap-2")
+    expect(links[0].closest("ul")).toHaveClass("gap-2")
+    expect(
+      within(downloads[0]).getByText(
+        `PDF · ${formatFileSize(artifact.size, "zh-CN")}`
+      )
+    ).toHaveClass("text-xs", "font-normal")
+    expect(within(links[0]).getByText("example.test")).toHaveClass("text-xs")
     view.rerender(
       <ConversationTaskOverviewPanel
         {...props}
@@ -183,8 +218,8 @@ describe("ConversationTaskOverviewPanel", () => {
       />
     )
     expect(downloads[0]).toBeDisabled()
-    expect(downloads[0].lastElementChild).toHaveClass(
-      "size-3.5",
+    expect(downloads[0].lastElementChild?.firstElementChild).toHaveClass(
+      "size-5",
       "animate-spin"
     )
   })
@@ -228,12 +263,14 @@ describe("ConversationTaskOverviewPanel", () => {
     const overviewButton = screen.getByRole("button", {
       name: "关闭任务概览",
     })
+    expect(overviewButton).toHaveClass("aria-expanded:bg-transparent")
     expect(overviewCard.parentElement).toHaveStyle({
-      transform: "translate(0px, 28px)",
+      transform: "translate(0px, 24px)",
     })
     expect(overviewCard).toHaveClass(
       "task-overview-card-border",
       "task-overview-card-shadow",
+      "rounded-card",
       "shadow-none",
       "ring-0"
     )
@@ -301,7 +338,34 @@ describe("ConversationTaskOverviewPanel", () => {
     expect(await screen.findByText("任务概览")).toBeVisible()
   })
 
-  it("uses a large low-opacity centered shadow in both themes", () => {
+  it("allows temporary controlled visibility without changing the saved preference", async () => {
+    window.localStorage.setItem("linksense.taskOverviewOpen", "true")
+    const panelRef = { current: null as HTMLDivElement | null }
+    const onOpenChange = vi.fn()
+    const props = {
+      events: [],
+      files: [],
+      onDownload: vi.fn(),
+      panelRef,
+      onOpenChange,
+    }
+    const { rerender } = render(
+      <ConversationTaskOverviewPanel {...props} open={false} />
+    )
+    expect(
+      screen.queryByRole("region", { name: "任务概览" })
+    ).not.toBeInTheDocument()
+    rerender(<ConversationTaskOverviewPanel {...props} open />)
+    expect(await screen.findByRole("region", { name: "任务概览" })).toBe(
+      panelRef.current
+    )
+    expect(window.localStorage.getItem("linksense.taskOverviewOpen")).toBe(
+      "true"
+    )
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it("uses the shared information-overlay shadow instead of a centered halo", () => {
     expect(appStyles).toContain(
       ".task-overview-card-border {\n  border: 1px solid var(--app-border);\n}"
     )
@@ -309,16 +373,14 @@ describe("ConversationTaskOverviewPanel", () => {
       ".task-overview-card-shadow {\n  box-shadow: var(--app-task-overview-shadow);\n}"
     )
     expect(appStyles).toContain(
-      "--app-task-overview-shadow: 0 0 28px rgb(0 0 0 / 8%);"
+      "--app-task-overview-shadow: var(--app-dialog-shadow);"
     )
-    expect(appStyles).toContain(
-      "--app-task-overview-shadow: 0 0 28px rgb(0 0 0 / 24%);"
-    )
+    expect(appStyles).not.toContain("--app-task-overview-shadow: 0 0 28px")
   })
 
   it("recenters the content while keeping the thread scrollbar at the outer edge", () => {
     expect(appStyles).toContain(
-      "--conversation-task-overview-lane-width: 20rem;"
+      "--conversation-task-overview-lane-width: 21.75rem;"
     )
     expect(appStyles).toContain(
       '.conversation-workspace[data-task-overview-open="true"]'
@@ -371,7 +433,7 @@ describe("ConversationTaskOverviewPanel", () => {
     expect(emptyState).not.toHaveClass("text-sm")
   })
 
-  it("uses readable typography and compact icon sizing for output file rows", async () => {
+  it("uses the design's title hierarchy and 20px icons in 28px slots", async () => {
     render(
       <ConversationTaskOverviewPanel
         events={[]}
@@ -386,11 +448,91 @@ describe("ConversationTaskOverviewPanel", () => {
     const fileIcon = fileRow.querySelector('[data-file-icon-kind="pdf"]')
 
     expect(appStyles).toContain("--text-sm: var(--app-ui-font-size);")
-    expect(screen.getByText("任务概览")).toHaveClass("text-sm")
-    expect(screen.getByText("任务概览")).not.toHaveClass("text-base")
+    expect(screen.getByText("任务概览")).toHaveClass("text-base", "leading-6")
+    expect(screen.getByText("任务概览")).not.toHaveClass("text-sm")
     expect(screen.getByText("产出文件")).toHaveClass("text-sm")
     expect(screen.getByText("产出文件")).not.toHaveClass("text-base")
     expect(fileRow).toHaveClass("text-sm", "hover:bg-hover")
-    expect(fileIcon).toHaveClass("size-4")
+    expect(fileIcon).toHaveClass("size-5")
+    expect(fileIcon?.parentElement).toHaveClass("size-7")
   })
+
+  it("shows existing files without size metadata and keeps unavailable downloads disabled", async () => {
+    render(
+      <ConversationTaskOverviewPanel
+        events={[]}
+        files={[
+          {
+            ...artifact,
+            name: "README",
+            size: undefined,
+            download_available: false,
+          },
+        ]}
+        onDownload={vi.fn()}
+      />
+    )
+    const download = await screen.findByRole("button", { name: "下载 README" })
+    expect(download).toBeDisabled()
+    expect(download).toHaveTextContent("README")
+    expect(download).not.toHaveTextContent("undefined")
+    expect(download).not.toHaveTextContent("NaN")
+  })
+
+  it.each([
+    ["application/pdf", "PDF"],
+    ["text/csv", "CSV"],
+    [
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "XLSX",
+    ],
+  ])(
+    "shows the known format for an extensionless %s file",
+    async (mimeType, format) => {
+      render(
+        <ConversationTaskOverviewPanel
+          events={[]}
+          files={[{ ...artifact, name: "download", mime_type: mimeType }]}
+          onDownload={vi.fn()}
+        />
+      )
+      const download = await screen.findByRole("button", {
+        name: "下载 download",
+      })
+      expect(download).toHaveTextContent(
+        `${format} · ${formatFileSize(artifact.size, "zh-CN")}`
+      )
+    }
+  )
+
+  it.each(supportedLanguages)(
+    "localizes file details and group labels in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      render(
+        <ConversationTaskOverviewPanel
+          events={[]}
+          files={[artifact]}
+          onDownload={vi.fn()}
+        />
+      )
+      const panel = await screen.findByRole("region", {
+        name: i18n.t("conversation.taskOverview.title"),
+      })
+      expect(
+        within(panel).getByText(i18n.t("conversation.taskOverview.outputFiles"))
+      ).toBeVisible()
+      expect(
+        within(panel).getByText(i18n.t("conversation.taskOverview.sources"))
+      ).toBeVisible()
+      expect(
+        within(panel).getByText(
+          `PDF · ${formatFileSize(artifact.size, language)}`.replace(
+            /\s/gu,
+            " "
+          )
+        )
+      ).toBeVisible()
+    }
+  )
 })

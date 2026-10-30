@@ -1,6 +1,6 @@
 import type { ApplicationIconFormState } from "./application-icon-form"
 import { useRef, useState } from "react"
-import { UploadIcon } from "lucide-react"
+import { CheckIcon, UploadIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
   DEFAULT_APPLICATION_ICON_PRESET,
@@ -53,11 +53,11 @@ export function ApplicationIconField({
   return (
     <Field data-invalid={Boolean(error)}>
       <FieldLabel>{t("applications.icon")}</FieldLabel>
-      <div className="flex flex-col items-start gap-4 sm:flex-row">
-        <ApplicationIconDisplay icon={displayed} className="size-16" />
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
+      <div className="flex flex-wrap items-start gap-8">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <ApplicationIconDisplay icon={displayed} className="size-13" />
           <ToggleGroup
-            variant="outline"
+            variant="default"
             disabled={disabled}
             value={value.mode === "preset" ? [value.preset] : []}
             onValueChange={(values) => {
@@ -69,81 +69,93 @@ export function ApplicationIconField({
               onChange({ mode: "preset", preset: preset.data })
             }}
             aria-label={t("applications.iconPresetLabel")}
-            spacing={1}
-            className="grid w-full grid-cols-5 sm:grid-cols-10"
+            spacing={2}
+            className="flex-wrap gap-2"
           >
-            {applicationIconPresetOptions.map((option) => (
-              <ToggleGroupItem
-                key={option.value}
-                value={option.value}
-                aria-label={t(`applications.iconPresets.${option.value}`)}
-                className="aspect-square h-auto min-h-7 w-full min-w-0 p-0"
-              >
-                <ApplicationPresetIcon preset={option.value} />
-              </ToggleGroupItem>
-            ))}
+            {applicationIconPresetOptions.map((option) => {
+              const selected =
+                value.mode === "preset" && value.preset === option.value
+              return (
+                <ToggleGroupItem
+                  key={option.value}
+                  value={option.value}
+                  aria-label={t(`applications.iconPresets.${option.value}`)}
+                  className="relative size-13! min-w-0 rounded-[10px]! border border-transparent p-1.5! hover:border-input-hover hover:bg-transparent! focus-visible:border-ring focus-visible:ring-0! aria-pressed:border-primary aria-pressed:bg-accent!"
+                >
+                  <ApplicationPresetIcon preset={option.value} />
+                  {selected && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute right-0.5 bottom-0.5 grid size-3.5 place-items-center rounded-[7px] border-[1.5px] border-white bg-primary-action text-primary-foreground"
+                    >
+                      <CheckIcon className="size-2.5" strokeWidth={3} />
+                    </span>
+                  )}
+                </ToggleGroupItem>
+              )
+            })}
           </ToggleGroup>
-          <div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={disabled || reading}
-              onClick={() => input.current?.click()}
-            >
-              <UploadIcon data-icon="inline-start" />
-              {t(
-                value.mode === "preset"
-                  ? "applications.uploadIcon"
-                  : "applications.replaceIcon"
-              )}
-            </Button>
-            <Input
-              ref={input}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="sr-only"
-              aria-label={t("applications.uploadIcon")}
-              disabled={disabled || reading}
-              onChange={async (event) => {
-                const file = event.target.files?.[0]
-                event.target.value = ""
-                if (!file) return
-                setError(null)
-                const mime = applicationIconMimeTypeSchema.safeParse(file.type)
-                if (
-                  !mime.success ||
-                  !file.size ||
-                  file.size > APPLICATION_ICON_MAX_BYTES ||
-                  file.name.length > 160
-                ) {
+        </div>
+        <div className="flex w-31 shrink-0 flex-col gap-1.5">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={disabled || reading}
+            className="w-full"
+            onClick={() => input.current?.click()}
+          >
+            <UploadIcon data-icon="inline-start" />
+            {t(
+              value.mode === "preset"
+                ? "applications.uploadIcon"
+                : "applications.replaceIcon"
+            )}
+          </Button>
+          <Input
+            ref={input}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="sr-only"
+            aria-label={t("applications.uploadIcon")}
+            disabled={disabled || reading}
+            onChange={async (event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ""
+              if (!file) return
+              setError(null)
+              const mime = applicationIconMimeTypeSchema.safeParse(file.type)
+              if (
+                !mime.success ||
+                !file.size ||
+                file.size > APPLICATION_ICON_MAX_BYTES ||
+                file.name.length > 160
+              ) {
+                setError(t("applications.iconFileInvalid"))
+                return
+              }
+              const current = ++generation.current
+              busy(true)
+              try {
+                const previewUrl = await readFileAsDataUrl(file)
+                const prefix = `data:${mime.data};base64,`
+                if (!previewUrl.startsWith(prefix))
+                  throw new Error("Invalid icon")
+                if (current === generation.current)
+                  onChange({
+                    mode: "upload",
+                    filename: file.name,
+                    mimeType: mime.data,
+                    dataBase64: previewUrl.slice(prefix.length),
+                    previewUrl,
+                  })
+              } catch {
+                if (current === generation.current)
                   setError(t("applications.iconFileInvalid"))
-                  return
-                }
-                const current = ++generation.current
-                busy(true)
-                try {
-                  const previewUrl = await readFileAsDataUrl(file)
-                  const prefix = `data:${mime.data};base64,`
-                  if (!previewUrl.startsWith(prefix))
-                    throw new Error("Invalid icon")
-                  if (current === generation.current)
-                    onChange({
-                      mode: "upload",
-                      filename: file.name,
-                      mimeType: mime.data,
-                      dataBase64: previewUrl.slice(prefix.length),
-                      previewUrl,
-                    })
-                } catch {
-                  if (current === generation.current)
-                    setError(t("applications.iconFileInvalid"))
-                } finally {
-                  if (current === generation.current) busy(false)
-                }
-              }}
-            />
-          </div>
+              } finally {
+                if (current === generation.current) busy(false)
+              }
+            }}
+          />
         </div>
       </div>
       <FieldDescription className="w-full max-w-none text-xs leading-5 whitespace-normal">

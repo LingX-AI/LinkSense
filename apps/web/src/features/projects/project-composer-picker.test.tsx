@@ -22,6 +22,19 @@ beforeEach(async () => {
 afterEach(cleanup)
 
 describe("project composer clear selection", () => {
+  it.each([null, "daily"])(
+    "preserves label width with the Attach hover padding when value is %s",
+    (value) => {
+      render(<ProjectComposerPicker value={value} onChange={vi.fn()} />)
+
+      expect(screen.getByRole("combobox", { name: "项目" })).toHaveClass(
+        "-mx-1.5",
+        "px-1.5",
+        "max-w-[calc(100%+--spacing(3))]"
+      )
+    }
+  )
+
   it("replaces the project icon with a clickable clear button while the pointer is over the picker", async () => {
     const interaction = userEvent.setup()
     const onChange = vi.fn()

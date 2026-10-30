@@ -132,8 +132,11 @@ describe("application icons", () => {
     const preset = container.querySelector(
       '[data-application-icon-preset="chart-column"]'
     )
-    expect(preset).toHaveClass("border", "border-border/60", "bg-transparent")
-    expect(preset).toHaveClass("p-0.5")
+    expect(preset).toHaveClass(
+      "size-10",
+      "rounded-[10px]",
+      "overflow-hidden"
+    )
     expect(preset?.querySelector("svg")).toHaveClass("size-full")
     expect(preset).not.toHaveClass("bg-muted")
   })

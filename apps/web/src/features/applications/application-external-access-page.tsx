@@ -48,7 +48,6 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import {
   externalAccessSecurityConfigurationChanged,
   externalIframeSnippet,
@@ -138,7 +137,10 @@ export function ApplicationExternalAccessPage() {
       ) : application.data ? (
         <ApplicationExternalAccessSettings application={application.data} />
       ) : (
-        <EmptyState title={t("common.notFound")} />
+        <EmptyState
+          title={t("common.notFound")}
+          description={t("common.notFoundDescription")}
+        />
       )}
     </PageLayout>
   )
@@ -156,6 +158,7 @@ function ApplicationExternalAccessSettings({
   const [authMode, setAuthMode] = useState<"required" | "public">("required")
   const [originsText, setOriginsText] = useState("")
   const [activeEmbedOrigin, setActiveEmbedOrigin] = useState("")
+  const [endUserPresentation, setEndUserPresentation] = useState(false)
   const [activeStarterQuestionOrigin, setActiveStarterQuestionOrigin] =
     useState("")
   const [starterQuestionsByOrigin, setStarterQuestionsByOrigin] = useState<
@@ -235,10 +238,16 @@ function ApplicationExternalAccessSettings({
   const appSecret =
     authMode === "required" ? (configuredAccess?.app_secret ?? null) : null
   const embedLocale = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
+  const embedPresentation = endUserPresentation ? "end_user" : "technical"
   const embedConfigurations: EmbedConfiguration[] = effectiveAccess
     ? uniqueOrigins.map((origin) => ({
         origin,
-        iframeUrl: externalIframeUrl(effectiveAccess, origin, embedLocale),
+        iframeUrl: externalIframeUrl(
+          effectiveAccess,
+          origin,
+          embedLocale,
+          embedPresentation
+        ),
         iframeSnippet: externalIframeSnippet(
           effectiveAccess,
           origin,
@@ -248,7 +257,8 @@ function ApplicationExternalAccessSettings({
               "applications.externalAccess.snippetTicketComment"
             ),
           },
-          embedLocale
+          embedLocale,
+          embedPresentation
         ),
       }))
     : []
@@ -396,28 +406,27 @@ function ApplicationExternalAccessSettings({
                           )}
                         </FieldDescription>
                       </FieldContent>
-                      <ToggleGroup
-                        variant="outline"
-                        spacing={0}
-                        value={[authMode]}
-                        onValueChange={(values) => {
-                          const value = values[0]
+                      <Tabs
+                        value={authMode}
+                        onValueChange={(value) => {
                           if (value === "required" || value === "public") {
                             setAuthMode(value)
                           }
                         }}
-                        aria-label={t(
-                          "applications.externalAccess.authRequirementLabel"
-                        )}
-                        className="max-w-full flex-wrap"
                       >
-                        <ToggleGroupItem value="required">
-                          {t("applications.externalAccess.authModeRequired")}
-                        </ToggleGroupItem>
-                        <ToggleGroupItem value="public">
-                          {t("applications.externalAccess.authModePublic")}
-                        </ToggleGroupItem>
-                      </ToggleGroup>
+                        <TabsList
+                          aria-label={t(
+                            "applications.externalAccess.authRequirementLabel"
+                          )}
+                        >
+                          <TabsTrigger value="required">
+                            {t("applications.externalAccess.authModeRequired")}
+                          </TabsTrigger>
+                          <TabsTrigger value="public">
+                            {t("applications.externalAccess.authModePublic")}
+                          </TabsTrigger>
+                        </TabsList>
+                      </Tabs>
                     </Field>
                   </FieldGroup>
                 </CardContent>
@@ -632,6 +641,21 @@ function ApplicationExternalAccessSettings({
                 id="external-embed-settings"
                 title={t("applications.externalAccess.embedSettingsSection")}
               >
+                <Field orientation="horizontal">
+                  <FieldContent>
+                    <FieldLabel htmlFor="embed-end-user-presentation">
+                      {t("applications.externalAccess.endUserPresentation")}
+                    </FieldLabel>
+                    <FieldDescription>
+                      {t("applications.externalAccess.endUserPresentationHint")}
+                    </FieldDescription>
+                  </FieldContent>
+                  <Switch
+                    id="embed-end-user-presentation"
+                    checked={endUserPresentation}
+                    onCheckedChange={setEndUserPresentation}
+                  />
+                </Field>
                 {embedConfigurations.length > 1 ? (
                   <Tabs
                     value={activeEmbedConfiguration.origin}
@@ -1021,9 +1045,9 @@ function codeTokenKind(token: string) {
 function codeTokenClassName(token: string) {
   const kind = codeTokenKind(token)
   if (kind === "comment") return "text-muted-foreground"
-  if (kind === "string") return "text-primary"
+  if (kind === "string") return "text-link-foreground"
   if (kind === "tag") return "text-foreground"
-  if (kind === "literal") return "text-primary"
+  if (kind === "literal") return "text-link-foreground"
   if (kind === "punctuation") return "text-muted-foreground"
   return "text-foreground"
 }

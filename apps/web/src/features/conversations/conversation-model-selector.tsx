@@ -1,7 +1,7 @@
 import { memo, useContext, useState } from "react"
 import { Link } from "react-router-dom"
 import { AuthContext } from "@/app/auth-state"
-import { ChevronDownIcon, ChevronRightIcon, RotateCcwIcon } from "lucide-react"
+import { ChevronRightIcon, RotateCcwIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
   reasoningEffortValues,
@@ -10,6 +10,7 @@ import {
 } from "@linksense/shared"
 
 import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
 import {
   HoverCard,
   HoverCardContent,
@@ -104,7 +105,7 @@ export const ConversationModelSelector = memo(
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-8 w-fit max-w-[min(20rem,calc(100vw-6rem))] rounded-full bg-muted/40 px-3 text-xs font-medium hover:bg-hover disabled:opacity-100 aria-expanded:bg-muted/60"
+                className="h-10 w-fit max-w-[min(20rem,calc(100vw-6rem))] min-w-0 shrink rounded-[10px] border border-border bg-card px-3 text-sm font-normal hover:border-input-hover hover:bg-card disabled:opacity-100 aria-expanded:bg-accent @max-[48rem]/conversation-workspace:h-8 @max-[48rem]/conversation-workspace:px-2"
                 aria-label={t("conversation.modelSelector")}
                 aria-busy={pending || undefined}
                 disabled={pending}
@@ -112,10 +113,10 @@ export const ConversationModelSelector = memo(
             }
           >
             <span className="truncate">{selectedModel.display_name}</span>
-            <span className="text-muted-foreground">
+            <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
               {t(`reasoningEffort.${selectedReasoningEffort}`)}
             </span>
-            <ChevronDownIcon className="size-3.5" aria-hidden="true" />
+            <DesignIcon name="chevron-down" />
           </PopoverTrigger>
           <PopoverContent
             side="top"

@@ -6,6 +6,7 @@ import {
   imageGenerationRequestSchema,
   imageGenerationToolRequestSchema,
   updateImageGenerationSettingsSchema,
+  discoverImageGenerationModelsInputSchema,
 } from "../src/image-generation.js"
 
 const settings = {
@@ -69,6 +70,16 @@ describe("generated image names", () => {
 })
 
 describe("image generation connection settings", () => {
+  it("allows model discovery before selecting a model while validating the credential target", () => {
+    expect(discoverImageGenerationModelsInputSchema.parse({ provider: "openai_compatible", base_url: "https://images.example.test/v1/" })).toEqual({
+      provider: "openai_compatible", base_url: "https://images.example.test/v1", provider_options: { workspace_id: null, region: null },
+    })
+    for (const base_url of ["file:///private", "https://secret:key@images.example.test", "https://images.example.test?key=secret"]) {
+      expect(discoverImageGenerationModelsInputSchema.safeParse({ provider: "openai", base_url }).success).toBe(false)
+    }
+    expect(discoverImageGenerationModelsInputSchema.safeParse({ provider: "openai", base_url: "https://images.example.test", api_key_configured: true }).success).toBe(false)
+  })
+
   it("accepts the OpenAI-compatible provider and publishes its defaults", () => {
     expect(imageGenerationProviderSchema.parse("openai_compatible")).toBe(
       "openai_compatible",

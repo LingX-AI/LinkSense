@@ -1,11 +1,12 @@
 import { useContext, useMemo, type ReactNode } from "react"
 import { SortableContext, type SortingStrategy } from "@dnd-kit/sortable"
 import type { Project } from "@linksense/shared"
-import { PlusIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import type { Conversation } from "@/api/contracts"
 import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
+import { Separator } from "@/components/ui/separator"
 import { sortSidebarConversations } from "@/features/conversations/conversation-order"
 import { SidebarTaskSortMenu } from "@/features/conversations/sidebar-task-sort-menu"
 import {
@@ -35,6 +36,7 @@ export function SidebarTaskGroups({
   pinned,
   recent,
   projects,
+  projectsReady = true,
   loadingMore,
   reconnectFailedConversationIds,
   sortModes = defaultSidebarTaskSortModes,
@@ -46,6 +48,7 @@ export function SidebarTaskGroups({
   pinned: Conversation[]
   recent: Conversation[]
   projects: Project[]
+  projectsReady?: boolean
   loadingMore: boolean
   reconnectFailedConversationIds?: ReadonlySet<string>
   sortModes?: SidebarTaskSortModes
@@ -106,7 +109,7 @@ export function SidebarTaskGroups({
     (id) => id !== null && !projects.some((project) => project.id === id)
   )
   return (
-    <>
+    <div className="flex flex-col gap-4">
       {sortedPinned.length > 0 && (
         <SidebarTaskSection
           key={JSON.stringify([userId, "pinned"])}
@@ -131,12 +134,11 @@ export function SidebarTaskGroups({
             <Button
               type="button"
               variant="ghost"
-              size="icon-sm"
-              className="pointer-events-none opacity-0 group-hover/tasks-heading:pointer-events-auto group-hover/tasks-heading:opacity-100 group-has-[:focus-visible]/tasks-heading:pointer-events-auto group-has-[:focus-visible]/tasks-heading:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+              size="icon"
               aria-label={t("projects.create")}
               onClick={() => onAction({ mode: "create" })}
             >
-              <PlusIcon />
+              <DesignIcon name="plus" />
             </Button>
           </>
         }
@@ -179,7 +181,15 @@ export function SidebarTaskGroups({
             {renderProject(id)}
           </SidebarTaskGroup>
         ))}
+        {projectsReady &&
+          orderedProjects.length === 0 &&
+          unavailableIds.length === 0 && (
+            <p className="px-2.5 py-1 text-[length:var(--app-font-13)] leading-[var(--app-ui-compact-line-height)] text-muted-foreground">
+              {t("projects.emptyList")}
+            </p>
+          )}
       </SidebarTaskSection>
+      <Separator className="data-horizontal:h-px" />
       <SidebarTaskSection
         key={JSON.stringify([userId, "recent"])}
         titleId="recent-conversations-title"
@@ -187,7 +197,12 @@ export function SidebarTaskGroups({
         action={sortMenu("recent", t("nav.recent"))}
       >
         {byProject.has(null) && renderProject(null)}
+        {!loadingMore && !byProject.has(null) && (
+          <p className="px-2.5 py-1 text-[length:var(--app-font-13)] leading-[var(--app-ui-compact-line-height)] text-muted-foreground">
+            {t("projects.empty")}
+          </p>
+        )}
       </SidebarTaskSection>
-    </>
+    </div>
   )
 }

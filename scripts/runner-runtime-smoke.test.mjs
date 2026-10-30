@@ -38,7 +38,8 @@ test("the Docker smoke check accepts the actual Core MCP registry over stdio in 
   assert.ok(tools.default.includes("update_application_metadata"));
   assert.ok(tools.default.includes("uninstall_skill"));
   assert.deepEqual(tools.plan, [
-    "convert_document_to_markdown", "get_current_user_info", "search_knowledge_base",
+    "read_referenced_conversation",
+    "convert_document_to_markdown", "get_current_user_info", "local_browser", "search_knowledge_base",
     "list_knowledge_documents", "get_knowledge_document_markdown", "request_user_form",
     "emit_application_event", "list_skills",
   ]);

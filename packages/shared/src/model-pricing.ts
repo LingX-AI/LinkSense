@@ -18,6 +18,8 @@ export type ModelTokenPricing = z.infer<typeof modelTokenPricingSchema>
 
 export function normalizeModelTokenPrice(value: string): string {
   const [whole = "0", fraction = ""] = value.split(".")
-  const normalizedFraction = fraction.replace(/0+$/u, "")
+  let end = fraction.length
+  while (end > 0 && fraction[end - 1] === "0") end -= 1
+  const normalizedFraction = fraction.slice(0, end)
   return normalizedFraction === "" ? whole : `${whole}.${normalizedFraction}`
 }

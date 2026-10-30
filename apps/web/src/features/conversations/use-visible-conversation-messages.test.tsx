@@ -18,6 +18,53 @@ afterEach(() => {
 })
 
 describe("visible conversation range", () => {
+  it("reports the shared viewport's visible messages when its embedded log expands", async () => {
+    const onVisible = vi.fn()
+    let offset = 0
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (this.hasAttribute("data-conversation-scroll-viewport"))
+          return DOMRect.fromRect({ height: 600 })
+        if (this.classList.contains("conversation-scroll"))
+          return DOMRect.fromRect({ height: 2_000 })
+        return DOMRect.fromRect({
+          y: Number(this.dataset.top ?? 0) - offset,
+          height: 200,
+        })
+      }
+    )
+    function Harness() {
+      const hostRef = useRef<HTMLDivElement>(null)
+      useVisibleConversationMessages({
+        hostRef,
+        onVisibleMessageChange: onVisible,
+      })
+      return (
+        <main data-conversation-scroll-viewport data-testid="shared-viewport">
+          <div className="conversation-scroll">
+            <div ref={hostRef}>
+              <div
+                data-conversation-row="a"
+                data-message-ids="a"
+                data-top="0"
+              />
+              <div
+                data-conversation-row="b"
+                data-message-ids="b"
+                data-top="600"
+              />
+            </div>
+          </div>
+        </main>
+      )
+    }
+    render(<Harness />)
+    await waitFor(() => expect(onVisible).toHaveBeenLastCalledWith(["a"]))
+    offset = 600
+    fireEvent.scroll(screen.getByTestId("shared-viewport"))
+    await waitFor(() => expect(onVisible).toHaveBeenLastCalledWith(["b"]))
+  })
+
   it("includes partially visible groups and excludes overscan, empty rows, and composer-covered content", () => {
     const rows = [
       { messageIds: ["above"], top: -200, bottom: 0, loaded: true },

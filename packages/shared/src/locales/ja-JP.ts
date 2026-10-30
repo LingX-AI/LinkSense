@@ -1,6 +1,13 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  AUTOMATION_EXPIRATION_IN_PAST: "有効期限に自動化のタイムゾーンで今日より前の日付は指定できません。別の日付を選択してください。",
+  LOCAL_BROWSER_PAIR_RATE_LIMITED: "ブラウザーのペアリングリクエストが多すぎます。しばらくしてから再試行してください。",
+  AUTOMATION_RUN_LIMIT_REACHED: "自動実行回数の上限に達しました。上限を増やすか解除してから再開してください。",
+  BROWSER_PANEL_UNAVAILABLE: "このタスクには表示できるブラウザーセッションがありません。",
+  BROWSER_CONTROL_BUSY: "ブラウザーが操作を実行中です。少し待って再試行してください。",
+  BROWSER_CONTROL_REQUIRED: "操作権が失効したか別のウィンドウが使用中です。もう一度引き継いでください。",
+
   CONNECTION_CLIENT_SECRET_REQUIRED: "アプリのシークレットを入力してください。アプリ ID を変更する場合は、新しいアプリのシークレットも必要です。",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "認可済みアカウント数：{{count}}。アプリ ID を変更すると、これらのユーザーは再接続が必要になります。保存前にこの影響を確認してください。",
   SKILL_UNINSTALL_NOT_ALLOWED: "このスキルはアンインストールできません。組み込みスキルはシステムによって提供されます。",

@@ -229,6 +229,32 @@ export const testModelProviderConnectionInputSchema = z.strictObject({
   kind: managedModelKindSchema.default("chat"),
 }).superRefine(validateProviderSpecificFields)
 
+export const detectModelProviderProtocolInputSchema = z.strictObject({
+  ...modelProviderProbeShape,
+  model_id: modelIdentifierSchema.optional(),
+}).superRefine(validateProviderSpecificFields)
+
+export const modelProviderProtocolProbeSchema = z.strictObject({
+  protocol_mode: modelProviderProtocolModeSchema,
+  status: z.enum(["success", "unsupported", "invalid_response", "failed"]),
+  latency_ms: z.number().int().nonnegative().nullable(),
+})
+
+export const detectModelProviderProtocolResultSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("detected"),
+    protocol_mode: modelProviderProtocolModeSchema,
+    model_id: modelIdentifierSchema,
+    probes: z.array(modelProviderProtocolProbeSchema),
+  }),
+  z.strictObject({
+    status: z.literal("unsupported"),
+    model_id: modelIdentifierSchema,
+    probes: z.array(modelProviderProtocolProbeSchema),
+  }),
+  z.strictObject({ status: z.literal("model_required") }),
+])
+
 export const discoveredProviderModelSchema = z.strictObject({
   id: modelIdentifierSchema,
   display_name: z.string().trim().min(1).max(120),
@@ -249,6 +275,8 @@ export const testModelProviderConnectionResultSchema = z.strictObject({
 
 export type ModelProviderProbeInput = z.input<typeof modelProviderProbeInputSchema>
 export type TestModelProviderConnectionInput = z.input<typeof testModelProviderConnectionInputSchema>
+export type DetectModelProviderProtocolInput = z.input<typeof detectModelProviderProtocolInputSchema>
+export type DetectModelProviderProtocolResult = z.infer<typeof detectModelProviderProtocolResultSchema>
 export type DiscoverModelProviderResult = z.infer<typeof discoverModelProviderResultSchema>
 export type DiscoveredProviderModel = z.infer<typeof discoveredProviderModelSchema>
 export type TestModelProviderConnectionResult = z.infer<typeof testModelProviderConnectionResultSchema>
@@ -286,6 +314,7 @@ export const updateManagedModelProviderSchema = z
     base_url: modelProviderBaseUrlSchema,
     protocol_mode: modelProviderProtocolModeSchema.optional(),
     api_key: z.string().trim().min(1).max(16_384).optional(),
+    test_model_id: modelIdentifierSchema.nullable().optional(),
     models: updateModelCollectionSchema,
   })
   .superRefine(validateProviderSpecificFields)
@@ -299,6 +328,7 @@ export const managedModelProviderSettingsSchema = z
     base_url: z.string(),
     protocol_mode: modelProviderProtocolModeSchema,
     api_key_configured: z.boolean(),
+    test_model_id: modelIdentifierSchema.nullable().optional(),
     models: z.array(managedPricedModelSchema),
   })
   .superRefine(validateProviderSpecificFields)

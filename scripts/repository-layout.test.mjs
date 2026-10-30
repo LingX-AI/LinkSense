@@ -1,12 +1,37 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { accessSync, readFileSync } from "node:fs";
+import { accessSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "..");
 const { parse: parseYaml } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml");
+
+test("the relocated production entrypoint resolves its default environment file from the repository root", (t) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "linksense-compose-env-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  mkdirSync(path.join(directory, "deploy/compose"), { recursive: true });
+  for (const file of [
+    "docker-compose.yml",
+    "deploy/compose/docker-compose.production-stack.yml",
+    "deploy/compose/docker-compose.production.yml",
+  ]) copyFileSync(path.join(root, file), path.join(directory, file));
+  copyFileSync(path.join(root, ".env.example"), path.join(directory, ".env.production"));
+  const environment = { ...process.env, PWD: directory };
+  delete environment.LINKSENSE_COMPOSE_ENV_FILE;
+  const model = JSON.parse(execFileSync("docker", [
+    "compose", "--env-file", path.join(directory, ".env.production"),
+    "-f", path.join(directory, "deploy/compose/docker-compose.production-stack.yml"),
+    "config", "--format", "json",
+  ], {
+    cwd: directory, env: environment, encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"], timeout: 30_000,
+  }));
+  assert.equal(model.services.api.build.context, directory);
+  assert.equal(typeof model.services.api.environment.DATABASE_URL, "string");
+});
 
 test("release and verification workflows resolve every application Dockerfile from the repository context", () => {
   const expected = ["deploy/docker/Dockerfile.api", "deploy/docker/Dockerfile.runner", "deploy/docker/Dockerfile.web"];

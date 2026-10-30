@@ -10,6 +10,7 @@ import { errorCatalog, localizedErrorMessage } from "@linksense/shared"
 import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const zhCN = {
+  localBrowser: localBrowserMessages["zh-CN"],
   modelSetup: modelSetupMessages["zh-CN"],
   connections: connectionMessages["zh-CN"],
   sideChat: sideChatMessages["zh-CN"],
@@ -63,6 +64,8 @@ export const zhCN = {
     search: "搜索",
     loading: "正在加载…",
     pageLoading: "正在加载…",
+    emptyDescription: "有内容后会显示在这里。",
+    notFoundDescription: "该页面可能已被移动或删除。",
     actions: "操作",
     status: "状态",
     name: "名称",
@@ -195,6 +198,7 @@ export const zhCN = {
     helpCenter: "帮助中心",
     helpCenterNewTab: "在新标签页打开帮助中心",
     automationNotifications: "自动化通知",
+    automationNotificationsEmpty: "暂无未读的自动化通知",
     automationNotificationsUnread: "自动化通知，有已完成的未读任务",
     automationTask: "自动化任务",
     unreadCompletion: "任务已完成，尚未查看",
@@ -1669,6 +1673,7 @@ export const zhCN = {
     notFound: errorCatalog.PROJECT_NOT_FOUND.messages["zh-CN"],
     taskActive: errorCatalog.PROJECT_TASK_ACTIVE.messages["zh-CN"],
     empty: "暂无任务",
+    emptyList: "暂无项目",
     create: "新建项目",
     createDescription: "同一项目的任务共用文件，分别保存各自的消息记录。",
     edit: "编辑项目",
@@ -1755,7 +1760,7 @@ export const zhCN = {
     title: "任务",
     taskSort: {
       open: "设置{{section}}任务排序方式",
-      label: "任务排序方式",
+      label: "任务排序",
       priority: "优先级",
       priorityDescription: "需要你处理和未读的任务会排在最前面。",
       updated_at: "最近更新",
@@ -1772,7 +1777,11 @@ export const zhCN = {
       copied: "已复制",
       copyFailed: "无法复制链接，请检查浏览器权限后重试。",
       unavailable: "这个分享链接不存在或已失效。",
-      continueInProduct: "Continue in {{productName}}",
+      continueInProduct: "在 {{productName}} 中继续",
+      snapshotDate: "共享快照 · {{date}}",
+      sharedConversation: "共享会话",
+      readOnly: "只读",
+      snapshotNotice: "这是会话快照，后续消息不会包含在内。",
     },
     rename: "重命名",
     archive: "归档任务",
@@ -1870,6 +1879,8 @@ export const zhCN = {
     historyViewExchange: "点击查看这组问答",
     historyRetry: "加载失败，点击重试",
     scrollToBottom: "回到底部",
+    newReplies_one: "{{count}} 条新回复",
+    newReplies_other: "{{count}} 条新回复",
     placeholder: "描述你希望 {{productName}} 完成的任务…",
     followUpPlaceholder: "补充要求…",
     send: "发送",
@@ -1992,6 +2003,8 @@ export const zhCN = {
       noMatches: "没有匹配的 Skill",
     },
     addMenu: "添加",
+    toolbarAttach: "附件",
+    toolbarKnowledge: "知识库",
     addMenuTitle: "添加内容",
     addGroup: "添加",
     attachFileMenuLabel: "本地文件",
@@ -2248,6 +2261,7 @@ export const zhCN = {
     messageCopied: "消息已复制",
     copyMessageFailed: "无法复制消息，请重试。",
     forkMessage: "分支到新聊天",
+    forkMessageTooltip: "分支",
     forkingMessage: "正在创建分支…",
     forkMessageFailed: "无法创建分支任务，请重试。",
     forkSource: {
@@ -2717,6 +2731,7 @@ export const zhCN = {
     updated: "应用已更新，后续新任务轮次会自动使用最新配置。",
     deleted: "应用已删除。",
     emptyTitle: "还没有可用的应用",
+    emptyDescription: "创建或添加后，条目会显示在这里。",
     createdByMe: "由我创建",
     createdBy: "创建者：{{name}}",
     status: {
@@ -2870,6 +2885,9 @@ export const zhCN = {
       "模型、插件、Skill 和知识库由应用创建者维护",
     conversationManagedUserModelDescription: "插件、Skill、知识库和指令",
     externalAccess: {
+      endUserPresentation: "终端用户展示",
+      endUserPresentationHint:
+        "仅应用于下方生成的嵌入代码。隐藏技术过程和耗时，保留答复、附件、确认及错误；关闭时保留技术展示。",
       action: "外部访问",
       title: "应用外部访问",
       description: "把“{{name}}”嵌入到指定网站，让外部用户只使用这个应用。",
@@ -3896,6 +3914,7 @@ export const zhCN = {
       assistant_response: "AI 回答",
       memory_generation: "记忆生成",
       task_title_generation: "任务自动命名",
+      browser_use_intent: "浏览器意图检测",
       document_embedding: "文档向量化",
       query_embedding: "查询向量化",
       rerank: "检索重排",
@@ -5012,8 +5031,10 @@ export const zhCN = {
         "图片理解模型未通过图片输入、结构化输出或禁用思考校验，请检查模型与服务配置。",
     },
     imageGeneration: {
-      inputInvalid: "无法读取用于编辑的图片，请使用 PNG、JPEG 或 WebP 图片。单张不超过 8 MB，原图与蒙版合计不超过 10 MB，蒙版须为与首张原图同尺寸的透明 PNG。",
-      editUnsupported: "当前图片模型不支持本次编辑要求，请减少参考图、移除蒙版，或联系管理员选择支持相应编辑方式的模型。",
+      inputInvalid:
+        "无法读取用于编辑的图片，请使用 PNG、JPEG 或 WebP 图片。单张不超过 8 MB，原图与蒙版合计不超过 10 MB，蒙版须为与首张原图同尺寸的透明 PNG。",
+      editUnsupported:
+        "当前图片模型不支持本次编辑要求，请减少参考图、移除蒙版，或联系管理员选择支持相应编辑方式的模型。",
       notConfigured: "图片生成模型尚未配置或未启用。",
       forbidden: "当前任务无法调用图片生成插件。",
       turnInactive: "当前任务运行已结束，无法继续生成图片。",
@@ -5225,6 +5246,10 @@ export const zhCN = {
         "此任务已有自动化。请编辑已有计划，或明确要求另建一条。",
       emptyResult: "自动化执行已结束，但没有产出可展示的内容，请重新执行。",
       expired: "该自动化已到期，不能继续执行。",
+      expirationInPast: localizedErrorMessage(
+        "AUTOMATION_EXPIRATION_IN_PAST",
+        "zh-CN"
+      ),
     },
     userDisabled: "该用户已被禁用，请联系管理员。",
     conflict: "当前状态与此操作冲突，请刷新后重试。",
@@ -5244,3 +5269,4 @@ export const zhCN = {
     teams: "Teams SSO",
   },
 } as const
+import { localBrowserMessages } from "@/features/local-browser/messages"

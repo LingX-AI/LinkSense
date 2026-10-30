@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { PersonalQuotaReport } from "@linksense/shared"
+import { supportedLocales, type PersonalQuotaReport } from "@linksense/shared"
 import i18n from "@/i18n"
 import { setAccessToken } from "@/api/session"
 import PersonalQuotaPage from "./personal-quota-page"
@@ -105,19 +105,20 @@ describe("personal quota page", () => {
       screen.queryByRole("button", { name: "显示更多" })
     ).not.toBeInTheDocument()
   })
-  it.each(["zh-CN", "en-US", "de-DE"])(
-    "renders whole credits in %s",
+  it.each([...supportedLocales, "de-DE"])(
+    "renders whole credits and keeps segmented filters independent in %s",
     async (language) => {
       await i18n.changeLanguage(language)
       vi.stubGlobal(
         "fetch",
         vi.fn(async () => envelope(fixture()))
       )
+      const interaction = userEvent.setup()
       mount()
       expect(await screen.findByText("749")).toBeVisible()
       expect(
         screen.getByRole("tab", {
-          name: language === "en-US" ? "Overview" : "概览",
+          name: i18n.t("personalQuota.overview"),
         })
       ).toBeVisible()
       expect(screen.getByRole("progressbar")).toHaveAttribute(
@@ -125,6 +126,24 @@ describe("personal quota page", () => {
         "25"
       )
       expect(screen.getByText(/Asia\/Shanghai/)).toBeVisible()
+      await interaction.click(
+        screen.getByRole("tab", { name: i18n.t("personalQuota.analytics") })
+      )
+      const workload = screen.getByRole("tab", {
+        name: i18n.t("personalQuota.byWorkload"),
+      })
+      const model = screen.getByRole("tab", {
+        name: i18n.t("personalQuota.byModel"),
+      })
+      workload.focus()
+      await interaction.keyboard("{ArrowRight}{Enter}")
+      expect(model).toHaveAttribute("aria-selected", "true")
+      expect(workload).toHaveAttribute("aria-selected", "false")
+      expect(
+        screen.getByRole("tab", {
+          name: i18n.t("personalQuota.days", { count: 7 }),
+        })
+      ).toHaveAttribute("aria-selected", "true")
     }
   )
   it("switches range and grouping and expands task details", async () => {
@@ -142,24 +161,24 @@ describe("personal quota page", () => {
     await user.click(screen.getByRole("tab", { name: "分析" }))
     expect(await screen.findByText("消费历史")).toBeVisible()
     expect(screen.getAllByText("所选周期内暂无记录")).toHaveLength(3)
-    const modelGrouping = screen.getByRole("button", { name: "按模型" })
+    const modelGrouping = screen.getByRole("tab", { name: "按模型" })
     expect(modelGrouping.parentElement).toHaveAttribute(
-      "data-appearance",
+      "data-variant",
       "segmented"
     )
     expect(modelGrouping.parentElement).toHaveClass(
-      "rounded-lg",
-      "bg-muted/50",
-      "p-0.5"
+      "rounded-xl",
+      "bg-muted",
+      "p-1"
     )
-    expect(screen.getByRole("button", { name: "7 天" })).toHaveClass(
-      "aria-pressed:bg-muted/50",
-      "data-pressed:bg-muted/50"
-    )
-    expect(modelGrouping.parentElement).toHaveAttribute("data-size", "sm")
+    expect(
+      screen.getByRole("tab", { name: "7 天" }).parentElement
+    ).toHaveAttribute("data-variant", "segmented")
     await user.click(modelGrouping)
-    expect(modelGrouping).toHaveAttribute("aria-pressed", "true")
+    expect(modelGrouping).toHaveAttribute("aria-selected", "true")
     expect(screen.getByText("model-a", { selector: "dt" })).toBeVisible()
+    await user.click(modelGrouping)
+    expect(modelGrouping).toHaveAttribute("aria-selected", "true")
     const taskTrigger = screen.getByRole("button", { name: "测试任务" })
     expect(taskTrigger.closest("tr")).toHaveClass(
       "has-aria-expanded:bg-transparent",
@@ -190,7 +209,7 @@ describe("personal quota page", () => {
     expect(openTask.closest('[data-slot="collapsible-content"]')).toHaveClass(
       "pl-8"
     )
-    await user.click(screen.getByRole("button", { name: "30 天" }))
+    await user.click(screen.getByRole("tab", { name: "30 天" }))
     await waitFor(() =>
       expect(urls.some((url) => url.includes("range=30d"))).toBe(true)
     )

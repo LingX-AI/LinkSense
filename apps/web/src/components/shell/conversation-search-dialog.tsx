@@ -17,6 +17,9 @@ import { useProductName } from "@/app/product-branding"
 import { CapabilityIcon } from "@/components/capabilities/capability-icon"
 import { ConversationDevelopmentIcon } from "@/components/shell/conversation-development-icon"
 import { FileTypeIcon } from "@/components/media/file-type-icon"
+import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
+import { DialogClose } from "@/components/ui/dialog"
 import {
   Command,
   CommandDialog,
@@ -25,7 +28,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandShortcut,
 } from "@/components/ui/command"
 import { capabilityPresentation } from "@/features/capabilities/built-in-presentation"
 import { capabilityCenterPath } from "@/features/capabilities/capability-center-navigation"
@@ -49,22 +51,20 @@ type GlobalSearchResults = {
 }
 
 const searchResultLimit = 6
-const searchResultItemClassName =
-  "conversation-search-result min-h-8 gap-3 rounded-xl! px-2 py-1.5 text-[length:var(--app-ui-font-size)] data-selected:bg-[color-mix(in_srgb,var(--app-hover)_64%,var(--app-popover))]"
-const searchResultLineIconClassName =
-  "ml-3 size-3.5 shrink-0 text-[var(--app-muted)] opacity-60"
-const searchResultMediaIconClassName = "ml-3 size-4 shrink-0 opacity-70"
-const searchResultCapabilityIconClassName =
-  "ml-3 size-4 shrink-0 rounded-[6px] opacity-70"
+const searchResultLineIconClassName = "size-4.5 shrink-0"
+const searchResultMediaIconClassName = "size-5 shrink-0"
+const searchResultCapabilityIconClassName = "size-5 shrink-0 rounded-md"
 
 export function ConversationSearchDialog({
   open,
   onOpenChange,
   onNavigate,
+  focusOnOpen = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onNavigate?: () => void
+  focusOnOpen?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const productName = useProductName()
@@ -112,22 +112,48 @@ export function ConversationSearchDialog({
       title={t("conversation.searchTitle")}
       description={t("conversation.searchPlaceholder")}
       initialFocus={() =>
-        shouldAutoFocusOnDesktop() ? searchInputRef.current : false
+        focusOnOpen || shouldAutoFocusOnDesktop()
+          ? searchInputRef.current
+          : false
       }
-      className="conversation-search-dialog top-1/2 max-h-[calc(100svh_-_2rem)] w-[calc(100%_-_1.5rem)] max-w-[640px]! -translate-y-1/2 gap-0 rounded-[20px]! border-0 bg-[var(--app-popover)] p-0 shadow-[0_22px_64px_rgb(0_0_0/18%)] ring-0"
+      className="conversation-search-dialog top-1/2 max-h-[calc(100svh_-_2rem)] w-[calc(100%_-_1.5rem)] max-w-[680px]! -translate-y-1/2 gap-0 rounded-xl! border border-border bg-[var(--app-popover)] p-0 shadow-[var(--app-dialog-shadow)] ring-0"
     >
       <Command
+        label={t("conversation.searchTitle")}
         shouldFilter={false}
-        className="conversation-search-command rounded-[20px] bg-transparent p-0 [&_[data-slot=command-input-wrapper]]:px-5 [&_[data-slot=command-input-wrapper]]:pt-4 [&_[data-slot=command-input-wrapper]]:pb-3 [&_[data-slot=input-group-addon]]:hidden [&_[data-slot=input-group]]:h-10! [&_[data-slot=input-group]]:rounded-none! [&_[data-slot=input-group]]:border-transparent! [&_[data-slot=input-group]]:bg-transparent! [&_[data-slot=input-group]]:shadow-none!"
+        className="conversation-search-command group/search rounded-xl bg-transparent p-0 [&_[data-slot=command-input-wrapper]]:min-w-0 [&_[data-slot=command-input-wrapper]]:flex-1 [&_[data-slot=command-input-wrapper]]:p-0 [&_[data-slot=input-group-addon]]:hidden [&_[data-slot=input-group]]:h-10! [&_[data-slot=input-group]]:rounded-none! [&_[data-slot=input-group]]:border-transparent! [&_[data-slot=input-group]]:bg-transparent! [&_[data-slot=input-group]]:shadow-none! [&_[data-slot=input-group]]:focus-within:border-transparent! [&_[data-slot=input-group]]:focus-within:ring-0! [&_[data-slot=input-group]]:hover:border-transparent!"
       >
-        <CommandInput
-          ref={searchInputRef}
-          value={query}
-          onValueChange={setQuery}
-          placeholder={t("conversation.searchPlaceholder")}
-          className="text-[length:var(--app-font-15)] font-medium placeholder:text-[var(--app-muted)]"
+        <div className="flex shrink-0 items-center gap-3 p-4">
+          <DesignIcon name="search" className="text-muted-foreground" />
+          <CommandInput
+            ref={searchInputRef}
+            value={query}
+            onValueChange={setQuery}
+            placeholder={t("conversation.searchPlaceholder")}
+            className="h-10 min-w-0 border-0 bg-transparent p-0 text-sm font-normal shadow-none outline-none placeholder:text-[var(--app-muted)] focus-visible:ring-0 forced-colors:focus-visible:outline-solid"
+          />
+          <DialogClose
+            onKeyDown={(event) => {
+              // cmdk treats bubbling Enter as selecting the current result.
+              if (event.key === "Enter") event.stopPropagation()
+            }}
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-lg"
+                aria-label={t("common.close")}
+              />
+            }
+          >
+            <DesignIcon name="close" />
+          </DialogClose>
+        </div>
+        <div
+          className="mx-4 h-px shrink-0 bg-divider group-has-[[data-slot=command-input]:focus-visible]/search:bg-ring"
+          aria-hidden="true"
         />
-        <CommandList className="h-[min(76svh,34rem)] max-h-[min(76svh,34rem)]! px-3 pb-4">
+        <CommandList className="h-[min(60svh,24rem)] max-h-[min(60svh,24rem)]! px-3 pb-4">
           {results.isLoading && (
             <div
               className="flex min-h-20 items-center justify-center gap-2 px-3 text-[length:var(--app-font-12)] text-[var(--app-muted)]"
@@ -158,38 +184,36 @@ export function ConversationSearchDialog({
               {results.data.conversations.length > 0 && (
                 <SearchResultGroup heading={t("conversation.title")}>
                   {results.data.conversations.map((conversation) => (
-                    <CommandItem
+                    <SearchResultItem
                       key={`conversation:${conversation.id}`}
                       value={`conversation:${conversation.id}`}
-                      className={searchResultItemClassName}
-                      onSelect={() => {
-                        navigate(conversationPath(conversation))
-                        closeSearch()
-                      }}
-                    >
-                      {conversation.application_development_role ? (
-                        <ConversationDevelopmentIcon
-                          role={conversation.application_development_role}
-                          className={searchResultLineIconClassName}
-                        />
-                      ) : (
-                        <MessageSquareIcon
-                          className={searchResultLineIconClassName}
-                          aria-hidden="true"
-                        />
-                      )}
-                      <span className="min-w-0 flex-1 truncate">
-                        {conversation.title || t("conversation.untitled")}
-                      </span>
-                      <CommandShortcut className="shrink-0 text-[length:var(--app-font-12)] font-normal tracking-normal text-[var(--app-muted)] max-sm:hidden">
+                      title={conversation.title || t("conversation.untitled")}
+                      icon={
+                        conversation.application_development_role ? (
+                          <ConversationDevelopmentIcon
+                            role={conversation.application_development_role}
+                            className={searchResultLineIconClassName}
+                          />
+                        ) : (
+                          <MessageSquareIcon
+                            className={searchResultLineIconClassName}
+                            aria-hidden="true"
+                          />
+                        )
+                      }
+                      metadata={
                         <time dateTime={conversation.updated_at}>
                           {formatRelativeDate(
                             conversation.updated_at,
                             language
                           )}
                         </time>
-                      </CommandShortcut>
-                    </CommandItem>
+                      }
+                      onSelect={() => {
+                        navigate(conversationPath(conversation))
+                        closeSearch()
+                      }}
+                    />
                   ))}
                 </SearchResultGroup>
               )}
@@ -207,33 +231,25 @@ export function ConversationSearchDialog({
                       )
 
                     return (
-                      <CommandItem
+                      <SearchResultItem
                         key={`knowledge-base:${knowledgeBase.id}`}
                         value={`knowledge-base:${knowledgeBase.id}`}
-                        className={searchResultItemClassName}
+                        title={knowledgeBase.name}
+                        description={supportingText}
+                        icon={
+                          <BookOpenIcon
+                            className={searchResultLineIconClassName}
+                            aria-hidden="true"
+                          />
+                        }
+                        metadata={t("knowledge.documentCount", {
+                          count: knowledgeBase.document_count,
+                        })}
                         onSelect={() => {
                           navigate(`/knowledge-bases/${knowledgeBase.id}`)
                           closeSearch()
                         }}
-                      >
-                        <BookOpenIcon
-                          className={searchResultLineIconClassName}
-                          aria-hidden="true"
-                        />
-                        <span className="flex min-w-0 flex-1 items-baseline gap-2">
-                          <span className="max-w-[52%] shrink-0 truncate font-medium">
-                            {knowledgeBase.name}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate text-[length:var(--app-font-12)] leading-[var(--app-line-16)] text-[var(--app-muted)]">
-                            {supportingText}
-                          </span>
-                        </span>
-                        <CommandShortcut className="shrink-0 text-[length:var(--app-font-12)] font-normal tracking-normal text-[var(--app-muted)] max-sm:hidden">
-                          {t("knowledge.documentCount", {
-                            count: knowledgeBase.document_count,
-                          })}
-                        </CommandShortcut>
-                      </CommandItem>
+                      />
                     )
                   })}
                 </SearchResultGroup>
@@ -242,10 +258,19 @@ export function ConversationSearchDialog({
               {results.data.artifacts.length > 0 && (
                 <SearchResultGroup heading={t("library.tabs.artifacts")}>
                   {results.data.artifacts.map((artifact) => (
-                    <CommandItem
+                    <SearchResultItem
                       key={`artifact:${artifact.id}`}
                       value={`artifact:${artifact.id}`}
-                      className={searchResultItemClassName}
+                      title={artifact.filename}
+                      description={artifact.task.title}
+                      icon={
+                        <FileTypeIcon
+                          filename={artifact.filename}
+                          mimeType={artifact.mime_type}
+                          className={searchResultMediaIconClassName}
+                        />
+                      }
+                      metadata={formatFileSize(artifact.size, language)}
                       onSelect={() => {
                         const parameters = new URLSearchParams({
                           tab: "artifacts",
@@ -254,24 +279,7 @@ export function ConversationSearchDialog({
                         navigate(`/knowledge-bases?${parameters.toString()}`)
                         closeSearch()
                       }}
-                    >
-                      <FileTypeIcon
-                        filename={artifact.filename}
-                        mimeType={artifact.mime_type}
-                        className={searchResultMediaIconClassName}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">
-                          {artifact.filename}
-                        </span>
-                        <span className="mt-0.5 block truncate text-[length:var(--app-font-12)] leading-[var(--app-line-16)] text-[var(--app-muted)]">
-                          {artifact.task.title}
-                        </span>
-                      </span>
-                      <CommandShortcut className="shrink-0 text-[length:var(--app-font-12)] font-normal tracking-normal text-[var(--app-muted)] max-sm:hidden">
-                        {formatFileSize(artifact.size, language)}
-                      </CommandShortcut>
-                    </CommandItem>
+                    />
                   ))}
                 </SearchResultGroup>
               )}
@@ -311,6 +319,69 @@ export function ConversationSearchDialog({
   )
 }
 
+function SearchResultItem({
+  value,
+  title,
+  description,
+  icon,
+  metadata,
+  onSelect,
+}: {
+  value: string
+  title: string
+  description?: string | null
+  icon: ReactNode
+  metadata: ReactNode
+  onSelect: () => void
+}) {
+  const id = `search-result-${value}`
+
+  return (
+    <CommandItem
+      value={value}
+      aria-labelledby={`${id}-title`}
+      aria-describedby={
+        description ? `${id}-description ${id}-metadata` : `${id}-metadata`
+      }
+      className="conversation-search-result min-h-16 gap-3 rounded-lg! px-3 py-2.5 font-normal data-selected:bg-accent/60 [&>svg:last-child]:hidden"
+      onSelect={onSelect}
+    >
+      <span
+        data-slot="search-result-icon"
+        className="flex size-9 shrink-0 items-center justify-center text-muted-foreground"
+      >
+        {icon}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="flex min-w-0 items-center gap-3">
+          <span
+            id={`${id}-title`}
+            className="min-w-0 flex-1 truncate text-[length:var(--app-ui-font-size)] leading-5 font-medium"
+            title={title}
+          >
+            {title}
+          </span>
+          <span
+            id={`${id}-metadata`}
+            className="max-w-[40%] shrink-0 truncate text-[length:var(--app-font-12)] leading-4 text-muted-foreground"
+          >
+            {metadata}
+          </span>
+        </span>
+        {description && (
+          <span
+            id={`${id}-description`}
+            className="truncate text-[length:var(--app-font-12)] leading-4 text-muted-foreground"
+            title={description}
+          >
+            {description}
+          </span>
+        )}
+      </span>
+    </CommandItem>
+  )
+}
+
 function SearchResultGroup({
   heading,
   children,
@@ -321,7 +392,7 @@ function SearchResultGroup({
   return (
     <CommandGroup
       heading={heading}
-      className="p-0 **:[[cmdk-group-heading]]:px-2 **:[[cmdk-group-heading]]:pt-2 **:[[cmdk-group-heading]]:pb-1 **:[[cmdk-group-heading]]:text-[length:var(--app-font-12)] **:[[cmdk-group-heading]]:font-semibold"
+      className="p-0 [&_[cmdk-group-items]]:space-y-1 **:[[cmdk-group-heading]]:px-3 **:[[cmdk-group-heading]]:pt-4 **:[[cmdk-group-heading]]:pb-2 **:[[cmdk-group-heading]]:text-[length:var(--app-font-12)] **:[[cmdk-group-heading]]:font-medium **:[[cmdk-group-heading]]:text-muted-foreground"
     >
       {children}
     </CommandGroup>
@@ -363,31 +434,21 @@ function CapabilitySearchResultGroup({
         })
 
         return (
-          <CommandItem
+          <SearchResultItem
             key={`${type}:${capability.id}`}
             value={`${type}:${capability.id}`}
-            className={searchResultItemClassName}
+            title={presentation.name}
+            description={presentation.description}
+            metadata={sourceLabel}
+            icon={
+              <CapabilityIcon
+                type={capability.type}
+                logoUrl={capability.logo_url}
+                className={searchResultCapabilityIconClassName}
+              />
+            }
             onSelect={() => onSelect(target)}
-          >
-            <CapabilityIcon
-              type={capability.type}
-              logoUrl={capability.logo_url}
-              className={searchResultCapabilityIconClassName}
-            />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">
-                {presentation.name}
-              </span>
-              {presentation.description && (
-                <span className="mt-0.5 block truncate text-[length:var(--app-font-12)] leading-[var(--app-line-16)] text-[var(--app-muted)]">
-                  {presentation.description}
-                </span>
-              )}
-            </span>
-            <CommandShortcut className="shrink-0 text-[length:var(--app-font-12)] font-normal tracking-normal text-[var(--app-muted)] max-sm:hidden">
-              {sourceLabel}
-            </CommandShortcut>
-          </CommandItem>
+          />
         )
       })}
     </SearchResultGroup>

@@ -1,5 +1,6 @@
 import type {
   ApplicationExternalAccess,
+  ApplicationEmbedPresentation,
   Locale,
   UpdateApplicationExternalAccessInput,
 } from "@linksense/shared"
@@ -21,11 +22,14 @@ export function externalAccessSecurityConfigurationChanged(
 export function externalIframeUrl(
   access: ApplicationExternalAccess,
   parentOrigin: string,
-  locale: Locale = "zh-CN"
+  locale: Locale = "zh-CN",
+  presentation: ApplicationEmbedPresentation = "technical"
 ) {
   const url = new URL(access.iframe_url)
   url.searchParams.set("parent_origin", parentOrigin)
   url.searchParams.set("locale", locale)
+  if (presentation !== "technical")
+    url.searchParams.set("presentation", presentation)
   return url.toString()
 }
 
@@ -33,9 +37,15 @@ export function externalIframeSnippet(
   access: ApplicationExternalAccess,
   parentOrigin: string,
   copy: { title: string; ticketComment: string },
-  locale: Locale = "zh-CN"
+  locale: Locale = "zh-CN",
+  presentation: ApplicationEmbedPresentation = "technical"
 ) {
-  const iframeUrl = externalIframeUrl(access, parentOrigin, locale)
+  const iframeUrl = externalIframeUrl(
+    access,
+    parentOrigin,
+    locale,
+    presentation
+  )
   const frameOrigin = new URL(access.iframe_url).origin
   if (access.auth_mode === "public") {
     return `<iframe
