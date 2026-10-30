@@ -427,7 +427,7 @@ test("production stack Compose exposes the merged deployment through one platfor
   assert.match(compose, /^\s+project_directory: \.\.\/\.\.$/mu);
   assert.match(
     compose,
-    /^\s+env_file: \$\{LINKSENSE_COMPOSE_ENV_FILE:-\.env\.production\}$/mu,
+    /^\s+env_file: \$\{LINKSENSE_COMPOSE_ENV_FILE:-\.\.\/\.\.\/\.env\.production\}$/mu,
   );
   assert.doesNotMatch(compose, /(?:PASSWORD|SECRET|API_KEY)=/u);
 });
@@ -501,7 +501,7 @@ test("production gateway preserves HTTPS proxy semantics, SSE, and signed MinIO 
     gateway.match(
       /if \(-f \/tmp\/linksense-maintenance\) \{\s*return 503;\s*\}/gu,
     ) ?? [];
-  assert.equal(maintenanceChecks.length, 6);
+  assert.equal(maintenanceChecks.length, 7);
   const siteLocation = section(gateway, "  location ^~ /web/", "  location /api/");
   assert.match(siteLocation, /if \(-f \/tmp\/linksense-maintenance\)/u);
   assert.match(siteLocation, /proxy_set_header X-Forwarded-Proto \$linksense_forwarded_proto;/u);
