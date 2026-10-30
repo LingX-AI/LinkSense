@@ -6,10 +6,12 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { setAccessToken } from "@/api/session"
-import i18n from "@/i18n"
+import i18n, { supportedLanguages } from "@/i18n"
 import { SamlSettingsForm } from "./settings-form"
 import { SamlLoginButton } from "./login-button"
 import { samlSettingsFixture } from "./test-fixture"
@@ -66,6 +68,58 @@ afterEach(() => {
 })
 
 describe("SAML login and settings", () => {
+  it.each(supportedLanguages)(
+    "describes the SAML fields and copies the ACS URL in %s without saving settings",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const fetch = vi.fn(async () => response(configured))
+      vi.stubGlobal("fetch", fetch)
+      const interaction = userEvent.setup()
+      const write = vi
+        .spyOn(navigator.clipboard, "writeText")
+        .mockResolvedValue()
+      mount(<SamlSettingsForm />)
+      await screen.findByRole("textbox", { name: i18n.t("saml.idpEntityId") })
+      for (const [label, hint] of [
+        ["idpEntityId", "idpEntityIdHelp"],
+        ["idpSsoUrl", "idpSsoUrlHelp"],
+        ["idpCertificate", "idpCertificateHelp"],
+        ["emailAttribute", "attributeHelp"],
+        ["nameAttribute", "attributeHelp"],
+        ["signingCertificate", "signingCertificateHelp"],
+        ["signingKey", "signingHelp"],
+        ["spEntityId", "spEntityIdHelp"],
+        ["acsUrl", "metadataHelp"],
+      ]) {
+        expect(
+          screen.getByRole("textbox", { name: i18n.t(`saml.${label}`) })
+        ).toHaveAccessibleDescription(i18n.t(`saml.${hint}`))
+      }
+      for (const [label, hint] of [
+        ["enabled", "enabledHelp"],
+        ["signRequests", "signRequestsHelp"],
+      ]) {
+        expect(
+          screen.getByRole("switch", { name: i18n.t(`saml.${label}`) })
+        ).toHaveAccessibleDescription(i18n.t(`saml.${hint}`))
+      }
+      const callback = screen.getByRole("textbox", {
+        name: i18n.t("saml.acsUrl"),
+      })
+      const group = callback.closest('[data-slot="input-group"]')
+      if (!(group instanceof HTMLElement))
+        throw new Error("Missing callback URL group")
+      await interaction.click(
+        within(group).getByRole("button", {
+          name: i18n.t("admin.authSettings.copyCallback"),
+        })
+      )
+      expect(callback).toHaveAttribute("readonly")
+      expect(write).toHaveBeenCalledWith(configured.acs_url)
+      expect(fetch).toHaveBeenCalledTimes(1)
+    }
+  )
+
   it.each([true, false])(
     "marks required SAML fields and requires a signing key only when no saved key exists (%s)",
     async (keyConfigured) => {

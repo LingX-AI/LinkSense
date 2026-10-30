@@ -5308,6 +5308,8 @@ export const ptBR = {
       teamsDescription:
         "Permita o acesso diretamente no Teams com contas de trabalho ou escola.",
       modeLabel: "Origem da configuração",
+      modeHint:
+        "Escolha usar a configuração da implantação, preencher e salvar os ajustes aqui ou desativar este recurso.",
       modes: {
         inherit: "Herdar do ambiente de implantação",
         managed: "Gerenciar nas configurações do sistema",
@@ -5335,9 +5337,19 @@ export const ptBR = {
         "Deixe em branco quando o serviço SMTP não exigir autenticação.",
       smtpPassword: "Senha",
       oidcIssuer: "URL do emissor",
+      oidcIssuerHint:
+        "Informe a URL do emissor OIDC da organização, disponível na configuração do OpenID Connect. É obrigatório usar HTTPS.",
       oidcClientId: "ID do cliente",
+      oidcClientIdHint:
+        "Informe o ID do cliente do aplicativo registrado para este sistema. No Microsoft Entra ID, use a ID do aplicativo (cliente).",
       oidcClientSecret: "Segredo do cliente",
+      oidcClientSecretHint:
+        "Informe o valor do segredo do cliente gerado pelo provedor para este aplicativo.",
       oidcRedirectUri: "URI de redirecionamento",
+      copyCallback: "Copiar URL de retorno",
+      callbackCopied: "URL de retorno copiada.",
+      copyFailed:
+        "Não foi possível copiar. Selecione e copie a URL de retorno manualmente.",
       oidcRedirectHint:
         "Registre esta URI fixa no provedor OIDC. Ela não pode ser alterada aqui.",
       teamsTenantId: "ID do locatário",

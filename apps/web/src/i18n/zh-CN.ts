@@ -4618,6 +4618,7 @@ export const zhCN = {
       teamsTitle: "Teams 内登录",
       teamsDescription: "让成员在 Teams 中使用工作或学校账号直接进入。",
       modeLabel: "配置来源",
+      modeHint: "选择沿用部署配置、在此页面填写并保存，或停用此功能。",
       modes: {
         inherit: "继承部署环境",
         managed: "由系统设置管理",
@@ -4642,9 +4643,17 @@ export const zhCN = {
       smtpUsernameHint: "留空表示 SMTP 服务不要求身份认证。",
       smtpPassword: "密码",
       oidcIssuer: "Issuer URL",
+      oidcIssuerHint:
+        "填写组织身份平台的 OIDC 颁发者地址（Issuer），可在其 OpenID Connect 配置中查找，须使用 HTTPS。",
       oidcClientId: "Client ID",
+      oidcClientIdHint:
+        "填写为本系统注册的应用客户端 ID；Microsoft Entra ID 中对应“应用程序（客户端）ID”。",
       oidcClientSecret: "Client secret",
+      oidcClientSecretHint: "填写身份平台为此应用生成的客户端密钥值（Value）。",
       oidcRedirectUri: "回调地址",
+      copyCallback: "复制回调地址",
+      callbackCopied: "回调地址已复制。",
+      copyFailed: "复制失败，请手动选择并复制回调地址。",
       oidcRedirectHint: "请将此固定地址登记到 OIDC 提供方；此处不可修改。",
       teamsTenantId: "Tenant ID",
       teamsClientId: "Application (client) ID",

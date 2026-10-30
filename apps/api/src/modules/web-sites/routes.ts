@@ -59,6 +59,11 @@ export function publishedResourcePolicy(publicBaseUrl: string): string {
 }
 
 export const publicWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; publicBaseUrl: string }> = async (app, { service, publicBaseUrl }) => {
+  // Run after the host's onSend hook, including for nested release documents.
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.removeHeader("x-frame-options");
+    return payload;
+  });
   app.addHook("onRequest", async (_request, reply) => {
     reply.removeHeader("access-control-allow-credentials");
     reply.header("cache-control", "no-store").header("referrer-policy", "no-referrer")

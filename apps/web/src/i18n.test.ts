@@ -58,6 +58,39 @@ function interpolationTokens(value: string): string[] {
 
 describe("i18n resources", () => {
   it.each(supportedLanguages)(
+    "translates sign-in field descriptions and callback copy messages in %s with Chinese fallback",
+    (locale) => {
+      for (const key of [
+        "admin.authSettings.modeHint",
+        "admin.authSettings.oidcIssuerHint",
+        "admin.authSettings.oidcClientIdHint",
+        "admin.authSettings.oidcClientSecretHint",
+        "admin.authSettings.copyCallback",
+        "admin.authSettings.callbackCopied",
+        "admin.authSettings.copyFailed",
+        "saml.enabledHelp",
+        "saml.idpEntityIdHelp",
+        "saml.idpSsoUrlHelp",
+        "saml.idpCertificateHelp",
+        "saml.signRequestsHelp",
+        "saml.signingCertificateHelp",
+        "saml.spEntityIdHelp",
+      ]) {
+        const translated = i18n.getResource(locale, "translation", key)
+        const chinese = i18n.t(key, { lng: "zh-CN" })
+        expect(translated).toBeTypeOf("string")
+        expect(translated).not.toBe(key)
+        if (locale !== "zh-CN") {
+          expect(translated).not.toBe(chinese)
+          const fallback = i18n.cloneInstance({ forkResourceStore: true })
+          fallback.removeResourceBundle(locale, "translation")
+          expect(fallback.t(key, { lng: locale })).toBe(chinese)
+        }
+      }
+    }
+  )
+
+  it.each(supportedLanguages)(
     "localizes recoverable preview loading in %s with Chinese fallback",
     (locale) => {
       for (const key of [

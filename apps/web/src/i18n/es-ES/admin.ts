@@ -657,6 +657,8 @@ export const adminMessages = {
       teamsDescription:
         "Permite acceder directamente desde Teams con cuentas profesionales o educativas.",
       modeLabel: "Origen de la configuración",
+      modeHint:
+        "Elige usar la configuración de la implementación, introducir y guardar los ajustes aquí o desactivar esta función.",
       modes: {
         inherit: "Heredar del entorno de implementación",
         managed: "Gestionar en los ajustes del sistema",
@@ -684,9 +686,19 @@ export const adminMessages = {
         "Deja en blanco cuando el servicio SMTP no exija autenticación.",
       smtpPassword: "Contraseña",
       oidcIssuer: "URL del emisor",
+      oidcIssuerHint:
+        "Introduce la URL del emisor OIDC de tu organización, disponible en su configuración de OpenID Connect. Debe usar HTTPS.",
       oidcClientId: "ID del cliente",
+      oidcClientIdHint:
+        "Introduce el ID del cliente de la aplicación registrada para este sistema. En Microsoft Entra ID, corresponde al ID de aplicación (cliente).",
       oidcClientSecret: "Secreto del cliente",
+      oidcClientSecretHint:
+        "Introduce el valor del secreto del cliente que el proveedor haya generado para esta aplicación.",
       oidcRedirectUri: "URI de redirección",
+      copyCallback: "Copiar URL de retorno",
+      callbackCopied: "URL de retorno copiada.",
+      copyFailed:
+        "No se pudo copiar. Selecciona y copia la URL de retorno manualmente.",
       oidcRedirectHint:
         "Registra esta URI fija en el proveedor OIDC. No se puede cambiar aquí.",
       teamsTenantId: "ID del inquilino",

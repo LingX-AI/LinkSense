@@ -18,6 +18,11 @@ export const htmlPreviewRoutes: FastifyPluginAsync<{ service: HtmlPreviewService
 };
 
 export const htmlPreviewResourceRoutes: FastifyPluginAsync<{ service: HtmlPreviewService }> = async (app, { service }) => {
+  // Run after the host's onSend hook: sandboxed previews must remain embeddable.
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.removeHeader("x-frame-options");
+    return payload;
+  });
   app.addHook("onRequest", async (_request, reply) => {
     reply.removeHeader("access-control-allow-credentials");
     reply.header("cache-control", "private, no-store").header("referrer-policy", "no-referrer")

@@ -4982,6 +4982,8 @@ export const enUS = {
       teamsDescription:
         "Let members enter directly within Teams using their work or school accounts.",
       modeLabel: "Configuration source",
+      modeHint:
+        "Choose to use the deployment configuration, enter and save settings here, or disable this feature.",
       modes: {
         inherit: "Inherit deployment environment",
         managed: "Manage in system settings",
@@ -5009,9 +5011,18 @@ export const enUS = {
         "Leave blank when the SMTP service requires no authentication.",
       smtpPassword: "Password",
       oidcIssuer: "Issuer URL",
+      oidcIssuerHint:
+        "Enter your organization’s OIDC issuer URL from its OpenID Connect configuration. HTTPS is required.",
       oidcClientId: "Client ID",
+      oidcClientIdHint:
+        "Enter the client ID of the application registered for this system. In Microsoft Entra ID, use the Application (client) ID.",
       oidcClientSecret: "Client secret",
+      oidcClientSecretHint:
+        "Enter the client secret value generated for this application by the identity provider.",
       oidcRedirectUri: "Redirect URI",
+      copyCallback: "Copy callback URL",
+      callbackCopied: "Callback URL copied.",
+      copyFailed: "Could not copy. Select and copy the callback URL manually.",
       oidcRedirectHint:
         "Register this fixed URI with the OIDC provider. It cannot be changed here.",
       teamsTenantId: "Tenant ID",

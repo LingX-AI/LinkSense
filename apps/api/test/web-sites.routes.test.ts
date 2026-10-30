@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import { createHash } from "node:crypto";
 import cors from "@fastify/cors";
 import { afterEach, describe, expect, it } from "vitest";
+import { registerResponseSecurityHeaders } from "../src/app.js";
 import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
 import { createApiCorsOptions } from "../src/lib/cors.js";
@@ -16,6 +17,7 @@ async function setup() {
   apps.push(app);
   app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
   await app.register(cors, createApiCorsOptions("https://linksense.example.test"));
+  registerResponseSecurityHeaders(app);
   app.decorate("authenticate", async (request) => {
     if (request.headers.authorization !== "Bearer test-owner") throw new AppError("AUTH_REQUIRED");
     Object.assign(request, { authUser: { id: ownerId } });
@@ -28,13 +30,17 @@ describe("website HTTP boundary", () => {
   it("serves an anonymous sandboxed shell and directly sandboxed assets with anonymous CORS", async () => {
     const fixture = await setup();
     fixture.row.site.name = '<img src=x onerror="alert(1)">';
-    const shell = await fixture.app.inject("/web/sample");
-    expect(shell.statusCode).toBe(200);
-    expect(shell.body).toContain('sandbox="allow-scripts allow-modals allow-downloads allow-forms"');
-    expect(shell.body).not.toContain("allow-same-origin");
-    expect(shell.body).not.toContain("<img");
-    expect(shell.body).toContain(`src="/web/sample/_releases/${releaseId}/index.html"`);
-    for (const origin of ["null", "https://linksense.example.test"]) {
+    for (const url of ["/web/sample", "/web/sample/"]) {
+      const shell = await fixture.app.inject(url);
+      expect(shell.statusCode).toBe(200);
+      expect(shell.body).toContain('sandbox="allow-scripts allow-modals allow-downloads allow-forms"');
+      expect(shell.body).not.toContain("allow-same-origin");
+      expect(shell.body).not.toContain("<img");
+      expect(shell.body).toContain(`src="/web/sample/_releases/${releaseId}/index.html"`);
+      expect(shell.headers["x-frame-options"]).toBeUndefined();
+      expect(shell.headers["content-security-policy"]).not.toContain("frame-ancestors");
+    }
+    for (const origin of ["null", "https://linksense.example.test", "https://host.example.test"]) {
       const file = await fixture.app.inject({ url: `/web/sample/_releases/${releaseId}/index.html`, headers: { origin } });
       expect(file.statusCode).toBe(200);
       expect(file.headers["content-type"]).toBe("text/html; charset=utf-8");
@@ -43,9 +49,23 @@ describe("website HTTP boundary", () => {
       expect(file.headers["content-security-policy"]).toContain("sandbox allow-scripts");
       expect(file.headers["content-security-policy"]).not.toContain("allow-same-origin");
       expect(file.headers["content-security-policy"]).toContain("worker-src 'none'");
+      expect(file.headers["x-frame-options"]).toBeUndefined();
+      expect(file.headers["content-security-policy"]).not.toContain("frame-ancestors");
+      expect(file.body).toContain('onclick="this.textContent=42"');
       expect(file.headers["cache-control"]).toBe("no-store");
       expect(file.headers["x-content-type-options"]).toBe("nosniff");
     }
+    expect(fixture.store.create).not.toHaveBeenCalled();
+    expect(fixture.store.publish).not.toHaveBeenCalled();
+  });
+  it.each(["/web/sample", "/web/sample/", `/web/sample/_releases/${releaseId}/index.html`])("keeps existing site HEAD responses embeddable at %s", async (url) => {
+    const fixture = await setup();
+    const response = await fixture.app.inject({ method: "HEAD", url });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["x-frame-options"]).toBeUndefined();
+    expect(response.headers["content-security-policy"]).not.toContain("frame-ancestors");
+    expect(response.body).toBe("");
+    expect(fixture.store.publish).not.toHaveBeenCalled();
   });
   it("returns localized errors for retired sites and never reads their assets", async () => {
     const fixture = await setup();
@@ -54,6 +74,10 @@ describe("website HTTP boundary", () => {
     const en = await fixture.app.inject({ url: "/web/sample", headers: { "accept-language": "en-US" } });
     expect(zh.statusCode).toBe(404);
     expect(en.statusCode).toBe(404);
+    for (const response of [zh, en]) {
+      expect(response.headers["x-frame-options"]).toBeUndefined();
+      expect(response.headers["content-security-policy"]).not.toContain("frame-ancestors");
+    }
     expect(zh.body).toContain('lang="zh-CN"');
     expect(en.body).toContain('lang="en-US"');
     expect(zh.body).not.toContain("object_key");
@@ -96,6 +120,8 @@ describe("website HTTP boundary", () => {
     fixture.store.publicSite.mockRejectedValue(new Error("private database connection"));
     const response = await fixture.app.inject("/web/sample");
     expect(response.statusCode).toBe(500);
+    expect(response.headers["x-frame-options"]).toBeUndefined();
+    expect(response.headers["content-security-policy"]).not.toContain("frame-ancestors");
     expect(response.body).not.toContain("private database connection");
     expect(response.body).not.toContain('aria-hidden="true">404</p>');
   });
@@ -104,6 +130,8 @@ describe("website HTTP boundary", () => {
     for (const method of ["GET", "PATCH", "DELETE"] as const) {
       const result = await fixture.app.inject({ method, url: method === "GET" ? "/api/v1/web-sites" : `/api/v1/web-sites/${siteId}` });
       expect(result.statusCode).toBe(401);
+      expect(result.headers["x-frame-options"]).toBe("SAMEORIGIN");
+      expect(result.headers["content-security-policy"]).toContain("frame-ancestors 'self'");
     }
     fixture.store.owned.mockRejectedValue(new AppError("WEB_SITE_NOT_FOUND"));
     const response = await fixture.app.inject({ url: `/api/v1/web-sites/${siteId}/download`, headers: { authorization: "Bearer test-owner" } });

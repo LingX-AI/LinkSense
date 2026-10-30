@@ -5226,6 +5226,8 @@ export const jaJP = {
       teamsDescription:
         "職場または学校アカウントを使って Teams 内から直接利用できます。",
       modeLabel: "設定元",
+      modeHint:
+        "デプロイ時の設定を使うか、このページで入力して保存するか、この機能を無効にするかを選択します。",
       modes: {
         inherit: "デプロイ環境を継承",
         managed: "システム設定で管理",
@@ -5252,9 +5254,19 @@ export const jaJP = {
       smtpUsernameHint: "SMTP サービスで認証が不要な場合は空欄にしてください。",
       smtpPassword: "パスワード",
       oidcIssuer: "発行者 URL",
+      oidcIssuerHint:
+        "組織の OpenID Connect 設定に記載された OIDC 発行者 URL（Issuer）を入力してください。HTTPS が必要です。",
       oidcClientId: "クライアント ID",
+      oidcClientIdHint:
+        "本システム用に登録したアプリのクライアント ID を入力します。Microsoft Entra ID では「アプリケーション（クライアント）ID」に相当します。",
       oidcClientSecret: "クライアントシークレット",
+      oidcClientSecretHint:
+        "認証サービスでこのアプリ用に生成したクライアントシークレットの値を入力してください。",
       oidcRedirectUri: "リダイレクト URI",
+      copyCallback: "コールバック URL をコピー",
+      callbackCopied: "コールバック URL をコピーしました。",
+      copyFailed:
+        "コピーできませんでした。コールバック URL を選択して手動でコピーしてください。",
       oidcRedirectHint:
         "この固定 URI を OIDC プロバイダーに登録してください。ここでは変更できません。",
       teamsTenantId: "テナント ID",
