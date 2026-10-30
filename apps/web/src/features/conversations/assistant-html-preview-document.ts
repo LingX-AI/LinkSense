@@ -4,6 +4,12 @@ import {
   isHtmlPreviewShellReadyMessage,
 } from "@/components/media/html-preview/html-preview-shell"
 import { buildSafeHtmlDocument } from "@/components/media/html-preview/html-preview-sanitizer"
+import {
+  htmlPreviewResourceStateSchema,
+  htmlPreviewResourceWaitMs,
+  installHtmlPreviewReadiness,
+  type HtmlPreviewResourceState,
+} from "@/components/media/html-preview/html-preview-readiness"
 import { z } from "zod"
 
 export const assistantHtmlPreviewReadyMessageType =
@@ -29,12 +35,16 @@ const maximumAssistantHtmlPreviewCaptureDimension = 100_000
 export const maximumAssistantHtmlPreviewWheelDelta = 10_000
 export const maximumAssistantHtmlPreviewCaptureSnapshotLength = 4 * 1024 * 1024
 
-type AssistantHtmlPreviewLifecycleMessage = Readonly<{
-  type:
-    | typeof assistantHtmlPreviewReadyMessageType
-    | typeof assistantHtmlPreviewErrorMessageType
-  previewId: string
-}>
+type AssistantHtmlPreviewLifecycleMessage =
+  | Readonly<{
+      type: typeof assistantHtmlPreviewReadyMessageType
+      resourceState: HtmlPreviewResourceState
+      previewId: string
+    }>
+  | Readonly<{
+      type: typeof assistantHtmlPreviewErrorMessageType
+      previewId: string
+    }>
 
 type AssistantHtmlPreviewWheelMessage = Readonly<{
   type: typeof assistantHtmlPreviewWheelMessageType
@@ -73,10 +83,12 @@ export type AssistantHtmlPreviewFrameMessage =
 
 const assistantHtmlPreviewFrameMessageSchema = z.discriminatedUnion("type", [
   z.object({
-    type: z.union([
-      z.literal(assistantHtmlPreviewReadyMessageType),
-      z.literal(assistantHtmlPreviewErrorMessageType),
-    ]),
+    type: z.literal(assistantHtmlPreviewReadyMessageType),
+    resourceState: htmlPreviewResourceStateSchema,
+    previewId: z.string().min(1).max(256),
+  }),
+  z.object({
+    type: z.literal(assistantHtmlPreviewErrorMessageType),
     previewId: z.string().min(1).max(256),
   }),
   z.object({
@@ -147,7 +159,6 @@ function buildAssistantHtmlPreviewBootstrap(previewId: string) {
 (() => {
   const previewId = ${JSON.stringify(previewId)};
   const readyType = ${JSON.stringify(assistantHtmlPreviewReadyMessageType)};
-  const errorType = ${JSON.stringify(assistantHtmlPreviewErrorMessageType)};
   const wheelType = ${JSON.stringify(assistantHtmlPreviewWheelMessageType)};
   const layoutType = ${JSON.stringify(assistantHtmlPreviewLayoutMessageType)};
   const captureRequestType = ${JSON.stringify(assistantHtmlPreviewCaptureRequestMessageType)};
@@ -159,7 +170,6 @@ function buildAssistantHtmlPreviewBootstrap(previewId: string) {
   const loadingAttribute = "data-linksense-assistant-preview-loading";
   let settled = false;
   let fullscreen = false;
-  let timeout;
 
   document.documentElement.setAttribute(loadingAttribute, "true");
   const loadingStyle = document.createElement("style");
@@ -418,26 +428,18 @@ function buildAssistantHtmlPreviewBootstrap(previewId: string) {
     capturePreview(message.requestId);
   });
 
-  const finish = (type) => {
+  const finish = (resourceState) => {
     if (settled) return;
     settled = true;
-    clearTimeout(timeout);
-    if (type === readyType) {
-      document.documentElement.removeAttribute(loadingAttribute);
-    }
-    parent.postMessage({ type, previewId }, "*");
+    document.documentElement.removeAttribute(loadingAttribute);
+    parent.postMessage({ type: readyType, previewId, resourceState }, "*");
   };
 
-  const checkReady = () => {
-    if (document.readyState !== "loading") {
-      finish(readyType);
-    }
-  };
-
-  document.addEventListener("DOMContentLoaded", checkReady, { once: true });
-  window.addEventListener("load", checkReady, { once: true });
-  timeout = setTimeout(() => finish(errorType), 8000);
-  checkReady();
+  (${installHtmlPreviewReadiness.toString()})(window, {
+    timeoutMs: ${htmlPreviewResourceWaitMs},
+    prepare: () => document.documentElement.getBoundingClientRect(),
+    onReady: finish,
+  });
 })();
 `
 }

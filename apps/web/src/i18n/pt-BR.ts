@@ -1980,6 +1980,9 @@ export const ptBR = {
   },
   htmlPreview: {
     resourcesIncomplete: "Parte do conteúdo da página não foi carregada",
+    resourcesSlow: "Parte do conteúdo da página ainda está carregando",
+    resourcesSlowHelp:
+      "O conteúdo disponível está sendo exibido. Alguns estilos podem aparecer depois. Tente novamente se o carregamento não terminar.",
     sessionExpired: "A conexão da prévia expirou",
     resourcesHelp:
       "Alguns estilos ou interações podem estar indisponíveis. Recarregue a prévia. Se o problema continuar, peça à tarefa para incluir os arquivos necessários.",

@@ -87,6 +87,9 @@ export const previewMessages = {
   },
   htmlPreview: {
     resourcesIncomplete: "No se pudo cargar parte de la página",
+    resourcesSlow: "Parte de la página sigue cargándose",
+    resourcesSlowHelp:
+      "Se muestra el contenido disponible. Algunos estilos pueden aparecer más tarde. Si la página no termina de cargar, vuelve a intentarlo.",
     sessionExpired: "La conexión de vista previa ha caducado",
     resourcesHelp:
       "Es posible que algunos estilos o interacciones no estén disponibles. Recarga la vista previa. Si el problema continúa, pide a la tarea que incluya los archivos necesarios.",

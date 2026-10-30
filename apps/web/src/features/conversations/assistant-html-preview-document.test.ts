@@ -29,7 +29,13 @@ function createPreviewRuntime() {
   )
   const document = new DOMParser().parseFromString(html, "text/html")
   Object.defineProperty(document, "readyState", { value: "complete" })
-  const frameWindow = new EventTarget()
+  const frameWindow = Object.assign(new EventTarget(), {
+    document,
+    setTimeout: window.setTimeout.bind(window),
+    clearTimeout: window.clearTimeout.bind(window),
+    requestAnimationFrame: window.requestAnimationFrame.bind(window),
+    cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+  })
   const postMessage = vi.fn()
   const parent = { postMessage }
   new Function(
@@ -292,8 +298,8 @@ describe("assistant HTML preview document", () => {
   })
 
   it.each(["loading", "interactive", "complete"] as const)(
-    "shows plain HTML when the document is %s without waiting for a CSS framework",
-    (initialState) => {
+    "shows plain HTML after parsing and initial layout when the document is %s",
+    async (initialState) => {
       vi.useFakeTimers()
       const html = buildAssistantHtmlPreviewDocument(
         '<!doctype html><html><body><p style="color: blue">Plain HTML</p></body></html>',
@@ -309,6 +315,7 @@ describe("assistant HTML preview document", () => {
       // Geometry observation is unrelated to document readiness and must not leak between tests.
       class Observer {
         observe() {}
+        disconnect() {}
       }
       new Function(
         "document",
@@ -317,14 +324,32 @@ describe("assistant HTML preview document", () => {
         "MutationObserver",
         "ResizeObserver",
         bootstrap
-      )(parsed, new EventTarget(), { postMessage }, Observer, undefined)
+      )(
+        parsed,
+        Object.assign(new EventTarget(), {
+          document: parsed,
+          setTimeout: window.setTimeout.bind(window),
+          clearTimeout: window.clearTimeout.bind(window),
+          requestAnimationFrame: window.requestAnimationFrame.bind(window),
+          cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+        }),
+        { postMessage },
+        Observer,
+        undefined
+      )
       if (initialState === "loading") {
         expect(postMessage).not.toHaveBeenCalled()
         readyState = "interactive"
         parsed.dispatchEvent(new Event("DOMContentLoaded"))
       }
+      expect(postMessage).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(40)
       expect(postMessage).toHaveBeenCalledWith(
-        { type: assistantHtmlPreviewReadyMessageType, previewId: "plain-html" },
+        {
+          type: assistantHtmlPreviewReadyMessageType,
+          previewId: "plain-html",
+          resourceState: "complete",
+        },
         "*"
       )
       expect(
@@ -379,11 +404,11 @@ describe("assistant HTML preview document", () => {
     expect(bootstrap?.textContent).toContain(
       JSON.stringify(assistantHtmlPreviewReadyMessageType)
     )
-    expect(bootstrap?.textContent).toContain(
-      JSON.stringify(assistantHtmlPreviewErrorMessageType)
-    )
+    expect(bootstrap?.textContent).toContain("resourceState")
     expect(bootstrap?.textContent).not.toContain("ResizeObserver")
-    expect(bootstrap?.textContent).not.toContain("MutationObserver")
+    expect(bootstrap?.textContent).not.toContain(
+      "getBoundingClientRect().height"
+    )
     expect(bootstrap?.textContent).toContain("scrollHeight")
     expect(bootstrap?.textContent).not.toContain(
       "data-linksense-preview-sizing-style"
@@ -518,6 +543,7 @@ describe("assistant HTML preview document", () => {
         {
           type: assistantHtmlPreviewReadyMessageType,
           previewId: "preview-1",
+          resourceState: "complete",
         },
         "preview-1"
       )

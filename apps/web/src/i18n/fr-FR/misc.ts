@@ -86,6 +86,9 @@ export const miscResources = {
   },
   htmlPreview: {
     resourcesIncomplete: "Une partie de la page n’a pas pu être chargée",
+    resourcesSlow: "Une partie de la page est encore en cours de chargement",
+    resourcesSlowHelp:
+      "Le contenu disponible est affiché. Certains styles peuvent apparaître plus tard. Réessayez si le chargement ne se termine pas.",
     sessionExpired: "La connexion de l’aperçu a expiré",
     resourcesHelp:
       "Certains styles ou interactions peuvent être indisponibles. Rechargez l’aperçu. Si le problème persiste, demandez à la tâche d’inclure les fichiers nécessaires.",

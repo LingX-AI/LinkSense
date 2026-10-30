@@ -130,6 +130,7 @@ function renderReadyPreview(productName?: string) {
         data: {
           type: assistantHtmlPreviewReadyMessageType,
           previewId: frame.dataset.assistantHtmlPreviewId,
+          resourceState: "complete",
         },
       })
     )
@@ -138,6 +139,42 @@ function renderReadyPreview(productName?: string) {
 }
 
 describe("AssistantHtmlPreview actions", () => {
+  it.each(["incomplete", "timeout"] as const)(
+    "keeps available content visible and offers retry after resource state %s",
+    (resourceState) => {
+      render(
+        <AssistantHtmlPreview html="<!doctype html><html><body>Available content</body></html>" />
+      )
+      const frame = screen.getByTitle(
+        "AI 生成的交互式 HTML 页面"
+      ) as HTMLIFrameElement
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: frame.contentWindow,
+            data: {
+              type: assistantHtmlPreviewReadyMessageType,
+              previewId: frame.dataset.assistantHtmlPreviewId,
+              resourceState,
+            },
+          })
+        )
+      })
+      expect(screen.queryByRole("status")).not.toBeInTheDocument()
+      expect(frame).not.toHaveClass("invisible")
+      expect(
+        screen.getByText(
+          resourceState === "timeout"
+            ? "页面的部分内容仍在加载"
+            : "页面的部分内容未能加载"
+        )
+      ).toBeVisible()
+      fireEvent.click(screen.getByRole("button", { name: "重试" }))
+      expect(screen.getByTitle("AI 生成的交互式 HTML 页面")).not.toBe(frame)
+      expect(screen.getByRole("status")).toBeVisible()
+    }
+  )
+
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN")
     fullscreenElement = null
@@ -260,7 +297,11 @@ describe("AssistantHtmlPreview actions", () => {
         window.dispatchEvent(
           new MessageEvent("message", {
             source: frame.contentWindow,
-            data: { type, previewId: frame.dataset.assistantHtmlPreviewId },
+            data: {
+              type,
+              previewId: frame.dataset.assistantHtmlPreviewId,
+              resourceState: "complete",
+            },
           })
         )
       })
@@ -313,6 +354,7 @@ describe("AssistantHtmlPreview actions", () => {
                   ? assistantHtmlPreviewReadyMessageType
                   : assistantHtmlPreviewErrorMessageType,
               previewId: frame.dataset.assistantHtmlPreviewId,
+              resourceState: "complete",
             },
           })
         )
@@ -392,6 +434,7 @@ describe("AssistantHtmlPreview actions", () => {
           data: {
             type: assistantHtmlPreviewErrorMessageType,
             previewId: frame.dataset.assistantHtmlPreviewId,
+            resourceState: "complete",
           },
         })
       )
@@ -659,6 +702,7 @@ describe("AssistantHtmlPreview actions", () => {
           data: {
             type: assistantHtmlPreviewReadyMessageType,
             previewId: frame.dataset.assistantHtmlPreviewId,
+            resourceState: "complete",
           },
         })
       )

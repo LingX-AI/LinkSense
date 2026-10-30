@@ -17,6 +17,7 @@ import { productFilenamePrefix, useProductName } from "@/app/product-branding"
 import { notify } from "@/components/feedback/notification"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import type { HtmlPreviewResourceState } from "@/components/media/html-preview/html-preview-readiness"
 import {
   buildHtmlPreviewShellSource,
   initializeHtmlPreviewShell,
@@ -51,6 +52,7 @@ type FrameState = Readonly<{
   source: string | null
   attempt: number
   status: FrameStatus
+  resourceState: HtmlPreviewResourceState
 }>
 
 type PendingCaptureRequest = Readonly<{
@@ -108,6 +110,7 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
     source: documentSource,
     attempt: 0,
     status: documentSource === null ? "error" : "loading",
+    resourceState: "complete",
   }))
   const activeFrameState: FrameState =
     frameState.source === documentSource
@@ -116,6 +119,7 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
           source: documentSource,
           attempt: 0,
           status: documentSource === null ? "error" : "loading",
+          resourceState: "complete",
         }
 
   const initializePreviewFrame = useCallback(
@@ -207,6 +211,10 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
           source: documentSource,
           attempt: current.source === documentSource ? current.attempt : 0,
           status,
+          resourceState:
+            message.type === assistantHtmlPreviewErrorMessageType
+              ? "complete"
+              : message.resourceState,
         }
       })
     }
@@ -254,6 +262,7 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
               source: documentSource,
               attempt: current.source === documentSource ? current.attempt : 0,
               status: "error",
+              resourceState: "complete",
             }
           : current
       })
@@ -267,6 +276,7 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
       source: documentSource,
       attempt: current.source === documentSource ? current.attempt + 1 : 0,
       status: "loading",
+      resourceState: "complete",
     }))
   }
 
@@ -446,6 +456,29 @@ export function AssistantHtmlPreview({ html }: AssistantHtmlPreviewProps) {
           </div>
         )}
       </div>
+
+      {activeFrameState.status === "ready" &&
+        activeFrameState.resourceState !== "complete" && (
+          <Alert className="mt-2">
+            <AlertTitle>
+              {t(
+                activeFrameState.resourceState === "timeout"
+                  ? "htmlPreview.resourcesSlow"
+                  : "htmlPreview.resourcesIncomplete"
+              )}
+            </AlertTitle>
+            <AlertDescription>
+              {t(
+                activeFrameState.resourceState === "timeout"
+                  ? "htmlPreview.resourcesSlowHelp"
+                  : "htmlPreview.resourcesHelp"
+              )}
+            </AlertDescription>
+            <Button variant="outline" size="sm" onClick={retry}>
+              {t("common.retry")}
+            </Button>
+          </Alert>
+        )}
 
       {activeFrameState.status === "ready" && !isFullscreen && (
         <AssistantPreviewActions

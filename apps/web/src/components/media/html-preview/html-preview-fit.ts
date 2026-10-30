@@ -4,6 +4,7 @@ export const htmlPreviewReadyMessageType = "linksense:html-preview:ready"
 export type HtmlPreviewReadyResponse = Readonly<{
   type: typeof htmlPreviewReadyMessageType
   deferredFit: boolean
+  resourceState: HtmlPreviewResourceState
 }>
 
 const minimumHtmlPreviewZoom = 0.5
@@ -200,6 +201,11 @@ export function isHtmlPreviewReadyResponse(
   const candidate = value as Partial<HtmlPreviewReadyResponse>
   return (
     candidate.type === htmlPreviewReadyMessageType &&
-    typeof candidate.deferredFit === "boolean"
+    typeof candidate.deferredFit === "boolean" &&
+    htmlPreviewResourceStateSchema.safeParse(candidate.resourceState).success
   )
 }
+import {
+  htmlPreviewResourceStateSchema,
+  type HtmlPreviewResourceState,
+} from "./html-preview-readiness"

@@ -1946,6 +1946,9 @@ export const jaJP = {
   },
   htmlPreview: {
     resourcesIncomplete: "ページの一部を読み込めませんでした",
+    resourcesSlow: "ページの一部を読み込み中です",
+    resourcesSlowHelp:
+      "読み込めた内容を表示しています。一部のスタイルは後から反映されることがあります。読み込みが終わらない場合は、再試行してください。",
     sessionExpired: "プレビューの接続が切れました",
     resourcesHelp:
       "一部のスタイルや操作を利用できない場合があります。再読み込みしてください。問題が続く場合は、ページに必要なファイルを含めるようタスクに依頼してください。",

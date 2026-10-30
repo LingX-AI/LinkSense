@@ -1917,7 +1917,7 @@ describe("LinkSense application", () => {
     const settingsNavigationLinks = settingsSidebar.querySelectorAll(
       ".settings-navigation-link"
     )
-    expect(settingsNavigationLinks).toHaveLength(23)
+    expect(settingsNavigationLinks).toHaveLength(24)
     settingsNavigationLinks.forEach((link) => {
       expect(link.querySelectorAll(":scope > span")).toHaveLength(1)
       expect(link.querySelector(":scope > span > span")).toBeNull()
@@ -1943,6 +1943,9 @@ describe("LinkSense application", () => {
     expect(
       within(settingsSidebar).getByRole("link", { name: "知识库" })
     ).toHaveAttribute("href", "/admin/knowledge-bases")
+    expect(
+      within(settingsSidebar).getByRole("link", { name: "连接器" })
+    ).toHaveAttribute("href", "/admin/connectors")
     expect(
       within(settingsSidebar).queryByRole("link", { name: "知识库数据源" })
     ).not.toBeInTheDocument()

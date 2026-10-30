@@ -47,7 +47,11 @@ function sendInteractionReady(frame: HTMLIFrameElement, deferredFit = false) {
     window,
     new MessageEvent("message", {
       source: frame.contentWindow,
-      data: { type: htmlPreviewReadyMessageType, deferredFit },
+      data: {
+        type: htmlPreviewReadyMessageType,
+        deferredFit,
+        resourceState: "complete",
+      },
     })
   )
 }
@@ -99,6 +103,135 @@ const selectionAction = (onSubmit = vi.fn().mockResolvedValue(undefined)) => ({
 })
 
 describe("HTML preview", () => {
+  it("keeps the same running frame while styles load beyond the startup timeout", async () => {
+    vi.useFakeTimers()
+    render(
+      <HtmlPreview
+        document={{
+          status: "ready",
+          content: new TextEncoder().encode("<p>Available content</p>"),
+        }}
+        fileName="slow-styles.html"
+      />
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(40)
+    })
+    const frame = screen.getByTestId(
+      "html-preview-interaction-frame"
+    ) as HTMLIFrameElement
+    fireEvent(
+      window,
+      new MessageEvent("message", {
+        source: frame.contentWindow,
+        data: { type: "linksense:html-preview:runtime-started" },
+      })
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000)
+    })
+    expect(screen.getByTestId("html-preview-interaction-frame")).toBe(frame)
+    expect(screen.getByRole("status")).toHaveTextContent("正在加载文档")
+    expect(frame).toHaveAttribute("data-html-preview-attempt", "0")
+  })
+
+  it("shows available content and a retry warning when the resource wait expires", async () => {
+    render(
+      <HtmlPreview
+        document={{
+          status: "ready",
+          content: new TextEncoder().encode("<p>Available content</p>"),
+        }}
+        fileName="slow-styles.html"
+      />
+    )
+    const frame = (await screen.findByTestId(
+      "html-preview-interaction-frame"
+    )) as HTMLIFrameElement
+    fireEvent(
+      window,
+      new MessageEvent("message", {
+        source: frame.contentWindow,
+        data: {
+          type: htmlPreviewReadyMessageType,
+          deferredFit: false,
+          resourceState: "timeout",
+        },
+      })
+    )
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    expect(screen.getByText("页面的部分内容仍在加载")).toBeVisible()
+    expect(screen.getByRole("button", { name: "重试" })).toBeVisible()
+    expect(screen.getByTestId("html-preview-interaction-frame")).toBe(frame)
+  })
+
+  it("clears a resource warning and starts a fresh frame immediately on explicit retry", async () => {
+    render(
+      <HtmlPreview
+        document={{
+          status: "ready",
+          content: new TextEncoder().encode("<p>Available content</p>"),
+        }}
+        fileName="page.html"
+      />
+    )
+    const first = (await screen.findByTestId(
+      "html-preview-interaction-frame"
+    )) as HTMLIFrameElement
+    fireEvent(
+      window,
+      new MessageEvent("message", {
+        source: first.contentWindow,
+        data: {
+          type: "linksense:html-preview:resource-error",
+          resource: "style.css",
+        },
+      })
+    )
+    sendInteractionReady(first)
+    expect(screen.getByText("页面的部分内容未能加载")).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: "重试" }))
+    const next = screen.getByTestId(
+      "html-preview-interaction-frame"
+    ) as HTMLIFrameElement
+    expect(next).not.toBe(first)
+    sendInteractionReady(next)
+    expect(screen.queryByText("页面的部分内容未能加载")).not.toBeInTheDocument()
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+  })
+
+  it("releases the loading overlay if a running runtime does not report resource completion", async () => {
+    vi.useFakeTimers()
+    render(
+      <HtmlPreview
+        document={{
+          status: "ready",
+          content: new TextEncoder().encode("<p>Available content</p>"),
+        }}
+        fileName="page.html"
+      />
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(40)
+    })
+    const frame = screen.getByTestId(
+      "html-preview-interaction-frame"
+    ) as HTMLIFrameElement
+    fireEvent(
+      window,
+      new MessageEvent("message", {
+        source: frame.contentWindow,
+        data: { type: "linksense:html-preview:runtime-started" },
+      })
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000)
+    })
+    expect(screen.getByTestId("html-preview-interaction-frame")).toBe(frame)
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    expect(screen.getByText("页面的部分内容仍在加载")).toBeVisible()
+  })
+
   it("uses the resource entry directory and displays recoverable incomplete-content details", async () => {
     const retry = vi.fn()
     const source = {

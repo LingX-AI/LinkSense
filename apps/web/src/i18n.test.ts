@@ -73,6 +73,26 @@ describe("i18n resources", () => {
   })
 
   it.each(supportedLanguages)(
+    "localizes recoverable preview loading in %s with Chinese fallback",
+    (locale) => {
+      for (const key of [
+        "htmlPreview.resourcesSlow",
+        "htmlPreview.resourcesSlowHelp",
+      ]) {
+        const translated = i18n.t(key, { lng: locale })
+        const chinese = i18n.t(key, { lng: "zh-CN" })
+        expect(translated).not.toBe(key)
+        if (locale !== "zh-CN") {
+          expect(translated).not.toBe(chinese)
+          const fallback = i18n.cloneInstance({ forkResourceStore: true })
+          fallback.removeResourceBundle(locale, "translation")
+          expect(fallback.t(key, { lng: locale })).toBe(chinese)
+        }
+      }
+    }
+  )
+
+  it.each(supportedLanguages)(
     "localizes Skill uninstall protection in %s with Chinese fallback",
     (locale) => {
       const key = "errors.skillManagement.uninstallNotAllowed"
