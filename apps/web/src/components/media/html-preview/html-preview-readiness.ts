@@ -73,7 +73,10 @@ export function installHtmlPreviewReadiness(
       )
         continue
       const imports = Array.from(element.sheet?.cssRules ?? []).some(
-        (rule) => rule.type === CSSRule.IMPORT_RULE
+        (rule) =>
+          rule instanceof CSSImportRule &&
+          (!rule.media.mediaText ||
+            target.matchMedia(rule.media.mediaText).matches)
       )
       if (imports) return true
     }
