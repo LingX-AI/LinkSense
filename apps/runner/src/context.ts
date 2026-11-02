@@ -100,7 +100,7 @@ const MANAGED_BROWSER_RUNTIME_INSTRUCTIONS = [
 const PLAN_MANAGED_BROWSER_RUNTIME_INSTRUCTIONS = [
   "<linksense_managed_browser_runtime>",
   "The current turn is in Plan mode. Shell network access is unavailable, and the `linksense-browser` shell command cannot be used from the read-only shell sandbox.",
-  "For CLOUD current web pages, rendered-web research, snapshots, screenshots, or browser-only inspection, call mcp__linksense_managed_browser__run_browser_command. User-local pages use the separate local_browser tool and its read-only Plan actions.",
+  `For CLOUD current web pages, rendered-web research, snapshots, screenshots, or browser-only inspection, call mcp__linksense_managed_browser__run_browser_command. User-local pages use the separate ${browserUseToolName} tool and its read-only Plan actions.`,
   "Pass the managed Playwright CLI command in `command` and its individual arguments in `arguments`. Start a task-scoped session with command `open`, then inspect it with commands such as `snapshot`.",
   "The MCP helper runs outside the shell sandbox but remains bound to the current LinkSense task, managed browser session, workspace, output policy, and read-only request policy.",
   "Use it only for non-mutating investigation that improves the plan. Do not submit forms, change external state, or treat browser access as authorization to implement the requested work.",
@@ -191,7 +191,7 @@ export function buildTurnAdditionalContext(
   const additionalContext: TurnAdditionalContext = {
     "linksense.browser-selection": {
       kind: "application",
-      value: "User choice: linksense-browser (cloud) for public web; linksense-local-browser/Core local_browser for existing Chrome/Edge tabs/logins. Check local status; unavailable: /settings/general#browser-extension (install/connect/authorize). No forced choice/silent migration. Keep browser/tab ownership; both allowed. Plan: local read-only; cloud remains available without local setup.",
+      value: `User choice: linksense-browser (cloud) for public web; linksense-local-browser/Core ${browserUseToolName} for existing Chrome/Edge tabs/logins. Check local status; unavailable: /settings/general#browser-extension (install/connect/authorize). No forced choice/silent migration. Keep browser/tab ownership; both allowed. Plan: local read-only; cloud remains available without local setup.`,
     },
     ...buildKnowledgeSelectionContext(context.selectedKnowledgeBases ?? []),
     "linksense.runtime-identity": {
@@ -355,6 +355,7 @@ function renderPlanSkillReferenceContent(skills: PlanSkillReference[]): string {
 }
 
 import {
+  browserUseToolName,
   coreMcpServerKey,
   type ReasoningEffort,
 } from "@linksense/shared";

@@ -1,4 +1,8 @@
-import { coreMcpServerKey } from "@linksense/shared"
+import {
+  browserUseToolName,
+  coreMcpServerKey,
+  legacyLocalBrowserToolName,
+} from "@linksense/shared"
 import type { TFunction } from "i18next"
 
 import type { NativeCodexItem } from "@/api/contracts"
@@ -394,7 +398,10 @@ export function buildNativeActivityViewModel(
   }
 
   if (item.type === "mcpToolCall") {
-    if (item.server === coreMcpServerKey && item.tool === "local_browser") {
+    if (
+      item.server === coreMcpServerKey &&
+      (item.tool === browserUseToolName || item.tool === legacyLocalBrowserToolName)
+    ) {
       summaryKey =
         method === "item/started"
           ? "localBrowser.activityRunning"

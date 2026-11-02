@@ -24,6 +24,7 @@ import {
   type CapabilitySnapshot,
   type BuiltInSkillName,
   builtInSkillNames,
+  browserUseToolName,
   coreMcpServerKey,
   managedProjectionProbeContents,
   managedProjectionProbeFileName,
@@ -58,7 +59,7 @@ export const PLUGIN_STDIO_LAUNCHER_COMMAND = "linksense-plugin-stdio"
 // The regression test intentionally pins it to the actual generated tree so
 // every built-in writer or bundled documentation change must update it.
 export const BUILT_IN_CAPABILITY_RUNTIME_REVISION =
-  "1526287e5502989f9c5511b087e5bffdce8fc612456f2899f8235086f7452249"
+  "f4a2c2b39279d7c353d191f954f6734cfdd528cff2a13c7db80cf089a99d7297"
 
 const BUILT_IN_BROWSER_SKILL_NAME = "linksense-browser"
 const BUILT_IN_DOCUMENT_READER_SKILL_NAME = "linksense-document-reader"
@@ -2245,7 +2246,7 @@ description: Operate the user's LOCAL Chrome/Edge through the LinkSense browser 
 
 # LinkSense Local Browser
 
-Call mcp__${coreMcpServerKey}__local_browser. This controls the user's computer's
+Call mcp__${coreMcpServerKey}__${browserUseToolName}. This controls the user's computer's
 browser, separately from the cloud browser. Follow explicit user choice first;
 otherwise use the local browser for existing local tabs/login context and the
 cloud browser for ordinary public websites. Do not ask the user to choose a

@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+export const browserUseToolName = "browser_use";
+export const legacyLocalBrowserToolName = "local_browser";
+
 export const browserUseIntentRequestSchema = z.strictObject({ message_id: z.uuid() });
 export const browserUseIntentSchema = z.boolean();
 

@@ -40,7 +40,7 @@ it("binds requests to the native task endpoint and returns screenshots as MCP im
     fetch: fetcher,
   });
   const response = await module.callTool({
-    toolName: "local_browser",
+    toolName: "browser_use",
     argumentsValue: { action: "screenshot", tab_id: 1 },
     signal: new AbortController().signal,
   });
@@ -67,7 +67,7 @@ it("rejects Plan mutations and malformed inputs before contacting the browser", 
     expect(
       (
         await module.callTool({
-          toolName: "local_browser",
+          toolName: "browser_use",
           argumentsValue: input,
           signal: new AbortController().signal,
         })

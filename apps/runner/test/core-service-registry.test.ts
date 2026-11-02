@@ -11,6 +11,70 @@ const conversationId = "01900000-0000-7000-8000-000000000001"
 const token = "turn-token-00000000000000000000000000000000"
 
 describe("Core MCP module registry", () => {
+  it.each(["default", "plan"] as const)(
+    "discovers browser_use and keeps legacy browser calls usable in %s mode",
+    async (mode) => {
+      const request = vi.fn<typeof fetch>(async () =>
+        new Response(JSON.stringify({
+          ok: true,
+          browser: "local",
+          data: { tab_id: 1, image: "AQID", mime_type: "image/jpeg" },
+        })),
+      )
+      const registry = createCoreMcpRegistry({
+        environment: {
+          ...defaultEnvironment(),
+          LINKSENSE_COLLABORATION_MODE: mode,
+          LINKSENSE_CURRENT_USER_ENDPOINT: "http://127.0.0.1:4000/mcp-current-user/task/info",
+        },
+        fetch: request,
+      })
+      expect(registry.tools.map((tool) => tool.name)).toContain("browser_use")
+      expect(registry.tools.map((tool) => tool.name)).not.toContain("local_browser")
+      for (const toolName of ["browser_use", "local_browser"]) {
+        const result = await registry.callTool({
+          toolName,
+          argumentsValue: { action: "screenshot", tab_id: 1 },
+          signal: new AbortController().signal,
+        })
+        expect(result.isError).toBe(false)
+        expect(result.content[1]).toEqual({
+          type: "image", mimeType: "image/jpeg", data: "AQID",
+        })
+      }
+      expect(request).toHaveBeenCalledTimes(2)
+      for (const [endpoint, options] of request.mock.calls) {
+        expect(String(endpoint)).toBe("http://127.0.0.1:4000/mcp-current-user/task/local-browser")
+        expect(options?.headers).toEqual({
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        })
+        expect(JSON.parse(String(options?.body))).toEqual({ action: "screenshot", tab_id: 1 })
+      }
+    },
+  )
+
+  it.each(["browser_use", "local_browser"])(
+    "preserves Plan and input validation for %s",
+    async (toolName) => {
+      const request = vi.fn<typeof fetch>()
+      const registry = createCoreMcpRegistry({
+        environment: { ...defaultEnvironment(), LINKSENSE_COLLABORATION_MODE: "plan" },
+        fetch: request,
+      })
+      for (const argumentsValue of [
+        { action: "type", tab_id: 1, text: "text" },
+        { action: "evaluate", code: "document.cookie" },
+      ]) {
+        const result = await registry.callTool({
+          toolName, argumentsValue, signal: new AbortController().signal,
+        })
+        expect(result.isError).toBe(true)
+      }
+      expect(request).not.toHaveBeenCalled()
+    },
+  )
+
   it("keeps required forms on the existing broker with only the caller's cancellation signal", async () => {
     const request = formBrokerFetch({ action: "accept", content: { scope: "full" } })
     const controller = new AbortController()
@@ -179,7 +243,7 @@ describe("Core MCP module registry", () => {
       "read_referenced_conversation",
       "convert_document_to_markdown",
       "get_current_user_info",
-      "local_browser",
+      "browser_use",
       "search_knowledge_base",
       "list_knowledge_documents",
       "get_knowledge_document_markdown",
