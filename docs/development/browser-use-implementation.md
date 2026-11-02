@@ -31,7 +31,7 @@ LinkSense 的 Browser Use 不是单一浏览器工具，而是两套独立的浏
 | 实际运行位置 | LinkSense Worker 执行环境 | 用户桌面 Chrome / Edge |
 | 主要场景 | 公开网页、渲染检查、下载、工作区预览 | 已打开的页面、本机既有登录状态 |
 | 内置 Skill | `linksense-browser` | `linksense-local-browser` |
-| Default 模式入口 | Shell 中的 `linksense-browser` 命令 | Core MCP 的 `local_browser` 工具 |
+| Default 模式入口 | Shell 中的 `linksense-browser` 命令 | Core MCP 的 `browser_use` 工具 |
 | Plan 模式入口 | 专用托管浏览器 MCP | 同一个 Core MCP，限制为四项只读动作 |
 | 浏览器底层 | Playwright CLI + 完整 Chromium headless | 扩展 `chrome.debugger` + 受限 CDP 调用 |
 | 登录状态 | 独立浏览器上下文，不继承本机登录 | 使用被授权页面已有状态，不需要导出 Cookie |
@@ -56,7 +56,7 @@ flowchart TB
     B --> PW["固定版本 Playwright CLI"]
     PW --> CH["任务会话 Chromium"]
 
-    S --> L["本机：Core MCP local_browser"]
+    S --> L["本机：Core MCP browser_use"]
     L --> W["Runner：当前任务 token 与活动 turn 校验"]
     W --> CT["Controller：身份与内部请求转发"]
     CT --> A["API：账号 / 会话 / turn / Plan 校验"]
@@ -463,7 +463,7 @@ sequenceDiagram
     participant Ext as 扩展
     participant Page as 授权页面
 
-    AI->>MCP: local_browser(click, tab_id, ref)
+    AI->>MCP: browser_use(click, tab_id, ref)
     MCP->>MCP: Zod 校验，Plan 动作检查
     MCP->>Worker: 当前任务 endpoint + currentUserToken
     Worker->>Worker: 活动 native turn / projection turn 校验
@@ -488,8 +488,10 @@ sequenceDiagram
 模型看到的工具名是：
 
 ```text
-mcp__linksense_core__local_browser
+mcp__linksense_core__browser_use
 ```
+
+原工具名 `local_browser` 保留为调用兼容别名，不在新工具列表重复发布。既有任务中的旧调用和历史执行状态仍可识别；内置 Skill 与可信任务上下文使用新名，Skill 标识、配对协议和 HTTP 路径保持不变。
 
 调用参数不含可以自行指定的 owner、connection、conversation 或 turn 身份。
 

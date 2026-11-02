@@ -15,7 +15,7 @@
 ## AI 的使用规则
 
 - 普通公开网页、查资料与任务工作区预览继续使用云端 `linksense-browser`。
-- 用户明确指定本地浏览器、已打开标签页或已有本地登录态时，使用 `linksense-local-browser` 和 Core MCP 的 `local_browser` 工具。
+- 用户明确指定本地浏览器、已打开标签页或已有本地登录态时，使用 `linksense-local-browser` 和 Core MCP 的 `browser_use` 工具。
 - 首先检查连接状态；未就绪时引导到 `/settings/general#browser-extension`，不自动把依赖本地状态的任务切换到云端。
 - 同一个页面沿用其 tab ID；页面归属与浏览器分别记录，同一任务可使用两种浏览器，不增加必答的方式选择弹窗。
 - Plan 模式仅允许 status、tabs、snapshot 和 screenshot；Runner 与 API 都检查此限制。
@@ -56,7 +56,7 @@ Runner 沿用既有 Core MCP → Worker → Controller → API 链路，绑定�
 
 设置页的安装步骤仅显示当前浏览器对应的 `chrome://extensions` 或 `edge://extensions`，下载、扩展管理、刷新与复制入口使用统一的前置图标。扩展 0.4.4 增加固定的 `open_extensions` 页面桥动作，由扩展在新标签页打开自身浏览器的扩展管理页，不接收目标 URL，不增加权限，也不暴露给 AI 浏览器工具。点击管理页入口始终优先请求直接打开，不依赖可能过期的初次检测结果；打开成功不读写剪贴板。后台仅接受顶层设置页，核对浏览器提供的当前来源 URL、非 opaque 的同源 origin 与当前账号的会话、待配对或信任站点。未安装扩展、旧版扩展或请求被拒绝时才退回复制对应地址，并提示粘贴到地址栏；普通网页无法直接导航到浏览器内部管理页，不能承诺无扩展时从网页一键打开内部设置。独立的“复制 LinkSense 地址”入口保留。
 
-界面功能名称统一为 **Browser Use**，设置区、预览、执行状态、能力名称与扩展名称保持一致；工具名、Skill 标识和现有配对协议不变。
+界面功能名称统一为 **Browser Use**，设置区、预览、执行状态、能力名称与扩展名称保持一致。Core MCP 对外工具名为 `browser_use`（完整名 `mcp__linksense_core__browser_use`），旧名 `local_browser` 仅作为调用兼容别名，不重复展示给模型。Skill 标识、扩展配对协议、API 路径和权限规则不变；新旧工具活动均沿用原有六语言 Browser Use 展示。
 
 目前仅支持桌面版 Chrome / Edge。客户端优先读取低熵 User-Agent Client Hints 的品牌与移动端标识，缺失时使用 UA 回退；不请求高熵设备信息。Safari、Firefox、移动端及已识别的其他 Chromium 浏览器不检测扩展、不配对、不发起意图请求。设置页始终显示支持范围标识，不支持时提供 Chrome / Edge 官方下载链接与复制 LinkSense 地址的入口，引导用户换浏览器打开本站。此检测仅用于功能引导，不作为服务端权限判断。
 
