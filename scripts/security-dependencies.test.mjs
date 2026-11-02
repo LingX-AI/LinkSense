@@ -20,13 +20,14 @@ const lockfile = parse(
 // GHSA-wq5f-xc86-pv6w, GHSA-6qxp-vccf-f47h, GHSA-22jm-h49p-29qw,
 // GHSA-46jr-4wx8-v453, GHSA-q3jh-wrc6-jgq8, GHSA-8r9p-f939-6h3c,
 // GHSA-587h-7wmj-h5pm, GHSA-cg2g-xh64-v4q7, GHSA-mrv2-3pqr-j5jr,
-// GHSA-27r3-jxmh-p828, GHSA-xcx6-jx8p-x3h5, and GHSA-xjj6-f33q-929c.
+// GHSA-27r3-jxmh-p828, GHSA-xcx6-jx8p-x3h5, GHSA-xjj6-f33q-929c,
+// and GHSA-mrwp-f3q8-3g9p.
 // Check every resolution, including transitive copies.
 for (const [name, minimum] of [
   ["@xmldom/xmldom", "0.9.12"],
   ["sharp", "0.35.5"],
   ["@modelcontextprotocol/sdk", "1.32.0"],
-  ["follow-redirects", "1.16.1"],
+  ["follow-redirects", "1.16.2"],
   ["vite", "8.1.6"],
   ["nodemailer", "10.0.6"],
   ["fastify", "5.12.2"],
