@@ -12,13 +12,13 @@ for (const file of ["deploy/nginx/default.conf.template", "deploy/nginx/producti
     assert.match(block, /proxy_pass http:/u);
     // A location-level header also stops inheriting the application shell CSP.
     assert.match(block, /add_header Cache-Control "no-store" always;/u);
-    assert.doesNotMatch(block, /add_header Content-Security-Policy/u);
+    assert.doesNotMatch(block, /add_header (?:Content-Security-Policy|X-Frame-Options)/u);
     assert.doesNotMatch(block, /try_files/u);
     const preview = config.slice(config.indexOf("location ^~ /html-preview/"), begin);
     assert.match(preview, /access_log off;/u);
     assert.match(preview, /proxy_pass http:/u);
     assert.match(preview, /add_header Cache-Control "no-store" always;/u);
-    assert.doesNotMatch(preview, /try_files|add_header Content-Security-Policy/u);
+    assert.doesNotMatch(preview, /try_files|add_header (?:Content-Security-Policy|X-Frame-Options)/u);
   });
 }
 test("website storage migration only adds isolated tables without foreign keys", async () => {

@@ -1,5 +1,6 @@
 import { AdminBotChannels } from "@/features/bot-channels/admin-bot-channels"
 import { SamlSettingsForm } from "@/features/saml/settings-form"
+import { CallbackUrlInput } from "@/components/settings/callback-url-input"
 import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { Separator } from "@/components/ui/separator"
 import { AdminSocialSettings } from "@/features/social-auth/admin-social-settings"
@@ -373,6 +374,7 @@ function AdminSelect({
   disabled,
   icon: Icon,
   required = false,
+  "aria-describedby": describedBy,
 }: {
   id: string
   value: string
@@ -381,6 +383,7 @@ function AdminSelect({
   disabled?: boolean
   icon?: LucideIcon
   required?: boolean
+  "aria-describedby"?: string
 }) {
   const encodedValue = value || emptySelectValue
   const selectedLabel = options.find((option) => option.value === value)?.label
@@ -397,6 +400,7 @@ function AdminSelect({
         id={id}
         className="h-9! w-full"
         aria-required={required || undefined}
+        aria-describedby={describedBy}
       >
         {Icon && <Icon aria-hidden="true" />}
         <SelectValue>
@@ -4330,12 +4334,14 @@ function AuthenticationModeField({
     <FieldShell
       id={id}
       label={t("admin.authSettings.modeLabel")}
+      hint={t("admin.authSettings.modeHint")}
       required
       controlWidth="medium"
       layout="settings"
     >
       <AdminSelect
         id={id}
+        aria-describedby={`${id}-hint`}
         value={value}
         required
         disabled={disabled}
@@ -4768,11 +4774,13 @@ function OidcAuthenticationSettingsForm({
                 layout="settings"
                 id="oidc-issuer-url"
                 label={t("admin.authSettings.oidcIssuer")}
+                hint={t("admin.authSettings.oidcIssuerHint")}
                 required
                 controlWidth="wide"
               >
                 <Input
                   id="oidc-issuer-url"
+                  aria-describedby="oidc-issuer-url-hint"
                   className="h-9"
                   type="url"
                   value={issuerUrl}
@@ -4784,11 +4792,13 @@ function OidcAuthenticationSettingsForm({
                 layout="settings"
                 id="oidc-client-id"
                 label={t("admin.authSettings.oidcClientId")}
+                hint={t("admin.authSettings.oidcClientIdHint")}
                 required
                 controlWidth="medium"
               >
                 <Input
                   id="oidc-client-id"
+                  aria-describedby="oidc-client-id-hint"
                   className="h-9"
                   value={clientId}
                   onChange={(event) => setClientId(event.target.value)}
@@ -4801,14 +4811,24 @@ function OidcAuthenticationSettingsForm({
                 label={t("admin.authSettings.oidcClientSecret")}
                 required={!secretCanBePreserved}
                 controlWidth="wide"
-                hint={t(
-                  secretCanBePreserved
-                    ? "admin.authSettings.secretPreserved"
-                    : "admin.authSettings.secretRequired"
-                )}
+                hint={
+                  <>
+                    <span className="block">
+                      {t("admin.authSettings.oidcClientSecretHint")}
+                    </span>
+                    <span className="block">
+                      {t(
+                        secretCanBePreserved
+                          ? "admin.authSettings.secretPreserved"
+                          : "admin.authSettings.secretRequired"
+                      )}
+                    </span>
+                  </>
+                }
               >
                 <Input
                   id="oidc-client-secret"
+                  aria-describedby="oidc-client-secret-hint"
                   aria-required={!secretCanBePreserved || undefined}
                   className="h-9 placeholder:text-foreground placeholder:opacity-100"
                   type="password"
@@ -4829,11 +4849,10 @@ function OidcAuthenticationSettingsForm({
                 controlWidth="wide"
                 hint={t("admin.authSettings.oidcRedirectHint")}
               >
-                <Input
+                <CallbackUrlInput
                   id="oidc-redirect-uri"
-                  className="h-9"
                   value={settings.redirect_uri}
-                  readOnly
+                  aria-describedby="oidc-redirect-uri-hint"
                 />
               </FieldShell>
             </>

@@ -642,6 +642,8 @@ export const admin = {
     teamsDescription:
       "Permettez l’accès direct dans Teams avec un compte professionnel ou scolaire.",
     modeLabel: "Source de configuration",
+    modeHint:
+      "Choisissez d’utiliser la configuration du déploiement, de saisir et d’enregistrer les paramètres ici, ou de désactiver cette fonctionnalité.",
     modes: {
       inherit: "Hériter de l’environnement de déploiement",
       managed: "Gérer dans les paramètres système",
@@ -669,9 +671,19 @@ export const admin = {
       "Laissez vide si le service SMTP ne nécessite pas d’authentification.",
     smtpPassword: "Mot de passe",
     oidcIssuer: "URL de l’émetteur",
+    oidcIssuerHint:
+      "Saisissez l’URL de l’émetteur OIDC de votre organisation, disponible dans sa configuration OpenID Connect. HTTPS est obligatoire.",
     oidcClientId: "Identifiant client",
+    oidcClientIdHint:
+      "Saisissez l’identifiant client de l’application enregistrée pour ce système. Dans Microsoft Entra ID, utilisez l’ID d’application (client).",
     oidcClientSecret: "Secret client",
+    oidcClientSecretHint:
+      "Saisissez la valeur du secret client généré par le fournisseur pour cette application.",
     oidcRedirectUri: "URI de redirection",
+    copyCallback: "Copier l’URL de retour",
+    callbackCopied: "URL de retour copiée.",
+    copyFailed:
+      "Impossible de copier. Sélectionnez et copiez manuellement l’URL de retour.",
     oidcRedirectHint:
       "Enregistrez cette URI fixe auprès du fournisseur OIDC. Elle ne peut pas être modifiée ici.",
     teamsTenantId: "Identifiant du locataire",

@@ -478,6 +478,89 @@ describe("administrator authentication settings", () => {
     }
   )
 
+  it.each(supportedLanguages)(
+    "describes the OIDC settings under their labels in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          return envelope(settingsPayload(path))
+        })
+      )
+      renderSettings("settings", "/admin/settings?section=login")
+      await screen.findByRole("textbox", {
+        name: i18n.t("admin.authSettings.oidcIssuer"),
+      })
+      for (const [label, hint] of [
+        ["oidcIssuer", "oidcIssuerHint"],
+        ["oidcClientId", "oidcClientIdHint"],
+        ["oidcRedirectUri", "oidcRedirectHint"],
+      ]) {
+        const input = screen.getByRole("textbox", {
+          name: i18n.t(`admin.authSettings.${label}`),
+        })
+        expect(input).toHaveAccessibleDescription(
+          i18n.t(`admin.authSettings.${hint}`)
+        )
+        const row = input.closest('[data-layout="settings"]')
+        expect(row?.firstElementChild).toContainElement(
+          screen.getByText(i18n.t(`admin.authSettings.${hint}`))
+        )
+      }
+      for (const control of screen.getAllByRole("combobox", {
+        name: i18n.t("admin.authSettings.modeLabel"),
+      })) {
+        expect(control).toHaveAccessibleDescription(
+          i18n.t("admin.authSettings.modeHint")
+        )
+      }
+      expect(
+        screen.getByText(i18n.t("admin.authSettings.oidcClientSecretHint"))
+      ).toBeVisible()
+      expect(
+        screen.getByText(i18n.t("admin.authSettings.secretPreserved"))
+      ).toBeVisible()
+    }
+  )
+
+  it("copies the OIDC callback without saving settings and reports clipboard failures", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const path = new URL(String(input), window.location.origin).pathname
+      return envelope(settingsPayload(path))
+    })
+    vi.stubGlobal("fetch", fetch)
+    const interaction = userEvent.setup()
+    const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue()
+    vi.spyOn(notify, "success").mockImplementation(() => 0)
+    vi.spyOn(notify, "error").mockImplementation(() => 0)
+    renderSettings("settings", "/admin/settings?section=login")
+    const input = await screen.findByRole("textbox", {
+      name: i18n.t("admin.authSettings.oidcRedirectUri"),
+    })
+    const group = input.closest('[data-slot="input-group"]')
+    if (!(group instanceof HTMLElement))
+      throw new Error("Missing callback URL group")
+    const button = within(group).getByRole("button", {
+      name: i18n.t("admin.authSettings.copyCallback"),
+    })
+    await interaction.click(button)
+    expect(write).toHaveBeenCalledWith(authenticationSettings.oidc.redirect_uri)
+    expect(notify.success).toHaveBeenCalledWith(
+      i18n.t("admin.authSettings.callbackCopied")
+    )
+    write.mockRejectedValueOnce(new Error("clipboard unavailable"))
+    await interaction.click(button)
+    expect(notify.error).toHaveBeenCalledWith(
+      i18n.t("admin.authSettings.copyFailed")
+    )
+    expect(input).toHaveValue(authenticationSettings.oidc.redirect_uri)
+    expect(
+      fetch.mock.calls.every(([, init]) => !init || init.method === "GET")
+    ).toBe(true)
+  })
+
   it("marks the maintenance start and end dates while leaving its reason and duration shortcuts optional", async () => {
     vi.stubGlobal(
       "fetch",

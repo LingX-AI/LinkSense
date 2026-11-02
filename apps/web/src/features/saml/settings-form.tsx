@@ -4,6 +4,7 @@ import { updateSamlSettingsSchema, type SamlSettings } from "@linksense/shared"
 import { getErrorMessage } from "@/api/error-message"
 import { SettingsCard } from "@/components/settings/settings-card"
 import { SettingsSectionHeader } from "@/components/settings/settings-section-header"
+import { CallbackUrlInput } from "@/components/settings/callback-url-input"
 import { ErrorState, LoadingState } from "@/components/feedback/page-state"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import {
@@ -64,11 +65,11 @@ function SamlEditor({ settings }: { settings: SamlSettings }) {
   const [invalid, setInvalid] = useState(false)
   const https = new URL(settings.acs_url).protocol === "https:"
   const fields = [
-    ["idp_entity_id", "idpEntityId"],
-    ["idp_sso_url", "idpSsoUrl"],
-    ["idp_certificate", "idpCertificate"],
-    ["email_attribute", "emailAttribute"],
-    ["name_attribute", "nameAttribute"],
+    ["idp_entity_id", "idpEntityId", "idpEntityIdHelp"],
+    ["idp_sso_url", "idpSsoUrl", "idpSsoUrlHelp"],
+    ["idp_certificate", "idpCertificate", "idpCertificateHelp"],
+    ["email_attribute", "emailAttribute", "attributeHelp"],
+    ["name_attribute", "nameAttribute", "attributeHelp"],
   ] as const
   return (
     <form
@@ -119,33 +120,32 @@ function SamlEditor({ settings }: { settings: SamlSettings }) {
         <SettingsFieldRow
           id="saml-enabled"
           label={t("saml.enabled")}
+          hint={t("saml.enabledHelp")}
           controlWidth="compact"
         >
           <Switch
             id="saml-enabled"
+            aria-describedby="saml-enabled-hint"
             checked={draft.enabled}
             onCheckedChange={(enabled) => setDraft({ ...draft, enabled })}
             disabled={mutation.isPending || (!https && !draft.enabled)}
           />
         </SettingsFieldRow>
-        {fields.map(([key, label]) => (
+        {fields.map(([key, label, hint]) => (
           <FieldShell
             multiline={key === "idp_certificate"}
             key={key}
             id={`saml-${key}`}
             label={t(`saml.${label}`)}
             required={key !== "name_attribute"}
-            hint={
-              key === "email_attribute" || key === "name_attribute"
-                ? t("saml.attributeHelp")
-                : undefined
-            }
+            hint={t(`saml.${hint}`)}
             layout="settings"
             controlWidth={key === "idp_certificate" ? "full" : "wide"}
           >
             {key === "idp_certificate" ? (
               <Textarea
                 id={`saml-${key}`}
+                aria-describedby={`saml-${key}-hint`}
                 value={draft[key]}
                 onChange={(event) =>
                   setDraft({ ...draft, [key]: event.target.value })
@@ -158,6 +158,7 @@ function SamlEditor({ settings }: { settings: SamlSettings }) {
             ) : (
               <Input
                 id={`saml-${key}`}
+                aria-describedby={`saml-${key}-hint`}
                 value={draft[key]}
                 onChange={(event) =>
                   setDraft({ ...draft, [key]: event.target.value })
@@ -177,10 +178,12 @@ function SamlEditor({ settings }: { settings: SamlSettings }) {
         <SettingsFieldRow
           id="saml-sign"
           label={t("saml.signRequests")}
+          hint={t("saml.signRequestsHelp")}
           controlWidth="compact"
         >
           <Switch
             id="saml-sign"
+            aria-describedby="saml-sign-hint"
             checked={draft.sign_requests}
             disabled={mutation.isPending}
             onCheckedChange={(sign_requests) => {
@@ -195,12 +198,14 @@ function SamlEditor({ settings }: { settings: SamlSettings }) {
               multiline
               id="saml-sign-cert"
               label={t("saml.signingCertificate")}
+              hint={t("saml.signingCertificateHelp")}
               required
               layout="settings"
               controlWidth="full"
             >
               <Textarea
                 id="saml-sign-cert"
+                aria-describedby="saml-sign-cert-hint"
                 aria-required
                 value={draft.signing_certificate}
                 onChange={(event) =>
@@ -224,6 +229,7 @@ function SamlEditor({ settings }: { settings: SamlSettings }) {
             >
               <Textarea
                 id="saml-private-key"
+                aria-describedby="saml-private-key-hint"
                 aria-required={
                   !settings.signing_private_key_configured || undefined
                 }
@@ -244,10 +250,16 @@ function SamlEditor({ settings }: { settings: SamlSettings }) {
         <FieldShell
           id="saml-sp-id"
           label={t("saml.spEntityId")}
+          hint={t("saml.spEntityIdHelp")}
           layout="settings"
           controlWidth="wide"
         >
-          <Input id="saml-sp-id" value={settings.sp_entity_id} readOnly />
+          <Input
+            id="saml-sp-id"
+            value={settings.sp_entity_id}
+            readOnly
+            aria-describedby="saml-sp-id-hint"
+          />
         </FieldShell>
         <FieldShell
           id="saml-acs"
@@ -256,7 +268,11 @@ function SamlEditor({ settings }: { settings: SamlSettings }) {
           layout="settings"
           controlWidth="wide"
         >
-          <Input id="saml-acs" value={settings.acs_url} readOnly />
+          <CallbackUrlInput
+            id="saml-acs"
+            value={settings.acs_url}
+            aria-describedby="saml-acs-hint"
+          />
         </FieldShell>
       </SettingsFieldGroup>
       <div className="flex flex-wrap justify-end gap-2">
