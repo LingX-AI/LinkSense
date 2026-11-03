@@ -1,3 +1,4 @@
+import { computerUseMessages } from "@/features/computer-use/messages"
 import { browserPanelMessages } from "@/features/browser-panel/messages"
 import { monitoringMessages } from "@/features/automations/monitoring-messages"
 import { automationNotificationMessages } from "@/features/conversations/automation-notification-messages"
@@ -85,6 +86,7 @@ void i18n.use(initReactI18next).init({
         applicationSetup: applicationSetupMessages["zh-CN"],
         adminConnections: adminConnectionMessages["zh-CN"],
         onboarding: onboardingMessages["zh-CN"],
+        computerUse: computerUseMessages["zh-CN"],
         auditValues: auditTranslationResource("zh-CN"),
       },
     },
@@ -101,6 +103,7 @@ void i18n.use(initReactI18next).init({
         applicationSetup: applicationSetupMessages["en-US"],
         adminConnections: adminConnectionMessages["en-US"],
         onboarding: onboardingMessages["en-US"],
+        computerUse: computerUseMessages["en-US"],
         auditValues: auditTranslationResource("en-US"),
       },
     },
@@ -117,6 +120,7 @@ void i18n.use(initReactI18next).init({
         applicationSetup: applicationSetupMessages["es-ES"],
         adminConnections: adminConnectionMessages["es-ES"],
         onboarding: onboardingMessages["es-ES"],
+        computerUse: computerUseMessages["es-ES"],
         auditValues: auditTranslationResource("es-ES"),
       },
     },
@@ -133,6 +137,7 @@ void i18n.use(initReactI18next).init({
         applicationSetup: applicationSetupMessages["pt-BR"],
         adminConnections: adminConnectionMessages["pt-BR"],
         onboarding: onboardingMessages["pt-BR"],
+        computerUse: computerUseMessages["pt-BR"],
         auditValues: auditTranslationResource("pt-BR"),
       },
     },
@@ -149,6 +154,7 @@ void i18n.use(initReactI18next).init({
         applicationSetup: applicationSetupMessages["fr-FR"],
         adminConnections: adminConnectionMessages["fr-FR"],
         onboarding: onboardingMessages["fr-FR"],
+        computerUse: computerUseMessages["fr-FR"],
         auditValues: auditTranslationResource("fr-FR"),
       },
     },
@@ -165,6 +171,7 @@ void i18n.use(initReactI18next).init({
         applicationSetup: applicationSetupMessages["ja-JP"],
         adminConnections: adminConnectionMessages["ja-JP"],
         onboarding: onboardingMessages["ja-JP"],
+        computerUse: computerUseMessages["ja-JP"],
         auditValues: auditTranslationResource("ja-JP"),
       },
     },

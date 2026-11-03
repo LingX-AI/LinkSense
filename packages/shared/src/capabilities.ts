@@ -11,6 +11,7 @@ import {
 export const builtInSkillNames = [
   "linksense-browser",
   "linksense-local-browser",
+  "linksense-computer-use",
   "linksense-document-reader",
   "linksense-docs",
   "linksense-file-service",
@@ -24,6 +25,26 @@ export type BuiltInSkillName = z.infer<typeof builtInSkillNameSchema>;
 
 export const CAPABILITY_PACKAGE_NAME_MAX_LENGTH = 64;
 const reservedCapabilityNames = new Set<string>(builtInSkillNames);
+// Computer Use was added after custom packages could already use this name.
+reservedCapabilityNames.delete("linksense-computer-use");
+
+export function builtInSkillRuntimeName(
+  name: BuiltInSkillName,
+  capabilities: ReadonlyArray<{ name: string; type: "plugin" | "skill" }>,
+): string {
+  if (name !== "linksense-computer-use") return name;
+  const customNames = new Set(
+    capabilities
+      .filter((capability) => capability.type === "skill")
+      .map((capability) => capability.name),
+  );
+  // At most N custom names can occupy the first N+1 candidates.
+  for (let index = 0; index <= customNames.size; index += 1) {
+    const candidate = index === 0 ? name : `${name}-builtin-${index}`;
+    if (!customNames.has(candidate)) return candidate;
+  }
+  throw new Error("built-in Skill runtime name is unavailable");
+}
 
 export const capabilityPackageNameSchema = z
   .string()
@@ -77,10 +98,11 @@ export function builtInCapabilityDefinitionForId(id: string) {
   );
 }
 
-export const builtInCapabilityIdSchema = z.custom<BuiltInCapabilityId>(
-  (value) => typeof value === "string" && isBuiltInCapabilityId(value),
-  { message: "invalid_builtin_capability_id" },
-);
+export const builtInCapabilityIdSchema =
+  z.custom<BuiltInCapabilityId>(
+    (value) => typeof value === "string" && isBuiltInCapabilityId(value),
+    { message: "invalid_builtin_capability_id" },
+  );
 
 export const capabilitySelectionIdSchema = z.union([
   uuidSchema,

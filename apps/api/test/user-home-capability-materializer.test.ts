@@ -49,6 +49,59 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 })
 
 describe.concurrent("UserHomeCapabilityMaterializer", () => {
+  it.each(["linksense-browser-use", "linksense-computer-use"])(
+    "preserves existing custom Skill and plugin %s while publishing both built-ins",
+    async (name) => {
+      const root = await temporaryDirectory()
+      const source = await createSkillSource(join(root, "skills"), name, "# Existing user instructions")
+      const fallback = await createSkillSource(join(root, "skills"), "linksense-computer-use-builtin-1", "# Existing fallback-name instructions")
+      const plugin = await createPluginSource(join(root, "plugins"), name, "# Existing plugin instructions")
+      const onStage = vi.fn()
+      const materializer = new UserHomeCapabilityMaterializer({ userDataRoot: join(root, "users"), instrumentation: { onStage } })
+      const input = {
+        ownerId: OWNER_ID, conversationId: TASK_ID,
+        capabilities: [
+          { ...skillCapability(source), name },
+          { ...skillCapability(fallback), id: "33333333-3333-4333-8333-333333333334", name: "linksense-computer-use-builtin-1" },
+          { ...pluginCapability(plugin), name },
+        ],
+      }
+      const published = await materializer.reconcile(input)
+      expect(await readFile(join(published.skillsRoot, name, "SKILL.md"), "utf8")).toContain("# Existing user instructions")
+      expect(await readFile(join(published.skillsRoot, "linksense-computer-use-builtin-1", "SKILL.md"), "utf8")).toContain("# Existing fallback-name instructions")
+      expect(await readFile(join(published.pluginsRoot, name, "README.md"), "utf8")).toContain("# Existing plugin instructions")
+      expect(await readFile(join(published.skillsRoot, "linksense-local-browser", "SKILL.md"), "utf8")).toContain("mcp__linksense_core__browser_use")
+      const computerName = name === "linksense-computer-use" ? "linksense-computer-use-builtin-2" : "linksense-computer-use"
+      expect(await readFile(join(published.skillsRoot, computerName, "SKILL.md"), "utf8")).toContain(`name: ${computerName}`)
+      expect(await readFile(join(published.skillsRoot, computerName, "SKILL.md"), "utf8")).toContain("mcp__linksense_core__computer_use")
+      const reused = await materializer.resolvePublishedRuntimeWithinPublicationStartFence(input)
+      expect(reused.generation).toBe(published.generation)
+      const catalog = join(published.ownerRoot, "control", "capability-snapshots")
+      const index = (await readdir(catalog)).find((entry) => entry.endsWith(".json"))
+      if (!index) throw new Error("missing existing capability snapshot")
+      await rename(join(catalog, index), join(catalog, `${"0".repeat(64)}.json`))
+      const refreshed = await materializer.resolvePublishedRuntimeWithinPublicationStartFence(input)
+      expect(onStage).toHaveBeenCalledTimes(2)
+      expect(await readFile(join(refreshed.skillsRoot, name, "SKILL.md"), "utf8")).toContain("# Existing user instructions")
+      expect(await readFile(join(refreshed.pluginsRoot, name, "README.md"), "utf8")).toContain("# Existing plugin instructions")
+      expect(await readFile(join(refreshed.skillsRoot, computerName, "SKILL.md"), "utf8")).toContain("mcp__linksense_core__computer_use")
+    },
+  )
+  it("publishes canonical Browser Use and Computer Use Skills beside custom Skills", async () => {
+    const root = await temporaryDirectory()
+    const source = await createSkillSource(join(root, "sources"), "custom-browser-workflow", "# Existing custom instructions")
+    const materializer = new UserHomeCapabilityMaterializer({ userDataRoot: join(root, "users") })
+    const input = {
+      ownerId: OWNER_ID, conversationId: TASK_ID,
+      capabilities: [{ ...skillCapability(source), name: "custom-browser-workflow" }],
+    }
+    const published = await materializer.reconcile(input)
+    expect(await readFile(join(published.skillsRoot, "custom-browser-workflow", "SKILL.md"), "utf8")).toContain("# Existing custom instructions")
+    expect(await readFile(join(published.skillsRoot, "linksense-local-browser", "SKILL.md"), "utf8")).toContain("mcp__linksense_core__browser_use")
+    expect(await readFile(join(published.skillsRoot, "linksense-computer-use", "SKILL.md"), "utf8")).toContain("mcp__linksense_core__computer_use")
+    const reused = await materializer.resolvePublishedRuntimeWithinPublicationStartFence(input)
+    expect(reused.generation).toBe(published.generation)
+  })
   it("omits the managed browser Skill when that runtime is disabled", async () => {
     const root = await temporaryDirectory()
     const materializer = new UserHomeCapabilityMaterializer({
@@ -313,7 +366,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     expect(browserSkill).toContain("LOCAL Chrome/Edge")
     expect(browserSkill).toContain("ordinal")
     expect(browserSkill).toContain("mcp__linksense_core__browser_use")
-    expect(browserSkill).not.toContain("mcp__linksense_core__local_browser")
+    expect(await readFile(join(next.skillsRoot, "linksense-computer-use", "SKILL.md"), "utf8")).toContain("mcp__linksense_core__computer_use")
     expect(await readFile(join(next.skillsRoot, "linksense-browser", "SKILL.md"), "utf8")).toContain("CLOUD managed Chromium")
     // Subsequent starts reuse the freshly published snapshot.
     await materializer.resolvePublishedRuntimeWithinPublicationStartFence(input)

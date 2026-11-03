@@ -374,6 +374,17 @@ describe("CapabilityPackageImporter", () => {
     ).rejects.toMatchObject({ code: "INVALID_PACKAGE" });
   });
 
+  it.each(["linksense-browser-use", "linksense-computer-use"])(
+    "keeps the pre-existing custom Skill name %s importable",
+    async (name) => {
+      const root = await temporaryDirectory();
+      const importer = new CapabilityPackageImporter({ stagingRoot: join(root, "staging") });
+      const prepared = await importer.prepare({ kind: "manual_skill", name, skillMarkdown: "# Existing instructions" });
+      expect(prepared.name).toBe(name);
+      expect(await readFile(join(prepared.packageRoot, "SKILL.md"), "utf8")).toContain(`name: "${name}"`);
+    },
+  );
+
   it("uses the Skill frontmatter name when the package root directory differs", async () => {
     const root = await temporaryDirectory();
     const importer = new CapabilityPackageImporter({

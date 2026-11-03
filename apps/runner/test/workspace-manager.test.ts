@@ -1190,6 +1190,37 @@ describe("CapabilityRuntimeManager", () => {
     })
   })
 
+  it("admits the collision-safe Computer Use tree without admitting undeclared custom Skills", async () => {
+    const fixture = await publishedRuntimeFixture()
+    await rename(
+      path.join(fixture.skillsRoot, "linksense-computer-use"),
+      path.join(fixture.skillsRoot, "linksense-computer-use-builtin-2"),
+    )
+    const customNames = ["linksense-computer-use", "linksense-computer-use-builtin-1"]
+    for (const name of customNames) {
+      const directory = path.join(fixture.skillsRoot, name)
+      await mkdir(directory, { mode: 0o750 })
+      await writeFile(path.join(directory, "SKILL.md"), `Existing custom ${name}`, { mode: 0o640 })
+    }
+    const contentDigest = await testCapabilityContentDigest({
+      skillsRoot: fixture.skillsRoot, pluginsRoot: fixture.pluginsRoot,
+      marketplacePath: fixture.marketplacePath, pluginNames: ["documents"],
+    })
+    await writeFile(path.join(fixture.capabilityControl, "capability-content-sha256"), `${contentDigest}\n`)
+    await writeFile(path.join(fixture.snapshotRoot, "capability-snapshot.json"), JSON.stringify({ ...fixture.manifest, contentDigest }))
+    const capabilities = [
+      { id: "019f45dd-a318-7d02-b03b-eaece8887881", name: "documents", type: "plugin" as const, revision: "existing" },
+      { id: "019f45dd-a318-7d02-b03b-eaece8887882", name: "reports", type: "skill" as const, revision: "existing" },
+      ...customNames.map((name, index) => ({
+        id: `60000000-0000-4000-8000-00000000000${index + 1}`, name, type: "skill" as const, revision: "existing",
+      })),
+    ]
+    const manager = localCapabilityRuntimeManager()
+    const input = { userHome: fixture.userHome, controlRoot: fixture.controlRoot, expectedGeneration: generation, capabilities }
+    await expect(manager.resolvePublished(input)).resolves.toMatchObject({ contentDigest })
+    await expect(manager.resolvePublished({ ...input, capabilities: capabilities.slice(0, 3) })).rejects.toBeInstanceOf(CapabilityRuntimeError)
+  })
+
   it("validates the shared managed-agents mount used by a local worker", async () => {
     const fixture = await publishedRuntimeFixture()
     const agents = path.join(fixture.userHome, ".agents")
@@ -1529,6 +1560,7 @@ async function publishedRuntimeFixture() {
     mkdir(path.join(skillsRoot, "reports"), { recursive: true }),
     mkdir(path.join(skillsRoot, "linksense-browser"), { recursive: true }),
     mkdir(path.join(skillsRoot, "linksense-local-browser"), { recursive: true }),
+    mkdir(path.join(skillsRoot, "linksense-computer-use"), { recursive: true }),
     mkdir(path.join(skillsRoot, "linksense-document-reader"), {
       recursive: true,
     }),
@@ -1566,6 +1598,7 @@ async function publishedRuntimeFixture() {
   await Promise.all([
     writeFile(path.join(skillsRoot, "reports", "SKILL.md"), "reports"),
     writeFile(path.join(skillsRoot, "linksense-local-browser", "SKILL.md"), "local browser"),
+    writeFile(path.join(skillsRoot, "linksense-computer-use", "SKILL.md"), "computer use"),
     writeFile(
       path.join(skillsRoot, "linksense-browser", "SKILL.md"),
       "browser",
@@ -1605,6 +1638,7 @@ async function publishedRuntimeFixture() {
     [path.join(skillsRoot, "reports"), 0o750],
     [path.join(skillsRoot, "linksense-browser"), 0o750],
     [path.join(skillsRoot, "linksense-local-browser"), 0o750],
+    [path.join(skillsRoot, "linksense-computer-use"), 0o750],
     [path.join(skillsRoot, "linksense-document-reader"), 0o750],
     [path.join(skillsRoot, "linksense-docs"), 0o750],
     [path.join(skillsRoot, "linksense-file-service"), 0o750],
@@ -1624,6 +1658,7 @@ async function publishedRuntimeFixture() {
   const sourceFiles = [
     path.join(skillsRoot, "reports", "SKILL.md"),
     path.join(skillsRoot, "linksense-local-browser", "SKILL.md"),
+    path.join(skillsRoot, "linksense-computer-use", "SKILL.md"),
     path.join(skillsRoot, "linksense-browser", "SKILL.md"),
     path.join(skillsRoot, "linksense-document-reader", "SKILL.md"),
     path.join(skillsRoot, "linksense-docs", "SKILL.md"),

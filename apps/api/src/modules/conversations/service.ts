@@ -68,6 +68,7 @@ import {
   interactiveApplicationFileIdsSchema,
   interactiveApplicationManifestSchema,
   builtInCapabilityDefinitionForId,
+  builtInSkillRuntimeName,
   capabilityPackageNameSchema,
   capabilitySelectionIdSchema,
   capabilitySourceTypeSchema,
@@ -11457,9 +11458,11 @@ function runnerPriorityCapabilities(
       ];
     }
     const builtIn = builtInCapabilityDefinitionForId(id);
-    return builtIn?.type === type
-      ? [{ id, name: builtIn.slug, description: null }]
-      : [];
+    if (builtIn?.type !== type) return [];
+    const name = builtIn.type === "skill"
+      ? builtInSkillRuntimeName(builtIn.key, capabilities)
+      : builtIn.slug;
+    return [{ id, name, description: null }];
   });
 }
 

@@ -398,14 +398,21 @@ export function buildNativeActivityViewModel(
   }
 
   if (item.type === "mcpToolCall") {
-    if (
+    if (item.server === coreMcpServerKey && item.tool === "computer_use") {
+      summaryKey =
+        method === "item/started"
+          ? "computerUse.activityRunning"
+          : "computerUse.activityFinished"
+      detailRows.push(...durationRow(item.durationMs))
+    } else if (
       item.server === coreMcpServerKey &&
-      (item.tool === browserUseToolName || item.tool === legacyLocalBrowserToolName)
+      (item.tool === browserUseToolName ||
+        item.tool === legacyLocalBrowserToolName)
     ) {
       summaryKey =
         method === "item/started"
-          ? "localBrowser.activityRunning"
-          : "localBrowser.activityFinished"
+          ? "browserUse.activityRunning"
+          : "browserUse.activityFinished"
       detailRows.push(...durationRow(item.durationMs))
     } else if (isAutomationToolItem(item)) {
       summaryKey =

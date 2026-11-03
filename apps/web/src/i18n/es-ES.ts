@@ -22,7 +22,7 @@ import { knowledgeMessages } from "@/i18n/es-ES/knowledge"
 import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const esES = {
-  localBrowser: localBrowserMessages["es-ES"],
+  browserUse: browserUseMessages["es-ES"],
   modelSetup: modelSetupMessages["es-ES"],
   connections: connectionMessages["es-ES"],
   sideChat: sideChatMessages["es-ES"],
@@ -302,4 +302,4 @@ export const esES = {
   ...adminMessages,
   ...knowledgeMessages,
 } satisfies TranslationResource<typeof enUS>
-import { localBrowserMessages } from "@/features/local-browser/messages"
+import { browserUseMessages } from "@/features/browser-use/messages"

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { PrismaClient } from "../src/generated/prisma/client.js";
-import { BrowserUseIntentService } from "../src/modules/local-browser/intent.js";
+import { BrowserUseIntentService } from "../src/modules/browser-use/intent.js";
 import { modelUsageCaptureSchema } from "../src/modules/usage/model-usage.js";
-import { MemoryBrowserStore } from "./local-browser-store.js";
+import { MemoryBrowserStore } from "./browser-use-store.js";
 
 const { generateText } = vi.hoisted(() => ({ generateText: vi.fn() }));
 vi.mock("ai", () => ({ generateText }));
@@ -116,4 +116,18 @@ it("silently skips a missing title model and a provider failure without retrying
   expect(await failed.detect()).toBe(false);
   expect(await failed.detect()).toBe(false);
   expect(generateText).toHaveBeenCalledTimes(1);
+});
+
+it("classifies computer actions with an independent prompt, Redis cache and usage category", async () => {
+  const { prisma, store, settings, usage, detect } = fixture();
+  const service = new BrowserUseIntentService(prisma as unknown as PrismaClient, store, settings, usage, "computer_use_intent");
+  prisma.conversationMessage.findFirst.mockResolvedValue({ id: messageId, contentText: "帮我操作这台电脑打开备忘录" });
+  expect(await service.detect(owner, conversationId, messageId)).toBe(true);
+  expect(generateText).toHaveBeenLastCalledWith(expect.objectContaining({
+    system: expect.stringContaining("桌面应用"), maxRetries: 0, timeout: { totalMs: 5000 },
+  }));
+  expect(usage.recordModelUsage).toHaveBeenCalledWith(expect.objectContaining({ workload: "computer_use_intent", operation: "computer_use_intent" }));
+  expect(modelUsageCaptureSchema.safeParse(usage.recordModelUsage.mock.calls[0]?.[0]).success).toBe(true);
+  expect(await detect()).toBe(true);
+  expect(generateText).toHaveBeenCalledTimes(2);
 });

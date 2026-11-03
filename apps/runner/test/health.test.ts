@@ -300,7 +300,7 @@ describe("runner health", () => {
     });
   });
 
-  it("accepts only the exact built-in Skill identity as a priority", () => {
+  it.each(["linksense-browser", "linksense-local-browser"])("accepts only the exact persisted built-in Skill identity %s as a priority", (name) => {
     const body = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000099",
@@ -314,8 +314,8 @@ describe("runner health", () => {
         priorityPlugins: [],
         prioritySkills: [
           {
-            id: "builtin:capability:linksense-browser",
-            name: "linksense-browser",
+            id: `builtin:capability:${name}`,
+            name,
             description: null,
           },
         ],
@@ -356,6 +356,32 @@ describe("runner health", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("accepts the derived Computer Use identity but rejects binding its builtin ID to a custom Skill", () => {
+    const capabilities = ["linksense-computer-use", "linksense-computer-use-builtin-1"].map((name, index) => ({
+      id: `60000000-0000-4000-8000-00000000000${index + 1}`,
+      type: "skill", name, revision: "2026-07-19T00:00:00.000Z",
+    }));
+    const body = {
+      ownerId: "01900000-0000-7000-8000-000000000002",
+      projectionTurnId: "01900000-0000-7000-8000-000000000099",
+      appServerProcessLimit: 20, expectedRuntimeGeneration, capabilityGeneration,
+      ...modelRuntimeInput, environment: {}, capabilities,
+      context: {
+        userInput: "use computer", attachments: [], priorityPlugins: [],
+        prioritySkills: [
+          { id: "builtin:capability:linksense-computer-use", name: "linksense-computer-use-builtin-2" },
+          { id: capabilities[0]!.id, name: "linksense-computer-use" },
+        ],
+      },
+    };
+    expect(runnerServerTesting.startTurnBodySchema.parse(body).context.prioritySkills).toEqual(body.context.prioritySkills);
+    for (const name of ["linksense-computer-use", "linksense-computer-use-builtin-1", "linksense-computer-use-builtin-3"]) {
+      expect(() => runnerServerTesting.startTurnBodySchema.parse({
+        ...body, context: { ...body.context, prioritySkills: [{ id: "builtin:capability:linksense-computer-use", name }] },
+      })).toThrow("priority_capability_is_unavailable");
+    }
   });
 
   it("requires the prepared runtime generation and capability revision", () => {

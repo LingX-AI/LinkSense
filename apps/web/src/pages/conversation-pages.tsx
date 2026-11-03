@@ -213,8 +213,9 @@ import {
 import { ConversationLineSidebar } from "@/features/conversations/conversation-line-sidebar"
 import { buildOfficeAnnotationInput } from "@/features/conversations/conversation-office-annotation"
 import { ConversationOfficeLayout } from "@/features/conversations/conversation-presentation-layout"
-import { LocalBrowserPreview } from "@/features/local-browser/local-browser-preview"
-import { BrowserUsePrompt } from "@/features/local-browser/browser-use-prompt"
+import { BrowserUsePreview } from "@/features/browser-use/browser-use-preview"
+import { BrowserUsePrompt } from "@/features/browser-use/browser-use-prompt"
+import { ComputerUsePrompt } from "@/features/computer-use/computer-use-prompt"
 import { DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO } from "@/features/conversations/conversation-presentation-width"
 import {
   readUrlEnum,
@@ -6156,7 +6157,7 @@ export function ConversationPage({
         surfaceActive &&
         !embedded &&
         !readOnly && (
-          <LocalBrowserPreview
+          <BrowserUsePreview
             key={`${user.id}:${conversationId}`}
             userId={user.id}
             conversationId={conversationId}
@@ -6440,12 +6441,15 @@ export function ConversationPage({
           !readOnly &&
           !development &&
           !isApplicationConversation && (
+            <>
+            <ComputerUsePrompt userId={user.id} conversationId={isNew ? undefined : conversationId} messages={visibleMessages} />
             <BrowserUsePrompt
               key={user.id}
               userId={user.id}
               conversationId={isNew ? undefined : conversationId}
               messages={visibleMessages}
             />
+            </>
           )}
         {showConversationComposer && (
           <ConversationDraftComposer

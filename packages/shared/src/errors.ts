@@ -10,20 +10,22 @@ type ErrorCatalogEntry = {
     "en-US": string;
   };
 };
+const browserUsePairRateLimitError = {
+  message_key: "errors.browserUse.pairRateLimited",
+  http_status: 429,
+  messages: {
+    "zh-CN": "浏览器配对请求过于频繁，请稍后重试。",
+    "en-US": "Too many browser pairing requests. Please try again later.",
+  },
+} as const satisfies ErrorCatalogEntry;
 
 export const errorCatalog = {
   AUTOMATION_RUN_LIMIT_REACHED: {"message_key": "monitoring.runLimitReached", "http_status": 409, "messages": {"zh-CN": "自动运行次数已用尽，请先提高或取消次数上限。", "en-US": "The automatic run limit is exhausted. Increase or remove the limit before resuming."}},
   BROWSER_PANEL_UNAVAILABLE: {"message_key": "browserPanel.unavailable", "http_status": 409, "messages": {"zh-CN": "当前任务没有可查看的浏览器会话。", "en-US": "This task has no available browser session."}},
   BROWSER_CONTROL_BUSY: {"message_key": "browserPanel.busy", "http_status": 409, "messages": {"zh-CN": "浏览器正在执行操作，请稍后重试。", "en-US": "The browser is performing an action. Try again shortly."}},
   BROWSER_CONTROL_REQUIRED: {"message_key": "browserPanel.controlRequired", "http_status": 409, "messages": {"zh-CN": "接管已失效或由其他窗口持有，请重新接管。", "en-US": "Control expired or belongs to another window. Take control again."}},
-  LOCAL_BROWSER_PAIR_RATE_LIMITED: {
-    message_key: "errors.localBrowser.pairRateLimited",
-    http_status: 429,
-    messages: {
-      "zh-CN": "浏览器配对请求过于频繁，请稍后重试。",
-      "en-US": "Too many browser pairing requests. Please try again later.",
-    },
-  },
+  BROWSER_USE_PAIR_RATE_LIMITED: browserUsePairRateLimitError,
+  LOCAL_BROWSER_PAIR_RATE_LIMITED: browserUsePairRateLimitError,
   CONNECTION_CLIENT_SECRET_REQUIRED: {
     message_key: "adminConnections.secretRequired", http_status: 400,
     messages: {

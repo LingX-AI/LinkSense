@@ -1,13 +1,13 @@
 import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, it, vi } from "vitest"
-import { browserExtensionRequest } from "@/features/local-browser/bridge"
+import { browserExtensionRequest } from "@/features/browser-use/bridge"
 import { installApiMock, renderApp, setupApplicationTests } from "./fixture"
 
-vi.mock("@/features/local-browser/bridge", () => ({
+vi.mock("@/features/browser-use/bridge", () => ({
   browserExtensionRequest: vi.fn(),
 }))
-vi.mock("@/features/local-browser/browser-support", () => ({
+vi.mock("@/features/browser-use/browser-support", () => ({
   browserUseBrowser: () => "chrome",
 }))
 setupApplicationTests()

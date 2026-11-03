@@ -4,7 +4,7 @@ import { createServer } from "node:http"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { createBrowserExtensionFixture } from "../../api/test/fixtures/local-browser-extension"
+import { createBrowserExtensionFixture } from "../../api/test/fixtures/browser-use-extension"
 import { createE2EAuthSession, E2E_ADMIN } from "./support/auth-fixture"
 
 async function useChromeBrand(page: Page) {
@@ -25,7 +25,7 @@ async function mockConversation(
 ) {
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname.replace("/api/v1", "")
-    if (path.startsWith("/local-browser")) return route.continue()
+    if (path.startsWith("/browser-use")) return route.continue()
     let data: unknown = { items: [], next_cursor: null }
     if (path === "/system/bootstrap")
       data = {
@@ -105,13 +105,13 @@ test("browser extension settings explain cloud/local and remain usable on narrow
       data = createE2EAuthSession("zh-CN")
     else if (pathname.endsWith("/me"))
       data = { ...E2E_ADMIN, preferred_locale: "zh-CN", language: "zh-CN" }
-    else if (pathname.endsWith("/local-browser")) data = { connected: false }
+    else if (pathname.endsWith("/browser-use")) data = { connected: false }
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
         success: true,
         data,
-        request_id: "local-browser-visual",
+        request_id: "browser-use-visual",
       }),
     })
   })
@@ -186,7 +186,7 @@ test("Edge settings show only the Edge manager address with icons", async ({
     )
     const page = await context.newPage()
     await mockConversation(page, "20000000-0000-4000-8000-000000000001")
-    await page.route("**/api/v1/local-browser", (route) =>
+    await page.route("**/api/v1/browser-use", (route) =>
       route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({ success: true, data: { connected: false } }),
@@ -223,7 +223,7 @@ test("a browser request offers Browser Use and links to the focused settings sec
       intentRequests.push(request.url())
   })
   await mockConversation(page, conversationId, intent)
-  await page.route("**/api/v1/local-browser", (route) =>
+  await page.route("**/api/v1/browser-use", (route) =>
     route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({ success: true, data: { connected: false } }),
@@ -410,7 +410,7 @@ test("local browser snapshots drag to all four corners, stay reachable and activ
     name: "Browser Use",
     exact: true,
   })
-  const boundary = page.locator("[data-local-browser-preview-boundary]")
+  const boundary = page.locator("[data-browser-use-preview-boundary]")
   const grip = panel.getByRole("button", {
     name: "拖动预览到四角，或使用方向键移动",
   })
@@ -511,7 +511,7 @@ test("local browser snapshots drag to all four corners, stay reachable and activ
   expect(
     (
       await new AxeBuilder({ page })
-        .include("[data-local-browser-preview-boundary]")
+        .include("[data-browser-use-preview-boundary]")
         .analyze()
     ).violations
   ).toEqual([])
@@ -591,7 +591,7 @@ test("browser preview avoids task overview and uses a reachable compact control 
     .toBe("top-right")
   await page.getByRole("button", { name: "关闭任务概览", exact: true }).click()
   await expect(overview).toBeHidden()
-  const bounds = page.locator("[data-local-browser-preview-boundary]")
+  const bounds = page.locator("[data-browser-use-preview-boundary]")
   await expect
     .poll(async () => {
       const card = await panel.boundingBox()
@@ -787,7 +787,7 @@ test("the real extension automatically supplies and updates the chat picture in 
           },
           location.origin
         ),
-      { code: pairing.code, endpoint: `${address}/api/v1/local-browser` }
+      { code: pairing.code, endpoint: `${address}/api/v1/browser-use` }
     )
     const popup = await browser.newPage()
     await popup.goto(`chrome-extension://${extensionId}/popup.html`)

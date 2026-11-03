@@ -29,17 +29,21 @@ export function capabilityPresentation(
     capability.builtin_key === "linksense-browser" ||
     capability.builtin_key === "linksense-local-browser"
   ) {
-    const local = capability.builtin_key === "linksense-local-browser"
+    const local = capability.builtin_key !== "linksense-browser"
     return {
-      name: t(local ? "localBrowser.localName" : "localBrowser.cloudName", {
+      name: t(local ? "browserUse.localName" : "browserUse.cloudName", {
         productName,
       }),
       description: t(
-        local
-          ? "localBrowser.localDescription"
-          : "localBrowser.cloudDescription",
+        local ? "browserUse.localDescription" : "browserUse.cloudDescription",
         { productName }
       ),
+    }
+  }
+  if (capability.builtin_key === "linksense-computer-use") {
+    return {
+      name: t("computerUse.title"),
+      description: t("computerUse.builtInDescription"),
     }
   }
   const key =

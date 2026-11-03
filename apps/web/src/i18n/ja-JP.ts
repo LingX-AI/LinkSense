@@ -10,7 +10,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 import { localizedErrorMessage } from "@linksense/shared"
 
 export const jaJP = {
-  localBrowser: localBrowserMessages["ja-JP"],
+  browserUse: browserUseMessages["ja-JP"],
   modelSetup: modelSetupMessages["ja-JP"],
   connections: connectionMessages["ja-JP"],
   sideChat: sideChatMessages["ja-JP"],
@@ -4463,6 +4463,7 @@ export const jaJP = {
       memory_generation: "メモリ生成",
       task_title_generation: "タスクの自動命名",
       browser_use_intent: "ブラウザー操作の意図検出",
+      computer_use_intent: "パソコン操作の意図検出",
       document_embedding: "ドキュメントのベクトル化",
       query_embedding: "クエリのベクトル化",
       rerank: "検索結果の再ランキング",
@@ -6000,4 +6001,4 @@ export const jaJP = {
     teams: "Teams SSO",
   },
 } satisfies TranslationResource<typeof enUS>
-import { localBrowserMessages } from "@/features/local-browser/messages"
+import { browserUseMessages } from "@/features/browser-use/messages"

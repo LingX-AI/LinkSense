@@ -41,6 +41,8 @@ import type {
 } from "@linksense/shared";
 import {
   builtInSkillNames,
+  builtInSkillRuntimeName,
+  builtInCapabilityDefinitionForId,
   codexModelReasoningCatalogSchema,
   conversationFormRecommendationDelayMs,
   conversationFormWaitingPolicySchema,
@@ -430,7 +432,6 @@ const skillsListResponseSchema = z
 
 const missingNativeThreadRolloutPattern =
   /^no rollout found for thread id [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
-const RESERVED_LINKSENSE_SKILL_NAMES = new Set<string>(builtInSkillNames);
 const SUB_AGENT_THREAD_PAGE_SIZE = 100;
 const MAX_SUB_AGENT_THREAD_PAGES = 100;
 const PROCESS_EXIT_RETRY_BASE_MS = 100;
@@ -498,14 +499,26 @@ async function isSamePath(left: string, right: string): Promise<boolean> {
 function resolvePrioritySkills(
   context: TurnContextInput,
   authorizedSkills: AuthorizedTurnSkill[],
+  capabilities: CapabilityRuntimeInput[],
+  capabilityRuntime: PreparedCapabilityRuntime | null,
 ): AuthorizedTurnSkill[] {
   const byName = new Map(
     authorizedSkills.map((skill) => [skill.name, skill] as const),
   );
   const seen = new Set<string>();
-  const skills = context.prioritySkills.map(({ name }) => {
-    const skill = byName.get(name);
-    if (!skill) {
+  const skills = context.prioritySkills.map(({ id, name }) => {
+    const builtIn = builtInCapabilityDefinitionForId(id);
+    const runtimeName = builtIn?.type === "skill"
+      ? builtInSkillRuntimeName(builtIn.key, capabilities)
+      : name;
+    const skill = builtIn?.key === "linksense-computer-use"
+      ? authorizedSkills.find((candidate) =>
+          candidate.name === runtimeName &&
+          capabilityRuntime !== null &&
+          candidate.path === join(capabilityRuntime.skillsRoot, runtimeName, "SKILL.md"),
+        )
+      : byName.get(name);
+    if (!skill || runtimeName !== name) {
       throw new CodexProtocolError("priority skill is unavailable");
     }
     if (seen.has(name)) {
@@ -1971,6 +1984,8 @@ export class AppServerProcessPool {
       const prioritySkills = resolvePrioritySkills(
         input.context,
         managed.authorizedSkills,
+        input.capabilities,
+        capabilityRuntime,
       );
       const priorityPlugins =
         input.collaborationMode === "plan"
@@ -4503,13 +4518,24 @@ export class AppServerProcessPool {
     return this.options.eventSink.requestMonitoringStop({ conversationId, turnId: managed.activeProjectionTurnId });
   }
 
-  async localBrowser(conversationId: string, token: string, input: import("@linksense/shared").LocalBrowserRequest, signal: AbortSignal): Promise<unknown> {
+  async browserUse(conversationId: string, token: string, input: import("@linksense/shared").BrowserUseRequest, signal: AbortSignal): Promise<unknown> {
     const managed = this.processes.get(conversationId);
     if (!managed?.activeTurnId || !managed.activeProjectionTurnId || !safeTokenEqual(token, managed.currentUserToken)) throw new ConversationReferenceRequestError(403);
-    const { localBrowserReadOnly, localBrowserFailure } = await import("@linksense/shared");
-    if (managed.activeCollaborationMode === "plan" && !localBrowserReadOnly(input)) return localBrowserFailure("LOCAL_BROWSER_ACCESS_DENIED");
-    if (!this.options.eventSink.localBrowser) return localBrowserFailure("LOCAL_BROWSER_NOT_CONNECTED");
-    return this.options.eventSink.localBrowser({ conversationId, turnId: managed.activeProjectionTurnId, input, signal });
+    const { browserUseReadOnly, browserUseFailure } = await import("@linksense/shared");
+    if (managed.activeCollaborationMode === "plan" && !browserUseReadOnly(input)) return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
+    if (!this.options.eventSink.browserUse) return browserUseFailure("BROWSER_USE_NOT_CONNECTED");
+    return this.options.eventSink.browserUse({ conversationId, turnId: managed.activeProjectionTurnId, input, signal });
+  }
+
+  async computerUse(conversationId: string, token: string, input: import("@linksense/shared").ComputerUseRequest, signal: AbortSignal): Promise<unknown> {
+    const managed = this.processes.get(conversationId);
+    if (!managed?.activeTurnId || !managed.activeProjectionTurnId || !safeTokenEqual(token, managed.currentUserToken))
+      throw new ConversationReferenceRequestError(403);
+    const { computerUseReadOnly, computerUseFailure } = await import("@linksense/shared");
+    if (managed.activeCollaborationMode === "plan" && !computerUseReadOnly(input))
+      return computerUseFailure("COMPUTER_USE_ACCESS_DENIED");
+    if (!this.options.eventSink.computerUse) return computerUseFailure("COMPUTER_USE_NOT_CONNECTED");
+    return this.options.eventSink.computerUse({ conversationId, turnId: managed.activeProjectionTurnId, input, signal });
   }
 
   async browserPanel(conversationId: string, ownerId: string, request: import("@linksense/shared").BrowserPanelRequest): Promise<import("@linksense/shared").BrowserPanelState> {
@@ -5969,6 +5995,15 @@ export class AppServerProcessPool {
       ? await realpath(capabilityRuntime.skillsRoot).catch(() => null)
       : null;
     const standaloneSkillPaths = new Map<string, boolean>();
+    const standaloneCapabilities = [...authorizedStandaloneSkillNames].map((name) => ({
+      name,
+      type: "skill" as const,
+    }));
+    const builtInRuntimeNames = new Set(
+      builtInSkillNames.map((name) =>
+        builtInSkillRuntimeName(name, standaloneCapabilities),
+      ),
+    );
     for (const skill of catalog.skills) {
       const isStandaloneSkillPath =
         capabilityRuntime !== null &&
@@ -5976,7 +6011,7 @@ export class AppServerProcessPool {
       standaloneSkillPaths.set(skill.path, isStandaloneSkillPath);
       if (
         isStandaloneSkillPath &&
-        !RESERVED_LINKSENSE_SKILL_NAMES.has(skill.name) &&
+        !builtInRuntimeNames.has(skill.name) &&
         !authorizedStandaloneSkillNames.has(skill.name)
       ) {
         throw new CodexProtocolError(

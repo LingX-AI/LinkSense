@@ -1,5 +1,6 @@
 import type { CapabilitySummary } from "@/api/contracts"
 import { capabilityPresentation } from "@/features/capabilities/built-in-presentation"
+import { computerUseMessages } from "@/features/computer-use/messages"
 import { enUS } from "@/i18n/en-US"
 import { zhCN } from "@/i18n/zh-CN"
 import { createInstance } from "i18next"
@@ -45,14 +46,71 @@ const translations = createInstance()
 beforeAll(async () => {
   await translations.init({
     resources: {
-      "zh-CN": { translation: zhCN },
-      "en-US": { translation: enUS },
+      "zh-CN": {
+        translation: { ...zhCN, computerUse: computerUseMessages["zh-CN"] },
+      },
+      "en-US": {
+        translation: { ...enUS, computerUse: computerUseMessages["en-US"] },
+      },
     },
     fallbackLng: "zh-CN",
   })
 })
 
 describe("built-in capability presentation", () => {
+  it.each(["linksense-browser-use", "linksense-computer-use"])(
+    "does not relabel an existing custom %s package as a built-in",
+    (name) => {
+      expect(
+        capabilityPresentation(
+          {
+            ...docsCapability,
+            id: "60000000-0000-4000-8000-000000000001",
+            name,
+            display_name: "Existing custom workflow",
+            builtin_key: null,
+            is_builtin: false,
+            source_type: "local",
+          },
+          translations.getFixedT("en-US"),
+          "LinkSense"
+        )
+      ).toEqual({
+        name: "Existing custom workflow",
+        description: null,
+      })
+    }
+  )
+  it("localizes Browser Use while retaining the persisted built-in identity", () => {
+    const result = capabilityPresentation(
+      {
+        ...docsCapability,
+        id: "builtin:capability:linksense-local-browser",
+        name: "linksense-local-browser",
+        builtin_key: "linksense-local-browser",
+      },
+      translations.getFixedT("en-US"),
+      "LinkSense"
+    )
+    expect(result.name).toBe("LinkSense Browser Use")
+    expect(result.description).not.toBeNull()
+  })
+  it("localizes the Computer Use built-in", () => {
+    const result = capabilityPresentation(
+      {
+        ...docsCapability,
+        id: "builtin:capability:linksense-computer-use",
+        name: "linksense-computer-use",
+        builtin_key: "linksense-computer-use",
+      },
+      translations.getFixedT("en-US"),
+      "LinkSense"
+    )
+    expect(result.name).toBe("Computer Use")
+    expect(result.description).toBe(
+      "Operate this computer through the paired LinkSense helper."
+    )
+  })
   it.each(["zh-CN", "en-US", "unknown"])(
     "shows optional personal names and formatted historical names in %s",
     (language) => {

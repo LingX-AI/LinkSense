@@ -4,6 +4,13 @@ import { parseConfig } from "../src/config.js"
 import { testEnvironment } from "./test-config.js"
 
 describe("parseConfig", () => {
+  it("keeps old deployments optional and validates the desktop installer path", () => {
+    expect(parseConfig(testEnvironment()).desktopClientArchive).toBeUndefined();
+    expect(parseConfig(testEnvironment({ LINKSENSE_DESKTOP_CLIENT_ARCHIVE: "/opt/clients/desktop.zip" })).desktopClientArchive).toBe("/opt/clients/desktop.zip");
+    expect(parseConfig(testEnvironment({ LINKSENSE_DESKTOP_CLIENT_ARCHIVE_WINDOWS: "/opt/clients/windows.zip" })).desktopClientArchiveWindows).toBe("/opt/clients/windows.zip");
+    expect(() => parseConfig(testEnvironment({ LINKSENSE_DESKTOP_CLIENT_ARCHIVE: "relative.zip" }))).toThrow("desktop_client_archive_must_be_absolute");
+    expect(() => parseConfig(testEnvironment({ LINKSENSE_DESKTOP_CLIENT_ARCHIVE_WINDOWS: "relative.zip" }))).toThrow("desktop_client_archive_must_be_absolute");
+  })
   it("accepts a deployment without optional SMTP, OIDC, or Teams", () => {
     const config = parseConfig(testEnvironment())
     expect(config.smtp.status).toBe("not_configured")

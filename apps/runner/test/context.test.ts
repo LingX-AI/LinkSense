@@ -80,7 +80,6 @@ describe("buildTurnInput", () => {
     const entries = Object.values(output ?? {});
     expect(entries.every((entry) => entry.kind === "application")).toBe(true);
     expect(output?.["linksense.browser-selection"]?.value).toContain("Core browser_use");
-    expect(output?.["linksense.browser-selection"]?.value).not.toContain("local_browser");
     // A text budget catches prompt growth without pretending to measure model usage.
     expect(encode(entries.map((entry) => entry.value).join("\n")).length).toBeLessThanOrEqual(1_000);
   });

@@ -477,35 +477,30 @@ describe("NativeActivityItem", () => {
     supportedLanguages.flatMap((language) =>
       ["browser_use", "local_browser"].map((tool) => [language, tool] as const)
     )
-  )(
-    "identifies Browser Use execution in %s for %s",
-    async (language, tool) => {
-      await i18n.changeLanguage(language)
-      const item = {
-        id: "local-browser",
-        type: "mcpToolCall" as const,
-        server: "linksense_core",
-        tool,
-        status: "inProgress" as const,
-      }
-      const { rerender } = render(
-        <NativeActivityItem method="item/started" item={item} />
-      )
-      expect(
-        screen.getByText(i18n.t("localBrowser.activityRunning"))
-      ).toBeVisible()
-      expect(screen.queryByText(tool)).toBeNull()
-      rerender(
-        <NativeActivityItem
-          method="item/completed"
-          item={{ ...item, status: "completed" }}
-        />
-      )
-      expect(
-        screen.getByText(i18n.t("localBrowser.activityFinished"))
-      ).toBeVisible()
+  )("identifies Browser Use execution in %s for %s", async (language, tool) => {
+    await i18n.changeLanguage(language)
+    const item = {
+      id: "browser-use",
+      type: "mcpToolCall" as const,
+      server: "linksense_core",
+      tool,
+      status: "inProgress" as const,
     }
-  )
+    const { rerender } = render(
+      <NativeActivityItem method="item/started" item={item} />
+    )
+    expect(screen.getByText(i18n.t("browserUse.activityRunning"))).toBeVisible()
+    expect(screen.queryByText(tool)).toBeNull()
+    rerender(
+      <NativeActivityItem
+        method="item/completed"
+        item={{ ...item, status: "completed" }}
+      />
+    )
+    expect(
+      screen.getByText(i18n.t("browserUse.activityFinished"))
+    ).toBeVisible()
+  })
 
   it.each(supportedLanguages)(
     "localizes automation activities and failure states in %s",

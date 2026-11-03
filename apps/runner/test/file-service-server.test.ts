@@ -358,6 +358,7 @@ describe("LinkSense Core MCP subprocess", () => {
         .sort(),
     ).toEqual([
       "browser_use",
+      "computer_use",
       "convert_document_to_markdown",
       "emit_application_event",
       "get_current_user_info",
@@ -368,7 +369,7 @@ describe("LinkSense Core MCP subprocess", () => {
       "request_user_form",
       "search_knowledge_base",
     ]);
-    for (const [index, name] of ["browser_use", "local_browser"].entries()) {
+    for (const [index, name] of ["browser_use"].entries()) {
       await expect(
         rpc.call(20 + index, "tools/call", {
           name,
@@ -378,7 +379,7 @@ describe("LinkSense Core MCP subprocess", () => {
         isError: true,
         content: [{
           type: "text",
-          text: expect.stringContaining("LOCAL_BROWSER_ACCESS_DENIED"),
+          text: expect.stringContaining("BROWSER_USE_ACCESS_DENIED"),
         }],
       });
     }

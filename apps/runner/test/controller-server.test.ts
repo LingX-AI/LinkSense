@@ -40,11 +40,32 @@ afterEach(async () => {
 })
 
 describe("published service routing", () => {
-  it("keeps the publisher's local browser private from external service sessions", async () => {
+  it("keeps the user's computer private from published service sessions", async () => {
+    const { server } = await createServer();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ ok: true, data: { status: { connected: false } } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const url = "/internal/computer-use/execute";
+    const payload = { conversationId: ownerId, turnId: otherOwnerId, input: { action: "status" } };
+    const session = "01900000-0000-7000-8000-000000000011";
+    try {
+      const denied = await server.inject({ method: "POST", url, payload, headers: {
+        authorization: `Bearer ${ownerWorkerSecret(ownerId, secret, session)}`,
+        "x-linksense-owner-id": ownerId, "x-linksense-service-session": session,
+      } });
+      expect(denied.statusCode).toBe(403);
+      expect(fetchMock).not.toHaveBeenCalled();
+      const accepted = await server.inject({ method: "POST", url, payload, headers: {
+        authorization: `Bearer ${ownerWorkerSecret(ownerId, secret)}`, "x-linksense-owner-id": ownerId,
+      } });
+      expect(accepted.statusCode).toBe(200);
+      expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://api:4000/internal/computer-use/execute");
+    } finally { await server.close(); }
+  });
+  it.each(["browser-use", "local-browser"])("keeps %s private from external service sessions", async (channel) => {
     const { server } = await createServer();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ ok: true, browser: "local", data: { tabs: [] } }));
     vi.stubGlobal("fetch", fetchMock);
-    const url = "/internal/local-browser/execute";
+    const url = `/internal/${channel}/execute`;
     const payload = { conversationId: ownerId, turnId: otherOwnerId, input: { action: "tabs" } };
     const session = "01900000-0000-7000-8000-000000000011";
     try {
@@ -58,7 +79,7 @@ describe("published service routing", () => {
         authorization: `Bearer ${ownerWorkerSecret(ownerId, secret)}`, "x-linksense-owner-id": ownerId,
       } });
       expect(accepted.statusCode).toBe(200);
-      expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://api:4000/internal/local-browser/execute");
+      expect(String(fetchMock.mock.calls[0]?.[0])).toBe(`http://api:4000/internal/${channel}/execute`);
       expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual(payload);
     } finally { await server.close(); }
   });
