@@ -188,7 +188,12 @@ else if (args[0] === "compose") {
       assert.equal(args[args.indexOf("--status") + 1], "running");
       process.stdout.write(options.stillRunning ? "api" : ["api", "runner"].filter(service => state[service + "Running"]).join("\\n"));
     }
-  } else if (args.includes("up")) save(args.includes("redis") ? "infrastructure" : "activate");
+  } else if (args.includes("up")) {
+    if (args.includes("gateway") && args.includes("--force-recreate")) {
+      assert(args.includes("--no-deps"), "refresh only the gateway after application activation");
+      save("refresh-gateway");
+    } else save(args.includes("redis") ? "infrastructure" : "activate");
+  }
   else throw new Error("Unexpected compose: " + source);
 } else throw new Error("Unexpected command: " + args.join(" "));
 `;
@@ -213,7 +218,7 @@ else if (args[0] === "compose") {
 test("UAT stops both database writers before rechecking active work and creating the backup", t => {
   const result = deploymentFixture(t);
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(result.events, ["build", "infrastructure", "active:0", "stop:api", "stopped:api", "stop:runner", "stopped:runner", "active:0", "backup", "verify-backup", "activate"]);
+  assert.deepEqual(result.events, ["build", "infrastructure", "active:0", "stop:api", "stopped:api", "stop:runner", "stopped:runner", "active:0", "backup", "verify-backup", "activate", "refresh-gateway"]);
 });
 
 for (const options of [{ running: 1 }, { intents: 1 }, { dispatching: 1 }]) {
@@ -248,5 +253,5 @@ test("UAT refuses a supposedly stopped runtime that still reports a running writ
 test("UAT first installation skips existing-runtime checks and backups", t => {
   const result = deploymentFixture(t, { schema: false });
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(result.events, ["prepare", "build", "infrastructure", "activate"]);
+  assert.deepEqual(result.events, ["prepare", "build", "infrastructure", "activate", "refresh-gateway"]);
 });

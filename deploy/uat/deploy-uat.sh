@@ -106,6 +106,8 @@ if [ "$schema_present" = t ]; then
   mv "$backup.partial" "$backup"
 fi
 compose up -d --wait --wait-timeout 600
+# Compose does not detect content changes to the bind-mounted gateway template.
+compose up -d --no-deps --force-recreate --wait --wait-timeout 180 gateway
 curl --connect-timeout 5 --max-time 20 --fail --silent "http://127.0.0.1:$port/api/v1/system/health/ready" >/dev/null
 compose ps
 printf '\nCore UAT ready: %s\nSource revision: %s\nInitialization credential: %s/.data/uat/initialization.txt (private file)\n' "$public_url" "$revision" "$root"
