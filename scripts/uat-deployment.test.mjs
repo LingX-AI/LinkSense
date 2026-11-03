@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
@@ -44,6 +44,42 @@ test("UAT updates preserve configured concurrency limits", t => {
   assert.equal(updated.LINKSENSE_MAX_CONCURRENT_CONVERSATIONS, "6");
   assert.equal(updated.LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT, "5");
 });
+test("UAT prepares a readable helper archive directory without exposing runtime credentials", t => {
+  const root = fixture(t);
+  const environment = prepareUat(root, { revision, publicUrl: "http://192.0.2.5:19090" });
+  assert.equal(environment.LINKSENSE_DESKTOP_CLIENT_ARCHIVE, "/opt/linksense-desktop/LinkSense-Desktop-macos.zip");
+  assert.equal(environment.LINKSENSE_DESKTOP_CLIENT_ARCHIVE_WINDOWS, "/opt/linksense-desktop/LinkSense-Desktop-windows.exe");
+  assert.equal(statSync(resolve(root, ".data/uat/desktop")).mode & 0o777, 0o755);
+  assert.equal(statSync(resolve(root, ".data/uat/runtime.env")).mode & 0o777, 0o600);
+});
+test("UAT upgrades add missing helper settings and preserve existing archives and configured paths", t => {
+  const root = fixture(t);
+  const first = prepareUat(root, { revision, publicUrl: "http://192.0.2.5:19090" });
+  const environmentFile = resolve(root, ".data/uat/runtime.env");
+  const previous = Object.fromEntries(Object.entries(first).filter(([key]) => !key.startsWith("LINKSENSE_DESKTOP_CLIENT_ARCHIVE")));
+  writeFileSync(environmentFile, Object.entries(previous).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join("\n") + "\n", { mode: 0o600 });
+  const updated = prepareUat(root, { revision: "b".repeat(40), publicUrl: first.LINKSENSE_PUBLIC_BASE_URL });
+  assert.equal(updated.LINKSENSE_JWT_SECRET, first.LINKSENSE_JWT_SECRET);
+  assert.equal(updated.LINKSENSE_USER_DATA_VOLUME, first.LINKSENSE_USER_DATA_VOLUME);
+  assert.equal(updated.LINKSENSE_DESKTOP_CLIENT_ARCHIVE, "/opt/linksense-desktop/LinkSense-Desktop-macos.zip");
+  const archive = resolve(root, ".data/uat/desktop/LinkSense-Desktop-macos.zip");
+  writeFileSync(archive, "existing helper archive");
+  updated.LINKSENSE_DESKTOP_CLIENT_ARCHIVE = "/custom-clients/macos.zip";
+  updated.LINKSENSE_DESKTOP_CLIENT_ARCHIVE_WINDOWS = "/custom-clients/windows.exe";
+  writeFileSync(environmentFile, Object.entries(updated).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join("\n") + "\n", { mode: 0o600 });
+  const next = prepareUat(root, { revision: "c".repeat(40), publicUrl: first.LINKSENSE_PUBLIC_BASE_URL });
+  assert.equal(next.LINKSENSE_DESKTOP_CLIENT_ARCHIVE, updated.LINKSENSE_DESKTOP_CLIENT_ARCHIVE);
+  assert.equal(next.LINKSENSE_DESKTOP_CLIENT_ARCHIVE_WINDOWS, updated.LINKSENSE_DESKTOP_CLIENT_ARCHIVE_WINDOWS);
+  assert.equal(readFileSync(archive, "utf8"), "existing helper archive");
+});
+test("UAT refuses helper archive directories that redirect outside its managed state", t => {
+  const root = fixture(t);
+  const destination = resolve(root, "unrelated");
+  mkdirSync(destination);
+  mkdirSync(resolve(root, ".data/uat"), { recursive: true });
+  symlinkSync(destination, resolve(root, ".data/uat/desktop"));
+  assert.throws(() => prepareUat(root, { revision, publicUrl: "http://localhost:19090" }), /regular directory/u);
+});
 test("UAT rejects invalid origins and cross-project credential reuse", t => {
   const root = fixture(t);
   for (const publicUrl of ["file:///tmp/config", "http://user:secret@example.test", "https://example.test/path", "https://example.test/?token=secret"]) assert.throws(() => prepareUat(root, { revision, publicUrl }));
@@ -75,6 +111,16 @@ test("UAT builds use relocated Dockerfiles without changing source roots or buil
     assert.equal(build.target, target, service);
     assert.ok(statSync(new URL(`../${build.dockerfile}`, import.meta.url)).isFile(), service);
   }
+});
+test("UAT mounts helper archives read-only without creating an absent host source", () => {
+  const compose = parse(readFileSync(new URL("../deploy/uat/compose.yml", import.meta.url), "utf8"));
+  assert.deepEqual(compose.services.api.volumes, [{
+    type: "bind",
+    source: "${LINKSENSE_SOURCE_ROOT}/.data/uat/desktop",
+    target: "/opt/linksense-desktop",
+    read_only: true,
+    bind: { create_host_path: false },
+  }]);
 });
 
 function deploymentFixture(t, options = {}) {
