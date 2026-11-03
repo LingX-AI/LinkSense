@@ -2,7 +2,7 @@
 
 调研日期：2026-10-26（Asia/Shanghai）。范围：官方 GitHub 仓库、README、源码、许可证及项目官方文档；未安装候选软件、未实际控制浏览器、未做成功率或性能对比。以下“事实”来自所链接的一手资料，“建议”是结合 LinkSense 已有 Codex 执行方式作出的工程判断。
 
-实施已另行完成首版，接入与验证说明见[本地 Browser Use](./local-browser-use.md)。下文保留调研时的候选判断；本期没有安装上游完整 Agent，而是采用 Chrome 标准 debugger/CDP 执行受限动作，沿用现有 Codex Core MCP。跨账号认证、设备配对与 LinkSense 路由仍由项目自身实现。
+实施已另行完成首版，接入与验证说明见[本地 Browser Use](./browser-use.md)。下文保留调研时的候选判断；本期没有安装上游完整 Agent，而是采用 Chrome 标准 debugger/CDP 执行受限动作，沿用现有 Codex Core MCP。跨账号认证、设备配对与 LinkSense 路由仍由项目自身实现。
 
 ## 当前确认的范围与选型结论
 
@@ -38,7 +38,7 @@
 | 位置 | 需要表达的内容 | 保持的边界 |
 | --- | --- | --- |
 | 原 `linksense-browser` Skill | 明确“云端/平台托管浏览器”；适用普通网页、公开信息和任务工作区预览；不会读取用户本地标签页或登录态 | 保留命令、会话隔离、只读模式、输出和清理语义 |
-| 新本地浏览器 Skill（名称待定，可用 `linksense-local-browser`） | 明确“用户电脑的 Chrome/Edge”；适用已打开页面、已有登录态及用户指定本地的任务；写清连接/状态/观察/动作和断开方法 | 只访问当前用户、连接和任务获准的页面；不控制其他桌面应用或任意本地文件 |
+| 本地浏览器 Skill（稳定身份 `linksense-local-browser`，显示 Browser Use） | 明确“用户电脑的 Chrome/Edge”；适用已打开页面、已有登录态及用户指定本地的任务；写清连接/状态/观察/动作和断开方法 | 只访问当前用户、连接和任务获准的页面；不控制其他桌面应用或任意本地文件 |
 | 共享任务上下文/能力目录 | 在使用前让 AI 知道两种能力、选择优先级和当前可用状态，避免未安装用户只能通过已安装 Skill 才发现本地能力 | 不靠读取其他 tabs 来判断是否有权限；状态来自服务端/扩展连接协议 |
 
 当前 [Runner 上下文](../../apps/runner/src/context.ts) 的普通/Plan 指引和 [内置 Skill writer](../../apps/api/src/modules/capabilities/user-home-materializer.ts) 都将网页工作泛化指向 `linksense-browser`，实施时需收窄为云端路径并增加本地选择说明，避免两份 Skill 都声明“所有网页任务都用我”。修改内置 Skill writer 时必须按仓库规则同步 runtime digest 和快照刷新验证。本轮只记录需求，未改 writer 或 runtime。
@@ -204,7 +204,7 @@ MCP 默认暴露结构化页面与操作工具，可通过 stdio 由 agent 启�
 
 **事实：** 当前 v4 保留自然语言 `act`、`extract`、`observe` 和确定性的 page/locator API；官方迁移文档明确移除了 v3 的 `agent()`，完整控制流由调用者负责。故“Stagehand 一定会新增第二套 agent loop”已不准确。[v4 概览](https://docs.stagehand.dev/v4/first-steps/introduction) · [v3 到 v4 迁移](https://docs.stagehand.dev/v4/migrations/v3)
 
-浏览器可以由 Browserbase 托管、本地启动，或通过 `localBrowser.connect({ cdpUrl })` 连接已有 Chromium。AI primitives 会调用模型；本地浏览器不能使用依赖 Browserbase session 的 Model Gateway，需要独立配置模型或 callback。[浏览器连接方式](https://docs.stagehand.dev/v4/configuration/browser) · [模型配置与 Gateway 限制](https://docs.stagehand.dev/v4/configuration/models)
+浏览器可以由 Browserbase 托管、本地启动，或通过 `browserUse.connect({ cdpUrl })` 连接已有 Chromium。AI primitives 会调用模型；本地浏览器不能使用依赖 Browserbase session 的 Model Gateway，需要独立配置模型或 callback。[浏览器连接方式](https://docs.stagehand.dev/v4/configuration/browser) · [模型配置与 Gateway 限制](https://docs.stagehand.dev/v4/configuration/models)
 
 v4 官方 Codex 集成以 `run`、`snapshot`、`screenshot` 提供持续 MCP/stdio 浏览器会话；文档明确标记为仓库提供的实验性集成，非独立发布 adapter。旧 `browserbase/mcp-server-browserbase` 仓库已归档，不能拿旧示例当作当前默认实现。[Codex adapter](https://docs.stagehand.dev/v4/integrations/cli-agents/codex) · [已归档旧 MCP 仓库](https://github.com/browserbase/mcp-server-browserbase)
 

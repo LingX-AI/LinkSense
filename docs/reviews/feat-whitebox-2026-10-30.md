@@ -86,7 +86,7 @@
 | Web 组件/Node | `pnpm --filter @linksense/web exec vitest run --project components --project shared-components --project node --maxWorkers=2`：426 文件、5,237 项通过 |
 | 浏览器 | `pnpm --filter @linksense/web test:e2e --workers=2`：147 项全部通过，0 skip、0 retry；包含真实扩展控制与六语言/窄屏/键盘回归 |
 | 部署 | 临时 Docker CLI / Compose PATH 下 `pnpm test:deployment`：770 项全部通过，0 skip；默认环境路径相关 68 项亦通过 |
-| Redis | `pnpm --filter @linksense/api exec tsx test/integration/local-browser-redis.ts`：PASS |
+| Redis | `pnpm --filter @linksense/api exec tsx test/integration/browser-use-redis.ts`：PASS |
 | PostgreSQL 升级 | `pnpm --filter @linksense/api exec tsx test/integration/automation-upgrade.ts`：两个 PASS |
 | 类型 | `pnpm typecheck`：通过 |
 | lint | `pnpm lint`：通过；保留一条既有 TanStack Virtual / React Compiler 兼容警告，0 error |
@@ -101,13 +101,13 @@ Redis 检查使用独立 Unix socket 临时服务，不连接已有 Redis 数据
 
 ## 保留给维护者 Review
 
-### Skill 命名：统一使用新内置名称
+### Skill 命名：外显重命名不改变既有资源身份
 
-维护者已确认统一使用新的 Skill name。本轮按当前新内置标准名 `linksense-local-browser` 执行；共享保留名、生成目录、SKILL.md frontmatter、云浏览器指引、Runner 指令与开发文档均已一致，没有另造别名或更换名称。补充了同名自定义 Skill 导入必须拒绝的回归用例，避免用户内容覆盖内置能力。
+界面和模型工具统一显示 Browser Use / `browser_use`；内置 Skill 的稳定目录、slug、ID 和保留名继续使用升级前的 `linksense-local-browser`。云浏览器指引、Runner 上下文和生成内容保持一致，旧内置 ID 无需迁移；新的内置 ID 只作精确输入别名。
 
-这项命名决定不等于可以把任意同名自定义内容转换成内置能力。历史自定义 Skill 若恰好占用该名称，其旧 publication、持久化 turn / start-intent 能力快照仍可能被新校验拒绝；需要把自定义资源改为非保留名称并验证既有执行快照的恢复，而不是覆盖、删除它或重建全部任务。
+不新增 `linksense-browser-use` 保留名，也不把同名自定义内容转换成内置能力。回归测试使用升级前允许的自定义名称，验证其原内容可与稳定内置目录共同发布并继续用于既有任务；不要求改名、重新导入、重发或重建任务。
 
-本轮没有连接业务库盘点或改写历史资源。目标实例有冲突时仍需完成上述升级处理；不能把仓库命名已统一当作所有已有安装均兼容的证据。本轮没有修改内置 Skill writer，内容指纹无需重新生成。
+本轮没有连接业务库或改写历史资源。生成的内置内容与升级前逐字一致，因此内容指纹保持升级前摘要；指纹绑定和旧快照刷新回归仍必须通过。
 
 ### 功能/需求语义：fresh_task 的项目工作目录（第四轮已确认修复）
 
