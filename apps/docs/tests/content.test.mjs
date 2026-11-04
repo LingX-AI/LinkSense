@@ -489,7 +489,8 @@ test("public documentation shares the website theme and keeps sidebar selection 
   assert.match(theme, /\.theme-doc-sidebar-container\s*\{[\s\S]*clip-path:\s*none !important;/u);
   assert.match(theme, /\.navbar\.navbar-sidebar--show\s*\{\s*backdrop-filter:\s*none;/u);
   assert.match(theme, /\.website-header-actions > \[class\*="navbarSearchContainer"\]\s*\{\s*position:\s*static;\s*right:\s*auto;/u);
-  assert.match(theme, /\.navbar__inner:has\(\.navbar__search:focus-within\) \.navbar__brand\s*\{\s*display:\s*none;/u);
+  assert.match(theme, /\.website-header-actions \.navbar__search:focus-within\s*\{\s*width:\s*100%;\s*min-width:\s*0;/u);
+  assert.doesNotMatch(theme, /\.navbar__inner:has\(\.navbar__search:focus-within\)/u);
   const labels = [...config.matchAll(/label:\s*"([^"]+)",\s*position:\s*"left"/gu)].map(([, label]) => label);
   assert.deepEqual(labels, ["文档", "社区"]);
 });
