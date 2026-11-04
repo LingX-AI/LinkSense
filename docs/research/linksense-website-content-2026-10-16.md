@@ -20,7 +20,7 @@
 
 **个人完成任务 → 将方法沉淀为能力 → 组合为业务应用 → 授权团队使用 → 统一治理和运维。**
 
-这条主线由现有 [组织能力说明](../../README.zh-CN.md#组织能力)、[应用分发指南](../../apps/docs/docs/user-guide/plugin-center/organization-apps.md) 和 [审核流程](../../apps/docs/docs/admin-guide/plugin-governance.md) 支撑。
+这条主线由现有[组织能力与应用分发指南](../../apps/docs/docs/user-guide/plugin-center/organization-apps.md)和[审核流程](../../apps/docs/docs/admin-guide/plugin-governance.md)支撑。
 
 ## 适合官网展示的能力
 
@@ -29,7 +29,7 @@
 | 完成有交付物的工作 | 研究资料、分析数据、运行代码，生成 Word、Excel、PPT、PDF、图片和网页成果。 | [创建任务](../../apps/docs/docs/user-guide/tasks/create-and-run.md)、[文件与成果](../../apps/docs/docs/user-guide/tasks/files-and-results.md)。输出效果取决于模型、材料和任务；不承诺每次自动达到业务验收。 |
 | 看着成果继续修改 | 在 Word、Excel、PPT、HTML 预览中选中具体内容，批量提出修改要求。 | [文件批注](../../apps/docs/docs/user-guide/tasks/file-annotations.md)。这是交给 Agent 修改的请求，不是浏览器内多人实时编辑。 |
 | 复杂工作分步推进 | 先规划并确认，再实施；需要持续推进的工作使用目标模式，并跟踪步骤、工具和子智能体状态。 | [计划模式](../../apps/docs/docs/user-guide/tasks/plan-mode.md)、[目标模式](../../apps/docs/docs/user-guide/tasks/goal-tasks.md)、[任务概览](../../apps/docs/docs/user-guide/tasks/progress-and-sources.md)。计划和目标是两种不同工作方式。 |
-| 项目与持续工作环境 | 按项目组织任务，让后续任务接着使用已有文件与个人工具。 | [项目](../../apps/docs/docs/user-guide/tasks/projects.md)、[Worker 边界](../../README.zh-CN.md#worker-模型)。同一用户的项目和任务不是安全隔离单元。 |
+| 项目与持续工作环境 | 按项目组织任务，让后续任务接着使用已有文件与个人工具。 | [项目](../../apps/docs/docs/user-guide/tasks/projects.md)、[Worker 边界](../../apps/docs/deployment/architecture.md#执行边界)。同一用户的项目和任务不是安全隔离单元。 |
 | 有来源的组织知识 | 用授权知识库回答问题，追溯引用对应的文档版本、命中内容与可验证页码。 | [引用](../../apps/docs/docs/user-guide/knowledge-bases/use-and-citations.md)、[文档处理](../../apps/docs/docs/user-guide/knowledge-bases/documents.md)、[分享](../../apps/docs/docs/user-guide/knowledge-bases/sharing.md)。完整知识处理与检索属于 Full，需配置检索模型；不能宣传“零幻觉”。 |
 | 将方法沉淀为技能与插件 | 安装、创建、发布和复用 Skill、插件及 MCP 扩展，让有效方法进入组织能力目录。 | [发现安装](../../apps/docs/docs/user-guide/plugin-center/discover-and-install.md)、[个人内容](../../apps/docs/docs/user-guide/plugin-center/personal-content.md)、[审核](../../apps/docs/docs/admin-guide/plugin-governance.md)。新版本显式安装更新；第三方能力不等于平台背书。 |
 | 将能力组合为应用 | 把指令、模型、知识、技能和工具组合为团队可用的工作入口。 | [应用](../../apps/docs/docs/user-guide/plugin-center/organization-apps.md)、[创建应用](../../apps/docs/docs/user-guide/plugin-center/create-applications.md)。区分使用者独立维护的应用安装包与创建者维护的应用服务。 |
@@ -97,7 +97,7 @@
 - 已有主应用采用 [React / Vite / React Router / Tailwind](../../apps/web/package.json)，帮助中心采用 [Docusaurus](../../apps/docs/package.json)。官网实现应保留既有项目的技术选择；本轮没有创建新应用、引入框架或修改登录入口。
 - 当前 [主应用根路由](../../apps/web/src/App.tsx) 指向任务工作台，并经过初始化与认证路由边界。官网上线时应明确官网和工作台入口，避免用营销首页覆盖已部署用户的工作台地址。
 - [知识服务装配](../../apps/api/src/services.ts) 只在 Full 配置下创建完整知识处理服务，[API 注册](../../apps/api/src/app.ts) 同样有 Full 能力判断。Core 可以完成普通附件任务，不应被宣传成 Full 知识库的同等配置。
-- 官网可以说明使用官方 Codex 运行时，但不能暗示 LinkSense 是 OpenAI 官方产品或受到 OpenAI 背书；对运行时的描述以 [项目已有说明](../../README.zh-CN.md#基于开源-codex-运行时) 为准。
+- 官网可以说明使用官方 Codex 运行时，但不能暗示 LinkSense 是 OpenAI 官方产品或受到 OpenAI 背书；对运行时的描述以 [项目已有说明](../../apps/docs/deployment/architecture.md#运行链路) 为准。
 - “完全离线”“所有数据绝不离开服务器”“零风险隔离”“无限免费”“生产高可用保证”“固定耗时或降本比例”均不在当前证据支持范围内。数据流取决于模型、网页、MCP、连接器和消息渠道的具体配置。
 - 用户和用户组授权、应用审核、脱敏审计是可展示的现有功能；不扩写成 SCIM、任意自定义角色、多级组织架构或多人共同编辑等未经确认的能力。
 - 现有个人连接器与应用服务的受控 MCP 是不同授权链路，不应宣传“应用使用者自动继承发布者的 Gmail、Outlook 或个人网盘账号”。

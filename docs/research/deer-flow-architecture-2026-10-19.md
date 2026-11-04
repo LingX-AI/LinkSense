@@ -223,7 +223,7 @@ DeerFlow 自己拥有模型与工具调用循环、上下文压缩、记忆、ch
 
 2. **Skill / Plugin 内容扫描：优先，复用已有导入流程。** 当前 [scanRiskSummary](../../apps/api/src/modules/capabilities/importer.ts#L968) 识别脚本、MCP、外部地址、依赖下载和环境需求；[preview](../../apps/api/src/modules/capabilities/preview.ts#L190) 已有目录 hash，确认时也会复核。增量是确定性规则级 findings、扫描器版本、脱敏位置证据，以及将扫描结果绑定已有内容 hash。LLM 审查可以辅助，不能替代确定性检查。规则扫描降低已知风险，不证明任意包安全；阈值应按 LinkSense 已有包限制确定。
 
-3. **Worker 出站网络 profile：按部署需要规划。** 当前 Docker Worker 已有控制网络与 egress network（[容器网络配置](../../apps/runner/src/controller/docker-worker-provider.ts#L608)）；[公开安全说明](../../README.zh-CN.md#L230) 明确同用户任务共享 Worker，且普通执行允许互联网出站。可借鉴 `open / isolated / allowlist` 与策略参与 Worker identity 的设计。首版要验证浏览器、包管理器、MCP、重定向和 DNS 的真实出站路径，不应将 HTTP 代理配置描述为全面网络隔离，也不应承诺同用户任务间文件隔离。
+3. **Worker 出站网络 profile：按部署需要规划。** 当前 Docker Worker 已有控制网络与 egress network（[容器网络配置](../../apps/runner/src/controller/docker-worker-provider.ts#L608)）；[公开安全说明](../../.github/SECURITY.md#执行安全边界) 明确同用户任务共享 Worker，且普通执行允许互联网出站。可借鉴 `open / isolated / allowlist` 与策略参与 Worker identity 的设计。首版要验证浏览器、包管理器、MCP、重定向和 DNS 的真实出站路径，不应将 HTTP 代理配置描述为全面网络隔离，也不应承诺同用户任务间文件隔离。
 
 4. **扩展契约和依赖边界：持续采用。** DeerFlow 将 host-independent extension API 拆出，并以测试禁止 Harness 反向导入 App。LinkSense 已有 shared schema、Codex adapter 与 MCP 边界，适合补针对这些现有边界的契约及版本兼容检查；没有新增 host plugin 需求时，无需额外抽出一个通用框架。DeerFlow 0.x 扩展契约仍有 minor 版本兼容限制，不能把“独立包”理解成永久兼容。
 
