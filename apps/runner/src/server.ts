@@ -1403,18 +1403,20 @@ export function buildRunnerServer(
     catch (error) { return reply.code(error instanceof ConversationReferenceRequestError ? error.statusCode : 503).send({ code: "AUTOMATION_STOP_UNAVAILABLE", retryable: false }); }
   });
 
-  app.post<{ Params: { conversationId: string } }>("/mcp-current-user/:conversationId/local-browser", { bodyLimit: 40_000 }, async (request, reply) => {
-    const { localBrowserRequestSchema, localBrowserFailure } = await import("@linksense/shared");
+  for (const path of ["/mcp-current-user/:conversationId/browser-use", "/mcp-current-user/:conversationId/local-browser"]) app.post<{ Params: { conversationId: string } }>(path, { bodyLimit: 40_000 }, async (request, reply) => {
+    const { browserUseRequestSchema, browserUseFailure, browserUseLegacyResult, browserUseResultSchema } = await import("@linksense/shared");
+    const response = (result: import("@linksense/shared").BrowserUseResult) =>
+      path.endsWith("/local-browser") ? browserUseLegacyResult(result) : result;
     const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
     const conversationId = uuid.safeParse(request.params.conversationId);
-    const body = localBrowserRequestSchema.safeParse(request.body);
-    if (!token) return reply.code(401).send(localBrowserFailure("LOCAL_BROWSER_ACCESS_DENIED"));
-    if (!conversationId.success || !body.success) return reply.code(400).send(localBrowserFailure("LOCAL_BROWSER_COMMAND_FAILED"));
+    const body = browserUseRequestSchema.safeParse(request.body);
+    if (!token) return reply.code(401).send(response(browserUseFailure("BROWSER_USE_ACCESS_DENIED")));
+    if (!conversationId.success || !body.success) return reply.code(400).send(response(browserUseFailure("BROWSER_USE_COMMAND_FAILED")));
     const controller = new AbortController();
     const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
     reply.raw.once("close", abort);
-    try { return await pool.localBrowser(conversationId.data, token, body.data, controller.signal); }
-    catch (error) { return reply.code(error instanceof ConversationReferenceRequestError ? error.statusCode : 503).send(localBrowserFailure("LOCAL_BROWSER_COMMAND_FAILED")); }
+    try { return response(browserUseResultSchema.parse(await pool.browserUse(conversationId.data, token, body.data, controller.signal))); }
+    catch (error) { return reply.code(error instanceof ConversationReferenceRequestError ? error.statusCode : 503).send(response(browserUseFailure("BROWSER_USE_COMMAND_FAILED"))); }
     finally { reply.raw.off("close", abort); }
   });
 

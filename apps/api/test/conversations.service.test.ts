@@ -5399,9 +5399,9 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(fixture.cleanup.enqueueRuntimeCleanup).not.toHaveBeenCalled();
   });
 
-  it("starts and projects an explicitly selected built-in Skill", async () => {
+  it.each(["linksense-browser", "linksense-local-browser"])("starts and projects the persisted built-in Skill %s", async (name) => {
     const fixture = await conversationFixture();
-    const builtInId = "builtin:capability:linksense-browser";
+    const builtInId = `builtin:capability:${name}`;
     fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
     fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
 
@@ -5427,7 +5427,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
           prioritySkills: [
             {
               id: builtInId,
-              name: "linksense-browser",
+              name,
               description: null,
             },
           ],
@@ -5447,7 +5447,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
           capability_type: "skill",
           usage_type: "auto_skill",
           priority_requested: true,
-          name: "linksense-browser",
+          name,
           source_type: "builtin",
           status: "active",
         },
@@ -8189,9 +8189,9 @@ describe("ConversationService pending and turn materialization", () => {
     },
   );
 
-  it("records selected Skill usage when projecting a native start", async () => {
+  it.each(["linksense-browser", "linksense-local-browser"])("recovers the persisted %s selection and records its native-start usage", async (name) => {
     const fixture = await conversationFixture();
-    const builtInSkillId = "builtin:capability:linksense-browser";
+    const builtInSkillId = `builtin:capability:${name}`;
     const intent = startIntentRow({
       projectionTurnId: "40000000-0000-4000-8000-000000000098",
       inputText: "use selected skills",
@@ -8256,7 +8256,7 @@ describe("ConversationService pending and turn materialization", () => {
           conversationId: CONVERSATION_ID,
           turnId: intent.projectionTurnId,
           capabilityId: builtInSkillId,
-          capabilityName: "linksense-browser",
+          capabilityName: name,
           occurredAt: NOW,
         }),
       ]),

@@ -1,12 +1,12 @@
 import { expect, it, vi } from "vitest";
-import { localBrowserCoreMcpModule } from "../src/mcp/core-services/local-browser-service.js";
+import { browserUseCoreMcpModule } from "../src/mcp/core-services/browser-use-service.js";
 const environment = {
   LINKSENSE_CURRENT_USER_ENDPOINT:
     "http://127.0.0.1/mcp-current-user/task/info",
   LINKSENSE_CURRENT_USER_TOKEN: "x".repeat(32),
 };
 it("directs ordinal same-name DOM controls to fresh refs instead of estimated coordinates", () => {
-  const module = localBrowserCoreMcpModule.create({
+  const module = browserUseCoreMcpModule.create({
     environment,
     workspaceRoot: "/tmp",
     fetch: vi.fn(),
@@ -34,7 +34,7 @@ it("binds requests to the native task endpoint and returns screenshots as MCP im
         }),
       ),
     );
-  const module = localBrowserCoreMcpModule.create({
+  const module = browserUseCoreMcpModule.create({
     environment,
     workspaceRoot: "/tmp",
     fetch: fetcher,
@@ -45,7 +45,7 @@ it("binds requests to the native task endpoint and returns screenshots as MCP im
     signal: new AbortController().signal,
   });
   expect(String(fetcher.mock.calls[0]?.[0])).toBe(
-    "http://127.0.0.1/mcp-current-user/task/local-browser",
+    "http://127.0.0.1/mcp-current-user/task/browser-use",
   );
   expect(response.content[1]).toMatchObject({
     type: "image",
@@ -55,7 +55,7 @@ it("binds requests to the native task endpoint and returns screenshots as MCP im
 });
 it("rejects Plan mutations and malformed inputs before contacting the browser", async () => {
   const fetcher = vi.fn();
-  const module = localBrowserCoreMcpModule.create({
+  const module = browserUseCoreMcpModule.create({
     environment: { ...environment, LINKSENSE_COLLABORATION_MODE: "plan" },
     workspaceRoot: "/tmp",
     fetch: fetcher,

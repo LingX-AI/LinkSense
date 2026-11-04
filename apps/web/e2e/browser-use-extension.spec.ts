@@ -5,8 +5,8 @@ import { createServer } from "node:http"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { createBrowserExtensionFixture } from "../../api/test/fixtures/local-browser-extension.js"
-import type { LocalBrowserRequest, LocalBrowserResult } from "@linksense/shared"
+import { createBrowserExtensionFixture } from "../../api/test/fixtures/browser-use-extension.js"
+import type { BrowserUseRequest, BrowserUseResult } from "@linksense/shared"
 
 test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, controls and revokes a real tab", async ({
   playwright,
@@ -65,9 +65,9 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     ],
   })
   const execute = async (
-    input: LocalBrowserRequest,
+    input: BrowserUseRequest,
     conversation = task
-  ): Promise<Extract<LocalBrowserResult, { ok: true }>> => {
+  ): Promise<Extract<BrowserUseResult, { ok: true }>> => {
     const result = await service.execute(owner, conversation, input)
     expect(result.ok, JSON.stringify(result)).toBe(true)
     if (!result.ok) throw new Error(result.code)
@@ -75,7 +75,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
   }
   try {
     const archiveResponse = await browser.request.get(
-      `${fixtureAddress}/api/v1/local-browser/extension`
+      `${fixtureAddress}/api/v1/browser-use/extension`
     )
     expect(archiveResponse.status()).toBe(200)
     const archive = await JSZip.loadAsync(await archiveResponse.body())
@@ -124,7 +124,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
           { source: "linksense-web", type: "pair", id: "fixture", pairing },
           location.origin
         ),
-      { code: pair.code, endpoint: `${address}/api/v1/local-browser` }
+      { code: pair.code, endpoint: `${address}/api/v1/browser-use` }
     )
     const popup = await browser.newPage()
     await popup.goto(`chrome-extension://${extensionId}/popup.html`)
@@ -190,7 +190,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
           },
           location.origin
         ),
-      { owner, code: renewal.code, endpoint: `${address}/api/v1/local-browser` }
+      { owner, code: renewal.code, endpoint: `${address}/api/v1/browser-use` }
     )
     await expect
       .poll(async () => {
@@ -556,13 +556,13 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
         action: "snapshot",
         tab_id: tabId,
       })
-    ).toMatchObject({ ok: false, code: "LOCAL_BROWSER_TAB_BUSY" })
+    ).toMatchObject({ ok: false, code: "BROWSER_USE_TAB_BUSY" })
     await execute({ action: "release", tab_id: tabId })
     await execute({ action: "snapshot", tab_id: tabId }, otherTask)
     await execute({ action: "release", tab_id: tabId }, otherTask)
     expect(
       await service.execute(owner, task, { action: "snapshot", tab_id: 999999 })
-    ).toMatchObject({ ok: false, code: "LOCAL_BROWSER_ACCESS_DENIED" })
+    ).toMatchObject({ ok: false, code: "BROWSER_USE_ACCESS_DENIED" })
     await execute({
       action: "navigate",
       tab_id: tabId,
@@ -575,7 +575,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
         tab_id: tabId,
         ref: button!.ref,
       })
-    ).toMatchObject({ ok: false, code: "LOCAL_BROWSER_STALE_REF" })
+    ).toMatchObject({ ok: false, code: "BROWSER_USE_STALE_REF" })
     const cancelTarget = (await targetPage
       .getByRole("button", { name: "Do not click" })
       .boundingBox())!
@@ -593,7 +593,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     await popup.evaluate(() => document.getElementById("release")!.click())
     expect(await stoppedClick).toMatchObject({
       ok: false,
-      code: "LOCAL_BROWSER_CANCELLED",
+      code: "BROWSER_USE_CANCELLED",
     })
     await expect(control).toBeHidden()
     await expect(
@@ -623,7 +623,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
       .toEqual([])
     expect(
       await service.execute(owner, task, { action: "snapshot", tab_id: tabId })
-    ).toMatchObject({ ok: false, code: "LOCAL_BROWSER_ACCESS_DENIED" })
+    ).toMatchObject({ ok: false, code: "BROWSER_USE_ACCESS_DENIED" })
     await service.revoke(owner)
     expect(await service.status(owner)).toEqual({ connected: false })
     expect(targetPage.isClosed()).toBe(false)

@@ -1,9 +1,9 @@
 import {
   browserUseToolName,
-  localBrowserReadOnly,
-  localBrowserRequestSchema,
-  localBrowserResultSchema,
-  localBrowserFailure,
+  browserUseReadOnly,
+  browserUseRequestSchema,
+  browserUseResultSchema,
+  browserUseFailure,
 } from "@linksense/shared";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -88,13 +88,13 @@ const tool: Tool = {
     openWorldHint: true,
   },
 };
-export const localBrowserCoreMcpModule: CoreMcpModuleDefinition = {
-  key: "local_browser",
+export const browserUseCoreMcpModule: CoreMcpModuleDefinition = {
+  key: "browser_use",
   modes: ["default", "plan"],
   toolNames: [tool.name],
   create({ environment, fetch: fetcher = globalThis.fetch }) {
     return {
-      key: "local_browser",
+      key: "browser_use",
       tools: [
         {
           ...tool,
@@ -105,14 +105,14 @@ export const localBrowserCoreMcpModule: CoreMcpModuleDefinition = {
       ],
       async callTool(input) {
         try {
-          const request = localBrowserRequestSchema.parse(input.argumentsValue);
+          const request = browserUseRequestSchema.parse(input.argumentsValue);
           if (
             environment.LINKSENSE_COLLABORATION_MODE === "plan" &&
-            !localBrowserReadOnly(request)
+            !browserUseReadOnly(request)
           )
-            return asTool(localBrowserFailure("LOCAL_BROWSER_ACCESS_DENIED"));
+            return asTool(browserUseFailure("BROWSER_USE_ACCESS_DENIED"));
           const endpoint = new URL(
-            "local-browser",
+            "browser-use",
             z.url().parse(environment.LINKSENSE_CURRENT_USER_ENDPOINT),
           );
           const response = await fetcher(endpoint, {
@@ -126,22 +126,22 @@ export const localBrowserCoreMcpModule: CoreMcpModuleDefinition = {
           });
           if (!response.ok)
             return asTool(
-              localBrowserFailure(
+              browserUseFailure(
                 response.status === 403
-                  ? "LOCAL_BROWSER_ACCESS_DENIED"
-                  : "LOCAL_BROWSER_COMMAND_FAILED",
+                  ? "BROWSER_USE_ACCESS_DENIED"
+                  : "BROWSER_USE_COMMAND_FAILED",
               ),
             );
-          return asTool(localBrowserResultSchema.parse(await response.json()));
+          return asTool(browserUseResultSchema.parse(await response.json()));
         } catch (error) {
           if (input.signal.aborted) throw error;
-          return asTool(localBrowserFailure("LOCAL_BROWSER_COMMAND_FAILED"));
+          return asTool(browserUseFailure("BROWSER_USE_COMMAND_FAILED"));
         }
       },
     };
   },
 };
-function asTool(result: z.infer<typeof localBrowserResultSchema>) {
+function asTool(result: z.infer<typeof browserUseResultSchema>) {
   if (result.ok && result.data.image) {
     const { image, ...metadata } = result.data;
     return {

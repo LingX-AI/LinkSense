@@ -2,7 +2,7 @@ import { build } from "esbuild";
 import { runInNewContext } from "node:vm";
 import { setImmediate } from "node:timers/promises";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
-import type { LocalBrowserRequest } from "@linksense/shared";
+import type { BrowserUseRequest } from "@linksense/shared";
 import { controlMessageSchema } from "../browser-extension/control-protocol.js";
 
 const task = "20000000-0000-4000-8000-000000000001";
@@ -32,10 +32,10 @@ function deferred<T>() {
   return { promise, resolve: (value: T) => resolvePromise?.(value) };
 }
 
-async function fixture(userAgent = "Chrome") {
+async function fixture(userAgent = "Chrome", endpoint = "https://linksense.example/api/v1/browser-use") {
   const local: Record<string, unknown> = {};
   const session = {
-    endpoint: "https://linksense.example/api/v1/local-browser",
+    endpoint,
     token: "x".repeat(43),
     new_tabs: true,
   };
@@ -157,7 +157,7 @@ async function fixture(userAgent = "Chrome") {
   socket.onopen?.();
   socket.receive({ type: "ready", connection_id: connection });
   await setImmediate();
-  const execute = (request: LocalBrowserRequest, id = commandId) =>
+  const execute = (request: BrowserUseRequest, id = commandId) =>
     socket.receive({
       id,
       connection_id: connection,
@@ -169,6 +169,13 @@ async function fixture(userAgent = "Chrome") {
     new Promise<unknown>((resolve) => messageHandler?.(raw, { url, tab: { id: tab }, frameId }, resolve));
   return { chrome, socket, sockets, execute, popup, pageMessage, stored, local, session, fetchPairing };
 }
+
+it("reconnects a pre-rename stored endpoint and uses failure codes understood by installed servers", async () => {
+  const { socket, execute } = await fixture("Chrome", "https://linksense.example/api/v1/local-browser");
+  expect(socket.url.pathname).toBe("/api/v1/local-browser/socket");
+  execute({ action: "snapshot", tab_id: 999 });
+  await vi.waitFor(() => expect(socket.send).toHaveBeenCalledWith(expect.stringContaining("LOCAL_BROWSER_ACCESS_DENIED")));
+});
 
 it.each(["disconnect", "cancel", "revoke", "expire"])(
   "does not send input when %s occurs while the debugger is attaching",
@@ -256,7 +263,7 @@ it("renews an approved account automatically on a conversation page while preser
   chrome.tabs.get.mockResolvedValue({ id: 7, url: "https://linksense.example/conversations/new", title: "LinkSense" });
   fetchPairing.mockResolvedValue(Response.json({ token: "n".repeat(43), owner_id: browserOwner, approval_id: approval.approval_id }));
   expect(await pageMessage({ type: "detect", owner_id: browserOwner })).toMatchObject({ pairing_mode: "automatic" });
-  expect(await pageMessage({ type: "pair", automatic: true, owner_id: browserOwner, pairing: { code: "p".repeat(43), endpoint: "https://linksense.example/api/v1/local-browser" } })).toMatchObject({ ok: true });
+  expect(await pageMessage({ type: "pair", automatic: true, owner_id: browserOwner, pairing: { code: "p".repeat(43), endpoint: "https://linksense.example/api/v1/browser-use" } })).toMatchObject({ ok: true });
   expect(stored.session).toMatchObject({ owner_id: browserOwner, token: "n".repeat(43), new_tabs: true });
   expect(stored.grants).toEqual([{ tab_id: 7, conversation_id: task }]);
   expect(chrome.action.openPopup).not.toHaveBeenCalled();
@@ -266,7 +273,7 @@ it("requires confirmation when the account changes and never consumes its code a
   local.trust = approval;
   const owner_id = "10000000-0000-4000-8000-000000000002";
   expect(await pageMessage({ type: "detect", owner_id })).toMatchObject({ pairing_mode: "confirmation" });
-  await pageMessage({ type: "pair", automatic: true, owner_id, pairing: { code: "p".repeat(43), endpoint: "https://linksense.example/api/v1/local-browser" } });
+  await pageMessage({ type: "pair", automatic: true, owner_id, pairing: { code: "p".repeat(43), endpoint: "https://linksense.example/api/v1/browser-use" } });
   expect(fetchPairing).not.toHaveBeenCalled();
   expect(chrome.action.openPopup).toHaveBeenCalledOnce();
 });
@@ -275,7 +282,7 @@ it("does not reuse trust when the pairing code belongs to another account", asyn
   local.trust = approval;
   chrome.tabs.get.mockResolvedValue({ id: 7, url: "https://linksense.example/conversations/new", title: "LinkSense" });
   fetchPairing.mockResolvedValue(Response.json({ token: "n".repeat(43), owner_id: "10000000-0000-4000-8000-000000000002" }));
-  expect(await pageMessage({ type: "pair", automatic: true, owner_id: browserOwner, pairing: { code: "p".repeat(43), endpoint: "https://linksense.example/api/v1/local-browser" } })).toEqual({ ok: false });
+  expect(await pageMessage({ type: "pair", automatic: true, owner_id: browserOwner, pairing: { code: "p".repeat(43), endpoint: "https://linksense.example/api/v1/browser-use" } })).toEqual({ ok: false });
 });
 it("stops automatic renewal when the server revokes or replaces the browser", async () => {
   const { local, socket, stored, pageMessage } = await fixture();
@@ -302,13 +309,13 @@ it("clears page grants from another account during automatic pairing", async () 
   stored.grant_owner_id = "10000000-0000-4000-8000-000000000002";
   chrome.tabs.get.mockResolvedValue({ id: 7, url: "https://linksense.example/conversations/new", title: "LinkSense" });
   fetchPairing.mockResolvedValue(Response.json({ token: "n".repeat(43), owner_id: browserOwner, approval_id: approval.approval_id }));
-  await pageMessage({ type: "pair", automatic: true, owner_id: browserOwner, pairing: { code: "p".repeat(43), endpoint: "https://linksense.example/api/v1/local-browser" } });
+  await pageMessage({ type: "pair", automatic: true, owner_id: browserOwner, pairing: { code: "p".repeat(43), endpoint: "https://linksense.example/api/v1/browser-use" } });
   expect(stored.grants).toBeUndefined();
   expect(stored.grant_owner_id).toBe(browserOwner);
 });
 it("offers the first confirmation once without consuming credentials or repeating the popup", async () => {
   const { chrome, pageMessage, fetchPairing } = await fixture();
-  const request = { type: "pair", automatic: true, owner_id: browserOwner, pairing: { code: "p".repeat(43), endpoint: "https://linksense.example/api/v1/local-browser" } };
+  const request = { type: "pair", automatic: true, owner_id: browserOwner, pairing: { code: "p".repeat(43), endpoint: "https://linksense.example/api/v1/browser-use" } };
   await pageMessage(request);
   await pageMessage(request);
   expect(chrome.action.openPopup).toHaveBeenCalledOnce();
@@ -329,7 +336,7 @@ it("does not revive the old socket when another tab probes during approved renew
   chrome.tabs.get.mockResolvedValue({ id: 7, url: "https://linksense.example/conversations/new", title: "LinkSense" });
   const response = deferred<Response>();
   fetchPairing.mockReturnValueOnce(response.promise);
-  const renewing = pageMessage({ type: "pair", automatic: true, owner_id: browserOwner, pairing: { code: "p".repeat(43), endpoint: "https://linksense.example/api/v1/local-browser" } });
+  const renewing = pageMessage({ type: "pair", automatic: true, owner_id: browserOwner, pairing: { code: "p".repeat(43), endpoint: "https://linksense.example/api/v1/browser-use" } });
   await vi.waitFor(() => expect(fetchPairing).toHaveBeenCalled());
   expect(await pageMessage({ type: "detect", owner_id: browserOwner, resume: true })).toMatchObject({ pairing_mode: "reconnecting" });
   expect(sockets).toHaveLength(1);
@@ -404,7 +411,7 @@ it.each(["http://192.168.2.210:19090", "http://linksense.example:19090"])(
   "pairs an explicitly confirmed HTTP origin and connects over WebSocket: %s",
   async (origin) => {
     const { chrome, popup, stored, fetchPairing, sockets } = await fixture();
-    const endpoint = `${origin}/api/v1/local-browser`;
+    const endpoint = `${origin}/api/v1/browser-use`;
     stored.pending = {
       code: "p".repeat(43), endpoint, source_tab: 7, source_origin: origin,
     };
@@ -419,12 +426,12 @@ it.each(["http://192.168.2.210:19090", "http://linksense.example:19090"])(
 );
 
 it.each([
-  "file:///api/v1/local-browser",
-  "ftp://linksense.example/api/v1/local-browser",
-  "http://user:password@linksense.example/api/v1/local-browser",
+  "file:///api/v1/browser-use",
+  "ftp://linksense.example/api/v1/browser-use",
+  "http://user:password@linksense.example/api/v1/browser-use",
   "http://linksense.example/other-endpoint",
-  "http://linksense.example/api/v1/local-browser?redirect=1",
-  "http://linksense.example/api/v1/local-browser#fragment",
+  "http://linksense.example/api/v1/browser-use?redirect=1",
+  "http://linksense.example/api/v1/browser-use#fragment",
 ])("rejects invalid connection endpoints before exchanging credentials: %s", async (endpoint) => {
   const { chrome, popup, stored, fetchPairing } = await fixture();
   const origin = new URL(endpoint).origin;
@@ -437,7 +444,7 @@ it.each([
 it("rejects a pending pairing if its server differs from the origin shown at confirmation", async () => {
   const { chrome, popup, stored, fetchPairing } = await fixture();
   stored.pending = {
-    code: "p".repeat(43), endpoint: "https://different.example/api/v1/local-browser",
+    code: "p".repeat(43), endpoint: "https://different.example/api/v1/browser-use",
     source_tab: 7, source_origin: "https://different.example",
   };
   chrome.tabs.get.mockResolvedValue({

@@ -3,13 +3,13 @@ import { WebSocket } from "ws";
 import { once } from "node:events";
 import type { Redis } from "ioredis";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
-import { localBrowserPairResponseSchema, localizedErrorMessage, supportedLocales } from "@linksense/shared";
+import { browserUsePairResponseSchema, localizedErrorMessage, supportedLocales } from "@linksense/shared";
 import type { PrismaClient } from "../src/generated/prisma/client.js";
-import { registerLocalBrowserRoutes } from "../src/modules/local-browser/routes.js";
-import { LocalBrowserService } from "../src/modules/local-browser/service.js";
+import { registerBrowserUseRoutes } from "../src/modules/browser-use/routes.js";
+import { BrowserUseService } from "../src/modules/browser-use/service.js";
 import { sendAppError } from "../src/lib/http.js";
 import { AppError } from "../src/lib/errors.js";
-import { MemoryBrowserStore } from "./local-browser-store.js";
+import { MemoryBrowserStore } from "./browser-use-store.js";
 import { createRedisFixture } from "./fixtures/redis.js";
 
 const owner = "10000000-0000-4000-8000-000000000001";
@@ -33,7 +33,7 @@ afterAll(async () => {
   await redisFixture?.close();
 });
 async function fixture(
-  endpoint = "http://127.0.0.1/api/v1/local-browser",
+  endpoint = "http://127.0.0.1/api/v1/browser-use",
   rateLimitRedis = redis,
 ) {
   const app = Fastify();
@@ -70,18 +70,18 @@ async function fixture(
       }),
     },
   };
-  const service = new LocalBrowserService(
+  const service = new BrowserUseService(
     new MemoryBrowserStore(),
     endpoint,
   );
   const intent = { detect: vi.fn().mockResolvedValue(true) };
-  await registerLocalBrowserRoutes(app, {
+  await registerBrowserUseRoutes(app, {
     redis: rateLimitRedis,
-    rateLimitHmacSecret: "test-local-browser-rate-limit-secret",
+    rateLimitHmacSecret: "test-browser-use-rate-limit-secret",
     service,
     prisma: prisma as unknown as PrismaClient,
     sharedSecret: "runner-secret",
-    socketPath: "/api/v1/local-browser/socket",
+    socketPath: "/api/v1/browser-use/socket",
     intent,
   });
   await app.ready();
@@ -90,16 +90,35 @@ async function fixture(
 it("requires login for browser settings and returns uncached status", async () => {
   const { app } = await fixture();
   expect(
-    (await app.inject({ method: "GET", url: "/api/v1/local-browser" }))
+    (await app.inject({ method: "GET", url: "/api/v1/browser-use" }))
       .statusCode,
   ).toBe(401);
   const response = await app.inject({
     method: "GET",
-    url: "/api/v1/local-browser",
+    url: "/api/v1/browser-use",
     headers: { authorization: "Bearer user" },
   });
   expect(response.json()).toMatchObject({ data: { connected: false } });
   expect(response.headers["cache-control"]).toBe("private, no-store");
+});
+it("keeps authenticated pre-rename routes and extension pairing endpoint usable", async () => {
+  const { app } = await fixture("http://127.0.0.1/api/v1/local-browser");
+  expect((await app.inject({ method: "GET", url: "/api/v1/local-browser" })).statusCode).toBe(401);
+  const response = await app.inject({
+    method: "POST", url: "/api/v1/local-browser/pairing",
+    headers: { authorization: "Bearer user" }, payload: {},
+  });
+  expect(response.statusCode).toBe(200);
+  const pairing = response.json().data as { code: string; endpoint: string };
+  expect(pairing.endpoint).toBe("http://127.0.0.1/api/v1/local-browser");
+  const paired = await app.inject({
+    method: "POST", url: "/api/v1/local-browser/pair", payload: { code: pairing.code },
+  });
+  expect(paired.statusCode).toBe(200);
+  expect(browserUsePairResponseSchema.safeParse(paired.json()).success).toBe(true);
+  expect((await app.inject({
+    method: "POST", url: "/internal/local-browser/execute", payload: {},
+  })).statusCode).toBe(401);
 });
 it.each([
   ["x".repeat(43), 401],
@@ -108,7 +127,7 @@ it.each([
   const { app, service } = await fixture();
   const pair = (code: string) => app.inject({
     method: "POST",
-    url: "/api/v1/local-browser/pair",
+    url: "/api/v1/browser-use/pair",
     payload: { code },
   });
   for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -119,16 +138,16 @@ it.each([
   expect(response.statusCode).toBe(429);
   expect(response.json()).toMatchObject({
     success: false,
-    error_code: "LOCAL_BROWSER_PAIR_RATE_LIMITED",
+    error_code: "BROWSER_USE_PAIR_RATE_LIMITED",
   });
   expect(Number(response.headers["retry-after"])).toBeGreaterThan(0);
   expect(response.headers["cache-control"]).toBe("no-store");
   const allowed = await app.inject({
-    method: "POST", url: "/api/v1/local-browser/pair",
+    method: "POST", url: "/api/v1/browser-use/pair",
     remoteAddress: "192.0.2.2", payload: { code: pairing.code },
   });
   expect(allowed.statusCode).toBe(200);
-  const credential = localBrowserPairResponseSchema.parse(allowed.json());
+  const credential = browserUsePairResponseSchema.parse(allowed.json());
   expect(await service.authenticate(credential.token)).toMatchObject({ owner });
 });
 it("shares the pairing quota across API instances and resets it after the fixed window", async ({ onTestFinished }) => {
@@ -139,7 +158,7 @@ it("shares the pairing quota across API instances and resets it after the fixed 
   const responses = await Promise.all(Array.from({ length: 11 }, (_, index) =>
     (index % 2 === 0 ? first.app : second.app).inject({
       method: "POST",
-      url: "/api/v1/local-browser/pair",
+      url: `/api/v1/${index % 2 === 0 ? "browser-use" : "local-browser"}/pair`,
       remoteAddress: index % 2 === 0 ? "192.0.2.1" : "::ffff:192.0.2.1",
       headers: { "x-forwarded-for": `198.51.100.${index}` },
       payload: { code: String(index).padStart(43, "x") },
@@ -156,11 +175,11 @@ it("shares the pairing quota across API instances and resets it after the fixed 
   await redis.pexpire(keys[0]!, 0);
   const pairing = await first.service.pairing(owner, authDate.toISOString());
   const response = await first.app.inject({
-    method: "POST", url: "/api/v1/local-browser/pair",
+    method: "POST", url: "/api/v1/browser-use/pair",
     remoteAddress: "192.0.2.1", payload: { code: pairing.code },
   });
   expect(response.statusCode).toBe(200);
-  const { token, owner_id, approval_id } = localBrowserPairResponseSchema.parse(response.json());
+  const { token, owner_id, approval_id } = browserUsePairResponseSchema.parse(response.json());
   expect(owner_id).toBe(owner);
   expect(approval_id).toEqual(expect.any(String));
   expect(await first.service.authenticate(token)).toMatchObject({ owner, approval_id });
@@ -168,16 +187,28 @@ it("shares the pairing quota across API instances and resets it after the fixed 
 it.each([...supportedLocales, "de-DE"] as const)("returns a localized pairing limit error for %s", async (locale) => {
   const { app } = await fixture();
   const pair = () => app.inject({
-    method: "POST", url: "/api/v1/local-browser/pair",
+    method: "POST", url: "/api/v1/browser-use/pair",
     headers: { "accept-language": locale }, payload: { code: "x".repeat(43) },
   });
   for (let attempt = 0; attempt < 10; attempt += 1) await pair();
   const response = await pair();
   expect(response.statusCode).toBe(429);
   expect(response.json()).toMatchObject({
-    error_code: "LOCAL_BROWSER_PAIR_RATE_LIMITED",
-    message: localizedErrorMessage("LOCAL_BROWSER_PAIR_RATE_LIMITED", locale === "de-DE" ? "zh-CN" : locale),
+    error_code: "BROWSER_USE_PAIR_RATE_LIMITED",
+    message: localizedErrorMessage("BROWSER_USE_PAIR_RATE_LIMITED", locale === "de-DE" ? "zh-CN" : locale),
   });
+});
+it("retains the old pairing error code and shares its limit with the new route", async () => {
+  const { app } = await fixture();
+  for (let attempt = 0; attempt < 10; attempt++) await app.inject({
+    method: "POST", url: "/api/v1/browser-use/pair", payload: { code: "x".repeat(43) },
+  });
+  const response = await app.inject({
+    method: "POST", url: "/api/v1/local-browser/pair", payload: { code: "x".repeat(43) },
+  });
+  expect(response.statusCode).toBe(429);
+  expect(response.json()).toMatchObject({ error_code: "LOCAL_BROWSER_PAIR_RATE_LIMITED" });
+  expect(Number(response.headers["retry-after"])).toBeGreaterThan(0);
 });
 it("rejects pairing when Redis is unavailable without consuming the pairing code", async () => {
   const unavailableRedis = redis.duplicate({ lazyConnect: true, enableOfflineQueue: false });
@@ -186,7 +217,7 @@ it("rejects pairing when Redis is unavailable without consuming the pairing code
   const pair = vi.spyOn(service, "pair");
   const pairing = await service.pairing(owner, authDate.toISOString());
   const response = await app.inject({
-    method: "POST", url: "/api/v1/local-browser/pair", payload: { code: pairing.code },
+    method: "POST", url: "/api/v1/browser-use/pair", payload: { code: pairing.code },
   });
   expect(response.statusCode).toBe(500);
   expect(response.json()).toMatchObject({ error_code: "INTERNAL_ERROR" });
@@ -215,9 +246,9 @@ it.each([
   ["http://localhost.evil.example:5273", "http://localhost:5273"],
   ["http://other.example:5273", "http://localhost:5273"],
 ])("returns a same-origin pairing endpoint for the permitted loopback origin %s", async (origin, expectedOrigin) => {
-  const { app, service } = await fixture("http://localhost:5273/api/v1/local-browser");
+  const { app, service } = await fixture("http://localhost:5273/api/v1/browser-use");
   const response = await app.inject({
-    method: "POST", url: "/api/v1/local-browser/pairing",
+    method: "POST", url: "/api/v1/browser-use/pairing",
     headers: {
       authorization: "Bearer user",
       host: "untrusted.example:5273",
@@ -228,7 +259,7 @@ it.each([
   });
   expect(response.statusCode).toBe(200);
   const { data } = response.json<{ data: { code: string; endpoint: string } }>();
-  expect(data.endpoint).toBe(`${expectedOrigin}/api/v1/local-browser`);
+  expect(data.endpoint).toBe(`${expectedOrigin}/api/v1/browser-use`);
   const token = await service.pair(data.code);
   expect(await service.authenticate(token)).toMatchObject({ owner });
   expect(await service.status(owner)).toEqual({ connected: false });
@@ -238,23 +269,23 @@ it.each([
 it.each(["https://other.example", "https://127.0.0.1", "http://localhost"])(
   "does not replace a production pairing endpoint with request origin %s",
   async (origin) => {
-    const endpoint = "https://linksense.example/api/v1/local-browser";
+    const endpoint = "https://linksense.example/api/v1/browser-use";
     const { app } = await fixture(endpoint);
     const response = await app.inject({
-      method: "POST", url: "/api/v1/local-browser/pairing",
+      method: "POST", url: "/api/v1/browser-use/pairing",
       headers: { authorization: "Bearer user", origin }, payload: {},
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ data: { endpoint } });
   },
 );
-it("checks runner identity, task ownership, running turn, user status and Plan restrictions", async () => {
+it.each(["browser-use", "local-browser"])("checks %s runner identity, task ownership, running turn, user status and Plan restrictions", async (channel) => {
   const { app, service, prisma } = await fixture();
   const execute = vi.spyOn(service, "execute");
   const call = (input: unknown, authorization = "Bearer runner-secret") =>
     app.inject({
       method: "POST",
-      url: "/internal/local-browser/execute",
+      url: `/internal/${channel}/execute`,
       headers: { authorization, "x-linksense-owner-id": owner },
       payload: { conversationId: task, turnId, input },
     });
@@ -273,7 +304,7 @@ it("checks runner identity, task ownership, running turn, user status and Plan r
   });
   expect(
     (await call({ action: "open", url: "https://example.test" })).json(),
-  ).toMatchObject({ code: "LOCAL_BROWSER_ACCESS_DENIED" });
+  ).toMatchObject({ code: channel === "local-browser" ? "LOCAL_BROWSER_ACCESS_DENIED" : "BROWSER_USE_ACCESS_DENIED" });
   expect(execute).not.toHaveBeenCalled();
   expect(
     (await call({ action: "navigate", tab_id: 1, url: "file:///private" }))
@@ -284,12 +315,12 @@ it("checks runner identity, task ownership, running turn, user status and Plan r
     data: { connected: false },
   });
 });
-it("denies published service sessions access to the publisher's personal browser", async () => {
+it.each(["browser-use", "local-browser"])("denies published service sessions access through %s", async (channel) => {
   const { app, service } = await fixture();
   const execute = vi.spyOn(service, "execute");
   const response = await app.inject({
     method: "POST",
-    url: "/internal/local-browser/execute",
+    url: `/internal/${channel}/execute`,
     headers: {
       authorization: "Bearer runner-secret",
       "x-linksense-owner-id": owner,
@@ -300,13 +331,13 @@ it("denies published service sessions access to the publisher's personal browser
   expect(response.statusCode).toBe(403);
   expect(execute).not.toHaveBeenCalled();
 });
-it("authenticates extension sockets and revokes the connection across workers", async () => {
+it.each(["browser-use", "local-browser"])("authenticates %s extension sockets and revokes the connection across workers", async (channel) => {
   const { app, service } = await fixture();
   const pairing = await service.pairing(owner, authDate.toISOString());
   const token = await service.pair(pairing.code);
   const address = await app.listen({ host: "127.0.0.1", port: 0 });
   const socket = new WebSocket(
-    `${address.replace("http:", "ws:")}/api/v1/local-browser/socket`,
+    `${address.replace("http:", "ws:")}/api/v1/${channel}/socket`,
     { origin: `chrome-extension://${"a".repeat(32)}` },
   );
   await once(socket, "open");
@@ -326,7 +357,7 @@ it("authenticates extension sockets and revokes the connection across workers", 
 it("rejects a normal webpage origin and an expired account authentication version", async () => {
   const { app, service, prisma } = await fixture();
   const address = await app.listen({ host: "127.0.0.1", port: 0 });
-  const url = `${address.replace("http:", "ws:")}/api/v1/local-browser/socket`;
+  const url = `${address.replace("http:", "ws:")}/api/v1/browser-use/socket`;
   const webpage = new WebSocket(url, { origin: "https://untrusted.example" });
   await once(webpage, "error");
   const pairing = await service.pairing(owner, authDate.toISOString());
@@ -352,7 +383,7 @@ it.each(["cancel", "revoke"])("notifies the extension after %s invalidates a dis
   const pairing = await service.pairing(owner, authDate.toISOString());
   const token = await service.pair(pairing.code);
   const socket = new WebSocket(
-    `${address.replace("http:", "ws:")}/api/v1/local-browser/socket`,
+    `${address.replace("http:", "ws:")}/api/v1/browser-use/socket`,
     { origin: `chrome-extension://${"a".repeat(32)}` },
   );
   await once(socket, "open");
@@ -372,7 +403,7 @@ it.each(["cancel", "revoke"])("notifies the extension after %s invalidates a dis
   if (operation === "cancel") controller.abort();
   else await service.revoke(owner);
   expect(await running).toMatchObject({
-    code: operation === "cancel" ? "LOCAL_BROWSER_CANCELLED" : "LOCAL_BROWSER_NOT_CONNECTED",
+    code: operation === "cancel" ? "BROWSER_USE_CANCELLED" : "BROWSER_USE_NOT_CONNECTED",
   });
   expect(JSON.parse(String((await cancellation)[0]))).toEqual({
     type: "cancel",

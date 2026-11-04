@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LocalBrowserService } from "../src/modules/local-browser/service.js";
-import { MemoryBrowserStore } from "./local-browser-store.js";
+import { BrowserUseService } from "../src/modules/browser-use/service.js";
+import { MemoryBrowserStore } from "./browser-use-store.js";
 import { createHash } from "node:crypto";
 
 const owner = "10000000-0000-4000-8000-000000000001";
@@ -9,9 +9,9 @@ const task = "20000000-0000-4000-8000-000000000001";
 afterEach(() => vi.useRealTimers());
 async function fixture() {
   const store = new MemoryBrowserStore();
-  const service = new LocalBrowserService(
+  const service = new BrowserUseService(
     store,
-    "https://linksense.example/api/v1/local-browser",
+    "https://linksense.example/api/v1/browser-use",
   );
   const pairing = await service.pairing(owner, "2026-01-01T00:00:00.000Z");
   const token = await service.pair(pairing.code);
@@ -19,6 +19,33 @@ async function fixture() {
   return { store, service, token, connection, pairing };
 }
 describe("local browser connection and delivery", () => {
+  it("keeps real pre-rename Redis credentials, approval and connection usable without re-pairing", async () => {
+    const store = new MemoryBrowserStore();
+    const token = "t".repeat(43);
+    const hash = createHash("sha256").update(token).digest("hex");
+    const approval = "30000000-0000-4000-8000-000000000001";
+    const connection = "40000000-0000-4000-8000-000000000001";
+    await store.put(`local-browser:credential:${hash}`, JSON.stringify({
+      owner, auth_valid_after: "2026-01-01T00:00:00.000Z",
+      origin: "https://linksense.example", approval_id: approval,
+    }), 86_400_000);
+    await store.put(`local-browser:${owner}:credential`, hash, 86_400_000);
+    await store.put(`local-browser:${owner}:approval`, approval, 30 * 86_400_000);
+    await store.put(`local-browser:${owner}:connection`, JSON.stringify({
+      id: connection, browser: "chrome", credential_hash: hash, approval_id: approval,
+    }), 45_000);
+    const service = new BrowserUseService(store, "https://linksense.example/api/v1/local-browser");
+    expect(await service.authenticate(token)).toMatchObject({ owner, approval_id: approval });
+    expect(await service.status(owner)).toEqual({ connected: true, connection_id: connection, browser: "chrome" });
+    expect(await service.maintain(owner, connection)).toBe(true);
+    const pairing = await service.pairing(owner, "2026-01-01T00:00:00.000Z");
+    const renewed = await service.pair(pairing.code, approval);
+    expect(await service.authenticate(renewed)).toMatchObject({ owner, approval_id: approval });
+    expect(await service.authenticate(token)).toBeNull();
+    await service.revoke(owner);
+    expect(await service.authenticate(renewed)).toBeNull();
+    expect(await service.wasRevoked(renewed)).toBe(true);
+  });
   it("consumes pairing once, stores only credential hashes and separates owners", async () => {
     const { service, store, token, pairing } = await fixture();
     await expect(service.pair(pairing.code)).rejects.toMatchObject({
@@ -59,7 +86,7 @@ describe("local browser connection and delivery", () => {
     );
     expect(
       await service.execute(owner, task, { action: "tabs" }),
-    ).toMatchObject({ ok: false, code: "LOCAL_BROWSER_BUSY" });
+    ).toMatchObject({ ok: false, code: "BROWSER_USE_BUSY" });
     const command = await service.next(owner, connection);
     expect(command).toMatchObject({
       conversation_id: task,
@@ -110,7 +137,7 @@ describe("local browser connection and delivery", () => {
     controller.abort();
     expect(await running).toMatchObject({
       ok: false,
-      code: "LOCAL_BROWSER_CANCELLED",
+      code: "BROWSER_USE_CANCELLED",
       retryable: false,
     });
     expect(await service.next(owner, connection)).toBeNull();

@@ -12,7 +12,7 @@ const token = "turn-token-00000000000000000000000000000000"
 
 describe("Core MCP module registry", () => {
   it.each(["default", "plan"] as const)(
-    "discovers browser_use and keeps legacy browser calls usable in %s mode",
+    "discovers browser_use and preserves authorized requests in %s mode",
     async (mode) => {
       const request = vi.fn<typeof fetch>(async () =>
         new Response(JSON.stringify({
@@ -44,7 +44,7 @@ describe("Core MCP module registry", () => {
       }
       expect(request).toHaveBeenCalledTimes(2)
       for (const [endpoint, options] of request.mock.calls) {
-        expect(String(endpoint)).toBe("http://127.0.0.1:4000/mcp-current-user/task/local-browser")
+        expect(String(endpoint)).toBe("http://127.0.0.1:4000/mcp-current-user/task/browser-use")
         expect(options?.headers).toEqual({
           authorization: `Bearer ${token}`,
           "content-type": "application/json",
@@ -168,7 +168,7 @@ describe("Core MCP module registry", () => {
       "file_service",
       "document_conversion",
       "current_user",
-      "local_browser",
+      "browser_use",
       "image_generation",
       "knowledge",
       "interactive_form",
@@ -184,7 +184,7 @@ describe("Core MCP module registry", () => {
       "file_service",
       "document_conversion",
       "current_user",
-      "local_browser",
+      "browser_use",
       "image_generation",
       "knowledge",
       "interactive_form",
@@ -234,7 +234,7 @@ describe("Core MCP module registry", () => {
       "conversation_references",
       "document_conversion",
       "current_user",
-      "local_browser",
+      "browser_use",
       "knowledge",
       "interactive_form",
       "skill_management_read",

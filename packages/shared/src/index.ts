@@ -84,4 +84,5 @@ export * from "./workspace-connections.js";
 export * from "./conversation-references.js";
 export * from "./automation-monitoring.js";
 export * from "./browser-panel.js";
+export * from "./browser-use.js";
 export * from "./local-browser.js";

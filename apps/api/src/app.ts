@@ -8,10 +8,10 @@ import { samlRoutes } from "./modules/saml/routes.js";
 import { applicationCenterRoutes, adminApplicationCenterRoutes } from "./modules/applications/center-routes.js";
 import { applicationDevelopmentRoutes, internalApplicationBuilderRoutes } from "./modules/applications/development-routes.js";
 import { registerRunnerRuntimeScope } from "./modules/events/runtime-scope.js";
-import { registerLocalBrowserRoutes } from "./modules/local-browser/routes.js";
-import { LocalBrowserService } from "./modules/local-browser/service.js";
-import { BrowserUseIntentService } from "./modules/local-browser/intent.js";
-import { RedisBrowserStore } from "./modules/local-browser/store.js";
+import { registerBrowserUseRoutes } from "./modules/browser-use/routes.js";
+import { BrowserUseService } from "./modules/browser-use/service.js";
+import { BrowserUseIntentService } from "./modules/browser-use/intent.js";
+import { RedisBrowserStore } from "./modules/browser-use/store.js";
 import { finishTaskRequest, withTaskLatencyContext } from "./lib/task-latency.js";
 import cookie from "@fastify/cookie";
 import { socialAuthRoutes } from "./modules/social-auth/routes.js";
@@ -195,7 +195,7 @@ export async function buildApi(
     },
   });
   await app.register(authenticationPlugin, { prisma: services.prisma });
-  const localBrowserEndpoint = new URL("api/v1/local-browser", `${services.config.publicBaseUrl.replace(/\/$/, "")}/`);
+  const browserUseEndpoint = new URL("api/v1/local-browser", `${services.config.publicBaseUrl.replace(/\/$/, "")}/`);
   const authService = createAuthService(app, services);
   await authService.prepare();
   await services.jobs.start(authService, services.system);
@@ -624,13 +624,13 @@ export async function buildApi(
     service: services.users,
     sharedSecret: services.config.runnerSharedSecret,
   });
-  await registerLocalBrowserRoutes(app, {
+  await registerBrowserUseRoutes(app, {
     redis: services.redis.client,
     rateLimitHmacSecret: services.config.loginRateLimitHmacSecret,
-    service: new LocalBrowserService(new RedisBrowserStore(services.redis.client), localBrowserEndpoint.href),
+    service: new BrowserUseService(new RedisBrowserStore(services.redis.client), browserUseEndpoint.href),
     prisma: services.prisma,
     sharedSecret: services.config.runnerSharedSecret,
-    socketPath: `${localBrowserEndpoint.pathname}/socket`,
+    socketPath: `${browserUseEndpoint.pathname}/socket`,
     intent: new BrowserUseIntentService(services.prisma, new RedisBrowserStore(services.redis.client), services.modelProviderSettings, services.usageAnalytics),
   });
   await app.register(internalAutomationRoutes, {

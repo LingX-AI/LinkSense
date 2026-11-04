@@ -14,7 +14,7 @@ import { apiRequest, downloadApiFile } from "@/api/client"
 import { notify } from "@/components/feedback/notification"
 import { browserExtensionRequest } from "./bridge"
 import { BrowserExtensionSettings } from "./browser-extension-settings"
-import { localBrowserMessages } from "./messages"
+import { browserUseMessages } from "./messages"
 import { browserUseBrowser } from "./browser-support"
 
 vi.mock("@/api/client", () => ({
@@ -58,7 +58,7 @@ it.each([...supportedLanguages, "de-DE"])(
     vi.mocked(browserUseBrowser).mockReturnValue(null)
     await i18n.changeLanguage(language)
     const messages =
-      localBrowserMessages[
+      browserUseMessages[
         supportedLanguages.find((locale) => locale === language) ?? "zh-CN"
       ]
     show()
@@ -92,7 +92,7 @@ it("explains optional local capability without requesting a connection on mount"
   expect(screen.getByText(/云端浏览器无需安装/u)).toBeVisible()
   expect(browserExtensionRequest).toHaveBeenCalledExactlyOnceWith("detect")
   expect(apiRequest).not.toHaveBeenCalledWith(
-    "/local-browser/pairing",
+    "/browser-use/pairing",
     expect.anything()
   )
 })
@@ -103,8 +103,8 @@ it("pairs only after an explicit click and guides the extension confirmation", a
   })
   const code = "x".repeat(43)
   vi.mocked(apiRequest).mockImplementation(async (path) =>
-    path === "/local-browser/pairing"
-      ? { code, endpoint: "https://example.test/api/v1/local-browser" }
+    path === "/browser-use/pairing"
+      ? { code, endpoint: "https://example.test/api/v1/browser-use" }
       : { connected: false }
   )
   show()
@@ -118,14 +118,14 @@ it("pairs only after an explicit click and guides the extension confirmation", a
     "pair",
     {
       code,
-      endpoint: "https://example.test/api/v1/local-browser",
+      endpoint: "https://example.test/api/v1/browser-use",
     },
     { owner_id: "user" }
   )
 })
 it("authors all six translations with matching keys and interpolation", () => {
-  const keys = Object.keys(localBrowserMessages["zh-CN"]).sort()
-  for (const messages of Object.values(localBrowserMessages)) {
+  const keys = Object.keys(browserUseMessages["zh-CN"]).sort()
+  for (const messages of Object.values(browserUseMessages)) {
     expect(Object.keys(messages).sort()).toEqual(keys)
     for (const value of Object.values(messages))
       expect(value.trim().length).toBeGreaterThan(0)
@@ -149,10 +149,10 @@ it("allows connecting from an HTTP network origin without the HTTPS restriction"
   })
   const pairing = {
     code: "p".repeat(43),
-    endpoint: "http://192.168.2.210:19090/api/v1/local-browser",
+    endpoint: "http://192.168.2.210:19090/api/v1/browser-use",
   }
   vi.mocked(apiRequest).mockImplementation(async (path) =>
-    path === "/local-browser/pairing" ? pairing : { connected: false }
+    path === "/browser-use/pairing" ? pairing : { connected: false }
   )
   show()
   const button = screen.getByRole("button", { name: "连接此浏览器" })
@@ -169,7 +169,7 @@ it.each([...supportedLanguages, "de-DE"])(
   async (language) => {
     await i18n.changeLanguage(language)
     const messages =
-      localBrowserMessages[
+      browserUseMessages[
         supportedLanguages.find((locale) => locale === language) ?? "zh-CN"
       ]
     show()
@@ -179,14 +179,14 @@ it.each([...supportedLanguages, "de-DE"])(
     expect(within(steps[0]).getByRole("button")).toBeEnabled()
     expect(
       within(steps[1]).getByRole("button", {
-        name: i18n.t("localBrowser.openAddress", {
+        name: i18n.t("browserUse.openAddress", {
           address: "chrome://extensions",
         }),
       })
     ).toHaveTextContent("chrome://extensions")
     expect(
       within(steps[1]).queryByRole("button", {
-        name: i18n.t("localBrowser.openAddress", {
+        name: i18n.t("browserUse.openAddress", {
           address: "edge://extensions",
         }),
       })
@@ -215,7 +215,7 @@ it("downloads the extension from the first installation step", async () => {
   await userEvent.click(screen.getByRole("button", { name: "下载扩展" }))
   await waitFor(() => expect(download).toHaveBeenCalledOnce())
   expect(downloadApiFile).toHaveBeenCalledExactlyOnceWith(
-    "/local-browser/extension"
+    "/browser-use/extension"
   )
   expect(URL.createObjectURL).toHaveBeenCalledWith(blob)
   expect(download.mock.instances[0]).toHaveAttribute(
@@ -238,7 +238,7 @@ it.each(["chrome://extensions", "edge://extensions"])(
     show()
     await user.click(
       screen.getByRole("button", {
-        name: i18n.t("localBrowser.openAddress", { address }),
+        name: i18n.t("browserUse.openAddress", { address }),
       })
     )
     await waitFor(() =>
@@ -265,7 +265,7 @@ it.each(["chrome", "edge"] as const)(
     show()
     const address = `${browser}://extensions`
     const button = await screen.findByRole("button", {
-      name: i18n.t("localBrowser.openAddress", { address }),
+      name: i18n.t("browserUse.openAddress", { address }),
     })
     expect(button.querySelector("svg")).toHaveClass("lucide-external-link")
     expect(button.firstElementChild?.tagName.toLowerCase()).toBe("svg")
@@ -294,7 +294,7 @@ it.each([false, true])(
     show()
     await user.click(
       await screen.findByRole("button", {
-        name: i18n.t("localBrowser.openAddress", {
+        name: i18n.t("browserUse.openAddress", {
           address: "chrome://extensions",
         }),
       })
@@ -308,7 +308,7 @@ it.each([false, true])(
       { owner_id: "user" }
     )
     expect(notify.success).toHaveBeenCalledWith(
-      i18n.t("localBrowser.extensionAddressCopied", {
+      i18n.t("browserUse.extensionAddressCopied", {
         address: "chrome://extensions",
       })
     )
@@ -324,14 +324,14 @@ it("keeps the manager address visible if both opening and clipboard access fail"
   show()
   await user.click(
     screen.getByRole("button", {
-      name: i18n.t("localBrowser.openAddress", {
+      name: i18n.t("browserUse.openAddress", {
         address: "chrome://extensions",
       }),
     })
   )
   await waitFor(() =>
     expect(notify.error).toHaveBeenCalledExactlyOnceWith(
-      i18n.t("localBrowser.addressCopyFailed")
+      i18n.t("browserUse.addressCopyFailed")
     )
   )
   expect(notify.success).not.toHaveBeenCalled()
@@ -347,15 +347,15 @@ it("reports clipboard failure for the separate LinkSense address action in an un
   show()
   await user.click(
     screen.getByRole("button", {
-      name: i18n.t("localBrowser.copyAppAddress"),
+      name: i18n.t("browserUse.copyAppAddress"),
     })
   )
   expect(notify.error).toHaveBeenCalledExactlyOnceWith(
-    i18n.t("localBrowser.addressCopyFailed")
+    i18n.t("browserUse.addressCopyFailed")
   )
   expect(notify.success).not.toHaveBeenCalled()
   expect(
-    screen.getByRole("button", { name: i18n.t("localBrowser.copyAppAddress") })
+    screen.getByRole("button", { name: i18n.t("browserUse.copyAppAddress") })
   ).toBeVisible()
 })
 

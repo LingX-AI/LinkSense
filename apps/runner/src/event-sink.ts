@@ -119,7 +119,7 @@ export interface RunnerEventSink {
     turnId: string;
   }): Promise<unknown>;
   readConversationReference?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ReadConversationReferenceInput }): Promise<unknown>;
-  localBrowser?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").LocalBrowserRequest; signal?: AbortSignal }): Promise<unknown>;
+  browserUse?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").BrowserUseRequest; signal?: AbortSignal }): Promise<unknown>;
   requestMonitoringStop?(input: { conversationId: string; turnId: string }): Promise<unknown>;
   emitInteractiveApplicationEvent?(input: {
     conversationId: string;
@@ -530,10 +530,10 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     return value;
   }
 
-  async localBrowser(input: { conversationId: string; turnId: string; input: import("@linksense/shared").LocalBrowserRequest; signal?: AbortSignal }): Promise<unknown> {
+  async browserUse(input: { conversationId: string; turnId: string; input: import("@linksense/shared").BrowserUseRequest; signal?: AbortSignal }): Promise<unknown> {
     const { signal, ...body } = input;
-    const response = await this.request("/internal/local-browser/execute", body, this.workspaceManager.ownerFor(input.conversationId), signal);
-    if (!response.ok) return { ok: false, code: "LOCAL_BROWSER_ACCESS_DENIED", retryable: false, help_path: "/settings/general#browser-extension" };
+    const response = await this.request("/internal/browser-use/execute", body, this.workspaceManager.ownerFor(input.conversationId), signal);
+    if (!response.ok) return { ok: false, code: "BROWSER_USE_ACCESS_DENIED", retryable: false, help_path: "/settings/general#browser-extension" };
     return parseResponseBody(response);
   }
 
@@ -842,7 +842,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
         ).workerRelayMs
       : pathname.startsWith("/internal/image-generation/")
         ? 180_000
-      : pathname === "/internal/application-builder" || pathname.startsWith("/internal/connections/") || pathname === "/internal/local-browser/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000
+      : pathname === "/internal/application-builder" || pathname.startsWith("/internal/connections/") || pathname === "/internal/browser-use/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000
       : pathname === "/internal/runner/process-exit"
         ? (this.options.processExitTimeoutMs ?? 150_000)
         : (this.options.requestTimeoutMs ?? 15_000);

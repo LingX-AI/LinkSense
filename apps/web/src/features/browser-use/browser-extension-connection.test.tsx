@@ -30,7 +30,7 @@ it("pairs and resumes from an HTTP network origin", async () => {
   vi.stubGlobal("location", { protocol: "http:", hostname: "192.168.2.210" })
   const pairing = {
     code: "p".repeat(43),
-    endpoint: "http://192.168.2.210:19090/api/v1/local-browser",
+    endpoint: "http://192.168.2.210:19090/api/v1/browser-use",
   }
   vi.mocked(browserExtensionRequest)
     .mockResolvedValueOnce({ detected: true, pairing_mode: "automatic" })
@@ -94,7 +94,7 @@ it.each(["automatic", "confirmation"] as const)(
   async (pairing_mode) => {
     const pairing = {
       code: "p".repeat(43),
-      endpoint: "https://linksense.example/api/v1/local-browser",
+      endpoint: "https://linksense.example/api/v1/browser-use",
     }
     vi.mocked(browserExtensionRequest)
       .mockResolvedValueOnce({ detected: true, pairing_mode })
@@ -108,7 +108,7 @@ it.each(["automatic", "confirmation"] as const)(
       })
     )
     expect(apiRequest).toHaveBeenCalledExactlyOnceWith(
-      "/local-browser/pairing",
+      "/browser-use/pairing",
       expect.objectContaining({ method: "POST", body: {} })
     )
   }

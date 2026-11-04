@@ -2,12 +2,12 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import {
-  localBrowserCommandSchema,
-  localBrowserFailure,
-  localBrowserReplySchema,
-  type LocalBrowserCommand,
-  type LocalBrowserRequest,
-  type LocalBrowserResult,
+  browserUseCommandSchema,
+  browserUseFailure,
+  browserUseReplySchema,
+  type BrowserUseCommand,
+  type BrowserUseRequest,
+  type BrowserUseResult,
 } from "@linksense/shared";
 import { AppError } from "../../lib/errors.js";
 import type { BrowserStore } from "./store.js";
@@ -28,12 +28,13 @@ const connectionSchema = z.strictObject({
   credential_hash: z.string(),
   approval_id: z.uuid().optional(),
 });
+// Persisted credentials, revocations and active connections keep their original namespace.
 const key = (owner: string, part: string) => `local-browser:${owner}:${part}`;
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 export type BrowserCredential = z.infer<typeof credentialSchema>;
 
-export class LocalBrowserService {
+export class BrowserUseService {
   constructor(
     readonly store: BrowserStore,
     readonly endpoint: string,
@@ -195,7 +196,7 @@ export class LocalBrowserService {
   async next(
     owner: string,
     connectionId: string,
-  ): Promise<LocalBrowserCommand | null> {
+  ): Promise<BrowserUseCommand | null> {
     const current = await this.store.get(key(owner, "connection"));
     if (
       !current ||
@@ -209,7 +210,7 @@ export class LocalBrowserService {
       current,
     );
     if (!value) return null;
-    const command = localBrowserCommandSchema.parse(JSON.parse(value));
+    const command = browserUseCommandSchema.parse(JSON.parse(value));
     if (
       command.connection_id !== connectionId ||
       command.expires_at <= Date.now()
@@ -221,7 +222,7 @@ export class LocalBrowserService {
   async activeCommand(owner: string): Promise<string | null> {
     const value = await this.store.get(key(owner, "request"));
     if (!value) return null;
-    const command = localBrowserCommandSchema.parse(JSON.parse(value));
+    const command = browserUseCommandSchema.parse(JSON.parse(value));
     return command.expires_at > Date.now() ? command.id : null;
   }
 
@@ -230,11 +231,11 @@ export class LocalBrowserService {
     connectionId: string,
     body: unknown,
   ): Promise<void> {
-    const reply = localBrowserReplySchema.parse(body);
+    const reply = browserUseReplySchema.parse(body);
     const request = await this.store.get(key(owner, "request"));
     if (!request || (await this.status(owner)).connection_id !== connectionId)
       return;
-    const command = localBrowserCommandSchema.parse(JSON.parse(request));
+    const command = browserUseCommandSchema.parse(JSON.parse(request));
     if (
       command.id !== reply.id ||
       command.connection_id !== connectionId ||
@@ -252,18 +253,18 @@ export class LocalBrowserService {
   async execute(
     owner: string,
     conversationId: string,
-    request: LocalBrowserRequest,
+    request: BrowserUseRequest,
     signal?: AbortSignal,
-  ): Promise<LocalBrowserResult> {
+  ): Promise<BrowserUseResult> {
     const status = await this.status(owner);
     if (request.action === "status")
       return { ok: true, browser: "local", data: status };
     if (!status.connection_id)
-      return localBrowserFailure("LOCAL_BROWSER_NOT_CONNECTED");
+      return browserUseFailure("BROWSER_USE_NOT_CONNECTED");
     const id = randomUUID();
     if (!(await this.store.put(key(owner, "lock"), id, ttl, true)))
-      return localBrowserFailure("LOCAL_BROWSER_BUSY");
-    const command: LocalBrowserCommand = {
+      return browserUseFailure("BROWSER_USE_BUSY");
+    const command: BrowserUseCommand = {
       id,
       connection_id: status.connection_id,
       conversation_id: conversationId,
@@ -273,25 +274,25 @@ export class LocalBrowserService {
     const encoded = JSON.stringify(command);
     try {
       if (signal?.aborted)
-        return localBrowserFailure("LOCAL_BROWSER_CANCELLED");
+        return browserUseFailure("BROWSER_USE_CANCELLED");
       await this.store.put(key(owner, "request"), encoded, ttl);
       await this.store.put(key(owner, "command"), encoded, ttl);
       while (Date.now() < command.expires_at) {
         if (signal?.aborted)
-          return localBrowserFailure("LOCAL_BROWSER_CANCELLED");
+          return browserUseFailure("BROWSER_USE_CANCELLED");
         if ((await this.status(owner)).connection_id !== command.connection_id)
-          return localBrowserFailure("LOCAL_BROWSER_NOT_CONNECTED");
+          return browserUseFailure("BROWSER_USE_NOT_CONNECTED");
         const response = await this.store.take(key(owner, `reply:${id}`));
         if (response)
-          return localBrowserReplySchema.shape.result.parse(
+          return browserUseReplySchema.shape.result.parse(
             JSON.parse(response),
           );
         await delay(100, undefined, { signal });
       }
-      return localBrowserFailure("LOCAL_BROWSER_TIMEOUT");
+      return browserUseFailure("BROWSER_USE_TIMEOUT");
     } catch (error) {
       if (signal?.aborted)
-        return localBrowserFailure("LOCAL_BROWSER_CANCELLED");
+        return browserUseFailure("BROWSER_USE_CANCELLED");
       throw error;
     } finally {
       await this.store.remove(key(owner, "command"), encoded);

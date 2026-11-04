@@ -12,7 +12,7 @@ import { I18nextProvider } from "react-i18next"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import i18n from "@/i18n"
 import { browserExtensionRequest } from "./bridge"
-import { LocalBrowserPreview } from "./local-browser-preview"
+import { BrowserUsePreview } from "./browser-use-preview"
 
 vi.mock("./bridge", () => ({ browserExtensionRequest: vi.fn() }))
 const owner = "10000000-0000-4000-8000-000000000001"
@@ -44,7 +44,7 @@ afterEach(() => {
 function show(
   conversationId = conversation,
   options: Omit<
-    ComponentProps<typeof LocalBrowserPreview>,
+    ComponentProps<typeof BrowserUsePreview>,
     "userId" | "conversationId"
   > = {}
 ) {
@@ -52,7 +52,7 @@ function show(
     defaultOptions: { queries: { retry: false } },
   })
   return render(
-    <LocalBrowserPreview
+    <BrowserUsePreview
       userId={owner}
       conversationId={conversationId}
       {...options}
@@ -70,7 +70,7 @@ function show(
 function mockLayout(width: number, height: number) {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     function (this: HTMLElement) {
-      if (this.hasAttribute("data-local-browser-preview-boundary"))
+      if (this.hasAttribute("data-browser-use-preview-boundary"))
         return new DOMRect(100, 100, width, height)
       if (this.tagName === "ASIDE") return new DOMRect(100, 100, 288, 220)
       return new DOMRect()
@@ -166,7 +166,7 @@ it("does not rewrite the saved corner when the overview opens or closes", async 
   expect(localStorage.getItem(key)).toBe("top-right")
 
   view.rerender(
-    <LocalBrowserPreview userId={owner} conversationId={conversation} />
+    <BrowserUsePreview userId={owner} conversationId={conversation} />
   )
   expect(screen.getByRole("complementary")).toBe(card)
   expect(card).toHaveAttribute("data-corner", "top-right")
@@ -199,7 +199,7 @@ it("keeps the same authorized tab while compact and expands without activating o
   ).toBe(true)
 
   view.rerender(
-    <LocalBrowserPreview
+    <BrowserUsePreview
       userId={owner}
       conversationId={conversation}
       compactContainer={toolbar}
@@ -233,7 +233,7 @@ it("keeps keyboard focus reachable when compacting and expanding the preview", a
   })
   handle.focus()
   view.rerender(
-    <LocalBrowserPreview
+    <BrowserUsePreview
       userId={owner}
       conversationId={conversation}
       overviewElement={overview}
@@ -247,7 +247,7 @@ it("keeps keyboard focus reachable when compacting and expanding the preview", a
   await waitFor(() => expect(expand).toHaveFocus())
   fireEvent.click(expand)
   view.rerender(
-    <LocalBrowserPreview
+    <BrowserUsePreview
       userId={owner}
       conversationId={conversation}
       compactContainer={toolbar}
@@ -270,7 +270,7 @@ it("restores focus when a focused compact control disappears after layout become
   })
   expand.focus()
   view.rerender(
-    <LocalBrowserPreview
+    <BrowserUsePreview
       userId={owner}
       conversationId={conversation}
       compactContainer={toolbar}

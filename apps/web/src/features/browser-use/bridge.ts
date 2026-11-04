@@ -1,8 +1,8 @@
 import { z } from "zod"
 import { createRandomUuid } from "@/lib/random-uuid"
 import {
-  localBrowserPreviewSchema,
-  type localBrowserPairingSchema,
+  browserUsePreviewSchema,
+  type browserUsePairingSchema,
 } from "@linksense/shared"
 
 const responseSchema = z.object({
@@ -21,12 +21,12 @@ const responseSchema = z.object({
         "blocked",
       ])
       .optional(),
-    preview: localBrowserPreviewSchema.optional(),
+    preview: browserUsePreviewSchema.optional(),
   }),
 })
 export function browserExtensionRequest(
   type: "detect" | "pair" | "preview" | "activate" | "open_extensions",
-  pairing?: z.infer<typeof localBrowserPairingSchema>,
+  pairing?: z.infer<typeof browserUsePairingSchema>,
   options?: {
     owner_id: string
     automatic?: boolean

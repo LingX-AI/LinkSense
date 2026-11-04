@@ -1,4 +1,4 @@
-import type { BrowserStore } from "../src/modules/local-browser/store.js";
+import type { BrowserStore } from "../src/modules/browser-use/store.js";
 
 export class MemoryBrowserStore implements BrowserStore {
   readonly values = new Map<string, { value: string; until: number }>();

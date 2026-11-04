@@ -59,9 +59,10 @@ export const PLUGIN_STDIO_LAUNCHER_COMMAND = "linksense-plugin-stdio"
 // The regression test intentionally pins it to the actual generated tree so
 // every built-in writer or bundled documentation change must update it.
 export const BUILT_IN_CAPABILITY_RUNTIME_REVISION =
-  "f4a2c2b39279d7c353d191f954f6734cfdd528cff2a13c7db80cf089a99d7297"
+  "b053fe16180bdb3492811b4a652f963a6f5628479685d6e4816ceb5d5c85274e"
 
 const BUILT_IN_BROWSER_SKILL_NAME = "linksense-browser"
+const BUILT_IN_BROWSER_USE_SKILL_NAME = "linksense-local-browser"
 const BUILT_IN_DOCUMENT_READER_SKILL_NAME = "linksense-document-reader"
 const BUILT_IN_FILE_SERVICE_SKILL_NAME = "linksense-file-service"
 const BUILT_IN_IMAGE_GENERATION_SKILL_NAME = "linksense-image-generation"
@@ -582,7 +583,7 @@ export class UserHomeCapabilityMaterializer {
       await Promise.all([
         writeBuiltInDocumentReaderSkill(skillsRoot),
         writeBuiltInFileServiceSkill(skillsRoot),
-        writeBuiltInLocalBrowserSkill(skillsRoot),
+        writeBuiltInBrowserUseSkill(skillsRoot),
         writeBuiltInImageGenerationSkill(skillsRoot),
         ...(this.#enabledBuiltInSkillNames.includes(BUILT_IN_BROWSER_SKILL_NAME)
           ? [writeBuiltInBrowserSkill(skillsRoot)]
@@ -2236,15 +2237,15 @@ session automatically.
   )
 }
 
-async function writeBuiltInLocalBrowserSkill(skillsRoot: string): Promise<void> {
-  const directory = path.join(skillsRoot, "linksense-local-browser")
+async function writeBuiltInBrowserUseSkill(skillsRoot: string): Promise<void> {
+  const directory = path.join(skillsRoot, BUILT_IN_BROWSER_USE_SKILL_NAME)
   await mkdir(directory, { mode: 0o750 })
   await writeFile(path.join(directory, "SKILL.md"), `---
 name: linksense-local-browser
 description: Operate the user's LOCAL Chrome/Edge through the LinkSense browser extension, using explicitly allowed tabs and their existing login sessions. Use when the user requests their own browser, an already-open page or existing local login state; ordinary public-web tasks use the cloud linksense-browser skill.
 ---
 
-# LinkSense Local Browser
+# LinkSense Browser Use
 
 Call mcp__${coreMcpServerKey}__${browserUseToolName}. This controls the user's computer's
 browser, separately from the cloud browser. Follow explicit user choice first;

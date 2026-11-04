@@ -11,7 +11,7 @@ import { errorCatalog, localizedErrorMessage } from "@linksense/shared"
 import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const enUS = {
-  localBrowser: localBrowserMessages["en-US"],
+  browserUse: browserUseMessages["en-US"],
   modelSetup: modelSetupMessages["en-US"],
   connections: connectionMessages["en-US"],
   sideChat: sideChatMessages["en-US"],
@@ -5745,4 +5745,4 @@ export const enUS = {
     teams: "Teams SSO",
   },
 } as const
-import { localBrowserMessages } from "@/features/local-browser/messages"
+import { browserUseMessages } from "@/features/browser-use/messages"

@@ -1,6 +1,6 @@
 import { useEffect } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { localBrowserPairingSchema } from "@linksense/shared"
+import { browserUsePairingSchema } from "@linksense/shared"
 import { apiRequest } from "@/api/client"
 import { useAuth } from "@/app/auth-state"
 import { browserExtensionRequest } from "./bridge"
@@ -30,10 +30,10 @@ export function BrowserExtensionConnection() {
         !["automatic", "confirmation"].includes(detected.pairing_mode ?? "")
       )
         return detected
-      const pairing = await apiRequest("/local-browser/pairing", {
+      const pairing = await apiRequest("/browser-use/pairing", {
         method: "POST",
         body: {},
-        schema: localBrowserPairingSchema,
+        schema: browserUsePairingSchema,
         signal,
       })
       if (signal.aborted) return null

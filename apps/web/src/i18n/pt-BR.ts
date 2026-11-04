@@ -10,7 +10,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 import { localizedErrorMessage } from "@linksense/shared"
 
 export const ptBR = {
-  localBrowser: localBrowserMessages["pt-BR"],
+  browserUse: browserUseMessages["pt-BR"],
   modelSetup: modelSetupMessages["pt-BR"],
   connections: connectionMessages["pt-BR"],
   sideChat: sideChatMessages["pt-BR"],
@@ -6108,4 +6108,4 @@ export const ptBR = {
     teams: "SSO do Teams",
   },
 } satisfies TranslationResource<typeof enUS>
-import { localBrowserMessages } from "@/features/local-browser/messages"
+import { browserUseMessages } from "@/features/browser-use/messages"

@@ -400,12 +400,13 @@ export function buildNativeActivityViewModel(
   if (item.type === "mcpToolCall") {
     if (
       item.server === coreMcpServerKey &&
-      (item.tool === browserUseToolName || item.tool === legacyLocalBrowserToolName)
+      (item.tool === browserUseToolName ||
+        item.tool === legacyLocalBrowserToolName)
     ) {
       summaryKey =
         method === "item/started"
-          ? "localBrowser.activityRunning"
-          : "localBrowser.activityFinished"
+          ? "browserUse.activityRunning"
+          : "browserUse.activityFinished"
       detailRows.push(...durationRow(item.durationMs))
     } else if (isAutomationToolItem(item)) {
       summaryKey =

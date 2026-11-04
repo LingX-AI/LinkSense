@@ -10,7 +10,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 import { localizedErrorMessage } from "@linksense/shared"
 
 export const jaJP = {
-  localBrowser: localBrowserMessages["ja-JP"],
+  browserUse: browserUseMessages["ja-JP"],
   modelSetup: modelSetupMessages["ja-JP"],
   connections: connectionMessages["ja-JP"],
   sideChat: sideChatMessages["ja-JP"],
@@ -6000,4 +6000,4 @@ export const jaJP = {
     teams: "Teams SSO",
   },
 } satisfies TranslationResource<typeof enUS>
-import { localBrowserMessages } from "@/features/local-browser/messages"
+import { browserUseMessages } from "@/features/browser-use/messages"

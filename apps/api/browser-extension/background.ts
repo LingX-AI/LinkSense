@@ -1,17 +1,18 @@
 import { z } from "zod";
 import {
-  localBrowserCommandSchema,
-  localBrowserPairingSchema,
-  localBrowserFailure,
-  localBrowserFailureCodes,
-  localBrowserPairResponseSchema,
-  localBrowserPreviewSchema,
-  type LocalBrowserCommand,
-  type LocalBrowserResult,
-} from "@linksense/shared/local-browser";
+  browserUseCommandSchema,
+  browserUsePairingSchema,
+  browserUseFailure,
+  browserUseLegacyResult,
+  browserUseFailureCodes,
+  browserUsePairResponseSchema,
+  browserUsePreviewSchema,
+  type BrowserUseCommand,
+  type BrowserUseResult,
+} from "@linksense/shared/browser-use";
 import { controlMessageSchema, controlReplySchema, cursorPath, excludeControlSubtree, type ControlMessage, type CursorPoint } from "./control-protocol.js";
 
-const pairingSchema = localBrowserPairingSchema.extend({
+const pairingSchema = browserUsePairingSchema.extend({
   source_tab: z.number().int(),
   source_origin: z.url(),
   owner_id: z.uuid().optional(),
@@ -34,7 +35,7 @@ const trustSchema = z.strictObject({
 const previewEntrySchema = z.strictObject({
   conversation_id: z.uuid(),
   owner_id: z.uuid(),
-  preview: localBrowserPreviewSchema,
+  preview: browserUsePreviewSchema,
 });
 const maxPreviews = 8;
 type Grant = z.infer<typeof grantSchema>;
@@ -49,7 +50,7 @@ let reconnectAttempts = 0;
 let automaticBlocked = false;
 let pairingInFlight = false;
 let executing:
-  | { command: LocalBrowserCommand; generation: number; controller: AbortController }
+  | { command: BrowserUseCommand; generation: number; controller: AbortController }
   | undefined;
 const attached = new Set<number>();
 const controlled = new Map<number, { request: string; point?: CursorPoint; reduced: boolean }>();
@@ -71,7 +72,7 @@ async function hideControl(tab: number): Promise<void> {
   controlled.delete(tab);
   if (state) await visualMessage(tab, { type: "linksense-control", action: "hide", request_id: state.request, duration: 0 });
 }
-function controlStatus(action: LocalBrowserCommand["request"]["action"]): NonNullable<ControlMessage["status"]> {
+function controlStatus(action: BrowserUseCommand["request"]["action"]): NonNullable<ControlMessage["status"]> {
   if (action === "click" || action === "click_at") return "clicking";
   if (action === "type" || action === "key") return "typing";
   if (action === "scroll") return "scrolling";
@@ -96,7 +97,7 @@ async function presentControl(tab: number, action: ControlMessage["action"], poi
   }
   if (reply?.stopped) {
     await stopSharing(tab);
-    throw new Error("LOCAL_BROWSER_CANCELLED");
+    throw new Error("BROWSER_USE_CANCELLED");
   }
   controlled.set(tab, { request: execution.command.id, reduced: reply?.reduced_motion ?? previous?.reduced ?? false, ...(point ? { point } : previous?.point ? { point: previous.point } : {}) });
   assertExecuting();
@@ -104,7 +105,7 @@ async function presentControl(tab: number, action: ControlMessage["action"], poi
 async function moveControlPointer(tab: number, point: CursorPoint): Promise<void> {
   const size = await viewport(tab);
   if (point.x < 0 || point.y < 0 || point.x >= size.width || point.y >= size.height)
-    throw new Error("LOCAL_BROWSER_COMMAND_FAILED");
+    throw new Error("BROWSER_USE_COMMAND_FAILED");
   const previous = controlled.get(tab);
   const from = {
     x: Math.min(Math.max(previous?.point?.x ?? 36, 0), size.width - 1),
@@ -190,20 +191,20 @@ async function waitForPreviewPage(tab: number): Promise<void> {
   });
   assertExecuting();
 }
-async function rememberPreview(command: LocalBrowserCommand, tab: number): Promise<void> {
+async function rememberPreview(command: BrowserUseCommand, tab: number): Promise<void> {
   const session = sessionSchema.parse((await chrome.storage.session.get("session")).session);
   if (!session.owner_id) return;
   if (["open", "navigate", "click", "click_at"].includes(command.request.action)) await waitForPreviewPage(tab);
   await presentControl(tab, "show");
   const size = await viewport(tab);
-  const image = z.object({ data: localBrowserPreviewSchema.shape.image }).parse(
+  const image = z.object({ data: browserUsePreviewSchema.shape.image }).parse(
     await cdp(tab, "Page.captureScreenshot", {
       format: "jpeg", quality: 55, captureBeyondViewport: false,
       clip: { x: 0, y: 0, width: size.width, height: size.height, scale: Math.min(1, 480 / size.width, 320 / size.height) },
     }),
   );
   const data = await tabData(tab);
-  const preview = localBrowserPreviewSchema.parse({ ...data, image: image.data, captured_at: Date.now() });
+  const preview = browserUsePreviewSchema.parse({ ...data, image: image.data, captured_at: Date.now() });
   const previous = await previews();
   assertExecuting();
   await chrome.storage.session.set({ previews: [
@@ -228,13 +229,13 @@ function webUrl(value: string): URL {
     url.username ||
     url.password
   )
-    throw new Error("LOCAL_BROWSER_ACCESS_DENIED");
+    throw new Error("BROWSER_USE_ACCESS_DENIED");
   return url;
 }
 function connectionEndpoint(value: string): URL {
   const url = webUrl(value);
-  if (!url.pathname.endsWith("/api/v1/local-browser") || url.search || url.hash)
-    throw new Error("LOCAL_BROWSER_ACCESS_DENIED");
+  if (!["/api/v1/browser-use", "/api/v1/local-browser"].some((suffix) => url.pathname.endsWith(suffix)) || url.search || url.hash)
+    throw new Error("BROWSER_USE_ACCESS_DENIED");
   return url;
 }
 async function detach(tab: number): Promise<void> {
@@ -249,7 +250,7 @@ async function stopSharing(tab: number): Promise<void> {
 function invalidateConnection(): void {
   clearTimeout(reconnectTimer);
   reconnectTimer = undefined;
-  executing?.controller.abort("LOCAL_BROWSER_CANCELLED");
+  executing?.controller.abort("BROWSER_USE_CANCELLED");
   generation++;
   socket?.close();
   socket = undefined;
@@ -276,14 +277,14 @@ function assertExecuting(): NonNullable<typeof executing> {
     socket?.readyState !== WebSocket.OPEN ||
     cancelled.has(executing.command.id)
   )
-    throw new Error("LOCAL_BROWSER_CANCELLED");
+    throw new Error("BROWSER_USE_CANCELLED");
   if (executing.command.expires_at <= Date.now())
-    throw new Error("LOCAL_BROWSER_TIMEOUT");
+    throw new Error("BROWSER_USE_TIMEOUT");
   if (executing.controller.signal.aborted)
     throw new Error(
-      executing.controller.signal.reason === "LOCAL_BROWSER_TIMEOUT"
-        ? "LOCAL_BROWSER_TIMEOUT"
-        : "LOCAL_BROWSER_CANCELLED",
+      executing.controller.signal.reason === "BROWSER_USE_TIMEOUT"
+        ? "BROWSER_USE_TIMEOUT"
+        : "BROWSER_USE_CANCELLED",
     );
   return executing;
 }
@@ -324,7 +325,7 @@ async function cdp(
           execution.generation !== generation
         ) {
           await detach(tab);
-          throw new Error("LOCAL_BROWSER_CANCELLED");
+          throw new Error("BROWSER_USE_CANCELLED");
         }
         attached.add(tab);
       });
@@ -347,7 +348,7 @@ async function cdp(
 function cancelTab(tab: number): void {
   const request = executing?.command.request;
   if (request && "tab_id" in request && request.tab_id === tab)
-    executing?.controller.abort("LOCAL_BROWSER_CANCELLED");
+    executing?.controller.abort("BROWSER_USE_CANCELLED");
 }
 async function tabData(tabId: number) {
   const tab = await chrome.tabs.get(tabId);
@@ -358,14 +359,14 @@ async function tabData(tabId: number) {
   };
 }
 async function authorized(
-  command: LocalBrowserCommand,
+  command: BrowserUseCommand,
   tabId: number,
 ): Promise<void> {
   const all = await grants();
   const grant = all.find((item) => item.tab_id === tabId);
-  if (!grant) throw new Error("LOCAL_BROWSER_ACCESS_DENIED");
+  if (!grant) throw new Error("BROWSER_USE_ACCESS_DENIED");
   const tab = await chrome.tabs.get(tabId).catch(() => {
-    throw new Error("LOCAL_BROWSER_ACCESS_DENIED");
+    throw new Error("BROWSER_USE_ACCESS_DENIED");
   });
   const session = sessionSchema.parse(
     (await chrome.storage.session.get("session")).session,
@@ -375,17 +376,17 @@ async function authorized(
     !tab.url ||
     webUrl(tab.url).origin === new URL(session.endpoint).origin
   )
-    throw new Error("LOCAL_BROWSER_ACCESS_DENIED");
+    throw new Error("BROWSER_USE_ACCESS_DENIED");
   // Read/claim and user revocation share a queue so a stale read cannot restore a removed grant.
   await mutateGrants((current) => {
     assertExecuting();
     const latest = current.find((item) => item.tab_id === tabId);
-    if (!latest) throw new Error("LOCAL_BROWSER_ACCESS_DENIED");
+    if (!latest) throw new Error("BROWSER_USE_ACCESS_DENIED");
     if (
       latest.conversation_id &&
       latest.conversation_id !== command.conversation_id
     )
-      throw new Error("LOCAL_BROWSER_TAB_BUSY");
+      throw new Error("BROWSER_USE_TAB_BUSY");
     return current.map((item) =>
       item.tab_id === tabId
         ? { ...item, conversation_id: command.conversation_id }
@@ -432,7 +433,7 @@ async function selectAll(tab: number): Promise<void> {
     modifiers,
   });
 }
-async function run(command: LocalBrowserCommand): Promise<LocalBrowserResult> {
+async function run(command: BrowserUseCommand): Promise<BrowserUseResult> {
   assertExecuting();
   const request = command.request;
   if (request.action === "status")
@@ -465,14 +466,14 @@ async function run(command: LocalBrowserCommand): Promise<LocalBrowserResult> {
     "url" in request &&
     webUrl(request.url).origin === new URL(session.endpoint).origin
   )
-    return localBrowserFailure("LOCAL_BROWSER_ACCESS_DENIED");
+    return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
   if (request.action === "open") {
     if (!session.new_tabs)
-      return localBrowserFailure("LOCAL_BROWSER_ACCESS_DENIED");
+      return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
     assertExecuting();
     const tab = await chrome.tabs.create({ url: request.url, active: true });
     const tabId = tab.id;
-    if (!tabId) throw new Error("LOCAL_BROWSER_COMMAND_FAILED");
+    if (!tabId) throw new Error("BROWSER_USE_COMMAND_FAILED");
     assertExecuting();
     await mutateGrants((current) => {
       assertExecuting();
@@ -557,7 +558,7 @@ async function run(command: LocalBrowserCommand): Promise<LocalBrowserResult> {
       backendNodeId <= 0 ||
       parts.join(":") !== (await documentId(tab))
     )
-      return localBrowserFailure("LOCAL_BROWSER_STALE_REF");
+      return browserUseFailure("BROWSER_USE_STALE_REF");
     try {
       await cdp(tab, "DOM.scrollIntoViewIfNeeded", { backendNodeId });
       const box = z
@@ -568,7 +569,7 @@ async function run(command: LocalBrowserCommand): Promise<LocalBrowserResult> {
         y: (box.model.content[1]! + box.model.content[5]!) / 2,
       };
     } catch {
-      return localBrowserFailure("LOCAL_BROWSER_STALE_REF");
+      return browserUseFailure("BROWSER_USE_STALE_REF");
     }
   }
   if (request.action === "click_at") point = { x: request.x, y: request.y };
@@ -580,11 +581,11 @@ async function run(command: LocalBrowserCommand): Promise<LocalBrowserResult> {
       point.x >= size.width ||
       point.y >= size.height
     )
-      return localBrowserFailure("LOCAL_BROWSER_COMMAND_FAILED");
+      return browserUseFailure("BROWSER_USE_COMMAND_FAILED");
     const document = await documentId(tab);
     await moveControlPointer(tab, point);
     if (document !== await documentId(tab) || (request.action === "click" && !request.ref.startsWith(`${document}:`)))
-      return localBrowserFailure("LOCAL_BROWSER_STALE_REF");
+      return browserUseFailure("BROWSER_USE_STALE_REF");
     await presentControl(tab, "click", point);
     await cdp(tab, "Input.dispatchMouseEvent", {
       type: "mousePressed",
@@ -654,10 +655,10 @@ async function connect(): Promise<void> {
   const session = sessionSchema.parse(
     (await chrome.storage.session.get("session")).session,
   );
-  if (previous !== generation) throw new Error("LOCAL_BROWSER_CANCELLED");
+  if (previous !== generation) throw new Error("BROWSER_USE_CANCELLED");
   const url = connectionEndpoint(session.endpoint);
   await chrome.storage.session.set({ connected: false });
-  if (previous !== generation) throw new Error("LOCAL_BROWSER_CANCELLED");
+  if (previous !== generation) throw new Error("BROWSER_USE_CANCELLED");
   clearTimeout(reconnectTimer);
   reconnectTimer = undefined;
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -699,7 +700,7 @@ async function connect(): Promise<void> {
     if (cancellation.success) {
       if (queued.has(cancellation.data.id)) cancelled.add(cancellation.data.id);
       if (executing?.command.id === cancellation.data.id)
-        executing.controller.abort("LOCAL_BROWSER_CANCELLED");
+        executing.controller.abort("BROWSER_USE_CANCELLED");
       return;
     }
     const ready = z
@@ -712,7 +713,7 @@ async function connect(): Promise<void> {
       void chrome.action.setBadgeText({ text: "ON" });
       return;
     }
-    const command = localBrowserCommandSchema.safeParse(value);
+    const command = browserUseCommandSchema.safeParse(value);
     if (!command.success || command.data.connection_id !== connectionId) {
       ws.close();
       return;
@@ -725,16 +726,16 @@ async function connect(): Promise<void> {
           cancelled.delete(command.data.id);
           return;
         }
-        let result: LocalBrowserResult;
+        let result: BrowserUseResult;
         const controller = new AbortController();
         executing = { command: command.data, generation: current, controller };
         const deadline = setTimeout(
-          () => controller.abort("LOCAL_BROWSER_TIMEOUT"),
+          () => controller.abort("BROWSER_USE_TIMEOUT"),
           Math.max(0, command.data.expires_at - Date.now()),
         );
         try {
           if (cancelled.has(command.data.id))
-            throw new Error("LOCAL_BROWSER_CANCELLED");
+            throw new Error("BROWSER_USE_CANCELLED");
           result = await run(command.data);
           if (result.ok && result.data.tab_id && command.data.request.action !== "release") {
             // A failed thumbnail must never turn a completed browser mutation into a retryable action.
@@ -742,9 +743,9 @@ async function connect(): Promise<void> {
           }
         } catch (error) {
           const code = error instanceof Error ? error.message : "";
-          result = localBrowserFailure(
-            localBrowserFailureCodes.find((item) => item === code) ??
-              "LOCAL_BROWSER_COMMAND_FAILED",
+          result = browserUseFailure(
+            browserUseFailureCodes.find((item) => item === code) ??
+              "BROWSER_USE_COMMAND_FAILED",
           );
         } finally {
           await finishControl(command.data.id, controller.signal.aborted).catch(() => undefined);
@@ -759,12 +760,12 @@ async function connect(): Promise<void> {
               grant.conversation_id === command.data.conversation_id,
           );
           if (!retained)
-            result = localBrowserFailure("LOCAL_BROWSER_ACCESS_DENIED");
+            result = browserUseFailure("BROWSER_USE_ACCESS_DENIED");
         }
         queued.delete(command.data.id);
         cancelled.delete(command.data.id);
         if (current === generation && ws.readyState === WebSocket.OPEN)
-          ws.send(JSON.stringify({ id: command.data.id, result }));
+          ws.send(JSON.stringify({ id: command.data.id, result: browserUseLegacyResult(result) }));
       })
       .catch(() => ws.close());
   };
@@ -773,7 +774,7 @@ async function connect(): Promise<void> {
     if (current !== generation) return;
     generation++;
     socket = undefined;
-    executing?.controller.abort("LOCAL_BROWSER_CANCELLED");
+    executing?.controller.abort("BROWSER_USE_CANCELLED");
     void chrome.storage.session.set({ connected: false });
     void chrome.action.setBadgeText({ text: "" });
     for (const tab of attached) void detach(tab);
@@ -822,7 +823,7 @@ async function acceptPairing(
       if (automatic && [401, 403].includes(response.status)) { await disableAutomatic(true); await stop(); }
       throw new Error("denied");
     }
-    const credential = localBrowserPairResponseSchema.parse(await response.json());
+    const credential = browserUsePairResponseSchema.parse(await response.json());
     if (pairing.owner_id && credential.owner_id !== pairing.owner_id)
       throw new Error("denied");
     assertCurrent();
@@ -870,7 +871,7 @@ chrome.runtime.onMessage.addListener((raw: unknown, sender, respond) => {
         "stop_control",
         "open_extensions",
       ]),
-      pairing: localBrowserPairingSchema.optional(),
+      pairing: browserUsePairingSchema.optional(),
       new_tabs: z.boolean().optional(),
       origin: z.url().optional(),
       owner_id: z.uuid().optional(),
@@ -890,7 +891,7 @@ chrome.runtime.onMessage.addListener((raw: unknown, sender, respond) => {
     (message.type === "connect" || message.type === "disconnect" || message.type === "preferences");
   const intent = controlsConnection ? ++connectionIntent : undefined;
   const assertCurrentConnection = () => {
-    if (intent !== connectionIntent) throw new Error("LOCAL_BROWSER_CANCELLED");
+    if (intent !== connectionIntent) throw new Error("BROWSER_USE_CANCELLED");
   };
   if (controlsConnection && message.type === "disconnect") {
     automaticBlocked = true;
@@ -1089,7 +1090,7 @@ chrome.runtime.onMessage.addListener((raw: unknown, sender, respond) => {
       if (message.origin !== new URL(session.endpoint).origin || message.new_tabs === undefined)
         throw new Error("denied");
       if (!message.new_tabs && executing?.command.request.action === "open")
-        executing.controller.abort("LOCAL_BROWSER_CANCELLED");
+        executing.controller.abort("BROWSER_USE_CANCELLED");
       await chrome.storage.session.set({ session: { ...session, new_tabs: message.new_tabs } });
       const trust = await trustedSite();
       if (trust && trust.origin === new URL(session.endpoint).origin && trust.owner_id === session.owner_id)

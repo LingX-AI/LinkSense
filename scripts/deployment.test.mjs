@@ -5,6 +5,7 @@ import {
   access,
   chmod,
   cp,
+  glob,
   lstat,
   mkdir,
   mkdtemp,
@@ -437,24 +438,26 @@ for (const template of [
   "deploy/nginx/production-gateway.conf.template",
   "deploy/release/gateway.conf.template",
 ]) {
-  test(`${template} forwards the authenticated local browser WebSocket`, async () => {
-    const gateway = await readFile(resolve(template), "utf8");
-    const location = gateway.match(
-      /  location = \/api\/v1\/local-browser\/socket \{([\s\S]*?)\n  \}/u,
-    )?.[1];
-    assert.ok(location, "local browser WebSocket location is missing");
-    assert.match(location, /proxy_pass http:\/\/(?:api:4000|linksense_api);/u);
-    assert.match(location, /proxy_http_version 1\.1;/u);
-    assert.match(location, /proxy_set_header Host \$http_host;/u);
-    assert.match(location, /proxy_set_header X-Forwarded-Proto \$(?:scheme|linksense_forwarded_proto);/u);
-    assert.match(location, /proxy_set_header Upgrade \$http_upgrade;/u);
-    assert.match(location, /proxy_set_header Connection "upgrade";/u);
-    assert.match(location, /proxy_buffering off;/u);
-    assert.match(location, /proxy_read_timeout 1h;/u);
-    if (template === "deploy/nginx/production-gateway.conf.template") {
-      assert.match(location, /if \(-f \/tmp\/linksense-maintenance\) \{\s*return 503;/u);
-    }
-  });
+  for (const channel of ["local-browser", "browser-use"]) {
+    test(`${template} forwards the authenticated ${channel} WebSocket`, async () => {
+      const gateway = await readFile(resolve(template), "utf8");
+      const location = gateway.match(
+        new RegExp(`  location = /api/v1/${channel}/socket \\{([\\s\\S]*?)\\n  \\}`, "u"),
+      )?.[1];
+      assert.ok(location, `${channel} WebSocket location is missing`);
+      assert.match(location, /proxy_pass http:\/\/(?:api:4000|linksense_api);/u);
+      assert.match(location, /proxy_http_version 1\.1;/u);
+      assert.match(location, /proxy_set_header Host \$http_host;/u);
+      assert.match(location, /proxy_set_header X-Forwarded-Proto \$(?:scheme|linksense_forwarded_proto);/u);
+      assert.match(location, /proxy_set_header Upgrade \$http_upgrade;/u);
+      assert.match(location, /proxy_set_header Connection "upgrade";/u);
+      assert.match(location, /proxy_buffering off;/u);
+      assert.match(location, /proxy_read_timeout 1h;/u);
+      if (template === "deploy/nginx/production-gateway.conf.template") {
+        assert.match(location, /if \(-f \/tmp\/linksense-maintenance\) \{\s*return 503;/u);
+      }
+    });
+  }
 }
 
 test("production gateway preserves HTTPS proxy semantics, SSE, and signed MinIO paths", async () => {
@@ -501,7 +504,7 @@ test("production gateway preserves HTTPS proxy semantics, SSE, and signed MinIO 
     gateway.match(
       /if \(-f \/tmp\/linksense-maintenance\) \{\s*return 503;\s*\}/gu,
     ) ?? [];
-  assert.equal(maintenanceChecks.length, 7);
+  assert.equal(maintenanceChecks.length, 8);
   const siteLocation = section(gateway, "  location ^~ /web/", "  location /api/");
   assert.match(siteLocation, /if \(-f \/tmp\/linksense-maintenance\)/u);
   assert.match(siteLocation, /proxy_set_header X-Forwarded-Proto \$linksense_forwarded_proto;/u);
@@ -1216,17 +1219,9 @@ test("workspace image installs receive every manifest and pnpm patch before depe
       }),
     ),
   );
-  const workspaceManifestPaths = (
-    await Promise.all(
-      ["apps", "packages"].map(async (workspaceRoot) =>
-        (await readdir(resolve(workspaceRoot), { withFileTypes: true }))
-          .filter((entry) => entry.isDirectory())
-          .map((entry) => `${workspaceRoot}/${entry.name}/package.json`),
-      ),
-    )
-  )
-    .flat()
-    .sort();
+  const workspaceManifestPaths = (await Array.fromAsync(
+    glob(["apps/*/package.json", "packages/*/package.json"]),
+  )).sort();
 
   for (const { path, source } of dockerfiles) {
     const installIndex = source.indexOf("pnpm install --frozen-lockfile");

@@ -25,7 +25,7 @@ import {
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import type { z } from "zod"
-import type { localBrowserPreviewSchema } from "@linksense/shared"
+import type { browserUsePreviewSchema } from "@linksense/shared"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { browserExtensionRequest } from "./bridge"
@@ -36,9 +36,9 @@ import {
   type PreviewCorner,
 } from "./preview-position"
 
-type Preview = z.infer<typeof localBrowserPreviewSchema>
+type Preview = z.infer<typeof browserUsePreviewSchema>
 
-export function LocalBrowserPreview({
+export function BrowserUsePreview({
   userId,
   conversationId,
   overviewElement,
@@ -53,7 +53,7 @@ export function LocalBrowserPreview({
 }) {
   const [dismissedTab, setDismissedTab] = useState<number | null>(null)
   const query = useQuery({
-    queryKey: ["local-browser-preview", userId, conversationId],
+    queryKey: ["browser-use-preview", userId, conversationId],
     queryFn: () =>
       browserExtensionRequest("preview", undefined, {
         owner_id: userId,
@@ -236,13 +236,13 @@ function PreviewCard({
     <div
       ref={boundary}
       className="pointer-events-none absolute inset-x-3 top-[calc(var(--conversation-top-bar-height,0px)+12px)] bottom-[calc(var(--conversation-bottom-stack-height,0px)+30px)] z-40"
-      data-local-browser-preview-boundary=""
+      data-browser-use-preview-boundary=""
     >
       {/* Keep the compact card measurable so resizing can restore it without remounting. */}
       <motion.aside
         ref={panel}
         id={previewId}
-        aria-label={t("localBrowser.previewTitle")}
+        aria-label={t("browserUse.previewTitle")}
         aria-hidden={compact || undefined}
         inert={compact || undefined}
         data-corner={corner}
@@ -279,7 +279,7 @@ function PreviewCard({
             type="button"
             variant="plain"
             className="flex h-8 min-h-8 min-w-0 flex-1 cursor-grab touch-none items-center justify-start gap-2 rounded-md px-1 text-xs font-normal text-muted-foreground outline-none select-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
-            aria-label={t("localBrowser.previewMove")}
+            aria-label={t("browserUse.previewMove")}
             onPointerDown={startDrag}
             onKeyDown={keyboardMove}
           >
@@ -288,13 +288,13 @@ function PreviewCard({
               aria-hidden="true"
             />
             <GlobeIcon className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="truncate">{t("localBrowser.previewTitle")}</span>
+            <span className="truncate">{t("browserUse.previewTitle")}</span>
           </Button>
           <Button
             type="button"
             variant="ghost"
             size="icon-xs"
-            aria-label={t("localBrowser.previewClose")}
+            aria-label={t("browserUse.previewClose")}
             onClick={onClose}
           >
             <XIcon aria-hidden="true" />
@@ -304,7 +304,7 @@ function PreviewCard({
           type="button"
           variant="plain"
           className="group relative aspect-video h-auto min-h-0 w-full shrink touch-none overflow-hidden rounded-none bg-muted p-0 outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-wait"
-          aria-label={t("localBrowser.previewActivate", {
+          aria-label={t("browserUse.previewActivate", {
             title: preview.title || new URL(preview.url).host,
           })}
           disabled={activation.isPending}
@@ -334,7 +334,7 @@ function PreviewCard({
             role="alert"
             className="shrink-0 px-3 pb-2 text-xs text-destructive"
           >
-            {t("localBrowser.previewUnavailable")}
+            {t("browserUse.previewUnavailable")}
           </p>
         )}
       </motion.aside>
@@ -346,7 +346,7 @@ function PreviewCard({
             type="button"
             variant="outline"
             className="h-11 max-w-36 min-w-0 gap-2 px-2 text-xs sm:h-10"
-            aria-label={t("localBrowser.previewExpand", {
+            aria-label={t("browserUse.previewExpand", {
               title: preview.title || new URL(preview.url).host,
             })}
             aria-controls={previewId}

@@ -10,7 +10,7 @@ import { errorCatalog, localizedErrorMessage } from "@linksense/shared"
 import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const zhCN = {
-  localBrowser: localBrowserMessages["zh-CN"],
+  browserUse: browserUseMessages["zh-CN"],
   modelSetup: modelSetupMessages["zh-CN"],
   connections: connectionMessages["zh-CN"],
   sideChat: sideChatMessages["zh-CN"],
@@ -5269,4 +5269,4 @@ export const zhCN = {
     teams: "Teams SSO",
   },
 } as const
-import { localBrowserMessages } from "@/features/local-browser/messages"
+import { browserUseMessages } from "@/features/browser-use/messages"

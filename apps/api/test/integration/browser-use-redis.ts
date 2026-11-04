@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { Redis } from "ioredis";
-import { LocalBrowserService } from "../../src/modules/local-browser/service.js";
-import { RedisBrowserStore } from "../../src/modules/local-browser/store.js";
+import { BrowserUseService } from "../../src/modules/browser-use/service.js";
+import { RedisBrowserStore } from "../../src/modules/browser-use/store.js";
 
 const directory = await mkdtemp(path.join(tmpdir(), "lsbr-"));
 const socket = path.join(directory, "redis.sock");
@@ -50,12 +50,12 @@ try {
   const firstClient = new Redis(socket, { maxRetriesPerRequest: 0 });
   const secondClient = new Redis(socket, { maxRetriesPerRequest: 0 });
   clients.push(firstClient, secondClient);
-  const endpoint = "https://linksense.example/api/v1/local-browser";
-  const first = new LocalBrowserService(
+  const endpoint = "https://linksense.example/api/v1/browser-use";
+  const first = new BrowserUseService(
     new RedisBrowserStore(firstClient),
     endpoint,
   );
-  const second = new LocalBrowserService(
+  const second = new BrowserUseService(
     new RedisBrowserStore(secondClient),
     endpoint,
   );
@@ -79,7 +79,7 @@ try {
   assert.equal(await first.next(owner, connection), null);
   assert.deepEqual(await first.execute(owner, task, { action: "tabs" }), {
     ok: false,
-    code: "LOCAL_BROWSER_BUSY",
+    code: "BROWSER_USE_BUSY",
     retryable: false,
     help_path: "/settings/general#browser-extension",
   });

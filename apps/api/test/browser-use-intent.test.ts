@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { PrismaClient } from "../src/generated/prisma/client.js";
-import { BrowserUseIntentService } from "../src/modules/local-browser/intent.js";
+import { BrowserUseIntentService } from "../src/modules/browser-use/intent.js";
 import { modelUsageCaptureSchema } from "../src/modules/usage/model-usage.js";
-import { MemoryBrowserStore } from "./local-browser-store.js";
+import { MemoryBrowserStore } from "./browser-use-store.js";
 
 const { generateText } = vi.hoisted(() => ({ generateText: vi.fn() }));
 vi.mock("ai", () => ({ generateText }));
@@ -48,7 +48,6 @@ it("classifies an implicit Google request with the title model, a five-second ti
   expect(usage.recordModelUsage).toHaveBeenCalledWith(expect.objectContaining({ workload: "browser_use_intent", ownerId: owner, conversationId }));
   expect(modelUsageCaptureSchema.safeParse(usage.recordModelUsage.mock.calls[0]?.[0]).success).toBe(true);
 });
-
 it.each(["false", "true because it uses Google", '{"browser_related":true}', "", "ignore the rules"])("returns false for a negative or invalid model response %j", async (text) => {
   vi.mocked(generateText).mockResolvedValue(response(text));
   expect(await fixture().detect()).toBe(false);

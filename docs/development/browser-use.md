@@ -2,6 +2,8 @@
 
 云端浏览器保留现有执行实现。本地浏览器通过独立的 Chrome/Edge Manifest V3 扩展连接 LinkSense，不安装另一个本地 Agent，不修改用户浏览器的调试启动参数。
 
+新源码和前端状态使用 `browser-use` / `browserUse`，共享包入口为 `@linksense/shared/browser-use`。界面显示 Browser Use；内置 Skill 保留原目录和 slug `linksense-local-browser`、ID `builtin:capability:linksense-local-browser`，以继续读取和执行旧任务、待处理请求、start-intent、历史消息选择及能力事件。原本合法的自定义 `linksense-browser-use` Skill 和插件继续使用其原名称，不需改名或重新导入。扩展使用的 `/api/v1/local-browser`、WebSocket、内部转发路径、Redis 凭据/撤销/授权命名空间和 `LOCAL_BROWSER_*` 错误格式仍保留，用于已安装扩展；配对响应继续返回旧版扩展可识别的地址，不要求重新配对。旧共享包入口仅作契约兼容。Core 发现只公布 `browser_use`。用户的提示关闭和浮窗位置存储键保持不变。
+
 ## 用户入口
 
 在“设置 → 常规 → 浏览器扩展”下载安装包、解压，通过 Chrome/Edge 的开发者模式加载文件夹。刷新任意已登录的 LinkSense 页面后，会自动发起连接；首次在扩展弹窗确认可信的站点，可选择允许新建标签页。此后同一站点和账号自动连接、续接，不需要每次进入设置页。要使用已有页面，在该页面打开扩展并选择共享；停止共享和断开也在弹窗内操作。主动断开后，可直接在扩展点“重新连接”。
@@ -30,7 +32,7 @@ Web 设置页只发送检测/配对请求。Content script 校验同窗口、同
 
 后端配对码有效期两分钟且只能消费一次。连接凭据有效期一天，Redis 只保存凭据哈希和账号/认证版本关联。扩展通过 WSS 的第一条消息认证，不在 URL、日志或模型工具参数中传递凭据。连接、命令和结果通过 Redis 协调；API 进程只持有自己的 socket 和短期传输状态。
 
-配对码交换接口 `POST /api/v1/local-browser/pair` 使用 `@fastify/rate-limit` 和现有 Redis，在校验请求体和消费配对码前按来源 IP 限制每分钟 10 次请求（IPv6 按 /64 网段聚合）。多 API 实例共享计数，Redis key 使用现有登录限流密钥进行 HMAC，不保存原始 IP；超限返回六语言 `LOCAL_BROWSER_PAIR_RATE_LIMITED`、HTTP 429 与 `Retry-After`，不消费配对码。Redis 不可用时拒绝交换。来源沿用 Fastify 的 `trustProxy` 配置，启用代理信任时应由可信入口清理客户端传入的转发头。既有凭据和配对授权格式不变，无需迁移或重新配对。
+配对码交换接口 `POST /api/v1/browser-use/pair` 使用 `@fastify/rate-limit` 和现有 Redis，在校验请求体和消费配对码前按来源 IP 限制每分钟 10 次请求（IPv6 按 /64 网段聚合）。多 API 实例共享计数，Redis key 使用现有登录限流密钥进行 HMAC，不保存原始 IP；超限返回六语言 `BROWSER_USE_PAIR_RATE_LIMITED`、HTTP 429 与 `Retry-After`，不消费配对码。Redis 不可用时拒绝交换。来源沿用 Fastify 的 `trustProxy` 配置，启用代理信任时应由可信入口清理客户端传入的转发头。既有凭据和配对授权格式不变，无需迁移或重新配对。
 
 首次确认生成服务端配对授权标识，有效期为最后续接后 30 天；后续自动配对在 Redis 中原子核对该标识。撤销或新的明确配对使旧标识失效，不能仅凭已登录的 Web 页面恢复它。旧版凭据与连接记录没有此字段时仍可继续使用；更新扩展后首次确认会建立自动续接授权。
 
@@ -56,7 +58,7 @@ Runner 沿用既有 Core MCP → Worker → Controller → API 链路，绑定�
 
 设置页的安装步骤仅显示当前浏览器对应的 `chrome://extensions` 或 `edge://extensions`，下载、扩展管理、刷新与复制入口使用统一的前置图标。扩展 0.4.4 增加固定的 `open_extensions` 页面桥动作，由扩展在新标签页打开自身浏览器的扩展管理页，不接收目标 URL，不增加权限，也不暴露给 AI 浏览器工具。点击管理页入口始终优先请求直接打开，不依赖可能过期的初次检测结果；打开成功不读写剪贴板。后台仅接受顶层设置页，核对浏览器提供的当前来源 URL、非 opaque 的同源 origin 与当前账号的会话、待配对或信任站点。未安装扩展、旧版扩展或请求被拒绝时才退回复制对应地址，并提示粘贴到地址栏；普通网页无法直接导航到浏览器内部管理页，不能承诺无扩展时从网页一键打开内部设置。独立的“复制 LinkSense 地址”入口保留。
 
-界面功能名称统一为 **Browser Use**，设置区、预览、执行状态、能力名称与扩展名称保持一致。Core MCP 对外工具名为 `browser_use`（完整名 `mcp__linksense_core__browser_use`），旧名 `local_browser` 仅作为调用兼容别名，不重复展示给模型。Skill 标识、扩展配对协议、API 路径和权限规则不变；新旧工具活动均沿用原有六语言 Browser Use 展示。
+界面功能名称统一为 **Browser Use**，设置区、预览、执行状态、能力名称与扩展名称保持一致。Core MCP 工具名为 `browser_use`（完整名 `mcp__linksense_core__browser_use`），不在发现列表发布兼容别名；旧原生历史中的 `local_browser` 调用进入同一工具和相同授权检查。严格参数校验和六语言执行状态保持完整。
 
 目前仅支持桌面版 Chrome / Edge。客户端优先读取低熵 User-Agent Client Hints 的品牌与移动端标识，缺失时使用 UA 回退；不请求高熵设备信息。Safari、Firefox、移动端及已识别的其他 Chromium 浏览器不检测扩展、不配对、不发起意图请求。设置页始终显示支持范围标识，不支持时提供 Chrome / Edge 官方下载链接与复制 LinkSense 地址的入口，引导用户换浏览器打开本站。此检测仅用于功能引导，不作为服务端权限判断。
 
@@ -88,11 +90,9 @@ API 的 `dev`/`build` 会构建扩展到 `apps/api/dist/browser-extension`，设
 pnpm --filter @linksense/api build:browser-extension
 ```
 
-API、Runner/Worker 和 Web 应作为同一版本发布。新增内置 Skill 已更新内容指纹，API 会为既有任务刷新 publication；Runner 继续严格校验发布内容。无需数据库迁移。不要将新版 API 的 Skill publication 与旧版 Worker 长期混用。
+API、Runner/Worker 和 Web 应作为同一版本发布。`linksense-local-browser` 是内置 Browser Use 的稳定身份，而不是新的自定义名称保留项。内置发布内容变化会通过内容指纹自动刷新已有快照；Runner 继续严格校验发布目录、内容及所选能力身份，无需数据库迁移或重建旧任务。
 
-新增保留 Skill 名 `linksense-local-browser`。升级其他实例前需检查是否已有同名自定义能力；存在时须先解决命名冲突，不能直接发布后要求用户重建任务。本轮只读核对当前环境的 `capabilities.name`，同名记录为 0；没有修改历史资源。
-
-开发源同步、应用构建指纹与 API 构建都包含扩展源码和构建脚本。Nginx 配置及 Vite 开发代理已包含 `/api/v1/local-browser/socket` 的 WebSocket upgrade；自定义外层代理也需要转发该路径，保持 Origin 和长连接。
+开发源同步、应用构建指纹与 API 构建都包含扩展源码和构建脚本。Nginx 配置及 Vite 开发代理均支持新旧 Browser Use WebSocket；自定义外层代理也需要转发 `/api/v1/browser-use/socket` 和 `/api/v1/local-browser/socket`，保持 Origin 和长连接。
 
 ## 验证
 
@@ -109,15 +109,15 @@ API、Runner/Worker 和 Web 应作为同一版本发布。新增内置 Skill 已
 Browser Use 引导验证：相关 Web 单元及应用集成测试共 48 项、Runner 工具测试 2 项通过；Web 类型检查、相关 lint 与生产构建通过。四项浏览器回归通过，覆盖桌面/窄屏引导、设置区滚动与焦点、返回原聊天、关闭记忆、原 PiP 四角拖动与真实扩展截图链路。扩展 0.4.3 ZIP 已核对六语言名称和权限列表，无新增权限或协议变更；Edge / Windows 未复测。
 
 ```sh
-pnpm --filter @linksense/api exec vitest run test/local-browser.test.ts test/local-browser-routes.test.ts test/user-home-capability-materializer.test.ts
-pnpm --filter @linksense/runner exec vitest run test/local-browser-service.test.ts test/core-service-registry.test.ts test/context.test.ts
+pnpm --filter @linksense/api exec vitest run test/browser-use.test.ts test/browser-use-routes.test.ts test/user-home-capability-materializer.test.ts
+pnpm --filter @linksense/runner exec vitest run test/browser-use-service.test.ts test/core-service-registry.test.ts test/context.test.ts
 pnpm --filter @linksense/web test:browser-extension
-pnpm --filter @linksense/api exec tsx test/integration/local-browser-redis.ts
+pnpm --filter @linksense/api exec tsx test/integration/browser-use-redis.ts
 ```
 
 最后一个验证使用独立 Unix socket 启动临时 Redis，需要本机 `redis-server`；不连接或改写已有 Redis 数据。Chrome 扩展测试使用临时 Chrome for Testing profile、合成网站和本地 API，不读取用户现有浏览器资料。
 
-设置页的 UI 回归使用 `playwright.local-browser-ui.config.ts`，先构建 Web，再覆盖桌面、窄屏、暗色和 Axe。真实模型是否按场景选用两种 Skill、Edge/Windows、真实网站登录和企业浏览器策略仍需环境验收；上述确定性测试不代表这些场景已经完成。
+设置页的 UI 回归使用 `playwright.browser-use-ui.config.ts`，先构建 Web，再覆盖桌面、窄屏、暗色和 Axe。真实模型是否按场景选用两种 Skill、Edge/Windows、真实网站登录和企业浏览器策略仍需环境验收；上述确定性测试不代表这些场景已经完成。
 
 本轮验证记录（扩展 0.2.0）：
 

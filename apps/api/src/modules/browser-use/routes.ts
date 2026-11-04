@@ -8,11 +8,12 @@ import type { Redis } from "ioredis";
 import { WebSocket, WebSocketServer } from "ws";
 import { z } from "zod";
 import {
-  localBrowserReadOnly,
-  localBrowserRequestSchema,
-  localBrowserFailure,
+  browserUseReadOnly,
+  browserUseRequestSchema,
+  browserUseFailure,
+  browserUseLegacyResult,
   runtimeServiceSessionHeader,
-  localBrowserPairExchangeSchema,
+  browserUsePairExchangeSchema,
   browserUseIntentRequestSchema,
   browserUseIntentSchema,
 } from "@linksense/shared";
@@ -20,16 +21,16 @@ import type { PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
 import { hmacSha256 } from "../../lib/crypto.js";
 import { ok } from "../../lib/http.js";
-import { LocalBrowserService } from "./service.js";
+import { BrowserUseService } from "./service.js";
 import { browserExtensionZip } from "./extension.js";
 import type { BrowserUseIntentService } from "./intent.js";
 
 const secret = z.string().min(32).max(100);
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
-export async function registerLocalBrowserRoutes(
+export async function registerBrowserUseRoutes(
   app: FastifyInstance,
   options: {
-    service: LocalBrowserService;
+    service: BrowserUseService;
     prisma: PrismaClient;
     sharedSecret: string;
     socketPath: string;
@@ -45,53 +46,55 @@ export async function registerLocalBrowserRoutes(
       routes.addHook("onSend", async (_request, reply) => {
         reply.header("cache-control", "private, no-store");
       });
-      routes.get("/local-browser", async (request) =>
-        ok(await service.status(request.authUser!.id), request.id),
-      );
       routes.post("/conversations/:id/browser-use-intent", { bodyLimit: 1000 }, async (request) => {
         const { id } = z.strictObject({ id: z.uuid() }).parse(request.params);
         const { message_id } = browserUseIntentRequestSchema.parse(request.body);
         return ok(browserUseIntentSchema.parse(await options.intent.detect(request.authUser!.id, id, message_id)), request.id);
       });
-      routes.get("/local-browser/extension", async (_request, reply) =>
-        reply
-          .type("application/zip")
-          .header(
-            "content-disposition",
-            'attachment; filename="linksense-browser-extension.zip"',
-          )
-          .send(await browserExtensionZip()),
-      );
-      routes.post(
-        "/local-browser/pairing",
-        { bodyLimit: 1000 },
-        async (request) => {
-          z.strictObject({}).parse(request.body);
-          const origin = z.url().optional().parse(request.headers.origin);
-          const browser = origin ? new URL(origin) : undefined;
-          const endpoint = new URL(service.endpoint);
-          // Preserve the page's exact loopback origin; credentials stay bound to the configured server.
-          if (
-            browser && browser.origin === origin &&
-            loopbackHosts.has(browser.hostname) &&
-            loopbackHosts.has(endpoint.hostname) &&
-            browser.protocol === endpoint.protocol &&
-            browser.port === endpoint.port
-          ) endpoint.hostname = browser.hostname;
-          const pairing = await service.pairing(
-            request.authUser!.id,
-            request.authUser!.authValidAfter.toISOString(),
-          );
-          return ok(
-            { ...pairing, endpoint: endpoint.href },
-            request.id,
-          );
-        },
-      );
-      routes.delete("/local-browser", async (request) => {
-        await service.revoke(request.authUser!.id);
-        return ok({ connected: false }, request.id);
-      });
+      for (const path of ["/browser-use", "/local-browser"]) {
+        routes.get(path, async (request) =>
+          ok(await service.status(request.authUser!.id), request.id),
+        );
+        routes.get(`${path}/extension`, async (_request, reply) =>
+          reply
+            .type("application/zip")
+            .header(
+              "content-disposition",
+              'attachment; filename="linksense-browser-extension.zip"',
+            )
+            .send(await browserExtensionZip()),
+        );
+        routes.post(
+          `${path}/pairing`,
+          { bodyLimit: 1000 },
+          async (request) => {
+            z.strictObject({}).parse(request.body);
+            const origin = z.url().optional().parse(request.headers.origin);
+            const browser = origin ? new URL(origin) : undefined;
+            const endpoint = new URL(service.endpoint);
+            // Preserve the page's exact loopback origin; credentials stay bound to the configured server.
+            if (
+              browser && browser.origin === origin &&
+              loopbackHosts.has(browser.hostname) &&
+              loopbackHosts.has(endpoint.hostname) &&
+              browser.protocol === endpoint.protocol &&
+              browser.port === endpoint.port
+            ) endpoint.hostname = browser.hostname;
+            const pairing = await service.pairing(
+              request.authUser!.id,
+              request.authUser!.authValidAfter.toISOString(),
+            );
+            return ok(
+              { ...pairing, endpoint: endpoint.href },
+              request.id,
+            );
+          },
+        );
+        routes.delete(path, async (request) => {
+          await service.revoke(request.authUser!.id);
+          return ok({ connected: false }, request.id);
+        });
+      }
     },
     { prefix: "/api/v1" },
   );
@@ -111,13 +114,16 @@ export async function registerLocalBrowserRoutes(
         "local-browser-pair:ip:",
         normalizeIP(request.ip),
       ),
-      errorResponseBuilder: () => new AppError("LOCAL_BROWSER_PAIR_RATE_LIMITED"),
+      errorResponseBuilder: (request) => new AppError(
+        request.url.split("?")[0] === "/api/v1/local-browser/pair"
+          ? "LOCAL_BROWSER_PAIR_RATE_LIMITED" : "BROWSER_USE_PAIR_RATE_LIMITED",
+      ),
     });
-    routes.post(
-      "/api/v1/local-browser/pair",
+    for (const path of ["/api/v1/browser-use/pair", "/api/v1/local-browser/pair"]) routes.post(
+      path,
       { bodyLimit: 1000 },
       async (request) => {
-        const { code, approval_id } = localBrowserPairExchangeSchema.parse(request.body);
+        const { code, approval_id } = browserUsePairExchangeSchema.parse(request.body);
         const token = await service.pair(code, approval_id);
         const credential = await service.authenticate(token);
         if (!credential) throw new AppError("AUTH_REQUIRED");
@@ -126,8 +132,8 @@ export async function registerLocalBrowserRoutes(
     );
   });
 
-  app.post(
-    "/internal/local-browser/execute",
+  for (const path of ["/internal/browser-use/execute", "/internal/local-browser/execute"]) app.post(
+    path,
     { bodyLimit: 40_000 },
     async (request, reply) => {
       const supplied = Buffer.from(
@@ -147,7 +153,7 @@ export async function registerLocalBrowserRoutes(
         .strictObject({
           conversationId: z.uuid(),
           turnId: z.uuid(),
-          input: localBrowserRequestSchema,
+          input: browserUseRequestSchema,
         })
         .parse(request.body);
       const conversation = await prisma.conversation.findFirst({
@@ -172,21 +178,24 @@ export async function registerLocalBrowserRoutes(
         throw new AppError("FORBIDDEN");
       if (
         turn.collaborationMode === "plan" &&
-        !localBrowserReadOnly(body.input)
+        !browserUseReadOnly(body.input)
       )
-        return localBrowserFailure("LOCAL_BROWSER_ACCESS_DENIED");
+        return path === "/internal/local-browser/execute"
+          ? browserUseLegacyResult(browserUseFailure("BROWSER_USE_ACCESS_DENIED"))
+          : browserUseFailure("BROWSER_USE_ACCESS_DENIED");
       const controller = new AbortController();
       const abort = () => {
         if (!reply.raw.writableEnded) controller.abort();
       };
       reply.raw.once("close", abort);
       try {
-        return await service.execute(
+        const result = await service.execute(
           owner,
           body.conversationId,
           body.input,
           controller.signal,
         );
+        return path === "/internal/local-browser/execute" ? browserUseLegacyResult(result) : result;
       } finally {
         reply.raw.off("close", abort);
       }
@@ -198,9 +207,13 @@ export async function registerLocalBrowserRoutes(
     maxPayload: 4_100_000,
     perMessageDeflate: false,
   });
+  const socketPaths = new Set([
+    options.socketPath,
+    options.socketPath.replace("/browser-use/", "/local-browser/"),
+    options.socketPath.replace("/local-browser/", "/browser-use/"),
+  ]);
   const upgrade = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
-    if (request.url?.split("?")[0] !== options.socketPath) {
-      socket.destroy();
+    if (!socketPaths.has(request.url?.split("?")[0] ?? "")) {
       return;
     }
     // Only an extension may initiate this transport; credentials are never put in URLs.

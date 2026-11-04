@@ -30,7 +30,7 @@ LinkSense 的 Browser Use 不是单一浏览器工具，而是两套独立的浏
 | --- | --- | --- |
 | 实际运行位置 | LinkSense Worker 执行环境 | 用户桌面 Chrome / Edge |
 | 主要场景 | 公开网页、渲染检查、下载、工作区预览 | 已打开的页面、本机既有登录状态 |
-| 内置 Skill | `linksense-browser` | `linksense-local-browser` |
+| 内置 Skill | `linksense-browser` | `linksense-local-browser`（界面为 Browser Use） |
 | Default 模式入口 | Shell 中的 `linksense-browser` 命令 | Core MCP 的 `browser_use` 工具 |
 | Plan 模式入口 | 专用托管浏览器 MCP | 同一个 Core MCP，限制为四项只读动作 |
 | 浏览器底层 | Playwright CLI + 完整 Chromium headless | 扩展 `chrome.debugger` + 受限 CDP 调用 |
@@ -93,7 +93,7 @@ flowchart TB
 
 浏览器能力不是临时拼进每次用户消息的一段说明：
 
-1. 共享能力定义保留 `linksense-browser`、`linksense-local-browser` 两个内置名称。
+1. 共享能力定义保留 `linksense-browser`、`linksense-local-browser` 两个稳定内置名称；显示更名不改变已持久化的 ID、slug 或自定义资源名称。
 2. API 的用户能力物化器生成对应 `SKILL.md`，纳入能力内容摘要与 publication。
 3. 云端 Skill 是否发布受 `managedBrowserEnabled` 控制；本机 Skill 单独存在，不因云端浏览器关闭而消失。
 4. Runner 校验 API 发布的只读 `.agents` 能力投影，由原生 Skill 机制发现、加载。
@@ -370,12 +370,12 @@ sequenceDiagram
     participant Redis as Redis
     participant Ext as 扩展后台 / 弹窗
 
-    Web->>API: POST /local-browser/pairing，用户鉴权
+    Web->>API: POST /browser-use/pairing，用户鉴权
     API->>Redis: 保存一次性 code 摘要，120 秒
     API-->>Web: code + endpoint
     Web->>Ext: 同源 pair 桥消息
     Ext->>Ext: 显示来源站点，用户确认及新标签页偏好
-    Ext->>API: POST /local-browser/pair，code
+    Ext->>API: POST /browser-use/pair，code
     API->>Redis: GETDEL 消费 code，建立 approval 与 token 摘要
     API-->>Ext: token + owner_id + approval_id
     Ext->>Ext: session 保存 token，local 保存 trust
@@ -388,13 +388,13 @@ sequenceDiagram
 
 - 配对码来自 32 字节随机数，只有 120 秒有效且只能消费一次；同账号发码限制为每秒一次。
 - 扩展确认前后检查弹窗显示的来源 origin，不能让其他页面替换待配对地址后继续连接。
-- endpoint 必须是无内嵌凭据的 HTTP(S)，路径符合 `/api/v1/local-browser`，无 query / hash，并与来源页面同源。
+- endpoint 必须是无内嵌凭据的 HTTP(S)，路径符合 `/api/v1/browser-use` 或已安装扩展使用的 `/api/v1/local-browser`，无 query / hash，并与来源页面同源。
 - `/pair` 使用配对码换连接凭据，扩展不附带用户 Cookie、不接受重定向。
 - token 是随机 opaque 凭据，不是普通应用登录 JWT；Redis 保存其哈希与账号、认证版本、origin、approval 关联。
 - 首次明确配对生成 approval；连接凭据有效 24 小时，自动续接授权有效期为最后续接后 30 天。
 - 每账号只有一个当前连接凭据与主动连接，新的明确配对会替换旧浏览器。
 
-配对码交换额外使用共享 Redis 按来源 IP 限流：每分钟 10 次，IPv6 按 /64 聚合，计数键使用 HMAC 而非原始 IP；超限返回 `LOCAL_BROWSER_PAIR_RATE_LIMITED`、429 与 `Retry-After`，Redis 不可用时拒绝交换。
+配对码交换额外使用共享 Redis 按来源 IP 限流：每分钟 10 次，IPv6 按 /64 聚合，计数键使用 HMAC 而非原始 IP；超限返回 `BROWSER_USE_PAIR_RATE_LIMITED`、429 与 `Retry-After`，Redis 不可用时拒绝交换。
 
 源码依据：[配对与凭据服务][local-service]、[配对 HTTP 路由与限流][local-routes]、[扩展配对处理][extension-background]。
 
@@ -478,7 +478,7 @@ sequenceDiagram
     Ext-->>Socket: id + result
     Socket->>Redis: 校验当前请求后保存 reply
     API->>Redis: 取走 reply，清理自己的锁与请求
-    API-->>Worker: LocalBrowserResult
+    API-->>Worker: BrowserUseResult
     Worker-->>MCP: 标准化结果
     MCP-->>AI: 文本元数据 / 独立 MCP image
 ```
@@ -491,7 +491,7 @@ sequenceDiagram
 mcp__linksense_core__browser_use
 ```
 
-原工具名 `local_browser` 保留为调用兼容别名，不在新工具列表重复发布。既有任务中的旧调用和历史执行状态仍可识别；内置 Skill 与可信任务上下文使用新名，Skill 标识、配对协议和 HTTP 路径保持不变。
+新源码、内置 Skill 和工具发现使用新命名。已有安装的传输、存储和历史 ID 兼容边界见 [Browser Use 说明][local-doc]，升级不要求重配；旧工具调用进入相同授权链路，但不增加发现列表中的工具。
 
 调用参数不含可以自行指定的 owner、connection、conversation 或 turn 身份。
 
@@ -511,10 +511,10 @@ Plan 限制在 MCP、ProcessPool、API 三层检查，不能仅靠工具描述�
 
 ### 8.2 Redis 如何实现跨实例协调
 
-API 的 `LocalBrowserService.execute`：
+API 的 `BrowserUseService.execute`：
 
 1. 读取账号当前 connection；`status` 可直接返回，不进入扩展命令队列。
-2. 其他动作必须已连接，使用 `SET NX` 领取账号级互斥锁；忙碌时直接返回 `LOCAL_BROWSER_BUSY`，不是无限排队。
+2. 其他动作必须已连接，使用 `SET NX` 领取账号级互斥锁；忙碌时直接返回 `BROWSER_USE_BUSY`，不是无限排队。
 3. 为命令生成 UUID，绑定当前 connection、conversation 与 `expires_at`，写入 `request` 和待投递 `command`。
 4. 持有 socket 的实例使用连接值作为 guard，通过原子 `GETDEL` 取走命令。
 5. 调用实例约每 100 毫秒检查取消、连接是否被替换以及 reply。
@@ -525,7 +525,7 @@ API 的 `LocalBrowserService.execute`：
 
 本机命令传输不是 SSE、Redis Stream 或 BullMQ 任务；这里使用短期键值记录、原子消费和轮询。
 
-源码依据：[LocalBrowserService][local-service]、[RedisBrowserStore][browser-store]、[WebSocket pump][local-routes]。
+源码依据：[BrowserUseService][local-service]、[RedisBrowserStore][browser-store]、[WebSocket pump][local-routes]。
 
 ### 8.3 扩展如何防止过期、取消与旧连接执行
 
@@ -680,7 +680,7 @@ API 的 `LocalBrowserService.execute`：
 ### 11.3 浮窗的读取、激活与隔离
 
 ```text
-当前聊天 LocalBrowserPreview
+当前聊天 BrowserUsePreview
   -> 同源 bridge preview
   -> content script
   -> 扩展后台校验来源、账号、会话、页面授权
@@ -754,15 +754,15 @@ BrowserPanel 组件
 
 | 接口 | 调用方与作用 | 鉴权边界 |
 | --- | --- | --- |
-| `GET /api/v1/local-browser` | Web 查询本账号连接状态 | 用户登录 |
-| `GET /api/v1/local-browser/extension` | 下载已构建扩展 ZIP | 用户登录 |
-| `POST /api/v1/local-browser/pairing` | 创建一次性配对码 | 用户登录，严格空 body |
-| `POST /api/v1/local-browser/pair` | 扩展换 token / approval 续接 | 一次性 code、可选旧 approval、IP 限流 |
-| `DELETE /api/v1/local-browser` | 撤销本账号连接与授权 | 用户登录 |
-| `WS /api/v1/local-browser/socket` | 扩展接收命令、回包、心跳 | 扩展 Origin、首帧 token、用户状态 |
+| `GET /api/v1/browser-use` | Web 查询本账号连接状态 | 用户登录 |
+| `GET /api/v1/browser-use/extension` | 下载已构建扩展 ZIP | 用户登录 |
+| `POST /api/v1/browser-use/pairing` | 创建一次性配对码 | 用户登录，严格空 body |
+| `POST /api/v1/browser-use/pair` | 扩展换 token / approval 续接 | 一次性 code、可选旧 approval、IP 限流 |
+| `DELETE /api/v1/browser-use` | 撤销本账号连接与授权 | 用户登录 |
+| `WS /api/v1/browser-use/socket` | 扩展接收命令、回包、心跳 | 扩展 Origin、首帧 token、用户状态 |
 | `POST /api/v1/conversations/:id/browser-use-intent` | 是否展示发现引导 | 用户与普通会话归属 |
-| `POST /mcp-current-user/:conversationId/local-browser` | Core MCP 到 Worker 的本地业务桥 | 当前任务 token、活动 turn |
-| `POST /internal/local-browser/execute` | Runner 到 API 的本机执行入口 | 内部凭据、owner、会话、running turn、scope |
+| `POST /mcp-current-user/:conversationId/browser-use` | Core MCP 到 Worker 的本地业务桥 | 当前任务 token、活动 turn |
+| `POST /internal/browser-use/execute` | Runner 到 API 的本机执行入口 | 内部凭据、owner、会话、running turn、scope |
 | `POST /api/v1/conversations/:id/browser` | 云端面板底层操作 | 用户、会话归属、应用权限、Plan / 归档限制 |
 
 本机命令包：
@@ -808,18 +808,18 @@ BrowserPanel 组件
 
 | 键模式 | 内容 | 生命周期 / 用途 |
 | --- | --- | --- |
-| `local-browser:pair:<code_hash>` | owner、认证版本、origin | 120 秒，一次消费 |
-| `local-browser:credential:<token_hash>` | 凭据关联元数据 | 24 小时 |
-| `local-browser:revoked:<token_hash>` | 撤销标记 | 24 小时，区分显式失效 |
-| `local-browser:<owner>:approval` | 自动续接授权 UUID | 30 天，成功续接时延长 |
-| `local-browser:<owner>:credential` | 当前 token hash | 24 小时，单一当前凭据 |
-| `local-browser:<owner>:connection` | 连接 ID、浏览器、凭据摘要 | 45 秒，定期续租 |
-| `local-browser:<owner>:pair-rate` | 发码限流标记 | 1 秒 |
-| `local-browser:<owner>:lock` | 当前命令 UUID | 45 秒，账号级互斥 |
-| `local-browser:<owner>:request` | 当前命令 JSON | 45 秒，回包与取消依据 |
-| `local-browser:<owner>:command` | 待投递命令 JSON | 45 秒，guard + GETDEL |
-| `local-browser:<owner>:reply:<id>` | 结果 JSON | 45 秒，NX 写入、调用方取走 |
-| `local-browser:intent:...` | 分类 pending 或布尔值 | pending 30 秒，结果 24 小时 |
+| `browser-use:pair:<code_hash>` | owner、认证版本、origin | 120 秒，一次消费 |
+| `browser-use:credential:<token_hash>` | 凭据关联元数据 | 24 小时 |
+| `browser-use:revoked:<token_hash>` | 撤销标记 | 24 小时，区分显式失效 |
+| `browser-use:<owner>:approval` | 自动续接授权 UUID | 30 天，成功续接时延长 |
+| `browser-use:<owner>:credential` | 当前 token hash | 24 小时，单一当前凭据 |
+| `browser-use:<owner>:connection` | 连接 ID、浏览器、凭据摘要 | 45 秒，定期续租 |
+| `browser-use:<owner>:pair-rate` | 发码限流标记 | 1 秒 |
+| `browser-use:<owner>:lock` | 当前命令 UUID | 45 秒，账号级互斥 |
+| `browser-use:<owner>:request` | 当前命令 JSON | 45 秒，回包与取消依据 |
+| `browser-use:<owner>:command` | 待投递命令 JSON | 45 秒，guard + GETDEL |
+| `browser-use:<owner>:reply:<id>` | 结果 JSON | 45 秒，NX 写入、调用方取走 |
+| `browser-use:intent:...` | 分类 pending 或布尔值 | pending 30 秒，结果 24 小时 |
 
 请求、结果还会在执行结束时主动清理，TTL 是异常退出兜底。账号连接、锁和命令协调不依赖某一个 API 进程的内存。
 
@@ -906,7 +906,7 @@ pnpm --filter @linksense/api build:browser-extension
 - Runner / Worker：活动 turn 绑定、本机 MCP、云端运行时及清理。
 - Web：桥、连接状态、引导、预览与协议解析。
 - 扩展：用户浏览器实际加载的版本；服务端发布不会自动替用户重新加载未打包扩展。
-- 外层代理：`/api/v1/local-browser/socket` 必须正确转发 WebSocket upgrade，保留 Origin 与长连接。
+- 外层代理：`/api/v1/browser-use/socket` 和旧扩展的 `/api/v1/local-browser/socket` 必须正确转发 WebSocket upgrade，保留 Origin 与长连接。
 
 仓库 Nginx 模板及 Vite API WebSocket 代理已有对应配置；自定义网关仍需按实际配置检查。
 
@@ -920,7 +920,7 @@ pnpm --filter @linksense/api build:browser-extension
 - 新自动续接必须建立有效 approval，不能把旧记录缺字段当作自动授权。
 - 配对响应中的 owner / approval 字段在共享协议中兼容旧格式。
 - 引导旧 `true` 关闭标记不再表示明确拒绝，升级后可能再次提示，但不影响任务或配对数据。
-- 新增内置 Skill 保留名可能与旧自定义能力冲突，升级前需检查并解决，不能默默覆盖或要求用户重建任务。
+- 内置 Browser Use 保留 `linksense-local-browser` 的目录、slug 和 ID；原本合法的自定义 `linksense-browser-use` 继续可导入、发布和执行。
 - API / Web / Runner 的共享契约和 `browser_use_intent` 用量分类应同步发布。
 
 本机浏览器功能本身无需新增数据库表；这不意味着其他功能的迁移可以跳过，也不意味着旧 Worker、旧扩展和新协议可以长期任意混用。
@@ -935,16 +935,16 @@ pnpm --filter @linksense/api build:browser-extension
 
 | 错误码 | 主要含义 | 下一步 |
 | --- | --- | --- |
-| `LOCAL_BROWSER_NOT_CONNECTED` | 没有有效当前连接，或连接被替换 | 检查扩展、配对账号、WS 和设置状态 |
-| `LOCAL_BROWSER_BUSY` | 当前账号已有命令执行 | 先确认前一动作是否结束，不盲目重放 |
-| `LOCAL_BROWSER_ACCESS_DENIED` | 任务、Plan、scope 或页面授权不满足 | 分层核对权限；必要时由用户明确重新授权 |
-| `LOCAL_BROWSER_TAB_BUSY` | 页面已被其他会话认领 | 原任务 release，或用户重新共享 |
-| `LOCAL_BROWSER_STALE_REF` | 引用不属于当前文档或节点已失效 | 重新 snapshot，再决定是否操作 |
-| `LOCAL_BROWSER_TIMEOUT` | 超过命令截止时间 | 先观察页面实际结果，再决定下一步 |
-| `LOCAL_BROWSER_CANCELLED` | 取消、撤权、断线或旧代际失效 | 不自动续做原动作 |
-| `LOCAL_BROWSER_COMMAND_FAILED` | 其他受限执行失败 | 观察状态并报告，不将失败当作重复提交许可 |
+| `BROWSER_USE_NOT_CONNECTED` | 没有有效当前连接，或连接被替换 | 检查扩展、配对账号、WS 和设置状态 |
+| `BROWSER_USE_BUSY` | 当前账号已有命令执行 | 先确认前一动作是否结束，不盲目重放 |
+| `BROWSER_USE_ACCESS_DENIED` | 任务、Plan、scope 或页面授权不满足 | 分层核对权限；必要时由用户明确重新授权 |
+| `BROWSER_USE_TAB_BUSY` | 页面已被其他会话认领 | 原任务 release，或用户重新共享 |
+| `BROWSER_USE_STALE_REF` | 引用不属于当前文档或节点已失效 | 重新 snapshot，再决定是否操作 |
+| `BROWSER_USE_TIMEOUT` | 超过命令截止时间 | 先观察页面实际结果，再决定下一步 |
+| `BROWSER_USE_CANCELLED` | 取消、撤权、断线或旧代际失效 | 不自动续做原动作 |
+| `BROWSER_USE_COMMAND_FAILED` | 其他受限执行失败 | 观察状态并报告，不将失败当作重复提交许可 |
 
-`LOCAL_BROWSER_PAIR_RATE_LIMITED` 是配对 HTTP 层错误，不属于上述工具结果枚举。
+`BROWSER_USE_PAIR_RATE_LIMITED` 是配对 HTTP 层错误，不属于上述工具结果枚举。
 
 ### 17.2 常见现象
 
@@ -970,16 +970,16 @@ pnpm --filter @linksense/api build:browser-extension
 
 | 范围 | 现有测试入口 | 关注点 |
 | --- | --- | --- |
-| 共享协议 | `packages/shared/tests/local-browser.test.ts` | URL、边界、严格动作、只读、旧格式 |
-| 本机状态与 HTTP | `apps/api/test/local-browser.test.ts`、`local-browser-routes.test.ts` | 单次消费、哈希、替换、撤销、归属、Plan、限流 |
-| 扩展执行 | `apps/api/test/local-browser-extension.test.ts`、`local-browser-control.test.ts` | 取消、重连、账号隔离、来源、原生鼠标、导航竞态 |
-| 真 Redis | `apps/api/test/integration/local-browser-redis.ts` | 双客户端原子消费、互斥与连接替换 |
+| 共享协议 | `packages/shared/tests/browser-use.test.ts` | URL、边界、严格动作、只读、旧格式 |
+| 本机状态与 HTTP | `apps/api/test/browser-use.test.ts`、`browser-use-routes.test.ts` | 单次消费、哈希、替换、撤销、归属、Plan、限流 |
+| 扩展执行 | `apps/api/test/browser-use-extension.test.ts`、`browser-use-control.test.ts` | 取消、重连、账号隔离、来源、原生鼠标、导航竞态 |
+| 真 Redis | `apps/api/test/integration/browser-use-redis.ts` | 双客户端原子消费、互斥与连接替换 |
 | 意图分类 | `apps/api/test/browser-use-intent.test.ts` | 消息归属、去重、截断、无模型与失败降级 |
-| 本机 MCP / 运行上下文 | `apps/runner/test/local-browser-service.test.ts`、`context.test.ts` | 活动任务入口、MCP image、Plan、云端 / 本机分工 |
+| 本机 MCP / 运行上下文 | `apps/runner/test/browser-use-service.test.ts`、`context.test.ts` | 活动任务入口、MCP image、Plan、云端 / 本机分工 |
 | 云端包装器 / MCP | `apps/runner/test/browser-cli-wrapper.test.ts`、`managed-browser-service.test.ts`、`browser-init-page.test.ts` | 会话、路径、配额、命令白名单、网络方法、取消 |
 | 云端接管底层 | `apps/runner/test/browser-panel.test.ts`、`apps/api/test/conversation-browser-routes.test.ts` | 单控制者、续租、锁、文本转义、鉴权 |
-| Web 交互 | `apps/web/src/features/local-browser/` 下相关测试 | 连接、引导关闭、浮窗、来源与 UI 状态 |
-| 浏览器回归 | `apps/web/e2e/local-browser-extension.spec.ts`、`browser-extension-settings.spec.ts` | 隔离 Chrome 扩展链路、设置与引导 |
+| Web 交互 | `apps/web/src/features/browser-use/` 下相关测试 | 连接、引导关闭、浮窗、来源与 UI 状态 |
+| 浏览器回归 | `apps/web/e2e/browser-use-extension.spec.ts`、`browser-extension-settings.spec.ts` | 隔离 Chrome 扩展链路、设置与引导 |
 | 内置能力升级 | `apps/api/test/user-home-capability-materializer.test.ts` | 内置内容指纹、旧 publication 刷新 |
 
 ### 18.2 本次实际完成与未完成
@@ -1028,17 +1028,17 @@ pnpm --filter @linksense/api build:browser-extension
 [context]: ../../apps/runner/src/context.ts
 [capabilities]: ../../packages/shared/src/capabilities.ts
 [capability-runtime]: ../../apps/runner/src/workspace/capability-runtime.ts
-[local-contract]: ../../packages/shared/src/local-browser.ts
+[local-contract]: ../../packages/shared/src/browser-use.ts
 [panel-contract]: ../../packages/shared/src/browser-panel.ts
-[local-mcp]: ../../apps/runner/src/mcp/core-services/local-browser-service.ts
+[local-mcp]: ../../apps/runner/src/mcp/core-services/browser-use-service.ts
 [pool]: ../../apps/runner/src/process-pool.ts
 [runner-server]: ../../apps/runner/src/server.ts
 [event-sink]: ../../apps/runner/src/event-sink.ts
 [controller]: ../../apps/runner/src/controller/server.ts
-[local-routes]: ../../apps/api/src/modules/local-browser/routes.ts
-[local-service]: ../../apps/api/src/modules/local-browser/service.ts
-[browser-store]: ../../apps/api/src/modules/local-browser/store.ts
-[intent]: ../../apps/api/src/modules/local-browser/intent.ts
+[local-routes]: ../../apps/api/src/modules/browser-use/routes.ts
+[local-service]: ../../apps/api/src/modules/browser-use/service.ts
+[browser-store]: ../../apps/api/src/modules/browser-use/store.ts
+[intent]: ../../apps/api/src/modules/browser-use/intent.ts
 [extension-background]: ../../apps/api/browser-extension/background.ts
 [extension-content]: ../../apps/api/browser-extension/content.ts
 [extension-popup]: ../../apps/api/browser-extension/popup.ts
@@ -1046,15 +1046,15 @@ pnpm --filter @linksense/api build:browser-extension
 [control-protocol]: ../../apps/api/browser-extension/control-protocol.ts
 [extension-manifest]: ../../apps/api/browser-extension/public/manifest.json
 [extension-build]: ../../apps/api/scripts/build-browser-extension.mjs
-[extension-zip]: ../../apps/api/src/modules/local-browser/extension.ts
+[extension-zip]: ../../apps/api/src/modules/browser-use/extension.ts
 [api-package]: ../../apps/api/package.json
-[web-bridge]: ../../apps/web/src/features/local-browser/bridge.ts
-[web-connection]: ../../apps/web/src/features/local-browser/browser-extension-connection.tsx
-[web-extension-state]: ../../apps/web/src/features/local-browser/extension-state.ts
-[browser-support]: ../../apps/web/src/features/local-browser/browser-support.ts
-[web-settings]: ../../apps/web/src/features/local-browser/browser-extension-settings.tsx
-[browser-prompt]: ../../apps/web/src/features/local-browser/browser-use-prompt.tsx
-[local-preview]: ../../apps/web/src/features/local-browser/local-browser-preview.tsx
+[web-bridge]: ../../apps/web/src/features/browser-use/bridge.ts
+[web-connection]: ../../apps/web/src/features/browser-use/browser-extension-connection.tsx
+[web-extension-state]: ../../apps/web/src/features/browser-use/extension-state.ts
+[browser-support]: ../../apps/web/src/features/browser-use/browser-support.ts
+[web-settings]: ../../apps/web/src/features/browser-use/browser-extension-settings.tsx
+[browser-prompt]: ../../apps/web/src/features/browser-use/browser-use-prompt.tsx
+[local-preview]: ../../apps/web/src/features/browser-use/browser-use-preview.tsx
 [conversation-page]: ../../apps/web/src/pages/conversation-pages.tsx
 [activity-view-model]: ../../apps/web/src/features/conversations/native-activity-view-model.ts
 [cloud-cli]: ../../apps/runner/src/browser/cli-wrapper.ts
@@ -1082,6 +1082,6 @@ pnpm --filter @linksense/api build:browser-extension
 [test-cloud-cli]: ../../apps/runner/test/browser-cli-wrapper.test.ts
 [nginx]: ../../deploy/nginx/default.conf.template
 [vite-config]: ../../apps/web/vite.config.ts
-[local-doc]: local-browser-use.md
+[local-doc]: browser-use.md
 [research-doc]: browser-use-solutions-research.md
 [historical-panel-doc]: automation-monitoring-and-browser-panel.md

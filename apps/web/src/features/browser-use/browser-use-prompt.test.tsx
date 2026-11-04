@@ -10,7 +10,7 @@ import { apiRequest } from "@/api/client"
 import { browserExtensionRequest } from "./bridge"
 import { browserExtensionConnectionKey } from "./extension-state"
 import { BrowserUsePrompt } from "./browser-use-prompt"
-import { localBrowserMessages } from "./messages"
+import { browserUseMessages } from "./messages"
 import { browserUseBrowser } from "./browser-support"
 
 vi.mock("./bridge", () => ({ browserExtensionRequest: vi.fn() }))
@@ -165,7 +165,7 @@ it("offers installation without stealing composer focus and links directly to se
   expect(link).toHaveAttribute("href", "/settings/general#browser-extension")
   expect(screen.getByRole("textbox", { name: "Draft" })).toHaveFocus()
   expect(
-    screen.getByText(localBrowserMessages["zh-CN"].setupMissing)
+    screen.getByText(browserUseMessages["zh-CN"].setupMissing)
   ).toBeVisible()
   await userEvent.click(link)
   expect(screen.getByRole("status")).toHaveTextContent(
@@ -182,7 +182,7 @@ it.each(["pending", "blocked", "reconnecting"] as const)(
     show(browserRequest, "user-1", { detected: true, pairing_mode })
     expect(await screen.findByRole("link", { name: "前往连接" })).toBeVisible()
     expect(
-      screen.getByText(localBrowserMessages["zh-CN"].setupDisconnected)
+      screen.getByText(browserUseMessages["zh-CN"].setupDisconnected)
     ).toBeVisible()
   }
 )
@@ -348,7 +348,7 @@ it.each([...supportedLanguages, "de-DE"])(
   async (language) => {
     await i18n.changeLanguage(language)
     const messages =
-      localBrowserMessages[
+      browserUseMessages[
         supportedLanguages.find((locale) => locale === language) ?? "zh-CN"
       ]
     show()

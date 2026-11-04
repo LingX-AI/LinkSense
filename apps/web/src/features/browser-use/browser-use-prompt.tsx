@@ -109,7 +109,7 @@ export function BrowserUsePrompt({
           }
         >
           <PuzzleIcon aria-hidden="true" />
-          {t("localBrowser.previewTitle")}
+          {t("browserUse.previewTitle")}
         </PopoverTrigger>
         <PopoverContent
           side="top"
@@ -125,23 +125,23 @@ export function BrowserUsePrompt({
           >
             <PuzzleIcon className="size-5" />
           </span>
-          <PopoverTitle>{t("localBrowser.setupTitle")}</PopoverTitle>
+          <PopoverTitle>{t("browserUse.setupTitle")}</PopoverTitle>
           <PopoverDescription className="text-sm leading-relaxed">
             {t(
               detected
-                ? "localBrowser.setupDisconnected"
-                : "localBrowser.setupMissing"
+                ? "browserUse.setupDisconnected"
+                : "browserUse.setupMissing"
             )}
           </PopoverDescription>
           <p className="text-xs text-muted-foreground">
-            {t("localBrowser.supportedBrowsers")}
+            {t("browserUse.supportedBrowsers")}
           </p>
           <p className="text-xs text-muted-foreground">
-            {t("localBrowser.setupOptional")}
+            {t("browserUse.setupOptional")}
           </p>
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={dismiss}>
-              {t("localBrowser.setupDismiss")}
+              {t("browserUse.setupDismiss")}
             </Button>
             <Button
               nativeButton={false}
@@ -157,8 +157,8 @@ export function BrowserUsePrompt({
             >
               {t(
                 detected
-                  ? "localBrowser.setupConnect"
-                  : "localBrowser.setupInstall"
+                  ? "browserUse.setupConnect"
+                  : "browserUse.setupInstall"
               )}
               <ArrowUpRightIcon aria-hidden="true" />
             </Button>

@@ -11,8 +11,8 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import {
-  localBrowserPairingSchema,
-  localBrowserStatusSchema,
+  browserUsePairingSchema,
+  browserUseStatusSchema,
 } from "@linksense/shared"
 import { apiRequest, downloadApiFile } from "@/api/client"
 import { SettingsCard } from "@/components/settings/settings-card"
@@ -49,11 +49,11 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
     browser === "edge" ? "edge://extensions" : "chrome://extensions"
   const [detected, setDetected] = useState<boolean | null>(null)
   const [pending, setPending] = useState(false)
-  const queryKey = ["local-browser", userId] as const
+  const queryKey = ["browser-use", userId] as const
   const status = useQuery({
     queryKey,
     queryFn: () =>
-      apiRequest("/local-browser", { schema: localBrowserStatusSchema }),
+      apiRequest("/browser-use", { schema: browserUseStatusSchema }),
     enabled: Boolean(userId) && supportedBrowser,
     refetchInterval: 5000,
   })
@@ -81,20 +81,20 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
         if (!result?.ok)
           await copyAddress(
             extensionAddress,
-            t("localBrowser.extensionAddressCopied", {
+            t("browserUse.extensionAddressCopied", {
               address: extensionAddress,
             })
           )
       } else if (operation === "disconnect") {
-        await apiRequest("/local-browser", {
+        await apiRequest("/browser-use", {
           method: "DELETE",
-          schema: localBrowserStatusSchema,
+          schema: browserUseStatusSchema,
         })
       } else if (operation === "connect") {
-        const pairing = await apiRequest("/local-browser/pairing", {
+        const pairing = await apiRequest("/browser-use/pairing", {
           method: "POST",
           body: {},
-          schema: localBrowserPairingSchema,
+          schema: browserUsePairingSchema,
         })
         const result = await browserExtensionRequest(
           "pair",
@@ -104,7 +104,7 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
         if (!result.ok) throw new Error("extension not available")
         setPending(true)
       } else {
-        const blob = await downloadApiFile("/local-browser/extension")
+        const blob = await downloadApiFile("/browser-use/extension")
         const url = URL.createObjectURL(blob)
         const anchor = document.createElement("a")
         anchor.href = url
@@ -120,7 +120,7 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
       await navigator.clipboard.writeText(address)
       notify.success(message)
     } catch {
-      notify.error(t("localBrowser.addressCopyFailed"))
+      notify.error(t("browserUse.addressCopyFailed"))
     }
   }
   return (
@@ -134,18 +134,18 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
       header={
         <SettingsSectionHeader
           id="browser-extension-heading"
-          title={t("localBrowser.title")}
-          description={t("localBrowser.description")}
+          title={t("browserUse.title")}
+          description={t("browserUse.description")}
         />
       }
     >
       <div className="grid min-w-0 gap-4">
         <Badge variant="secondary" className="w-fit whitespace-normal">
-          {t("localBrowser.supportedBrowsers")}
+          {t("browserUse.supportedBrowsers")}
         </Badge>
         {!supportedBrowser && (
-          <StatusBanner title={t("localBrowser.unsupportedTitle")}>
-            <p>{t("localBrowser.unsupportedDescription")}</p>
+          <StatusBanner title={t("browserUse.unsupportedTitle")}>
+            <p>{t("browserUse.unsupportedDescription")}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
                 nativeButton={false}
@@ -161,7 +161,7 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
                 }
               >
                 <ExternalLinkIcon aria-hidden="true" />
-                {t("localBrowser.getChrome")}
+                {t("browserUse.getChrome")}
               </Button>
               <Button
                 nativeButton={false}
@@ -177,7 +177,7 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
                 }
               >
                 <ExternalLinkIcon aria-hidden="true" />
-                {t("localBrowser.getEdge")}
+                {t("browserUse.getEdge")}
               </Button>
               <Button
                 variant="ghost"
@@ -185,7 +185,7 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
                 onClick={() => void copyAddress(location.href)}
               >
                 <CopyIcon aria-hidden="true" />
-                {t("localBrowser.copyAppAddress")}
+                {t("browserUse.copyAppAddress")}
               </Button>
             </div>
           </StatusBanner>
@@ -193,26 +193,26 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
         {supportedBrowser && (
           <p role="status" aria-live="polite" className="text-sm font-medium">
             {status.data?.connected
-              ? t("localBrowser.connected", {
+              ? t("browserUse.connected", {
                   browser: status.data.browser === "edge" ? "Edge" : "Chrome",
                 })
-              : t("localBrowser.disconnected")}
+              : t("browserUse.disconnected")}
           </p>
         )}
         <p className="text-sm text-muted-foreground">
-          {t("localBrowser.examples")}
+          {t("browserUse.examples")}
         </p>
         <p className="text-xs text-muted-foreground">
-          {t("localBrowser.privacy")}
+          {t("browserUse.privacy")}
         </p>
         {supportedBrowser && (
           <div className="space-y-3">
             <h3 className="text-sm font-semibold">
-              {t("localBrowser.install")}
+              {t("browserUse.install")}
             </h3>
             <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">
               <Trans
-                i18nKey="localBrowser.steps"
+                i18nKey="browserUse.steps"
                 values={{ address: extensionAddress }}
                 components={{
                   step: <li />,
@@ -228,7 +228,7 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
                   extensions: (
                     <InstructionAction
                       icon={ExternalLinkIcon}
-                      aria-label={t("localBrowser.openAddress", {
+                      aria-label={t("browserUse.openAddress", {
                         address: extensionAddress,
                       })}
                       disabled={action.isPending}
@@ -250,19 +250,19 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
           <p className="text-sm text-muted-foreground">
             {t(
               detected === null
-                ? "localBrowser.detecting"
+                ? "browserUse.detecting"
                 : detected
-                  ? "localBrowser.ready"
-                  : "localBrowser.notDetected"
+                  ? "browserUse.ready"
+                  : "browserUse.notDetected"
             )}
           </p>
         )}
         {pending && !status.data?.connected && (
-          <StatusBanner>{t("localBrowser.pending")}</StatusBanner>
+          <StatusBanner>{t("browserUse.pending")}</StatusBanner>
         )}
         {(action.isError || status.isError) && (
           <StatusBanner variant="error">
-            {t("localBrowser.failed")}
+            {t("browserUse.failed")}
           </StatusBanner>
         )}
         <div className="flex flex-wrap gap-2">
@@ -272,13 +272,13 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
             onClick={() => action.mutate("download")}
           >
             <DownloadIcon aria-hidden="true" />
-            {t("localBrowser.download")}
+            {t("browserUse.download")}
           </Button>
           <Button
             disabled={!supportedBrowser || !detected || action.isPending}
             onClick={() => action.mutate("connect")}
           >
-            {t("localBrowser.connect")}
+            {t("browserUse.connect")}
           </Button>
           {status.data?.connected && (
             <Button
@@ -286,7 +286,7 @@ export function BrowserExtensionSettings({ userId }: { userId?: string }) {
               disabled={action.isPending}
               onClick={() => action.mutate("disconnect")}
             >
-              {t("localBrowser.disconnect")}
+              {t("browserUse.disconnect")}
             </Button>
           )}
         </div>

@@ -1,6 +1,6 @@
 import type { Locale } from "@linksense/shared"
 
-export const localBrowserMessages = {
+export const browserUseMessages = {
   "zh-CN": {
     supportedBrowsers: "目前仅支持桌面版 Chrome / Edge",
     unsupportedTitle: "请使用 Chrome 或 Edge",

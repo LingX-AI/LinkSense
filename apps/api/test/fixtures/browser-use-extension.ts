@@ -1,8 +1,8 @@
 import Fastify from "fastify";
 import type { PrismaClient } from "../../src/generated/prisma/client.js";
-import { registerLocalBrowserRoutes } from "../../src/modules/local-browser/routes.js";
-import { LocalBrowserService } from "../../src/modules/local-browser/service.js";
-import { MemoryBrowserStore } from "../local-browser-store.js";
+import { registerBrowserUseRoutes } from "../../src/modules/browser-use/routes.js";
+import { BrowserUseService } from "../../src/modules/browser-use/service.js";
+import { MemoryBrowserStore } from "../browser-use-store.js";
 import type { Duplex } from "node:stream";
 import { createRedisFixture } from "./redis.js";
 
@@ -18,9 +18,9 @@ export async function createBrowserExtensionFixture(owner: string, date: Date) {
   );
   api.get("/conversations/new", async (_request, reply) => reply.type("text/html").send("<!doctype html><html><body>LinkSense task fixture</body></html>"));
   api.get("/conversations/:id", async (_request, reply) => reply.type("text/html").send("<!doctype html><html><body>LinkSense task fixture</body></html>"));
-  const service = new LocalBrowserService(
+  const service = new BrowserUseService(
     new MemoryBrowserStore(),
-    "http://127.0.0.1/api/v1/local-browser",
+    "http://127.0.0.1/api/v1/browser-use",
   );
   const prisma = {
     user: {
@@ -33,13 +33,13 @@ export async function createBrowserExtensionFixture(owner: string, date: Date) {
   };
   const redis = await createRedisFixture();
   api.addHook("onClose", async () => redis.close());
-  await registerLocalBrowserRoutes(api, {
+  await registerBrowserUseRoutes(api, {
     redis: redis.client,
-    rateLimitHmacSecret: "test-local-browser-rate-limit-secret",
+    rateLimitHmacSecret: "test-browser-use-rate-limit-secret",
     service,
     prisma: prisma as unknown as PrismaClient,
     sharedSecret: "test-runner",
-    socketPath: "/api/v1/local-browser/socket",
+    socketPath: "/api/v1/browser-use/socket",
     intent: { detect: async () => false },
   });
   const transports = new Set<Duplex>();

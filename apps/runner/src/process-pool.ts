@@ -4503,13 +4503,13 @@ export class AppServerProcessPool {
     return this.options.eventSink.requestMonitoringStop({ conversationId, turnId: managed.activeProjectionTurnId });
   }
 
-  async localBrowser(conversationId: string, token: string, input: import("@linksense/shared").LocalBrowserRequest, signal: AbortSignal): Promise<unknown> {
+  async browserUse(conversationId: string, token: string, input: import("@linksense/shared").BrowserUseRequest, signal: AbortSignal): Promise<unknown> {
     const managed = this.processes.get(conversationId);
     if (!managed?.activeTurnId || !managed.activeProjectionTurnId || !safeTokenEqual(token, managed.currentUserToken)) throw new ConversationReferenceRequestError(403);
-    const { localBrowserReadOnly, localBrowserFailure } = await import("@linksense/shared");
-    if (managed.activeCollaborationMode === "plan" && !localBrowserReadOnly(input)) return localBrowserFailure("LOCAL_BROWSER_ACCESS_DENIED");
-    if (!this.options.eventSink.localBrowser) return localBrowserFailure("LOCAL_BROWSER_NOT_CONNECTED");
-    return this.options.eventSink.localBrowser({ conversationId, turnId: managed.activeProjectionTurnId, input, signal });
+    const { browserUseReadOnly, browserUseFailure } = await import("@linksense/shared");
+    if (managed.activeCollaborationMode === "plan" && !browserUseReadOnly(input)) return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
+    if (!this.options.eventSink.browserUse) return browserUseFailure("BROWSER_USE_NOT_CONNECTED");
+    return this.options.eventSink.browserUse({ conversationId, turnId: managed.activeProjectionTurnId, input, signal });
   }
 
   async browserPanel(conversationId: string, ownerId: string, request: import("@linksense/shared").BrowserPanelRequest): Promise<import("@linksense/shared").BrowserPanelState> {
