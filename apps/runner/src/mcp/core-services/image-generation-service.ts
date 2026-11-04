@@ -16,6 +16,7 @@ import { z } from "zod"
 import sharp from "sharp"
 
 import { readWorkspaceDocument } from "./document-conversion.js"
+import { ImageGenerationRequestError, imageGenerationErrorFromTransport } from "../../image-generation-error.js"
 
 import {
   removeSharedWorkspaceFile,
@@ -213,13 +214,13 @@ async function requestImages(input: {
     },
     body: JSON.stringify(input.body),
     signal: withRequestTimeout(input.signal, 180_000),
-  })
+  }).catch((error: unknown) => { throw imageGenerationErrorFromTransport(error) })
   const result = await parseResponse(response)
   if (!response.ok) {
     throw new ImageGenerationMcpError(
       mcpFailureFromResponse(result) ?? {
-        code: "IMAGE_GENERATION_UNAVAILABLE",
-        retryable: true,
+        code: "INTERNAL_ERROR",
+        retryable: false,
       },
     )
   }
@@ -308,18 +309,21 @@ async function parseResponse(response: Response): Promise<unknown> {
     return await response.json()
   } catch {
     throw new ImageGenerationMcpError({
-      code: "IMAGE_GENERATION_UNAVAILABLE",
-      retryable: true,
+      code: "INTERNAL_ERROR",
+      retryable: false,
     })
   }
 }
 
 function classifyFailure(error: unknown): ImageGenerationMcpFailure {
   if (error instanceof ImageGenerationMcpError) return error.failure
+  if (error instanceof ImageGenerationRequestError) {
+    return { code: error.code, retryable: error.retryable, ...error.providerDetails }
+  }
   if (error instanceof z.ZodError) {
     return { code: "IMAGE_GENERATION_INVALID", retryable: false }
   }
-  return { code: "IMAGE_GENERATION_UNAVAILABLE", retryable: true }
+  return { code: "INTERNAL_ERROR", retryable: false }
 }
 
 function mcpFailureFromResponse(

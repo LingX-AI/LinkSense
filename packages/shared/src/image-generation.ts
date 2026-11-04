@@ -349,6 +349,7 @@ export const imageGenerationMcpSuccessSchema = z.strictObject({
 })
 
 export const imageGenerationFailureCodeSchema = z.enum([
+  "INTERNAL_ERROR",
   "IMAGE_GENERATION_NOT_CONFIGURED",
   "IMAGE_GENERATION_FORBIDDEN",
   "IMAGE_GENERATION_TURN_INACTIVE",

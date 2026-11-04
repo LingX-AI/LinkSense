@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { imageGenerationErrorFromApi } from "../src/image-generation-error.js";
+import { imageGenerationErrorFromApi, imageGenerationErrorFromTransport } from "../src/image-generation-error.js";
 
 describe("imageGenerationErrorFromApi", () => {
+  it.each([new TypeError("fetch failed"), new DOMException("timed out", "TimeoutError"), new DOMException("aborted", "AbortError")])(
+    "maps a fetch transport error to retryable unavailability: %s", (error) => {
+      expect(imageGenerationErrorFromTransport(error)).toMatchObject({ code: "IMAGE_GENERATION_UNAVAILABLE", retryable: true, statusCode: 503 })
+    },
+  );
+  it.each([new RangeError("Maximum call stack size exceeded"), new Error("synthetic-private-token")])(
+    "never treats a program exception as a transport outage: %s", (error) => {
+      expect(imageGenerationErrorFromTransport(error)).toMatchObject({ code: "INTERNAL_ERROR", retryable: false, statusCode: 500 })
+    },
+  );
   it.each([
     ["IMAGE_GENERATION_INPUT_INVALID", 400],
     ["IMAGE_GENERATION_EDIT_UNSUPPORTED", 422],
@@ -33,17 +43,16 @@ describe("imageGenerationErrorFromApi", () => {
     });
   });
 
-  it("does not misclassify an unknown internal 4xx as a provider rejection", () => {
-    const error = imageGenerationErrorFromApi(404, {
-      error_code: "RUNNER_ROUTE_NOT_FOUND",
-    });
-
-    expect(error).toMatchObject({
-      code: "IMAGE_GENERATION_UNAVAILABLE",
-      retryable: true,
-      statusCode: 503,
-      providerDetails: {},
-    });
+  it.each([
+    [500, { error_code: "INTERNAL_ERROR" }],
+    [404, { error_code: "RUNNER_ROUTE_NOT_FOUND" }],
+    [500, null],
+    [500, { message: "Maximum call stack size exceeded; synthetic-secret" }],
+  ])("does not turn an internal or unrecognized API failure (%i) into a retryable provider outage", (status, body) => {
+    const error = imageGenerationErrorFromApi(status, body);
+    expect(error).toMatchObject({ code: "INTERNAL_ERROR", retryable: false, statusCode: 500, providerDetails: {} });
+    expect(error.message).toBe("INTERNAL_ERROR");
+    expect(JSON.stringify(error)).not.toContain("synthetic-secret");
   });
 
   it("keeps retryable provider outage details without calling it a rejection", () => {

@@ -3,6 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+import sharp from "sharp"
+import { imageGenerationRequestSchema } from "@linksense/shared"
 
 import { imageGenerationCoreMcpModule } from "../src/mcp/core-services/image-generation-service.js"
 
@@ -15,23 +17,26 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
-async function harness() {
+async function harness(generated = original) {
   const root = await mkdtemp(join(tmpdir(), "linksense-image-edit-"))
   roots.push(root)
   await mkdir(join(root, "attachments"))
   await writeFile(join(root, "attachments", "original.png"), original)
-  const fetchMock = vi.fn<typeof fetch>(async (url) => new Response(JSON.stringify(
+  const fetchMock = vi.fn<typeof fetch>(async (url, init) => {
+    if (String(url).endsWith("/generate")) imageGenerationRequestSchema.parse(JSON.parse(String(init?.body)))
+    return new Response(JSON.stringify(
     String(url).endsWith("/generate") ? {
       success: true, provider: "openai", model: "gpt-image-2", image_count: 1,
       unit_price: "0.25", total_cost: "0.25", currency: "USD",
       transparency: { requested: false, strategy: "none", chroma_key: null },
-      images: [{ data_base64: original.toString("base64"), mime_type: "image/png", display_name: "Edited portrait.png", has_transparency: false }],
+      images: [{ data_base64: generated.toString("base64"), mime_type: "image/png", display_name: "Edited portrait.png", has_transparency: false }],
     } : {
       success: true, artifact_id: "01900000-0000-7000-8000-000000000010",
       file_id: "01900000-0000-7000-8000-000000000011", display_name: "Edited portrait.png",
       download_card_event_id: "01900000-0000-7000-8000-000000000012",
     },
-  ), { headers: { "content-type": "application/json" } }))
+  ), { headers: { "content-type": "application/json" } })
+  })
   vi.stubGlobal("fetch", fetchMock)
   const module = imageGenerationCoreMcpModule.create({ workspaceRoot: root, environment: {
     LINKSENSE_IMAGE_GENERATION_ENDPOINT: "http://images.example.test/generate",
@@ -48,6 +53,59 @@ async function harness() {
 }
 
 describe("image editing file boundary", () => {
+  it("generates a 4 MiB PNG, edits an original WebP and edits the generated artifact again", async () => {
+    const generated = await sharp({ create: { width: 1024, height: 1024, channels: 4, background: "blue" } }).png({ compressionLevel: 0 }).toBuffer()
+    expect(generated.length).toBeGreaterThan(4 * 1024 * 1024)
+    const { root, fetchMock, call } = await harness(generated)
+    const webp = await sharp(original).webp().toBuffer()
+    await writeFile(join(root, "attachments/original.webp"), webp)
+    const first = await call({})
+    expect(first.isError).toBe(false)
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).not.toHaveProperty("input_images")
+    const registration = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { workspaceRelativePath: string }
+    expect((await readFile(join(root, registration.workspaceRelativePath))).equals(generated)).toBe(true)
+    expect((await call({ input_images: ["attachments/original.webp"] })).isError).toBe(false)
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toMatchObject({ input_images: [{ mime_type: "image/webp", data_base64: webp.toString("base64") }] })
+    expect((await call({ input_images: [registration.workspaceRelativePath] })).isError).toBe(false)
+    expect(JSON.parse(String(fetchMock.mock.calls[4]?.[1]?.body))).toMatchObject({ input_images: [{ mime_type: "image/png", data_base64: generated.toString("base64") }] })
+    expect(fetchMock).toHaveBeenCalledTimes(6)
+  })
+
+  it.each([
+    { code: "INTERNAL_ERROR", retryable: false },
+    { error_code: "INTERNAL_ERROR", message: "synthetic-private-token" },
+    { code: "UNKNOWN_FAILURE", retryable: true },
+  ])("returns an API internal failure as a non-retryable tool error: %j", async (body) => {
+    const { fetchMock, call } = await harness()
+    fetchMock.mockResolvedValueOnce(Response.json(body, { status: 500 }))
+    const result = await call({ input_images: ["attachments/original.png"] })
+    expect(result).toMatchObject({ isError: true, content: [{ text: JSON.stringify({ code: "INTERNAL_ERROR", retryable: false }) }] })
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it("does not invite retries after an unexpected local RangeError", async () => {
+    const { fetchMock, call } = await harness()
+    fetchMock.mockRejectedValueOnce(new RangeError("Maximum call stack size exceeded; synthetic-private-token"))
+    const result = await call({})
+    expect(result).toMatchObject({ isError: true, content: [{ text: JSON.stringify({ code: "INTERNAL_ERROR", retryable: false }) }] })
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it.each([500, 502])("does not turn an unreadable API error (%i) into a retryable tool failure", async (status) => {
+    const { fetchMock, call } = await harness()
+    fetchMock.mockResolvedValueOnce(new Response("<html>synthetic-private-token</html>", { status }))
+    expect(await call({})).toMatchObject({ isError: true, content: [{ text: JSON.stringify({ code: "INTERNAL_ERROR", retryable: false }) }] })
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it("keeps a transport failure retryable without issuing another request", async () => {
+    const { fetchMock, call } = await harness()
+    fetchMock.mockRejectedValueOnce(new TypeError("fetch failed; synthetic-private-token"))
+    const result = await call({})
+    expect(result).toMatchObject({ isError: true, content: [{ text: JSON.stringify({ code: "IMAGE_GENERATION_UNAVAILABLE", retryable: true }) }] })
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
   it("sends exact original bytes, registers a new image and allows editing that result again", async () => {
     const { root, fetchMock, call } = await harness()
     const first = await call({ input_images: ["attachments/original.png"] })
