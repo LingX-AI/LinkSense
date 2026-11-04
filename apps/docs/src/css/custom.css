@@ -1192,18 +1192,30 @@ html [class*="backToTopButton"]:hover {
     position: absolute;
     top: 0;
     left: -1px;
-    width: 2px;
+    width: calc(var(--linksense-toc-marker-arm, 8px) + 2px);
     height: var(--linksense-toc-marker-size, 0px);
     transform: translateY(var(--linksense-toc-marker-offset, 0px));
-    border-radius: 999px;
     background: var(--ifm-color-primary);
+    clip-path: polygon(
+      0 0,
+      2px 0,
+      2px 8px,
+      calc(100% - 2px) 16px,
+      calc(100% - 2px) 100%,
+      100% 100%,
+      100% 16px,
+      0 8px
+    );
     content: "";
     pointer-events: none;
   }
 
   @media (prefers-reduced-motion: no-preference) {
     .linksense-toc .table-of-contents::before {
-      transition: transform 180ms ease-out, height 180ms ease-out;
+      transition:
+        transform 180ms ease-out,
+        width 180ms ease-out,
+        height 180ms ease-out;
     }
   }
 

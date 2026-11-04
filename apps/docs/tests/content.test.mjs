@@ -467,7 +467,7 @@ test("desktop pages expose a responsive native table of contents", async () => {
   );
   assert.match(
     theme,
-    /\.linksense-toc \.table-of-contents::before\s*\{[\s\S]*width:\s*2px;[\s\S]*transform:\s*translateY/u,
+    /\.linksense-toc \.table-of-contents::before\s*\{[\s\S]*width:\s*calc\(var\(--linksense-toc-marker-arm, 8px\) \+ 2px\);[\s\S]*clip-path:\s*polygon\(/u,
   );
   assert.match(
     theme,
@@ -488,8 +488,10 @@ test("public documentation shares the website theme and keeps sidebar selection 
   assert.match(theme, /\.website-doc-search \.navbar__search \[class\*="dropdownMenu"\]\s*\{\s*left:\s*0 !important;\s*right:\s*auto !important;/u);
   assert.match(theme, /\.theme-doc-sidebar-container\s*\{[\s\S]*clip-path:\s*none !important;/u);
   assert.match(theme, /\.navbar\.navbar-sidebar--show\s*\{\s*backdrop-filter:\s*none;/u);
+  assert.match(theme, /\.website-header-actions > \[class\*="navbarSearchContainer"\]\s*\{\s*position:\s*static;\s*right:\s*auto;/u);
+  assert.match(theme, /\.navbar__inner:has\(\.navbar__search:focus-within\) \.navbar__brand\s*\{\s*display:\s*none;/u);
   const labels = [...config.matchAll(/label:\s*"([^"]+)",\s*position:\s*"left"/gu)].map(([, label]) => label);
-  assert.deepEqual(labels, ["文档", "开发者", "社区"]);
+  assert.deepEqual(labels, ["文档", "社区"]);
 });
 
 test("help center controls use softened interaction states and consistent popovers", async () => {

@@ -24,6 +24,7 @@ export default function TOC({ className, ...props }: Props) {
       }
       if (!next) {
         list.style.removeProperty("--linksense-toc-marker-size")
+        list.style.removeProperty("--linksense-toc-marker-arm")
         return
       }
       const row = next.getBoundingClientRect()
@@ -35,6 +36,10 @@ export default function TOC({ className, ...props }: Props) {
       list.style.setProperty(
         "--linksense-toc-marker-size",
         `${Math.max(0, row.height - 8)}px`,
+      )
+      list.style.setProperty(
+        "--linksense-toc-marker-arm",
+        `${Math.max(6, row.left - rail.left - 2)}px`,
       )
     }
 

@@ -115,12 +115,6 @@ const config: Config = {
                 className: "website-nav-link",
               },
               {
-                to: "/deploy/development/",
-                label: "开发者",
-                position: "left" as const,
-                className: "website-nav-link",
-              },
-              {
                 href: "https://github.com/LingX-AI/linksense/discussions",
                 label: "社区",
                 position: "left" as const,

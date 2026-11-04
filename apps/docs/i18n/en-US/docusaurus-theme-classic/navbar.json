@@ -4,7 +4,6 @@
     "description": "The title in the navbar"
   },
   "item.label.文档": { "message": "Documentation" },
-  "item.label.开发者": { "message": "Developers" },
   "item.label.社区": { "message": "Community" },
   "item.label.在线体验": { "message": "Explore LinkSense" }
 }

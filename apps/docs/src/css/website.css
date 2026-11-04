@@ -340,7 +340,14 @@ body {
     display: none;
   }
   .website-header-actions {
+    min-width: 0;
+    flex: 0 1 auto;
     gap: 8px;
+  }
+  .website-header-actions > [class*="navbarSearchContainer"] {
+    position: static;
+    right: auto;
+    margin: 0 !important;
   }
   .website-header-actions .navbar__toggle {
     width: 48px;
@@ -382,5 +389,11 @@ body {
   .navbar__logo,
   .navbar__logo img {
     height: 28px;
+  }
+}
+
+@media (max-width: 576px) {
+  .navbar__inner:has(.navbar__search:focus-within) .navbar__brand {
+    display: none;
   }
 }

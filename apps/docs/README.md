@@ -29,7 +29,7 @@ tests/content.test.mjs                           # 文档结构、链接和双�
 
 官网仓库运行 `pnpm docs:build`，默认从相邻的 `../linksense` 构建并输出到官网的 `public/help/`，无需复制维护 Markdown。使用其他检出目录时设置 `LINKSENSE_REPO`。正式文档源地址通过 `LINKSENSE_DOCS_SITE_URL` 设置。官网构建完成后，中文为 `/help/`，英文为 `/help/en-US/`，部署指南分别位于这两个前缀下的 `deploy/`。
 
-公开构建还会读取官网通过 `LINKSENSE_WEBSITE_THEME` 传入的 `src/site-theme.css`，共用 `theme-tokens.css` 的字体、颜色、留白和页头尺寸，以及 `pill.css` 的按钮填充与文字滚动动画；`src/css/website.css` 将它们映射到文档布局。公开页头沿用官网的文档、开发者、社区三个主菜单及独立体验按钮，桌面搜索移到左栏；左侧激活条目与右侧当前锚点均保持常规字重，左侧只以背景区分。产品内置帮助继续使用原来的应用主题，不加载这份公开样式。
+公开构建还会读取官网通过 `LINKSENSE_WEBSITE_THEME` 传入的 `src/site-theme.css`，共用 `theme-tokens.css` 的字体、颜色、留白和页头尺寸，以及 `pill.css` 的按钮填充与文字滚动动画；`src/css/website.css` 将它们映射到文档布局。公开页头沿用官网的文档、社区两个主菜单及独立体验按钮，桌面搜索移到左栏；左侧激活条目与右侧当前锚点均保持常规字重，左侧只以背景区分。产品内置帮助继续使用原来的应用主题，不加载这份公开样式。
 
 `static/img/github.svg` 复用官网已有的官方 GitHub Invertocat，用于仓库入口；GitHub 保留其商标权。
 
