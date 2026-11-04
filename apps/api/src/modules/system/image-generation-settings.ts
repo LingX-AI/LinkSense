@@ -135,13 +135,22 @@ type ProviderImage = {
 }
 
 export class ImageGenerationSettingsService {
+  private readonly fetchImpl: ImageGenerationFetch
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly config: AppConfig,
     private readonly usageRecorder: ModelUsageRecorder,
-    private readonly fetchImpl: ImageGenerationFetch = fetch,
+    fetchImpl: ImageGenerationFetch = fetch,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+  ) {
+    this.fetchImpl = (...args) => fetchImpl(...args).catch((error: unknown) => {
+      if (error instanceof TypeError || (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name))) {
+        throw new AppError("IMAGE_GENERATION_UNAVAILABLE")
+      }
+      throw error
+    })
+  }
 
   async getAdminSettings(): Promise<ImageGenerationSettings> {
     return projectAdminSettings(await this.readStoredSettings())

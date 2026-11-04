@@ -36,6 +36,29 @@ afterEach(async () => {
 });
 
 describe("HttpRunnerEventSink", () => {
+  it("preserves an API internal image error through the relay without retries or sensitive details", async () => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ error_code: "INTERNAL_ERROR", message: "synthetic-private-token", request_id: "request-1" }, { status: 500 }));
+    const sink = new HttpRunnerEventSink("http://api:4000", "runner-secret", workspaceManager, { fetch: fetchMock });
+    try {
+      await expect(sink.generateImage({ conversationId, turnId: ownerId, request: { prompt: "A blue background", image_name: "Blue background", count: 1, background: "opaque", transparency_mode: "auto" } })).rejects.toMatchObject({ code: "INTERNAL_ERROR", message: "INTERNAL_ERROR", retryable: false, statusCode: 500 });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally { await sink.close(); }
+  });
+
+  it.each([
+    [new TypeError("fetch failed; synthetic-private-token"), "IMAGE_GENERATION_UNAVAILABLE", true],
+    [new RangeError("Maximum call stack size exceeded; synthetic-private-token"), "INTERNAL_ERROR", false],
+  ] as const)("distinguishes image transport and program failures at the fetch boundary: %s", async (error, code, retryable) => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(error);
+    const sink = new HttpRunnerEventSink("http://api:4000", "runner-secret", workspaceManager, { fetch: fetchMock });
+    try {
+      await expect(sink.generateImage({ conversationId, turnId: ownerId, request: { prompt: "A blue background", image_name: "Blue background", count: 1, background: "opaque", transparency_mode: "auto" } })).rejects.toMatchObject({ code, message: code, retryable });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally { await sink.close(); }
+  });
+
   it("relays connection operations with the task owner and redacts provider failures", async () => {
     const { workspaceManager } = await createWorkspaceManager();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ kind: "connections", items: [] }));
