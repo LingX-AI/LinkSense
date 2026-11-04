@@ -12,6 +12,8 @@ import { registerBrowserUseRoutes } from "./modules/browser-use/routes.js";
 import { BrowserUseService } from "./modules/browser-use/service.js";
 import { BrowserUseIntentService } from "./modules/browser-use/intent.js";
 import { RedisBrowserStore } from "./modules/browser-use/store.js";
+import { ComputerUseService } from "./modules/computer-use/service.js";
+import { registerComputerUseRoutes } from "./modules/computer-use/routes.js";
 import { finishTaskRequest, withTaskLatencyContext } from "./lib/task-latency.js";
 import cookie from "@fastify/cookie";
 import { socialAuthRoutes } from "./modules/social-auth/routes.js";
@@ -632,6 +634,16 @@ export async function buildApi(
     sharedSecret: services.config.runnerSharedSecret,
     socketPath: `${browserUseEndpoint.pathname}/socket`,
     intent: new BrowserUseIntentService(services.prisma, new RedisBrowserStore(services.redis.client), services.modelProviderSettings, services.usageAnalytics),
+  });
+  await registerComputerUseRoutes(app, {
+    ...(services.config.desktopClientArchive ? { clientArchive: services.config.desktopClientArchive } : {}),
+    ...(services.config.desktopClientArchiveWindows ? { windowsClientArchive: services.config.desktopClientArchiveWindows } : {}),
+    service: new ComputerUseService(new RedisBrowserStore(services.redis.client),
+      new URL("api/v1/computer-use", `${services.config.publicBaseUrl.replace(/\/$/, "")}/`).href),
+    prisma: services.prisma,
+    sharedSecret: services.config.runnerSharedSecret,
+    intent: new BrowserUseIntentService(services.prisma, new RedisBrowserStore(services.redis.client),
+      services.modelProviderSettings, services.usageAnalytics, "computer_use_intent"),
   });
   await app.register(internalAutomationRoutes, {
     prefix: "/internal/automations",

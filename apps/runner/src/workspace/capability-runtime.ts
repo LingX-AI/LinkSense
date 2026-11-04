@@ -8,6 +8,7 @@ import { z } from "zod"
 
 import {
   builtInSkillNames,
+  builtInSkillRuntimeName,
   type BuiltInSkillName,
   capabilitySnapshotDirectory,
   capabilitySnapshotManifest,
@@ -406,7 +407,7 @@ export class CapabilityRuntimeManager {
       names.add(capability.name)
     }
 
-    await this.assertExactSkillSources(paths.skillsRoot, skillNames)
+    await this.assertExactSkillSources(paths.skillsRoot, skillNames, input.capabilities)
     await this.assertExactPluginSources(paths.pluginSourceRoot, pluginNames)
     await this.assertCapabilityTree(paths.skillsRoot)
     for (const pluginName of [...pluginNames].sort()) {
@@ -456,9 +457,10 @@ export class CapabilityRuntimeManager {
   private async assertExactSkillSources(
     skillsRoot: string,
     authorizedSkillNames: ReadonlySet<string>,
+    capabilities: CapabilityRuntimeInput[],
   ): Promise<void> {
     const expected = [
-      ...this.#enabledBuiltInSkillNames,
+      ...this.#enabledBuiltInSkillNames.map((name) => builtInSkillRuntimeName(name, capabilities)),
       ...authorizedSkillNames,
     ].sort()
     const published = (await readdir(skillsRoot)).sort()

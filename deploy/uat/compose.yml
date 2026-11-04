@@ -21,6 +21,13 @@ services:
       context: ${LINKSENSE_SOURCE_ROOT}
       dockerfile: deploy/docker/Dockerfile.api
       target: runtime
+    volumes:
+      - type: bind
+        source: ${LINKSENSE_SOURCE_ROOT}/.data/uat/desktop
+        target: /opt/linksense-desktop
+        read_only: true
+        bind:
+          create_host_path: false
   web:
     build:
       context: ${LINKSENSE_SOURCE_ROOT}

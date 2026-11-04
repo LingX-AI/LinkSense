@@ -1,5 +1,6 @@
 import type { CapabilitySummary } from "@/api/contracts"
 import { capabilityPresentation } from "@/features/capabilities/built-in-presentation"
+import { computerUseMessages } from "@/features/computer-use/messages"
 import { enUS } from "@/i18n/en-US"
 import { zhCN } from "@/i18n/zh-CN"
 import { createInstance } from "i18next"
@@ -46,10 +47,10 @@ beforeAll(async () => {
   await translations.init({
     resources: {
       "zh-CN": {
-        translation: zhCN,
+        translation: { ...zhCN, computerUse: computerUseMessages["zh-CN"] },
       },
       "en-US": {
-        translation: enUS,
+        translation: { ...enUS, computerUse: computerUseMessages["en-US"] },
       },
     },
     fallbackLng: "zh-CN",
@@ -57,10 +58,9 @@ beforeAll(async () => {
 })
 
 describe("built-in capability presentation", () => {
-  it(
-    "does not relabel an existing custom Browser Use package as a built-in",
-    () => {
-      const name = "linksense-browser-use"
+  it.each(["linksense-browser-use", "linksense-computer-use"])(
+    "does not relabel an existing custom %s package as a built-in",
+    (name) => {
       expect(
         capabilityPresentation(
           {
@@ -94,6 +94,22 @@ describe("built-in capability presentation", () => {
     )
     expect(result.name).toBe("LinkSense Browser Use")
     expect(result.description).not.toBeNull()
+  })
+  it("localizes the Computer Use built-in", () => {
+    const result = capabilityPresentation(
+      {
+        ...docsCapability,
+        id: "builtin:capability:linksense-computer-use",
+        name: "linksense-computer-use",
+        builtin_key: "linksense-computer-use",
+      },
+      translations.getFixedT("en-US"),
+      "LinkSense"
+    )
+    expect(result.name).toBe("Computer Use")
+    expect(result.description).toBe(
+      "Operate this computer through the paired LinkSense helper."
+    )
   })
   it.each(["zh-CN", "en-US", "unknown"])(
     "shows optional personal names and formatted historical names in %s",

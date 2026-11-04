@@ -4218,6 +4218,7 @@ export const enUS = {
       memory_generation: "Memory generation",
       task_title_generation: "Task auto naming",
       browser_use_intent: "Browser intent detection",
+      computer_use_intent: "Computer intent detection",
       document_embedding: "Document embeddings",
       query_embedding: "Query embeddings",
       rerank: "Retrieval reranking",

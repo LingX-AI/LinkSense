@@ -100,6 +100,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { ProfileOverview } from "@/features/profile/profile-overview"
 import { BrowserNotificationSettings } from "@/features/browser-notifications/browser-notification-settings"
 import { BrowserExtensionSettings } from "@/features/browser-use/browser-extension-settings"
+import { ComputerUseSettings } from "@/features/computer-use/computer-use-settings"
 import { normalizeLanguage, supportedLanguages } from "@/i18n"
 import { useLanguageSelection } from "@/features/onboarding/use-language-selection"
 import { passwordSchema } from "@/lib/password"
@@ -117,8 +118,8 @@ export function SettingsGeneralPage() {
   const location = useLocation()
   const { user, refreshUser } = useAuth()
   useEffect(() => {
-    if (location.hash !== "#browser-extension") return
-    const target = document.getElementById("browser-extension")
+    if (!["#browser-extension", "#computer-use"].includes(location.hash)) return
+    const target = document.getElementById(location.hash.slice(1))
     target?.scrollIntoView({ block: "start", behavior: "instant" })
     target?.focus({ preventScroll: true })
   }, [location.key, location.hash])
@@ -265,6 +266,7 @@ export function SettingsGeneralPage() {
         </SettingsCard>
         <BrowserNotificationSettings userId={user?.id} />
         <BrowserExtensionSettings userId={user?.id} />
+        <ComputerUseSettings userId={user?.id} />
       </div>
     </SettingsPageFrame>
   )

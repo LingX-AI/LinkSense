@@ -371,6 +371,14 @@ const rawConfigSchema = z
       .string()
       .min(1)
       .refine(isAbsolute, "user_data_root_must_be_absolute"),
+    LINKSENSE_DESKTOP_CLIENT_ARCHIVE: z.preprocess(
+      (value) => value === "" ? undefined : value,
+      z.string().min(1).refine(isAbsolute, "desktop_client_archive_must_be_absolute").optional(),
+    ),
+    LINKSENSE_DESKTOP_CLIENT_ARCHIVE_WINDOWS: z.preprocess(
+      (value) => value === "" ? undefined : value,
+      z.string().min(1).refine(isAbsolute, "desktop_client_archive_must_be_absolute").optional(),
+    ),
     LINKSENSE_RUNNER_URL: z.url(),
     LINKSENSE_RUNNER_SHARED_SECRET: z.string().min(32),
     LINKSENSE_TRUST_PROXY: z.enum(["true", "false"]).default("false"),
@@ -581,6 +589,8 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
     },
     knowledge: projectKnowledgeConfig(raw),
     userDataRoot,
+    ...(raw.LINKSENSE_DESKTOP_CLIENT_ARCHIVE ? { desktopClientArchive: raw.LINKSENSE_DESKTOP_CLIENT_ARCHIVE } : {}),
+    ...(raw.LINKSENSE_DESKTOP_CLIENT_ARCHIVE_WINDOWS ? { desktopClientArchiveWindows: raw.LINKSENSE_DESKTOP_CLIENT_ARCHIVE_WINDOWS } : {}),
     // These are internal boundaries derived from the single deployment root.
     // They are not independently configurable.
     workspaceRoot: userDataRoot,

@@ -215,6 +215,7 @@ import { buildOfficeAnnotationInput } from "@/features/conversations/conversatio
 import { ConversationOfficeLayout } from "@/features/conversations/conversation-presentation-layout"
 import { BrowserUsePreview } from "@/features/browser-use/browser-use-preview"
 import { BrowserUsePrompt } from "@/features/browser-use/browser-use-prompt"
+import { ComputerUsePrompt } from "@/features/computer-use/computer-use-prompt"
 import { DEFAULT_SUBAGENT_DETAIL_VIEWPORT_RATIO } from "@/features/conversations/conversation-presentation-width"
 import {
   readUrlEnum,
@@ -6440,12 +6441,15 @@ export function ConversationPage({
           !readOnly &&
           !development &&
           !isApplicationConversation && (
+            <>
+            <ComputerUsePrompt userId={user.id} conversationId={isNew ? undefined : conversationId} messages={visibleMessages} />
             <BrowserUsePrompt
               key={user.id}
               userId={user.id}
               conversationId={isNew ? undefined : conversationId}
               messages={visibleMessages}
             />
+            </>
           )}
         {showConversationComposer && (
           <ConversationDraftComposer

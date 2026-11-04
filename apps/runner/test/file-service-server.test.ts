@@ -358,6 +358,7 @@ describe("LinkSense Core MCP subprocess", () => {
         .sort(),
     ).toEqual([
       "browser_use",
+      "computer_use",
       "convert_document_to_markdown",
       "emit_application_event",
       "get_current_user_info",

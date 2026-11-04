@@ -36,6 +36,25 @@ afterEach(async () => {
 });
 
 describe("HttpRunnerEventSink", () => {
+  it.each([
+    { status: 503, body: JSON.stringify({ ok: false, code: "COMPUTER_USE_COMMAND_FAILED", retryable: false, delivery: "unknown", help_path: "/settings/general#computer-use" }), code: "COMPUTER_USE_COMMAND_FAILED", delivery: "unknown" },
+    { status: 502, body: "<html>private upstream error</html>", code: "COMPUTER_USE_COMMAND_FAILED", delivery: "unknown" },
+    { status: 403, body: "Forbidden", code: "COMPUTER_USE_ACCESS_DENIED", delivery: "not_delivered" },
+  ])("preserves Computer Use delivery uncertainty for HTTP $status", async ({ status, body, code, delivery }) => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(body, { status }));
+    const sink = new HttpRunnerEventSink("http://api:4000", "runner-secret", workspaceManager, { fetch: fetchMock });
+    try {
+      expect(await sink.computerUse({
+        conversationId, turnId: ownerId,
+        input: { action: "click", device_id: ownerId, ref: "@snap:e1" },
+      })).toEqual({
+        ok: false, code, retryable: false, delivery, help_path: "/settings/general#computer-use",
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally { await sink.close(); }
+  });
+
   it("relays connection operations with the task owner and redacts provider failures", async () => {
     const { workspaceManager } = await createWorkspaceManager();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ kind: "connections", items: [] }));

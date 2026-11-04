@@ -40,6 +40,12 @@ export function capabilityPresentation(
       ),
     }
   }
+  if (capability.builtin_key === "linksense-computer-use") {
+    return {
+      name: t("computerUse.title"),
+      description: t("computerUse.builtInDescription"),
+    }
+  }
   const key =
     capabilityTranslationKeys[
       capability.builtin_key as keyof typeof capabilityTranslationKeys

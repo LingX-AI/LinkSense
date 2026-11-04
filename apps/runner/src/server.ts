@@ -15,6 +15,7 @@ import {
   applicationBuilderRequestSchema,
   userWorkspacePathSchema,
   builtInCapabilityDefinitionForId,
+  builtInSkillRuntimeName,
   capabilitySelectionIdSchema,
   conversationFormRequestedSchema,
   conversationFormResponseSemanticsSchema,
@@ -432,7 +433,9 @@ export const startTurnBodySchema = z
       if (builtIn) {
         if (
           builtIn.type !== requested.type ||
-          builtIn.slug !== requested.name
+          (builtIn.type === "skill"
+            ? builtInSkillRuntimeName(builtIn.key, body.capabilities)
+            : builtIn.slug) !== requested.name
         ) {
           context.addIssue({
             code: "custom",
@@ -1417,6 +1420,21 @@ export function buildRunnerServer(
     reply.raw.once("close", abort);
     try { return response(browserUseResultSchema.parse(await pool.browserUse(conversationId.data, token, body.data, controller.signal))); }
     catch (error) { return reply.code(error instanceof ConversationReferenceRequestError ? error.statusCode : 503).send(response(browserUseFailure("BROWSER_USE_COMMAND_FAILED"))); }
+    finally { reply.raw.off("close", abort); }
+  });
+
+  app.post<{ Params: { conversationId: string } }>("/mcp-current-user/:conversationId/computer-use", { bodyLimit: 40_000 }, async (request, reply) => {
+    const { computerUseRequestSchema, computerUseFailure } = await import("@linksense/shared");
+    const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
+    const id = uuid.safeParse(request.params.conversationId);
+    const input = computerUseRequestSchema.safeParse(request.body);
+    if (!token) return reply.code(401).send(computerUseFailure("COMPUTER_USE_ACCESS_DENIED"));
+    if (!id.success || !input.success) return reply.code(400).send(computerUseFailure("COMPUTER_USE_ACCESS_DENIED"));
+    const controller = new AbortController();
+    const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
+    reply.raw.once("close", abort);
+    try { return await pool.computerUse(id.data, token, input.data, controller.signal); }
+    catch (error) { return reply.code(error instanceof ConversationReferenceRequestError ? error.statusCode : 503).send(computerUseFailure("COMPUTER_USE_COMMAND_FAILED", "unknown")); }
     finally { reply.raw.off("close", abort); }
   });
 

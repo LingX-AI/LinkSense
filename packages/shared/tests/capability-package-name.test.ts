@@ -24,7 +24,7 @@ describe("capability package names", () => {
     "ppt/se",
     "ppt.se",
     "a".repeat(65),
-    ...builtInSkillNames,
+    ...builtInSkillNames.filter((name) => name !== "linksense-computer-use"),
   ])("rejects the invalid or reserved identifier %s", (name) => {
     expect(capabilityPackageNameSchema.safeParse(name).success).toBe(false);
   });

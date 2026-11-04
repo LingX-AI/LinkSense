@@ -1,0 +1,10 @@
+{
+  "name": "LinkSense helper",
+  "identifier": "org.linksense.desktop",
+  "version": "0.1.0",
+  "out": "build",
+  "icon": "assets/app-icon.png",
+  "urlSchemes": ["linksense-desktop"],
+  "linux": { "webview": false },
+  "i18n": { "dir": "locales", "source": "zh-CN" }
+}

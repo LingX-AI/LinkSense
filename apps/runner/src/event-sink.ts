@@ -32,6 +32,7 @@ import { skillManagementErrorFromApi } from "./skill-management-error.js";
 import type { InternalSkillManagementRequest } from "@linksense/shared";
 import { applicationBuilderErrorFromApi } from "./application-builder-error.js";
 import { currentUserInfoErrorFromApi } from "./current-user-error.js";
+import { readComputerUseResponse } from "./computer-use-response.js";
 import { automationErrorFromApi } from "./automation-error.js";
 import type { AutomationToolRequest } from "@linksense/shared";
 import { connectionErrorFromApi } from "./connection-error.js";
@@ -120,6 +121,7 @@ export interface RunnerEventSink {
   }): Promise<unknown>;
   readConversationReference?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ReadConversationReferenceInput }): Promise<unknown>;
   browserUse?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").BrowserUseRequest; signal?: AbortSignal }): Promise<unknown>;
+  computerUse?(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ComputerUseRequest; signal?: AbortSignal }): Promise<unknown>;
   requestMonitoringStop?(input: { conversationId: string; turnId: string }): Promise<unknown>;
   emitInteractiveApplicationEvent?(input: {
     conversationId: string;
@@ -537,6 +539,12 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     return parseResponseBody(response);
   }
 
+  async computerUse(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ComputerUseRequest; signal?: AbortSignal }): Promise<unknown> {
+    const { signal, ...body } = input;
+    const response = await this.request("/internal/computer-use/execute", body, this.workspaceManager.ownerFor(input.conversationId), signal);
+    return readComputerUseResponse(response);
+  }
+
   async emitInteractiveApplicationEvent(input: {
     conversationId: string;
     codexTurnId: string;
@@ -833,7 +841,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     ownerId: string,
     callerSignal?: AbortSignal,
   ): Promise<Response> {
-    const timeoutMs = pathname === "/internal/runner/heartbeat" || pathname === "/internal/runner/start-settled"
+    const timeoutMs = pathname === "/internal/computer-use/execute" ? 70_000 : pathname === "/internal/runner/heartbeat" || pathname === "/internal/runner/start-settled"
       ? 5_000
       : pathname.startsWith("/internal/knowledge/")
       ? deriveKnowledgeSearchTimeouts(

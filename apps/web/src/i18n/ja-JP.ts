@@ -4463,6 +4463,7 @@ export const jaJP = {
       memory_generation: "メモリ生成",
       task_title_generation: "タスクの自動命名",
       browser_use_intent: "ブラウザー操作の意図検出",
+      computer_use_intent: "パソコン操作の意図検出",
       document_embedding: "ドキュメントのベクトル化",
       query_embedding: "クエリのベクトル化",
       rerank: "検索結果の再ランキング",

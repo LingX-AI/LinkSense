@@ -7,6 +7,8 @@ import { browserUsePairResponseSchema, localizedErrorMessage, supportedLocales }
 import type { PrismaClient } from "../src/generated/prisma/client.js";
 import { registerBrowserUseRoutes } from "../src/modules/browser-use/routes.js";
 import { BrowserUseService } from "../src/modules/browser-use/service.js";
+import { registerComputerUseRoutes } from "../src/modules/computer-use/routes.js";
+import { ComputerUseService } from "../src/modules/computer-use/service.js";
 import { sendAppError } from "../src/lib/http.js";
 import { AppError } from "../src/lib/errors.js";
 import { MemoryBrowserStore } from "./browser-use-store.js";
@@ -35,6 +37,7 @@ afterAll(async () => {
 async function fixture(
   endpoint = "http://127.0.0.1/api/v1/browser-use",
   rateLimitRedis = redis,
+  includeComputerUse = false,
 ) {
   const app = Fastify();
   apps.push(app);
@@ -82,6 +85,12 @@ async function fixture(
     prisma: prisma as unknown as PrismaClient,
     sharedSecret: "runner-secret",
     socketPath: "/api/v1/browser-use/socket",
+    intent,
+  });
+  if (includeComputerUse) await registerComputerUseRoutes(app, {
+    service: new ComputerUseService(service.store, new URL("computer-use", endpoint).href),
+    prisma: prisma as unknown as PrismaClient,
+    sharedSecret: "runner-secret",
     intent,
   });
   await app.ready();
@@ -332,7 +341,7 @@ it.each(["browser-use", "local-browser"])("denies published service sessions acc
   expect(execute).not.toHaveBeenCalled();
 });
 it.each(["browser-use", "local-browser"])("authenticates %s extension sockets and revokes the connection across workers", async (channel) => {
-  const { app, service } = await fixture();
+  const { app, service } = await fixture(undefined, redis, true);
   const pairing = await service.pairing(owner, authDate.toISOString());
   const token = await service.pair(pairing.code);
   const address = await app.listen({ host: "127.0.0.1", port: 0 });

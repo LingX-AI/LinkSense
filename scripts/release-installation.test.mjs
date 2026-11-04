@@ -35,7 +35,7 @@ test("the release gateway preserves the public protocol reported by a reverse pr
     gateway.match(
       /proxy_set_header X-Forwarded-Proto \$linksense_forwarded_proto;/gu,
     )?.length,
-    7,
+    8,
   )
   assert.match(
     gateway,
@@ -123,6 +123,78 @@ test("the installer checks the host before creating persistent state", async () 
   assert.match(source, /LINKSENSE_RELEASE_BASE_URL=/u)
   assert.doesNotMatch(source, /^\s*\. "\$INSTALL_DIR\/\.env"/mu)
   assert.doesNotMatch(source, /docker\s+(?:system\s+)?prune|compose\s+down\s+-v|volume\s+rm|reset --hard/iu)
+})
+
+test("release desktop archive settings survive fresh configuration and upgrades", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "linksense-desktop-env-"))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const installer = await readFile(path.join(releaseDirectory, "linksense-installer.sh"), "utf8")
+  const functions = ["load_strict_env", "write_runtime_env"].map((name) => {
+    const source = installer.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, "mu"))?.[0]
+    assert.ok(source, `missing ${name}`)
+    return source
+  }).join("\n")
+  const harness = path.join(directory, "runtime-env.sh")
+  await writeExecutable(harness, `#!/bin/sh
+set -eu
+fail() { printf '%s\\n' "$*" >&2; exit 1; }
+${functions}
+if [ "$1" = upgrade ] || [ "$1" = legacy-upgrade ]; then load_strict_env "$INSTALL_DIR/.env" runtime; fi
+write_runtime_env
+load_strict_env "$INSTALL_DIR/.env" runtime
+`)
+  const environment = {
+    ...Object.fromEntries([
+      "LINKSENSE_DOCKER_SOCKET_SOURCE", "LINKSENSE_DOCKER_SOCKET_PATH",
+      "LINKSENSE_PUBLIC_BASE_URL", "LINKSENSE_PUBLIC_SCHEME", "LINKSENSE_PLATFORM",
+      "POSTGRES_PASSWORD", "REDIS_PASSWORD", "LINKSENSE_JWT_SECRET",
+      "LINKSENSE_LOGIN_RATE_LIMIT_HMAC_SECRET", "LINKSENSE_PASSWORD_RESET_RATE_LIMIT_HMAC_SECRET",
+      "LINKSENSE_CREDENTIAL_MASTER_KEY", "LINKSENSE_RUNNER_SHARED_SECRET",
+      "LINKSENSE_INITIALIZATION_TOKEN", "MINIO_ROOT_PASSWORD", "MINIO_SECRET_KEY",
+      "IMAGE_LINKSENSE_API", "IMAGE_LINKSENSE_WEB", "IMAGE_LINKSENSE_MIGRATE",
+      "IMAGE_LINKSENSE_RUNNER", "IMAGE_LINKSENSE_WORKER", "IMAGE_LINKSENSE_WORKER_DIGEST",
+      "IMAGE_POSTGRES", "IMAGE_REDIS", "IMAGE_MINIO", "IMAGE_MINIO_CLIENT",
+      "IMAGE_BUSYBOX", "IMAGE_GATEWAY",
+    ].map((key) => [key, "fixture"])),
+    PATH: process.env.PATH,
+    EDITION: "core", HTTP_PORT: "18081", RELEASE_VERSION: "v0.3.12",
+    RESOURCE_HOST_ADAPTATION_FORMAT: "1",
+  }
+  const archives = {
+    LINKSENSE_DESKTOP_CLIENT_ARCHIVE: "/srv/desktop/macos.zip",
+    LINKSENSE_DESKTOP_CLIENT_ARCHIVE_WINDOWS: "/srv/desktop/windows.exe",
+  }
+  for (const mode of ["unconfigured", "fresh", "upgrade", "legacy-upgrade"]) {
+    await t.test(mode, async () => {
+      const installDirectory = path.join(directory, mode)
+      await mkdir(installDirectory)
+      if (mode.endsWith("upgrade")) await writeFile(path.join(installDirectory, ".env"), [
+        "LINKSENSE_VERSION=v0.3.11",
+        ...(mode === "upgrade" ? Object.entries(archives).map(([key, value]) => `${key}=${value}`) : []),
+        "",
+      ].join("\n"))
+      const result = spawnSync("/bin/sh", [harness, mode], {
+        encoding: "utf8",
+        env: { ...environment, INSTALL_DIR: installDirectory, ...(mode === "fresh" ? archives : {}) },
+      })
+      assert.equal(result.status, 0, result.stderr)
+      const entries = (await readFile(path.join(installDirectory, ".env"), "utf8")).split("\n")
+      assert.ok(entries.includes("LINKSENSE_VERSION=v0.3.12"))
+      for (const [key, value] of Object.entries(archives)) {
+        if (mode === "fresh" || mode === "upgrade") assert.ok(entries.includes(`${key}=${value}`), `${mode} did not retain ${key}`)
+        else assert.ok(!entries.some((entry) => entry.startsWith(`${key}=`)))
+      }
+    })
+  }
+})
+
+test("the release API receives optional desktop archive paths", async () => {
+  const compose = await readFile(path.join(releaseDirectory, "compose.common.yml"), "utf8")
+  const api = compose.split("\n  api:\n")[1]?.split("\n  web:\n")[0]
+  assert.ok(api)
+  for (const key of ["LINKSENSE_DESKTOP_CLIENT_ARCHIVE", "LINKSENSE_DESKTOP_CLIENT_ARCHIVE_WINDOWS"]) {
+    assert.ok(api.includes(`      ${key}: \${${key}:-}`), `API does not receive ${key}`)
+  }
 })
 
 test("memory preflight keeps Core and Full limits and explains Docker VM allocation on supported hosts", async () => {

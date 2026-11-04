@@ -5455,6 +5455,46 @@ describe("ConversationService ownership and draft lifecycle", () => {
     });
   });
 
+  it("starts the built-in Computer Use projection separately from pre-existing custom names", async () => {
+    const fixture = await conversationFixture();
+    const builtInId = "builtin:capability:linksense-computer-use";
+    const capabilities: ExecutionCapability[] = ["linksense-computer-use", "linksense-computer-use-builtin-1"].map((name, index) => ({
+      id: `60000000-0000-4000-8000-00000000000${index + 1}`,
+      type: "skill", name, description: null,
+      sourcePath: `/private/capability/${name}`, revision: "2026-07-19T00:00:00.000Z",
+      sourceType: "local",
+    }));
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
+    fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
+    fixture.preflight.resolve.mockResolvedValue({
+      capabilities,
+      capabilityGeneration: CAPABILITY_GENERATION,
+      capabilityVerification: CAPABILITY_VERIFICATION,
+    });
+
+    await fixture.service.startTurn(OWNER_ID, CONVERSATION_ID, {
+      inputText: "use selected skills",
+      priorityCapabilityIds: [builtInId, capabilities[0]!.id],
+      submitMode: "normal",
+    }, {});
+
+    expect(fixture.runner.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      context: expect.objectContaining({
+        prioritySkills: [
+          { id: builtInId, name: "linksense-computer-use-builtin-2", description: null },
+          { id: capabilities[0]!.id, name: "linksense-computer-use", description: null },
+        ],
+      }),
+      capabilities: capabilities.map(({ id, name, type, revision }) => ({ id, name, type, revision })),
+    }));
+    expect(fixture.defaultTransaction.conversationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: "conversation.capability.attached",
+        payloadJson: expect.objectContaining({ capability_id: builtInId, name: "linksense-computer-use" }),
+      }),
+    });
+  });
+
   it("passes the latest persisted model's exact source runtime when the selected model changes", async () => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findFirst.mockResolvedValue(

@@ -270,6 +270,28 @@ describe("conversation slash command resource panels", () => {
     expect(onSelectCapability).toHaveBeenCalledWith(builtInSkillFixture.id)
   })
 
+  it("finds Computer Use from the slash query and selects its built-in Skill", async () => {
+    const interaction = userEvent.setup()
+    const onSelectCapability = vi.fn()
+    const computerUse = {
+      ...builtInSkillFixture,
+      id: "builtin:capability:linksense-computer-use",
+      name: "linksense-computer-use",
+      slug: "linksense-computer-use",
+      builtin_key: "linksense-computer-use",
+    }
+    renderMenu("root", {
+      query: "comp",
+      capabilities: [computerUse],
+      onSelectCapability,
+    })
+
+    const option = screen.getByRole("option", { name: /Computer Use/ })
+    expect(option).toHaveTextContent("内置")
+    await interaction.click(option)
+    expect(onSelectCapability).toHaveBeenCalledWith(computerUse.id)
+  })
+
   it("selects Browser Use with its persisted builtin ID beside an existing custom package", async () => {
     const interaction = userEvent.setup()
     const onSelectCapability = vi.fn()

@@ -86,6 +86,56 @@ afterEach(async () => {
 });
 
 describe("AppServerProcessPool", () => {
+  it.each([
+    { builtin: "linksense-local-browser", runtimeName: "linksense-local-browser" },
+    { builtin: "linksense-computer-use", runtimeName: "linksense-computer-use-builtin-2" },
+  ])("selects the authored $builtin Skill without shadowing custom collision names", async ({ builtin, runtimeName }) => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-builtin-compatibility-"));
+    roots.push(root);
+    const customNames = ["linksense-browser-use", "linksense-computer-use", "linksense-computer-use-builtin-1"];
+    const capabilities = customNames.map((name, index) => ({
+      id: `60000000-0000-4000-8000-00000000000${index + 1}`,
+      type: "skill" as const, name, revision: capabilityRevision,
+    }));
+    const skills = [...customNames, runtimeName].map((name) => ({
+      name, path: join(taskRuntimeHome(root), ".agents", "skills", name, "SKILL.md"),
+      scope: "user" as const, enabled: true,
+    }));
+    if (builtin === "linksense-computer-use") {
+      skills.push({
+        name: runtimeName,
+        path: join(taskRuntimeHome(root), "personal", runtimeName, "SKILL.md"),
+        scope: "user", enabled: true,
+      });
+    }
+    await Promise.all(skills.map(async (skill) => {
+      await mkdir(dirname(skill.path), { recursive: true });
+      const authored = skill.name === runtimeName && !skill.path.includes("/personal/");
+      await writeFile(skill.path, `---\nname: ${skill.name}\n---\n${authored ? "Authored built-in" : "Existing custom content"}\n`);
+    }));
+    const controlled = createControlledAppServer({ skills, turnStartNotification: "after-response" });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const base = startOperationInput();
+    await pool.startTurn({
+      ...base, capabilities,
+      context: {
+        ...base.context,
+        prioritySkills: [
+          { id: `builtin:capability:${builtin}`, name: runtimeName },
+          { id: capabilities[1]!.id, name: "linksense-computer-use" },
+        ],
+      },
+    });
+    const selectedPath = join(taskRuntimeHome(root), ".agents", "skills", runtimeName, "SKILL.md");
+    const customPath = join(taskRuntimeHome(root), ".agents", "skills", "linksense-computer-use", "SKILL.md");
+    expect(controlled.requests.find((request) => request.method === "turn/start")?.params).toMatchObject({
+      input: [{ type: "text", text: `[$${runtimeName}](${selectedPath}) [$linksense-computer-use](${customPath}) ${base.context.userInput}` }],
+    });
+    expect(await readFile(selectedPath, "utf8")).toContain("Authored built-in");
+    expect(await readFile(customPath, "utf8")).toContain("Existing custom content");
+    await pool.closeAll();
+  });
+
   it("passes the dedicated extraction route without changing the task or consolidation model", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-memory-model-"));
     roots.push(root);

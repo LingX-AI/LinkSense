@@ -3915,6 +3915,7 @@ export const zhCN = {
       memory_generation: "记忆生成",
       task_title_generation: "任务自动命名",
       browser_use_intent: "浏览器意图检测",
+      computer_use_intent: "电脑操作意图检测",
       document_embedding: "文档向量化",
       query_embedding: "查询向量化",
       rerank: "检索重排",

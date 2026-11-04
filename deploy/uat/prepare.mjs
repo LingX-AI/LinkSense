@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { pathToFileURL } from "node:url";
@@ -16,6 +16,10 @@ export function prepareUat(root, { revision, project = "linksense-uat", publicUr
   if (existsSync(file) && !lstatSync(file).isFile()) throw new Error("UAT environment must be a regular file");
   const previous = existsSync(file) ? parseEnv(readFileSync(file, "utf8")) : {};
   if (previous.COMPOSE_PROJECT_NAME && previous.COMPOSE_PROJECT_NAME !== project) throw new Error("Refusing to reuse another project's UAT credentials");
+  const desktopDirectory = resolve(directory, "desktop");
+  if (existsSync(desktopDirectory) && !lstatSync(desktopDirectory).isDirectory()) throw new Error("UAT helper archives require a regular directory");
+  mkdirSync(desktopDirectory, { recursive: true, mode: 0o755 });
+  chmodSync(desktopDirectory, 0o755);
   const baseline = JSON.parse(readFileSync(resolve(root, "deploy/baselines/images.lock.json"), "utf8"));
   const version = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).version;
   if (!/^\d+\.\d+\.\d+$/u.test(version)) throw new Error("Invalid source package version");
@@ -29,6 +33,8 @@ export function prepareUat(root, { revision, project = "linksense-uat", publicUr
     LINKSENSE_EDITION: "core",
     LINKSENSE_VERSION: `v${version}`,
     LINKSENSE_PUBLIC_BASE_URL: url.origin,
+    LINKSENSE_DESKTOP_CLIENT_ARCHIVE: previous.LINKSENSE_DESKTOP_CLIENT_ARCHIVE ?? "/opt/linksense-desktop/LinkSense-Desktop-macos.zip",
+    LINKSENSE_DESKTOP_CLIENT_ARCHIVE_WINDOWS: previous.LINKSENSE_DESKTOP_CLIENT_ARCHIVE_WINDOWS ?? "/opt/linksense-desktop/LinkSense-Desktop-windows.exe",
     LINKSENSE_PUBLIC_SCHEME: url.protocol.slice(0, -1),
     LINKSENSE_HTTP_PORT: String(port),
     POSTGRES_DB: "linksense",

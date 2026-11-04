@@ -64,7 +64,7 @@ export function buildControllerServer(
     if (request.url.startsWith("/internal/connections/")) {
       return reply.code(403).send({ error_code: "CONNECTION_ACCESS_DENIED" })
     }
-    if (request.url.startsWith("/internal/browser-use/") || request.url.startsWith("/internal/local-browser/")) {
+    if (request.url.startsWith("/internal/browser-use/") || request.url.startsWith("/internal/local-browser/") || request.url.startsWith("/internal/computer-use/")) {
       return reply.code(403).send({ error_code: "FORBIDDEN" })
     }
     if (request.url.startsWith("/internal/skill-creator/") || request.url.startsWith("/internal/skills/") || request.url === "/internal/application-builder" || request.url.startsWith("/internal/automations/")) {
@@ -160,6 +160,7 @@ export function buildControllerServer(
     "/internal/current-user/info",
     "/internal/browser-use/execute",
     "/internal/local-browser/execute",
+    "/internal/computer-use/execute",
     "/internal/conversation-references/read",
     "/internal/automations/request-stop",
     "/internal/automations/execute",
@@ -186,7 +187,7 @@ export function buildControllerServer(
           request.body,
           ownerId,
           reply,
-          route.startsWith("/internal/knowledge/")
+          route === "/internal/computer-use/execute" ? 70_000 : route.startsWith("/internal/knowledge/")
             ? knowledgeSearchTimeouts.apiProxyMs
             : route.startsWith("/internal/image-generation/")
               ? 180_000

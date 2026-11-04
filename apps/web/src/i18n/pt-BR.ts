@@ -4529,6 +4529,7 @@ export const ptBR = {
       memory_generation: "Geração de memórias",
       task_title_generation: "Nomeação automática de tarefas",
       browser_use_intent: "Detecção de intenção de navegação",
+      computer_use_intent: "Detecção de intenção de uso do computador",
       document_embedding: "Embeddings de documentos",
       query_embedding: "Embeddings de consultas",
       rerank: "Reordenação da busca",

@@ -438,7 +438,7 @@ for (const template of [
   "deploy/nginx/production-gateway.conf.template",
   "deploy/release/gateway.conf.template",
 ]) {
-  for (const channel of ["local-browser", "browser-use"]) {
+  for (const channel of ["local-browser", "browser-use", "computer-use"]) {
     test(`${template} forwards the authenticated ${channel} WebSocket`, async () => {
       const gateway = await readFile(resolve(template), "utf8");
       const location = gateway.match(
@@ -504,7 +504,7 @@ test("production gateway preserves HTTPS proxy semantics, SSE, and signed MinIO 
     gateway.match(
       /if \(-f \/tmp\/linksense-maintenance\) \{\s*return 503;\s*\}/gu,
     ) ?? [];
-  assert.equal(maintenanceChecks.length, 8);
+  assert.equal(maintenanceChecks.length, 9);
   const siteLocation = section(gateway, "  location ^~ /web/", "  location /api/");
   assert.match(siteLocation, /if \(-f \/tmp\/linksense-maintenance\)/u);
   assert.match(siteLocation, /proxy_set_header X-Forwarded-Proto \$linksense_forwarded_proto;/u);

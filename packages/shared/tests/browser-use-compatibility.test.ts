@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { browserUseReplySchema } from "../src/browser-use.js";
 import {
   builtInCapabilityDefinitionForId,
+  builtInSkillRuntimeName,
   capabilityPackageNameSchema,
   capabilitySelectionIdSchema,
   isBuiltInCapabilityId,
@@ -37,12 +38,21 @@ it("keeps the persisted Browser Use Skill ID and native name usable", () => {
   expect(capabilitySelectionIdSchema.safeParse("builtin:capability:local-browser").success).toBe(false);
 });
 
-it.each(["linksense-browser-use", "linksense-computer-use-builtin-1"])(
+it.each(["linksense-browser-use", "linksense-computer-use", "linksense-computer-use-builtin-1"])(
   "preserves the formerly legal custom package name %s",
   (name) => {
     expect(capabilityPackageNameSchema.parse(name)).toBe(name);
   },
 );
+
+it("projects Computer Use without renaming or shadowing custom Skills or plugins", () => {
+  const names = ["linksense-computer-use", "linksense-computer-use-builtin-1", "linksense-computer-use-builtin-2"];
+  const capabilities = names.map((name) => ({ name, type: "skill" as const }));
+  expect(builtInSkillRuntimeName("linksense-computer-use", capabilities)).toBe("linksense-computer-use-builtin-3");
+  expect(builtInSkillRuntimeName("linksense-computer-use", [...capabilities].reverse())).toBe("linksense-computer-use-builtin-3");
+  expect(builtInSkillRuntimeName("linksense-computer-use", capabilities.map((item) => ({ ...item, type: "plugin" })))).toBe("linksense-computer-use");
+  expect(builtInSkillRuntimeName("linksense-local-browser", capabilities)).toBe("linksense-local-browser");
+});
 
 it("accepts only known pre-rename extension failure codes and normalizes their result", () => {
   const reply = {

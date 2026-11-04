@@ -86,3 +86,4 @@ export * from "./automation-monitoring.js";
 export * from "./browser-panel.js";
 export * from "./browser-use.js";
 export * from "./local-browser.js";
+export * from "./computer-use.js";
