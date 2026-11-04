@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "releaseVersion": "v0.3.13",
+  "ghsa": "GHSA-mrwp-f3q8-3g9p",
+  "cve": "CVE-2026-116689",
+  "package": "follow-redirects",
+  "version": "1.16.1",
+  "severity": "HIGH",
+  "acceptedOn": "2026-11-04",
+  "reason": "The maintainer accepted this unpatched dependency risk for v0.3.13 and explicitly requested publication without upgrading this dependency. This is risk acceptance, not a fix or a claim that the dependency is unaffected."
+}

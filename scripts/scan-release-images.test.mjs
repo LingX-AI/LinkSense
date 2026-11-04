@@ -64,13 +64,20 @@ if(command==='docker') {
   if(mode==='missing-report') process.exit(0);
   if(mode==='invalid-report') { fs.writeFileSync(output,'not json'); process.exit(0); }
   const inheritedModes = ['base-high','base-config-failure','invalid-base-config','wrong-base-layers'];
+  const acceptedRiskMode = mode.startsWith('accepted-risk');
   const external = !reference.startsWith('ghcr.io/lingx-ai/linksense-');
-  const severity = mode==='critical'?'CRITICAL':mode==='high' || mode==='silent-high' || inheritedModes.includes(mode) || (mode==='external-only-high' && external)?'HIGH':mode==='medium'?'MEDIUM':undefined;
+  const severity = mode==='critical'?'CRITICAL':mode==='high' || mode==='silent-high' || acceptedRiskMode || inheritedModes.includes(mode) || (mode==='external-only-high' && external)?'HIGH':mode==='medium'?'MEDIUM':undefined;
   const baseLayer = 'sha256:'+'a'.repeat(64);
   const applicationLayer = 'sha256:'+'b'.repeat(64);
   const report={SchemaVersion:2,Trivy:{Version:'0.75.0'},ArtifactName:mode==='wrong-image'?'registry.example/other@sha256:'+'a'.repeat(64):reference,ArtifactType:'container_image',Metadata:{DiffIDs:[baseLayer,applicationLayer],ImageConfig:{os:'linux',architecture:mode==='wrong-platform'?'ppc64le':platform.split('/')[1]}},Results:[{Target:'fixture',Class:'os-pkgs',Type:'alpine',...(severity?{Vulnerabilities:[{VulnerabilityID:'CVE-fixture',Severity:severity,PkgName:'fixture',InstalledVersion:'1',FixedVersion:'',Layer:{DiffID:inheritedModes.includes(mode)?baseLayer:applicationLayer}}]}:{})}]};
+  if(acceptedRiskMode) {
+    report.Results[0].Class='lang-pkgs';
+    report.Results[0].Type='node-pkg';
+    Object.assign(report.Results[0].Vulnerabilities[0], {VulnerabilityID:'CVE-2026-116689',PkgName:'follow-redirects',InstalledVersion:'1.16.1'});
+    if(mode==='accepted-risk-with-other') report.Results[0].Vulnerabilities.push({VulnerabilityID:'CVE-fixture-other',Severity:'HIGH',PkgName:'another-package',InstalledVersion:'1',Layer:{DiffID:applicationLayer}});
+  }
   fs.writeFileSync(output,JSON.stringify(report));
-  if(mode==='high'||mode==='critical'||mode==='base-high'||(mode==='external-only-high'&&external)) process.exit(1);
+  if(mode==='high'||mode==='critical'||acceptedRiskMode||mode==='base-high'||(mode==='external-only-high'&&external)) process.exit(1);
   if(mode==='exit-failure') process.exit(2);
 }
 `
@@ -137,6 +144,39 @@ for (const mode of ["high", "critical", "silent-high"]) {
     assert.equal(summary.images.length, 13)
   })
 }
+
+for (const platform of ["linux/amd64", "linux/arm64"]) {
+  test(`v0.3.13 records its exact accepted dependency risk without discarding the full ${platform} scan`, t => {
+    const context = fixture(t, { mode: "accepted-risk" });
+    context.env.RELEASE_VERSION = "v0.3.13";
+    const result = context.scan(platform);
+    assert.equal(result.status, 0, result.stderr);
+    const summary = JSON.parse(readFileSync(path.join(context.report, "summary.json"), "utf8"));
+    assert.equal(summary.status, "passed_with_accepted_application_risks");
+    assert.equal(summary.images.length, 13);
+    assert.ok(summary.images.filter(({ role }) => role.startsWith("LINKSENSE_")).every(({ status }) => status === "accepted_application_risks_recorded"));
+    const raw = JSON.parse(readFileSync(path.join(context.report, "LINKSENSE_API.json"), "utf8"));
+    assert.equal(raw.Results[0].Vulnerabilities[0].VulnerabilityID, "CVE-2026-116689");
+    assert.ok(existsSync(path.join(context.report, "v0.3.13-risk-acceptance.json")));
+  });
+}
+
+for (const version of [undefined, "v0.3.14"]) {
+  test(`the accepted dependency risk cannot pass the scanner for release ${version}`, t => {
+    const context = fixture(t, { mode: "accepted-risk" });
+    if (version) context.env.RELEASE_VERSION = version;
+    else delete context.env.RELEASE_VERSION;
+    assert.notEqual(context.scan().status, 0);
+    assert.equal(JSON.parse(readFileSync(path.join(context.report, "summary.json"), "utf8")).status, "failed");
+  });
+}
+
+test("an accepted dependency risk never makes another application advisory pass", t => {
+  const context = fixture(t, { mode: "accepted-risk-with-other" });
+  context.env.RELEASE_VERSION = "v0.3.13";
+  assert.notEqual(context.scan().status, 0);
+  assert.equal(JSON.parse(readFileSync(path.join(context.report, "summary.json"), "utf8")).status, "failed");
+});
 
 for (const platform of ["linux/amd64", "linux/arm64"]) {
   for (const mode of ["external-only-high", "base-high"]) {

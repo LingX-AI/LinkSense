@@ -15,6 +15,64 @@ function fixture(architecture = "amd64") {
   };
 }
 
+function acceptedRiskFixture(architecture = "amd64") {
+  const input = fixture(architecture);
+  input.releaseVersion = "v0.3.13";
+  input.report.Results[0].Type = "npm";
+  input.report.Results[0].Vulnerabilities.push({
+    VulnerabilityID: "CVE-2026-116689", PkgName: "follow-redirects",
+    InstalledVersion: "1.16.1", Severity: "HIGH", Layer: { DiffID: applicationLayer },
+  });
+  return input;
+}
+
+for (const architecture of ["amd64", "arm64"]) {
+  for (const packageType of ["npm", "node-pkg", "pnpm"]) {
+    test(`records the approved v0.3.13 ${packageType} dependency risk on ${architecture} without claiming it is fixed`, () => {
+      const input = acceptedRiskFixture(architecture);
+      input.report.Results[0].Type = packageType;
+      const original = structuredClone(input);
+      const result = classifyImageFindings(input);
+      assert.equal(result.status, "accepted_application_risks_recorded");
+      assert.equal(result.acceptedApplicationFindings, 1);
+      assert.equal(result.counts.application, 1);
+      assert.equal(result.findings[1].origin, "application");
+      assert.equal(result.findings[1].riskAcceptance.releaseVersion, "v0.3.13");
+      assert.equal(result.findings[1].riskAcceptance.ghsa, "GHSA-mrwp-f3q8-3g9p");
+      assert.deepEqual(input, original);
+    });
+  }
+}
+
+for (const [name, mutate] of [
+  ["another release", input => { input.releaseVersion = "v0.3.14"; }],
+  ["missing release identity", input => { delete input.releaseVersion; }],
+  ["another dependency version", input => { input.report.Results[0].Vulnerabilities[1].InstalledVersion = "1.16.0"; }],
+  ["another dependency", input => { input.report.Results[0].Vulnerabilities[1].PkgName = "another-package"; }],
+  ["another advisory", input => { input.report.Results[0].Vulnerabilities[1].VulnerabilityID = "CVE-2026-54321"; }],
+  ["a higher severity", input => { input.report.Results[0].Vulnerabilities[1].Severity = "CRITICAL"; }],
+  ["a non-npm package", input => { input.report.Results[0].Type = "os-pkgs"; }],
+]) {
+  test(`does not extend the accepted dependency risk to ${name}`, () => {
+    const input = acceptedRiskFixture();
+    mutate(input);
+    assert.equal(classifyImageFindings(input).status, "vulnerabilities");
+  });
+}
+
+test("an approved dependency risk cannot hide another application vulnerability or invalid provenance", () => {
+  const input = acceptedRiskFixture();
+  input.report.Results[0].Vulnerabilities.push({
+    VulnerabilityID: "CVE-2026-54321", PkgName: "another-package",
+    InstalledVersion: "1.0.0", Severity: "HIGH", Layer: { DiffID: applicationLayer },
+  });
+  const result = classifyImageFindings(input);
+  assert.equal(result.status, "vulnerabilities");
+  assert.equal(result.acceptedApplicationFindings, 1);
+  delete input.baseImageConfigs;
+  assert.throws(() => classifyImageFindings(input));
+});
+
 test("maps owned roles to their actual runtime without accepting unknown roles", () => {
   for (const [role, expected] of Object.entries({ LINKSENSE_API: "api", LINKSENSE_WEB: "web", LINKSENSE_MIGRATE: "node", LINKSENSE_RUNNER: "node", LINKSENSE_WORKER: "worker", POSTGRES: null, DOCLING: null })) {
     assert.equal(runtimeForRole(role), expected);

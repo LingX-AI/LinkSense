@@ -22,6 +22,18 @@ attribution. `passed_with_external_risks` means the application gate passed with
 reported external risks, not that the affected dependencies were fixed or safe.
 This policy does not assess or patch a deployment host's kernel.
 
+The maintainer accepted `GHSA-mrwp-f3q8-3g9p` / `CVE-2026-116689` in
+`follow-redirects@1.16.1` for **v0.3.13 only**. The exact scope and decision are
+recorded in [the release acceptance record](v0.3.13-risk-acceptance.json).
+The Node audit uses pnpm's advisory-specific ignore setting; a regression check
+rejects carrying it into another product version or dependency version. Image
+scans retain the complete findings and label a matching HIGH npm finding as
+accepted application risk, never fixed or external. Other advisories, package
+versions, higher severities, missing release identity, invalid provenance and
+scan failures remain blocking. `passed_with_accepted_application_risks` records
+this decision explicitly. Remove the audit ignore before the next release or
+obtain a new specific review.
+
 Baseline maintenance invokes the scanner with the explicit `baseline` scope:
 its images contain environment components, not the LinkSense application server.
 Product releases use the explicit `application` scope with frozen runtime inputs.
