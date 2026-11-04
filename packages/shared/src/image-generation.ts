@@ -214,8 +214,12 @@ export const imageGenerationInputImageSchema = z.strictObject({
   mime_type: z.enum(["image/png", "image/jpeg", "image/webp"]),
   data_base64: z.string().min(4)
     .max(Math.ceil(imageEditingLimits.maxImageBytes / 3) * 4)
-    .regex(/^[A-Za-z0-9+/]+={0,2}$/u)
-    .refine((value) => value.length % 4 === 0, { message: "invalid_base64_length" }),
+    // Zod validates Base64 with atob, without recursive regexp matching. The
+    // pipe also rejects oversized strings before allocating their decoded data.
+    .pipe(z.base64())
+    .refine((value) => value.length / 4 * 3 - (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0) <= imageEditingLimits.maxImageBytes, {
+      message: "image_exceeds_max_bytes",
+    }),
 })
 
 const imageGenerationOptionsSchema = z.strictObject({
