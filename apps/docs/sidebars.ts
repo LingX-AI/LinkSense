@@ -1,6 +1,6 @@
 import type { SidebarsConfig } from "@docusaurus/plugin-content-docs"
 
-const sidebars: SidebarsConfig = {
+const sidebars = {
   helpSidebar: [
     "introduction",
     {
@@ -142,6 +142,6 @@ const sidebars: SidebarsConfig = {
       ],
     },
   ],
-}
+} satisfies SidebarsConfig
 
 export default sidebars

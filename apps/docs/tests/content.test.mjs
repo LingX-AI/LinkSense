@@ -154,6 +154,29 @@ test("Chinese and English guides have one-to-one Markdown files", async () => {
   assert.deepEqual(englishPaths, defaultPaths);
 });
 
+test("public deployment guides are bilingual and separate from bundled help", async () => {
+  const chineseRoot = path.join(packageRoot, "deployment");
+  const englishRoot = path.join(packageRoot, "i18n/en-US/docusaurus-plugin-content-docs-deployment/current");
+  const paths = await markdownPaths(chineseRoot);
+  assert.deepEqual(paths, ["architecture.md", "core.md", "development.md", "first-setup.md", "full.md", "operations.md", "overview.md"]);
+  assert.deepEqual(await markdownPaths(englishRoot), paths);
+  await Promise.all([
+    assertContentTree(chineseRoot, paths),
+    assertContentTree(englishRoot, paths),
+  ]);
+
+  for (const edition of ["core", "full"]) {
+    const commands = (source) => [...source.matchAll(/```bash\n([\s\S]*?)```/gu)].map(([, script]) => script);
+    const [chinese, english] = await Promise.all([chineseRoot, englishRoot].map(
+      (localeRoot) => readFile(path.join(localeRoot, `${edition}.md`), "utf8"),
+    ));
+    assert.deepEqual(commands(chinese), commands(english));
+    const [linux, macos] = commands(english);
+    assert.match(linux, /&&\nsudo --preserve-env=/u);
+    assert.match(macos, /&&\nsh install-/u);
+  }
+});
+
 test("every guide has required metadata, a heading, and valid local links", async () => {
   const paths = await markdownPaths(defaultDocsRoot);
   await Promise.all([
@@ -229,7 +252,8 @@ test("English navigation translates every custom sidebar category", async () => 
 
   for (const label of labels) {
     assert.ok(
-      parsedTranslations[`sidebar.helpSidebar.category.${label}`]?.message,
+      parsedTranslations[`sidebar.helpSidebar.category.${label}`]?.message ??
+        parsedTranslations[`sidebar.helpSidebar.link.${label}`]?.message,
       `English sidebar is missing a translation for ${label}`,
     );
   }
@@ -318,7 +342,7 @@ test("site chrome uses the full LinkSense lockup and preserves the app icon favi
   assert.match(config, /favicon:\s*"img\/linksense-appicon\.svg"/u);
   assert.match(
     config,
-    /navbar:\s*\{\s*title:\s*"帮助中心",\s*logo:\s*\{\s*alt:\s*"LinkSense",\s*src:\s*"img\/linksense-lockup-primary\.svg",\s*srcDark:\s*"img\/linksense-lockup-on-dark\.svg",\s*\}/u,
+    /navbar:\s*\{\s*title:\s*publicDocs \? "" : "帮助中心",\s*logo:\s*\{[^}]*alt:\s*"LinkSense",\s*src:\s*"img\/linksense-lockup-primary\.svg",\s*srcDark:\s*publicDocs\s*\?\s*"img\/linksense-lockup-primary\.svg"\s*:\s*"img\/linksense-lockup-on-dark\.svg",/u,
   );
   assert.match(appIcon, /<title>LinkSense app icon/u);
   assert.match(appIcon, /fill="#1866E1"/u);
@@ -339,7 +363,7 @@ test("the minimal theme uses neutral surfaces and removes visual clutter", async
   ]);
 
   assert.match(config, /hideable:\s*false/u);
-  assert.match(config, /autoCollapseCategories:\s*true/u);
+  assert.match(config, /autoCollapseCategories:\s*!publicDocs/u);
   assert.match(theme, /--doc-sidebar-width:\s*276px/u);
   assert.match(theme, /--linksense-sidebar:\s*#fafbfb/u);
   assert.match(theme, /--linksense-code-block-background:\s*#f8f9fb/u);
@@ -427,7 +451,7 @@ test("desktop pages expose a responsive native table of contents", async () => {
   assert.match(theme, /--linksense-toc-width:\s*clamp\(184px, 15vw, 216px\);/u);
   assert.match(
     theme,
-    /@media \(min-width: 1200px\)[\s\S]*\.theme-doc-toc-desktop\s*\{[\s\S]*display:\s*block;/u,
+    /@media \(min-width: 1050px\)[\s\S]*\.theme-doc-toc-desktop\s*\{[\s\S]*display:\s*block;/u,
   );
   assert.match(
     theme,
@@ -439,16 +463,33 @@ test("desktop pages expose a responsive native table of contents", async () => {
   );
   assert.match(
     theme,
-    /\.theme-doc-toc-desktop \.table-of-contents__link--active\s*\{[\s\S]*color:\s*var\(--linksense-text\);[\s\S]*font-weight:\s*600;/u,
+    /\.theme-doc-toc-desktop \.table-of-contents__link--active\s*\{[\s\S]*color:\s*var\(--linksense-text\);[\s\S]*font-weight:\s*400;/u,
   );
   assert.match(
     theme,
-    /\.theme-doc-toc-desktop \.table-of-contents__link--active::before\s*\{[\s\S]*width:\s*2px;[\s\S]*background:\s*var\(--linksense-text\);/u,
+    /\.linksense-toc \.table-of-contents::before\s*\{[\s\S]*width:\s*2px;[\s\S]*transform:\s*translateY/u,
   );
   assert.match(
     theme,
     /\.theme-doc-markdown :is\(h2, h3\)\[id\]\s*\{[\s\S]*scroll-margin-top:\s*calc\(var\(--ifm-navbar-height\) \+ 24px\);/u,
   );
+});
+
+test("public documentation shares the website theme and keeps sidebar selection at normal weight", async () => {
+  const [config, theme] = await Promise.all([
+    readFile(path.join(packageRoot, "docusaurus.config.ts"), "utf8"),
+    readFile(path.join(packageRoot, "src/css/website.css"), "utf8"),
+  ]);
+  assert.match(config, /LINKSENSE_WEBSITE_THEME/u);
+  assert.match(theme, /--ifm-font-family-base:\s*var\(--site-font-sans\)/u);
+  assert.match(theme, /--ifm-color-primary:\s*var\(--site-color-primary\)/u);
+  assert.match(theme, /\.menu__link,\s*\.menu__link--active\s*\{\s*font-weight:\s*400;/u);
+  assert.match(theme, /> \.menu__link--active\s*\{\s*font-weight:\s*400;/u);
+  assert.match(theme, /\.website-doc-search \.navbar__search \[class\*="dropdownMenu"\]\s*\{\s*left:\s*0 !important;\s*right:\s*auto !important;/u);
+  assert.match(theme, /\.theme-doc-sidebar-container\s*\{[\s\S]*clip-path:\s*none !important;/u);
+  assert.match(theme, /\.navbar\.navbar-sidebar--show\s*\{\s*backdrop-filter:\s*none;/u);
+  const labels = [...config.matchAll(/label:\s*"([^"]+)",\s*position:\s*"left"/gu)].map(([, label]) => label);
+  assert.deepEqual(labels, ["文档", "开发者", "社区"]);
 });
 
 test("help center controls use softened interaction states and consistent popovers", async () => {

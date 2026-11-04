@@ -5,6 +5,7 @@ build/
 coverage/
 .vite/
 .docusaurus/
+.public-docs/
 prisma/generated/
 apps/api/src/generated/prisma/
 .DS_Store

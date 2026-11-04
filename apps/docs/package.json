@@ -5,7 +5,7 @@
   "license": "CPAL-1.0",
   "scripts": {
     "dev": "pnpm build && pnpm serve",
-    "build": "docusaurus build",
+    "build": "node scripts/prepare-public-docs.mjs && docusaurus build",
     "serve": "docusaurus serve --host 0.0.0.0 --port 3001 --no-open",
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit --pretty false",

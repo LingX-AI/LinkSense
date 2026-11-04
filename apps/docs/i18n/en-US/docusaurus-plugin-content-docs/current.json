@@ -3,6 +3,12 @@
     "message": "Next",
     "description": "The label for version current"
   },
+  "sidebar.helpSidebar.category.自主部署": {
+    "message": "Self-hosting"
+  },
+  "sidebar.helpSidebar.doc.overview": {
+    "message": "Overview"
+  },
   "sidebar.helpSidebar.category.用户指南": {
     "message": "User guide",
     "description": "The label for category '用户指南' in sidebar 'helpSidebar'"
