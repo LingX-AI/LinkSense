@@ -2,8 +2,6 @@
   <img src="./apps/web/public/attribution/linksense-mark.svg" alt="LinkSense" width="180">
 </p>
 
-<h1 align="center">LinkSense</h1>
-
 <h2 align="center">
   Open-source agentic work platform for organizations.<br>
   <sub>An enterprise-grade, open-source WorkBuddy alternative.</sub>
