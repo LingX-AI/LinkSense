@@ -27,6 +27,7 @@ import {
 import { knowledgeNoAvailableBasesCodeSchema } from "./knowledge.js";
 import { imageGenerationFailureCodeSchema } from "./image-generation.js";
 import { coreMcpServerKey } from "./mcp.js";
+import { publicKnowledgeOutputLimit } from "./public-knowledge-output.js";
 
 export const conversationEventVisibilitySchema = z.enum([
   "user_visible",
@@ -81,7 +82,7 @@ const runnerCodexEventMethodValues = [
   "item/reasoning/textDelta",
 ] as const;
 
-const runnerLinkSenseEventMethodValues = ["linksense/form/request"] as const;
+const runnerLinkSenseEventMethodValues = ["linksense/form/request", "linksense/publicKnowledge/progress"] as const;
 
 export const conversationEventTypeSchema = z.enum([
   ...legacyConversationEventTypeValues,
@@ -1587,7 +1588,40 @@ export const runnerCodexEventSchema = z.discriminatedUnion("method", [
   ),
 ]);
 
+/** Public visitors receive display events, never raw tool inputs or reasoning. */
+export const publicKnowledgeNativeEventSchema = runnerCodexEventSchema.refine((event) => {
+  switch (event.method) {
+    case "turn/started":
+    case "turn/completed":
+      return !event.params.turn.error;
+    case "item/started":
+    case "item/completed":
+      return (event.params.item.type === "agentMessage" && event.params.item.text.length <= publicKnowledgeOutputLimit) ||
+        event.params.item.type === "contextCompaction" ||
+        (event.params.item.type === "reasoning" && !event.params.item.content?.length);
+    case "item/agentMessage/delta":
+      return event.params.delta.length <= publicKnowledgeOutputLimit;
+    case "item/reasoning/summaryTextDelta":
+    case "item/reasoning/summaryPartAdded":
+      return true;
+    default:
+      return false;
+  }
+});
+
+export const publicKnowledgeRunnerProgressSchema = runnerCodexEvent(
+  "linksense/publicKnowledge/progress",
+  z.strictObject({
+    threadId: uuidSchema,
+    turnId: uuidSchema,
+    notification: publicKnowledgeNativeEventSchema,
+  }).refine(({ threadId, turnId, notification }) =>
+    notification.params.threadId === threadId &&
+    ("turn" in notification.params ? notification.params.turn.id : "turnId" in notification.params ? notification.params.turnId : null) === turnId),
+);
+
 export const runnerLinkSenseEventSchema = z.discriminatedUnion("method", [
+  publicKnowledgeRunnerProgressSchema,
   runnerCodexEvent(
     "linksense/form/request",
     runnerLinkSenseFormRequestParamsSchema,

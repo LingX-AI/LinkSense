@@ -79,3 +79,5 @@ export * from "./connections.js";
 export * from "./connection-settings.js";
 export * from "./connection-plugins.js";
 export * from "./workspace-connections.js";
+export * from "./public-knowledge.js";
+export * from "./public-knowledge-output.js";

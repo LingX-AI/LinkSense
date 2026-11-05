@@ -2,7 +2,7 @@ import { z } from "zod";
 import { applicationIconSchema } from "./application-icons.js";
 import { applicationSchema } from "./applications.js";
 
-export const applicationCatalogFilterSchema = z.enum(["all", "developing", "standard", "interactive"]);
+export const applicationCatalogFilterSchema = z.enum(["all", "developing", "standard", "interactive", "public_knowledge"]);
 export const applicationCatalogQuerySchema = z.strictObject({
   search: z.string().trim().min(1).max(240).optional(),
   state: applicationCatalogFilterSchema.default("all"),
