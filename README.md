@@ -50,15 +50,15 @@ LinkSense provides **Core** and **Full** deployment profiles in the same reposit
 
 ### Start with Core for evaluation; choose Full when you need built-in Knowledge.
 
-For Full deployment, see the [Full installation guide](https://linksense.guygubaby.top/doc/deploy/full/).
+The complete Core and Full installation workflows are below, without a separate installation page.
 
 LinkSense supports centralized organizational management, permission-based sharing, and work across multiple members. Administrators manage resource access for users and groups, models, credentials, and allowances, and review usage and audit records. Members across departments work in their own AI workspaces and share reviewed Skills, Applications, and Knowledge within their permissions.
 
 **For organizational Full deployments, start planning with 16 vCPU, 32 GiB memory, and 200 GiB free SSD**, preferably on Linux with Docker. This is a planning reference for external model APIs, not a fixed user or concurrency limit.
 
-Before a large rollout, test representative tasks and budget for **peak active users, concurrent tasks, document volume, and OCR workloads**. Hardware upgrades do not automatically increase task concurrency; see [Concurrency and Workers](https://linksense.guygubaby.top/doc/deploy/operations/#concurrency-and-workers). Plan separately for local models and GPUs.
+Before a large rollout, test representative tasks and budget for **peak active users, concurrent tasks, document volume, and OCR workloads**. Hardware upgrades do not automatically increase task concurrency; see [Operations, repair, and upgrades](#9-operations-repair-and-upgrades) below. Plan separately for local models and GPUs.
 
-Full deployments on x86_64 hosts or VMs must expose `x86-64-v2`; this x86 requirement does not apply to native ARM64. See [Virtual machines and Knowledge](https://linksense.guygubaby.top/doc/deploy/operations/#virtual-machines-and-knowledge).
+Full deployments on x86_64 hosts or VMs must expose `x86-64-v2`; this x86 requirement does not apply to native ARM64. See [Check the host](#2-check-the-host) below.
 
 ## Deployment and integration services
 
@@ -70,7 +70,7 @@ LinkSense supports self-hosting. For organizations that want implementation assi
 
 **Supports Linux and macOS on x86_64 / ARM64. This workflow does not provide native Windows installation steps.**
 
-Choose either of the following methods to install **Core**. The installer downloads and starts the required services without a source checkout or local compilation. For Full, see the [Full installation guide](https://linksense.guygubaby.top/doc/deploy/full/).
+This workflow keeps Core / Full selection, host checks, installation, first-time setup, and the first task on one page. The installer downloads released images and starts the services without a source checkout or local compilation.
 
 ### Option 1: Install with a coding agent
 
@@ -82,82 +82,147 @@ Help me install and start LinkSense by following https://raw.githubusercontent.c
 
 The assistant checks the installation environment, preserves existing installations, and reports the actual launch result.
 
-**After successful installation, the terminal displays the access address and initialization credential. Save them securely.**
-
-Open that address in your browser. Defaults are `http://<server-address>:18081` on Linux and [http://localhost:18081](http://localhost:18081) on macOS; the terminal output is authoritative. Use the initialization credential to create the first administrator.
-
-Follow [model configuration](https://linksense.guygubaby.top/doc/admin-guide/model-settings/) in administration. Verify a short chat and a task with tools, then follow the [first task guide](https://linksense.guygubaby.top/doc/user-guide/getting-started/first-task/).
+For Full, explicitly request `LinkSense Full`. The agent must report the observed address and health state; downloading the installer alone does not establish success.
 
 ### Option 2: Manual installation
 
-#### 1. Check resources
+#### 1. Choose an edition and confirm resources
 
-**Core starting point: at least 4 vCPU, 8 GiB memory available to Docker, and 60 GiB free SSD.**
+| Scenario | CPU | Memory available to Docker | Free SSD |
+| --- | --- | --- | --- |
+| Core evaluation | 4 vCPU | 8 GiB | 60 GiB |
+| Fresh Full installation | 8 vCPU | 10 GiB installer hard preflight; plan 24 GiB | 120 GiB |
+| Full organization planning baseline | 16 vCPU | 32 GiB | 200 GiB |
 
-These resources are for evaluation with external model APIs, not a guarantee of multi-user concurrency. See [deployment options and resource planning](https://linksense.guygubaby.top/doc/deploy/) for Full and team deployments, and [source development](https://linksense.guygubaby.top/doc/deploy/development/) for code changes and image builds.
+These figures assume external model APIs and do not establish a fixed concurrency or user limit. Plan local model GPU, VRAM, and compute separately.
 
-#### 2. Install and start Docker
+#### 2. Check the host
 
-Follow the [official Docker installation guide](https://docs.docker.com/get-docker/):
-
-- **Linux:** Docker Engine and the Docker Compose plugin.
-- **macOS:** Docker Desktop.
-
-Run these checks in your terminal:
+Install and start Docker using the [official Docker guide](https://docs.docker.com/get-docker/). Linux uses Docker Engine and the Compose plugin; macOS uses Docker Desktop. Then run:
 
 ```bash
+uname -s
+uname -m
 docker version
 docker compose version
+docker info --format 'CPUs={{.NCPU}} MemoryBytes={{.MemTotal}} DockerRoot={{.DockerRootDir}}'
 curl --version
+df -h
 ```
 
 Confirm that:
 
+- The system is `Linux` or `Darwin`, and the architecture is `x86_64`, `aarch64`, or `arm64`.
 - Docker reports a **Server** section with **API version ≥ 1.45**.
 - Docker Compose is **≥ 2.24.4**.
-- `curl` prints its version successfully.
+- `curl` prints its version, and disk plus Docker VM resources meet the selected edition.
 
-The terminal must be able to download GitHub release assets, and Docker Engine must be able to pull images. They use separate proxy settings; see [Environment and network](https://linksense.guygubaby.top/doc/deploy/operations/#environment-and-network).
-
-#### 3. Configure runtime resources
-
-**macOS**
-
-- Open Docker Desktop → **Settings → Resources → Advanced**.
-- Set **CPUs ≥ 4** and **Memory limit to 10–12 GB**. Adjust **Disk usage limit** so Docker and the Mac disk each have at least **60 GiB free**.
-- Select **Apply & Restart** and wait for Docker to restart.
-
-**Linux**
-
-Confirm at least **4 vCPU, 8 GiB memory, and 60 GiB free SSD**, allowing additional resources for the operating system and other services.
-
-#### 4. Download and run the installer
-
-Once the prerequisites are configured, run the single command for your operating system to install and start Core.
-
-**Linux:**
+On macOS, select **Apply & Restart** after changing Docker Desktop resources and wait for it to restart. A Full x86_64 host must also run these checks inside the actual Docker VM:
 
 ```bash
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh && sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
+LC_ALL=C lscpu
+grep -m1 '^flags' /proc/cpuinfo
 ```
 
-**macOS:** Run without `sudo`.
+Confirm the flags include `cx16`, `lahf_lm`, `popcnt`, `ssse3`, `sse4_1`, `sse4_2`, and `pni` (or `sse3`). If they are missing, change the virtual CPU mode first.
+
+#### 3. Download the installer and check networking
+
+Set `edition` to `core` or `full`:
 
 ```bash
+edition=core
 curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh && sh install-core.sh
+  -o "install-${edition}.sh" "https://raw.githubusercontent.com/LingX-AI/linksense/main/install-${edition}.sh"
+sh "install-${edition}.sh" --check-network
 ```
 
-**Wait for installation to finish.** The terminal prints **`LinkSense is ready at:`**, followed by the access address and initialization credential, when services have started. Save the address and credential securely.
+The network check should exit with status `0` and no `[LS_HOST_*]` error. Terminal GitHub downloads and Docker Engine image pulls are separate network paths. The check may cache images, but it does not create an installation.
 
-> ⚠️ **Existing deployments:** Do not reinstall or switch Core / Full in place. For upgrades, migration, and troubleshooting, see [Operations](https://linksense.guygubaby.top/doc/deploy/operations/).
+#### 4. Install Core
 
-#### 5. Open LinkSense and start working
+Use the `install-core.sh` downloaded above:
 
-Open **the actual address printed by the installer**. Defaults are `http://<server-address>:18081` on Linux and [http://localhost:18081](http://localhost:18081) on macOS. Use the initialization credential to create the first administrator.
+```bash
+# Linux
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
 
-Follow [first-time setup](https://linksense.guygubaby.top/doc/deploy/first-setup/) and [model configuration](https://linksense.guygubaby.top/doc/admin-guide/model-settings/) to configure a model channel. Verify a short chat and a task with tools, then follow the [first task guide](https://linksense.guygubaby.top/doc/user-guide/getting-started/first-task/).
+# macOS
+sh install-core.sh
+```
+
+#### 5. Install Full
+
+After confirming the resource and `x86-64-v2` requirements, use `install-full.sh`:
+
+```bash
+# Linux
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-full.sh
+
+# macOS
+sh install-full.sh
+```
+
+#### 6. Confirm successful output
+
+After image verification, database initialization, startup, and health checks, the installer prints output similar to:
+
+```text
+[linksense-installer] Installed LinkSense core vX.Y.Z successfully.
+LinkSense is ready at: http://<server-address>:18081
+
+Copy and securely save the credential below before continuing:
+<one-time initialization credential>
+```
+
+Full also prints `Full release probe passed.`. The actual address and one-time credential shown in the terminal are authoritative. Do not paste the credential into chats, tickets, or public logs.
+
+#### 7. Handle common errors
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `docker version` has no Server section, or cannot connect to the Docker daemon | Docker is stopped, or the account cannot access the Docker socket | Start Docker and check Linux permissions or Docker Desktop state. |
+| Docker API or Compose is too old | Server API is below `1.45`, or Compose is below `2.24.4` | Upgrade the relevant component through Docker's official installation path. |
+| `[LS_HOST_memory]` | The host or Docker VM lacks available memory | Increase Docker Desktop memory or move to a larger host. |
+| `[LS_HOST_storage]` | The host, Docker VM, or backup location lacks space | Remove only confirmed disposable files or expand storage; do not run broad Docker cleanup blindly. |
+| `[LS_HOST_pull]`, timeouts, or TLS errors | Docker Engine networking or proxy is not configured | Rerun `--check-network`; diagnose terminal and Docker Engine networking separately. |
+| `CPU does not support x86-64-v2` | The Full VM does not expose required CPU flags | Power off the VM and select host passthrough or a compatible x86-64-v2 CPU mode. |
+| The port is occupied | Another process uses `18081` | Set `LINKSENSE_HTTP_PORT` for a fresh install; use `linksense port <port>` for an existing install. |
+| An installation exists or was interrupted | Rerunning the wrong edition can break installation identity | Run `linksense status` and `linksense doctor`; rerun only the same edition for an interrupted installation. |
+
+For a fresh Core installation on port `19090`:
+
+```bash
+# Linux
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_HTTP_PORT=19090 sh install-core.sh
+
+# macOS
+env LINKSENSE_HTTP_PORT=19090 sh install-core.sh
+```
+
+#### 8. Complete first-time setup and the first task
+
+1. Open the actual address printed by the installer. Defaults are `http://<server-address>:18081` on Linux and [http://localhost:18081](http://localhost:18081) on macOS, but terminal output is authoritative.
+2. Use the one-time initialization credential to create the first administrator.
+3. Add at least one chat model channel in administration. Full also needs an embedding model for Knowledge.
+4. Run `linksense status` and `linksense doctor` and confirm the deployment is healthy.
+5. Test a short chat, then run a tool task that creates a small file. On Full, upload a representative document and verify parsing, retrieval, and citations.
+
+See [model configuration](https://linksense.guygubaby.top/doc/admin-guide/model-settings/) and [the first task](https://linksense.guygubaby.top/doc/user-guide/getting-started/first-task/) for product-specific fields and interactions.
+
+#### 9. Operations, repair, and upgrades
+
+| Operation | Command |
+| --- | --- |
+| Status and actual address | `linksense status`, `linksense address` |
+| Start, stop, restart | `linksense start`, `linksense stop`, `linksense restart` |
+| Change port | `linksense port 19090` |
+| Show initialization credential | `linksense credential` |
+| View logs | `linksense logs api`, `linksense logs runner` |
+| Health and network diagnostics | `linksense doctor`, `linksense doctor --network` |
+| Repair and upgrade | `linksense repair`, `linksense upgrade` |
+
+An upgrade waits for running tasks and stores a database backup before migration. Migration failures do not automatically roll back the database. Retain the generated backup and make an off-host copy before upgrading. Do not reinstall or switch Core / Full in place.
 
 ## Development
 

@@ -59,15 +59,15 @@ LinkSense 在同一仓库中提供 **Core** 和 **Full** 两种部署方案，�
 
 ### 个人试用推荐 Core，需要内置知识库的组织部署推荐使用 Full。
 
-部署 Full 请参阅 [Full 部署指南](https://linksense.guygubaby.top/doc/zh-CN/deploy/full/)。
+Core 与 Full 的完整安装流程都在下方，不需要跳转到其他安装页面。
 
 LinkSense 面向组织级部署设计，支持大型组织集中管理、按权限共享与多成员协作。管理员可以按用户和用户组管理资源访问权限，集中管理模型、凭据和使用额度，并查看用量和操作审计。各部门成员可在各自的 AI 工作空间执行任务，按权限共享经过审核的技能、应用与知识库，无需各自搭建一套平台。
 
 **Full 组织部署建议从 16 vCPU、32 GiB 内存、200 GiB 可用 SSD 开始规划**，优先使用 Linux + Docker。该配置以接入外部模型 API 为前提，是容量规划参考，不代表固定的用户数或并发上限。
 
-大型组织上线前，建议用实际任务做压测，按**峰值活跃用户数、并发任务数、文档规模和 OCR 负载**预留资源，再逐步调高并发。硬件升级不会自动提高并发上限；配置方法见[并发与 Worker 配置](https://linksense.guygubaby.top/doc/zh-CN/deploy/operations/#并发与-worker)。本地模型与 GPU 需另行规划。
+大型组织上线前，建议用实际任务做压测，按**峰值活跃用户数、并发任务数、文档规模和 OCR 负载**预留资源，再逐步调高并发。硬件升级不会自动提高并发上限；配置方法见下方[运维、修复与升级](#9-运维修复与升级)。本地模型与 GPU 需另行规划。
 
-Full 的 x86_64 主机或虚拟机须暴露 `x86-64-v2` 指令集；原生 ARM64 不受这项 x86 要求约束。检查方法见[虚拟机与知识库](https://linksense.guygubaby.top/doc/zh-CN/deploy/operations/#虚拟机与知识库)。
+Full 的 x86_64 主机或虚拟机须暴露 `x86-64-v2` 指令集；原生 ARM64 不受这项 x86 要求约束。检查方法见下方[检查主机](#2-检查主机)。
 
 ## 部署与集成服务
 
@@ -79,7 +79,7 @@ LinkSense 支持自主部署。如果你的组织希望由我们协助落地，L
 
 **支持 Linux 和 macOS（x86_64 / ARM64），不提供原生 Windows 安装步骤。**
 
-下面介绍 **Core 版本**的两种安装方式，任选其一即可。安装器会自动下载并启动所需服务，无需下载源码或自行编译。Full 部署请参阅 [Full 部署指南](https://linksense.guygubaby.top/doc/zh-CN/deploy/full/)。
+以下流程在一个页面内完成 Core / Full 选择、主机检查、安装、首次配置和第一个任务。安装器会下载已发布镜像并启动服务，无需克隆源码或自行编译。
 
 ### 方式一：编程助手安装
 
@@ -91,82 +91,147 @@ Help me install and start LinkSense by following https://raw.githubusercontent.c
 
 助手会检查安装环境、保留已有安装，并报告启动结果。
 
-**安装成功后，终端会显示访问地址和初始化凭据，请妥善保存。**
-
-在浏览器中打开该地址（默认 Linux 为 `http://<服务器地址>:18081`，macOS 为 [http://localhost:18081](http://localhost:18081)，以终端显示为准），使用初始化凭据创建首位管理员。
-
-再按[模型配置指南](https://linksense.guygubaby.top/doc/zh-CN/admin-guide/model-settings/)在管理界面配置模型。测试一次简短对话和一次使用工具的任务，确认正常后，按[首个任务指南](https://linksense.guygubaby.top/doc/zh-CN/user-guide/getting-started/first-task/)开始使用。
+需要 Full 时，在提示词中明确写明 `LinkSense Full`。助手必须报告实际观察到的地址和健康状态；仅下载脚本不代表安装成功。
 
 ### 方式二：手动安装
 
-#### 1. 确认配置
+#### 1. 选择方案并确认资源
 
-**Core 起步配置：至少 4 vCPU、8 GiB Docker 可用内存和 60 GiB SSD 可用空间。**
+| 场景 | CPU | Docker 可用内存 | 可用 SSD |
+| --- | --- | --- | --- |
+| Core 起步体验 | 4 vCPU | 8 GiB | 60 GiB |
+| Full 新安装 | 8 vCPU | 安装器硬性预检 10 GiB，建议准备 24 GiB | 120 GiB |
+| Full 组织部署规划起点 | 16 vCPU | 32 GiB | 200 GiB |
 
-以上配置用于接入外部模型 API 的起步体验，不代表多人并发容量。Full、团队并发与其他部署配置请参阅[部署方案与资源规划](https://linksense.guygubaby.top/doc/zh-CN/deploy/)，源码修改与镜像构建请参阅[源码开发](https://linksense.guygubaby.top/doc/zh-CN/deploy/development/)。
+以上假设使用外部模型 API，不代表固定的并发或用户数。本地模型的 GPU、显存和算力需要另行规划。
 
-#### 2. 安装并启动 Docker
+#### 2. 检查主机
 
-按 [Docker 官方指南](https://docs.docker.com/get-docker/)安装并启动：
-
-- **Linux**：Docker Engine 和 Docker Compose 插件。
-- **macOS**：Docker Desktop。
-
-在终端运行：
+按 [Docker 官方指南](https://docs.docker.com/get-docker/)安装并启动 Docker。Linux 使用 Docker Engine 和 Compose 插件；macOS 使用 Docker Desktop。然后运行：
 
 ```bash
+uname -s
+uname -m
 docker version
 docker compose version
+docker info --format 'CPUs={{.NCPU}} MemoryBytes={{.MemTotal}} DockerRoot={{.DockerRootDir}}'
 curl --version
+df -h
 ```
 
 确认输出满足以下要求：
 
+- 系统为 `Linux` 或 `Darwin`，架构为 `x86_64`、`aarch64` 或 `arm64`。
 - Docker 有 **Server** 信息，且该部分的 **API version ≥ 1.45**。
 - Docker Compose 版本 **≥ 2.24.4**。
-- `curl` 正常显示版本信息。
+- `curl` 正常显示版本，磁盘和 Docker 虚拟机资源满足所选方案。
 
-终端须能下载 GitHub 发布资源，Docker Engine 须能拉取镜像；两者的代理配置独立，检查方法见[环境与网络](https://linksense.guygubaby.top/doc/zh-CN/deploy/operations/#环境与网络)。
-
-#### 3. 配置运行资源
-
-**macOS**
-
-- 打开 Docker Desktop → **Settings → Resources → Advanced**。
-- 设置 **CPUs ≥ 4、Memory limit 为 10–12 GB**，调整 **Disk usage limit**，确保 Docker 和 Mac 磁盘均有至少 **60 GiB 剩余空间**。
-- 修改后点击 **Apply & Restart**，等待 Docker 重启完成。
-
-**Linux**
-
-确认服务器至少有 **4 vCPU、8 GiB 内存、60 GiB 可用 SSD 空间**，并为系统和其他服务预留资源。
-
-#### 4. 下载并运行安装脚本
-
-前期配置到位后，按操作系统执行一条命令即可安装并启动 Core。
-
-**Linux：**
+macOS 修改 Docker Desktop 资源后，应点击 **Apply & Restart** 并等待重启。Full 的 x86_64 主机还必须在实际 Docker 虚拟机中检查：
 
 ```bash
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh && sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
+LC_ALL=C lscpu
+grep -m1 '^flags' /proc/cpuinfo
 ```
 
-**macOS：** 不使用 `sudo`。
+确认包含 `cx16`、`lahf_lm`、`popcnt`、`ssse3`、`sse4_1`、`sse4_2` 和 `pni`（或 `sse3`）。缺失时先调整虚拟 CPU 模式。
+
+#### 3. 下载安装器并检查网络
+
+将 `edition` 设为 `core` 或 `full`：
 
 ```bash
+edition=core
 curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh && sh install-core.sh
+  -o "install-${edition}.sh" "https://raw.githubusercontent.com/LingX-AI/linksense/main/install-${edition}.sh"
+sh "install-${edition}.sh" --check-network
 ```
 
-**执行后请等待安装完成。** 终端显示 **`LinkSense is ready at:`**，并输出访问地址和初始化凭据，即表示服务已启动。请妥善保存地址和凭据。
+网络检查应以状态码 `0` 结束，且不出现 `[LS_HOST_*]` 错误。终端下载 GitHub 文件和 Docker Engine 拉取镜像是两条独立网络路径；检查可能缓存镜像，但不会创建部署。
 
-> ⚠️ **已有部署请注意**：请勿重复安装或直接切换 Core / Full。升级、迁移和故障排查请参阅[运维参考](https://linksense.guygubaby.top/doc/zh-CN/deploy/operations/)。
+#### 4. 安装 Core
 
-#### 5. 打开网站并开始使用
+使用上一步下载的 `install-core.sh`：
 
-在浏览器中打开**安装成功后终端显示的访问地址**（默认 Linux 为 `http://<服务器地址>:18081`，macOS 为 [http://localhost:18081](http://localhost:18081)），使用安装器提供的初始化凭据创建首位管理员。
+```bash
+# Linux
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
 
-按[首次配置](https://linksense.guygubaby.top/doc/zh-CN/deploy/first-setup/)中的[模型配置指南](https://linksense.guygubaby.top/doc/zh-CN/admin-guide/model-settings/)在管理界面配置模型渠道，再测试一次简短对话和一次使用工具的任务，即可按[首个任务指南](https://linksense.guygubaby.top/doc/zh-CN/user-guide/getting-started/first-task/)开始使用。
+# macOS
+sh install-core.sh
+```
+
+#### 5. 安装 Full
+
+确认资源与 `x86-64-v2` 要求满足后，使用 `install-full.sh`：
+
+```bash
+# Linux
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-full.sh
+
+# macOS
+sh install-full.sh
+```
+
+#### 6. 确认成功输出
+
+安装器完成镜像校验、数据库初始化、服务启动和健康检查后，会显示类似输出：
+
+```text
+[linksense-installer] Installed LinkSense core vX.Y.Z successfully.
+LinkSense is ready at: http://<服务器地址>:18081
+
+Copy and securely save the credential below before continuing:
+<一次性初始化凭证>
+```
+
+Full 还会显示 `Full release probe passed.`。实际地址和一次性凭证以本机终端输出为准；不要把凭证粘贴到聊天、工单或公开日志。
+
+#### 7. 处理常见错误
+
+| 现象 | 原因 | 处理方式 |
+| --- | --- | --- |
+| `docker version` 没有 Server，或无法连接 Docker daemon | Docker 未启动，或账号无权访问 Docker Socket | 启动 Docker，并核对 Linux 权限或 Docker Desktop 状态。 |
+| Docker API 或 Compose 版本不足 | Server API 低于 `1.45`，或 Compose 低于 `2.24.4` | 按 Docker 官方方式升级对应组件。 |
+| `[LS_HOST_memory]` | 主机或 Docker VM 可用内存不足 | 增加 Docker Desktop 内存，或迁移到更大的主机。 |
+| `[LS_HOST_storage]` | 主机、Docker VM 或备份位置空间不足 | 只清理确认可删除的文件或扩容，不要盲目执行 Docker 全局清理。 |
+| `[LS_HOST_pull]`、超时或 TLS 错误 | Docker Engine 网络或代理未配置 | 重新运行 `--check-network`，分别检查终端和 Docker Engine 网络。 |
+| `CPU does not support x86-64-v2` | Full 所在虚拟机未暴露所需指令集 | 停机后使用 host passthrough 或兼容的 x86-64-v2 CPU 模式。 |
+| 端口被占用 | `18081` 已由其他程序使用 | 新安装设置 `LINKSENSE_HTTP_PORT`；已有安装使用 `linksense port <端口>`。 |
+| 已存在安装或上次安装中断 | 重跑错误方案可能破坏安装身份 | 先运行 `linksense status` 和 `linksense doctor`；中断安装只重跑同一方案。 |
+
+新安装需要使用其他端口时，以下以 Core 和 `19090` 为例：
+
+```bash
+# Linux
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_HTTP_PORT=19090 sh install-core.sh
+
+# macOS
+env LINKSENSE_HTTP_PORT=19090 sh install-core.sh
+```
+
+#### 8. 首次配置与第一个任务
+
+1. 打开安装器输出的实际地址。默认 Linux 为 `http://<服务器地址>:18081`，macOS 为 [http://localhost:18081](http://localhost:18081)，但终端输出始终优先。
+2. 使用一次性初始化凭证创建首位管理员。
+3. 在管理界面添加至少一个对话模型渠道；Full 还需要配置知识库使用的向量模型。
+4. 运行 `linksense status` 和 `linksense doctor`，确认部署健康。
+5. 测试一次简短对话，再运行一次会创建小文件的工具任务。Full 还应上传代表性文档，验证解析、检索和引用。
+
+详细字段和产品操作见[模型配置](https://linksense.guygubaby.top/doc/zh-CN/admin-guide/model-settings/)与[第一个任务](https://linksense.guygubaby.top/doc/zh-CN/user-guide/getting-started/first-task/)。
+
+#### 9. 运维、修复与升级
+
+| 操作 | 命令 |
+| --- | --- |
+| 状态和实际地址 | `linksense status`、`linksense address` |
+| 启动、停止、重启 | `linksense start`、`linksense stop`、`linksense restart` |
+| 修改端口 | `linksense port 19090` |
+| 查看初始化凭证 | `linksense credential` |
+| 查看日志 | `linksense logs api`、`linksense logs runner` |
+| 健康与网络诊断 | `linksense doctor`、`linksense doctor --network` |
+| 修复与升级 | `linksense repair`、`linksense upgrade` |
+
+升级会等待运行中的任务，并在迁移前保存数据库备份。迁移失败不会自动回滚数据库；升级前应保留安装器生成的备份，并另做异机备份。已有部署不要重复安装或直接切换 Core / Full。
 
 ## 开发
 
