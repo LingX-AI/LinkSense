@@ -69,7 +69,7 @@ export async function readOwnedApplicationCatalog(
       to_char(${sortColumn} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS sort_timestamp
     FROM catalog WHERE true
       ${input.state === "developing" ? Prisma.sql`AND has_changes = true` : Prisma.empty}
-      ${input.state === "standard" || input.state === "interactive" ? Prisma.sql`AND kind = ${input.state}` : Prisma.empty}
+      ${input.state === "standard" || input.state === "interactive" || input.state === "public_knowledge" ? Prisma.sql`AND kind = ${input.state}` : Prisma.empty}
       ${input.search ? Prisma.sql`AND (
         strpos(lower(name), lower(${input.search})) > 0
         OR strpos(lower(coalesce(description, '')), lower(${input.search})) > 0

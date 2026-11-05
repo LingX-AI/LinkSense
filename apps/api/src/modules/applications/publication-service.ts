@@ -96,6 +96,7 @@ export class ApplicationPublicationService {
     const parsed = conversionVersionId ? { ...input, version_number: applicationVersionNumberSchema.parse(input.version_number) } : applicationVersionInputSchema.parse(input);
     const application = await this.prisma.application.findFirst({ where: { id: applicationId, ownerId, status: { not: "deleted" } } });
     if (!application) throw new AppError("APPLICATION_NOT_FOUND");
+    if (application.kind === "public_knowledge") throw new AppError("FORBIDDEN");
     if (metadataUpdate && (application.kind !== "interactive" || application.developmentOnly)) throw new AppError("APPLICATION_PACKAGE_INVALID");
     if (standardUpdate && (application.kind !== "standard" || interactiveUpdate)) throw new AppError("APPLICATION_PACKAGE_INVALID");
     if (interactiveUpdate && (application.kind !== "interactive" || (application.developmentOnly && purpose !== "debug"))) throw new AppError("APPLICATION_PACKAGE_INVALID");

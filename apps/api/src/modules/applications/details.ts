@@ -1,5 +1,6 @@
 import {
   capabilityTypeSchema,
+  applicationKindSchema,
   interactiveApplicationManifestSchema,
   interactiveDependencyDeclarations,
   type ApplicationDetails,
@@ -98,7 +99,7 @@ export async function readApplicationDetails(
     iconSource: definition ? { iconPreset: definition.iconPreset, iconObjectKey: definition.iconObjectKey } : { iconPreset: application.iconPreset, iconObjectKey: application.iconObjectKey },
     details: {
       id: application.id, name, description, creator_name: creatorName,
-      kind: definition?.kind ?? (application.kind === "interactive" ? "interactive" : "standard"),
+      kind: definition?.kind ?? applicationKindSchema.parse(application.kind),
       model: definition ? definition.model : application.model,
       status: application.status === "active" ? "active" : "disabled",
       view: ownConfiguration ? "configuration" : "published",
