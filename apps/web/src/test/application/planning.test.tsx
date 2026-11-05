@@ -1308,6 +1308,7 @@ describe("LinkSense application", () => {
     fireEvent.click(
       await screen.findByRole("menuitemradio", { name: "Test Model" })
     )
+    await interaction.keyboard("{Escape}")
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: "选择模型与推理强度" })

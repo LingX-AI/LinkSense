@@ -1886,6 +1886,7 @@ export const zhCN = {
     send: "发送",
     model: "模型",
     modelSelector: "选择模型与推理强度",
+    chooseReasoningModel: "选择推理模型",
     resetReasoningEffort: "恢复默认推理强度",
     modelNotConfigured: "模型服务未配置",
     reasoningEffort: "推理强度",

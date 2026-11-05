@@ -69,7 +69,6 @@ import { z } from "zod"
 import { toast } from "sonner"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
-import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import { ShellHeaderActions } from "@/components/shell/shell-header-actions"
 import { requestTurnStart } from "@/features/conversations/turn-start-request"
 import {
@@ -127,6 +126,7 @@ import { StatusBanner } from "@/components/feedback/status-banner"
 import { PageLayout } from "@/components/shell/page-layout"
 import { Button } from "@/components/ui/button"
 import { DesignIcon } from "@/components/ui/design-icon"
+import { HeaderIcon } from "@/components/ui/header-icon-button"
 import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
 import { SearchInput } from "@/components/ui/search-input"
 import {
@@ -6075,10 +6075,7 @@ export function ConversationPage({
               aria-expanded={shareOpen}
               onClick={() => setShareOpen(true)}
             >
-              <DesignIcon
-                name="share"
-                className="size-[calc(var(--app-ui-font-size)+6px)]"
-              />
+              <HeaderIcon name="share" />
             </ConversationHeaderButton>
           )}
           <div
@@ -6133,7 +6130,9 @@ export function ConversationPage({
               )}
             </Button>
           )}
-          {showHeader && !embedded && surfaceActive && <ShellHeaderActions />}
+          {showHeader && !embedded && surfaceActive && (
+            <ShellHeaderActions separated />
+          )}
         </div>
       </header>
 
@@ -6606,12 +6605,6 @@ export function ConversationPage({
             onError={setError}
           />
         )}
-        {!isNew &&
-          !embedded &&
-          !developmentRole &&
-          !isApplicationConversation && (
-            <PoweredByLinkSense placement="conversation" />
-          )}
       </div>
 
       <ConversationRenameDialog

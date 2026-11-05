@@ -168,6 +168,66 @@ describe("ConversationModelSelector", () => {
     ).toEqual(ordered.map((model) => model.display_name))
   })
 
+  it("keeps the same entry and open popup while saving a different model", async () => {
+    const interaction = userEvent.setup()
+    const onChange = vi.fn()
+    const { rerender } = render(
+      <ConversationModelSelector
+        pending={false}
+        onChange={onChange}
+        preference={modelPreference}
+      />
+    )
+    const entry = screen.getByRole("button", { name: "选择模型与推理强度" })
+    expect(entry).toHaveTextContent("GPT-5.6-Sol")
+    expect(entry).toHaveTextContent("轻量")
+    expect(entry).not.toHaveTextContent("选择推理模型")
+    await interaction.click(entry)
+    const popup = screen.getByRole("dialog", { name: "选择模型与推理强度" })
+    await interaction.click(within(popup).getByRole("button", { name: "模型" }))
+    await interaction.click(
+      await screen.findByRole("menuitemradio", { name: "Model B" })
+    )
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("model-b", "low")
+
+    rerender(
+      <ConversationModelSelector
+        pending
+        onChange={onChange}
+        preference={modelPreference}
+      />
+    )
+    expect(entry).toBeEnabled()
+    expect(popup).toBeVisible()
+    expect(entry).toHaveTextContent(/^选择推理模型$/)
+
+    rerender(
+      <ConversationModelSelector
+        pending={false}
+        onChange={onChange}
+        preference={{ ...modelPreference, selected_model: "model-b" }}
+      />
+    )
+    expect(screen.getByRole("button", { name: "选择模型与推理强度" })).toBe(
+      entry
+    )
+    expect(screen.getByRole("dialog", { name: "选择模型与推理强度" })).toBe(
+      popup
+    )
+    expect(entry).toHaveTextContent(/^选择推理模型$/)
+    expect(
+      within(popup).getByRole("button", { name: "模型" })
+    ).toHaveTextContent("Model B")
+    expect(
+      await within(popup).findByRole("slider", { name: "推理强度" })
+    ).toHaveAttribute("aria-valuetext", "轻量")
+    await interaction.keyboard("{Escape}")
+    await waitFor(() => expect(entry).toHaveAttribute("aria-expanded", "false"))
+    expect(entry).toHaveTextContent("Model B")
+    expect(entry).toHaveTextContent("轻量")
+    expect(entry).not.toHaveTextContent("选择推理模型")
+  })
+
   it("opens an effort slider with the current model, effort, and reset control", async () => {
     const interaction = userEvent.setup()
     render(
@@ -183,11 +243,15 @@ describe("ConversationModelSelector", () => {
       name: "选择模型与推理强度",
     })
     expect(selector).toHaveClass(
+      "h-8",
       "w-fit",
-      "max-w-[min(20rem,calc(100vw-6rem))]",
+      "max-w-[min(15rem,calc(100vw-6rem))]",
+      "rounded-[10px]",
+      "border-border",
       "bg-card",
       "hover:bg-card",
-      "aria-expanded:bg-accent"
+      "aria-expanded:bg-card",
+      "aria-expanded:border-ring"
     )
     const contextTrigger = screen.getByLabelText("背景信息窗口：60% 已用")
     expect(contextTrigger).toBeVisible()
@@ -215,7 +279,9 @@ describe("ConversationModelSelector", () => {
     expect(modelTrigger).toHaveTextContent("轻量")
     expect(modelTrigger).toHaveAttribute("aria-haspopup", "menu")
     expect(within(modelTrigger).getByText("轻量")).toHaveClass("text-xs")
-    expect(within(modelTrigger).getByText("GPT-5.6-Sol")).toHaveClass("text-xs")
+    expect(
+      within(modelTrigger).getByText("GPT-5.6-Sol").parentElement
+    ).toHaveClass("text-xs")
     const slider = within(popup).getByRole("slider", { name: "推理强度" })
     expect(slider.closest('[data-slot="slider-control"]')).toHaveClass("h-6")
     expect(slider.closest('[data-slot="slider-thumb"]')).toHaveClass("size-5")
@@ -507,7 +573,7 @@ describe("ConversationModelSelector", () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith("gpt-5.6-sol", "max")
     expect(
       screen.getByRole("button", { name: "选择模型与推理强度" })
-    ).toHaveTextContent("最高")
+    ).toHaveTextContent("选择推理模型")
   })
 
   it.each([false, true])(
@@ -565,7 +631,7 @@ describe("ConversationModelSelector", () => {
         "gpt-5.6-sol",
         drag ? "max" : "high"
       )
-      expect(selector).toHaveTextContent(drag ? "最高" : "高")
+      expect(selector).toHaveTextContent("选择推理模型")
       await interaction.keyboard("{Escape}")
       await interaction.click(selector)
       expect(screen.getByRole("slider", { name: "推理强度" })).toHaveAttribute(
@@ -680,7 +746,7 @@ describe("ConversationModelSelector", () => {
       ).toHaveAttribute("aria-busy", "true")
       expect(
         screen.getByRole("button", { name: "选择模型与推理强度" })
-      ).toHaveClass("disabled:opacity-100")
+      ).toBeEnabled()
       expect(screen.getByRole("button", { name: "模型" })).toBeDisabled()
       expect(
         screen.getByRole("button", { name: "恢复默认推理强度" })

@@ -2040,6 +2040,7 @@ export const enUS = {
     send: "Send",
     model: "Model",
     modelSelector: "Choose model and reasoning effort",
+    chooseReasoningModel: "Choose reasoning model",
     resetReasoningEffort: "Reset reasoning effort to default",
     modelNotConfigured: "Model service not configured",
     reasoningEffort: "Reasoning effort",

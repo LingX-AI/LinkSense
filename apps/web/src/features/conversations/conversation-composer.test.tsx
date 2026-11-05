@@ -394,14 +394,14 @@ describe("conversation voice input", () => {
     })
   })
 
-  it("keeps the conversation input transparent while focused", () => {
+  it("keeps the conversation input transparent without an extra focus outline", () => {
     renderComposer()
 
     expect(screen.getByRole("textbox", { name: "任务输入框" })).toHaveClass(
       "bg-transparent",
       "focus-visible:bg-transparent"
     )
-    expect(screen.getByRole("form", { name: "任务输入框" })).toHaveClass(
+    expect(screen.getByRole("form", { name: "任务输入框" })).not.toHaveClass(
       "has-[.composer-input:focus-visible]:outline",
       "has-[.composer-input:focus-visible]:-outline-offset-1",
       "has-[.composer-input:focus-visible]:outline-muted-foreground"
@@ -2189,8 +2189,7 @@ describe("conversation voice input", () => {
     expect(stop).toHaveClass(
       "send-button",
       "rounded-full",
-      "size-10",
-      "@max-[48rem]/conversation-workspace:size-8"
+      "size-8"
     )
     expect(stop.textContent).toBe("")
     expect(

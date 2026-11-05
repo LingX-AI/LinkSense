@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, type RefCallback } from "react"
 
 const bottomStackHeightProperty = "--conversation-bottom-stack-height"
+const composerTopOffsetProperty = "--conversation-composer-top-offset"
 
 export function observeConversationBottomStackHeight(
   bottomStack: HTMLElement
@@ -14,6 +15,21 @@ export function observeConversationBottomStackHeight(
       Math.ceil(bottomStack.getBoundingClientRect().height)
     )
     workspace.style.setProperty(bottomStackHeightProperty, `${height}px`)
+
+    const composer = bottomStack.querySelector<HTMLElement>(".composer-shell")
+    if (composer) {
+      // The fade ends at the editor, independent of controls or attribution.
+      const offset = Math.max(
+        0,
+        Math.ceil(
+          workspace.getBoundingClientRect().bottom -
+            composer.getBoundingClientRect().top
+        )
+      )
+      workspace.style.setProperty(composerTopOffsetProperty, `${offset}px`)
+    } else {
+      workspace.style.removeProperty(composerTopOffsetProperty)
+    }
   }
 
   updateHeight()
@@ -26,6 +42,7 @@ export function observeConversationBottomStackHeight(
   return () => {
     observer?.disconnect()
     workspace.style.removeProperty(bottomStackHeightProperty)
+    workspace.style.removeProperty(composerTopOffsetProperty)
   }
 }
 

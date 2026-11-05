@@ -2269,6 +2269,7 @@ export const jaJP = {
     send: "送信",
     model: "モデル",
     modelSelector: "モデルと推論の強度を選択",
+    chooseReasoningModel: "推論モデルを選択",
     resetReasoningEffort: "推論の強度を既定値に戻す",
     modelNotConfigured: "モデルサービスは未設定です",
     reasoningEffort: "推論の強度",

@@ -57,6 +57,7 @@ export const ConversationModelSelector = memo(
   }) {
     const { t } = useTranslation()
     const auth = useContext(AuthContext)
+    const [selectorOpen, setSelectorOpen] = useState(false)
     const selectedModel = preference.models.find(
       (model) => model.id === preference.selected_model
     )
@@ -98,25 +99,37 @@ export const ConversationModelSelector = memo(
           }
           usedTokens={contextUsage?.usedTokens ?? null}
         />
-        <Popover>
+        <Popover open={selectorOpen} onOpenChange={setSelectorOpen}>
           <PopoverTrigger
             render={
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-10 w-fit max-w-[min(20rem,calc(100vw-6rem))] min-w-0 shrink rounded-[10px] border border-border bg-card px-3 text-sm font-normal hover:border-input-hover hover:bg-card disabled:opacity-100 aria-expanded:bg-accent @max-[48rem]/conversation-workspace:h-8 @max-[48rem]/conversation-workspace:px-2"
+                className="h-8 w-fit max-w-[min(15rem,calc(100vw-6rem))] min-w-0 shrink gap-1.5 rounded-[10px] border border-border bg-card px-2.5 text-sm font-normal text-foreground hover:border-input-hover hover:bg-card aria-expanded:border-ring aria-expanded:bg-card @max-[48rem]/conversation-workspace:px-2"
                 aria-label={t("conversation.modelSelector")}
                 aria-busy={pending || undefined}
-                disabled={pending}
               />
             }
           >
-            <span className="truncate">{selectedModel.display_name}</span>
-            <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-              {t(`reasoningEffort.${selectedReasoningEffort}`)}
-            </span>
-            <DesignIcon name="chevron-down" />
+            {selectorOpen ? (
+              <span className="min-w-0 flex-1 truncate text-start">
+                {t("conversation.chooseReasoningModel")}
+              </span>
+            ) : (
+              <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                <span className="min-w-0 truncate text-start">
+                  {selectedModel.display_name}
+                </span>
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                  {t(`reasoningEffort.${selectedReasoningEffort}`)}
+                </span>
+              </span>
+            )}
+            <DesignIcon
+              name="chevron-down"
+              className="transition-transform duration-150 group-aria-expanded/button:rotate-180 motion-reduce:transition-none"
+            />
           </PopoverTrigger>
           <PopoverContent
             side="top"
@@ -206,16 +219,16 @@ function ModelReasoningControls({
               />
             }
           >
-            <span className="flex items-center gap-1 text-xs font-medium text-[var(--app-selection)]">
+            <span className="text-xs font-medium text-[var(--app-selection)]">
               {t(`reasoningEffort.${previewEffort}`)}
+            </span>
+            <span className="flex w-full min-w-0 items-center justify-center text-xs font-normal text-muted-foreground">
+              <span className="truncate">{model.display_name}</span>
               <ChevronRightIcon
                 data-icon="inline-end"
                 className="text-muted-foreground"
                 aria-hidden="true"
               />
-            </span>
-            <span className="w-full truncate text-xs font-normal text-muted-foreground">
-              {model.display_name}
             </span>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -302,7 +315,7 @@ function ModelReasoningControls({
           )}
         >
           <SliderTrack className="bg-muted ring-1 ring-border/60 data-horizontal:h-4">
-            <SliderRange className="bg-[var(--app-selection)]" />
+            <SliderRange />
           </SliderTrack>
           <div
             className="pointer-events-none absolute inset-x-2 flex items-center justify-between"

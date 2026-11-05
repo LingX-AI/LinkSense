@@ -227,7 +227,7 @@ describe("archived conversation pagination", () => {
     vi.unstubAllGlobals()
   })
 
-  it("omits the new-task credit and keeps the existing-task credit at the lower-right without mobile spacing", async () => {
+  it("omits the attribution mark from new and existing tasks", async () => {
     const interaction = userEvent.setup()
     renderPrewarmPage()
     await screen.findByRole("textbox", { name: "任务输入框" })
@@ -238,23 +238,10 @@ describe("archived conversation pagination", () => {
       screen.getByRole("button", { name: "测试切换已有任务" })
     )
 
-    const badge = await screen.findByRole("link", {
-      name: "由 LinkSense 提供支持",
-    })
-    const frame = badge.parentElement
-    expect(frame).toHaveAttribute("data-placement", "conversation")
-    expect(frame).toHaveClass(
-      "justify-self-end",
-      "hidden",
-      "md:flex",
-      "[--attribution-inset:18px]"
-    )
-    expect(badge).not.toHaveClass(
-      "max-md:mr-0",
-      "max-md:justify-self-center",
-      "max-md:mt-3"
-    )
-    expect(frame?.parentElement).toHaveClass("conversation-bottom-stack")
+    await screen.findByRole("textbox", { name: "任务输入框" })
+    expect(
+      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+    ).not.toBeInTheDocument()
   })
 
   it("prewarms again when the empty composer starts another new task", async () => {
@@ -721,7 +708,7 @@ describe("conversation knowledge base snapshots", () => {
       expect(shareButton).toBeVisible()
       expect(
         shareButton.querySelector("[data-design-icon='share']")
-      ).toHaveClass("size-[calc(var(--app-ui-font-size)+6px)]")
+      ).toHaveClass("size-5")
       await waitFor(() => expect(client.isFetching()).toBe(0))
       if (hidden) {
         expect(
@@ -1019,8 +1006,8 @@ describe("conversation knowledge base snapshots", () => {
 
     const composer = await screen.findByRole("textbox", { name: "任务输入框" })
     expect(
-      screen.getByRole("link", { name: "由 LinkSense 提供支持" })
-    ).toBeVisible()
+      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+    ).not.toBeInTheDocument()
     expect(
       await screen.findByRole("button", { name: "移除附件 goal-brief.pdf" })
     ).toBeVisible()

@@ -146,6 +146,7 @@ export const conversationMessages = {
     send: "Enviar",
     model: "Modelo",
     modelSelector: "Elegir modelo y esfuerzo de razonamiento",
+    chooseReasoningModel: "Elegir modelo de razonamiento",
     resetReasoningEffort:
       "Restablecer el esfuerzo de razonamiento predeterminado",
     modelNotConfigured: "Servicio de modelos sin configurar",

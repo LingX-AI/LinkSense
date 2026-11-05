@@ -2583,9 +2583,17 @@ const Message = memo(function Message({
       onClick={() => void copyMessage()}
     >
       {copyState === "copied" ? (
-        <CheckIcon className="size-3" strokeWidth={1.5} aria-hidden="true" />
+        <CheckIcon
+          className="size-[var(--app-ui-font-size)]"
+          strokeWidth={2}
+          aria-hidden="true"
+        />
       ) : (
-        <CopyIcon className="size-3" strokeWidth={1.5} aria-hidden="true" />
+        <CopyIcon
+          className="size-[var(--app-ui-font-size)]"
+          strokeWidth={2}
+          aria-hidden="true"
+        />
       )}
     </Button>
   )
@@ -2602,14 +2610,14 @@ const Message = memo(function Message({
       >
         {forkState === "forking" ? (
           <LoaderCircleIcon
-            className="size-3 animate-spin"
-            strokeWidth={1.5}
+            className="size-[var(--app-ui-font-size)] animate-spin"
+            strokeWidth={2}
             aria-hidden="true"
           />
         ) : (
           <GitForkIcon
-            className="size-3"
-            strokeWidth={1.5}
+            className="size-[var(--app-ui-font-size)]"
+            strokeWidth={2}
             aria-hidden="true"
           />
         )}
@@ -2661,14 +2669,14 @@ const Message = memo(function Message({
             >
               {messageReferenceAction.mode === "ask" ? (
                 <MessagesSquareIcon
-                  className="size-3"
-                  strokeWidth={1.5}
+                  className="size-[var(--app-ui-font-size)]"
+                  strokeWidth={2}
                   aria-hidden="true"
                 />
               ) : (
                 <CornerUpLeftIcon
-                  className="size-3"
-                  strokeWidth={1.5}
+                  className="size-[var(--app-ui-font-size)]"
+                  strokeWidth={2}
                   aria-hidden="true"
                 />
               )}
@@ -3066,8 +3074,8 @@ const Message = memo(function Message({
                       onClick={startEditing}
                     >
                       <PencilIcon
-                        className="size-3"
-                        strokeWidth={1.5}
+                        className="size-[var(--app-ui-font-size)]"
+                        strokeWidth={2}
                         aria-hidden="true"
                       />
                     </Button>

@@ -2,7 +2,6 @@ import { screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it } from "vitest"
 
-import appStyles from "@/index.css?raw"
 import {
   installApiMock,
   renderApp,
@@ -78,27 +77,16 @@ describe("application attribution footer", () => {
   })
 
   it.each(["/conversations/c1"])(
-    "uses workspace-relative attribution without reserving a shell footer at %s",
+    "omits attribution without reserving a footer at %s",
     async (path) => {
       installApiMock()
       renderApp(path)
 
       const input = await screen.findByRole("textbox", { name: "任务输入框" })
-      const attribution = screen.getByRole("link", {
-        name: "由 LinkSense 提供支持",
-      })
-      const frame = attribution.parentElement
-      const bottomStack = input.closest(".conversation-bottom-stack")
-
-      expect(bottomStack).not.toBeNull()
-      expect(frame?.parentElement).toBe(bottomStack)
-      expect(frame).toHaveAttribute("data-placement", "conversation")
-      expect(frame).toHaveClass(
-        "hidden",
-        "md:flex",
-        "@min-[90.5rem]/conversation-workspace:absolute"
-      )
-      expect(frame).not.toHaveClass("absolute", "fixed")
+      expect(input.closest(".conversation-bottom-stack")).not.toBeNull()
+      expect(
+        screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+      ).not.toBeInTheDocument()
       expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument()
     }
   )
@@ -134,49 +122,34 @@ describe("application attribution footer", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("keeps attribution outside the overview translation when the panel is toggled", async () => {
+  it("keeps attribution absent when the task overview is toggled", async () => {
     installApiMock()
     const interaction = userEvent.setup()
     renderApp("/conversations/c1")
 
     const composer = await screen.findByRole("form", { name: "任务输入框" })
-    const attribution = screen.getByRole("link", {
-      name: "由 LinkSense 提供支持",
-    })
-    const frame = attribution.parentElement
     const workspace = composer.closest(".conversation-workspace")
-    const bottomStack = composer.closest(".conversation-bottom-stack")
-    const shiftRule = appStyles.match(
-      /([^{}]+)\{\s*transform: translate3d\(var\(--conversation-task-overview-shift-x\), 0, 0\);/
-    )
-    if (!shiftRule) throw new Error("Task overview translation rule is missing")
-    const shiftSelector = shiftRule[1].trim()
-
-    const expectStationaryAttribution = () => {
-      expect(composer.matches(shiftSelector)).toBe(true)
-      expect(bottomStack?.matches(shiftSelector)).toBe(false)
-      expect(attribution.closest(shiftSelector)).toBeNull()
-      expect(frame?.parentElement).toBe(bottomStack)
-      expect(frame).toHaveClass(
-        "@min-[90.5rem]/conversation-workspace:right-[calc(var(--attribution-inset)-var(--conversation-horizontal-gutter))]"
-      )
+    const expectNoAttribution = () => {
+      expect(
+        screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+      ).not.toBeInTheDocument()
     }
 
     await screen.findByRole("region", { name: "任务概览" })
     expect(workspace).toHaveAttribute("data-task-overview-open", "true")
-    expectStationaryAttribution()
+    expectNoAttribution()
 
     await interaction.click(
       screen.getByRole("button", { name: "关闭任务概览" })
     )
     expect(workspace).not.toHaveAttribute("data-task-overview-open")
-    expectStationaryAttribution()
+    expectNoAttribution()
 
     await interaction.click(
       screen.getByRole("button", { name: "打开任务概览" })
     )
     await screen.findByRole("region", { name: "任务概览" })
     expect(workspace).toHaveAttribute("data-task-overview-open", "true")
-    expectStationaryAttribution()
+    expectNoAttribution()
   })
 })

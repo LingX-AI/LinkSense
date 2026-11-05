@@ -9003,9 +9003,7 @@ describe("conversation turn responses", () => {
     const assistantMessage = screen.getByRole("article", {
       name: "助手回复",
     })
-    expect(
-      within(assistantMessage).getByLabelText("消息操作")
-    ).toBeVisible()
+    expect(within(assistantMessage).getByLabelText("消息操作")).toBeVisible()
 
     rerender(<ConversationThread {...props} hideMessageActions />)
     expect(screen.queryByLabelText("消息操作")).toBeNull()
@@ -9063,16 +9061,14 @@ describe("conversation turn responses", () => {
       name: "复制消息",
     })
     expect(copyButton).toHaveClass("message-copy-button")
-    expect(copyButton.querySelector("svg")).toHaveClass("size-3")
-    expect(copyButton.querySelector("svg")).toHaveAttribute(
-      "stroke-width",
-      "1.5"
+    expect(copyButton.querySelector("svg")).toHaveClass(
+      "size-[var(--app-ui-font-size)]"
     )
-    expect(editButton.querySelector("svg")).toHaveClass("size-3")
-    expect(editButton.querySelector("svg")).toHaveAttribute(
-      "stroke-width",
-      "1.5"
+    expect(copyButton.querySelector("svg")).toHaveAttribute("stroke-width", "2")
+    expect(editButton.querySelector("svg")).toHaveClass(
+      "size-[var(--app-ui-font-size)]"
     )
+    expect(editButton.querySelector("svg")).toHaveAttribute("stroke-width", "2")
     expect(userActions?.children[0]).toHaveTextContent("15:47")
     expect(assistantActions?.children[1]).toHaveTextContent("15:54")
     expect(
@@ -9091,7 +9087,7 @@ describe("conversation turn responses", () => {
       within(userMessage)
         .getByRole("button", { name: "消息已复制" })
         .querySelector("svg")
-    ).toHaveAttribute("stroke-width", "1.5")
+    ).toHaveAttribute("stroke-width", "2")
 
     await interaction.click(
       within(assistantMessage).getByRole("button", { name: "复制消息" })

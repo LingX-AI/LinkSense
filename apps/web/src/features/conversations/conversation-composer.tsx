@@ -163,7 +163,7 @@ function ConversationCapabilityMenuIcon({
       case "linksense-knowledge-base":
         return <DesignIcon name="knowledge" className="size-5" />
       case "linksense-image-generation":
-        return <DesignIcon name="image-generation" className="size-5" />
+        return <DesignIcon name="image-generation" className="size-4.5" />
     }
   }
   return <CapabilityIcon type={capability.type} logoUrl={capability.logo_url} />
@@ -1408,7 +1408,7 @@ export const ConversationComposer = forwardRef<
   return (
     <form
       ref={composerShellRef}
-      className="composer-shell has-[.composer-input:focus-visible]:outline has-[.composer-input:focus-visible]:-outline-offset-1 has-[.composer-input:focus-visible]:outline-muted-foreground"
+      className="composer-shell"
       aria-label={t("conversation.messageInput")}
       data-slash-menu-open={commandMenuOpen || undefined}
       data-drag-active={isDraggingFiles || undefined}
@@ -1800,7 +1800,7 @@ export const ConversationComposer = forwardRef<
           {unavailableMessage}
         </FieldDescription>
       )}
-      <div className="composer-input-layer">
+      <div className="composer-input-layer -mr-3">
         {hasComposerInputUrl && (
           <ConversationComposerUrlHighlightLayer
             ref={composerInputHighlightRef}
@@ -1870,7 +1870,7 @@ export const ConversationComposer = forwardRef<
           disabled={interactionBlocked}
           readOnly={submitting}
           className={cn(
-            "composer-input composer-input-textarea min-h-10 border-0 bg-transparent px-1 py-2 text-sm leading-6 shadow-none focus-visible:bg-transparent focus-visible:ring-0 @min-[48rem]/conversation-workspace:min-h-14",
+            "composer-input composer-input-textarea min-h-10 border-0 bg-transparent p-0 pr-3 text-sm leading-6 shadow-none focus-visible:bg-transparent focus-visible:ring-0 @min-[48rem]/conversation-workspace:min-h-14",
             hasComposerInputUrl && "composer-input-has-url",
             hasLeadingComposerInputUrl && "composer-input-has-leading-url"
           )}
@@ -1878,7 +1878,7 @@ export const ConversationComposer = forwardRef<
       </div>
 
       <div
-        className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 @min-[48rem]/conversation-workspace:mt-4"
+        className="mt-2 flex min-w-0 flex-wrap items-end gap-x-3 gap-y-2 @min-[48rem]/conversation-workspace:mt-4"
         data-slot="composer-toolbar"
       >
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 @max-[28rem]/conversation-workspace:gap-x-1">
@@ -1914,22 +1914,23 @@ export const ConversationComposer = forwardRef<
               <PopoverHeader className="sr-only">
                 <PopoverTitle>{t("conversation.addMenuTitle")}</PopoverTitle>
               </PopoverHeader>
-              <Command className="min-h-0 rounded-none bg-transparent p-0 [&_[data-slot=command-input-wrapper]]:p-0 [&_[data-slot=input-group]]:h-10! [&_[data-slot=input-group]]:bg-muted/40">
+              <Command className="min-h-0 gap-2 overflow-visible rounded-none bg-transparent p-1 [&_[data-slot=command-input-wrapper]]:shrink-0 [&_[data-slot=command-input-wrapper]]:p-0 [&_[data-slot=input-group]]:h-10! [&_[data-slot=input-group]]:bg-muted/40">
                 {!managedApplicationName && (
                   <CommandInput
+                    className="placeholder:text-muted-foreground"
                     placeholder={t("conversation.capabilitySearch")}
                     autoFocus={shouldAutoFocusOnDesktop()}
                   />
                 )}
-                <CommandList className="max-h-128 min-h-0 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-items]]:space-y-1 [&_[data-slot=command-group]]:p-0 [&_[data-slot=command-item]]:min-h-8 [&_[data-slot=command-item]]:rounded-md [&_[data-slot=command-item]]:py-1 [&_[data-slot=command-item]]:font-normal">
+                <CommandList className="-mr-3 max-h-128 min-h-0 pr-3 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-items]]:space-y-1 [&_[data-slot=command-group]]:p-0 [&_[data-slot=command-item]]:min-h-8 [&_[data-slot=command-item]]:rounded-md [&_[data-slot=command-item]]:py-1 [&_[data-slot=command-item]]:font-normal">
                   <CommandGroup aria-label={t("conversation.addGroup")}>
                     <CommandItem
                       value={t("conversation.attachFileMenuSearchValue")}
                       disabled={attachmentActionDisabled}
                       onSelect={openAttachmentFilePicker}
                     >
-                      <span className="grid size-5 shrink-0 place-items-center [&>svg]:size-5">
-                        <PaperclipIcon aria-hidden="true" />
+                      <span className="grid size-5 shrink-0 place-items-center">
+                        <PaperclipIcon aria-hidden="true" className="size-5" />
                       </span>
                       <span className="min-w-0 flex-1 truncate text-sm">
                         {t("conversation.attachFileMenuLabel")}
@@ -1941,8 +1942,11 @@ export const ConversationComposer = forwardRef<
                         disabled={attachmentActionDisabled}
                         onSelect={openReferenceFilePicker}
                       >
-                        <span className="grid size-5 shrink-0 place-items-center [&>svg]:size-5">
-                          <FileInputIcon aria-hidden="true" />
+                        <span className="grid size-5 shrink-0 place-items-center">
+                          <FileInputIcon
+                            aria-hidden="true"
+                            className="size-5"
+                          />
                         </span>
                         <span className="min-w-0 flex-1 truncate text-sm">
                           {t("conversation.referenceFile.menuLabel")}
@@ -1958,8 +1962,8 @@ export const ConversationComposer = forwardRef<
                           setTaskReferenceOpen(true)
                         }}
                       >
-                        <span className="grid size-5 shrink-0 place-items-center [&>svg]:size-5">
-                          <Link2Icon aria-hidden="true" />
+                        <span className="grid size-5 shrink-0 place-items-center">
+                          <Link2Icon aria-hidden="true" className="size-5" />
                         </span>
                         <span className="min-w-0 flex-1 truncate text-sm">
                           {t("taskReferences.title")}
@@ -1978,7 +1982,7 @@ export const ConversationComposer = forwardRef<
                       onSelect={openAttachmentFolderPicker}
                     >
                       <span className="grid size-5 shrink-0 place-items-center">
-                        <DesignIcon name="folder" className="size-5" />
+                        <DesignIcon name="folder" className="size-4.5" />
                       </span>
                       <span className="min-w-0 flex-1 truncate text-sm">
                         {t("conversation.attachFolderMenuLabel")}
@@ -1991,8 +1995,8 @@ export const ConversationComposer = forwardRef<
                         disabled={attachmentActionDisabled}
                         onSelect={enableGoalMode}
                       >
-                        <span className="grid size-5 shrink-0 place-items-center [&>svg]:size-5">
-                          <GoalIcon aria-hidden="true" />
+                        <span className="grid size-5 shrink-0 place-items-center">
+                          <GoalIcon aria-hidden="true" className="size-5" />
                         </span>
                         <span className="min-w-0 flex-1" data-goal-labels="">
                           <span className="block truncate text-sm">
@@ -2012,8 +2016,11 @@ export const ConversationComposer = forwardRef<
                         disabled={attachmentActionDisabled || planModeDisabled}
                         onSelect={togglePlanMode}
                       >
-                        <span className="grid size-5 shrink-0 place-items-center [&>svg]:size-5">
-                          <LightbulbIcon aria-hidden="true" />
+                        <span className="grid size-5 shrink-0 place-items-center">
+                          <LightbulbIcon
+                            aria-hidden="true"
+                            className="size-5"
+                          />
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm">
@@ -2247,7 +2254,7 @@ export const ConversationComposer = forwardRef<
                       side="top"
                       align="start"
                       sideOffset={4}
-                      className="capability-popover gap-2"
+                      className="capability-popover gap-2 rounded-xl"
                     >
                       <PopoverHeader className="px-2 pt-1">
                         <PopoverTitle className="text-sm">
@@ -2459,7 +2466,7 @@ export const ConversationComposer = forwardRef<
         </div>
 
         <div
-          className="ml-auto flex min-w-0 flex-1 basis-64 items-center justify-end gap-3 @max-[48rem]/conversation-workspace:gap-1.5"
+          className="ml-auto flex min-w-0 flex-1 basis-64 items-end justify-end gap-3 @max-[48rem]/conversation-workspace:gap-1.5"
           data-testid="composer-primary-actions"
           data-slot="composer-primary-actions"
         >
@@ -2505,7 +2512,7 @@ export const ConversationComposer = forwardRef<
                   variant="ghost"
                   size="icon-sm"
                   className={cn(
-                    "composer-control size-10 @max-[48rem]/conversation-workspace:size-8",
+                    "composer-control size-8",
                     voiceAvailable &&
                       !taskStartDisabled &&
                       modelPreferenceBlockingActions &&
@@ -2536,7 +2543,7 @@ export const ConversationComposer = forwardRef<
             <Button
               type="button"
               size="icon"
-              className="send-button size-10 rounded-full @max-[48rem]/conversation-workspace:size-8"
+              className="send-button size-8 rounded-full"
               aria-label={t(
                 interrupting ? "conversation.interrupting" : "conversation.stop"
               )}
@@ -2560,7 +2567,7 @@ export const ConversationComposer = forwardRef<
             <Button
               type="submit"
               size="icon"
-              className="send-button size-10 rounded-full @max-[48rem]/conversation-workspace:size-8"
+              className="send-button size-8 rounded-full"
               aria-label={t("conversation.send")}
               aria-disabled={!canSend}
               disabled={sendButtonDisabled}
@@ -2569,7 +2576,7 @@ export const ConversationComposer = forwardRef<
               {submitting ? (
                 <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
               ) : (
-                <DesignIcon name="send" className="size-5" />
+                <DesignIcon name="send" className="size-4.5" />
               )}
             </Button>
           )}

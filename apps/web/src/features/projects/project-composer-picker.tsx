@@ -117,7 +117,7 @@ export function ProjectComposerPicker({
             sideOffset={6}
             initialFocus={searchRef}
             aria-label={t("projects.choose")}
-            className="w-64 max-w-[calc(100vw-2rem)] gap-0 overflow-hidden rounded-2xl p-1 text-[length:var(--app-font-13)]"
+            className="w-64 max-w-[calc(100vw-2rem)] gap-0 overflow-hidden rounded-xl p-1 text-[length:var(--app-font-13)]"
           >
             <Command
               label={t("projects.search")}

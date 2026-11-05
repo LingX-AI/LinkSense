@@ -4,6 +4,11 @@ import { useTranslation } from "react-i18next"
 
 import type { ConversationMessage } from "@/api/contracts"
 import { Button } from "@/components/ui/button"
+import {
+  ActionTooltipContent,
+  Tooltip,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { getConversationMessageRenderKey } from "@/features/conversations/streaming-messages"
 
 export function ConversationScrollToBottomIndicator({
@@ -11,7 +16,7 @@ export function ConversationScrollToBottomIndicator({
 }: Readonly<{
   running: boolean
 }>) {
-  if (!running) return <ArrowDownIcon aria-hidden="true" />
+  if (!running) return <ArrowDownIcon className="size-5" aria-hidden="true" />
 
   return (
     <span
@@ -80,20 +85,26 @@ export function ConversationScrollToBottomButton({
       : t("conversation.scrollToBottom")
 
   return (
-    <Button
-      type="button"
-      variant="plain"
-      size="icon-lg"
-      className="conversation-scroll-to-bottom-button"
-      data-count={newReplyCount > 0 ? newReplyCount : undefined}
-      aria-label={label}
-      title={label}
-      onClick={onScrollToBottom}
-    >
-      <ConversationScrollToBottomIndicator
-        running={running && newReplyCount === 0}
-      />
-      {newReplyCount > 0 && <span>{label}</span>}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            variant="plain"
+            size="icon-lg"
+            className="conversation-scroll-to-bottom-button"
+            data-count={newReplyCount > 0 ? newReplyCount : undefined}
+            aria-label={label}
+            onClick={onScrollToBottom}
+          />
+        }
+      >
+        <ConversationScrollToBottomIndicator
+          running={running && newReplyCount === 0}
+        />
+        {newReplyCount > 0 && <span>{label}</span>}
+      </TooltipTrigger>
+      <ActionTooltipContent>{label}</ActionTooltipContent>
+    </Tooltip>
   )
 }

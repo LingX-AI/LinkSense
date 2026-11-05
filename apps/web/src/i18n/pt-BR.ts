@@ -2306,6 +2306,7 @@ export const ptBR = {
     send: "Enviar",
     model: "Modelo",
     modelSelector: "Escolher modelo e esforço de raciocínio",
+    chooseReasoningModel: "Escolher modelo de raciocínio",
     resetReasoningEffort: "Redefinir esforço de raciocínio para o padrão",
     modelNotConfigured: "Serviço de modelos não configurado",
     reasoningEffort: "Esforço de raciocínio",

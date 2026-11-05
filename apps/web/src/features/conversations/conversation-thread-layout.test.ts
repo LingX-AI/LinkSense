@@ -617,9 +617,9 @@ describe("conversation activity typography", () => {
     expect(headingTriggerRule).toMatch(/padding:\s*2px 0 0;/u)
   })
 
-  it("uses the same UI typography for processing, thinking and tool summary rows", () => {
+  it("keeps processing and thinking labels regular while retaining the tool summary type scale", () => {
     expect(conversationStyles).toMatch(
-      /\.turn-status\s*\{[^}]*font-size:\s*var\(--app-ui-font-size\);[^}]*font-weight:\s*500;[^}]*line-height:\s*var\(--app-ui-compact-line-height\);/u
+      /\.turn-status\s*\{[^}]*font-size:\s*var\(--app-ui-font-size\);[^}]*font-weight:\s*400;[^}]*line-height:\s*var\(--app-ui-compact-line-height\);/u
     )
     expect(conversationStyles).toMatch(
       /\.native-activity-trigger\s*\{[^}]*font-size:\s*var\(--app-ui-font-size\);[^}]*font-weight:\s*500;[^}]*line-height:\s*var\(--app-ui-compact-line-height\);/u
@@ -631,7 +631,7 @@ describe("conversation activity typography", () => {
 
   it("keeps execution durations readable while secondary to the status label", () => {
     expect(conversationStyles).toMatch(
-      /\.turn-duration\s*\{[^}]*font-size:\s*var\(--app-font-13\);[^}]*font-weight:\s*500;[^}]*line-height:\s*var\(--app-line-19\);/u
+      /\.turn-duration\s*\{[^}]*font-size:\s*var\(--app-font-13\);[^}]*font-weight:\s*400;[^}]*line-height:\s*var\(--app-line-19\);/u
     )
   })
 
@@ -954,12 +954,15 @@ describe("conversation activity typography", () => {
     expect(nativeActivityIconRule).toMatch(/margin-top:\s*2px;/u)
   })
 
-  it("keeps commentary prominent until a final answer is visible while tool activity stays muted", () => {
+  it("keeps commentary at the same regular weight as final answers while tool activity stays muted", () => {
     expect(conversationStyles).toMatch(
       /\.turn-summary\s*\{[^}]*color:\s*var\(--app-muted\);/u
     )
     expect(conversationStyles).toMatch(
-      /\.process-commentary\s*\{[^}]*--process-commentary-color:\s*var\(--app-text\);[^}]*font-weight:\s*500;/u
+      /\.process-commentary\s*\{[^}]*--process-commentary-color:\s*var\(--app-text\);[^}]*font-weight:\s*400;/u
+    )
+    expect(conversationStyles).toMatch(
+      /\.message-content\s*\{[^}]*font-weight:\s*400;/u
     )
     expect(conversationStyles).toMatch(
       /\.process-commentary\[data-final-answer-visible="true"\]\s*\{[^}]*--process-commentary-color:\s*var\(--app-muted\);/u

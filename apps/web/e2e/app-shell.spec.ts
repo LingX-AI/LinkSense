@@ -119,13 +119,16 @@ test("sidebar groups match the design through hover, keyboard focus, and sorting
   await page.mouse.move(1000, 70)
   await expect(heading).toHaveCSS("font-size", "12px")
   await expect(heading).toHaveCSS("font-weight", "400")
-  await expect(heading).toHaveCSS("height", "40px")
+  await expect(heading).toHaveCSS("height", "28px")
   await expect(sort).toHaveCSS("opacity", "0")
   const row = section.getByRole("link", { name: "Q3 enrollment data" })
-  await expect(row).toHaveCSS("height", "40px")
+  await expect(row).toHaveCSS("height", "36px")
+  await expect(
+    sidebar.getByRole("link", { name: "Grade 10 syllabus" })
+  ).toHaveCSS("height", "36px")
   await expect(row.locator("..")).toHaveCSS(
     "background-color",
-    "rgb(233, 241, 255)"
+    "color(srgb 0.0313726 0.454902 1 / 0.06)"
   )
   const navIcon = sidebar.locator('[data-design-icon="automations"]')
   await expect(navIcon).toHaveCSS("width", "16px")
@@ -1600,15 +1603,18 @@ test("sidebars share the design palette and preserve distinct active states in b
   const appSidebar = page.getByRole("complementary", {
     name: "LinkSense 导航",
   })
-  await expect(appSidebar).toHaveCSS("background-color", "rgb(247, 248, 250)")
+  await expect(appSidebar).toHaveCSS(
+    "background-color",
+    "color(srgb 0.968627 0.972549 0.980392 / 0.68)"
+  )
   await expect(
     appSidebar.locator(".sidebar-conversation-item.sidebar-link-active")
-  ).toHaveCSS("background-color", "rgb(233, 241, 255)")
+  ).toHaveCSS("background-color", "color(srgb 0.0313726 0.454902 1 / 0.06)")
   const capabilitiesLink = appSidebar.getByRole("link", { name: "插件中心" })
   await capabilitiesLink.hover()
   await expect(capabilitiesLink).toHaveCSS(
     "background-color",
-    "rgb(242, 246, 253)"
+    "color(srgb 0.0313726 0.454902 1 / 0.045)"
   )
 
   await page.goto("/settings/general")
@@ -1621,25 +1627,25 @@ test("sidebars share the design palette and preserve distinct active states in b
   )
   await expect(
     settingsSidebar.locator(".settings-navigation-link-active")
-  ).toHaveCSS("background-color", "rgb(233, 241, 255)")
+  ).toHaveCSS("background-color", "color(srgb 0.0313726 0.454902 1 / 0.06)")
   const inactiveSettingsLink = settingsSidebar
     .locator(".settings-navigation-link:not(.settings-navigation-link-active)")
     .first()
   await inactiveSettingsLink.hover()
   await expect(inactiveSettingsLink).toHaveCSS(
     "background-color",
-    "rgb(242, 246, 253)"
+    "color(srgb 0.0313726 0.454902 1 / 0.045)"
   )
 
   await page.emulateMedia({ colorScheme: "dark" })
   await expect(settingsSidebar).toHaveCSS("background-color", "rgb(32, 32, 32)")
   await expect(
     settingsSidebar.locator(".settings-navigation-link-active")
-  ).toHaveCSS("background-color", "rgb(41, 51, 71)")
+  ).toHaveCSS("background-color", "color(srgb 0.545098 0.713726 1 / 0.14)")
   await inactiveSettingsLink.hover()
   await expect(inactiveSettingsLink).toHaveCSS(
     "background-color",
-    "rgb(40, 44, 54)"
+    "color(srgb 0.545098 0.713726 1 / 0.1)"
   )
 })
 
@@ -1981,8 +1987,8 @@ test("design icons follow the UI font size across the sidebar and conversation",
       await expect(icon).toHaveCSS("height", iconSize)
     }
     const sendIcon = composer.locator('[data-design-icon="send"]')
-    await expect(sendIcon).toHaveCSS("width", "20px")
-    await expect(sendIcon).toHaveCSS("height", "20px")
+    await expect(sendIcon).toHaveCSS("width", "18px")
+    await expect(sendIcon).toHaveCSS("height", "18px")
     await page.goto("/conversations/20000000-0000-4000-8000-000000000001")
     for (const name of ["share", "overview"]) {
       const icon = page.locator(
@@ -2111,8 +2117,8 @@ test("navigation, menus, and tabs preserve the design typography hierarchy", asy
   const sidebar = page.getByRole("complementary", { name: "LinkSense 导航" })
 
   await expect(sidebar.getByRole("button", { name: "搜索" })).toHaveCSS(
-    "font-weight",
-    "400"
+    "width",
+    "36px"
   )
   await expect(
     sidebar.getByRole("link", { name: "任务", exact: true })
@@ -3702,7 +3708,10 @@ test("settings navigation has no item dividers while tables and menus keep neces
     name: /角色与权限/,
   })
   await expect(activeLink).toHaveCSS("border-radius", "8px")
-  await expect(activeLink).toHaveCSS("background-color", "rgb(233, 241, 255)")
+  await expect(activeLink).toHaveCSS(
+    "background-color",
+    "color(srgb 0.0313726 0.454902 1 / 0.06)"
+  )
   expect(
     await settingsSidebar
       .locator(".settings-navigation-link")
