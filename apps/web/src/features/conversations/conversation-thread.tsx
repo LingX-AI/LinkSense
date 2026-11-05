@@ -5,6 +5,7 @@ import { AssistantPreviewAction } from "@/features/conversations/assistant-previ
 import { responseLatency } from "./response-latency"
 import {
   Children,
+  Fragment,
   createContext,
   memo,
   useCallback,
@@ -212,6 +213,9 @@ import {
   getKnowledgeCitationNumberFromFragment,
   getKnowledgeCitationPreviewPath,
   remarkKnowledgeCitations,
+  remarkTextCitations,
+  type TextCitationPolicy,
+  type TextCitationSource,
 } from "@/features/conversations/knowledge-citation-markdown"
 import { stripKnowledgeSourceMarkers } from "@/features/conversations/knowledge-source-markers"
 import {
@@ -800,6 +804,7 @@ function MarkdownCodeBlock({
   ...props
 }: ComponentPropsWithoutRef<"pre">) {
   const { t } = useTranslation()
+  const { textOnly } = useContext(ConversationContentPolicyContext)
   const { streaming } = useContext(AssistantMarkdownAssetContext)
   const preRef = useRef<HTMLPreElement>(null)
   const [htmlCodeView, setHtmlCodeView] = useState<
@@ -807,13 +812,13 @@ function MarkdownCodeBlock({
   >({ source: null, mode: "code" })
   const htmlPreviewSource = getAssistantHtmlPreviewSource(children)
   const htmlCodeSource = getAssistantHtmlCodeSource(children)
-  const canPreviewHtmlCode = !streaming && htmlCodeSource !== null
+  const canPreviewHtmlCode = !textOnly && !streaming && htmlCodeSource !== null
   const htmlCodeMode =
     htmlCodeView.source === htmlCodeSource ? htmlCodeView.mode : "code"
   const showHtmlCodePreview = canPreviewHtmlCode && htmlCodeMode === "preview"
 
   const mermaidSource = getMarkdownCodeTextForLanguages(children, ["mermaid"])
-  if (mermaidSource !== null) {
+  if (!textOnly && mermaidSource !== null) {
     return (
       <AssistantMermaid
         source={mermaidSource}
@@ -857,7 +862,7 @@ function MarkdownCodeBlock({
       </pre>
     </div>
   )
-  if (htmlPreviewSource !== null) {
+  if (!textOnly && htmlPreviewSource !== null) {
     if (streaming) return <AssistantHtmlPreviewPending />
     return <AssistantHtmlPreview html={htmlPreviewSource} />
   }
@@ -1340,12 +1345,42 @@ type AssistantMarkdownProps = Readonly<{
   onPreviewImage?: (item: ImagePreviewItem) => void
 }>
 
+type ConversationContentPolicy = Readonly<{
+  textOnly: boolean
+  textCitations?: Readonly<{
+    visible: boolean
+    sourcesByTurn: ReadonlyMap<string, readonly TextCitationSource[]>
+  }>
+}>
+const ConversationContentPolicyContext =
+  createContext<ConversationContentPolicy>({
+    textOnly: false,
+  })
+export function ConversationContentPolicyProvider({
+  textOnly,
+  textCitations,
+  children,
+}: ConversationContentPolicy & {
+  children: ReactNode
+}) {
+  const policy = useMemo(
+    () => ({ textOnly, textCitations }),
+    [textOnly, textCitations]
+  )
+  return (
+    <ConversationContentPolicyContext.Provider value={policy}>
+      {children}
+    </ConversationContentPolicyContext.Provider>
+  )
+}
+
 type AssistantMarkdownBlockContextValue = Readonly<{
   citations: NonNullable<ConversationMessage["knowledge_citations"]>
   components: Components
   sourceContent?: string
   blockOffsets: readonly number[]
   citationOffsetBaseUtf16: number
+  textCitations?: TextCitationPolicy
 }>
 
 const AssistantMarkdownBlockContext =
@@ -1360,6 +1395,15 @@ const emptyAssistantMarkdownRehypePlugins: NonNullable<
 const assistantMarkdownRemendOptions: NonNullable<StreamdownProps["remend"]> = {
   linkMode: "text-only",
   inlineKatex: false,
+}
+const textCitationMarkdownRemendOptions: NonNullable<
+  StreamdownProps["remend"]
+> = {
+  ...assistantMarkdownRemendOptions,
+  // Preserve reference prefixes for the citation policy instead of treating
+  // them as incomplete links and exposing their bare number while streaming.
+  links: false,
+  images: false,
 }
 const htmlSourceBlockTagNames = new Set([
   "html",
@@ -1535,11 +1579,13 @@ const AssistantMarkdownBlock = memo(function AssistantMarkdownBlock({
           includeBlockStart: index === 0,
         },
       ],
+      [remarkTextCitations, blockContext?.textCitations],
     ],
     [
       blockContext?.citations,
       blockContext?.citationOffsetBaseUtf16,
       blockContext?.sourceContent,
+      blockContext?.textCitations,
       citationOffsetBaseUtf16,
       content.length,
       index,
@@ -1631,6 +1677,23 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
   onPreviewHtmlCode,
   onPreviewImage,
 }: AssistantMarkdownProps) {
+  const { textOnly, textCitations: textCitationPolicy } = useContext(
+    ConversationContentPolicyContext
+  )
+  const textCitationTurnId = knowledgeAssetScope?.turnId
+  const textCitations = useMemo<TextCitationPolicy | undefined>(
+    () =>
+      textCitationPolicy
+        ? {
+            visible: textCitationPolicy.visible,
+            sources: textCitationTurnId
+              ? (textCitationPolicy.sourcesByTurn.get(textCitationTurnId) ?? [])
+              : [],
+            streaming,
+          }
+        : undefined,
+    [textCitationPolicy, textCitationTurnId, streaming]
+  )
   const safeContent = useMemo(() => {
     const stripped = stripKnowledgeSourceMarkers(
       normalizeAssistantMessageContent(content)
@@ -1676,6 +1739,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
       artifactFilesById,
       citationIds,
       citationsByNumber,
+      textCitations,
       knowledgeAssetScope,
       knowledgeImageAuthorizationPending: streaming,
       loadArtifactPreview,
@@ -1687,6 +1751,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
       artifactFilesById,
       citationIds,
       citationsByNumber,
+      textCitations,
       knowledgeAssetScope,
       loadArtifactPreview,
       onPreviewHtmlCode,
@@ -1751,9 +1816,9 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         return <MarkdownTable {...props} />
       },
       a: AssistantMarkdownLinkElement,
-      img: AssistantMarkdownImageElement,
+      img: textOnly ? () => null : AssistantMarkdownImageElement,
     }),
-    []
+    [textOnly]
   )
   const blockCitations = citations?.length
     ? citations
@@ -1768,6 +1833,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
       // for ordinary replies invalidates every already-completed block.
       sourceContent: citationSourceContent,
       citationOffsetBaseUtf16,
+      textCitations,
     }),
     [
       citationBlockOffsets,
@@ -1775,6 +1841,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
       blockCitations,
       markdownComponents,
       citationSourceContent,
+      textCitations,
     ]
   )
   return (
@@ -1789,7 +1856,11 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           components={markdownComponents}
           plugins={assistantMarkdownPlugins}
           parseIncompleteMarkdown={streaming}
-          remend={assistantMarkdownRemendOptions}
+          remend={
+            textCitations
+              ? textCitationMarkdownRemendOptions
+              : assistantMarkdownRemendOptions
+          }
           parseMarkdownIntoBlocksFn={parseMarkdownIntoBlocks}
           rehypePlugins={emptyAssistantMarkdownRehypePlugins}
           skipHtml
@@ -1818,6 +1889,7 @@ const AssistantMarkdownAssetContext = createContext<{
     number,
     NonNullable<ConversationMessage["knowledge_citations"]>[number]
   >
+  textCitations?: TextCitationPolicy
   knowledgeAssetScope?: Readonly<{
     conversationId: string
     turnId: string
@@ -2050,14 +2122,51 @@ function AssistantMarkdownLinkElement({
   ...props
 }: ComponentPropsWithoutRef<"a"> & { node?: unknown }) {
   void node
-  const { citationsByNumber } = useContext(AssistantMarkdownAssetContext)
+  const { t } = useTranslation()
+  const { textOnly } = useContext(ConversationContentPolicyContext)
+  const { citationsByNumber, textCitations } = useContext(
+    AssistantMarkdownAssetContext
+  )
   const citationNumber = getKnowledgeCitationNumberFromFragment(href)
   const citation =
     citationNumber === null ? undefined : citationsByNumber?.get(citationNumber)
   if (citation) {
     return <KnowledgeCitationInlineLink {...props} citation={citation} />
   }
+  if (citationNumber !== null && textCitations) {
+    const source = textCitations.visible
+      ? textCitations.sources.find((item) => item.number === citationNumber)
+      : undefined
+    return source ? (
+      <span className="knowledge-citation-inline">
+        <a
+          {...props}
+          href={source.href}
+          className={cn(props.className, "knowledge-citation-link")}
+          title={source.title}
+          aria-label={t("conversation.openKnowledgeCitation", {
+            number: source.number,
+          })}
+        >
+          {source.number}
+        </a>
+      </span>
+    ) : null
+  }
   const safeHref = getSafeAssistantMarkdownLinkUrl(href)
+  if (textOnly)
+    return safeHref && /^https?:\/\//iu.test(safeHref) ? (
+      <a
+        {...props}
+        href={safeHref}
+        target="_blank"
+        rel="noopener noreferrer nofollow"
+      >
+        {children}
+      </a>
+    ) : (
+      <span className={props.className}>{children}</span>
+    )
   if (!safeHref) {
     return (
       <span className={props.className} title={props.title}>
@@ -4362,6 +4471,7 @@ export function ConversationThread({
   embedded = false,
   defaultActivityOpen = false,
   hideMessageActions = false,
+  renderMessageFooter,
   navigationRef,
   onVisibleMessageChange,
   history,
@@ -4417,6 +4527,7 @@ export function ConversationThread({
   embedded?: boolean
   defaultActivityOpen?: boolean
   hideMessageActions?: boolean
+  renderMessageFooter?: (message: ConversationMessage) => ReactNode
   navigationRef?: Ref<ConversationThreadNavigation>
   onVisibleMessageChange?: (ids: string[]) => void
   history?: ConversationHistoryControl
@@ -5302,6 +5413,12 @@ export function ConversationThread({
 
     if (rendersMessage) {
       nodes.push(renderConversationMessage(message, isFinal))
+      if (renderMessageFooter)
+        nodes.push(
+          <Fragment key={`footer-${message.id}`}>
+            {renderMessageFooter(message)}
+          </Fragment>
+        )
     }
     if (forkSource && message.id === forkBoundaryMessageId) {
       nodes.push(

@@ -154,12 +154,18 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, "index.html"),
         embed: path.resolve(__dirname, "src/embed-main.tsx"),
+        publicKnowledge: path.resolve(
+          __dirname,
+          "src/public-knowledge-main.tsx"
+        ),
       },
       output: {
         entryFileNames: (chunk) =>
           chunk.name === "embed"
             ? "assets/embed-app.js"
-            : "assets/[name]-[hash].js",
+            : chunk.name === "publicKnowledge"
+              ? "assets/public-knowledge-app.js"
+              : "assets/[name]-[hash].js",
         chunkFileNames: "assets/[name]-[hash].js",
         assetFileNames: (asset) =>
           asset.names.some((name) => name.endsWith(".css"))

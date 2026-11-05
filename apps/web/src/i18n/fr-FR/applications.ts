@@ -1,3 +1,4 @@
+import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 export const applicationResources = {
   applications: {
     opening: {
@@ -271,6 +272,7 @@ export const applicationResources = {
       kinds: {
         standard: "Application standard",
         interactive: "Application interactive",
+        public_knowledge: publicKnowledgeMessages["fr-FR"].title,
       },
       views: {
         configuration: "Configuration actuelle",

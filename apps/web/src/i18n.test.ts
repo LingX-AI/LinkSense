@@ -925,8 +925,15 @@ describe("i18n resources", () => {
     ).toContain("System health")
   })
 
-  it("uses conversation terminology only for models, naming frequency, chat-based app creation and debug conversations", () => {
+  it("uses conversation terminology only for models, naming frequency, chat-based app creation, debug and public knowledge conversations", () => {
     const allowedChineseConversationTerms = new Set([
+      zhCN.publicKnowledge.conversations,
+      zhCN.publicKnowledge.defaultInstructions,
+      zhCN.publicKnowledge.retention,
+      zhCN.publicKnowledge.privacy,
+      zhCN.publicKnowledge.newConversation,
+      zhCN.publicKnowledge.empty,
+      zhCN.publicKnowledge.selectConversation,
       "首次对话时",
       "每次对话时",
       "用对话创建交互式应用",

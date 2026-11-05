@@ -6,6 +6,7 @@ import {
   MessageSquareTextIcon,
   SlidersHorizontalIcon,
   SparklesIcon,
+  BookOpenIcon,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -20,7 +21,7 @@ import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { Separator } from "@/components/ui/separator"
 
 export type ApplicationCreationMethod =
-  "development" | "standard" | "interactive"
+  "development" | "standard" | "interactive" | "public_knowledge"
 
 // Decorative conversation and preview shapes; the action's label carries its meaning.
 function ApplicationCreationIllustration() {
@@ -82,6 +83,12 @@ export function ApplicationCreateDialog({
       title: t("applications.importInteractiveApp"),
       description: t("applications.importInteractiveAppDescription"),
       icon: FileArchiveIcon,
+    },
+    {
+      method: "public_knowledge",
+      title: t("publicKnowledge.title"),
+      description: t("publicKnowledge.description"),
+      icon: BookOpenIcon,
     },
   ] satisfies {
     method: ApplicationCreationMethod

@@ -1,3 +1,4 @@
+import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
@@ -9,6 +10,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 import { localizedErrorMessage } from "@linksense/shared"
 
 export const ptBR = {
+  publicKnowledge: publicKnowledgeMessages["pt-BR"],
   modelSetup: modelSetupMessages["pt-BR"],
   connections: connectionMessages["pt-BR"],
   saml: samlptBR,
@@ -3278,6 +3280,7 @@ export const ptBR = {
       kinds: {
         standard: "Aplicativo padrão",
         interactive: "Aplicativo interativo",
+        public_knowledge: publicKnowledgeMessages["pt-BR"].title,
       },
       views: {
         configuration: "Configuração atual",
@@ -5758,8 +5761,10 @@ export const ptBR = {
         "O modelo de compreensão de imagens falhou na validação de entrada de imagens, saída estruturada ou desativação do raciocínio. Verifique a configuração do modelo e do provedor.",
     },
     imageGeneration: {
-      inputInvalid: "Não foi possível ler a imagem para edição. Use PNG, JPEG ou WebP de até 8 MB por imagem e 10 MB no total, incluindo a máscara. A máscara deve ser um PNG transparente com as mesmas dimensões da primeira imagem.",
-      editUnsupported: "O modelo atual não aceita esta edição. Use menos imagens de referência, remova a máscara ou peça ao administrador para selecionar um modelo compatível.",
+      inputInvalid:
+        "Não foi possível ler a imagem para edição. Use PNG, JPEG ou WebP de até 8 MB por imagem e 10 MB no total, incluindo a máscara. A máscara deve ser um PNG transparente com as mesmas dimensões da primeira imagem.",
+      editUnsupported:
+        "O modelo atual não aceita esta edição. Use menos imagens de referência, remova a máscara ou peça ao administrador para selecionar um modelo compatível.",
       notConfigured:
         "O modelo de geração de imagens não está configurado ou ativado.",
       forbidden: "Esta tarefa não pode chamar a geração de imagens.",

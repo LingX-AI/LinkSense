@@ -37,6 +37,9 @@ describe("Vite production asset naming", () => {
     expect(output.entryFileNames({ name: "embed" } as never)).toBe(
       "assets/embed-app.js"
     )
+    expect(output.entryFileNames({ name: "publicKnowledge" } as never)).toBe(
+      "assets/public-knowledge-app.js"
+    )
     expect(output.assetFileNames({ names: ["app.css"] } as never)).toBe(
       "assets/app-[hash][extname]"
     )
@@ -65,7 +68,7 @@ describe("Vitest execution limits", () => {
               testTimeout,
             }),
           }),
-        ]),
+        ])
       )
     }
   })

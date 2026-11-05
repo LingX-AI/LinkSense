@@ -24,6 +24,15 @@ export type ConversationEventHandlers = {
   onEvent: (event: ConversationEvent, commitCursor?: () => void) => false | void
   onConnectionChange?: (state: "connected" | "reconnecting") => void
 }
+export type ConversationEventConnectionOptions = {
+  replayHistory?: boolean
+  initialEventId?: string
+  publicSession?: {
+    path: string
+    token: string
+    onAuthenticationError: () => void
+  }
+}
 
 type ParsedSseFrame = {
   id?: string
@@ -94,7 +103,7 @@ function saveLastEventId(conversationId: string, id: string) {
 export function connectConversationEvents(
   conversationId: string,
   handlers: ConversationEventHandlers,
-  options?: { replayHistory?: boolean; initialEventId?: string }
+  options?: ConversationEventConnectionOptions
 ) {
   const controller = new AbortController()
   let lastEventId = options?.replayHistory
@@ -128,6 +137,7 @@ export function connectConversationEvents(
     }
     const parsed = sseEventSchema.safeParse(payload)
     if (!parsed.success) return
+    if (!parsed.data.id.startsWith(`${conversationId}:`)) return
     if (frame.id !== undefined && frame.id !== parsed.data.id) return
     if (
       frame.event !== undefined &&
@@ -185,25 +195,41 @@ export function connectConversationEvents(
   const connect = async () => {
     while (!controller.signal.aborted) {
       const headers = new Headers({ Accept: "text/event-stream" })
-      const token = getAccessToken()
+      const token = options?.publicSession
+        ? options.publicSession.token
+        : getAccessToken()
       if (token) headers.set("Authorization", `Bearer ${token}`)
       if (lastEventId) headers.set("Last-Event-ID", lastEventId)
 
       try {
-        prepareClientBuildRequest(headers)
+        if (!options?.publicSession) prepareClientBuildRequest(headers)
         let response = await fetch(
-          buildApiUrl(`/conversations/${conversationId}/events`, {
-            last_event_id: lastEventId || undefined,
-          }),
+          buildApiUrl(
+            options?.publicSession?.path ??
+              `/conversations/${conversationId}/events`,
+            {
+              last_event_id: lastEventId || undefined,
+            }
+          ),
           {
             headers,
-            credentials: "include",
+            credentials: options?.publicSession ? "omit" : "include",
             cache: "no-store",
             signal: controller.signal,
           }
         )
 
-        validateResponseBuild(response.headers)
+        if (!options?.publicSession) validateResponseBuild(response.headers)
+        if (
+          options?.publicSession &&
+          (response.status === 401 ||
+            response.status === 403 ||
+            response.status === 404)
+        ) {
+          options.publicSession.onAuthenticationError()
+          controller.abort()
+          return
+        }
         if (response.status === 401) {
           try {
             await refreshSession(token)

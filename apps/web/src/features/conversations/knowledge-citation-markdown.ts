@@ -19,6 +19,25 @@ type MarkdownParent = MarkdownNode & { children: MarkdownNode[] }
 
 export const knowledgeCitationFragmentPrefix = "#linksense-citation-"
 
+export type TextCitationSource = Readonly<{
+  number: number
+  title: string
+  href: string
+}>
+
+export type TextCitationPolicy = Readonly<{
+  visible: boolean
+  sources: readonly TextCitationSource[]
+  streaming: boolean
+}>
+
+export function getKnowledgeSourceAnchorId(
+  turnId: string,
+  number: number
+): string {
+  return `knowledge-source-${turnId}-${number}`
+}
+
 export function getKnowledgeCitationPreviewPath(
   citation: PublicKnowledgeCitation
 ): string {
@@ -86,6 +105,52 @@ export function remarkKnowledgeCitations(options: {
       )
     }
     groupImageCitations(tree)
+  }
+}
+
+/** Handle model-written references only when the caller enables this policy. */
+export function remarkTextCitations(options: TextCitationPolicy | undefined) {
+  return (tree: MarkdownParent) => {
+    if (!options) return
+    const knownNumbers = new Set(options.sources.map((source) => source.number))
+    const visit = (parent: MarkdownNode): void => {
+      if (!parent.children) return
+      parent.children = parent.children.flatMap((child): MarkdownNode[] => {
+        // Markdown links and code may contain literal numeric brackets.
+        if (
+          ["link", "linkReference", "image", "imageReference"].includes(
+            child.type
+          )
+        )
+          return [child]
+        if (child.children) visit(child)
+        if (child.type !== "text" || !child.value) return [child]
+        const value = options.streaming
+          ? child.value.replace(/\[\d*(?:\s*[,，]\s*\d*)*$/u, "")
+          : child.value
+        const replacement: MarkdownNode[] = []
+        let offset = 0
+        for (const match of value.matchAll(
+          /\[([1-9]\d*(?:\s*[,，]\s*[1-9]\d*)*)\]/gu
+        )) {
+          if (match.index > offset)
+            replacement.push({
+              type: "text",
+              value: value.slice(offset, match.index),
+            })
+          if (options.visible) {
+            for (const number of match[1].split(/\s*[,，]\s*/u).map(Number))
+              if (knownNumbers.has(number))
+                replacement.push(createCitationLink(number))
+          }
+          offset = match.index + match[0].length
+        }
+        if (offset < value.length)
+          replacement.push({ type: "text", value: value.slice(offset) })
+        return replacement
+      })
+    }
+    visit(tree)
   }
 }
 
@@ -163,7 +228,9 @@ function insertCitationLinks(
         return true
     }
 
-    const links = citations.map(createCitationLink)
+    const links = citations.map((citation) =>
+      createCitationLink(citation.citation_no)
+    )
     if (child.type === "text") {
       const text = child
       const textValue = text.value ?? ""
@@ -205,10 +272,10 @@ function insertCitationLinks(
   return false
 }
 
-function createCitationLink(citation: PublicKnowledgeCitation): MarkdownNode {
+function createCitationLink(number: number): MarkdownNode {
   return {
     type: "link",
-    url: `${knowledgeCitationFragmentPrefix}${citation.citation_no}`,
-    children: [{ type: "text", value: `[${citation.citation_no}]` }],
+    url: `${knowledgeCitationFragmentPrefix}${number}`,
+    children: [{ type: "text", value: `[${number}]` }],
   }
 }

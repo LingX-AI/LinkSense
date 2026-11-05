@@ -1,3 +1,4 @@
+import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
@@ -9,6 +10,7 @@ import { errorCatalog, localizedErrorMessage } from "@linksense/shared"
 import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const zhCN = {
+  publicKnowledge: publicKnowledgeMessages["zh-CN"],
   modelSetup: modelSetupMessages["zh-CN"],
   connections: connectionMessages["zh-CN"],
   saml: samlzhCN,
@@ -2766,7 +2768,11 @@ export const zhCN = {
       title: "应用详情",
       open: "查看 {{name}} 的详情",
       creator: "创建者",
-      kinds: { standard: "普通应用", interactive: "交互式应用" },
+      kinds: {
+        standard: "普通应用",
+        interactive: "交互式应用",
+        public_knowledge: publicKnowledgeMessages["zh-CN"].title,
+      },
       views: { configuration: "当前配置", published: "已发布版本" },
       resources: "应用资源",
       noResources: "此应用未配置或声明任何资源。",

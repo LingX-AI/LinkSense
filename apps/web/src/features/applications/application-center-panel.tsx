@@ -73,7 +73,10 @@ export function ApplicationsWorkspacePanel(
   )
   const stateOptions = applicationCatalogFilterSchema.options.map((value) => ({
     value,
-    label: t(`applicationDevelopment.catalog.${value}`),
+    label:
+      value === "public_knowledge"
+        ? t("publicKnowledge.title")
+        : t(`applicationDevelopment.catalog.${value}`),
   }))
   const [centerSearch, setCenterSearch] = useState("")
   const [setupTarget, setSetupTarget] = useState<Application | null>(null)

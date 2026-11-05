@@ -10,6 +10,7 @@ import { z } from "zod"
 import {
   applicationConversationSchema,
   applicationDevelopmentSchema,
+  type Application,
 } from "@linksense/shared"
 import { apiRequest } from "@/api/client"
 import { useAuth } from "@/app/auth-state"
@@ -135,17 +136,25 @@ export function useOpenApplicationConversation(
   channel: "direct" | "center" = "direct"
 ) {
   const opening = useStartApplicationOpening()
+  const navigate = useNavigate()
   return {
     ...opening,
     variables:
       opening.variables?.type === "use" ? opening.variables : undefined,
-    mutate: (application: { id: string; kind: "standard" | "interactive" }) =>
+    mutate: (application: Pick<Application, "id" | "kind">) => {
+      if (application.kind === "public_knowledge") {
+        navigate(
+          `/capabilities/applications/${application.id}/public-knowledge`
+        )
+        return
+      }
       opening.mutate({
         type: "use",
         applicationId: application.id,
         kind: application.kind,
         channel,
-      }),
+      })
+    },
   }
 }
 

@@ -1,3 +1,4 @@
+import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { samlesES } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
@@ -21,6 +22,7 @@ import { knowledgeMessages } from "@/i18n/es-ES/knowledge"
 import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const esES = {
+  publicKnowledge: publicKnowledgeMessages["es-ES"],
   modelSetup: modelSetupMessages["es-ES"],
   connections: connectionMessages["es-ES"],
   saml: samlesES,

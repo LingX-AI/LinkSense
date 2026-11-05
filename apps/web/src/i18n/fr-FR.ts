@@ -1,3 +1,4 @@
+import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { samlfrFR } from "@/features/saml/messages"
 import type { enUS } from "@/i18n/en-US"
@@ -17,6 +18,7 @@ import { errors } from "./fr-FR/errors"
 import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const frFR = {
+  publicKnowledge: publicKnowledgeMessages["fr-FR"],
   modelSetup: modelSetupMessages["fr-FR"],
   connections: connectionMessages["fr-FR"],
   saml: samlfrFR,

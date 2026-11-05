@@ -1731,7 +1731,7 @@ describe("LinkSense application", () => {
     const settingsNavigationLinks = settingsSidebar.querySelectorAll(
       ".settings-navigation-link"
     )
-    expect(settingsNavigationLinks).toHaveLength(23)
+    expect(settingsNavigationLinks).toHaveLength(24)
     settingsNavigationLinks.forEach((link) => {
       expect(link.querySelectorAll(":scope > span")).toHaveLength(1)
       expect(link.querySelector(":scope > span > span")).toBeNull()
