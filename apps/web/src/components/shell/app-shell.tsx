@@ -60,6 +60,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { DesignIcon, type DesignIconName } from "@/components/ui/design-icon"
 import {
+  HeaderIcon,
+  HeaderIconButton,
+} from "@/components/ui/header-icon-button"
+import {
   Dialog,
   DialogClose,
   DialogContent,
@@ -167,7 +171,6 @@ import { formatRelativeDate } from "@/i18n/date"
 import { normalizeLanguage } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { useSearchShortcut } from "@/lib/use-search-shortcut"
-import { SearchShortcut } from "@/components/ui/search-shortcut"
 
 type NavItem = {
   to: string
@@ -935,11 +938,9 @@ function AppSidebarContent({
     <>
       {observeBackgroundExecutions && (
         <ShellHeaderActionsPortal>
-          <Button
+          <HeaderIconButton
             type="button"
-            variant="ghost"
-            size="icon-lg"
-            className="relative text-foreground"
+            className="relative"
             title={t("nav.automationNotifications")}
             aria-label={t(
               visibleAutomationNotification
@@ -948,10 +949,7 @@ function AppSidebarContent({
             )}
             onClick={handleOpenAutomationNotifications}
           >
-            <DesignIcon
-              name="notification"
-              className="size-5"
-            />
+            <HeaderIcon name="notification" />
             {visibleAutomationNotification && (
               <span
                 className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-warning ring-1 ring-card"
@@ -959,7 +957,7 @@ function AppSidebarContent({
                 aria-hidden="true"
               />
             )}
-          </Button>
+          </HeaderIconButton>
         </ShellHeaderActionsPortal>
       )}
       {observeBackgroundExecutions &&
@@ -969,34 +967,42 @@ function AppSidebarContent({
             conversationId={conversationId}
           />
         ))}
-      <div className="workspace-theme flex h-full min-h-0 flex-col overflow-hidden bg-sidebar px-4 pb-2 font-interface text-foreground">
+      <div className="workspace-theme flex h-full min-h-0 flex-col overflow-hidden bg-transparent px-4 font-interface text-foreground">
         <div className="-mx-4 flex h-16.5 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
           <ProductLogo
             productName={productName}
             className="sidebar-brand-logo min-w-0"
           />
-          <div className="sidebar-header-actions -mr-1 flex shrink-0 items-center gap-0.5">
+          <div className="sidebar-header-actions -mr-2 flex shrink-0 items-center gap-1">
+            <HeaderIconButton
+              type="button"
+              className="hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
+              aria-label={t("common.search")}
+              title={t("common.search")}
+              aria-keyshortcuts="Meta+K Control+K"
+              onClick={onSearch}
+            >
+              <HeaderIcon name="search" />
+            </HeaderIconButton>
             {onCollapse && (
-              <Button
+              <HeaderIconButton
                 type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="sidebar-collapse-control border-0 bg-transparent text-foreground shadow-none"
+                className="sidebar-collapse-control hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
                 aria-label={t("nav.collapseSidebar")}
                 title={t("nav.collapseSidebar")}
                 aria-controls="app-sidebar"
                 aria-expanded="true"
                 onClick={onCollapse}
               >
-                <DesignIcon name="sidebar" />
-              </Button>
+                <HeaderIcon name="sidebar" />
+              </HeaderIconButton>
             )}
           </div>
         </div>
 
         <nav
           aria-label={t("nav.navigationLabel", { productName })}
-          className="sidebar-primary-navigation mt-3 shrink-0"
+          className="sidebar-primary-navigation mt-3 mb-3 shrink-0"
         >
           {userItems.slice(0, 1).map(({ to, labelKey }) => (
             <NavLink
@@ -1012,25 +1018,12 @@ function AppSidebarContent({
           ))}
         </nav>
 
-        <Button
-          type="button"
-          variant="outline"
-          className="mt-3 mb-6 h-10 shrink-0 justify-start gap-2 rounded-full border-border bg-card px-3 font-normal text-muted-foreground shadow-none hover:border-input-hover"
-          aria-label={t("common.search")}
-          aria-keyshortcuts="Meta+K Control+K"
-          onClick={onSearch}
-        >
-          <DesignIcon name="search" />
-          <span>{t("common.search")}</span>
-          <SearchShortcut />
-        </Button>
-
         <SidebarTaskScrollArea>
           <nav
             aria-label={t("nav.navigationLabel", { productName })}
-            className="space-y-2 pt-0.5"
+            className="flex flex-col gap-0.5 pt-0.5"
           >
-            <p className="mb-2 text-xs leading-[var(--app-line-18)] text-muted-foreground">
+            <p className="mb-0.5 text-xs leading-[var(--app-line-18)] text-muted-foreground">
               {t("workspaceHome.workspace")}
             </p>
             {userItems
@@ -1042,7 +1035,7 @@ function AppSidebarContent({
                   onClick={onNavigate}
                   className={({ isActive }) =>
                     cn(
-                      "sidebar-link h-10 font-normal",
+                      "sidebar-link h-9.5 font-normal",
                       isActive && activeClassName
                     )
                   }
@@ -1204,7 +1197,7 @@ function AppSidebarContent({
                                 aria-current={active ? "page" : undefined}
                                 aria-keyshortcuts="F2"
                                 draggable={false}
-                                className="sidebar-conversation-link h-10"
+                                className="sidebar-conversation-link h-(--app-sidebar-row-height)"
                               />
                             }
                           >
@@ -1395,7 +1388,7 @@ function AppSidebarContent({
           )}
         </SidebarTaskScrollArea>
 
-        <div className="sidebar-account-bar -mx-4 mt-1 flex min-h-15 shrink-0 items-center gap-1 border-t border-border px-4 pt-1">
+        <div className="sidebar-account-bar -mx-4 mt-1 flex min-h-14 shrink-0 items-center gap-1 border-t border-border px-4">
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -1519,7 +1512,7 @@ function AppSidebarContent({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="size-10 shrink-0"
+                  className="size-10 shrink-0 hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover) aria-expanded:bg-(--app-sidebar-hover)"
                   aria-label={t("support.help")}
                 />
               }
@@ -1645,19 +1638,17 @@ function AppShellContent() {
           id="main-content"
         >
           {sidebarCollapsed && (
-            <Button
+            <HeaderIconButton
               type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="desktop-sidebar-trigger sidebar-collapse-control hidden border-0 bg-transparent shadow-none md:inline-flex"
+              className="desktop-sidebar-trigger sidebar-collapse-control hidden md:inline-flex"
               aria-label={t("nav.expandSidebar")}
               title={t("nav.expandSidebar")}
               aria-controls="app-sidebar"
               aria-expanded="false"
               onClick={() => setSidebarCollapsed(false)}
             >
-              <DesignIcon name="sidebar" />
-            </Button>
+              <HeaderIcon name="sidebar" />
+            </HeaderIconButton>
           )}
           <Button
             type="button"
@@ -1681,7 +1672,7 @@ function AppShellContent() {
           side="left"
           closeLabel={t("common.close")}
           closeButtonClassName="mobile-navigation-close"
-          className="mobile-navigation-sheet w-[min(88vw,296px)] border-0 bg-[var(--app-sidebar)] p-0 ring-0"
+          className="mobile-navigation-sheet w-[min(88vw,296px)] border-0 bg-transparent p-0 ring-0"
         >
           <SheetHeader className="sr-only">
             <SheetTitle>{productName}</SheetTitle>

@@ -50,9 +50,9 @@ describe("LinkSense application", () => {
       const button = within(banner).getByRole("button", { name: label })
       expect(button).toHaveClass(
         "size-9",
-        "text-foreground",
-        "hover:bg-hover",
-        "hover:text-foreground"
+        "text-[color:var(--app-header-icon)]",
+        "hover:bg-muted",
+        "data-popup-open:bg-muted"
       )
       expect(button.textContent).toBe("")
       expect(button).not.toHaveAttribute("title")

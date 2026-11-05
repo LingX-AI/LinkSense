@@ -313,7 +313,7 @@ describe("sidebar task project controls", () => {
         "group-hover/project:opacity-0",
         "group-has-data-[popup-open]/project:opacity-0",
         "group-has-[:focus-visible]/project:opacity-0",
-        "[@media(hover:none)]:right-8"
+        "[@media(hover:none)]:right-12"
       )
       expect(status.querySelector("svg")).toHaveClass(
         "size-3.5",
@@ -498,7 +498,7 @@ describe("sidebar task project controls", () => {
     }
   )
 
-  it("reserves section arrows for hover, keyboard focus and touch without moving the labels", async () => {
+  it("keeps collapsed section arrows visible and reveals expanded arrows on hover, focus and touch", async () => {
     const interaction = userEvent.setup()
     renderGroups("first", [pinnedTask])
     for (const name of ["置顶", "项目", "最近"]) {
@@ -516,7 +516,10 @@ describe("sidebar task project controls", () => {
         "group-has-[:focus-visible]/tasks-heading:opacity-100",
         "[@media(hover:none)]:opacity-100"
       )
-      expect(arrow).toHaveClass("group-aria-expanded/section-trigger:rotate-0")
+      expect(arrow).toHaveClass(
+        "group-aria-expanded/section-trigger:rotate-0",
+        "group-aria-[expanded=false]/section-trigger:opacity-100"
+      )
       await interaction.click(trigger)
       expect(trigger).toHaveAttribute("aria-expanded", "false")
       expect(arrow).toBeVisible()
@@ -638,7 +641,11 @@ describe("sidebar task project controls", () => {
     const create = screen.getByRole("button", { name: "新建项目" })
     const headingRow = create.closest(".group\\/tasks-heading")
 
-    expect(headingRow).toHaveClass("group/tasks-heading", "min-h-10")
+    expect(headingRow).toHaveClass(
+      "group/tasks-heading",
+      "min-h-7",
+      "[@media(hover:none)]:min-h-10"
+    )
     expect(headingRow).toContainElement(
       screen.getByRole("heading", { name: "项目" })
     )
@@ -647,7 +654,8 @@ describe("sidebar task project controls", () => {
     )
     expect(create).toHaveClass("size-8", "rounded-lg")
     expect(create.parentElement).toHaveClass(
-      "[&_button]:size-10",
+      "[&_button]:size-7",
+      "[@media(hover:none)]:[&_button]:size-10",
       "[&_button]:opacity-0",
       "group-has-[:focus-visible]/tasks-heading:[&_button]:opacity-100"
     )
@@ -693,15 +701,16 @@ describe("sidebar task project controls", () => {
       "hover:bg-[var(--app-sidebar-hover)]"
     )
     expect(folder).toHaveClass(
-      "h-10",
+      "h-(--app-sidebar-row-height)",
       "w-full",
-      "pr-10",
+      "pr-12",
       "hover:bg-transparent",
       "aria-expanded:bg-transparent"
     )
     expect(more).toHaveClass(
       "absolute",
-      "right-1",
+      "right-0",
+      "size-(--app-sidebar-row-height)",
       "hover:bg-transparent",
       "aria-expanded:bg-transparent",
       "opacity-0",

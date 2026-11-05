@@ -5,7 +5,7 @@ import { PencilIcon, Trash2Icon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
-import { DesignIcon } from "@/components/ui/design-icon"
+import { SidebarMoreIcon } from "@/components/shell/sidebar-more-icon"
 import { Spinner } from "@/components/ui/spinner"
 import { ProjectIcon } from "./project-icon"
 import { cn } from "@/lib/utils"
@@ -113,8 +113,8 @@ export function SidebarTaskGroup({
               type="button"
               variant="ghost"
               className={cn(
-                "h-10 w-full min-w-0 justify-start gap-2 rounded-lg pr-10 pl-2 font-normal hover:bg-transparent aria-expanded:bg-transparent",
-                showRunningIndicator && "[@media(hover:none)]:pr-14",
+                "h-(--app-sidebar-row-height) w-full min-w-0 justify-start gap-2 rounded-lg pr-12 pl-2 font-normal hover:bg-transparent aria-expanded:bg-transparent",
+                showRunningIndicator && "[@media(hover:none)]:pr-18",
                 !projectsDisabled && "cursor-grab active:cursor-grabbing"
               )}
             />
@@ -154,7 +154,7 @@ export function SidebarTaskGroup({
           <span
             role="status"
             aria-label={t("statuses.running")}
-            className="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-[var(--app-muted)] group-hover/project:opacity-0 group-has-data-[popup-open]/project:opacity-0 group-has-[:focus-visible]/project:opacity-0 [@media(hover:none)]:right-8"
+            className="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-[var(--app-muted)] group-hover/project:opacity-0 group-has-data-[popup-open]/project:opacity-0 group-has-[:focus-visible]/project:opacity-0 [@media(hover:none)]:right-12"
           >
             <Spinner className="size-3.5 [animation-duration:1.5s] motion-reduce:animate-none" />
           </span>
@@ -165,16 +165,16 @@ export function SidebarTaskGroup({
               <Button
                 type="button"
                 variant="ghost"
-                size="icon-xs"
+                size="icon"
                 ref={menuTriggerRef}
-                className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-has-[:focus-visible]/project:pointer-events-auto group-has-[:focus-visible]/project:opacity-100 hover:bg-transparent aria-expanded:bg-transparent data-popup-open:pointer-events-auto data-popup-open:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+                className="pointer-events-none absolute top-1/2 right-0 size-(--app-sidebar-row-height) -translate-y-1/2 opacity-0 group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-has-[:focus-visible]/project:pointer-events-auto group-has-[:focus-visible]/project:opacity-100 hover:bg-transparent aria-expanded:bg-transparent data-popup-open:pointer-events-auto data-popup-open:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
                 aria-label={t("common.moreActionsNamed", {
                   name: project.name,
                 })}
               />
             }
           >
-            <DesignIcon name="more" />
+            <SidebarMoreIcon />
           </DropdownMenuTrigger>
           <DropdownMenuContent
             side="right"
@@ -203,7 +203,7 @@ export function SidebarTaskGroup({
         <SidebarDropIndicator targetId={projectDropId(project.id)} />
       </div>
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-200 ease-out data-ending-style:h-0 data-ending-style:opacity-0 data-starting-style:h-0 data-starting-style:opacity-0 motion-reduce:transition-none">
-        <div className="flex flex-col gap-2 pt-2">{children}</div>
+        <div className="flex flex-col gap-0.5 pt-0.5">{children}</div>
       </CollapsibleContent>
       <SidebarDropIndicator
         targetId={projectDropId(project.id)}

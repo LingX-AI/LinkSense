@@ -10,6 +10,7 @@ import type {
 } from "@/api/contracts"
 import { Button } from "@/components/ui/button"
 import { DesignIcon } from "@/components/ui/design-icon"
+import { HeaderIcon } from "@/components/ui/header-icon-button"
 import {
   Popover,
   PopoverContent,
@@ -118,7 +119,6 @@ export function ConversationTaskOverviewPanel({
         ref={setTriggerAnchor}
         render={
           <ConversationHeaderButton
-            className="aria-expanded:bg-transparent hover:aria-expanded:bg-hover"
             label={t(
               open
                 ? "conversation.taskOverview.close"
@@ -127,10 +127,7 @@ export function ConversationTaskOverviewPanel({
           />
         }
       >
-        <DesignIcon
-          name="overview"
-          className="size-[calc(var(--app-ui-font-size)+6px)]"
-        />
+        <HeaderIcon name="overview" />
       </PopoverTrigger>
       <PopoverContent
         ref={panelRef}
@@ -140,7 +137,7 @@ export function ConversationTaskOverviewPanel({
         initialFocus={false}
         align="end"
         side="bottom"
-        sideOffset={24}
+        sideOffset={8}
         className="task-overview-card-border task-overview-card-shadow max-h-[calc(100dvh-6rem)] w-80 max-w-[calc(100vw-1rem)] gap-5 overflow-y-auto overscroll-contain rounded-card p-4 shadow-none ring-0"
       >
         <PopoverTitle className="shrink-0 text-base leading-6 font-semibold text-foreground">

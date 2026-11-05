@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { SidebarMoreIcon } from "@/components/shell/sidebar-more-icon"
 import { DesignIcon, type DesignIconName } from "@/components/ui/design-icon"
 import {
   DropdownMenu,
@@ -42,13 +43,14 @@ export function SidebarTaskSortMenu({
             type="button"
             variant="ghost"
             size="icon"
+            className="hover:bg-transparent aria-expanded:bg-transparent"
             aria-label={t("conversation.taskSort.open", {
               section: sectionLabel,
             })}
           />
         }
       >
-        <DesignIcon name="more" />
+        <SidebarMoreIcon />
       </DropdownMenuTrigger>
       <DropdownMenuContent
         side="bottom"

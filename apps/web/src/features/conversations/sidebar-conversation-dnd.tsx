@@ -421,7 +421,7 @@ export function SidebarConversationDnd({
               {(activeTask || activeProject) && (
                 <div
                   aria-hidden="true"
-                  className="pointer-events-none flex h-10 items-center rounded-lg bg-popover px-2 text-sm text-popover-foreground opacity-80 shadow-sm"
+                  className="pointer-events-none flex h-(--app-sidebar-row-height) items-center rounded-lg bg-popover px-2 text-sm text-popover-foreground opacity-80 shadow-sm"
                 >
                   {activeProject && (
                     <ProjectIcon

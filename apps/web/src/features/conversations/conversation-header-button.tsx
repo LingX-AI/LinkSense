@@ -1,12 +1,11 @@
 import type { ComponentProps } from "react"
 
-import { Button } from "@/components/ui/button"
+import { HeaderIconButton } from "@/components/ui/header-icon-button"
 import {
   ActionTooltipContent,
   Tooltip,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { cn } from "@/lib/utils"
 
 export function ConversationHeaderButton({
   label,
@@ -14,7 +13,7 @@ export function ConversationHeaderButton({
   className,
   children,
   ...props
-}: Omit<ComponentProps<typeof Button>, "variant" | "size"> & {
+}: ComponentProps<typeof HeaderIconButton> & {
   label: string
 }) {
   return (
@@ -22,12 +21,10 @@ export function ConversationHeaderButton({
       <TooltipTrigger
         id={id}
         render={
-          <Button
+          <HeaderIconButton
             {...props}
             type="button"
-            variant="ghost"
-            size="icon-sm"
-            className={cn("size-9 text-foreground", className)}
+            className={className}
             aria-label={label}
           />
         }

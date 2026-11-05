@@ -129,7 +129,7 @@ describe("ConversationTaskOverviewPanel", () => {
     expect(resizeCallbacks.has(header)).toBe(true)
     const positioner = popup.parentElement
     await waitFor(() =>
-      expect(positioner).toHaveStyle("transform: translate(1772px, 76px)")
+      expect(positioner).toHaveStyle("transform: translate(1772px, 60px)")
     )
 
     for (const nextRight of [1100, 1350, 950, 1800, 1100, 1800]) {
@@ -137,7 +137,7 @@ describe("ConversationTaskOverviewPanel", () => {
       act(() => resizeCallbacks.get(header)?.())
       await waitFor(() =>
         expect(positioner).toHaveStyle(
-          `transform: translate(${nextRight - 28}px, 76px)`
+          `transform: translate(${nextRight - 28}px, 60px)`
         )
       )
       expect(screen.getByRole("region", { name: "任务概览" })).toBe(popup)
@@ -152,7 +152,7 @@ describe("ConversationTaskOverviewPanel", () => {
     })
     await waitFor(() =>
       expect(reopenedPopup.parentElement).toHaveStyle(
-        "transform: translate(1422px, 76px)"
+        "transform: translate(1422px, 60px)"
       )
     )
     expect(resizeCallbacks.has(header)).toBe(true)
@@ -263,9 +263,9 @@ describe("ConversationTaskOverviewPanel", () => {
     const overviewButton = screen.getByRole("button", {
       name: "关闭任务概览",
     })
-    expect(overviewButton).toHaveClass("aria-expanded:bg-transparent")
+    expect(overviewButton).toHaveClass("data-popup-open:bg-muted")
     expect(overviewCard.parentElement).toHaveStyle({
-      transform: "translate(0px, 24px)",
+      transform: "translate(0px, 8px)",
     })
     expect(overviewCard).toHaveClass(
       "task-overview-card-border",

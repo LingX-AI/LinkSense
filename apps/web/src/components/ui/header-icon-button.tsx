@@ -1,0 +1,80 @@
+import type { ComponentProps } from "react"
+
+import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
+
+// Optical adjustments are drawn on the final 20px grid, without scaling a 24px icon.
+const headerIcons = {
+  search: (
+    <g strokeWidth={1.7}>
+      <circle cx="8.65" cy="8.65" r="5.9" />
+      <path d="m13.05 13.05 4.2 4.2" />
+    </g>
+  ),
+  sidebar: (
+    <g strokeWidth={1.6}>
+      <rect x="2.5" y="3" width="15" height="14" rx="2.1" />
+      <path d="M7.25 3v14" />
+    </g>
+  ),
+  share: (
+    <>
+      <path d="M10 12V2.5m-3.5 3.5L10 2.5 13.5 6" />
+      <path d="M3 9.5v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
+    </>
+  ),
+  overview: (
+    <>
+      <path d="M7.25 4h10M7.25 10h10M7.25 16h10" />
+      <g fill="currentColor" stroke="none">
+        <circle cx="3" cy="4" r="1" />
+        <circle cx="3" cy="10" r="1" />
+        <circle cx="3" cy="16" r="1" />
+      </g>
+    </>
+  ),
+  notification: (
+    <>
+      <path d="M17 14.5H3c1.35-1.2 2-2.9 2-4.7V8a5 5 0 0 1 10 0v1.8c0 1.8.65 3.5 2 4.7Z" />
+      <path d="M10 2v1M8.5 17a1.75 1.75 0 0 0 3 0" />
+    </>
+  ),
+}
+
+export function HeaderIcon({ name }: { name: keyof typeof headerIcons }) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      data-design-icon={name}
+      width="20"
+      height="20"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.65}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-5 shrink-0"
+    >
+      {headerIcons[name]}
+    </svg>
+  )
+}
+
+export function HeaderIconButton({
+  className,
+  ...props
+}: Omit<ComponentProps<typeof Button>, "variant" | "size">) {
+  return (
+    <Button
+      {...props}
+      variant="plain"
+      size="icon-lg"
+      className={cn(
+        "border-0 bg-transparent text-[color:var(--app-header-icon)] shadow-none transition-[background-color,box-shadow] duration-150 hover:bg-muted focus-visible:ring-2 active:bg-muted active:not-aria-[haspopup]:translate-y-0 data-popup-open:bg-muted motion-reduce:transition-none",
+        className
+      )}
+    />
+  )
+}

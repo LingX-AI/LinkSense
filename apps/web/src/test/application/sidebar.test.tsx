@@ -139,21 +139,19 @@ describe("LinkSense application", () => {
       }
       await screen.findByRole("button", { name: "显示对话" })
       const bell = await screen.findByRole("button", { name: "自动化通知" })
-      expect(screen.getAllByRole("button", { name: "自动化通知" })).toHaveLength(
-        1
-      )
+      expect(
+        screen.getAllByRole("button", { name: "自动化通知" })
+      ).toHaveLength(1)
       expect(bell.closest('[inert], [aria-hidden="true"]')).toBeNull()
       await interaction.click(bell)
       expect(await screen.findByText("暂无未读的自动化通知")).toBeVisible()
-      await interaction.click(
-        screen.getByRole("button", { name: "显示对话" })
-      )
+      await interaction.click(screen.getByRole("button", { name: "显示对话" }))
       const restoredBell = await screen.findByRole("button", {
         name: "自动化通知",
       })
-      expect(screen.getAllByRole("button", { name: "自动化通知" })).toHaveLength(
-        1
-      )
+      expect(
+        screen.getAllByRole("button", { name: "自动化通知" })
+      ).toHaveLength(1)
       expect(restoredBell.closest('[inert], [aria-hidden="true"]')).toBeNull()
     }
   )
@@ -164,7 +162,9 @@ describe("LinkSense application", () => {
     renderApp("/missing-page")
     await screen.findByText("页面不存在")
     const bell = await screen.findByRole("button", { name: "自动化通知" })
-    expect(screen.getAllByRole("button", { name: "自动化通知" })).toHaveLength(1)
+    expect(screen.getAllByRole("button", { name: "自动化通知" })).toHaveLength(
+      1
+    )
     expect(screen.getByRole("main")).toContainElement(bell)
     await interaction.click(bell)
     expect(await screen.findByText("暂无未读的自动化通知")).toBeVisible()
@@ -602,7 +602,7 @@ describe("LinkSense application", () => {
     expect(link).not.toBeNull()
     expect(within(sidebar).getByRole("link", { name: longTitle })).toBe(link)
     expect(link).toHaveClass("sidebar-conversation-link")
-    expect(link).toHaveClass("h-10")
+    expect(link).toHaveClass("h-(--app-sidebar-row-height)")
     expect(link).not.toHaveClass("min-h-9", "py-2")
     expect(link).toHaveAttribute("aria-busy", "true")
     expect(title).toHaveClass("sidebar-conversation-title-fade", "font-normal")
@@ -650,7 +650,7 @@ describe("LinkSense application", () => {
     ).not.toBeInTheDocument()
     for (const button of [moreButton, archiveButton]) {
       expect(button).toHaveClass(
-        "w-5",
+        "size-7",
         "transition-none",
         "hover:bg-transparent",
         "hover:text-[var(--app-text)]",
@@ -658,19 +658,18 @@ describe("LinkSense application", () => {
       )
       expect(button).not.toHaveClass("hover:bg-[var(--app-sidebar-active)]")
     }
-    const moreIcon = moreButton.querySelector("[data-design-icon=more]")
+    const moreIcon = moreButton.querySelector("svg")
     const archiveIcon = archiveButton.querySelector(
       "[data-design-icon=archive]"
     )
-    expect(moreIcon).toHaveClass("size-[calc(var(--app-ui-font-size)+2px)]")
-    expect(archiveIcon).toHaveClass("size-[calc(var(--app-ui-font-size)+2px)]")
+    expect(moreIcon).toHaveClass("size-3.5")
+    expect(archiveIcon).toHaveClass("size-4.5")
     expect(moreIcon).toHaveAttribute("aria-hidden", "true")
     expect(archiveIcon).toHaveAttribute("aria-hidden", "true")
     const actions = archiveButton.parentElement
     expect(actions).toContainElement(moreButton)
     expect(actions).toContainElement(archiveButton)
     expect(actions).toHaveClass(
-      "gap-1",
       "opacity-0",
       "pointer-events-none",
       "group-hover:opacity-100",
@@ -1304,18 +1303,25 @@ describe("LinkSense application", () => {
     expect(brand.parentElement).not.toHaveClass(
       "text-[length:var(--app-font-15)]"
     )
-    expect(brand.parentElement).not.toContainElement(searchButton)
+    expect(brand.parentElement).toContainElement(searchButton)
     expect(brand.parentElement).toContainElement(collapseButton)
     expect(brand.parentElement).not.toContainElement(notificationButton)
     expect(header).toContainElement(notificationButton)
-    expect(searchButton).toHaveClass("h-10", "rounded-full", "bg-card")
-    expect(searchButton).toHaveTextContent("搜索")
+    expect(searchButton).toHaveClass("size-9", "bg-transparent")
+    for (const button of [searchButton, helpButton]) {
+      expect(button).toHaveClass(
+        "hover:bg-(--app-sidebar-hover)",
+        "active:bg-(--app-sidebar-hover)"
+      )
+    }
+    expect(helpButton).toHaveClass("aria-expanded:bg-(--app-sidebar-hover)")
+    expect(searchButton).toHaveAccessibleName("搜索")
     expect(
       searchButton.querySelector("[data-design-icon=search]")
     ).toHaveAttribute("aria-hidden", "true")
     expect(
       collapseButton.querySelector("[data-design-icon=sidebar]")
-    ).toHaveClass("size-[calc(var(--app-ui-font-size)+2px)]")
+    ).toHaveClass("size-5")
     expect(collapseButton).toHaveClass("sidebar-collapse-control")
     expect(
       notificationButton.querySelector("[data-design-icon=notification]")
@@ -1449,7 +1455,7 @@ describe("LinkSense application", () => {
         '[data-slot="shell-header-actions"] [data-design-icon="notification"]'
       )
     ).toHaveLength(1)
-    expect(searchButton).toHaveTextContent("搜索")
+    expect(searchButton).toHaveAccessibleName("搜索")
     await interaction.click(closeButton)
     expect(screen.getByRole("button", { name: "自动化通知" })).toBeVisible()
   })
@@ -1674,7 +1680,7 @@ describe("LinkSense application", () => {
     expect(expandButton).toHaveClass("sidebar-collapse-control")
     expect(
       expandButton.querySelector("[data-design-icon=sidebar]")
-    ).toHaveClass("size-[calc(var(--app-ui-font-size)+2px)]")
+    ).toHaveClass("size-5")
     await interaction.hover(expandButton)
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
     await interaction.click(expandButton)
@@ -1775,8 +1781,8 @@ describe("LinkSense application", () => {
     })
 
     expect(within(sidebar).getByRole("button", { name: "搜索" })).toHaveClass(
-      "h-10",
-      "font-normal"
+      "size-9",
+      "bg-transparent"
     )
     expect(
       within(sidebar).queryByRole("link", { name: "任务" })
@@ -1831,7 +1837,7 @@ describe("LinkSense application", () => {
       "border-t",
       "border-border",
       "px-4",
-      "pt-1"
+      "min-h-14"
     )
     expect(accountTrigger.querySelector("svg")).toBeNull()
     expect(accountTrigger.querySelector('[data-slot="avatar"]')).toHaveClass(

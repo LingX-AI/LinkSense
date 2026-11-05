@@ -5,6 +5,8 @@ import type { Project } from "@linksense/shared"
 
 import { Button } from "@/components/ui/button"
 import { DesignIcon } from "@/components/ui/design-icon"
+import { SidebarMoreIcon } from "@/components/shell/sidebar-more-icon"
+import { SidebarActionIcon } from "@/components/shell/sidebar-action-icon"
 import { ProjectIcon } from "@/features/projects/project-icon"
 import {
   DropdownMenu,
@@ -25,7 +27,7 @@ import {
 
 const tooltipHoverDelay = 300
 const actionButtonClassName =
-  "w-5 text-[var(--app-sidebar-icon)] transition-none hover:bg-transparent hover:text-[var(--app-text)] aria-expanded:bg-transparent dark:hover:bg-transparent"
+  "text-[var(--app-sidebar-action)] transition-none hover:bg-transparent hover:text-[var(--app-text)] aria-expanded:bg-transparent aria-expanded:text-[var(--app-text)] dark:hover:bg-transparent"
 
 type SidebarConversationActionsProps = {
   title: string
@@ -61,7 +63,7 @@ export function SidebarConversationActions({
     <TooltipProvider delay={tooltipHoverDelay}>
       <div
         ref={actionsRef}
-        className="sidebar-conversation-actions pointer-events-none absolute top-1/2 right-1 flex -translate-y-1/2 cursor-default items-center gap-1 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100 has-data-[popup-open]:pointer-events-auto has-data-[popup-open]:opacity-100"
+        className="sidebar-conversation-actions pointer-events-none absolute top-1/2 right-1 flex -translate-y-1/2 cursor-default items-center opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100 has-data-[popup-open]:pointer-events-auto has-data-[popup-open]:opacity-100"
         onPointerDown={(event) => event.stopPropagation()}
       >
         <Tooltip>
@@ -70,7 +72,7 @@ export function SidebarConversationActions({
               <Button
                 type="button"
                 variant="ghost"
-                size="icon-xs"
+                size="icon-sm"
                 className={actionButtonClassName}
                 aria-label={t("conversation.archiveNamed", { title })}
                 disabled={archiveDisabled}
@@ -78,7 +80,9 @@ export function SidebarConversationActions({
               />
             }
           >
-            <DesignIcon name="archive" />
+            <SidebarActionIcon>
+              <DesignIcon name="archive" className="size-4.5" />
+            </SidebarActionIcon>
           </TooltipTrigger>
           <ActionTooltipContent side="top">{archiveLabel}</ActionTooltipContent>
         </Tooltip>
@@ -89,13 +93,13 @@ export function SidebarConversationActions({
               <Button
                 type="button"
                 variant="ghost"
-                size="icon-xs"
+                size="icon-sm"
                 className={actionButtonClassName}
                 aria-label={t("common.moreActionsNamed", { name: title })}
               />
             }
           >
-            <DesignIcon name="more" />
+            <SidebarMoreIcon />
           </DropdownMenuTrigger>
           <DropdownMenuContent
             anchor={() => actionsRef.current?.parentElement ?? null}

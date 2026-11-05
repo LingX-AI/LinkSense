@@ -203,7 +203,10 @@ describe("sidebar task dragging between projects", () => {
         selector: '[aria-hidden="true"] span',
       })
       expect(previewTitle).toHaveClass("font-normal")
-      expect(previewTitle.parentElement).toHaveClass("opacity-80", "h-10")
+      expect(previewTitle.parentElement).toHaveClass(
+        "opacity-80",
+        "h-(--app-sidebar-row-height)"
+      )
       expect(
         previewTitle.parentElement?.querySelector("[data-design-icon=folder]")
       ).toHaveAttribute("data-project-icon", "folder")
@@ -413,7 +416,11 @@ describe("sidebar task dragging between projects", () => {
         selector: '[aria-hidden="true"] span',
       })
       const preview = previewTitle.parentElement!
-      expect(preview).toHaveClass("h-10", "items-center", "opacity-80")
+      expect(preview).toHaveClass(
+        "h-(--app-sidebar-row-height)",
+        "items-center",
+        "opacity-80"
+      )
       expect(previewTitle).toHaveClass("font-normal")
       expect(preview.className).not.toMatch(
         /(?:^|\s)(?:ring|border|outline)(?:-|\s|$)/u

@@ -34,8 +34,10 @@ export function ShellHeaderActionsPortal({
 
 export function ShellHeaderActions({
   fallback = false,
+  separated = false,
 }: {
   fallback?: boolean
+  separated?: boolean
 }) {
   const context = useContext(ShellHeaderActionsContext)
   const setTarget = fallback ? context?.setFallbackTarget : context?.setTarget
@@ -46,6 +48,8 @@ export function ShellHeaderActions({
       hidden={fallback && Boolean(context?.target)}
       className={cn(
         "flex shrink-0 items-center",
+        separated &&
+          "ml-1 gap-3 empty:hidden before:h-4 before:w-px before:bg-border before:content-['']",
         fallback && "absolute top-0 right-4 z-30 h-16.5 md:right-7"
       )}
     />

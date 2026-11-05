@@ -53,7 +53,7 @@ describe("sidebar theme", () => {
 
   it("reserves room for the task menu and archive button", () => {
     expect(cssRule(".sidebar-conversation-item")).toContain(
-      "--sidebar-conversation-actions-width: 56px;"
+      "--sidebar-conversation-actions-width: 68px;"
     )
   })
   it("uses the documented 272px default for task and settings sidebars", () => {
@@ -74,9 +74,13 @@ describe("sidebar theme", () => {
     expect(lightTheme).toContain("--app-sidebar: #f7f8fa;")
     expect(lightTheme).toContain("--app-sidebar-muted: #64728b;")
     expect(lightTheme).toContain("--sidebar-accent: #e9f1ff;")
-    expect(lightTheme).toContain("--app-sidebar-hover: #f2f6fd;")
+    expect(lightTheme).toContain(
+      "--app-sidebar-hover: color-mix(in srgb, var(--app-brand) 4.5%, transparent);"
+    )
     expect(lightTheme).toContain("--app-hover-subtle: #f7f9fd;")
-    expect(lightTheme).toContain("--app-sidebar-active: #e9f1ff;")
+    expect(lightTheme).toContain(
+      "--app-sidebar-active: color-mix(in srgb, var(--app-brand) 6%, transparent);"
+    )
     expect(lightTheme).toContain("--app-user-surface: #f3f5f8;")
     expect(lightTheme).toContain("--primary: #0874ff;")
     expect(lightTheme).toContain("--app-brand: var(--primary);")
@@ -94,9 +98,13 @@ describe("sidebar theme", () => {
     expect(darkTheme).toContain("--sidebar: #202020;")
     expect(darkTheme).toContain("--app-sidebar: #202020;")
     expect(darkTheme).toContain("--sidebar-accent: #293347;")
-    expect(darkTheme).toContain("--app-sidebar-hover: #282c36;")
+    expect(darkTheme).toContain(
+      "--app-sidebar-hover: color-mix(in srgb, var(--app-brand) 10%, transparent);"
+    )
     expect(darkTheme).toContain("--app-hover-subtle: #222630;")
-    expect(darkTheme).toContain("--app-sidebar-active: #293347;")
+    expect(darkTheme).toContain(
+      "--app-sidebar-active: color-mix(in srgb, var(--app-brand) 14%, transparent);"
+    )
     expect(darkTheme).toContain("--app-user-surface: #292929;")
     expect(darkTheme).toContain("--app-sidebar-muted: #adb6c8;")
     expect(darkTheme).toContain("--app-sidebar-avatar: var(--primary-action);")
@@ -233,13 +241,13 @@ describe("sidebar theme", () => {
     expect(
       cssRule('.app-shell[data-sidebar-collapsed="true"] .conversation-top-bar')
     ).toContain("padding-left: 52px;")
-    expect(cssRule(".desktop-sidebar-trigger")).toContain("top: 11px;")
-    expect(cssRule(".desktop-sidebar-trigger")).toContain("left: 10px;")
+    expect(cssRule(".desktop-sidebar-trigger")).toContain("top: 7px;")
+    expect(cssRule(".desktop-sidebar-trigger")).toContain("left: 6px;")
     expect(
       cssRule(
         '.app-main[data-compact-top-bar="true"] > .desktop-sidebar-trigger'
       )
-    ).toContain("top: calc((var(--conversation-top-bar-height) - 28px) / 2);")
+    ).toContain("top: calc((var(--conversation-top-bar-height) - 36px) / 2);")
     expect(cssRule(".desktop-sidebar-trigger:hover")).toContain(
       "background: var(--app-hover);"
     )
@@ -270,21 +278,20 @@ describe("sidebar theme", () => {
     }
   })
 
-  it("matches the 40px design rows without vertical padding inflating task height", () => {
-    expect(sidebarStyles).toMatch(
-      /\.sidebar-link,\s*\.sidebar-conversation-link\s*\{[^}]*min-height:\s*40px;/u
+  it("shares a 36px row height across sidebar navigation and tasks", () => {
+    expect(sidebarStyles).toContain("--app-sidebar-row-height: 36px;")
+    expect(cssRule(".sidebar-link")).toContain(
+      "min-height: var(--app-sidebar-row-height);"
     )
     expect(sidebarStyles).toMatch(
-      /(?:^|\n)\.sidebar-conversation-link\s*\{[^}]*padding:\s*0 8px;/u
+      /(?:^|\n)\.sidebar-conversation-link\s*\{[^}]*min-height:\s*var\(--app-sidebar-row-height\);/u
     )
-    expect(sidebarStyles).not.toMatch(
-      /(?:^|\n)\.sidebar-conversation-link\s*\{[^}]*min-height:\s*36px;/u
-    )
+    expect(cssRule(".sidebar-conversation-link")).toContain("padding: 0 8px;")
     expect(appShellSource).toContain(
-      'className="sidebar-conversation-link h-10"'
+      'className="sidebar-conversation-link h-(--app-sidebar-row-height)"'
     )
     expect(cssRule(".sidebar-conversation-item")).toContain(
-      "contain-intrinsic-size: auto 40px;"
+      "contain-intrinsic-size: auto var(--app-sidebar-row-height);"
     )
   })
 

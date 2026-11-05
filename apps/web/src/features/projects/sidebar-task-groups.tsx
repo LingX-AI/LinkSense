@@ -2,10 +2,11 @@ import { useContext, useMemo, type ReactNode } from "react"
 import { SortableContext, type SortingStrategy } from "@dnd-kit/sortable"
 import type { Project } from "@linksense/shared"
 import { useTranslation } from "react-i18next"
+import { PlusIcon } from "lucide-react"
 
 import type { Conversation } from "@/api/contracts"
 import { Button } from "@/components/ui/button"
-import { DesignIcon } from "@/components/ui/design-icon"
+import { SidebarActionIcon } from "@/components/shell/sidebar-action-icon"
 import { Separator } from "@/components/ui/separator"
 import { sortSidebarConversations } from "@/features/conversations/conversation-order"
 import { SidebarTaskSortMenu } from "@/features/conversations/sidebar-task-sort-menu"
@@ -109,7 +110,7 @@ export function SidebarTaskGroups({
     (id) => id !== null && !projects.some((project) => project.id === id)
   )
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-1">
       {sortedPinned.length > 0 && (
         <SidebarTaskSection
           key={JSON.stringify([userId, "pinned"])}
@@ -135,10 +136,13 @@ export function SidebarTaskGroups({
               type="button"
               variant="ghost"
               size="icon"
+              className="hover:bg-transparent aria-expanded:bg-transparent"
               aria-label={t("projects.create")}
               onClick={() => onAction({ mode: "create" })}
             >
-              <DesignIcon name="plus" />
+              <SidebarActionIcon>
+                <PlusIcon className="size-3.5" aria-hidden="true" />
+              </SidebarActionIcon>
             </Button>
           </>
         }
@@ -164,7 +168,7 @@ export function SidebarTaskGroups({
             >
               {renderProject(project.id)}
               {!loadingMore && !byProject.get(project.id)?.length && (
-                <p className="py-2 pr-2.5 pl-[calc(8px+var(--sidebar-conversation-indent))] text-[length:var(--app-font-13)] leading-[var(--app-ui-compact-line-height)] text-muted-foreground">
+                <p className="py-1 pr-2.5 pl-[calc(8px+var(--sidebar-conversation-indent))] text-[length:var(--app-font-13)] leading-[var(--app-ui-compact-line-height)] text-muted-foreground">
                   {t("projects.empty")}
                 </p>
               )}

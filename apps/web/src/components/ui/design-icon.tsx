@@ -12,6 +12,7 @@ const masks = {
   help: "mask-[url(./assets/figma/icons/help.svg)]",
   sidebar: "mask-[url(./assets/figma/icons/sidebar.svg)]",
   more: "mask-[url(./assets/figma/icons/more.svg)]",
+  "project-more": "mask-[url(./assets/figma/icons/project-more.svg)]",
   rename: "mask-[url(./assets/figma/icons/rename.svg)]",
   delete: "mask-[url(./assets/figma/icons/delete.svg)]",
   download: "mask-[url(./assets/figma/task-overview/download.svg)]",
