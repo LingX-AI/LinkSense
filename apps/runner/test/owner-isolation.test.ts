@@ -87,6 +87,26 @@ describe("runtime cleanup isolation", () => {
 });
 
 describe("worker owner isolation", () => {
+  it("authenticates public result reads and confines them to the public application worker", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "linksense-public-scope-")); roots.push(root);
+    const config = { ...createWorkerConfig(root), LINKSENSE_SERVICE_SESSION_ID: ownerId, LINKSENSE_WORKER_PROVIDER: "local-process" as const };
+    const pool = {} as unknown as AppServerProcessPool;
+    const app = buildRunnerServer(config, pool, createWorkspaceManager(config, root));
+    const url = `/public-knowledge/conversations/${otherOwnerId}/operations/${ownerId}`;
+    try {
+      expect((await app.inject({ url })).statusCode).toBe(401);
+      expect((await app.inject({ url, headers: { authorization: "Bearer forged" } })).statusCode).toBe(401);
+      const auth = { authorization: `Bearer ${workerSecret}` };
+      expect((await app.inject({ url, headers: auth })).statusCode).toBe(403);
+      expect((await app.inject({ url, headers: { ...auth, "x-linksense-owner-id": otherOwnerId } })).statusCode).toBe(403);
+      const response = await app.inject({ url, headers: { ...auth, "x-linksense-owner-id": ownerId } });
+      expect(response.statusCode).toBe(200); expect(response.json()).toEqual({ result: null });
+      await expect(lstat(config.LINKSENSE_USER_DATA_ROOT)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally { await app.close(); }
+    const personal = buildRunnerServer({ ...config, LINKSENSE_SERVICE_SESSION_ID: undefined }, pool, createWorkspaceManager(config, root));
+    try { expect((await personal.inject({ url, headers: { authorization: `Bearer ${workerSecret}`, "x-linksense-owner-id": ownerId } })).statusCode).toBe(403); }
+    finally { await personal.close(); }
+  });
   it("protects automation MCP calls with a task token and validates their inputs", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "linksense-automation-route-"));
     roots.push(root);

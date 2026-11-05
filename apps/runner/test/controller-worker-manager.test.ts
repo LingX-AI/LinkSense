@@ -90,6 +90,24 @@ describe("cold conversation storage preparation", () => {
 })
 
 describe("service worker storage and authentication", () => {
+  it("prepares an empty protected public application environment and shares one worker across visitors", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "linksense-public-worker-"))
+    try {
+      const config = createConfig({ LINKSENSE_USER_DATA_ROOT: root })
+      const docker = new FakeDocker(), transport = new FakeTransport(), logger = pino({ level: "silent" })
+      const provider = new DockerWorkerProvider(config, docker, logger)
+      const identity = await lstat(root)
+      provider.capabilities.workspaceIdentity = { apiUid: identity.uid, taskUid: identity.uid, sharedGid: identity.gid }
+      const manager = new WorkerManager(config, provider, transport, logger)
+      await Promise.all(Array.from({ length: 20 }, (_, index) => manager.requestPublicKnowledge(ownerId, `/public-knowledge/conversations/${index}/operations/result`, "GET")))
+      expect(docker.createContainer).toHaveBeenCalledTimes(1)
+      expect((await lstat(path.join(root, ownerId, "services", ownerId, "managed/agents"))).mode & 0o777).toBe(0o750)
+      expect(transport.calls.filter(call => call.path.startsWith("/public-knowledge/"))).toHaveLength(20)
+      await expect(manager.requestPublicKnowledge(ownerId, "/conversations/private", "GET")).rejects.toThrow("invalid public runtime route")
+      await expect(manager.request("01900000-0000-7000-8000-000000000099", "/health/state", "GET")).rejects.toThrow()
+      expect(docker.createContainer).toHaveBeenCalledTimes(1)
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
   it("mounts a service session outside personal HOME and derives a different worker identity", () => {
     const session = "01900000-0000-7000-8000-000000000011"
     const otherSession = "01900000-0000-7000-8000-000000000012"

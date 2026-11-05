@@ -501,6 +501,64 @@ model Application {
   @@map("applications")
 }
 
+// Public website conversations have their own authorization and execution path.
+model PublicKnowledgeApplication {
+  applicationId String @id @map("application_id") @db.Uuid
+  publicId String @unique(map: "public_knowledge_applications_public_key") @map("public_id") @db.VarChar(80)
+  settingsJson Json @map("settings_json") @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  @@map("public_knowledge_applications")
+}
+
+model PublicKnowledgeVisitor {
+  id String @id @default(uuid()) @db.Uuid
+  applicationId String @map("application_id") @db.Uuid
+  tokenHash String @unique(map: "public_knowledge_visitors_token_key") @map("token_hash") @db.VarChar(64)
+  origin String @db.VarChar(2048)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@index([applicationId, expiresAt], map: "public_knowledge_visitors_application_expiry_idx")
+  @@map("public_knowledge_visitors")
+}
+
+model PublicKnowledgeConversation {
+  id String @id @default(uuid()) @db.Uuid
+  applicationId String @map("application_id") @db.Uuid
+  visitorId String @map("visitor_id") @db.Uuid
+  title String @db.VarChar(240)
+  codexThreadId String? @map("codex_thread_id") @db.VarChar(200)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  @@index([applicationId, createdAt(sort: Desc), id], map: "public_knowledge_conversations_application_created_idx")
+  @@index([visitorId, createdAt(sort: Desc), id], map: "public_knowledge_conversations_visitor_created_idx")
+  @@index([expiresAt], map: "public_knowledge_conversations_expiry_idx")
+  @@map("public_knowledge_conversations")
+}
+
+model PublicKnowledgeTurn {
+  id String @id @default(uuid()) @db.Uuid
+  conversationId String @map("conversation_id") @db.Uuid
+  applicationVersionId String @map("application_version_id") @db.Uuid
+  applicationVersion String @map("application_version") @db.VarChar(80)
+  requestId String @map("request_id") @db.Uuid
+  inputText String @map("input_text") @db.Text
+  outputText String @default("") @map("output_text") @db.Text
+  status String @default("running") @db.VarChar(24)
+  model String @db.VarChar(240)
+  citationsJson Json @default("[]") @map("citations_json") @db.JsonB
+  cancelRequestedAt DateTime? @map("cancel_requested_at") @db.Timestamptz(6)
+  codexTurnId String? @map("codex_turn_id") @db.VarChar(200)
+  errorCode String? @map("error_code") @db.VarChar(100)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@unique([conversationId, requestId], map: "public_knowledge_turns_request_key")
+  @@index([conversationId, createdAt, id], map: "public_knowledge_turns_conversation_created_idx")
+  @@index([status, createdAt], map: "public_knowledge_turns_status_created_idx")
+  @@map("public_knowledge_turns")
+}
+
 model ApplicationDevelopment {
   id                    String   @id @default(uuid()) @db.Uuid
   ownerId               String   @map("owner_id") @db.Uuid

@@ -22,6 +22,7 @@ import { downloadApiFile } from "@/api/client"
 import {
   AssistantMarkdown,
   ConversationThread,
+  ConversationContentPolicyProvider,
 } from "@/features/conversations/conversation-thread"
 import {
   assistantHtmlPreviewReadyMessageType,
@@ -130,6 +131,46 @@ const completedConversation: Conversation = {
   running_turn: null,
   activities: [],
 }
+
+describe("public text-only message content", () => {
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
+  it("reuses assistant Markdown without loading images, private links or HTML previews", async () => {
+    await i18n.changeLanguage("en-US")
+    const fetcher = vi.fn()
+    vi.stubGlobal("fetch", fetcher)
+    const view = render(
+      <MemoryRouter>
+        <ConversationContentPolicyProvider textOnly>
+          <AssistantMarkdown
+            content={
+              '[website](https://example.test/docs)\n\n[private](/api/v1/files/private)\n\n![tracking](https://example.test/pixel)\n\n[unsafe](javascript:alert(1))\n\n```html\n<iframe src="https://example.test/embedded"></iframe>\n```'
+            }
+          />
+        </ConversationContentPolicyProvider>
+      </MemoryRouter>
+    )
+    expect(screen.getByRole("link", { name: "website" })).toHaveAttribute(
+      "rel",
+      "noopener noreferrer nofollow"
+    )
+    expect(
+      screen.queryByRole("link", { name: "private" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "unsafe" })
+    ).not.toBeInTheDocument()
+    expect(view.container.querySelector("img, iframe, script")).toBeNull()
+    expect(
+      screen.queryByRole("button", {
+        name: i18n.t("conversation.previewHtmlCode"),
+      })
+    ).not.toBeInTheDocument()
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+})
 
 describe("conversation turn responses", () => {
   beforeEach(async () => {
@@ -2079,6 +2120,34 @@ describe("conversation turn responses", () => {
     expect(screen.queryByRole("alert")).toBeNull()
     expect(document.querySelector(".lucide-circle-alert")).toBeNull()
   })
+
+  it.each(["completed", "failed", "interrupted"] as const)(
+    "retains the final response and recorded duration in %s state",
+    (status) => {
+      render(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            messages: completedConversation.messages?.map((message) =>
+              message.role === "assistant"
+                ? { ...message, phase: "final_answer" }
+                : message
+            ),
+            turns: completedConversation.turns?.map((turn) => ({
+              ...turn,
+              status,
+            })),
+          }}
+          onDownload={vi.fn()}
+        />
+      )
+
+      expect(screen.getByRole("article", { name: "助手回复" })).toBeVisible()
+      expect(document.querySelector(".turn-duration")).toHaveTextContent("3s")
+      if (status === "completed")
+        expect(screen.getByText("用时", { exact: true })).toBeVisible()
+    }
+  )
 
   it("renders an elapsed-time header above a completed markdown response", () => {
     render(
@@ -8905,9 +8974,7 @@ describe("conversation turn responses", () => {
     const assistantMessage = screen.getByRole("article", {
       name: "助手回复",
     })
-    expect(
-      within(assistantMessage).getByLabelText("消息操作")
-    ).toBeVisible()
+    expect(within(assistantMessage).getByLabelText("消息操作")).toBeVisible()
 
     rerender(<ConversationThread {...props} hideMessageActions />)
     expect(screen.queryByLabelText("消息操作")).toBeNull()

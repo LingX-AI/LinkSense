@@ -69,6 +69,7 @@ describe("API startup lifecycle", () => {
     "weixin",
     "runner",
     "recover",
+    "public-knowledge",
     "listen",
     "monitor",
   ] as const)(
@@ -98,6 +99,8 @@ describe("API startup lifecycle", () => {
         fixture.waitForRunner.mockRejectedValueOnce(startupError);
       } else if (failureStage === "recover") {
         fixture.recoverRunningTurns.mockRejectedValueOnce(startupError);
+      } else if (failureStage === "public-knowledge") {
+        fixture.startPublicKnowledge.mockRejectedValueOnce(startupError);
       } else if (failureStage === "listen") {
         fixture.listen.mockRejectedValueOnce(startupError);
       } else {
@@ -114,6 +117,7 @@ describe("API startup lifecycle", () => {
 
       expect(fixture.stopRecoveryMonitor).toHaveBeenCalledOnce();
       expect(fixture.closeApp).toHaveBeenCalledOnce();
+      expect(fixture.closePublicKnowledge).toHaveBeenCalledOnce();
       expect(fixture.closeJobs).toHaveBeenCalledOnce();
       expect(fixture.closePasswordResetMail).toHaveBeenCalledOnce();
       expect(fixture.closeAutomationScheduler).toHaveBeenCalledOnce();
@@ -137,7 +141,7 @@ describe("API startup lifecycle", () => {
           failureStage === "feishu" ||
           failureStage === "weixin" ||
           failureStage === "runner" ||
-          failureStage === "recover"
+          failureStage === "recover" || failureStage === "public-knowledge"
           ? 0
           : 1,
       );
@@ -156,6 +160,7 @@ describe("API startup lifecycle", () => {
     try {
       await vi.waitFor(() => expect(fixture.waitForRunner).toHaveBeenCalledOnce());
       expect(fixture.recoverRunningTurns).not.toHaveBeenCalled();
+      expect(fixture.startPublicKnowledge).not.toHaveBeenCalled();
       expect(fixture.listen).not.toHaveBeenCalled();
     } finally {
       ready();
@@ -163,6 +168,9 @@ describe("API startup lifecycle", () => {
     }
 
     expect(fixture.recoverRunningTurns).toHaveBeenCalledOnce();
+    expect(fixture.startPublicKnowledge).toHaveBeenCalledOnce();
+    expect(fixture.startKnowledgeRuntime.mock.invocationCallOrder[0]).toBeLessThan(fixture.startPublicKnowledge.mock.invocationCallOrder[0]!);
+    expect(fixture.recoverRunningTurns.mock.invocationCallOrder[0]).toBeLessThan(fixture.startPublicKnowledge.mock.invocationCallOrder[0]!);
     expect(fixture.listen).toHaveBeenCalledOnce();
     expect(fixture.startRecoveryMonitor).toHaveBeenCalledOnce();
   });
@@ -328,6 +336,8 @@ describe("API startup failure reporting", () => {
 });
 
 function apiLifecycleFixture() {
+  const startPublicKnowledge = vi.fn().mockResolvedValue(undefined);
+  const closePublicKnowledge = vi.fn().mockResolvedValue(undefined);
   const startKnowledgeGovernance = vi.fn().mockResolvedValue(undefined);
   const closeKnowledgeGovernance = vi.fn().mockResolvedValue(undefined);
   const startKnowledgeRuntime = vi.fn().mockResolvedValue(undefined);
@@ -362,6 +372,7 @@ function apiLifecycleFixture() {
       app: { listen, close: closeApp, log: { info: startupLog, error: startupErrorLog } },
       runner: { waitUntilReady: waitForRunner },
       services: {
+        publicKnowledge: { start: startPublicKnowledge, close: closePublicKnowledge },
         events: {
           recoverRunningTurns,
           startRecoveryMonitor,
@@ -409,6 +420,8 @@ function apiLifecycleFixture() {
       host: "127.0.0.1",
       port: 4000,
     } as never),
+    startPublicKnowledge,
+    closePublicKnowledge,
     recoverRunningTurns,
     waitForRunner,
     startupLog,

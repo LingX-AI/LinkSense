@@ -1,3 +1,4 @@
+import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
@@ -10,6 +11,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 import { localizedErrorMessage } from "@linksense/shared"
 
 export const jaJP = {
+  publicKnowledge: publicKnowledgeMessages["ja-JP"],
   modelSetup: modelSetupMessages["ja-JP"],
   connections: connectionMessages["ja-JP"],
   sideChat: sideChatMessages["ja-JP"],
@@ -3225,6 +3227,7 @@ export const jaJP = {
       kinds: {
         standard: "標準アプリケーション",
         interactive: "操作可能なアプリケーション",
+        public_knowledge: publicKnowledgeMessages["ja-JP"].title,
       },
       views: {
         configuration: "現在の設定",
@@ -5665,8 +5668,10 @@ export const jaJP = {
         "画像理解モデルが、画像、構造化出力、または思考機能の無効化の検証に合格しませんでした。",
     },
     imageGeneration: {
-      inputInvalid: "編集用の画像を読み取れません。PNG、JPEG、WebP 形式で、1 枚 8 MB 以下、マスクを含め合計 10 MB 以下にしてください。マスクは最初の画像と同じ寸法の透明 PNG が必要です。",
-      editUnsupported: "現在の画像モデルはこの編集に対応していません。参照画像を減らすか、マスクを外すか、対応するモデルの選択を管理者に依頼してください。",
+      inputInvalid:
+        "編集用の画像を読み取れません。PNG、JPEG、WebP 形式で、1 枚 8 MB 以下、マスクを含め合計 10 MB 以下にしてください。マスクは最初の画像と同じ寸法の透明 PNG が必要です。",
+      editUnsupported:
+        "現在の画像モデルはこの編集に対応していません。参照画像を減らすか、マスクを外すか、対応するモデルの選択を管理者に依頼してください。",
       notConfigured: "管理者が画像生成モデルをまだ設定していません。",
       forbidden: "このタスクのターンでは画像生成を利用できません。",
       turnInactive:

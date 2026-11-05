@@ -41,10 +41,12 @@ export function applicationModesForChannel(access: ApplicationDistributionAccess
 }
 
 export function allowedApplicationUsageModes(kind: string, modes: readonly ApplicationUsageMode[]): ApplicationUsageMode[] {
+  if (kind === "public_knowledge") return [];
   return modes.filter(mode => kind !== "interactive" || mode === "service");
 }
 
 export function assertApplicationUsageModes(kind: string, modes: readonly ApplicationUsageMode[]): void {
+  if (kind === "public_knowledge") throw new AppError("FORBIDDEN");
   if (kind === "interactive" && modes.includes("install")) throw new AppError("VALIDATION_ERROR");
 }
 

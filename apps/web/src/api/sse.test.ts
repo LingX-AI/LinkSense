@@ -6,12 +6,78 @@ import {
   parseSseFrame,
   type ConversationEventHandlers,
 } from "@/api/sse"
-import { setAccessToken } from "@/api/session"
+import { getAccessToken, setAccessToken } from "@/api/session"
 
 const CONVERSATION_ID = "20000000-0000-4000-8000-000000000001"
 const TURN_ID = "30000000-0000-4000-8000-000000000001"
 
 describe("conversation SSE", () => {
+  it("uses only the public visitor token, omits cookies and ignores foreign conversation frames", async () => {
+    const foreignId = "20000000-0000-4000-8000-000000000002"
+    const foreign = {
+      ...completedEvent(10),
+      conversation_id: foreignId,
+      sse_event_id: `${foreignId}:10`,
+    }
+    const fetcher = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          `data: ${JSON.stringify(foreign)}\n\ndata: ${JSON.stringify(completedEvent(2))}\n\n`,
+          { headers: { "content-type": "text/event-stream" } }
+        )
+    )
+    vi.stubGlobal("fetch", fetcher)
+    const onEvent = vi.fn(),
+      onAuthenticationError = vi.fn()
+    const stop = connectConversationEvents(
+      CONVERSATION_ID,
+      { onEvent },
+      {
+        initialEventId: `${CONVERSATION_ID}:0`,
+        publicSession: {
+          path: `/public-knowledge/public-application-12345678/conversations/${CONVERSATION_ID}/events`,
+          token: "visitor-only-token",
+          onAuthenticationError,
+        },
+      }
+    )
+    try {
+      await vi.waitFor(() => expect(onEvent).toHaveBeenCalledOnce())
+      expect(onEvent.mock.calls[0]?.[0].id).toBe(`${CONVERSATION_ID}:2`)
+      const request = fetcher.mock.calls[0]
+      expect(String(request?.[0])).toContain("/public-knowledge/")
+      expect(request?.[1]?.credentials).toBe("omit")
+      expect(new Headers(request?.[1]?.headers).get("authorization")).toBe(
+        "Bearer visitor-only-token"
+      )
+      expect(getAccessToken()).toBe("access-token")
+    } finally {
+      stop()
+    }
+  })
+  it("expires an anonymous stream without refreshing or modifying the signed-in session", async () => {
+    const fetcher = vi.fn(async () => new Response(null, { status: 401 }))
+    vi.stubGlobal("fetch", fetcher)
+    const expired = vi.fn()
+    const stop = connectConversationEvents(
+      CONVERSATION_ID,
+      { onEvent: vi.fn() },
+      {
+        publicSession: {
+          path: `/public-knowledge/public-application-12345678/conversations/${CONVERSATION_ID}/events`,
+          token: "expired-visitor-token",
+          onAuthenticationError: expired,
+        },
+      }
+    )
+    try {
+      await vi.waitFor(() => expect(expired).toHaveBeenCalledOnce())
+      expect(fetcher).toHaveBeenCalledOnce()
+      expect(getAccessToken()).toBe("access-token")
+    } finally {
+      stop()
+    }
+  })
   it.each([false, true])(
     "yields during event bursts across network chunks (one frame per chunk: %s)",
     async (onePerChunk) => {

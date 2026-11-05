@@ -1,3 +1,4 @@
+import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
 import { samlesES } from "@/features/saml/messages"
@@ -22,6 +23,7 @@ import { knowledgeMessages } from "@/i18n/es-ES/knowledge"
 import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const esES = {
+  publicKnowledge: publicKnowledgeMessages["es-ES"],
   modelSetup: modelSetupMessages["es-ES"],
   connections: connectionMessages["es-ES"],
   sideChat: sideChatMessages["es-ES"],

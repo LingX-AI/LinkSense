@@ -641,7 +641,7 @@ export const conversationTimelineEventSchema = z.object({
 
 export type ConversationEvent = z.infer<typeof conversationTimelineEventSchema>
 
-function toConversationTimelineEvent(
+export function toConversationTimelineEvent(
   event: ConversationEventRecord
 ): ConversationEvent {
   return {

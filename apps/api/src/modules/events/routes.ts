@@ -4,6 +4,7 @@ import {
   conversationEventSchema,
   runnerMemoryUsageCaptureSchema,
   runnerEventBatchSchema,
+  publicKnowledgeRunnerProgressSchema,
   runnerTextDeltaBatchKey,
   isRunnerTextDeltaEvent,
   type RunnerTextDeltaEvent,
@@ -73,6 +74,13 @@ export const internalRunnerRoutes: FastifyPluginAsync<{ services: AppServices }>
     app.post("/runner/events", async (request, reply) => {
       const body = runnerEventBatchSchema.parse(request.body)
       const ownerId = parseRunnerOwnerId(request)
+      if (body.events.some(({ event }) => "method" in event && event.method === "linksense/publicKnowledge/progress")) {
+        const session = request.headers[runtimeServiceSessionHeader];
+        if (session !== undefined && session !== ownerId) throw new AppError("FORBIDDEN");
+        const entries = body.events.map(({ deliveryId, event }) => ({ deliveryId, event: publicKnowledgeRunnerProgressSchema.parse(event) }));
+        await services.publicKnowledge.ingestRunnerEvents(ownerId, body.conversationId, entries);
+        return reply.send(ok({ accepted_delivery_ids: entries.map(({ deliveryId }) => deliveryId) }, request.id));
+      }
       await services.conversations.assertOwner(ownerId, body.conversationId)
       const acceptedDeliveryIds: string[] = []
       for (let index = 0; index < body.events.length;) {

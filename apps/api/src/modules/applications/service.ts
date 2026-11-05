@@ -1101,6 +1101,7 @@ export class ApplicationService {
   ): Promise<Application> {
     assertActiveActor(actor);
     const current = await this.#requireOwned(actor.id, applicationId);
+    if (current.kind === "public_knowledge") throw new AppError("FORBIDDEN");
     if (release) {
       if (current.developmentOnly || (current.kind === "interactive" && Object.keys(input).some(key => !["name", "description", "icon"].includes(key)))) throw new AppError("FORBIDDEN");
       if (!this.runtimeInstallations) throw new AppError("INTERNAL_ERROR");
@@ -1657,10 +1658,12 @@ export class ApplicationService {
       applicationId,
       channel,
     );
+    if (application.kind === "public_knowledge") throw new AppError("FORBIDDEN");
     const versionId = await this.installedVersionId(actorId, application);
     if (versionId) {
       if (!this.publications) throw new AppError("INTERNAL_ERROR");
       const definition = await this.publications.readVersion(applicationId, versionId);
+      if (definition.kind === "public_knowledge") throw new AppError("FORBIDDEN");
       await this.#validateDependencies(application.ownerId, {
         capabilityIds: definition.capabilities.map(capability => capability.id),
         knowledgeBaseIds: definition.knowledgeBaseIds, mcpServerIds: definition.mcpServerIds,
@@ -2348,7 +2351,7 @@ export class ApplicationService {
           name: frozen?.name ?? row.name,
           icon,
           description: frozen ? frozen.description : row.description,
-          kind: frozen?.kind ?? (row.kind === "interactive" ? "interactive" : "standard"),
+          kind: frozen?.kind ?? row.kind,
           instructions: isOwner ? row.instructions : null,
           model: frozen ? frozen.model : row.model,
           reasoning_effort: frozen ? frozen.reasoningEffort : row.reasoningEffort,

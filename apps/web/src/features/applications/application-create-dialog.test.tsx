@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { I18nextProvider } from "react-i18next"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -30,6 +36,7 @@ describe.each(["zh-CN", "en-US"])(
         i18n.t("applications.creation.interactiveTitle"),
         i18n.t("applications.createStandardApp"),
         i18n.t("applications.importInteractiveApp"),
+        i18n.t("publicKnowledge.title"),
       ]
       const descriptions = [
         locale === "zh-CN"
@@ -37,14 +44,20 @@ describe.each(["zh-CN", "en-US"])(
           : "Share your idea and let LinkSense bring it to life.",
         i18n.t("applications.createStandardAppDescription"),
         i18n.t("applications.importInteractiveAppDescription"),
+        i18n.t("publicKnowledge.description"),
       ]
-      const methods = ["development", "standard", "interactive"]
+      const methods = [
+        "development",
+        "standard",
+        "interactive",
+        "public_knowledge",
+      ]
       const actions = titles.map((name) =>
         within(dialog).getByRole("button", { name })
       )
       const primary = actions[0]
       if (!primary) throw new Error("Expected chat creation action")
-      expect(within(dialog).getAllByRole("button")).toHaveLength(4)
+      expect(within(dialog).getAllByRole("button")).toHaveLength(5)
       expect(
         within(primary).getByText(i18n.t("applications.creation.recommended"))
       ).toBeVisible()
@@ -115,6 +128,12 @@ describe.each(["zh-CN", "en-US"])(
       expect(choose).toHaveBeenLastCalledWith("interactive")
       await user.tab()
       expect(
+        screen.getByRole("button", { name: i18n.t("publicKnowledge.title") })
+      ).toHaveFocus()
+      await user.keyboard("{Enter}")
+      expect(choose).toHaveBeenLastCalledWith("public_knowledge")
+      await user.tab()
+      expect(
         screen.getByRole("button", { name: i18n.t("common.close") })
       ).toHaveFocus()
       await user.keyboard("{Escape}")
@@ -122,7 +141,7 @@ describe.each(["zh-CN", "en-US"])(
         false,
         expect.objectContaining({ reason: "escape-key" })
       )
-      expect(choose).toHaveBeenCalledTimes(3)
+      expect(choose).toHaveBeenCalledTimes(4)
     })
   }
 )
