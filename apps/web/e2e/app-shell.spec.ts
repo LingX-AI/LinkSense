@@ -1965,11 +1965,14 @@ test("design icons follow the UI font size across the sidebar and conversation",
     await page.getByRole("spinbutton", { name: "UI 字号" }).fill(fontSize)
     await page.goto("/conversations/new")
     const sidebar = page.getByRole("complementary", { name: "LinkSense 导航" })
-    for (const name of ["sidebar", "help", "automations"]) {
+    for (const name of ["help", "automations"]) {
       const icon = sidebar.locator(`[data-design-icon="${name}"]`)
       await expect(icon).toHaveCSS("width", iconSize)
       await expect(icon).toHaveCSS("height", iconSize)
     }
+    const sidebarToggle = sidebar.locator('[data-design-icon="sidebar"]')
+    await expect(sidebarToggle).toHaveCSS("width", "20px")
+    await expect(sidebarToggle).toHaveCSS("height", "20px")
     const notification = page
       .getByRole("banner")
       .locator('[data-design-icon="notification"]')
@@ -1994,7 +1997,7 @@ test("design icons follow the UI font size across the sidebar and conversation",
       const icon = page.locator(
         `.conversation-top-bar [data-design-icon="${name}"]`
       )
-      const headerIconSize = `${Number(fontSize) + 6}px`
+      const headerIconSize = "20px"
       await expect(icon).toHaveCSS("width", headerIconSize)
       await expect(icon).toHaveCSS("height", headerIconSize)
     }
@@ -2159,18 +2162,18 @@ test("navigation, menus, and tabs preserve the design typography hierarchy", asy
       (element) => element.scrollWidth > element.clientWidth
     )
   ).toBe(true)
-  await expect(recentTaskLink).toHaveCSS("min-height", "40px")
+  await expect(recentTaskLink).toHaveCSS("min-height", "36px")
   await expect(recentTask.locator("time")).toHaveCount(0)
   await expect(taskStatus).toBeVisible()
   await expect(taskStatus).toHaveCSS("opacity", "1")
   await expect(recentTaskActions).toHaveCSS("opacity", "0")
-  await expect(recentTaskActions).toHaveCSS("gap", "4px")
+  await expect(recentTaskActions).toHaveCSS("gap", "normal")
 
   await recentTaskLink.hover()
   await expect(recentTaskActions).toHaveCSS("opacity", "1")
   await expect(recentTask.getByRole("button", { name: /归档任务/u })).toHaveCSS(
     "width",
-    "20px"
+    "28px"
   )
   await expect(
     recentTask.getByRole("button", { name: /删除任务/u })

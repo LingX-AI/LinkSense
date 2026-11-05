@@ -980,13 +980,10 @@
 }
 
 /* Keep the material on the shell so its content and controls stay crisp. */
-@supports (
-  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
-) {
+@supports (backdrop-filter: blur(1px)) {
   .app-shell > .app-sidebar,
   .mobile-navigation-sheet {
     background: color-mix(in srgb, var(--app-sidebar) 68%, transparent);
-    -webkit-backdrop-filter: blur(28px) saturate(1.12);
     backdrop-filter: blur(28px) saturate(1.12);
   }
 }
@@ -995,7 +992,6 @@
   .app-shell > .app-sidebar,
   .mobile-navigation-sheet {
     background: var(--app-sidebar);
-    -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
 }
@@ -4926,7 +4922,6 @@
 /* Keep the native scroll gutter stable while the thumb appears on hover. */
 .capability-picker-popover [data-slot="command-list"] {
   scrollbar-color: var(--capability-scrollbar-thumb) transparent;
-  scrollbar-width: thin;
 }
 
 .capability-picker-popover [data-slot="command-list"]::-webkit-scrollbar {
