@@ -288,6 +288,23 @@ export class WorkerManager {
     }
   }
 
+  async requestPublicKnowledge(
+    applicationId: string, requestPath: string, method: string,
+    body?: Buffer, timeoutMs?: number,
+  ): Promise<WorkerHttpResponse> {
+    ownerIdSchema.parse(applicationId)
+    if (!requestPath.startsWith("/public-knowledge/")) throw new Error("invalid public runtime route")
+    const storageKey = ownerStorageKey(applicationId, this.config.LINKSENSE_RUNNER_SHARED_SECRET, applicationId)
+    await this.withLock(storageKey, async () => {
+      if (this.workers.has(storageKey) || this.options.prepareUserDirectories) return
+      await this.prepareUserDirectories(applicationId, applicationId)
+      // This application has no installed skills or user projection. Prepare an
+      // empty, protected mount so the ordinary worker isolation probes still run.
+      await this.prepareEmptyManagedProjection(applicationId, applicationId)
+    })
+    return this.request(applicationId, requestPath, method, body, timeoutMs, "workspace", applicationId)
+  }
+
   private async prepareInactiveRuntime(
     ownerId: string,
     conversationId: string,
@@ -958,7 +975,11 @@ export class WorkerManager {
       throw new Error("synthetic projection is reserved for the startup probe")
     }
     if (this.options.prepareUserDirectories) return
-    const directories = this.userDirectories(ownerId)
+    await this.prepareEmptyManagedProjection(ownerId)
+  }
+
+  private async prepareEmptyManagedProjection(ownerId: string, serviceSessionId?: string): Promise<void> {
+    const directories = this.userDirectories(ownerId, serviceSessionId)
     const identities = this.provider.capabilities.workspaceIdentity
     for (const directory of [
       directories.managed,

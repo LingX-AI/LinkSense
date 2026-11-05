@@ -1,3 +1,5 @@
+import { registerPublicKnowledgeRuntime } from "./public-knowledge/routes.js";
+import type { RunnerEventSink } from "./event-sink.js";
 import { MICROSOFT_CONNECTION_BODY_LIMIT } from "@linksense/shared";
 import { timingSafeEqual } from "node:crypto";
 import { ApplicationBuilderRequestError } from "./application-builder-error.js";
@@ -799,6 +801,7 @@ export function buildRunnerServer(
   ),
   ensureUserRuntime?: (ownerId: string) => Promise<void>,
   userProcessCount: () => Promise<number> = async () => 0,
+  publicEventSink?: Pick<RunnerEventSink, "publishBatch">,
 ) {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
   const healthRoots = resolveHealthRoots(config);
@@ -863,6 +866,8 @@ export function buildRunnerServer(
       throw error;
     }
   });
+
+  const publicKnowledgeRuntime = registerPublicKnowledgeRuntime(app, config, workspaceManager, publicEventSink);
 
   app.get(
     "/health/live",
@@ -1051,8 +1056,8 @@ export function buildRunnerServer(
       codex_home: { ...codexHome, checked_at: checkedAt },
       turn_start_contract_version: TURN_START_CONTRACT_VERSION,
       user_processes: await userProcessCount(),
-      running_turns: pool.runningCount,
-      app_server_processes: pool.size,
+      running_turns: pool.runningCount + publicKnowledgeRuntime.size,
+      app_server_processes: pool.size + publicKnowledgeRuntime.size,
     };
     return available ? response : reply.code(503).send(response);
   });
@@ -1628,8 +1633,8 @@ export function buildRunnerServer(
       ...(modelCatalog ? { model_catalog: modelCatalog } : {}),
       turn_start_contract_version: TURN_START_CONTRACT_VERSION,
       user_processes: await userProcessCount(),
-      running_turns: pool.runningCount,
-      app_server_processes: pool.size,
+      running_turns: pool.runningCount + publicKnowledgeRuntime.size,
+      app_server_processes: pool.size + publicKnowledgeRuntime.size,
       concurrency_limit: config.LINKSENSE_MAX_CONCURRENT_CONVERSATIONS,
       app_server_process_limit:
         config.LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT,
