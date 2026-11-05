@@ -19,14 +19,14 @@ describe("task source overview integration", () => {
     let sourceReads = 0
     installApiMock({
       eventStreamStart: streamStart,
-      eventStreamBody: `id: 20000000-0000-4000-8000-000000000001:900\nevent: conversation.message.completed\ndata: ${JSON.stringify(
+      eventStreamBody: `id: c1:900\nevent: conversation.message.completed\ndata: ${JSON.stringify(
         {
           id: "60000000-0000-4000-8000-000000000900",
           conversation_id: "20000000-0000-4000-8000-000000000001",
           event_type: "conversation.message.completed",
           turn_id: "30000000-0000-4000-8000-000000000001",
           visibility: "user_visible",
-          sse_event_id: "20000000-0000-4000-8000-000000000001:900",
+          sse_event_id: "c1:900",
           sequence_no: 900,
           created_at: "2026-09-07T10:00:00.000Z",
           payload: {
@@ -42,7 +42,7 @@ describe("task source overview integration", () => {
           data: {
             ...conversation,
             messages: [],
-            last_event_id: "20000000-0000-4000-8000-000000000001:899",
+            last_event_id: "c1:899",
           },
         }),
       conversationSourcesResponse: () => {

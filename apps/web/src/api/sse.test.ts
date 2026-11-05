@@ -12,6 +12,42 @@ const CONVERSATION_ID = "20000000-0000-4000-8000-000000000001"
 const TURN_ID = "30000000-0000-4000-8000-000000000001"
 
 describe("conversation SSE", () => {
+  it("ignores foreign conversation frames in an authenticated stream", async () => {
+    const foreignId = "20000000-0000-4000-8000-000000000002"
+    const foreign = {
+      ...completedEvent(10),
+      conversation_id: foreignId,
+      sse_event_id: `${foreignId}:10`,
+    }
+    const fetcher = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          `data: ${JSON.stringify(foreign)}\n\ndata: ${JSON.stringify(completedEvent(2))}\n\n`,
+          { headers: { "content-type": "text/event-stream" } }
+        )
+    )
+    vi.stubGlobal("fetch", fetcher)
+    const onEvent = vi.fn()
+    const stop = connectConversationEvents(
+      CONVERSATION_ID,
+      { onEvent },
+      { initialEventId: `${CONVERSATION_ID}:0` }
+    )
+    try {
+      await vi.waitFor(() => expect(onEvent).toHaveBeenCalledOnce())
+      expect(onEvent.mock.calls[0]?.[0].id).toBe(`${CONVERSATION_ID}:2`)
+      const request = fetcher.mock.calls[0]
+      expect(String(request?.[0])).toContain(
+        `/conversations/${CONVERSATION_ID}/events`
+      )
+      expect(request?.[1]?.credentials).toBe("include")
+      expect(new Headers(request?.[1]?.headers).get("authorization")).toBe(
+        "Bearer access-token"
+      )
+    } finally {
+      stop()
+    }
+  })
   it("uses only the public visitor token, omits cookies and ignores foreign conversation frames", async () => {
     const foreignId = "20000000-0000-4000-8000-000000000002"
     const foreign = {
