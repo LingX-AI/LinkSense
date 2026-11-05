@@ -171,23 +171,23 @@
   --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --app-safe-area-left: env(safe-area-inset-left, 0px);
   --background: #ffffff;
-  --foreground: #252b49;
+  --foreground: #1c2238;
   --card: #ffffff;
   --card-soft: color-mix(in oklab, var(--muted) 40%, transparent);
   --card-subtle: var(--app-activity-surface);
-  --card-foreground: #252b49;
+  --card-foreground: #1c2238;
   --popover: #ffffff;
-  --popover-foreground: #252b49;
+  --popover-foreground: #1c2238;
   --primary: #0874ff;
   /* White 14px labels need 4.5:1; the unmodified brand blue is 4.24:1. */
   --primary-action: #0070f5;
   --primary-foreground: #ffffff;
   --secondary: #f5f7fa;
-  --secondary-foreground: #252b49;
+  --secondary-foreground: #1c2238;
   --muted: #f3f5f8;
   --muted-foreground: #626e86;
   --accent: #e9f1ff;
-  --accent-foreground: #252b49;
+  --accent-foreground: #1c2238;
   --destructive: #d92d3a;
   --destructive-hover: #c62532;
   --destructive-text: #c52736;
@@ -204,12 +204,12 @@
   /* Shared radius for cards and grouped content surfaces. */
   --app-card-radius: 12px;
   --sidebar: #f7f8fa;
-  --sidebar-foreground: #252b49;
+  --sidebar-foreground: #1c2238;
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #e9f1ff;
   --sidebar-selection-border: #c9dbf5;
-  --sidebar-accent-foreground: #252b49;
+  --sidebar-accent-foreground: #1c2238;
   --sidebar-border: #e5e8f0;
   --sidebar-ring: var(--ring);
   --provider-logo-openai: #10a37f;
@@ -226,6 +226,7 @@
   --app-brand-foreground: var(--primary-foreground);
 
   --app-sidebar-width: 272px;
+  --app-sidebar-row-height: 36px;
   --app-settings-page-width: 1200px;
   --app-administration-page-width: 1440px;
   --app-reading-width: 1112px;
@@ -276,8 +277,10 @@
   --app-sidebar: #f7f8fa;
   --app-sidebar-muted: #64728b;
   --app-sidebar-icon: #8b95b4;
-  --app-sidebar-hover: #f2f6fd;
-  --app-sidebar-active: #e9f1ff;
+  --app-sidebar-action: #69758d;
+  --app-sidebar-action-hover: color-mix(in srgb, var(--app-brand) 12%, transparent);
+  --app-sidebar-hover: color-mix(in srgb, var(--app-brand) 4.5%, transparent);
+  --app-sidebar-active: color-mix(in srgb, var(--app-brand) 6%, transparent);
   --app-sidebar-avatar: var(--primary-action);
   --app-sidebar-avatar-foreground: var(--app-brand-foreground);
   --app-sidebar-primary-hover-bg: #f6f9ff;
@@ -286,8 +289,13 @@
     0 1px 1.5px rgb(41 66 117 / 3%), 0 5px 6.5px rgb(41 66 117 / 9%);
   --app-mobile-sidebar-edge: rgb(32 32 32 / 8%);
   --app-topbar: #ffffff;
+  --app-header-icon: color-mix(
+    in srgb,
+    var(--foreground) 72%,
+    var(--muted-foreground)
+  );
   --conversation-top-bar-height: 66px;
-  --app-text: #252b49;
+  --app-text: #1c2238;
   --app-muted: var(--muted-foreground);
   --app-scrollbar-size: 7px;
   --app-scrollbar-radius: 999px;
@@ -321,7 +329,7 @@
   --app-send-active: #0630cc;
   --app-send-foreground: #ffffff;
   --app-send-focus: #6288dd;
-  --app-send-disabled: #e9ebf0;
+  --app-send-disabled: color-mix(in srgb, var(--app-text) 6%, var(--card));
   --app-send-disabled-foreground: #9099b1;
   --app-ring: var(--ring);
   --app-selection: var(--primary);
@@ -359,12 +367,13 @@
   --app-file-icon-foreground: #555555;
   --app-artifact-icon: #e2e2e2;
   --app-artifact-icon-foreground: #555555;
-  --app-media-backdrop: rgb(255 255 255 / 48%);
+  --app-media-backdrop: var(--app-dialog-overlay);
   --app-media-backdrop-filter: blur(32px) saturate(1.12);
   --app-media-control: #ededed;
   --app-media-control-hover: #e9e9e9;
   --app-media-foreground: #242424;
   --app-shadow: 0 7px 20px rgb(27 39 69 / 5%);
+  --app-scroll-to-bottom-shadow: 0 3px 7px rgb(27 39 69 / 6.5%);
   --app-task-overview-shadow: var(--app-dialog-shadow);
   --app-task-overview-muted: #69758d;
   --app-task-overview-icon: #333955;
@@ -373,7 +382,7 @@
   --primary-hover: #0065df;
   --input-hover: #c9d8f0;
   --app-heading: #171b40;
-  --app-dialog-overlay: rgb(23 27 64 / 24%);
+  --app-dialog-overlay: rgb(23 27 64 / 40%);
   --app-dialog-shadow: 0 4px 12px rgb(27 39 69 / 8%);
 }
 
@@ -424,8 +433,10 @@
   --app-sidebar: #202020;
   --app-sidebar-muted: #adb6c8;
   --app-sidebar-icon: #adb6c8;
-  --app-sidebar-hover: #282c36;
-  --app-sidebar-active: #293347;
+  --app-sidebar-action: var(--app-sidebar-icon);
+  --app-sidebar-action-hover: color-mix(in srgb, var(--app-brand) 20%, transparent);
+  --app-sidebar-hover: color-mix(in srgb, var(--app-brand) 10%, transparent);
+  --app-sidebar-active: color-mix(in srgb, var(--app-brand) 14%, transparent);
   --app-sidebar-avatar: var(--primary-action);
   --app-sidebar-avatar-foreground: var(--app-brand-foreground);
   --app-sidebar-primary-hover-bg: var(--app-sidebar-hover);
@@ -497,12 +508,13 @@
   --app-media-control-hover: #393939;
   --app-media-foreground: #ffffff;
   --app-shadow: 0 7px 20px rgb(0 0 0 / 20%);
+  --app-scroll-to-bottom-shadow: 0 3px 7px rgb(0 0 0 / 24%);
   --stop: #d65d66;
   --stop-foreground: #ffffff;
   --primary-hover: #a5c7ff;
   --input-hover: #69758d;
   --app-heading: #eef1f8;
-  --app-dialog-overlay: rgb(0 0 0 / 50%);
+  --app-dialog-overlay: rgb(0 0 0 / 65%);
   --app-dialog-shadow: 0 4px 20px rgb(0 0 0 / 32%);
 }
 
@@ -816,7 +828,7 @@
   min-width: 0;
   margin-inline: auto;
   border: 1px solid var(--app-border);
-  padding: 24px 24px 20px;
+  padding: 16px;
   border-radius: 12px;
   background: var(--app-composer);
   box-shadow: var(--app-shadow);
@@ -825,7 +837,7 @@
     background-color 180ms ease,
     border-color 180ms ease,
     border-radius 180ms ease;
-  min-height: 152px;
+  min-height: 0;
 }
 
 .composer-shell[data-drag-active="true"] {
@@ -882,21 +894,22 @@
   inset: 0;
   z-index: 2;
   overflow: auto;
-  padding: 8px 4px;
+  /* Match the textarea while its scrollbar extends into the shell padding. */
+  padding: 0 12px 0 0;
   color: var(--app-text);
   font: inherit;
   font-size: var(--app-ui-font-size);
   font-weight: 400;
-  line-height: var(--app-line-22);
+  line-height: calc(var(--spacing) * 6);
   overflow-wrap: anywhere;
   pointer-events: none;
-  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-.composer-input-highlight::-webkit-scrollbar {
-  display: none;
+.composer-input-highlight::-webkit-scrollbar-thumb {
+  background: transparent;
 }
 
 .composer-input-highlight-leading-url,
@@ -961,8 +974,30 @@
 }
 
 .mobile-navigation-sheet {
+  background-color: var(--app-sidebar);
   border-right: 1px solid var(--app-mobile-sidebar-edge);
   color: var(--app-text);
+}
+
+/* Keep the material on the shell so its content and controls stay crisp. */
+@supports (
+  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+) {
+  .app-shell > .app-sidebar,
+  .mobile-navigation-sheet {
+    background: color-mix(in srgb, var(--app-sidebar) 68%, transparent);
+    -webkit-backdrop-filter: blur(28px) saturate(1.12);
+    backdrop-filter: blur(28px) saturate(1.12);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .app-shell > .app-sidebar,
+  .mobile-navigation-sheet {
+    background: var(--app-sidebar);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 .mobile-navigation-close {
@@ -989,7 +1024,21 @@
   overflow: hidden;
   padding: var(--app-safe-area-top) var(--app-safe-area-right)
     var(--app-safe-area-bottom) var(--app-safe-area-left);
-  background: var(--app-canvas);
+  /* A quiet page backdrop gives the desktop glass a surface to diffuse. */
+  background:
+    radial-gradient(
+      ellipse at 0% 12%,
+      color-mix(in srgb, var(--app-brand) 20%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse at 100% 78%,
+      color-mix(in srgb, var(--app-usage-token-assistant) 14%, transparent),
+      transparent 65%
+    ),
+    var(--app-sidebar);
+  background-size: var(--app-sidebar-width) 100%;
+  background-repeat: no-repeat;
 }
 
 .sidebar-resize-handle {
@@ -1087,7 +1136,6 @@
   min-width: 0;
   align-items: center;
   gap: 8px;
-  min-height: 40px;
   border-radius: 8px;
   padding: 0 8px;
   font-size: var(--app-ui-font-size);
@@ -1096,6 +1144,7 @@
 }
 
 .sidebar-link {
+  min-height: var(--app-sidebar-row-height);
   color: var(--app-text);
   transition:
     background-color 160ms ease,
@@ -1104,6 +1153,7 @@
 }
 
 .sidebar-conversation-link {
+  min-height: var(--app-sidebar-row-height);
   padding: 0 8px;
   color: var(--app-text);
   transition: none;
@@ -1114,9 +1164,9 @@
 }
 
 .sidebar-conversation-item {
-  --sidebar-conversation-actions-width: 56px;
+  --sidebar-conversation-actions-width: 68px;
   content-visibility: auto;
-  contain-intrinsic-size: auto 40px;
+  contain-intrinsic-size: auto var(--app-sidebar-row-height);
 }
 
 .sidebar-conversation-item.sidebar-link-active,
@@ -1225,15 +1275,15 @@
 
 .desktop-sidebar-trigger {
   position: absolute;
-  top: 11px;
-  left: 10px;
+  top: 7px;
+  left: 6px;
   z-index: 50;
   color: var(--app-muted);
 }
 
 .app-main:has([data-slot="page-top-bar"]) > .desktop-sidebar-trigger,
 .app-main[data-compact-top-bar="true"] > .desktop-sidebar-trigger {
-  top: calc((var(--conversation-top-bar-height) - 28px) / 2);
+  top: calc((var(--conversation-top-bar-height) - 36px) / 2);
 }
 
 .desktop-sidebar-trigger:hover {
@@ -4119,20 +4169,30 @@
 .conversation-bottom-fade {
   position: absolute;
   inset-inline: 0;
-  bottom: 0;
+  bottom: var(--conversation-composer-top-offset, 0px);
   z-index: 20;
-  height: 128px;
+  height: 96px;
   pointer-events: none;
-  background: linear-gradient(to bottom, transparent, var(--app-canvas));
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--app-canvas) 2%, transparent) 12%,
+    color-mix(in srgb, var(--app-canvas) 10%, transparent) 26%,
+    color-mix(in srgb, var(--app-canvas) 28%, transparent) 42%,
+    color-mix(in srgb, var(--app-canvas) 54%, transparent) 58%,
+    color-mix(in srgb, var(--app-canvas) 80%, transparent) 74%,
+    color-mix(in srgb, var(--app-canvas) 95%, transparent) 88%,
+    var(--app-canvas) 100%
+  );
 }
 
-/* ponytail: one masked blur layer stands in for the 0→6px progressive blur. */
-.conversation-bottom-fade::after {
+/* Keep messages beneath the editor and attribution covered after the fade. */
+.conversation-bottom-fade::before {
   content: "";
   position: absolute;
-  inset: 0;
-  backdrop-filter: blur(6px);
-  mask-image: linear-gradient(to bottom, transparent 40%, #000);
+  inset: 100% 0 auto;
+  height: var(--conversation-composer-top-offset, 0px);
+  background: var(--app-canvas);
 }
 
 .conversation-workspace:has(.conversation-welcome) > .conversation-bottom-fade {
@@ -4142,34 +4202,40 @@
 .conversation-scroll-to-bottom-row {
   display: flex;
   justify-content: center;
+  margin-bottom: 4px;
   pointer-events: none;
 }
 
 .conversation-scroll-to-bottom-button {
   width: 40px;
   height: 40px;
-  border: 0;
+  border: 1px solid var(--app-border);
   border-radius: 999px;
   background: var(--app-popover);
   color: var(--app-text);
-  box-shadow: var(--app-shadow);
+  box-shadow: var(--app-scroll-to-bottom-shadow);
   pointer-events: auto;
   transition:
     background-color 140ms ease,
+    border-color 140ms ease,
     box-shadow 140ms ease;
 }
 
 .conversation-scroll-to-bottom-button:hover {
   background: var(--app-hover);
-}
-
-.conversation-scroll-to-bottom-button:active {
-  background: var(--app-sidebar-active);
+  border-color: var(--input-hover);
 }
 
 .conversation-scroll-to-bottom-button:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  background: var(--app-popover);
+  border-color: var(--input-focus-border);
+  outline: none;
+}
+
+.conversation-scroll-to-bottom-button:active {
+  background: var(--app-active);
+  border-color: var(--app-border);
+  translate: none;
 }
 
 .conversation-scroll-to-bottom-button[data-count] {
@@ -4847,6 +4913,33 @@
   max-width: calc(100vw - 2rem);
   border: 0;
   background: var(--app-popover);
+}
+
+.capability-picker-popover {
+  --capability-scrollbar-thumb: transparent;
+}
+
+.capability-picker-popover:hover {
+  --capability-scrollbar-thumb: var(--app-scrollbar-thumb);
+}
+
+/* Keep the native scroll gutter stable while the thumb appears on hover. */
+.capability-picker-popover [data-slot="command-list"] {
+  scrollbar-color: var(--capability-scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+.capability-picker-popover [data-slot="command-list"]::-webkit-scrollbar {
+  display: block;
+}
+
+.capability-picker-popover [data-slot="command-list"]::-webkit-scrollbar-thumb {
+  background: var(--capability-scrollbar-thumb);
+}
+
+.capability-picker-popover
+  [data-slot="command-list"]::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
 }
 
 .capability-picker-popover .capability-menu-icon {
@@ -5612,11 +5705,6 @@ button.annotation-hover-file:focus-visible {
 .message-action-button:hover,
 .message-action-button:focus-visible {
   color: var(--app-text);
-}
-
-.message-copy-button svg {
-  width: 12px;
-  height: 12px;
 }
 
 .clipboard-copy-fallback {
@@ -6695,7 +6783,7 @@ button.annotation-hover-file:focus-visible {
 
 .turn-status {
   font-size: var(--app-ui-font-size);
-  font-weight: 500;
+  font-weight: 400;
   line-height: var(--app-ui-compact-line-height);
 }
 
@@ -6732,7 +6820,7 @@ button.annotation-hover-file:focus-visible {
 
 .turn-duration {
   font-size: var(--app-font-13);
-  font-weight: 500;
+  font-weight: 400;
   line-height: var(--app-line-19);
 }
 
@@ -7276,7 +7364,7 @@ button.annotation-hover-file:focus-visible {
   margin-block: 0;
   color: var(--process-commentary-color);
   font-size: var(--app-ui-font-size);
-  font-weight: 500;
+  font-weight: 400;
   line-height: var(--app-ui-reading-line-height);
 }
 
@@ -10162,9 +10250,23 @@ button.annotation-hover-file:focus-visible {
 }
 
 /* Account surfaces remain scoped while their primary colors follow the product. */
+.account-access-art {
+  /* Blend only the artwork's empty outer margin into the panel background. */
+  mask-image:
+    linear-gradient(to right, transparent, #000 7%, #000 93%, transparent),
+    linear-gradient(to bottom, transparent, #000 3%, #000 90%, transparent);
+  mask-composite: intersect;
+}
+
 .account-access-theme {
+  --account-brand-background: linear-gradient(
+    145deg,
+    #f4faff 0%,
+    #e1edff 55%,
+    #e9dfff 100%
+  );
   --background: #ffffff;
-  --foreground: #252b49;
+  --foreground: #1c2238;
   --card: #ffffff;
   --primary: #0874ff;
   --primary-action: #0070f5;
@@ -10182,6 +10284,12 @@ button.annotation-hover-file:focus-visible {
 }
 
 .dark .account-access-theme {
+  --account-brand-background: linear-gradient(
+    145deg,
+    #303234 0%,
+    #2b3033 55%,
+    #2e2a33 100%
+  );
   --background: #141414;
   --foreground: #d8d8d8;
   --card: #202020;
@@ -10325,13 +10433,6 @@ button.annotation-hover-file:focus-visible {
   background: transparent;
 }
 
-@container conversation-workspace (max-width: 48rem) {
-  .conversation-workspace .composer-shell {
-    min-height: 0;
-    padding: 12px;
-  }
-}
-
 @media (max-width: 767px) {
   .conversation-workspace:has(.conversation-welcome) {
     --conversation-horizontal-gutter: 16px;
@@ -10339,10 +10440,6 @@ button.annotation-hover-file:focus-visible {
 
   .conversation-workspace:has(.conversation-welcome) > .conversation-top-bar {
     padding-left: 52px;
-  }
-
-  .conversation-workspace:has(.conversation-welcome) .composer-shell {
-    padding: 12px;
   }
 }
 
@@ -11716,7 +11813,6 @@ button.annotation-hover-file:focus-visible {
   }
 
   .composer-shell {
-    padding: 10px;
     border-radius: 18px;
   }
 

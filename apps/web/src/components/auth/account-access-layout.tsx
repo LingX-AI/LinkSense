@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 
 import { useProductName } from "@/app/product-branding"
 import accountAccessArt from "@/assets/brand/account-access-art.png"
+import accountAccessLogo from "@/assets/brand/account-access-logo.svg"
 import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import { ProductLogo } from "@/components/brand/product-logo"
 import { LanguageSwitcher } from "@/features/onboarding/language-switcher"
@@ -24,24 +25,20 @@ export function AccountAccessLayout({
     >
       <aside
         aria-labelledby={brandHeadingId}
-        className="relative hidden min-h-144 overflow-hidden rounded-2xl bg-card p-account-brand py-11 lg:sticky lg:top-0 lg:flex lg:h-[calc(100dvh-3rem)] lg:flex-col"
+        className="relative hidden min-h-144 overflow-hidden rounded-2xl bg-card bg-(image:--account-brand-background) p-account-brand pt-11 pb-[38px] lg:sticky lg:top-0 lg:flex lg:h-[calc(100dvh-3rem)] lg:flex-col"
       >
-        <img
-          src={accountAccessArt}
-          alt=""
-          width="1145"
-          height="1374"
-          fetchPriority="high"
-          className="pointer-events-none absolute top-[-10.82%] left-[-20.49%] h-[118.52%] w-[140.25%] max-w-none object-cover dark:brightness-20"
-        />
-        <div className="relative flex min-w-0 flex-col items-start gap-10">
-          <div className="w-36">
-            <ProductLogo productName={productName} />
+        <div className="relative flex min-w-0 shrink-0 flex-col items-start gap-[49px]">
+          <div className="h-[35px] w-[146px]">
+            <ProductLogo
+              productName={productName}
+              defaultLightLogoUrl={accountAccessLogo}
+              className="h-full"
+            />
           </div>
-          <div className="grid gap-4">
+          <div className="grid gap-5">
             <h2
               id={brandHeadingId}
-              className="text-account-brand-title font-semibold tracking-tight whitespace-pre-line"
+              className="text-account-brand-title font-semibold tracking-[-0.035em] whitespace-pre-line"
             >
               {t("accountAccess.brandHeadline")}
             </h2>
@@ -50,7 +47,20 @@ export function AccountAccessLayout({
             </p>
           </div>
         </div>
-        <p className="relative mt-auto pt-8 text-xs text-muted-foreground">
+        <div className="[container-type:size] pointer-events-none relative -mx-8 mt-4 min-h-0 flex-1">
+          <div className="account-access-art absolute top-0 left-1/2 aspect-[780/640] w-[min(100cqw,121.875cqh)] -translate-x-1/2 overflow-hidden">
+            {/* Display the source's 190,506 → 970,1146 region: both rings remain complete. */}
+            <img
+              src={accountAccessArt}
+              alt=""
+              width="1145"
+              height="1374"
+              fetchPriority="high"
+              className="absolute top-[-79.0625%] left-[-24.359%] h-auto w-[146.795%] max-w-none dark:brightness-20"
+            />
+          </div>
+        </div>
+        <p className="relative shrink-0 pt-8 text-xs leading-[var(--app-line-18)] text-muted-foreground">
           {t("accountAccess.brandProducts")}
         </p>
       </aside>

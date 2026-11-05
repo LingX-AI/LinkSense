@@ -9,12 +9,14 @@ import { cn } from "@/lib/utils"
 type ProductLogoProps = {
   productName: string
   logoUrl?: string | null
+  defaultLightLogoUrl?: string
   className?: string
 }
 
 export function ProductLogo({
   productName,
   logoUrl,
+  defaultLightLogoUrl,
   className,
 }: ProductLogoProps) {
   const bootstrap = useContext(BootstrapContext)
@@ -22,7 +24,9 @@ export function ProductLogo({
   const configuredLogoUrl = logoUrl ?? bootstrap?.bootstrap?.logo_url ?? null
   const [failedLogoUrl, setFailedLogoUrl] = useState<string | null>(null)
   const defaultLogoUrl =
-    resolvedTheme === "dark" ? linksenseLockupOnDark : linksenseLockupPrimary
+    resolvedTheme === "dark"
+      ? linksenseLockupOnDark
+      : (defaultLightLogoUrl ?? linksenseLockupPrimary)
   const src =
     configuredLogoUrl && configuredLogoUrl !== failedLogoUrl
       ? configuredLogoUrl
