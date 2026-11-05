@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -122,18 +128,51 @@ function show({ skillError = false, empty = false, selected = false } = {}) {
   })
   clients.push(client)
   const saved = vi.fn()
+  const cancelled = vi.fn()
   render(
     <QueryClientProvider client={client}>
       <PublicKnowledgeSettingsForm
         initial={selected ? { ...settings, skill_ids: [skillId] } : settings}
         applicationId={applicationId}
+        onCancel={cancelled}
         onSaved={saved}
       />
     </QueryClientProvider>
   )
-  return { saved }
+  return { saved, cancelled }
 }
 describe("public knowledge settings", () => {
+  it("keeps the footer pending state and prevents duplicate submission and cancellation while publishing", async () => {
+    await i18n.changeLanguage("zh-CN")
+    const { saved, cancelled } = show()
+    const publish = screen.getByRole("button", {
+      name: i18n.t("publicKnowledge.publish"),
+    })
+    await waitFor(() => expect(publish).toBeEnabled())
+    let resolvePublish: (value: typeof result) => void = () => {
+      throw new Error("Publish request was not initialized")
+    }
+    const pending = new Promise<typeof result>((resolve) => {
+      resolvePublish = resolve
+    })
+    vi.mocked(apiRequest).mockReturnValueOnce(pending)
+    const callsBeforeSave = vi.mocked(apiRequest).mock.calls.length
+    const cancel = screen.getByRole("button", { name: i18n.t("common.cancel") })
+    const user = userEvent.setup()
+    await user.click(publish)
+    expect(publish).toBeDisabled()
+    expect(publish).toHaveAttribute("aria-busy", "true")
+    expect(cancel).toBeDisabled()
+    const form = publish.closest("form")
+    if (!form) throw new Error("Missing settings form")
+    fireEvent.submit(form)
+    await user.click(cancel)
+    expect(cancelled).not.toHaveBeenCalled()
+    expect(apiRequest).toHaveBeenCalledTimes(callsBeforeSave + 1)
+    resolvePublish(result)
+    await waitFor(() => expect(saved).toHaveBeenCalledOnce())
+    await waitFor(() => expect(publish).toBeEnabled())
+  })
   it.each(supportedLocales)(
     "publishes validated public settings with the dedicated endpoint in %s",
     async (locale) => {

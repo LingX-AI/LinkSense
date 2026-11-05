@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { DialogFooter } from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
@@ -40,10 +41,12 @@ import { savePublicKnowledge } from "./api"
 export function PublicKnowledgeSettingsForm({
   initial,
   applicationId,
+  onCancel,
   onSaved,
 }: {
   initial?: PublicKnowledgeSettings
   applicationId?: string
+  onCancel: () => void
   onSaved: (
     result: Awaited<ReturnType<typeof savePublicKnowledge>>
   ) => void | Promise<void>
@@ -129,6 +132,7 @@ export function PublicKnowledgeSettingsForm({
   )
   return (
     <form
+      className="flex min-h-0 flex-1 flex-col"
       onSubmit={(event) => {
         event.preventDefault()
         if (save.isPending) return
@@ -145,258 +149,275 @@ export function PublicKnowledgeSettingsForm({
         if (parsed.success) save.mutate(parsed.data)
       }}
     >
-      <FieldGroup className="grid grid-cols-1 items-start md:grid-cols-2">
-        <Field data-invalid={invalid && !form.name}>
-          <FieldLabel htmlFor={`${id}-name`} required>
-            {t("publicKnowledge.name")}
-          </FieldLabel>
-          <Input
-            id={`${id}-name`}
-            required
-            maxLength={160}
-            value={form.name}
-            onChange={(event) => setForm({ ...form, name: event.target.value })}
-          />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor={`${id}-description`}>
-            {t("publicKnowledge.descriptionLabel")}
-          </FieldLabel>
-          <Textarea
-            id={`${id}-description`}
-            maxLength={4000}
-            value={form.description}
-            onChange={(event) =>
-              setForm({ ...form, description: event.target.value })
-            }
-          />
-        </Field>
-        <Field className="md:col-span-2">
-          <FieldLabel htmlFor={`${id}-instructions`} required>
-            {t("publicKnowledge.instructions")}
-          </FieldLabel>
-          <Textarea
-            id={`${id}-instructions`}
-            className="min-h-28"
-            required
-            maxLength={20000}
-            value={form.instructions}
-            onChange={(event) =>
-              setForm({ ...form, instructions: event.target.value })
-            }
-          />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor={`${id}-model`} required>
-            {t("publicKnowledge.model")}
-          </FieldLabel>
-          <Select
-            items={modelItems}
-            value={form.model}
-            onValueChange={(value) => {
-              const model = models.data?.models.find(
-                (item) => item.id === value
-              )
-              setForm({
-                ...form,
-                model: value ?? "",
-                reasoning_effort: model?.default_reasoning_effort ?? "medium",
-              })
-            }}
-          >
-            <SelectTrigger
-              id={`${id}-model`}
-              aria-label={t("publicKnowledge.model")}
-            >
-              <SelectValue placeholder={t("common.select")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {modelItems.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor={`${id}-effort`}>
-            {t("publicKnowledge.reasoning")}
-          </FieldLabel>
-          <Select
-            items={efforts}
-            value={form.reasoning_effort}
-            disabled={!selectedModel}
-            onValueChange={(value) => {
-              const effort = selectedModel?.supported_reasoning_efforts.find(
-                (item) => item === value
-              )
-              if (effort) setForm({ ...form, reasoning_effort: effort })
-            }}
-          >
-            <SelectTrigger
-              id={`${id}-effort`}
-              aria-label={t("publicKnowledge.reasoning")}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {efforts.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </Field>
-        <ResourceMultiSelect
-          id={`${id}-skills`}
-          title={t("applications.skills")}
-          description={t("publicKnowledge.skillsHelp")}
-          items={skillItems}
-          selectedIds={form.skill_ids}
-          onChange={(skill_ids) => setForm({ ...form, skill_ids })}
-          emptyLabel={t("applications.noSkills")}
-          placeholder={t("applications.skillSelectPlaceholder")}
-          searchPlaceholder={t("applications.skillSearchPlaceholder")}
-          loading={capabilities.isPending}
-        />
-        <ResourceMultiSelect
-          id={`${id}-knowledge`}
-          title={t("publicKnowledge.knowledge")}
-          description={t("publicKnowledge.knowledgeHelp")}
-          items={(
-            knowledge.data?.pages.flatMap((page) => page.items) ?? []
-          ).map((base) => ({
-            id: base.id,
-            label: base.name,
-            detail: "",
-            detailInline: false,
-            disabled: base.availability_status !== "enabled",
-          }))}
-          selectedIds={form.knowledge_base_ids}
-          onChange={(knowledge_base_ids) =>
-            setForm({ ...form, knowledge_base_ids })
-          }
-          emptyLabel={t("publicKnowledge.empty")}
-          placeholder={t("common.select")}
-          searchPlaceholder={t("common.search")}
-          loading={knowledge.isPending}
-          loadingMore={knowledge.isFetchingNextPage}
-          onLoadMore={
-            knowledge.hasNextPage
-              ? () => void knowledge.fetchNextPage()
-              : undefined
-          }
-        />
-        <Field className="md:col-span-2">
-          <FieldLabel htmlFor={`${id}-origins`} required>
-            {t("publicKnowledge.origins")}
-          </FieldLabel>
-          <Textarea
-            id={`${id}-origins`}
-            required
-            value={form.origins}
-            onChange={(event) =>
-              setForm({ ...form, origins: event.target.value })
-            }
-          />
-          <FieldDescription>
-            {t("publicKnowledge.originsHelp")}
-          </FieldDescription>
-        </Field>
-        {(
-          [
-            {
-              key: "max_concurrent_turns",
-              label: "concurrency",
-              min: 1,
-              max: publicKnowledgeConcurrencyLimit,
-            },
-            {
-              key: "session_ttl_hours",
-              label: "sessionHours",
-              min: 1,
-              max: 168,
-            },
-            { key: "retention_days", label: "retention", min: 1, max: 365 },
-          ] as const
-        ).map((item) => (
-          <Field key={item.key}>
-            <FieldLabel htmlFor={`${id}-${item.key}`}>
-              {t(`publicKnowledge.${item.label}`)}
+      <div
+        data-slot="public-knowledge-settings-body"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5"
+      >
+        <FieldGroup className="grid grid-cols-1 items-start md:grid-cols-2">
+          <Field data-invalid={invalid && !form.name}>
+            <FieldLabel htmlFor={`${id}-name`} required>
+              {t("publicKnowledge.name")}
             </FieldLabel>
             <Input
-              id={`${id}-${item.key}`}
-              type="number"
-              min={item.min}
-              max={item.max}
+              id={`${id}-name`}
               required
-              value={form[item.key]}
+              maxLength={160}
+              value={form.name}
               onChange={(event) =>
-                setForm({ ...form, [item.key]: event.target.valueAsNumber })
+                setForm({ ...form, name: event.target.value })
               }
             />
-            {item.key === "max_concurrent_turns" && (
-              <FieldDescription>
-                {t("publicKnowledge.concurrencyHelp")}
-              </FieldDescription>
-            )}
           </Field>
-        ))}
-        <Field orientation="horizontal" className="self-end">
-          <Switch
-            id={`${id}-enabled`}
-            checked={form.enabled}
-            onCheckedChange={(enabled) => setForm({ ...form, enabled })}
+          <Field>
+            <FieldLabel htmlFor={`${id}-description`}>
+              {t("publicKnowledge.descriptionLabel")}
+            </FieldLabel>
+            <Textarea
+              id={`${id}-description`}
+              maxLength={4000}
+              value={form.description}
+              onChange={(event) =>
+                setForm({ ...form, description: event.target.value })
+              }
+            />
+          </Field>
+          <Field className="md:col-span-2">
+            <FieldLabel htmlFor={`${id}-instructions`} required>
+              {t("publicKnowledge.instructions")}
+            </FieldLabel>
+            <Textarea
+              id={`${id}-instructions`}
+              className="min-h-28"
+              required
+              maxLength={20000}
+              value={form.instructions}
+              onChange={(event) =>
+                setForm({ ...form, instructions: event.target.value })
+              }
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={`${id}-model`} required>
+              {t("publicKnowledge.model")}
+            </FieldLabel>
+            <Select
+              items={modelItems}
+              value={form.model}
+              onValueChange={(value) => {
+                const model = models.data?.models.find(
+                  (item) => item.id === value
+                )
+                setForm({
+                  ...form,
+                  model: value ?? "",
+                  reasoning_effort: model?.default_reasoning_effort ?? "medium",
+                })
+              }}
+            >
+              <SelectTrigger
+                id={`${id}-model`}
+                aria-label={t("publicKnowledge.model")}
+              >
+                <SelectValue placeholder={t("common.select")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {modelItems.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={`${id}-effort`}>
+              {t("publicKnowledge.reasoning")}
+            </FieldLabel>
+            <Select
+              items={efforts}
+              value={form.reasoning_effort}
+              disabled={!selectedModel}
+              onValueChange={(value) => {
+                const effort = selectedModel?.supported_reasoning_efforts.find(
+                  (item) => item === value
+                )
+                if (effort) setForm({ ...form, reasoning_effort: effort })
+              }}
+            >
+              <SelectTrigger
+                id={`${id}-effort`}
+                aria-label={t("publicKnowledge.reasoning")}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {efforts.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+          <ResourceMultiSelect
+            id={`${id}-skills`}
+            title={t("applications.skills")}
+            description={t("publicKnowledge.skillsHelp")}
+            items={skillItems}
+            selectedIds={form.skill_ids}
+            onChange={(skill_ids) => setForm({ ...form, skill_ids })}
+            emptyLabel={t("applications.noSkills")}
+            placeholder={t("applications.skillSelectPlaceholder")}
+            searchPlaceholder={t("applications.skillSearchPlaceholder")}
+            loading={capabilities.isPending}
           />
-          <FieldLabel htmlFor={`${id}-enabled`}>
-            {t("publicKnowledge.enabled")}
-          </FieldLabel>
-        </Field>
-        <Field orientation="horizontal" className="md:col-span-2">
-          <Switch
-            id={`${id}-show-references`}
-            checked={form.show_references}
-            onCheckedChange={(show_references) =>
-              setForm({ ...form, show_references })
+          <ResourceMultiSelect
+            id={`${id}-knowledge`}
+            title={t("publicKnowledge.knowledge")}
+            description={t("publicKnowledge.knowledgeHelp")}
+            items={(
+              knowledge.data?.pages.flatMap((page) => page.items) ?? []
+            ).map((base) => ({
+              id: base.id,
+              label: base.name,
+              detail: "",
+              detailInline: false,
+              disabled: base.availability_status !== "enabled",
+            }))}
+            selectedIds={form.knowledge_base_ids}
+            onChange={(knowledge_base_ids) =>
+              setForm({ ...form, knowledge_base_ids })
+            }
+            emptyLabel={t("publicKnowledge.empty")}
+            placeholder={t("common.select")}
+            searchPlaceholder={t("common.search")}
+            loading={knowledge.isPending}
+            loadingMore={knowledge.isFetchingNextPage}
+            onLoadMore={
+              knowledge.hasNextPage
+                ? () => void knowledge.fetchNextPage()
+                : undefined
             }
           />
-          <div className="flex flex-col gap-1">
-            <FieldLabel htmlFor={`${id}-show-references`}>
-              {t("publicKnowledge.showReferences")}
+          <Field className="md:col-span-2">
+            <FieldLabel htmlFor={`${id}-origins`} required>
+              {t("publicKnowledge.origins")}
             </FieldLabel>
+            <Textarea
+              id={`${id}-origins`}
+              required
+              value={form.origins}
+              onChange={(event) =>
+                setForm({ ...form, origins: event.target.value })
+              }
+            />
             <FieldDescription>
-              {t("publicKnowledge.showReferencesHelp")}
+              {t("publicKnowledge.originsHelp")}
             </FieldDescription>
-          </div>
-        </Field>
-        {invalid && (
-          <StatusBanner variant="error" className="md:col-span-2">
-            {t("publicKnowledge.invalid")}
-          </StatusBanner>
-        )}
-        {(save.error ||
-          models.error ||
-          knowledge.error ||
-          capabilities.error) && (
-          <StatusBanner variant="error" className="md:col-span-2">
-            {getErrorMessage(
-              save.error ??
-                models.error ??
-                knowledge.error ??
-                capabilities.error,
-              t
-            )}
-          </StatusBanner>
-        )}
+          </Field>
+          {(
+            [
+              {
+                key: "max_concurrent_turns",
+                label: "concurrency",
+                min: 1,
+                max: publicKnowledgeConcurrencyLimit,
+              },
+              {
+                key: "session_ttl_hours",
+                label: "sessionHours",
+                min: 1,
+                max: 168,
+              },
+              { key: "retention_days", label: "retention", min: 1, max: 365 },
+            ] as const
+          ).map((item) => (
+            <Field key={item.key}>
+              <FieldLabel htmlFor={`${id}-${item.key}`}>
+                {t(`publicKnowledge.${item.label}`)}
+              </FieldLabel>
+              <Input
+                id={`${id}-${item.key}`}
+                type="number"
+                min={item.min}
+                max={item.max}
+                required
+                value={form[item.key]}
+                onChange={(event) =>
+                  setForm({ ...form, [item.key]: event.target.valueAsNumber })
+                }
+              />
+              {item.key === "max_concurrent_turns" && (
+                <FieldDescription>
+                  {t("publicKnowledge.concurrencyHelp")}
+                </FieldDescription>
+              )}
+            </Field>
+          ))}
+          <Field orientation="horizontal" className="self-end">
+            <Switch
+              id={`${id}-enabled`}
+              checked={form.enabled}
+              onCheckedChange={(enabled) => setForm({ ...form, enabled })}
+            />
+            <FieldLabel htmlFor={`${id}-enabled`}>
+              {t("publicKnowledge.enabled")}
+            </FieldLabel>
+          </Field>
+          <Field orientation="horizontal" className="md:col-span-2">
+            <Switch
+              id={`${id}-show-references`}
+              checked={form.show_references}
+              onCheckedChange={(show_references) =>
+                setForm({ ...form, show_references })
+              }
+            />
+            <div className="flex flex-col gap-1">
+              <FieldLabel htmlFor={`${id}-show-references`}>
+                {t("publicKnowledge.showReferences")}
+              </FieldLabel>
+              <FieldDescription>
+                {t("publicKnowledge.showReferencesHelp")}
+              </FieldDescription>
+            </div>
+          </Field>
+          {invalid && (
+            <StatusBanner variant="error" className="md:col-span-2">
+              {t("publicKnowledge.invalid")}
+            </StatusBanner>
+          )}
+          {(save.error ||
+            models.error ||
+            knowledge.error ||
+            capabilities.error) && (
+            <StatusBanner variant="error" className="md:col-span-2">
+              {getErrorMessage(
+                save.error ??
+                  models.error ??
+                  knowledge.error ??
+                  capabilities.error,
+                t
+              )}
+            </StatusBanner>
+          )}
+        </FieldGroup>
+      </div>
+      <DialogFooter className="shrink-0 flex-row justify-end border-t border-divider px-6 py-4">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={save.isPending}
+          onClick={onCancel}
+        >
+          {t("common.cancel")}
+        </Button>
         <Button
           type="submit"
-          className="md:col-span-2"
+          aria-busy={save.isPending || undefined}
           disabled={
             save.isPending ||
             models.isPending ||
@@ -406,9 +427,13 @@ export function PublicKnowledgeSettingsForm({
           }
         >
           {save.isPending && <Spinner data-icon="inline-start" />}
-          {t("publicKnowledge.publish")}
+          {t(
+            applicationId
+              ? "publicKnowledge.publish"
+              : "applications.createAndPublish"
+          )}
         </Button>
-      </FieldGroup>
+      </DialogFooter>
     </form>
   )
 }
