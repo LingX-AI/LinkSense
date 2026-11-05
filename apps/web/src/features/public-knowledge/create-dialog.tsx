@@ -25,24 +25,26 @@ export function PublicKnowledgeCreateDialog({
         if (!open) onClose()
       }}
     >
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col sm:max-w-4xl">
-        <DialogHeader>
+      <DialogContent
+        className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl"
+        closeLabel={t("common.close")}
+      >
+        <DialogHeader className="shrink-0 border-b border-divider px-6 py-5 pr-16">
           <DialogTitle>{t("publicKnowledge.create")}</DialogTitle>
           <DialogDescription>
             {t("publicKnowledge.description")}
           </DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 overflow-y-auto p-1">
-          <PublicKnowledgeSettingsForm
-            onSaved={async (result) => {
-              await onCreated()
-              onClose()
-              navigate(
-                `/capabilities/applications/${result.application_id}/public-knowledge`
-              )
-            }}
-          />
-        </div>
+        <PublicKnowledgeSettingsForm
+          onCancel={onClose}
+          onSaved={async (result) => {
+            await onCreated()
+            onClose()
+            navigate(
+              `/capabilities/applications/${result.application_id}/public-knowledge`
+            )
+          }}
+        />
       </DialogContent>
     </Dialog>
   )
