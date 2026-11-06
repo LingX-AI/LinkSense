@@ -178,6 +178,8 @@ sh "install-${edition}.sh" --check-network
 
 The network check should exit with status `0` and no `[LS_HOST_*]` error. Terminal GitHub downloads and Docker Engine image pulls are separate network paths. The check may cache images, but it does not create an installation.
 
+If pulls are blocked, see [registry mirror and Docker proxy configuration](deploy/release/HOST-ADAPTATION.md#registry-mirrors-for-release-images). Automatic mirror fallback requires a release that includes the updated installer.
+
 #### 4. Install Core
 
 Run only the block for your operating system. Each block downloads the installer before running it.

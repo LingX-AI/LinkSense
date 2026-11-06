@@ -6,7 +6,8 @@ in the next release containing this installer and its matching Runner images.
 
 ## Prerequisites and automatic adaptation
 
-A working, local Linux Docker Engine with API 1.45+ is required. On macOS, start
+A working, local Linux Docker Engine with API 1.45+, `curl`, and `script`
+(from util-linux) is required. macOS includes `script`. On macOS, start
 Docker Desktop with Linux containers and enough VM memory. The installer does
 not install, upgrade, restart, or reconfigure a shared Docker daemon.
 
@@ -142,9 +143,10 @@ fall back to HTTP/1.1. Authentication, certificate and integrity failures stop.
 Digest-keyed cached resources are verified before reuse. Partial known-digest
 files can resume, but must pass the final hash; rejected ranges restart cleanly.
 
-Images are pinned by digest, reused when present, and pulled with three bounded
-transient attempts per image within a 45-minute phase deadline. Docker commands
-have deadlines, and readiness requests bypass shell proxies for loopback.
+Images are pinned by digest and reused when present. Pulls have a 20-minute
+per-attempt cap within a 45-minute phase deadline, with up to three attempts for
+transient failures when no fallback source is configured. Docker commands have
+deadlines, and readiness requests bypass shell proxies for loopback.
 
 ## Network and proxies
 
@@ -201,9 +203,55 @@ every existing property (the example address must be replaced):
 }
 ```
 
-Mirrors can help Docker Hub pulls; they do not automatically accelerate GHCR
-or GitHub downloads. The installer does not configure mirrors, restart Docker,
-disable TLS checks, or print proxy credentials.
+Engine-level Docker Hub mirrors do not automatically accelerate GHCR or GitHub
+downloads. The installer does not change Engine settings, restart Docker, disable
+TLS checks, or print proxy credentials.
+
+### Registry mirrors for release images
+
+In releases that include mirror fallback, the installer checks the local image
+cache and tries the origin from the verified release manifest. For LinkSense
+images from GHCR, `ghcr.nju.edu.cn` and `ghcr.dockerproxy.net` are default
+fallbacks. It ranks the fallback registries using short HTTPS requests from the
+installation host and reuses a successful source for the remaining images from
+that origin. Using `script` (provided by macOS or util-linux), Docker's byte
+progress is observed: a pull without download progress for the first
+30 seconds is stopped, then the next source is tried. A progressing pull is
+not capped at 30 seconds. If `script` is missing, preflight asks for it before
+creating installation state rather than silently dropping the start timeout.
+
+The same immutable digest is required at every registry. The verified release
+manifest is unchanged; Compose and the Runner use the verified image reference
+actually pulled. An interrupted install or repair can reuse a locally cached
+reference with the same digest. A failed pull does not switch the installed
+runtime to an unverified reference.
+
+To supply a trusted mirror, set `LINKSENSE_IMAGE_MIRRORS` to a semicolon-separated
+list of `origin=mirror-host[:port][/prefix]` mappings. This replaces the default
+list; include mappings for each origin you need. Use `off` to disable registry
+fallbacks. The mirror must serve the original repository path after its optional
+prefix, over HTTPS, and support the pinned digest. For example, given an
+organization mirror and an already downloaded Core bootstrap:
+
+```sh
+# Linux (use only this block for Linux)
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy \
+  env LINKSENSE_IMAGE_MIRRORS='ghcr.io=mirror.example/ghcr;docker.io=mirror.example/hub' sh install-core.sh
+```
+
+```sh
+# macOS (without sudo)
+LINKSENSE_IMAGE_MIRRORS='ghcr.io=mirror.example/ghcr;docker.io=mirror.example/hub' sh install-core.sh
+```
+
+Replace the example mappings with real ones. The same setting works with
+`--check-network`; supply it again for an upgrade that needs your custom routes.
+Docker Hub, Quay, and other registries have no built-in fallback. If all sources
+fail, the installer reports `[LS_HOST_pull]` and asks for a working Engine proxy
+or trusted mirror. Registry mirrors do not mirror GitHub release files or Full
+tokenizer assets. Older immutable installers do not support this option.
+
+### Run the network check
 
 Download the bootstrap first, then execute it only after curl succeeds. This
 also protects the first raw.githubusercontent.com download, which cannot be
@@ -241,8 +289,8 @@ diagnostic image only if release metadata cannot be validated; that fallback
 does not turn a failed check into success. With valid metadata they verify its
 checksum and pull the pinned BusyBox and API references, covering Docker Hub and
 GHCR for the standard release. Installed tools use their configured references;
-old states without those references use the verified release manifest. Pulls have a two-minute
-deadline per image. No containers are executed and no installation state,
+old states without those references use the verified release manifest. Pulls and
+fallbacks share a two-minute deadline per image. No containers are executed and no installation state,
 services, credentials or volumes are changed; pulled images remain cached.
 This mode diagnoses download/pull connectivity, not deployed service health:
 run plain `linksense doctor` for local health checks.

@@ -187,6 +187,8 @@ sh "install-${edition}.sh" --check-network
 
 网络检查应以状态码 `0` 结束，且不出现 `[LS_HOST_*]` 错误。终端下载 GitHub 文件和 Docker Engine 拉取镜像是两条独立网络路径；检查可能缓存镜像，但不会创建部署。
 
+如果无法拉取镜像，请参阅[镜像源和 Docker 代理配置](deploy/release/HOST-ADAPTATION.md#registry-mirrors-for-release-images)。自动切换镜像源需要使用包含新版安装器的发行版。
+
 #### 4. 安装 Core
 
 只运行与你的系统对应的一段。每段命令都会先下载安装器，再执行。
