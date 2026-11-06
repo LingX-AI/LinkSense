@@ -210,14 +210,15 @@ TLS checks, or print proxy credentials.
 ### Registry mirrors for release images
 
 In releases that include mirror fallback, the installer checks the local image
-cache and tries the origin from the verified release manifest. For LinkSense
-images from GHCR, `ghcr.nju.edu.cn` and `ghcr.dockerproxy.net` are default
-fallbacks. It ranks the fallback registries using short HTTPS requests from the
-installation host and reuses a successful source for the remaining images from
-that origin. Using `script` (provided by macOS or util-linux), Docker's byte
-progress is observed: a pull without download progress for the first
-30 seconds is stopped, then the next source is tried. A progressing pull is
-not capped at 30 seconds. If `script` is missing, preflight asks for it before
+cache and tries the origin from the verified release manifest. For public
+LinkSense application and service images from GHCR, `ghcr.nju.edu.cn` and
+`ghcr.dockerproxy.net` are default fallbacks. The installer ranks them using
+short HTTPS requests from the installation host and reuses a successful source
+for the remaining images from that origin. Using `script` (provided by macOS or util-linux), Docker's
+progress is observed: a pull without download or extraction progress for the first
+30 seconds is stopped, then the next source is tried. A cached layer alone
+does not count as progress. A progressing pull is not capped at 30 seconds.
+If `script` is missing, preflight asks for it before
 creating installation state rather than silently dropping the start timeout.
 
 The same immutable digest is required at every registry. The verified release
@@ -288,9 +289,13 @@ installation they pull the small `hello-world:latest`
 diagnostic image only if release metadata cannot be validated; that fallback
 does not turn a failed check into success. With valid metadata they verify its
 checksum and pull the pinned BusyBox and API references, covering Docker Hub and
-GHCR for the standard release. Installed tools use their configured references;
-old states without those references use the verified release manifest. Pulls and
-fallbacks share a two-minute deadline per image. No containers are executed and no installation state,
+GHCR for the standard release. These are representative pulls, not a check of every
+dependency. Installed tools use the local manifest if its hash matches the
+installed state, so they can test other routes even if the configured mirror is
+down or the release server is unreachable. Older installations without that
+manifest use their configured references or check the published manifest.
+Pulls and fallbacks share a two-minute deadline per image. The check does not
+switch the running deployment to the working source. No containers are executed and no installation state,
 services, credentials or volumes are changed; pulled images remain cached.
 This mode diagnoses download/pull connectivity, not deployed service health:
 run plain `linksense doctor` for local health checks.

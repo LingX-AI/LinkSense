@@ -83,9 +83,10 @@ executing its installer. If a previously downloaded bootstrap rejects the flag w
 remain unchanged; use the current bootstrap for this check. See the
 [network guide](deploy/release/HOST-ADAPTATION.md#network-and-proxies) for manual checks.
 Linux diagnostics can run without root when the account can access Docker.
-Checks verify the release manifest checksum and pull its BusyBox and API images,
-covering the actual external and application registries. If metadata validation
-fails, the check remains failed and only a Docker Hub probe continues. They do not
+Checks verify the release manifest checksum and pull its BusyBox and API images.
+These are representative checks, not a test of every Core or Full dependency.
+If metadata validation fails, only a Docker Hub probe continues and the overall
+check still fails. The checks do not
 start containers or create installation state. Image pulls may populate a sizeable
 local cache. Terminal curl and Docker Engine
 proxies are configured separately. Never infer one channel works from the other.
@@ -102,7 +103,8 @@ proxies are configured separately. Never infer one channel works from the other.
 - If GitHub files download but Docker pulls fail, check Docker Engine's own proxy
   and run `--check-network`. A mirror-enabled release tries `ghcr.io` first for
   LinkSense images, then ranks `ghcr.nju.edu.cn` and `ghcr.dockerproxy.net` from
-  that host and tries the same pinned digest. A manifest response is not proof
+  that host and tries the same pinned digest. This includes service images
+  published by LinkSense on GHCR. A manifest response is not proof
   that the image layers can be downloaded. Confirm actual Docker pull success.
 - If neither mirror works, look up other maintained, trusted HTTPS registry
   mirrors. Confirm the registry and optional repository prefix, and verify the
