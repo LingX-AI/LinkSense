@@ -396,9 +396,9 @@ export const conversationMessages = {
       formTitle: "Confirma estos detalles",
       formResultTitle: "Formulario completado",
       requiredWaiting:
-        "Tu respuesta es necesaria. La tarea continuará cuando la envíes.",
+        "Envía tu respuesta para continuar la tarea o cancela este formulario.",
       recommendationCountdown:
-        "Si no envías una respuesta, la tarea continuará con la respuesta recomendada dentro de {{seconds}} segundos.",
+        "Si no envías una respuesta ni cancelas, la tarea continuará con la respuesta recomendada dentro de {{seconds}} segundos.",
       applyingRecommendation: "Aplicando la respuesta recomendada…",
       recommendedAnswer: "Recomendación: {{answer}}",
       useRecommendation: "Usar respuesta recomendada",

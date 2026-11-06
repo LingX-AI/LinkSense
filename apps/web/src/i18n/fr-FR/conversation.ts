@@ -383,9 +383,9 @@ export const conversation = {
     formTitle: "Veuillez confirmer ces informations",
     formResultTitle: "Formulaire rempli",
     requiredWaiting:
-      "Votre réponse est nécessaire. La tâche reprendra après son envoi.",
+      "Envoyez votre réponse pour poursuivre la tâche ou annulez ce formulaire.",
     recommendationCountdown:
-      "Sans réponse envoyée, la tâche reprendra avec la réponse recommandée dans {{seconds}} secondes.",
+      "Sans envoi de réponse ni annulation, la tâche reprendra avec la réponse recommandée dans {{seconds}} secondes.",
     applyingRecommendation: "Application de la réponse recommandée…",
     recommendedAnswer: "Recommandation : {{answer}}",
     useRecommendation: "Utiliser la réponse recommandée",

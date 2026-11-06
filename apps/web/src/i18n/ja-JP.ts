@@ -2503,9 +2503,9 @@ export const jaJP = {
       formTitle: "以下の内容をご確認ください",
       formResultTitle: "回答済みフォーム",
       requiredWaiting:
-        "この質問への回答が必要です。送信するとタスクが続行されます。",
+        "回答を送信するとタスクが続行されます。このフォームをキャンセルすることもできます。",
       recommendationCountdown:
-        "回答を送信しない場合、{{seconds}} 秒後に推奨の回答でタスクを続行します。",
+        "回答の送信もキャンセルもしない場合、{{seconds}} 秒後に推奨の回答でタスクを続行します。",
       applyingRecommendation: "推奨の回答を適用しています…",
       recommendedAnswer: "推奨：{{answer}}",
       useRecommendation: "推奨の回答を使用",

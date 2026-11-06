@@ -58,14 +58,70 @@ function setup(optional = true) {
 }
 
 describe("form waiting and recommendation delivery", () => {
-  it("keeps required forms waiting indefinitely and disallows skipping", async () => {
+  it("keeps required forms waiting indefinitely without submitting an answer", async () => {
     const fixture = setup(false);
     await fixture.answer(undefined, new Date(deadline.getTime() + 86_400_000));
     expect(fixture.row.status).toBe("pending");
     expect(fixture.runner.respondUserInputRequest).not.toHaveBeenCalled();
-    await expect(fixture.answer({ action: "cancel" })).rejects.toThrow();
     await fixture.answer({ action: "accept", content: { scope: "full" } });
     expect(fixture.row).toMatchObject({ status: "answered", responseSource: "user", responseContentJson: { scope: "full" } });
+  });
+
+  it.each([null, { kind: "required" }])("cancels an unanswered required form with waiting policy %j", async policy => {
+    const fixture = setup(false);
+    fixture.change({ formWaitingPolicyJson: policy });
+    const result = await fixture.answer({ action: "cancel" });
+    expect(fixture.row).toMatchObject({ status: "cancelled", resolvedAction: "cancel", responseSource: "user", responseContentJson: null, resolvedAt: deadline });
+    expect(fixture.runner.respondUserInputRequest).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ requestId: 17, response: { action: "cancel" } }));
+    expect(result.event).toMatchObject({ eventType: "conversation.user_input_request.updated", payloadJson: expect.objectContaining({ status: "cancelled" }) });
+  });
+
+  it("cancels an approval form without recording approval or a decision answer", async () => {
+    const fixture = setup(false);
+    fixture.change({ formResponseSemanticsJson: { kind: "approval", decision_field_id: "scope", approve_value: "full", reject_value: "small" } });
+    await fixture.answer({ action: "cancel" });
+    expect(fixture.row).toMatchObject({ status: "cancelled", resolvedAction: "cancel", responseContentJson: null });
+    expect(fixture.runner.respondUserInputRequest).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ response: { action: "cancel" } }));
+  });
+
+  it.each([-1, 0, 1])("honors cancellation %s ms from the optional deadline without applying the recommendation", async offset => {
+    const fixture = setup();
+    await fixture.answer({ action: "cancel" }, new Date(deadline.getTime() + offset));
+    expect(fixture.row).toMatchObject({ status: "cancelled", resolvedAction: "cancel", responseSource: "user", responseContentJson: null });
+    expect(fixture.runner.respondUserInputRequest).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ response: { action: "cancel" } }));
+  });
+
+  it("delivers cancellation once when it claims the form before the timeout", async () => {
+    const fixture = setup();
+    await Promise.all([fixture.answer({ action: "cancel" }), fixture.answer()]);
+    expect(fixture.row.status).toBe("cancelled");
+    expect(fixture.runner.respondUserInputRequest).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ response: { action: "cancel" } }));
+    expect(fixture.tx.conversationEvent.create).toHaveBeenCalledOnce();
+  });
+
+  it("accepts repeated cancellation without delivering or publishing it twice", async () => {
+    const fixture = setup(false);
+    await fixture.answer({ action: "cancel" });
+    const repeated = await fixture.answer({ action: "cancel" });
+    expect(repeated.request.status).toBe("cancelled");
+    expect(repeated.event).toBeNull();
+    expect(fixture.runner.respondUserInputRequest).toHaveBeenCalledOnce();
+    expect(fixture.tx.conversationEvent.create).toHaveBeenCalledOnce();
+  });
+
+  it("reclaims an abandoned cancellation using the same request identity", async () => {
+    const fixture = setup(false);
+    fixture.change({ status: "answering", resolvedAction: "cancel", responseSource: "user", responseContentJson: null });
+    await Promise.all([fixture.answer({ action: "cancel" }), fixture.answer({ action: "cancel" })]);
+    expect(fixture.row.status).toBe("cancelled");
+    expect(fixture.runner.respondUserInputRequest).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ requestId: 17, response: { action: "cancel" } }));
+  });
+
+  it("still rejects an incomplete required answer without calling Runner", async () => {
+    const fixture = setup(false);
+    await expect(fixture.answer({ action: "accept", content: {} })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(fixture.row.status).toBe("pending");
+    expect(fixture.runner.respondUserInputRequest).not.toHaveBeenCalled();
   });
 
   it("waits the full three minutes and then delivers the stored recommendation once", async () => {
@@ -119,6 +175,20 @@ describe("form waiting and recommendation delivery", () => {
     expect(fixture.runner.respondUserInputRequest.mock.calls.map(call => call[0])).toEqual([expect.objectContaining({ requestId: 17 }), expect.objectContaining({ requestId: 17 })]);
   });
 
+  it.each([true, false])("retains cancellation across a delivery failure and retries the same request for optional=%s", async optional => {
+    const fixture = setup(optional);
+    fixture.runner.respondUserInputRequest.mockRejectedValueOnce(new Error("Runner unavailable"));
+    await expect(fixture.answer({ action: "cancel" }, new Date(deadline.getTime() - 1))).rejects.toThrow("Runner unavailable");
+    expect(fixture.row).toMatchObject({ status: "pending", resolvedAction: "cancel", responseSource: "user", responseContentJson: null });
+    await fixture.answer({ action: "cancel" });
+    expect(fixture.row).toMatchObject({ status: "cancelled", resolvedAction: "cancel", responseSource: "user", responseContentJson: null });
+    expect(fixture.runner.respondUserInputRequest.mock.calls.map(call => call[0])).toEqual([
+      expect.objectContaining({ requestId: 17, response: { action: "cancel" } }),
+      expect.objectContaining({ requestId: 17, response: { action: "cancel" } }),
+    ]);
+    expect(fixture.tx.conversationEvent.create).toHaveBeenCalledOnce();
+  });
+
   it("never auto-approves an approval form even with an optional policy in stored data", async () => {
     const fixture = setup();
     fixture.change({ formResponseSemanticsJson: { kind: "approval", decision_field_id: "scope", approve_value: "full", reject_value: "small" } });
@@ -128,7 +198,7 @@ describe("form waiting and recommendation delivery", () => {
 
   it.each(["ownerId", "conversationId"] as const)("rejects a form outside the submitted %s", async key => {
     const fixture = setup();
-    await expect(fixture.answer(undefined, deadline, { [key]: "50000000-0000-4000-8000-000000000001" })).rejects.toThrow();
+    await expect(fixture.answer({ action: "cancel" }, deadline, { [key]: "50000000-0000-4000-8000-000000000001" })).rejects.toThrow();
     expect(fixture.runner.respondUserInputRequest).not.toHaveBeenCalled();
   });
 
@@ -142,7 +212,7 @@ describe("form waiting and recommendation delivery", () => {
   it("rejects responses for stopped turns", async () => {
     const fixture = setup();
     fixture.tx.conversationTurn.findFirst.mockResolvedValueOnce(null);
-    await expect(fixture.answer()).rejects.toThrow();
+    await expect(fixture.answer({ action: "cancel" })).rejects.toThrow();
     expect(fixture.runner.respondUserInputRequest).not.toHaveBeenCalled();
   });
 });

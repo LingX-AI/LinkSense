@@ -160,10 +160,9 @@ export function ConversationStructuredUserInputForm({
       {!terminal && (
         <ConversationUserInputRequestFooter
           disabled={formDisabled}
+          cancelDisabled={disabled || savedAnswer}
           complete
           submitting={submitting}
-          hideCancel={!recommendation}
-          cancelLabel={t("conversation.userInput.useRecommendation")}
           hint={
             <FieldDescription
               size="sm"
@@ -180,11 +179,22 @@ export function ConversationStructuredUserInputForm({
                 : t("conversation.userInput.requiredWaiting")}
             </FieldDescription>
           }
-          onCancel={() =>
-            recommendation &&
-            onSubmit({ action: "accept", content: recommendation })
-          }
-        />
+          onCancel={() => onSubmit({ action: "cancel" })}
+        >
+          {recommendation && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={formDisabled || savedAnswer}
+              onClick={() =>
+                onSubmit({ action: "accept", content: recommendation })
+              }
+            >
+              {t("conversation.userInput.useRecommendation")}
+            </Button>
+          )}
+        </ConversationUserInputRequestFooter>
       )}
     </form>
   )
