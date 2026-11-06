@@ -51,6 +51,7 @@ describe("readable secondary copy typography", () => {
         "form labels",
         "settings descriptions",
         "public page descriptions",
+        "capability descriptions",
       ].includes(name)
       const hint = name === "form hints"
       expect(rule).toContain(

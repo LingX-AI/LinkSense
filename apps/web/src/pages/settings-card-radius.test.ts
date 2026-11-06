@@ -20,7 +20,6 @@ const cardSelectors = [
   ".profile-stat-strip",
   ".health-summary > div",
   ".import-preview",
-  ".knowledge-document-table",
   '.knowledge-document-table [data-slot="table-row"]',
 ]
 

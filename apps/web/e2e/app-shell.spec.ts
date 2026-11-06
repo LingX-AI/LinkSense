@@ -1784,6 +1784,12 @@ for (const viewport of [
   test(`UI acceptance fixes keep header actions and single borders at ${viewport.width}px in ${viewport.theme}`, async ({
     page,
   }) => {
+    await page.addInitScript((userId) => {
+      sessionStorage.setItem(
+        `linksense.browserNotifications.promptDismissed:${userId}`,
+        "true"
+      )
+    }, ADMIN.id)
     await mockTaskHomeApi(page)
     await page.setViewportSize(viewport)
     await page.emulateMedia({ colorScheme: viewport.theme })
@@ -1809,8 +1815,8 @@ for (const viewport of [
       "width",
       "16px"
     )
-    await expect(sidebar.locator('[data-slot="separator"]')).toHaveCSS(
-      "height",
+    await expect(sidebar.locator(".sidebar-brand-bar")).toHaveCSS(
+      "border-bottom-width",
       "1px"
     )
     if (mobile) {
@@ -1827,7 +1833,7 @@ for (const viewport of [
     await expect(composer).toHaveCSS("border-color", border)
     await input.focus()
     await expect(composer).toHaveCSS("border-color", border)
-    await expect(composer).toHaveCSS("outline-width", "0px")
+    await expect(composer).toHaveCSS("outline-style", "none")
     const card = page.locator(".conversation-starter-question").first()
     await card.hover()
     await expect(card).not.toHaveClass(/card-spotlight/u)
