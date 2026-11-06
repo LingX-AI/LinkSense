@@ -2545,9 +2545,9 @@ export const ptBR = {
       formTitle: "Confirme estes detalhes",
       formResultTitle: "Formulário concluído",
       requiredWaiting:
-        "Sua resposta é necessária. A tarefa continuará depois que você enviá-la.",
+        "Envie sua resposta para continuar a tarefa ou cancele este formulário.",
       recommendationCountdown:
-        "Se você não enviar uma resposta, a tarefa continuará com a resposta recomendada em {{seconds}} segundos.",
+        "Se você não enviar uma resposta nem cancelar, a tarefa continuará com a resposta recomendada em {{seconds}} segundos.",
       applyingRecommendation: "Aplicando a resposta recomendada…",
       recommendedAnswer: "Recomendação: {{answer}}",
       useRecommendation: "Usar resposta recomendada",

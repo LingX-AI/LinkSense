@@ -2270,9 +2270,9 @@ export const enUS = {
       formTitle: "Please confirm these details",
       formResultTitle: "Completed form",
       requiredWaiting:
-        "Your answer is required. The task will continue after you submit it.",
+        "Submit your answer to continue the task, or cancel this form.",
       recommendationCountdown:
-        "If you do not submit, the task will continue with the recommended answer in {{seconds}} seconds.",
+        "Unless you submit or cancel, the task will continue with the recommended answer in {{seconds}} seconds.",
       applyingRecommendation: "Applying the recommended answer…",
       recommendedAnswer: "Recommended: {{answer}}",
       useRecommendation: "Use recommended answer",

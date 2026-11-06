@@ -2100,9 +2100,9 @@ export const zhCN = {
         "你可以稍后回答，LinkSense 会继续工作；任务结束后仍可提交回答。",
       formTitle: "需要你确认信息",
       formResultTitle: "已处理的表单",
-      requiredWaiting: "此问题需要你回答，提交后任务才会继续。",
+      requiredWaiting: "提交回答后任务会继续，你也可以取消此表单。",
       recommendationCountdown:
-        "未提交时，将在 {{seconds}} 秒后自动采用推荐答案继续任务。",
+        "未提交或取消时，将在 {{seconds}} 秒后自动采用推荐答案继续任务。",
       applyingRecommendation: "正在采用推荐答案…",
       recommendedAnswer: "推荐：{{answer}}",
       useRecommendation: "使用推荐答案",
