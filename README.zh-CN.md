@@ -107,7 +107,44 @@ Help me install and start LinkSense by following https://raw.githubusercontent.c
 
 #### 2. 检查主机
 
-按 [Docker 官方指南](https://docs.docker.com/get-docker/)安装并启动 Docker。Linux 使用 Docker Engine 和 Compose 插件；macOS 使用 Docker Desktop。然后运行：
+Linux 使用 Docker Engine 和 Compose 插件，按 [Docker 官方指南](https://docs.docker.com/get-docker/)安装并启动。macOS 请先完成下面的配置，再检查主机。
+
+##### 在 macOS 安装并配置 Docker Desktop
+
+Docker Desktop 包含 Docker Engine、命令行工具和 Compose，无需分别安装。完成下面的检查后，由 LinkSense 安装器自动创建容器，不需要自己在 Docker 界面中创建。
+
+1. 打开 **苹果菜单 → 关于本机**，确认芯片类型和内存容量。在 [Docker Desktop for Mac 官方安装页](https://docs.docker.com/desktop/setup/install/mac-install/)下载对应的 **Apple silicon** 或 **Intel** 版本。
+2. 打开下载的 `Docker.dmg`，把 **Docker** 拖入 **Applications（应用程序）**，再打开 **应用程序 → Docker**。按界面完成首次启动设置，等待 Docker Engine 显示为运行状态。
+3. 点击 Docker Desktop 的齿轮图标，进入 **Settings（设置）→ Resources（资源）→ Advanced（高级）**。这里是 **Resources 下面的 Advanced**，不是设置中的独立 Advanced 页面。按以下说明调整：
+
+| Docker Desktop 配置项 | 应如何设置 |
+| --- | --- |
+| **CPU limit** / **CPUs** | Core 至少 **4**，Full 至少 **8**；Mac 本身需要有足够的 CPU 核心。 |
+| **Memory limit** | Core 可先设为 **10–12 GB**。Full 建议准备 **24 GB 或更多**，并为 macOS 和其他应用保留额外内存。16 GB 的 Mac 建议先用 Core；Full 建议从 32 GB 或更大内存的 Mac 开始。 |
+| **Disk usage limit** | 除已有 Docker 数据外，Core 至少预留 **60 GiB 可用空间**，Full 至少预留 **120 GiB 可用空间**；Mac 磁盘本身也要有相应的剩余空间。 |
+
+4. 点击 **Apply & Restart（应用并重启）**，等待 Docker Engine 重启完成。重启 Docker 会暂时停止其他正在运行的本地容器，请先保存进行中的工作。
+5. 必要时重新打开“终端”，执行下面的检查。安装 LinkSense 时使用当前 macOS 账号，不使用 `sudo`。
+
+```bash
+docker info --format '{{.NCPU}} {{.MemTotal}}' |
+  awk '{printf "CPUs=%s\nDocker memory=%.2f GiB\n", $1, $2 / 1024 / 1024 / 1024}'
+```
+
+以下是 Core 的输出示例，实际数值以你的 Mac 为准：
+
+```text
+CPUs=4
+Docker memory=10.00 GiB
+```
+
+Core 要求 **Docker Engine 报告的内存至少为 8 GiB**。Full 以所选发行版的预检要求为准，目前文档中的硬性门槛为 **10 GiB**，上面的建议配置会更高。Docker Desktop 滑块设置的是分配上限，不一定等于 Engine 实际报告的内存；如果检查或安装器仍提示内存不足，继续调高后重启并重新检查。
+
+**Disk usage limit 是最大容量，不是剩余空间。** 设置时要计入现有镜像和容器的占用。不要为了照搬本文而调小已有磁盘上限、重置 Docker 或删除数据卷；这些操作可能删除已有容器、镜像和数据。配置项说明见 [Docker Desktop 资源设置](https://docs.docker.com/desktop/settings-and-maintenance/settings/#advanced)。
+
+##### 验证主机
+
+Docker 启动后，运行：
 
 ```bash
 uname -s
@@ -126,7 +163,9 @@ df -h
 - Docker Compose 版本 **≥ 2.24.4**。
 - `curl` 正常显示版本，磁盘和 Docker 虚拟机资源满足所选方案。
 
-macOS 修改 Docker Desktop 资源后，应点击 **Apply & Restart** 并等待重启。Full 的 x86_64 主机还必须在实际 Docker 虚拟机中检查：
+如果提示找不到 `docker` 命令，先确认 Docker Desktop 已完成首次设置，再重新打开终端。没有 Server 信息或无法连接 daemon 时，先打开 Docker Desktop，等待 Engine 启动后重试。
+
+Full 的 x86_64 主机还必须检查 CPU 指令集。下面的命令在实际运行 Elasticsearch 和 Docling 的 Linux 主机或虚拟机内执行，不是在 macOS 终端中执行。Intel Mac 由安装器在 Docker Desktop 的 Linux 虚拟机内检查：
 
 ```bash
 LC_ALL=C lscpu
