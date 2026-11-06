@@ -98,7 +98,44 @@ These figures assume external model APIs and do not establish a fixed concurrenc
 
 #### 2. Check the host
 
-Install and start Docker using the [official Docker guide](https://docs.docker.com/get-docker/). Linux uses Docker Engine and the Compose plugin; macOS uses Docker Desktop. Then run:
+Linux uses Docker Engine and the Compose plugin; follow the [official Docker guide](https://docs.docker.com/get-docker/) to install and start them. On macOS, complete the steps below before checking the host.
+
+##### Install and configure Docker Desktop on macOS
+
+Docker Desktop provides the Docker Engine, command-line tools, and Compose together. You do not need to create containers manually; the LinkSense installer does that after these checks.
+
+1. Open **Apple menu → About This Mac** to check the chip and installed memory. Download the matching **Apple silicon** or **Intel** edition from the [Docker Desktop for Mac installation page](https://docs.docker.com/desktop/setup/install/mac-install/).
+2. Open the downloaded `Docker.dmg`, drag **Docker** into **Applications**, then open **Applications → Docker**. Complete the first-run prompts and wait until Docker Engine is running.
+3. In Docker Desktop, select the gear icon to open **Settings → Resources → Advanced**. This is the **Advanced** section under **Resources**, not the separate top-level Advanced settings. Configure:
+
+| Docker Desktop setting | What to enter |
+| --- | --- |
+| **CPU limit** / **CPUs** | At least **4** for Core or **8** for Full, if the Mac has enough CPU cores. |
+| **Memory limit** | Start with **10–12 GB** for Core. For Full, plan **24 GB or more** and leave additional memory for macOS and other applications. A 16 GB Mac should start with Core; a 32 GB or larger Mac is a better starting point for Full. |
+| **Disk usage limit** | Allow enough capacity for existing Docker data plus at least **60 GiB free** for Core or **120 GiB free** for Full. The Mac's storage must also have that free space. |
+
+4. Select **Apply & Restart** and wait for Docker Engine to restart. Restarting Docker temporarily stops other running local containers, so save any work first.
+5. Reopen Terminal if necessary and run the following check. Run LinkSense installation commands as your current macOS account, without `sudo`.
+
+```bash
+docker info --format '{{.NCPU}} {{.MemTotal}}' |
+  awk '{printf "CPUs=%s\nDocker memory=%.2f GiB\n", $1, $2 / 1024 / 1024 / 1024}'
+```
+
+Example output for Core; the actual numbers depend on your Mac:
+
+```text
+CPUs=4
+Docker memory=10.00 GiB
+```
+
+Core needs at least **8 GiB reported by Docker Engine**. Full must satisfy the selected release's preflight requirement; the current documented floor is **10 GiB**, while the recommended capacity above is higher. The value in Docker Desktop's slider is an allocation limit, not necessarily the memory reported by the Engine. Increase it and restart again if the check or installer reports insufficient memory.
+
+**Disk usage limit is a maximum, not a free-space reading.** Include existing image and container usage when choosing it. Do not lower an existing disk limit just to match this guide, reset Docker, or delete volumes to pass a check; these actions can remove existing containers, images, and data. See [Docker Desktop resource settings](https://docs.docker.com/desktop/settings-and-maintenance/settings/#advanced) for the controls.
+
+##### Verify the host
+
+After Docker is running, run:
 
 ```bash
 uname -s
@@ -117,7 +154,9 @@ Confirm that:
 - Docker Compose is **≥ 2.24.4**.
 - `curl` prints its version, and disk plus Docker VM resources meet the selected edition.
 
-On macOS, select **Apply & Restart** after changing Docker Desktop resources and wait for it to restart. A Full x86_64 host must also run these checks inside the actual Docker VM:
+If `docker` is not found, reopen Terminal after Docker Desktop has finished its initial setup. If there is no Server section or the daemon cannot be reached, open Docker Desktop and wait for the Engine to start before retrying.
+
+A Full x86_64 host must also run the commands below inside the Linux host or VM that will run Elasticsearch and Docling, not the macOS Terminal. On an Intel Mac, the installer checks the CPU features inside Docker Desktop's Linux VM:
 
 ```bash
 LC_ALL=C lscpu

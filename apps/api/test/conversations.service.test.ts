@@ -5612,6 +5612,40 @@ describe("ConversationService ownership and draft lifecycle", () => {
     });
   });
 
+  it("starts without a model transition when the previous model was removed from provider settings", async () => {
+    const fixture = await conversationFixture();
+    const service = createService(fixture, fixture.root, undefined, {
+      resolveModelTransitionRuntime: vi.fn(async () => {
+        throw new AppError("MODEL_SELECTION_INVALID");
+      }),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(
+      conversationRow({ codexThreadId: "codex-thread-removed-model" }),
+    );
+    fixture.prisma.conversationTurn.count.mockResolvedValueOnce(0);
+    fixture.prisma.conversationTurn.findFirst.mockResolvedValueOnce({
+      model: "removed-model",
+    });
+
+    await service.startTurn(
+      OWNER_ID,
+      CONVERSATION_ID,
+      {
+        inputText: "continue after the provider removed the old model",
+        priorityCapabilityIds: [],
+        submitMode: "normal",
+      },
+      {},
+    );
+
+    expect(fixture.runner.startTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ model: TEST_MODEL_RUNTIME.model }),
+    );
+    expect(
+      fixture.runner.startTurn.mock.calls[0]?.[0],
+    ).not.toHaveProperty("modelTransitionSource");
+  });
+
   it("rejects an overloaded normal submission without creating phantom state", async () => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
@@ -12787,6 +12821,7 @@ function createService(
   },
   workspaceRoot: string,
   developmentInstructions?: (ownerId: string, conversationId: string) => Promise<string | null>,
+  modelRuntimeSettingsOverride?: Record<string, unknown>,
 ) {
   return new ConversationService(
     fixture.prisma as never,
@@ -12819,6 +12854,7 @@ function createService(
           apiKey: "source-provider-key",
         },
       })),
+      ...modelRuntimeSettingsOverride,
     } as never,
     fixture.applicationResolver as never,
     fixture.creditLimits,

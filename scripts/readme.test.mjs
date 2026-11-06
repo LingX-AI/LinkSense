@@ -59,8 +59,12 @@ test("both READMEs retain centered introductions and link to matching public gui
 
 test("manual Core and Full installation keeps matching host, network, and OS commands", async () => {
   const commands = (source) => [...source.matchAll(/```bash\n([\s\S]*?)```/gu)].map(([, block]) => block)
-  const englishCommands = commands(await read("README.md"))
-  assert.deepEqual(commands(await read("README.zh-CN.md")), englishCommands)
+  const [desktopCheck, ...englishCommands] = commands(await read("README.md"))
+  assert.deepEqual(commands(await read("README.zh-CN.md")), [desktopCheck, ...englishCommands])
+  assert.equal(
+    desktopCheck.trim(),
+    "docker info --format '{{.NCPU}} {{.MemTotal}}' |\n  awk '{printf \"CPUs=%s\\nDocker memory=%.2f GiB\\n\", $1, $2 / 1024 / 1024 / 1024}'",
+  )
   assert.equal(englishCommands.length, 6)
   assert.equal(
     englishCommands[0].trim(),

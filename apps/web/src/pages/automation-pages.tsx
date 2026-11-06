@@ -9,13 +9,10 @@ import {
 } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  BellRingIcon,
   ChevronDownIcon,
   Edit3Icon,
   ExternalLinkIcon,
-  FileSearchIcon,
   MoreHorizontalIcon,
-  NotebookPenIcon,
   PlayIcon,
   PlusIcon,
   Trash2Icon,
@@ -54,8 +51,17 @@ import { DatePicker } from "@/components/forms/date-picker"
 import { FieldShell } from "@/components/forms/form-field"
 import { TimePicker } from "@/components/forms/time-picker"
 import { PageLayout } from "@/components/shell/page-layout"
+import dailyBriefIcon from "@/assets/automations/daily-brief.svg"
+import weeklyReviewIcon from "@/assets/automations/weekly-review.svg"
+import followUpIcon from "@/assets/automations/follow-up.svg"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -77,6 +83,14 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -93,7 +107,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { ConversationOfficeLayout } from "@/features/conversations/conversation-presentation-layout"
 import { normalizeLanguage, type SupportedLanguage } from "@/i18n"
 import { readUrlEnum, updateUrlSearchParams } from "@/lib/url-search-params"
 import { formatDateTime, formatRelativeDate } from "@/i18n/date"
@@ -163,28 +176,28 @@ const monthValues = [
 const automationTemplates = [
   {
     id: "dailyBrief",
-    icon: BellRingIcon,
-    iconClassName: "text-[var(--app-brand)]",
+    icon: dailyBriefIcon,
+    iconClassName: "bg-automation-template-brief",
     time: "08:00",
     weekdays: ["1", "2", "3", "4", "5"],
   },
   {
     id: "weeklyReview",
-    icon: NotebookPenIcon,
-    iconClassName: "text-provider-vllm",
+    icon: weeklyReviewIcon,
+    iconClassName: "bg-automation-template-review",
     time: "16:00",
     weekdays: ["5"],
   },
   {
     id: "followUpMonitor",
-    icon: FileSearchIcon,
-    iconClassName: "text-success",
+    icon: followUpIcon,
+    iconClassName: "bg-automation-template-monitor",
     time: "09:00",
     weekdays: ["1", "2", "3", "4", "5"],
   },
 ] as const satisfies ReadonlyArray<{
   id: AutomationTemplateId
-  icon: typeof BellRingIcon
+  icon: string
   iconClassName: string
   time: string
   weekdays: readonly (typeof weekdayValues)[number][]
@@ -457,39 +470,35 @@ export function AutomationPage() {
   }
 
   return (
-    <ConversationOfficeLayout
-      resizeLabel={t("automation.resizeEditor")}
-      preview={
-        editor ? (
-          <AutomationEditorPane
-            mode={editor.mode}
-            formError={formError}
-            pending={saveMutation.isPending}
-            onClose={closeEditor}
-            onSubmit={submit}
+    <>
+      {editor && (
+        <AutomationEditorPane
+          mode={editor.mode}
+          formError={formError}
+          pending={saveMutation.isPending}
+          onClose={closeEditor}
+          onSubmit={submit}
+          t={t}
+        >
+          <AutomationFormFields
+            form={form}
+            setForm={setForm}
+            frequencyItems={frequencyItems}
+            taskItems={taskItems}
+            monthItems={monthItems}
+            weekdayItems={weekdayItems}
+            dayItems={dayItems}
+            pinnedTasksLoading={pinnedTasksQuery.isLoading}
+            modelPreference={modelPreferenceQuery.data ?? null}
+            modelPreferenceLoading={
+              modelPreferenceQuery.isLoading || modelPreferenceQuery.isFetching
+            }
             t={t}
-          >
-            <AutomationFormFields
-              form={form}
-              setForm={setForm}
-              frequencyItems={frequencyItems}
-              taskItems={taskItems}
-              monthItems={monthItems}
-              weekdayItems={weekdayItems}
-              dayItems={dayItems}
-              pinnedTasksLoading={pinnedTasksQuery.isLoading}
-              modelPreference={modelPreferenceQuery.data ?? null}
-              modelPreferenceLoading={
-                modelPreferenceQuery.isLoading ||
-                modelPreferenceQuery.isFetching
-              }
-              t={t}
-            />
-          </AutomationEditorPane>
-        ) : undefined
-      }
-    >
+          />
+        </AutomationEditorPane>
+      )}
       <PageLayout
+        variant="workspace"
         title={t("automation.title")}
         description={t("automation.description")}
         actions={
@@ -507,9 +516,10 @@ export function AutomationPage() {
           {pageError && (
             <StatusBanner variant="error">{pageError}</StatusBanner>
           )}
-          {automationsQuery.isLoading && <LoadingState />}
+          {automationsQuery.isLoading && <LoadingState variant="workspace" />}
           {automationsQuery.isError && (
             <ErrorState
+              variant="workspace"
               message={getErrorMessage(automationsQuery.error, t)}
               onRetry={() => void automationsQuery.refetch()}
             />
@@ -542,208 +552,250 @@ export function AutomationPage() {
                       })}
                     />
                   ) : (
-                    <div className="flex flex-col" role="list">
-                      {automationsByFilter[value].map((automation, index) => {
-                        const isActive = automation.status === "active"
-                        const nextRun =
-                          isActive && automation.next_run_at
-                            ? formatRelativeDate(
-                                automation.next_run_at,
-                                language
-                              )
-                            : null
-                        const lastRunFailure =
-                          automation.last_run_status === "failed"
-                            ? t(
-                                automation.last_error_code ===
-                                  "AUTOMATION_EMPTY_RESULT"
-                                  ? "automation.lastRunEmptyResult"
-                                  : "automation.lastRunFailed"
-                              )
-                            : null
+                    <Table
+                      aria-label={t("automation.title")}
+                      className="min-w-200 table-fixed"
+                    >
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[31%] px-3">
+                            {t("automation.name")}
+                          </TableHead>
+                          <TableHead className="w-[18%] px-3">
+                            {t("automation.repeat")}
+                          </TableHead>
+                          <TableHead className="w-[21%] px-3">
+                            {t("automation.nextRun")}
+                          </TableHead>
+                          <TableHead className="w-[13%] px-3">
+                            {t("common.status")}
+                          </TableHead>
+                          <TableHead className="w-44 px-3">
+                            {t("common.actions")}
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {automationsByFilter[value].map((automation) => {
+                          const isActive = automation.status === "active"
+                          const nextRun =
+                            isActive && automation.next_run_at
+                              ? formatRelativeDate(
+                                  automation.next_run_at,
+                                  language
+                                )
+                              : null
+                          const lastRunFailure =
+                            automation.last_run_status === "failed"
+                              ? t(
+                                  automation.last_error_code ===
+                                    "AUTOMATION_EMPTY_RESULT"
+                                    ? "automation.lastRunEmptyResult"
+                                    : "automation.lastRunFailed"
+                                )
+                              : null
 
-                        return (
-                          <article key={automation.id} role="listitem">
-                            {automation.monitoring &&
-                              (automation.monitoring.max_runs ||
-                                automation.monitoring.stop_condition ||
-                                automation.monitoring.context_mode ===
-                                  "fresh_task") && (
-                                <p className="px-1 pt-2 text-xs text-muted-foreground">
-                                  {t("monitoring.count", {
-                                    count:
-                                      automation.monitoring.automatic_run_count,
-                                  })}
-                                  {automation.monitoring.stop_reason && (
-                                    <>
-                                      {" "}
-                                      ·{" "}
-                                      {t(
-                                        `monitoring.${automation.monitoring.stop_reason}`
-                                      )}
-                                    </>
-                                  )}
-                                </p>
-                              )}
-                            <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-1 py-3 sm:px-0">
-                              <Tooltip>
-                                <TooltipTrigger
-                                  render={
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon-sm"
-                                      className="rounded-full"
-                                      disabled={statusMutation.isPending}
-                                      aria-label={t(
-                                        isActive
-                                          ? "automation.pauseNamed"
-                                          : "automation.resumeNamed",
-                                        { name: automation.title }
-                                      )}
-                                      onClick={() =>
-                                        statusMutation.mutate(automation)
-                                      }
-                                    />
-                                  }
+                          return (
+                            <TableRow
+                              key={automation.id}
+                              className="[&>td]:after:h-px last:[&>td]:after:block"
+                            >
+                              <TableCell className="h-16 px-3 py-3 whitespace-normal">
+                                <h2
+                                  className="truncate text-sm font-medium"
+                                  title={automation.title}
                                 >
-                                  <span
-                                    className={cn(
-                                      "flex size-4 items-center justify-center rounded-full border",
-                                      isActive
-                                        ? "border-foreground/55"
-                                        : "border-muted-foreground/30"
-                                    )}
-                                    aria-hidden="true"
-                                  >
-                                    {isActive && (
-                                      <span className="size-1 rounded-full bg-foreground/55" />
-                                    )}
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  {t(
-                                    isActive
-                                      ? "automation.pause"
-                                      : "automation.resume"
-                                  )}
-                                </TooltipContent>
-                              </Tooltip>
-
-                              <div className="min-w-0">
-                                <h2 className="truncate text-sm font-medium">
                                   {automation.title}
                                 </h2>
-                                <span className="sr-only">
-                                  {t(`automation.status.${automation.status}`)}
-                                </span>
-                                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
-                                  <span>
-                                    {formatSchedule(automation.schedule, t)}
-                                  </span>
-                                  {lastRunFailure && (
-                                    <>
-                                      <span aria-hidden="true">·</span>
-                                      <span className="text-destructive">
-                                        {lastRunFailure}
-                                      </span>
-                                    </>
+                                {lastRunFailure && (
+                                  <p className="mt-1 text-xs text-destructive">
+                                    {lastRunFailure}
+                                  </p>
+                                )}
+                                {automation.monitoring &&
+                                  (automation.monitoring.max_runs ||
+                                    automation.monitoring.stop_condition ||
+                                    automation.monitoring.context_mode ===
+                                      "fresh_task") && (
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                      {t("monitoring.count", {
+                                        count:
+                                          automation.monitoring
+                                            .automatic_run_count,
+                                      })}
+                                      {automation.monitoring.stop_reason && (
+                                        <>
+                                          {" "}
+                                          ·{" "}
+                                          {t(
+                                            `monitoring.${automation.monitoring.stop_reason}`
+                                          )}
+                                        </>
+                                      )}
+                                    </p>
                                   )}
-                                  <span aria-hidden="true">·</span>
-                                  <span
-                                    title={
-                                      nextRun
-                                        ? formatOptionalDate(
-                                            automation.next_run_at,
-                                            language,
-                                            t
-                                          )
-                                        : undefined
+                              </TableCell>
+                              <TableCell className="px-3 py-3 whitespace-normal text-muted-foreground">
+                                {formatSchedule(automation.schedule, t)}
+                              </TableCell>
+                              <TableCell
+                                className="px-3 py-3 whitespace-normal text-muted-foreground"
+                                title={
+                                  nextRun
+                                    ? formatOptionalDate(
+                                        automation.next_run_at,
+                                        language,
+                                        t
+                                      )
+                                    : undefined
+                                }
+                              >
+                                {nextRun
+                                  ? t("automation.nextRunRelative", {
+                                      relative: nextRun,
+                                    })
+                                  : "—"}
+                              </TableCell>
+                              <TableCell className="px-3 py-3">
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className={cn(
+                                          "h-auto px-0 py-1 font-normal hover:bg-transparent",
+                                          isActive
+                                            ? "text-link-foreground"
+                                            : "text-muted-foreground"
+                                        )}
+                                        disabled={statusMutation.isPending}
+                                        aria-label={t(
+                                          isActive
+                                            ? "automation.pauseNamed"
+                                            : "automation.resumeNamed",
+                                          { name: automation.title }
+                                        )}
+                                        onClick={() =>
+                                          statusMutation.mutate(automation)
+                                        }
+                                      />
                                     }
                                   >
-                                    {nextRun
-                                      ? t("automation.nextRunRelative", {
-                                          relative: nextRun,
-                                        })
-                                      : t("automation.status.paused")}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <DropdownMenu>
-                                <DropdownMenuTrigger
-                                  render={
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon-sm"
-                                      aria-label={t(
-                                        "automation.moreActionsNamed",
-                                        {
-                                          name: automation.title,
-                                        }
-                                      )}
-                                    />
-                                  }
-                                >
-                                  <MoreHorizontalIcon aria-hidden="true" />
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent
-                                  align="end"
-                                  className="min-w-44"
-                                >
-                                  <DropdownMenuGroup>
-                                    <DropdownMenuItem
-                                      disabled={runNowMutation.isPending}
-                                      onClick={() =>
+                                    {t(
+                                      `automation.status.${automation.status}`
+                                    )}
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    {t(
+                                      isActive
+                                        ? "automation.pause"
+                                        : "automation.resume"
+                                    )}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TableCell>
+                              <TableCell className="px-3 py-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    disabled={
+                                      isActive
+                                        ? runNowMutation.isPending
+                                        : statusMutation.isPending
+                                    }
+                                    onClick={() => {
+                                      if (isActive) {
                                         runNowMutation.mutate({
                                           automation,
                                           requestId: createRandomUuid(),
                                         })
+                                      } else {
+                                        statusMutation.mutate(automation)
                                       }
-                                    >
-                                      <PlayIcon aria-hidden="true" />
-                                      {t("automation.runNow")}
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
+                                    }}
+                                  >
+                                    {t(
+                                      isActive
+                                        ? "automation.runNow"
+                                        : "automation.resume"
+                                    )}
+                                  </Button>
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger
                                       render={
-                                        <Link
-                                          to={`/conversations/${automation.monitoring?.last_run_conversation_id ?? automation.conversation.id}`}
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon-sm"
+                                          aria-label={t(
+                                            "automation.moreActionsNamed",
+                                            {
+                                              name: automation.title,
+                                            }
+                                          )}
                                         />
                                       }
                                     >
-                                      <ExternalLinkIcon aria-hidden="true" />
-                                      {t("automation.openTask")}
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() => openEdit(automation)}
+                                      <MoreHorizontalIcon aria-hidden="true" />
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent
+                                      align="end"
+                                      className="min-w-44"
                                     >
-                                      <Edit3Icon aria-hidden="true" />
-                                      {t("common.edit")}
-                                    </DropdownMenuItem>
-                                  </DropdownMenuGroup>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuGroup>
-                                    <DropdownMenuItem
-                                      variant="destructive"
-                                      onClick={() =>
-                                        setDeleteTarget(automation)
-                                      }
-                                    >
-                                      <Trash2Icon aria-hidden="true" />
-                                      {t("common.delete")}
-                                    </DropdownMenuItem>
-                                  </DropdownMenuGroup>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                            {index < automationsByFilter[value].length - 1 && (
-                              <Separator />
-                            )}
-                          </article>
-                        )
-                      })}
-                    </div>
+                                      <DropdownMenuGroup>
+                                        <DropdownMenuItem
+                                          disabled={runNowMutation.isPending}
+                                          onClick={() =>
+                                            runNowMutation.mutate({
+                                              automation,
+                                              requestId: createRandomUuid(),
+                                            })
+                                          }
+                                        >
+                                          <PlayIcon aria-hidden="true" />
+                                          {t("automation.runNow")}
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          render={
+                                            <Link
+                                              to={`/conversations/${automation.monitoring?.last_run_conversation_id ?? automation.conversation.id}`}
+                                            />
+                                          }
+                                        >
+                                          <ExternalLinkIcon aria-hidden="true" />
+                                          {t("automation.openTask")}
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onClick={() => openEdit(automation)}
+                                        >
+                                          <Edit3Icon aria-hidden="true" />
+                                          {t("common.edit")}
+                                        </DropdownMenuItem>
+                                      </DropdownMenuGroup>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuGroup>
+                                        <DropdownMenuItem
+                                          variant="destructive"
+                                          onClick={() =>
+                                            setDeleteTarget(automation)
+                                          }
+                                        >
+                                          <Trash2Icon aria-hidden="true" />
+                                          {t("common.delete")}
+                                        </DropdownMenuItem>
+                                      </DropdownMenuGroup>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
                   )}
                 </TabsContent>
               ))}
@@ -751,12 +803,14 @@ export function AutomationPage() {
           )}
 
           <AutomationSuggestions
+            compact={automationsQuery.data?.items.length === 0}
             onSelect={(templateId) => openCreate(templateId)}
             t={t}
           />
         </div>
 
         <ConfirmDialog
+          variant="workspace"
           open={Boolean(deleteTarget)}
           onOpenChange={(open) => !open && setDeleteTarget(null)}
           title={t("automation.deleteTitle")}
@@ -771,76 +825,105 @@ export function AutomationPage() {
           }}
         />
       </PageLayout>
-    </ConversationOfficeLayout>
+    </>
   )
 }
 
 function AutomationSuggestions({
+  compact,
   onSelect,
   t,
 }: {
+  compact: boolean
   onSelect: (templateId: AutomationTemplateId) => void
   t: TFunction
 }) {
   return (
     <section
-      className="mt-8 flex w-full flex-col gap-4"
+      className="@container mt-8 flex w-full flex-col gap-4"
       aria-labelledby="automation-suggestions-title"
     >
       <h2
         id="automation-suggestions-title"
-        className="text-lg font-medium text-heading"
+        className="text-base font-medium text-heading"
       >
         {t("automation.suggestions.title")}
       </h2>
-      <ul className="flex flex-col gap-1">
+      <ul
+        className={
+          compact
+            ? "grid grid-cols-1 gap-3"
+            : "grid grid-cols-1 gap-4 @min-[48rem]:grid-cols-3"
+        }
+      >
         {automationTemplates.map((template) => {
-          const Icon = template.icon
           const title = t(`automation.suggestions.${template.id}.title`)
           const scheduleId = `automation-template-${template.id}-schedule`
           const descriptionId = `automation-template-${template.id}-description`
 
           return (
-            <li key={template.id}>
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-auto w-full items-start justify-start gap-3 rounded-xl px-2 py-3 text-left whitespace-normal hover:bg-accent"
-                aria-label={t("automation.suggestions.useTemplateNamed", {
-                  name: title,
-                })}
-                aria-describedby={`${scheduleId} ${descriptionId}`}
-                onClick={() => onSelect(template.id)}
+            <li
+              key={template.id}
+              className={cn(
+                "flex min-w-0 gap-4 rounded-xl border border-divider bg-card p-4 transition-colors focus-within:border-ring hover:border-input-hover hover:bg-hover",
+                compact
+                  ? "min-h-20 flex-wrap items-center"
+                  : "min-h-40 flex-col gap-2"
+              )}
+            >
+              <div
+                className={cn(
+                  "flex min-w-0 items-center gap-2",
+                  compact && "sm:w-52"
+                )}
               >
                 <span
                   className={cn(
-                    "flex size-6 shrink-0 items-center justify-center rounded-md bg-accent",
+                    "flex size-8 shrink-0 items-center justify-center rounded-md border-2 border-card shadow-automation-template-icon",
                     template.iconClassName
                   )}
                   aria-hidden="true"
                 >
-                  <Icon className="size-4" />
+                  <img
+                    src={template.icon}
+                    alt=""
+                    className="size-4 object-contain"
+                  />
                 </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                    <span className="text-sm font-medium text-heading">
-                      {title}
-                    </span>
-                    <span
-                      id={scheduleId}
-                      className="text-xs font-normal text-muted-foreground"
-                    >
-                      {t(`automation.suggestions.${template.id}.schedule`)}
-                    </span>
-                  </span>
-                  <span
-                    id={descriptionId}
-                    className="text-sm leading-[var(--app-line-22)] font-normal text-muted-foreground"
-                  >
-                    {t(`automation.suggestions.${template.id}.description`)}
-                  </span>
+                <h3 className="min-w-0 text-base leading-6 font-medium text-foreground">
+                  {title}
+                </h3>
+              </div>
+              <p
+                id={descriptionId}
+                className={cn(
+                  "text-sm leading-[var(--app-line-22)] text-muted-foreground",
+                  compact ? "min-w-0 flex-1" : "min-h-11"
+                )}
+              >
+                {t(`automation.suggestions.${template.id}.description`)}
+              </p>
+              <div
+                className={cn(
+                  "flex flex-wrap items-center justify-between gap-2",
+                  compact ? "ml-auto" : "mt-auto"
+                )}
+              >
+                <span id={scheduleId} className="text-xs text-muted-foreground">
+                  {t(`automation.suggestions.${template.id}.schedule`)}
                 </span>
-              </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-label={t("automation.suggestions.useTemplateNamed", {
+                    name: title,
+                  })}
+                  aria-describedby={`${scheduleId} ${descriptionId}`}
+                  onClick={() => onSelect(template.id)}
+                >
+                  {t("automation.suggestions.useTemplate")}
+                </Button>
+              </div>
             </li>
           )
         })}
@@ -869,66 +952,77 @@ function AutomationEditorPane({
   const creating = mode === "create"
 
   return (
-    <aside
-      className="office-preview-pane automation-editor-pane"
-      aria-labelledby="automation-editor-panel-title"
-      data-mode={mode}
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !pending) onClose()
+      }}
     >
-      <header className="flex shrink-0 items-start justify-between gap-4 px-5 py-4">
-        <div className="min-w-0">
-          <h2
-            id="automation-editor-panel-title"
-            className="text-sm font-semibold"
+      <DialogContent
+        variant="workspace"
+        showCloseButton={false}
+        initialFocus={() => document.getElementById("automation-title")}
+        className="automation-editor-pane top-4 right-4 bottom-4 left-auto flex w-[calc(100%-2rem)] max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-160"
+        data-mode={mode}
+      >
+        <header className="flex shrink-0 items-start justify-between gap-4 p-6">
+          <div className="min-w-0">
+            <DialogTitle
+              id="automation-editor-panel-title"
+              className="text-lg leading-[var(--app-line-26)] font-medium"
+            >
+              {t(creating ? "automation.createTitle" : "automation.editTitle")}
+            </DialogTitle>
+            <DialogDescription className="mt-2 text-sm leading-[var(--app-line-22)] text-muted-foreground">
+              {t("automation.editorDescription")}
+            </DialogDescription>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={t("common.close")}
+            onClick={onClose}
+            disabled={pending}
           >
-            {t(creating ? "automation.createTitle" : "automation.editTitle")}
-          </h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("automation.editorDescription")}
-          </p>
+            <XIcon aria-hidden="true" />
+          </Button>
+        </header>
+        <Separator />
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+          {formError && (
+            <StatusBanner variant="error">{formError}</StatusBanner>
+          )}
+          <form
+            id={automationEditorFormId}
+            className="min-w-0"
+            onSubmit={onSubmit}
+          >
+            {children}
+          </form>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={t("common.close")}
-          onClick={onClose}
-          disabled={pending}
-        >
-          <XIcon aria-hidden="true" />
-        </Button>
-      </header>
-      <Separator />
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-        {formError && <StatusBanner variant="error">{formError}</StatusBanner>}
-        <form
-          id={automationEditorFormId}
-          className="min-w-0"
-          onSubmit={onSubmit}
-        >
-          {children}
-        </form>
-      </div>
-      <Separator />
-      <footer className="flex shrink-0 justify-end gap-2 px-5 py-3">
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={onClose}
-          disabled={pending}
-        >
-          {t("common.cancel")}
-        </Button>
-        <Button
-          type="submit"
-          form={automationEditorFormId}
-          disabled={pending}
-          aria-busy={pending || undefined}
-        >
-          {pending && <Spinner data-icon="inline-start" />}
-          {t(creating ? "common.create" : "common.save")}
-        </Button>
-      </footer>
-    </aside>
+        <Separator />
+        <footer className="flex shrink-0 justify-end gap-3 p-6">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onClose}
+            disabled={pending}
+          >
+            {t("common.cancel")}
+          </Button>
+          <Button
+            type="submit"
+            form={automationEditorFormId}
+            disabled={pending}
+            aria-busy={pending || undefined}
+          >
+            {pending && <Spinner data-icon="inline-start" />}
+            {t(creating ? "common.create" : "common.save")}
+          </Button>
+        </footer>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -968,7 +1062,7 @@ function AutomationFormFields({
   }
 
   return (
-    <FieldGroup>
+    <FieldGroup className="gap-5">
       <FieldShell id="automation-title" label={t("automation.name")} required>
         <Input
           id="automation-title"
@@ -989,7 +1083,7 @@ function AutomationFormFields({
         <Textarea
           id="automation-instruction"
           value={form.instruction}
-          className="max-h-80 min-h-28 overflow-y-auto"
+          className="max-h-80 min-h-25 overflow-y-auto p-3"
           required
           onChange={(event) => updateForm("instruction", event.target.value)}
         />
@@ -1059,8 +1153,8 @@ function AutomationFormFields({
         </FieldShell>
       )}
 
-      <fieldset className="flex flex-col gap-4 rounded-md border p-4">
-        <legend className="px-1 text-sm font-medium">
+      <fieldset className="flex min-w-0 flex-col gap-5">
+        <legend className="mb-3 text-base leading-6 font-medium">
           {t("monitoring.title")}
         </legend>
         <FieldShell
@@ -1120,8 +1214,8 @@ function AutomationFormFields({
         value={form.notificationTarget}
         onChange={(value) => updateForm("notificationTarget", value)}
       />
-      <div className="rounded-[min(var(--radius-4xl),24px)] border border-[color:var(--app-border)] p-4">
-        <FieldGroup className="gap-4">
+      <div className="min-w-0">
+        <FieldGroup className="gap-5">
           <FieldShell
             id="automation-frequency"
             label={t("automation.repeat")}

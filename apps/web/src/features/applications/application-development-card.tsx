@@ -140,6 +140,7 @@ export function ApplicationDevelopmentCard({
           }}
         >
           <DialogContent
+            variant="workspace"
             finalFocus={() => detailsTarget.trigger}
             closeLabel={t("common.close")}
             className="flex max-h-[calc(100dvh-2rem)] flex-col"
@@ -178,6 +179,7 @@ export function ApplicationDevelopmentCard({
         />
       )}
       <ConfirmDialog
+        variant="workspace"
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title={t("applicationDevelopment.catalog.deleteDraft")}

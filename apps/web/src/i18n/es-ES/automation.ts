@@ -16,6 +16,7 @@ export const automationMessages = {
     emptyDescription:
       "Crea una automatización para iniciar ejecuciones programadas en una tarea fija.",
     suggestions: {
+      useTemplate: "Usar plantilla",
       title: "Sugerencias",
       useTemplateNamed: "Usar la plantilla {{name}}",
       dailyBrief: {

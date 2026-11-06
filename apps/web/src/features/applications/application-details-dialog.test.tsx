@@ -161,19 +161,26 @@ describe("application details dialog", () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  it("uses plain two-column metadata and resource groups with one section divider", async () => {
+  it("uses Figma property rows and continuous resource rows while preserving all four groups", async () => {
     await i18n.changeLanguage("zh-CN")
     vi.mocked(apiRequest).mockResolvedValue(details)
     show()
     const info = await screen.findByRole("region", { name: "基本信息" })
-    expect(screen.getByRole("dialog")).toHaveClass("sm:max-w-2xl", "gap-5")
+    expect(screen.getByRole("dialog")).toHaveAttribute(
+      "data-variant",
+      "workspace"
+    )
+    expect(screen.getByRole("dialog")).toHaveClass("sm:max-w-150", "gap-6")
     expect(screen.getByRole("heading", { name: details.name })).toHaveClass(
-      "text-base",
+      "text-lg",
       "text-pretty"
     )
     const metadata = within(info).getByText("创建者").closest("dl")
-    expect(metadata).toHaveClass("grid-cols-1", "sm:grid-cols-2")
-    expect(within(info).getByText("创建者")).toHaveClass("text-xs")
+    expect(metadata).toHaveClass("flex", "flex-col", "gap-3")
+    expect(within(info).getByText("创建者")).toHaveClass("text-sm")
+    expect(within(info).getByText("创建者").parentElement).toHaveClass(
+      "sm:grid-cols-[9rem_minmax(0,1fr)]"
+    )
     expect(within(info).getByText("Creator")).toHaveClass("text-sm")
     for (const className of ["bg-muted/50", "rounded-xl", "p-4"]) {
       expect(metadata).not.toHaveClass(className)
@@ -187,6 +194,7 @@ describe("application details dialog", () => {
     for (const item of within(resources).getAllByRole("listitem")) {
       expect(item).not.toHaveClass("border")
       expect(item).not.toHaveClass("rounded-xl")
+      expect(item).toHaveClass("min-h-22", "border-b", "p-4")
     }
     expect(
       resources.querySelector('[data-slot="badge"]')

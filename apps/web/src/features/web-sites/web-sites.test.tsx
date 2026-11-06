@@ -106,9 +106,11 @@ describe("website management", () => {
       const cards = screen.getAllByRole("listitem")
       expect(cards).toHaveLength(2)
       for (const card of cards) {
+        expect(card.querySelector(".lucide-globe")).toBeNull()
         expect(card.querySelector('[data-slot="card"]')).toHaveClass(
-          "rounded-card",
-          "border-[color:var(--app-border)]"
+          "rounded-none",
+          "border-b",
+          "border-divider"
         )
       }
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
@@ -270,9 +272,8 @@ describe("website management", () => {
       />
     )
     expect(screen.getByRole("dialog", { name: "发布为站点" })).toHaveClass(
-      "max-w-lg",
-      "sm:max-w-lg",
-      "w-[calc(100vw_-_2rem)]"
+      "sm:max-w-150",
+      "max-w-[calc(100%-2rem)]"
     )
     expect(screen.getByRole("button", { name: "发布站点" })).toBeEnabled()
     expect(
@@ -320,13 +321,22 @@ describe("website management", () => {
       "http://localhost/web/shanhai"
     )
   })
-  it("provides a localized close control while keeping the hero decoration out of the accessible content", async () => {
+  it("uses the Figma form shell without a hero and preserves the localized editing controls", async () => {
     await i18n.changeLanguage("en-US")
     const close = vi.fn()
     const view = mount(
       <SiteDialog action={{ kind: "edit", site }} onClose={close} />
     )
-    expect(screen.getByRole("dialog", { name: "Edit site" })).toBeVisible()
+    const dialog = screen.getByRole("dialog", { name: "Edit site" })
+    expect(dialog).toBeVisible()
+    expect(dialog).toHaveClass("sm:max-w-150")
+    expect(dialog.querySelector('[data-slot="dialog-header"]')).toHaveClass(
+      "items-start",
+      "text-left"
+    )
+    expect(dialog.querySelector('[data-slot="dialog-footer"]')).toHaveClass(
+      "sm:justify-end"
+    )
     for (const key of ["webSites.name", "webSites.slug"]) {
       const input = screen.getByRole("textbox", { name: i18n.t(key) })
       expect(
@@ -339,7 +349,10 @@ describe("website management", () => {
       view.container.ownerDocument.querySelector(
         '[data-slot="site-dialog-hero"]'
       )
-    ).toHaveAttribute("aria-hidden", "true")
+    ).toBeNull()
+    expect(screen.getByRole("button", { name: "Save" })).not.toHaveClass(
+      "rounded-full"
+    )
     await userEvent.click(screen.getByRole("button", { name: "Close" }))
     expect(close).toHaveBeenCalledOnce()
   })

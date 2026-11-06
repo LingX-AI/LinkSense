@@ -708,7 +708,7 @@ describe("conversation knowledge base snapshots", () => {
       expect(shareButton).toBeVisible()
       expect(
         shareButton.querySelector("[data-design-icon='share']")
-      ).toHaveClass("size-5")
+      ).toHaveClass("size-4")
       await waitFor(() => expect(client.isFetching()).toBe(0))
       if (hidden) {
         expect(

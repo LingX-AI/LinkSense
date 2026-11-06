@@ -4,6 +4,11 @@ import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
   downloadKnowledgeDocument,
   loadKnowledgeCitationOriginal,
   loadKnowledgeDocumentPreview,
@@ -78,22 +83,28 @@ export function KnowledgeDownloadButton({
   knowledgeBaseId,
   document,
   variant = "outline",
+  iconOnly = false,
   documentVersionId,
   onDownloadErrorChange,
 }: {
   knowledgeBaseId: string
   document: KnowledgeDocument
   variant?: "outline" | "secondary" | "ghost"
+  iconOnly?: boolean
   documentVersionId?: string
   onDownloadErrorChange: (message: string | null) => void
 }) {
   const { t } = useTranslation()
   const [downloading, setDownloading] = useState(false)
 
-  return (
+  const button = (
     <Button
       type="button"
       variant={variant}
+      size={iconOnly ? "icon-lg" : "default"}
+      aria-label={
+        iconOnly ? t("knowledge.preview.downloadOriginal") : undefined
+      }
       disabled={downloading}
       onClick={() => {
         setDownloading(true)
@@ -113,8 +124,17 @@ export function KnowledgeDownloadButton({
       ) : (
         <DownloadIcon data-icon="inline-start" aria-hidden="true" />
       )}
-      {t("knowledge.preview.downloadOriginal")}
+      {!iconOnly && t("knowledge.preview.downloadOriginal")}
     </Button>
+  )
+
+  return iconOnly ? (
+    <Tooltip>
+      <TooltipTrigger render={button} />
+      <TooltipContent>{t("knowledge.preview.downloadOriginal")}</TooltipContent>
+    </Tooltip>
+  ) : (
+    button
   )
 }
 

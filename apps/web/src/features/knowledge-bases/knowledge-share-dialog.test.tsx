@@ -211,7 +211,7 @@ describe("knowledge share dialog", () => {
     expect(groupToggle).toHaveAttribute("data-slot", "tabs-trigger")
     expect(userToggle).toHaveAttribute("aria-selected", "true")
     expect(userToggle).toHaveAttribute("data-active")
-    expect(targetTypeSelector).toHaveAttribute("data-variant", "segmented")
+    expect(targetTypeSelector).toHaveAttribute("data-variant", "pills")
     expect(userToggle).toHaveClass("data-active:text-foreground")
     expect(groupToggle).toHaveAttribute("aria-selected", "false")
     expect(groupToggle).not.toHaveAttribute("data-active")

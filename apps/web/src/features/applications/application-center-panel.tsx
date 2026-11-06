@@ -114,6 +114,7 @@ export function ApplicationsWorkspacePanel(
       >
         {organizationSharingEnabled && (
           <TabsList
+            variant="catalog"
             aria-label={t("applications.scopeLabel")}
             className="justify-start"
           >

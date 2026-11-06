@@ -30,6 +30,7 @@ const masks = {
   share: "mask-[url(./assets/figma/icons/share.svg)]",
   overview: "mask-[url(./assets/figma/icons/overview.svg)]",
   close: "mask-[url(./assets/figma/icons/close.svg)]",
+  "status-error": "mask-[url(./assets/figma/icons/status-error.svg)]",
   "sort-priority":
     "mask-[url(./assets/figma/icons/sort-priority.svg)] [mask-position:64.2857%_center] [mask-size:78.125%_84.375%]",
   "sort-updated":

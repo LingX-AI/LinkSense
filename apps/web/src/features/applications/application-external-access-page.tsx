@@ -83,7 +83,7 @@ function SettingsSection({
 }) {
   return (
     <section aria-labelledby={id} className="flex flex-col gap-3">
-      <h2 id={id} className="font-heading text-sm font-medium">
+      <h2 id={id} className="font-heading text-base leading-6 font-medium">
         {title}
       </h2>
       {children}
@@ -358,7 +358,7 @@ function ApplicationExternalAccessSettings({
 
   return (
     <>
-      <div className="flex w-full max-w-6xl flex-col gap-8 pb-8">
+      <div className="flex w-full max-w-6xl flex-col gap-5 pb-8">
         {access.isLoading ? (
           <LoadingState />
         ) : access.isError ? (
@@ -372,8 +372,8 @@ function ApplicationExternalAccessSettings({
               id="external-access-settings"
               title={t("applications.externalAccess.accessSettingsSection")}
             >
-              <Card className="gap-0 py-0">
-                <CardHeader className="border-b py-5">
+              <Card className="gap-5 rounded-none border-0 bg-transparent p-0 shadow-none">
+                <CardHeader className="gap-2 p-0">
                   <CardTitle>
                     {t("applications.externalAccess.enabled")}
                   </CardTitle>
@@ -391,7 +391,7 @@ function ApplicationExternalAccessSettings({
                 </CardHeader>
                 <CardContent className="px-0">
                   <FieldGroup className="gap-0">
-                    <Field orientation="responsive" className="px-5 py-5">
+                    <Field orientation="responsive" className="gap-4">
                       <FieldContent>
                         <FieldTitle>
                           {t(
@@ -437,8 +437,8 @@ function ApplicationExternalAccessSettings({
               id="external-origin-settings"
               title={t("applications.externalAccess.originSettingsSection")}
             >
-              <Card className="gap-0 py-0">
-                <CardHeader className="border-b py-5">
+              <Card className="gap-2 rounded-none border-0 bg-transparent p-0 shadow-none">
+                <CardHeader className="gap-2 p-0">
                   <CardTitle className="flex items-center gap-1">
                     {t("applications.externalAccess.allowedOrigins")}
                     <span aria-hidden="true" className="text-destructive">
@@ -449,7 +449,7 @@ function ApplicationExternalAccessSettings({
                     {t("applications.externalAccess.allowedOriginsDescription")}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="py-5">
+                <CardContent className="p-0">
                   <Field
                     data-invalid={!originInputValid && originsText.length > 0}
                   >
@@ -464,7 +464,7 @@ function ApplicationExternalAccessSettings({
                       required
                       value={originsText}
                       aria-invalid={!originInputValid && originsText.length > 0}
-                      className="min-h-32 border-transparent bg-field text-sm leading-6 focus-visible:bg-field"
+                      className="min-h-25 text-sm leading-[var(--app-line-22)]"
                       placeholder={t(
                         "applications.externalAccess.allowedOriginsPlaceholder"
                       )}
@@ -479,8 +479,8 @@ function ApplicationExternalAccessSettings({
               id="external-starter-question-settings"
               title={t("applications.externalAccess.starterQuestionsSection")}
             >
-              <Card className="gap-0 py-0">
-                <CardHeader className="border-b py-5">
+              <Card className="gap-2 rounded-none border-0 bg-transparent p-0 shadow-none">
+                <CardHeader className="gap-2 p-0">
                   <CardTitle>
                     {t("applications.externalAccess.starterQuestions")}
                   </CardTitle>
@@ -490,7 +490,7 @@ function ApplicationExternalAccessSettings({
                     )}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="py-5">
+                <CardContent className="p-0">
                   {activeStarterQuestionOriginValue ? (
                     uniqueOrigins.length > 1 ? (
                       <Tabs
@@ -568,8 +568,8 @@ function ApplicationExternalAccessSettings({
                   "applications.externalAccess.credentialSettingsSection"
                 )}
               >
-                <Card className="gap-0 py-0">
-                  <CardContent className="py-5">
+                <Card className="gap-0 rounded-none border-0 bg-transparent p-0 shadow-none">
+                  <CardContent className="p-0">
                     <FieldGroup className="gap-5">
                       <ReadonlyCopyField
                         label={t("applications.externalAccess.appId")}
@@ -717,6 +717,7 @@ function ApplicationExternalAccessSettings({
         )}
       </div>
       <ConfirmDialog
+        variant="workspace"
         open={pendingSecurityAction !== null}
         onOpenChange={(open) => {
           if (!open) setPendingSecurityAction(null)

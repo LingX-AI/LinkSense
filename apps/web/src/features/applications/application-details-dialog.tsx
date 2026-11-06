@@ -103,11 +103,12 @@ export function ApplicationDetailsDialog({
       }}
     >
       <DialogContent
-        className="flex max-h-[calc(100dvh-2rem)] flex-col gap-5 sm:max-w-2xl"
+        variant="workspace"
+        className="flex flex-col"
         closeLabel={t("common.close")}
         finalFocus={() => target.trigger}
       >
-        <DialogHeader className="shrink-0 pr-8">
+        <DialogHeader className="shrink-0 pr-12">
           <DialogTitle className="sr-only">
             {t("applications.details.title")}
           </DialogTitle>
@@ -115,12 +116,12 @@ export function ApplicationDetailsDialog({
             {details && (
               <ApplicationIconDisplay
                 icon={details.icon}
-                className="size-11 shrink-0"
+                className="size-10 shrink-0"
               />
             )}
             <div className="flex min-w-0 flex-col gap-1">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <h3 className="min-w-0 text-base leading-6 font-medium text-pretty wrap-anywhere">
+                <h3 className="min-w-0 text-lg leading-[var(--app-line-26)] font-medium text-pretty wrap-anywhere">
                   {details?.name ?? target.name}
                 </h3>
                 {details && (
@@ -213,11 +214,16 @@ function ApplicationDetailsContent({
         <DialogDescription className="text-sm leading-6 wrap-anywhere whitespace-pre-wrap">
           {details.description || t("applications.noDescription")}
         </DialogDescription>
-        <dl className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+        <dl className="flex flex-col gap-3">
           {fields.map((field) => (
-            <div key={field.label} className="flex min-w-0 flex-col gap-1">
-              <dt className="text-xs text-muted-foreground">{field.label}</dt>
-              <dd className="text-sm leading-5 wrap-anywhere tabular-nums">
+            <div
+              key={field.label}
+              className="grid min-w-0 gap-x-4 gap-y-1 sm:grid-cols-[9rem_minmax(0,1fr)]"
+            >
+              <dt className="text-sm leading-[var(--app-line-22)] text-muted-foreground">
+                {field.label}
+              </dt>
+              <dd className="text-sm leading-[var(--app-line-22)] wrap-anywhere tabular-nums">
                 {field.value}
               </dd>
             </div>
@@ -229,7 +235,7 @@ function ApplicationDetailsContent({
         aria-label={t("applications.details.resources")}
         className="flex flex-col gap-3"
       >
-        <h3 className="text-sm font-medium text-pretty">
+        <h3 className="text-base leading-6 font-medium text-pretty">
           {t("applications.details.resources")}
         </h3>
         {details.resources.length === 0 ? (
@@ -239,7 +245,7 @@ function ApplicationDetailsContent({
             </EmptyDescription>
           </Empty>
         ) : (
-          <div className="grid gap-x-8 gap-y-6 sm:grid-cols-2">
+          <div className="flex flex-col gap-5">
             {resourceTypes.map((type) => {
               const resources = details.resources.filter(
                 (item) => item.type === type
@@ -257,7 +263,7 @@ function ApplicationDetailsContent({
                     })}
                   </h4>
                   {resources.length ? (
-                    <ul className="flex flex-col gap-3">
+                    <ul className="flex flex-col">
                       {resources.map((resource) => (
                         <ApplicationResourceRow
                           key={resource.id}
@@ -292,7 +298,7 @@ function ApplicationResourceRow({
     `applications.details.resourceStatus.${resource.status}`
   )
   return (
-    <li className="flex min-w-0 items-start justify-between gap-3">
+    <li className="flex min-h-22 min-w-0 items-center justify-between gap-4 border-b border-divider p-4">
       <div className="flex min-w-0 flex-col gap-1">
         <span className="text-sm wrap-anywhere">
           {resource.configured_name ??

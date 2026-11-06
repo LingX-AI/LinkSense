@@ -1,8 +1,13 @@
 import { cleanup, render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import userEvent from "@testing-library/user-event"
 
 import { Button } from "@/components/ui/button"
-import { EmptyState, LoadingState } from "@/components/feedback/page-state"
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "@/components/feedback/page-state"
 import i18n from "@/i18n"
 
 beforeEach(async () => {
@@ -127,9 +132,7 @@ describe("EmptyState", () => {
   it("falls back to a default icon and description when none is given", () => {
     const { container } = render(<EmptyState title="暂无数据" />)
 
-    expect(
-      container.querySelector("[data-slot='empty-icon']")
-    ).not.toBeNull()
+    expect(container.querySelector("[data-slot='empty-icon']")).not.toBeNull()
     expect(screen.getByText("有内容后会显示在这里。")).toBeVisible()
   })
 
@@ -151,5 +154,36 @@ describe("EmptyState", () => {
 
     expect(screen.getByText(expected)).toBeVisible()
     expect(screen.queryByText(title)).not.toBeInTheDocument()
+  })
+})
+
+describe("workspace page states", () => {
+  it("centers an error and retries without changing the message", async () => {
+    const retry = vi.fn()
+    render(
+      <ErrorState
+        variant="workspace"
+        message="Connection unavailable"
+        onRetry={retry}
+      />
+    )
+    expect(screen.getByRole("alert")).toHaveClass("min-h-95", "gap-4")
+    expect(screen.getByText("Connection unavailable")).toHaveClass(
+      "text-base",
+      "text-center"
+    )
+    expect(screen.getByRole("button", { name: "重试" })).toHaveClass("min-w-22")
+    await userEvent.click(screen.getByRole("button", { name: "重试" }))
+    expect(retry).toHaveBeenCalledOnce()
+  })
+
+  it("uses hidden skeletons while announcing only the actual loading state", () => {
+    render(<LoadingState variant="workspace" label="Loading connectors" />)
+    const status = screen.getByRole("status")
+    expect(status).toHaveClass("min-h-95")
+    expect(status).toHaveAttribute("aria-busy", "true")
+    expect(status.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(6)
+    expect(screen.getAllByText("Loading connectors")).toHaveLength(1)
+    expect(status).not.toHaveTextContent("%")
   })
 })

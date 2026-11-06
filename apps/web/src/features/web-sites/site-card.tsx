@@ -1,19 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import type { WebSite } from "@linksense/shared"
-import { CheckIcon, CopyIcon, GlobeIcon } from "lucide-react"
+import { CheckIcon, CopyIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Link } from "react-router-dom"
 import { notify } from "@/components/feedback/notification"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-} from "@/components/ui/card"
+import { Card, CardDescription } from "@/components/ui/card"
 import { cardSpotlightProps } from "@/components/ui/card-spotlight"
 import { copyConversationShareUrl } from "@/features/conversations/conversation-share-contracts"
 import { normalizeLanguage } from "@/i18n"
@@ -35,51 +28,39 @@ export function SiteCard({
     <Card
       {...cardSpotlightProps}
       size="sm"
-      className={cn(cardSpotlightProps.className, "min-w-0")}
+      className={cn(
+        cardSpotlightProps.className,
+        "min-h-16 min-w-0 flex-row flex-wrap items-center gap-3 rounded-none border-0 border-b border-divider bg-transparent p-3 shadow-none hover:bg-hover"
+      )}
     >
-      <CardHeader className="gap-x-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="hidden shrink-0 rounded-lg bg-[var(--app-selection)]/8 p-2.5 sm:block">
-            <GlobeIcon
-              className="size-4 text-[var(--app-selection)]"
-              aria-hidden="true"
-            />
-          </div>
-          <div className="flex min-w-0 flex-col gap-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h2 className="min-w-0 font-medium [overflow-wrap:anywhere]">
-                {site.name}
-              </h2>
-              <Badge
-                variant={site.status === "published" ? "secondary" : "outline"}
-              >
-                {t(`webSites.status.${site.status}`)}
-              </Badge>
-            </div>
-            {site.description && (
-              <CardDescription className="line-clamp-2 [overflow-wrap:anywhere]">
-                {site.description}
-              </CardDescription>
-            )}
-          </div>
-        </div>
-        <CardAction className="flex items-center gap-1">{actions}</CardAction>
-      </CardHeader>
-      <CardContent className="min-w-0">
-        <SiteLink key={url} url={url} name={site.name} />
-      </CardContent>
-      <CardFooter className="min-w-0 flex-col items-start justify-between gap-2 border-t text-xs text-muted-foreground sm:flex-row sm:items-center sm:gap-4">
-        {site.conversation_id ? (
-          <Link
-            className="max-w-full min-w-0 truncate underline-offset-4 hover:underline"
-            to={`/conversations/${site.conversation_id}`}
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h2 className="min-w-0 font-medium [overflow-wrap:anywhere]">
+            {site.name}
+          </h2>
+          <Badge
+            variant={site.status === "published" ? "secondary" : "outline"}
           >
-            {t("webSites.sourceTask", { title: site.source_task_title })}
-          </Link>
-        ) : (
-          <span>{t("webSites.sourceDeleted")}</span>
+            {t(`webSites.status.${site.status}`)}
+          </Badge>
+        </div>
+        {site.description && (
+          <CardDescription className="line-clamp-2 text-sm leading-[var(--app-line-22)] [overflow-wrap:anywhere]">
+            {site.description}
+          </CardDescription>
         )}
-        <div className="flex max-w-full min-w-0 flex-wrap gap-x-4 gap-y-1 sm:justify-end">
+        <SiteLink key={url} url={url} name={site.name} />
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs leading-[var(--app-line-18)] text-muted-foreground">
+          {site.conversation_id ? (
+            <Link
+              className="max-w-full min-w-0 truncate underline-offset-4 hover:underline"
+              to={`/conversations/${site.conversation_id}`}
+            >
+              {t("webSites.sourceTask", { title: site.source_task_title })}
+            </Link>
+          ) : (
+            <span>{t("webSites.sourceDeleted")}</span>
+          )}
           <span>
             {t("webSites.publishedAt", {
               date: formatDateTime(site.published_at, language),
@@ -92,7 +73,8 @@ export function SiteCard({
             })}
           </span>
         </div>
-      </CardFooter>
+      </div>
+      <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div>
     </Card>
   )
 }

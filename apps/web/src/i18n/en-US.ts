@@ -251,6 +251,7 @@ export const enUS = {
       "Create an automation to start a new run in a fixed task on schedule.",
     suggestions: {
       title: "Suggestions",
+      useTemplate: "Use template",
       useTemplateNamed: "Use the {{name}} template",
       dailyBrief: {
         title: "Daily brief",
@@ -3410,6 +3411,7 @@ export const enUS = {
     submitForReview: "Submit for review",
     submitted: "The release snapshot was submitted for administrator review.",
     submittedAt: "Submitted {{date}}",
+    reviewedAt: "Reviewed {{date}}",
     reviewPolicyNotice:
       "Every new release is reviewed again. Approved releases never auto-update existing installations.",
     publicationsEmpty:

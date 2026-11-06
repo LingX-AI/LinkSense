@@ -456,15 +456,17 @@ export function McpManagementPage() {
 
   return (
     <PageLayout
+      variant="workspace"
       title={t("mcp.title")}
       description={t("mcp.description")}
       actions={<Button onClick={openCreate}>{t("mcp.add")}</Button>}
     >
       {error && <StatusBanner variant="error">{error}</StatusBanner>}
       {notice && <StatusBanner variant="success">{notice}</StatusBanner>}
-      {serversQuery.isLoading && <LoadingState />}
+      {serversQuery.isLoading && <LoadingState variant="workspace" />}
       {serversQuery.isError && (
         <ErrorState
+          variant="workspace"
           message={getErrorMessage(serversQuery.error, t)}
           onRetry={() => void serversQuery.refetch()}
         />
@@ -598,8 +600,9 @@ export function McpManagementPage() {
         }}
       >
         <DialogContent
+          variant="workspace"
           closeLabel={t("common.close")}
-          className="min-w-0 overflow-x-hidden sm:max-w-2xl"
+          className="flex min-w-0 flex-col"
         >
           <DialogHeader>
             <DialogTitle>
@@ -608,9 +611,7 @@ export function McpManagementPage() {
             <DialogDescription>{t("mcp.editorDescription")}</DialogDescription>
           </DialogHeader>
           <form
-            className={dialogBodyStyles(
-              "flex max-h-[70vh] min-w-0 flex-col gap-5 overflow-x-hidden"
-            )}
+            className={dialogBodyStyles("flex min-w-0 flex-col gap-5")}
             onSubmit={(event: FormEvent) => {
               event.preventDefault()
               if (canSave) saveMutation.mutate()
@@ -886,6 +887,7 @@ export function McpManagementPage() {
       </Dialog>
 
       <ConfirmDialog
+        variant="workspace"
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
         title={t("mcp.deleteTitle")}

@@ -360,15 +360,17 @@ describe("official connector catalog", () => {
     expect(screen.queryByText("读写访问")).not.toBeInTheDocument()
     expect(screen.queryByText("已连接")).not.toBeInTheDocument()
     const oneDriveTitle = screen.getByText("OneDrive")
-    const oneDriveTitleRow = oneDriveTitle.closest(
-      '[data-slot="card-header"]'
-    )?.firstElementChild
+    const oneDriveHeader = oneDriveTitle.closest('[data-slot="card-header"]')
     const connectedCheck = screen.getByRole("img", { name: "已连接" })
-    expect(oneDriveTitleRow).toHaveClass("justify-between")
+    expect(connectedCheck.parentElement).toHaveClass(
+      "flex",
+      "items-center",
+      "gap-1"
+    )
     const menuTrigger = screen.getByRole("button", {
       name: i18n.t("common.moreActionsNamed", { name: "OneDrive" }),
     })
-    expect(oneDriveTitleRow?.lastElementChild).toContainElement(connectedCheck)
+    expect(oneDriveHeader?.nextElementSibling).toContainElement(connectedCheck)
     expect(connectedCheck.nextElementSibling).toBe(menuTrigger)
     expect(menuTrigger).toHaveClass("relative", "z-10")
     expect(oneDriveTitle.parentElement).not.toContainElement(connectedCheck)
@@ -391,13 +393,13 @@ describe("official connector catalog", () => {
     expect(
       screen
         .getByText("OneDrive")
-        .closest('[data-slot="card-title"]')
+        .closest('[data-slot="card-header"]')
         ?.querySelector("img")
     ).toHaveAttribute("src", oneDriveLogo)
     expect(
       screen
         .getByText("SharePoint")
-        .closest('[data-slot="card-title"]')
+        .closest('[data-slot="card-header"]')
         ?.querySelector("img")
     ).toHaveAttribute("src", sharePointLogo)
     expect(decodeURIComponent(oneDriveLogo)).toContain("#0364b8")
@@ -652,8 +654,18 @@ describe("official connector catalog", () => {
         )
       )
       mount()
+      const row = await screen.findByRole("article", { name: "OneDrive" })
+      if (configured) {
+        expect(
+          within(row).getByText(i18n.t("connections.reconnect_required"))
+        ).toBeVisible()
+      } else {
+        expect(
+          within(row).getByText(i18n.t("connections.notConfigured"))
+        ).toBeVisible()
+      }
       await userEvent.click(
-        await screen.findByRole("button", {
+        within(row).getByRole("button", {
           name: i18n.t("common.moreActionsNamed", { name: "OneDrive" }),
         })
       )

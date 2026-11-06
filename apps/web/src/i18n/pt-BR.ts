@@ -472,6 +472,7 @@ export const ptBR = {
     emptyDescription:
       "Crie uma automação para iniciar uma nova execução em uma tarefa fixa nos horários agendados.",
     suggestions: {
+      useTemplate: "Usar modelo",
       title: "Sugestões",
       useTemplateNamed: "Usar o modelo {{name}}",
       dailyBrief: {
@@ -3710,6 +3711,7 @@ export const ptBR = {
     submitForReview: "Enviar para revisão",
     submitted: "A versão foi enviada para revisão do administrador.",
     submittedAt: "Enviado em {{date}}",
+    reviewedAt: "Revisado em {{date}}",
     reviewPolicyNotice:
       "Cada nova versão é revisada novamente. Versões aprovadas nunca atualizam automaticamente as instalações existentes.",
     publicationsEmpty:

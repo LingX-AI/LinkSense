@@ -94,14 +94,15 @@ export function ConnectionCatalogPanel() {
           </Alert>
         )}
         {query.isPending ? (
-          <LoadingState />
+          <LoadingState variant="workspace" />
         ) : query.isError ? (
           <ErrorState
+            variant="workspace"
             message={getErrorMessage(query.error, t)}
             onRetry={() => void query.refetch()}
           />
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="flex min-w-0 flex-col">
             {query.data.items.map((connection) => {
               const title = t(`connections.${connection.provider}`)
               const isUpgrade =
@@ -111,12 +112,12 @@ export function ConnectionCatalogPanel() {
                   key={connection.provider}
                   role="article"
                   aria-label={title}
-                  className="relative min-w-0 transition-colors hover:border-foreground/20"
+                  className="relative min-h-16 min-w-0 flex-row flex-wrap items-center gap-x-3 gap-y-2 rounded-none border-0 bg-transparent p-3 shadow-[inset_0_-1px_0_var(--app-divider)] transition-colors hover:bg-hover"
                 >
-                  <CardHeader className="@container-normal">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <CardTitle className="flex items-center gap-2">
-                        <ConnectionIcon provider={connection.provider} />
+                  <CardHeader className="@container-normal flex min-w-0 flex-1 flex-row items-center gap-3 p-0">
+                    <ConnectionIcon provider={connection.provider} />
+                    <div className="min-w-0 flex-1">
+                      <CardTitle className="min-w-0 text-sm leading-[var(--app-line-22)] font-medium">
                         <Button
                           type="button"
                           variant="ghost"
@@ -124,7 +125,7 @@ export function ConnectionCatalogPanel() {
                             name: title,
                           })}
                           aria-haspopup="dialog"
-                          className="static h-auto min-w-0 cursor-pointer justify-start rounded-none p-0 text-[length:inherit] text-inherit after:absolute after:inset-0 after:rounded-card hover:bg-transparent focus-visible:border-transparent focus-visible:ring-0 focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+                          className="static h-auto min-w-0 cursor-pointer justify-start rounded-none border-0 p-0 text-[length:inherit] text-inherit after:absolute after:inset-0 after:rounded-card hover:bg-transparent focus-visible:border-transparent focus-visible:ring-0 focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
                           onClick={(event) =>
                             setDetailsTarget({
                               provider: connection.provider,
@@ -135,42 +136,48 @@ export function ConnectionCatalogPanel() {
                           <span>{title}</span>
                         </Button>
                       </CardTitle>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {connection.configured &&
-                        connection.status === "connected" ? (
-                          <Badge
-                            className="capability-status-badge capability-status-badge-active capability-status-badge-icon-only [&>svg]:size-4!"
-                            role="img"
-                            aria-label={t("connections.connected")}
-                          >
-                            <CheckIcon aria-hidden="true" />
-                          </Badge>
-                        ) : !connection.configured ? (
-                          <Badge variant="secondary">
-                            {t("connections.notConfigured")}
-                          </Badge>
-                        ) : null}
-                        {connection.status !== "disconnected" && (
-                          <ConnectionActions
-                            presentation="menu"
-                            connection={connection}
-                            pending={pending}
-                            authorizationPending={authorize.isPending}
-                            authorizingProvider={authorize.provider}
-                            onAuthorize={authorize.start}
-                            onUnbind={requestUnbind}
-                          />
-                        )}
-                      </div>
+                      <CardDescription className="text-xs leading-[var(--app-line-18)]">
+                        {t(`connections.${connection.provider}Description`)}
+                      </CardDescription>
                     </div>
-                    <CardDescription>
-                      {t(`connections.${connection.provider}Description`)}
-                    </CardDescription>
                   </CardHeader>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {connection.configured &&
+                    connection.status === "connected" ? (
+                      <Badge
+                        className="capability-status-badge capability-status-badge-active capability-status-badge-icon-only [&>svg]:size-4!"
+                        role="img"
+                        aria-label={t("connections.connected")}
+                      >
+                        <CheckIcon aria-hidden="true" />
+                      </Badge>
+                    ) : !connection.configured ? (
+                      <Badge variant="secondary">
+                        {t("connections.notConfigured")}
+                      </Badge>
+                    ) : null}
+                    {connection.configured &&
+                      connection.status === "reconnect_required" && (
+                        <span className="text-sm leading-[var(--app-line-22)] text-muted-foreground">
+                          {t("connections.reconnect_required")}
+                        </span>
+                      )}
+                    {connection.status !== "disconnected" && (
+                      <ConnectionActions
+                        presentation="menu"
+                        connection={connection}
+                        pending={pending}
+                        authorizationPending={authorize.isPending}
+                        authorizingProvider={authorize.provider}
+                        onAuthorize={authorize.start}
+                        onUnbind={requestUnbind}
+                      />
+                    )}
+                  </div>
                   {(connection.account_name ||
                     isUpgrade ||
                     !connection.configured) && (
-                    <CardContent className="flex flex-col gap-4">
+                    <CardContent className="flex min-w-0 flex-col gap-1 p-0">
                       {connection.account_name && (
                         <p
                           className="truncate text-sm"
@@ -192,7 +199,7 @@ export function ConnectionCatalogPanel() {
                     </CardContent>
                   )}
                   {connection.status === "disconnected" && (
-                    <CardFooter className="pointer-events-none relative z-10 mt-auto flex flex-wrap justify-end gap-2">
+                    <CardFooter className="pointer-events-none relative z-10 ml-auto flex flex-wrap justify-end gap-2 p-0">
                       <ConnectionActions
                         connection={connection}
                         pending={pending}
@@ -229,6 +236,7 @@ export function ConnectionCatalogPanel() {
         />
       )}
       <ConfirmDialog
+        variant="workspace"
         open={disconnectTarget !== null}
         onOpenChange={(open) => {
           if (!open) setDisconnectTarget(null)

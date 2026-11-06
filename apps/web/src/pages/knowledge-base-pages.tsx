@@ -1,14 +1,13 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
+import { createPortal } from "react-dom"
 import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArchiveIcon,
   ArrowLeftIcon,
   BookOpenIcon,
-  CheckIcon,
   ChevronRightIcon,
   CircleAlertIcon,
-  CloudCogIcon,
   FileIcon,
   FileCogIcon,
   FolderIcon,
@@ -205,6 +204,9 @@ export function KnowledgeBaseListPage() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [previewFile, setPreviewFile] = useState<TaskArtifact>()
+  const [headerActions, setHeaderActions] = useState<HTMLDivElement | null>(
+    null
+  )
   const requestedTab = searchParams.get("tab")
   const activeTab =
     requestedTab === "artifacts" || requestedTab === "sites"
@@ -239,7 +241,7 @@ export function KnowledgeBaseListPage() {
         <PageTopBar title={t("nav.knowledgeBases")} />
         <div className="management-scroll">
           <div className="knowledge-library-page">
-            <header className="knowledge-library-header pb-5" role="banner">
+            <header className="knowledge-library-header pb-6" role="banner">
               <div>
                 <h1>
                   {t(
@@ -250,7 +252,7 @@ export function KnowledgeBaseListPage() {
                         : "library.artifacts.title"
                   )}
                 </h1>
-                <p>
+                <p className="mt-2 text-sm leading-[var(--app-line-22)] text-muted-foreground">
                   {t(
                     activeTab === "knowledge"
                       ? "knowledge.description"
@@ -260,9 +262,19 @@ export function KnowledgeBaseListPage() {
                   )}
                 </p>
               </div>
+              {activeTab === "knowledge" && (
+                <div
+                  ref={setHeaderActions}
+                  className="flex w-full shrink-0 items-center sm:w-auto sm:pt-1 [&>button]:w-full sm:[&>button]:w-auto"
+                />
+              )}
             </header>
-            <div className="mb-6">
-              {" "}
+            <div
+              className={cn(
+                "flex",
+                activeTab === "knowledge" ? "mb-4" : "mb-6"
+              )}
+            >
               <TabsList variant="pills" aria-label={t("library.tabsLabel")}>
                 <TabsTrigger value="knowledge">
                   {t("library.tabs.knowledge")}
@@ -275,7 +287,7 @@ export function KnowledgeBaseListPage() {
             </div>
             <TabsContent value="knowledge">
               {activeTab === "knowledge" ? (
-                <KnowledgeBaseLibraryContent />
+                <KnowledgeBaseLibraryContent headerActions={headerActions} />
               ) : null}
             </TabsContent>
             <TabsContent value="sites">
@@ -293,7 +305,11 @@ export function KnowledgeBaseListPage() {
   )
 }
 
-function KnowledgeBaseLibraryContent() {
+function KnowledgeBaseLibraryContent({
+  headerActions,
+}: {
+  headerActions: HTMLDivElement | null
+}) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -358,6 +374,7 @@ function KnowledgeBaseLibraryContent() {
   const content =
     !searchCapability.data && searchCapability.isError ? (
       <ErrorState
+        variant="workspace"
         message={getErrorMessage(searchCapability.error, t)}
         onRetry={() => void searchCapability.refetch()}
       />
@@ -379,6 +396,18 @@ function KnowledgeBaseLibraryContent() {
 
   return (
     <>
+      {headerActions &&
+        createPortal(
+          <Button
+            type="button"
+            disabled={!creationReady}
+            onClick={() => setCreateOpen(true)}
+          >
+            <PlusIcon data-icon="inline-start" aria-hidden="true" />
+            {t("knowledge.create.action")}
+          </Button>,
+          headerActions
+        )}
       <section aria-label={t("knowledge.title")}>
         <KnowledgeCreationReadinessBanner
           capability={creationCapability.capability}
@@ -443,14 +472,6 @@ function KnowledgeBaseLibraryContent() {
               </SelectContent>
             </Select>
           </div>
-          <Button
-            type="button"
-            disabled={!creationReady}
-            onClick={() => setCreateOpen(true)}
-          >
-            <PlusIcon data-icon="inline-start" aria-hidden="true" />
-            {t("knowledge.create.action")}
-          </Button>
         </div>
 
         {content}
@@ -488,18 +509,29 @@ function KnowledgeBaseListContent({
   onLoadMore: () => void
 }) {
   const { t } = useTranslation()
-  if (loading) return <LoadingState />
+  if (loading) return <LoadingState variant="workspace" />
   if (error) {
-    return <ErrorState message={getErrorMessage(error, t)} onRetry={onRetry} />
+    return (
+      <ErrorState
+        variant="workspace"
+        message={getErrorMessage(error, t)}
+        onRetry={onRetry}
+      />
+    )
   }
   if (items.length === 0) {
     return <EmptyState title={t("knowledge.empty")} />
   }
   return (
-    <section
-      className="knowledge-card-list rounded-card"
-      aria-label={t("knowledge.title")}
-    >
+    <section className="knowledge-card-list" aria-label={t("knowledge.title")}>
+      <div
+        aria-hidden="true"
+        className="hidden h-10 items-center gap-4 bg-background px-4 text-xs leading-[var(--app-line-18)] text-muted-foreground sm:flex"
+      >
+        <span className="min-w-0 flex-1">{t("knowledge.title")}</span>
+        <span className="w-30 shrink-0">{t("common.status")}</span>
+        <span className="w-9 shrink-0" />
+      </div>
       {items.map((knowledgeBase) => (
         <KnowledgeBaseCard
           key={knowledgeBase.id}
@@ -544,7 +576,6 @@ function KnowledgeBaseCard({
     >
       <Card size="sm" className="knowledge-card rounded-none border-0">
         <CardContent className="knowledge-card-row">
-          <KnowledgeBaseCardIcon />
           <div className="knowledge-card-main">
             <div className="knowledge-card-heading">
               <CardTitle
@@ -554,14 +585,6 @@ function KnowledgeBaseCard({
                 <span className="truncate">{knowledgeBase.name}</span>
               </CardTitle>
               <div className="knowledge-card-badges">
-                {knowledgeBase.lifecycle_status === "archived" && (
-                  <Badge variant="outline">
-                    {t("knowledge.lifecycle.archived")}
-                  </Badge>
-                )}
-                {unavailable && (
-                  <Badge variant="destructive">{t("knowledge.disabled")}</Badge>
-                )}
                 {!knowledgeBase.is_owner && (
                   <Badge variant="secondary">
                     {getKnowledgeBaseAccessLabel(knowledgeBase, t)}
@@ -617,6 +640,19 @@ function KnowledgeBaseCard({
               </time>
             </div>
           </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-1 text-sm leading-[var(--app-line-22)] font-medium text-muted-foreground">
+            {knowledgeBase.lifecycle_status === "archived" && (
+              <Badge variant="outline">
+                {t("knowledge.lifecycle.archived")}
+              </Badge>
+            )}
+            {unavailable && (
+              <Badge variant="destructive">{t("knowledge.disabled")}</Badge>
+            )}
+            {!unavailable && knowledgeBase.lifecycle_status !== "archived" && (
+              <span>{t("knowledge.lifecycle.current")}</span>
+            )}
+          </div>
           <ChevronRightIcon
             className="knowledge-card-chevron"
             aria-hidden="true"
@@ -624,18 +660,6 @@ function KnowledgeBaseCard({
         </CardContent>
       </Card>
     </NavLink>
-  )
-}
-
-function KnowledgeBaseCardIcon() {
-  return (
-    <span
-      className="knowledge-card-icon"
-      data-slot="knowledge-base-icon"
-      aria-hidden="true"
-    >
-      <BookOpenIcon />
-    </span>
   )
 }
 
@@ -718,14 +742,12 @@ function CreateKnowledgeBaseDialog({
       value: "local" as const,
       label: t("knowledge.create.sourceLocal"),
       description: t("knowledge.create.sourceLocalDescription"),
-      icon: UploadIcon,
       disabled: false,
     },
     {
       value: "sharepoint" as const,
       label: t("knowledge.create.sourceSharePoint"),
       description: t("knowledge.create.sourceSharePointDescription"),
-      icon: CloudCogIcon,
       disabled: !sourceSettings.data?.enabled,
     },
   ]
@@ -737,7 +759,7 @@ function CreateKnowledgeBaseDialog({
         if (!nextOpen) setError(undefined)
       }}
     >
-      <DialogContent closeLabel={t("common.close")} className="sm:max-w-xl">
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         <DialogHeader>
           <DialogTitle>{t("knowledge.create.title")}</DialogTitle>
           <DialogDescription>
@@ -769,46 +791,25 @@ function CreateKnowledgeBaseDialog({
                     setSourceType(value)
                   }
                 }}
-                variant="outline"
                 aria-label={t("knowledge.create.sourceType")}
-                className="grid w-full auto-rows-fr grid-cols-1 items-stretch gap-3 sm:grid-cols-2"
+                className="flex flex-wrap justify-start gap-2"
               >
-                {sourceTypeItems.map((item) => {
-                  const SourceIcon = item.icon
-                  return (
-                    <ToggleGroupItem
-                      key={item.value}
-                      value={item.value}
-                      disabled={item.disabled}
-                      className="group/source relative h-auto min-h-24 w-full items-start justify-start gap-3 rounded-card border-input bg-card p-4 text-left whitespace-normal shadow-none transition-[border-color,background-color] hover:border-foreground/20 hover:bg-hover disabled:bg-muted/20 data-pressed:border-foreground/30 data-pressed:bg-muted/60"
-                    >
-                      <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-muted/50 text-muted-foreground transition-colors group-data-[pressed]/source:border-foreground/15 group-data-[pressed]/source:bg-background group-data-[pressed]/source:text-foreground">
-                        <SourceIcon className="size-4" aria-hidden="true" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium text-foreground">
-                            {item.label}
-                          </span>
-                          {item.disabled && sourceSettings.data && (
-                            <Badge variant="secondary">
-                              {t("knowledge.create.sourceUnavailable")}
-                            </Badge>
-                          )}
-                        </span>
-                        <span className="mt-1 block text-xs leading-5 font-normal text-muted-foreground">
-                          {item.description}
-                        </span>
-                      </span>
-                      <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-border bg-background text-background transition-colors group-data-[pressed]/source:border-foreground group-data-[pressed]/source:bg-foreground">
-                        <CheckIcon
-                          className="size-3 opacity-0 transition-opacity group-data-[pressed]/source:opacity-100"
-                          aria-hidden="true"
-                        />
-                      </span>
-                    </ToggleGroupItem>
-                  )
-                })}
+                {sourceTypeItems.map((item) => (
+                  <ToggleGroupItem
+                    key={item.value}
+                    value={item.value}
+                    disabled={item.disabled}
+                    title={item.description}
+                    className="h-auto min-h-9 flex-wrap gap-2 rounded-lg px-3 py-1.5 text-sm font-medium whitespace-normal data-pressed:bg-accent data-pressed:text-primary"
+                  >
+                    <span>{item.label}</span>
+                    {item.disabled && sourceSettings.data && (
+                      <Badge variant="secondary">
+                        {t("knowledge.create.sourceUnavailable")}
+                      </Badge>
+                    )}
+                  </ToggleGroupItem>
+                ))}
               </ToggleGroup>
             </FieldShell>
           )}
@@ -868,6 +869,7 @@ function CreateKnowledgeBaseDialog({
           >
             <Textarea
               id="knowledge-base-description"
+              className="min-h-25 p-3"
               value={description}
               maxLength={4000}
               onChange={(event) => setDescription(event.currentTarget.value)}
@@ -944,7 +946,7 @@ function EditKnowledgeBaseDialog({
         }
       }}
     >
-      <DialogContent closeLabel={t("common.close")}>
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         <DialogHeader>
           <DialogTitle>{t("knowledge.edit.title")}</DialogTitle>
           <DialogDescription>
@@ -975,6 +977,7 @@ function EditKnowledgeBaseDialog({
           >
             <Textarea
               id="knowledge-base-edit-description"
+              className="min-h-25 p-3"
               value={description}
               maxLength={4000}
               onChange={(event) => setDescription(event.currentTarget.value)}
@@ -1533,6 +1536,7 @@ function KnowledgeBaseDetailContent({
         />
       )}
       <ConfirmDialog
+        variant="workspace"
         open={Boolean(confirmAction)}
         onOpenChange={(open) => {
           if (!open) setConfirmAction(undefined)
@@ -1559,7 +1563,7 @@ function KnowledgeBaseDetailContent({
           if (!open) setDeletionBlock(undefined)
         }}
       >
-        <DialogContent closeLabel={t("common.close")} className="sm:max-w-lg">
+        <DialogContent variant="workspace" closeLabel={t("common.close")}>
           <DialogHeader>
             <DialogTitle>{t("knowledge.deleteBlocked.title")}</DialogTitle>
             <DialogDescription>
@@ -1589,7 +1593,7 @@ function KnowledgeBaseDetailContent({
                   {deletionBlock.usages.map((usage) => (
                     <li
                       key={`${usage.type}:${usage.resource_id}`}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-divider px-3 py-2"
+                      className="flex min-h-22 items-center justify-between gap-4 border-b border-divider p-4"
                     >
                       <span className="min-w-0 truncate font-medium">
                         {usage.name}
@@ -1788,18 +1792,18 @@ function KnowledgeBaseHeaderMetadata({
         )}
       </div>
       <Dialog open={accessDetailsOpen} onOpenChange={setAccessDetailsOpen}>
-        <DialogContent closeLabel={t("common.close")}>
+        <DialogContent variant="workspace" closeLabel={t("common.close")}>
           <DialogHeader>
             <DialogTitle>{t("knowledge.access.detailsTitle")}</DialogTitle>
             <DialogDescription>
               {t("knowledge.access.detailsDescription")}
             </DialogDescription>
           </DialogHeader>
-          <ul className="flex flex-col gap-2">
+          <ul className="flex flex-col">
             {knowledgeBase.access_sources.map((source, index) => (
               <li
                 key={`${source.type}-${source.id ?? source.name ?? index}`}
-                className="flex items-center gap-2 rounded-lg border p-3"
+                className="flex min-h-22 flex-wrap items-center gap-4 border-b border-divider p-4"
               >
                 <Badge variant="secondary">
                   {source.type === "owner"
@@ -1948,7 +1952,7 @@ function KnowledgeDocumentSection({
       {!query.isError && displayEntries.length > 0 && (
         <div className="flex flex-col gap-3">
           <div className="knowledge-document-table">
-            <Table>
+            <Table className="md:[&_td]:h-15 md:[&_td]:p-3 md:[&_td]:after:h-px [&_th]:h-11 [&_th]:px-3 md:[&_tr:last-child>td]:after:block">
               <TableHeader>
                 <TableRow>
                   {canManage && (
@@ -2605,7 +2609,7 @@ function RenameKnowledgeDocumentDialog({
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent closeLabel={t("common.close")}>
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         <DialogHeader>
           <DialogTitle>{t("knowledge.document.renameTitle")}</DialogTitle>
           <DialogDescription>
@@ -2768,17 +2772,26 @@ export function KnowledgeDocumentPreviewPage() {
     <div className="management-scroll">
       <div className="knowledge-preview-page">
         <header className="knowledge-preview-header">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={t("knowledge.preview.backToKnowledgeBase")}
-            onClick={() =>
-              navigate(`/knowledge-bases/${knowledgeBase.data.id}`)
-            }
-          >
-            <ArrowLeftIcon aria-hidden="true" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-lg"
+                  aria-label={t("knowledge.preview.backToKnowledgeBase")}
+                  onClick={() =>
+                    navigate(`/knowledge-bases/${knowledgeBase.data.id}`)
+                  }
+                >
+                  <ArrowLeftIcon className="size-5" aria-hidden="true" />
+                </Button>
+              }
+            />
+            <TooltipContent>
+              {t("knowledge.preview.backToKnowledgeBase")}
+            </TooltipContent>
+          </Tooltip>
           <FileTypeIcon
             className="size-6"
             filename={document.display_name}
@@ -2799,6 +2812,7 @@ export function KnowledgeDocumentPreviewPage() {
             document={document}
             documentVersionId={requestedDocumentVersionId}
             variant="ghost"
+            iconOnly
             onDownloadErrorChange={handleDownloadErrorChange}
           />
         </header>
