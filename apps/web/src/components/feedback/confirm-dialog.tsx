@@ -14,6 +14,7 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 
 type ConfirmDialogProps = {
+  variant?: "default" | "workspace"
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
@@ -27,6 +28,7 @@ type ConfirmDialogProps = {
 }
 
 export function ConfirmDialog({
+  variant,
   open,
   onOpenChange,
   title,
@@ -46,7 +48,11 @@ export function ConfirmDialog({
         if (!pending) onOpenChange(nextOpen)
       }}
     >
-      <DialogContent closeLabel={t("common.close")} showCloseButton={!pending}>
+      <DialogContent
+        variant={variant}
+        closeLabel={t("common.close")}
+        showCloseButton={!pending}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>

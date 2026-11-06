@@ -220,6 +220,7 @@ export const marketplaceMessages = {
     submitted:
       "La copia de la versión se ha enviado para revisión del administrador.",
     submittedAt: "Enviada el {{date}}",
+    reviewedAt: "Revisada el {{date}}",
     reviewPolicyNotice:
       "Cada nueva versión se revisa de nuevo. Las versiones aprobadas nunca actualizan automáticamente las instalaciones existentes.",
     publicationsEmpty:

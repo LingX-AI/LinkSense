@@ -219,6 +219,7 @@ export const pluginResources = {
     submitted:
       "L’instantané de la version a été soumis à la révision d’un administrateur.",
     submittedAt: "Soumis le {{date}}",
+    reviewedAt: "Examiné le {{date}}",
     reviewPolicyNotice:
       "Chaque nouvelle version est réexaminée. Les versions approuvées ne mettent jamais automatiquement à jour les installations existantes.",
     publicationsEmpty:

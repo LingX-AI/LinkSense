@@ -120,6 +120,11 @@
   --color-application-create-accent: var(--app-selection);
   --color-application-icon-iris: color-mix(in oklab, #8270db 12%, var(--card));
   --color-application-icon-sage: color-mix(in oklab, #6da885 12%, var(--card));
+  --color-automation-template-brief: var(--automation-template-brief);
+  --color-automation-template-review: var(--automation-template-review);
+  --color-automation-template-monitor: var(--automation-template-monitor);
+  --shadow-automation-template-icon: 0 2px 3px rgb(27 39 69 / 14%);
+  --shadow-segmented-active: 0 1px 3px rgb(41 31 61 / 4%);
   --color-application-icon-sand: color-mix(in oklab, #c59b59 14%, var(--card));
   --color-application-icon-rose: color-mix(in oklab, #ce8590 12%, var(--card));
   /* Fixed illustration palette for the maintenance announcement banner. */
@@ -188,6 +193,9 @@
   --muted-foreground: #626e86;
   --accent: #e9f1ff;
   --accent-foreground: #1c2238;
+  --automation-template-brief: #e8f4ff;
+  --automation-template-review: #eedcff;
+  --automation-template-monitor: #d7faf1;
   --destructive: #d92d3a;
   --destructive-hover: #c62532;
   --destructive-text: #c52736;
@@ -265,6 +273,7 @@
   --app-line-18: max(17px, calc(18px + var(--app-ui-font-delta)));
   --app-line-19: max(18px, calc(19px + var(--app-ui-font-delta)));
   --app-line-20: max(19px, calc(20px + var(--app-ui-font-delta)));
+  --app-line-26: calc(26px + var(--app-ui-font-delta));
   --app-line-22: calc(22px + var(--app-ui-font-delta));
   --app-line-24: calc(24px + var(--app-ui-font-delta));
   --app-line-28: calc(28px + var(--app-ui-font-delta));
@@ -407,6 +416,9 @@
   --muted-foreground: #adb6c8;
   --accent: #293347;
   --accent-foreground: #d8d8d8;
+  --automation-template-brief: var(--accent);
+  --automation-template-review: #382b45;
+  --automation-template-monitor: #183a33;
   --destructive: #f1a4ae;
   --destructive-hover: #d9949d;
   --destructive-text: var(--destructive);
@@ -8321,7 +8333,7 @@ button.annotation-hover-file:focus-visible {
 }
 
 .capability-center-installed-grid {
-  row-gap: 4px;
+  row-gap: 0;
   margin-top: 12px;
 }
 
@@ -8488,12 +8500,12 @@ button.annotation-hover-file:focus-visible {
   position: relative;
   display: flex;
   min-width: 0;
-  min-height: 96px;
+  min-height: 88px;
   align-items: center;
   gap: 16px;
   border-bottom: 1px solid var(--app-divider);
   border-radius: 0;
-  padding: 20px 16px;
+  padding: 16px;
   transition: background-color 160ms ease;
 }
 
@@ -8541,7 +8553,7 @@ button.annotation-hover-file:focus-visible {
   flex: none;
   place-items: center;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--app-divider) 80%, transparent);
+  border: 0;
   border-radius: 10px;
   background: transparent;
   color: var(--app-muted);
@@ -8558,8 +8570,8 @@ button.annotation-hover-file:focus-visible {
 .capability-library-row
   .capability-logo
   img[data-default-capability-icon="skill"] {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
 }
 
 .capability-library-logo svg,
@@ -8609,10 +8621,10 @@ button.annotation-hover-file:focus-visible {
 
 .capability-library-description {
   overflow: hidden;
-  margin-top: 2px;
+  margin-top: 4px;
   color: var(--app-muted);
-  font-size: var(--app-font-13);
-  line-height: var(--app-line-20);
+  font-size: var(--app-ui-font-size);
+  line-height: var(--app-line-22);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -10073,7 +10085,10 @@ button.annotation-hover-file:focus-visible {
 .health-summary {
   display: grid;
   width: 100%;
-  grid-template-columns: repeat(var(--health-summary-columns, 4), minmax(0, 1fr));
+  grid-template-columns: repeat(
+    var(--health-summary-columns, 4),
+    minmax(0, 1fr)
+  );
   gap: 8px;
 }
 
@@ -10701,7 +10716,6 @@ button.annotation-hover-file:focus-visible {
   line-height: var(--app-ui-compact-line-height);
 }
 
-.knowledge-library-header p,
 .knowledge-preview-header p,
 .knowledge-section-heading p {
   max-width: 70ch;
@@ -10734,27 +10748,23 @@ button.annotation-hover-file:focus-visible {
 }
 
 .knowledge-library-filter {
-  width: 136px;
+  width: 280px;
 }
 
 .knowledge-card-list {
   display: flex;
   overflow: hidden;
   flex-direction: column;
-  margin-top: 20px;
+  margin-top: 24px;
   background: transparent;
 }
 
 .knowledge-card-link {
   display: block;
   min-width: 0;
-  border-bottom: 1px solid var(--app-divider);
+  box-shadow: inset 0 -1px 0 var(--app-divider);
   color: inherit;
   text-decoration: none;
-}
-
-.knowledge-card-link:last-of-type {
-  border-bottom: 0;
 }
 
 .knowledge-card-link:focus-visible {
@@ -10781,17 +10791,17 @@ button.annotation-hover-file:focus-visible {
 .knowledge-card-row {
   display: grid;
   min-width: 0;
-  grid-template-columns: 24px minmax(0, 1fr) 20px;
+  grid-template-columns: minmax(0, 1fr) 120px 36px;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   min-height: 88px;
-  padding: 20px 16px;
+  padding: 16px;
 }
 
 .knowledge-card-main {
   display: grid;
   min-width: 0;
-  gap: 2px;
+  gap: 6px;
 }
 
 .knowledge-card-heading {
@@ -10806,22 +10816,6 @@ button.annotation-hover-file:focus-visible {
   flex: 0 1 auto;
   font-size: var(--app-font-16);
   line-height: var(--app-line-24);
-}
-
-.knowledge-card-icon {
-  display: inline-flex;
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  color: var(--app-text);
-}
-
-.knowledge-card-icon svg {
-  width: 18px;
-  height: 18px;
-  stroke-width: 2.1;
 }
 
 .knowledge-card-badges {
@@ -10868,6 +10862,7 @@ button.annotation-hover-file:focus-visible {
 }
 
 .knowledge-card-chevron {
+  justify-self: center;
   width: 16px;
   height: 16px;
   color: var(--app-muted);
@@ -10949,9 +10944,7 @@ button.annotation-hover-file:focus-visible {
 }
 
 .knowledge-document-table {
-  overflow: hidden;
-  border: 1px solid var(--app-divider);
-  border-radius: var(--app-card-radius);
+  min-width: 0;
   background: var(--card);
 }
 
@@ -11229,7 +11222,7 @@ button.annotation-hover-file:focus-visible {
 
 .knowledge-upload-dialog,
 .knowledge-share-dialog {
-  max-height: min(90vh, 840px);
+  max-height: min(90dvh, 840px);
   overflow-y: auto;
 }
 
@@ -11245,7 +11238,7 @@ button.annotation-hover-file:focus-visible {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
 .knowledge-upload-items,
@@ -11261,10 +11254,10 @@ button.annotation-hover-file:focus-visible {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 10px;
-  border-radius: var(--radius-lg);
-  background: var(--app-hover-subtle);
-  padding: 10px 12px;
+  gap: 16px;
+  min-height: 88px;
+  border-bottom: 1px solid var(--app-divider);
+  padding: 16px;
 }
 
 .knowledge-upload-item {
@@ -11443,7 +11436,7 @@ button.annotation-hover-file:focus-visible {
 }
 
 .knowledge-markdown {
-  width: min(100%, 860px);
+  width: min(100%, 840px);
   margin-inline: auto;
   overflow-wrap: anywhere;
 }
@@ -12022,14 +12015,9 @@ button.annotation-hover-file:focus-visible {
   }
 
   .knowledge-card-row {
-    grid-template-columns: 24px minmax(0, 1fr) 16px;
+    grid-template-columns: minmax(0, 1fr) auto 16px;
     gap: 10px;
     padding-inline: 12px;
-  }
-
-  .knowledge-card-icon {
-    width: 24px;
-    height: 24px;
   }
 
   .knowledge-card-description {

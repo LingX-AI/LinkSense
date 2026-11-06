@@ -238,6 +238,7 @@ export const zhCN = {
     emptyDescription: "创建自动化后，系统会按周期在固定任务中发起新一轮执行。",
     suggestions: {
       title: "建议",
+      useTemplate: "使用模板",
       useTemplateNamed: "使用“{{name}}”模板",
       dailyBrief: {
         title: "每日简报",
@@ -3157,6 +3158,7 @@ export const zhCN = {
     submitForReview: "提交审核",
     submitted: "发布快照已提交管理员审核。",
     submittedAt: "提交于 {{date}}",
+    reviewedAt: "审核于 {{date}}",
     reviewPolicyNotice:
       "每一个新发布都必须重新审核；审核通过后不会自动更新已有安装。",
     publicationsEmpty: "你还没有提交任何应用、插件或技能。",

@@ -470,6 +470,7 @@ export const jaJP = {
     emptyDescription:
       "自動化を作成すると、指定したタスクで予定に沿って新しい実行を開始できます。",
     suggestions: {
+      useTemplate: "テンプレートを使用",
       title: "おすすめ",
       useTemplateNamed: "「{{name}}」テンプレートを使用",
       dailyBrief: {
@@ -3648,6 +3649,7 @@ export const jaJP = {
     submitForReview: "審査を申請",
     submitted: "リリーススナップショットの審査を管理者に申請しました。",
     submittedAt: "申請日：{{date}}",
+    reviewedAt: "審査日：{{date}}",
     reviewPolicyNotice:
       "新しいリリースは毎回審査されます。承認済みリリースが既存のインストールを自動更新することはありません。",
     publicationsEmpty:

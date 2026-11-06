@@ -35,7 +35,7 @@ function TabsList({
   variant = "segmented",
   ...props
 }: TabsPrimitive.List.Props & {
-  variant?: "segmented" | "navigation" | "pills"
+  variant?: "segmented" | "catalog" | "navigation" | "pills"
 }) {
   const reducedMotion = useReducedMotion()
   const [initialBackground] = useState<
@@ -71,6 +71,8 @@ function TabsList({
       data-variant={variant}
       className={cn(
         tabsListVariants(),
+        variant === "catalog" &&
+          "rounded-lg [&_[data-slot=tabs-trigger]]:min-h-8 [&_[data-slot=tabs-trigger]]:rounded-md [&_[data-slot=tabs-trigger]]:py-1 [&_[data-slot=tabs-trigger]]:leading-[var(--app-line-22)] [&_[data-slot=tabs-trigger]:focus-visible]:border-ring! [&_[data-slot=tabs-trigger]:focus-visible]:ring-0 [&_[data-slot=tabs-trigger]:focus-visible]:outline-none",
         variant === "pills" &&
           "gap-2 rounded-none bg-transparent p-0 group-data-horizontal/tabs:min-h-9 [&_[data-active]]:text-link-foreground [&_[data-slot=tabs-trigger]]:min-h-9 [&_[data-slot=tabs-trigger]]:font-normal",
         variant === "navigation" &&
@@ -100,6 +102,8 @@ function TabsList({
                   aria-hidden="true"
                   className={cn(
                     "pointer-events-none absolute top-0 left-0 z-0 rounded-lg bg-background shadow-sm",
+                    variant === "catalog" &&
+                      "rounded-md bg-card shadow-segmented-active",
                     variant === "pills" && "bg-accent shadow-none",
                     variant === "navigation" &&
                       "rounded-none bg-primary shadow-none"

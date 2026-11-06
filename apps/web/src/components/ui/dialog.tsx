@@ -41,6 +41,7 @@ function DialogOverlay({
 // from ./dialog-layout on the body only (not on nested scrollable controls).
 function DialogContent({
   className,
+  variant = "default",
   children,
   showCloseButton = true,
   closeLabel = "Close",
@@ -48,6 +49,7 @@ function DialogContent({
   portalContainer,
   ...props
 }: DialogPrimitive.Popup.Props & {
+  variant?: "default" | "workspace"
   showCloseButton?: boolean
   closeLabel?: string
   overlayClassName?: string
@@ -58,8 +60,11 @@ function DialogContent({
       <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
+        data-variant={variant}
         className={cn(
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overscroll-contain rounded-2xl border border-border bg-popover p-6 text-sm text-popover-foreground shadow-[var(--app-dialog-shadow)] duration-100 outline-none motion-reduce:animate-none sm:max-w-[30rem] data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          variant === "workspace" &&
+            "max-h-[calc(100dvh-2rem)] overflow-y-auto border-0 ring-1 ring-border ring-inset sm:max-w-150 [&_[data-slot=dialog-description]]:leading-[var(--app-line-22)] [&_[data-slot=dialog-footer]]:gap-3 [&_[data-slot=dialog-header]]:gap-2 [&_[data-slot=dialog-title]]:text-lg [&_[data-slot=dialog-title]]:leading-[var(--app-line-26)] [&_[data-slot=dialog-title]]:font-medium [&_[data-slot=dialog-title]:not(.sr-only)]:min-h-9 [&_[data-slot=dialog-title]:not(.sr-only)]:content-center [&_[data-slot=dialog-title]:not(.sr-only)]:pr-12 [&_[data-slot=field-group]]:gap-5 [&_[data-slot=field-label]]:leading-[var(--app-line-22)] [&_[data-slot=field][data-orientation=vertical]]:gap-2 [&>button[data-slot=dialog-close]]:top-6 [&>button[data-slot=dialog-close]]:right-6 [&>button[data-slot=dialog-close]]:size-9",
           className
         )}
         {...props}

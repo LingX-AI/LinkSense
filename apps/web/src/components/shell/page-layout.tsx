@@ -11,6 +11,7 @@ export function PageLayout({
   beforeHeader,
   afterHeader,
   className,
+  variant = "default",
   navigationTitle,
   navigationActions,
   children,
@@ -22,6 +23,7 @@ export function PageLayout({
   beforeHeader?: ReactNode
   afterHeader?: ReactNode
   className?: string
+  variant?: "default" | "workspace"
   navigationTitle?: string
   navigationActions?: ReactNode
   children: ReactNode
@@ -32,7 +34,14 @@ export function PageLayout({
         title={navigationTitle ?? title}
         actions={navigationActions}
       />
-      <div className={cn("management-page", className)}>
+      <div
+        className={cn(
+          "management-page",
+          variant === "workspace" &&
+            "[&>.management-header]:items-start! [&>.management-header_p]:mt-2! [&>.management-header_p]:max-w-none! sm:[&>.management-header>.management-actions]:pt-1",
+          className
+        )}
+      >
         {beforeHeader && <div className="mb-6">{beforeHeader}</div>}
         <header className="management-header" role="banner">
           <div className="min-w-0">
