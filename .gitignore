@@ -37,3 +37,4 @@ apps/web/dummy-non-existing-folder/
 **/__pycache__/
 **/.venv/
 apps/runner/store
+apps/docs/.public-docs/
