@@ -2005,8 +2005,15 @@ describe("LinkSense application", () => {
     )
     expect(settingsNavigationLinks).toHaveLength(24)
     settingsNavigationLinks.forEach((link) => {
-      expect(link.querySelectorAll(":scope > span")).toHaveLength(1)
-      expect(link.querySelector(":scope > span > span")).toBeNull()
+      expect(
+        link.querySelectorAll(":scope > span:not([data-design-icon])")
+      ).toHaveLength(1)
+      expect(
+        link.querySelector(":scope > span:not([data-design-icon]) > span")
+      ).toBeNull()
+      expect(
+        link.querySelector(":scope > [data-design-icon], :scope > svg")
+      ).toHaveAttribute("aria-hidden", "true")
     })
     expect(
       within(settingsSidebar).queryByText("界面语言")
