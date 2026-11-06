@@ -172,7 +172,7 @@ Set `edition` to `core` or `full`:
 ```bash
 edition=core
 curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o "install-${edition}.sh" "https://raw.githubusercontent.com/LingX-AI/linksense/main/install-${edition}.sh"
+  -o "install-${edition}.sh" "https://raw.githubusercontent.com/LingX-AI/linksense/main/install-${edition}.sh" &&
 sh "install-${edition}.sh" --check-network
 ```
 
@@ -180,25 +180,41 @@ The network check should exit with status `0` and no `[LS_HOST_*]` error. Termin
 
 #### 4. Install Core
 
-Use the `install-core.sh` downloaded above:
+Run only the block for your operating system. Each block downloads the installer before running it.
+
+**Linux**
 
 ```bash
-# Linux
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh &&
 sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
+```
 
-# macOS
+**macOS**
+
+```bash
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh &&
 sh install-core.sh
 ```
 
 #### 5. Install Full
 
-After confirming the resource and `x86-64-v2` requirements, use `install-full.sh`:
+After confirming the resource and `x86-64-v2` requirements, run the block for your operating system.
+
+**Linux**
 
 ```bash
-# Linux
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh &&
 sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-full.sh
+```
 
-# macOS
+**macOS**
+
+```bash
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh &&
 sh install-full.sh
 ```
 
@@ -229,13 +245,22 @@ Full also prints `Full release probe passed.`. The actual address and one-time c
 | The port is occupied | Another process uses `18081` | Set `LINKSENSE_HTTP_PORT` for a fresh install; use `linksense port <port>` for an existing install. |
 | An installation exists or was interrupted | Rerunning the wrong edition can break installation identity | Run `linksense status` and `linksense doctor`; rerun only the same edition for an interrupted installation. |
 
-For a fresh Core installation on port `19090`:
+For a fresh Core installation on port `19090`, run the block for your operating system. For Full, replace every `install-core.sh` in the block (including in the URL) with `install-full.sh`. For an existing installation, use `linksense port 19090` instead.
+
+**Linux**
 
 ```bash
-# Linux
-sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_HTTP_PORT=19090 sh install-core.sh
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh &&
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy \
+  env LINKSENSE_HTTP_PORT=19090 sh install-core.sh
+```
 
-# macOS
+**macOS**
+
+```bash
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh &&
 env LINKSENSE_HTTP_PORT=19090 sh install-core.sh
 ```
 

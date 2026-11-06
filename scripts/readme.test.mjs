@@ -65,19 +65,24 @@ test("manual Core and Full installation keeps matching host, network, and OS com
     desktopCheck.trim(),
     "docker info --format '{{.NCPU}} {{.MemTotal}}' |\n  awk '{printf \"CPUs=%s\\nDocker memory=%.2f GiB\\n\", $1, $2 / 1024 / 1024 / 1024}'",
   )
-  assert.equal(englishCommands.length, 6)
+  assert.equal(englishCommands.length, 9)
   assert.equal(
     englishCommands[0].trim(),
     "uname -s\nuname -m\ndocker version\ndocker compose version\ndocker info --format 'CPUs={{.NCPU}} MemoryBytes={{.MemTotal}} DockerRoot={{.DockerRootDir}}'\ncurl --version\ndf -h",
   )
   assert.equal(englishCommands[1].trim(), "LC_ALL=C lscpu\ngrep -m1 '^flags' /proc/cpuinfo")
   assert.match(englishCommands[2], /^edition=core\ncurl --http1\.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \\\n/u)
-  assert.match(englishCommands[2], /install-\$\{edition\}\.sh"\nsh "install-\$\{edition\}\.sh" --check-network\n$/u)
-  assert.match(englishCommands[3], /sudo --preserve-env=\S+ sh install-core\.sh/u)
-  assert.match(englishCommands[3], /# macOS\nsh install-core\.sh/u)
-  assert.match(englishCommands[4], /sudo --preserve-env=\S+ sh install-full\.sh/u)
-  assert.match(englishCommands[4], /# macOS\nsh install-full\.sh/u)
-  assert.match(englishCommands[5], /LINKSENSE_HTTP_PORT=19090 sh install-core\.sh/u)
+  assert.match(englishCommands[2], /install-\$\{edition\}\.sh" &&\nsh "install-\$\{edition\}\.sh" --check-network\n$/u)
+  for (const [index, edition, env = ""] of [[3, "core"], [5, "full"], [7, "core", "env LINKSENSE_HTTP_PORT=19090 "]]) {
+    const script = `install-${edition}.sh`
+    const download = `-o ${script} https://raw.githubusercontent.com/LingX-AI/linksense/main/${script} &&\n`
+    const execute = `${env}sh ${script}\n`
+    assert.match(englishCommands[index], /^curl /u)
+    assert.ok(englishCommands[index].includes(`${download}sudo --preserve-env=`))
+    assert.ok(englishCommands[index].endsWith(` ${execute}`))
+    assert.match(englishCommands[index + 1], /^curl /u)
+    assert.ok(englishCommands[index + 1].endsWith(`${download}${execute}`))
+  }
 })
 
 test("README memory, Docker requirements, and startup output match the installer", async () => {

@@ -181,7 +181,7 @@ grep -m1 '^flags' /proc/cpuinfo
 ```bash
 edition=core
 curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o "install-${edition}.sh" "https://raw.githubusercontent.com/LingX-AI/linksense/main/install-${edition}.sh"
+  -o "install-${edition}.sh" "https://raw.githubusercontent.com/LingX-AI/linksense/main/install-${edition}.sh" &&
 sh "install-${edition}.sh" --check-network
 ```
 
@@ -189,25 +189,41 @@ sh "install-${edition}.sh" --check-network
 
 #### 4. 安装 Core
 
-使用上一步下载的 `install-core.sh`：
+只运行与你的系统对应的一段。每段命令都会先下载安装器，再执行。
+
+**Linux**
 
 ```bash
-# Linux
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh &&
 sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
+```
 
-# macOS
+**macOS**
+
+```bash
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh &&
 sh install-core.sh
 ```
 
 #### 5. 安装 Full
 
-确认资源与 `x86-64-v2` 要求满足后，使用 `install-full.sh`：
+确认资源与 `x86-64-v2` 要求满足后，运行与你的系统对应的一段。
+
+**Linux**
 
 ```bash
-# Linux
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh &&
 sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-full.sh
+```
 
-# macOS
+**macOS**
+
+```bash
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh &&
 sh install-full.sh
 ```
 
@@ -238,13 +254,22 @@ Full 还会显示 `Full release probe passed.`。实际地址和一次性凭证�
 | 端口被占用 | `18081` 已由其他程序使用 | 新安装设置 `LINKSENSE_HTTP_PORT`；已有安装使用 `linksense port <端口>`。 |
 | 已存在安装或上次安装中断 | 重跑错误方案可能破坏安装身份 | 先运行 `linksense status` 和 `linksense doctor`；中断安装只重跑同一方案。 |
 
-新安装需要使用其他端口时，以下以 Core 和 `19090` 为例：
+在 `19090` 端口全新安装 Core 时，只运行与你的系统对应的一段。安装 Full 时，把该段中所有 `install-core.sh`（包括下载地址中的文件名）改为 `install-full.sh`。如果已经安装 LinkSense，请改用 `linksense port 19090`。
+
+**Linux**
 
 ```bash
-# Linux
-sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_HTTP_PORT=19090 sh install-core.sh
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh &&
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy \
+  env LINKSENSE_HTTP_PORT=19090 sh install-core.sh
+```
 
-# macOS
+**macOS**
+
+```bash
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh &&
 env LINKSENSE_HTTP_PORT=19090 sh install-core.sh
 ```
 
