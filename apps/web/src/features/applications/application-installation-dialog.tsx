@@ -85,7 +85,7 @@ export function ApplicationInstallationDialog({
         if (!open && !mutation.isPending) onClose()
       }}
     >
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent variant="workspace">
         <DialogHeader>
           <DialogTitle>{t("applications.distribution.install")}</DialogTitle>
           <DialogDescription>
@@ -191,7 +191,7 @@ export function ApplicationInstallationUpdateDialog({
         if (!open && !mutation.isPending) onClose()
       }}
     >
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent variant="workspace">
         <DialogHeader>
           <DialogTitle>
             {t("applications.distribution.updateTitle")}

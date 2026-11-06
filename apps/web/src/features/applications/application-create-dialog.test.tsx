@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react"
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { I18nextProvider } from "react-i18next"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -44,24 +50,15 @@ describe.each(["zh-CN", "en-US"])(
       )
       const primary = actions[0]
       if (!primary) throw new Error("Expected chat creation action")
-      expect(primary).not.toHaveClass("hover:bg-hover")
-      expect(primary.querySelector('[data-icon="inline-end"]')).toHaveClass(
-        "motion-safe:transition-transform",
-        "motion-safe:group-hover/creation:translate-x-0.5"
-      )
+      expect(primary).toHaveClass("min-h-22", "rounded-lg", "p-4")
       expect(within(dialog).getAllByRole("button")).toHaveLength(4)
       expect(
-        within(primary).getByText(i18n.t("applications.creation.recommended"))
-      ).toBeVisible()
-      expect(
-        within(primary).getByText(i18n.t("applications.creation.start"))
-      ).toBeVisible()
-      expect(
         dialog.querySelector('[data-slot="application-creation-illustration"]')
-      ).toHaveAttribute("aria-hidden", "true")
-      expect(
-        dialog.querySelector('[data-slot="application-creation-illustration"]')
-      ).toHaveClass("hidden", "sm:block")
+      ).toBeNull()
+      expect(dialog).toHaveClass("sm:max-w-150")
+      for (const action of actions) {
+        expect(action).toHaveClass("min-h-22", "rounded-lg", "p-4")
+      }
       expect(dialog).toHaveClass("max-h-[calc(100dvh-2rem)]", "flex-col")
       expect(actions[0]?.parentElement).toHaveClass("overflow-y-auto")
       const alternatives = dialog.querySelector(

@@ -58,7 +58,7 @@ export function ApplicationPublicationPicker({
         if (!open) onClose()
       }}
     >
-      <DialogContent closeLabel={t("common.close")}>
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         <DialogHeader>
           <DialogTitle>{t("marketplace.selectApplication")}</DialogTitle>
           <DialogDescription>

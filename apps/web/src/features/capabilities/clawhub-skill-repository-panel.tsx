@@ -246,7 +246,7 @@ function ClawHubSkillDetailDialog({
 
   return (
     <Dialog open={item !== null} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel={t("common.close")} className="sm:max-w-2xl">
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         {item && (
           <>
             <DialogHeader>
@@ -414,7 +414,7 @@ function ClawHubInstallPreviewDialog({
 
   return (
     <Dialog open={state !== null} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel={t("common.close")} className="sm:max-w-2xl">
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         {state && preview && (
           <>
             <DialogHeader>

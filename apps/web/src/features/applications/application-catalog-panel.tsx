@@ -11,6 +11,7 @@ import { ApplicationIconField } from "./application-icon-field"
 import { ApplicationVersionNumberInput } from "./application-version-number-input"
 import { ApplicationMetadataPublishDialog } from "./application-metadata-dialog"
 import { dialogBodyStyles } from "@/components/ui/dialog-layout"
+import { FilePicker } from "@/components/forms/file-picker"
 import { ApplicationUsageGuideDialog } from "./application-usage-guide-dialog"
 import { ApplicationSetupDialog } from "./application-setup-dialog"
 import { ApplicationDevelopmentCreateDialog } from "./application-development-create-dialog"
@@ -285,7 +286,8 @@ export function InteractiveApplicationImportDialog({
       }}
     >
       <DialogContent
-        className="flex max-h-[calc(100dvh-2rem)] flex-col sm:max-w-xl"
+        variant="workspace"
+        className="flex flex-col"
         closeLabel={t("common.close")}
       >
         <DialogHeader>
@@ -305,10 +307,10 @@ export function InteractiveApplicationImportDialog({
             <FieldLabel htmlFor="interactive-application-package" required>
               {t("applications.applicationPackage")}
             </FieldLabel>
-            <Input
+            <FilePicker
               ref={inputRef}
               id="interactive-application-package"
-              type="file"
+              prompt={file?.name ?? t("applications.applicationPackage")}
               aria-required="true"
               accept=".zip,application/zip"
               disabled={
@@ -658,9 +660,7 @@ export function ApplicationCatalogPanel({
               ? "applicationDevelopment.catalog.empty"
               : "applications.emptyTitle"
           )}
-          description={
-            filteredEmpty ? "" : t("applications.emptyDescription")
-          }
+          description={filteredEmpty ? "" : t("applications.emptyDescription")}
           action={
             filteredEmpty ? undefined : (
               <ApplicationCreateButton
@@ -1071,6 +1071,7 @@ export function ApplicationCatalogPanel({
         />
       )}
       <ConfirmDialog
+        variant="workspace"
         open={deleteDraftTarget !== null}
         onOpenChange={(open) => {
           if (!open) setDeleteDraftTarget(null)
@@ -1205,6 +1206,7 @@ export function ApplicationCatalogPanel({
         }}
       />
       <ConfirmDialog
+        variant="workspace"
         open={deleteTarget !== null}
         onOpenChange={(open) => {
           if (!open) setDeleteTarget(null)
@@ -1745,7 +1747,10 @@ export function ApplicationEditorDialog({
           }))
         }}
       >
-        <SelectTrigger id="application-model" aria-label={t("applications.model")}>
+        <SelectTrigger
+          id="application-model"
+          aria-label={t("applications.model")}
+        >
           <SelectValue placeholder={t("common.select")} />
         </SelectTrigger>
         <SelectContent>
@@ -1973,8 +1978,9 @@ export function ApplicationEditorDialog({
       }}
     >
       <DialogContent
+        variant="workspace"
         showCloseButton={!save.isPending}
-        className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl"
+        className="flex flex-col gap-0 overflow-hidden p-0"
       >
         <DialogHeader className="shrink-0 border-b border-divider px-6 py-5 pr-16">
           <DialogTitle>

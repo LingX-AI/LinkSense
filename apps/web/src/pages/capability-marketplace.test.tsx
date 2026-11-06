@@ -28,7 +28,7 @@ import { AuthContext } from "@/app/auth-state"
 import { ThemeProvider } from "@/app/theme-context"
 import { notify } from "@/components/feedback/notification"
 import { NotificationCenter } from "@/components/feedback/notification-toast"
-import i18n from "@/i18n"
+import i18n, { supportedLanguages } from "@/i18n"
 import { ApplicationCreatePage } from "@/features/applications/application-catalog-panel"
 import { ApplicationOpeningPage } from "@/features/applications/application-opening-page"
 import {
@@ -1017,7 +1017,7 @@ describe("capability marketplace pages", () => {
       within(installedSection).getByRole("list", { name: "已安装的技能" })
     ).toBeVisible()
     const scopeToggle = screen.getByLabelText("内容范围")
-    expect(scopeToggle).toHaveAttribute("data-variant", "segmented")
+    expect(scopeToggle).toHaveAttribute("data-variant", "catalog")
     expect(scopeToggle).toHaveAttribute("role", "tablist")
     expect(
       within(scopeToggle)
@@ -2346,7 +2346,8 @@ describe("capability marketplace pages", () => {
       personalMcpConnection.querySelector(
         'img[data-default-capability-icon="mcp"]'
       )
-    ).toBeVisible()
+    ).toBeNull()
+    expect(personalMcpConnection).toHaveClass("min-h-16!", "p-3!")
     expect(
       within(personalCatalog).getByRole("article", {
         name: "个人数据 MCP 包",
@@ -3138,7 +3139,7 @@ describe("capability marketplace pages", () => {
     expect(groupTab).toHaveAttribute("data-slot", "tabs-trigger")
     expect(userTab).toHaveAttribute("aria-selected", "true")
     expect(userTab).toHaveAttribute("data-active")
-    expect(targetTypeSelector).toHaveAttribute("data-variant", "segmented")
+    expect(targetTypeSelector).toHaveAttribute("data-variant", "pills")
     expect(userTab).toHaveClass("data-active:text-foreground")
     expect(groupTab).toHaveAttribute("aria-selected", "false")
     expect(groupTab).not.toHaveAttribute("data-active")
@@ -4333,6 +4334,7 @@ describe("capability marketplace pages", () => {
       name: capability.name,
       description: capability.description,
       reviewer_id: null,
+      review_comment: null,
       reviewed_at: null,
       published_at: null,
     }
@@ -4412,6 +4414,18 @@ describe("capability marketplace pages", () => {
       }
       if (url.pathname === "/api/v1/application-center/mine")
         return Promise.resolve(envelope({ items: [], next_cursor: null }))
+      if (
+        url.pathname === `/api/v1/marketplace/releases/${pendingRelease.id}`
+      ) {
+        return Promise.resolve(
+          envelope({
+            listing: pendingListing,
+            release: pendingRelease,
+            files: ["SKILL.md"],
+            skill_content: "# Current instructions",
+          })
+        )
+      }
       if (
         url.pathname === "/api/v1/marketplace/submissions" &&
         method === "POST"
@@ -4660,7 +4674,83 @@ describe("capability marketplace pages", () => {
       expect(menuItem).toHaveClass("whitespace-nowrap")
       expect(menuItem.querySelector("svg")).not.toBeNull()
     }
+    await interaction.click(screen.getByRole("menuitem", { name: "查看" }))
+    const releaseDialog = await screen.findByRole("dialog", {
+      name: "Frontend Slides",
+    })
+    expect(await within(releaseDialog).findByText("SKILL.md")).toBeVisible()
+    expect(releaseDialog.querySelector("time")).toHaveAttribute("datetime", NOW)
+    expect(within(releaseDialog).getByText("待审核")).toBeVisible()
   })
+
+  it.each(supportedLanguages)(
+    "shows the actual review decision, timestamp and comment without hiding snapshot evidence in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const reviewedAt = "2026-07-26T09:00:00.000Z"
+      const reviewed = {
+        ...release,
+        status: "rejected",
+        review_comment: "Document the required external-service permissions.",
+        reviewed_at: reviewedAt,
+        published_at: null,
+      }
+      const publication = {
+        listing,
+        latest_release: reviewed,
+        current_release: null,
+        install_count: 0,
+      }
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const path = new URL(String(input), window.location.origin).pathname
+          if (path === "/api/v1/marketplace/mine") {
+            return envelope({ items: [publication], next_cursor: null })
+          }
+          if (path === `/api/v1/marketplace/releases/${RELEASE_ID}`) {
+            return envelope({
+              listing,
+              release: reviewed,
+              files: ["SKILL.md"],
+              skill_content: "# Snapshot instructions",
+            })
+          }
+          return envelope({ items: [], next_cursor: null })
+        })
+      )
+      renderUserPage()
+      await userEvent.click(
+        screen.getByRole("button", {
+          name: i18n.t("marketplace.tabs.publishing"),
+        })
+      )
+      const item = await screen.findByRole("article", { name: release.name })
+      await userEvent.click(
+        within(item).getByRole("button", { name: i18n.t("common.actions") })
+      )
+      await userEvent.click(
+        await screen.findByRole("menuitem", { name: i18n.t("common.view") })
+      )
+      const dialog = await screen.findByRole("dialog", { name: release.name })
+      expect(
+        await within(dialog).findByText(reviewed.review_comment)
+      ).toBeVisible()
+      expect(
+        dialog.querySelector(`time[datetime="${reviewedAt}"]`)
+      ).not.toBeNull()
+      expect(
+        within(dialog).getByRole("heading", {
+          name: i18n.t("marketplace.reviewComment"),
+        })
+      ).toBeVisible()
+      expect(within(dialog).getByText("SKILL.md")).toBeVisible()
+      expect(within(dialog).getByText(release.content_sha256)).toBeVisible()
+      expect(
+        within(dialog).getByText(i18n.t("marketplace.status.rejected"))
+      ).toBeVisible()
+    }
+  )
 
   it("allows confirming an import without consulting retired scan metadata", async () => {
     const importPreview = {
