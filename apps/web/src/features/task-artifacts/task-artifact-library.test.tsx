@@ -208,7 +208,7 @@ describe("task artifact library", () => {
       const card = link.closest("section")?.querySelector(":scope > div")
       expect(card).toHaveClass("min-w-0")
       expect(card).not.toHaveClass("rounded-card", "overflow-hidden")
-      expect(card?.firstElementChild).toHaveClass("min-h-16", "border-b")
+      expect(card?.firstElementChild).toHaveClass("min-h-15", "border-b")
     }
 
     await interaction.click(

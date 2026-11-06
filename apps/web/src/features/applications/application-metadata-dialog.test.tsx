@@ -65,8 +65,8 @@ describe("application metadata editor", () => {
         .getByRole("dialog")
         .querySelector('[data-slot="avatar"]')
       expect(iconPreview).toHaveClass("size-13")
-      expect(iconPreview?.querySelector("svg")).toHaveClass("size-full")
-      expect(iconPreview?.querySelector("svg")).not.toHaveClass("size-11")
+      expect(iconPreview?.querySelector("img")).toHaveClass("size-full")
+      expect(iconPreview?.querySelector("img")).not.toHaveClass("size-11")
       await user.clear(
         screen.getByRole("textbox", { name: i18n.t("common.name") })
       )

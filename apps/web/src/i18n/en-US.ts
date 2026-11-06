@@ -1043,6 +1043,11 @@ export const enUS = {
     },
   },
   knowledge: {
+    uiDemo: {
+      readOnly:
+        "Local UI sample data. Browse and filter without changing real resources.",
+      exit: "Exit samples",
+    },
     title: "Knowledge bases",
     description: "Organize, share, and search the documents you can access.",
     searchCapability: {
@@ -3705,6 +3710,11 @@ export const enUS = {
       "Try your application in the preview. Runtime errors are recorded here, and the assistant can inspect them to help troubleshoot.",
   },
   capability: {
+    uiDemo: {
+      readOnly:
+        "Local plugin samples. Explore search, details, and menus without installing plugins or changing live data.",
+      exit: "Exit demo",
+    },
     title: "Plugins & Skills",
     description:
       "Manage personal plugins, Skills, Plugin Center sources, and runtime status.",

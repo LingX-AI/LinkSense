@@ -1275,6 +1275,11 @@ export const ptBR = {
     },
   },
   knowledge: {
+    uiDemo: {
+      readOnly:
+        "Dados de exemplo para testar a interface local. Explore e filtre sem alterar os recursos reais.",
+      exit: "Sair do exemplo",
+    },
     title: "Bases de conhecimento",
     description:
       "Organize, compartilhe e pesquise os documentos a que você tem acesso.",
@@ -4010,6 +4015,11 @@ export const ptBR = {
       "Experimente seu aplicativo na visualização. Erros de execução são registrados aqui, e o assistente pode consultá-los para ajudar a investigar.",
   },
   capability: {
+    uiDemo: {
+      readOnly:
+        "Exemplos locais de plugins. Explore a busca, os detalhes e os menus sem instalar plugins nem alterar dados reais.",
+      exit: "Sair da demonstração",
+    },
     title: "Plugins e habilidades",
     description:
       "Gerencie plugins pessoais, habilidades, origens da Central de plugins e status de execução.",

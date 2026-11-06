@@ -157,7 +157,7 @@ describe("knowledge-base detail page layout", () => {
     expect(cardRule).toMatch(/background:\s*transparent;/u)
     expect(cardRule).toMatch(/transition:\s*background-color 160ms ease;/u)
     expect(cardRule).not.toMatch(/box-shadow/u)
-    expect(hoverRule).toMatch(/background:\s*var\(--app-hover\);/u)
+    expect(hoverRule).toMatch(/background:\s*var\(--app-hover-subtle\);/u)
     expect(hoverRule).not.toMatch(/box-shadow/u)
     expect(focusRule).toMatch(/outline:\s*2px solid/u)
     expect(focusRule).toMatch(/outline-offset:\s*-2px;/u)
@@ -166,7 +166,7 @@ describe("knowledge-base detail page layout", () => {
     )
   })
 
-  it("aligns the knowledge name and description without a decorative icon", () => {
+  it("aligns the knowledge name and description and preserves compact metadata", () => {
     const headingRule = appStyles.match(
       /\.knowledge-card-heading\s*\{([^}]*)\}/u
     )?.[1]
@@ -198,12 +198,12 @@ describe("knowledge-base detail page layout", () => {
     expect(headingRule).toMatch(/gap:\s*8px;/u)
     expect(titleRule).toMatch(/min-width:\s*0;/u)
     expect(titleRule).toMatch(/flex:\s*0 1 auto;/u)
-    expect(titleRule).toMatch(/font-size:\s*var\(--app-font-16\);/u)
-    expect(titleRule).toMatch(/line-height:\s*var\(--app-line-24\);/u)
+    expect(titleRule).toMatch(/font-size:\s*var\(--app-ui-font-size\);/u)
+    expect(titleRule).toMatch(/line-height:\s*var\(--app-ui-compact-line-height\);/u)
     expect(iconRule).toBeUndefined()
     expect(iconSvgRule).toBeUndefined()
     expect(appStyles).toMatch(
-      /\.knowledge-card-row\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 120px 36px;/u
+      /\.knowledge-card-row\s*\{[^}]*grid-template-columns:\s*var\(--knowledge-list-columns\);/u
     )
     expect(sourceTextRule).toMatch(/font-size:\s*var\(--app-font-12\);/u)
     expect(sourceTextRule).toMatch(/font-weight:\s*400;/u)

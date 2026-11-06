@@ -14,6 +14,8 @@ import {
   type KnowledgeBaseEvent,
 } from "@/features/knowledge-bases/knowledge-base-contracts"
 
+import { isKnowledgeUiDemoEnabled } from "./knowledge-ui-demo-mode"
+
 export type KnowledgeBaseEventHandlers = {
   onEvent: (event: KnowledgeBaseEvent) => void
   onConnectionChange?: (state: "connected" | "reconnecting") => void
@@ -31,6 +33,8 @@ export function connectKnowledgeBaseEvents(
   knowledgeBaseId: string,
   handlers: KnowledgeBaseEventHandlers
 ) {
+  // UI samples have static processing states and never open a live SSE stream.
+  if (import.meta.env.DEV && isKnowledgeUiDemoEnabled()) return () => undefined
   const controller = new AbortController()
   let reconnectDelay = 1_000
 

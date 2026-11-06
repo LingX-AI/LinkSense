@@ -294,7 +294,7 @@ export function TaskArtifactLibrary({
                   return (
                     <div
                       key={file.id}
-                      className="group flex min-h-16 min-w-0 items-center gap-3 border-b border-divider p-3 hover:bg-hover"
+                      className="group flex min-h-15 min-w-0 items-center gap-3 border-b border-divider px-3 py-2.5 hover:bg-hover"
                     >
                       {previewKind ? (
                         <Button

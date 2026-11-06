@@ -71,6 +71,8 @@ function TabsList({
       data-variant={variant}
       className={cn(
         tabsListVariants(),
+        (variant === "navigation" || variant === "pills") &&
+          "[&_[data-slot=tabs-trigger]:hover]:bg-transparent",
         variant === "catalog" &&
           "rounded-lg [&_[data-slot=tabs-trigger]]:min-h-8 [&_[data-slot=tabs-trigger]]:rounded-md [&_[data-slot=tabs-trigger]]:py-1 [&_[data-slot=tabs-trigger]]:leading-[var(--app-line-22)] [&_[data-slot=tabs-trigger]:focus-visible]:border-ring! [&_[data-slot=tabs-trigger]:focus-visible]:ring-0 [&_[data-slot=tabs-trigger]:focus-visible]:outline-none",
         variant === "pills" &&

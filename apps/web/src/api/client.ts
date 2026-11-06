@@ -1,6 +1,10 @@
 import { z } from "zod"
 import { createRandomUuid } from "@/lib/random-uuid"
 import {
+  shouldBlockWorkspaceUiDemoWrite,
+  shouldUseWorkspaceUiDemo,
+} from "@/features/ui-demo/workspace-ui-demo-mode"
+import {
   CLIENT_BUILD_HEADER,
   SERVER_BUILD_HEADER,
   isLocale,
@@ -533,6 +537,24 @@ export async function apiRequest<TSchema extends z.ZodType>(
   path: string,
   options: RequestOptions<TSchema>
 ) {
+  if (
+    import.meta.env.DEV &&
+    options.method &&
+    options.method !== "GET" &&
+    shouldBlockWorkspaceUiDemoWrite(path)
+  ) {
+    throw new ApiError({
+      status: 403,
+      errorCode: "WORKSPACE_UI_DEMO_READ_ONLY",
+      messageKey: "workspaceUiDemo.readOnly",
+    })
+  }
+  if (import.meta.env.DEV && shouldUseWorkspaceUiDemo(path)) {
+    const { resolveWorkspaceUiDemoRequest } =
+      await import("@/features/ui-demo/workspace-ui-demo-data")
+    options.signal?.throwIfAborted()
+    return options.schema.parse(resolveWorkspaceUiDemoRequest(path, options))
+  }
   const accessTokenUsed = getAccessToken()
   try {
     return await rawRequest(path, options, accessTokenUsed)
@@ -573,6 +595,11 @@ export async function apiUploadRequest<TSchema extends z.ZodType>(
   path: string,
   options: ApiUploadRequestOptions<TSchema>
 ) {
+  if (import.meta.env.DEV && shouldBlockWorkspaceUiDemoWrite(path)) {
+    const { rejectWorkspaceUiDemoWrite } =
+      await import("@/features/ui-demo/workspace-ui-demo-data")
+    rejectWorkspaceUiDemoWrite()
+  }
   const accessTokenUsed = getAccessToken()
   try {
     return await rawUploadRequest(path, options, accessTokenUsed)
@@ -670,6 +697,13 @@ export async function apiStreamRequest(
   path: string,
   options: ApiStreamRequestOptions
 ) {
+  if (import.meta.env.DEV && shouldBlockWorkspaceUiDemoWrite(path)) {
+    throw new ApiError({
+      status: 403,
+      errorCode: "WORKSPACE_UI_DEMO_READ_ONLY",
+      messageKey: "workspaceUiDemo.readOnly",
+    })
+  }
   const accessTokenUsed = getAccessToken()
   try {
     return await rawStreamRequest(path, options, accessTokenUsed)
@@ -712,6 +746,13 @@ export async function downloadApiFile(
   signal?: AbortSignal,
   options?: { cache?: RequestCache }
 ) {
+  if (import.meta.env.DEV && shouldUseWorkspaceUiDemo(path)) {
+    throw new ApiError({
+      status: 403,
+      errorCode: "WORKSPACE_UI_DEMO_READ_ONLY",
+      messageKey: "workspaceUiDemo.readOnly",
+    })
+  }
   const headers = new Headers()
   prepareClientBuildRequest(headers, path)
   const language = document.documentElement.lang

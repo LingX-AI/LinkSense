@@ -3,6 +3,11 @@ import type { TranslationResource } from "../types"
 
 export const capabilityMessages = {
   capability: {
+    uiDemo: {
+      readOnly:
+        "Ejemplos locales de plugins. Explora la búsqueda, los detalles y los menús sin instalar plugins ni modificar datos reales.",
+      exit: "Salir de la demostración",
+    },
     title: "Plugins y Skills",
     description:
       "Gestiona plugins y Skills personales, sus orígenes en el centro de plugins y su estado de ejecución.",

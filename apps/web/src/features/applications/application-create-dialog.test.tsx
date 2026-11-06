@@ -50,14 +50,14 @@ describe.each(["zh-CN", "en-US"])(
       )
       const primary = actions[0]
       if (!primary) throw new Error("Expected chat creation action")
-      expect(primary).toHaveClass("min-h-22", "rounded-lg", "p-4")
+      expect(primary).toHaveClass("min-h-18", "rounded-lg", "p-3")
       expect(within(dialog).getAllByRole("button")).toHaveLength(4)
       expect(
         dialog.querySelector('[data-slot="application-creation-illustration"]')
       ).toBeNull()
       expect(dialog).toHaveClass("sm:max-w-150")
       for (const action of actions) {
-        expect(action).toHaveClass("min-h-22", "rounded-lg", "p-4")
+        expect(action).toHaveClass("min-h-18", "rounded-lg", "p-3")
       }
       expect(dialog).toHaveClass("max-h-[calc(100dvh-2rem)]", "flex-col")
       expect(actions[0]?.parentElement).toHaveClass("overflow-y-auto")
@@ -96,7 +96,16 @@ describe.each(["zh-CN", "en-US"])(
       const primary = screen.getByRole("button", {
         name: i18n.t("applications.creation.interactiveTitle"),
       })
-      await waitFor(() => expect(primary).toHaveFocus())
+      await waitFor(() =>
+        expect(
+          screen.getByRole("heading", {
+            name: i18n.t("applications.createTitle"),
+          })
+        ).toHaveFocus()
+      )
+      expect(choose).not.toHaveBeenCalled()
+      await user.tab()
+      expect(primary).toHaveFocus()
       await user.keyboard("{Enter}")
       expect(choose).toHaveBeenLastCalledWith("development")
       await user.tab()

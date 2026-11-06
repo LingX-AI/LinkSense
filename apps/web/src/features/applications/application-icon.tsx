@@ -2,7 +2,10 @@ import type { ApplicationIcon, ApplicationIconPreset } from "@linksense/shared"
 import { useState } from "react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { applicationIconPresetDefinitions } from "@/features/applications/application-icon-presets"
+import {
+  applicationIconArtwork,
+  applicationIconPresetDefinitions,
+} from "@/features/applications/application-icon-presets"
 import { cn } from "@/lib/utils"
 
 function iconResourceKey(url: string): string {
@@ -89,7 +92,15 @@ export function ApplicationIconDisplay({
         data-application-icon-preset={preset}
         className={cn(radiusClass, "bg-transparent")}
       >
-        <PresetIcon aria-hidden="true" className="size-full" />
+        {applicationIconArtwork[preset] ? (
+          <img
+            src={applicationIconArtwork[preset]}
+            alt=""
+            className="size-full object-contain"
+          />
+        ) : (
+          <PresetIcon aria-hidden="true" className="size-full" />
+        )}
       </AvatarFallback>
     </Avatar>
   )
@@ -108,7 +119,15 @@ export function ApplicationPresetIcon({
       className="inline-flex size-10 items-center justify-center overflow-hidden rounded-[10px]"
       aria-hidden="true"
     >
-      <PresetIcon className="size-full" />
+      {applicationIconArtwork[preset] ? (
+        <img
+          src={applicationIconArtwork[preset]}
+          alt=""
+          className="size-full object-contain"
+        />
+      ) : (
+        <PresetIcon className="size-full" />
+      )}
     </span>
   )
 }

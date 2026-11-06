@@ -24,6 +24,7 @@ import { connectionPrimaryAction } from "@/features/connections/connection-prima
 import { ConnectionDetailDialog } from "@/features/connections/connection-detail-dialog"
 import { useConnectionAuthorization } from "@/features/connections/use-connection-authorization"
 import { ConnectionIcon } from "./connection-icon"
+import { workspaceUiDemoQueryKey } from "@/features/ui-demo/workspace-ui-demo-mode"
 
 export function ConnectionCatalogPanel() {
   const { t } = useTranslation()
@@ -37,7 +38,7 @@ export function ConnectionCatalogPanel() {
     trigger: HTMLElement
   } | null>(null)
   const query = useQuery({
-    queryKey: connectionQueryKey,
+    queryKey: [...connectionQueryKey, ...workspaceUiDemoQueryKey()],
     queryFn: connectionsApi.list,
     refetchOnWindowFocus: "always",
   })
@@ -112,7 +113,7 @@ export function ConnectionCatalogPanel() {
                   key={connection.provider}
                   role="article"
                   aria-label={title}
-                  className="relative min-h-16 min-w-0 flex-row flex-wrap items-center gap-x-3 gap-y-2 rounded-none border-0 bg-transparent p-3 shadow-[inset_0_-1px_0_var(--app-divider)] transition-colors hover:bg-hover"
+                  className="relative min-h-15 min-w-0 flex-row flex-wrap items-center gap-x-3 gap-y-2 rounded-none border-0 border-b border-b-divider bg-transparent px-3 py-2.5 shadow-none transition-colors hover:bg-hover"
                 >
                   <CardHeader className="@container-normal flex min-w-0 flex-1 flex-row items-center gap-3 p-0">
                     <ConnectionIcon provider={connection.provider} />

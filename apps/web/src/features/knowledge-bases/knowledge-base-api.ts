@@ -8,7 +8,7 @@ import {
 
 import {
   ApiError,
-  apiRequest,
+  apiRequest as realApiRequest,
   buildApiUrl,
   downloadApiFile,
   isDefinitiveAuthenticationError,
@@ -38,6 +38,28 @@ import {
   type KnowledgeUploadResult,
 } from "@/features/knowledge-bases/knowledge-base-contracts"
 
+import {
+  isKnowledgeUiDemoEnabled,
+  knowledgeUiDemoQueryKey,
+} from "./knowledge-ui-demo-mode"
+
+async function apiRequest<TSchema extends z.ZodType>(
+  path: string,
+  options: Parameters<typeof realApiRequest<TSchema>>[1]
+): Promise<z.output<TSchema>> {
+  if (
+    import.meta.env.DEV &&
+    isKnowledgeUiDemoEnabled() &&
+    path.startsWith("/knowledge-bases")
+  ) {
+    const { resolveKnowledgeUiDemoRequest } =
+      await import("./knowledge-ui-demo-data")
+    options.signal?.throwIfAborted()
+    return options.schema.parse(resolveKnowledgeUiDemoRequest(path, options))
+  }
+  return realApiRequest(path, options)
+}
+
 const emptyResponseSchema = z.unknown()
 
 export type KnowledgeBaseScope = "all" | "owned" | "shared"
@@ -46,14 +68,25 @@ export type KnowledgeBaseListLifecycle = KnowledgeBaseLifecycle | "all"
 export const knowledgeBaseQueryKeys = {
   all: ["knowledge-bases"] as const,
   config: () => ["knowledge-bases", "config"] as const,
-  creationCapability: () => ["knowledge-bases", "creation-capability"] as const,
-  searchCapability: () => ["knowledge-bases", "search-capability"] as const,
+  creationCapability: () =>
+    [
+      "knowledge-bases",
+      "creation-capability",
+      ...knowledgeUiDemoQueryKey(),
+    ] as const,
+  searchCapability: () =>
+    [
+      "knowledge-bases",
+      "search-capability",
+      ...knowledgeUiDemoQueryKey(),
+    ] as const,
   lists: () => ["knowledge-bases", "list"] as const,
   list: (filters: {
     lifecycle: KnowledgeBaseListLifecycle
     scope: KnowledgeBaseScope
     search: string
-  }) => ["knowledge-bases", "list", filters] as const,
+  }) =>
+    ["knowledge-bases", "list", filters, ...knowledgeUiDemoQueryKey()] as const,
   detail: (knowledgeBaseId: string) =>
     ["knowledge-bases", "detail", knowledgeBaseId] as const,
   documents: (knowledgeBaseId: string) =>
@@ -546,6 +579,11 @@ export type KnowledgeUploadOptions = {
 export async function uploadKnowledgeDocument(
   options: KnowledgeUploadOptions
 ): Promise<KnowledgeUploadResult> {
+  if (import.meta.env.DEV && isKnowledgeUiDemoEnabled()) {
+    const { rejectKnowledgeUiDemoWrite } =
+      await import("./knowledge-ui-demo-data")
+    rejectKnowledgeUiDemoWrite()
+  }
   const accessToken = getAccessToken()
   try {
     return await uploadWithToken(options, accessToken)

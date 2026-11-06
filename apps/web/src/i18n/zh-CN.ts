@@ -954,6 +954,10 @@ export const zhCN = {
     },
   },
   knowledge: {
+    uiDemo: {
+      readOnly: "仅供本地 UI 测试的示例数据，可浏览和筛选，不会修改真实资料。",
+      exit: "退出示例",
+    },
     title: "知识库",
     description: "整理、共享并检索你有权访问的文档知识。",
     searchCapability: {
@@ -3438,6 +3442,11 @@ export const zhCN = {
       "在预览中操作应用，运行中遇到的错误会记录在这里，助手也可以读取并协助排查。",
   },
   capability: {
+    uiDemo: {
+      readOnly:
+        "本地插件示例，可搜索、查看详情和菜单；不会安装插件或修改真实数据。",
+      exit: "退出示例",
+    },
     title: "插件与 Skill",
     description: "管理个人插件、技能、插件中心来源和运行状态。",
     builtIn: "内置",

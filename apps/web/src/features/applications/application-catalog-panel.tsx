@@ -1628,6 +1628,7 @@ export function ApplicationEditorDialog({
   const iconField = (
     <ApplicationIconField
       value={form.icon}
+      layout={frame === "page" ? "page" : "default"}
       onChange={(icon) => setForm((current) => ({ ...current, icon }))}
       onReadingChange={setIconReading}
       disabled={save.isPending}
@@ -1848,7 +1849,7 @@ export function ApplicationEditorDialog({
         maxLength={20_000}
         className={
           frame === "page"
-            ? "h-25 min-h-25 overflow-y-auto"
+            ? "h-25 min-h-25 overflow-y-auto p-3 leading-[22px]"
             : "h-48 max-h-48 min-h-48 overflow-y-auto"
         }
         required
@@ -1868,6 +1869,7 @@ export function ApplicationEditorDialog({
   const pluginsField = (
     <ResourceMultiSelect
       id="application-plugins"
+      layout={frame === "page" ? "row" : "default"}
       title={t("applications.plugins")}
       description={t("applications.pluginsDescription")}
       items={capabilityOptions.plugins}
@@ -1884,6 +1886,7 @@ export function ApplicationEditorDialog({
   const skillsField = (
     <ResourceMultiSelect
       id="application-skills"
+      layout={frame === "page" ? "row" : "default"}
       title={t("applications.skills")}
       description={t("applications.skillsDescription")}
       items={capabilityOptions.skills}
@@ -1898,6 +1901,7 @@ export function ApplicationEditorDialog({
   const knowledgeBasesField = (
     <ResourceMultiSelect
       id="application-knowledge-bases"
+      layout={frame === "page" ? "row" : "default"}
       title={t("applications.knowledgeBases")}
       description={t("applications.knowledgeBasesDescription")}
       items={knowledgeBaseOptions}
@@ -1914,6 +1918,7 @@ export function ApplicationEditorDialog({
   const mcpServersField = (
     <ResourceMultiSelect
       id="application-mcp-servers"
+      layout={frame === "page" ? "row" : "default"}
       title={t("applications.mcpServers")}
       description={t("applications.mcpServersDescription")}
       items={mcpServerOptions}
@@ -1933,7 +1938,7 @@ export function ApplicationEditorDialog({
         navigationTitle={t("nav.capabilities")}
         title={t("applications.createTitle")}
         description={t("applications.editorDescription")}
-        className="[&>.management-header]:items-start!"
+        className="[&>.management-header]:relative [&>.management-header]:items-start! sm:[&>.management-header_h1]:pr-66 [&>.management-header_p]:mt-6! [&>.management-header_p]:max-w-none! [&>.management-header>.management-actions]:gap-4 sm:[&>.management-header>.management-actions]:absolute sm:[&>.management-header>.management-actions]:top-1 sm:[&>.management-header>.management-actions]:right-0 [&>.management-header>.management-actions>[data-slot=button]]:min-w-22 sm:[&>.management-header>div:first-child]:w-full"
         actions={
           <>
             {cancelButton}
@@ -1942,14 +1947,14 @@ export function ApplicationEditorDialog({
         }
       >
         <div data-slot="application-create-form">
-          <FieldGroup className="gap-5 [&_[data-slot=field]]:gap-2">
+          <FieldGroup className="gap-5 [&_[data-slot=field-description]]:m-0! [&_[data-slot=field-description]]:text-xs [&_[data-slot=field-description]]:leading-[18px] [&_[data-slot=field-label]]:leading-[22px] [&_[data-slot=field]]:gap-2 [&_[data-slot=input]]:leading-[22px]">
             <div className="grid gap-6 @2xl/field-group:grid-cols-2">
               {nameField}
               {descriptionField}
             </div>
             {iconField}
             {instructionsField}
-            <div className="grid gap-5 @2xl/field-group:grid-cols-2">
+            <div className="grid gap-x-6 gap-y-5 @2xl/field-group:grid-cols-2">
               {modelField}
               <div className="col-start-1">{reasoningEffortField}</div>
             </div>
@@ -1957,10 +1962,15 @@ export function ApplicationEditorDialog({
               {versionField}
               {statusField}
             </div>
-            {pluginsField}
-            {skillsField}
-            {knowledgeBasesField}
-            {mcpServersField}
+            <div
+              data-slot="application-create-resources"
+              className="flex flex-col divide-y divide-border border-y border-border"
+            >
+              {pluginsField}
+              {skillsField}
+              {knowledgeBasesField}
+              {mcpServersField}
+            </div>
           </FieldGroup>
           {errorBanners && (
             <div className="mt-5 flex flex-col gap-3">{errorBanners}</div>

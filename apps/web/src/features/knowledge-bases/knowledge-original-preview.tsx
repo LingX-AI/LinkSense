@@ -16,6 +16,7 @@ import {
 import type { KnowledgeDocument } from "@/features/knowledge-bases/knowledge-base-contracts"
 import { KnowledgeFileViewer } from "@/features/knowledge-bases/knowledge-file-viewer"
 import { getErrorMessage } from "@/api/error-message"
+import { isKnowledgeUiDemoEnabled } from "./knowledge-ui-demo-mode"
 import { downloadBlob } from "@/lib/download-blob"
 
 export function KnowledgeOriginalPreview({
@@ -105,7 +106,7 @@ export function KnowledgeDownloadButton({
       aria-label={
         iconOnly ? t("knowledge.preview.downloadOriginal") : undefined
       }
-      disabled={downloading}
+      disabled={downloading || isKnowledgeUiDemoEnabled()}
       onClick={() => {
         setDownloading(true)
         onDownloadErrorChange(null)

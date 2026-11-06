@@ -622,7 +622,7 @@ describe("AutomationPage", () => {
     const template = screen
       .getByRole("button", { name: "使用“每日简报”模板" })
       .closest("li")
-    expect(template).toHaveClass("min-h-40", "rounded-xl", "border")
+    expect(template).toHaveClass("grid")
     expect(
       within(template!).getByRole("heading", { name: "每日简报" })
     ).toBeVisible()

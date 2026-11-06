@@ -25,6 +25,10 @@ import type { TFunction } from "i18next"
 
 import { apiRequest } from "@/api/client"
 import {
+  isWorkspaceUiDemoEnabled,
+  workspaceUiDemoQueryKey,
+} from "@/features/ui-demo/workspace-ui-demo-mode"
+import {
   automationCreateInputSchema,
   automationListSchema,
   automationPinnedConversationListSchema,
@@ -51,9 +55,9 @@ import { DatePicker } from "@/components/forms/date-picker"
 import { FieldShell } from "@/components/forms/form-field"
 import { TimePicker } from "@/components/forms/time-picker"
 import { PageLayout } from "@/components/shell/page-layout"
-import dailyBriefIcon from "@/assets/automations/daily-brief.svg"
-import weeklyReviewIcon from "@/assets/automations/weekly-review.svg"
-import followUpIcon from "@/assets/automations/follow-up.svg"
+import dailyBriefIcon from "@/assets/automations/figma-daily-brief.svg"
+import weeklyReviewIcon from "@/assets/automations/figma-weekly-review.svg"
+import followUpIcon from "@/assets/automations/figma-follow-up.svg"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -155,6 +159,8 @@ type AutomationPinnedTaskListData = z.infer<
 
 const emptySchema = z.unknown()
 const automationEditorFormId = "automation-editor-form"
+const automationActionButtonClassName =
+  "text-[length:var(--app-font-13)] font-normal hover:border-input-hover hover:bg-accent active:border-ring active:bg-primary/15"
 const automationFilterValues = ["all", "active", "paused"] as const
 const frequencyValues = ["hourly", "daily", "weekly", "monthly"] as const
 const weekdayValues = ["1", "2", "3", "4", "5", "6", "7"] as const
@@ -177,28 +183,24 @@ const automationTemplates = [
   {
     id: "dailyBrief",
     icon: dailyBriefIcon,
-    iconClassName: "bg-automation-template-brief",
     time: "08:00",
     weekdays: ["1", "2", "3", "4", "5"],
   },
   {
     id: "weeklyReview",
     icon: weeklyReviewIcon,
-    iconClassName: "bg-automation-template-review",
     time: "16:00",
     weekdays: ["5"],
   },
   {
     id: "followUpMonitor",
     icon: followUpIcon,
-    iconClassName: "bg-automation-template-monitor",
     time: "09:00",
     weekdays: ["1", "2", "3", "4", "5"],
   },
 ] as const satisfies ReadonlyArray<{
   id: AutomationTemplateId
   icon: string
-  iconClassName: string
   time: string
   weekdays: readonly (typeof weekdayValues)[number][]
 }>
@@ -235,12 +237,12 @@ export function AutomationPage() {
   const editing = editor?.mode === "edit" ? editor.automation : null
 
   const automationsQuery = useQuery({
-    queryKey: ["automations"],
+    queryKey: ["automations", ...workspaceUiDemoQueryKey()],
     queryFn: ({ signal }) =>
       apiRequest("/automations", { schema: automationListSchema, signal }),
   })
   const pinnedTasksQuery = useQuery({
-    queryKey: ["automations", "pinned-tasks"],
+    queryKey: ["automations", "pinned-tasks", ...workspaceUiDemoQueryKey()],
     enabled: Boolean(editor),
     queryFn: ({ signal }) =>
       apiRequest("/automations/pinned-tasks", {
@@ -554,7 +556,7 @@ export function AutomationPage() {
                   ) : (
                     <Table
                       aria-label={t("automation.title")}
-                      className="min-w-200 table-fixed"
+                      className="min-w-200 table-fixed [&_td]:border-b [&_td]:border-divider [&_td]:after:hidden [&_th]:border-b [&_th]:border-divider [&_th]:after:hidden"
                     >
                       <TableHeader>
                         <TableRow>
@@ -596,11 +598,8 @@ export function AutomationPage() {
                               : null
 
                           return (
-                            <TableRow
-                              key={automation.id}
-                              className="[&>td]:after:h-px last:[&>td]:after:block"
-                            >
-                              <TableCell className="h-16 px-3 py-3 whitespace-normal">
+                            <TableRow key={automation.id}>
+                              <TableCell className="h-14 px-3 py-2.5 whitespace-normal">
                                 <h2
                                   className="truncate text-sm font-medium"
                                   title={automation.title}
@@ -635,11 +634,11 @@ export function AutomationPage() {
                                     </p>
                                   )}
                               </TableCell>
-                              <TableCell className="px-3 py-3 whitespace-normal text-muted-foreground">
+                              <TableCell className="px-3 py-2.5 whitespace-normal text-muted-foreground">
                                 {formatSchedule(automation.schedule, t)}
                               </TableCell>
                               <TableCell
-                                className="px-3 py-3 whitespace-normal text-muted-foreground"
+                                className="px-3 py-2.5 whitespace-normal text-muted-foreground"
                                 title={
                                   nextRun
                                     ? formatOptionalDate(
@@ -656,7 +655,7 @@ export function AutomationPage() {
                                     })
                                   : "—"}
                               </TableCell>
-                              <TableCell className="px-3 py-3">
+                              <TableCell className="px-3 py-2.5">
                                 <Tooltip>
                                   <TooltipTrigger
                                     render={
@@ -696,11 +695,13 @@ export function AutomationPage() {
                                   </TooltipContent>
                                 </Tooltip>
                               </TableCell>
-                              <TableCell className="px-3 py-3">
+                              <TableCell className="px-3 py-2.5">
                                 <div className="flex items-center justify-between gap-2">
                                   <Button
                                     type="button"
                                     variant="outline"
+                                    size="sm"
+                                    className={automationActionButtonClassName}
                                     disabled={
                                       isActive
                                         ? runNowMutation.isPending
@@ -730,6 +731,7 @@ export function AutomationPage() {
                                           type="button"
                                           variant="ghost"
                                           size="icon-sm"
+                                          className="rounded-md hover:bg-(--app-sidebar-action-hover) focus-visible:bg-(--app-sidebar-action-hover) active:bg-primary/15 aria-expanded:bg-(--app-sidebar-action-hover) data-popup-open:bg-(--app-sidebar-action-hover)"
                                           aria-label={t(
                                             "automation.moreActionsNamed",
                                             {
@@ -747,7 +749,10 @@ export function AutomationPage() {
                                     >
                                       <DropdownMenuGroup>
                                         <DropdownMenuItem
-                                          disabled={runNowMutation.isPending}
+                                          disabled={
+                                            runNowMutation.isPending ||
+                                            isWorkspaceUiDemoEnabled()
+                                          }
                                           onClick={() =>
                                             runNowMutation.mutate({
                                               automation,
@@ -759,6 +764,7 @@ export function AutomationPage() {
                                           {t("automation.runNow")}
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
+                                          disabled={isWorkspaceUiDemoEnabled()}
                                           render={
                                             <Link
                                               to={`/conversations/${automation.monitoring?.last_run_conversation_id ?? automation.conversation.id}`}
@@ -803,7 +809,6 @@ export function AutomationPage() {
           )}
 
           <AutomationSuggestions
-            compact={automationsQuery.data?.items.length === 0}
             onSelect={(templateId) => openCreate(templateId)}
             t={t}
           />
@@ -830,17 +835,15 @@ export function AutomationPage() {
 }
 
 function AutomationSuggestions({
-  compact,
   onSelect,
   t,
 }: {
-  compact: boolean
   onSelect: (templateId: AutomationTemplateId) => void
   t: TFunction
 }) {
   return (
     <section
-      className="@container mt-8 flex w-full flex-col gap-4"
+      className="@container mt-8 flex w-full flex-col gap-3"
       aria-labelledby="automation-suggestions-title"
     >
       <h2
@@ -849,13 +852,7 @@ function AutomationSuggestions({
       >
         {t("automation.suggestions.title")}
       </h2>
-      <ul
-        className={
-          compact
-            ? "grid grid-cols-1 gap-3"
-            : "grid grid-cols-1 gap-4 @min-[48rem]:grid-cols-3"
-        }
-      >
+      <ul className="flex flex-col">
         {automationTemplates.map((template) => {
           const title = t(`automation.suggestions.${template.id}.title`)
           const scheduleId = `automation-template-${template.id}-schedule`
@@ -864,66 +861,57 @@ function AutomationSuggestions({
           return (
             <li
               key={template.id}
-              className={cn(
-                "flex min-w-0 gap-4 rounded-xl border border-divider bg-card p-4 transition-colors focus-within:border-ring hover:border-input-hover hover:bg-hover",
-                compact
-                  ? "min-h-20 flex-wrap items-center"
-                  : "min-h-40 flex-col gap-2"
-              )}
+              className="relative grid min-w-0 grid-cols-[2.25rem_minmax(0,1fr)] items-start gap-x-4 gap-y-3 border-b border-divider px-4 py-3 transition-colors last:border-b-0 focus-within:bg-(--app-hover-subtle) hover:bg-(--app-hover-subtle) @min-[32rem]:grid-cols-[2.25rem_minmax(0,1fr)_auto] @min-[32rem]:items-center"
             >
-              <div
-                className={cn(
-                  "flex min-w-0 items-center gap-2",
-                  compact && "sm:w-52"
-                )}
-              >
-                <span
-                  className={cn(
-                    "flex size-8 shrink-0 items-center justify-center rounded-md border-2 border-card shadow-automation-template-icon",
-                    template.iconClassName
-                  )}
-                  aria-hidden="true"
+              <img
+                src={template.icon}
+                alt=""
+                width="36"
+                height="36"
+                className="size-9 shrink-0 rounded-[9px] object-contain"
+                aria-hidden="true"
+              />
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <div className="flex min-w-0 flex-col items-start gap-y-1 @min-[28rem]:flex-row @min-[28rem]:flex-wrap @min-[28rem]:items-center @min-[28rem]:gap-x-3">
+                  <h3 className="text-sm leading-5 font-medium text-foreground">
+                    {title}
+                  </h3>
+                  <span className="inline-flex items-center gap-3">
+                    <span
+                      className="hidden h-3.5 w-px shrink-0 bg-border @min-[28rem]:block"
+                      aria-hidden="true"
+                    />
+                    <span
+                      id={scheduleId}
+                      className="text-sm leading-5 text-muted-foreground tabular-nums"
+                    >
+                      {t(`automation.suggestions.${template.id}.schedule`)}
+                    </span>
+                  </span>
+                </div>
+                <p
+                  id={descriptionId}
+                  className="text-sm leading-[var(--app-line-22)] text-muted-foreground"
                 >
-                  <img
-                    src={template.icon}
-                    alt=""
-                    className="size-4 object-contain"
-                  />
-                </span>
-                <h3 className="min-w-0 text-base leading-6 font-medium text-foreground">
-                  {title}
-                </h3>
+                  {t(`automation.suggestions.${template.id}.description`)}
+                </p>
               </div>
-              <p
-                id={descriptionId}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
                 className={cn(
-                  "text-sm leading-[var(--app-line-22)] text-muted-foreground",
-                  compact ? "min-w-0 flex-1" : "min-h-11"
+                  "col-start-2 max-w-full shrink-0 justify-self-start @min-[32rem]:col-auto @min-[32rem]:justify-self-end",
+                  automationActionButtonClassName
                 )}
+                aria-label={t("automation.suggestions.useTemplateNamed", {
+                  name: title,
+                })}
+                aria-describedby={`${scheduleId} ${descriptionId}`}
+                onClick={() => onSelect(template.id)}
               >
-                {t(`automation.suggestions.${template.id}.description`)}
-              </p>
-              <div
-                className={cn(
-                  "flex flex-wrap items-center justify-between gap-2",
-                  compact ? "ml-auto" : "mt-auto"
-                )}
-              >
-                <span id={scheduleId} className="text-xs text-muted-foreground">
-                  {t(`automation.suggestions.${template.id}.schedule`)}
-                </span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  aria-label={t("automation.suggestions.useTemplateNamed", {
-                    name: title,
-                  })}
-                  aria-describedby={`${scheduleId} ${descriptionId}`}
-                  onClick={() => onSelect(template.id)}
-                >
-                  {t("automation.suggestions.useTemplate")}
-                </Button>
-              </div>
+                {t("automation.suggestions.useTemplate")}
+              </Button>
             </li>
           )
         })}

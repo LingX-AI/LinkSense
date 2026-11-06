@@ -2,6 +2,16 @@ import {
   applicationIconPresets,
   type ApplicationIconPreset,
 } from "@linksense/shared"
+import defaultIcon from "@/assets/applications/default.svg"
+import reportIcon from "@/assets/applications/report.svg"
+import researchIcon from "@/assets/applications/research.svg"
+import knowledgeIcon from "@/assets/applications/knowledge.svg"
+import writingIcon from "@/assets/applications/writing.svg"
+import educationIcon from "@/assets/applications/education.svg"
+import analyticsIcon from "@/assets/applications/analytics.svg"
+import codeIcon from "@/assets/applications/code.svg"
+import creativeIcon from "@/assets/applications/creative.svg"
+import workflowIcon from "@/assets/applications/workflow.svg"
 import {
   AnalyticsSceneIcon,
   BotSceneIcon,
@@ -29,6 +39,36 @@ import {
 type ApplicationIconPresetDefinition = {
   icon: ApplicationIllustratedIcon
 }
+
+// Figma 1:86829 / 1:86113. Keep the persisted preset keys and legacy artwork
+// so existing applications remain readable without changing stored data.
+export const applicationIconArtwork: Partial<
+  Record<ApplicationIconPreset, string>
+> = {
+  bot: defaultIcon,
+  "file-text": reportIcon,
+  search: researchIcon,
+  "book-open": knowledgeIcon,
+  "pen-line": writingIcon,
+  "graduation-cap": educationIcon,
+  "chart-column": analyticsIcon,
+  "code-xml": codeIcon,
+  sparkles: creativeIcon,
+  workflow: workflowIcon,
+}
+
+export const applicationDesignIconPresets: ApplicationIconPreset[] = [
+  "bot",
+  "file-text",
+  "search",
+  "book-open",
+  "pen-line",
+  "graduation-cap",
+  "chart-column",
+  "code-xml",
+  "sparkles",
+  "workflow",
+]
 
 export const applicationIconPresetDefinitions: Record<
   ApplicationIconPreset,

@@ -187,7 +187,9 @@ describe("three application categories", () => {
       expect(metadata).toHaveTextContent(
         i18n.t("applications.details.kinds.standard")
       )
-      expect(metadata).toHaveTextContent(i18n.t("applications.status.active"))
+      expect(
+        card.querySelector('[data-slot="application-card-status"]')
+      ).toHaveTextContent(i18n.t("applications.status.active"))
     }
   )
 
@@ -880,7 +882,7 @@ describe("three application categories", () => {
         draftCard.querySelector(
           '[data-slot="application-card-development-overlay"]'
         )
-      ).not.toBeNull()
+      ).toBeNull()
       const changedCard = screen.getByRole("article", { name: installed.name })
       const changedHeader = changedCard.querySelector(
         '[data-slot="application-card-metadata"]'
@@ -888,9 +890,9 @@ describe("three application categories", () => {
       expect(changedHeader).not.toHaveTextContent(
         i18n.t("applicationDevelopment.catalog.developing")
       )
-      expect(changedHeader).toHaveTextContent(
-        i18n.t("applications.status.active")
-      )
+      expect(
+        changedCard.querySelector('[data-slot="application-card-status"]')
+      ).toHaveTextContent(i18n.t("applications.status.active"))
       expect(
         changedCard.querySelector(
           '[data-slot="application-card-development-overlay"]'

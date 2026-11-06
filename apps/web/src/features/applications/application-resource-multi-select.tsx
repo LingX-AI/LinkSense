@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next"
+import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
@@ -39,6 +40,7 @@ export function ResourceMultiSelect({
   onSearch,
   onLoadMore,
   visibleChipLimit = 2,
+  layout = "default",
 }: {
   id: string
   title: string
@@ -55,6 +57,7 @@ export function ResourceMultiSelect({
   onSearch?: (search: string) => void
   onLoadMore?: () => void
   visibleChipLimit?: number
+  layout?: "default" | "row"
 }) {
   const { t } = useTranslation()
   const selected = new Set(selectedIds)
@@ -65,7 +68,13 @@ export function ResourceMultiSelect({
   )
 
   return (
-    <Field data-disabled={disabled}>
+    <Field
+      data-disabled={disabled}
+      className={cn(
+        layout === "row" &&
+          "min-h-22 py-4 @2xl/field-group:grid @2xl/field-group:grid-cols-2 @2xl/field-group:gap-x-6 @2xl/field-group:gap-y-1!"
+      )}
+    >
       <FieldLabel htmlFor={id}>{title}</FieldLabel>
       <FieldDescription>{description}</FieldDescription>
       <Combobox
@@ -88,7 +97,13 @@ export function ResourceMultiSelect({
           onChange(nextItems.map((item) => item.id))
         }
       >
-        <ComboboxChips className="min-h-9 w-full">
+        <ComboboxChips
+          className={cn(
+            "min-h-9 w-full",
+            layout === "row" &&
+              "min-h-10 @2xl/field-group:col-start-2 @2xl/field-group:row-span-2 @2xl/field-group:row-start-1 @2xl/field-group:self-center"
+          )}
+        >
           <ComboboxValue>
             {selectedItems.slice(0, visibleChipLimit).map((item) => (
               <ComboboxChip

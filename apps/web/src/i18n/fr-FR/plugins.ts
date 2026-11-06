@@ -373,6 +373,11 @@ export const pluginResources = {
     },
   },
   capability: {
+    uiDemo: {
+      readOnly:
+        "Exemples locaux de plugins. Explorez la recherche, les détails et les menus sans installer de plugins ni modifier les données réelles.",
+      exit: "Quitter la démo",
+    },
     title: "Plugins et compétences",
     description:
       "Gérez les plugins, compétences, sources du Centre et états d’exécution personnels.",

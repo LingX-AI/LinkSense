@@ -38,6 +38,7 @@ import {
 import { ApiError } from "@/api/client"
 import { getErrorMessage } from "@/api/error-message"
 import { useAuth } from "@/app/auth-state"
+import knowledgeBaseIconUrl from "@/assets/knowledge-bases/knowledge-base-default.svg"
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog"
 import {
   EmptyState,
@@ -66,7 +67,6 @@ import {
   CardDescription,
   CardTitle,
 } from "@/components/ui/card"
-import { cardSpotlightProps } from "@/components/ui/card-spotlight"
 import {
   Dialog,
   DialogClose,
@@ -170,6 +170,8 @@ import {
   KnowledgeOriginalPreview,
 } from "@/features/knowledge-bases/knowledge-original-preview"
 import { KnowledgeShareDialog } from "@/features/knowledge-bases/knowledge-share-dialog"
+import { isKnowledgeUiDemoEnabled } from "@/features/knowledge-bases/knowledge-ui-demo-mode"
+import { KnowledgeUiDemoNotice } from "@/features/knowledge-bases/knowledge-ui-demo-notice"
 import { KnowledgeSearchStatusBanner } from "@/features/knowledge-bases/knowledge-search-status-banner"
 import { KnowledgeCreationReadinessBanner } from "@/features/knowledge-bases/knowledge-creation-readiness-banner"
 import { capabilityCenterPath } from "@/features/capabilities/capability-center-navigation"
@@ -335,6 +337,7 @@ function KnowledgeBaseLibraryContent({
   }
   const [createOpen, setCreateOpen] = useState(false)
   const deferredSearch = useDeferredValue(search.trim())
+  const demo = isKnowledgeUiDemoEnabled()
   const searchCapability = useKnowledgeSearchCapability()
   const knowledgeInstalled =
     searchCapability.data !== undefined &&
@@ -347,8 +350,9 @@ function KnowledgeBaseLibraryContent({
     },
     { enabled: knowledgeInstalled }
   )
-  const creationCapability =
-    useKnowledgeBaseCreationCapability(knowledgeInstalled)
+  const creationCapability = useKnowledgeBaseCreationCapability(
+    knowledgeInstalled && !demo
+  )
   const creationReady =
     creationCapability.capability?.status === "ready" &&
     !creationCapability.isFetching &&
@@ -397,6 +401,7 @@ function KnowledgeBaseLibraryContent({
   return (
     <>
       {headerActions &&
+        !demo &&
         createPortal(
           <Button
             type="button"
@@ -409,13 +414,16 @@ function KnowledgeBaseLibraryContent({
           headerActions
         )}
       <section aria-label={t("knowledge.title")}>
-        <KnowledgeCreationReadinessBanner
-          capability={creationCapability.capability}
-          checking={creationCapability.isFetching}
-          requestFailed={creationCapability.requestFailed}
-          onRetry={() => void creationCapability.retry()}
-          className="mb-3"
-        />
+        <KnowledgeUiDemoNotice />
+        {!demo && (
+          <KnowledgeCreationReadinessBanner
+            capability={creationCapability.capability}
+            checking={creationCapability.isFetching}
+            requestFailed={creationCapability.requestFailed}
+            onRetry={() => void creationCapability.retry()}
+            className="mb-3"
+          />
+        )}
 
         <KnowledgeSearchStatusBanner
           capability={searchCapability.capability}
@@ -526,11 +534,12 @@ function KnowledgeBaseListContent({
     <section className="knowledge-card-list" aria-label={t("knowledge.title")}>
       <div
         aria-hidden="true"
-        className="hidden h-10 items-center gap-4 bg-background px-4 text-xs leading-[var(--app-line-18)] text-muted-foreground sm:flex"
+        className="knowledge-card-list-header hidden sm:grid"
       >
-        <span className="min-w-0 flex-1">{t("knowledge.title")}</span>
-        <span className="w-30 shrink-0">{t("common.status")}</span>
-        <span className="w-9 shrink-0" />
+        <span />
+        <span className="min-w-0">{t("knowledge.title")}</span>
+        <span>{t("common.status")}</span>
+        <span />
       </div>
       {items.map((knowledgeBase) => (
         <KnowledgeBaseCard
@@ -569,13 +578,22 @@ function KnowledgeBaseCard({
   const sourceTypeLabel = getKnowledgeBaseSourceTypeLabel(knowledgeBase, t)
   return (
     <NavLink
-      {...cardSpotlightProps}
       to={`/knowledge-bases/${knowledgeBase.id}`}
-      className={cn(cardSpotlightProps.className, "knowledge-card-link")}
+      className="knowledge-card-link"
       aria-label={knowledgeBase.name}
     >
       <Card size="sm" className="knowledge-card rounded-none border-0">
         <CardContent className="knowledge-card-row">
+          <img
+            src={knowledgeBaseIconUrl}
+            width="40"
+            height="40"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            data-slot="knowledge-base-icon"
+            className="size-10 shrink-0"
+          />
           <div className="knowledge-card-main">
             <div className="knowledge-card-heading">
               <CardTitle
@@ -640,17 +658,21 @@ function KnowledgeBaseCard({
               </time>
             </div>
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-1 text-sm leading-[var(--app-line-22)] font-medium text-muted-foreground">
+          <div className="flex min-w-0 flex-wrap items-center gap-1 text-xs leading-[var(--app-line-16)] font-medium text-muted-foreground">
             {knowledgeBase.lifecycle_status === "archived" && (
-              <Badge variant="outline">
+              <Badge variant="outline" className="text-muted-foreground">
                 {t("knowledge.lifecycle.archived")}
               </Badge>
             )}
             {unavailable && (
-              <Badge variant="destructive">{t("knowledge.disabled")}</Badge>
+              <Badge variant="outline" className="text-destructive">
+                {t("knowledge.disabled")}
+              </Badge>
             )}
             {!unavailable && knowledgeBase.lifecycle_status !== "archived" && (
-              <span>{t("knowledge.lifecycle.current")}</span>
+              <Badge variant="outline" className="text-link-foreground">
+                {t("knowledge.lifecycle.current")}
+              </Badge>
             )}
           </div>
           <ChevronRightIcon
@@ -1146,7 +1168,7 @@ function KnowledgeBaseDetailContent({
   const enabledForContent =
     detail.data?.availability_status === "enabled" &&
     detail.data.permissions.view_content
-  const enabledForEvents = enabledForContent
+  const enabledForEvents = enabledForContent && !isKnowledgeUiDemoEnabled()
   const eventConnection = useKnowledgeBaseEvents(
     knowledgeBaseId,
     Boolean(enabledForEvents)
@@ -1384,13 +1406,16 @@ function KnowledgeBaseDetailContent({
         />
       }
       beforeHeader={
-        <Link
-          to="/knowledge-bases"
-          className={buttonVariants({ variant: "ghost", size: "sm" })}
-        >
-          <ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
-          {t("knowledge.backToList")}
-        </Link>
+        <>
+          <KnowledgeUiDemoNotice showWorkspaceNotice={false} />
+          <Link
+            to="/knowledge-bases"
+            className={buttonVariants({ variant: "ghost", size: "sm" })}
+          >
+            <ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
+            {t("knowledge.backToList")}
+          </Link>
+        </>
       }
       actions={
         <KnowledgeBaseActions
@@ -1593,7 +1618,7 @@ function KnowledgeBaseDetailContent({
                   {deletionBlock.usages.map((usage) => (
                     <li
                       key={`${usage.type}:${usage.resource_id}`}
-                      className="flex min-h-22 items-center justify-between gap-4 border-b border-divider p-4"
+                      className="flex min-h-19 items-center justify-between gap-4 border-b border-divider px-4 py-3"
                     >
                       <span className="min-w-0 truncate font-medium">
                         {usage.name}
@@ -1803,7 +1828,7 @@ function KnowledgeBaseHeaderMetadata({
             {knowledgeBase.access_sources.map((source, index) => (
               <li
                 key={`${source.type}-${source.id ?? source.name ?? index}`}
-                className="flex min-h-22 flex-wrap items-center gap-4 border-b border-divider p-4"
+                className="flex min-h-19 flex-wrap items-center gap-4 border-b border-divider px-4 py-3"
               >
                 <Badge variant="secondary">
                   {source.type === "owner"
@@ -1952,7 +1977,7 @@ function KnowledgeDocumentSection({
       {!query.isError && displayEntries.length > 0 && (
         <div className="flex flex-col gap-3">
           <div className="knowledge-document-table">
-            <Table className="md:[&_td]:h-15 md:[&_td]:p-3 md:[&_td]:after:h-px [&_th]:h-11 [&_th]:px-3 md:[&_tr:last-child>td]:after:block">
+            <Table className="md:[&_td]:h-14 md:[&_td]:px-3 md:[&_td]:py-2.5 [&_th]:h-11 [&_th]:px-3">
               <TableHeader>
                 <TableRow>
                   {canManage && (
@@ -2677,7 +2702,8 @@ export function KnowledgeDocumentPreviewPage() {
     knowledgeBase.data?.availability_status === "enabled" &&
     knowledgeBase.data.permissions.view_content
   )
-  const previewEventsEnabled = previewContentEnabled
+  const previewEventsEnabled =
+    previewContentEnabled && !isKnowledgeUiDemoEnabled()
   const eventConnection = useKnowledgeBaseEvents(
     knowledgeBaseId,
     previewEventsEnabled
@@ -2771,6 +2797,7 @@ export function KnowledgeDocumentPreviewPage() {
   return (
     <div className="management-scroll">
       <div className="knowledge-preview-page">
+        <KnowledgeUiDemoNotice />
         <header className="knowledge-preview-header">
           <Tooltip>
             <TooltipTrigger

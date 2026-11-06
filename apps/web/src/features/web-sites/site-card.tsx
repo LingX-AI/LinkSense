@@ -30,7 +30,7 @@ export function SiteCard({
       size="sm"
       className={cn(
         cardSpotlightProps.className,
-        "min-h-16 min-w-0 flex-row flex-wrap items-center gap-3 rounded-none border-0 border-b border-divider bg-transparent p-3 shadow-none hover:bg-hover"
+        "min-h-15 min-w-0 flex-row flex-wrap items-center gap-3 rounded-none border-0 border-b border-divider bg-transparent px-3 py-2.5 shadow-none hover:bg-hover"
       )}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">

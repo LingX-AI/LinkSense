@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
 import { PageTopBar } from "@/components/shell/page-top-bar"
+import { WorkspaceUiDemoNotice } from "@/features/ui-demo/workspace-ui-demo-notice"
 
 export function PageLayout({
   title,
@@ -70,6 +71,7 @@ export function PageLayout({
           {actions && <div className="management-actions">{actions}</div>}
         </header>
         {afterHeader && <div className="mb-6">{afterHeader}</div>}
+        <WorkspaceUiDemoNotice />
         {children}
       </div>
     </div>

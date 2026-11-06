@@ -14,6 +14,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom"
 
 import type { User } from "@/api/contracts"
 import { setAccessToken } from "@/api/session"
+import knowledgeBaseIconUrl from "@/assets/knowledge-bases/knowledge-base-default.svg"
 import { AuthContext } from "@/app/auth-state"
 import { ThemeProvider } from "@/app/theme-context"
 import { notify } from "@/components/feedback/notification"
@@ -1160,7 +1161,7 @@ describe("knowledge-base document and access management", () => {
     expect(card).toHaveClass("knowledge-card", "border-0", "rounded-none")
     expect(
       knowledgeBaseLink.querySelector('[data-slot="knowledge-base-icon"]')
-    ).toBeNull()
+    ).toHaveAttribute("src", knowledgeBaseIconUrl)
     const sourceText = screen.getByText("来源：本地")
     const updatedAt = knowledgeBaseLink.querySelector<HTMLTimeElement>(
       'time[datetime="2026-07-22T01:01:00.000Z"]'
@@ -1179,7 +1180,7 @@ describe("knowledge-base document and access management", () => {
       within(knowledgeBaseLink).getByText(i18n.t("knowledge.lifecycle.current"))
     ).toBeVisible()
     const listHeader = knowledgeBaseLink.closest("section")?.firstElementChild
-    expect(listHeader).toHaveClass("h-10", "sm:flex")
+    expect(listHeader).toHaveClass("knowledge-card-list-header", "sm:grid")
     expect(listHeader).toHaveTextContent(i18n.t("common.status"))
     expect(card?.querySelector('[data-slot="card-footer"]')).toBeNull()
     expect(
@@ -2599,7 +2600,7 @@ describe("knowledge-base document and access management", () => {
     const applicationItems = within(blockedDialog).getAllByRole("listitem")
     expect(applicationItems).toHaveLength(2)
     for (const item of applicationItems) {
-      expect(item).toHaveClass("min-h-22", "border-b", "border-divider")
+      expect(item).toHaveClass("min-h-19", "border-b", "border-divider")
     }
 
     await interaction.click(

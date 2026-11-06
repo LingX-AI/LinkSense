@@ -1,6 +1,6 @@
 import type { ApplicationIconFormState } from "./application-icon-form"
 import { useRef, useState } from "react"
-import { CheckIcon, UploadIcon } from "lucide-react"
+import { CheckIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
   DEFAULT_APPLICATION_ICON_PRESET,
@@ -18,24 +18,34 @@ import {
   ApplicationIconDisplay,
   ApplicationPresetIcon,
 } from "./application-icon"
-import { applicationIconPresetOptions } from "./application-icon-presets"
+import {
+  applicationDesignIconPresets,
+  applicationIconPresetOptions,
+} from "./application-icon-presets"
+import { cn } from "@/lib/utils"
 
 export function ApplicationIconField({
   value,
   onChange,
   onReadingChange,
   disabled = false,
+  layout = "default",
 }: {
   value: ApplicationIconFormState
   onChange: (value: ApplicationIconFormState) => void
   onReadingChange: (reading: boolean) => void
   disabled?: boolean
+  layout?: "default" | "page"
 }) {
   const { t } = useTranslation()
   const input = useRef<HTMLInputElement>(null)
   const generation = useRef(0)
   const [error, setError] = useState<string | null>(null)
   const [reading, setReading] = useState(false)
+  const presetOptions =
+    layout === "page"
+      ? applicationDesignIconPresets.map((value) => ({ value }))
+      : applicationIconPresetOptions
   const busy = (value: boolean) => {
     setReading(value)
     onReadingChange(value)
@@ -53,9 +63,16 @@ export function ApplicationIconField({
   return (
     <Field data-invalid={Boolean(error)}>
       <FieldLabel>{t("applications.icon")}</FieldLabel>
-      <div className="flex flex-wrap items-start gap-8">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          <ApplicationIconDisplay icon={displayed} className="size-13" />
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+        <div
+          className={cn(
+            "flex min-w-0 flex-wrap items-center gap-2",
+            layout === "page" ? "max-w-148" : "flex-1"
+          )}
+        >
+          {(layout !== "page" || value.mode !== "preset") && (
+            <ApplicationIconDisplay icon={displayed} className="size-13" />
+          )}
           <ToggleGroup
             variant="default"
             disabled={disabled}
@@ -72,7 +89,7 @@ export function ApplicationIconField({
             spacing={2}
             className="flex-wrap gap-2"
           >
-            {applicationIconPresetOptions.map((option) => {
+            {presetOptions.map((option) => {
               const selected =
                 value.mode === "preset" && value.preset === option.value
               return (
@@ -80,7 +97,7 @@ export function ApplicationIconField({
                   key={option.value}
                   value={option.value}
                   aria-label={t(`applications.iconPresets.${option.value}`)}
-                  className="relative size-13! min-w-0 rounded-[10px]! border border-transparent p-1.5! hover:border-input-hover hover:bg-transparent! focus-visible:border-ring focus-visible:ring-0! aria-pressed:border-primary aria-pressed:bg-accent!"
+                  className="relative size-13! min-w-0 rounded-[10px]! border border-transparent p-[5px]! hover:border-input-hover hover:bg-hover! focus-visible:border-ring focus-visible:ring-0! aria-pressed:border-primary aria-pressed:bg-accent!"
                 >
                   <ApplicationPresetIcon preset={option.value} />
                   {selected && (
@@ -104,13 +121,15 @@ export function ApplicationIconField({
             className="w-full"
             onClick={() => input.current?.click()}
           >
-            <UploadIcon data-icon="inline-start" />
             {t(
               value.mode === "preset"
                 ? "applications.uploadIcon"
                 : "applications.replaceIcon"
             )}
           </Button>
+          <span className="text-xs leading-[18px] text-muted-foreground">
+            PNG, JPG, WebP
+          </span>
           <Input
             ref={input}
             type="file"
@@ -158,7 +177,12 @@ export function ApplicationIconField({
           />
         </div>
       </div>
-      <FieldDescription className="w-full max-w-none text-xs leading-5 whitespace-normal">
+      <FieldDescription
+        className={cn(
+          "w-full max-w-none text-xs leading-[18px] whitespace-normal",
+          layout === "page" && "min-h-9"
+        )}
+      >
         {t("applications.iconHint", {
           size: "512 KiB",
           dimension: APPLICATION_ICON_MAX_DIMENSION,

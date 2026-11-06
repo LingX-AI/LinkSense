@@ -49,7 +49,12 @@ import {
 import { useTranslation } from "react-i18next"
 import { z } from "zod"
 
-import { apiRequest, apiUploadRequest } from "@/api/client"
+import {
+  apiRequest,
+  apiUploadRequest,
+  isPluginUiDemoEnabled,
+  pluginUiDemoQueryKey,
+} from "@/features/capabilities/plugin-ui-demo"
 import {
   capabilityImportPreviewSchema,
   capabilitySummarySchema,
@@ -1410,7 +1415,7 @@ function MyCapabilitiesPanel({
   )
 
   const publications = useQuery({
-    queryKey: ["marketplace", "mine"],
+    queryKey: ["marketplace", "mine", ...pluginUiDemoQueryKey()],
     queryFn: () =>
       apiRequest("/marketplace/mine", {
         schema: marketplacePublicationPageSchema,
@@ -1430,7 +1435,7 @@ function MyCapabilitiesPanel({
         capability.marketplace_listing_id !== null
     )
   const marketplaceInstallations = useQuery({
-    queryKey: ["marketplace", "installations"],
+    queryKey: ["marketplace", "installations", ...pluginUiDemoQueryKey()],
     queryFn: () =>
       apiRequest("/marketplace/installations", {
         schema: marketplaceCatalogPageSchema,
@@ -2086,7 +2091,7 @@ function PersonalMcpPanel({
             return (
               <article
                 key={server.id}
-                className="capability-library-row min-h-16! gap-3! border-b-0! p-3! shadow-[inset_0_-1px_0_var(--app-divider)]"
+                className="capability-library-row min-h-15! gap-3! border-b-0! px-3! py-2.5! shadow-[inset_0_-1px_0_var(--app-divider)]"
                 aria-label={server.name}
               >
                 <div className="capability-library-body">
@@ -2176,7 +2181,11 @@ function MarketplaceCatalogPanel({
     }>,
     options: { replace?: boolean } = {}
   ) => {
-    const nextPath = capabilityCenterPath({ ...catalogLocation, ...update })
+    const basePath = capabilityCenterPath({ ...catalogLocation, ...update })
+    const nextPath =
+      isPluginUiDemoEnabled() && (update.section ?? section) === "plugin"
+        ? `${basePath}&pluginDemo=1`
+        : basePath
     if (`${location.pathname}${location.search}` === nextPath) return
     navigate(nextPath, { replace: options.replace })
   }
@@ -2201,7 +2210,7 @@ function MarketplaceCatalogPanel({
     organizationMarketplaceEnabled && section !== "mcp"
 
   const managed = useQuery({
-    queryKey: ["capabilities", "managed"],
+    queryKey: ["capabilities", "managed", ...pluginUiDemoQueryKey()],
     queryFn: ({ signal }) =>
       apiRequest("/capabilities", {
         query: { view: "managed" },
@@ -2211,7 +2220,7 @@ function MarketplaceCatalogPanel({
     enabled: section !== "application",
   })
   const mcpServers = useQuery({
-    queryKey: ["mcp-servers"],
+    queryKey: ["mcp-servers", ...pluginUiDemoQueryKey()],
     queryFn: ({ signal }) =>
       apiRequest("/mcp-servers", {
         schema: mcpServerListSchema,
@@ -2220,7 +2229,13 @@ function MarketplaceCatalogPanel({
     enabled: section === "mcp",
   })
   const catalog = useQuery({
-    queryKey: ["marketplace", "catalog", section, deferredSearch],
+    queryKey: [
+      "marketplace",
+      "catalog",
+      section,
+      deferredSearch,
+      ...pluginUiDemoQueryKey(),
+    ],
     queryFn: () =>
       apiRequest("/marketplace", {
         query: {
@@ -2642,6 +2657,25 @@ function MarketplaceCatalogPanel({
               />
             ) : (
               <div className="capability-center-catalog">
+                {isPluginUiDemoEnabled() && (
+                  <StatusBanner variant="info">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span>{t("capability.uiDemo.readOnly")}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          window.location.assign(
+                            capabilityCenterPath(catalogLocation)
+                          )
+                        }
+                      >
+                        {t("capability.uiDemo.exit")}
+                      </Button>
+                    </div>
+                  </StatusBanner>
+                )}
                 <div className="capability-center-search-row">
                   <InputGroup className="flex-1">
                     <InputGroupAddon>
@@ -2714,7 +2748,6 @@ function MarketplaceCatalogPanel({
                     }))
                   }
                 />
-                <Separator />
                 <div className="capability-center-scope-row">
                   <Tabs
                     value={scope}
@@ -3392,7 +3425,7 @@ function MyPublicationsPanel({
     useState<MarketplacePublication | null>(null)
 
   const sources = useQuery({
-    queryKey: ["capabilities", "publishable"],
+    queryKey: ["capabilities", "publishable", ...pluginUiDemoQueryKey()],
     queryFn: () =>
       apiRequest("/capabilities", {
         query: { view: "managed" },
@@ -3400,7 +3433,7 @@ function MyPublicationsPanel({
       }),
   })
   const publications = useQuery({
-    queryKey: ["marketplace", "mine"],
+    queryKey: ["marketplace", "mine", ...pluginUiDemoQueryKey()],
     queryFn: () =>
       apiRequest("/marketplace/mine", {
         schema: marketplacePublicationPageSchema,
@@ -3674,6 +3707,7 @@ export function CapabilityManagementPage() {
     >
       <PageLayout
         variant="workspace"
+        className="[&>.management-header_p]:mt-6!"
         navigationTitle={t("nav.capabilities")}
         navigationActions={
           organizationMarketplaceEnabled && (
@@ -3736,7 +3770,7 @@ export function CapabilityManagementPage() {
           <>
             {view === "store" && (
               <TabsList
-                className="mb-6 justify-start"
+                className="justify-start"
                 variant="navigation"
                 aria-label={t("marketplace.catalogTabsLabel")}
               >
