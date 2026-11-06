@@ -24,7 +24,7 @@ describe("capability card layout", () => {
 
   it("centers icons and content in full-width catalog rows", () => {
     expect(capabilityPageStyles).toMatch(
-      /\.capability-library-row\s*\{[^}]*min-height:\s*88px;[^}]*align-items:\s*center;[^}]*padding:\s*16px;/u
+      /\.capability-library-row\s*\{[^}]*min-height:\s*76px;[^}]*align-items:\s*center;[^}]*padding:\s*12px 16px;/u
     )
   })
 

@@ -22,6 +22,7 @@ import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom"
 
 import { setAccessToken } from "@/api/session"
 import { ApplicationTestHistory } from "@/features/applications/application-test-history"
+import { applicationIconArtwork } from "@/features/applications/application-icon-presets"
 import { writeLocalConversationDraft } from "@/features/conversations/conversation-local-draft"
 import { clearConversationAttachmentPreviewCacheForTests } from "@/features/conversations/conversation-attachment-preview-cache"
 import i18n from "@/i18n"
@@ -3606,8 +3607,12 @@ describe("conversation knowledge base snapshots", () => {
       if (!applicationIcon) {
         throw new Error("Expected the application logo before the task title")
       }
-      expect(applicationIcon.querySelector("svg")).toBeInTheDocument()
-      expect(applicationIcon.querySelector("svg")).toHaveClass("size-full")
+      expect(applicationIcon.querySelector("img")).toHaveAttribute(
+        "src",
+        applicationIconArtwork.bot
+      )
+      expect(applicationIcon.querySelector("img")).toHaveClass("size-full")
+      expect(applicationIcon.querySelector("img")).toHaveAttribute("alt", "")
       expect(
         applicationIcon.compareDocumentPosition(taskTitle) &
           Node.DOCUMENT_POSITION_FOLLOWING

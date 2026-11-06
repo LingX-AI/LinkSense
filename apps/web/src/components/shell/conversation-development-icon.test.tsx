@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
 import { ConversationDevelopmentIcon } from "./conversation-development-icon"
+import { applicationIconArtwork } from "@/features/applications/application-icon-presets"
 import i18n from "@/i18n"
 
 afterEach(() => cleanup())
@@ -25,8 +26,11 @@ describe("conversation development icon", () => {
       const icon = screen.getByRole("img", { name: label })
       expect(icon).toHaveAttribute("title", label)
       expect(
-        icon.querySelector('[data-application-icon-preset="code-xml"] svg')
+        icon.querySelector('[data-application-icon-preset="code-xml"] img')
       ).toHaveClass("size-full")
+      expect(
+        icon.querySelector('[data-application-icon-preset="code-xml"] img')
+      ).toHaveAttribute("src", applicationIconArtwork["code-xml"])
       expect(icon.querySelector(".lucide-code-xml")).toBeNull()
       expect(
         icon.compareDocumentPosition(screen.getByText("Task title")) &

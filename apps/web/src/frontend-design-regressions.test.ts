@@ -31,12 +31,10 @@ describe("frontend design regressions", () => {
   })
 
   it("uses links for navigation to known destinations", () => {
-    expect(applicationExternalAccessSource).toContain(
-      "<Link\n          to={applicationCenterReturnTo}"
+    expect(applicationExternalAccessSource).toMatch(
+      /<Link\s+to=\{applicationCenterReturnTo\}/u
     )
-    expect(knowledgeBaseSource).toContain(
-      '<Link\n          to="/knowledge-bases"'
-    )
+    expect(knowledgeBaseSource).toMatch(/<Link\s+to="\/knowledge-bases"/u)
   })
 
   it("keeps list and analytics view state in URL parameters", () => {
