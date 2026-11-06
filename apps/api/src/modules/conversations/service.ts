@@ -1010,7 +1010,16 @@ export class ConversationService {
     if (!this.modelRuntimeSettings) {
       throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED");
     }
-    return this.modelRuntimeSettings.resolveModelTransitionRuntime(sourceModel);
+    try {
+      return await this.modelRuntimeSettings.resolveModelTransitionRuntime(sourceModel);
+    } catch (error) {
+      // Historical turns may reference a model that has since been removed
+      // from provider settings; the transition hint is best-effort.
+      if (error instanceof AppError && error.code === "MODEL_SELECTION_INVALID") {
+        return null;
+      }
+      throw error;
+    }
   }
 
   private async validateKnowledgeBaseSelection(
