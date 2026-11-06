@@ -4,9 +4,10 @@ import {
   useReducedMotion,
   useSpring,
   useTransform,
+  useVelocity,
 } from "framer-motion"
 import { PauseIcon, PlayIcon } from "lucide-react"
-import { memo, useEffect, useState, type PointerEvent } from "react"
+import { memo, useEffect, useRef, useState, type PointerEvent } from "react"
 import { useTranslation } from "react-i18next"
 
 import welcomeOrb from "@/assets/home/welcome-orb.svg?raw"
@@ -50,20 +51,64 @@ const WelcomeOrbArtwork = memo(function WelcomeOrbArtwork() {
 export function WelcomeOrb() {
   const { t } = useTranslation()
   const reducedMotion = useReducedMotion()
+  const orbRef = useRef<HTMLDivElement>(null)
+  const [inView, setInView] = useState(true)
+  const [pageVisible, setPageVisible] = useState(() => !document.hidden)
   const [paused, setPaused] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [connections, setConnections] = useState<readonly number[]>([])
   const horizontal = useSpring(0, spring)
   const vertical = useSpring(0, spring)
-  const rotateX = useTransform(vertical, [-1, 1], [10, -10])
-  const rotateY = useTransform(horizontal, [-1, 1], [-14, 14])
-  const x = useTransform(horizontal, [-1, 1], [-6, 6])
-  const y = useTransform(vertical, [-1, 1], [-4, 4])
+  const horizontalVelocity = useVelocity(horizontal)
+  const verticalVelocity = useVelocity(vertical)
+  const rotateX = useTransform(vertical, [-1, 1], [3, -3])
+  const rotateY = useTransform(horizontal, [-1, 1], [-4, 4])
+  const x = useTransform(horizontal, [-1, 1], [-4, 4])
+  const y = useTransform(vertical, [-1, 1], [-3, 3])
+  const deformation = useTransform(() => {
+    const dx = horizontal.get()
+    const dy = vertical.get()
+    const distance = Math.hypot(dx, dy)
+    if (distance < 0.001) return "matrix(1, 0, 0, 1, 0, 0)"
+    const directionX = dx / distance
+    const directionY = dy / distance
+    const speed = Math.min(
+      1,
+      Math.hypot(horizontalVelocity.get(), verticalVelocity.get()) / 5
+    )
+    // Stretch toward the pointer and gently compress across it. The velocity
+    // contribution settles on its own, even when the pointer stops inside.
+    const stretch = Math.min(1, distance) * 0.04 + speed * 0.015
+    const compression = stretch * 0.6
+    const xx = 1 + stretch * directionX ** 2 - compression * directionY ** 2
+    const yy = 1 + stretch * directionY ** 2 - compression * directionX ** 2
+    const xy = (stretch + compression) * directionX * directionY
+    return `matrix(${xx}, ${xy}, ${xy}, ${yy}, 0, 0)`
+  })
   const cursorX = useTransform(horizontal, [-1, 1], [0, 176])
   const cursorY = useTransform(vertical, [-1, 1], [0, 176])
   const light = useMotionTemplate`radial-gradient(circle at ${cursorX}px ${cursorY}px, rgb(220 249 255 / 85%), rgb(68 210 255 / 35%) 22%, transparent 52%)`
-  const enabled = !paused && !reducedMotion
+  const enabled = !paused && !reducedMotion && inView && pageVisible
   const active = enabled && hovered
+
+  useEffect(() => {
+    const onVisibilityChange = () => setPageVisible(!document.hidden)
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    const observer =
+      typeof IntersectionObserver === "undefined"
+        ? null
+        : new IntersectionObserver(
+            ([entry]) => {
+              if (entry) setInView(entry.isIntersecting)
+            },
+            { threshold: 0.1 }
+          )
+    if (orbRef.current) observer?.observe(orbRef.current)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      observer?.disconnect()
+    }
+  }, [])
 
   useEffect(() => {
     if (enabled) return
@@ -104,6 +149,7 @@ export function WelcomeOrb() {
 
   return (
     <div
+      ref={orbRef}
       className="conversation-welcome-icon group/orb relative mr-10 hidden size-44 shrink-0 @min-[56rem]/task-home:block"
       data-active={active}
       data-paused={paused}
@@ -123,12 +169,6 @@ export function WelcomeOrb() {
       />
       <motion.div
         initial={false}
-        animate={{ scale: active ? 1.055 : 1 }}
-        transition={
-          reducedMotion
-            ? { duration: 0 }
-            : { type: "spring", duration: 0.5, bounce: 0 }
-        }
         style={
           reducedMotion
             ? undefined
@@ -136,47 +176,52 @@ export function WelcomeOrb() {
         }
         className="relative size-full"
       >
-        <div
-          data-paused={!enabled}
-          className="relative size-full translate-0 rotate-0 data-[paused=true]:[animation-play-state:paused] motion-safe:animate-welcome-orb-float"
+        <motion.div
+          style={reducedMotion ? undefined : { transform: deformation }}
+          className="relative size-full"
         >
-          <WelcomeOrbArtwork />
-          <span
-            aria-hidden="true"
-            className="welcome-orb-mask pointer-events-none absolute inset-0 motion-reduce:hidden"
-            style={{ maskImage: welcomeOrbMask }}
+          <div
+            data-paused={!enabled}
+            className="welcome-orb-idle relative size-full translate-0 rotate-0 data-[paused=true]:[animation-play-state:paused] motion-safe:animate-welcome-orb-float"
           >
+            <WelcomeOrbArtwork />
             <span
-              data-paused={!enabled}
-              className="absolute inset-y-0 left-0 w-1/2 translate-0 bg-linear-to-r from-transparent via-cyan-100/70 to-transparent mix-blend-screen data-[paused=true]:[animation-play-state:paused] motion-safe:animate-welcome-orb-sheen"
-            />
-          </span>
-          <motion.span
-            aria-hidden="true"
-            style={{
-              backgroundImage: light,
-              maskImage: welcomeOrbMask,
-            }}
-            className="welcome-orb-mask pointer-events-none absolute inset-0 opacity-0 mix-blend-screen transition-opacity duration-300 group-data-[active=true]/orb:opacity-70 motion-reduce:hidden"
-          />
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 176 176"
-            className="pointer-events-none absolute inset-0 size-full text-cyan-200 opacity-0 transition-opacity duration-300 group-data-[active=true]/orb:opacity-35 motion-reduce:hidden"
-          >
-            {connections.map((index) => (
-              <motion.line
-                key={index}
-                x1={cursorX}
-                y1={cursorY}
-                x2={anchors[index][0]}
-                y2={anchors[index][1]}
-                stroke="currentColor"
-                strokeWidth="0.65"
+              aria-hidden="true"
+              className="welcome-orb-mask pointer-events-none absolute inset-0 motion-reduce:hidden"
+              style={{ maskImage: welcomeOrbMask }}
+            >
+              <span
+                data-paused={!enabled}
+                className="absolute inset-y-0 left-0 w-1/2 translate-0 bg-linear-to-r from-transparent via-cyan-100/70 to-transparent mix-blend-screen data-[paused=true]:[animation-play-state:paused] motion-safe:animate-welcome-orb-sheen"
               />
-            ))}
-          </svg>
-        </div>
+            </span>
+            <motion.span
+              aria-hidden="true"
+              style={{
+                backgroundImage: light,
+                maskImage: welcomeOrbMask,
+              }}
+              className="welcome-orb-mask pointer-events-none absolute inset-0 opacity-0 mix-blend-screen transition-opacity duration-300 group-data-[active=true]/orb:opacity-70 motion-reduce:hidden"
+            />
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 176 176"
+              className="pointer-events-none absolute inset-0 size-full text-cyan-200 opacity-0 transition-opacity duration-300 group-data-[active=true]/orb:opacity-35 motion-reduce:hidden"
+            >
+              {connections.map((index) => (
+                <motion.line
+                  key={index}
+                  x1={cursorX}
+                  y1={cursorY}
+                  x2={anchors[index][0]}
+                  y2={anchors[index][1]}
+                  stroke="currentColor"
+                  strokeWidth="0.65"
+                />
+              ))}
+            </svg>
+          </div>
+        </motion.div>
       </motion.div>
       <Button
         type="button"
@@ -185,7 +230,7 @@ export function WelcomeOrb() {
         aria-label={t(
           paused ? "workspaceHome.resumeMotion" : "workspaceHome.pauseMotion"
         )}
-        className="absolute -right-4 -bottom-2 z-10 size-7 rounded-full bg-card/70 text-muted-foreground opacity-0 transition-opacity group-hover/orb:opacity-100 focus-visible:opacity-100 motion-reduce:hidden"
+        className="pointer-events-none absolute -right-4 -bottom-2 z-10 size-7 rounded-full bg-card/70 text-muted-foreground opacity-0 transition-opacity focus-visible:pointer-events-auto focus-visible:opacity-100 motion-reduce:hidden"
         onClick={() => setPaused(!paused)}
       >
         {paused ? (

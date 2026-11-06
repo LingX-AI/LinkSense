@@ -59,10 +59,10 @@ export function NewTaskWelcome({
       className="conversation-welcome @container/task-home grid w-full gap-4 font-interface @min-[44rem]/conversation-workspace:gap-6 @min-[60rem]/conversation-workspace:gap-10"
       aria-labelledby="new-task-welcome-title"
     >
-      <div className="relative isolate flex min-h-40 items-center justify-between gap-6 overflow-clip rounded-2xl bg-card px-4 py-5 @min-[44rem]/task-home:min-h-48 @min-[44rem]/task-home:px-8 @min-[44rem]/task-home:py-6 @min-[60rem]/task-home:min-h-61 @min-[60rem]/task-home:px-10 @min-[60rem]/task-home:py-8">
+      <div className="conversation-welcome-banner relative isolate flex min-h-40 items-center justify-between gap-6 overflow-clip rounded-2xl bg-card px-4 py-5 @min-[44rem]/task-home:min-h-48 @min-[44rem]/task-home:px-8 @min-[44rem]/task-home:py-6 @min-[60rem]/task-home:min-h-61 @min-[60rem]/task-home:px-10 @min-[60rem]/task-home:py-8">
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 -z-10 dark:brightness-25 [&>svg]:h-full [&>svg]:w-full"
+          className="pointer-events-none absolute inset-0 -z-10 dark:hidden [&>svg]:h-full [&>svg]:w-full"
           // Trusted, bundled artwork; never insert user-provided SVG here.
           dangerouslySetInnerHTML={{ __html: welcomeBackground }}
         />
@@ -107,7 +107,7 @@ export function NewTaskWelcome({
               }
             >
               <span
-                className={`conversation-starter-question-icon grid size-9 shrink-0 place-items-center rounded-[10px] border-3 border-card shadow-home-icon @min-[44rem]/task-home:size-11 @min-[60rem]/task-home:size-13 @min-[60rem]/task-home:border-4 ${colors}`}
+                className={`conversation-starter-question-icon grid size-9 shrink-0 place-items-center rounded-[10px] border-3 border-(--home-icon-border) shadow-home-icon @min-[44rem]/task-home:size-11 @min-[60rem]/task-home:size-13 @min-[60rem]/task-home:border-4 ${colors}`}
                 data-tone={tone}
                 aria-hidden="true"
               >

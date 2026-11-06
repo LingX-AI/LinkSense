@@ -76,8 +76,9 @@
   --shadow-home-card: var(--home-card-shadow);
   --shadow-home-icon: var(--home-icon-shadow);
   --animate-welcome-orb-float:
-    welcome-orb-float 5.5s ease-in-out infinite,
-    welcome-orb-drift 18s ease-in-out infinite;
+    welcome-orb-float 6.8s ease-in-out infinite,
+    welcome-orb-drift 15s ease-in-out infinite,
+    welcome-orb-breathe 7.6s ease-in-out infinite;
   --animate-welcome-orb-sheen: welcome-orb-sheen 7s ease-in-out infinite;
   --font-heading: var(--font-sans);
   --font-sans:
@@ -123,7 +124,7 @@
   --color-automation-template-brief: var(--automation-template-brief);
   --color-automation-template-review: var(--automation-template-review);
   --color-automation-template-monitor: var(--automation-template-monitor);
-  --shadow-automation-template-icon: 0 2px 3px rgb(27 39 69 / 14%);
+  --shadow-automation-template-icon: var(--home-icon-shadow);
   --shadow-segmented-active: 0 1px 3px rgb(41 31 61 / 4%);
   --color-application-icon-sand: color-mix(in oklab, #c59b59 14%, var(--card));
   --color-application-icon-rose: color-mix(in oklab, #ce8590 12%, var(--card));
@@ -199,6 +200,7 @@
   );
   --accent: #e9f1ff;
   --accent-foreground: #1c2238;
+  --home-icon-shadow: 0 2px 4px rgb(27 39 69 / 8%);
   --automation-template-brief: #e8f4ff;
   --automation-template-review: #eedcff;
   --automation-template-monitor: #d7faf1;
@@ -427,6 +429,7 @@
   --muted-foreground: #adb6c8;
   --accent: #293347;
   --accent-foreground: #d8d8d8;
+  --home-icon-shadow: 0 2px 4px rgb(0 0 0 / 13%);
   --automation-template-brief: var(--accent);
   --automation-template-review: #382b45;
   --automation-template-monitor: #183a33;
@@ -769,13 +772,13 @@
   opacity: var(--conversation-top-fade-opacity, 0);
   background: linear-gradient(
     to bottom,
-    var(--app-canvas) 0%,
-    color-mix(in srgb, var(--app-canvas) 95%, transparent) 12%,
-    color-mix(in srgb, var(--app-canvas) 80%, transparent) 26%,
-    color-mix(in srgb, var(--app-canvas) 54%, transparent) 42%,
-    color-mix(in srgb, var(--app-canvas) 28%, transparent) 58%,
-    color-mix(in srgb, var(--app-canvas) 10%, transparent) 74%,
-    color-mix(in srgb, var(--app-canvas) 2%, transparent) 88%,
+    color-mix(in srgb, var(--app-canvas) 60%, transparent) 0%,
+    color-mix(in srgb, var(--app-canvas) 54%, transparent) 12%,
+    color-mix(in srgb, var(--app-canvas) 42%, transparent) 26%,
+    color-mix(in srgb, var(--app-canvas) 28%, transparent) 42%,
+    color-mix(in srgb, var(--app-canvas) 14%, transparent) 58%,
+    color-mix(in srgb, var(--app-canvas) 5%, transparent) 74%,
+    color-mix(in srgb, var(--app-canvas) 1%, transparent) 88%,
     transparent 100%
   );
 }
@@ -10346,7 +10349,7 @@ button.annotation-hover-file:focus-visible {
   }
 
   50% {
-    translate: 0 -4px;
+    translate: 1px -3px;
   }
 }
 
@@ -10357,11 +10360,29 @@ button.annotation-hover-file:focus-visible {
   }
 
   33% {
-    rotate: 5deg;
+    rotate: 1.5deg;
   }
 
   67% {
-    rotate: -5deg;
+    rotate: -1.5deg;
+  }
+}
+
+@keyframes welcome-orb-breathe {
+  0%,
+  100% {
+    scale: 1.018 0.99;
+    transform: skew(0deg, 0.3deg);
+  }
+
+  38% {
+    scale: 0.987 1.025;
+    transform: skew(-0.5deg, 0deg);
+  }
+
+  72% {
+    scale: 1.025 0.985;
+    transform: skew(0.5deg, -0.3deg);
   }
 }
 
@@ -10387,7 +10408,7 @@ button.annotation-hover-file:focus-visible {
 .conversation-workspace:has(.conversation-welcome) {
   --home-heading: #171b40;
   --home-card-shadow: 0 5px 14px rgb(27 39 69 / 3%);
-  --home-icon-shadow: 0 2px 4px rgb(27 39 69 / 8%);
+  --home-icon-border: #fff;
   --task-file: #9035c6;
   --task-file-soft: #eedcff;
   --task-knowledge: #db339f;
@@ -10405,15 +10426,17 @@ button.annotation-hover-file:focus-visible {
 .dark .conversation-workspace:has(.conversation-welcome) {
   --home-heading: var(--foreground);
   --home-card-shadow: none;
-  --home-icon-shadow: 0 2px 4px rgb(0 0 0 / 13%);
-  --task-file: #c4a0e6;
-  --task-file-soft: #382b45;
-  --task-knowledge: #e8a1d2;
-  --task-knowledge-soft: #452b3c;
-  --task-data: #65d4bd;
-  --task-data-soft: #183a33;
-  --task-deliverable: #edb46c;
-  --task-deliverable-soft: #433323;
+  --home-banner-background: linear-gradient(
+    115deg,
+    var(--card),
+    color-mix(in srgb, var(--card) 98%, var(--foreground))
+  );
+  --home-banner-border: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+.dark .conversation-welcome-banner {
+  background: var(--home-banner-background);
+  box-shadow: inset 0 0 0 1px var(--home-banner-border);
 }
 
 /* Bridge the new home into the existing measured composer layout. */

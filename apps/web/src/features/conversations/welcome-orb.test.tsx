@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -101,5 +101,46 @@ describe("original design orb interactions", () => {
       screen.getByRole("button", { name: i18n.t("workspaceHome.resumeMotion") })
     )
     expect(root).toHaveAttribute("data-paused", "false")
+  })
+
+  it("suspends offscreen motion and disconnects its visibility observer", () => {
+    let reportVisibility:
+      ((entries: { isIntersecting: boolean }[]) => void) | undefined
+    const disconnect = vi.fn()
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(callback: typeof reportVisibility) {
+          reportVisibility = callback
+        }
+        observe = vi.fn()
+        disconnect = disconnect
+      }
+    )
+    const { root, container, unmount } = renderOrb()
+    const idle = container.querySelector(".welcome-orb-idle")
+    expect(idle).toHaveAttribute("data-paused", "false")
+    act(() => reportVisibility?.([{ isIntersecting: false }]))
+    fireEvent.pointerOver(root)
+    expect(idle).toHaveAttribute("data-paused", "true")
+    expect(root).toHaveAttribute("data-active", "false")
+    act(() => reportVisibility?.([{ isIntersecting: true }]))
+    expect(idle).toHaveAttribute("data-paused", "false")
+    unmount()
+    expect(disconnect).toHaveBeenCalledOnce()
+  })
+
+  it("suspends motion while the page is hidden and resumes when visible", () => {
+    const hidden = vi.spyOn(document, "hidden", "get")
+    const { root, container } = renderOrb()
+    const idle = container.querySelector(".welcome-orb-idle")
+    hidden.mockReturnValue(true)
+    fireEvent(document, new Event("visibilitychange"))
+    fireEvent.pointerOver(root)
+    expect(idle).toHaveAttribute("data-paused", "true")
+    expect(root).toHaveAttribute("data-active", "false")
+    hidden.mockReturnValue(false)
+    fireEvent(document, new Event("visibilitychange"))
+    expect(idle).toHaveAttribute("data-paused", "false")
   })
 })
