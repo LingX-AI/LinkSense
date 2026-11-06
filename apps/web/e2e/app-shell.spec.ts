@@ -54,6 +54,728 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page)
 })
 
+test("automation editor floats without resizing the page and keeps its actions reachable", async ({
+  page,
+}) => {
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto("/automations")
+    const workspace = page.getByTestId("automation-workspace")
+    await expect(page.getByRole("region", { name: "建议" })).toBeVisible()
+    const workspaceBounds = await workspace.boundingBox()
+    const create = page.getByRole("button", { name: "新建自动化", exact: true })
+    await create.click()
+    const editor = page.getByRole("dialog", { name: "新建自动化" })
+    await expect(editor).toBeVisible()
+    await editor.evaluate((element) =>
+      Promise.all(
+        element.getAnimations().map((animation) => animation.finished)
+      )
+    )
+    await expect(editor).toHaveCSS("position", "fixed")
+    expect(await workspace.boundingBox()).toEqual(workspaceBounds)
+    expect(
+      await workspace.locator("..").getAttribute("data-has-office-preview")
+    ).toBeNull()
+    const bounds = await editor.boundingBox()
+    expect(bounds).not.toBeNull()
+    expect(bounds!.x).toBeGreaterThanOrEqual(16)
+    expect(bounds!.y).toBe(16)
+    expect(bounds!.x + bounds!.width).toBe(width - 16)
+    expect(bounds!.y + bounds!.height).toBe(884)
+    await expect(
+      editor.getByRole("textbox", { name: "自动化标题" })
+    ).toBeFocused()
+    await expect(
+      editor.getByRole("button", { name: "创建", exact: true })
+    ).toBeInViewport()
+    await editor.locator("form").evaluate((form) => {
+      const body = form.parentElement!
+      body.scrollTop = body.scrollHeight
+    })
+    await expect(
+      editor.getByRole("button", { name: "创建", exact: true })
+    ).toBeInViewport()
+    await page.screenshot({
+      path: test.info().outputPath(`automation-floating-editor-${width}.png`),
+      animations: "disabled",
+    })
+    await page.keyboard.press("Escape")
+    await expect(editor).toHaveCount(0)
+    await expect(create).toBeFocused()
+    expect(await workspace.boundingBox()).toEqual(workspaceBounds)
+
+    await page.getByRole("button", { name: "使用“每日简报”模板" }).click()
+    await expect(
+      editor.getByRole("textbox", { name: "自动化标题" })
+    ).toHaveValue("每日简报")
+    await editor.getByRole("button", { name: "取消", exact: true }).click()
+    await expect(editor).toHaveCount(0)
+    expect(await workspace.boundingBox()).toEqual(workspaceBounds)
+  }
+})
+
+for (const width of [1440, 390]) {
+  test(`workspace Figma layouts keep controls reachable at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.route(
+      "**/api/v1/knowledge-bases/creation-capability*",
+      (route) =>
+        ok(route, {
+          status: "ready",
+          checks: {
+            object_storage: "available",
+            document_parsing: "available",
+            embedding_model: "available",
+            search_and_indexing: "available",
+          },
+          checked_at: NOW,
+        })
+    )
+    await page.route("**/api/v1/knowledge-bases/search-capability", (route) =>
+      ok(route, { status: "available", reason_code: null, checked_at: NOW })
+    )
+    await page.route(
+      (url) => url.pathname === "/api/v1/knowledge-bases",
+      (route) =>
+        ok(route, {
+          items: [
+            {
+              id: "70000000-0000-4000-8000-000000000009",
+              name: "Product knowledge",
+              description: "Product guidance and research notes.",
+              lifecycle_status: "active",
+              availability_status: "enabled",
+              owner: { id: ADMIN.id, name: ADMIN.name },
+              is_owner: true,
+              access_sources: [{ type: "owner" }],
+              source_type: "local",
+              document_count: 12,
+              ready_document_count: 10,
+              storage_used_bytes: 4096,
+              storage_reserved_bytes: 0,
+              storage_quota_bytes: 10485760,
+              permissions: {
+                view_content: true,
+                update: true,
+                manage_documents: true,
+                manage_grants: true,
+                create_grants: true,
+                revoke_grants: true,
+                archive: true,
+                restore: false,
+                delete: false,
+                remove_direct_share: false,
+              },
+              archived_at: null,
+              disabled_reason: null,
+              created_at: NOW,
+              updated_at: NOW,
+            },
+          ],
+          next_cursor: null,
+        })
+    )
+    await page.route("**/api/v1/automations", (route) =>
+      ok(route, {
+        items: [
+          {
+            id: "70000000-0000-4000-8000-000000000001",
+            title: "Daily briefing",
+            instruction: "Summarize updates",
+            status: "active",
+            conversation: {
+              id: "20000000-0000-4000-8000-000000000001",
+              title: "Source task",
+              pinned_at: NOW,
+            },
+            schedule: {
+              frequency: "daily",
+              interval: 1,
+              time: "09:00",
+              time_zone: "Asia/Shanghai",
+            },
+            next_run_at: NOW,
+            expires_on: null,
+            last_run_at: null,
+            last_run_status: null,
+            last_error_code: null,
+            model_preference: null,
+            created_at: NOW,
+            updated_at: NOW,
+          },
+        ],
+      })
+    )
+    await page.goto("/automations")
+    await expect(page.getByRole("table", { name: "自动化" })).toBeVisible()
+    if (width === 1440) {
+      const header = page.getByRole("banner")
+      const titleBounds = await header
+        .getByRole("heading", { level: 1 })
+        .boundingBox()
+      const descriptionBounds = await header.locator("p").boundingBox()
+      const actionBounds = await header
+        .getByRole("button", { name: "新建自动化", exact: true })
+        .boundingBox()
+      expect(
+        descriptionBounds!.y - titleBounds!.y - titleBounds!.height
+      ).toBeCloseTo(8, 1)
+      expect(actionBounds!.y - titleBounds!.y).toBeCloseTo(4, 1)
+    }
+    const templates = page.getByRole("region", { name: "建议" })
+    const cardBoxes = await templates.locator("li").evaluateAll((cards) =>
+      cards.map((card) => {
+        const { x, y, width, height } = card.getBoundingClientRect()
+        return { x, y, width, height }
+      })
+    )
+    expect(cardBoxes).toHaveLength(3)
+    expect(cardBoxes.every((card) => card.height >= 160)).toBe(true)
+    expect(
+      width === 1440
+        ? cardBoxes.every((card) => card.y === cardBoxes[0].y)
+        : cardBoxes[1].y > cardBoxes[0].y
+    ).toBe(true)
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({
+      path: test.info().outputPath(`automations-${width}.png`),
+      animations: "disabled",
+    })
+    await page.getByRole("button", { name: "使用“每日简报”模板" }).click()
+    await expect(
+      page.getByRole("textbox", { name: "自动化标题" })
+    ).toBeVisible()
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({
+      path: test.info().outputPath(`automation-editor-${width}.png`),
+      animations: "disabled",
+    })
+
+    await page.goto("/capabilities?section=plugin&scope=personal")
+    await page.getByRole("button", { name: "添加插件", exact: true }).click()
+    const importDialog = page.getByRole("dialog")
+    await expect(importDialog).toHaveCSS("border-left-width", "0px")
+    await expect(importDialog).toHaveCSS("padding", "24px")
+    await expect(importDialog.locator('[data-slot="dialog-title"]')).toHaveCSS(
+      "font-size",
+      "18px"
+    )
+    await expect(importDialog.locator('[data-slot="dialog-title"]')).toHaveCSS(
+      "line-height",
+      "26px"
+    )
+    await expect(importDialog.locator('input[type="file"]')).toBeAttached()
+    await expect(
+      importDialog.locator('input[type="file"]').locator("..")
+    ).toHaveCSS("border-top-style", "dashed")
+    expect((await importDialog.boundingBox())!.width).toBeLessThanOrEqual(600)
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({
+      path: test.info().outputPath(`plugin-import-${width}.png`),
+      animations: "disabled",
+    })
+    await page.keyboard.press("Escape")
+
+    for (const route of [
+      "/capabilities?section=application",
+      "/capabilities?section=skill&scope=personal",
+      "/capabilities?section=connector",
+      "/capabilities?section=mcp",
+      "/knowledge-bases",
+      "/knowledge-bases?tab=artifacts",
+      "/knowledge-bases?tab=sites",
+    ]) {
+      await page.goto(route)
+      await expect(
+        page.getByRole("heading", { level: 1 }).first()
+      ).toBeVisible()
+      await expectNoHorizontalOverflow(page)
+    }
+    await page.goto("/capabilities?section=application")
+    await page
+      .getByRole("button", { name: "创建应用", exact: true })
+      .first()
+      .click()
+    const creationDialog = page.getByRole("dialog", { name: "创建应用" })
+    await expect(creationDialog).toBeVisible()
+    await creationDialog.evaluate((element) =>
+      Promise.all(
+        element.getAnimations().map((animation) => animation.finished)
+      )
+    )
+    expect((await creationDialog.boundingBox())!.width).toBeLessThanOrEqual(600)
+    for (const name of [
+      "用对话创建交互式应用",
+      "创建普通应用",
+      "导入交互式应用",
+    ]) {
+      const action = creationDialog.getByRole("button", { name })
+      expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(88)
+    }
+    await expect(
+      creationDialog.locator('[data-slot="application-creation-illustration"]')
+    ).toHaveCount(0)
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({
+      path: test.info().outputPath(`application-create-${width}.png`),
+      animations: "disabled",
+    })
+    await page.keyboard.press("Escape")
+
+    await page.route("**/api/v1/web-sites**", (route) =>
+      ok(route, {
+        items: [
+          {
+            id: "70000000-0000-4000-8000-000000000002",
+            name: "Figma site",
+            description: "Test publication",
+            slug: "figma-site",
+            status: "published",
+            url_path: "/web/figma-site",
+            conversation_id: "20000000-0000-4000-8000-000000000001",
+            source_task_title: "Source task",
+            source_file_id: "70000000-0000-4000-8000-000000000003",
+            release_id: "70000000-0000-4000-8000-000000000004",
+            file_count: 3,
+            size_bytes: 12000,
+            published_at: NOW,
+            created_at: NOW,
+            updated_at: NOW,
+          },
+        ],
+        next_cursor: null,
+      })
+    )
+    await page.goto("/knowledge-bases?tab=sites")
+    await page.getByRole("button", { name: "管理 Figma site" }).click()
+    await page.getByRole("menuitem", { name: "编辑", exact: true }).click()
+    const siteDialog = page.getByRole("dialog", { name: "编辑站点" })
+    await expect(siteDialog).toBeVisible()
+    expect((await siteDialog.boundingBox())!.width).toBeLessThanOrEqual(600)
+    await expect(
+      siteDialog.locator('[data-slot="site-dialog-hero"]')
+    ).toHaveCount(0)
+    for (const name of ["站点名称", "简介", "链接名称"]) {
+      await expect(siteDialog.getByRole("textbox", { name })).toBeVisible()
+    }
+    await expect(
+      siteDialog.getByRole("button", { name: "保存" })
+    ).toBeInViewport()
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({
+      path: test.info().outputPath(`site-edit-${width}.png`),
+      animations: "disabled",
+    })
+    await page.keyboard.press("Escape")
+
+    await page.goto("/knowledge-bases")
+    await expect(
+      page.getByRole("link", { name: "Product knowledge" })
+    ).toBeVisible()
+    await expect(
+      page
+        .getByRole("banner")
+        .getByRole("button", { name: "创建知识库", exact: true })
+    ).toBeVisible()
+    if (width === 1440) {
+      await expect(
+        page.locator(".knowledge-card-list > div").first()
+      ).toHaveCSS("height", "40px")
+      const tabsBounds = await page
+        .getByRole("tablist", { name: "资料库内容" })
+        .boundingBox()
+      const searchBounds = await page
+        .locator(".knowledge-library-search")
+        .boundingBox()
+      expect(searchBounds!.y - tabsBounds!.y - tabsBounds!.height).toBe(16)
+    }
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({
+      path: test.info().outputPath(`knowledge-library-${width}.png`),
+      animations: "disabled",
+    })
+    await page.getByRole("button", { name: "创建知识库", exact: true }).click()
+    await expect(page.getByRole("dialog", { name: "创建知识库" })).toBeVisible()
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({
+      path: test.info().outputPath(`knowledge-create-${width}.png`),
+      animations: "disabled",
+    })
+  })
+}
+
+test("catalog scope follows the Figma geometry and installed rows remain continuous", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1284, height: 940 })
+  await page.route("**/api/v1/capabilities?**", (route) =>
+    ok(route, {
+      items: ["linksense-browser", "linksense-document-reader"].map((key) => ({
+        id: `builtin:capability:${key}`,
+        name: key,
+        slug: key,
+        type: "skill",
+        description: null,
+        status: "active",
+        source_type: "builtin",
+        builtin_key: key,
+        is_builtin: true,
+        marketplace_listing_id: null,
+        marketplace_release_id: null,
+        logo_url: null,
+        has_logo: false,
+        manifest: null,
+        risk_summary: null,
+        preference_status: "enabled",
+        can_manage: false,
+        can_govern: false,
+        can_select: false,
+        can_delete: false,
+        is_owner: false,
+        created_at: null,
+        updated_at: null,
+      })),
+      next_cursor: null,
+    })
+  )
+  for (const theme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto("/capabilities?section=application&scope=personal")
+    const list = page.getByRole("tablist", { name: "应用范围" })
+    const indicator = list.locator('[data-slot="tabs-indicator"]')
+    await expect(list).toHaveCSS("height", "40px")
+    await expect(list).toHaveCSS("padding", "4px")
+    await expect(list.getByRole("tab").first()).toHaveCSS("height", "32px")
+    await expect(indicator).toHaveCSS("border-radius", "6px")
+    await expect(indicator).toHaveCSS(
+      "background-color",
+      theme === "light" ? "rgb(255, 255, 255)" : "rgb(32, 32, 32)"
+    )
+    const [frames] = await Promise.all([
+      list.evaluate(async (list) => {
+        const frames: { x: number; inBounds: boolean }[] = []
+        for (let index = 0; index < 45; index++) {
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve())
+          )
+          const indicator = list.querySelector('[data-slot="tabs-indicator"]')
+          if (!indicator) continue
+          const track = list.getBoundingClientRect()
+          const active = indicator.getBoundingClientRect()
+          frames.push({
+            x: active.left - track.left,
+            inBounds:
+              active.left >= track.left - 1 &&
+              active.right <= track.right + 1 &&
+              active.top >= track.top - 1 &&
+              active.bottom <= track.bottom + 1,
+          })
+        }
+        return frames
+      }),
+      (async () => {
+        for (const name of ["共享我的", "应用中心", "我的应用"]) {
+          await list.getByRole("tab", { name, exact: true }).click()
+        }
+      })(),
+    ])
+    expect(frames.length).toBeGreaterThan(30)
+    expect(frames.every((frame) => frame.inBounds)).toBe(true)
+    expect(
+      Math.max(...frames.map((frame) => frame.x)) -
+        Math.min(...frames.map((frame) => frame.x))
+    ).toBeGreaterThan(20)
+    await expect(
+      list.getByRole("tab", { name: "我的应用", exact: true })
+    ).toHaveAttribute("aria-selected", "true")
+    await page.screenshot({
+      path: test.info().outputPath(`catalog-scope-${theme}.png`),
+      animations: "disabled",
+    })
+
+    await page.goto("/capabilities?section=skill&scope=personal")
+    const scope = page.getByRole("tablist", { name: "内容范围" })
+    await expect(scope).toHaveCSS("height", "40px")
+    const rows = page.locator(
+      ".capability-center-installed-grid .capability-library-row"
+    )
+    await expect(rows).toHaveCount(2)
+    const gap = await rows.evaluateAll(
+      (rows) =>
+        rows[1].getBoundingClientRect().top -
+        rows[0].getBoundingClientRect().bottom
+    )
+    expect(gap).toBe(0)
+    await rows.nth(1).hover()
+    await page.screenshot({
+      path: test.info().outputPath(`installed-skill-row-${theme}.png`),
+      animations: "disabled",
+    })
+  }
+})
+
+test("connector rows and detail dialog use the workspace design without changing authorization actions", async ({
+  page,
+}) => {
+  await page.route("**/api/v1/connections", (route) =>
+    ok(route, {
+      items: [
+        {
+          provider: "onedrive",
+          configured: true,
+          status: "connected",
+          access_mode: "read_write",
+          account_name: "ui-check@example.test",
+          connected_at: NOW,
+        },
+        {
+          provider: "sharepoint",
+          configured: true,
+          status: "disconnected",
+          access_mode: null,
+          account_name: null,
+          connected_at: null,
+        },
+      ],
+    })
+  )
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto("/capabilities?section=connector")
+    const rows = page.getByRole("article")
+    await expect(rows).toHaveCount(2)
+    const boxes = await rows.evaluateAll((rows) =>
+      rows.map((row) => row.getBoundingClientRect().toJSON())
+    )
+    expect(boxes[1].y).toBe(boxes[0].y + boxes[0].height)
+    if (width === 1440) {
+      expect(boxes[0].height).toBe(64)
+      expect(boxes[1].height).toBe(64)
+    }
+    await expect(rows.first()).toHaveCSS("border-radius", "0px")
+    await expectNoHorizontalOverflow(page)
+    const details = page.getByRole("button", { name: "查看OneDrive详情" })
+    await details.click()
+    const dialog = page.getByRole("dialog", { name: "OneDrive" })
+    await expect(dialog).toHaveAttribute("data-variant", "workspace")
+    await expect(dialog.locator('[data-slot="dialog-title"]')).toHaveCSS(
+      "font-size",
+      "18px"
+    )
+    await expect(dialog.getByText("ui-check@example.test")).toBeVisible()
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({
+      path: test.info().outputPath(`connector-details-${width}.png`),
+      animations: "disabled",
+    })
+    await page.keyboard.press("Escape")
+    await expect(dialog).toHaveCount(0)
+    await expect(details).toBeFocused()
+  }
+})
+
+test("remaining workspace states preserve retries, MCP rows and release review evidence", async ({
+  page,
+}) => {
+  test.setTimeout(60_000)
+  const releaseId = "40000000-0000-4000-8000-000000000071"
+  const listing = {
+    id: "30000000-0000-4000-8000-000000000071",
+    publisher_id: ADMIN.id,
+    publisher_name: ADMIN.name,
+    type: "skill",
+    slug: "reviewed-skill",
+    status: "draft",
+    current_release_id: null,
+    suspended_by: null,
+    suspended_at: null,
+    suspension_reason: null,
+    created_at: NOW,
+    updated_at: NOW,
+  }
+  const release = {
+    id: releaseId,
+    listing_id: listing.id,
+    source_capability_id: "20000000-0000-4000-8000-000000000071",
+    release_number: 2,
+    status: "rejected",
+    name: "Reviewed skill",
+    description: "Read-only review fixture",
+    release_notes: "Keep existing installations.",
+    logo_url: null,
+    content_sha256: "a".repeat(64),
+    manifest: {},
+    risk_summary: {
+      contains_mcp_server: false,
+      contains_scripts: false,
+      contains_external_connections: false,
+      requires_environment_variables: false,
+      requires_credentials: false,
+      contains_dependency_download_commands: false,
+      declared_environment_keys: [],
+      dependency_commands: [],
+    },
+    submitted_by: ADMIN.id,
+    reviewer_id: ADMIN.id,
+    review_comment:
+      "Clarify external-service access.\nExisting installations must remain usable.",
+    submitted_at: NOW,
+    reviewed_at: NOW,
+    published_at: null,
+    created_at: NOW,
+    updated_at: NOW,
+  }
+  await page.route("**/api/v1/marketplace/mine", (route) =>
+    ok(route, {
+      items: [
+        {
+          listing,
+          latest_release: release,
+          current_release: null,
+          install_count: 0,
+        },
+      ],
+      next_cursor: null,
+    })
+  )
+  await page.route(`**/api/v1/marketplace/releases/${releaseId}`, (route) =>
+    ok(route, {
+      listing,
+      release,
+      files: ["SKILL.md"],
+      skill_content: "# Snapshot instructions",
+    })
+  )
+  await page.route("**/api/v1/mcp-servers", (route) =>
+    ok(route, {
+      items: [
+        {
+          id: "70000000-0000-4000-8000-000000000071",
+          is_builtin: false,
+          name: "Workspace files",
+          transport: "stdio",
+          url: null,
+          command: "node",
+          args: ["server.js"],
+          environment_keys: [],
+          auth_type: "none",
+          api_key_header: null,
+          has_credential: false,
+          status: "active",
+          startup_timeout_seconds: 15,
+          tool_timeout_seconds: 60,
+          insecure_http_acknowledged: false,
+          last_test_status: null,
+          last_test_error_code: null,
+          last_tested_at: null,
+          last_used_at: null,
+          created_at: NOW,
+          updated_at: NOW,
+        },
+      ],
+    })
+  )
+
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    let failed = true
+    let releaseQuery!: () => void
+    const gate = new Promise<void>((resolve) => {
+      releaseQuery = resolve
+    })
+    await page.route("**/api/v1/connections", async (route) => {
+      await gate
+      if (failed) {
+        return route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({
+            success: false,
+            error_code: "CONNECTION_UNAVAILABLE",
+            message: "Connection unavailable",
+          }),
+        })
+      }
+      return ok(route, {
+        items: [
+          {
+            provider: "onedrive",
+            configured: true,
+            status: "reconnect_required",
+            access_mode: "read_write",
+            account_name: "ui-check@example.test",
+            connected_at: NOW,
+          },
+        ],
+      })
+    })
+    await page.goto("/capabilities?section=connector")
+    try {
+      await expect(
+        page.locator('[role="status"] [data-slot="skeleton"]')
+      ).toHaveCount(6)
+      await page.screenshot({
+        path: test.info().outputPath(`connector-loading-${width}.png`),
+        animations: "disabled",
+      })
+    } finally {
+      releaseQuery()
+    }
+    const error = page.getByRole("alert")
+    await expect(error).toHaveCSS("min-height", "380px", { timeout: 15_000 })
+    await expect(
+      error.locator('[data-design-icon="status-error"]')
+    ).toBeVisible()
+    await page.screenshot({
+      path: test.info().outputPath(`connector-error-${width}.png`),
+      animations: "disabled",
+    })
+    failed = false
+    await error.getByRole("button", { name: "重试", exact: true }).click()
+    await expect(
+      page.getByRole("article", { name: "OneDrive" }).getByText("需要重新授权")
+    ).toBeVisible()
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({
+      path: test.info().outputPath(`connector-reconnect-${width}.png`),
+      animations: "disabled",
+    })
+
+    await page.goto("/capabilities?section=mcp&scope=personal")
+    const server = page
+      .getByRole("region", { name: "个人MCP", exact: true })
+      .getByRole("article", { name: "Workspace files" })
+    await expect(server).toBeVisible()
+    await expect(server).toHaveCSS("min-height", "64px")
+    await expect(server.locator(".capability-logo")).toHaveCount(0)
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({
+      path: test.info().outputPath(`mcp-personal-${width}.png`),
+      animations: "disabled",
+    })
+
+    await page.getByRole("button", { name: "我的发布", exact: true }).click()
+    const publication = page.getByRole("article", { name: release.name })
+    await expect(publication).toBeVisible()
+    await publication.getByRole("button", { name: "操作", exact: true }).click()
+    await page.getByRole("menuitem", { name: "查看", exact: true }).click()
+    const dialog = page.getByRole("dialog", { name: release.name })
+    await expect(dialog.getByText(release.review_comment)).toBeVisible()
+    await expect(dialog.locator("time")).toHaveCount(2)
+    await expect(dialog.getByText(release.content_sha256)).toBeAttached()
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({
+      path: test.info().outputPath(`release-review-${width}.png`),
+      animations: "disabled",
+    })
+    await page.keyboard.press("Escape")
+    await expect(dialog).toHaveCount(0)
+  }
+})
+
 test("a delayed new-task route preserves an already opened account menu", async ({
   page,
 }) => {
