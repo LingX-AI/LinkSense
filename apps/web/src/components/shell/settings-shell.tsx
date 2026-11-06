@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type ElementType } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchShortcut } from "@/lib/use-search-shortcut"
-import { DesignIcon } from "@/components/ui/design-icon"
+import { DesignIcon, type DesignIconName } from "@/components/ui/design-icon"
 import { SearchShortcut } from "@/components/ui/search-shortcut"
 import {
   ArrowLeftIcon,
-  ArchiveIcon,
   BotIcon,
-  BookOpenCheckIcon,
   BrainIcon,
   ChartNoAxesCombinedIcon,
   FileKey2Icon,
@@ -25,6 +23,7 @@ import {
   UserRoundIcon,
   UserRoundCogIcon,
   UsersRoundIcon,
+  type LucideIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { NavLink, Outlet, useLocation } from "react-router-dom"
@@ -56,7 +55,7 @@ type SettingsNavigationItem = {
   activePaths?: readonly string[]
   labelKey: string
   descriptionKey: string
-  icon: ElementType
+  icon: LucideIcon | DesignIconName
 }
 
 const personalSettingsItems: SettingsNavigationItem[] = [
@@ -118,7 +117,7 @@ const personalSettingsItems: SettingsNavigationItem[] = [
     to: "/archived",
     labelKey: "nav.archived",
     descriptionKey: "settings.archivedDescription",
-    icon: ArchiveIcon,
+    icon: "archive",
   },
   {
     to: "/settings/feedback",
@@ -146,7 +145,7 @@ const administratorItems: SettingsNavigationItem[] = [
     to: "/admin/capabilities",
     labelKey: "nav.adminCapabilities",
     descriptionKey: "settings.adminCapabilitiesDescription",
-    icon: ShieldCheckIcon,
+    icon: "plugins",
   },
   {
     to: "/admin/connectors",
@@ -159,7 +158,7 @@ const administratorItems: SettingsNavigationItem[] = [
     activePaths: ["/admin/knowledge-bases", "/admin/knowledge-sources"],
     labelKey: "nav.adminKnowledgeBases",
     descriptionKey: "settings.adminKnowledgeBasesDescription",
-    icon: BookOpenCheckIcon,
+    icon: "library",
   },
   {
     to: "/admin/models",
@@ -273,12 +272,15 @@ export function SettingsShell() {
   const navigation = (
     <div className="settings-navigation-body">
       <div className="settings-navigation-header">
-        <div className="hidden w-fit py-2 md:block">
-          <ProductLogo productName={productName} className="h-7.5" />
+        <div className="-mx-4 hidden h-(--conversation-top-bar-height) items-center border-b border-border px-4 md:flex">
+          <ProductLogo
+            productName={productName}
+            className="sidebar-brand-logo min-w-0"
+          />
         </div>
         <NavLink
           to={appReturnTo}
-          className="settings-back-link font-semibold max-md:mr-10"
+          className="settings-back-link font-normal max-md:mr-10"
         >
           <ArrowLeftIcon aria-hidden="true" />
           <span>{t("settings.backToApp", { productName })}</span>
@@ -335,7 +337,7 @@ export function SettingsShell() {
           <div className="settings-mobile-header">
             <NavLink
               to={appReturnTo}
-              className="settings-back-link font-semibold"
+              className="settings-back-link font-normal"
             >
               <ArrowLeftIcon aria-hidden="true" />
               <ProductLogo
@@ -455,7 +457,11 @@ function SettingsNavigationGroup({
               )
             }
           >
-            <Icon strokeWidth={1.67} aria-hidden="true" />
+            {typeof Icon === "string" ? (
+              <DesignIcon name={Icon} />
+            ) : (
+              <Icon strokeWidth={2} aria-hidden="true" />
+            )}
             <span className="min-w-0 truncate">{t(labelKey)}</span>
           </NavLink>
         ))}

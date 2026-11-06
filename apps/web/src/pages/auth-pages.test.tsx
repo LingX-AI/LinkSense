@@ -147,6 +147,25 @@ function renderLoginPageWithAuthStatus(
 }
 
 describe("LoginPage session restoration", () => {
+  it("preserves the password and does not submit when visibility is toggled", async () => {
+    renderLoginPageWithAuthStatus("anonymous")
+    const interaction = userEvent.setup()
+    const password = screen.getByLabelText(/^密码\s*\*?$/u)
+    const form = password.closest("form")
+    const submit = vi.fn((event: Event) => event.preventDefault())
+    form?.addEventListener("submit", submit)
+
+    await interaction.type(password, "Demo-only-123!")
+    await interaction.click(screen.getByRole("button", { name: "显示密码" }))
+    expect(password).toHaveAttribute("type", "text")
+    expect(password).toHaveValue("Demo-only-123!")
+    await interaction.click(screen.getByRole("button", { name: "隐藏密码" }))
+    expect(password).toHaveAttribute("type", "password")
+    expect(password).toHaveValue("Demo-only-123!")
+    expect(password).toHaveAttribute("autocomplete", "current-password")
+    expect(submit).not.toHaveBeenCalled()
+  })
+
   it("presents static login and brand headings immediately with labeled login fields", () => {
     renderLoginPageWithAuthStatus("anonymous")
 

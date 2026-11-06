@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { useDeferredValue, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { BookOpenIcon, LoaderCircleIcon, MessageSquareIcon } from "lucide-react"
+import { LoaderCircleIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { useLocation, useNavigate } from "react-router-dom"
 
@@ -19,6 +19,7 @@ import { ConversationDevelopmentIcon } from "@/components/shell/conversation-dev
 import { FileTypeIcon } from "@/components/media/file-type-icon"
 import { Button } from "@/components/ui/button"
 import { DesignIcon } from "@/components/ui/design-icon"
+import { HeaderIcon } from "@/components/ui/header-icon-button"
 import { DialogClose } from "@/components/ui/dialog"
 import {
   Command,
@@ -41,6 +42,7 @@ import {
 import { normalizeLanguage } from "@/i18n"
 import { formatFileSize, formatRelativeDate } from "@/i18n/date"
 import { shouldAutoFocusOnDesktop } from "@/lib/responsive"
+import { cn } from "@/lib/utils"
 
 type GlobalSearchResults = {
   conversations: Conversation[]
@@ -51,9 +53,9 @@ type GlobalSearchResults = {
 }
 
 const searchResultLimit = 6
-const searchResultLineIconClassName = "size-4.5 shrink-0"
-const searchResultMediaIconClassName = "size-5 shrink-0"
-const searchResultCapabilityIconClassName = "size-5 shrink-0 rounded-md"
+const searchResultLineIconClassName = "size-4 shrink-0"
+const searchResultMediaIconClassName = "size-4 shrink-0"
+const searchResultCapabilityIconClassName = "size-4 shrink-0 rounded"
 
 export function ConversationSearchDialog({
   open,
@@ -116,15 +118,17 @@ export function ConversationSearchDialog({
           ? searchInputRef.current
           : false
       }
-      className="conversation-search-dialog top-1/2 max-h-[calc(100svh_-_2rem)] w-[calc(100%_-_1.5rem)] max-w-[680px]! -translate-y-1/2 gap-0 rounded-xl! border border-border bg-[var(--app-popover)] p-0 shadow-[var(--app-dialog-shadow)] ring-0"
+      className="conversation-search-dialog top-1/2 max-h-[calc(100svh_-_2rem)] w-[calc(100%_-_1.5rem)] max-w-[600px]! -translate-y-1/2 gap-0 rounded-xl! border border-border bg-[var(--app-popover)] p-0 shadow-[var(--app-dialog-shadow)] ring-0"
     >
       <Command
         label={t("conversation.searchTitle")}
         shouldFilter={false}
-        className="conversation-search-command group/search rounded-xl bg-transparent p-0 [&_[data-slot=command-input-wrapper]]:min-w-0 [&_[data-slot=command-input-wrapper]]:flex-1 [&_[data-slot=command-input-wrapper]]:p-0 [&_[data-slot=input-group-addon]]:hidden [&_[data-slot=input-group]]:h-10! [&_[data-slot=input-group]]:rounded-none! [&_[data-slot=input-group]]:border-transparent! [&_[data-slot=input-group]]:bg-transparent! [&_[data-slot=input-group]]:shadow-none! [&_[data-slot=input-group]]:focus-within:border-transparent! [&_[data-slot=input-group]]:focus-within:ring-0! [&_[data-slot=input-group]]:hover:border-transparent!"
+        className="conversation-search-command rounded-xl bg-transparent p-0 [&_[data-slot=command-input-wrapper]]:min-w-0 [&_[data-slot=command-input-wrapper]]:flex-1 [&_[data-slot=command-input-wrapper]]:p-0 [&_[data-slot=input-group-addon]]:hidden [&_[data-slot=input-group]]:h-10! [&_[data-slot=input-group]]:rounded-none! [&_[data-slot=input-group]]:border-transparent! [&_[data-slot=input-group]]:bg-transparent! [&_[data-slot=input-group]]:shadow-none! [&_[data-slot=input-group]]:focus-within:border-transparent! [&_[data-slot=input-group]]:focus-within:ring-0! [&_[data-slot=input-group]]:hover:border-transparent!"
       >
-        <div className="flex shrink-0 items-center gap-3 p-4">
-          <DesignIcon name="search" className="text-muted-foreground" />
+        <div className="flex h-12 shrink-0 items-center gap-2 px-3.5 focus-within:bg-muted/20">
+          <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+            <HeaderIcon name="search" className="size-4" />
+          </span>
           <CommandInput
             ref={searchInputRef}
             value={query}
@@ -141,22 +145,19 @@ export function ConversationSearchDialog({
               <Button
                 type="button"
                 variant="ghost"
-                size="icon-lg"
+                size="icon-sm"
                 aria-label={t("common.close")}
               />
             }
           >
-            <DesignIcon name="close" />
+            <HeaderIcon name="close" className="size-4" />
           </DialogClose>
         </div>
-        <div
-          className="mx-4 h-px shrink-0 bg-divider group-has-[[data-slot=command-input]:focus-visible]/search:bg-ring"
-          aria-hidden="true"
-        />
-        <CommandList className="h-[min(60svh,24rem)] max-h-[min(60svh,24rem)]! px-3 pb-4">
+        <div className="h-px shrink-0 bg-divider" aria-hidden="true" />
+        <CommandList className="max-h-[min(60svh,22.5rem)]! p-1.5">
           {results.isLoading && (
             <div
-              className="flex min-h-20 items-center justify-center gap-2 px-3 text-[length:var(--app-font-12)] text-[var(--app-muted)]"
+              className="flex min-h-28 items-center justify-center gap-2 px-4 text-[length:var(--app-font-12)] text-[var(--app-muted)]"
               role="status"
             >
               <LoaderCircleIcon
@@ -168,14 +169,14 @@ export function ConversationSearchDialog({
           )}
           {results.isError && (
             <p
-              className="min-h-20 px-3 py-6 text-center text-[length:var(--app-font-12)] text-[var(--destructive)]"
+              className="flex min-h-28 items-center justify-center px-4 py-8 text-center text-[length:var(--app-font-12)] text-[var(--destructive)]"
               role="alert"
             >
               {t("conversation.unavailable")}
             </p>
           )}
           {!results.isLoading && !results.isError && !hasResults && (
-            <CommandEmpty className="min-h-20 py-6 text-[length:var(--app-font-12)] text-[var(--app-muted)]">
+            <CommandEmpty className="flex min-h-28 items-center justify-center px-4 py-8 text-[length:var(--app-font-12)] font-normal text-[var(--app-muted)]">
               {t("conversation.searchEmpty")}
             </CommandEmpty>
           )}
@@ -192,10 +193,14 @@ export function ConversationSearchDialog({
                         conversation.application_development_role ? (
                           <ConversationDevelopmentIcon
                             role={conversation.application_development_role}
-                            className={searchResultLineIconClassName}
+                            className={cn(
+                              searchResultLineIconClassName,
+                              "[&>[data-slot=avatar]]:size-full"
+                            )}
                           />
                         ) : (
-                          <MessageSquareIcon
+                          <HeaderIcon
+                            name="message"
                             className={searchResultLineIconClassName}
                             aria-hidden="true"
                           />
@@ -237,7 +242,8 @@ export function ConversationSearchDialog({
                         title={knowledgeBase.name}
                         description={supportingText}
                         icon={
-                          <BookOpenIcon
+                          <DesignIcon
+                            name="knowledge"
                             className={searchResultLineIconClassName}
                             aria-hidden="true"
                           />
@@ -343,27 +349,30 @@ function SearchResultItem({
       aria-describedby={
         description ? `${id}-description ${id}-metadata` : `${id}-metadata`
       }
-      className="conversation-search-result min-h-16 gap-3 rounded-lg! px-3 py-2.5 font-normal data-selected:bg-accent/60 [&>svg:last-child]:hidden"
+      className={cn(
+        "conversation-search-result gap-2 rounded-md! px-2 py-1 font-normal data-selected:bg-accent/60 [&>svg:last-child]:hidden",
+        description ? "min-h-12" : "min-h-9 pointer-coarse:min-h-10"
+      )}
       onSelect={onSelect}
     >
       <span
         data-slot="search-result-icon"
-        className="flex size-9 shrink-0 items-center justify-center text-muted-foreground"
+        className="flex size-5 shrink-0 items-center justify-center text-black dark:text-foreground"
       >
         {icon}
       </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="flex min-w-0 items-center gap-3">
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex min-w-0 items-center gap-2">
           <span
             id={`${id}-title`}
-            className="min-w-0 flex-1 truncate text-[length:var(--app-ui-font-size)] leading-5 font-medium"
+            className="min-w-0 flex-1 truncate text-[length:var(--app-ui-font-size)] leading-[var(--app-line-20)] font-normal [text-spacing-trim:trim-start]"
             title={title}
           >
             {title}
           </span>
           <span
             id={`${id}-metadata`}
-            className="max-w-[40%] shrink-0 truncate text-[length:var(--app-font-12)] leading-4 text-muted-foreground"
+            className="w-24 max-w-[32%] shrink-0 truncate text-right text-[length:var(--app-font-12)] leading-[var(--app-line-18)] font-normal text-muted-foreground tabular-nums"
           >
             {metadata}
           </span>
@@ -371,7 +380,7 @@ function SearchResultItem({
         {description && (
           <span
             id={`${id}-description`}
-            className="truncate text-[length:var(--app-font-12)] leading-4 text-muted-foreground"
+            className="truncate text-[length:var(--app-font-12)] leading-[var(--app-line-18)] font-normal text-muted-foreground"
             title={description}
           >
             {description}
@@ -392,7 +401,7 @@ function SearchResultGroup({
   return (
     <CommandGroup
       heading={heading}
-      className="p-0 [&_[cmdk-group-items]]:space-y-1 **:[[cmdk-group-heading]]:px-3 **:[[cmdk-group-heading]]:pt-4 **:[[cmdk-group-heading]]:pb-2 **:[[cmdk-group-heading]]:text-[length:var(--app-font-12)] **:[[cmdk-group-heading]]:font-medium **:[[cmdk-group-heading]]:text-muted-foreground"
+      className="p-0 [&_[cmdk-group-items]]:space-y-0 **:[[cmdk-group-heading]]:px-9 **:[[cmdk-group-heading]]:py-1 **:[[cmdk-group-heading]]:text-[length:var(--app-font-12)] **:[[cmdk-group-heading]]:leading-[var(--app-line-18)] **:[[cmdk-group-heading]]:font-normal **:[[cmdk-group-heading]]:text-muted-foreground"
     >
       {children}
     </CommandGroup>

@@ -8952,8 +8952,8 @@ button.annotation-hover-file:focus-visible {
 .settings-navigation-header {
   display: grid;
   flex: none;
-  gap: 16px;
-  padding: 16px 16px 8px;
+  gap: 8px;
+  padding: 0 16px 8px;
   background: var(--app-sidebar);
 }
 
@@ -8962,21 +8962,21 @@ button.annotation-hover-file:focus-visible {
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   overflow-y: auto;
-  padding: 8px 16px 24px;
+  padding: 8px 16px 16px;
 }
 
 .settings-back-link {
   display: flex;
-  min-height: 32px;
+  min-height: var(--app-sidebar-row-height);
   align-items: center;
-  gap: 7px;
-  border-radius: 10px;
-  padding: 6px 9px;
-  color: var(--app-muted);
+  gap: 8px;
+  border-radius: 8px;
+  padding: 0 8px;
+  color: var(--app-text);
   font-size: var(--app-ui-font-size);
-  font-weight: 600;
+  font-weight: 400;
   line-height: var(--app-ui-compact-line-height);
 }
 
@@ -8986,8 +8986,8 @@ button.annotation-hover-file:focus-visible {
 }
 
 .settings-back-link svg {
-  width: 14px;
-  height: 14px;
+  width: calc(var(--app-ui-font-size) + 2px);
+  height: calc(var(--app-ui-font-size) + 2px);
 }
 
 .settings-search-field {
@@ -9007,7 +9007,7 @@ button.annotation-hover-file:focus-visible {
 }
 
 .settings-search-field input {
-  height: 40px;
+  height: var(--app-sidebar-row-height);
   border-radius: 999px;
   padding-inline: 36px 68px;
   background: var(--card);
@@ -9018,7 +9018,7 @@ button.annotation-hover-file:focus-visible {
 
 .settings-navigation-group {
   display: grid;
-  gap: 6px;
+  gap: 2px;
 }
 
 .settings-navigation-group h2 {
@@ -9031,7 +9031,7 @@ button.annotation-hover-file:focus-visible {
 
 .settings-navigation-group nav {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -9039,16 +9039,18 @@ button.annotation-hover-file:focus-visible {
 
 .settings-navigation-link {
   display: flex;
-  min-height: 40px;
+  min-height: var(--app-sidebar-row-height);
   align-items: center;
   gap: 8px;
   border-radius: 8px;
-  padding: 8px;
+  padding: 0 8px;
+  color: var(--app-text);
   font-size: var(--app-ui-font-size);
   line-height: var(--app-ui-compact-line-height);
   transition:
     background-color 160ms ease,
-    color 160ms ease;
+    color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .settings-navigation-link:not(.settings-navigation-link-active):hover {
@@ -9061,14 +9063,14 @@ button.annotation-hover-file:focus-visible {
 }
 
 .settings-navigation-link > svg,
-.settings-navigation-link > img {
-  width: 16px;
-  height: 16px;
+.settings-navigation-link > [data-design-icon] {
+  width: calc(var(--app-ui-font-size) + 2px);
+  height: calc(var(--app-ui-font-size) + 2px);
   flex: none;
 }
 
 .settings-navigation-link > svg {
-  color: var(--app-muted);
+  color: inherit;
 }
 
 .settings-navigation-empty {
@@ -11674,6 +11676,10 @@ button.annotation-hover-file:focus-visible {
     justify-content: space-between;
     gap: 8px;
     padding: 8px 10px;
+  }
+
+  .settings-navigation-header {
+    padding-top: 8px;
   }
 
   .settings-main {

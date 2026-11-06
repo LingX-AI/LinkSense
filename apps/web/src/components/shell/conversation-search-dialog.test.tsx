@@ -214,13 +214,13 @@ describe("conversation search dialog", () => {
     }
   )
 
-  it("uses the wider grouped palette layout with localized metadata", async () => {
+  it("uses the compact grouped palette layout with localized metadata", async () => {
     renderSearchDialog()
 
     const dialog = await screen.findByRole("dialog", { name: "搜索" })
     expect(dialog).toHaveClass(
       "conversation-search-dialog",
-      "max-w-[680px]!",
+      "max-w-[600px]!",
       "top-1/2",
       "-translate-y-1/2",
       "rounded-xl!"
@@ -229,8 +229,7 @@ describe("conversation search dialog", () => {
       dialog.querySelector(".conversation-search-command")?.className
     ).toContain("[&_[data-slot=command-input-wrapper]]:p-0")
     expect(dialog.querySelector('[data-slot="command-list"]')).toHaveClass(
-      "h-[min(60svh,24rem)]",
-      "max-h-[min(60svh,24rem)]!"
+      "max-h-[min(60svh,22.5rem)]!"
     )
 
     const input = within(dialog).getByPlaceholderText(
@@ -254,21 +253,21 @@ describe("conversation search dialog", () => {
     ).closest('[data-slot="command-item"]')
     expect(firstResult).toHaveClass(
       "conversation-search-result",
-      "rounded-lg!",
-      "min-h-16",
-      "gap-3"
+      "rounded-md!",
+      "min-h-9",
+      "gap-2"
     )
-    expect(firstResult?.querySelector(".lucide-message-square")).toHaveClass(
-      "size-4.5"
-    )
+    expect(
+      firstResult?.querySelector('[data-design-icon="message"]')
+    ).toHaveClass("size-4")
     expect(firstResult?.querySelector("time")).toHaveAttribute("datetime", now)
     const knowledgeBaseResult = within(dialog)
       .getByText("多目录知识库")
       .closest('[data-slot="command-item"]')
     expect(knowledgeBaseResult).not.toBeNull()
-    expect(knowledgeBaseResult?.querySelector(".lucide-book-open")).toHaveClass(
-      "size-4.5"
-    )
+    expect(
+      knowledgeBaseResult?.querySelector('[data-design-icon="knowledge"]')
+    ).toHaveClass("size-4")
     expect(
       within(knowledgeBaseResult as HTMLElement).getByText("多目录知识库")
     ).toHaveClass("truncate")
@@ -284,10 +283,10 @@ describe("conversation search dialog", () => {
       ["PPT 生成技能", "生成可演示的 PPT 文稿"],
     ] as const) {
       const option = within(dialog).getByRole("option", { name: title })
-      expect(option).toHaveClass("min-h-16", "rounded-lg!", "gap-3")
+      expect(option).toHaveClass("min-h-12", "rounded-md!", "gap-2")
       expect(
         option.querySelector('[data-slot="search-result-icon"]')
-      ).toHaveClass("size-9", "shrink-0")
+      ).toHaveClass("size-5", "shrink-0")
       expect(within(option).getByText(description)).toHaveAttribute(
         "title",
         description

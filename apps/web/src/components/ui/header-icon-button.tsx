@@ -11,6 +11,10 @@ const headerIcons = {
       <path d="m13.05 13.05 4.2 4.2" />
     </g>
   ),
+  close: <path d="m5 5 10 10M15 5 5 15" />,
+  message: (
+    <path d="M5 3.5h10A2 2 0 0 1 17 5.5v7a2 2 0 0 1-2 2H7l-4 3v-12a2 2 0 0 1 2-2Z" />
+  ),
   sidebar: <path d="m9.25 5-5 5 5 5m6.5-10-5 5 5 5" />,
   sidebarExpand: <path d="m4.25 5 5 5-5 5m6.5-10 5 5-5 5" />,
   share: (
