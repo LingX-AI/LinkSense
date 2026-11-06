@@ -4,6 +4,15 @@ import appStyles from "@/index.css?raw"
 import { describe, expect, it } from "vitest"
 
 describe("knowledge-base detail page layout", () => {
+  it("keeps the document table unframed like Figma without clipping its scrollable contents", () => {
+    const rule = appStyles.match(
+      /\.knowledge-document-table\s*\{([^}]*)\}/u
+    )?.[1]
+    expect(rule).toBeDefined()
+    expect(rule).not.toMatch(/border(?:-radius)?:/u)
+    expect(rule).not.toMatch(/overflow:\s*hidden/u)
+  })
+
   it("does not add a knowledge-only gap above the library search toolbar", () => {
     const toolbarRule = appStyles.match(
       /\.knowledge-library-toolbar\s*\{([^}]*)\}/u
@@ -157,7 +166,7 @@ describe("knowledge-base detail page layout", () => {
     )
   })
 
-  it("aligns the knowledge icon with a compact single-line card title and description", () => {
+  it("aligns the knowledge name and description without a decorative icon", () => {
     const headingRule = appStyles.match(
       /\.knowledge-card-heading\s*\{([^}]*)\}/u
     )?.[1]
@@ -191,13 +200,11 @@ describe("knowledge-base detail page layout", () => {
     expect(titleRule).toMatch(/flex:\s*0 1 auto;/u)
     expect(titleRule).toMatch(/font-size:\s*var\(--app-font-16\);/u)
     expect(titleRule).toMatch(/line-height:\s*var\(--app-line-24\);/u)
-    expect(iconRule).toMatch(/width:\s*24px;/u)
-    expect(iconRule).toMatch(/height:\s*24px;/u)
-    expect(iconRule).toMatch(/color:\s*var\(--app-text\);/u)
-    expect(iconRule).not.toMatch(/linear-gradient/u)
-    expect(iconRule).not.toMatch(/box-shadow/u)
-    expect(iconSvgRule).toMatch(/width:\s*18px;/u)
-    expect(iconSvgRule).toMatch(/height:\s*18px;/u)
+    expect(iconRule).toBeUndefined()
+    expect(iconSvgRule).toBeUndefined()
+    expect(appStyles).toMatch(
+      /\.knowledge-card-row\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 120px 36px;/u
+    )
     expect(sourceTextRule).toMatch(/font-size:\s*var\(--app-font-12\);/u)
     expect(sourceTextRule).toMatch(/font-weight:\s*400;/u)
     expect(sourceTextRule).toMatch(/line-height:\s*var\(--app-line-18\);/u)

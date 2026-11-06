@@ -721,7 +721,12 @@ describe("knowledge-base document and access management", () => {
       })
       expect(tabs.querySelector("svg")).not.toBeInTheDocument()
       const header = screen.getByRole("banner")
-      expect(header).toHaveClass("pb-5")
+      expect(
+        within(header).getByRole("button", {
+          name: i18n.t("knowledge.create.action"),
+        })
+      ).toBeVisible()
+      expect(header).toHaveClass("pb-6")
       expect(header.closest(".knowledge-library-page")).toContainElement(tabs)
       expect(
         header.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING
@@ -774,7 +779,7 @@ describe("knowledge-base document and access management", () => {
         })
       ).not.toBeInTheDocument()
       expect(screen.getByRole("banner")).toBe(header)
-      expect(header).toHaveClass("pb-5")
+      expect(header).toHaveClass("pb-6")
       await userEvent.click(
         within(tabs).getByRole("tab", { name: i18n.t("webSites.title") })
       )
@@ -788,7 +793,7 @@ describe("knowledge-base document and access management", () => {
         within(header).getByText(i18n.t("webSites.description"))
       ).toBeVisible()
       expect(screen.getByRole("banner")).toBe(header)
-      expect(header).toHaveClass("pb-5")
+      expect(header).toHaveClass("pb-6")
       await userEvent.click(
         within(tabs).getByRole("tab", {
           name: i18n.t("library.tabs.knowledge"),
@@ -1144,8 +1149,7 @@ describe("knowledge-base document and access management", () => {
       name: "产品制度",
     })
     expect(knowledgeBaseLink.closest("section")).toHaveClass(
-      "knowledge-card-list",
-      "rounded-card"
+      "knowledge-card-list"
     )
     const card = knowledgeBaseLink.querySelector('[data-slot="card"]')
     expect(knowledgeBaseLink).toHaveClass("knowledge-card-link")
@@ -1156,7 +1160,7 @@ describe("knowledge-base document and access management", () => {
     expect(card).toHaveClass("knowledge-card", "border-0", "rounded-none")
     expect(
       knowledgeBaseLink.querySelector('[data-slot="knowledge-base-icon"]')
-    ).toHaveClass("knowledge-card-icon")
+    ).toBeNull()
     const sourceText = screen.getByText("来源：本地")
     const updatedAt = knowledgeBaseLink.querySelector<HTMLTimeElement>(
       'time[datetime="2026-07-22T01:01:00.000Z"]'
@@ -1171,6 +1175,12 @@ describe("knowledge-base document and access management", () => {
     expect(updatedAt).toHaveTextContent(/^更新于 /u)
     expect(row).toContainElement(sourceText)
     expect(row).toContainElement(updatedAt)
+    expect(
+      within(knowledgeBaseLink).getByText(i18n.t("knowledge.lifecycle.current"))
+    ).toBeVisible()
+    const listHeader = knowledgeBaseLink.closest("section")?.firstElementChild
+    expect(listHeader).toHaveClass("h-10", "sm:flex")
+    expect(listHeader).toHaveTextContent(i18n.t("common.status"))
     expect(card?.querySelector('[data-slot="card-footer"]')).toBeNull()
     expect(
       within(knowledgeBaseLink).queryByText("我创建的")
@@ -1205,7 +1215,7 @@ describe("knowledge-base document and access management", () => {
     expect(await screen.findByText("知识库详情")).toBeInTheDocument()
   })
 
-  it("keeps a single create action beside search when the knowledge-base list is empty", async () => {
+  it("keeps a single create action beside the heading when the knowledge-base list is empty", async () => {
     vi.stubGlobal("fetch", createFetchMock({ knowledgeBases: [] }))
     renderListPage(adminUser)
 
@@ -1213,13 +1223,14 @@ describe("knowledge-base document and access management", () => {
     expect(screen.getAllByRole("button", { name: "创建知识库" })).toHaveLength(
       1
     )
+    expect(screen.getByRole("banner")).toContainElement(
+      screen.getByRole("button", { name: "创建知识库" })
+    )
     expect(
-      screen.getByRole("button", { name: "创建知识库" }).parentElement
-    ).toContainElement(
       screen.getByRole("textbox", {
         name: i18n.t("knowledge.searchPlaceholder"),
       })
-    )
+    ).toBeVisible()
   })
 
   it("places one combined filter after search with an all option and the created-by-me label", async () => {
@@ -1381,7 +1392,7 @@ describe("knowledge-base document and access management", () => {
     ).toBeDisabled()
   })
 
-  it("selects the knowledge source with cards and preserves the SharePoint create payload", async () => {
+  it("selects the knowledge source with Figma tabs and preserves the SharePoint create payload", async () => {
     const interaction = userEvent.setup()
     const fetchMock = createFetchMock({})
     vi.stubGlobal("fetch", fetchMock)
@@ -1419,9 +1430,11 @@ describe("knowledge-base document and access management", () => {
       within(dialog).queryByRole("combobox", { name: "数据来源" })
     ).not.toBeInTheDocument()
     expect(localSource).toHaveAttribute("aria-pressed", "true")
-    expect(localSource).toHaveClass("shadow-none", "hover:bg-hover")
-    expect(localSource).not.toHaveClass("data-pressed:shadow-sm")
-    expect(localSource).toHaveTextContent("创建后手动上传并管理本地文档。")
+    expect(localSource).toHaveClass("min-h-9", "data-pressed:bg-accent")
+    expect(localSource).toHaveAttribute(
+      "title",
+      "创建后手动上传并管理本地文档。"
+    )
     await waitFor(() => expect(sharePointSource).toBeEnabled())
 
     await interaction.click(sharePointSource)
@@ -1433,7 +1446,8 @@ describe("knowledge-base document and access management", () => {
 
     expect(sharePointSource).toHaveAttribute("aria-pressed", "true")
     expect(localSource).toHaveAttribute("aria-pressed", "false")
-    expect(sharePointSource).toHaveTextContent(
+    expect(sharePointSource).toHaveAttribute(
+      "title",
       "连接 SharePoint 文件夹并按计划自动同步。"
     )
 
@@ -1479,7 +1493,7 @@ describe("knowledge-base document and access management", () => {
       }))
     )
   )(
-    "uses an equal-height responsive source grid in $language when SharePoint enabled=$sharePointEnabled",
+    "uses wrapping source tabs in $language when SharePoint enabled=$sharePointEnabled",
     async ({ language, sharePointEnabled }) => {
       await i18n.changeLanguage(language)
       const interaction = userEvent.setup()
@@ -1514,18 +1528,12 @@ describe("knowledge-base document and access management", () => {
         expect(sharePointSource).toBeDisabled()
       }
 
-      expect(sourceGroup).toHaveClass(
-        "grid",
-        "grid-cols-1",
-        "sm:grid-cols-2",
-        "auto-rows-fr",
-        "items-stretch"
-      )
-      expect(sourceGroup).not.toHaveClass("items-center")
+      expect(sourceGroup).toHaveClass("flex", "flex-wrap", "gap-2")
       const sourceCards = within(sourceGroup).getAllByRole("button")
       expect(sourceCards).toHaveLength(2)
       for (const sourceCard of sourceCards) {
-        expect(sourceCard).toHaveClass("h-auto", "min-h-24", "items-start")
+        expect(sourceCard).toHaveClass("h-auto", "min-h-9")
+        expect(sourceCard.querySelector("svg")).toBeNull()
       }
     }
   )
@@ -2591,7 +2599,7 @@ describe("knowledge-base document and access management", () => {
     const applicationItems = within(blockedDialog).getAllByRole("listitem")
     expect(applicationItems).toHaveLength(2)
     for (const item of applicationItems) {
-      expect(item).toHaveClass("border", "border-divider", "rounded-lg")
+      expect(item).toHaveClass("min-h-22", "border-b", "border-divider")
     }
 
     await interaction.click(
