@@ -77,7 +77,7 @@ export function SidebarTaskGroup({
   })
   if (!project)
     return (
-      <section aria-label={label} className="flex flex-col gap-0.5">
+      <section aria-label={label} className="flex flex-col">
         <h2 className="px-2.5 py-1 text-[length:var(--app-font-13)] leading-[var(--app-ui-compact-line-height)] font-semibold text-muted-foreground">
           {label}
         </h2>
@@ -203,7 +203,7 @@ export function SidebarTaskGroup({
         <SidebarDropIndicator targetId={projectDropId(project.id)} />
       </div>
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-200 ease-out data-ending-style:h-0 data-ending-style:opacity-0 data-starting-style:h-0 data-starting-style:opacity-0 motion-reduce:transition-none">
-        <div className="flex flex-col gap-0.5 pt-0.5">{children}</div>
+        <div className="flex flex-col pt-0.5">{children}</div>
       </CollapsibleContent>
       <SidebarDropIndicator
         targetId={projectDropId(project.id)}

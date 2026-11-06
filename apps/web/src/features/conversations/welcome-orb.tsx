@@ -6,10 +6,10 @@ import {
   useTransform,
 } from "framer-motion"
 import { PauseIcon, PlayIcon } from "lucide-react"
-import { useEffect, useState, type PointerEvent } from "react"
+import { memo, useEffect, useState, type PointerEvent } from "react"
 import { useTranslation } from "react-i18next"
 
-import welcomeOrb from "@/assets/home/welcome-orb.svg"
+import welcomeOrb from "@/assets/home/welcome-orb.svg?raw"
 import { Button } from "@/components/ui/button"
 
 // Connection anchors follow dots sampled from the original design SVG.
@@ -34,6 +34,18 @@ const anchors = [
   [86.14, 92.49],
 ] as const
 const spring = { stiffness: 120, damping: 22, mass: 0.65 }
+const welcomeOrbMask = `url("data:image/svg+xml,${encodeURIComponent(welcomeOrb)}")`
+// Keep the detailed static geometry mounted while pointer feedback updates.
+const WelcomeOrbArtwork = memo(function WelcomeOrbArtwork() {
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none block size-full [&>svg]:size-full"
+      // Trusted, bundled artwork; never insert user-provided SVG here.
+      dangerouslySetInnerHTML={{ __html: welcomeOrb }}
+    />
+  )
+})
 
 export function WelcomeOrb() {
   const { t } = useTranslation()
@@ -128,17 +140,11 @@ export function WelcomeOrb() {
           data-paused={!enabled}
           className="relative size-full translate-0 rotate-0 data-[paused=true]:[animation-play-state:paused] motion-safe:animate-welcome-orb-float"
         >
-          <img
-            src={welcomeOrb}
-            alt=""
-            width="176"
-            height="176"
-            draggable={false}
-            className="pointer-events-none size-full"
-          />
+          <WelcomeOrbArtwork />
           <span
             aria-hidden="true"
             className="welcome-orb-mask pointer-events-none absolute inset-0 motion-reduce:hidden"
+            style={{ maskImage: welcomeOrbMask }}
           >
             <span
               data-paused={!enabled}
@@ -147,7 +153,10 @@ export function WelcomeOrb() {
           </span>
           <motion.span
             aria-hidden="true"
-            style={{ backgroundImage: light }}
+            style={{
+              backgroundImage: light,
+              maskImage: welcomeOrbMask,
+            }}
             className="welcome-orb-mask pointer-events-none absolute inset-0 opacity-0 mix-blend-screen transition-opacity duration-300 group-data-[active=true]/orb:opacity-70 motion-reduce:hidden"
           />
           <svg

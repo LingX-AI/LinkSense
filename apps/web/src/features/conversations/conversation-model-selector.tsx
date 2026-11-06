@@ -106,7 +106,7 @@ export const ConversationModelSelector = memo(
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-8 w-fit max-w-[min(15rem,calc(100vw-6rem))] min-w-0 shrink gap-1.5 rounded-[10px] border border-border bg-card px-2.5 text-sm font-normal text-foreground hover:border-input-hover hover:bg-card aria-expanded:border-ring aria-expanded:bg-card @max-[48rem]/conversation-workspace:px-2"
+                className="h-8 w-fit max-w-[min(15rem,calc(100vw-6rem))] min-w-0 shrink gap-1.5 rounded-[10px] border border-border bg-card px-2.5 text-sm font-normal text-foreground hover:border-input-hover hover:bg-card aria-expanded:border-border aria-expanded:bg-card @max-[48rem]/conversation-workspace:px-2"
                 aria-label={t("conversation.modelSelector")}
                 aria-busy={pending || undefined}
               />

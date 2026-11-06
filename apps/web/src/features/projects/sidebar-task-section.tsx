@@ -45,7 +45,7 @@ export function SidebarTaskSection({
         keepMounted
         className="h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-200 ease-out data-ending-style:h-0 data-ending-style:opacity-0 data-starting-style:h-0 data-starting-style:opacity-0 motion-reduce:transition-none"
       >
-        <div className="flex flex-col gap-0.5">{children}</div>
+        <div className="flex flex-col">{children}</div>
       </CollapsibleContent>
     </Collapsible>
   )

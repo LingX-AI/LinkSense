@@ -130,7 +130,7 @@ export function ConversationSearchDialog({
             value={query}
             onValueChange={setQuery}
             placeholder={t("conversation.searchPlaceholder")}
-            className="h-10 min-w-0 border-0 bg-transparent p-0 text-sm font-normal shadow-none outline-none placeholder:text-[var(--app-muted)] focus-visible:ring-0 forced-colors:focus-visible:outline-solid"
+            className="h-10 min-w-0 border-0 bg-transparent p-0 text-sm font-normal shadow-none outline-none focus-visible:ring-0 forced-colors:focus-visible:outline-solid"
           />
           <DialogClose
             onKeyDown={(event) => {

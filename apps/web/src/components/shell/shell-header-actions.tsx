@@ -1,21 +1,47 @@
-import { useContext, useState, type ReactNode } from "react"
+import {
+  useContext,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react"
 import { createPortal } from "react-dom"
-import { cn } from "@/lib/utils"
 import { ShellHeaderActionsContext } from "./shell-header-actions-context"
+
+const compactViewportQuery = "(max-width: 767px)"
+
+function subscribeToViewport(onChange: () => void) {
+  const media = window.matchMedia(compactViewportQuery)
+  media.addEventListener("change", onChange)
+  return () => media.removeEventListener("change", onChange)
+}
+
+function isCompactViewport() {
+  return window.matchMedia(compactViewportQuery).matches
+}
+
+function serverCompactViewport() {
+  return false
+}
 
 export function ShellHeaderActionsProvider({
   children,
 }: {
   children: ReactNode
 }) {
-  const [target, setTarget] = useState<HTMLDivElement | null>(null)
-  const [fallbackTarget, setFallbackTarget] = useState<HTMLDivElement | null>(
+  const [sidebarTarget, setSidebarTarget] = useState<HTMLDivElement | null>(
     null
   )
-  // Header registration must not rerender the task list or route content.
+  const [mobileSidebarTarget, setMobileSidebarTarget] =
+    useState<HTMLDivElement | null>(null)
+  // Sidebar slot registration must not rerender the task list or route content.
   return (
     <ShellHeaderActionsContext.Provider
-      value={{ target, setTarget, fallbackTarget, setFallbackTarget }}
+      value={{
+        sidebarTarget,
+        setSidebarTarget,
+        mobileSidebarTarget,
+        setMobileSidebarTarget,
+      }}
     >
       {children}
     </ShellHeaderActionsContext.Provider>
@@ -28,30 +54,32 @@ export function ShellHeaderActionsPortal({
   children: ReactNode
 }) {
   const context = useContext(ShellHeaderActionsContext)
-  const target = context?.target ?? context?.fallbackTarget
+  const compact = useSyncExternalStore(
+    subscribeToViewport,
+    isCompactViewport,
+    serverCompactViewport
+  )
+  const target =
+    context?.mobileSidebarTarget ?? (!compact ? context?.sidebarTarget : null)
   return target ? createPortal(children, target) : null
 }
 
-export function ShellHeaderActions({
-  fallback = false,
-  separated = false,
+export function ShellSidebarActions({
+  mobile = false,
+  active = true,
 }: {
-  fallback?: boolean
-  separated?: boolean
+  mobile?: boolean
+  active?: boolean
 }) {
   const context = useContext(ShellHeaderActionsContext)
-  const setTarget = fallback ? context?.setFallbackTarget : context?.setTarget
-  return setTarget ? (
+  const setTarget = mobile
+    ? context?.setMobileSidebarTarget
+    : context?.setSidebarTarget
+  return active && setTarget ? (
     <div
       ref={setTarget}
-      data-slot="shell-header-actions"
-      hidden={fallback && Boolean(context?.target)}
-      className={cn(
-        "flex shrink-0 items-center",
-        separated &&
-          "ml-1 gap-3 empty:hidden before:h-4 before:w-px before:bg-border before:content-['']",
-        fallback && "absolute top-0 right-4 z-30 h-16.5 md:right-7"
-      )}
+      data-slot="shell-sidebar-actions"
+      className="flex shrink-0 items-center empty:hidden [&_button:active]:bg-(--app-sidebar-hover) [&_button:hover]:bg-(--app-sidebar-hover)"
     />
   ) : null
 }

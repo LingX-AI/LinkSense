@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
-  ShellHeaderActions,
   ShellHeaderActionsPortal,
   ShellHeaderActionsProvider,
+  ShellSidebarActions,
 } from "@/components/shell/shell-header-actions"
 import { getNativeCodexPayload } from "@/api/contracts"
 import {
@@ -398,11 +398,13 @@ function AppSidebarContent({
   onCollapse,
   onSearch,
   observeBackgroundExecutions = false,
+  notificationSlotActive = true,
 }: {
   onNavigate?: () => void
   onCollapse?: () => void
   onSearch: () => void
   observeBackgroundExecutions?: boolean
+  notificationSlotActive?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const productName = useProductName()
@@ -940,7 +942,7 @@ function AppSidebarContent({
         <ShellHeaderActionsPortal>
           <HeaderIconButton
             type="button"
-            className="relative"
+            className="relative text-[color:var(--app-text)]"
             title={t("nav.automationNotifications")}
             aria-label={t(
               visibleAutomationNotification
@@ -968,12 +970,16 @@ function AppSidebarContent({
           />
         ))}
       <div className="workspace-theme flex h-full min-h-0 flex-col overflow-hidden bg-transparent px-4 font-interface text-foreground">
-        <div className="-mx-4 flex h-16.5 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
+        <div className="sidebar-brand-bar -mx-4 flex h-(--conversation-top-bar-height) shrink-0 items-center justify-between gap-4 border-b border-border px-4">
           <ProductLogo
             productName={productName}
             className="sidebar-brand-logo min-w-0"
           />
-          <div className="sidebar-header-actions -mr-2 flex shrink-0 items-center gap-1">
+          <div className="sidebar-header-actions flex shrink-0 items-center gap-0.5 [&_button]:size-7 [&_button]:rounded-md [&_svg[data-design-icon]]:size-4">
+            <ShellSidebarActions
+              mobile={!observeBackgroundExecutions}
+              active={notificationSlotActive}
+            />
             <HeaderIconButton
               type="button"
               className="hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
@@ -985,17 +991,19 @@ function AppSidebarContent({
               <HeaderIcon name="search" />
             </HeaderIconButton>
             {onCollapse && (
-              <HeaderIconButton
-                type="button"
-                className="sidebar-collapse-control hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
-                aria-label={t("nav.collapseSidebar")}
-                title={t("nav.collapseSidebar")}
-                aria-controls="app-sidebar"
-                aria-expanded="true"
-                onClick={onCollapse}
-              >
-                <HeaderIcon name="sidebar" />
-              </HeaderIconButton>
+              <div className="sidebar-collapse-group ml-1 flex shrink-0 items-center gap-1.5 before:h-3 before:w-px before:bg-border before:content-['']">
+                <HeaderIconButton
+                  type="button"
+                  className="sidebar-collapse-control hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover)"
+                  aria-label={t("nav.collapseSidebar")}
+                  title={t("nav.collapseSidebar")}
+                  aria-controls="app-sidebar"
+                  aria-expanded="true"
+                  onClick={onCollapse}
+                >
+                  <HeaderIcon name="sidebar" />
+                </HeaderIconButton>
+              </div>
             )}
           </div>
         </div>
@@ -1010,7 +1018,7 @@ function AppSidebarContent({
               to={to}
               state={newTaskNavigationState}
               onClick={onNavigate}
-              className="flex min-h-10 min-w-0 items-center justify-center gap-3 rounded-full border border-border bg-card px-3 py-2 text-sm text-foreground shadow-[var(--app-sidebar-primary-shadow)] transition-[background-color,border-color,box-shadow] hover:border-input-hover hover:bg-[var(--app-sidebar-primary-hover-bg)] hover:shadow-[var(--app-sidebar-primary-hover-shadow)] focus-visible:border-ring focus-visible:outline-none"
+              className="flex h-(--app-sidebar-row-height) min-w-0 items-center justify-center gap-2 rounded-full border border-border bg-card px-3 text-sm text-foreground shadow-[var(--app-sidebar-primary-shadow)] transition-[background-color,border-color,box-shadow] hover:border-input-hover hover:bg-[var(--app-sidebar-primary-hover-bg)] hover:shadow-[var(--app-sidebar-primary-hover-shadow)] focus-visible:border-ring focus-visible:outline-none"
             >
               <DesignIcon name="plus" />
               <span>{t(labelKey)}</span>
@@ -1035,7 +1043,7 @@ function AppSidebarContent({
                   onClick={onNavigate}
                   className={({ isActive }) =>
                     cn(
-                      "sidebar-link h-9.5 font-normal",
+                      "sidebar-link h-(--app-sidebar-row-height) font-normal",
                       isActive && activeClassName
                     )
                   }
@@ -1512,12 +1520,13 @@ function AppSidebarContent({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="size-10 shrink-0 hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover) aria-expanded:bg-(--app-sidebar-hover)"
+                  size="icon-sm"
+                  className="shrink-0 rounded-md text-[color:var(--app-text)] hover:bg-(--app-sidebar-hover) active:bg-(--app-sidebar-hover) aria-expanded:bg-(--app-sidebar-hover)"
                   aria-label={t("support.help")}
                 />
               }
             >
-              <DesignIcon name="help" />
+              <HeaderIcon name="help" className="size-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" sideOffset={8} align="end">
               <DropdownMenuGroup>
@@ -1627,7 +1636,9 @@ function AppShellContent() {
       >
         <AppSidebarContent
           observeBackgroundExecutions
+          notificationSlotActive={!sidebarCollapsed}
           onSearch={openSearch}
+          onNavigate={() => setMobileOpen(false)}
           onCollapse={() => setSidebarCollapsed(true)}
         />
       </aside>
@@ -1640,14 +1651,14 @@ function AppShellContent() {
           {sidebarCollapsed && (
             <HeaderIconButton
               type="button"
-              className="desktop-sidebar-trigger sidebar-collapse-control hidden md:inline-flex"
+              className="desktop-sidebar-trigger sidebar-collapse-control hidden size-7 rounded-md md:inline-flex [&_svg[data-design-icon]]:size-4"
               aria-label={t("nav.expandSidebar")}
               title={t("nav.expandSidebar")}
               aria-controls="app-sidebar"
               aria-expanded="false"
               onClick={() => setSidebarCollapsed(false)}
             >
-              <HeaderIcon name="sidebar" />
+              <HeaderIcon name="sidebarExpand" />
             </HeaderIconButton>
           )}
           <Button
@@ -1661,7 +1672,6 @@ function AppShellContent() {
           >
             <MenuIcon aria-hidden="true" />
           </Button>
-          <ShellHeaderActions fallback />
           <SystemUpdateNotice />
           <Outlet />
         </main>
@@ -1681,6 +1691,7 @@ function AppShellContent() {
             </SheetDescription>
           </SheetHeader>
           <AppSidebarContent
+            notificationSlotActive={mobileOpen}
             onSearch={openSearch}
             onNavigate={() => setMobileOpen(false)}
           />

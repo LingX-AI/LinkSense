@@ -23,13 +23,13 @@ export function ConversationSourcesList({
   return (
     <section
       aria-label={t("conversation.taskOverview.sources")}
-      className="flex min-h-0 flex-col gap-2"
+      className="flex min-h-0 flex-col gap-1"
     >
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm leading-[var(--app-line-22)] font-medium text-foreground">
+        <h3 className="text-sm leading-[var(--app-line-20)] font-medium text-foreground">
           {t("conversation.taskOverview.sources")}
         </h3>
-        <span className="text-xs leading-[var(--app-line-18)] font-normal text-(--app-task-overview-muted) tabular-nums">
+        <span className="inline-flex min-w-5 items-center justify-center rounded-md bg-muted px-1.5 text-xs leading-[var(--app-line-18)] font-normal text-(--app-task-overview-muted) tabular-nums">
           {sources.length.toLocaleString(i18n.resolvedLanguage)}
         </span>
       </div>
@@ -39,7 +39,7 @@ export function ConversationSourcesList({
           data-testid="conversation-sources-scroll"
         >
           {failed ? (
-            <div role="alert" className="flex flex-col items-start gap-2 py-2">
+            <div role="alert" className="flex flex-col items-start gap-2 py-1">
               <p className="text-xs text-(--app-task-overview-muted)">
                 {t("conversation.taskOverview.sourcesError")}
               </p>
@@ -53,7 +53,7 @@ export function ConversationSourcesList({
             </p>
           ) : null}
           {sources.length > 0 && (
-            <ul className="flex min-w-0 flex-col gap-2">
+            <ul className="flex min-w-0 flex-col gap-1.5">
               {sources.map((source) => {
                 const url = new URL(source.url)
                 const filename = url.pathname.split("/").at(-1) ?? ""
@@ -65,29 +65,29 @@ export function ConversationSourcesList({
                       aria-label={source.title ?? source.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex min-h-14 min-w-0 items-center gap-2 rounded-lg border border-border bg-(--app-activity-surface) px-2 py-1.75 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex min-h-12 min-w-0 items-center gap-2 rounded-lg border border-border bg-(--app-activity-surface) px-2 py-1 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <span className="flex size-7 shrink-0 items-center justify-center text-(--app-task-overview-icon)">
+                      <span className="flex size-6 shrink-0 items-center justify-center text-(--app-task-overview-icon)">
                         {fileSource ? (
                           <TaskOverviewFileIcon filename={filename} />
                         ) : (
                           <GlobeIcon
-                            className="size-5"
+                            className="size-4"
                             strokeWidth={1.6}
                             aria-hidden="true"
                           />
                         )}
                       </span>
                       <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate text-sm leading-[var(--app-line-22)] font-medium text-foreground">
+                        <span className="truncate text-sm leading-[var(--app-line-20)] font-medium text-foreground">
                           {source.title ?? source.url}
                         </span>
                         <span className="truncate text-xs leading-[var(--app-line-18)] text-(--app-task-overview-muted)">
                           {url.hostname}
                         </span>
                       </span>
-                      <span className="flex size-7 shrink-0 items-center justify-center rounded-md text-(--app-task-overview-icon)">
-                        <DesignIcon name="open-source" className="size-5" />
+                      <span className="flex size-6 shrink-0 items-center justify-center rounded-md text-(--app-task-overview-icon)">
+                        <DesignIcon name="open-source" className="size-4" />
                       </span>
                     </a>
                   </li>

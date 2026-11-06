@@ -7,7 +7,7 @@ import {
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 
-import welcomeBackground from "@/assets/home/welcome-background.svg"
+import welcomeBackground from "@/assets/home/welcome-background.svg?raw"
 import { Button } from "@/components/ui/button"
 
 import { WelcomeOrb } from "./welcome-orb"
@@ -60,12 +60,11 @@ export function NewTaskWelcome({
       aria-labelledby="new-task-welcome-title"
     >
       <div className="relative isolate flex min-h-40 items-center justify-between gap-6 overflow-clip rounded-2xl bg-card px-4 py-5 @min-[44rem]/task-home:min-h-48 @min-[44rem]/task-home:px-8 @min-[44rem]/task-home:py-6 @min-[60rem]/task-home:min-h-61 @min-[60rem]/task-home:px-10 @min-[60rem]/task-home:py-8">
-        <img
-          src={welcomeBackground}
-          alt=""
-          width="1112"
-          height="244"
-          className="pointer-events-none absolute inset-0 -z-10 h-full w-full object-cover dark:brightness-25"
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 dark:brightness-25 [&>svg]:h-full [&>svg]:w-full"
+          // Trusted, bundled artwork; never insert user-provided SVG here.
+          dangerouslySetInnerHTML={{ __html: welcomeBackground }}
         />
         <span
           aria-hidden="true"
@@ -93,7 +92,7 @@ export function NewTaskWelcome({
       {guide}
       {onSelect && (
         <div
-          className="conversation-starter-questions grid min-w-0 grid-cols-1 gap-2 @min-[20rem]/task-home:grid-cols-2 @min-[44rem]/task-home:gap-3 @min-[60rem]/task-home:grid-cols-4"
+          className="conversation-starter-questions grid min-w-0 grid-cols-1 gap-2 @min-[20rem]/task-home:grid-cols-2 @min-[44rem]/task-home:grid-cols-4 @min-[44rem]/task-home:gap-3"
           role="group"
           aria-label={t("conversation.starterQuestions.label")}
         >
@@ -108,7 +107,7 @@ export function NewTaskWelcome({
               }
             >
               <span
-                className={`conversation-starter-question-icon grid size-9 shrink-0 place-items-center rounded-[10px] border-2 border-card shadow-home-icon @min-[44rem]/task-home:size-11 @min-[60rem]/task-home:size-13 @min-[60rem]/task-home:border-3 ${colors}`}
+                className={`conversation-starter-question-icon grid size-9 shrink-0 place-items-center rounded-[10px] border-3 border-card shadow-home-icon @min-[44rem]/task-home:size-11 @min-[60rem]/task-home:size-13 @min-[60rem]/task-home:border-4 ${colors}`}
                 data-tone={tone}
                 aria-hidden="true"
               >

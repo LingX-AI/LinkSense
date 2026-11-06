@@ -79,9 +79,9 @@ describe("sidebar theme", () => {
     )
     expect(lightTheme).toContain("--app-hover-subtle: #f7f9fd;")
     expect(lightTheme).toContain(
-      "--app-sidebar-active: color-mix(in srgb, var(--app-brand) 6%, transparent);"
+      "--app-sidebar-active: color-mix(in srgb, var(--app-brand) 9%, transparent);"
     )
-    expect(lightTheme).toContain("--app-user-surface: #f3f5f8;")
+    expect(lightTheme).toContain("--app-user-surface: #f2f7ff;")
     expect(lightTheme).toContain("--primary: #0874ff;")
     expect(lightTheme).toContain("--app-brand: var(--primary);")
     expect(lightTheme).toContain(
@@ -241,13 +241,13 @@ describe("sidebar theme", () => {
     expect(
       cssRule('.app-shell[data-sidebar-collapsed="true"] .conversation-top-bar')
     ).toContain("padding-left: 52px;")
-    expect(cssRule(".desktop-sidebar-trigger")).toContain("top: 7px;")
-    expect(cssRule(".desktop-sidebar-trigger")).toContain("left: 6px;")
+    expect(cssRule(".desktop-sidebar-trigger")).toContain("top: 11px;")
+    expect(cssRule(".desktop-sidebar-trigger")).toContain("left: 10px;")
     expect(
       cssRule(
         '.app-main[data-compact-top-bar="true"] > .desktop-sidebar-trigger'
       )
-    ).toContain("top: calc((var(--conversation-top-bar-height) - 36px) / 2);")
+    ).toContain("top: calc((var(--conversation-top-bar-height) - 28px) / 2);")
     expect(cssRule(".desktop-sidebar-trigger:hover")).toContain(
       "background: var(--app-hover);"
     )
@@ -278,8 +278,8 @@ describe("sidebar theme", () => {
     }
   })
 
-  it("shares a 36px row height across sidebar navigation and tasks", () => {
-    expect(sidebarStyles).toContain("--app-sidebar-row-height: 36px;")
+  it("shares a compact 34px row height across sidebar navigation and tasks", () => {
+    expect(sidebarStyles).toContain("--app-sidebar-row-height: 34px;")
     expect(cssRule(".sidebar-link")).toContain(
       "min-height: var(--app-sidebar-row-height);"
     )

@@ -49,7 +49,7 @@ describe("LinkSense application", () => {
     for (const label of labels) {
       const button = within(banner).getByRole("button", { name: label })
       expect(button).toHaveClass(
-        "size-9",
+        "size-7",
         "text-[color:var(--app-header-icon)]",
         "hover:bg-muted",
         "data-popup-open:bg-muted"
@@ -772,10 +772,16 @@ describe("LinkSense application", () => {
     expect(
       titleActions?.querySelector(".conversation-title-application-icon")
     ).toBeNull()
-    expect(within(banner).getAllByRole("button")).toHaveLength(4)
+    expect(within(banner).getAllByRole("button")).toHaveLength(3)
+    const sidebar = await screen.findByRole("complementary", {
+      name: "LinkSense 导航",
+    })
     expect(
-      within(banner).getByRole("button", { name: "自动化通知" })
+      within(sidebar).getByRole("button", { name: "自动化通知" })
     ).toBeVisible()
+    expect(
+      within(banner).queryByRole("button", { name: "自动化通知" })
+    ).not.toBeInTheDocument()
     expect(
       within(banner).queryByRole("button", { name: "查看任务浏览器" })
     ).not.toBeInTheDocument()
@@ -864,7 +870,10 @@ describe("LinkSense application", () => {
     })
     expect(
       unpinItem.querySelector('[data-icon="conversation-pin-filled"]')
-    ).toHaveClass("size-4", "text-[var(--app-muted)]")
+    ).toHaveClass("size-4")
+    expect(
+      unpinItem.querySelector('[data-icon="conversation-pin-filled"]')
+    ).not.toHaveClass("text-[var(--app-muted)]", "opacity-70")
     await interaction.click(unpinItem)
 
     await waitFor(() =>
@@ -878,7 +887,7 @@ describe("LinkSense application", () => {
     )
   })
 
-  it("uses a larger restore icon for an archived current task", async () => {
+  it("uses a consistent restore icon for an archived current task", async () => {
     installApiMock({
       conversationOverride: {
         archived: true,
@@ -898,6 +907,9 @@ describe("LinkSense application", () => {
     })
     expect(
       unarchiveItem.querySelector('[data-icon="conversation-unarchive"]')
-    ).toHaveClass("size-4", "text-[var(--app-muted)]", "opacity-70")
+    ).toHaveClass("size-4")
+    expect(
+      unarchiveItem.querySelector('[data-icon="conversation-unarchive"]')
+    ).not.toHaveClass("text-[var(--app-muted)]", "opacity-70")
   })
 })

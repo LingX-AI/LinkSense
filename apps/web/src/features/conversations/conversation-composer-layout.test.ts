@@ -20,7 +20,7 @@ describe("conversation composer capability chips", () => {
     ).toBe(false)
   })
 
-  it("uses one flat borderless surface for project, queued request, and goal bars", () => {
+  it("keeps project, queued request, and goal surfaces flat and borderless", () => {
     expect(projectDockClass).toBeDefined()
     const sharedSurface = composerStyles.match(
       new RegExp(
@@ -39,22 +39,26 @@ describe("conversation composer capability chips", () => {
     { theme: "light", selector: /:root\s*\{([^}]*)\}/u, background: "#fafbfd" },
     { theme: "dark", selector: /\.dark\s*\{([^}]*)\}/u, background: "#292929" },
   ])(
-    "uses the $theme gray surface above the composer",
+    "uses the $theme activity surface with a soft blue Goal surface",
     ({ selector, background }) => {
       const theme = composerStyles.match(selector)?.[1]
       expect(theme).toContain(`--app-activity-surface: ${background};`)
-      const barRules = [
+      const activityRule = composerStyles.match(
         new RegExp(
           String.raw`\.${projectDockClass},\s*\.pending-requests\s*\{([^}]*)\}`,
           "u"
-        ),
-        /(?:^|\n)\.conversation-goal-bar\s*\{([^}]*)\}/u,
-      ]
-      for (const rule of barRules) {
-        expect(composerStyles.match(rule)?.[1]).not.toMatch(
-          /(?:background|box-shadow|border(?:-color|-bottom|-top)?):/u
         )
-      }
+      )?.[1]
+      expect(activityRule).not.toMatch(
+        /(?:background|box-shadow|border(?:-color|-bottom|-top)?):/u
+      )
+      const goalRule = composerStyles.match(
+        /(?:^|\n)\.conversation-goal-bar\s*\{([^}]*)\}/u
+      )?.[1]
+      expect(goalRule).toMatch(/background:\s*var\(--app-hover\);/u)
+      expect(goalRule).not.toMatch(
+        /(?:box-shadow|border(?:-color|-bottom|-top)?):/u
+      )
     }
   )
 

@@ -111,6 +111,20 @@ export function useConversationScroll(
 
   const updateButtonVisibility = useCallback(() => {
     const element = containerRef.current
+    if (element) {
+      const topFadeOpacity = String(
+        Math.min(1, Math.max(0, element.scrollTop) / 48)
+      )
+      if (
+        element.style.getPropertyValue("--conversation-top-fade-opacity") !==
+        topFadeOpacity
+      ) {
+        element.style.setProperty(
+          "--conversation-top-fade-opacity",
+          topFadeOpacity
+        )
+      }
+    }
     if (
       !element ||
       scrollAnimationFrameRef.current !== null ||

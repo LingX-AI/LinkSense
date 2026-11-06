@@ -72,7 +72,7 @@ export function ProjectComposerPicker({
               aria-label={t("projects.choose")}
               aria-describedby={labelId}
               disabled={disabled || query.isPending}
-              className="-mx-1.5 h-8 max-w-[calc(100%+--spacing(3))] min-w-0 gap-2 bg-transparent px-1.5 text-sm font-normal text-muted-foreground hover:bg-hover focus-visible:bg-hover data-popup-open:bg-hover @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs"
+              className="composer-control -mx-1.5 h-8 max-w-[calc(100%+--spacing(3))] min-w-0 gap-2 bg-transparent px-1.5 text-sm font-normal @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs"
             >
               <ProjectIcon
                 icon={selected?.icon}
@@ -88,7 +88,10 @@ export function ProjectComposerPicker({
               <span id={labelId} className="truncate" title={projectLabel}>
                 {projectLabel}
               </span>
-              <DesignIcon name="chevron-down" />
+              <DesignIcon
+                name="chevron-down"
+                className="transition-transform duration-150 group-aria-expanded/button:rotate-180 motion-reduce:transition-none"
+              />
             </PopoverTrigger>
             {canClear && (
               <Button

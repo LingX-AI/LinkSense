@@ -1479,7 +1479,7 @@ export const ConversationComposer = forwardRef<
         <>
           {taskReferences.length > 0 && (
             <div
-              className="flex flex-wrap gap-1 px-3 py-2"
+              className="flex min-w-0 flex-wrap gap-1.5 pb-1"
               aria-label={t("taskReferences.source")}
             >
               {taskReferences.map((source) => (
@@ -1945,7 +1945,7 @@ export const ConversationComposer = forwardRef<
               side="top"
               align="start"
               sideOffset={8}
-              className="capability-picker-popover max-h-(--available-height) w-80 max-w-[calc(100vw-2rem)] gap-1 overflow-hidden rounded-xl border border-border p-2 shadow-sm ring-0"
+              className="capability-picker-popover max-h-(--available-height) w-80 max-w-[calc(100vw-2rem)] gap-1 overflow-hidden rounded-xl border border-border p-2 ring-0"
             >
               <PopoverHeader className="sr-only">
                 <PopoverTitle>{t("conversation.addMenuTitle")}</PopoverTitle>
@@ -1953,7 +1953,6 @@ export const ConversationComposer = forwardRef<
               <Command className="min-h-0 gap-2 overflow-visible rounded-none bg-transparent p-1 [&_[data-slot=command-input-wrapper]]:shrink-0 [&_[data-slot=command-input-wrapper]]:p-0 [&_[data-slot=input-group]]:h-10! [&_[data-slot=input-group]]:bg-muted/40">
                 {!managedApplicationName && (
                   <CommandInput
-                    className="placeholder:text-muted-foreground"
                     placeholder={t("conversation.capabilitySearch")}
                     autoFocus={shouldAutoFocusOnDesktop()}
                   />
@@ -2417,31 +2416,25 @@ export const ConversationComposer = forwardRef<
               {goalMode && (
                 <>
                   <span
-                    className="composer-goal-separator"
+                    className="h-4 w-px shrink-0 bg-divider"
+                    data-slot="composer-separator"
                     aria-hidden="true"
                   />
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="composer-goal-mode"
+                    className="composer-control composer-goal-mode h-8 gap-1.5 px-1.5 font-normal @max-[28rem]/conversation-workspace:text-xs"
                     aria-label={t("conversation.goal.disableMode")}
                     disabled={attachmentActionDisabled}
                     onClick={disableGoalMode}
                   >
-                    <span
-                      className="composer-goal-mode-target"
+                    <GoalIcon
+                      className="size-[calc(var(--app-ui-font-size)+2px)] text-foreground"
                       aria-hidden="true"
-                    >
-                      <GoalIcon aria-hidden="true" />
-                    </span>
-                    <span
-                      className="composer-goal-mode-dismiss"
-                      aria-hidden="true"
-                    >
-                      <XIcon aria-hidden="true" />
-                    </span>
+                    />
                     <span>{t("conversation.goal.modeLabel")}</span>
+                    <XIcon className="size-3.5" aria-hidden="true" />
                   </Button>
                 </>
               )}
@@ -2450,23 +2443,26 @@ export const ConversationComposer = forwardRef<
 
           {planMode && (
             <>
-              <span className="composer-goal-separator" aria-hidden="true" />
+              <span
+                className="h-4 w-px shrink-0 bg-divider"
+                data-slot="composer-separator"
+                aria-hidden="true"
+              />
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="composer-goal-mode"
+                className="composer-control composer-goal-mode h-8 gap-1.5 px-1.5 font-normal @max-[28rem]/conversation-workspace:text-xs"
                 aria-label={t("conversation.plan.disableMode")}
                 disabled={attachmentActionDisabled || planModeDisabled}
                 onClick={togglePlanMode}
               >
-                <span className="composer-goal-mode-target" aria-hidden="true">
-                  <LightbulbIcon aria-hidden="true" />
-                </span>
-                <span className="composer-goal-mode-dismiss" aria-hidden="true">
-                  <XIcon aria-hidden="true" />
-                </span>
+                <LightbulbIcon
+                  className="size-[calc(var(--app-ui-font-size)+2px)] text-foreground"
+                  aria-hidden="true"
+                />
                 <span>{t("conversation.plan.modeLabel")}</span>
+                <XIcon className="size-3.5" aria-hidden="true" />
               </Button>
             </>
           )}
@@ -2568,7 +2564,10 @@ export const ConversationComposer = forwardRef<
                     void voice.startRecording()
                   }}
                 >
-                  <DesignIcon name="microphone" />
+                  <DesignIcon
+                    name="microphone"
+                    className={voiceAvailable ? "text-foreground" : undefined}
+                  />
                 </Button>
               </TooltipTrigger>
               <ActionTooltipContent>{t(voiceTooltipKey)}</ActionTooltipContent>

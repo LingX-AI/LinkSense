@@ -131,6 +131,7 @@
   --color-accent: var(--accent);
   --color-hover: var(--app-hover);
   --color-muted-foreground: var(--muted-foreground);
+  --color-placeholder-foreground: var(--placeholder-foreground);
   --color-muted: var(--muted);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
@@ -186,6 +187,11 @@
   --secondary-foreground: #1c2238;
   --muted: #f3f5f8;
   --muted-foreground: #626e86;
+  --placeholder-foreground: color-mix(
+    in srgb,
+    var(--muted-foreground) 78%,
+    var(--field)
+  );
   --accent: #e9f1ff;
   --accent-foreground: #1c2238;
   --destructive: #d92d3a;
@@ -226,7 +232,7 @@
   --app-brand-foreground: var(--primary-foreground);
 
   --app-sidebar-width: 272px;
-  --app-sidebar-row-height: 36px;
+  --app-sidebar-row-height: 34px;
   --app-settings-page-width: 1200px;
   --app-administration-page-width: 1440px;
   --app-reading-width: 1112px;
@@ -273,14 +279,18 @@
   --app-ui-compact-line-height: calc(var(--app-ui-font-size) + 6px);
   --app-ui-copy-line-height: calc(var(--app-ui-font-size) + 8px);
   --app-ui-reading-line-height: var(--app-ui-copy-line-height);
-  --app-canvas: #fdfefe;
+  --app-canvas: #ffffff;
   --app-sidebar: #f7f8fa;
   --app-sidebar-muted: #64728b;
   --app-sidebar-icon: #8b95b4;
   --app-sidebar-action: #69758d;
-  --app-sidebar-action-hover: color-mix(in srgb, var(--app-brand) 12%, transparent);
+  --app-sidebar-action-hover: color-mix(
+    in srgb,
+    var(--app-brand) 12%,
+    transparent
+  );
   --app-sidebar-hover: color-mix(in srgb, var(--app-brand) 4.5%, transparent);
-  --app-sidebar-active: color-mix(in srgb, var(--app-brand) 6%, transparent);
+  --app-sidebar-active: color-mix(in srgb, var(--app-brand) 9%, transparent);
   --app-sidebar-avatar: var(--primary-action);
   --app-sidebar-avatar-foreground: var(--app-brand-foreground);
   --app-sidebar-primary-hover-bg: #f6f9ff;
@@ -312,7 +322,8 @@
   --app-hover-subtle: #f7f9fd;
   --app-active: #e9f1ff;
   --app-control-surface: #f5f7fa;
-  --app-user-surface: #f3f5f8;
+  --app-control-foreground: #475467;
+  --app-user-surface: #f2f7ff;
   --app-message-edit-surface: #f5f7fa;
   --app-activity-surface: #fafbfd;
   --app-artifact-surface: #f7f8fa;
@@ -434,7 +445,11 @@
   --app-sidebar-muted: #adb6c8;
   --app-sidebar-icon: #adb6c8;
   --app-sidebar-action: var(--app-sidebar-icon);
-  --app-sidebar-action-hover: color-mix(in srgb, var(--app-brand) 20%, transparent);
+  --app-sidebar-action-hover: color-mix(
+    in srgb,
+    var(--app-brand) 20%,
+    transparent
+  );
   --app-sidebar-hover: color-mix(in srgb, var(--app-brand) 10%, transparent);
   --app-sidebar-active: color-mix(in srgb, var(--app-brand) 14%, transparent);
   --app-sidebar-avatar: var(--primary-action);
@@ -453,6 +468,7 @@
   --app-hover-subtle: #222630;
   --app-active: #293347;
   --app-control-surface: #282828;
+  --app-control-foreground: #c4ccdb;
   --app-user-surface: #292929;
   --app-message-edit-surface: #252525;
   --app-activity-surface: #292929;
@@ -650,6 +666,26 @@
   color: var(--app-text);
 }
 
+.composer-control {
+  --ring: var(--app-brand);
+  color: var(--app-control-foreground);
+}
+
+.composer-control:not(:disabled):not([aria-disabled="true"]):is(
+    :focus-visible,
+    :active,
+    [aria-expanded="true"],
+    [aria-pressed="true"],
+    .composer-goal-mode
+  ) {
+  background: var(--app-active);
+  color: var(--app-text);
+}
+
+.composer-control:focus-visible {
+  border-color: var(--app-brand);
+}
+
 .sidebar-nav-item,
 .sidebar-conversation-item,
 .sidebar-user-button {
@@ -658,6 +694,10 @@
     background-color 160ms ease,
     color 160ms ease,
     box-shadow 160ms ease;
+}
+
+.sidebar-user-button {
+  color: var(--app-text);
 }
 
 .sidebar-nav-item:not([data-active="true"]):hover,
@@ -700,6 +740,32 @@
   overflow-anchor: none;
   overscroll-behavior: contain;
   scrollbar-gutter: stable both-edges;
+}
+
+.conversation-workspace:not(:has(.conversation-welcome)):has(
+    > .conversation-top-bar:not([hidden])
+  )
+  > .conversation-scroll::before {
+  content: "";
+  position: sticky;
+  top: var(--conversation-top-bar-height);
+  z-index: 1;
+  display: block;
+  height: 40px;
+  margin-bottom: -40px;
+  pointer-events: none;
+  opacity: var(--conversation-top-fade-opacity, 0);
+  background: linear-gradient(
+    to bottom,
+    var(--app-canvas) 0%,
+    color-mix(in srgb, var(--app-canvas) 95%, transparent) 12%,
+    color-mix(in srgb, var(--app-canvas) 80%, transparent) 26%,
+    color-mix(in srgb, var(--app-canvas) 54%, transparent) 42%,
+    color-mix(in srgb, var(--app-canvas) 28%, transparent) 58%,
+    color-mix(in srgb, var(--app-canvas) 10%, transparent) 74%,
+    color-mix(in srgb, var(--app-canvas) 2%, transparent) 88%,
+    transparent 100%
+  );
 }
 
 .conversation-column {
@@ -873,7 +939,7 @@
 }
 
 .composer-input::placeholder {
-  color: var(--app-muted);
+  color: var(--placeholder-foreground);
   font-size: var(--app-ui-font-size);
   font-weight: 400;
 }
@@ -1126,6 +1192,12 @@
   }
 }
 
+@media (pointer: coarse) {
+  :root {
+    --app-sidebar-row-height: 40px;
+  }
+}
+
 .sidebar-link,
 .sidebar-conversation-link {
   display: flex;
@@ -1180,6 +1252,7 @@
   display: block;
   overflow: hidden;
   white-space: nowrap;
+  text-spacing-trim: trim-start;
   text-overflow: clip;
   -webkit-mask-image: linear-gradient(
     to right,
@@ -1271,15 +1344,15 @@
 
 .desktop-sidebar-trigger {
   position: absolute;
-  top: 7px;
-  left: 6px;
+  top: 11px;
+  left: 10px;
   z-index: 50;
   color: var(--app-muted);
 }
 
 .app-main:has([data-slot="page-top-bar"]) > .desktop-sidebar-trigger,
 .app-main[data-compact-top-bar="true"] > .desktop-sidebar-trigger {
-  top: calc((var(--conversation-top-bar-height) - 36px) / 2);
+  top: calc((var(--conversation-top-bar-height) - 28px) / 2);
 }
 
 .desktop-sidebar-trigger:hover {
@@ -3559,8 +3632,6 @@
 .conversation-share-dialog [data-slot="dialog-close"] {
   top: 19px;
   right: 19px;
-  background: transparent;
-  color: var(--app-muted);
 }
 
 .conversation-share-dialog-header {
@@ -3965,12 +4036,13 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  width: min(calc(100% - 56px), calc(var(--app-composer-width) - 56px));
-  min-height: 48px;
+  width: min(calc(100% - 24px), calc(var(--app-composer-width) - 24px));
+  min-height: 40px;
   margin: 0 auto -10px;
-  padding: 6px 18px 8px;
+  padding: 4px 12px;
   overflow: hidden;
-  border-radius: 24px 24px 0 0;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: var(--app-hover);
   color: var(--app-muted);
 }
 
@@ -3983,20 +4055,20 @@
 }
 
 .conversation-goal-bar[data-status="active"] .conversation-goal-icon {
-  color: color-mix(in srgb, var(--app-muted) 58%, transparent);
+  color: var(--app-link);
 }
 
 .conversation-goal-icon {
   width: 14px;
   height: 14px;
   flex: none;
-  color: color-mix(in srgb, var(--app-muted) 58%, transparent);
+  color: var(--app-link);
 }
 
 .conversation-goal-status {
-  color: var(--app-text);
-  font-size: var(--app-font-13);
-  font-weight: 650;
+  color: var(--app-muted);
+  font-size: var(--app-font-12);
+  font-weight: 400;
   white-space: nowrap;
 }
 
@@ -4004,8 +4076,9 @@
   min-width: 0;
   overflow: hidden;
   flex: 0 1 auto;
+  color: var(--app-text);
   font-size: var(--app-font-13);
-  font-weight: 500;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4024,7 +4097,7 @@
   background: transparent;
   color: var(--app-muted);
   font-size: var(--app-font-12);
-  font-weight: 500;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
   line-height: var(--app-ui-compact-line-height);
   text-align: left;
@@ -4054,8 +4127,8 @@
 }
 
 .conversation-goal-action {
-  width: 27px;
-  height: 27px;
+  width: 28px;
+  height: 28px;
   flex: none;
   padding: 0;
   color: var(--app-muted);
@@ -4063,14 +4136,19 @@
 
 .conversation-goal-action:hover,
 .conversation-goal-action:focus-visible {
-  background: var(--app-hover);
+  background: var(--app-active);
+  color: var(--app-text);
+}
+
+.conversation-goal-action:active {
+  background: color-mix(in srgb, var(--app-brand) 12%, var(--app-active));
   color: var(--app-text);
 }
 
 .conversation-goal-action > svg[aria-hidden="true"] {
   width: 14px;
   height: 14px;
-  stroke-width: 1.75;
+  stroke-width: 2;
 }
 
 .conversation-goal-details {
@@ -4098,76 +4176,12 @@
   font-size: var(--app-font-13);
 }
 
-.composer-goal-separator {
-  width: 1px;
-  height: 22px;
-  margin-inline: 7px 8px;
-  background: color-mix(in srgb, var(--app-divider) 70%, transparent);
-}
-
-.composer-goal-mode {
-  height: 26px;
-  border-radius: 999px;
-  font-size: var(--app-font-13);
-  font-weight: 600;
-  gap: 5px;
-  line-height: var(--app-line-16);
-  padding-inline: 3px 6px;
-  color: color-mix(in srgb, var(--app-muted) 72%, var(--app-canvas));
-}
-
-.composer-goal-mode:is(:hover, :focus-visible) {
-  background: color-mix(
-    in srgb,
-    var(--app-control-surface) 58%,
-    var(--app-canvas)
-  );
-  color: color-mix(in srgb, var(--app-muted) 82%, var(--app-canvas));
-}
-
-.composer-goal-mode-target,
-.composer-goal-mode-dismiss {
-  display: grid;
-  width: 15px;
-  height: 15px;
-  flex: none;
-  place-items: center;
-}
-
-.composer-goal-mode-target > svg {
-  width: 15px;
-  height: 15px;
-  stroke-width: 2.15;
-}
-
-.composer-goal-mode-dismiss {
-  display: none;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--app-muted) 56%, var(--app-canvas));
-  color: #fff;
-}
-
-.composer-goal-mode:is(:hover, :focus-visible) .composer-goal-mode-target {
-  display: none;
-}
-
-.composer-goal-mode:is(:hover, :focus-visible) .composer-goal-mode-dismiss {
-  display: grid;
-  background: color-mix(in srgb, var(--app-muted) 66%, var(--app-canvas));
-}
-
-.composer-goal-mode-dismiss > svg {
-  width: 8px;
-  height: 8px;
-  stroke-width: 3.2;
-}
-
 .conversation-bottom-fade {
   position: absolute;
   inset-inline: 0;
   bottom: var(--conversation-composer-top-offset, 0px);
   z-index: 20;
-  height: 96px;
+  height: 64px;
   pointer-events: none;
   background: linear-gradient(
     to bottom,
@@ -4573,7 +4587,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 0;
   background: var(--app-artifact-surface);
   color: var(--app-muted);
@@ -7473,8 +7487,9 @@ button.annotation-hover-file:focus-visible {
 
 .conversation-bottom-stack:has(.conversation-goal-bar) .pending-requests {
   margin-bottom: 0;
-  width: min(calc(100% - 56px), calc(var(--app-composer-width) - 56px));
-  border-radius: 24px 24px 0 0;
+  width: min(calc(100% - 24px), calc(var(--app-composer-width) - 24px));
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: var(--app-hover);
 }
 
 .pending-requests + .conversation-goal-bar {
@@ -10073,7 +10088,10 @@ button.annotation-hover-file:focus-visible {
 .health-summary {
   display: grid;
   width: 100%;
-  grid-template-columns: repeat(var(--health-summary-columns, 4), minmax(0, 1fr));
+  grid-template-columns: repeat(
+    var(--health-summary-columns, 4),
+    minmax(0, 1fr)
+  );
   gap: 8px;
 }
 
@@ -10302,7 +10320,6 @@ button.annotation-hover-file:focus-visible {
 }
 
 .welcome-orb-mask {
-  mask-image: url("./assets/home/welcome-orb.svg");
   mask-size: contain;
   mask-repeat: no-repeat;
   mask-position: center;
@@ -10356,7 +10373,7 @@ button.annotation-hover-file:focus-visible {
 .conversation-workspace:has(.conversation-welcome) {
   --home-heading: #171b40;
   --home-card-shadow: 0 5px 14px rgb(27 39 69 / 3%);
-  --home-icon-shadow: 0 2px 3px rgb(27 39 69 / 14%);
+  --home-icon-shadow: 0 2px 4px rgb(27 39 69 / 8%);
   --task-file: #9035c6;
   --task-file-soft: #eedcff;
   --task-knowledge: #db339f;
@@ -10374,7 +10391,7 @@ button.annotation-hover-file:focus-visible {
 .dark .conversation-workspace:has(.conversation-welcome) {
   --home-heading: var(--foreground);
   --home-card-shadow: none;
-  --home-icon-shadow: 0 2px 3px rgb(0 0 0 / 20%);
+  --home-icon-shadow: 0 2px 4px rgb(0 0 0 / 13%);
   --task-file: #c4a0e6;
   --task-file-soft: #382b45;
   --task-knowledge: #e8a1d2;
@@ -10470,7 +10487,7 @@ button.annotation-hover-file:focus-visible {
 }
 
 .sidebar-brand-logo {
-  height: 29px;
+  height: 24px;
 }
 
 .settings-brand-logo {
@@ -11890,9 +11907,8 @@ button.annotation-hover-file:focus-visible {
   .conversation-goal-bar {
     gap: 8px;
     width: calc(100% - 16px);
-    min-height: 46px;
-    padding: 6px 10px 8px;
-    border-radius: 20px 20px 0 0;
+    min-height: 40px;
+    padding: 4px 10px;
   }
 
   .conversation-goal-copy {
@@ -11905,11 +11921,6 @@ button.annotation-hover-file:focus-visible {
 
   .conversation-goal-actions {
     gap: 1px;
-  }
-
-  .conversation-goal-action {
-    width: 27px;
-    height: 27px;
   }
 
   .pending-request-context {
@@ -11927,7 +11938,7 @@ button.annotation-hover-file:focus-visible {
   .conversation-bottom-stack:has(.conversation-goal-bar) .pending-requests {
     width: calc(100% - 16px);
     margin-bottom: 0;
-    border-radius: 20px 20px 0 0;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   }
 
   .conversation-bottom-stack:has(.conversation-goal-bar)

@@ -251,7 +251,7 @@ describe("ConversationModelSelector", () => {
       "bg-card",
       "hover:bg-card",
       "aria-expanded:bg-card",
-      "aria-expanded:border-ring"
+      "aria-expanded:border-border"
     )
     const contextTrigger = screen.getByLabelText("背景信息窗口：60% 已用")
     expect(contextTrigger).toBeVisible()

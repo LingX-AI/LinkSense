@@ -7,7 +7,6 @@ import { PlusIcon } from "lucide-react"
 import type { Conversation } from "@/api/contracts"
 import { Button } from "@/components/ui/button"
 import { SidebarActionIcon } from "@/components/shell/sidebar-action-icon"
-import { Separator } from "@/components/ui/separator"
 import { sortSidebarConversations } from "@/features/conversations/conversation-order"
 import { SidebarTaskSortMenu } from "@/features/conversations/sidebar-task-sort-menu"
 import {
@@ -193,7 +192,6 @@ export function SidebarTaskGroups({
             </p>
           )}
       </SidebarTaskSection>
-      <Separator className="data-horizontal:h-px" />
       <SidebarTaskSection
         key={JSON.stringify([userId, "recent"])}
         titleId="recent-conversations-title"

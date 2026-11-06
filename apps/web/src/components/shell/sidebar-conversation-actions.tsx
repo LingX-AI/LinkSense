@@ -5,6 +5,7 @@ import type { Project } from "@linksense/shared"
 
 import { Button } from "@/components/ui/button"
 import { DesignIcon } from "@/components/ui/design-icon"
+import { HeaderIcon } from "@/components/ui/header-icon-button"
 import { SidebarMoreIcon } from "@/components/shell/sidebar-more-icon"
 import { SidebarActionIcon } from "@/components/shell/sidebar-action-icon"
 import { ProjectIcon } from "@/features/projects/project-icon"
@@ -81,7 +82,7 @@ export function SidebarConversationActions({
             }
           >
             <SidebarActionIcon>
-              <DesignIcon name="archive" className="size-4.5" />
+              <HeaderIcon name="archive" className="size-4" />
             </SidebarActionIcon>
           </TooltipTrigger>
           <ActionTooltipContent side="top">{archiveLabel}</ActionTooltipContent>

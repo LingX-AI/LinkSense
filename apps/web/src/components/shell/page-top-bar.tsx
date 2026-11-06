@@ -1,7 +1,6 @@
 import type { ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
-import { ShellHeaderActions } from "@/components/shell/shell-header-actions"
 
 export function PageTopBar({
   title,
@@ -26,10 +25,7 @@ export function PageTopBar({
       >
         {title}
       </span>
-      <div className="flex shrink-0 items-center gap-2">
-        {actions}
-        <ShellHeaderActions />
-      </div>
+      <div className="flex shrink-0 items-center gap-2">{actions}</div>
     </div>
   )
 }

@@ -11,12 +11,8 @@ const headerIcons = {
       <path d="m13.05 13.05 4.2 4.2" />
     </g>
   ),
-  sidebar: (
-    <g strokeWidth={1.6}>
-      <rect x="2.5" y="3" width="15" height="14" rx="2.1" />
-      <path d="M7.25 3v14" />
-    </g>
-  ),
+  sidebar: <path d="m9.25 5-5 5 5 5m6.5-10-5 5 5 5" />,
+  sidebarExpand: <path d="m4.25 5 5 5-5 5m6.5-10 5 5-5 5" />,
   share: (
     <>
       <path d="M10 12V2.5m-3.5 3.5L10 2.5 13.5 6" />
@@ -39,9 +35,34 @@ const headerIcons = {
       <path d="M10 2v1M8.5 17a1.75 1.75 0 0 0 3 0" />
     </>
   ),
+  archive: (
+    <>
+      <path d="M4 7h12v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7Z" />
+      <path d="M3 3h14v4H3zM8 10h4" />
+    </>
+  ),
+  more: (
+    <g fill="currentColor" stroke="none">
+      <circle cx="4" cy="10" r="1.4" />
+      <circle cx="10" cy="10" r="1.4" />
+      <circle cx="16" cy="10" r="1.4" />
+    </g>
+  ),
+  help: (
+    <>
+      <circle cx="10" cy="10" r="8" />
+      <path d="M7.5 7.5a2.5 2.5 0 0 1 5 0c0 1.8-2.5 1.8-2.5 4.2M10 15h.01" />
+    </>
+  ),
 }
 
-export function HeaderIcon({ name }: { name: keyof typeof headerIcons }) {
+export function HeaderIcon({
+  name,
+  className,
+}: {
+  name: keyof typeof headerIcons
+  className?: string
+}) {
   return (
     <svg
       aria-hidden="true"
@@ -55,7 +76,7 @@ export function HeaderIcon({ name }: { name: keyof typeof headerIcons }) {
       strokeWidth={1.65}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-5 shrink-0"
+      className={cn("size-5 shrink-0", className)}
     >
       {headerIcons[name]}
     </svg>
@@ -70,9 +91,9 @@ export function HeaderIconButton({
     <Button
       {...props}
       variant="plain"
-      size="icon-lg"
+      size="icon-sm"
       className={cn(
-        "border-0 bg-transparent text-[color:var(--app-header-icon)] shadow-none transition-[background-color,box-shadow] duration-150 hover:bg-muted focus-visible:ring-2 active:bg-muted active:not-aria-[haspopup]:translate-y-0 data-popup-open:bg-muted motion-reduce:transition-none",
+        "rounded-md border-0 bg-transparent text-[color:var(--app-header-icon)] shadow-none transition-[background-color,box-shadow] duration-150 hover:bg-muted focus-visible:ring-2 active:bg-muted active:not-aria-[haspopup]:translate-y-0 data-popup-open:bg-muted motion-reduce:transition-none",
         className
       )}
     />

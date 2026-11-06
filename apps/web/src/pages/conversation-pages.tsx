@@ -69,7 +69,6 @@ import { z } from "zod"
 import { toast } from "sonner"
 
 import { ApiError, apiRequest, downloadApiFile } from "@/api/client"
-import { ShellHeaderActions } from "@/components/shell/shell-header-actions"
 import { requestTurnStart } from "@/features/conversations/turn-start-request"
 import {
   conversationInterruptPollIntervalMs,
@@ -5993,7 +5992,7 @@ export function ConversationPage({
                   <DropdownMenuItem onClick={openRenameDialog}>
                     <DesignIcon
                       name="rename"
-                      className="size-4 text-[var(--app-muted)]"
+                      className="size-4"
                     />{" "}
                     {t("conversation.rename")}
                   </DropdownMenuItem>
@@ -6007,14 +6006,14 @@ export function ConversationPage({
                   >
                     {displayConversation.pinned_at ? (
                       <TbPinFilled
-                        className="size-4 text-[var(--app-muted)]"
+                        className="size-4"
                         data-icon="conversation-pin-filled"
                         aria-hidden="true"
                       />
                     ) : (
                       <DesignIcon
                         name="pin"
-                        className="size-4 text-[var(--app-muted)]"
+                        className="size-4"
                         data-icon="conversation-pin"
                       />
                     )}{" "}
@@ -6036,14 +6035,14 @@ export function ConversationPage({
                   >
                     {displayConversation.archived ? (
                       <ArchiveRestoreIcon
-                        className="size-4 text-[var(--app-muted)] opacity-70"
+                        className="size-4"
                         data-icon="conversation-unarchive"
                         aria-hidden="true"
                       />
                     ) : (
                       <DesignIcon
                         name="archive"
-                        className="size-4 text-[var(--app-muted)]"
+                        className="size-4"
                       />
                     )}{" "}
                     {t(
@@ -6075,7 +6074,7 @@ export function ConversationPage({
               aria-expanded={shareOpen}
               onClick={() => setShareOpen(true)}
             >
-              <HeaderIcon name="share" />
+              <HeaderIcon name="share" className="size-4" />
             </ConversationHeaderButton>
           )}
           <div
@@ -6129,9 +6128,6 @@ export function ConversationPage({
                 interrupting ? "conversation.interrupting" : "conversation.stop"
               )}
             </Button>
-          )}
-          {showHeader && !embedded && surfaceActive && (
-            <ShellHeaderActions separated />
           )}
         </div>
       </header>

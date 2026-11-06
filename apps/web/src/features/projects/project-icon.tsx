@@ -90,7 +90,12 @@ export function ProjectIcon({
         name={variant === "toolbar" ? "workspace" : "folder"}
         data-project-icon={icon}
         data-project-color={color}
-        className={cn(projectColorClasses[color], className)}
+        className={cn(
+          projectColorClasses[color],
+          // The toolbar asset's drawn bounds sit 0.5px low in its 20px grid.
+          variant === "toolbar" && "-translate-y-[2.5%]",
+          className
+        )}
       />
     )
   }

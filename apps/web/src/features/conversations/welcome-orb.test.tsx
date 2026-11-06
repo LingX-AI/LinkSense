@@ -2,7 +2,6 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import welcomeOrb from "@/assets/home/welcome-orb.svg"
 import i18n, { supportedLanguages } from "@/i18n"
 import { WelcomeOrb } from "./welcome-orb"
 
@@ -36,18 +35,23 @@ afterEach(() => {
 })
 
 describe("original design orb interactions", () => {
+  it("renders the bundled artwork as native SVG without image loading", () => {
+    const { container } = render(<WelcomeOrb />)
+    expect(container.querySelector("img")).not.toBeInTheDocument()
+    expect(container.querySelector("svg[width='176'] path")).toBeInTheDocument()
+    expect(screen.getByRole("button")).toBeInTheDocument()
+  })
   it("keeps the original SVG, reveals nearby connections on hover, and settles on leave", () => {
     const { root, container } = renderOrb()
-    const image = container.querySelector("img")
-    expect(image).toHaveAttribute("src", welcomeOrb)
-    expect(image).toHaveAttribute("width", "176")
-    expect(image).toHaveAttribute("height", "176")
+    const artwork = container.querySelector("svg[width='176']")
+    expect(artwork).toHaveAttribute("viewBox", "0 0 176 176")
+    expect(artwork).toHaveAttribute("height", "176")
     expect(container.querySelector("canvas")).toBeNull()
     fireEvent.pointerOver(root)
     fireEvent.pointerMove(root, { clientX: 100, clientY: 85 })
     expect(root).toHaveAttribute("data-active", "true")
     expect(container.querySelectorAll("line")).toHaveLength(4)
-    expect(image).toHaveAttribute("src", welcomeOrb)
+    expect(container.querySelector("svg[width='176']")).toBe(artwork)
     fireEvent.pointerOut(root)
     expect(root).toHaveAttribute("data-active", "false")
   })

@@ -1297,11 +1297,14 @@ describe("conversation execution plan layout", () => {
     )?.[1]
 
     expect(combinedPendingRule).toMatch(
-      /width:\s*min\(calc\(100% - 56px\), calc\(var\(--app-composer-width\) - 56px\)\);/u
+      /width:\s*min\(calc\(100% - 24px\), calc\(var\(--app-composer-width\) - 24px\)\);/u
     )
     expect(combinedPendingRule).toMatch(/margin-bottom:\s*0;/u)
     expect(combinedPendingRule).not.toMatch(/border(?:-bottom)?:/u)
-    expect(combinedPendingRule).toMatch(/border-radius:\s*24px 24px 0 0;/u)
+    expect(combinedPendingRule).toMatch(
+      /border-radius:\s*var\(--radius-xl\) var\(--radius-xl\) 0 0;/u
+    )
+    expect(combinedPendingRule).toMatch(/background:\s*var\(--app-hover\);/u)
     expect(combinedPendingRule).not.toMatch(/box-shadow:/u)
     expect(combinedContextRule).toMatch(/gap:\s*4px;/u)
     expect(combinedContextRule).toMatch(/padding:\s*6px 18px 6px 14px;/u)
@@ -1321,14 +1324,14 @@ describe("conversation execution plan layout", () => {
       /\.conversation-bottom-stack:has\(\.conversation-goal-bar\)\s*\.pending-request-context-guide\s*>\s*svg,[\s\S]*?\.conversation-bottom-stack:has\(\.conversation-goal-bar\)\s*\.pending-request-context-action\s*>\s*svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;/u
     )
     expect(conversationStyles).toMatch(
-      /@media \(max-width:\s*767px\)[\s\S]*?\.conversation-bottom-stack:has\(\.conversation-goal-bar\)\s*\.pending-requests\s*\{[^}]*width:\s*calc\(100% - 16px\);[^}]*border-radius:\s*20px 20px 0 0;/u
+      /@media \(max-width:\s*767px\)[\s\S]*?\.conversation-bottom-stack:has\(\.conversation-goal-bar\)\s*\.pending-requests\s*\{[^}]*width:\s*calc\(100% - 16px\);[^}]*border-radius:\s*var\(--radius-xl\) var\(--radius-xl\) 0 0;/u
     )
     expect(conversationStyles).toMatch(
       /@media \(max-width:\s*767px\)[\s\S]*?\.conversation-bottom-stack:has\(\.conversation-goal-bar\)\s*\.pending-request-context\s*\{[^}]*gap:\s*2px;[^}]*padding:\s*6px 10px 6px 6px;/u
     )
   })
 
-  it("matches the native Goal card geometry to the referenced Composer cap", () => {
+  it("keeps the Goal dock compact while reusing shared controls and surface tokens", () => {
     const goalRule = conversationStyles.match(
       /\.conversation-goal-bar\s*\{([^}]*)\}/u
     )?.[1]
@@ -1356,13 +1359,16 @@ describe("conversation execution plan layout", () => {
 
     expect(goalRule).toMatch(/display:\s*flex;/u)
     expect(goalRule).toMatch(
-      /width:\s*min\(calc\(100% - 56px\), calc\(var\(--app-composer-width\) - 56px\)\);/u
+      /width:\s*min\(calc\(100% - 24px\), calc\(var\(--app-composer-width\) - 24px\)\);/u
     )
-    expect(goalRule).toMatch(/min-height:\s*48px;/u)
+    expect(goalRule).toMatch(/min-height:\s*40px;/u)
     expect(goalRule).toMatch(/margin:\s*0 auto -10px;/u)
-    expect(goalRule).toMatch(/padding:\s*6px 18px 8px;/u)
+    expect(goalRule).toMatch(/padding:\s*4px 12px;/u)
     expect(goalRule).not.toMatch(/border:/u)
-    expect(goalRule).toMatch(/border-radius:\s*24px 24px 0 0;/u)
+    expect(goalRule).toMatch(
+      /border-radius:\s*var\(--radius-xl\) var\(--radius-xl\) 0 0;/u
+    )
+    expect(goalRule).toMatch(/background:\s*var\(--app-hover\);/u)
     expect(goalRule).not.toMatch(/box-shadow:/u)
     expect(goalCopyRule).toMatch(/display:\s*flex;/u)
     expect(goalCopyRule).toMatch(/min-width:\s*0;/u)
@@ -1372,18 +1378,15 @@ describe("conversation execution plan layout", () => {
     )
     expect(actionsRule).toMatch(/gap:\s*1px;/u)
     expect(actionsRule).toMatch(/margin-left:\s*auto;/u)
-    expect(actionRule).toMatch(/width:\s*27px;/u)
-    expect(actionRule).toMatch(/height:\s*27px;/u)
-    expect(activeIconRule).toMatch(
-      /color:\s*color-mix\(in srgb,\s*var\(--app-muted\) 58%,\s*transparent\);/u
-    )
+    expect(actionRule).toMatch(/width:\s*28px;/u)
+    expect(actionRule).toMatch(/height:\s*28px;/u)
+    expect(activeIconRule).toMatch(/color:\s*var\(--app-link\);/u)
     expect(iconRule).toMatch(/width:\s*14px;/u)
     expect(iconRule).toMatch(/height:\s*14px;/u)
-    expect(iconRule).toMatch(
-      /color:\s*color-mix\(in srgb,\s*var\(--app-muted\) 58%,\s*transparent\);/u
-    )
+    expect(iconRule).toMatch(/color:\s*var\(--app-link\);/u)
     expect(actionIconRule).toMatch(/width:\s*14px;/u)
     expect(actionIconRule).toMatch(/height:\s*14px;/u)
+    expect(actionIconRule).toMatch(/stroke-width:\s*2;/u)
   })
 
   it("keeps compact queued follow-ups separated from a plan in the bottom stack", () => {

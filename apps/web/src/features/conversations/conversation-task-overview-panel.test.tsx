@@ -179,32 +179,36 @@ describe("ConversationTaskOverviewPanel", () => {
     expect(downloads).toHaveLength(2)
     expect(links).toHaveLength(2)
     const panel = screen.getByRole("region", { name: "任务概览" })
-    expect(panel).toHaveClass("w-80", "p-4", "gap-5", "rounded-card")
+    expect(panel).toHaveClass("w-80", "p-3", "gap-3", "rounded-card")
     for (const name of ["产出文件", "来源"]) {
       const group = within(panel).getByRole("region", { name })
       expect(within(group).getByText("2")).toHaveClass("text-xs", "font-normal")
-      expect(group).toHaveClass("gap-2")
+      expect(group).toHaveClass("gap-1")
       expect(group).not.toHaveClass("px-4", "py-3")
     }
     for (const row of [...downloads, ...links]) {
       expect(row).toHaveClass(
-        "min-h-14",
+        "min-h-12",
         "border",
         "border-border",
         "bg-(--app-activity-surface)",
         "rounded-lg",
         "px-2"
       )
-      expect(row.firstElementChild).toHaveClass("size-7")
-      expect(row.lastElementChild).toHaveClass("size-7")
+      expect(row.firstElementChild).toHaveClass("size-6")
+      expect(row.lastElementChild).toHaveClass("size-6")
       expect(row.lastElementChild?.firstElementChild).toHaveClass(
-        "size-5",
+        "size-4",
         "forced-colors:bg-[ButtonText]",
         "forced-colors:forced-color-adjust-none"
       )
     }
-    expect(downloads[0].parentElement).toHaveClass("flex", "flex-col", "gap-2")
-    expect(links[0].closest("ul")).toHaveClass("gap-2")
+    expect(downloads[0].parentElement).toHaveClass(
+      "flex",
+      "flex-col",
+      "gap-1.5"
+    )
+    expect(links[0].closest("ul")).toHaveClass("gap-1.5")
     expect(
       within(downloads[0]).getByText(
         `PDF · ${formatFileSize(artifact.size, "zh-CN")}`
@@ -219,7 +223,7 @@ describe("ConversationTaskOverviewPanel", () => {
     )
     expect(downloads[0]).toBeDisabled()
     expect(downloads[0].lastElementChild?.firstElementChild).toHaveClass(
-      "size-5",
+      "size-4",
       "animate-spin"
     )
   })
@@ -433,7 +437,7 @@ describe("ConversationTaskOverviewPanel", () => {
     expect(emptyState).not.toHaveClass("text-sm")
   })
 
-  it("uses the design's title hierarchy and 20px icons in 28px slots", async () => {
+  it("uses compact title hierarchy and 20px file icons in 24px slots", async () => {
     render(
       <ConversationTaskOverviewPanel
         events={[]}
@@ -448,13 +452,16 @@ describe("ConversationTaskOverviewPanel", () => {
     const fileIcon = fileRow.querySelector('[data-file-icon-kind="pdf"]')
 
     expect(appStyles).toContain("--text-sm: var(--app-ui-font-size);")
-    expect(screen.getByText("任务概览")).toHaveClass("text-base", "leading-6")
-    expect(screen.getByText("任务概览")).not.toHaveClass("text-sm")
+    expect(screen.getByText("任务概览")).toHaveClass(
+      "text-sm",
+      "leading-[var(--app-line-20)]",
+      "font-semibold"
+    )
     expect(screen.getByText("产出文件")).toHaveClass("text-sm")
     expect(screen.getByText("产出文件")).not.toHaveClass("text-base")
     expect(fileRow).toHaveClass("text-sm", "hover:bg-hover")
     expect(fileIcon).toHaveClass("size-5")
-    expect(fileIcon?.parentElement).toHaveClass("size-7")
+    expect(fileIcon?.parentElement).toHaveClass("size-6")
   })
 
   it("shows existing files without size metadata and keeps unavailable downloads disabled", async () => {

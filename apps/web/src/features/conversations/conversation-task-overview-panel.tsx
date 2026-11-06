@@ -127,7 +127,7 @@ export function ConversationTaskOverviewPanel({
           />
         }
       >
-        <HeaderIcon name="overview" />
+        <HeaderIcon name="overview" className="size-4" />
       </PopoverTrigger>
       <PopoverContent
         ref={panelRef}
@@ -138,66 +138,62 @@ export function ConversationTaskOverviewPanel({
         align="end"
         side="bottom"
         sideOffset={8}
-        className="task-overview-card-border task-overview-card-shadow max-h-[calc(100dvh-6rem)] w-80 max-w-[calc(100vw-1rem)] gap-5 overflow-y-auto overscroll-contain rounded-card p-4 shadow-none ring-0"
+        className="task-overview-card-border task-overview-card-shadow max-h-[calc(100dvh-6rem)] w-80 max-w-[calc(100vw-1rem)] gap-3 overflow-y-auto overscroll-contain rounded-card p-3 shadow-none ring-0"
       >
-        <PopoverTitle className="shrink-0 text-base leading-6 font-semibold text-foreground">
+        <PopoverTitle className="shrink-0 text-sm leading-[var(--app-line-20)] font-semibold text-foreground">
           {t("conversation.taskOverview.title")}
         </PopoverTitle>
 
-        <div className="flex shrink-0 flex-col gap-5">
+        <div className="flex shrink-0 flex-col gap-3 [&>section+section]:border-t [&>section+section]:border-border/70 [&>section+section]:pt-3">
           {hasSubAgents ? (
-            <>
-              <section
-                aria-label={t("conversation.taskOverview.subagents")}
-                className="flex flex-col gap-2"
-              >
-                <p className="text-sm leading-[var(--app-line-22)] font-medium text-foreground">
-                  {t("conversation.taskOverview.subagents")}
-                </p>
-                <div className="flex items-center gap-2 text-sm font-medium text-(--app-task-overview-muted)">
-                  <span className="flex min-w-0 items-center gap-1">
-                    {overview.subAgents
-                      .slice(0, maxVisibleSubAgentIcons)
-                      .map((agent) => (
-                        <SubAgentIcon
-                          key={agent.id}
-                          ordinal={agent.ordinal}
-                          className="size-4"
-                        />
-                      ))}
-                    {overview.subAgentCount > maxVisibleSubAgentIcons ? (
-                      <span className="text-sm text-(--app-task-overview-muted) tabular-nums">
-                        +{overview.subAgentCount - maxVisibleSubAgentIcons}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="tabular-nums">
-                    {t("conversation.taskOverview.subagentsProgress", {
-                      completed: overview.subAgentCompletedCount,
-                      count: overview.subAgentCount,
-                    })}
-                  </span>
-                </div>
-              </section>
-
-              <div className="h-px bg-border/70" />
-            </>
+            <section
+              aria-label={t("conversation.taskOverview.subagents")}
+              className="flex flex-col gap-1"
+            >
+              <h3 className="text-sm leading-[var(--app-line-20)] font-medium text-foreground">
+                {t("conversation.taskOverview.subagents")}
+              </h3>
+              <div className="flex items-center gap-2 text-sm font-medium text-(--app-task-overview-muted)">
+                <span className="flex min-w-0 items-center gap-1">
+                  {overview.subAgents
+                    .slice(0, maxVisibleSubAgentIcons)
+                    .map((agent) => (
+                      <SubAgentIcon
+                        key={agent.id}
+                        ordinal={agent.ordinal}
+                        className="size-4"
+                      />
+                    ))}
+                  {overview.subAgentCount > maxVisibleSubAgentIcons ? (
+                    <span className="text-sm text-(--app-task-overview-muted) tabular-nums">
+                      +{overview.subAgentCount - maxVisibleSubAgentIcons}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="tabular-nums">
+                  {t("conversation.taskOverview.subagentsProgress", {
+                    completed: overview.subAgentCompletedCount,
+                    count: overview.subAgentCount,
+                  })}
+                </span>
+              </div>
+            </section>
           ) : null}
 
           <section
             aria-label={t("conversation.taskOverview.outputFiles")}
-            className="flex flex-col gap-2"
+            className="flex flex-col gap-1"
           >
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm leading-[var(--app-line-22)] font-medium text-foreground">
+              <h3 className="text-sm leading-[var(--app-line-20)] font-medium text-foreground">
                 {t("conversation.taskOverview.outputFiles")}
               </h3>
-              <span className="text-xs leading-[var(--app-line-18)] font-normal text-(--app-task-overview-muted) tabular-nums">
+              <span className="inline-flex min-w-5 items-center justify-center rounded-md bg-muted px-1.5 text-xs leading-[var(--app-line-18)] font-normal text-(--app-task-overview-muted) tabular-nums">
                 {overview.outputFiles.length.toLocaleString(language)}
               </span>
             </div>
             {overview.outputFiles.length > 0 ? (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 {overview.outputFiles.map((file) => {
                   const downloading = downloadingFileId === file.id
                   const fileType = getTaskOverviewFileFormat(
@@ -209,7 +205,7 @@ export function ConversationTaskOverviewPanel({
                       key={file.id}
                       type="button"
                       variant="ghost"
-                      className="h-auto min-h-14 w-full justify-start gap-2 rounded-lg border border-border bg-(--app-activity-surface) px-2 py-1.75 text-left text-sm hover:bg-hover"
+                      className="h-auto min-h-12 w-full justify-start gap-2 rounded-lg border border-border bg-(--app-activity-surface) px-2 py-1 text-left text-sm hover:bg-hover"
                       aria-label={t("conversation.downloadArtifact", {
                         name: file.name,
                       })}
@@ -218,14 +214,14 @@ export function ConversationTaskOverviewPanel({
                       }
                       onClick={() => onDownload(file)}
                     >
-                      <span className="flex size-7 shrink-0 items-center justify-center">
+                      <span className="flex size-6 shrink-0 items-center justify-center">
                         <TaskOverviewFileIcon
                           filename={file.name}
                           mimeType={file.mime_type}
                         />
                       </span>
                       <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate leading-[var(--app-line-22)] font-medium text-foreground">
+                        <span className="truncate leading-[var(--app-line-20)] font-medium text-foreground">
                           {file.name}
                         </span>
                         <span className="truncate text-xs leading-[var(--app-line-18)] font-normal text-(--app-task-overview-muted)">
@@ -233,14 +229,14 @@ export function ConversationTaskOverviewPanel({
                           {formatFileSize(file.size, language)}
                         </span>
                       </span>
-                      <span className="flex size-7 shrink-0 items-center justify-center rounded-md text-(--app-task-overview-icon)">
+                      <span className="flex size-6 shrink-0 items-center justify-center rounded-md text-(--app-task-overview-icon)">
                         {downloading ? (
                           <LoaderCircleIcon
-                            className="size-5 animate-spin"
+                            className="size-4 animate-spin"
                             aria-hidden="true"
                           />
                         ) : (
-                          <DesignIcon name="download" className="size-5" />
+                          <DesignIcon name="download" className="size-4" />
                         )}
                       </span>
                     </Button>
