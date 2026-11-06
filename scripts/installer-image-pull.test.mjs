@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
+import { applicationImages } from "./release-image-inventory.mjs"
 
 const helpers = readFileSync(new URL("../deploy/release/linksense-host.sh", import.meta.url), "utf8")
 const installer = readFileSync(new URL("../deploy/release/linksense-installer.sh", import.meta.url), "utf8")
@@ -20,8 +21,8 @@ function directory(t) {
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   return dir
 }
-function run(source, environment = {}) {
-  return spawnSync("/bin/sh", ["-c", `set -eu\n${helpers}\n${source}`], {
+function run(source, environment = {}, args = []) {
+  return spawnSync("/bin/sh", ["-c", `set -eu\n${helpers}\n${source}`, "sh", ...args], {
     encoding: "utf8", timeout: 15000,
     env: { ...process.env, LINKSENSE_CLI_LANGUAGE: "en-US", LINKSENSE_IMAGE_MIRRORS: "", ...environment },
   })
@@ -35,6 +36,14 @@ curl() {
 }
 host_pull_attempt() {
   echo "$1" >> "$DIR/pulls"
+  case "$MODE" in
+    interrupted) return 130 ;;
+    credential)
+      if [ "$1" = "$IMAGE" ]; then
+        printf '%s\\n' 'exec: "docker-credential-missing": executable file not found' > "$3"
+        return 1
+      fi ;;
+  esac
   if [ "$MODE" = failed ] || { [ "$MODE" != official ] && [ "$1" = "$IMAGE" ]; } ||
     { [ "$MODE" = second ] && [ "\${1%%/*}" = ghcr.nju.edu.cn ]; }; then
     echo 'connection refused private-proxy-value' > "$3"
@@ -82,6 +91,47 @@ test("a responsive manifest endpoint is skipped if Docker cannot pull its layers
   assert.deepEqual(readFileSync(path.join(dir, "pulls"), "utf8").trim().split("\n"), [image, mirror, second])
 })
 
+test("a missing origin credential helper does not prevent a working mirror pull", t => {
+  const dir = directory(t)
+  const result = run(`${pulls}\nhost_pull_image "$IMAGE"\necho "$HOST_PULLED_IMAGE"`, {
+    DIR: dir, MODE: "credential", IMAGE: image,
+  })
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.stdout.trim(), mirror)
+})
+
+test("a missing credential helper is reported after fallback and does not abort other network checks", t => {
+  const dir = directory(t)
+  const result = run(`${pulls}
+host_network_request() { return 0; }
+host_check_docker_credentials() { :; }
+docker() { [ "$1" = info ]; }
+host_pull_attempt() {
+  printf '%s\\n' "$1" >> "$DIR/pulls"
+  printf '%s\\n' 'exec: "docker-credential-missing": executable file not found' > "$3"
+  return 1
+}
+DOCKER_CLI=docker
+host_network_diagnostics https://release.example "$IMAGE" "docker.io/library/busybox@${digest}"
+`, { DIR: dir, IMAGE: image })
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stderr, /\[LS_HOST_credential\].*docker-credential-missing/u)
+  assert.match(result.stdout, /FAIL.*docker-pull:docker\.io\/library\/busybox/u)
+  assert.deepEqual(readFileSync(path.join(dir, "pulls"), "utf8").trim().split("\n"), [
+    image, mirror, `ghcr.dockerproxy.net/lingx-ai/linksense-api@${digest}`, `docker.io/library/busybox@${digest}`,
+  ])
+})
+
+test("an interrupted pull does not try the next registry", t => {
+  const dir = directory(t)
+  const result = run(`${pulls}\nhost_pull_image "$IMAGE"`, {
+    DIR: dir, MODE: "interrupted", IMAGE: image,
+  })
+  assert.equal(result.status, 130, result.stderr)
+  assert.equal(readFileSync(path.join(dir, "pulls"), "utf8"), `${image}\n`)
+  assert.equal(existsSync(path.join(dir, "probes")), false)
+})
+
 test("all failed routes ask for a trusted mirror and never accept a missing digest", t => {
   for (const mode of ["failed", "wrong-digest"]) {
     const dir = directory(t)
@@ -108,10 +158,21 @@ test("a configured Docker Hub mirror preserves the repository prefix and immutab
   assert.doesNotMatch(readFileSync(path.join(dir, "probes"), "utf8"), /nju|dockerproxy/u)
 })
 
-test("private GHCR repositories are not sent to public mirrors by default", () => {
-  const result = run(`host_image_mirrors "ghcr.io/private/project@${digest}"`)
+test("all public GHCR release images have default mirrors without sending other repositories", () => {
+  const { services } = JSON.parse(readFileSync(new URL("../deploy/baselines/images.lock.json", import.meta.url), "utf8"))
+  const references = [
+    ...applicationImages.map(name => `ghcr.io/lingx-ai/linksense-${name}@${digest}`),
+    ...Object.values(services).filter(reference => reference.startsWith("ghcr.io/")),
+  ]
+  const result = run(`
+for reference do host_image_mirrors "$reference"; done
+host_image_mirrors "ghcr.io/lingx-ai/linksense-private@${digest}"
+host_image_mirrors "ghcr.io/private/project@${digest}"
+`, {}, references)
   assert.equal(result.status, 0, result.stderr)
-  assert.equal(result.stdout, "")
+  assert.deepEqual(result.stdout.trim().split("\n"), references.flatMap(reference =>
+    ["ghcr.nju.edu.cn", "ghcr.dockerproxy.net"].map(host => reference.replace("ghcr.io", host)),
+  ))
 })
 
 test("invalid mirror mappings and mutable image tags fail before pulling or probing", t => {
@@ -146,7 +207,7 @@ host_pull_image "$IMAGE" "$(($(date +%s) + 120))" probe
   assert.deepEqual(readFileSync(path.join(dir, "pulls"), "utf8").trim().split("\n"), [mirror])
 })
 
-for (const [scenario, expected] of [["progress", 0], ["zero-bytes", 124], ["metadata", 124], ["ignores-term", 124], ["transfer-limit", 124], ["failure", 1]]) {
+for (const [scenario, expected] of [["progress", 0], ["extracting", 0], ["zero-bytes", 124], ["metadata", 124], ["cached-layer", 124], ["ignores-term", 124], ["transfer-limit", 124], ["failure", 1]]) {
   test(`the PTY watchdog handles ${scenario} without using metadata as downloaded bytes`, t => {
     const dir = directory(t)
     const command = path.join(dir, "docker")
@@ -155,8 +216,10 @@ test -t 1 || exit 99
 echo $$ > "$DIR/client-pid"
 case "$SCENARIO" in
   progress) printf 'layer: Downloading [=>] 1kB/2MB\\r'; /bin/sleep 2; echo 'layer: Download complete' ;;
+  extracting) printf 'layer: Extracting 1 s\\r'; /bin/sleep 2; echo 'layer: Pull complete' ;;
   zero-bytes) echo 'layer: Downloading [>] 0B/2MB'; /bin/sleep 8 ;;
   metadata) echo 'layer: Pulling fs layer'; /bin/sleep 8 ;;
+  cached-layer) echo 'layer: Pull complete'; /bin/sleep 3 ;;
   ignores-term) trap '' TERM HUP; while :; do :; done ;;
   transfer-limit) echo 'layer: Downloading 1kB/2MB'; while :; do :; done ;;
   failure) exit 1 ;;
@@ -170,6 +233,29 @@ esac
     assert.throws(() => process.kill(pid, 0), { code: "ESRCH" })
   })
 }
+
+test("disk preflight counts exact mirror digests already cached before the runtime config was saved", t => {
+  const dir = directory(t)
+  writeFileSync(path.join(dir, "cache"), `${mirror}\n`)
+  const result = run(`
+${fn("check_release_storage")}
+${fn("reuse_installed_image")}
+release_image_keys() { echo IMAGE_LINKSENSE_API; }
+host_storage() { echo "$2 $3"; }
+docker() {
+  case "$1:$2" in
+    info:--format) echo "$DIR" ;;
+    image:inspect) grep -Fqx "$3" "$DIR/cache" ;;
+    *) return 1 ;;
+  esac
+}
+check_release_storage
+echo "$IMAGE_LINKSENSE_API"
+`, { DIR: dir, EDITION: "full", HOST_OS: "Linux", IMAGE_LINKSENSE_API: image })
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /^2097152 10000$/mu)
+  assert.ok(result.stdout.endsWith(`${image}\n`))
+})
 
 test("installed mirror references survive repair and reach the runtime without changing credentials", t => {
   const dir = directory(t)
@@ -203,8 +289,21 @@ echo "$IMAGE_LINKSENSE_API"
 
 test("pre-migration rollback starts the previous image even when the target used a mirror", t => {
   const dir = directory(t)
-  writeFileSync(path.join(dir, ".env"), `LINKSENSE_API_IMAGE=${mirror}\n`)
-  writeFileSync(path.join(dir, "previous.env"), `LINKSENSE_API_IMAGE=${image}\n`)
+  const previous = {
+    LINKSENSE_API_IMAGE: image,
+    LINKSENSE_WORKER_IMAGE_REVISION: digest,
+    LINKSENSE_VERSION: "v0.3.13",
+    LINKSENSE_CPU_QUOTA_MODE: "strict",
+  }
+  const target = {
+    LINKSENSE_API_IMAGE: mirror,
+    LINKSENSE_WORKER_IMAGE_REVISION: `sha256:${"b".repeat(64)}`,
+    LINKSENSE_VERSION: "v0.3.14",
+    LINKSENSE_CPU_QUOTA_MODE: "compatible",
+  }
+  const envFile = entries => Object.entries(entries).map(([key, value]) => `${key}=${value}\n`).join("")
+  writeFileSync(path.join(dir, ".env"), envFile(target))
+  writeFileSync(path.join(dir, "previous.env"), envFile(previous))
   const result = run(`${fn("restore_pre_migration_upgrade")}
 ${fn("release_image_keys")}
 mkdir "$DIR/previous"
@@ -219,10 +318,13 @@ UPGRADE_PREVIOUS_DIR=$DIR/previous
 UPGRADE_BACKUP_URI=
 INSTALL_DIR=$DIR
 activate_release_services() {
-  echo "\${LINKSENSE_API_IMAGE:-$(read_key "$INSTALL_DIR/.env" LINKSENSE_API_IMAGE)}" > "$DIR/activated"
+  for key in LINKSENSE_API_IMAGE LINKSENSE_WORKER_IMAGE_REVISION LINKSENSE_VERSION LINKSENSE_CPU_QUOTA_MODE; do
+    value=$(eval "printf '%s' \\"\\\${$key:-}\\"")
+    printf '%s=%s\\n' "$key" "\${value:-$(read_key "$INSTALL_DIR/.env" "$key")}"
+  done > "$DIR/activated"
 }
 restore_pre_migration_upgrade
-`, { DIR: dir, LINKSENSE_API_IMAGE: mirror })
+`, { DIR: dir, ...target })
   assert.equal(result.status, 0, result.stderr)
-  assert.equal(readFileSync(path.join(dir, "activated"), "utf8"), `${image}\n`)
+  assert.equal(readFileSync(path.join(dir, "activated"), "utf8"), envFile(previous))
 })

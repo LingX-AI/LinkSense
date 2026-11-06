@@ -105,6 +105,36 @@ describe("release management CLI", { concurrency: 4 }, () => {
       await fixture.cleanup()
     }
   })
+  cliTest("doctor --network can replace a dead mirror using the verified installed release manifest", async () => {
+    const fixture = await createFixture()
+    try {
+      const digest = `sha256:${"b".repeat(64)}`
+      const busybox = `docker.io/library/busybox@sha256:${"a".repeat(64)}`
+      const manifest = `IMAGE_BUSYBOX=${busybox}\nIMAGE_LINKSENSE_API=ghcr.io/lingx-ai/linksense-api@${digest}\n`
+      const manifestPath = path.join(fixture.installDir, "release-manifest.env")
+      const runtimeFile = path.join(fixture.installDir, ".env")
+      await writeFile(manifestPath, manifest)
+      await appendFile(path.join(fixture.installDir, "install-state.env"), `STATE_MANIFEST_SHA256=${createHash("sha256").update(manifest).digest("hex")}\n`)
+      await appendFile(runtimeFile, `BUSYBOX_IMAGE=${busybox}\nLINKSENSE_API_IMAGE=stale.example/lingx-ai/linksense-api@${digest}\n`)
+      const before = await readFile(runtimeFile)
+      const environment = { MOCK_GHCR_BLOCKED: "true", LINKSENSE_IMAGE_MIRRORS: "ghcr.io=replacement.example" }
+      const result = await runCli(fixture, ["doctor", "--network"], { environment })
+      assert.equal(result.status, 1, result.stderr)
+      assert.match(result.stdout, /FAIL.*terminal-release/u)
+      assert.match(result.stdout, /PASS.*docker-pull:replacement\.example\/lingx-ai\/linksense-api/u)
+      assert.deepEqual(await readFile(runtimeFile), before)
+
+      await writeFile(manifestPath, manifest.replace("ghcr.io", "tampered.example"))
+      await writeFile(fixture.dockerLog, "")
+      const tampered = await runCli(fixture, ["doctor", "--network"], { environment })
+      assert.equal(tampered.status, 1, tampered.stderr)
+      const pulls = await readFile(fixture.dockerLog, "utf8")
+      assert.match(pulls, /pull stale\.example/u)
+      assert.doesNotMatch(pulls, /tampered\.example|replacement\.example/u)
+    } finally {
+      await fixture.cleanup()
+    }
+  })
   cliTest(
     "the management CLI supports Linux amd64, Linux ARM64, and both macOS architectures",
     async () => {
@@ -777,8 +807,9 @@ esac
     `#!/bin/sh
 printf '%s\\n' "$*" >> "$MOCK_DOCKER_LOG"
 case "$1:$2" in
+  pull:ghcr.io/*|pull:stale.example/*) [ "\${MOCK_GHCR_BLOCKED:-}" != true ]; exit $? ;;
   pull:*) exit 0 ;;
-  image:inspect) grep -Fqx "pull $3" "$MOCK_DOCKER_LOG" ;;
+  image:inspect) grep -Fqx "pull $3" "$MOCK_DOCKER_LOG"; exit $? ;;
   info:*)
     case "$3" in '{{.MemoryLimit}}'|'{{.PidsLimit}}'|'{{.CPUCfsQuota}}'|'{{.CPUCfsPeriod}}') printf true ;; esac
     exit 0 ;;

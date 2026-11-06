@@ -323,6 +323,7 @@ host_network_diagnostics() (
     esac; then
       host_text network_pass "docker-pull:$HOST_PULLED_IMAGE"
     else
+      [ "$?" -ne 130 ] || return 130
       host_text network_fail "docker-pull:$host_network_image"
       host_text docker_network_help
       host_network_failed=1
@@ -347,8 +348,11 @@ host_image_mirrors() (
   host_path=${host_reference#*/}
   host_mirrors=${LINKSENSE_IMAGE_MIRRORS:-}
   if [ -z "$host_mirrors" ]; then
-    case "$host_reference" in
-      ghcr.io/lingx-ai/linksense-api@sha256:*|ghcr.io/lingx-ai/linksense-web@sha256:*|ghcr.io/lingx-ai/linksense-migrate@sha256:*|ghcr.io/lingx-ai/linksense-runner@sha256:*|ghcr.io/lingx-ai/linksense-worker@sha256:*)
+    case "${host_reference%@*}" in
+      ghcr.io/lingx-ai/linksense-api|ghcr.io/lingx-ai/linksense-web|ghcr.io/lingx-ai/linksense-migrate|\
+      ghcr.io/lingx-ai/linksense-runner|ghcr.io/lingx-ai/linksense-worker|\
+      ghcr.io/lingx-ai/linksense-postgres|ghcr.io/lingx-ai/linksense-redis|ghcr.io/lingx-ai/linksense-minio-client|\
+      ghcr.io/lingx-ai/linksense-gateway|ghcr.io/lingx-ai/linksense-elasticsearch|ghcr.io/lingx-ai/linksense-docling)
         host_mirrors='ghcr.io=ghcr.nju.edu.cn;ghcr.io=ghcr.dockerproxy.net' ;;
       *) return 0 ;;
     esac
@@ -375,6 +379,16 @@ host_image_mirrors() (
     fi
   done
 )
+
+host_cached_image() {
+  for host_cached_candidate do
+    if docker image inspect "$host_cached_candidate" >/dev/null 2>&1; then
+      HOST_PULLED_IMAGE=$host_cached_candidate
+      return 0
+    fi
+  done
+  return 1
+}
 
 host_rank_image_mirrors() (
   host_probe_seconds=$1
@@ -435,7 +449,8 @@ host_pull_attempt() (
     host_start=$(date +%s)
     host_started=false
     while kill -0 "$host_script_pid" 2>/dev/null; do
-      if [ "$host_started" = false ] && grep -Eq 'Downloading([[:space:]]*\[[^]]*\])?[[:space:]]+([1-9][0-9.]*|0\.[0-9]*[1-9][0-9]*)[kMGTPE]?i?B|Download complete|Pull complete' "$host_log"; then
+      # Pull complete can be emitted for a snapshot that was already committed.
+      if [ "$host_started" = false ] && grep -Eq ': (Downloading([[:space:]]*\[[^]]*\])?[[:space:]]+([1-9][0-9.]*|0\.[0-9]*[1-9][0-9]*)[kMGTPE]?i?B|Download complete|Extracting[[:space:]])' "$host_log"; then
         host_started=true
       fi
       host_elapsed=$(($(date +%s) - host_start))
@@ -469,19 +484,15 @@ host_pull_image() {
       host_pull_first=$host_pull_preferred/${host_pull_reference#*/}
     fi
   fi
-  if [ "$host_pull_mode" = cached ]; then
-    for host_pull_candidate in "$host_pull_reference" $host_pull_mirrors; do
-      if docker image inspect "$host_pull_candidate" >/dev/null 2>&1; then
-        HOST_PULLED_IMAGE=$host_pull_candidate
-        HOST_IMAGE_SOURCES="$HOST_IMAGE_SOURCES
-$host_pull_registry=${host_pull_candidate%/"${host_pull_reference#*/}"}"
-        return 0
-      fi
-    done
+  if [ "$host_pull_mode" = cached ] && host_cached_image "$host_pull_reference" $host_pull_mirrors; then
+    HOST_IMAGE_SOURCES="$HOST_IMAGE_SOURCES
+$host_pull_registry=${HOST_PULLED_IMAGE%/"${host_pull_reference#*/}"}"
+    return 0
   fi
   host_pull_queue=$host_pull_first
   [ "$host_pull_first" = "$host_pull_reference" ] || host_pull_queue="$host_pull_first $host_pull_reference"
   host_pull_log=$(mktemp "${TMP_ROOT:-${TMPDIR:-/tmp}}/linksense-pull-log.XXXXXX")
+  host_pull_missing_helper=
   host_pull_tries=0
   host_pull_retry_limit=3
   [ -z "$host_pull_mirrors" ] || host_pull_retry_limit=1
@@ -495,18 +506,17 @@ $host_pull_registry=${host_pull_candidate%/"${host_pull_reference#*/}"}"
       host_pull_tries=$((host_pull_tries + 1))
       host_pull_status=0
       host_pull_attempt "$host_pull_candidate" "$host_pull_remaining" "$host_pull_log" || host_pull_status=$?
-      if [ "$host_pull_status" = 0 ] && docker image inspect "$host_pull_candidate" >/dev/null 2>&1; then
+      case "$host_pull_status" in
+        129|130|143) rm -f "$host_pull_log"; return 130 ;;
+      esac
+      if [ "$host_pull_status" = 0 ] && host_cached_image "$host_pull_candidate"; then
         rm -f "$host_pull_log"
-        HOST_PULLED_IMAGE=$host_pull_candidate
         HOST_IMAGE_SOURCES="$HOST_IMAGE_SOURCES
 $host_pull_registry=${host_pull_candidate%/"${host_pull_reference#*/}"}"
         return 0
       fi
       host_pull_helper=$(sed -nE 's/.*(docker-credential-[a-zA-Z0-9_.-]+).*executable file not found.*/\1/p' "$host_pull_log" | head -n 1)
-      if [ -n "$host_pull_helper" ]; then
-        rm -f "$host_pull_log"
-        host_fail credential "$host_pull_helper"
-      fi
+      host_pull_missing_helper=${host_pull_helper:-$host_pull_missing_helper}
     done
     host_pull_queue=
     if [ -n "$host_pull_mirrors" ]; then
@@ -523,6 +533,12 @@ $host_pull_registry=${host_pull_candidate%/"${host_pull_reference#*/}"}"
     fi
   done
   rm -f "$host_pull_log"
+  if [ -n "$host_pull_missing_helper" ]; then
+    if [ "$host_pull_mode" = probe ]; then
+      (host_fail credential "$host_pull_missing_helper") || return 1
+    fi
+    host_fail credential "$host_pull_missing_helper"
+  fi
   host_text image_mirror_help >&2
   host_text docker_network_help >&2
   return 1

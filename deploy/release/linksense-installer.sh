@@ -98,8 +98,10 @@ check_release_storage() {
   if [ "$EDITION" = full ]; then disk_gib=60; inode_reserve=200000; fi
   cached_images=true
   for disk_key in $(release_image_keys); do
+    if reuse_installed_image "$disk_key"; then continue; fi
     disk_image=$(eval "printf '%s' \"\${$disk_key}\"")
-    docker image inspect "$disk_image" >/dev/null 2>&1 || cached_images=false
+    disk_mirrors=$(host_image_mirrors "$disk_image")
+    host_cached_image "$disk_image" $disk_mirrors || cached_images=false
   done
   if [ "$cached_images" = true ]; then disk_gib=2; inode_reserve=10000; fi
   docker_root=$(docker info --format '{{.DockerRootDir}}')
@@ -231,6 +233,7 @@ restore_pre_migration_upgrade() {
     done
     # Exported Compose variables override the restored env file.
     for previous_key in $(release_image_keys); do unset "${previous_key#IMAGE_}_IMAGE"; done
+    unset LINKSENSE_VERSION LINKSENSE_WORKER_IMAGE_REVISION LINKSENSE_CPU_QUOTA_MODE LINKSENSE_DOCLING_API_CPUS LINKSENSE_DOCLING_WORKER_CPUS
     if [ "$EDITION" = full ] && [ -n "$UPGRADE_PREVIOUS_TOKENIZER_REVISION" ]; then
       previous_busybox=$(read_key "$INSTALL_DIR/.env" BUSYBOX_IMAGE 2>/dev/null || true)
       host_pinned_image "$previous_busybox" && docker run --rm --network none \
@@ -1252,20 +1255,22 @@ reuse_installed_image() {
   [ "$cached_runtime" != "$cached_release" ] || return 1
   [ "${cached_runtime#*@}" = "${cached_release#*@}" ] &&
     host_pinned_image "$cached_runtime" &&
-    docker image inspect "$cached_runtime" >/dev/null 2>&1 || return 1
+    host_cached_image "$cached_runtime" || return 1
   export "$1=$cached_runtime"
 }
 
 pull_image() {
   if reuse_installed_image "$1"; then return 0; fi
   pull_reference=$(eval "printf '%s' \"\${$1}\"")
-  host_pull_image "$pull_reference" "${pull_deadline:-$(($(date +%s) + 2700))}" || host_fail pull "$pull_reference"
+  host_pull_image "$pull_reference" "${pull_deadline:-$(($(date +%s) + 2700))}" || {
+    [ "$?" -ne 130 ] || exit 130
+    host_fail pull "$pull_reference"
+  }
   export "$1=$HOST_PULLED_IMAGE"
 }
 
 pull_release_images() {
   pull_deadline=$(($(date +%s) + 2700))
-  for release_key in $(release_image_keys); do reuse_installed_image "$release_key" || :; done
   check_release_storage
   for release_key in $(release_image_keys); do pull_image "$release_key"; done
 }
