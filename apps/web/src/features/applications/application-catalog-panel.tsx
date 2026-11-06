@@ -1,3 +1,5 @@
+import { PublicKnowledgeCreateDialog } from "@/features/public-knowledge/create-dialog"
+import { PublicKnowledgeApplicationCard } from "@/features/public-knowledge/application-card"
 import {
   useOpenApplicationConversation,
   useOpenApplicationDevelopment,
@@ -37,6 +39,7 @@ import {
 import { ApplicationDevelopmentPublishDialog } from "./application-development-publish-dialog"
 import {
   applicationPublicationSchema,
+  capabilityDisplayName,
   applicationVersionInputSchema,
   applicationReleaseVersionSchema,
   applicationVersionStatus,
@@ -683,6 +686,15 @@ export function ApplicationCatalogPanel({
               )
             }
             const { application, development: draft } = entry
+            if (application.kind === "public_knowledge")
+              return (
+                <PublicKnowledgeApplicationCard
+                  key={application.id}
+                  application={application}
+                  onDelete={setDeleteTarget}
+                  onFeedback={onFeedback}
+                />
+              )
             const starting =
               startConversation.isPending &&
               startConversation.variables?.applicationId === application.id
@@ -1213,14 +1225,16 @@ export function ApplicationCatalogPanel({
         }}
         title={t("applications.deleteTitle")}
         description={t(
-          catalogItems.some(
-            (item) =>
-              item.type === "application" &&
-              item.application.id === deleteTarget?.id &&
-              item.development
-          )
-            ? "applicationDevelopment.deleteDescription"
-            : "applications.deleteDescription"
+          deleteTarget?.kind === "public_knowledge"
+            ? "publicKnowledge.deleteDescription"
+            : catalogItems.some(
+                  (item) =>
+                    item.type === "application" &&
+                    item.application.id === deleteTarget?.id &&
+                    item.development
+                )
+              ? "applicationDevelopment.deleteDescription"
+              : "applications.deleteDescription"
         )}
         confirmLabel={t("common.delete")}
         destructive
@@ -1274,6 +1288,14 @@ export function ApplicationCreateButton({
       />
       {step === "development" && (
         <ApplicationDevelopmentCreateDialog onClose={() => setStep(null)} />
+      )}
+      {step === "public_knowledge" && (
+        <PublicKnowledgeCreateDialog
+          onClose={() => setStep(null)}
+          onCreated={async () => {
+            await complete(t("publicKnowledge.published"))
+          }}
+        />
       )}
       {step === "interactive" && (
         <InteractiveApplicationImportDialog
@@ -1408,7 +1430,8 @@ export function ApplicationEditorDialog({
           const credentialRequired = requiresCredentials(item)
           return {
             id: item.id,
-            label: item.name,
+            label: capabilityDisplayName(item),
+            searchText: [item.name, item.slug].join(" "),
             detail: credentialRequired
               ? t("applications.usesPluginCredentials")
               : (item.description ?? ""),
@@ -1420,7 +1443,8 @@ export function ApplicationEditorDialog({
         .filter((item) => item.type === type && !managedIds.has(item.id))
         .map((item) => ({
           id: item.id,
-          label: item.name,
+          label: capabilityDisplayName(item),
+          searchText: item.name,
           detail: t("applications.dependencyUnavailableShort"),
           detailInline: false,
           disabled: true,

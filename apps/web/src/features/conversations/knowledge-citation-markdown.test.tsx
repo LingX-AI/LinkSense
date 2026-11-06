@@ -8,8 +8,15 @@ import {
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import type { PublicKnowledgeCitation } from "@linksense/shared"
-import { AssistantMarkdown } from "@/features/conversations/conversation-thread"
+import {
+  supportedLocales,
+  type PublicKnowledgeCitation,
+} from "@linksense/shared"
+import {
+  AssistantMarkdown,
+  ConversationContentPolicyProvider,
+} from "@/features/conversations/conversation-thread"
+import { getKnowledgeSourceAnchorId } from "./knowledge-citation-markdown"
 import i18n from "@/i18n"
 
 const image = "![登录示意图](https://example.test/login.png)"
@@ -102,5 +109,145 @@ describe("knowledge citations beside Markdown images", () => {
       "说明文字。1"
     )
     expect(screen.getByRole("img")).toBeVisible()
+  })
+})
+
+describe("text citation policy in the shared chat renderer", () => {
+  afterEach(cleanup)
+  const turnId = "public-turn"
+  const sourcesByTurn = new Map([
+    [
+      turnId,
+      [
+        {
+          number: 1,
+          title: "Password guide.pdf",
+          href: `#${getKnowledgeSourceAnchorId(turnId, 1)}`,
+        },
+      ],
+    ],
+    [
+      "other-turn",
+      [{ number: 1, title: "Other guide.pdf", href: "#other-source" }],
+    ],
+  ])
+  function reply(
+    content: string,
+    visible: boolean,
+    streaming = false,
+    sourceTurn = turnId
+  ) {
+    return (
+      <ConversationContentPolicyProvider
+        textOnly
+        textCitations={{ visible, sourcesByTurn }}
+      >
+        <AssistantMarkdown
+          content={content}
+          streaming={streaming}
+          knowledgeAssetScope={{
+            conversationId: "public-conversation",
+            turnId: sourceTurn,
+          }}
+        />
+      </ConversationContentPolicyProvider>
+    )
+  }
+
+  it.each(supportedLocales)(
+    "uses the regular citation badge styles and accessible label in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const { container } = render(reply("Open your account.[1]", true))
+      const marker = screen.getByRole("link", {
+        name: i18n.t("conversation.openKnowledgeCitation", { number: 1 }),
+      })
+      expect(marker).toHaveClass("knowledge-citation-link")
+      expect(marker.closest(".knowledge-citation-inline")).not.toBeNull()
+      expect(marker).toHaveTextContent(/^1$/u)
+      expect(marker).toHaveAttribute("title", "Password guide.pdf")
+      expect(marker).toHaveAttribute(
+        "href",
+        `#${getKnowledgeSourceAnchorId(turnId, 1)}`
+      )
+      expect(container).not.toHaveTextContent("[1]")
+    }
+  )
+
+  it.each([false, true])(
+    "hides references in paragraphs, lists, emphasis and tables while preserving code and external links when streaming=%s",
+    (streaming) => {
+      const { container } = render(
+        reply(
+          [
+            "Answer.[1][2] **Details.[1]**",
+            "",
+            "- Step.[1, 2]",
+            "",
+            "| Field | Value |",
+            "| --- | --- |",
+            "| Account | Name.[1] |",
+            "",
+            "`array[1]` and [1](https://example.test/docs).",
+            "",
+            "```js",
+            "array[1]",
+            "```",
+          ].join("\n"),
+          false,
+          streaming
+        )
+      )
+      expect(
+        container.querySelectorAll(".knowledge-citation-inline")
+      ).toHaveLength(0)
+      expect(
+        screen.getByText("Answer.", { exact: false }).closest("p")
+      ).not.toHaveTextContent("[1]")
+      expect(screen.getByText("Details.", { selector: "strong" })).toBeVisible()
+      expect(screen.getByText("Step.", { selector: "li" })).toBeVisible()
+      expect(screen.getByRole("cell", { name: "Name." })).toBeVisible()
+      expect(
+        screen.getAllByText("array[1]", { selector: "code" })
+      ).toHaveLength(2)
+      expect(screen.getByRole("link", { name: "1" })).toHaveAttribute(
+        "href",
+        "https://example.test/docs"
+      )
+    }
+  )
+
+  it("does not flash an incomplete reference while streaming and updates existing messages when visibility changes", () => {
+    const view = render(reply("Answer.[", false, true))
+    expect(view.container).toHaveTextContent("Answer.")
+    expect(view.container).not.toHaveTextContent("[")
+    view.rerender(reply("Answer.[1", false, true))
+    expect(view.container).not.toHaveTextContent("[1")
+    view.rerender(reply("Answer.[1]", false, true))
+    expect(view.container).toHaveTextContent(/^Answer\.$/u)
+    view.rerender(reply("Answer.[1]", true))
+    expect(
+      view.container.querySelector(".knowledge-citation-link")
+    ).toHaveTextContent("1")
+    view.rerender(reply("Answer.[1]", false))
+    expect(view.container).toHaveTextContent(/^Answer\.$/u)
+    expect(view.container.querySelector(".knowledge-citation-link")).toBeNull()
+  })
+
+  it("resolves citations only within the current turn and removes unknown markers", () => {
+    const view = render(reply("Answer.[1][99]", true, false, "other-turn"))
+    expect(screen.getByRole("link")).toHaveAttribute("title", "Other guide.pdf")
+    expect(screen.getByRole("link")).toHaveAttribute("href", "#other-source")
+    expect(view.container).not.toHaveTextContent("[99]")
+    view.rerender(reply("Answer.[1]", false, false, "missing-turn"))
+    expect(view.container).toHaveTextContent(/^Answer\.$/u)
+  })
+
+  it("leaves regular chat numeric text unchanged when no text citation policy is provided", () => {
+    const { container } = render(
+      <AssistantMarkdown content="Keep [1] and [99]." />
+    )
+    expect(container).toHaveTextContent("Keep [1] and [99].")
+    expect(container.querySelector(".knowledge-citation-link")).toBeNull()
   })
 })

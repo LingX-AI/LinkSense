@@ -4,11 +4,12 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
   imageGenerationProviderDefinitions,
+  imageEditingLimits,
   type ImageGenerationProvider,
 } from "@linksense/shared"
 import type { PrismaClient } from "../src/generated/prisma/client.js"
 import { encryptJson } from "../src/lib/crypto.js"
-import { normalizeError } from "../src/lib/errors.js"
+import { errorDetails, normalizeError } from "../src/lib/errors.js"
 import { internalImageGenerationRoutes } from "../src/modules/system/image-generation-internal-routes.js"
 import {
   ImageGenerationSettingsService,
@@ -29,6 +30,101 @@ const ONE_PIXEL_PNG = Buffer.from(
 describe("image editing provider contracts", () => {
   const source = { mime_type: "image/png" as const, data_base64: ONE_PIXEL_PNG.toString("base64") }
   const request = { prompt: "Change the background to blue", image_name: "Blue background", input_images: [source] }
+
+  it.each([1024, 2043])("forwards a large decoded PNG (%i rows) through the internal API without changing its bytes", async (height) => {
+    const png = await sharp({ create: { width: 1024, height, channels: 4, background: "blue" } }).png({ compressionLevel: 0 }).toBuffer()
+    expect(png.length).toBeGreaterThan(height === 1024 ? 4 * 1024 * 1024 : imageEditingLimits.maxImageBytes * 0.99)
+    expect(png.length).toBeLessThanOrEqual(imageEditingLimits.maxImageBytes)
+    const fetchMock = vi.fn<typeof fetch>(async () => providerGenerationResponse("openai_compatible"))
+    const { service } = await configuredProviderHarness("openai_compatible", "Qwen-Image-2.1-Turbo-FP8", fetchMock)
+    const { app, generate } = await imageGenerationApiHarness(service)
+    try {
+      const response = await generate({ ...request, input_images: [{ mime_type: "image/png", data_base64: png.toString("base64") }] })
+      expect(response.statusCode).toBe(200)
+      expect(fetchMock).toHaveBeenCalledOnce()
+      const body = fetchMock.mock.calls[0]?.[1]?.body as FormData
+      expect(Buffer.from(await (body.get("image[]") as File).arrayBuffer()).equals(png)).toBe(true)
+    } finally { await app.close() }
+  })
+
+  it.each([
+    ["illegal character", "YQ?=", "VALIDATION_ERROR"],
+    ["invalid length", "YQ=", "VALIDATION_ERROR"],
+    ["misplaced padding", "Y=Q=", "VALIDATION_ERROR"],
+    ["extra padding", "YQ===", "VALIDATION_ERROR"],
+    ["non-image bytes", Buffer.from("not an image").toString("base64"), "IMAGE_GENERATION_INPUT_INVALID"],
+    ["truncated PNG", ONE_PIXEL_PNG.subarray(0, 40).toString("base64"), "IMAGE_GENERATION_INPUT_INVALID"],
+    ["noncanonical padding bits", ONE_PIXEL_PNG.toString("base64").replace(/I=$/u, "J="), "IMAGE_GENERATION_INPUT_INVALID"],
+  ])("rejects %s before contacting the provider", async (_name, data, code) => {
+    const fetchMock = vi.fn<typeof fetch>()
+    const { service, recorder } = await configuredProviderHarness("openai", "gpt-image-2", fetchMock)
+    const { app, generate } = await imageGenerationApiHarness(service)
+    try {
+      const response = await generate({ ...request, input_images: [{ mime_type: "image/png", data_base64: data }] })
+      expect(response.statusCode).toBe(400)
+      expect(response.json()).toMatchObject({ error_code: code })
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(recorder.recordModelUsage).not.toHaveBeenCalled()
+    } finally { await app.close() }
+  })
+
+  it("rejects one byte above the individual limit even when its encoded length equals the maximum", async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    const { service } = await configuredProviderHarness("openai", "gpt-image-2", fetchMock)
+    const { app, generate } = await imageGenerationApiHarness(service)
+    try {
+      const response = await generate({ ...request, input_images: [{ mime_type: "image/png", data_base64: Buffer.alloc(imageEditingLimits.maxImageBytes + 1).toString("base64") }] })
+      expect(response.statusCode).toBe(400)
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally { await app.close() }
+  })
+
+  it("retains the combined reference byte limit below the HTTP body limit", async () => {
+    const png = await sharp({ create: { width: 1024, height: 1300, channels: 4, background: "blue" } }).png({ compressionLevel: 0 }).toBuffer()
+    expect(png.length * 2).toBeGreaterThan(imageEditingLimits.maxTotalBytes)
+    const fetchMock = vi.fn<typeof fetch>()
+    const { service } = await configuredProviderHarness("openai", "gpt-image-2", fetchMock)
+    const { app, generate } = await imageGenerationApiHarness(service)
+    try {
+      const response = await generate({ ...request, input_images: Array.from({ length: 2 }, () => ({ mime_type: "image/png", data_base64: png.toString("base64") })) })
+      expect(response.statusCode).toBe(400)
+      expect(response.json()).toMatchObject({ error_code: "IMAGE_GENERATION_INPUT_INVALID" })
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally { await app.close() }
+  })
+
+  it("preserves an internal RangeError as INTERNAL_ERROR with safe request diagnostics", async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    const { service } = await configuredProviderHarness("openai", "gpt-image-2", fetchMock)
+    vi.spyOn(service, "generate").mockRejectedValueOnce(new RangeError(`Maximum call stack size exceeded; synthetic-private-token; ${source.data_base64}`))
+    const { app, generate, logs } = await imageGenerationApiHarness(service)
+    try {
+      const response = await generate(request)
+      expect(response.statusCode).toBe(500)
+      expect(response.json()).toMatchObject({ error_code: "INTERNAL_ERROR", request_id: expect.any(String) })
+      const diagnostics = logs.join("\n")
+      expect(diagnostics).toContain('"errorClass":"RangeError"')
+      expect(diagnostics).toContain('"phase":"generation"')
+      for (const value of ["synthetic-private-token", source.data_base64, "Maximum call stack size exceeded"]) {
+        expect(response.body).not.toContain(value)
+        expect(diagnostics).not.toContain(value)
+      }
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally { await app.close() }
+  })
+
+  it("keeps a provider network failure classified as unavailability", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new TypeError("fetch failed; synthetic-private-token"))
+    const { service } = await configuredProviderHarness("openai", "gpt-image-2", fetchMock)
+    const { app, generate } = await imageGenerationApiHarness(service)
+    try {
+      const response = await generate(request)
+      expect(response.statusCode).toBe(503)
+      expect(response.json()).toMatchObject({ error_code: "IMAGE_GENERATION_UNAVAILABLE" })
+      expect(response.body).not.toContain("synthetic-private-token")
+      expect(fetchMock).toHaveBeenCalledOnce()
+    } finally { await app.close() }
+  })
 
   it.each(["openai", "openai_compatible"] as const)("sends the original bytes and edit instruction to %s edits", async (provider) => {
     const fetchMock = vi.fn<typeof fetch>(async () => providerGenerationResponse(provider))
@@ -1449,6 +1545,22 @@ async function configuredProviderHarness(
     ownerId: USER_ID,
   })
   return { service, recorder }
+}
+
+async function imageGenerationApiHarness(service: ImageGenerationSettingsService) {
+  const logs: string[] = []
+  const app = Fastify({ logger: { level: "error", stream: { write: (entry: string) => { logs.push(entry) } } } })
+  app.setErrorHandler((error, request, reply) => {
+    const failure = normalizeError(error)
+    return reply.code(failure.statusOverride ?? errorDetails(failure.code, "zh-CN").status).send({ error_code: failure.code, request_id: request.id })
+  })
+  await app.register(internalImageGenerationRoutes, { service, sharedSecret: "internal-image-token" })
+  const generate = (request: unknown) => app.inject({
+    method: "POST", url: "/image-generation/generate",
+    headers: { authorization: "Bearer internal-image-token", "x-linksense-owner-id": USER_ID },
+    payload: { conversationId: CONVERSATION_ID, turnId: TURN_ID, request },
+  })
+  return { app, generate, logs }
 }
 
 function requestJsonBody(fetchMock: ReturnType<typeof vi.fn>): unknown {

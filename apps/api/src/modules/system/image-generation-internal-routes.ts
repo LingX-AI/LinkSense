@@ -4,7 +4,7 @@ import { imageGenerationRequestSchema, imageEditingLimits } from "@linksense/sha
 import type { FastifyPluginAsync, FastifyRequest } from "fastify"
 import { z } from "zod"
 
-import { AppError } from "../../lib/errors.js"
+import { normalizeError } from "../../lib/errors.js"
 import type { ImageGenerationSettingsService } from "./image-generation-settings.js"
 
 const ownerIdHeaderSchema = z.uuid()
@@ -27,9 +27,8 @@ export const internalImageGenerationRoutes: FastifyPluginAsync<{
   })
 
   app.post("/image-generation/generate", { bodyLimit: imageEditingLimits.requestBodyBytes }, async (request, reply) => {
-    const ownerId = parseRunnerOwnerId(request)
-    const body = internalImageGenerationInputSchema.parse(request.body)
     const controller = new AbortController()
+    let phase: "validation" | "generation" = "validation"
     const abortRequest = () => controller.abort()
     const abortDisconnectedReply = () => {
       if (!reply.raw.writableEnded) controller.abort()
@@ -37,6 +36,9 @@ export const internalImageGenerationRoutes: FastifyPluginAsync<{
     request.raw.once("aborted", abortRequest)
     reply.raw.once("close", abortDisconnectedReply)
     try {
+      const ownerId = parseRunnerOwnerId(request)
+      const body = internalImageGenerationInputSchema.parse(request.body)
+      phase = "generation"
       return reply.send(
         await options.service.generate({
           ownerId,
@@ -47,8 +49,14 @@ export const internalImageGenerationRoutes: FastifyPluginAsync<{
         }),
       )
     } catch (error) {
-      if (error instanceof AppError) throw error
-      throw new AppError("IMAGE_GENERATION_UNAVAILABLE")
+      if (normalizeError(error).code === "INTERNAL_ERROR") {
+        request.log.error({
+          errorClass: error instanceof Error ? error.name : "unknown",
+          phase,
+        }, "image generation failed internally")
+      }
+      // Preserve the original exception for the standard API error handler.
+      throw error
     } finally {
       request.raw.off("aborted", abortRequest)
       reply.raw.off("close", abortDisconnectedReply)

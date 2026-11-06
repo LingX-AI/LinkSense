@@ -3661,17 +3661,17 @@ describe("capability marketplace pages", () => {
       await interaction.click(skillSelector)
       await interaction.type(skillSelector, "dashi")
       const skillOption = await screen.findByRole("option", {
-        name: /dashi-ppt/u,
+        name: /Dashi Ppt/u,
       })
       expect(screen.queryByRole("option", { name: /safe-plugin/u })).toBeNull()
       await interaction.click(skillOption)
       expect(
-        within(page!).getByRole("button", { name: "移除 dashi-ppt" })
+        within(page!).getByRole("button", { name: "移除 Dashi Ppt" })
       ).toBeVisible()
 
       await interaction.click(pluginSelector)
       await interaction.type(pluginSelector, "dashi")
-      expect(screen.queryByRole("option", { name: /dashi-ppt/u })).toBeNull()
+      expect(screen.queryByRole("option", { name: /Dashi Ppt/u })).toBeNull()
       expect(await screen.findByText("没有匹配的选项。")).toBeVisible()
       await interaction.keyboard("{Escape}")
       await interaction.clear(pluginSelector)

@@ -1,3 +1,4 @@
+import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
@@ -11,6 +12,7 @@ import { localizedErrorMessage } from "@linksense/shared"
 
 export const ptBR = {
   browserUse: browserUseMessages["pt-BR"],
+  publicKnowledge: publicKnowledgeMessages["pt-BR"],
   modelSetup: modelSetupMessages["pt-BR"],
   connections: connectionMessages["pt-BR"],
   sideChat: sideChatMessages["pt-BR"],
@@ -2572,9 +2574,9 @@ export const ptBR = {
       formTitle: "Confirme estes detalhes",
       formResultTitle: "Formulário concluído",
       requiredWaiting:
-        "Sua resposta é necessária. A tarefa continuará depois que você enviá-la.",
+        "Envie sua resposta para continuar a tarefa ou cancele este formulário.",
       recommendationCountdown:
-        "Se você não enviar uma resposta, a tarefa continuará com a resposta recomendada em {{seconds}} segundos.",
+        "Se você não enviar uma resposta nem cancelar, a tarefa continuará com a resposta recomendada em {{seconds}} segundos.",
       applyingRecommendation: "Aplicando a resposta recomendada…",
       recommendedAnswer: "Recomendação: {{answer}}",
       useRecommendation: "Usar resposta recomendada",
@@ -3310,6 +3312,7 @@ export const ptBR = {
       kinds: {
         standard: "Aplicativo padrão",
         interactive: "Aplicativo interativo",
+        public_knowledge: publicKnowledgeMessages["pt-BR"].title,
       },
       views: {
         configuration: "Configuração atual",

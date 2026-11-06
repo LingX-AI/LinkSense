@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   imageGenerationProviderDefinitions,
   imageGenerationProviderSchema,
+  imageGenerationInputImageSchema,
+  imageEditingLimits,
   imageGenerationRequestSchema,
   imageGenerationToolRequestSchema,
   updateImageGenerationSettingsSchema,
@@ -40,9 +42,38 @@ describe("image editing requests", () => {
     expect(imageGenerationRequestSchema.safeParse({ ...request, input_images: ["attachments/photo.png"] }).success).toBe(false)
   })
 
-  it("validates realistic image payloads without recursive regular-expression matching", () => {
-    const data = Buffer.alloc(1024 * 1024).toString("base64")
-    expect(imageGenerationRequestSchema.safeParse({ ...request, input_images: [{ mime_type: "image/png", data_base64: data }] }).success).toBe(true)
+  it.each([1024, 4 * 1024 * 1024, imageEditingLimits.maxImageBytes - 1, imageEditingLimits.maxImageBytes])(
+    "accepts %i reference bytes without requiring Node globals or overflowing the stack", (size) => {
+      const data = Buffer.alloc(size, 0xfb).toString("base64")
+      vi.stubGlobal("Buffer", undefined)
+      try {
+        const parsed = imageGenerationRequestSchema.safeParse({ ...request, input_images: [{ mime_type: "image/png", data_base64: data }] })
+        expect(parsed.success).toBe(true)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    },
+  )
+
+  it.each([1, 3])("rejects an image %i bytes above the decoded byte limit", (extra) => {
+    const data = Buffer.alloc(imageEditingLimits.maxImageBytes + extra).toString("base64")
+    expect(imageGenerationInputImageSchema.safeParse({ mime_type: "image/png", data_base64: data }).success).toBe(false)
+  })
+
+  it.each(["YQ==", "YWI=", "YWJj", "+/8=", "/w=="])("accepts standard Base64 and its valid padding: %s", (data) => {
+    expect(imageGenerationInputImageSchema.safeParse({ mime_type: "image/png", data_base64: data }).success).toBe(true)
+  })
+
+  it.each(["", "YQ", "YQ=", "YWJj=", "=YQ=", "Y=Q=", "YQ===", "Y===", "====", "YQ==AAAA", "YQ-_", "YQ?=", "YQ\n=", "Y Q=", "YQ==\r\n", "YQ中="])(
+    "rejects illegal characters, lengths and padding: %j", (data) => {
+      expect(imageGenerationInputImageSchema.safeParse({ mime_type: "image/png", data_base64: data }).success).toBe(false)
+    },
+  )
+
+  it.each([0, 2 * 1024 * 1024, 4 * 1024 * 1024])("rejects an illegal character at offset %i in a large payload", (offset) => {
+    const valid = Buffer.alloc(4 * 1024 * 1024).toString("base64")
+    const data = `${valid.slice(0, offset)}?${valid.slice(offset + 1)}`
+    expect(imageGenerationInputImageSchema.safeParse({ mime_type: "image/png", data_base64: data }).success).toBe(false)
   })
 })
 

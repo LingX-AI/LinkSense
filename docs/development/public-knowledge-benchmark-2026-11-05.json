@@ -1,0 +1,134 @@
+{
+  "testedAt": "2026-11-05T04:11:45.865Z",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M5",
+    "logicalCpus": 10,
+    "memoryBytes": 17179869184,
+    "node": "v26.5.0",
+    "docker": "29.6.1"
+  },
+  "nativeCodex": "0.154.0",
+  "workerMemoryLimitMiB": 2048,
+  "workerCpuLimit": 2,
+  "applicationConcurrency": 20,
+  "nativeTokioWorkerThreadsEnvironment": "2",
+  "evidenceCount": 6,
+  "evidenceCharactersPerTurn": 10080,
+  "sampleIntervalMs": 500,
+  "simultaneousInferenceBarrier": true,
+  "inferenceDelayMs": 3000,
+  "roundsPerVisitor": 2,
+  "modelCalls": 91,
+  "peakParallelInference": 20,
+  "fixtureInferenceAndRetrieval": true,
+  "baseline": {
+    "worker": {
+      "memoryBytes": 184090624,
+      "cpuPercent": 0,
+      "pids": 40
+    },
+    "controller": {
+      "memoryBytes": 212373504,
+      "cpuPercent": 0,
+      "pids": 11
+    },
+    "database": {
+      "memoryBytes": 40914944,
+      "cpuPercent": 0,
+      "pids": 8
+    },
+    "redis": {
+      "memoryBytes": 5177344,
+      "cpuPercent": 0,
+      "pids": 6
+    },
+    "apiRssBytes": 275251200,
+    "apiCpuPercent": 38.233882382909414,
+    "codexProcesses": 0
+  },
+  "waves": [
+    {
+      "visitors": 10,
+      "turns": 20,
+      "completed": 20,
+      "acceptedAsync": 20,
+      "peakParallelInference": 10,
+      "roundInferenceArrivalSpreadMs": [
+        50.41525000000183,
+        33.25775000000067
+      ],
+      "failed": 0,
+      "elapsedMs": 8290.055292000001,
+      "latencyP50Ms": 3737.016291,
+      "latencyP95Ms": 4164.509542,
+      "latencyMaxMs": 4164.900124999998,
+      "peakWorkerMemoryBytes": 533835776,
+      "peakWorkerCpuPercent": 202.430289017341,
+      "peakWorkerPids": 385,
+      "peakCodexProcesses": 10,
+      "peakControllerMemoryBytes": 213889024,
+      "peakControllerCpuPercent": 2.397703488372093,
+      "peakDatabaseMemoryBytes": 61087744,
+      "peakRedisMemoryBytes": 5537792,
+      "peakApiRssBytes": 310083584,
+      "peakApiCpuPercent": 139.0079001678106,
+      "samples": 16
+    },
+    {
+      "visitors": 15,
+      "turns": 30,
+      "completed": 30,
+      "acceptedAsync": 30,
+      "peakParallelInference": 15,
+      "roundInferenceArrivalSpreadMs": [
+        238.80937500000073,
+        207.17829100000017
+      ],
+      "failed": 0,
+      "elapsedMs": 9353.885957999999,
+      "latencyP50Ms": 4522.264792000002,
+      "latencyP95Ms": 4606.701375000001,
+      "latencyMaxMs": 4607.060416,
+      "peakWorkerMemoryBytes": 651407360,
+      "peakWorkerCpuPercent": 227.7256424581006,
+      "peakWorkerPids": 550,
+      "peakCodexProcesses": 15,
+      "peakControllerMemoryBytes": 218030080,
+      "peakControllerCpuPercent": 3.2839215686274508,
+      "peakDatabaseMemoryBytes": 62005248,
+      "peakRedisMemoryBytes": 5693440,
+      "peakApiRssBytes": 317521920,
+      "peakApiCpuPercent": 40.50486302074891,
+      "samples": 18
+    },
+    {
+      "visitors": 20,
+      "turns": 40,
+      "completed": 40,
+      "acceptedAsync": 40,
+      "peakParallelInference": 20,
+      "roundInferenceArrivalSpreadMs": [
+        305.8384589999987,
+        416.87487500000134
+      ],
+      "failed": 0,
+      "elapsedMs": 10433.349084000001,
+      "latencyP50Ms": 4936.117666999999,
+      "latencyP95Ms": 5153.508458000004,
+      "latencyMaxMs": 5278.646416999996,
+      "peakWorkerMemoryBytes": 834068480,
+      "peakWorkerCpuPercent": 213.40666666666667,
+      "peakWorkerPids": 729,
+      "peakCodexProcesses": 20,
+      "peakControllerMemoryBytes": 230948864,
+      "peakControllerCpuPercent": 9.111309192200556,
+      "peakDatabaseMemoryBytes": 62722048,
+      "peakRedisMemoryBytes": 5795840,
+      "peakApiRssBytes": 339918848,
+      "peakApiCpuPercent": 43.272865935852145,
+      "samples": 20
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 import { browserPanelRequestSchema } from "@linksense/shared";
 import { BrowserPanelError } from "./browser/session-control.js";
+import { registerPublicKnowledgeRuntime } from "./public-knowledge/routes.js";
+import type { RunnerEventSink } from "./event-sink.js";
 import { MICROSOFT_CONNECTION_BODY_LIMIT } from "@linksense/shared";
 import { timingSafeEqual } from "node:crypto";
 import { ApplicationBuilderRequestError } from "./application-builder-error.js";
@@ -801,6 +803,7 @@ export function buildRunnerServer(
   ),
   ensureUserRuntime?: (ownerId: string) => Promise<void>,
   userProcessCount: () => Promise<number> = async () => 0,
+  publicEventSink?: Pick<RunnerEventSink, "publishBatch">,
 ) {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
   const healthRoots = resolveHealthRoots(config);
@@ -865,6 +868,8 @@ export function buildRunnerServer(
       throw error;
     }
   });
+
+  const publicKnowledgeRuntime = registerPublicKnowledgeRuntime(app, config, workspaceManager, publicEventSink);
 
   app.get(
     "/health/live",
@@ -1053,8 +1058,8 @@ export function buildRunnerServer(
       codex_home: { ...codexHome, checked_at: checkedAt },
       turn_start_contract_version: TURN_START_CONTRACT_VERSION,
       user_processes: await userProcessCount(),
-      running_turns: pool.runningCount,
-      app_server_processes: pool.size,
+      running_turns: pool.runningCount + publicKnowledgeRuntime.size,
+      app_server_processes: pool.size + publicKnowledgeRuntime.size,
     };
     return available ? response : reply.code(503).send(response);
   });
@@ -1184,7 +1189,7 @@ export function buildRunnerServer(
     "/mcp-image-generation/:conversationId/generate",
     { bodyLimit: imageEditingLimits.requestBodyBytes },
     async (request, reply) => {
-      const conversationId = uuid.parse(request.params.conversationId);
+      const conversationId = request.params.conversationId;
       const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
       if (!token) {
         return reply.code(401).send({
@@ -1192,7 +1197,6 @@ export function buildRunnerServer(
           retryable: false,
         });
       }
-      const body = mcpImageGenerationBodySchema.parse(request.body);
       const controller = new AbortController();
       const abortRequest = () => controller.abort();
       const abortDisconnectedReply = () => {
@@ -1201,6 +1205,8 @@ export function buildRunnerServer(
       request.raw.once("aborted", abortRequest);
       reply.raw.once("close", abortDisconnectedReply);
       try {
+        uuid.parse(conversationId);
+        const body = mcpImageGenerationBodySchema.parse(request.body);
         return await pool.generateImage(
           conversationId,
           token,
@@ -1211,11 +1217,9 @@ export function buildRunnerServer(
         const failure =
           error instanceof ImageGenerationRequestError
             ? error
-            : new ImageGenerationRequestError(
-                "IMAGE_GENERATION_UNAVAILABLE",
-                true,
-                503,
-              );
+            : error instanceof z.ZodError
+              ? new ImageGenerationRequestError("IMAGE_GENERATION_INVALID", false, 400)
+              : new ImageGenerationRequestError("INTERNAL_ERROR", false, 500);
         request.log.warn(
           {
             conversationId,
@@ -1679,8 +1683,8 @@ export function buildRunnerServer(
       ...(modelCatalog ? { model_catalog: modelCatalog } : {}),
       turn_start_contract_version: TURN_START_CONTRACT_VERSION,
       user_processes: await userProcessCount(),
-      running_turns: pool.runningCount,
-      app_server_processes: pool.size,
+      running_turns: pool.runningCount + publicKnowledgeRuntime.size,
+      app_server_processes: pool.size + publicKnowledgeRuntime.size,
       concurrency_limit: config.LINKSENSE_MAX_CONCURRENT_CONVERSATIONS,
       app_server_process_limit:
         config.LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT,

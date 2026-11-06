@@ -2253,7 +2253,10 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("blocks on LinkSense forms while keeping Codex approval disabled", async () => {
+  it.each([
+    { action: "accept", content: { title: "季度复盘", channel: "teams" } },
+    { action: "cancel" },
+  ] as const)("resolves a required LinkSense form with $action while keeping Codex approval disabled", async response => {
     const root = await mkdtemp(join(tmpdir(), "linksense-mcp-form-"));
     roots.push(root);
     const controlled = createControlledAppServer();
@@ -2361,16 +2364,10 @@ trust_level = "trusted"
         codexThreadId: "thread-native-1",
         codexTurnId: "turn-native-1",
         itemId: formEvent.params.itemId,
-        response: {
-          action: "accept",
-          content: { title: "季度复盘", channel: "teams" },
-        },
+        response,
       }),
     ).resolves.toEqual({ accepted: true });
-    await expect(formResult).resolves.toEqual({
-      action: "accept",
-      content: { title: "季度复盘", channel: "teams" },
-    });
+    await expect(formResult).resolves.toEqual(response);
     expect(formResolved).toBe(true);
     await pool.closeAll();
   });

@@ -1,3 +1,4 @@
+import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
 import { samlfrFR } from "@/features/saml/messages"
@@ -19,6 +20,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const frFR = {
   browserUse: browserUseMessages["fr-FR"],
+  publicKnowledge: publicKnowledgeMessages["fr-FR"],
   modelSetup: modelSetupMessages["fr-FR"],
   connections: connectionMessages["fr-FR"],
   sideChat: sideChatMessages["fr-FR"],

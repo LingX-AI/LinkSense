@@ -5,6 +5,7 @@ import {
   FileArchiveIcon,
   SlidersHorizontalIcon,
   SparklesIcon,
+  BookOpenIcon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -18,7 +19,7 @@ import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { cn } from "@/lib/utils"
 
 export type ApplicationCreationMethod =
-  "development" | "standard" | "interactive"
+  "development" | "standard" | "interactive" | "public_knowledge"
 
 export function ApplicationCreateDialog({
   open,
@@ -44,6 +45,12 @@ export function ApplicationCreateDialog({
       title: t("applications.importInteractiveApp"),
       description: t("applications.importInteractiveAppDescription"),
       icon: FileArchiveIcon,
+    },
+    {
+      method: "public_knowledge",
+      title: t("publicKnowledge.title"),
+      description: t("publicKnowledge.description"),
+      icon: BookOpenIcon,
     },
   ] satisfies {
     method: ApplicationCreationMethod

@@ -24,7 +24,7 @@ import type {
 } from "./codex/event-mapper.js";
 import { fileServiceErrorFromApi } from "./file-service-error.js";
 import { ImagePreviewRequestError } from "./image-preview-error.js";
-import { imageGenerationErrorFromApi } from "./image-generation-error.js";
+import { imageGenerationErrorFromApi, imageGenerationErrorFromTransport } from "./image-generation-error.js";
 import { knowledgeSearchErrorFromApi } from "./knowledge-search-error.js";
 import { knowledgeServiceErrorFromApi } from "./knowledge-service-error.js";
 import { skillCreatorErrorFromApi } from "./skill-creator-error.js";
@@ -578,7 +578,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
       body,
       ownerId,
       signal,
-    );
+    ).catch((error: unknown) => { throw imageGenerationErrorFromTransport(error); });
     const responseBody = await parseResponseBody(response);
     if (!response.ok) {
       throw imageGenerationErrorFromApi(response.status, responseBody);

@@ -109,6 +109,17 @@ export function buildControllerServer(
     })
   }
 
+  // Public applications use their application ID as a dedicated worker scope.
+  // Visitor IDs never become container identities or generic execution users.
+  app.route({ method: ["GET", "POST"], url: "/public-knowledge/*", handler: async (request, reply) => {
+    const applicationId = parseOwnerHeader(request.headers["x-linksense-owner-id"]);
+    if (!applicationId) return reply.code(403).send({ error_code: "RUNNER_OWNER_REQUIRED" });
+    try {
+      return sendWorkerResponse(reply, await workers.requestPublicKnowledge(applicationId, request.url, request.method,
+        request.body === undefined ? undefined : Buffer.from(JSON.stringify(request.body)), 210_000));
+    } catch (error) { return sendWorkerTransportFailure(reply, error); }
+  } });
+
   app.post("/workers/prewarm", async (request, reply) => {
     const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
     if (!ownerId) {

@@ -22,6 +22,7 @@ type ApiStartupResources = {
     | "events"
     | "jobs"
     | "passwordResetMail"
+    | "publicKnowledge"
     | "knowledgeRuntime"
     | "knowledgeGovernance"
     | "knowledgeSourceRuntime"
@@ -85,6 +86,7 @@ export function createApiLifecycle(
         await startStage("weixin", () => resources.services.weixinRuntime.start());
         await startStage("runner-readiness", () => resources.runner.waitUntilReady());
         await startStage("task-recovery", () => resources.services.events.recoverRunningTurns());
+        await startStage("public-knowledge", () => resources.services.publicKnowledge.start());
         await resources.app.listen({
           host: resources.host,
           port: resources.port,
@@ -252,6 +254,9 @@ async function closeApiResources(
   const appResult = await closeStage("http", [
     () => resources.app.close(),
   ]);
+  const publicKnowledgeResult = await closeStage("public-knowledge", [
+    () => resources.services.publicKnowledge.close(),
+  ]);
   const governanceResult = await closeStage("knowledge-governance", [
     () => resources.services.knowledgeGovernance?.close(),
   ]);
@@ -277,6 +282,7 @@ async function closeApiResources(
   const failures = [
     ...recoveryResult,
     ...appResult,
+    ...publicKnowledgeResult,
     ...governanceResult,
     ...knowledgeResult,
     ...schedulerResults,
@@ -295,6 +301,7 @@ async function closePartiallyStartedApi(
   if (services) {
     await Promise.allSettled([
       Promise.resolve().then(() => services.events.stopRecoveryMonitor()),
+      Promise.resolve().then(() => services.publicKnowledge.close()),
       Promise.resolve().then(() => services.knowledgeGovernance?.close()),
       Promise.resolve().then(() => services.knowledgeSourceRuntime?.close()),
     ]);

@@ -27,6 +27,13 @@ export function imageGenerationErrorFromApi(
   const providerDetails = providerDetailsFromResponse(value);
 
   switch (apiCode) {
+    case "IMAGE_GENERATION_UNAVAILABLE":
+      return new ImageGenerationRequestError(
+        "IMAGE_GENERATION_UNAVAILABLE",
+        true,
+        503,
+        providerDetails,
+      );
     case "IMAGE_GENERATION_EDIT_UNSUPPORTED":
       return new ImageGenerationRequestError("IMAGE_GENERATION_EDIT_UNSUPPORTED", false, 422);
     case "IMAGE_GENERATION_INPUT_INVALID":
@@ -97,12 +104,19 @@ export function imageGenerationErrorFromApi(
       );
     default:
       return new ImageGenerationRequestError(
-        "IMAGE_GENERATION_UNAVAILABLE",
-        true,
-        503,
-        providerDetails,
+        "INTERNAL_ERROR",
+        false,
+        500,
       );
   }
+}
+
+/** Call only at a fetch boundary; arbitrary program errors must not invite retries. */
+export function imageGenerationErrorFromTransport(error: unknown): ImageGenerationRequestError {
+  if (error instanceof TypeError || (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name))) {
+    return new ImageGenerationRequestError("IMAGE_GENERATION_UNAVAILABLE", true, 503);
+  }
+  return new ImageGenerationRequestError("INTERNAL_ERROR", false, 500);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

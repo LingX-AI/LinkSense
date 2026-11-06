@@ -73,6 +73,30 @@ describe("i18n resources", () => {
   })
 
   it.each(supportedLanguages)(
+    "localizes form cancellation and waiting hints in %s with Chinese fallback",
+    (locale) => {
+      for (const key of [
+        "conversation.userInput.cancel",
+        "conversation.userInput.requiredWaiting",
+        "conversation.userInput.recommendationCountdown",
+      ]) {
+        const translated = i18n.getResource(locale, "translation", key)
+        const chinese = i18n.t(key, { lng: "zh-CN", seconds: 30 })
+        expect(translated).toBeTypeOf("string")
+        expect(translated).not.toBe(key)
+        if (locale !== "zh-CN") {
+          expect(translated).not.toBe(
+            i18n.getResource("zh-CN", "translation", key)
+          )
+          const fallback = i18n.cloneInstance({ forkResourceStore: true })
+          fallback.removeResourceBundle(locale, "translation")
+          expect(fallback.t(key, { lng: locale, seconds: 30 })).toBe(chinese)
+        }
+      }
+    }
+  )
+
+  it.each(supportedLanguages)(
     "translates sign-in field descriptions and callback copy messages in %s with Chinese fallback",
     (locale) => {
       for (const key of [
@@ -940,8 +964,15 @@ describe("i18n resources", () => {
     ).toContain("System health")
   })
 
-  it("uses conversation terminology only for models, naming frequency, chat-based app creation and debug conversations", () => {
+  it("uses conversation terminology only for models, naming frequency, chat-based app creation, debug and public knowledge conversations", () => {
     const allowedChineseConversationTerms = new Set([
+      zhCN.publicKnowledge.conversations,
+      zhCN.publicKnowledge.defaultInstructions,
+      zhCN.publicKnowledge.retention,
+      zhCN.publicKnowledge.privacy,
+      zhCN.publicKnowledge.newConversation,
+      zhCN.publicKnowledge.empty,
+      zhCN.publicKnowledge.selectConversation,
       "首次对话时",
       "每次对话时",
       "用对话创建交互式应用",

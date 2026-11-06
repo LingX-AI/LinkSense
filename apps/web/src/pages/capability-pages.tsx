@@ -3623,7 +3623,12 @@ function MyPublicationsPanel({
           onClose={() => setApplicationPickerOpen(false)}
           onSelect={(application) => {
             setApplicationPickerOpen(false)
-            setApplicationTarget(application)
+            if (application.kind !== "public_knowledge")
+              setApplicationTarget({
+                id: application.id,
+                name: application.name,
+                kind: application.kind,
+              })
           }}
         />
       )}

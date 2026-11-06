@@ -1,3 +1,4 @@
+import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import type { enUS } from "../en-US"
 import type { TranslationResource } from "../types"
 
@@ -272,6 +273,7 @@ export const applicationsMessages = {
       kinds: {
         standard: "Aplicación estándar",
         interactive: "Aplicación interactiva",
+        public_knowledge: publicKnowledgeMessages["es-ES"].title,
       },
       views: {
         configuration: "Configuración actual",

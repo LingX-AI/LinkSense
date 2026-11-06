@@ -1,5 +1,6 @@
 import { internalAutomationMonitoringRoutes, internalAutomationRoutes } from "./modules/automations/internal-routes.js";
 import { conversationBrowserRoutes } from "./modules/conversations/browser-routes.js";
+import { publicKnowledgeManagementRoutes, publicKnowledgeVisitorRoutes } from "./modules/public-knowledge/routes.js";
 import { htmlPreviewRoutes, htmlPreviewResourceRoutes } from "./modules/html-preview/routes.js";
 import { SamlSettingsService } from "./modules/saml/settings.js";
 import { SamlProtocol } from "./modules/saml/protocol.js";
@@ -397,6 +398,7 @@ export async function buildApi(
       await applicationApp.register(applicationExternalManagementRoutes, {
         service: services.applicationExternalAccess,
       });
+      if (services.publicKnowledge) await applicationApp.register(publicKnowledgeManagementRoutes, { service: services.publicKnowledge });
     },
     { prefix: "/api/v1/applications" },
   );
@@ -590,6 +592,9 @@ export async function buildApi(
     services,
     developmentAssets: services.config.nodeEnv !== "production",
   });
+  if (services.publicKnowledge) await app.register(publicKnowledgeVisitorRoutes, {
+    prefix: "/api/v1/public-knowledge", service: services.publicKnowledge, developmentAssets: services.config.nodeEnv !== "production",
+  });
   await app.register(siteIconRoutes, { prefix: "/api/v1", services });
   await app.register(externalImageRoutes, { prefix: "/api/v1", services });
   await app.register(internalRunnerRoutes, { prefix: "/internal", services });
@@ -665,7 +670,8 @@ export function registerMaintenanceGuard(
     const maintenance = await system.getMaintenanceStatus();
     if (!maintenance.active) return;
     // Embedded visitors never inherit the application owner's admin exemption.
-    if (requestPathname(request.url).startsWith("/api/v1/embed/")) {
+    const path = requestPathname(request.url);
+    if (path.startsWith("/api/v1/embed/") || path.startsWith("/api/v1/public-knowledge/")) {
       throw new AppError("SYSTEM_MAINTENANCE_ACTIVE");
     }
     await app.authenticate(request);
@@ -681,7 +687,7 @@ export function isMaintenanceExemptPath(url: string): boolean {
     !path.startsWith("/api/v1/") ||
     path.startsWith("/api/v1/system/") ||
     path.startsWith("/api/v1/auth/") ||
-    path.startsWith("/api/v1/embed/frame/") ||
+    isEmbeddedApplicationFrame(path) ||
     // Renewal preserves an existing session; it grants no business access.
     path === "/api/v1/embed/sessions/renew" ||
     path.startsWith("/api/v1/admin/") ||
@@ -708,7 +714,7 @@ export function registerResponseSecurityHeaders(app: FastifyInstance): void {
         "camera=(), microphone=(self), geolocation=()",
       );
     }
-    if (!requestPathname(request.url).startsWith("/api/v1/embed/frame/")) {
+    if (!isEmbeddedApplicationFrame(requestPathname(request.url))) {
       reply.header("x-frame-options", "SAMEORIGIN");
     }
     if (!reply.hasHeader("content-security-policy")) {
@@ -716,6 +722,10 @@ export function registerResponseSecurityHeaders(app: FastifyInstance): void {
     }
     return payload;
   });
+}
+
+function isEmbeddedApplicationFrame(path: string): boolean {
+  return path.startsWith("/api/v1/embed/frame/") || path.startsWith("/api/v1/public-knowledge/frame/");
 }
 
 export function createContentSecurityPolicy(): string {

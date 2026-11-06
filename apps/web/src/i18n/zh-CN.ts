@@ -1,3 +1,4 @@
+import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
@@ -11,6 +12,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const zhCN = {
   browserUse: browserUseMessages["zh-CN"],
+  publicKnowledge: publicKnowledgeMessages["zh-CN"],
   modelSetup: modelSetupMessages["zh-CN"],
   connections: connectionMessages["zh-CN"],
   sideChat: sideChatMessages["zh-CN"],
@@ -2124,9 +2126,9 @@ export const zhCN = {
         "你可以稍后回答，LinkSense 会继续工作；任务结束后仍可提交回答。",
       formTitle: "需要你确认信息",
       formResultTitle: "已处理的表单",
-      requiredWaiting: "此问题需要你回答，提交后任务才会继续。",
+      requiredWaiting: "提交回答后任务会继续，你也可以取消此表单。",
       recommendationCountdown:
-        "未提交时，将在 {{seconds}} 秒后自动采用推荐答案继续任务。",
+        "未提交或取消时，将在 {{seconds}} 秒后自动采用推荐答案继续任务。",
       applyingRecommendation: "正在采用推荐答案…",
       recommendedAnswer: "推荐：{{answer}}",
       useRecommendation: "使用推荐答案",
@@ -2794,7 +2796,11 @@ export const zhCN = {
       title: "应用详情",
       open: "查看 {{name}} 的详情",
       creator: "创建者",
-      kinds: { standard: "普通应用", interactive: "交互式应用" },
+      kinds: {
+        standard: "普通应用",
+        interactive: "交互式应用",
+        public_knowledge: publicKnowledgeMessages["zh-CN"].title,
+      },
       views: { configuration: "当前配置", published: "已发布版本" },
       resources: "应用资源",
       noResources: "此应用未配置或声明任何资源。",

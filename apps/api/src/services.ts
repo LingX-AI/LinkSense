@@ -1,3 +1,10 @@
+import { PublicKnowledgeService } from "./modules/public-knowledge/service.js";
+import { PrismaPublicKnowledgeProgress } from "./modules/public-knowledge/progress.js";
+import { PublicKnowledgeSkills } from "./modules/public-knowledge/skills.js";
+import { RedisPublicKnowledgeCoordinator } from "./modules/public-knowledge/coordinator.js";
+import { createPublicKnowledgeRetriever } from "./modules/public-knowledge/retrieval.js";
+import { BullMqPublicKnowledgeQueue } from "./modules/public-knowledge/queue.js";
+import pino from "pino";
 import { HtmlPreviewService, RedisHtmlPreviewSessionStore } from "./modules/html-preview/service.js";
 import { WebArtifactResources } from "./modules/web-sites/artifact-resources.js";
 import { assertExecutionPrincipalActive } from "./lib/execution-principal.js";
@@ -232,6 +239,7 @@ export type AppServices = {
   applications: ApplicationService;
   applicationCenter: ApplicationCenterService;
   applicationExternalAccess: ApplicationExternalAccessService;
+  publicKnowledge: PublicKnowledgeService;
   credentials: CredentialService;
   mcpServers: McpServerService;
   users: UserService;
@@ -907,6 +915,12 @@ export function createServices(input: {
     applications,
     applicationCenter,
     applicationExternalAccess,
+    publicKnowledge: new PublicKnowledgeService({ prisma: input.prisma, models: modelProviderSettings, knowledge: knowledgeStore,
+      progress: new PrismaPublicKnowledgeProgress(input.prisma, input.redis, pino({ level: process.env.LOG_LEVEL ?? "info" })),
+      skills: new PublicKnowledgeSkills(input.prisma, input.config.capabilityRoot),
+      retrieve: knowledgeRuntime ? createPublicKnowledgeRetriever(input.prisma, knowledgeStore, knowledgeRuntime.retrieval) : null,
+      runner: input.runner, coordinator: new RedisPublicKnowledgeCoordinator(input.redis.client), audit,
+      queue: new BullMqPublicKnowledgeQueue(input.redis.client, input.config.redisUrl, pino({ level: process.env.LOG_LEVEL ?? "info" })) }),
     credentials,
     mcpServers,
     users,

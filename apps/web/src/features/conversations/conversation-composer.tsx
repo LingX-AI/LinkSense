@@ -430,6 +430,8 @@ export type KnowledgeBaseSelectionStatus =
 const noRequiredCapabilityIds: readonly string[] = []
 
 type ConversationComposerProps = Readonly<{
+  textOnly?: boolean
+  maxLength?: number
   value: string
   onValueChange: (value: string) => void
   capabilities: CapabilitySummary[]
@@ -512,6 +514,8 @@ export const ConversationComposer = forwardRef<
   ConversationComposerProps
 >(function ConversationComposer(
   {
+    textOnly = false,
+    maxLength,
     value,
     onValueChange,
     capabilities,
@@ -655,6 +659,7 @@ export const ConversationComposer = forwardRef<
     [value]
   )
   const slashRootOpen =
+    !textOnly &&
     slashPanel === null &&
     slashTrigger !== null &&
     dismissedSlashValue !== value
@@ -664,6 +669,7 @@ export const ConversationComposer = forwardRef<
     [value]
   )
   const skillMenuOpen =
+    !textOnly &&
     !managedApplicationName &&
     slashPanel === null &&
     skillTrigger !== null &&
@@ -941,7 +947,7 @@ export const ConversationComposer = forwardRef<
         return status === "loading" || status === "verification_failed"
       }))
   const canSendValue = (nextValue: string) =>
-    (isConversationContextCompactionCommand(nextValue)
+    (!textOnly && isConversationContextCompactionCommand(nextValue)
       ? compactAvailable
       : canSubmitValue(nextValue)) &&
     !voiceBusy &&
@@ -1146,7 +1152,7 @@ export const ConversationComposer = forwardRef<
     event.preventDefault()
     const nextValue = latestValueRef.current
     if (!canSendValue(nextValue)) return
-    if (isConversationContextCompactionCommand(nextValue)) {
+    if (!textOnly && isConversationContextCompactionCommand(nextValue)) {
       onCompact()
       return
     }
@@ -1205,7 +1211,7 @@ export const ConversationComposer = forwardRef<
       event.preventDefault()
       const nextValue = latestValueRef.current
       if (!canSendValue(nextValue)) return
-      if (isConversationContextCompactionCommand(nextValue)) {
+      if (!textOnly && isConversationContextCompactionCommand(nextValue)) {
         onCompact()
         return
       }
@@ -1237,6 +1243,7 @@ export const ConversationComposer = forwardRef<
   }
 
   const handleDragEnter = (event: DragEvent<HTMLFormElement>) => {
+    if (textOnly) return
     if (!hasTransferredFiles(event.dataTransfer)) return
     event.preventDefault()
     event.stopPropagation()
@@ -1244,6 +1251,7 @@ export const ConversationComposer = forwardRef<
   }
 
   const handleDragOver = (event: DragEvent<HTMLFormElement>) => {
+    if (textOnly) return
     if (!hasTransferredFiles(event.dataTransfer)) return
     event.preventDefault()
     event.stopPropagation()
@@ -1269,7 +1277,7 @@ export const ConversationComposer = forwardRef<
     event.stopPropagation()
     setIsDraggingFiles(false)
 
-    if (attachmentActionDisabled) return
+    if (textOnly || attachmentActionDisabled) return
     const files = getTransferredFiles(event.dataTransfer)
     if (files.length) queueAttachmentUpload(files)
   }
@@ -1332,7 +1340,7 @@ export const ConversationComposer = forwardRef<
   )
 
   const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    if (attachmentActionDisabled) return
+    if (textOnly || attachmentActionDisabled) return
     const files = getTransferredFiles(event.clipboardData)
     if (files.length > 0) {
       const hasPlainText =
@@ -1878,6 +1886,7 @@ export const ConversationComposer = forwardRef<
             if (highlight) highlight.scrollTop = event.currentTarget.scrollTop
           }}
           aria-label={t("conversation.messageInput")}
+          maxLength={maxLength}
           aria-controls={
             taskReferenceMenuOpen
               ? taskReferenceMenuId
@@ -1918,284 +1927,293 @@ export const ConversationComposer = forwardRef<
         data-slot="composer-toolbar"
       >
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 @max-[28rem]/conversation-workspace:gap-x-1">
-          <Popover
-            open={menuOpen}
-            onOpenChange={handleCapabilityMenuOpenChange}
-          >
-            <PopoverTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "composer-control -mx-1.5 h-8 gap-2 px-1.5 font-normal @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs",
-                    modelPreferenceBlockingActions && "disabled:opacity-100"
-                  )}
-                  aria-label={t("conversation.toolbarAttach")}
-                  aria-description={t("conversation.addMenuTitle")}
-                  disabled={attachmentActionDisabled}
-                />
-              }
+          {!textOnly && (
+            <Popover
+              open={menuOpen}
+              onOpenChange={handleCapabilityMenuOpenChange}
             >
-              <DesignIcon name="composer-add" className="text-foreground" />
-              <span>{t("conversation.toolbarAttach")}</span>
-            </PopoverTrigger>
-            <PopoverContent
-              side="top"
-              align="start"
-              sideOffset={8}
-              className="capability-picker-popover max-h-(--available-height) w-80 max-w-[calc(100vw-2rem)] gap-1 overflow-hidden rounded-xl border border-border p-2 ring-0"
-            >
-              <PopoverHeader className="sr-only">
-                <PopoverTitle>{t("conversation.addMenuTitle")}</PopoverTitle>
-              </PopoverHeader>
-              <Command className="min-h-0 gap-2 overflow-visible rounded-none bg-transparent p-1 [&_[data-slot=command-input-wrapper]]:shrink-0 [&_[data-slot=command-input-wrapper]]:p-0 [&_[data-slot=input-group]]:h-10! [&_[data-slot=input-group]]:bg-muted/40">
-                {!managedApplicationName && (
-                  <CommandInput
-                    placeholder={t("conversation.capabilitySearch")}
-                    autoFocus={shouldAutoFocusOnDesktop()}
+              <PopoverTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      "composer-control -mx-1.5 h-8 gap-2 px-1.5 font-normal @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs",
+                      modelPreferenceBlockingActions && "disabled:opacity-100"
+                    )}
+                    aria-label={t("conversation.toolbarAttach")}
+                    aria-description={t("conversation.addMenuTitle")}
+                    disabled={attachmentActionDisabled}
                   />
-                )}
-                <CommandList className="-mr-3 max-h-128 min-h-0 pr-3 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-items]]:space-y-1 [&_[data-slot=command-group]]:p-0 [&_[data-slot=command-item]]:min-h-8 [&_[data-slot=command-item]]:rounded-md [&_[data-slot=command-item]]:py-1 [&_[data-slot=command-item]]:font-normal">
-                  <CommandGroup aria-label={t("conversation.addGroup")}>
-                    <CommandItem
-                      value={t("conversation.attachFileMenuSearchValue")}
-                      disabled={attachmentActionDisabled}
-                      onSelect={openAttachmentFilePicker}
-                    >
-                      <span className="grid size-5 shrink-0 place-items-center">
-                        <PaperclipIcon aria-hidden="true" className="size-5" />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-sm">
-                        {t("conversation.attachFileMenuLabel")}
-                      </span>
-                    </CommandItem>
-                    {onReferenceFile && (
-                      <CommandItem
-                        value={t("conversation.referenceFile.menuSearchValue")}
-                        disabled={attachmentActionDisabled}
-                        onSelect={openReferenceFilePicker}
-                      >
-                        <span className="grid size-5 shrink-0 place-items-center">
-                          <FileInputIcon
-                            aria-hidden="true"
-                            className="size-5"
-                          />
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-sm">
-                          {t("conversation.referenceFile.menuLabel")}
-                        </span>
-                      </CommandItem>
-                    )}
-                    {onTaskReferencesChange && (
-                      <CommandItem
-                        value={t("taskReferences.title")}
-                        disabled={attachmentActionDisabled}
-                        onSelect={() => {
-                          setMenuOpen(false)
-                          setTaskReferenceOpen(true)
-                        }}
-                      >
-                        <span className="grid size-5 shrink-0 place-items-center">
-                          <Link2Icon aria-hidden="true" className="size-5" />
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-sm">
-                          {t("taskReferences.title")}
-                        </span>
-                        <kbd
-                          className="ml-auto text-xs text-muted-foreground"
-                          aria-hidden="true"
-                        >
-                          @
-                        </kbd>
-                      </CommandItem>
-                    )}
-                    <CommandItem
-                      value={t("conversation.attachFolderMenuSearchValue")}
-                      disabled={attachmentActionDisabled}
-                      onSelect={openAttachmentFolderPicker}
-                    >
-                      <span className="grid size-5 shrink-0 place-items-center">
-                        <DesignIcon name="folder" className="size-4.5" />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-sm">
-                        {t("conversation.attachFolderMenuLabel")}
-                      </span>
-                    </CommandItem>
-                    {!managedApplicationName && goalModeAvailable && (
-                      <CommandItem
-                        value={t("conversation.goal.menuSearchValue")}
-                        title={t("conversation.goal.menuDescription")}
-                        disabled={attachmentActionDisabled}
-                        onSelect={enableGoalMode}
-                      >
-                        <span className="grid size-5 shrink-0 place-items-center">
-                          <GoalIcon aria-hidden="true" className="size-5" />
-                        </span>
-                        <span className="min-w-0 flex-1" data-goal-labels="">
-                          <span className="block truncate text-sm">
-                            {t("conversation.goal.menuLabel")}
-                          </span>
-                          <span className="sr-only">
-                            {t("conversation.goal.menuDescription")}
-                          </span>
-                        </span>
-                      </CommandItem>
-                    )}
-                    {planModeAvailable && (
-                      <CommandItem
-                        value={t("conversation.plan.menuSearchValue")}
-                        title={t("conversation.plan.menuDescription")}
-                        data-checked={planMode || undefined}
-                        disabled={attachmentActionDisabled || planModeDisabled}
-                        onSelect={togglePlanMode}
-                      >
-                        <span className="grid size-5 shrink-0 place-items-center">
-                          <LightbulbIcon
-                            aria-hidden="true"
-                            className="size-5"
-                          />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm">
-                            {t("conversation.plan.menuLabel")}
-                          </span>
-                          <span className="sr-only">
-                            {t("conversation.plan.menuDescription")}
-                          </span>
-                        </span>
-                      </CommandItem>
-                    )}
-                  </CommandGroup>
+                }
+              >
+                <DesignIcon name="composer-add" className="text-foreground" />
+                <span>{t("conversation.toolbarAttach")}</span>
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                align="start"
+                sideOffset={8}
+                className="capability-picker-popover max-h-(--available-height) w-80 max-w-[calc(100vw-2rem)] gap-1 overflow-hidden rounded-xl border border-border p-2 ring-0"
+              >
+                <PopoverHeader className="sr-only">
+                  <PopoverTitle>{t("conversation.addMenuTitle")}</PopoverTitle>
+                </PopoverHeader>
+                <Command className="min-h-0 gap-2 overflow-visible rounded-none bg-transparent p-1 [&_[data-slot=command-input-wrapper]]:shrink-0 [&_[data-slot=command-input-wrapper]]:p-0 [&_[data-slot=input-group]]:h-10! [&_[data-slot=input-group]]:bg-muted/40">
                   {!managedApplicationName && (
-                    <>
-                      <CommandSeparator />
-                      {capabilitiesLoading && (
-                        <div className="page-state" role="status">
-                          <LoaderCircleIcon
-                            className="size-3.5 animate-spin"
+                    <CommandInput
+                      placeholder={t("conversation.capabilitySearch")}
+                      autoFocus={shouldAutoFocusOnDesktop()}
+                    />
+                  )}
+                  <CommandList className="-mr-3 max-h-128 min-h-0 pr-3 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-items]]:space-y-1 [&_[data-slot=command-group]]:p-0 [&_[data-slot=command-item]]:min-h-8 [&_[data-slot=command-item]]:rounded-md [&_[data-slot=command-item]]:py-1 [&_[data-slot=command-item]]:font-normal">
+                    <CommandGroup aria-label={t("conversation.addGroup")}>
+                      <CommandItem
+                        value={t("conversation.attachFileMenuSearchValue")}
+                        disabled={attachmentActionDisabled}
+                        onSelect={openAttachmentFilePicker}
+                      >
+                        <span className="grid size-5 shrink-0 place-items-center">
+                          <PaperclipIcon
                             aria-hidden="true"
+                            className="size-5"
                           />
-                          {t("common.loading")}
-                        </div>
-                      )}
-                      {capabilitiesError && (
-                        <div className="search-error" role="alert">
-                          <p>{t("conversation.capabilityUnavailable")}</p>
-                          {onRetryCapabilities && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              className="mt-2"
-                              onClick={onRetryCapabilities}
-                            >
-                              {t("common.retry")}
-                            </Button>
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-sm">
+                          {t("conversation.attachFileMenuLabel")}
+                        </span>
+                      </CommandItem>
+                      {onReferenceFile && (
+                        <CommandItem
+                          value={t(
+                            "conversation.referenceFile.menuSearchValue"
                           )}
-                        </div>
+                          disabled={attachmentActionDisabled}
+                          onSelect={openReferenceFilePicker}
+                        >
+                          <span className="grid size-5 shrink-0 place-items-center">
+                            <FileInputIcon
+                              aria-hidden="true"
+                              className="size-5"
+                            />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-sm">
+                            {t("conversation.referenceFile.menuLabel")}
+                          </span>
+                        </CommandItem>
                       )}
-                      {!capabilitiesLoading &&
-                        !capabilitiesError &&
-                        capabilityGroups.length > 0 && (
-                          <CommandEmpty>
-                            {t("conversation.noCapabilities")}
-                          </CommandEmpty>
-                        )}
-                      {!capabilitiesLoading &&
-                        !capabilitiesError &&
-                        capabilityGroups.length === 0 && (
-                          <div
-                            data-slot="command-empty"
-                            className="py-6 text-center text-sm font-medium"
+                      {onTaskReferencesChange && (
+                        <CommandItem
+                          value={t("taskReferences.title")}
+                          disabled={attachmentActionDisabled}
+                          onSelect={() => {
+                            setMenuOpen(false)
+                            setTaskReferenceOpen(true)
+                          }}
+                        >
+                          <span className="grid size-5 shrink-0 place-items-center">
+                            <Link2Icon aria-hidden="true" className="size-5" />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-sm">
+                            {t("taskReferences.title")}
+                          </span>
+                          <kbd
+                            className="ml-auto text-xs text-muted-foreground"
+                            aria-hidden="true"
                           >
-                            {t("conversation.noCapabilities")}
+                            @
+                          </kbd>
+                        </CommandItem>
+                      )}
+                      <CommandItem
+                        value={t("conversation.attachFolderMenuSearchValue")}
+                        disabled={attachmentActionDisabled}
+                        onSelect={openAttachmentFolderPicker}
+                      >
+                        <span className="grid size-5 shrink-0 place-items-center">
+                          <DesignIcon name="folder" className="size-4.5" />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-sm">
+                          {t("conversation.attachFolderMenuLabel")}
+                        </span>
+                      </CommandItem>
+                      {!managedApplicationName && goalModeAvailable && (
+                        <CommandItem
+                          value={t("conversation.goal.menuSearchValue")}
+                          title={t("conversation.goal.menuDescription")}
+                          disabled={attachmentActionDisabled}
+                          onSelect={enableGoalMode}
+                        >
+                          <span className="grid size-5 shrink-0 place-items-center">
+                            <GoalIcon aria-hidden="true" className="size-5" />
+                          </span>
+                          <span className="min-w-0 flex-1" data-goal-labels="">
+                            <span className="block truncate text-sm">
+                              {t("conversation.goal.menuLabel")}
+                            </span>
+                            <span className="sr-only">
+                              {t("conversation.goal.menuDescription")}
+                            </span>
+                          </span>
+                        </CommandItem>
+                      )}
+                      {planModeAvailable && (
+                        <CommandItem
+                          value={t("conversation.plan.menuSearchValue")}
+                          title={t("conversation.plan.menuDescription")}
+                          data-checked={planMode || undefined}
+                          disabled={
+                            attachmentActionDisabled || planModeDisabled
+                          }
+                          onSelect={togglePlanMode}
+                        >
+                          <span className="grid size-5 shrink-0 place-items-center">
+                            <LightbulbIcon
+                              aria-hidden="true"
+                              className="size-5"
+                            />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm">
+                              {t("conversation.plan.menuLabel")}
+                            </span>
+                            <span className="sr-only">
+                              {t("conversation.plan.menuDescription")}
+                            </span>
+                          </span>
+                        </CommandItem>
+                      )}
+                    </CommandGroup>
+                    {!managedApplicationName && (
+                      <>
+                        <CommandSeparator />
+                        {capabilitiesLoading && (
+                          <div className="page-state" role="status">
+                            <LoaderCircleIcon
+                              className="size-3.5 animate-spin"
+                              aria-hidden="true"
+                            />
+                            {t("common.loading")}
                           </div>
                         )}
-                      {!capabilitiesLoading &&
-                        !capabilitiesError &&
-                        capabilityGroups.map(({ type, items }) => (
-                          <CommandGroup
-                            key={type}
-                            heading={t(
-                              type === "plugin"
-                                ? "conversation.pluginGroup"
-                                : "conversation.skillGroup"
+                        {capabilitiesError && (
+                          <div className="search-error" role="alert">
+                            <p>{t("conversation.capabilityUnavailable")}</p>
+                            {onRetryCapabilities && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="mt-2"
+                                onClick={onRetryCapabilities}
+                              >
+                                {t("common.retry")}
+                              </Button>
                             )}
-                          >
-                            {items.map((capability) => {
-                              const selectable =
-                                canSelectConversationCapability(capability)
-                              const presentation = capabilityPresentation(
-                                capability,
-                                t,
-                                productName
-                              )
-                              return (
-                                <CommandItem
-                                  key={capability.id}
-                                  value={`${capability.name} ${presentation.name} ${presentation.description ?? ""}`}
-                                  title={
-                                    presentation.description ??
-                                    presentation.name
-                                  }
-                                  data-checked={
-                                    selectedIds.includes(capability.id) ||
-                                    undefined
-                                  }
-                                  disabled={
-                                    submitting ||
-                                    !selectable ||
-                                    requiredIds.includes(capability.id)
-                                  }
-                                  onSelect={() => {
-                                    if (selectable) {
-                                      handleCapabilitySelect(capability.id)
+                          </div>
+                        )}
+                        {!capabilitiesLoading &&
+                          !capabilitiesError &&
+                          capabilityGroups.length > 0 && (
+                            <CommandEmpty>
+                              {t("conversation.noCapabilities")}
+                            </CommandEmpty>
+                          )}
+                        {!capabilitiesLoading &&
+                          !capabilitiesError &&
+                          capabilityGroups.length === 0 && (
+                            <div
+                              data-slot="command-empty"
+                              className="py-6 text-center text-sm font-medium"
+                            >
+                              {t("conversation.noCapabilities")}
+                            </div>
+                          )}
+                        {!capabilitiesLoading &&
+                          !capabilitiesError &&
+                          capabilityGroups.map(({ type, items }) => (
+                            <CommandGroup
+                              key={type}
+                              heading={t(
+                                type === "plugin"
+                                  ? "conversation.pluginGroup"
+                                  : "conversation.skillGroup"
+                              )}
+                            >
+                              {items.map((capability) => {
+                                const selectable =
+                                  canSelectConversationCapability(capability)
+                                const presentation = capabilityPresentation(
+                                  capability,
+                                  t,
+                                  productName
+                                )
+                                return (
+                                  <CommandItem
+                                    key={capability.id}
+                                    value={`${capability.name} ${presentation.name} ${presentation.description ?? ""}`}
+                                    title={
+                                      presentation.description ??
+                                      presentation.name
                                     }
-                                  }}
-                                >
-                                  <span className="grid size-5 shrink-0 place-items-center [&>img]:size-full">
-                                    <ConversationCapabilityMenuIcon
-                                      capability={capability}
-                                    />
-                                  </span>
-                                  <span
-                                    className="min-w-0 flex-1"
-                                    data-capability-labels=""
+                                    data-checked={
+                                      selectedIds.includes(capability.id) ||
+                                      undefined
+                                    }
+                                    disabled={
+                                      submitting ||
+                                      !selectable ||
+                                      requiredIds.includes(capability.id)
+                                    }
+                                    onSelect={() => {
+                                      if (selectable) {
+                                        handleCapabilitySelect(capability.id)
+                                      }
+                                    }}
                                   >
-                                    <span
-                                      className="block truncate text-sm"
-                                      data-capability-name=""
-                                      title={presentation.name}
-                                    >
-                                      {presentation.name}
+                                    <span className="grid size-5 shrink-0 place-items-center [&>img]:size-full">
+                                      <ConversationCapabilityMenuIcon
+                                        capability={capability}
+                                      />
                                     </span>
-                                    {presentation.description && (
+                                    <span
+                                      className="min-w-0 flex-1"
+                                      data-capability-labels=""
+                                    >
                                       <span
-                                        className="sr-only"
-                                        data-capability-description=""
+                                        className="block truncate text-sm"
+                                        data-capability-name=""
+                                        title={presentation.name}
                                       >
-                                        {presentation.description}
+                                        {presentation.name}
+                                      </span>
+                                      {presentation.description && (
+                                        <span
+                                          className="sr-only"
+                                          data-capability-description=""
+                                        >
+                                          {presentation.description}
+                                        </span>
+                                      )}
+                                    </span>
+                                    {capability.is_builtin && (
+                                      <span className="sr-only">
+                                        {t("capability.builtIn")}
                                       </span>
                                     )}
-                                  </span>
-                                  {capability.is_builtin && (
-                                    <span className="sr-only">
-                                      {t("capability.builtIn")}
-                                    </span>
-                                  )}
-                                </CommandItem>
-                              )
-                            })}
-                          </CommandGroup>
-                        ))}
-                    </>
-                  )}
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
+                                  </CommandItem>
+                                )
+                              })}
+                            </CommandGroup>
+                          ))}
+                      </>
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          )}
 
           {!managedApplicationName && showKnowledgeBaseButton && (
             <>
@@ -2477,24 +2495,28 @@ export const ConversationComposer = forwardRef<
               {projectPicker}
             </div>
           )}
-          <Input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            aria-label={t("conversation.attach")}
-            className="sr-only"
-            disabled={attachmentActionDisabled}
-            onChange={handleAttachmentInputChange}
-          />
-          <Input
-            ref={directoryInputRef}
-            type="file"
-            multiple
-            aria-label={t("conversation.attachFolder")}
-            className="sr-only"
-            disabled={attachmentActionDisabled}
-            onChange={handleAttachmentInputChange}
-          />
+          {!textOnly && (
+            <>
+              <Input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                aria-label={t("conversation.attach")}
+                className="sr-only"
+                disabled={attachmentActionDisabled}
+                onChange={handleAttachmentInputChange}
+              />
+              <Input
+                ref={directoryInputRef}
+                type="file"
+                multiple
+                aria-label={t("conversation.attachFolder")}
+                className="sr-only"
+                disabled={attachmentActionDisabled}
+                onChange={handleAttachmentInputChange}
+              />
+            </>
+          )}
         </div>
 
         <div
@@ -2527,7 +2549,7 @@ export const ConversationComposer = forwardRef<
               />
             )}
 
-          {voice.phase === "idle" && (
+          {!textOnly && voice.phase === "idle" && (
             <Tooltip>
               <TooltipTrigger
                 render={

@@ -109,6 +109,23 @@ describe("ModelGateway", () => {
     }
   });
 
+  it("removes inference tools only for the dedicated public knowledge lease", async () => {
+    const received: unknown[] = [];
+    const gateway = await startGateway({ fetch: async (_url, init) => {
+      received.push(JSON.parse(String(init?.body)) as unknown);
+      return Response.json({ id: "public-policy-response", status: "completed", output: [] });
+    } });
+    const input = { ...leaseMetering, conversationId: "public-policy", revision: 1, upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "provider-key", protocolMode: "native_responses" as const, model: "model-a" };
+    const publicLease = gateway.issueLease({ ...input, toolPolicy: "none" });
+    const regularLease = gateway.issueLease({ ...input, conversationId: "regular-policy" });
+    const tools = [{ type: "function", name: "lookup", parameters: { type: "object", properties: {} } }];
+    const request = { model: "model-a", input: "question", tools, tool_choice: "auto", parallel_tool_calls: true };
+    await (await requestGateway(gateway, publicLease.token, request)).text();
+    await (await requestGateway(gateway, regularLease.token, request)).text();
+    expect(received[0]).toMatchObject({ tools: [], tool_choice: "none" });
+    expect(received[0]).not.toHaveProperty("parallel_tool_calls");
+    expect(received[1]).toMatchObject({ tools, tool_choice: "auto", parallel_tool_calls: true });
+  });
   it("accepts HTTP requests above 32 MiB under the new 128 MiB limit", async () => {
     let receivedBytes = 0;
     const gateway = await startGateway({ fetch: async (_url, init) => {

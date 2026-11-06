@@ -1,4 +1,5 @@
 import { browserPanelRequestSchema, browserPanelStateSchema, browserPanelErrorCodes, type BrowserPanelRequest, type BrowserPanelState } from "@linksense/shared";
+import { publicKnowledgeRunnerResultSchema, type PublicKnowledgeRunnerInput, type PublicKnowledgeRunnerResult } from "@linksense/shared";
 import { diskUsageSchema, runtimePlacementSchema, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, type RuntimePlacement } from "@linksense/shared";
 import type { AppConfig } from "../config.js";
 import { AppError } from "../lib/errors.js";
@@ -392,6 +393,21 @@ class RunnerTransportError extends Error {
 }
 
 export class RunnerClient {
+  async runPublicKnowledgeTurn(input: PublicKnowledgeRunnerInput): Promise<PublicKnowledgeRunnerResult> {
+    return publicKnowledgeRunnerResultSchema.parse(await this.request("/public-knowledge/turn", "POST", input, { ownerId: input.applicationId, timeoutMs: 210_000 }));
+  }
+
+  async readPublicKnowledgeResult(applicationId: string, conversationId: string, operationId: string): Promise<PublicKnowledgeRunnerResult | null> {
+    const response = z.strictObject({ result: publicKnowledgeRunnerResultSchema.nullable() }).parse(await this.request(
+      `/public-knowledge/conversations/${conversationId}/operations/${operationId}`, "GET", undefined, { ownerId: applicationId }));
+    return response.result;
+  }
+
+  async interruptPublicKnowledgeTurn(applicationId: string, conversationId: string, operationId: string): Promise<void> {
+    await fetch(new URL(`/public-knowledge/conversations/${conversationId}/operations/${operationId}/interrupt`, this.config.runnerUrl), {
+      method: "POST", headers: { authorization: `Bearer ${this.config.runnerSharedSecret}`, [OWNER_ID_HEADER]: applicationId }, signal: AbortSignal.timeout(30_000),
+    }).then(response => { if (!response.ok) throw new AppError("RUNNER_UNAVAILABLE"); });
+  }
   constructor(
     private readonly config: AppConfig,
     private readonly resolveWorkspace?: (ownerId: string, conversationId: string) => Promise<RuntimePlacement | null>,

@@ -770,15 +770,15 @@ describe("mapCodexNotification", () => {
     }
   });
 
-  it("preserves a safe image failure code when MCP completes with an error result", () => {
+  it.each(["IMAGE_GENERATION_PROVIDER_REJECTED", "INTERNAL_ERROR"])("preserves the safe image failure code %s when MCP completes with an error result", (code) => {
     const notification = {
       method: "item/completed",
       params: { threadId: "thr_1", turnId: "turn_1", item: {
         type: "mcpToolCall", id: "failed-image-call", server: "linksense_core", tool: "generate_image", status: "completed",
-        result: { content: [{ type: "text", text: JSON.stringify({ code: "IMAGE_GENERATION_PROVIDER_REJECTED", retryable: false }) }] },
+        result: { content: [{ type: "text", text: JSON.stringify({ code, retryable: false }) }] },
       } },
     };
-    expect(completedItem(mapCodexNotification(notification))).toMatchObject({ imageGenerationFailureCode: "IMAGE_GENERATION_PROVIDER_REJECTED" });
+    expect(completedItem(mapCodexNotification(notification))).toMatchObject({ imageGenerationFailureCode: code });
     expect(completedItem(mapCodexNotification({ ...notification, params: { ...notification.params, item: { ...notification.params.item, server: "other_server" } } }))).not.toHaveProperty("imageGenerationFailureCode");
   });
 

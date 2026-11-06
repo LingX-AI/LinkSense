@@ -6,6 +6,11 @@ import { applicationImages, upstreamRoles } from "./release-image-inventory.mjs"
 
 const digest = /^sha256:[a-f0-9]{64}$/u;
 export const imageSecurityPolicy = "application-owned-v1";
+const acceptedRisk = JSON.parse(readFileSync(new URL("../deploy/security/v0.3.13-risk-acceptance.json", import.meta.url), "utf8"));
+assert.equal(acceptedRisk.schemaVersion, 1, "Unsupported risk acceptance record");
+for (const key of ["releaseVersion", "ghsa", "cve", "package", "version", "severity", "acceptedOn", "reason"]) {
+  assert.ok(typeof acceptedRisk[key] === "string" && acceptedRisk[key].length > 0, `Missing risk acceptance ${key}`);
+}
 
 export function runtimeForRole(role) {
   const application = applicationImages.find(name => role === `LINKSENSE_${name.toUpperCase()}`);
@@ -17,7 +22,7 @@ export function runtimeForRole(role) {
 }
 
 /** Preserve findings; only application-introduced vulnerabilities block release. */
-export function classifyImageFindings({ role, scope, architecture, report, baseImageConfigs }) {
+export function classifyImageFindings({ role, scope, architecture, report, baseImageConfigs, releaseVersion }) {
   assert.ok(scope === "application" || scope === "baseline", "Unknown image scan scope");
   assert.ok(architecture === "amd64" || architecture === "arm64", "Unknown image architecture");
   const runtime = runtimeForRole(role);
@@ -34,7 +39,7 @@ export function classifyImageFindings({ role, scope, architecture, report, baseI
       for (const key of ["VulnerabilityID", "PkgName", "InstalledVersion"]) {
         assert.ok(typeof finding[key] === "string" && finding[key].length > 0, `Missing ${key}`);
       }
-      findings.push(finding);
+      findings.push({ ...finding, packageType: result.Type });
     }
   }
 
@@ -53,6 +58,7 @@ export function classifyImageFindings({ role, scope, architecture, report, baseI
   }
 
   const counts = { application: 0, inherited: 0, external: 0 };
+  let acceptedApplicationFindings = 0;
   const classified = findings.map(finding => {
     let origin;
     if (scope === "baseline" || runtime === null) {
@@ -64,6 +70,14 @@ export function classifyImageFindings({ role, scope, architecture, report, baseI
       origin = "application";
     }
     counts[origin]++;
+    const riskAccepted = origin === "application" &&
+      releaseVersion === acceptedRisk.releaseVersion &&
+      ["npm", "node-pkg", "pnpm"].includes(finding.packageType) &&
+      finding.PkgName === acceptedRisk.package &&
+      finding.InstalledVersion === acceptedRisk.version &&
+      finding.Severity === acceptedRisk.severity &&
+      [acceptedRisk.ghsa, acceptedRisk.cve].includes(finding.VulnerabilityID);
+    if (riskAccepted) acceptedApplicationFindings++;
     return {
       id: finding.VulnerabilityID,
       package: finding.PkgName,
@@ -71,12 +85,16 @@ export function classifyImageFindings({ role, scope, architecture, report, baseI
       severity: finding.Severity,
       origin,
       layer: finding.Layer?.DiffID ?? null,
+      ...(riskAccepted ? { riskAcceptance: acceptedRisk } : {}),
     };
   });
   return {
     policy: imageSecurityPolicy,
-    status: counts.application ? "vulnerabilities" : classified.length ? "external_risks_recorded" : "passed",
+    status: counts.application > acceptedApplicationFindings ? "vulnerabilities"
+      : acceptedApplicationFindings ? "accepted_application_risks_recorded"
+        : classified.length ? "external_risks_recorded" : "passed",
     counts,
+    acceptedApplicationFindings,
     findings: classified,
   };
 }
@@ -90,7 +108,7 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
   } else if (command === "classify") {
     const report = JSON.parse(readFileSync(reportFile, "utf8"));
     const baseImageConfigs = configFile === "-" ? undefined : JSON.parse(readFileSync(configFile, "utf8"));
-    console.log(JSON.stringify(classifyImageFindings({ role, scope, architecture, report, baseImageConfigs })));
+    console.log(JSON.stringify(classifyImageFindings({ role, scope, architecture, report, baseImageConfigs, releaseVersion: process.env.RELEASE_VERSION })));
   } else {
     throw new Error("Unknown release image policy command");
   }

@@ -20,6 +20,9 @@ esac
 
 mkdir -p "$report_directory"
 report_directory=$(cd "$report_directory" && pwd)
+if [ "$scope" = application ] && [ "${RELEASE_VERSION-}" = v0.3.13 ]; then
+  cp "$(dirname "$0")/../deploy/security/v0.3.13-risk-acceptance.json" "$report_directory/"
+fi
 inventory="$report_directory/inventory.tsv"
 records="$report_directory/images.jsonl"
 : > "$inventory"
@@ -230,6 +233,9 @@ while IFS="$tab" read -r role reference; do
         external_risks_recorded)
           record external_risks_recorded 'External image or verified inherited-baseline vulnerabilities are recorded and do not block release.'
           ;;
+        accepted_application_risks_recorded)
+          record accepted_application_risks_recorded 'The maintainer accepted this exact dependency advisory and version for v0.3.13; full findings remain in the reports.'
+          ;;
         passed) record passed 'No HIGH or CRITICAL vulnerabilities.' ;;
         *) fail 'Invalid image policy outcome.' ;;
       esac
@@ -239,6 +245,7 @@ done < "$inventory"
 
 status=passed
 if [ "$failed" -ne 0 ]; then status=failed
+elif jq -se 'any(.[]; .status == "accepted_application_risks_recorded")' "$records" >/dev/null; then status=passed_with_accepted_application_risks
 elif jq -se 'any(.[]; .status == "external_risks_recorded")' "$records" >/dev/null; then status=passed_with_external_risks
 fi
 jq -sn --arg status "$status" --arg platform "$platform" --arg policy "$policy_name" --slurpfile images "$records" \

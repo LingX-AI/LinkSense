@@ -62,6 +62,17 @@ describe("published service routing", () => {
       expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual(payload);
     } finally { await server.close(); }
   });
+  it("routes public questions to the dedicated application worker after authenticating the controller request", async () => {
+    const { server, request, requestPublicKnowledge } = await createServer();
+    const url = `/public-knowledge/conversations/${otherOwnerId}/operations/${ownerId}`;
+    try {
+      expect((await server.inject({ url })).statusCode).toBe(401);
+      expect((await server.inject({ url, headers: { authorization: `Bearer ${secret}` } })).statusCode).toBe(403);
+      expect((await server.inject({ url, headers: { authorization: `Bearer ${secret}`, "x-linksense-owner-id": ownerId } })).statusCode).toBe(200);
+      expect(requestPublicKnowledge).toHaveBeenCalledExactlyOnceWith(ownerId, url, "GET", undefined, 210_000);
+      expect(request).not.toHaveBeenCalled();
+    } finally { await server.close(); }
+  });
   it("relays a file upload larger than the controller's default body limit", async () => {
     const { server } = await createServer();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ kind: "deleted", item_id: "item-1" }));
@@ -1209,6 +1220,7 @@ async function createServer(
     }),
   )
   const workers = {
+    requestPublicKnowledge: vi.fn<WorkerManager["requestPublicKnowledge"]>(async () => ({ statusCode: 200, headers: { "content-type": "application/json" }, body: Buffer.from(JSON.stringify({ result: null })) })),
     health: vi.fn(async () => ({ statusCode: 200, body: { status: "available" } })),
     stopAllWorkers: vi.fn(async () => undefined),
     prewarm: vi.fn(async () => undefined),
@@ -1222,6 +1234,7 @@ async function createServer(
     health: workers.health,
     request,
     prewarm: workers.prewarm,
+    requestPublicKnowledge: vi.mocked(workers.requestPublicKnowledge),
     stopAllWorkers: workers.stopAllWorkers,
     cleanupConversation,
     closeConversationRuntime: vi.mocked(workers.closeConversationRuntime),

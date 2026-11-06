@@ -10,6 +10,8 @@ import {
 } from "./model-provider.js";
 import { interactiveApplicationPackageSchema, interactiveDependencyTypeSchema } from "./interactive-applications.js";
 import { applicationUsageModeSchema, applicationUsageModesSchema } from "./application-distribution.js";
+import { applicationKindSchema } from "./application-kind.js";
+export { applicationKindSchema } from "./application-kind.js";
 
 export const applicationStatusSchema = z.enum(["active", "disabled"]);
 export const applicationUnavailableReasonSchema = z.enum([
@@ -22,7 +24,6 @@ export const applicationUnavailableReasonSchema = z.enum([
 export type ApplicationUnavailableReason = z.infer<
   typeof applicationUnavailableReasonSchema
 >;
-export const applicationKindSchema = z.enum(["standard", "interactive"]);
 export const applicationListScopeSchema = z.enum(["all", "owned", "shared"]);
 export const applicationAccessSourceSchema = z.enum([
   "owner",

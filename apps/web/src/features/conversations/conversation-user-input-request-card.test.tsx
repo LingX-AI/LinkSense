@@ -217,6 +217,48 @@ describe("ConversationUserInputRequestCard", () => {
     }
   )
 
+  it.each([null, { kind: "required" }] as const)(
+    "cancels a required form with waiting policy %j even when required fields are invalid",
+    async (waitingPolicy) => {
+      const onSubmit = vi.fn()
+      const interaction = userEvent.setup()
+      render(
+        <ConversationUserInputRequestCard
+          request={{ ...formRequest, waiting_policy: waitingPolicy }}
+          submitting={false}
+          onSubmit={onSubmit}
+        />
+      )
+      const cancel = screen.getByRole("button", { name: "取消" })
+      expect(cancel).toBeEnabled()
+      await interaction.click(cancel)
+      expect(onSubmit).toHaveBeenCalledExactlyOnceWith({ action: "cancel" })
+      expect(screen.queryByText("此项为必填项。")).toBeNull()
+
+      onSubmit.mockClear()
+      await interaction.click(screen.getByRole("button", { name: "提交回答" }))
+      expect(onSubmit).not.toHaveBeenCalled()
+      expect(screen.getAllByText("此项为必填项。").length).toBeGreaterThan(0)
+      expect(cancel).toBeEnabled()
+      await interaction.click(cancel)
+      expect(onSubmit).toHaveBeenCalledExactlyOnceWith({ action: "cancel" })
+    }
+  )
+
+  it("lets the user cancel an optional form without adopting its recommendation", async () => {
+    const onSubmit = vi.fn()
+    render(
+      <ConversationUserInputRequestCard
+        request={optionalRequest}
+        submitting={false}
+        onSubmit={onSubmit}
+      />
+    )
+    expect(screen.getByRole("button", { name: "使用推荐答案" })).toBeEnabled()
+    await userEvent.setup().click(screen.getByRole("button", { name: "取消" }))
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith({ action: "cancel" })
+  })
+
   it("shows and fills the recommended option and lets the user adopt it immediately", async () => {
     const onSubmit = vi.fn()
     const interaction = userEvent.setup()
@@ -304,7 +346,7 @@ describe("ConversationUserInputRequestCard", () => {
         />
       )
       expect(screen.getByRole("combobox", { name: "范围" })).toBeDisabled()
-      expect(screen.queryByRole("button", { name: "取消" })).toBeNull()
+      expect(screen.getByRole("button", { name: "取消" })).toBeDisabled()
       await userEvent
         .setup()
         .click(screen.getByRole("button", { name: "提交回答" }))
@@ -345,6 +387,10 @@ describe("ConversationUserInputRequestCard", () => {
     )
     fireEvent.click(screen.getByRole("button", { name: "提交回答" }))
     expect(onSubmit).not.toHaveBeenCalled()
+    const cancel = screen.getByRole("button", { name: "取消" })
+    expect(cancel).toBeEnabled()
+    fireEvent.click(cancel)
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith({ action: "cancel" })
   })
 
   it.each(supportedLocales)(
@@ -366,6 +412,11 @@ describe("ConversationUserInputRequestCard", () => {
         })
       ).toBeVisible()
       expect(
+        screen.getByRole("button", {
+          name: i18n.t("conversation.userInput.cancel"),
+        })
+      ).toBeEnabled()
+      expect(
         screen.getByText(
           i18n.t("conversation.userInput.recommendedAnswer", {
             answer: "精简范围",
@@ -378,6 +429,7 @@ describe("ConversationUserInputRequestCard", () => {
         "applyingRecommendation",
         "recommendedAnswer",
         "useRecommendation",
+        "cancel",
         "status.recommended",
       ]) {
         expect(
@@ -800,7 +852,7 @@ describe("ConversationUserInputRequestCard", () => {
     expect(productCheckbox).not.toHaveClass("data-checked:border-transparent")
   })
 
-  it("keeps required forms waiting without a skip action", () => {
+  it("keeps required forms waiting until the user submits or cancels", () => {
     const onSubmit = vi.fn()
     render(
       <ConversationUserInputRequestCard
@@ -809,9 +861,9 @@ describe("ConversationUserInputRequestCard", () => {
         onSubmit={onSubmit}
       />
     )
-    expect(screen.queryByRole("button", { name: "取消" })).toBeNull()
+    expect(screen.getByRole("button", { name: "取消" })).toBeEnabled()
     expect(
-      screen.getByText("此问题需要你回答，提交后任务才会继续。")
+      screen.getByText("提交回答后任务会继续，你也可以取消此表单。")
     ).toBeVisible()
     expect(onSubmit).not.toHaveBeenCalled()
   })
@@ -928,6 +980,7 @@ describe("ConversationUserInputRequestCard", () => {
     )
     expect(screen.getByRole("textbox", { name: /标题/ })).toBeVisible()
     expect(screen.getByRole("textbox", { name: /标题/ })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled()
     // A failed submission returns to the editable form without losing input.
     rerender(
       <ConversationUserInputRequestCard
@@ -940,6 +993,7 @@ describe("ConversationUserInputRequestCard", () => {
       "日程查询"
     )
     expect(screen.getByRole("textbox", { name: /标题/ })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "取消" })).toBeEnabled()
 
     const answeredRequest = {
       ...pendingRequest,
@@ -1214,10 +1268,10 @@ describe("ConversationUserInputRequestCard", () => {
     expect(
       screen.getByRole("heading", { name: "Please confirm these details" })
     ).toBeVisible()
-    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull()
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled()
     expect(
       screen.getByText(
-        "Your answer is required. The task will continue after you submit it."
+        "Submit your answer to continue the task, or cancel this form."
       )
     ).toBeVisible()
     const input = screen.getByRole("textbox", { name: /Contact email/ })

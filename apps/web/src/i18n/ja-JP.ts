@@ -1,3 +1,4 @@
+import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
@@ -11,6 +12,7 @@ import { localizedErrorMessage } from "@linksense/shared"
 
 export const jaJP = {
   browserUse: browserUseMessages["ja-JP"],
+  publicKnowledge: publicKnowledgeMessages["ja-JP"],
   modelSetup: modelSetupMessages["ja-JP"],
   connections: connectionMessages["ja-JP"],
   sideChat: sideChatMessages["ja-JP"],
@@ -2528,9 +2530,9 @@ export const jaJP = {
       formTitle: "以下の内容をご確認ください",
       formResultTitle: "回答済みフォーム",
       requiredWaiting:
-        "この質問への回答が必要です。送信するとタスクが続行されます。",
+        "回答を送信するとタスクが続行されます。このフォームをキャンセルすることもできます。",
       recommendationCountdown:
-        "回答を送信しない場合、{{seconds}} 秒後に推奨の回答でタスクを続行します。",
+        "回答の送信もキャンセルもしない場合、{{seconds}} 秒後に推奨の回答でタスクを続行します。",
       applyingRecommendation: "推奨の回答を適用しています…",
       recommendedAnswer: "推奨：{{answer}}",
       useRecommendation: "推奨の回答を使用",
@@ -3254,6 +3256,7 @@ export const jaJP = {
       kinds: {
         standard: "標準アプリケーション",
         interactive: "操作可能なアプリケーション",
+        public_knowledge: publicKnowledgeMessages["ja-JP"].title,
       },
       views: {
         configuration: "現在の設定",

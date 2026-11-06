@@ -82,6 +82,8 @@ const CONTEXT_LENGTH_EXCEEDED_MESSAGE =
 type JsonObject = Record<string, unknown>;
 
 export type ModelGatewayLeaseInput = {
+  /** Public knowledge applications never expose executable tools to inference. */
+  toolPolicy?: "none";
   conversationId: string;
   ownerId: string;
   revision: number;
@@ -1067,6 +1069,11 @@ export class ModelGateway implements ModelGatewayRuntime {
       source.client_metadata,
     );
     source = extractionRequestBody(source, authorizedLease, operation);
+    if (authorizedLease.toolPolicy === "none") {
+      source.tools = [];
+      source.tool_choice = "none";
+      delete source.parallel_tool_calls;
+    }
     const preparationAbort = new AbortController();
     const abortPreparation = () => preparationAbort.abort();
     downstream.once("close", abortPreparation);
@@ -1304,6 +1311,11 @@ export class ModelGateway implements ModelGatewayRuntime {
         throw new GatewayHttpError(403, "model_not_authorized");
       }
       body = extractionRequestBody(body, authorizedLease, context.memoryOperation);
+      if (authorizedLease.toolPolicy === "none") {
+        body.tools = [];
+        body.tool_choice = "none";
+        delete body.parallel_tool_calls;
+      }
       await this.prepareRequestImages(body, upstreamAbort.controller.signal);
       if (authorizedLease.protocolMode === "native_responses") {
         await this.forwardNativeResponses(

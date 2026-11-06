@@ -12,6 +12,18 @@ const lockfile = parse(
   readFileSync(new URL("../pnpm-lock.yaml", import.meta.url), "utf8"),
 );
 
+test("the accepted dependency advisory is limited to v0.3.13 and the recorded locked version", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const record = JSON.parse(readFileSync(new URL("../deploy/security/v0.3.13-risk-acceptance.json", import.meta.url), "utf8"));
+  const ignored = manifest.pnpm.auditConfig?.ignoreGhsas ?? [];
+  if (ignored.length === 0) return;
+  assert.deepEqual(ignored, [record.ghsa]);
+  assert.equal(`v${manifest.version}`, record.releaseVersion, "Remove or re-review the advisory acceptance before another release");
+  const versions = Object.keys(lockfile.packages).filter(key => key.startsWith(`${record.package}@`)).map(key => key.slice(record.package.length + 1));
+  assert.ok(versions.length > 0);
+  assert.ok(versions.every(version => version === record.version), "Dependency changes require a new risk review");
+});
+
 // Security floors for GHSA-6mj3-qw4j-hgrw, GHSA-rgj7-g3m4-5g8c,
 // GHSA-2x7j-588g-ccc2, and the Fastify validation / not-found advisories
 // GHSA-9q9j-q6p8-xq58, GHSA-hwr6-493r-vm6h, GHSA-p68q-wchp-6fh7,

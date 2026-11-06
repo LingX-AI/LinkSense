@@ -825,7 +825,7 @@ describe("LinkSense application", () => {
       ]
         .map(({ method, params }, index) => {
           const sequence = index + 13
-          const eventId = `${conversationId}:${sequence}`
+          const eventId = `c1:${sequence}`
           return `id: ${eventId}\nevent: ${method}\ndata: ${JSON.stringify({
             id: `60000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`,
             conversation_id: conversationId,

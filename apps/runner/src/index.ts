@@ -401,6 +401,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     async () => process.platform === "linux" && config.LINKSENSE_RUNNER_MODE === "worker" && config.LINKSENSE_WORKER_PROVIDER === "docker"
       ? countUserProcesses(containerTaskProcessIdentity.uid)
       : 0,
+    eventSink,
   )
   installSignalHandlers(logger, async () => {
     // Trigger native cancellation immediately, including blocked HTTP starts.

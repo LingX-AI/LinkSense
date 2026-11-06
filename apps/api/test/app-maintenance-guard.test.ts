@@ -21,6 +21,7 @@ describe("maintenance request guard", () => {
       true
     )
     expect(isMaintenanceExemptPath("/api/v1/me?include=profile")).toBe(true)
+    expect(isMaintenanceExemptPath("/api/v1/public-knowledge/frame/public-application")).toBe(true)
     expect(isMaintenanceExemptPath("/api/v1/admin/product-settings")).toBe(true)
     expect(isMaintenanceExemptPath("/api/v1/conversations")).toBe(false)
   })
@@ -43,6 +44,8 @@ describe("maintenance request guard", () => {
     "/api/v1/embed/session/attachments",
     "/api/v1/embed/session/files/file-id/download",
     "/api/v1/embed/session/conversations?limit=10",
+    "/api/v1/public-knowledge/public-application/sessions",
+    "/api/v1/public-knowledge/public-application/conversations",
   ])("does not exempt the embedded business endpoint %s", (path) => {
     expect(isMaintenanceExemptPath(path)).toBe(false)
   })

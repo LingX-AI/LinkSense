@@ -368,6 +368,74 @@ function createDeferred<T>() {
   return { promise, resolve, reject }
 }
 
+describe("text-only conversation composer", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN")
+  })
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+  it("uses the existing send form and keyboard interaction without attachment, voice or slash actions", async () => {
+    const { props } = renderStatefulComposer({
+      textOnly: true,
+      maxLength: 4000,
+      managedApplicationName: "Public assistant",
+      onCompact: vi.fn(),
+    })
+    const user = userEvent.setup(),
+      input = screen.getByRole("textbox", {
+        name: i18n.t("conversation.messageInput"),
+      })
+    expect(input).toHaveAttribute("maxlength", "4000")
+    expect(
+      screen.queryByRole("button", { name: i18n.t("conversation.addMenu") })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: i18n.t("conversation.voice") })
+    ).not.toBeInTheDocument()
+    expect(document.querySelector('input[type="file"]')).toBeNull()
+    await user.type(input, "/compact")
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument()
+    await user.keyboard("{Enter}")
+    expect(props.onSubmit).toHaveBeenCalledWith("/compact")
+    await user.clear(input)
+    await user.type(input, "Follow up")
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("conversation.send") })
+    )
+    expect(props.onSubmit).toHaveBeenLastCalledWith("Follow up")
+    expect(props.onCompact).not.toHaveBeenCalled()
+    const file = new File(["private file"], "private.txt", {
+      type: "text/plain",
+    })
+    const transfer = {
+      files: [file],
+      items: [{ kind: "file", getAsFile: () => file }],
+      types: ["Files"],
+      getData: () => "",
+    }
+    fireEvent.drop(
+      screen.getByRole("form", { name: i18n.t("conversation.messageInput") }),
+      { dataTransfer: transfer }
+    )
+    fireEvent.paste(input, { clipboardData: transfer })
+    expect(props.onAttach).not.toHaveBeenCalled()
+  })
+  it("keeps the shared stop action available while the text-only conversation is running", async () => {
+    const { props } = renderComposer({
+      textOnly: true,
+      value: "",
+      isRunning: true,
+      interactionBlocked: true,
+    })
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: i18n.t("conversation.stop") }))
+    expect(props.onInterrupt).toHaveBeenCalledOnce()
+  })
+})
+
 describe("conversation voice input", () => {
   beforeEach(async () => {
     MediaRecorderMock.instances = []

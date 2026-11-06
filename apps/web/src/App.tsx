@@ -129,6 +129,16 @@ const ApplicationUsagePage = lazy(() =>
     default: module.ApplicationUsagePage,
   }))
 )
+const PublicKnowledgeUsagePage = lazy(() =>
+  import("@/features/public-knowledge/usage-page").then((module) => ({
+    default: module.PublicKnowledgeUsagePage,
+  }))
+)
+const PublicKnowledgeEmbedPage = lazy(() =>
+  import("@/features/public-knowledge/embed-page").then((module) => ({
+    default: module.PublicKnowledgeEmbedPage,
+  }))
+)
 const AutomationPage = lazy(() =>
   import("@/pages/automation-pages").then((module) => ({
     default: module.AutomationPage,
@@ -152,6 +162,11 @@ const McpManagementPage = lazy(() =>
 const WeixinChannelPage = lazy(() =>
   import("@/pages/weixin-channel-page").then((module) => ({
     default: module.WeixinChannelPage,
+  }))
+)
+const PublicKnowledgeManagementPage = lazy(() =>
+  import("@/features/public-knowledge/management-page").then((module) => ({
+    default: module.PublicKnowledgeManagementPage,
   }))
 )
 const ApplicationExternalAccessPage = lazy(() =>
@@ -381,6 +396,18 @@ export function App() {
               <Route
                 path="/capabilities/applications/:applicationId/external-access"
                 element={<ApplicationExternalAccessPage />}
+              />
+              <Route
+                path="/capabilities/applications/:applicationId/public-knowledge"
+                element={<PublicKnowledgeManagementPage />}
+              />
+              <Route
+                path="/capabilities/applications/:applicationId/public-knowledge/usage"
+                element={<PublicKnowledgeUsagePage />}
+              />
+              <Route
+                path="/capabilities/applications/:applicationId/public-knowledge/embed"
+                element={<PublicKnowledgeEmbedPage />}
               />
               <Route
                 path="/capabilities/applications/:applicationId/usage"

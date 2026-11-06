@@ -1,3 +1,4 @@
+import { publicKnowledgeMessages } from "@/features/public-knowledge/messages"
 import { diskUsageMessages } from "@/features/admin/system-disk-usage-messages"
 import { connectionMessages } from "@/features/connections/messages"
 import { sideChatMessages } from "@/features/conversations/side-chat-messages"
@@ -12,6 +13,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const enUS = {
   browserUse: browserUseMessages["en-US"],
+  publicKnowledge: publicKnowledgeMessages["en-US"],
   modelSetup: modelSetupMessages["en-US"],
   connections: connectionMessages["en-US"],
   sideChat: sideChatMessages["en-US"],
@@ -2296,9 +2298,9 @@ export const enUS = {
       formTitle: "Please confirm these details",
       formResultTitle: "Completed form",
       requiredWaiting:
-        "Your answer is required. The task will continue after you submit it.",
+        "Submit your answer to continue the task, or cancel this form.",
       recommendationCountdown:
-        "If you do not submit, the task will continue with the recommended answer in {{seconds}} seconds.",
+        "Unless you submit or cancel, the task will continue with the recommended answer in {{seconds}} seconds.",
       applyingRecommendation: "Applying the recommended answer…",
       recommendedAnswer: "Recommended: {{answer}}",
       useRecommendation: "Use recommended answer",
@@ -3019,6 +3021,7 @@ export const enUS = {
       kinds: {
         standard: "Standard application",
         interactive: "Interactive application",
+        public_knowledge: publicKnowledgeMessages["en-US"].title,
       },
       views: {
         configuration: "Current configuration",
