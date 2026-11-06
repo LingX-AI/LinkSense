@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { supportedLocales } from "@linksense/shared"
 
 import { ApiError, apiRequest } from "@/api/client"
+import { capabilitySummarySchema } from "@/api/contracts"
 import i18n from "@/i18n"
 import { ApplicationCreateButton } from "./application-catalog-panel"
 
@@ -23,6 +24,7 @@ afterEach(() => {
 })
 
 const id = "10000000-0000-4000-8000-000000000001"
+const skillId = "20000000-0000-4000-8000-000000000001"
 
 async function openStandardApplication() {
   const feedback = vi.fn()
@@ -87,7 +89,108 @@ function mockRequests(withModel = false) {
   })
 }
 
+function mockSkillOptions(displayName?: string | null) {
+  mockRequests()
+  const original = vi.mocked(apiRequest).getMockImplementation()!
+  const skill = capabilitySummarySchema.parse({
+    id: skillId,
+    type: "skill",
+    name: "school-data-query",
+    ...(displayName === undefined ? {} : { display_name: displayName }),
+    slug: "campus-query-alias",
+    description: "Query authorized school data through a connected service.",
+    status: "active",
+    source_type: "local",
+    marketplace_listing_id: null,
+    marketplace_release_id: null,
+    logo_url: null,
+    is_owner: true,
+    can_manage: true,
+    can_govern: false,
+    can_select: true,
+    has_logo: false,
+    preference_status: "enabled",
+    manifest: null,
+    risk_summary: null,
+    created_at: "2026-11-06T00:00:00Z",
+    updated_at: "2026-11-06T00:00:00Z",
+  })
+  vi.mocked(apiRequest).mockImplementation(async (path, options) =>
+    path === "/capabilities"
+      ? { items: [skill], next_cursor: null }
+      : original(path, options)
+  )
+}
+
 describe("create and publish a standard application", () => {
+  it.each(supportedLocales)(
+    "finds a personal Skill by its display name and submits its existing ID in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      mockSkillOptions("学校数据查询")
+      const { user, feedback } = await openStandardApplication()
+      const selector = screen.getByRole("combobox", {
+        name: i18n.t("applications.skills"),
+      })
+      await user.click(selector)
+      await user.type(selector, "学校")
+      await user.click(
+        await screen.findByRole("option", { name: /学校数据查询/u })
+      )
+      expect(
+        screen.getByRole("button", {
+          name: i18n.t("applications.removeResource", { name: "学校数据查询" }),
+        })
+      ).toBeVisible()
+      await user.click(
+        screen.getByRole("button", {
+          name: i18n.t("applications.createAndPublish"),
+        })
+      )
+      await waitFor(() => expect(feedback).toHaveBeenCalledOnce())
+      expect(apiRequest).toHaveBeenCalledWith(
+        "/applications",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.objectContaining({ capability_ids: [skillId] }),
+        })
+      )
+    }
+  )
+
+  it.each(["school-data-query", "campus-query-alias", "authorized school"])(
+    "finds a renamed Skill by its technical name, alias or description using %s",
+    async (search) => {
+      await i18n.changeLanguage("zh-CN")
+      mockSkillOptions("学校数据查询")
+      const { user } = await openStandardApplication()
+      const selector = screen.getByRole("combobox", { name: "Skill" })
+      await user.click(selector)
+      await user.type(selector, search)
+      expect(
+        await screen.findByRole("option", { name: /学校数据查询/u })
+      ).toBeVisible()
+    }
+  )
+
+  it.each([undefined, null])(
+    "keeps an existing Skill selectable when its display name is %s",
+    async (displayName) => {
+      await i18n.changeLanguage("zh-CN")
+      mockSkillOptions(displayName)
+      const { user } = await openStandardApplication()
+      const selector = screen.getByRole("combobox", { name: "Skill" })
+      await user.click(selector)
+      await user.type(selector, "school-data-query")
+      await user.click(
+        await screen.findByRole("option", { name: /School Data Query/u })
+      )
+      expect(
+        screen.getByRole("button", { name: "移除 School Data Query" })
+      ).toBeVisible()
+    }
+  )
+
   it.each(supportedLocales)(
     "requires reasoning effort only when a fixed model is selected in %s",
     async (locale) => {
