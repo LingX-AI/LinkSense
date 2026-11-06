@@ -350,6 +350,6 @@ env LINKSENSE_HTTP_PORT=19090 sh install-core.sh
 
 ## 开源协议
 
-LinkSense 采用 [CPAL-1.0](https://github.com/LingX-AI/LinkSense/blob/main/LICENSE) 开源。内部部署、署名、定制品牌与商标的具体规定，请阅读[开源许可](https://github.com/LingX-AI/LinkSense/blob/main/LICENSE)、[内部部署例外](https://github.com/LingX-AI/LinkSense/blob/main/LICENSE-EXCEPTIONS.md)、[署名要求](https://github.com/LingX-AI/LinkSense/blob/main/ATTRIBUTION.md)与[商标政策](https://github.com/LingX-AI/LinkSense/blob/main/TRADEMARK.md)。其他许可需求：`licensing@linksense.org`。
+LinkSense 采用 [CPAL-1.0](./LICENSE) 开源。内部部署、署名、定制品牌与商标的具体规定，请阅读[开源许可](./LICENSE)、[内部部署例外](./LICENSE-EXCEPTIONS.md)、[署名要求](./ATTRIBUTION.md)与[商标政策](./TRADEMARK.md)。其他许可需求：`licensing@linksense.org`。
 
-平台使用的官方开源 Codex 运行时以 Apache-2.0 许可原样交付。LinkSense 是独立项目，与 OpenAI 无关联，也未获得其赞助或认可。参阅[第三方声明](https://github.com/LingX-AI/LinkSense/blob/main/THIRD-PARTY-NOTICES.md)。
+平台使用的官方开源 Codex 运行时以 Apache-2.0 许可原样交付。LinkSense 是独立项目，与 OpenAI 无关联，也未获得其赞助或认可。参阅[第三方声明](./THIRD-PARTY-NOTICES.md)。
