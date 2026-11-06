@@ -18,6 +18,7 @@ import {
 export type ApplicationResourceOption = {
   id: string
   label: string
+  searchText?: string
   detail: string
   detailInline: boolean
   disabled: boolean
@@ -80,7 +81,7 @@ export function ResourceMultiSelect({
           if (!open) onSearch?.("")
         }}
         itemToStringLabel={(item) =>
-          [item.label, item.detail].filter(Boolean).join(" ")
+          [item.label, item.searchText, item.detail].filter(Boolean).join(" ")
         }
         itemToStringValue={(item) => item.id}
         isItemEqualToValue={(item, value) => item.id === value.id}

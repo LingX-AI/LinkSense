@@ -38,6 +38,7 @@ import {
 import { ApplicationDevelopmentPublishDialog } from "./application-development-publish-dialog"
 import {
   applicationPublicationSchema,
+  capabilityDisplayName,
   applicationVersionInputSchema,
   applicationReleaseVersionSchema,
   applicationVersionStatus,
@@ -1401,7 +1402,8 @@ export function ApplicationEditorDialog({
           const credentialRequired = requiresCredentials(item)
           return {
             id: item.id,
-            label: item.name,
+            label: capabilityDisplayName(item),
+            searchText: [item.name, item.slug].join(" "),
             detail: credentialRequired
               ? t("applications.usesPluginCredentials")
               : (item.description ?? ""),
@@ -1413,7 +1415,8 @@ export function ApplicationEditorDialog({
         .filter((item) => item.type === type && !managedIds.has(item.id))
         .map((item) => ({
           id: item.id,
-          label: item.name,
+          label: capabilityDisplayName(item),
+          searchText: item.name,
           detail: t("applications.dependencyUnavailableShort"),
           detailInline: false,
           disabled: true,
