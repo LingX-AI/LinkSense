@@ -1943,6 +1943,11 @@ export const zhCN = {
     htmlAnnotationCount_other: "{{count}} 条注释",
     voice: "语音输入",
     voiceChecking: "正在检查语音转文字服务…",
+    voiceDemoNotice: "语音体验模式：模拟录音与示例转写，不会使用麦克风。",
+    voiceDemoExit: "退出演示",
+    voiceDemoStart: "体验模拟语音输入",
+    voiceDemoTranscript:
+      "【语音演示】请帮我整理今天的会议重点，并生成一份待办事项清单。",
     voiceNotConfigured: "语音转文字服务尚未配置",
     voiceServiceUnavailable: "语音转文字服务暂时不可用，请稍后重试。",
     voiceStop: "停止语音输入",

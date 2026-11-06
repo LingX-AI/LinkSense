@@ -206,6 +206,12 @@ export const conversationMessages = {
     htmlAnnotationCount_other: "{{count}} anotaciones",
     voice: "Entrada de voz",
     voiceChecking: "Comprobando el servicio de transcripción de voz…",
+    voiceDemoNotice:
+      "Demostración de voz: grabación simulada y texto de ejemplo. No se utiliza el micrófono.",
+    voiceDemoExit: "Salir de la demostración",
+    voiceDemoStart: "Probar la entrada de voz simulada",
+    voiceDemoTranscript:
+      "[Demostración de voz] Resume los puntos clave de la reunión de hoy y crea una lista de tareas.",
     voiceNotConfigured: "La transcripción de voz no está configurada",
     voiceServiceUnavailable:
       "La transcripción de voz no está disponible temporalmente. Inténtalo más tarde.",

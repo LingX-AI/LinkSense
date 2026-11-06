@@ -37,6 +37,11 @@ import type {
   ConversationFile,
 } from "@/api/contracts"
 import { useProductName } from "@/app/product-branding"
+import { StatusBanner } from "@/components/feedback/status-banner"
+import {
+  isVoiceInputDemoEnabled,
+  useVoiceInputDemo,
+} from "@/features/conversations/use-voice-input-demo"
 import {
   maximumConversationReferences,
   type ModelPreference,
@@ -750,17 +755,28 @@ export const ConversationComposer = forwardRef<
     [onError, t]
   )
 
-  const voice = useVoiceTranscription({
+  const [voiceDemoEnabled, setVoiceDemoEnabled] = useState(
+    isVoiceInputDemoEnabled
+  )
+  const demoVoice = useVoiceInputDemo({
+    transcript: t("conversation.voiceDemoTranscript"),
+    onTranscriptPreview: applyTranscript,
+    onTranscript: applyTranscript,
+  })
+  const realVoice = useVoiceTranscription({
     language,
     onTranscriptPreview: applyTranscript,
     onTranscript: applyTranscript,
     onError: reportVoiceFailure,
     request: requestVoiceTranscription,
   })
+  const voice = voiceDemoEnabled ? demoVoice : realVoice
   const voiceBusy = voice.phase !== "idle"
-  const voiceAvailable = voiceTranscriptionAvailability === "available"
-  const voiceTooltipKey =
-    voiceTranscriptionAvailability === "not_configured"
+  const voiceAvailable =
+    voiceDemoEnabled || voiceTranscriptionAvailability === "available"
+  const voiceTooltipKey = voiceDemoEnabled
+    ? "conversation.voiceDemoStart"
+    : voiceTranscriptionAvailability === "not_configured"
       ? "conversation.voiceNotConfigured"
       : voiceTranscriptionAvailability === "checking"
         ? "conversation.voiceChecking"
@@ -1418,6 +1434,26 @@ export const ConversationComposer = forwardRef<
       onDrop={handleDrop}
       onSubmit={submit}
     >
+      {voiceDemoEnabled && (
+        <StatusBanner
+          className="mb-3"
+          actions={
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                demoVoice.cancel()
+                setVoiceDemoEnabled(false)
+              }}
+            >
+              {t("conversation.voiceDemoExit")}
+            </Button>
+          }
+        >
+          {t("conversation.voiceDemoNotice")}
+        </StatusBanner>
+      )}
       {isDraggingFiles && (
         <div
           className="composer-drop-target"

@@ -2364,6 +2364,12 @@ export const ptBR = {
     htmlAnnotationCount_other: "{{count}} anotações",
     voice: "Entrada por voz",
     voiceChecking: "Verificando o serviço de transcrição de voz…",
+    voiceDemoNotice:
+      "Demonstração de voz: gravação simulada e texto de exemplo. O microfone não é utilizado.",
+    voiceDemoExit: "Sair da demonstração",
+    voiceDemoStart: "Testar entrada de voz simulada",
+    voiceDemoTranscript:
+      "[Demonstração de voz] Resuma os pontos principais da reunião de hoje e crie uma lista de ações.",
     voiceNotConfigured: "A transcrição de voz não foi configurada",
     voiceServiceUnavailable:
       "A transcrição de voz está temporariamente indisponível. Tente novamente mais tarde.",

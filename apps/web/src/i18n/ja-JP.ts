@@ -2328,6 +2328,12 @@ export const jaJP = {
     htmlAnnotationCount_other: "{{count}} 件の注釈",
     voice: "音声入力",
     voiceChecking: "音声文字起こしサービスを確認中…",
+    voiceDemoNotice:
+      "音声デモ：録音とサンプル文字起こしをシミュレーションします。マイクは使用しません。",
+    voiceDemoExit: "デモを終了",
+    voiceDemoStart: "音声入力デモを試す",
+    voiceDemoTranscript:
+      "【音声デモ】今日の会議の要点をまとめ、対応事項のリストを作成してください。",
     voiceNotConfigured: "音声文字起こしは未設定です",
     voiceServiceUnavailable:
       "音声文字起こしを一時的に利用できません。しばらくしてから再試行してください。",

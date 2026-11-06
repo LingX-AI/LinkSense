@@ -2098,6 +2098,12 @@ export const enUS = {
     htmlAnnotationCount_other: "{{count}} annotations",
     voice: "Voice input",
     voiceChecking: "Checking the speech-to-text service…",
+    voiceDemoNotice:
+      "Voice demo: simulated recording and sample text. Your microphone is not used.",
+    voiceDemoExit: "Exit demo",
+    voiceDemoStart: "Try simulated voice input",
+    voiceDemoTranscript:
+      "[Voice demo] Summarize the key points from today’s meeting and create a list of action items.",
     voiceNotConfigured: "Speech-to-text has not been configured",
     voiceServiceUnavailable:
       "Speech-to-text is temporarily unavailable. Try again later.",

@@ -199,6 +199,12 @@ export const conversation = {
   htmlAnnotationCount_other: "{{count}} annotations",
   voice: "Saisie vocale",
   voiceChecking: "Vérification du service de transcription vocale…",
+  voiceDemoNotice:
+    "Démo vocale : enregistrement simulé et texte d’exemple. Votre microphone n’est pas utilisé.",
+  voiceDemoExit: "Quitter la démo",
+  voiceDemoStart: "Essayer la saisie vocale simulée",
+  voiceDemoTranscript:
+    "[Démo vocale] Résume les points clés de la réunion d’aujourd’hui et crée une liste d’actions.",
   voiceNotConfigured: "La transcription vocale n’est pas configurée",
   voiceServiceUnavailable:
     "La transcription vocale est temporairement indisponible. Réessayez plus tard.",

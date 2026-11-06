@@ -1269,6 +1269,42 @@ describe("conversation voice input", () => {
     expect(tooltip.childElementCount).toBe(0)
   })
 
+  it("lets a local demo fill the draft without calling the unconfigured voice service", async () => {
+    window.history.replaceState(null, "", "/?voiceDemo=1")
+    vi.useFakeTimers()
+    const requestVoiceTranscription = vi.fn()
+    try {
+      const { props } = renderStatefulComposer({
+        value: "已有草稿",
+        voiceTranscriptionAvailability: "not_configured",
+        requestVoiceTranscription,
+      })
+      expect(
+        screen.getByText(i18n.t("conversation.voiceDemoNotice"))
+      ).toBeVisible()
+      fireEvent.click(screen.getByRole("button", { name: "语音输入" }))
+      expect(screen.getByTestId("voice-recording-panel")).toBeVisible()
+      act(() => vi.advanceTimersByTime(2_000))
+      fireEvent.click(
+        screen.getByRole("button", { name: i18n.t("conversation.voiceStop") })
+      )
+      act(() => vi.advanceTimersByTime(1_600))
+      expect(screen.getByRole("textbox", { name: "任务输入框" })).toHaveValue(
+        `已有草稿 ${i18n.t("conversation.voiceDemoTranscript")}`
+      )
+      expect(requestVoiceTranscription).not.toHaveBeenCalled()
+      expect(props.onSubmit).not.toHaveBeenCalled()
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: i18n.t("conversation.voiceDemoExit"),
+        })
+      )
+      expect(screen.getByRole("button", { name: "语音输入" })).toBeDisabled()
+    } finally {
+      window.history.replaceState(null, "", "/")
+    }
+  })
+
   it("hides model, capability, and knowledge controls for an application-managed conversation", async () => {
     const interaction = userEvent.setup()
     renderComposer({
