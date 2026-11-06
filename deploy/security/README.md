@@ -25,14 +25,16 @@ This policy does not assess or patch a deployment host's kernel.
 The maintainer accepted `GHSA-mrwp-f3q8-3g9p` / `CVE-2026-116689` in
 `follow-redirects@1.16.1` for **v0.3.13 only**. The exact scope and decision are
 recorded in [the release acceptance record](v0.3.13-risk-acceptance.json).
-The Node audit uses pnpm's advisory-specific ignore setting; a regression check
-rejects carrying it into another product version or dependency version. Image
-scans retain the complete findings and label a matching HIGH npm finding as
+The current source upgrades this dependency to `1.16.2` and no longer ignores
+the advisory in the Node audit. A regression check prevents restoring that
+obsolete ignore. The acceptance record remains historical evidence for the
+exact `1.16.1` release artifacts. Image scans retain the complete findings and
+label a matching HIGH npm finding as
 accepted application risk, never fixed or external. Other advisories, package
 versions, higher severities, missing release identity, invalid provenance and
 scan failures remain blocking. `passed_with_accepted_application_risks` records
-this decision explicitly. Remove the audit ignore before the next release or
-obtain a new specific review.
+this decision explicitly. Any future advisory acceptance requires a new
+specific review.
 
 Baseline maintenance invokes the scanner with the explicit `baseline` scope:
 its images contain environment components, not the LinkSense application server.

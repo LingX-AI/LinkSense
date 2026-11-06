@@ -12,6 +12,12 @@ const lockfile = parse(
   readFileSync(new URL("../pnpm-lock.yaml", import.meta.url), "utf8"),
 );
 
+test("the patched redirect dependency is audited without its historical advisory exception", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const ignored = manifest.pnpm.auditConfig?.ignoreGhsas ?? [];
+  assert.ok(!ignored.includes("GHSA-mrwp-f3q8-3g9p"), "Patched follow-redirects must not retain an advisory ignore");
+});
+
 test("the accepted dependency advisory is limited to v0.3.13 and the recorded locked version", () => {
   const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   const record = JSON.parse(readFileSync(new URL("../deploy/security/v0.3.13-risk-acceptance.json", import.meta.url), "utf8"));
