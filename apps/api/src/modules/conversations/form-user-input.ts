@@ -37,6 +37,9 @@ export async function respondToFormUserInput(input: {
       }
       throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
     }
+    if (request.status === "cancelled" && request.resolvedAction === "cancel" && input.response?.action === "cancel") {
+      return { request, response: null, done: true };
+    }
     if (request.status !== "pending" && request.status !== "answering") throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
     const [conversation, turn] = await Promise.all([
       tx.conversation.findFirst({ where: { id: input.conversationId, ownerId: input.ownerId, archiveStatus: "active" } }),
@@ -50,6 +53,7 @@ export async function respondToFormUserInput(input: {
       : conversationFormWaitingPolicySchema.parse(request.formWaitingPolicyJson);
     if (!conversationFormWaitingPolicyMatchesSchema(policy, schema, semantics)) throw new AppError("USER_INPUT_REQUEST_UNAVAILABLE");
     const due = policy.kind === "optional" && request.autoResolveAt !== null && request.autoResolveAt <= now;
+    const useRecommendation = due && input.response?.action !== "cancel";
     if (!input.response && !due) return { request, response: null, done: true };
     if (request.status === "answering") {
       if (now.getTime() - request.updatedAt.getTime() < 30_000) return { request, response: null, done: true };
@@ -57,7 +61,7 @@ export async function respondToFormUserInput(input: {
       // timeout must never replace a user's already accepted submission.
       if ((!input.response && request.responseSource !== "recommendation") ||
         (input.response && request.responseSource === "user" &&
-          (input.response.action !== request.resolvedAction || input.response.action !== "accept" || !isDeepStrictEqual(input.response.content, request.responseContentJson)))) {
+          (input.response.action !== request.resolvedAction || (input.response.action === "accept" && !isDeepStrictEqual(input.response.content, request.responseContentJson))))) {
         return { request, response: null, done: true };
       }
       const response: ConversationUserInputResponse = request.resolvedAction === "accept"
@@ -74,14 +78,13 @@ export async function respondToFormUserInput(input: {
       ? request.resolvedAction === "accept"
         ? { action: "accept", content: conversationFormResponseContentSchema.parse(request.responseContentJson) }
         : { action: "cancel" }
-      : due && policy.kind === "optional"
+      : useRecommendation && policy.kind === "optional"
       ? { action: "accept", content: policy.recommendation }
       : input.response ?? { action: "cancel" };
-    if (policy.kind === "required" && response.action !== "accept") throw new AppError("VALIDATION_ERROR");
     if (response.action === "accept" && !conversationFormResponseMatchesSchema(schema, response.content)) throw new AppError("VALIDATION_ERROR");
     const stored = await tx.conversationUserInputRequest.update({ where: { id: request.id }, data: {
       status: "answering", resolvedAction: response.action,
-      responseSource: reserved ? request.responseSource : due ? "recommendation" : "user",
+      responseSource: reserved ? request.responseSource : useRecommendation ? "recommendation" : "user",
       responseContentJson: response.action === "accept" ? response.content : Prisma.DbNull,
     } });
     return { request: stored, response, done: false };

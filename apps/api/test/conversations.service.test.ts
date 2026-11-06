@@ -6336,7 +6336,7 @@ describe("ConversationService native user input", () => {
     });
   });
 
-  it("keeps a required persisted MCP form waiting when cancellation is submitted", async () => {
+  it("cancels a required persisted MCP form and publishes the cancellation", async () => {
     const fixture = await conversationFixture();
     const turn = turnRow();
     const pendingRequest = userInputRequestRow({
@@ -6364,6 +6364,11 @@ describe("ConversationService native user input", () => {
     fixture.defaultTransaction.conversationUserInputRequest.findFirst.mockResolvedValue(
       pendingRequest,
     );
+    const cancelledRequest = { ...pendingRequest, status: "cancelled", resolvedAction: "cancel", responseSource: "user", resolvedAt: NOW };
+    fixture.defaultTransaction.conversationUserInputRequest.update.mockResolvedValue({ ...cancelledRequest, status: "answering" });
+    fixture.defaultTransaction.conversationUserInputRequest.updateMany.mockResolvedValue({ count: 1 });
+    fixture.defaultTransaction.conversationUserInputRequest.findUniqueOrThrow.mockResolvedValue(cancelledRequest);
+    fixture.defaultTransaction.conversationEvent.create.mockImplementation(async ({ data }) => eventRow(data));
 
     await expect(
       fixture.service.respondToUserInputRequest(
@@ -6373,11 +6378,13 @@ describe("ConversationService native user input", () => {
         { action: "cancel" },
         { ipAddress: "127.0.0.1", userAgent: "test" },
       ),
-    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
-    expect(fixture.runner.respondUserInputRequest).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ kind: "form", status: "cancelled", resolved_action: "cancel", response_source: "user", response_content: null });
+    expect(fixture.runner.respondUserInputRequest).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ requestId: 18, response: { action: "cancel" } }));
     expect(
       fixture.defaultTransaction.conversationUserInputRequest.update,
-    ).not.toHaveBeenCalled();
+    ).toHaveBeenCalledWith({ where: { id: USER_INPUT_REQUEST_ID }, data: { status: "answering", resolvedAction: "cancel", responseSource: "user", responseContentJson: Prisma.DbNull } });
+    expect(fixture.audit.write).toHaveBeenCalledWith(expect.objectContaining({ metadata: expect.objectContaining({ action: "cancel", response_source: "user" }) }));
+    expect(fixture.redis.publishConversationEvent).toHaveBeenCalledWith(CONVERSATION_ID, expect.objectContaining({ event_type: "conversation.user_input_request.updated" }));
   });
 
   it("rejects MCP form content outside the persisted schema before calling Runner", async () => {

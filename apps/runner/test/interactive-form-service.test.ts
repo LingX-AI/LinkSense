@@ -49,6 +49,14 @@ describe("interactive form broker transport", () => {
     expect(requestHttp).toHaveBeenCalledOnce()
   })
 
+  it("returns cancellation from a required form without treating it as an answer or a tool failure", async () => {
+    requestHttp.mockResolvedValueOnce({ statusCode: 200, body: { json: vi.fn(async () => ({ action: "cancel" })) } })
+    const result = await createModule().callTool({ ...input, signal: new AbortController().signal })
+    expect(result).toMatchObject({ isError: false, content: [{ type: "text", text: JSON.stringify({ action: "cancel", content: null }) }] })
+    expect(requestHttp).toHaveBeenCalledOnce()
+    expect(JSON.parse(requestHttp.mock.calls[0]?.[1].body)).toMatchObject({ waitingPolicy: { kind: "required" } })
+  })
+
   it("releases an unsuccessful broker response and reports an unavailable form", async () => {
     const body = { dump: vi.fn(async () => undefined), json: vi.fn() }
     requestHttp.mockResolvedValueOnce({ statusCode: 503, body })
