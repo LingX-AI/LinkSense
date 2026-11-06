@@ -11,6 +11,7 @@ host_discover_docker_tools
 SYSTEM_DOCKER_CLI=$(command -v docker || true)
 DOCKER_CLI=$SYSTEM_DOCKER_CLI
 COMPOSE_CLI=
+HOST_IMAGE_SOURCES=
 
 activate_release_services() {
   compose up -d --remove-orphans || return
@@ -51,6 +52,24 @@ host_text() {
     network_fail:pt-BR) host_message='FAIL %s: a verificação falhou; as demais continuam.' ;;
     network_fail:fr-FR) host_message='FAIL %s : échec ; les autres vérifications continuent.' ;;
     network_fail:ja-JP) host_message='FAIL %s：チェック失敗。他の項目の確認は続行します。' ;;
+    image_source:zh-CN) host_message='正在拉取 %s，最多等待 30 秒开始下载。' ;;
+    image_source:en-US) host_message='Pulling %s; waiting up to 30 seconds for download progress.' ;;
+    image_source:es-ES) host_message='Descargando %s; se espera hasta 30 segundos a que comience la transferencia.' ;;
+    image_source:pt-BR) host_message='Baixando %s; aguardando até 30 segundos pelo início da transferência.' ;;
+    image_source:fr-FR) host_message='Téléchargement de %s ; attente du début du transfert pendant 30 secondes maximum.' ;;
+    image_source:ja-JP) host_message='%s を取得中です。ダウンロードの開始を最大 30 秒待ちます。' ;;
+    image_retry:zh-CN) host_message='当前来源失败或超时，尝试下一个可用来源；保留已验证镜像。' ;;
+    image_retry:en-US) host_message='Source failed or timed out; trying the next available source and retaining verified images.' ;;
+    image_retry:es-ES) host_message='El origen falló o agotó el tiempo; se probará el siguiente conservando las imágenes verificadas.' ;;
+    image_retry:pt-BR) host_message='A origem falhou ou excedeu o tempo; tentando a próxima e preservando imagens verificadas.' ;;
+    image_retry:fr-FR) host_message='Échec ou délai dépassé ; essai de la source suivante en conservant les images vérifiées.' ;;
+    image_retry:ja-JP) host_message='取得元で失敗またはタイムアウトしました。検証済みイメージを保持して次の取得元を試します。' ;;
+    image_mirror_help:zh-CN) host_message='无法下载所需 Docker 镜像。请提供可访问且可信的镜像源，通过 LINKSENSE_IMAGE_MIRRORS="ghcr.io=镜像域名;docker.io=镜像域名;quay.io=镜像域名" 指定，或为 Docker Engine 配置可用代理。不会降低 digest 校验、关闭 TLS 或重启 Docker。' ;;
+    image_mirror_help:en-US) host_message='Unable to download the required Docker image. Provide an accessible, trusted mirror using LINKSENSE_IMAGE_MIRRORS="ghcr.io=mirror-host;docker.io=mirror-host;quay.io=mirror-host", or configure a working Docker Engine proxy. Digest verification and TLS remain enabled; Docker is not restarted.' ;;
+    image_mirror_help:es-ES) host_message='No se pudo descargar la imagen Docker requerida. Proporcione un espejo accesible y de confianza mediante LINKSENSE_IMAGE_MIRRORS="ghcr.io=servidor;docker.io=servidor;quay.io=servidor", o configure el proxy de Docker Engine. Se mantienen digest y TLS; Docker no se reinicia.' ;;
+    image_mirror_help:pt-BR) host_message='Não foi possível baixar a imagem Docker necessária. Forneça um espelho acessível e confiável com LINKSENSE_IMAGE_MIRRORS="ghcr.io=servidor;docker.io=servidor;quay.io=servidor", ou configure o proxy do Docker Engine. A verificação de digest e o TLS são mantidos; o Docker não é reiniciado.' ;;
+    image_mirror_help:fr-FR) host_message='Impossible de télécharger l’image Docker requise. Fournissez un miroir accessible et fiable via LINKSENSE_IMAGE_MIRRORS="ghcr.io=hôte;docker.io=hôte;quay.io=hôte", ou configurez le proxy Docker Engine. La vérification du digest et TLS restent actifs ; Docker ne redémarre pas.' ;;
+    image_mirror_help:ja-JP) host_message='必要な Docker イメージを取得できません。LINKSENSE_IMAGE_MIRRORS="ghcr.io=ミラーホスト;docker.io=ミラーホスト;quay.io=ミラーホスト" で利用可能な信頼できるミラーを指定するか、Docker Engine のプロキシを設定してください。digest 検証と TLS は維持され、Docker は再起動されません。' ;;
     docker_engine_help:zh-CN) host_message='Docker CLI 或引擎不可用。macOS 请安装并启动 Docker Desktop；Linux 请检查 Docker Engine 服务和当前账号的访问权限。确认 docker info 成功后重试。' ;;
     docker_engine_help:en-US) host_message='Docker CLI or Engine is unavailable. On macOS, install and start Docker Desktop. On Linux, check the Docker Engine service and current account permissions. Retry after docker info succeeds.' ;;
     docker_engine_help:es-ES) host_message='Docker CLI o Engine no está disponible. En macOS, instale e inicie Docker Desktop. En Linux, compruebe el servicio Docker Engine y los permisos de la cuenta actual. Vuelva a intentarlo cuando docker info funcione.' ;;
@@ -242,6 +261,7 @@ host_network_diagnostics() (
   host_network_failed=0
   host_network_tmp=$(mktemp -d)
   trap 'rm -r "$host_network_tmp"' EXIT
+  TMP_ROOT=$host_network_tmp
   host_network_release_ok=false
   if host_network_request "$host_network_base/release-manifest.env" "$host_network_tmp/manifest"; then
     host_network_release_ok=true
@@ -296,8 +316,12 @@ host_network_diagnostics() (
     host_network_failed=1
   fi
   for host_network_image in "$@"; do
-    if host_bounded 120 "$DOCKER_CLI" pull "$host_network_image" >/dev/null 2>&1; then
-      host_text network_pass "docker-pull:$host_network_image"
+    HOST_PULLED_IMAGE=$host_network_image
+    if case "$host_network_image" in
+      hello-world:latest) host_bounded 120 "$DOCKER_CLI" pull "$host_network_image" >/dev/null 2>&1 ;;
+      *) host_pull_image "$host_network_image" "$(($(date +%s) + 120))" probe ;;
+    esac; then
+      host_text network_pass "docker-pull:$HOST_PULLED_IMAGE"
     else
       host_text network_fail "docker-pull:$host_network_image"
       host_text docker_network_help
@@ -310,6 +334,198 @@ host_network_diagnostics() (
 host_sha256() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
   else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
+
+host_pinned_image() {
+  case "$1" in *[!a-z0-9./_:@-]*|*//*|*..*) return 1 ;; esac
+  printf '%s\n' "$1" | grep -Eq '^[a-z0-9][a-z0-9.-]*(:[0-9]{1,5})?/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$'
+}
+
+host_image_mirrors() (
+  host_reference=${1:-}
+  host_registry=${host_reference%%/*}
+  host_path=${host_reference#*/}
+  host_mirrors=${LINKSENSE_IMAGE_MIRRORS:-}
+  if [ -z "$host_mirrors" ]; then
+    case "$host_reference" in
+      ghcr.io/lingx-ai/linksense-api@sha256:*|ghcr.io/lingx-ai/linksense-web@sha256:*|ghcr.io/lingx-ai/linksense-migrate@sha256:*|ghcr.io/lingx-ai/linksense-runner@sha256:*|ghcr.io/lingx-ai/linksense-worker@sha256:*)
+        host_mirrors='ghcr.io=ghcr.nju.edu.cn;ghcr.io=ghcr.dockerproxy.net' ;;
+      *) return 0 ;;
+    esac
+  fi
+  [ "$host_mirrors" != off ] || return 0
+  [ "${#host_mirrors}" -le 1024 ] || host_fail invalid_config LINKSENSE_IMAGE_MIRRORS
+  case "$host_mirrors" in
+    *[!a-z0-9._:/=\;-]*|\;*|*\;|*\;\;*) host_fail invalid_config LINKSENSE_IMAGE_MIRRORS ;;
+  esac
+  host_count=0
+  IFS=';'
+  set -f
+  for host_mapping in $host_mirrors; do
+    host_origin=${host_mapping%%=*}
+    host_mirror=${host_mapping#*=}
+    printf '%s\n' "$host_mapping" | grep -Eq '^[a-z0-9][a-z0-9.-]*=[a-z0-9][a-z0-9.-]*(:[0-9]{1,5})?(/[a-z0-9][a-z0-9._-]*)*$' ||
+      host_fail invalid_config LINKSENSE_IMAGE_MIRRORS
+    case "$host_mirror" in *..*) host_fail invalid_config LINKSENSE_IMAGE_MIRRORS ;; esac
+    case "${host_mirror%%/*}" in *.*|*:*) ;; *) host_fail invalid_config LINKSENSE_IMAGE_MIRRORS ;; esac
+    host_count=$((host_count + 1))
+    [ "$host_count" -le 8 ] || host_fail invalid_config LINKSENSE_IMAGE_MIRRORS
+    if [ "$host_origin" = "$host_registry" ] && [ "$host_mirror" != "$host_registry" ]; then
+      printf '%s\n' "$host_mirror/$host_path"
+    fi
+  done
+)
+
+host_rank_image_mirrors() (
+  host_probe_seconds=$1
+  shift
+  # The shell probe only orders candidates; Docker must still pull the digest.
+  {
+    for host_mirror_ref in "$@"; do
+      (
+        host_mirror_repo=${host_mirror_ref#*/}
+        host_probe=$(LC_ALL=C curl -q --proto '=https' --proto-redir '=https' \
+          --connect-timeout 3 --max-time "$host_probe_seconds" --max-redirs 3 -sSL -o /dev/null \
+          -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+          -w '%{http_code} %{time_starttransfer}' \
+          "https://${host_mirror_ref%%/*}/v2/${host_mirror_repo%@*}/manifests/${host_mirror_repo#*@}" 2>/dev/null || true)
+        case "$host_probe" in
+          200\ *) host_rank=0 ;;
+          401\ *) host_rank=1 ;;
+          *) host_rank=2; host_probe='000 0' ;;
+        esac
+        printf '%s %s %s\n' "$host_rank" "${host_probe#* }" "$host_mirror_ref"
+      ) &
+    done
+    wait
+  } | LC_ALL=C sort -k1,1n -k2,2n | cut -d' ' -f3-
+)
+
+host_pull_attempt() (
+  host_reference=$1
+  host_seconds=$2
+  host_log=$3
+  host_start_seconds=${4:-30}
+  command -v script >/dev/null 2>&1 || host_fail required_command 'script (util-linux)'
+  host_work=$(mktemp -d "${TMP_ROOT:-${TMPDIR:-/tmp}}/linksense-pull.XXXXXX")
+  host_watch_pid=
+  host_cancel_pull() {
+    if [ -s "$host_work/pid" ]; then
+      host_client_pid=$(cat "$host_work/pid")
+      kill -TERM "$host_client_pid" 2>/dev/null || true
+      if kill -0 "$host_client_pid" 2>/dev/null; then
+        /bin/sleep 1
+        kill -KILL "$host_client_pid" 2>/dev/null || true
+      fi
+    fi
+    kill -TERM "$host_script_pid" 2>/dev/null || true
+  }
+  trap 'if [ -n "$host_watch_pid" ]; then kill "$host_watch_pid" 2>/dev/null || true; wait "$host_watch_pid" 2>/dev/null || true; fi; rm -r "$host_work"' EXIT
+  export LINKSENSE_PULL_DOCKER="$DOCKER_CLI" LINKSENSE_PULL_IMAGE="$host_reference" LINKSENSE_PULL_PID="$host_work/pid"
+  # Docker suppresses byte progress without a PTY. exec keeps the client PID cancellable.
+  host_command='printf "%s\n" "$$" > "$LINKSENSE_PULL_PID"; exec "$LINKSENSE_PULL_DOCKER" pull "$LINKSENSE_PULL_IMAGE"'
+  if [ "${HOST_OS:-$(uname -s)}" = Darwin ]; then
+    script -q -t 0 /dev/null /bin/sh -c "$host_command" </dev/null >"$host_log" 2>&1 &
+  else
+    SHELL=/bin/sh script -q -f -e -c "$host_command" /dev/null </dev/null >"$host_log" 2>&1 &
+  fi
+  host_script_pid=$!
+  trap 'host_cancel_pull; exit 130' INT TERM HUP
+  (
+    host_start=$(date +%s)
+    host_started=false
+    while kill -0 "$host_script_pid" 2>/dev/null; do
+      if [ "$host_started" = false ] && grep -Eq 'Downloading([[:space:]]*\[[^]]*\])?[[:space:]]+([1-9][0-9.]*|0\.[0-9]*[1-9][0-9]*)[kMGTPE]?i?B|Download complete|Pull complete' "$host_log"; then
+        host_started=true
+      fi
+      host_elapsed=$(($(date +%s) - host_start))
+      if [ "$host_elapsed" -ge "$host_seconds" ] || { [ "$host_started" = false ] && [ "$host_elapsed" -ge "$host_start_seconds" ]; }; then
+        touch "$host_work/timeout"
+        host_cancel_pull
+        exit 0
+      fi
+      /bin/sleep 1
+    done
+  ) >/dev/null 2>&1 &
+  host_watch_pid=$!
+  host_status=0
+  wait "$host_script_pid" || host_status=$?
+  [ ! -f "$host_work/timeout" ] || return 124
+  return "$host_status"
+)
+
+host_pull_image() {
+  host_pull_reference=$1
+  host_pull_deadline=${2:-$(($(date +%s) + 2700))}
+  host_pull_mode=${3:-cached}
+  host_pinned_image "$host_pull_reference" || host_fail invalid_config image_digest
+  host_pull_mirrors=$(host_image_mirrors "$host_pull_reference") || return 1
+  host_pull_registry=${host_pull_reference%%/*}
+  host_pull_first=$host_pull_reference
+  if [ -n "$host_pull_mirrors" ]; then
+    host_pull_preferred=$(printf '%s\n' "$HOST_IMAGE_SOURCES" |
+      awk -F= -v registry="$host_pull_registry" '$1 == registry { chosen=$2 } END { print chosen }')
+    if [ -n "$host_pull_preferred" ]; then
+      host_pull_first=$host_pull_preferred/${host_pull_reference#*/}
+    fi
+  fi
+  if [ "$host_pull_mode" = cached ]; then
+    for host_pull_candidate in "$host_pull_reference" $host_pull_mirrors; do
+      if docker image inspect "$host_pull_candidate" >/dev/null 2>&1; then
+        HOST_PULLED_IMAGE=$host_pull_candidate
+        HOST_IMAGE_SOURCES="$HOST_IMAGE_SOURCES
+$host_pull_registry=${host_pull_candidate%/"${host_pull_reference#*/}"}"
+        return 0
+      fi
+    done
+  fi
+  host_pull_queue=$host_pull_first
+  [ "$host_pull_first" = "$host_pull_reference" ] || host_pull_queue="$host_pull_first $host_pull_reference"
+  host_pull_log=$(mktemp "${TMP_ROOT:-${TMPDIR:-/tmp}}/linksense-pull-log.XXXXXX")
+  host_pull_tries=0
+  host_pull_retry_limit=3
+  [ -z "$host_pull_mirrors" ] || host_pull_retry_limit=1
+  while [ -n "$host_pull_queue" ]; do
+    for host_pull_candidate in $host_pull_queue; do
+      host_pull_remaining=$((host_pull_deadline - $(date +%s)))
+      [ "$host_pull_remaining" -gt 0 ] || break 2
+      [ "$host_pull_tries" -eq 0 ] || host_text image_retry >&2
+      [ "$host_pull_remaining" -le 1200 ] || host_pull_remaining=1200
+      host_text image_source "$host_pull_candidate" >&2
+      host_pull_tries=$((host_pull_tries + 1))
+      host_pull_status=0
+      host_pull_attempt "$host_pull_candidate" "$host_pull_remaining" "$host_pull_log" || host_pull_status=$?
+      if [ "$host_pull_status" = 0 ] && docker image inspect "$host_pull_candidate" >/dev/null 2>&1; then
+        rm -f "$host_pull_log"
+        HOST_PULLED_IMAGE=$host_pull_candidate
+        HOST_IMAGE_SOURCES="$HOST_IMAGE_SOURCES
+$host_pull_registry=${host_pull_candidate%/"${host_pull_reference#*/}"}"
+        return 0
+      fi
+      host_pull_helper=$(sed -nE 's/.*(docker-credential-[a-zA-Z0-9_.-]+).*executable file not found.*/\1/p' "$host_pull_log" | head -n 1)
+      if [ -n "$host_pull_helper" ]; then
+        rm -f "$host_pull_log"
+        host_fail credential "$host_pull_helper"
+      fi
+    done
+    host_pull_queue=
+    if [ -n "$host_pull_mirrors" ]; then
+      host_probe_remaining=$((host_pull_deadline - $(date +%s)))
+      [ "$host_probe_remaining" -gt 0 ] || break
+      [ "$host_probe_remaining" -le 5 ] || host_probe_remaining=5
+      host_pull_queue=$(host_rank_image_mirrors "$host_probe_remaining" $host_pull_mirrors |
+        awk -v first="$host_pull_first" '$0 != first && !seen[$0]++')
+      host_pull_mirrors=
+    elif [ "$host_pull_tries" -lt "$host_pull_retry_limit" ] &&
+      [ "${host_pull_status:-124}" != 124 ] &&
+      grep -Eiq 'timeout|timed out|connection reset|connection refused|TLS handshake|unexpected EOF|no such host|429|502|503|504|http2' "$host_pull_log"; then
+      host_pull_queue=$host_pull_reference
+    fi
+  done
+  rm -f "$host_pull_log"
+  host_text image_mirror_help >&2
+  host_text docker_network_help >&2
+  return 1
 }
 
 host_version_ge() {

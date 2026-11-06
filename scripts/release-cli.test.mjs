@@ -748,6 +748,10 @@ async function createCommandStubs(bin) {
     '#!/bin/sh\ncase "$*" in *":$MOCK_PORT_IN_USE"*) [ -n "${MOCK_PORT_IN_USE:-}" ] && printf "LISTEN mock\\n" ;; esac\n',
   )
   await writeExecutable(path.join(bin, "sleep"), "#!/bin/sh\nexit 0\n")
+  await writeExecutable(path.join(bin, "script"), `#!/bin/sh
+while [ "$1" != -c ]; do shift; done
+exec /bin/sh -c "$2"
+`)
   await writeExecutable(
     path.join(bin, "curl"),
     `#!/bin/sh
@@ -774,6 +778,7 @@ esac
 printf '%s\\n' "$*" >> "$MOCK_DOCKER_LOG"
 case "$1:$2" in
   pull:*) exit 0 ;;
+  image:inspect) grep -Fqx "pull $3" "$MOCK_DOCKER_LOG" ;;
   info:*)
     case "$3" in '{{.MemoryLimit}}'|'{{.PidsLimit}}'|'{{.CPUCfsQuota}}'|'{{.CPUCfsPeriod}}') printf true ;; esac
     exit 0 ;;

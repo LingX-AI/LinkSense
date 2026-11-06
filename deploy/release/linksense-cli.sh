@@ -161,12 +161,14 @@ case "$HOST_OS" in
         exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env \
           "LINKSENSE_INSTALL_DIR=${LINKSENSE_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}" \
           "LINKSENSE_CLI_LANGUAGE=$CLI_LANGUAGE" \
+          "LINKSENSE_IMAGE_MIRRORS=${LINKSENSE_IMAGE_MIRRORS:-}" \
           "LINKSENSE_RELEASE_BASE_URL=$LINKSENSE_RELEASE_BASE_URL" \
           "$0" "$@"
       fi
       exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env \
         "LINKSENSE_INSTALL_DIR=${LINKSENSE_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}" \
         "LINKSENSE_CLI_LANGUAGE=$CLI_LANGUAGE" \
+        "LINKSENSE_IMAGE_MIRRORS=${LINKSENSE_IMAGE_MIRRORS:-}" \
         "$0" "$@"
     fi
     ;;

@@ -98,7 +98,7 @@ test("the installer checks the host before creating persistent state", async () 
   )
   assert.match(
     source,
-    /fetch_release_resources\n  write_and_activate_runtime_env\n  install_resources/u,
+    /pull_release_images\n  write_and_activate_runtime_env\n  install_resources/u,
   )
   assert.match(source, /Required Full secret \$required_secret is missing/u)
   assert.match(
@@ -254,6 +254,7 @@ activate_management_cli
         LINKSENSE_CLI_LANGUAGE: "zh-CN",
         LINKSENSE_RELEASE_BASE_URL:
           "https://downloads.example/linksense-v0.3.0",
+        LINKSENSE_IMAGE_MIRRORS: "ghcr.io=mirror.example",
         LINKSENSE_TEST_TRACE: trace,
         PATH: `${bin}:/usr/bin:/bin`,
       },
@@ -263,6 +264,7 @@ activate_management_cli
     assert.match(userTrace, /^sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_INSTALL_DIR=/mu)
     assert.match(userTrace, /LINKSENSE_CLI_LANGUAGE=zh-CN/u)
     assert.match(userTrace, /LINKSENSE_RELEASE_BASE_URL=https:\/\/downloads\.example\/linksense-v0\.3\.0/u)
+    assert.match(userTrace, /LINKSENSE_IMAGE_MIRRORS=ghcr\.io=mirror\.example/u)
     assert.match(userTrace, /linksense-cli\.sh upgrade v0\.3\.0/u)
 
     await writeFile(trace, "")
@@ -918,7 +920,7 @@ test(
               "#!/bin/sh\nprintf 'curl %s\\n' \"$*\" >> \"$LINKSENSE_TEST_TRACE\"\nexit 99\n",
             )
             await Promise.all(
-              ["awk", "cmp", "grep", "head", "tr", "sed", "dirname", "mktemp", "mkdir", "rm", "rmdir", "ps"].map((command) =>
+              ["awk", "cmp", "script", "grep", "head", "tr", "sed", "dirname", "mktemp", "mkdir", "rm", "rmdir", "ps"].map((command) =>
                 linkSystemCommand(command, bin),
               ),
             )
