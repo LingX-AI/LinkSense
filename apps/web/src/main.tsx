@@ -19,7 +19,6 @@ initializeTheme()
 initializeUiFontSize()
 clearClientUpdateUrl()
 const disposeClientBuildListeners = installClientBuildListeners()
-if (import.meta.hot) import.meta.hot.dispose(disposeClientBuildListeners)
 
 const rootElement = document.getElementById("root")
 if (!rootElement) throw new Error("Application root element was not found")
@@ -36,9 +35,18 @@ const router = createBrowserRouter([
   },
 ])
 
-createRoot(rootElement).render(
+const root = createRoot(rootElement)
+root.render(
   <StrictMode>
     <RouterProvider router={router} />
     <ClientUpdateNotice />
   </StrictMode>
 )
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    root.unmount()
+    router.dispose()
+    disposeClientBuildListeners()
+  })
+}

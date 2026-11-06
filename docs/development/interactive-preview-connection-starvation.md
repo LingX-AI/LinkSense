@@ -49,3 +49,13 @@ pnpm --filter @linksense/web exec eslint src/features/conversations/use-conversa
 pnpm --filter @linksense/web typecheck
 pnpm --filter @linksense/web build
 ```
+
+## 2026-11-06：开发入口重复挂载后的页面加载恢复
+
+现场再次出现侧栏已显示、主内容持续 Loading 的情况。独立请求前端入口、路由模块和 bootstrap 均返回 200，但实际任务页的详情请求没有到达 API。前端代理存在 6 条持续连接，API 日志确认这 6 条连接全部订阅同一个对话的 `/events`；开发日志同时反复出现同一容器重复调用 `createRoot()` 的警告。没有取得浏览器 Timing 面板，因此不将 Stalled 明细作为现场证据。
+
+`main.tsx` 的热更新清理原先只移除构建通知监听。现在在入口模块被替换时，同时卸载 React root、释放 router 和移除构建监听，使页面 effect 的清理函数有机会取消事件订阅。重复挂载与连接积累的因果链仍是基于日志的判断，不能仅凭该警告断言所有连接都由热更新产生。
+
+已存在的旧挂载不会因加入清理代码自动消失。恢复时先触发开发页面完整重载，再仅重启 Vite 释放旧连接，并重新打开原任务。API、runner 和已有任务继续运行，未修改会话数据。重新打开后，真实账号下的原任务消息、输入框、新建任务和自动化页面均已显示，页面切换正常；代理不再保留原先的 6 条重复连接。
+
+验证包括 web TypeScript、入口文件 ESLint、`git diff --check`，以及隔离账号下的新建任务、自动化、插件页、入口文件变动触发的重载和手动刷新检查。隔离检查没有出现重复挂载警告或脚本请求失败；其中未覆盖的模拟接口仍有 404，不能将它表述为所有网络请求均无错误。
