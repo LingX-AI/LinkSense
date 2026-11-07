@@ -5837,7 +5837,7 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("rejects a native plugin Skill at a different cache-relative path", async () => {
+  it.each([0, 128])("rejects a native plugin Skill at a different cache-relative path after %i valid skills", async (extraSkillCount) => {
     const root = await mkdtemp(
       join(tmpdir(), "linksense-plugin-cache-path-mismatch-"),
     );
@@ -5872,6 +5872,7 @@ trust_level = "trusted"
     ]);
     const controlled = createControlledAppServer({
       skills: [
+        ...(await createPersonalSkills(root, extraSkillCount)),
         {
           name: "pdf:pdf",
           path: mismatchedCacheSkillPath,
@@ -5922,6 +5923,7 @@ trust_level = "trusted"
       "Codex skill catalog violates the LinkSense capability runtime",
     );
     expect(controlled.methods).not.toContain("thread/start");
+    expect(controlled.methods).not.toContain("turn/start");
     expect(controlled.kill).toHaveBeenCalledOnce();
   });
 
@@ -9951,7 +9953,111 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("rejects an enabled standalone skill omitted from the turn capabilities", async () => {
+  it("starts a turn with 129 valid skills and can select the last skill", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-large-skill-catalog-"));
+    roots.push(root);
+    const skills = await createPersonalSkills(root, 129);
+    const controlled = createControlledAppServer({ skills });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const input = startOperationInput();
+    input.context.prioritySkills = [{ id: "personal-128", name: "personal-128" }];
+
+    try {
+      await expect(pool.startTurn(input)).resolves.toEqual({
+        codexThreadId: "thread-native-1",
+        codexTurnId: "turn-native-1",
+      });
+      const turnStart = controlled.requests.find(
+        (request) => request.method === "turn/start",
+      );
+      expect(turnStart?.params).toMatchObject({
+        input: [
+          {
+            type: "text",
+            text: `[$personal-128](${join(taskRuntimeHome(root), ".codex", "skills", "personal-128", "SKILL.md")}) ${input.context.userInput}`,
+          },
+        ],
+      });
+      expect(
+        controlled.methods.filter((method) => method === "turn/start"),
+      ).toHaveLength(1);
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it.each([
+    { field: "name", value: "private-skill-name".repeat(20) },
+    { field: "description", value: "private-skill-description".repeat(200) },
+    { field: "path", value: "/private-skill-path".repeat(300) },
+  ])("rejects an oversized skill $field in a 129-entry catalog and logs only counts and error types", async ({ field, value }) => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-invalid-large-skill-catalog-"));
+    roots.push(root);
+    const skills = await createPersonalSkills(root, 129);
+    const controlled = createControlledAppServer({
+      skills: skills.map((skill, index) =>
+        index === 128 ? { ...skill, [field]: value } : skill,
+      ),
+    });
+    const logger = pino({ enabled: false });
+    const warn = vi.spyOn(logger, "warn");
+    const { pool } = createStartOperationPool(
+      root,
+      controlled.factory,
+      createWorkspaceManager(root),
+      { logger },
+    );
+    const input = startOperationInput();
+    input.context.userInput = "private-user-content";
+
+    await expect(pool.startTurn(input)).rejects.toThrow(
+      "Codex skill catalog is invalid",
+    );
+
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      { catalogCount: 1, skillCount: 129, errorTypes: ["too_big"] },
+      "Codex skill catalog validation failed",
+    );
+    const logs = JSON.stringify(warn.mock.calls);
+    expect(logs).not.toContain(value);
+    expect(logs).not.toContain(input.context.userInput);
+    expect(logs).not.toContain(root);
+    expect(logs).not.toContain("personal-");
+    expect(controlled.methods).not.toContain("thread/start");
+    expect(controlled.methods).not.toContain("turn/start");
+    expect(controlled.kill).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a 129-entry catalog for another workspace and logs only counts and error types", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-large-skill-workspace-"));
+    roots.push(root);
+    const controlled = createControlledAppServer({
+      skills: await createPersonalSkills(root, 129),
+      skillsCwd: root,
+    });
+    const logger = pino({ enabled: false });
+    const warn = vi.spyOn(logger, "warn");
+    const { pool } = createStartOperationPool(
+      root,
+      controlled.factory,
+      createWorkspaceManager(root),
+      { logger },
+    );
+
+    await expect(pool.startTurn(startOperationInput())).rejects.toThrow(
+      "Codex skill catalog is invalid",
+    );
+
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      { catalogCount: 1, skillCount: 129, errorTypes: ["unexpected_workspace"] },
+      "Codex skill catalog validation failed",
+    );
+    expect(controlled.methods).not.toContain("thread/start");
+    expect(controlled.methods).not.toContain("turn/start");
+    expect(controlled.kill).toHaveBeenCalledOnce();
+  });
+
+  it.each([0, 128])("rejects an enabled standalone skill omitted from the turn capabilities after %i valid skills", async (extraSkillCount) => {
     const root = await mkdtemp(join(tmpdir(), "linksense-skill-unauthorized-"));
     roots.push(root);
     const input = startOperationInput();
@@ -9964,6 +10070,7 @@ trust_level = "trusted"
     await writeFile(skillPath, "---\nname: unauthorized\n---\n");
     const controlled = createControlledAppServer({
       skills: [
+        ...(await createPersonalSkills(root, extraSkillCount)),
         {
           name: "unauthorized",
           path: skillPath,
@@ -11706,6 +11813,33 @@ function taskRuntimeHome(root: string): string {
   return join(root, "home");
 }
 
+async function createPersonalSkills(
+  root: string,
+  count: number,
+): Promise<Array<{
+  name: string;
+  description: string;
+  path: string;
+  scope: "user";
+  enabled: boolean;
+}>> {
+  return Promise.all(
+    Array.from({ length: count }, async (_, index) => {
+      const name = `personal-${index}`;
+      const path = join(taskRuntimeHome(root), ".codex", "skills", name, "SKILL.md");
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, `---\nname: ${name}\n---\n`);
+      return {
+        name,
+        description: `Personal skill ${index}`,
+        path,
+        scope: "user",
+        enabled: true,
+      };
+    }),
+  );
+}
+
 async function createKnowledgeSkill(root: string): Promise<{
   name: string;
   description: string;
@@ -12006,6 +12140,7 @@ function createControlledAppServer(
   options: {
     initialize?: "immediate" | "manual";
     skillsList?: "immediate" | "manual";
+    skillsCwd?: string;
     mcpStatus?: "immediate" | "manual";
     fileServiceAvailable?: boolean;
     managedBrowserAvailable?: boolean;
@@ -12173,7 +12308,7 @@ function createControlledAppServer(
             const skills =
               options.skillsByProcess?.[processIndex] ?? options.skills ?? [];
             stdout.write(
-              `${JSON.stringify({ id: message.id, result: { data: [{ cwd: String((message.params?.cwds as string[] | undefined)?.[0] ?? ""), skills, errors: options.skillErrors ?? [] }] } })}\n`,
+              `${JSON.stringify({ id: message.id, result: { data: [{ cwd: options.skillsCwd ?? String((message.params?.cwds as string[] | undefined)?.[0] ?? ""), skills, errors: options.skillErrors ?? [] }] } })}\n`,
             );
           } else if (message.method === "mcpServerStatus/list") {
             if (options.mcpStatus === "manual") {
