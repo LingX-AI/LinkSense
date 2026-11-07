@@ -1,9 +1,6 @@
+import { useSortable } from "@dnd-kit/sortable"
 import {
-  SortableContext,
-  useSortable,
-  type SortingStrategy,
-} from "@dnd-kit/sortable"
-import {
+  memo,
   useContext,
   useMemo,
   type PointerEventHandler,
@@ -13,11 +10,9 @@ import { useTranslation } from "react-i18next"
 import type { Conversation } from "@/api/contracts"
 import { Button } from "@/components/ui/button"
 import { SidebarConversationDragState } from "./sidebar-conversation-drag-state"
+import { SidebarConversationList } from "./sidebar-conversation-list"
 
 import { SidebarDropIndicator } from "./sidebar-drop-indicator"
-
-// Insertion markers own the preview; rows keep their original layout.
-const stationaryStrategy: SortingStrategy = () => null
 
 type SortableConversationRenderState = {
   keyboardActivator: ReactNode
@@ -28,15 +23,19 @@ type SortableConversationRenderState = {
   dropIndicator: ReactNode
 }
 
+type ConversationRenderer = (
+  conversation: Conversation,
+  sortable: SortableConversationRenderState
+) => ReactNode
+
 export function SortableConversationGroup({
   conversations,
+  totalConversationCount,
   children,
 }: {
   conversations: readonly Conversation[]
-  children: (
-    conversation: Conversation,
-    sortable: SortableConversationRenderState
-  ) => ReactNode
+  totalConversationCount?: number
+  children: ConversationRenderer
 }) {
   const { disabled, pendingOrder } = useContext(SidebarConversationDragState)
   const orderedConversations = useMemo(() => {
@@ -50,36 +49,34 @@ export function SortableConversationGroup({
       return item ? [item] : []
     })
   }, [conversations, pendingOrder])
-  const ids = useMemo(
-    () => orderedConversations.map((item) => item.id),
-    [orderedConversations]
-  )
   return (
-    <SortableContext items={ids} strategy={stationaryStrategy}>
-      {orderedConversations.map((conversation, index) => (
+    <SidebarConversationList
+      conversations={orderedConversations}
+      totalConversationCount={totalConversationCount}
+    >
+      {(conversation, index) => (
         <SortableConversationItem
           key={conversation.id}
           conversation={conversation}
           position={index + 1}
           disabled={disabled}
-        >
-          {(sortable) => children(conversation, sortable)}
-        </SortableConversationItem>
-      ))}
-    </SortableContext>
+          renderConversation={children}
+        />
+      )}
+    </SidebarConversationList>
   )
 }
 
-function SortableConversationItem({
+const SortableConversationItem = memo(function SortableConversationItem({
   conversation,
   position,
   disabled,
-  children,
+  renderConversation,
 }: {
   conversation: Conversation
   position: number
   disabled: boolean
-  children: (sortable: SortableConversationRenderState) => ReactNode
+  renderConversation: ConversationRenderer
 }) {
   const { t } = useTranslation()
   const { attributes, listeners, setActivatorNodeRef, setNodeRef, isDragging } =
@@ -106,7 +103,7 @@ function SortableConversationItem({
         {t("conversation.reorderHandle", { title, position })}
       </Button>
     )
-    return children({
+    return renderConversation(conversation, {
       keyboardActivator,
       onPointerDown: disabled
         ? undefined
@@ -118,8 +115,8 @@ function SortableConversationItem({
     })
   }, [
     attributes,
-    children,
-    conversation.id,
+    renderConversation,
+    conversation,
     disabled,
     isDragging,
     listeners,
@@ -129,4 +126,4 @@ function SortableConversationItem({
     t,
     title,
   ])
-}
+})

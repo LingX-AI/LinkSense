@@ -9,6 +9,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { SidebarConversationActions } from "@/components/shell/sidebar-conversation-actions"
+import { SidebarConversationOverlays } from "./sidebar-conversation-overlays"
 import i18n from "@/i18n"
 
 function renderActions(pinned = false, disabled = false, movable = true) {
@@ -20,19 +21,31 @@ function renderActions(pinned = false, disabled = false, movable = true) {
   return {
     ...callbacks,
     ...render(
-      <SidebarConversationActions
-        title="整理项目会议纪要"
-        pinned={pinned}
-        pinDisabled={disabled}
-        archiveDisabled={disabled}
-        moveDisabled={disabled}
-        currentProjectId="project-work"
-        projects={[
-          { id: "project-work", name: "工作", icon: "folder", color: "default" },
-          { id: "project-personal", name: "生活", icon: "heart", color: "pink" },
-        ]}
-        {...callbacks}
-      />
+      <SidebarConversationOverlays>
+        <SidebarConversationActions
+          title="整理项目会议纪要"
+          pinned={pinned}
+          pinDisabled={disabled}
+          archiveDisabled={disabled}
+          moveDisabled={disabled}
+          currentProjectId="project-work"
+          projects={[
+            {
+              id: "project-work",
+              name: "工作",
+              icon: "folder",
+              color: "default",
+            },
+            {
+              id: "project-personal",
+              name: "生活",
+              icon: "heart",
+              color: "pink",
+            },
+          ]}
+          {...callbacks}
+        />
+      </SidebarConversationOverlays>
     ),
   }
 }
