@@ -4,16 +4,18 @@ import { Popover as HoverCardPrimitive } from "@base-ui/react/popover"
 
 import { cn } from "@/lib/utils"
 
-function HoverCard({ ...props }: HoverCardPrimitive.Root.Props) {
+function HoverCard<Payload>({
+  ...props
+}: HoverCardPrimitive.Root.Props<Payload>) {
   return <HoverCardPrimitive.Root data-slot="hover-card" {...props} />
 }
 
-function HoverCardTrigger({
+function HoverCardTrigger<Payload>({
   openOnHover = true,
   delay = 200,
   closeDelay = 120,
   ...props
-}: HoverCardPrimitive.Trigger.Props) {
+}: HoverCardPrimitive.Trigger.Props<Payload>) {
   return (
     <HoverCardPrimitive.Trigger
       data-slot="hover-card-trigger"

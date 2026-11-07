@@ -1113,6 +1113,9 @@ describe("task projects", () => {
         name: "LinkSense 导航",
       })
       await within(sidebar).findByRole("region", { name: "生活" })
+      await interaction.hover(
+        await within(sidebar).findByText(conversations[0].title)
+      )
       await interaction.click(
         within(sidebar).getByRole("button", {
           name: `${conversations[0].title}的更多操作`,
@@ -1143,6 +1146,9 @@ describe("task projects", () => {
       name: "生活",
     })
 
+    await interaction.hover(
+      await within(sidebar).findByText(conversations[0].title)
+    )
     await interaction.click(
       within(sidebar).getByRole("button", {
         name: `${conversations[0].title}的更多操作`,
@@ -1361,6 +1367,12 @@ describe("task projects", () => {
     const { actions } = installProjectApi({ pinned: true })
     const interaction = userEvent.setup()
     renderApp()
+    const sidebar = await screen.findByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+    await interaction.hover(
+      await within(sidebar).findByText(conversations[0].title)
+    )
     await interaction.click(
       await screen.findByRole("button", {
         name: `${conversations[0].title}的更多操作`,
@@ -1376,6 +1388,7 @@ describe("task projects", () => {
     expect(
       await within(folder).findByText(conversations[0].title)
     ).toBeVisible()
+    await interaction.hover(within(folder).getByText(conversations[0].title))
     await interaction.click(
       screen.getByRole("button", {
         name: `${conversations[0].title}的更多操作`,
@@ -1407,6 +1420,9 @@ describe("task projects", () => {
     const interaction = userEvent.setup()
     renderApp()
     const sourceFolder = await screen.findByRole("region", { name: "工作" })
+    await interaction.hover(
+      await within(sourceFolder).findByText(conversations[0].title)
+    )
     await interaction.click(
       await screen.findByRole("button", {
         name: `${conversations[0].title}的更多操作`,
