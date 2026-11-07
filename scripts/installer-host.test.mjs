@@ -644,6 +644,9 @@ for (const edition of ["core", "full"]) {
     const dir = directory(t)
     const writer = fn("write_runtime_env")
     const fixture = Object.fromEntries([...writer.matchAll(/\$([A-Z][A-Z_0-9]*)\b/gu)].map(match => [match[1], "fixture"]))
+    // Historical installations never configured the optional desktop downloads.
+    delete fixture.LINKSENSE_DESKTOP_CLIENT_ARCHIVE
+    delete fixture.LINKSENSE_DESKTOP_CLIENT_ARCHIVE_WINDOWS
     const previous = "LINKSENSE_VERSION=v0.3.6\nPOSTGRES_PASSWORD=kept-credential\nLINKSENSE_MAX_CONCURRENT_CONVERSATIONS=7\nLINKSENSE_USER_DATA_VOLUME=custom-volume\n"
     writeFileSync(path.join(dir, ".env"), previous)
     const legacy = readFileSync(new URL("./fixtures/pre-host-adaptation-env-parser.sh", import.meta.url), "utf8")
