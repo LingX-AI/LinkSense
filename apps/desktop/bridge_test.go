@@ -144,9 +144,10 @@ func TestSupersededControlMessagesCannotPauseOrStopNewConnection(t *testing.T) {
 	}
 }
 
-func TestNativeClientAgainstRealFastifyPairingAndWebSocket(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
+func startComputerUseAPIFixture(t *testing.T, ctx context.Context) (deviceCredentials, func(any, any)) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(ctx)
+	t.Cleanup(cancel)
 	apiDir, err := filepath.Abs("../api")
 	if err != nil {
 		t.Fatal(err)
@@ -165,8 +166,9 @@ func TestNativeClientAgainstRealFastifyPairingAndWebSocket(t *testing.T) {
 	if err := process.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = stdin.Close(); cancel(); _ = process.Wait() }()
+	t.Cleanup(func() { _ = stdin.Close(); cancel(); _ = process.Wait() })
 	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	next := func(value any) {
 		t.Helper()
 		if !scanner.Scan() {
@@ -189,6 +191,19 @@ func TestNativeClientAgainstRealFastifyPairingAndWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return credential, func(command any, result any) {
+		t.Helper()
+		if err := json.NewEncoder(stdin).Encode(command); err != nil {
+			t.Fatal(err)
+		}
+		next(result)
+	}
+}
+
+func TestNativeClientAgainstRealFastifyPairingAndWebSocket(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	credential, rpc := startComputerUseAPIFixture(t, ctx)
 	engine := &fakeDesktopEngine{}
 	statuses := make(chan bridgeStatus, 30)
 	var approvals atomic.Int32
@@ -212,13 +227,6 @@ func TestNativeClientAgainstRealFastifyPairingAndWebSocket(t *testing.T) {
 		}
 	}
 connected:
-	rpc := func(command any, result any) {
-		t.Helper()
-		if err := json.NewEncoder(stdin).Encode(command); err != nil {
-			t.Fatal(err)
-		}
-		next(result)
-	}
 	request := map[string]string{"action": "apps", "device_id": credential.Device.ID}
 	waitControl := func(want string) {
 		t.Helper()

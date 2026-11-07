@@ -32,12 +32,12 @@ try {
   for await (const line of input) {
     const command = JSON.parse(line) as { type: string; input?: unknown };
     if (command.type === "execute") {
-      const reply = await app.inject({
-        method: "POST", url: "/internal/computer-use/execute",
-        headers: { authorization: `Bearer ${secret}`, "x-linksense-owner-id": owner },
-        payload: { conversationId: conversation, turnId: turn, input: command.input },
+      const reply = await fetch(new URL("/internal/computer-use/execute", origin), {
+        method: "POST",
+        headers: { authorization: `Bearer ${secret}`, "x-linksense-owner-id": owner, "content-type": "application/json" },
+        body: JSON.stringify({ conversationId: conversation, turnId: turn, input: command.input }),
       });
-      process.stdout.write(JSON.stringify({ status: reply.statusCode, result: reply.json() }) + "\n");
+      process.stdout.write(JSON.stringify({ status: reply.status, result: await reply.json() }) + "\n");
     } else if (command.type === "revoke") {
       await service.revoke(owner);
       process.stdout.write('{"ok":true}\n');

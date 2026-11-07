@@ -1864,6 +1864,49 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it.each(["default", "plan"] as const)("binds Computer Use to the active projection turn and MCP token in %s mode", async (collaborationMode) => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-computer-use-token-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+    const input = { ...startOperationInput(), collaborationMode };
+    const signal = new AbortController().signal;
+    const request = { action: "status" } as const;
+    try {
+      await pool.startTurn(input);
+      const token = controlled.environment?.LINKSENSE_CURRENT_USER_TOKEN;
+      if (!token) throw new Error("missing Computer Use task token");
+      for (const [conversation, suppliedToken] of [
+        [input.conversationId, "wrong-token"],
+        ["another-task", token],
+      ] as const) {
+        await expect(pool.computerUse(conversation, suppliedToken, request, signal)).rejects.toMatchObject({ statusCode: 403 });
+      }
+      expect(eventSink.computerUse).not.toHaveBeenCalled();
+      const result = { ok: true, data: { text: "native task result" } };
+      await expect(pool.computerUse(input.conversationId, token, request, signal)).resolves.toEqual(result);
+      expect(eventSink.computerUse).toHaveBeenCalledExactlyOnceWith({
+        conversationId: input.conversationId, turnId: input.projectionTurnId, input: request, signal,
+      });
+      eventSink.computerUse.mockClear();
+      const write = { action: "click", device_id: input.ownerId, ref: "@snapshot:e1" } as const;
+      const action = pool.computerUse(input.conversationId, token, write, signal);
+      if (collaborationMode === "plan") {
+        await expect(action).resolves.toMatchObject({ ok: false, code: "COMPUTER_USE_ACCESS_DENIED", delivery: "not_delivered" });
+        expect(eventSink.computerUse).not.toHaveBeenCalled();
+      } else {
+        await expect(action).resolves.toEqual(result);
+        expect(eventSink.computerUse).toHaveBeenCalledExactlyOnceWith({
+          conversationId: input.conversationId, turnId: input.projectionTurnId, input: write, signal,
+        });
+      }
+      await pool.closeAll();
+      await expect(pool.computerUse(input.conversationId, token, request, signal)).rejects.toMatchObject({ statusCode: 403 });
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
   it("binds current user info to the active projection turn and MCP token", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-current-user-token-"));
     roots.push(root);
@@ -11832,6 +11875,7 @@ function createStartOperationPool(
     listKnowledgeDocuments: vi.fn(async () => ({})),
     getKnowledgeDocumentMarkdown: vi.fn(async () => ({})),
     getCurrentUserInfo: vi.fn(async () => ({})),
+    computerUse: vi.fn<NonNullable<RunnerEventSink["computerUse"]>>(async () => ({ ok: true, data: { text: "native task result" } })),
     manageAutomation: vi.fn(async () => ({})),
     accessConnection: vi.fn(async () => ({ kind: "connections", items: [] })),
     alignConversationThread: vi.fn(async () => undefined),
