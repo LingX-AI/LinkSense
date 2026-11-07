@@ -189,12 +189,16 @@ export async function registerComputerUseRoutes(app: FastifyInstance, options: {
     };
     const pump = async () => {
       let verifiedAt = 0;
+      const authorized = async (): Promise<boolean> => {
+        if (!owner || !connection || !token) return false;
+        const user = await prisma.user.findUnique({ where: { id: owner } });
+        return user?.status === "active" && user.authValidAfter.toISOString() === authValidAfter &&
+          Boolean(await service.authenticate(token)) && await service.maintain(owner, connection);
+      };
       while (socket.readyState === WebSocket.OPEN && owner && connection && token) {
         if (Date.now() - lastHeartbeat > 30_000) { socket.close(4408); break; }
         if (Date.now() - verifiedAt > 1_000) {
-          const user = await prisma.user.findUnique({ where: { id: owner } });
-          if (user?.status !== "active" || user.authValidAfter.toISOString() !== authValidAfter ||
-            !await service.authenticate(token) || !await service.maintain(owner, connection)) {
+          if (!await authorized()) {
             socket.close(4403); break;
           }
           verifiedAt = Date.now();
@@ -235,7 +239,9 @@ export async function registerComputerUseRoutes(app: FastifyInstance, options: {
             continue;
           }
           // Database checks may outlast cancellation, connection replacement or the dispatch deadline.
-          if (!await service.maintain(owner, connection) || await service.paused(owner, connection) ||
+          if (!await authorized()) { socket.close(4403); break; }
+          verifiedAt = Date.now();
+          if (await service.paused(owner, connection) ||
             !await service.active(owner, command.id) || command.expires_at <= Date.now() ||
             socket.readyState !== WebSocket.OPEN) continue;
           socket.send(JSON.stringify(command));

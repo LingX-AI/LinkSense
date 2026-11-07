@@ -171,7 +171,7 @@ it("connects a native WebSocket, transports a command and reply, and closes afte
   expect((await closed)[0]).toBe(4403);
 });
 
-it.each(["release", "cancel", "reconnect", "revoke", "expire"] as const)(
+it.each(["release", "cancel", "reconnect", "revoke", "expire", "disable", "logout"] as const)(
   "does not dispatch after %s while task revalidation is waiting on the database",
   async (operation) => {
     const { service, socket, paired, prisma } = await connectedFixture();
@@ -203,6 +203,12 @@ it.each(["release", "cancel", "reconnect", "revoke", "expire"] as const)(
         await service.connect(credential, paired.token);
       } else if (operation === "revoke") {
         await service.revoke(owner);
+      } else if (operation === "disable" || operation === "logout") {
+        prisma.user.findUnique.mockResolvedValue({
+          id: owner,
+          status: operation === "disable" ? "disabled" : "active",
+          authValidAfter: operation === "logout" ? new Date("2026-01-02T00:00:00Z") : new Date("2026-01-01T00:00:00Z"),
+        });
       } else {
         const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 61_000);
         restoreClock = () => { clock.mockRestore(); };
