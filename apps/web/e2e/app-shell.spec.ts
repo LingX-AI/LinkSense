@@ -2814,15 +2814,15 @@ test("user and assistant messages use consistent typography and radius", async (
   await titleActionsButton.click()
   const archiveIcon = page
     .getByRole("menuitem", { name: "归档任务" })
-    .locator("svg")
+    .locator("[data-design-icon=archive]")
   const deleteIcon = page
     .getByRole("menuitem", { name: "删除任务" })
-    .locator("svg")
-  await expect(archiveIcon).toHaveCSS("width", "14px")
+    .locator("[data-design-icon=delete]")
+  await expect(archiveIcon).toHaveCSS("width", "16px")
   await expect(archiveIcon).toHaveCSS("color", "rgb(98, 110, 134)")
-  await expect(archiveIcon).toHaveCSS("opacity", "0.7")
-  await expect(deleteIcon).toHaveCSS("width", "14px")
-  await expect(deleteIcon).toHaveCSS("opacity", "0.7")
+  await expect(archiveIcon).toHaveCSS("opacity", "1")
+  await expect(deleteIcon).toHaveCSS("width", "16px")
+  await expect(deleteIcon).toHaveCSS("opacity", "1")
 })
 
 test("user message editor uses a shorter borderless light surface", async ({
@@ -4641,26 +4641,15 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
 async function expectNoHorizontalOverflow(page: Page) {
   await expect
     .poll(() =>
-      page.evaluate(() => ({
-        body: document.body.scrollWidth,
-        document: document.documentElement.scrollWidth,
-        viewport: document.documentElement.clientWidth,
-      }))
+      page.evaluate(
+        () =>
+          Math.max(
+            document.body.scrollWidth,
+            document.documentElement.scrollWidth
+          ) - document.documentElement.clientWidth
+      )
     )
-    .toEqual(
-      expect.objectContaining({
-        body: expect.any(Number),
-        document: expect.any(Number),
-        viewport: expect.any(Number),
-      })
-    )
-  const widths = await page.evaluate(() => ({
-    body: document.body.scrollWidth,
-    document: document.documentElement.scrollWidth,
-    viewport: document.documentElement.clientWidth,
-  }))
-  expect(widths.body).toBeLessThanOrEqual(widths.viewport + 1)
-  expect(widths.document).toBeLessThanOrEqual(widths.viewport + 1)
+    .toBeLessThanOrEqual(1)
 }
 
 async function mockEditableConversation(page: Page, conversationId: string) {

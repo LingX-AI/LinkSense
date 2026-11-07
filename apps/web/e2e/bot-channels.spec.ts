@@ -98,12 +98,15 @@ async function noOverflow(page: Page, width: number) {
       () => document.documentElement.scrollWidth <= window.innerWidth
     )
   ).toBe(true)
-  const dialog = page.getByRole("dialog")
-  if (await dialog.count()) {
-    const rect = await dialog.boundingBox()
-    expect(rect).not.toBeNull()
-    expect(rect!.x).toBeGreaterThanOrEqual(0)
-    expect(rect!.x + rect!.width).toBeLessThanOrEqual(width)
+  const dialogs = await page.getByRole("dialog").evaluateAll((elements) =>
+    elements.map((element) => {
+      const { x, right } = element.getBoundingClientRect()
+      return { x, right }
+    })
+  )
+  for (const rect of dialogs) {
+    expect(rect.x).toBeGreaterThanOrEqual(0)
+    expect(rect.right).toBeLessThanOrEqual(width)
   }
 }
 async function mockApi(page: Page) {
