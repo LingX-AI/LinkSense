@@ -89,6 +89,7 @@ prisma/
 
 ## Frontend Standards
 
+- For UI changes, first consult `docs/development/ui-design-system.md` and reuse its implemented tokens, components, and patterns. Follow the current task's business constraints; read Figma for new designs or gaps rather than requiring it for routine changes covered by the repository baseline.
 - Use React function components and Hooks. Prefer React’s built-in state for page-local state, and use TanStack Query consistently for server state.
 - Introduce a lightweight state library only when cross-page shared state is genuinely complex. Do not duplicate server cache in global state.
 - Page components orchestrate flows, business components handle domain interactions, and shared components provide reusable UI. Do not accumulate request, authorization, and presentation logic in a single component.

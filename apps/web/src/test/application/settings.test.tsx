@@ -134,7 +134,7 @@ describe("LinkSense application", () => {
       within(menu).queryByRole("menuitem", { name: "界面语言" })
     ).not.toBeInTheDocument()
     expect(within(menu).queryByRole("menuitemradio")).not.toBeInTheDocument()
-    expect(menu).toHaveClass("w-(--anchor-width)")
+    expect(menu).toHaveClass("w-max", "min-w-(--anchor-width)")
     expect(menu).not.toHaveClass("w-[260px]")
     expect(within(menu).getAllByText("林晓").length).toBeGreaterThan(0)
     expect(within(menu).getByText("额度")).toBeVisible()
@@ -363,7 +363,7 @@ describe("LinkSense application", () => {
     ).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "上传新头像" })).toBeEnabled()
     const editNameButton = screen.getByRole("button", { name: "编辑名称" })
-    expect(editNameButton).toHaveClass("size-8")
+    expect(editNameButton).toHaveClass("h-9")
     await interaction.click(editNameButton)
     expect(screen.getByRole("dialog", { name: "编辑名称" })).toBeInTheDocument()
     const nameInput = screen.getByRole("textbox", { name: "名称" })
@@ -519,8 +519,9 @@ describe("LinkSense application", () => {
     expect(systemTheme).toBeChecked()
     expect(systemTheme.closest('[role="radiogroup"]')).toHaveClass(
       "grid",
-      "grid-cols-3",
-      "gap-3"
+      "grid-cols-1",
+      "sm:grid-cols-3",
+      "gap-4"
     )
     expect(systemTheme.closest('[data-slot="card"]')).toBeNull()
     expect(uiFontSize.closest('[data-slot="card-content"]')).toHaveClass(
@@ -529,9 +530,9 @@ describe("LinkSense application", () => {
     )
     for (const option of [systemTheme, lightTheme, darkTheme]) {
       expect(option.closest('[data-slot="radio-group-option"]')).toHaveClass(
-        "border-0",
+        "border",
         "w-full",
-        "p-0"
+        "p-3"
       )
     }
     expect(
@@ -543,12 +544,12 @@ describe("LinkSense application", () => {
     await interaction.click(darkTheme)
     expect(darkTheme).toBeChecked()
     expect(container.querySelector('[data-preview-theme="dark"]')).toHaveClass(
-      "border-foreground",
-      "rounded-card"
+      "border-primary/30",
+      "rounded-md"
     )
     expect(
       container.querySelector('[data-preview-theme="system"]')
-    ).not.toHaveClass("border-foreground")
+    ).not.toHaveClass("border-primary/30")
     expect(document.documentElement).toHaveClass("dark")
     expect(document.documentElement.dataset.themePreference).toBe("dark")
     expect(window.localStorage.getItem("linksense.theme")).toBe("dark")

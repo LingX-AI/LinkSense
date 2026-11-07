@@ -69,7 +69,7 @@ describe("sidebar resize rendering", () => {
     expect(renderCount).toBeGreaterThan(0)
     expect(renderCount).toBeLessThan(tasks.length)
 
-    fireEvent.pointerDown(handle, { button: 0, clientX: 248, pointerId: 7 })
+    fireEvent.pointerDown(handle, { button: 0, clientX: 272, pointerId: 7 })
     for (const clientX of [270, 300, 320]) {
       fireEvent.pointerMove(handle, { clientX, pointerId: 7 })
     }

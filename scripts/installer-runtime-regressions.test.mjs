@@ -109,6 +109,7 @@ set -eu
 ${shellFunction("fail")}
 ${shellFunction("check_full_cpu")}
 ${cpuDockerStub}
+pull_image() { test "$1" = IMAGE_BUSYBOX; }
 log() { :; }
 EDITION=$1
 LINKSENSE_PLATFORM=$2
@@ -175,6 +176,7 @@ for (const scenario of [
 set -eu
 ${["fail", "check_full_cpu", "load_strict_env", "require_loaded_keys", "version_ge", "repair_action", "upgrade_action"].map(shellFunction).join("\n")}
 ${cpuDockerStub}
+pull_image() { test "$1" = IMAGE_BUSYBOX; }
 log() { :; }
 log_stage() { :; }
 verify_private_file() { :; }

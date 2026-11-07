@@ -11,6 +11,7 @@ import { MaintenanceNoticeHero } from "./maintenance-notice-hero"
 export function SystemNoticeDialogContent({
   title,
   description,
+  hero,
   heroIcon,
   notice,
   children,
@@ -20,6 +21,7 @@ export function SystemNoticeDialogContent({
 }: {
   title: string
   description: string
+  hero?: ReactNode
   heroIcon?: ReactNode
   notice?: ReactNode
   children?: ReactNode
@@ -35,7 +37,7 @@ export function SystemNoticeDialogContent({
       className="max-h-[calc(100dvh-2rem)] grid-rows-[minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-xl"
     >
       <div className="min-h-0 overflow-y-auto overscroll-contain">
-        <MaintenanceNoticeHero icon={heroIcon} />
+        {hero ?? <MaintenanceNoticeHero icon={heroIcon} />}
         <div className="flex flex-col items-center gap-6 px-6 py-7 sm:px-10 sm:py-8">
           {notice}
           <DialogHeader className="w-full min-w-0 items-center gap-3 text-center">

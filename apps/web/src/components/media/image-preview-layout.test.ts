@@ -56,7 +56,7 @@ describe("image preview overlay theme styles", () => {
     expect(paneControlsRule).not.toMatch(/(?:^|\s)background:/u)
   })
 
-  it("uses a white blurred backdrop in light mode and keeps the dark backdrop unchanged", () => {
+  it("uses the shared modal backdrop in light mode and retains the darker image backdrop in dark mode", () => {
     const rootRule = imagePreviewStyles.match(/:root\s*\{([\s\S]*?)\n\}/u)?.[1]
     const darkRule = imagePreviewStyles.match(/\.dark\s*\{([\s\S]*?)\n\}/u)?.[1]
     const overlayRule = imagePreviewStyles.match(
@@ -67,7 +67,7 @@ describe("image preview overlay theme styles", () => {
     )?.[1]
 
     expect(rootRule).toMatch(
-      /--app-media-backdrop:\s*rgb\(255 255 255 \/ 48%\);/u
+      /--app-media-backdrop:\s*var\(--app-dialog-overlay\);/u
     )
     expect(rootRule).toMatch(
       /--app-media-backdrop-filter:\s*blur\(32px\) saturate\(1\.12\);/u

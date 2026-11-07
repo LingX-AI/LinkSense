@@ -97,20 +97,19 @@ check_release_storage() {
   inode_reserve=100000
   if [ "$EDITION" = full ]; then disk_gib=60; inode_reserve=200000; fi
   cached_images=true
-  for disk_image in "$IMAGE_LINKSENSE_API" "$IMAGE_LINKSENSE_WEB" "$IMAGE_LINKSENSE_MIGRATE" "$IMAGE_LINKSENSE_RUNNER" "$IMAGE_LINKSENSE_WORKER" "$IMAGE_POSTGRES" "$IMAGE_REDIS" "$IMAGE_MINIO" "$IMAGE_MINIO_CLIENT" "$IMAGE_BUSYBOX" "$IMAGE_GATEWAY"; do
-    docker image inspect "$disk_image" >/dev/null 2>&1 || cached_images=false
+  for disk_key in $(release_image_keys); do
+    if reuse_installed_image "$disk_key"; then continue; fi
+    disk_image=$(eval "printf '%s' \"\${$disk_key}\"")
+    disk_mirrors=$(host_image_mirrors "$disk_image")
+    host_cached_image "$disk_image" $disk_mirrors || cached_images=false
   done
-  if [ "$EDITION" = full ]; then
-    docker image inspect "$IMAGE_DOCLING" >/dev/null 2>&1 || cached_images=false
-    docker image inspect "$IMAGE_ELASTICSEARCH" >/dev/null 2>&1 || cached_images=false
-  fi
   if [ "$cached_images" = true ]; then disk_gib=2; inode_reserve=10000; fi
   docker_root=$(docker info --format '{{.DockerRootDir}}')
   if [ "$HOST_OS" = Linux ] && [ -d "$docker_root" ]; then
     host_storage "$docker_root" "$((disk_gib * 1024 * 1024))" "$inode_reserve"
     if [ -d /var/lib/containerd ]; then host_storage /var/lib/containerd "$((disk_gib * 1024 * 1024))" "$inode_reserve"; fi
   else
-    pull_image "$IMAGE_BUSYBOX"
+    pull_image IMAGE_BUSYBOX
     disk_stats=$(docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges:true --memory 64m --pids-limit 16 "$IMAGE_BUSYBOX" sh -ec 'df -Pk /; df -Pi /') || host_fail storage Docker_VM
     disk_free_kb=$(printf '%s\n' "$disk_stats" | awk 'NR == 2 {print $4}')
     disk_free_inodes=$(printf '%s\n' "$disk_stats" | awk 'NR == 4 {print $4}')
@@ -232,10 +231,14 @@ restore_pre_migration_upgrade() {
         esac
       fi
     done
+    # Exported Compose variables override the restored env file.
+    for previous_key in $(release_image_keys); do unset "${previous_key#IMAGE_}_IMAGE"; done
+    unset LINKSENSE_VERSION LINKSENSE_WORKER_IMAGE_REVISION LINKSENSE_CPU_QUOTA_MODE LINKSENSE_DOCLING_API_CPUS LINKSENSE_DOCLING_WORKER_CPUS
     if [ "$EDITION" = full ] && [ -n "$UPGRADE_PREVIOUS_TOKENIZER_REVISION" ]; then
-      docker run --rm --network none \
+      previous_busybox=$(read_key "$INSTALL_DIR/.env" BUSYBOX_IMAGE 2>/dev/null || true)
+      host_pinned_image "$previous_busybox" && docker run --rm --network none \
         -v linksense-tokenizer:/tokenizer \
-        "$BUSYBOX_IMAGE" sh -ec '
+        "$previous_busybox" sh -ec '
           test -d "/tokenizer/releases/$1"
           ln -sfn "releases/$1" /tokenizer/.previous
           mv -Tf /tokenizer/.previous /tokenizer/current
@@ -494,6 +497,7 @@ check_port() {
 check_full_cpu() {
   [ "$EDITION:$LINKSENSE_PLATFORM" = full:linux-amd64 ] || return 0
   log "Checking x86-64-v2 CPU features inside Docker Engine."
+  pull_image IMAGE_BUSYBOX
   # Docker Desktop may expose a different CPU feature set than the CLI host.
   missing_cpu_features=$(docker run --rm --network none --read-only \
     --cap-drop ALL --security-opt no-new-privileges \
@@ -534,6 +538,8 @@ preflight() {
 
   command -v curl >/dev/null 2>&1 || fail "curl is required. Install it with your operating system package manager."
   command -v cmp >/dev/null 2>&1 || host_fail required_command cmp
+  command -v script >/dev/null 2>&1 || host_fail required_command 'script (util-linux)'
+  host_image_mirrors >/dev/null
   host_use_saved_tools
   if [ -n "$DOCKER_CLI" ]; then
     detected_api=$(docker version --format '{{.Server.APIVersion}}' 2>/dev/null || true)
@@ -1147,9 +1153,9 @@ activate_management_cli() {
         '  exit 1' \
         '}' \
         'if [ -n "${LINKSENSE_RELEASE_BASE_URL:-}" ]; then' \
-        "  exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" \"LINKSENSE_RELEASE_BASE_URL=\$LINKSENSE_RELEASE_BASE_URL\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\"" \
+        "  exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" \"LINKSENSE_IMAGE_MIRRORS=\${LINKSENSE_IMAGE_MIRRORS:-}\" \"LINKSENSE_RELEASE_BASE_URL=\$LINKSENSE_RELEASE_BASE_URL\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\"" \
         'fi' \
-        "exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\""
+        "exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_INSTALL_DIR=$INSTALL_DIR \"LINKSENSE_CLI_LANGUAGE=\$cli_language\" \"LINKSENSE_IMAGE_MIRRORS=\${LINKSENSE_IMAGE_MIRRORS:-}\" $INSTALL_DIR/bin/linksense-cli.sh \"\$@\""
       launcher_path=/usr/local/bin/linksense
       install -d -m 0755 /usr/local/bin
     else
@@ -1232,41 +1238,41 @@ compose() {
 pull_images() {
   compose config --quiet
   pull_release_images
+  write_and_activate_runtime_env
+}
+
+release_image_keys() {
+  printf '%s\n' IMAGE_LINKSENSE_API IMAGE_LINKSENSE_WEB IMAGE_LINKSENSE_MIGRATE \
+    IMAGE_LINKSENSE_RUNNER IMAGE_LINKSENSE_WORKER IMAGE_POSTGRES IMAGE_REDIS \
+    IMAGE_MINIO IMAGE_MINIO_CLIENT IMAGE_BUSYBOX IMAGE_GATEWAY
+  if [ "$EDITION" = full ]; then printf '%s\n' IMAGE_ELASTICSEARCH IMAGE_DOCLING; fi
+}
+
+reuse_installed_image() {
+  cached_runtime_key=${1#IMAGE_}_IMAGE
+  cached_runtime=$(eval "printf '%s' \"\${$cached_runtime_key:-}\"")
+  cached_release=$(eval "printf '%s' \"\${$1}\"")
+  [ "$cached_runtime" != "$cached_release" ] || return 1
+  [ "${cached_runtime#*@}" = "${cached_release#*@}" ] &&
+    host_pinned_image "$cached_runtime" &&
+    host_cached_image "$cached_runtime" || return 1
+  export "$1=$cached_runtime"
 }
 
 pull_image() {
-  pull_reference=$1
-  if docker image inspect "$pull_reference" >/dev/null 2>&1; then return 0; fi
-  pull_attempt=0
-  pull_log=$TMP_ROOT/image-pull.log
-  while [ "$pull_attempt" -lt 3 ]; do
-    pull_attempt=$((pull_attempt + 1))
-    pull_remaining=$((pull_deadline - $(date +%s)))
-    [ "$pull_remaining" -gt 0 ] || host_fail pull deadline
-    [ "$pull_remaining" -le 1200 ] || pull_remaining=1200
-    if host_bounded "$pull_remaining" "$DOCKER_CLI" pull "$pull_reference" >"$pull_log" 2>&1; then return 0; fi
-    pull_helper=$(sed -nE 's/.*(docker-credential-[A-Za-z0-9_.-]+).*executable file not found.*/\1/p' "$pull_log" | head -n 1)
-    [ -z "$pull_helper" ] || host_fail credential "$pull_helper"
-    grep -Eiq 'timeout|timed out|connection reset|connection refused|TLS handshake|unexpected EOF|no such host|429|502|503|504|http2' "$pull_log" || break
-    [ "$pull_attempt" -ge 3 ] || sleep "$pull_attempt"
-  done
-  host_text docker_network_help >&2
-  host_fail pull "image=$pull_reference attempts=$pull_attempt"
+  if reuse_installed_image "$1"; then return 0; fi
+  pull_reference=$(eval "printf '%s' \"\${$1}\"")
+  host_pull_image "$pull_reference" "${pull_deadline:-$(($(date +%s) + 2700))}" || {
+    [ "$?" -ne 130 ] || exit 130
+    host_fail pull "$pull_reference"
+  }
+  export "$1=$HOST_PULLED_IMAGE"
 }
 
 pull_release_images() {
   pull_deadline=$(($(date +%s) + 2700))
   check_release_storage
-  for release_image in \
-    "$IMAGE_LINKSENSE_API" "$IMAGE_LINKSENSE_WEB" "$IMAGE_LINKSENSE_MIGRATE" \
-    "$IMAGE_LINKSENSE_RUNNER" "$IMAGE_LINKSENSE_WORKER" "$IMAGE_POSTGRES" \
-    "$IMAGE_REDIS" "$IMAGE_MINIO" "$IMAGE_MINIO_CLIENT" "$IMAGE_BUSYBOX" "$IMAGE_GATEWAY"; do
-    pull_image "$release_image"
-  done
-  if [ "$EDITION" = full ]; then
-    pull_image "$IMAGE_ELASTICSEARCH"
-    pull_image "$IMAGE_DOCLING"
-  fi
+  for release_key in $(release_image_keys); do pull_image "$release_key"; done
 }
 
 tokenizer_value() {
@@ -1789,10 +1795,11 @@ repair_action() {
   [ "$MANIFEST_SHA256" = "$state_manifest" ] || fail "The published manifest no longer matches the installed immutable version."
   check_full_cpu
   fetch_release_resources
+  log_stage "Stage 4/7: pull immutable container images."
+  pull_release_images
   write_and_activate_runtime_env
   install_resources
-  log_stage "Stage 4/7: pull immutable container images."
-  pull_images
+  compose config --quiet
   log_stage "Stage 5/7: repair edition assets without replacing data volumes."
   prepare_tokenizer
   probe_host_runtime

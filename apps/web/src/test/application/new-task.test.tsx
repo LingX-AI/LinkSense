@@ -26,6 +26,34 @@ function unconfiguredModels() {
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+  it.each(["/conversations/c1", "/conversations/new"])(
+    "focuses the composer when New task is clicked from %s, including repeated clicks",
+    async (route) => {
+      const { requests } = installApiMock()
+      const interaction = userEvent.setup()
+      renderApp(route)
+      await screen.findByRole("textbox", { name: "任务输入框" })
+
+      await interaction.click(screen.getByRole("link", { name: "新任务" }))
+      const composer = await screen.findByRole("textbox", {
+        name: "任务输入框",
+      })
+      await waitFor(() => expect(composer).toHaveFocus())
+      await interaction.keyboard("直接输入草稿")
+      expect(composer).toHaveValue("直接输入草稿")
+
+      await interaction.click(screen.getByRole("link", { name: "新任务" }))
+      await waitFor(() => expect(composer).toHaveFocus())
+      expect(composer).toHaveValue("直接输入草稿")
+      expect(
+        requests.some(
+          (request) =>
+            request.method === "POST" && request.path.endsWith("/turns")
+        )
+      ).toBe(false)
+    }
+  )
+
   it("persists the admission key before a new task's receipt returns", async () => {
     let release!: () => void
     const admission = new Promise<void>((resolve) => {

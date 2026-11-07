@@ -34,9 +34,12 @@ RUN --mount=type=bind,target=/source \
 FROM dependencies AS build
 COPY --from=build-identity /linksense-build-id /linksense-build-id
 COPY scripts/application-build.mjs scripts/source-fingerprint.mjs scripts/
+COPY LICENSE LICENSE-EXCEPTIONS.md ATTRIBUTION.md TRADEMARK.md NOTICE ./
 ARG PRISMA_ENGINES_MIRROR
 ENV PRISMA_ENGINES_MIRROR=${PRISMA_ENGINES_MIRROR}
 COPY apps/api apps/api
+COPY apps/web/public/linksense-appicon.svg apps/web/public/linksense-appicon.svg
+COPY apps/web/src/index.css apps/web/src/index.css
 COPY apps/docs/docs apps/docs/docs
 COPY apps/docs/i18n/en-US/docusaurus-plugin-content-docs/current apps/docs/i18n/en-US/docusaurus-plugin-content-docs/current
 COPY packages/shared packages/shared

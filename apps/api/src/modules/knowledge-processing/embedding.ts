@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 
-import type { ModelTokenPricing } from "@linksense/shared"
+import { createModelProviderFetch, type ModelTokenPricing } from "@linksense/shared"
 import { z } from "zod"
 
 import { KnowledgeProcessingError } from "./errors.js"
@@ -88,9 +88,9 @@ export class EmbeddingClient {
       throw new KnowledgeProcessingError("KNOWLEDGE_EMBEDDING_RESPONSE_INVALID")
     }
     const baseUrl = config.baseUrl.replace(/\/+$/u, "")
-    this.endpoint = /\/v1$/iu.test(baseUrl)
-      ? `${baseUrl}/embeddings`
-      : `${baseUrl}/v1/embeddings`
+    const apiBaseUrl = /\/v1$/iu.test(baseUrl) ? baseUrl : `${baseUrl}/v1`
+    this.endpoint = `${apiBaseUrl}/embeddings`
+    this.fetcher = createModelProviderFetch(apiBaseUrl, fetcher)
     this.profileHash = createEmbeddingProfileHash(
       config.model,
       config.dimensions

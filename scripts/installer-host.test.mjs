@@ -46,6 +46,18 @@ preflight`, { DIR: dir })
   assert.equal(existsSync(path.join(dir, "mutated")), false)
 })
 
+test("a host without PTY support is rejected before creating installation state", t => {
+  const dir = directory(t)
+  const result = run(`${fn("preflight")}
+command() { case "$*" in '-v curl'|'-v cmp') return 0 ;; '-v script') return 1 ;; *) return 99 ;; esac; }
+host_use_saved_tools() { touch "$DIR/mutated"; }
+HOST_OS=Darwin
+preflight`, { DIR: dir })
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stderr, /LS_HOST_required_command.*script.*util-linux/u)
+  assert.equal(existsSync(path.join(dir, "mutated")), false)
+})
+
 for (const [value, status] of [["", 0], ["--max-old-space-size=1024", 0], ["bad value", 1], ["$(id)", 1]]) {
   test(`protected optional Node settings ${status === 0 ? "accept" : "reject"} ${JSON.stringify(value)}`, t => {
     const dir = directory(t)
@@ -856,18 +868,18 @@ for (const [behavior, attempts, status] of [["transient", 3, 0], ["permanent", 1
   test(`image pulling handles ${behavior} failures with bounded retries and retains verified cached images`, t => {
     const dir = directory(t)
     const result = run(`
-${fn("pull_image")}
 log() { :; }
 sleep() { :; }
 TMP_ROOT=$DIR
-pull_deadline=9999999999
-docker() { [ "$BEHAVIOR" = cached ]; }
-host_bounded() {
+LINKSENSE_IMAGE_MIRRORS=off
+docker() { [ "$BEHAVIOR" = cached ] || [ -f "$DIR/ready" ]; }
+host_pull_attempt() {
   echo call >> "$DIR/calls"
-  if [ "$BEHAVIOR" = permanent ]; then echo 'unauthorized' >&2; return 1; fi
-  if [ "$(wc -l < "$DIR/calls")" -lt 3 ]; then echo 'connection reset by peer' >&2; return 1; fi
+  if [ "$BEHAVIOR" = permanent ]; then echo 'unauthorized' > "$3"; return 1; fi
+  if [ "$(wc -l < "$DIR/calls")" -lt 3 ]; then echo 'connection reset by peer' > "$3"; return 1; fi
+  touch "$DIR/ready"
 }
-pull_image registry.example/image@sha256:fixture`, { DIR: dir, BEHAVIOR: behavior })
+host_pull_image registry.example/image@sha256:${"a".repeat(64)} 9999999999`, { DIR: dir, BEHAVIOR: behavior })
     assert.equal(result.status, status, result.stderr)
     assert.equal(existsSync(path.join(dir, "calls")) ? readFileSync(path.join(dir, "calls"), "utf8").trim().split("\n").length : 0, attempts)
   })

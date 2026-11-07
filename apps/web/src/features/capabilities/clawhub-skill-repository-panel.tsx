@@ -18,6 +18,7 @@ import {
 import { useTranslation } from "react-i18next"
 
 import { apiRequest } from "@/api/client"
+import { workspaceUiDemoQueryKey } from "@/features/ui-demo/workspace-ui-demo-mode"
 import {
   capabilityImportPreviewSchema,
   capabilitySummarySchema,
@@ -246,7 +247,7 @@ function ClawHubSkillDetailDialog({
 
   return (
     <Dialog open={item !== null} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel={t("common.close")} className="sm:max-w-2xl">
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         {item && (
           <>
             <DialogHeader>
@@ -414,7 +415,7 @@ function ClawHubInstallPreviewDialog({
 
   return (
     <Dialog open={state !== null} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel={t("common.close")} className="sm:max-w-2xl">
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         {state && preview && (
           <>
             <DialogHeader>
@@ -574,7 +575,14 @@ export function ClawHubSkillRepositoryPanel({
   ] satisfies Array<{ value: ClawHubSkillCatalogSort; label: string }>
 
   const catalog = useQuery({
-    queryKey: ["clawhub", "skills", normalizedSearch, sort, cursor],
+    queryKey: [
+      "clawhub",
+      "skills",
+      normalizedSearch,
+      sort,
+      cursor,
+      ...workspaceUiDemoQueryKey(),
+    ],
     queryFn: ({ signal }) =>
       apiRequest("/clawhub/skills", {
         query: {
@@ -785,7 +793,7 @@ export function ClawHubSkillRepositoryPanel({
                         type="button"
                         variant="ghost"
                         size="icon-sm"
-                        className="capability-library-more"
+                        className="rounded-md hover:bg-(--app-sidebar-action-hover) focus-visible:bg-(--app-sidebar-action-hover) active:bg-primary/15 aria-expanded:bg-(--app-sidebar-action-hover) data-popup-open:bg-(--app-sidebar-action-hover)"
                         aria-label={
                           previewPending
                             ? t("clawHub.preparing")

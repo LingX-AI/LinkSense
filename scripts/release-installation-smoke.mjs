@@ -301,7 +301,8 @@ export async function runInstallationSmoke({ assetDirectory, edition, reportDire
     const base = await serveAssets(assetDirectory)
     const socket = process.env.DOCKER_HOST ?? await docker(["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"])
     assert.ok(socket.startsWith("unix://"), "Installation tests require a local Unix socket")
-    const environment = { LINKSENSE_RELEASE_BASE_URL: base, LINKSENSE_VERSION: manifest.RELEASE_VERSION, LINKSENSE_INSTALL_DIR: installDirectory, LINKSENSE_HTTP_PORT: String(httpPort), CURL_CA_BUNDLE: caBundle, LINKSENSE_DOCKER_SOCKET_SOURCE: socket.slice(7), LINKSENSE_DOCKER_SOCKET_PATH: "/var/run/docker.sock" }
+    // Test the published origins; a public mirror must not mask a release that cannot be pulled.
+    const environment = { LINKSENSE_IMAGE_MIRRORS: "off", LINKSENSE_RELEASE_BASE_URL: base, LINKSENSE_VERSION: manifest.RELEASE_VERSION, LINKSENSE_INSTALL_DIR: installDirectory, LINKSENSE_HTTP_PORT: String(httpPort), CURL_CA_BUNDLE: caBundle, LINKSENSE_DOCKER_SOCKET_SOURCE: socket.slice(7), LINKSENSE_DOCKER_SOCKET_PATH: "/var/run/docker.sock" }
     async function entry(name, overrides = {}) {
       return run("sh", [path.join(root, name)], { env: { ...environment, ...overrides }, timeout: 1800000 })
     }

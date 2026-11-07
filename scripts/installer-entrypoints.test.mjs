@@ -90,6 +90,7 @@ test("the five release entry scripts download only their matching release entry"
     assert.doesNotMatch(source, /linksense-installer\.sh/u)
     assert.doesNotMatch(source, /LINKSENSE_INSTALL_(?:ACTION|EDITION)/u)
     assert.doesNotMatch(source, /--edition|select.*edition/iu)
+    if (filename.startsWith("install-")) assert.match(source, /--speed-limit 1024 --speed-time 30/u)
     execFileSync("sh", ["-n", path.join(root, filename)])
   }
   execFileSync("sh", [
@@ -156,6 +157,10 @@ test("bootstrap and bundled network diagnostics work before installation without
 case "$1" in -s) echo "$MOCK_OS" ;; -m) echo arm64 ;; *) exit 1 ;; esac
 `)
     await writeExecutable(path.join(bin, "id"), '#!/bin/sh\necho 501\n')
+    await writeExecutable(path.join(bin, "script"), `#!/bin/sh
+while [ "$1" != -c ]; do shift; done
+exec /bin/sh -c "$2"
+`)
     await writeExecutable(path.join(bin, "curl"), `#!/bin/sh
 printf 'curl %s\\n' "$*" >> "$MOCK_TRACE"
 target=
@@ -163,6 +168,8 @@ while [ "$#" -gt 0 ]; do
   case "$1" in -o) target=$2; shift 2 ;; *) url=$1; shift ;; esac
 done
 case "$url" in
+  https://ghcr.nju.edu.cn/v2/*) printf '200 0.100' ;;
+  https://ghcr.dockerproxy.net/v2/*) printf '200 0.200' ;;
   */linksense-host.sh) cp "$MOCK_HOST_HELPERS" "$target" ;;
   */install-core.sh|*/install-full.sh|*/repair-core.sh|*/repair-full.sh|*/upgrade.sh) cp "$MOCK_LEGACY_INSTALLER" "$target" ;;
   *)
@@ -173,7 +180,12 @@ esac
 `)
     await writeExecutable(path.join(bin, "docker"), `#!/bin/sh
 printf 'docker %s\\n' "$*" >> "$MOCK_TRACE"
-case "$1:$2" in pull:ghcr.io/*) exit "$MOCK_GHCR_STATUS" ;; info:*|pull:*) exit "$MOCK_DOCKER_STATUS" ;; *) exit 99 ;; esac
+case "$1:$2" in
+  pull:ghcr.io/*) exit "$MOCK_GHCR_STATUS" ;;
+  image:inspect) grep -Fqx "docker pull $3" "$MOCK_TRACE" ;;
+  info:*|pull:*) exit "$MOCK_DOCKER_STATUS" ;;
+  *) exit 99 ;;
+esac
 `)
     for (const scenario of [
       { os: "Darwin", curl: 0, docker: 0 },
@@ -182,6 +194,7 @@ case "$1:$2" in pull:ghcr.io/*) exit "$MOCK_GHCR_STATUS" ;; info:*|pull:*) exit 
       { os: "Darwin", curl: 28, docker: 0 },
       { os: "Darwin", curl: 0, docker: 1 },
       { os: "Darwin", curl: 0, docker: 0, ghcr: 1 },
+      { os: "Darwin", curl: 0, docker: 0, ghcr: 1, mirror: true },
       { os: "Darwin", curl: 0, docker: 0, invalid: "checksum" },
       { os: "Darwin", curl: 0, docker: 0, invalid: "image" },
       { os: "Darwin", curl: 0, docker: 0, invalid: "duplicate" },
@@ -214,6 +227,7 @@ case "$1:$2" in pull:ghcr.io/*) exit "$MOCK_GHCR_STATUS" ;; info:*|pull:*) exit 
           LINKSENSE_INSTALL_DIR: installDirectory,
           LINKSENSE_RELEASE_BASE_URL: "https://downloads.example/v0.1.0",
           LINKSENSE_CLI_LANGUAGE: "en-US",
+          LINKSENSE_IMAGE_MIRRORS: scenario.mirror ? "" : "off",
           MOCK_OS: scenario.os,
           MOCK_CURL_STATUS: String(scenario.curl),
           MOCK_DOCKER_STATUS: String(scenario.docker),
@@ -226,7 +240,7 @@ case "$1:$2" in pull:ghcr.io/*) exit "$MOCK_GHCR_STATUS" ;; info:*|pull:*) exit 
           MOCK_HOST_HELPERS: path.join(releaseDirectory, "linksense-host.sh"),
         },
       })
-      assert.equal(result.status, scenario.curl || scenario.docker || scenario.ghcr || scenario.invalid ? 1 : 0, result.stderr)
+      assert.equal(result.status, scenario.curl || scenario.docker || (scenario.ghcr && !scenario.mirror) || scenario.invalid ? 1 : 0, result.stderr)
       await assert.rejects(access(installDirectory))
       await assert.rejects(access(installerExecuted))
       const calls = await readFile(trace, "utf8")
@@ -246,6 +260,7 @@ case "$1:$2" in pull:ghcr.io/*) exit "$MOCK_GHCR_STATUS" ;; info:*|pull:*) exit 
       if (scenario.docker === 0 && scenario.curl === 0 && !scenario.invalid) {
         assert.match(calls, /docker pull docker.io\/library\/busybox@sha256:/u)
         assert.match(calls, /docker pull ghcr.io\/lingx-ai\/linksense-api@sha256:/u)
+        if (scenario.mirror) assert.match(calls, /docker pull ghcr\.nju\.edu\.cn\/lingx-ai\/linksense-api@sha256:/u)
       } else if (scenario.docker === 0) assert.match(calls, /docker pull hello-world:latest/u)
       else assert.doesNotMatch(calls, /docker pull/u)
       assert.doesNotMatch(calls, /docker pull --all-tags|docker pull ghcr.io\/untrusted/u)

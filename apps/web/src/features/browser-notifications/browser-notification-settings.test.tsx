@@ -97,11 +97,11 @@ describe("BrowserNotificationSettings", () => {
       name: "浏览器通知",
     })
     expect(
-      notificationSwitch.closest('[data-slot="settings-section-title-row"]')
+      notificationSwitch.closest('[data-slot="settings-card"]')
     ).toContainElement(notificationHeading)
-    expect(
-      notificationSwitch.closest('[data-slot="settings-section-title-action"]')
-    ).not.toBeNull()
+    expect(notificationSwitch).toHaveAccessibleDescription(
+      /通过当前浏览器通知/u
+    )
 
     expect(notificationSwitch).not.toBeChecked()
     expect(notificationApi.requestPermission).not.toHaveBeenCalled()
@@ -142,7 +142,7 @@ describe("BrowserNotificationSettings", () => {
       screen.getByText(/通过当前浏览器通知普通任务或自动化/u)
     ).toBeVisible()
     expect(screen.getByRole("switch", { name: "启用浏览器通知" })).toBeVisible()
-    expect(screen.queryByText(/^启用浏览器通知$/u)).not.toBeInTheDocument()
+    expect(screen.getByText(/^启用浏览器通知$/u)).toBeVisible()
     expect(screen.queryByText(/仅在此浏览器中生效/u)).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /测试通知/u })

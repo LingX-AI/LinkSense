@@ -24,6 +24,34 @@ const encryption = {
 };
 
 describe("FeishuRuntime", () => {
+  it("sends a proactive notice to the bound personal chat and rejects a different owner", async () => {
+    const connection = createConnection();
+    const repository = { findActiveConnection: vi.fn(async () => connection), findPeerSession: vi.fn(async () => ({ chatId: "verified-chat", senderOpenId: connection.ownerOpenId })) };
+    const coordinator = { acquireLease: vi.fn(async () => ({ key: "lease", token: "token" })), releaseLease: vi.fn(async () => undefined) };
+    const sendText = vi.fn(async () => undefined);
+    const runtime = new FeishuRuntime(repository as unknown as PrismaFeishuRepository, coordinator as unknown as RedisFeishuCoordinator, { sendText } as unknown as FeishuOfficialClient, {} as ConversationService, encryption, () => NOW);
+    const beforeSend = vi.fn(async () => undefined);
+    await runtime.sendNotification({ ownerId: OWNER_ID, connectionId: CONNECTION_ID, chatId: "verified-chat", text: "Result summary", idempotencyKey: DELIVERY_ID, beforeSend });
+    expect(sendText).toHaveBeenCalledWith(expect.objectContaining({ chatId: "verified-chat", text: "Result summary", idempotencyKey: DELIVERY_ID }));
+    sendText.mockClear();
+    await expect(runtime.sendNotification({ ownerId: "different-owner", connectionId: CONNECTION_ID, chatId: "verified-chat", text: "Result summary", idempotencyKey: DELIVERY_ID, beforeSend })).rejects.toThrow("FEISHU_UPSTREAM_REJECTED");
+    expect(sendText).not.toHaveBeenCalled();
+  });
+  it("does not send a notification revoked while waiting for the lifecycle lock", async () => {
+    const connection = createConnection();
+    const repository = { findActiveConnection: vi.fn(async () => connection), findPeerSession: vi.fn(async () => ({ chatId: "verified-chat", senderOpenId: connection.ownerOpenId })) };
+    let grantLease: ((lease: { key: string; token: string }) => void) | undefined;
+    const coordinator = { acquireLease: vi.fn(() => new Promise(resolve => { grantLease = resolve; })), releaseLease: vi.fn(async () => undefined) };
+    const sendText = vi.fn(async () => undefined);
+    const runtime = new FeishuRuntime(repository as unknown as PrismaFeishuRepository, coordinator as unknown as RedisFeishuCoordinator, { sendText } as unknown as FeishuOfficialClient, {} as ConversationService, encryption, () => NOW);
+    const beforeSend = vi.fn(async () => { throw new Error("delivery revoked"); });
+    const operation = runtime.sendNotification({ ownerId: OWNER_ID, connectionId: CONNECTION_ID, chatId: "verified-chat", text: "Private result", idempotencyKey: DELIVERY_ID, beforeSend });
+    expect(beforeSend).not.toHaveBeenCalled();
+    grantLease!({ key: "lease", token: "token" });
+    await expect(operation).rejects.toThrow("delivery revoked");
+    expect(beforeSend).toHaveBeenCalledOnce();
+    expect(sendText).not.toHaveBeenCalled();
+  });
   it("keeps an app pending and eligible for automatic recovery while approval is missing", async () => {
     const connection = createConnection();
     const repository = {

@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
+import type { AutomationNotificationService } from "./notifications.js";
 
 import {
   automationCreateInputSchema,
   automationUpdateInputSchema,
   errorCodeSchema,
+  readAutomationMonitoring,
   type Automation,
   type AutomationCompletionNotification,
   type AutomationCreateInput,
@@ -54,7 +56,10 @@ export class AutomationService {
     private readonly conversations: AutomationConversationGateway,
     private readonly audit: AuditService,
     private readonly now: () => Date = () => new Date(),
+    private readonly notifications?: AutomationNotificationService,
   ) {}
+
+  async listNotificationTargets(ownerId: string) { return this.notifications ? this.notifications.listTargets(ownerId) : { items: [] }; }
 
   async list(ownerId: string): Promise<{ items: Automation[] }> {
     return {
@@ -123,6 +128,9 @@ export class AutomationService {
     const expiresAt = input.expires_on
       ? parseExpiration(input.expires_on, schedule.time_zone)
       : null;
+    if (isAutomationExpired(expiresAt, anchorAt)) {
+      throw new AppError("AUTOMATION_EXPIRATION_IN_PAST");
+    }
     const nextRunAt = nextAutomationRunBeforeExpiration(
       schedule,
       anchorAt,
@@ -132,6 +140,10 @@ export class AutomationService {
     let createdConversationId: string | null = null;
 
     try {
+      if (input.notification_target) {
+        if (!this.notifications) throw new AppError("VALIDATION_ERROR");
+        await this.notifications.validateTarget(ownerId, input.notification_target);
+      }
       const conversationId =
         input.target.mode === "existing_task"
           ? input.target.conversation_id
@@ -148,6 +160,8 @@ export class AutomationService {
           ...(options?.creationId ? { id: options.creationId } : {}),
           ownerId,
           conversationId,
+          notificationTarget: input.notification_target,
+          ...(input.monitoring ? { monitoring: readAutomationMonitoring(input.monitoring) } : {}),
           title: input.title,
           instruction: input.instruction,
           status: "active",
@@ -208,6 +222,14 @@ export class AutomationService {
     let createdConversationId: string | null = null;
     try {
       const update: UpdateAutomationRecord = {};
+      if (input.monitoring) update.monitoring = { ...readAutomationMonitoring(existing.monitoring), ...input.monitoring };
+      if (input.notification_target !== undefined) {
+        if (input.notification_target) {
+          if (!this.notifications) throw new AppError("VALIDATION_ERROR");
+          await this.notifications.validateTarget(ownerId, input.notification_target);
+        }
+        update.notificationTarget = input.notification_target;
+      }
       if (input.title !== undefined) update.title = input.title;
       if (input.instruction !== undefined)
         update.instruction = input.instruction;
@@ -250,13 +272,23 @@ export class AutomationService {
         update.expiresAt = expiresAt;
       }
 
+      // Historical expired plans remain editable unless their expiration changes.
+      if (
+        (input.expires_on !== undefined || input.schedule !== undefined) &&
+        expiresAt?.getTime() !== existing.expiresAt?.getTime() &&
+        isAutomationExpired(expiresAt, now)
+      ) {
+        throw new AppError("AUTOMATION_EXPIRATION_IN_PAST");
+      }
+
       const nextStatus = input.status ?? existing.status;
       if (nextStatus === "paused") {
         update.nextRunAt = null;
       } else if (
         input.schedule ||
         input.expires_on !== undefined ||
-        existing.status === "paused"
+        existing.status === "paused" ||
+        (input.monitoring !== undefined && existing.nextRunAt === null)
       ) {
         update.nextRunAt = nextAutomationRunBeforeExpiration(
           schedule,
@@ -388,6 +420,15 @@ export class AutomationService {
     try {
       if (isAutomationExpired(claim.automation.expiresAt, this.now())) {
         throw new AppError("AUTOMATION_EXPIRED");
+      }
+      if (claim.run.executionContext?.context_mode === "fresh_task") {
+        await this.conversations.createPinnedConversation(
+          claim.automation.ownerId,
+          claim.automation.title,
+          undefined,
+          claim.run.conversationId,
+          claim.run.executionContext.target_conversation_id ?? claim.automation.conversationId,
+        );
       }
       const conversation = await this.repository.findPinnedConversation(
         claim.automation.ownerId,
@@ -603,6 +644,8 @@ function projectAutomation(
   }
   return {
     id: record.id,
+    notification_target: record.notificationTarget ?? null,
+    monitoring: publicMonitoring(record),
     title: record.title,
     instruction: record.instruction,
     status: record.status,
@@ -628,6 +671,18 @@ function projectAutomation(
         : null,
     created_at: record.createdAt.toISOString(),
     updated_at: record.updatedAt.toISOString(),
+  };
+}
+
+function publicMonitoring(record: AutomationRecord): NonNullable<Automation["monitoring"]> {
+  const monitoring = readAutomationMonitoring(record.monitoring);
+  return {
+    stop_condition: monitoring.stop_condition,
+    max_runs: monitoring.max_runs,
+    context_mode: monitoring.context_mode,
+    automatic_run_count: monitoring.automatic_run_count,
+    stop_reason: monitoring.stop_reason,
+    last_run_conversation_id: monitoring.last_run_conversation_id,
   };
 }
 

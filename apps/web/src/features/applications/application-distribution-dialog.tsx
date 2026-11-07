@@ -7,7 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Separator } from "@/components/ui/separator"
+import { cn } from "@/lib/utils"
 import { ApplicationSharingPanel } from "./application-sharing-panel"
 import { ApplicationCenterSubmissionPanel } from "./application-center-submission-panel"
 
@@ -31,10 +31,14 @@ export function ApplicationDistributionDialog({
       }}
     >
       <DialogContent
-        className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
+        variant="workspace"
+        className={cn(
+          "flex flex-col gap-0 overflow-hidden p-0",
+          mode === "direct" && "sm:max-w-200"
+        )}
         closeLabel={t("common.close")}
       >
-        <DialogHeader className="shrink-0 px-6 py-5 pr-14">
+        <DialogHeader className="shrink-0 px-6 pt-6">
           <DialogTitle>
             {t(
               mode === "direct"
@@ -42,11 +46,10 @@ export function ApplicationDistributionDialog({
                 : "applications.distribution.applyListing"
             )}
           </DialogTitle>
-          <DialogDescription className="text-[length:var(--app-font-13)] leading-5 break-words">
+          <DialogDescription className="break-words">
             {application.name}
           </DialogDescription>
         </DialogHeader>
-        <Separator />
         {mode === "direct" ? (
           <ApplicationSharingPanel
             application={application}

@@ -1,677 +1,340 @@
 <p align="center">
-  <img src="apps/web/public/attribution/linksense-mark.svg" alt="LinkSense" width="180">
+  <img src="./apps/web/public/attribution/linksense-mark.svg" alt="LinkSense" width="180">
+</p>
+
+<h2 align="center">
+  Open-source agentic work platform for organizations.<br>
+  <sub>An enterprise-grade, open-source WorkBuddy alternative.</sub>
+</h2>
+
+<p align="center">
+  English | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
 <p align="center">
-  <strong>Open-source agentic work platform for organizations.</strong>
+  <a href="https://linksense.guygubaby.top/doc/"><img src="https://img.shields.io/badge/Website-LinkSense-2563EB?style=flat-square" alt="LinkSense documentation"></a>
+  <a href="https://explore.linksense.org/"><img src="https://img.shields.io/badge/Live_Demo-Try_Now-16A34A?style=flat-square" alt="Live demo"></a>
+  <a href="mailto:hello@linksense.org"><img src="https://img.shields.io/badge/Contact-Email-7C3AED?style=flat-square" alt="Contact the team"></a>
 </p>
 
-English | [简体中文](./README.zh-CN.md)
+<p align="center">
+  LinkSense is an open-source agentic work platform for organizations, deployed on your servers or private cloud.<br>
+  Administrators deploy the platform; members have their own AI workspaces to run tasks and share Knowledge, Skills, Plugins, and Applications within their permissions.<br>
+  The platform manages access and credentials centrally, so members can use authorized system connections without receiving the underlying credentials.<br>
+  Each user's dedicated Worker provides user-level runtime isolation with configurable CPU and memory limits.
+</p>
 
-Give everyone in your organization a Codex-powered AI agent — deployed on your infrastructure, with the models you choose.
+<p align="center">
+  <a href="#why-use-linksense">Features</a> · <a href="#choose-a-deployment">Deployments</a> · <a href="#deployment-and-integration-services">Deployment services</a> · <a href="#quick-installation">Quick installation</a> · <a href="#development">Development</a><br>
+  <a href="#security">Security</a> · <a href="#documentation">Documentation</a> · <a href="#community-and-support">Community and support</a> · <a href="#license">License</a>
+</p>
 
-[Live Demo](https://explore.linksense.org/) · [Agent Setup](#one-line-agent-setup) · [Quick Start](#quick-start) · [How it works](#organizational-capabilities) · [Architecture](#architecture) · [Build with LinkSense](#build-with-linksense)
+## Why Use LinkSense
 
-https://github.com/user-attachments/assets/5b61e639-e222-42eb-8e9a-536905d659e0
+- **Agent execution and deliverables** — Powered by the open-source Codex runtime, agents research web sources, operate browsers, run code, analyze data, and process files in each user's Worker to produce documents, spreadsheets, presentations, and other results.
+- **Reusable knowledge and expertise** — Knowledge libraries support document parsing, indexing, and retrieval. Skills and Plugins package working methods and tool integrations as installable resources with version maintenance, review, and publishing.
+- **Ready-to-use applications** — Preconfigure instructions, models, and resources as online application services. Authorized members install a service and start their own tasks without configuring each resource. Chat and custom interfaces are supported; application packages create personal copies that may need credential and resource configuration.
+- **Business system connections** — Connect documents and email through connectors, and integrate ERP, CRM, and other business systems through MCP as needed. Agents read data and perform operations within configured permissions.
+- **Organizational access and governance** — Grant access to users and groups; manage members, model credentials, and allowances centrally, with usage reporting and operational audit records.
+- **Self-hosting and model choice** — Run on your servers or private cloud, connect compatible hosted or local model services, and store task records, files, Knowledge indexes, and credentials on your infrastructure.
+- **Messaging and scheduled tasks** — Start tasks through Web, WeChat, Feishu, WeCom, DingTalk, or Microsoft Teams, or schedule tasks to run automatically.
 
-<p align="center"><em>Open-source, self-hosted WorkBuddy alternative for organizations.</em></p>
+## Choose a deployment
 
----
+LinkSense provides **Core** and **Full** deployment profiles in the same repository. They differ in whether they include built-in Knowledge services, not in whether they are free or paid.
 
-## Why LinkSense
+| Profile | Includes | When to choose it |
+| --- | --- | --- |
+| **Core** | Complete agent workspace, Skills, Plugins, MCP, Application sharing, and organizational management | **Personal evaluation or organizations without built-in Knowledge needs:** browse the web, run code, analyze data, process files, and share Skills and Applications. |
+| **Full** | Everything in Core, plus built-in Knowledge document parsing, indexing, and retrieval | **Organizations that need built-in Knowledge:** turn organizational documents into searchable, reusable knowledge libraries. |
 
-### Codex-powered agents that get work done
-Give every user a full agentic workspace to research, browse, run code, analyze data, work with files, and create documents and artifacts.
+### Start with Core for evaluation; choose Full when you need built-in Knowledge.
 
-### Your infrastructure. Your models.
-Deploy LinkSense on your own servers or private cloud. Use OpenAI, Anthropic, Gemini, DeepSeek, Qwen, or your own local LLM.
+The complete Core and Full installation workflows are below, without a separate installation page.
 
-### Fully open source — including enterprise capabilities
-Users, groups, Knowledge, Skills, Plugins, MCP, Applications, governance, and more are part of the open-source platform — not locked behind an enterprise edition.
+LinkSense supports centralized organizational management, permission-based sharing, and work across multiple members. Administrators manage resource access for users and groups, models, credentials, and allowances, and review usage and audit records. Members across departments work in their own AI workspaces and share reviewed Skills, Applications, and Knowledge within their permissions.
 
-### Built for the whole organization
-Centrally manage access, models, knowledge, credentials, and capabilities. What works for one person can be shared, governed, and reused across teams.
+**For organizational Full deployments, start planning with 16 vCPU, 32 GiB memory, and 200 GiB free SSD**, preferably on Linux with Docker. This is a planning reference for external model APIs, not a fixed user or concurrency limit.
 
+Before a large rollout, test representative tasks and budget for **peak active users, concurrent tasks, document volume, and OCR workloads**. Hardware upgrades do not automatically increase task concurrency; see [Operations, repair, and upgrades](#9-operations-repair-and-upgrades) below. Plan separately for local models and GPUs.
 
----
+Full deployments on x86_64 hosts or VMs must expose `x86-64-v2`; this x86 requirement does not apply to native ARM64. See [Check the host](#2-check-the-host) below.
 
-## One-Line Agent Setup
+## Deployment and integration services
 
-Give Codex, Claude Code, Cursor, Windsurf, or another coding agent this prompt:
+LinkSense supports self-hosting. For organizations that want implementation assistance, the LinkSense team provides **private deployment and business system integration services**. Our forward-deployed engineers (FDEs) can work with your IT and business teams to clarify requirements, connect existing systems, configure access, and validate representative workflows.
+
+**Need deployment or integration assistance?** Email [hello@linksense.org](mailto:hello@linksense.org) with your environment, expected usage, and the systems you want to connect so we can discuss the implementation scope.
+
+## Quick installation
+
+**Supports Linux and macOS on x86_64 / ARM64. This workflow does not provide native Windows installation steps.**
+
+This workflow keeps Core / Full selection, host checks, installation, first-time setup, and the first task on one page. The installer downloads released images and starts the services without a source checkout or local compilation.
+
+### Option 1: Install with a coding agent
+
+**The installation guide in this prompt defaults to Core.** Give Codex, Claude Code, Cursor, Windsurf, or another coding agent this prompt:
 
 ```text
 Help me install and start LinkSense by following https://raw.githubusercontent.com/LingX-AI/linksense/main/Install.md
 ```
 
-The [agent installation guide](./Install.md) defaults to the released Core images,
-checks the host and both network channels, preserves existing installations, and
-reports the actual launch result. Add “for local source development” to the prompt
-if you want a cloned development workspace instead. Model credentials are configured
-in the administration UI after startup; the agent does not need to read your secrets.
+The assistant checks the installation environment, preserves existing installations, and reports the actual launch result.
 
-## Quick Start
+For Full, explicitly request `LinkSense Full`. The agent must report the observed address and health state; downloading the installer alone does not establish success.
 
-Two deployment profiles ship from the same repository:
+### Option 2: Manual installation
 
-**Core** — AI workspace + organizational capability platform
-**Full** — Core + complete document processing and Knowledge retrieval
+#### 1. Choose an edition and confirm resources
 
-### Running the Application
-
-#### Deployment Sizing
-
-Use this table as a practical starting point. The recommended column leaves room
-for builds, browser tools, document processing, and other services on the host;
-it is a planning suggestion, not a measured user-capacity guarantee.
-
-| Deployment target | Starting point | Recommended | Notes |
+| Scenario | CPU | Memory available to Docker | Free SSD |
 | --- | --- | --- | --- |
-| Core evaluation | 4+ vCPU, 8+ GiB memory, 60+ GiB free SSD | 8 vCPU, 16 GiB, 100 GiB free SSD | A fresh installation defaults to one concurrent conversation. |
-| Core shared server | 8 vCPU, 16 GiB memory, 120 GiB free SSD | 16 vCPU, 32 GiB, 200 GiB free SSD | Each active user Worker has a default 4 GiB memory limit; size concurrency separately. |
-| Full (new installation) | 8+ vCPU, 10+ GiB memory, 120+ GiB free SSD | 16 vCPU, 32 GiB, 200 GiB free SSD | The minimum permits memory overcommit; OCR, large documents and concurrent tasks need extra headroom. |
-| Docker source development / `pnpm dev` | 8 vCPU, 24 GiB memory, 120 GiB free SSD | 16 vCPU, 32 GiB, 200 GiB free SSD | Builds and runs the development stack, including Knowledge services and task Workers. |
+| Core evaluation | 4 vCPU | 8 GiB | 60 GiB |
+| Fresh Full installation | 8 vCPU | 10 GiB installer hard preflight; plan 24 GiB | 120 GiB |
+| Full organization planning baseline | 16 vCPU | 32 GiB | 200 GiB |
 
-These numbers cover LinkSense with externally hosted model APIs. Size a local LLM
-and its GPU separately. Prefer Linux with Docker for a persistent shared server;
-macOS with Docker Desktop is suitable for evaluation and development when its VM
-has enough resources. A 16 GiB Mac should start with Core.
+These figures assume external model APIs and do not establish a fixed concurrency or user limit. Plan local model GPU, VRAM, and compute separately.
 
-The memory check reads the memory actually available to Docker Engine. With Docker
-Desktop, this is the VM allocation, rather than the host's total RAM. An 8 GB
-allocation can report less than 8 GiB of usable memory. Adjust Settings → Resources
-→ Advanced → Memory limit, then apply the changes and restart Docker Desktop;
-allocate at least 10–12 GB for Core and leave room
-above Full's 10 GiB usable-memory minimum. Full warns when combined service
-limits exceed available memory and continues without reducing those limits;
-this is not a peak-memory guarantee. Existing installations retain their resource
-settings during repair and upgrade. Plan capacity for workload peaks separately.
-See [Deployment reference](#deployment-reference) for the full list.
-See [Installer host adaptation](deploy/release/HOST-ADAPTATION.md) for automatic tool setup,
-resource profiles, CPU compatibility mode, proxies, and safe recovery.
+#### 2. Check the host
 
-> **Before installing Full in an x86_64 VM, confirm that the guest CPU supports `x86-64-v2`.** Host support alone does not mean those features are exposed to the guest. See [Virtual machine CPU requirements](#virtual-machine-cpu-requirements) for checks and CPU settings.
+Linux uses Docker Engine and the Compose plugin; follow the [official Docker guide](https://docs.docker.com/get-docker/) to install and start them. On macOS, complete the steps below before checking the host.
 
-#### Option 1: Released Docker images (recommended)
+##### Install and configure Docker Desktop on macOS
 
-No source checkout, host Node.js, or pnpm is needed. The installer starts the
-application after checking the host; Docker must already be installed and running.
+Docker Desktop provides the Docker Engine, command-line tools, and Compose together. You do not need to create containers manually; the LinkSense installer does that after these checks.
 
-##### Linux
+1. Open **Apple menu → About This Mac** to check the chip and installed memory. Download the matching **Apple silicon** or **Intel** edition from the [Docker Desktop for Mac installation page](https://docs.docker.com/desktop/setup/install/mac-install/).
+2. Open the downloaded `Docker.dmg`, drag **Docker** into **Applications**, then open **Applications → Docker**. Complete the first-run prompts and wait until Docker Engine is running.
+3. In Docker Desktop, select the gear icon to open **Settings → Resources → Advanced**. This is the **Advanced** section under **Resources**, not the separate top-level Advanced settings. Configure:
 
-```bash
-# Core
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh && sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
-
-# Full
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh && sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-full.sh
-```
-
-Open the address printed by the installer (default: `http://<server-address>:18081`).
-
-The Linux commands preserve only proxy environment variables through `sudo`, so
-the bootstrap uses the same terminal proxy as curl. If sudo policy denies this,
-ask the host administrator to configure the elevated environment's proxy.
-
-##### macOS
-
-```bash
-# Core: execute only after the download succeeds; do not use sudo
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh && sh install-core.sh
-
-# Full
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
-  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh && sh install-full.sh
-```
-
-Open the address printed by the installer (default: `http://localhost:18081`).
-
-Configure terminal downloads and Docker image pulls separately. See the
-[network and proxy guide](deploy/release/HOST-ADAPTATION.md#network-and-proxies)
-for Docker PATH discovery, HTTP/SOCKS5 ports, mirrors and network diagnostics.
-
-To inspect the script first, run only the download part of the matching command
-above, open the file with `less install-core.sh` (or `less install-full.sh`), then
-execute it using the command for your OS.
-
-The installer validates the host before writing persistent state and generates
-runtime secrets automatically. Initialization steps are listed below.
-
-Linux stores deployment files under `/opt/linksense`; macOS uses `~/.linksense`.
-
-A domain and HTTPS are optional for local startup. Public deployments should place an
-HTTPS reverse proxy in front of port `18081`.
-
-#### Option 2: Docker source development
-
-For code changes, follow [Local Development](#local-development) for prerequisites,
-startup commands, and development ports. For image builds, see
-[Building from Source with Docker](#building-from-source-with-docker).
-
-#### After startup
-
-1. Open the printed address and use the initialization credential to create the
-   first administrator. Store the credential privately.
-2. Configure a model provider in administration, then verify both a short chat
-   and a task that uses tools. A healthy deployment does not prove model compatibility.
-3. Use [Command-line management](#command-line-management) for a release
-   installation, or [Local Development](#local-development) for source watching
-   and development lifecycle commands.
-
-### Not ready to install?
-
-Open a [Discussion](../../discussions) and tell us what you are trying to do — we read
-all of them. If you are evaluating LinkSense for an organization, we are working with a
-small number of early design partners and will help you deploy: `hello@linksense.org`.
-
----
-
-## Organizational Capabilities
-
-LinkSense gives every user their own AI workspace — and provides the organizational layer
-for turning what individuals build into capabilities that can be shared, governed, and
-reused across teams.
-
-| Capability object | Organizational role |
+| Docker Desktop setting | What to enter |
 | --- | --- |
-| **Knowledge Bases** | Make organizational context available to AI with controlled access |
-| **Skills** | Turn effective ways of working into reusable capabilities |
-| **MCP Servers** | Connect AI to organizational systems and actions |
-| **Plugins** | Package Skills and MCP integrations for reviewed distribution |
+| **CPU limit** / **CPUs** | At least **4** for Core or **8** for Full, if the Mac has enough CPU cores. |
+| **Memory limit** | Start with **10–12 GB** for Core. For Full, plan **24 GB or more** and leave additional memory for macOS and other applications. A 16 GB Mac should start with Core; a 32 GB or larger Mac is a better starting point for Full. |
+| **Disk usage limit** | Allow enough capacity for existing Docker data plus at least **60 GiB free** for Core or **120 GiB free** for Full. The Mac's storage must also have that free space. |
 
-These capabilities can start with an individual and become reusable across the organization.
-
-<p align="center">
-  <img src="./docs/diagrams/organizational-capability-lifecycle.svg" alt="Personal Workspace → Create &amp; Test → Organizational Capability. Release → Review → Publish; Authorize → Users / Groups; Connect → Systems. All paths lead to Shared &amp; Reusable." width="680" />
-</p>
-
-Skills and Plugins can move from personal development to immutable releases,
-administrative review, organizational publishing, installation, and explicit updates.
-
-Knowledge Bases can be authorized to selected users and groups. MCP connections and
-credentials remain separately managed, allowing AI capabilities to connect to
-organizational systems without distributing underlying credentials to every user.
-
-**Delegated execution, not credential sharing.**
-
-### Applications — turn capabilities into experiences for others
-
-Applications are where these capabilities come together.
-
-An Application combines maintained instructions and model configuration with
-organizational Knowledge, Skills, Plugins, and MCP connections, then makes that
-experience available to authorized users and groups.
-
-<p align="center">
-  <img src="./docs/diagrams/application-composition.svg" alt="Instructions and Model configuration combine with Knowledge Bases, Skills, Plugins, and MCP Servers in an Application. Authorized Users / Groups start each user&#x27;s own Task." width="960" />
-</p>
-
-For example:
-
-<p align="center">
-  <img src="./docs/diagrams/finance-application.svg" alt="Finance Knowledge + Finance Skill + ERP Integration → Finance Application → Finance Team." width="900" />
-</p>
-
-Users don't need to reconstruct the underlying setup themselves. They open an authorized
-Application and start their own Task with the maintained capabilities already composed
-for that use case.
-
-Applications are **not autonomous agents**. They are reusable AI work entry points. Each
-authorized user starts and owns their own Task, while the Application provides the
-maintained configuration and organizational capabilities behind the experience.
-
-Applications can also provide controlled access to creator-maintained Knowledge and MCP
-capabilities without giving users direct management access or exposing underlying
-credentials through normal LinkSense interfaces.
-
-LinkSense adds identity, ownership, user/group authorization, publishing and review,
-credential management, model management, usage, audit, and runtime operations around
-these capabilities.
-
-Together, they form **the open capability layer between frontier AI and the organization.**
-
-<p align="center">
-  <img src="./docs/diagrams/open-capability-layer.svg" alt="Frontier AI, Models, and Codex feed LinkSense: Personal AI Workspace; organizational Knowledge Bases, Skills, MCP Servers, Plugins, and Applications; identity, sharing, governance, credentials, runtime, and operations. LinkSense connects People with Data and Systems." width="840" />
-</p>
-
----
-
-## Built on the Open-source Codex Runtime
-
-LinkSense runs the open-source Codex runtime inside its own managed Workers. It does not
-depend on the Codex web application or a LinkSense-hosted Codex service.
-
-LinkSense directly runs the official `@openai/codex` package through:
+4. Select **Apply & Restart** and wait for Docker Engine to restart. Restarting Docker temporarily stops other running local containers, so save any work first.
+5. Reopen Terminal if necessary and run the following check. Run LinkSense installation commands as your current macOS account, without `sudo`.
 
 ```bash
-codex app-server --stdio
+docker info --format '{{.NCPU}} {{.MemTotal}}' |
+  awk '{printf "CPUs=%s\nDocker memory=%.2f GiB\n", $1, $2 / 1024 / 1024 / 1024}'
 ```
 
-and communicates with it through the Codex app-server JSON-RPC protocol.
+Example output for Core; the actual numbers depend on your Mac:
 
-The Codex runtime executes inside the LinkSense deployment. Model inference is configured
-separately: organizations can connect the model providers or compatible private endpoints
-they choose.
+```text
+CPUs=4
+Docker memory=10.00 GiB
+```
 
-LinkSense does **not** fork Codex, patch its source, or reimplement the agent loop.
+Core needs at least **8 GiB reported by Docker Engine**. Full must satisfy the selected release's preflight requirement; the current documented floor is **10 GiB**, while the recommended capacity above is higher. The value in Docker Desktop's slider is an allocation limit, not necessarily the memory reported by the Engine. Increase it and restart again if the check or installer reports insufficient memory.
 
-| Codex | LinkSense |
-| --- | --- |
-| Agent reasoning and Turns | Organizational workspace |
-| Native tools and execution | Identity, sharing, and governance |
-| Skills and Plugins | Publishing and organizational lifecycle |
-| Models and sub-agents | Applications, Knowledge, and MCP management |
-| Sandbox semantics | Workers, persistence, usage, and operations |
+**Disk usage limit is a maximum, not a free-space reading.** Include existing image and container usage when choosing it. Do not lower an existing disk limit just to match this guide, reset Docker, or delete volumes to pass a check; these actions can remove existing containers, images, and data. See [Docker Desktop resource settings](https://docs.docker.com/desktop/settings-and-maintenance/settings/#advanced) for the controls.
 
-> **Codex decides how the agent executes. LinkSense decides what it can access, where it
-> runs, how capabilities are shared and governed, and how execution is persisted and
-> operated.**
+##### Verify the host
 
-The Codex runtime is licensed by OpenAI under Apache-2.0 and ships unmodified; its
-`NOTICE` file travels with our images. See
-[THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md).
+After Docker is running, run:
 
-*Codex is a trademark of OpenAI. LinkSense is an independent project and is not
-affiliated with, sponsored by, or endorsed by OpenAI.*
+```bash
+uname -s
+uname -m
+docker version
+docker compose version
+docker info --format 'CPUs={{.NCPU}} MemoryBytes={{.MemTotal}} DockerRoot={{.DockerRootDir}}'
+curl --version
+df -h
+```
 
----
+Confirm that:
 
-## Open Source. Self-hosted. Under Your Control.
+- The system is `Linux` or `Darwin`, and the architecture is `x86_64`, `aarch64`, or `arm64`.
+- Docker reports a **Server** section with **API version ≥ 1.45**.
+- Docker Compose is **≥ 2.24.4**.
+- `curl` prints its version, and disk plus Docker VM resources meet the selected edition.
 
-Run the complete platform on your own servers, private cloud, or VPC. Inspect the source,
-modify the platform, choose your models and integrations, and operate the environment on
-infrastructure you control. There is no required closed enterprise runtime,
-LinkSense-operated cloud control plane, or online license activation heartbeat.
+If `docker` is not found, reopen Terminal after Docker Desktop has finished its initial setup. If there is no Server section or the daemon cannot be reached, open Docker Desktop and wait for the Engine to start before retrying.
 
-With private models, local Knowledge, and local MCP services, prompts, files, Task state,
-Knowledge indexes, credentials, audit records, and results can remain inside
-infrastructure you control.
-
-Configured external services may still make external network calls, so LinkSense describes
-itself as **self-hosted and private-network friendly**, not formally air-gapped.
-
-**Models:** OpenAI · Azure OpenAI · Anthropic · Google / Vertex · Alibaba · DeepSeek ·
-OpenRouter · OpenAI-compatible endpoints
-
-For internal deployment exceptions, attribution requirements, and branding permissions,
-see [License](#license).
-
----
-
-## Architecture
-
-<p align="center">
-  <img src="./docs/diagrams/system-architecture.svg" alt="Browser → Gateway / Nginx → Web and API. API connects to PostgreSQL, Redis, MinIO, BullMQ, and the Full Knowledge Stack, and uses authenticated HTTP to control Runner. Runner uses Docker Engine to manage a per-user Worker with shared user workspaces and CODEX_HOME, official Codex app-server, model gateway, MCP, and Chromium / Playwright." width="960" />
-</p>
-
-### Worker model
-
-LinkSense dynamically manages one Docker Worker per active user.
-
-Multiple Tasks belonging to the same user may reuse that Worker and share the user's
-`HOME` and `HOME/.codex` (`CODEX_HOME`). Tasks without a project share `workspace`;
-Tasks in the same project share `projects/<projectId>`. Task control data is stored
-separately for each Task.
-
-**The isolation boundary is the user's Worker, rather than individual Task directories.**
-Ordinary execution Tasks can access the same user's other project and Task files.
-
-Inactive Workers are reclaimed. Per-user package environments can persist across
-reclamation, while generated artifacts persist independently in object storage.
-
-Worker controls include configurable CPU/memory/PID limits, read-only root filesystems,
-`no-new-privileges`, dropped Linux capabilities, non-privileged containers, non-root Task
-processes, and separate control and egress networks.
-
-Workers do not directly join PostgreSQL or Redis service networks. Internet egress is
-currently allowed; LinkSense does not enforce a universal domain allowlist or deny-all
-egress policy.
-
-Ordinary execution uses Codex's `approvalPolicy: never` and full-access sandbox policy,
-without per-command approval. If prompt injection in a webpage, uploaded file or tool
-response successfully induces command execution, it can lead to reading, modifying or
-exfiltrating that user's shared files. Plan mode uses a read-only sandbox with network
-access disabled; it does not change ordinary execution permissions.
-
-The application does not block cloud metadata addresses by default. Cloud deployments
-should restrict metadata access and outbound traffic through network or instance
-configuration, and grant instance roles only the permissions they need. The controller
-also holds the Docker socket and must be treated as a trusted management component;
-Task Workers do not mount that socket. See [Execution boundaries](./.github/SECURITY.md#execution-boundaries).
-
-### Execution path
-
-Real-time Tasks normally follow:
-
-<p align="center">
-  <img src="./docs/diagrams/realtime-execution-path.svg" alt="Normal real-time execution: User → API, which persists Task / PendingRequest → Runner → Per-user Worker → Codex." width="960" />
-</p>
-
-They do not normally enter BullMQ before execution.
-
-BullMQ primarily handles Automations, scheduled/background jobs, worker maintenance,
-recovery, email, billing, Knowledge synchronization and processing, and cleanup.
-
-### Event delivery
-
-<p align="center">
-  <img src="./docs/diagrams/event-delivery.svg" alt="Codex → Worker → Runner mapping / redaction → Durable event outbox → API → PostgreSQL → Redis Pub/Sub → SSE → Browser." width="680" />
-</p>
-
----
-
-## Build with LinkSense
-
-LinkSense provides three primary extension paths without requiring changes to LinkSense
-source.
-
-### Build a Skill
-
-Teach AI reusable methods, workflows, domain practices, scripts, references, and
-supporting resources using the native Codex Skill format.
-
-<p align="center">
-  <img src="./docs/diagrams/skill-directory-structure.svg" alt="my-skill/ contains SKILL.md, agents/openai.yaml, scripts/, references/, and assets/." width="600" />
-</p>
-
-Skills can be discovered natively by Codex or explicitly selected by users and Applications.
-
-### Build an MCP-backed Plugin
-
-Connect external systems and APIs through MCP, then package MCP declarations together with
-Skills and supporting resources.
-
-<p align="center">
-  <img src="./docs/diagrams/plugin-package-structure.svg" alt="Plugin contains Skills, MCP declarations, scripts / resources, and .codex-plugin/plugin.json." width="339" />
-</p>
-
-For CRM, ERP, SaaS, monitoring systems, and internal APIs, MCP is generally the
-recommended integration boundary.
-
-Credentials remain separate from Plugin packages.
-
-### Build an Interactive Application
-
-Build purpose-specific interfaces and workflows on top of authorized LinkSense capabilities.
-
-Interactive Applications are packaged with `manifest.json`, HTML, JavaScript, CSS, and
-assets, and run inside sandboxed iframes.
-
-Their SDK can request explicitly permitted capabilities such as user profile access,
-capability discovery, Knowledge Base access, MCP Server discovery, and Task creation.
-
-Interactive Applications are separate from normal Applications, which are primarily
-configuration and capability-composition objects.
-
----
-
-## Deployment reference
-
-### Requirements
-
-For CPU, memory, and disk sizing by deployment scenario, see
-[Deployment Sizing](#deployment-sizing).
-
-- Linux: x86_64 or ARM64 with the required Docker/kernel capabilities, including Ubuntu, Debian, Deepin, Fedora, RHEL, Rocky Linux, AlmaLinux, and CentOS
-- macOS: Intel or Apple Silicon with Docker Desktop
-- Release images support `linux/amd64` and `linux/arm64`
-- Docker Engine API v1.45+
-- Docker Compose v2.24.4+
-- `curl`
-- TCP port `18081` available by default
-
-### Virtual machine CPU requirements
-
-Full's RAG Knowledge Base components (Elasticsearch and Docling) require the Docker Engine host or VM to expose at least `x86-64-v2` CPU features on `x86_64` / `amd64`. The current [Docling v1.36.0 upstream image](https://github.com/docling-project/docling-serve/blob/v1.36.0/Containerfile) uses CentOS Stream 9, which has an [x86-64-v2 baseline](https://blog.centos.org/2023/08/centos-isa-sig-performance-investigation/). Elasticsearch's CPU requirements depend on its version and base image. This x86 instruction-set requirement does not apply to native ARM64 deployments.
-
-Generic virtual CPU modes can mask features supported by the physical host. CPU model, age, vCPU count, and `uname -m` alone do not establish compatibility. Run these checks **inside the Linux VM that actually runs Docker Engine**:
+A Full x86_64 host must also run the commands below inside the Linux host or VM that will run Elasticsearch and Docling, not the macOS Terminal. On an Intel Mac, the installer checks the CPU features inside Docker Desktop's Linux VM:
 
 ```bash
 LC_ALL=C lscpu
 grep -m1 '^flags' /proc/cpuinfo
 ```
 
-In addition to the x86-64 baseline, CPU flags must include `cx16`, `lahf_lm`, `popcnt`, `ssse3`, `sse4_1`, `sse4_2`, and SSE3 (usually shown as `pni` on Linux, or `sse3`). Checking only `sse4_1` and `popcnt` does not establish full `x86-64-v2` support.
+Confirm the flags include `cx16`, `lahf_lm`, `popcnt`, `ssse3`, `sse4_1`, `sse4_2`, and `pni` (or `sse3`). If they are missing, change the virtual CPU mode first.
 
-Release install, repair, and upgrade scripts automatically check the CPU flags visible to Docker for Full on `linux/amd64`. They report missing features and exit before changing runtime configuration, creating data volumes, or stopping existing services. The check uses the release manifest's digest-pinned BusyBox image, which may need to be pulled on first use. Its temporary container is read-only, has no network or data-volume mounts, and is automatically removed on exit.
+#### 3. Download the installer and check networking
 
-This preflight ships with releases that include this change; scripts in older installation directories are not updated automatically. To get the check before the first upgrade, use the online `upgrade.sh` command below after the updated release is published.
-
-If required features are missing, or container logs report `Fatal glibc error: CPU does not support x86-64-v2`:
-
-1. Shut down the VM cleanly and change its CPU mode in the virtualization platform. In Proxmox VE, select `host` or `x86-64-v2-AES` if supported by the physical host. With KVM/libvirt, use [`host-passthrough`](https://libvirt.org/formatdomain.html#cpu-model-and-topology). Avoid `kvm64` / `qemu64` modes that mask required features.
-2. Power the VM back on and check the flags again inside the guest. Restarting containers alone does not apply virtual CPU changes. For migration between hosts, choose a CPU model supported by every destination host that also meets `x86-64-v2`.
-3. Once the checks pass, rerun the original Full install command for a new installation; for an existing installation, follow [Repair and upgrade](#repair-and-upgrade), then check services using [Command-line management](#command-line-management).
-
-If the physical CPU lacks the required features, use a compatible host. Adding vCPUs or memory cannot supply missing instructions.
-
-### Custom port
-
-After downloading the selected installer using [Quick Start](#quick-start), pass
-the port when executing it. For Full:
+Set `edition` to `core` or `full`:
 
 ```bash
-# Linux
-sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env LINKSENSE_HTTP_PORT=19090 sh install-full.sh
-# macOS
-env LINKSENSE_HTTP_PORT=19090 sh install-full.sh
+edition=core
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o "install-${edition}.sh" "https://raw.githubusercontent.com/LingX-AI/linksense/main/install-${edition}.sh" &&
+sh "install-${edition}.sh" --check-network
 ```
 
-### Command-line management
+The network check should exit with status `0` and no `[LS_HOST_*]` error. Terminal GitHub downloads and Docker Engine image pulls are separate network paths. The check may cache images, but it does not create an installation.
 
-| Action | Command |
-| --- | --- |
-| Check service status | `linksense status` |
-| Start / stop / restart | `linksense start` / `linksense stop` / `linksense restart` |
-| Show the access address | `linksense address` |
-| Change the HTTP port | `linksense port 19090` |
-| Show the initialization credential | `linksense credential` |
-| View service logs | `linksense logs api` / `linksense logs runner` |
-| Check deployed service health | `linksense doctor` |
-| Check downloads and image pulls | `linksense doctor --network` |
-| Repair the installed release | `linksense repair` |
-| Upgrade the installation | `linksense upgrade` |
+If pulls are blocked, see [registry mirror and Docker proxy configuration](deploy/release/HOST-ADAPTATION.md#registry-mirrors-for-release-images). Automatic mirror fallback requires a release that includes the updated installer.
 
-Run `linksense` without arguments to open the interactive control menu.
+#### 4. Install Core
 
-Updated Linux management tools request `sudo` when needed and preserve only proxy
-variables. On macOS, add `$HOME/.local/bin` to `PATH` and run
-commands without `sudo`.
+Run only the block for your operating system. Each block downloads the installer before running it.
 
-Network diagnostics require a release containing the updated installer and CLI.
-They pull BusyBox/API release images without starting containers; images remain cached.
-
-### Repair and upgrade
-
-Repair stays on the installed release. Upgrade detects Core/Full, waits for active work,
-and stores a validated PostgreSQL backup under `volume://linksense-backups/postgres/`
-before migration.
-
-No data volume is deleted. A failure after migration begins does not trigger an automatic
-database rollback; retain the printed backup location and rerun the upgrade after
-reviewing diagnostics.
-
-If the installed CLI is unavailable, download [repair-core.sh](./repair-core.sh) or
-[repair-full.sh](./repair-full.sh), inspect it, and run it using the execution steps
-for your OS in [Quick Start](#quick-start). For the first upgrade of an older
-installation, follow [Installer host adaptation](deploy/release/HOST-ADAPTATION.md#fresh-resource-profiles).
-
----
-
-## Technology Stack
-
-| Layer | Stack |
-| --- | --- |
-| Web | React 19 · TypeScript · Vite · React Router · TanStack Query · shadcn/ui · Base UI · Tailwind · i18next |
-| API | Node.js · TypeScript · Fastify 5 · Zod · Prisma · PostgreSQL · Redis · BullMQ · MinIO |
-| Runner | Node.js · TypeScript · Fastify · Docker · official Codex app-server · Chromium / Playwright |
-| Knowledge | Docling · Elasticsearch · BM25 + vector retrieval · RRF · optional reranking |
-
----
-
-## Local Development
-
-Requires Node.js 24+, pnpm 10.34.6, Docker Engine/Compose, rsync, and
-[mkcert](https://github.com/FiloSottile/mkcert) for the local HTTPS certificate.
-The first launch may request system trust for mkcert's local certificate authority.
-
-Applications and dependencies run in Linux containers; host rsync only synchronizes source
-files. Development defaults must not be used for public production deployments.
-
-The API and development images include FFmpeg for voice transcription. Recordings
-are normalized to 16 kHz mono PCM WAV before being sent to the configured service;
-OpenAI-compatible services receive `response_format=json` without timestamps.
-Host-based API development requires `ffmpeg` on `PATH`. After upgrading, deploy the
-new API image; existing model settings and gateway credentials remain usable.
-Run `pnpm --filter @linksense/api test:voice:audio` for native audio-format checks.
+**Linux**
 
 ```bash
-corepack enable
-corepack prepare pnpm@10.34.6 --activate
-pnpm install --frozen-lockfile
-pnpm dev:prepare
-pnpm dev
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh &&
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-core.sh
 ```
 
-Default addresses:
-
-- Web: `http://localhost:18172`
-- Web HTTPS: `https://localhost:18173`
-- API: `http://localhost:4000`
-- Runner: `http://localhost:4010`
-
-Common commands:
+**macOS**
 
 ```bash
-pnpm dev:stop
-pnpm dev:rebuild
-pnpm dev:worker:rebuild
-pnpm test
-pnpm typecheck
-pnpm lint
-pnpm build
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh &&
+sh install-core.sh
 ```
 
-`pnpm dev:prepare` builds application images, the production Task Worker, and the bilingual
-Help Center; checks infrastructure and database initialization; starts services; and warms
-runtime caches.
+#### 5. Install Full
 
-`pnpm dev` prepares missing inputs automatically and attaches source watching and logs.
+After confirming the resource and `x86-64-v2` requirements, run the block for your operating system.
 
-### AI development guide
-
-Before using Codex or another AI coding tool, read [`AGENTS.md`](./AGENTS.md).
-
-AI-generated features and behavior changes require tests like any other contribution. Run
-affected tests, type checking, linting, and builds before committing.
-
-Never commit secrets, personal data, internal requirement documents, or generated artifacts.
-
----
-
-## Building from Source with Docker
+**Linux**
 
 ```bash
-docker compose --env-file .env.example build \
-  migrate api runner runner-worker-image web
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh &&
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy sh install-full.sh
 ```
 
-Multi-platform build:
+**macOS**
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 --target runtime \
-  -f deploy/docker/Dockerfile.api -t <registry>/linksense-api:<tag> --push .
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-full.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-full.sh &&
+sh install-full.sh
 ```
 
-| File | Target | Output |
+#### 6. Confirm successful output
+
+After image verification, database initialization, startup, and health checks, the installer prints output similar to:
+
+```text
+[linksense-installer] Installed LinkSense core vX.Y.Z successfully.
+LinkSense is ready at: http://<server-address>:18081
+
+Copy and securely save the credential below before continuing:
+<one-time initialization credential>
+```
+
+Full also prints `Full release probe passed.`. The actual address and one-time credential shown in the terminal are authoritative. Do not paste the credential into chats, tickets, or public logs.
+
+#### 7. Handle common errors
+
+| Symptom | Cause | Fix |
 | --- | --- | --- |
-| `deploy/docker/Dockerfile.api` | `runtime` / `migration` | API / database migration |
-| `deploy/docker/Dockerfile.web` | `runtime` | Web + Help Center |
-| `deploy/docker/Dockerfile.runner` | `controller` / `worker` | Runner controller / Task Worker |
+| `docker version` has no Server section, or cannot connect to the Docker daemon | Docker is stopped, or the account cannot access the Docker socket | Start Docker and check Linux permissions or Docker Desktop state. |
+| Docker API or Compose is too old | Server API is below `1.45`, or Compose is below `2.24.4` | Upgrade the relevant component through Docker's official installation path. |
+| `[LS_HOST_memory]` | The host or Docker VM lacks available memory | Increase Docker Desktop memory or move to a larger host. |
+| `[LS_HOST_storage]` | The host, Docker VM, or backup location lacks space | Remove only confirmed disposable files or expand storage; do not run broad Docker cleanup blindly. |
+| `[LS_HOST_pull]`, timeouts, or TLS errors | Docker Engine networking or proxy is not configured | Rerun `--check-network`; diagnose terminal and Docker Engine networking separately. |
+| `CPU does not support x86-64-v2` | The Full VM does not expose required CPU flags | Power off the VM and select host passthrough or a compatible x86-64-v2 CPU mode. |
+| The port is occupied | Another process uses `18081` | Set `LINKSENSE_HTTP_PORT` for a fresh install; use `linksense port <port>` for an existing install. |
+| An installation exists or was interrupted | Rerunning the wrong edition can break installation identity | Run `linksense status` and `linksense doctor`; rerun only the same edition for an interrupted installation. |
 
-Production-like local stack:
+For a fresh Core installation on port `19090`, run the block for your operating system. For Full, replace every `install-core.sh` in the block (including in the URL) with `install-full.sh`. For an existing installation, use `linksense port 19090` instead.
+
+**Linux**
 
 ```bash
-pnpm dev:prod
-pnpm dev:prod:stop
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh &&
+sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy \
+  env LINKSENSE_HTTP_PORT=19090 sh install-core.sh
 ```
 
-For production, prefer verified release images pinned to immutable digests rather than
-building source directly on the production host.
+**macOS**
 
----
+```bash
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \
+  -o install-core.sh https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh &&
+env LINKSENSE_HTTP_PORT=19090 sh install-core.sh
+```
+
+#### 8. Complete first-time setup and the first task
+
+1. Open the actual address printed by the installer. Defaults are `http://<server-address>:18081` on Linux and [http://localhost:18081](http://localhost:18081) on macOS, but terminal output is authoritative.
+2. Use the one-time initialization credential to create the first administrator.
+3. Add at least one chat model channel in administration. Full also needs an embedding model for Knowledge.
+4. Run `linksense status` and `linksense doctor` and confirm the deployment is healthy.
+5. Test a short chat, then run a tool task that creates a small file. On Full, upload a representative document and verify parsing, retrieval, and citations.
+
+See [model configuration](https://linksense.guygubaby.top/doc/admin-guide/model-settings/) and [the first task](https://linksense.guygubaby.top/doc/user-guide/getting-started/first-task/) for product-specific fields and interactions.
+
+#### 9. Operations, repair, and upgrades
+
+| Operation | Command |
+| --- | --- |
+| Status and actual address | `linksense status`, `linksense address` |
+| Start, stop, restart | `linksense start`, `linksense stop`, `linksense restart` |
+| Change port | `linksense port 19090` |
+| Show initialization credential | `linksense credential` |
+| View logs | `linksense logs api`, `linksense logs runner` |
+| Health and network diagnostics | `linksense doctor`, `linksense doctor --network` |
+| Repair and upgrade | `linksense repair`, `linksense upgrade` |
+
+An upgrade waits for running tasks and stores a database backup before migration. Migration failures do not automatically roll back the database. Retain the generated backup and make an off-host copy before upgrading. Do not reinstall or switch Core / Full in place.
+
+## Development
+
+For local development, source changes, and image builds, see [Source development and image builds](https://linksense.guygubaby.top/doc/deploy/development/).
+
+### Where to start
+
+| What to change | Source |
+| --- | --- |
+| Web workspace and administration UI | [apps/web](./apps/web) |
+| APIs, access control, and business logic | [apps/api](./apps/api) |
+| Agent execution and Workers | [apps/runner](./apps/runner) |
+
+See [Architecture and execution boundaries](https://linksense.guygubaby.top/doc/deploy/architecture/) for the architecture, and [Source development](https://linksense.guygubaby.top/doc/deploy/development/) for environment configuration, commands, and image builds.
+
+### Contributing
+
+Before submitting changes, run the affected tests and check types, lint, and builds. Read [AGENTS.md](./AGENTS.md) and the [contribution guide](./.github/CONTRIBUTING.md). Code contributions require a [CLA](./docs/legal/CLA.md).
 
 ## Security
 
-See [SECURITY.md](./.github/SECURITY.md).
+The isolation boundary is the user Worker; ordinary tasks can access the same user's other task files. Ordinary execution permits internet egress without per-command approval. Configured external models and tools receive the data sent to those services.
 
-Security reports: `security@linksense.org`
+Before adding users or exposing a deployment, read the [execution boundaries](./.github/SECURITY.md#execution-boundaries) and [deployment requirements](https://linksense.guygubaby.top/doc/deploy/operations/). Report security issues privately to `security@linksense.org`.
 
-## Contributing
+## Documentation
 
-See [CONTRIBUTING.md](./.github/CONTRIBUTING.md) and [`AGENTS.md`](./AGENTS.md).
+| I want to… | Read |
+| --- | --- |
+| Run tasks, schedule work, or connect messaging | [User guide](https://linksense.guygubaby.top/doc/user-guide/overview/) |
+| Manage members, models, access, and usage | [Administrator guide](https://linksense.guygubaby.top/doc/admin-guide/overview/) |
+| Share Knowledge, Skills, Plugins, and Applications | [Skills, Plugins, and Applications](https://linksense.guygubaby.top/doc/user-guide/plugin-center/discover-and-install/) · [Knowledge sharing](https://linksense.guygubaby.top/doc/user-guide/knowledge-bases/sharing/) |
+| Connect business systems or build applications | [Application development](https://linksense.guygubaby.top/doc/developer-guide/interactive-application/) |
+| Deploy, troubleshoot, upgrade, or migrate | [Core](https://linksense.guygubaby.top/doc/deploy/core/) · [Full](https://linksense.guygubaby.top/doc/deploy/full/) · [Operations](https://linksense.guygubaby.top/doc/deploy/operations/) |
+| Understand architecture and execution | [Architecture](https://linksense.guygubaby.top/doc/deploy/architecture/) |
 
-Contributions require a [Contributor License Agreement](./docs/legal/CLA.md) — CONTRIBUTING.md
-explains exactly why, and what we committed to in return.
+## Community and support
 
-## Who is using LinkSense
+Find questions and feedback in [GitHub Discussions](../../discussions) or see [Support](./.github/SUPPORT.md).
 
-If your organization runs LinkSense, we would like to know — add a row to
-[ADOPTERS.md](./docs/community/ADOPTERS.md). Listing is entirely optional, and we never add anyone who
-did not ask. Would rather not be public? `hello@linksense.org`.
+For organizational deployment and collaboration: `hello@linksense.org`.
 
-## Support
-
-See [SUPPORT.md](./.github/SUPPORT.md).
+Organizations using LinkSense can opt in to a listing in [ADOPTERS.md](./docs/community/ADOPTERS.md).
 
 ## License
 
-LinkSense is open source under [CPAL-1.0](./LICENSE) — an
-[OSI-approved](https://opensource.org/licenses) license (Mozilla Public License 1.1 plus a
-small attribution notice and a network-use clause).
+LinkSense is open source under [CPAL-1.0](./LICENSE). For internal deployment, attribution, custom branding, and trademarks, see the [license](./LICENSE), [internal deployment exception](./LICENSE-EXCEPTIONS.md), [attribution requirements](./ATTRIBUTION.md), and [trademark policy](./TRADEMARK.md). For other licensing needs: `licensing@linksense.org`.
 
-**Run it internally, at any scale, modified or not — with no obligation to publish
-anything.** Our [Internal Deployment Exception](./LICENSE-EXCEPTIONS.md) puts that beyond
-doubt. Proprietary plugins and extensions written in your own files stay yours; CPAL's
-copyleft is per-file and does not reach your code.
-
-**Two obligations, and they trigger differently** — this is the part people most often
-get backwards:
-
-| | Triggered by | Internal deployment |
-|---|---|---|
-| Publish your changes | redistributing, or serving third parties | **no** |
-| Show the attribution | launching through a graphical interface | **yes** |
-
-### What LinkSense asks in return
-
-The graphical attribution is a small notice — the words `Powered by` and our mark,
-18–24px tall. The bundled interface links it to our site, but the license does not
-require a URL. No copyright line or visible URL is required. It lives in a single
-area at the foot of the interface and stays there as people move around, so no
-screen needs its own copy. [Here is exactly what it looks like](./ATTRIBUTION.md).
-
-Where it is **not** required, written into the licence rather than left to interpretation:
-
-| | |
-|---|---|
-| Dialogs, menus, tooltips | not repeated — the screen underneath already carries it |
-| Full-screen editing, preview, presentation | may be hidden, as long as it returns on exit |
-| **Documents, decks and images your people export** | **no watermark of any kind, ever** |
-| Command-line, headless, API-only | no display obligation at all |
-
-**Trademarks are licensed separately.** Fork it, rename it, ship it, compete with us —
-just don't call it LinkSense. See [TRADEMARK.md](./TRADEMARK.md).
-
-**No rug-pulls.** Every version released under CPAL-1.0 stays under CPAL-1.0, permanently.
-We will never retroactively tighten terms, and that promise is
-[written down](./LICENSE-EXCEPTIONS.md).
-
-**Deploy it under your own brand.** Rename it, restyle it, put your own logo in the
-header — no permission needed. The one-line notice is what stays. Need that gone too, or
-need different terms? `licensing@linksense.org`.
-
-Third-party components retain their own licenses; see
-[THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md).
+The official open-source Codex runtime ships unmodified under Apache-2.0. LinkSense is independent and is not affiliated with, sponsored by, or endorsed by OpenAI. See [third-party notices](./THIRD-PARTY-NOTICES.md).

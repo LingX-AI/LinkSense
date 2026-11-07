@@ -68,6 +68,11 @@ export const knowledgeResources = {
     },
   },
   knowledge: {
+    uiDemo: {
+      readOnly:
+        "Données de démonstration pour tester l’interface locale. Consultez et filtrez sans modifier les ressources réelles.",
+      exit: "Quitter la démo",
+    },
     title: "Bases de connaissances",
     description:
       "Organisez, partagez et recherchez les documents auxquels vous avez accès.",

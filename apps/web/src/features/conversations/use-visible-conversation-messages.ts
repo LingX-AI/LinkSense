@@ -1,4 +1,5 @@
 import { useEffect, useEffectEvent, type RefObject } from "react"
+import { getConversationScrollViewport } from "./conversation-scroll-viewport"
 
 type VerticalRange = { top: number; bottom: number }
 type ReadingRow = {
@@ -59,7 +60,7 @@ export function useVisibleConversationMessages({
   )
   useEffect(() => {
     const host = hostRef.current
-    const scroller = host?.closest<HTMLElement>(".conversation-scroll")
+    const scroller = getConversationScrollViewport(host)
     if (!host || !scroller) return
     const workspace = scroller.closest(".conversation-workspace")
     let frame: number | null = null

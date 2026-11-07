@@ -12,6 +12,7 @@ import { errorCatalog, localizedErrorMessage } from "@linksense/shared"
 import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const enUS = {
+  browserUse: browserUseMessages["en-US"],
   publicKnowledge: publicKnowledgeMessages["en-US"],
   modelSetup: modelSetupMessages["en-US"],
   connections: connectionMessages["en-US"],
@@ -67,6 +68,8 @@ export const enUS = {
     search: "Search",
     loading: "Loading…",
     pageLoading: "Loading…",
+    emptyDescription: "Items will appear here when available.",
+    notFoundDescription: "The page may have been moved or removed.",
     actions: "Actions",
     status: "Status",
     name: "Name",
@@ -204,6 +207,7 @@ export const enUS = {
     helpCenter: "Help Center",
     helpCenterNewTab: "Open Help Center in a new tab",
     automationNotifications: "Automation notifications",
+    automationNotificationsEmpty: "No unread automation notifications",
     automationNotificationsUnread:
       "Automation notifications, with an unread completed task",
     automationTask: "Automation task",
@@ -249,6 +253,7 @@ export const enUS = {
       "Create an automation to start a new run in a fixed task on schedule.",
     suggestions: {
       title: "Suggestions",
+      useTemplate: "Use template",
       useTemplateNamed: "Use the {{name}} template",
       dailyBrief: {
         title: "Daily brief",
@@ -1040,6 +1045,11 @@ export const enUS = {
     },
   },
   knowledge: {
+    uiDemo: {
+      readOnly:
+        "Local UI sample data. Browse and filter without changing real resources.",
+      exit: "Exit samples",
+    },
     title: "Knowledge bases",
     description: "Organize, share, and search the documents you can access.",
     searchCapability: {
@@ -1817,6 +1827,7 @@ export const enUS = {
     notFound: errorCatalog.PROJECT_NOT_FOUND.messages["en-US"],
     taskActive: errorCatalog.PROJECT_TASK_ACTIVE.messages["en-US"],
     empty: "No tasks yet",
+    emptyList: "No projects yet",
     create: "New project",
     createDescription:
       "Tasks in a project share files and keep separate message histories.",
@@ -1892,7 +1903,7 @@ export const enUS = {
     search: "Search projects",
     noResults: "No matching projects",
     choose: "Project",
-    projectless: "Common workspace",
+    projectless: "Public workspace",
     selectPlaceholder: "Select project",
     clearSelection: "Clear project selection",
     unavailable: "Project unavailable",
@@ -1905,11 +1916,11 @@ export const enUS = {
     title: "Task",
     taskSort: {
       open: "Set the task order for {{section}}",
-      label: "Task order",
+      label: "Sort tasks",
       priority: "Priority",
       priorityDescription:
         "Tasks needing your input and unread tasks come first.",
-      updated_at: "Last updated",
+      updated_at: "Recently updated",
       manual: "Manual order",
     },
     share: {
@@ -1925,6 +1936,10 @@ export const enUS = {
         "The link couldn't be copied. Check browser permissions and try again.",
       unavailable: "This shared link doesn't exist or is no longer available.",
       continueInProduct: "Continue in {{productName}}",
+      snapshotDate: "Shared snapshot · {{date}}",
+      sharedConversation: "Shared conversation",
+      readOnly: "Read-only",
+      snapshotNotice: "This is a snapshot. Later messages are not included.",
     },
     rename: "Rename",
     archive: "Archive task",
@@ -2026,11 +2041,14 @@ export const enUS = {
     historyViewExchange: "Click to view this exchange",
     historyRetry: "Couldn’t load messages. Retry",
     scrollToBottom: "Scroll to bottom",
+    newReplies_one: "{{count}} new reply",
+    newReplies_other: "{{count}} new replies",
     placeholder: "Describe what you want {{productName}} to do…",
     followUpPlaceholder: "Add a follow-up…",
     send: "Send",
     model: "Model",
     modelSelector: "Choose model and reasoning effort",
+    chooseReasoningModel: "Choose reasoning model",
     resetReasoningEffort: "Reset reasoning effort to default",
     modelNotConfigured: "Model service not configured",
     reasoningEffort: "Reasoning effort",
@@ -2088,6 +2106,12 @@ export const enUS = {
     htmlAnnotationCount_other: "{{count}} annotations",
     voice: "Voice input",
     voiceChecking: "Checking the speech-to-text service…",
+    voiceDemoNotice:
+      "Voice demo: simulated recording and sample text. Your microphone is not used.",
+    voiceDemoExit: "Exit demo",
+    voiceDemoStart: "Try simulated voice input",
+    voiceDemoTranscript:
+      "[Voice demo] Summarize the key points from today’s meeting and create a list of action items.",
     voiceNotConfigured: "Speech-to-text has not been configured",
     voiceServiceUnavailable:
       "Speech-to-text is temporarily unavailable. Try again later.",
@@ -2157,6 +2181,8 @@ export const enUS = {
       noMatches: "No matching Skills",
     },
     addMenu: "Add",
+    toolbarAttach: "Attach",
+    toolbarKnowledge: "Knowledge",
     addMenuTitle: "Add content",
     addGroup: "Add",
     attachFileMenuLabel: "Local files",
@@ -2427,6 +2453,7 @@ export const enUS = {
     messageCopied: "Message copied",
     copyMessageFailed: "Unable to copy the message. Try again.",
     forkMessage: "Branch to new chat",
+    forkMessageTooltip: "Branch",
     forkingMessage: "Creating branch…",
     forkMessageFailed: "Unable to create the branched task. Try again.",
     forkSource: {
@@ -2934,6 +2961,7 @@ export const enUS = {
       "Application updated. Future task turns will automatically use the latest configuration.",
     deleted: "Application deleted.",
     emptyTitle: "No applications are available yet",
+    emptyDescription: "Items will appear here when you create or add them.",
     createdByMe: "Created by me",
     createdBy: "Created by {{name}}",
     status: {
@@ -3102,6 +3130,9 @@ export const enUS = {
     conversationManagedUserModelDescription:
       "with plugins, Skills, knowledge bases, and instructions",
     externalAccess: {
+      endUserPresentation: "End-user presentation",
+      endUserPresentationHint:
+        "Applies only to the embed code generated below. Hides technical activity and timings while keeping answers, attachments, confirmations and errors. Turn off for the technical view.",
       action: "External access",
       title: "Application external access",
       description:
@@ -3388,6 +3419,7 @@ export const enUS = {
     submitForReview: "Submit for review",
     submitted: "The release snapshot was submitted for administrator review.",
     submittedAt: "Submitted {{date}}",
+    reviewedAt: "Reviewed {{date}}",
     reviewPolicyNotice:
       "Every new release is reviewed again. Approved releases never auto-update existing installations.",
     publicationsEmpty:
@@ -3681,6 +3713,11 @@ export const enUS = {
       "Try your application in the preview. Runtime errors are recorded here, and the assistant can inspect them to help troubleshoot.",
   },
   capability: {
+    uiDemo: {
+      readOnly:
+        "Local plugin samples. Explore search, details, and menus without installing plugins or changing live data.",
+      exit: "Exit demo",
+    },
     title: "Plugins & Skills",
     description:
       "Manage personal plugins, Skills, Plugin Center sources, and runtime status.",
@@ -4202,6 +4239,7 @@ export const enUS = {
       assistant_response: "AI responses",
       memory_generation: "Memory generation",
       task_title_generation: "Task auto naming",
+      browser_use_intent: "Browser intent detection",
       document_embedding: "Document embeddings",
       query_embedding: "Query embeddings",
       rerank: "Retrieval reranking",
@@ -5704,6 +5742,10 @@ export const enUS = {
       emptyResult:
         "The automation finished without producing displayable output. Run it again.",
       expired: "This automation has expired and can no longer run.",
+      expirationInPast: localizedErrorMessage(
+        "AUTOMATION_EXPIRATION_IN_PAST",
+        "en-US"
+      ),
     },
     userDisabled: "This user is disabled. Contact an administrator.",
     conflict:
@@ -5725,3 +5767,4 @@ export const enUS = {
     teams: "Teams SSO",
   },
 } as const
+import { browserUseMessages } from "@/features/browser-use/messages"

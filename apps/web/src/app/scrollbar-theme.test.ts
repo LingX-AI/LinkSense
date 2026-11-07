@@ -50,7 +50,18 @@ describe("global scrollbar theme", () => {
   })
 
   it("does not retain component-specific visible scrollbar colors", () => {
-    expect(appStyles.match(/scrollbar-color:/gu)).toHaveLength(1)
+    const scrollbarColors = Array.from(
+      appStyles.matchAll(/scrollbar-color:\s*([^;]+);/gu),
+      (match) => match[1]
+    )
+    for (const color of scrollbarColors) {
+      expect(color).toMatch(
+        /^(?:var\(--app-scrollbar-thumb\) var\(--app-scrollbar-track\)|transparent transparent|var\(--capability-scrollbar-thumb\) transparent)$/u
+      )
+    }
+    expect(appStyles).toContain(
+      "--capability-scrollbar-thumb: var(--app-scrollbar-thumb);"
+    )
     expect(appStyles.match(/scrollbar-width:\s*thin;/gu)).toHaveLength(1)
   })
 })

@@ -161,12 +161,14 @@ case "$HOST_OS" in
         exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env \
           "LINKSENSE_INSTALL_DIR=${LINKSENSE_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}" \
           "LINKSENSE_CLI_LANGUAGE=$CLI_LANGUAGE" \
+          "LINKSENSE_IMAGE_MIRRORS=${LINKSENSE_IMAGE_MIRRORS:-}" \
           "LINKSENSE_RELEASE_BASE_URL=$LINKSENSE_RELEASE_BASE_URL" \
           "$0" "$@"
       fi
       exec sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,all_proxy,NO_PROXY,no_proxy env \
         "LINKSENSE_INSTALL_DIR=${LINKSENSE_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}" \
         "LINKSENSE_CLI_LANGUAGE=$CLI_LANGUAGE" \
+        "LINKSENSE_IMAGE_MIRRORS=${LINKSENSE_IMAGE_MIRRORS:-}" \
         "$0" "$@"
     fi
     ;;
@@ -587,8 +589,17 @@ command_doctor() {
     host_use_saved_tools
     network_base=${LINKSENSE_RELEASE_BASE_URL:-$(read_key "$STATE_FILE" STATE_RELEASE_BASE_URL 2>/dev/null || true)}
     network_base=${network_base:-https://github.com/LingX-AI/linksense/releases/download/$VERSION}
-    network_busybox=$(read_key "$ENV_FILE" BUSYBOX_IMAGE 2>/dev/null || true)
-    network_api=$(read_key "$ENV_FILE" LINKSENSE_API_IMAGE 2>/dev/null || true)
+    network_manifest=$INSTALL_DIR/release-manifest.env
+    network_hash=$(read_key "$STATE_FILE" STATE_MANIFEST_SHA256 2>/dev/null || true)
+    if [ -n "$network_hash" ] && [ -f "$network_manifest" ] && [ ! -L "$network_manifest" ] &&
+      [ "$(host_sha256 "$network_manifest")" = "$network_hash" ]; then
+      # Keep the canonical origin even when the active runtime uses a mirror.
+      network_busybox=$(read_key "$network_manifest" IMAGE_BUSYBOX 2>/dev/null || true)
+      network_api=$(read_key "$network_manifest" IMAGE_LINKSENSE_API 2>/dev/null || true)
+    else
+      network_busybox=$(read_key "$ENV_FILE" BUSYBOX_IMAGE 2>/dev/null || true)
+      network_api=$(read_key "$ENV_FILE" LINKSENSE_API_IMAGE 2>/dev/null || true)
+    fi
     if [ -n "$network_busybox" ] && [ -n "$network_api" ]; then
       host_network_diagnostics "$network_base" "$network_busybox" "$network_api"
     else

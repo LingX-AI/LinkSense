@@ -73,6 +73,24 @@ afterEach(() => {
 })
 
 describe("assistant HTML host viewport", () => {
+  it("sizes embedded previews from the shared page's scrolling viewport", () => {
+    bounds.set("shared-conversation-main", new DOMRect(0, 100, 900, 600))
+    bounds.set("conversation-scroll", new DOMRect(0, 200, 900, 60_000))
+    render(
+      <main
+        className="shared-conversation-main"
+        data-conversation-scroll-viewport
+      >
+        <div className="conversation-scroll">
+          <Preview />
+        </div>
+      </main>
+    )
+    expect(
+      screen.getByTestId("preview").style.getPropertyValue(heightProperty)
+    ).toBe("420px")
+  })
+
   it("uses 70 percent of the conversation area below its header and above its composer", () => {
     bounds.set("conversation-scroll", new DOMRect(0, 0, 900, 1_000))
     bounds.set("conversation-top-bar", new DOMRect(0, 0, 900, 60))

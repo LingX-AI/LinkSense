@@ -1,6 +1,8 @@
 import type { ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
+import { PageTopBar } from "@/components/shell/page-top-bar"
+import { WorkspaceUiDemoNotice } from "@/features/ui-demo/workspace-ui-demo-notice"
 
 export function PageLayout({
   title,
@@ -10,7 +12,9 @@ export function PageLayout({
   beforeHeader,
   afterHeader,
   className,
-  contentWidth = "standard",
+  variant = "default",
+  navigationTitle,
+  navigationActions,
   children,
 }: {
   title: string
@@ -20,14 +24,24 @@ export function PageLayout({
   beforeHeader?: ReactNode
   afterHeader?: ReactNode
   className?: string
-  contentWidth?: "standard" | "wide"
+  variant?: "default" | "workspace"
+  navigationTitle?: string
+  navigationActions?: ReactNode
   children: ReactNode
 }) {
   return (
-    <div className="management-scroll">
+    <div className="management-scroll scrollbar-gutter-stable">
+      <PageTopBar
+        title={navigationTitle ?? title}
+        actions={navigationActions}
+      />
       <div
-        className={cn("management-page", className)}
-        data-content-width={contentWidth}
+        className={cn(
+          "management-page",
+          variant === "workspace" &&
+            "[&>.management-header]:items-start! [&>.management-header_p]:mt-2! [&>.management-header_p]:max-w-none! sm:[&>.management-header>.management-actions]:pt-1",
+          className
+        )}
       >
         {beforeHeader && <div className="mb-6">{beforeHeader}</div>}
         <header className="management-header" role="banner">
@@ -57,6 +71,7 @@ export function PageLayout({
           {actions && <div className="management-actions">{actions}</div>}
         </header>
         {afterHeader && <div className="mb-6">{afterHeader}</div>}
+        <WorkspaceUiDemoNotice />
         {children}
       </div>
     </div>

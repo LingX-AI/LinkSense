@@ -108,6 +108,13 @@ describe("application setup guide", () => {
     vi.mocked(apiRequest).mockResolvedValue(guide())
     const { onClose } = show()
     expect(await screen.findByText("Required handbook")).toBeVisible()
+    const dialog = screen.getByRole("dialog")
+    expect(dialog).toHaveAttribute("data-variant", "workspace")
+    expect(dialog.querySelector('[data-slot="card"]')).toBeNull()
+    expect(screen.getByText("Required handbook").closest("li")).toHaveClass(
+      "min-h-22",
+      "border-b"
+    )
     expect(screen.getByText("Use your own reporting account.")).toBeVisible()
     expect(
       screen.getByRole("button", { name: "保存并完成配置" })

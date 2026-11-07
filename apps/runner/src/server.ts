@@ -1,3 +1,5 @@
+import { browserPanelRequestSchema } from "@linksense/shared";
+import { BrowserPanelError } from "./browser/session-control.js";
 import { registerPublicKnowledgeRuntime } from "./public-knowledge/routes.js";
 import type { RunnerEventSink } from "./event-sink.js";
 import { MICROSOFT_CONNECTION_BODY_LIMIT } from "@linksense/shared";
@@ -1386,6 +1388,54 @@ export function buildRunnerServer(
       }
     },
   );
+
+  app.post<{ Params: { conversationId: string } }>("/conversations/:conversationId/browser", async (request, reply) => {
+    const conversationId = uuid.safeParse(request.params.conversationId);
+    const ownerId = uuid.safeParse(request.headers["x-linksense-owner-id"]);
+    const body = browserPanelRequestSchema.safeParse(request.body);
+    if (!conversationId.success || !ownerId.success || !body.success) return reply.code(400).send({ error_code: "VALIDATION_ERROR" });
+    try { return await pool.browserPanel(conversationId.data, ownerId.data, body.data); }
+    catch (error) { return reply.code(409).send({ error_code: error instanceof BrowserPanelError ? error.code : "BROWSER_PANEL_UNAVAILABLE" }); }
+  });
+
+  app.post<{ Params: { conversationId: string } }>("/mcp-current-user/:conversationId/stop-monitor", async (request, reply) => {
+    const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
+    const conversationId = uuid.safeParse(request.params.conversationId);
+    if (!token) return reply.code(401).send({ code: "FORBIDDEN", retryable: false });
+    if (!conversationId.success || !z.strictObject({}).safeParse(request.body).success) return reply.code(400).send({ code: "VALIDATION_ERROR", retryable: false });
+    try { return await pool.requestMonitoringStop(conversationId.data, token); }
+    catch (error) { return reply.code(error instanceof ConversationReferenceRequestError ? error.statusCode : 503).send({ code: "AUTOMATION_STOP_UNAVAILABLE", retryable: false }); }
+  });
+
+  for (const path of ["/mcp-current-user/:conversationId/browser-use", "/mcp-current-user/:conversationId/local-browser"]) app.post<{ Params: { conversationId: string } }>(path, { bodyLimit: 40_000 }, async (request, reply) => {
+    const { browserUseRequestSchema, browserUseFailure, browserUseLegacyResult, browserUseResultSchema } = await import("@linksense/shared");
+    const response = (result: import("@linksense/shared").BrowserUseResult) =>
+      path.endsWith("/local-browser") ? browserUseLegacyResult(result) : result;
+    const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
+    const conversationId = uuid.safeParse(request.params.conversationId);
+    const body = browserUseRequestSchema.safeParse(request.body);
+    if (!token) return reply.code(401).send(response(browserUseFailure("BROWSER_USE_ACCESS_DENIED")));
+    if (!conversationId.success || !body.success) return reply.code(400).send(response(browserUseFailure("BROWSER_USE_COMMAND_FAILED")));
+    const controller = new AbortController();
+    const abort = () => { if (!reply.raw.writableEnded) controller.abort(); };
+    reply.raw.once("close", abort);
+    try { return response(browserUseResultSchema.parse(await pool.browserUse(conversationId.data, token, body.data, controller.signal))); }
+    catch (error) { return reply.code(error instanceof ConversationReferenceRequestError ? error.statusCode : 503).send(response(browserUseFailure("BROWSER_USE_COMMAND_FAILED"))); }
+    finally { reply.raw.off("close", abort); }
+  });
+
+  app.post<{ Params: { conversationId: string } }>("/mcp-current-user/:conversationId/referenced-conversation", async (request, reply) => {
+    const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
+    const conversationId = uuid.safeParse(request.params.conversationId);
+    const body = readConversationReferenceInputSchema.safeParse(request.body);
+    if (!token) return reply.code(401).send({ code: "FORBIDDEN", retryable: false });
+    if (!conversationId.success || !body.success) return reply.code(400).send({ code: "VALIDATION_ERROR", retryable: false });
+    try { return await pool.readConversationReference(conversationId.data, token, body.data); }
+    catch (error) {
+      const status = error instanceof ConversationReferenceRequestError ? error.statusCode : 503;
+      return reply.code(status).send({ code: "CONVERSATION_REFERENCE_UNAVAILABLE", retryable: status >= 500 });
+    }
+  });
 
   app.post<{ Params: { conversationId: string } }>(
     "/mcp-connections/:conversationId/execute",
@@ -2836,3 +2886,5 @@ function projectSteerOperation(state: SteerOperationState) {
     ...(state.errorCode ? { errorCode: state.errorCode } : {}),
   };
 }
+import { readConversationReferenceInputSchema } from "@linksense/shared";
+import { ConversationReferenceRequestError } from "./conversation-reference-error.js";

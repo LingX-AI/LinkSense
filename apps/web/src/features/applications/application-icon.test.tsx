@@ -9,6 +9,8 @@ import {
   ApplicationPresetIcon,
 } from "@/features/applications/application-icon"
 import {
+  applicationDesignIconPresets,
+  applicationIconArtwork,
   applicationIconPresetDefinitions,
   applicationIconPresetOptions,
 } from "@/features/applications/application-icon-presets"
@@ -24,7 +26,7 @@ describe("application icons", () => {
       </Button>
     )
     expect(
-      container.querySelector('[data-application-icon-preset="bot"] svg')
+      container.querySelector('[data-application-icon-preset="bot"] img')
     ).toHaveClass("size-full")
   })
   it("provides twenty distinct simple scene icons in the shared preset order", () => {
@@ -37,7 +39,9 @@ describe("application icons", () => {
     expect(Object.keys(applicationIconPresetDefinitions)).toHaveLength(20)
   })
 
-  it("normalizes each preset view box to a consistent optical footprint", () => {
+  it("uses the ten Figma assets while preserving every legacy preset", () => {
+    expect(applicationDesignIconPresets).toHaveLength(10)
+    expect(new Set(applicationDesignIconPresets).size).toBe(10)
     const viewBoxes = {
       bot: "4 4 40 40",
       search: "1.5 1.5 45 45",
@@ -66,14 +70,21 @@ describe("application icons", () => {
 
     for (const preset of applicationIconPresets) {
       rerender(<ApplicationPresetIcon preset={preset} />)
-      expect(container.querySelector("svg")).toHaveAttribute(
-        "viewBox",
-        viewBoxes[preset]
-      )
+      if (applicationDesignIconPresets.includes(preset)) {
+        expect(container.querySelector("img")).toHaveAttribute(
+          "src",
+          applicationIconArtwork[preset]
+        )
+      } else {
+        expect(container.querySelector("svg")).toHaveAttribute(
+          "viewBox",
+          viewBoxes[preset]
+        )
+      }
     }
   })
 
-  it("renders preset choices and application fallbacks as multicolor artwork", () => {
+  it("shares Figma artwork between choices and saved applications, with legacy fallbacks", () => {
     const { container, rerender } = render(
       <ApplicationPresetIcon preset="chart-column" />
     )
@@ -81,14 +92,20 @@ describe("application icons", () => {
       '[data-application-icon-preset="chart-column"]'
     )
     expect(choice).not.toBeNull()
-    expect(choice?.querySelector("svg")).not.toBeNull()
-    expect(
-      new Set(
-        Array.from(choice?.querySelectorAll("[fill]") ?? []).map((element) =>
-          element.getAttribute("fill")
-        )
-      ).size
-    ).toBeGreaterThanOrEqual(3)
+    expect(choice?.querySelector("img")).toHaveAttribute(
+      "src",
+      applicationIconArtwork["chart-column"]
+    )
+
+    rerender(
+      <ApplicationIconDisplay
+        icon={{ type: "preset", preset: "chart-column" }}
+      />
+    )
+    expect(container.querySelector("img")).toHaveAttribute(
+      "src",
+      applicationIconArtwork["chart-column"]
+    )
 
     rerender(
       <ApplicationIconDisplay
@@ -132,9 +149,8 @@ describe("application icons", () => {
     const preset = container.querySelector(
       '[data-application-icon-preset="chart-column"]'
     )
-    expect(preset).toHaveClass("border", "border-border/60", "bg-transparent")
-    expect(preset).toHaveClass("p-0.5")
-    expect(preset?.querySelector("svg")).toHaveClass("size-full")
+    expect(preset).toHaveClass("size-10", "rounded-[10px]", "overflow-hidden")
+    expect(preset?.querySelector("img")).toHaveClass("size-full")
     expect(preset).not.toHaveClass("bg-muted")
   })
 })
@@ -183,14 +199,16 @@ describe("custom application icon refresh", () => {
       container.querySelector('[data-slot="avatar-fallback"]')
     ).not.toBeNull()
     finish(0)
-    const image = container.querySelector("img")
+    const image = container.querySelector('img[data-slot="avatar-image"]')
     expect(image).toHaveAttribute("src", signedUrl("first"))
     expect(image).toHaveClass("size-[80%]", "object-contain")
     expect(image).not.toHaveClass("size-full", "object-cover")
 
     for (const signature of ["second", "third", "fourth"]) {
       rerender(display(signedUrl(signature)))
-      expect(container.querySelector("img")).toBe(image)
+      expect(container.querySelector('img[data-slot="avatar-image"]')).toBe(
+        image
+      )
       expect(
         container.querySelector('[data-slot="avatar-fallback"]')
       ).toBeNull()
@@ -203,24 +221,22 @@ describe("custom application icon refresh", () => {
     rerender(display(signedUrl("second")))
     finish(0)
     expect(requests).toHaveLength(1)
-    expect(container.querySelector("img")).toHaveAttribute(
-      "src",
-      signedUrl("first")
-    )
+    expect(
+      container.querySelector('img[data-slot="avatar-image"]')
+    ).toHaveAttribute("src", signedUrl("first"))
   })
 
   it("retries a failed or expired URL using the newest signed URL", () => {
     const { container, rerender } = render(display(signedUrl("expired")))
     finish(0, "error")
-    expect(container.querySelector("img")).toBeNull()
+    expect(container.querySelector('img[data-slot="avatar-image"]')).toBeNull()
     rerender(display(signedUrl("fresh")))
     expect(requests).toHaveLength(2)
     expect(requests[1]?.src).toBe(signedUrl("fresh"))
     finish(1)
-    expect(container.querySelector("img")).toHaveAttribute(
-      "src",
-      signedUrl("fresh")
-    )
+    expect(
+      container.querySelector('img[data-slot="avatar-image"]')
+    ).toHaveAttribute("src", signedUrl("fresh"))
   })
 
   it("uses the latest URL if a pending load fails after polling has renewed it", () => {
@@ -229,10 +245,9 @@ describe("custom application icon refresh", () => {
     finish(0, "error")
     expect(requests[1]?.src).toBe(signedUrl("latest"))
     finish(1)
-    expect(container.querySelector("img")).toHaveAttribute(
-      "src",
-      signedUrl("latest")
-    )
+    expect(
+      container.querySelector('img[data-slot="avatar-image"]')
+    ).toHaveAttribute("src", signedUrl("latest"))
   })
 
   it("uses the current signature when the icon is mounted again", () => {
@@ -242,10 +257,9 @@ describe("custom application icon refresh", () => {
     const next = render(display(signedUrl("fresh")))
     expect(requests[1]?.src).toBe(signedUrl("fresh"))
     finish(1)
-    expect(next.container.querySelector("img")).toHaveAttribute(
-      "src",
-      signedUrl("fresh")
-    )
+    expect(
+      next.container.querySelector('img[data-slot="avatar-image"]')
+    ).toHaveAttribute("src", signedUrl("fresh"))
   })
 
   it("does not discard resource query parameters on unsigned URLs", () => {
@@ -256,10 +270,9 @@ describe("custom application icon refresh", () => {
     rerender(display("https://icons.example.test/icon?v=2"))
     expect(requests[1]?.src).toBe("https://icons.example.test/icon?v=2")
     finish(1)
-    expect(container.querySelector("img")).toHaveAttribute(
-      "src",
-      "https://icons.example.test/icon?v=2"
-    )
+    expect(
+      container.querySelector('img[data-slot="avatar-image"]')
+    ).toHaveAttribute("src", "https://icons.example.test/icon?v=2")
   })
 
   it.each([
@@ -272,10 +285,14 @@ describe("custom application icon refresh", () => {
       const { container, rerender } = render(display(signedUrl("first")))
       finish(0)
       rerender(display(nextUrl))
-      expect(container.querySelector("img")).toBeNull()
+      expect(
+        container.querySelector('img[data-slot="avatar-image"]')
+      ).toBeNull()
       expect(requests[1]?.src).toBe(nextUrl)
       finish(1)
-      expect(container.querySelector("img")).toHaveAttribute("src", nextUrl)
+      expect(
+        container.querySelector('img[data-slot="avatar-image"]')
+      ).toHaveAttribute("src", nextUrl)
     }
   )
 
@@ -284,13 +301,15 @@ describe("custom application icon refresh", () => {
     const nextUrl = signedUrl("second", "icon-b")
     rerender(display(nextUrl))
     finish(0)
-    expect(container.querySelector("img")).toBeNull()
+    expect(container.querySelector('img[data-slot="avatar-image"]')).toBeNull()
     finish(1)
-    expect(container.querySelector("img")).toHaveAttribute("src", nextUrl)
+    expect(
+      container.querySelector('img[data-slot="avatar-image"]')
+    ).toHaveAttribute("src", nextUrl)
     rerender(
       <ApplicationIconDisplay icon={{ type: "preset", preset: "code-xml" }} />
     )
-    expect(container.querySelector("img")).toBeNull()
+    expect(container.querySelector('img[data-slot="avatar-image"]')).toBeNull()
     expect(
       container.querySelector('[data-application-icon-preset="code-xml"]')
     ).not.toBeNull()

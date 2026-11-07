@@ -24,8 +24,8 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
+  ActionTooltipContent,
   Tooltip,
-  TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
@@ -283,7 +283,7 @@ function GoalIconButton({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="conversation-goal-action"
+            className="conversation-goal-action message-action-button"
             aria-label={label}
             disabled={disabled}
             onClick={onClick}
@@ -296,7 +296,7 @@ function GoalIconButton({
           children
         )}
       </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
+      <ActionTooltipContent>{label}</ActionTooltipContent>
     </Tooltip>
   )
 }

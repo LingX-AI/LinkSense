@@ -1,4 +1,8 @@
 import { spawn } from "node:child_process"
+import { z } from "zod"
+import { browserPanelRequestSchema, type BrowserPanelRequest } from "@linksense/shared"
+import { executeBrowserPanelOperation } from "./panel-operation.js"
+import { BrowserPanelError, readBrowserControl, withBrowserSessionLock, writeBrowserControl } from "./session-control.js"
 import { constants } from "node:fs"
 import {
   access,
@@ -260,6 +264,7 @@ export async function browserCliMain(
   cwd = process.cwd(),
   dependencies: {
     runtimeRoot?: string
+    panelOperation?: BrowserPanelRequest
     runCli?: BrowserCliRunner
     leaseStore?: BrowserSessionLeaseStore
     policy?: ManagedBrowserPolicy
@@ -358,74 +363,101 @@ export async function browserCliMain(
     return code
   }
 
-  if (command === "__cleanup") {
-    return cleanupBrowserSession({
-      cliEntry,
-      sessionName,
-      environment: browserEnvironment,
-      runCli,
-      leases,
-      conversationId,
-      workspace,
-      stateRoot,
-      activeMarker,
-      temporaryRoot,
+  return withBrowserSessionLock(stateRoot, async () => {
+    const sessionCwdFile = path.join(stateRoot, "session-cwd.json")
+    const sessionCwdSource = await readFile(sessionCwdFile, "utf8").catch((error: unknown) => {
+      if (isNodeError(error) && error.code === "ENOENT") return null
+      throw error
     })
-  }
-
-  await writeBrowserConfig(configPath, {
-    runtimeRoot,
-    outputRoot,
-    readOnly: environment.LINKSENSE_BROWSER_READ_ONLY === "1",
-  })
-
-  if (effectiveCommand === "open") {
-    await leases.acquire(conversationId)
-    const code = await runCli({
-      cliEntry,
-      args: [`-s=${sessionName}`, ...managedArgs, "--config", configPath],
-      environment: browserEnvironment,
-      cwd: workspace,
-      timeoutMs: 120_000,
-    })
-    if (code === 0) {
-      await writeFile(activeMarker, `${sessionName}\n`, {
-        encoding: "utf8",
-        mode: 0o600,
-      })
+    const sessionWorkspace = sessionCwdSource === null ? workspace : await realpath(z.string().min(1).max(4_096).parse(JSON.parse(sessionCwdSource)))
+    if (sessionWorkspace !== canonicalHome && !isPathWithin(canonicalHome, sessionWorkspace)) throw new BrowserPanelError("BROWSER_PANEL_UNAVAILABLE")
+    const control = await readBrowserControl(stateRoot)
+    const now = Date.now()
+    if (dependencies.panelOperation) {
+      if (!(await exists(activeMarker)) || !(await leases.has(conversationId))) throw new BrowserPanelError("BROWSER_PANEL_UNAVAILABLE")
+      const operation = browserPanelRequestSchema.parse(dependencies.panelOperation)
+      const sessionConfig = z.object({ browser: z.object({ contextOptions: z.object({ acceptDownloads: z.boolean() }) }) }).parse(JSON.parse(await readFile(configPath, "utf8")))
+      if ((environment.LINKSENSE_BROWSER_READ_ONLY === "1" || !sessionConfig.browser.contextOptions.acceptDownloads) && operation.action !== "frame") throw new BrowserPanelError("BROWSER_CONTROL_REQUIRED")
+      const result = await executeBrowserPanelOperation({ directory: stateRoot, cliEntry, sessionName, environment: browserEnvironment, cwd: sessionWorkspace }, operation)
+      ;(dependencies.writeOutput ?? (value => process.stdout.write(value)))(JSON.stringify(result))
       return 0
     }
-    await forceCloseBrowser(sessionName)
-    await leases.release(conversationId)
-    return code
-  }
+    if (command === "__cleanup" && environment.LINKSENSE_BROWSER_PRESERVE_CONTROL === "1" && control && Math.max(control.expiresAt, control.retainUntil ?? 0) > now) {
+      ;(dependencies.writeOutput ?? (value => process.stdout.write(value)))("LINKSENSE_BROWSER_CLEANUP_DEFERRED\n")
+      return 0
+    }
+    if (command !== "__cleanup" && control && control.expiresAt > now) throw new Error("The user controls this browser. Stop browser actions and wait for the user to return control; do not repeat the command.")
+    if (command !== "__cleanup" && control?.retainUntil) await writeBrowserControl(stateRoot, { token: control.token, expiresAt: 0 })
+    if (command === "__cleanup") {
+      return cleanupBrowserSession({
+        cliEntry,
+        sessionName,
+        environment: browserEnvironment,
+        runCli,
+        leases,
+        conversationId,
+        workspace: sessionWorkspace,
+        stateRoot,
+        activeMarker,
+        temporaryRoot,
+      })
+    }
 
-  if (effectiveCommand === "close") {
-    return cleanupBrowserSession({
-      cliEntry,
-      sessionName,
-      environment: browserEnvironment,
-      runCli,
-      leases,
-      conversationId,
-      workspace,
-      stateRoot,
-      activeMarker,
-      temporaryRoot,
+    await writeBrowserConfig(configPath, {
+      runtimeRoot,
+      outputRoot,
+      readOnly: environment.LINKSENSE_BROWSER_READ_ONLY === "1",
     })
-  }
 
-  if (!(await exists(activeMarker)) || !(await leases.has(conversationId))) {
-    throw new Error("browser session is not open; run linksense-browser open first")
-  }
-  await leases.touch(conversationId)
-  return runCli({
-    cliEntry,
-    args: [`-s=${sessionName}`, ...managedArgs],
-    environment: browserEnvironment,
-    cwd: workspace,
-    timeoutMs: 120_000,
-  })
+    if (effectiveCommand === "open") {
+      await leases.acquire(conversationId)
+      const code = await runCli({
+        cliEntry,
+        args: [`-s=${sessionName}`, ...managedArgs, "--config", configPath],
+        environment: browserEnvironment,
+        cwd: workspace,
+        timeoutMs: 120_000,
+      })
+      if (code === 0) {
+        await writeFile(sessionCwdFile, JSON.stringify(workspace), { mode: 0o600 })
+        await writeFile(activeMarker, `${sessionName}\n`, {
+          encoding: "utf8",
+          mode: 0o600,
+        })
+        return 0
+      }
+      await forceCloseBrowser(sessionName)
+      await leases.release(conversationId)
+      return code
+    }
+
+    if (effectiveCommand === "close") {
+      return cleanupBrowserSession({
+        cliEntry,
+        sessionName,
+        environment: browserEnvironment,
+        runCli,
+        leases,
+        conversationId,
+        workspace: sessionWorkspace,
+        stateRoot,
+        activeMarker,
+        temporaryRoot,
+      })
+    }
+
+    if (!(await exists(activeMarker)) || !(await leases.has(conversationId))) {
+      throw new Error("browser session is not open; run linksense-browser open first")
+    }
+    await leases.touch(conversationId)
+    return runCli({
+      cliEntry,
+      args: [`-s=${sessionName}`, ...managedArgs],
+      environment: browserEnvironment,
+      cwd: sessionWorkspace,
+      timeoutMs: 120_000,
+    })
+  }, dependencies.panelOperation ? 500 : 120_000)
 }
 
 async function workspaceHtmlDataUrl(

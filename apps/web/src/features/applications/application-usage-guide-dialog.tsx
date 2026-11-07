@@ -40,7 +40,7 @@ export function ApplicationUsageGuideDialog({
         if (!open) onClose()
       }}
     >
-      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent variant="workspace">
         <DialogHeader>
           <DialogTitle>{t("applications.distribution.guide")}</DialogTitle>
           <DialogDescription>{application.name}</DialogDescription>

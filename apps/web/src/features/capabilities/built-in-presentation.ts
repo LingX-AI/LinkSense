@@ -25,6 +25,21 @@ export function capabilityPresentation(
       description: capability.description,
     }
   }
+  if (
+    capability.builtin_key === "linksense-browser" ||
+    capability.builtin_key === "linksense-local-browser"
+  ) {
+    const local = capability.builtin_key !== "linksense-browser"
+    return {
+      name: t(local ? "browserUse.localName" : "browserUse.cloudName", {
+        productName,
+      }),
+      description: t(
+        local ? "browserUse.localDescription" : "browserUse.cloudDescription",
+        { productName }
+      ),
+    }
+  }
   const key =
     capabilityTranslationKeys[
       capability.builtin_key as keyof typeof capabilityTranslationKeys

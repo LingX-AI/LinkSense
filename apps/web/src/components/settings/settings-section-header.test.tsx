@@ -35,12 +35,14 @@ describe("SettingsSectionHeader", () => {
       "text-pretty"
     )
     expect(description).toHaveClass("form-hint", "text-pretty")
-    expect(header).toHaveClass(
+    expect(header).toHaveClass("@container/settings-section")
+    expect(header?.firstElementChild).toHaveClass(
       "flex",
+      "flex-col",
       "gap-3",
-      "sm:flex-row",
-      "sm:items-start",
-      "sm:justify-between"
+      "@2xl/settings-section:flex-row",
+      "@2xl/settings-section:items-start",
+      "@2xl/settings-section:justify-between"
     )
     expect(status.parentElement).toHaveAttribute(
       "data-slot",

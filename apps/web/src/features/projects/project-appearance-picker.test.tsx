@@ -49,8 +49,10 @@ describe("project appearance picker", () => {
       for (const color of ["teal", "cyan", "brown", "gray"] as const) {
         const label = t(`projects.appearance.colors.${color}`)
         expect(label).not.toContain("projects.appearance")
-        await user.click(within(colorGroup).getByRole("button", { name: label }))
-        expect(trigger.querySelector("svg")).toHaveAttribute(
+        await user.click(
+          within(colorGroup).getByRole("button", { name: label })
+        )
+        expect(trigger.querySelector("[data-project-icon]")).toHaveAttribute(
           "data-project-color",
           color
         )
@@ -78,11 +80,11 @@ describe("project appearance picker", () => {
           name: t("projects.appearance.icons.flower"),
         })
       ).toHaveAttribute("aria-pressed", "true")
-      expect(trigger.querySelector("svg")).toHaveAttribute(
+      expect(trigger.querySelector("[data-project-icon]")).toHaveAttribute(
         "data-project-icon",
         "flower"
       )
-      expect(trigger.querySelector("svg")).toHaveAttribute(
+      expect(trigger.querySelector("[data-project-icon]")).toHaveAttribute(
         "data-project-color",
         "blue"
       )
@@ -127,6 +129,8 @@ describe("project appearance picker", () => {
     rerender(<ProjectIcon icon="flower" color="blue" open />)
     expect(container.querySelector("svg")).toHaveClass("lucide-flower-2")
     rerender(<ProjectIcon icon="folder" color="default" open />)
-    expect(container.querySelector("svg")).toHaveClass("lucide-folder-open")
+    expect(
+      container.querySelector("[data-design-icon=folder]")
+    ).toHaveAttribute("data-project-icon", "folder")
   })
 })

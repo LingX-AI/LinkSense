@@ -42,7 +42,7 @@ it.each(
     (["create", "edit"] as const).map((mode) => ({ locale, mode }))
   )
 )(
-  "fixes the $mode header and compact right-aligned actions around the scrollable form in $locale",
+  "fixes the $mode header and shared right-aligned actions around the scrollable form in $locale",
   async ({ locale, mode }) => {
     await i18n.changeLanguage(locale)
     const onClose = vi.fn()
@@ -127,7 +127,7 @@ it.each(
     expect(footer?.lastElementChild).toBe(submit)
     expect(footer?.querySelectorAll("button")).toHaveLength(2)
     for (const action of [cancel, submit]) {
-      expect(action).toHaveClass("h-8", "px-3")
+      expect(action).toHaveClass("h-9", "px-4")
       expect(action).not.toHaveClass("w-full", "md:col-span-2")
     }
     expect(submit).toHaveAttribute("type", "submit")

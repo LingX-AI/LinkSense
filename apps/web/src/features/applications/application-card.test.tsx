@@ -69,6 +69,61 @@ function showCard({
 }
 
 describe("application card presentation", () => {
+  it("keeps application details, resources and actions in the design list row", async () => {
+    await i18n.changeLanguage("en-US")
+    const onUse = vi.fn()
+    const onDetails = vi.fn()
+    const onMore = vi.fn()
+    render(
+      <ApplicationCard
+        layout="row"
+        id={id}
+        name={name}
+        kind="interactive"
+        icon={icon}
+        status="active"
+        description="A research assistant"
+        onOpenDetails={onDetails}
+        headerActions={
+          <Button aria-label="More actions" onClick={onMore}>
+            More
+          </Button>
+        }
+        footer="Published by you"
+        actions={<Button onClick={onUse}>Use application</Button>}
+      >
+        <ApplicationCardResources
+          capability_count={2}
+          knowledge_base_count={1}
+          mcp_server_count={0}
+        />
+      </ApplicationCard>
+    )
+    const row = screen.getByRole("article", { name })
+    expect(row).toHaveClass("rounded-none", "border-b")
+    expect(within(row).getByText("A research assistant")).toBeVisible()
+    expect(within(row).getByText("Published by you")).toBeVisible()
+    expect(
+      row.querySelector('[data-slot="application-card-status"]')
+    ).toHaveTextContent(i18n.t("applications.status.active"))
+    expect(
+      row.querySelector('[data-slot="application-card-metadata"]')
+    ).not.toHaveTextContent(i18n.t("applications.status.active"))
+    await userEvent
+      .setup()
+      .click(within(row).getByRole("button", { name: "Use application" }))
+    expect(onUse).toHaveBeenCalledOnce()
+    await userEvent.click(
+      within(row).getByRole("button", { name: "More actions" })
+    )
+    expect(onMore).toHaveBeenCalledOnce()
+    expect(onDetails).not.toHaveBeenCalled()
+    const details = within(row).getByRole("button", {
+      name: i18n.t("applications.details.open", { name }),
+    })
+    await userEvent.click(details)
+    expect(onDetails).toHaveBeenCalledWith({ id, name, trigger: details })
+  })
   it.each(supportedLocales)(
     "reserves the same footer action row with absent, empty and visible actions in %s",
     async (language) => {
@@ -173,7 +228,7 @@ describe("application card presentation", () => {
   )
 
   it.each(["zh-CN", "en-US"])(
-    "groups neutral development and enabled statuses below the name and overlays the original icon in %s",
+    "groups neutral development and enabled statuses below the name and preserves the original icon without an overlay in %s",
     async (language) => {
       await i18n.changeLanguage(language)
       showCard({ kind: "interactive", developing: true, version: "1.2.3" })
@@ -212,27 +267,19 @@ describe("application card presentation", () => {
         expect(dot).not.toHaveClass("rounded-full")
       }
       expect(row).toHaveClass("min-w-0")
-      const overlay = card.querySelector<HTMLElement>(
-        '[data-slot="application-card-development-overlay"]'
-      )
-      expect(overlay).toHaveAttribute("aria-hidden", "true")
-      expect(overlay).toHaveClass(
-        "pointer-events-none",
-        "absolute",
-        "right-0",
-        "bottom-0",
-        "size-6",
-        "bg-card/80"
-      )
-      expect(overlay?.querySelector("svg.lucide-code-xml")).toBeInTheDocument()
+      expect(
+        card.querySelector('[data-slot="application-card-development-overlay"]')
+      ).toBeNull()
+      expect(card.querySelector("svg.lucide-code-xml")).toBeNull()
       expect(card.querySelector("svg.lucide-construction")).toBeNull()
       const tile = card.querySelector('[data-slot="application-card-icon"]')
-      expect(tile).toContainElement(overlay)
       expect(
         tile?.querySelector('[data-application-icon-preset="sparkles"]')
       ).toBeInTheDocument()
       expect(
-        tile?.querySelector('[data-application-icon-preset="sparkles"] svg')
+        tile?.querySelector(
+          '[data-application-icon-preset="sparkles"] :is(svg, img)'
+        )
       ).toHaveClass("size-full")
       expect(
         card.querySelector('[data-slot="card-content"]')

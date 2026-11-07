@@ -85,7 +85,7 @@ describe("FieldLegend", () => {
 })
 
 describe("FieldDescription", () => {
-  it("matches the page description font tier while preserving its muted color", () => {
+  it("keeps captions smaller than page descriptions and preserves their muted color", () => {
     render(<FieldDescription size="caption">Help text</FieldDescription>)
     expect(screen.getByText("Help text")).toHaveClass(
       "text-[length:var(--app-font-13)]",
@@ -93,7 +93,7 @@ describe("FieldDescription", () => {
       "text-muted-foreground"
     )
     expect(appStyles).toMatch(
-      /\.management-header p,\s*\.settings-section > p\s*\{[^}]*font-size:\s*var\(--app-font-13\);[^}]*line-height:\s*var\(--app-line-20\);/u
+      /\.management-header p,\s*\.settings-section > p\s*\{[^}]*font-size:\s*var\(--app-ui-font-size\);[^}]*line-height:\s*var\(--app-line-22\);/u
     )
   })
 })

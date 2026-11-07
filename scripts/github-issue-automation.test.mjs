@@ -135,7 +135,7 @@ for (const workflow of ["issue-triage", "agent-ready"]) {
     const agentModel = lock.match(/^\s+GH_AW_MODEL_AGENT_CODEX: (.+)$/mu)?.[1]
     const detectionModel = lock.match(/^\s+GH_AW_MODEL_DETECTION_CODEX: (.+)$/mu)?.[1]
     assert.match(agentModel, /^\$\{\{ vars\.GH_AW_MODEL_AGENT_CODEX/u)
-    assert.equal(detectionModel, "detection", "preserve the current native detection alias")
+    assert.equal(detectionModel, "gpt-6.1-sol", "detection must use a concrete model present in the guarded pricing catalog")
   })
 }
 
@@ -174,7 +174,7 @@ test("compiler upgrades preserve the model fallback and read-only activation", a
     const info = jobs.activation.steps.find(step => step.id === "generate_aw_info")
     assert.equal(info.env.GH_AW_INFO_MODEL, "${{ vars.GH_AW_MODEL_AGENT_CODEX || vars.GH_AW_DEFAULT_MODEL_CODEX || 'gpt-5.4' }}")
     const detection = jobs.detection.steps.find(step => step.env?.GH_AW_MODEL_DETECTION_CODEX)
-    assert.equal(detection.env.GH_AW_MODEL_DETECTION_CODEX, "detection")
+    assert.equal(detection.env.GH_AW_MODEL_DETECTION_CODEX, "gpt-6.1-sol")
   }
 })
 

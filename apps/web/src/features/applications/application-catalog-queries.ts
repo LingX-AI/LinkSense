@@ -6,6 +6,7 @@ import {
 } from "@linksense/shared"
 import { apiRequest } from "@/api/client"
 import { applicationSchema, paginatedSchema } from "@/api/contracts"
+import { workspaceUiDemoQueryKey } from "@/features/ui-demo/workspace-ui-demo-mode"
 
 const applicationPageSchema = paginatedSchema(applicationSchema)
 export const applicationCatalogKeys = {
@@ -13,7 +14,15 @@ export const applicationCatalogKeys = {
     scope: "owned" | "shared",
     search: string,
     state: ApplicationCatalogFilter
-  ) => ["applications", "catalog", scope, search, state] as const,
+  ) =>
+    [
+      "applications",
+      "catalog",
+      scope,
+      search,
+      state,
+      ...workspaceUiDemoQueryKey(),
+    ] as const,
 }
 
 export function useApplicationCatalog(

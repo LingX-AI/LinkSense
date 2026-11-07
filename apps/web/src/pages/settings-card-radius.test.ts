@@ -11,7 +11,6 @@ const cardSelectors = [
   ".entity-row,\n.simple-list-row",
   ".archived-conversation-list",
   ".data-table-scroll",
-  ".capability-library-row",
   ".marketplace-governance-item",
   ".settings-panel",
   ".personalization-memory-card",
@@ -21,11 +20,16 @@ const cardSelectors = [
   ".profile-stat-strip",
   ".health-summary > div",
   ".import-preview",
-  ".knowledge-document-table",
   '.knowledge-document-table [data-slot="table-row"]',
 ]
 
 describe("settings card radius", () => {
+  it("uses dividers instead of card corners for full-width catalog rows", () => {
+    expect(appStyles).toMatch(
+      /\.capability-library-row\s*\{[^}]*border-bottom:\s*1px solid var\(--app-divider\);[^}]*border-radius:\s*0;/u
+    )
+  })
+
   it("uses the shared table card for knowledge results and keeps pagination outside the border", () => {
     expect(adminKnowledgeSource).toContain('<Table appearance="card">')
     expect(tableSource).toContain('appearance === "card"')

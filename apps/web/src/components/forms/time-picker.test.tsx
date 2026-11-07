@@ -6,6 +6,26 @@ import { describe, expect, it, vi } from "vitest"
 import { TimePicker } from "@/components/forms/time-picker"
 
 describe("TimePicker", () => {
+  it("preserves the compact trigger height", () => {
+    render(
+      <>
+        <span id="compact-time-label">Time</span>
+        <TimePicker
+          id="compact-time"
+          size="sm"
+          value="09:00"
+          onValueChange={vi.fn()}
+          labelledBy="compact-time-label"
+          hourLabel="Hour"
+          minuteLabel="Minute"
+        />
+      </>
+    )
+    expect(screen.getByRole("button", { name: "Time 09:00" })).toHaveClass(
+      "h-9"
+    )
+  })
+
   it("uses one combined shadcn time picker and emits a 24-hour HH:mm value", async () => {
     const interaction = userEvent.setup()
 

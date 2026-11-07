@@ -76,6 +76,10 @@ export class PrismaBotChannelRepository {
         data: { status: "disconnecting" },
       });
       if (!found.count) return false;
+      await tx.automationNotificationDelivery.updateMany({
+        where: { status: { in: ["pending", "processing"] }, targetJson: { path: ["connection_id"], equals: id } },
+        data: { status: "cancelled", processingToken: null },
+      });
       await tx.botChannelIdentity.deleteMany({ where: { connectionId: id } });
       await tx.botChannelOutboundDelivery.deleteMany({
         where: { connectionId: id },

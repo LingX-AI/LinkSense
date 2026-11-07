@@ -147,6 +147,44 @@ function renderLoginPageWithAuthStatus(
 }
 
 describe("LoginPage session restoration", () => {
+  it("preserves the password and does not submit when visibility is toggled", async () => {
+    renderLoginPageWithAuthStatus("anonymous")
+    const interaction = userEvent.setup()
+    const password = screen.getByLabelText(/^密码\s*\*?$/u)
+    const form = password.closest("form")
+    const submit = vi.fn((event: Event) => event.preventDefault())
+    form?.addEventListener("submit", submit)
+
+    await interaction.type(password, "Demo-only-123!")
+    await interaction.click(screen.getByRole("button", { name: "显示密码" }))
+    expect(password).toHaveAttribute("type", "text")
+    expect(password).toHaveValue("Demo-only-123!")
+    await interaction.click(screen.getByRole("button", { name: "隐藏密码" }))
+    expect(password).toHaveAttribute("type", "password")
+    expect(password).toHaveValue("Demo-only-123!")
+    expect(password).toHaveAttribute("autocomplete", "current-password")
+    expect(submit).not.toHaveBeenCalled()
+  })
+
+  it("presents static login and brand headings immediately with labeled login fields", () => {
+    renderLoginPageWithAuthStatus("anonymous")
+
+    const brandHeading = screen.getByRole("heading", { name: /你的 AI 伙伴/u })
+    const loginHeading = screen.getByRole("heading", { name: "登录 LinkSense" })
+    for (const heading of [brandHeading, loginHeading]) {
+      expect(heading).toBeVisible()
+      expect(heading.children).toHaveLength(0)
+    }
+    expect(screen.getByRole("textbox", { name: "邮箱" })).toHaveAttribute(
+      "placeholder",
+      "请输入邮箱地址"
+    )
+    expect(screen.getByLabelText(/^密码\s*\*?$/u)).toHaveAttribute(
+      "placeholder",
+      "请输入密码"
+    )
+  })
+
   it.each(supportedLocales)(
     "marks both login fields as required without changing their accessible names in %s",
     async (locale) => {
@@ -164,6 +202,23 @@ describe("LoginPage session restoration", () => {
       expect(document.getElementById("login-password")).toHaveAccessibleName(
         i18n.t("auth.password")
       )
+      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
+        i18n.t("accountAccess.brandHeadline").replace(/\n/gu, " ")
+      )
+      for (const key of [
+        "brandHeadline",
+        "brandDescription",
+        "brandProducts",
+        "emailPlaceholder",
+        "passwordPlaceholder",
+      ]) {
+        const translation = i18n.t(`accountAccess.${key}`)
+        expect(translation).not.toBe(`accountAccess.${key}`)
+        if (locale !== "zh-CN")
+          expect(translation).not.toBe(
+            i18n.t(`accountAccess.${key}`, { lng: "zh-CN" })
+          )
+      }
     }
   )
 
@@ -172,7 +227,9 @@ describe("LoginPage session restoration", () => {
     const selector = screen.getByRole("combobox", { name: "界面语言" })
     expect(selector.closest("main")).toBeNull()
     expect(selector.parentElement).toHaveClass("justify-end", "shrink-0")
-    expect(selector.parentElement?.parentElement).toHaveClass("public-shell")
+    expect(
+      selector.closest('[data-slot="account-access-layout"]')
+    ).not.toBeNull()
     expect(selector).toHaveClass("rounded-md")
     expect(selector).not.toHaveClass("rounded-lg", "rounded-full")
   })
@@ -184,7 +241,7 @@ describe("LoginPage session restoration", () => {
     })
     const frame = attribution.parentElement
     expect(frame).toHaveAttribute("data-slot", "powered-by-linksense")
-    expect(frame).toHaveAttribute("data-placement", "public")
+    expect(frame).toHaveAttribute("data-placement", "page")
     expect(frame).toHaveClass("[--attribution-inset:18px]")
     expect(screen.getByRole("main")).not.toContainElement(frame)
   })

@@ -219,6 +219,7 @@ export const pluginResources = {
     submitted:
       "L’instantané de la version a été soumis à la révision d’un administrateur.",
     submittedAt: "Soumis le {{date}}",
+    reviewedAt: "Examiné le {{date}}",
     reviewPolicyNotice:
       "Chaque nouvelle version est réexaminée. Les versions approuvées ne mettent jamais automatiquement à jour les installations existantes.",
     publicationsEmpty:
@@ -372,6 +373,11 @@ export const pluginResources = {
     },
   },
   capability: {
+    uiDemo: {
+      readOnly:
+        "Exemples locaux de plugins. Explorez la recherche, les détails et les menus sans installer de plugins ni modifier les données réelles.",
+      exit: "Quitter la démo",
+    },
     title: "Plugins et compétences",
     description:
       "Gérez les plugins, compétences, sources du Centre et états d’exécution personnels.",

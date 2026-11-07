@@ -96,7 +96,6 @@ export function AdminFeedbackPage() {
 
   return (
     <PageLayout
-      contentWidth="wide"
       title={t("adminFeedback.title")}
       description={t("adminFeedback.description")}
       actions={

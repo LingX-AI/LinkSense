@@ -37,8 +37,8 @@ describe("divider treatment", () => {
   })
 
   it("uses the same lighter divider color in light and dark themes", () => {
-    expect(appStyles).toContain("--app-divider: rgb(32 32 32 / 6%);")
-    expect(appStyles).toContain("--app-divider: rgb(255 255 255 / 6%);")
+    expect(appStyles).toContain("--app-divider: #e7eaf1;")
+    expect(appStyles).toContain("--app-divider: #383e4b;")
     expect(appStyles).toContain("--color-divider: var(--app-divider);")
   })
 
@@ -46,7 +46,7 @@ describe("divider treatment", () => {
     expect(appStyles).toContain("@apply border-border outline-ring/50;")
   })
 
-  it("draws table rows with the shared half-pixel divider treatment", () => {
+  it("draws table rows with shared divider colors and a stronger header edge", () => {
     render(
       <Table>
         <TableHeader>
@@ -69,13 +69,15 @@ describe("divider treatment", () => {
       screen.getByRole("columnheader", { name: "Name" }),
       screen.getByRole("cell", { name: "First" }),
     ]) {
-      expect(cell).toHaveClass(
-        "relative",
-        "after:h-[0.5px]",
-        "after:bg-divider"
-      )
+      expect(cell).toHaveClass("relative", "after:bg-divider")
       expect(cell).not.toHaveClass("border-b")
     }
+    expect(screen.getByRole("columnheader", { name: "Name" })).toHaveClass(
+      "after:h-px"
+    )
+    expect(screen.getByRole("cell", { name: "First" })).toHaveClass(
+      "after:h-[0.5px]"
+    )
     expect(screen.getByRole("row", { name: "Last" })).toHaveClass(
       "last:[&>td]:after:hidden"
     )

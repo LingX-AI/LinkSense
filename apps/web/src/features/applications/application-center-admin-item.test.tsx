@@ -15,6 +15,7 @@ import {
 import { apiRequest } from "@/api/client"
 import i18n from "@/i18n"
 import { ApplicationCenterAdminItem } from "./application-center-admin-item"
+import { applicationIconArtwork } from "./application-icon-presets"
 import { useAdminApplicationReleases } from "./application-distribution-queries"
 import { ListCard } from "@/components/ui/list-card"
 import { EmptyState, ErrorState } from "@/components/feedback/page-state"
@@ -163,12 +164,15 @@ describe("application approval cards", () => {
         card.querySelector('[data-application-icon-preset="bot"]')
       ).toBeInTheDocument()
       const artwork = card.querySelector(
-        '[data-application-icon-preset="bot"] svg'
+        '[data-application-icon-preset="bot"] img'
       )
-      expect(artwork).toBeInstanceOf(SVGElement)
-      if (!(artwork instanceof SVGElement)) throw new Error("Missing artwork")
-      expect(getComputedStyle(artwork).width).toBe("32px")
-      expect(getComputedStyle(artwork).height).toBe("32px")
+      expect(artwork).toBeInstanceOf(HTMLImageElement)
+      if (!(artwork instanceof HTMLImageElement))
+        throw new Error("Missing artwork")
+      expect(artwork).toHaveAttribute("src", applicationIconArtwork.bot)
+      expect(artwork).toHaveAttribute("alt", "")
+      expect(getComputedStyle(artwork).width).toBe("100%")
+      expect(getComputedStyle(artwork).height).toBe("100%")
       expect(
         within(card).getByRole("heading", { name: release.name })
       ).toBeVisible()

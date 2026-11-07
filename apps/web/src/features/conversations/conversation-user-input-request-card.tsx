@@ -201,7 +201,7 @@ function AnsweredFormDetails({
   return (
     <Collapsible className="w-full min-w-0">
       <CollapsibleTrigger
-        className="group flex w-full min-w-0 items-center gap-2 rounded-card border border-[color:var(--app-border)] px-3 py-2 text-left text-sm text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="group flex w-full min-w-0 items-center gap-2 rounded-lg border border-[color:var(--app-border)] px-3 py-2 text-left text-sm text-muted-foreground hover:bg-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         onPointerDownCapture={onInteractionStart}
       >
         <MessageCircleQuestionIcon

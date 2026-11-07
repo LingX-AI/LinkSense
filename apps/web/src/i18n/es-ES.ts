@@ -23,6 +23,7 @@ import { knowledgeMessages } from "@/i18n/es-ES/knowledge"
 import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const esES = {
+  browserUse: browserUseMessages["es-ES"],
   publicKnowledge: publicKnowledgeMessages["es-ES"],
   modelSetup: modelSetupMessages["es-ES"],
   connections: connectionMessages["es-ES"],
@@ -57,6 +58,10 @@ export const esES = {
     search: "Buscar",
     loading: "Cargando…",
     pageLoading: "Cargando…",
+    emptyDescription:
+      "Los elementos aparecerán aquí cuando estén disponibles.",
+    notFoundDescription:
+      "Es posible que la página se haya movido o eliminado.",
     actions: "Acciones",
     status: "Estado",
     name: "Nombre",
@@ -147,6 +152,8 @@ export const esES = {
     helpCenter: "Centro de ayuda",
     helpCenterNewTab: "Abrir el Centro de ayuda en una pestaña nueva",
     automationNotifications: "Notificaciones de automatización",
+    automationNotificationsEmpty:
+      "No hay notificaciones de automatización sin leer",
     automationNotificationsUnread:
       "Notificaciones de automatización con una tarea completada sin leer",
     automationTask: "Tarea de automatización",
@@ -297,3 +304,4 @@ export const esES = {
   ...adminMessages,
   ...knowledgeMessages,
 } satisfies TranslationResource<typeof enUS>
+import { browserUseMessages } from "@/features/browser-use/messages"

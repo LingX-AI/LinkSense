@@ -46,14 +46,17 @@ type EditorSelection =
 
 export function ModelProviderSettingsForm({
   settings: initial,
+  selectedChannelId,
+  onSelectedChannelChange,
 }: {
   settings: ModelProviderSettings
+  selectedChannelId: string
+  onSelectedChannelChange: (id: string) => void
 }) {
   const { t } = useTranslation()
   const id = useId()
   const { settings, pending, error, execute, clearError } =
     useModelSettings(initial)
-  const [selectedId, setSelectedId] = useState(initial.providers[0]?.id ?? "")
   const [editor, setEditor] = useState<EditorSelection | null>(null)
   const [deletion, setDeletion] = useState<
     | { kind: "model"; model: ManagedPricedModel }
@@ -61,7 +64,7 @@ export function ModelProviderSettingsForm({
     | null
   >(null)
   const channel =
-    settings.providers.find((provider) => provider.id === selectedId) ??
+    settings.providers.find((provider) => provider.id === selectedChannelId) ??
     settings.providers[0]
   const channelIndex = settings.providers.findIndex(
     (provider) => provider.id === channel?.id
@@ -142,7 +145,7 @@ export function ModelProviderSettingsForm({
                   label: providerName(provider, index),
                 }))}
                 onChange={(value) => {
-                  setSelectedId(value)
+                  onSelectedChannelChange(value)
                   clearError()
                 }}
                 actions={
@@ -318,7 +321,7 @@ export function ModelProviderSettingsForm({
               draft,
               onSaved: () => {
                 if (!editor.channel)
-                  setSelectedId(draft.providers.at(-1)?.id ?? "")
+                  onSelectedChannelChange(draft.providers.at(-1)?.id ?? "")
                 closeEditor()
               },
             })

@@ -752,9 +752,9 @@ describe("administrator audit metadata", () => {
     ).toBeVisible()
     expect(await screen.findByText("已创建任务")).toBeVisible()
     const auditTabs = screen.getByRole("tablist", { name: "审计数据范围" })
-    expect(auditTabs).toHaveClass("rounded-none", "bg-transparent")
+    expect(auditTabs).toHaveClass("rounded-xl", "bg-muted")
     for (const tab of within(auditTabs).getAllByRole("tab")) {
-      expect(tab).toHaveClass("rounded-xl", "font-medium")
+      expect(tab).toHaveClass("rounded-lg", "font-medium")
     }
     await interaction.click(screen.getByRole("tab", { name: "任务执行元数据" }))
     expect(await screen.findByText("conversation-1")).toBeVisible()

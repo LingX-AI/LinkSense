@@ -182,8 +182,9 @@ export function KnowledgeShareDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        variant="workspace"
         closeLabel={t("common.close")}
-        className="knowledge-share-dialog sm:max-w-xl"
+        className="knowledge-share-dialog sm:max-w-150"
       >
         <DialogHeader>
           <DialogTitle>{t("knowledge.share.title")}</DialogTitle>
@@ -213,6 +214,7 @@ export function KnowledgeShareDialog({
                 }}
               >
                 <TabsList
+                  variant="pills"
                   className="knowledge-share-type-options"
                   aria-label={t("knowledge.share.targetType")}
                 >
@@ -344,11 +346,6 @@ export function KnowledgeShareDialog({
             <div className="knowledge-grant-list">
               {grantItems.map((grant) => (
                 <div key={grant.id} className="knowledge-grant-row">
-                  {grant.target_type === "user" ? (
-                    <UserIcon aria-hidden="true" />
-                  ) : (
-                    <UsersIcon aria-hidden="true" />
-                  )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">{grant.target.name}</span>
                     <span className="block truncate text-muted-foreground">

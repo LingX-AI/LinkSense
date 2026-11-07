@@ -52,7 +52,7 @@ export function KnowledgeSourceSyncScheduleFields({
   }
 
   return (
-    <FieldGroup className="gap-4 rounded-[min(var(--radius-4xl),24px)] border border-[color:var(--app-border)] p-4">
+    <FieldGroup className="gap-5 [&_[data-slot=field]]:gap-2">
       <FieldShell
         id="knowledge-base-sync-frequency"
         label={t("knowledge.create.syncFrequencyLabel")}

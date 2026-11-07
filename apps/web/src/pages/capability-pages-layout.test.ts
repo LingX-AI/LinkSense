@@ -4,18 +4,27 @@ import capabilityPageStyles from "@/index.css?raw"
 import { describe, expect, it } from "vitest"
 
 describe("capability card layout", () => {
-  it("uses transparent subtly bordered icon surfaces for plugins, skills, and MCP", () => {
+  it("keeps installed rows contiguous so highlights meet their separators evenly", () => {
+    const installedGridRule = capabilityPageStyles.match(
+      /\.capability-center-installed-grid\s*\{([^}]*)\}/u
+    )?.[1]
+
+    expect(installedGridRule).toBeDefined()
+    expect(installedGridRule).toMatch(/\brow-gap:\s*0;/u)
+  })
+
+  it("keeps the 40px resource logos free of decorative borders", () => {
     expect(capabilityPageStyles).toMatch(
       /\.capability-menu-icon,\s*\.capability-logo\s*\{[^}]*border:\s*1px solid\s*color-mix\(in srgb, var\(--app-divider\) 80%, transparent\);[^}]*background:\s*transparent;/u
     )
     expect(capabilityPageStyles).toMatch(
-      /\.capability-library-logo,\s*\.capability-library-row \.capability-logo\s*\{[^}]*border:\s*1px solid\s*color-mix\(in srgb, var\(--app-divider\) 80%, transparent\);[^}]*background:\s*transparent;/u
+      /\.capability-library-logo,\s*\.capability-library-row \.capability-logo\s*\{[^}]*width:\s*40px;[^}]*height:\s*40px;[^}]*border:\s*0;[^}]*background:\s*transparent;/u
     )
   })
 
-  it("top-aligns the icon, content, and actions for variable-height cards", () => {
+  it("centers icons and content in full-width catalog rows", () => {
     expect(capabilityPageStyles).toMatch(
-      /\.capability-library-row\s*\{[^}]*align-items:\s*flex-start;/u
+      /\.capability-library-row\s*\{[^}]*min-height:\s*76px;[^}]*align-items:\s*center;[^}]*padding:\s*12px 16px;/u
     )
   })
 

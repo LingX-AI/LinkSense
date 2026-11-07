@@ -111,7 +111,7 @@ jobs:
             --workdir /workspace "$image_digest" sh -ec '
               if command -v apt-get >/dev/null 2>&1; then
                 apt-get update
-                apt-get install --yes --no-install-recommends ca-certificates curl openssl procps diffutils
+                apt-get install --yes --no-install-recommends ca-certificates curl openssl procps diffutils util-linux
               else
                 dnf install --assumeyes ca-certificates openssl procps-ng findutils util-linux diffutils
                 command -v curl >/dev/null 2>&1 || dnf install --assumeyes curl

@@ -21,6 +21,42 @@ const noModelMetadata: ModelProviderMetadataClient = {
 }
 
 describe("ModelProviderSettingsService", () => {
+  it("persists a channel's test model independently and preserves it when an older update omits it", async () => {
+    const database = inMemoryDatabase()
+    const service = new ModelProviderSettingsService(database.prisma, testConfig(), noModelMetadata)
+    const configuredModel = pricedModel("model-a", ["medium"], "medium")
+    const savedChannel = provider("primary", "https://models.example.test/v1", [configuredModel], "native_responses", "test-key")
+    const input = {
+      expected_revision: 1,
+      providers: [{ ...savedChannel, test_model_id: "test" }],
+      default_model: configuredModel.id,
+      title_model: configuredModel.id,
+    }
+    const legacy = await service.update(ACTOR_ID, {
+      ...input, expected_revision: 0, providers: [savedChannel],
+    }, {})
+    expect(legacy.providers[0]?.test_model_id).toBeUndefined()
+    const saved = await service.update(ACTOR_ID, input, {})
+    expect(saved.providers[0]).toMatchObject({ test_model_id: "test", models: [configuredModel] })
+
+    const reloaded = new ModelProviderSettingsService(database.prisma, testConfig(), noModelMetadata)
+    await expect(reloaded.getAdminSettings()).resolves.toEqual(saved)
+    await reloaded.update(ACTOR_ID, {
+      ...input,
+      expected_revision: 2,
+      providers: [savedChannel],
+    }, {})
+    expect((await reloaded.getAdminSettings()).providers[0]).toMatchObject({ test_model_id: "test", models: [configuredModel] })
+    await expect(reloaded.resolveRuntimeForSelection(configuredModel.id, "medium")).resolves.toMatchObject({ model: configuredModel.id })
+
+    await reloaded.update(ACTOR_ID, {
+      ...input,
+      expected_revision: 3,
+      providers: [{ ...savedChannel, test_model_id: null }],
+    }, {})
+    expect((await reloaded.getAdminSettings()).providers[0]).toMatchObject({ test_model_id: null, models: [configuredModel] })
+  })
+
   it("requires a replacement key before a saved channel can send credentials to a changed target", async () => {
     const database = inMemoryDatabase()
     const readContextWindows = vi.fn(async () => new Map<string, number>())

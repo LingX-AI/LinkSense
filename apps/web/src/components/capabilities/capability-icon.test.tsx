@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 
 import mcpIconUrl from "@/assets/capabilities/mcp-icon.svg"
 import pluginIconUrl from "@/assets/capabilities/plugin-icon.png"
-import skillIconUrl from "@/assets/capabilities/skill-icon.png"
+import skillIconUrl from "@/assets/capabilities/skill-icon.svg"
 import {
   CapabilityIcon,
   McpIcon,

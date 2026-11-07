@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next"
 
 import { getErrorMessage } from "@/api/error-message"
 import { FieldShell } from "@/components/forms/form-field"
+import { FilePicker } from "@/components/forms/file-picker"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { FileTypeIcon } from "@/components/media/file-type-icon"
 import { Badge } from "@/components/ui/badge"
@@ -34,14 +35,13 @@ import {
   FieldDescription,
   FieldLabel,
 } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
 import {
   Progress,
   ProgressLabel,
   ProgressValue,
 } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   uploadKnowledgeDocument,
   type KnowledgeUploadConflictOptions,
@@ -391,8 +391,9 @@ export function KnowledgeUploadDialog({
       }}
     >
       <DialogContent
+        variant="workspace"
         closeLabel={t("common.close")}
-        className="knowledge-upload-dialog sm:max-w-2xl"
+        className="knowledge-upload-dialog sm:max-w-150"
       >
         <DialogHeader>
           <DialogTitle>{t("knowledge.upload.title")}</DialogTitle>
@@ -444,28 +445,25 @@ export function KnowledgeUploadDialog({
               {t("knowledge.upload.sourceTypeDescription")}
             </FieldDescription>
           </FieldContent>
-          <ToggleGroup
-            value={[uploadMode]}
-            disabled={hasQueue || uploading}
-            variant="outline"
-            spacing={0}
-            aria-label={t("knowledge.upload.sourceType")}
+          <Tabs
+            value={uploadMode}
             onValueChange={(value) => {
-              const nextMode = value[0]
-              if (nextMode === "files" || nextMode === "folder") {
-                setUploadMode(nextMode)
+              if (value === "files" || value === "folder") {
+                setUploadMode(value)
               }
             }}
           >
-            <ToggleGroupItem value="files">
-              <FileUpIcon data-icon="inline-start" aria-hidden="true" />
-              {t("knowledge.upload.filesMode")}
-            </ToggleGroupItem>
-            <ToggleGroupItem value="folder">
-              <FolderUpIcon data-icon="inline-start" aria-hidden="true" />
-              {t("knowledge.upload.folderMode")}
-            </ToggleGroupItem>
-          </ToggleGroup>
+            <TabsList aria-label={t("knowledge.upload.sourceType")}>
+              <TabsTrigger value="files" disabled={hasQueue || uploading}>
+                <FileUpIcon data-icon="inline-start" aria-hidden="true" />
+                {t("knowledge.upload.filesMode")}
+              </TabsTrigger>
+              <TabsTrigger value="folder" disabled={hasQueue || uploading}>
+                <FolderUpIcon data-icon="inline-start" aria-hidden="true" />
+                {t("knowledge.upload.folderMode")}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </Field>
 
         <FieldShell
@@ -476,14 +474,6 @@ export function KnowledgeUploadDialog({
               ? "knowledge.upload.chooseFolder"
               : "knowledge.upload.chooseFiles"
           )}
-          hint={
-            limits && maxFileSizeLabel
-              ? t("knowledge.upload.limits", {
-                  maxFileSize: maxFileSizeLabel,
-                  maxFiles: limits.max_files_per_batch,
-                })
-              : t("knowledge.upload.loadingLimits")
-          }
           error={
             batchError ??
             (limitsQuery.isError
@@ -491,11 +481,23 @@ export function KnowledgeUploadDialog({
               : undefined)
           }
         >
-          <Input
+          <FilePicker
+            prompt={t(
+              uploadMode === "folder"
+                ? "knowledge.upload.chooseFolder"
+                : "knowledge.upload.chooseFiles"
+            )}
+            description={
+              limits && maxFileSizeLabel
+                ? t("knowledge.upload.limits", {
+                    maxFileSize: maxFileSizeLabel,
+                    maxFiles: limits.max_files_per_batch,
+                  })
+                : t("knowledge.upload.loadingLimits")
+            }
             ref={fileInputRef}
             id="knowledge-upload-files"
             aria-required="true"
-            type="file"
             accept={uploadMode === "folder" ? undefined : knowledgeUploadAccept}
             multiple
             disabled={uploading || batchOngoing || !limits}
@@ -641,7 +643,7 @@ export function KnowledgeUploadDialog({
           if (!nextOpen) setConflictItemId(undefined)
         }}
       >
-        <DialogContent closeLabel={t("common.close")}>
+        <DialogContent variant="workspace" closeLabel={t("common.close")}>
           <DialogHeader>
             <DialogTitle>{t("knowledge.upload.conflictTitle")}</DialogTitle>
             <DialogDescription>

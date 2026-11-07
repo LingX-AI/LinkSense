@@ -121,7 +121,9 @@ describe("SharedConversationPage", () => {
     )
     const messageRegion = screen.getByRole("log")
     expect(messageRegion).toHaveClass("conversation-scroll-embedded")
-    expect(messageRegion.parentElement).toHaveClass("shared-conversation-main")
+    expect(messageRegion.closest(".shared-conversation-main")).toHaveAttribute(
+      "data-conversation-scroll-viewport"
+    )
     expect(document.querySelector('[data-icon="flag"]')).toBeNull()
     expect(apiRequest).toHaveBeenCalledWith(
       `/shared-conversations/${SHARE_ID}`,

@@ -1,3 +1,5 @@
+import { internalAutomationMonitoringRoutes, internalAutomationRoutes } from "./modules/automations/internal-routes.js";
+import { conversationBrowserRoutes } from "./modules/conversations/browser-routes.js";
 import { publicKnowledgeManagementRoutes, publicKnowledgeVisitorRoutes } from "./modules/public-knowledge/routes.js";
 import { htmlPreviewRoutes, htmlPreviewResourceRoutes } from "./modules/html-preview/routes.js";
 import { SamlSettingsService } from "./modules/saml/settings.js";
@@ -7,6 +9,10 @@ import { samlRoutes } from "./modules/saml/routes.js";
 import { applicationCenterRoutes, adminApplicationCenterRoutes } from "./modules/applications/center-routes.js";
 import { applicationDevelopmentRoutes, internalApplicationBuilderRoutes } from "./modules/applications/development-routes.js";
 import { registerRunnerRuntimeScope } from "./modules/events/runtime-scope.js";
+import { registerBrowserUseRoutes } from "./modules/browser-use/routes.js";
+import { BrowserUseService } from "./modules/browser-use/service.js";
+import { BrowserUseIntentService } from "./modules/browser-use/intent.js";
+import { RedisBrowserStore } from "./modules/browser-use/store.js";
 import { finishTaskRequest, withTaskLatencyContext } from "./lib/task-latency.js";
 import cookie from "@fastify/cookie";
 import { socialAuthRoutes } from "./modules/social-auth/routes.js";
@@ -86,7 +92,6 @@ import {
 import { internalKnowledgeSearchRoutes } from "./modules/knowledge/internal-routes.js";
 import { internalImageGenerationRoutes } from "./modules/system/image-generation-internal-routes.js";
 import { internalCurrentUserRoutes } from "./modules/users/internal-routes.js";
-import { internalAutomationRoutes } from "./modules/automations/internal-routes.js";
 import { knowledgeAdminRoutes } from "./modules/knowledge/admin-routes.js";
 import { knowledgeMaintenanceRoutes } from "./modules/knowledge/maintenance-routes.js";
 import { KnowledgeCitationReadService } from "./modules/knowledge/citation-read.js";
@@ -144,6 +149,8 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.body.verify_code",
   "req.body.app_secret",
   "req.body.ticket",
+  "req.body.code",
+  "req.body.pairing.code",
   "req.body.session_id",
   "req.body.renewal_token",
   "req.body.values[*].value",
@@ -189,6 +196,7 @@ export async function buildApi(
     },
   });
   await app.register(authenticationPlugin, { prisma: services.prisma });
+  const browserUseEndpoint = new URL("api/v1/local-browser", `${services.config.publicBaseUrl.replace(/\/$/, "")}/`);
   const authService = createAuthService(app, services);
   await authService.prepare();
   await services.jobs.start(authService, services.system);
@@ -533,6 +541,7 @@ export async function buildApi(
     prefix: "/api/v1/shared-conversations",
     service: services.conversationShares,
   });
+  await app.register(conversationBrowserRoutes, { prefix: "/api/v1/conversations", services });
   await app.register(htmlPreviewRoutes, { prefix: "/api/v1/conversations", service: services.htmlPreviews });
   await app.register(htmlPreviewResourceRoutes, { prefix: "/html-preview", service: services.htmlPreviews });
   await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: services.webSites });
@@ -589,6 +598,8 @@ export async function buildApi(
   await app.register(siteIconRoutes, { prefix: "/api/v1", services });
   await app.register(externalImageRoutes, { prefix: "/api/v1", services });
   await app.register(internalRunnerRoutes, { prefix: "/internal", services });
+  await app.register(internalConversationReferenceRoutes, { prefix: "/internal", prisma: services.prisma, sharedSecret: services.config.runnerSharedSecret });
+  await app.register(internalAutomationMonitoringRoutes, { prefix: "/internal", prisma: services.prisma, sharedSecret: services.config.runnerSharedSecret });
   await app.register(internalSkillCreatorRoutes, {
     prefix: "/internal/skill-creator",
     service: services.skillCreator,
@@ -617,6 +628,15 @@ export async function buildApi(
     prefix: "/internal",
     service: services.users,
     sharedSecret: services.config.runnerSharedSecret,
+  });
+  await registerBrowserUseRoutes(app, {
+    redis: services.redis.client,
+    rateLimitHmacSecret: services.config.loginRateLimitHmacSecret,
+    service: new BrowserUseService(new RedisBrowserStore(services.redis.client), browserUseEndpoint.href),
+    prisma: services.prisma,
+    sharedSecret: services.config.runnerSharedSecret,
+    socketPath: `${browserUseEndpoint.pathname}/socket`,
+    intent: new BrowserUseIntentService(services.prisma, new RedisBrowserStore(services.redis.client), services.modelProviderSettings, services.usageAnalytics),
   });
   await app.register(internalAutomationRoutes, {
     prefix: "/internal/automations",
@@ -832,3 +852,4 @@ function createAuthService(
     audit: services.audit,
   });
 }
+import { internalConversationReferenceRoutes } from "./modules/conversations/reference-routes.js";

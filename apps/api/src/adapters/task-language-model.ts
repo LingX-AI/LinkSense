@@ -1,4 +1,4 @@
-import type { ModelProviderProtocolMode } from "@linksense/shared"
+import { createModelProviderFetch, type ModelProviderProtocolMode } from "@linksense/shared"
 import type { LanguageModel } from "ai"
 
 import {
@@ -21,5 +21,5 @@ export function createTaskLanguageModel(
   return createProviderLanguageModel({
     ...runtime,
     provider: "openai",
-  }, options)
+  }, { fetch: options.fetch ?? createModelProviderFetch(runtime.baseUrl) })
 }

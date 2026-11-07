@@ -40,6 +40,28 @@ afterEach(async () => {
 })
 
 describe("published service routing", () => {
+  it.each(["browser-use", "local-browser"])("keeps %s private from external service sessions", async (channel) => {
+    const { server } = await createServer();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ ok: true, browser: "local", data: { tabs: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const url = `/internal/${channel}/execute`;
+    const payload = { conversationId: ownerId, turnId: otherOwnerId, input: { action: "tabs" } };
+    const session = "01900000-0000-7000-8000-000000000011";
+    try {
+      const denied = await server.inject({ method: "POST", url, payload, headers: {
+        authorization: `Bearer ${ownerWorkerSecret(ownerId, secret, session)}`,
+        "x-linksense-owner-id": ownerId, "x-linksense-service-session": session,
+      } });
+      expect(denied.statusCode).toBe(403);
+      expect(fetchMock).not.toHaveBeenCalled();
+      const accepted = await server.inject({ method: "POST", url, payload, headers: {
+        authorization: `Bearer ${ownerWorkerSecret(ownerId, secret)}`, "x-linksense-owner-id": ownerId,
+      } });
+      expect(accepted.statusCode).toBe(200);
+      expect(String(fetchMock.mock.calls[0]?.[0])).toBe(`http://api:4000/internal/${channel}/execute`);
+      expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual(payload);
+    } finally { await server.close(); }
+  });
   it("routes public questions to the dedicated application worker after authenticating the controller request", async () => {
     const { server, request, requestPublicKnowledge } = await createServer();
     const url = `/public-knowledge/conversations/${otherOwnerId}/operations/${ownerId}`;
@@ -705,6 +727,7 @@ describe("controller authentication and routing", () => {
 
   it("relays Skill management through the authenticated owner callback boundary", async () => {
     const { server } = await createServer()
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout")
     const result = { success: true, operation: "list", items: [] }
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(result), { status: 200, headers: { "content-type": "application/json" } }))
     vi.stubGlobal("fetch", fetchMock)
@@ -717,6 +740,7 @@ describe("controller authentication and routing", () => {
     expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${secret}`)
     expect(new Headers(init?.headers).get("x-linksense-owner-id")).toBe(ownerId)
     expect(JSON.parse(String(init?.body))).toEqual(payload)
+    expect(timeoutSpy).toHaveBeenCalledWith(60_000)
     await server.close()
   })
 

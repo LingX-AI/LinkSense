@@ -47,11 +47,11 @@ export function ConnectionDetailDialog({
       }}
     >
       <DialogContent
+        variant="workspace"
         closeLabel={t("common.close")}
         finalFocus={() => trigger}
-        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl"
       >
-        <DialogHeader className="pr-8">
+        <DialogHeader>
           <div className="flex items-center gap-3">
             <ConnectionIcon provider={connection.provider} />
             <DialogTitle>{title}</DialogTitle>
@@ -60,7 +60,7 @@ export function ConnectionDetailDialog({
             {t(`connections.${connection.provider}Description`)}
           </DialogDescription>
         </DialogHeader>
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+        <dl className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm leading-[var(--app-line-22)]">
           <dt className="text-muted-foreground">{t("common.status")}</dt>
           <dd>
             {t(

@@ -117,10 +117,10 @@ export function SiteLibrary() {
   return (
     <section
       aria-label={t("webSites.title")}
-      className="flex min-w-0 flex-col gap-5"
+      className="flex min-w-0 flex-col gap-6"
     >
       <div className="flex flex-col gap-3 sm:flex-row">
-        <InputGroup className="sm:max-w-md">
+        <InputGroup className="sm:flex-1">
           <InputGroupAddon>
             <SearchIcon aria-hidden="true" />
           </InputGroupAddon>
@@ -152,7 +152,7 @@ export function SiteLibrary() {
           }}
         >
           <SelectTrigger
-            className="w-full sm:w-40"
+            className="w-full sm:w-70"
             aria-label={t("webSites.filter")}
           >
             <GlobeIcon aria-hidden="true" />
@@ -170,9 +170,10 @@ export function SiteLibrary() {
         </Select>
       </div>
       {query.isPending ? (
-        <LoadingState />
+        <LoadingState variant="workspace" />
       ) : query.error && !query.data ? (
         <ErrorState
+          variant="workspace"
           message={getErrorMessage(query.error, t)}
           onRetry={() => void query.refetch()}
         />
@@ -184,7 +185,7 @@ export function SiteLibrary() {
           description={t("webSites.emptyDescription")}
         />
       ) : (
-        <ul className="flex min-w-0 flex-col gap-3">
+        <ul className="flex min-w-0 flex-col">
           {items.map((site) => (
             <li key={site.id} className="min-w-0">
               <SiteCard
@@ -223,7 +224,7 @@ export function SiteLibrary() {
                       >
                         <MoreHorizontalIcon aria-hidden="true" />
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuContent align="end" className="min-w-48">
                         <DropdownMenuItem
                           onClick={() => setAction({ kind: "edit", site })}
                         >

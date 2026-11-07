@@ -7,6 +7,7 @@ const isolatedTests = [
   "test/user-home-capability-materializer.test.ts",
   "test/knowledge-source-runtime.test.ts",
   "test/managed-task-title.test.ts",
+  "test/browser-use-intent.test.ts",
   "test/object-storage.test.ts",
   "test/safe-http-fetch.test.ts",
   "test/docling-extraction.test.ts",

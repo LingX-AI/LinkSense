@@ -44,7 +44,7 @@ safe-outputs:
   threat-detection:
     engine:
       id: codex
-      model: detection
+      model: gpt-6.1-sol
   add-labels:
     allowed:
       - bug

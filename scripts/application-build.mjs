@@ -9,6 +9,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // and build configuration. Generated Prisma output is platform-dependent.
 export const applicationBuildInputs = [
   "apps/api/package.json", "apps/api/src", "apps/api/tsconfig.json", "apps/api/tsconfig.build.json",
+  "apps/api/browser-extension", "apps/api/scripts", "apps/api/tsconfig.browser-extension.json",
   "apps/web/package.json", "apps/web/src", "apps/web/public", "apps/web/index.html",
   "apps/web/vite.config.ts", "apps/web/tsconfig.app.json", "apps/web/tsconfig.node.json",
   "packages/shared/package.json", "packages/shared/src", "packages/shared/tsconfig.json",

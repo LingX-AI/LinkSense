@@ -6,7 +6,7 @@ import {
 import type { ReactElement } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import userEvent from "@testing-library/user-event"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   modelProviderPresets,
   modelServiceProviderValues,
@@ -48,7 +48,25 @@ const settings: ModelProviderSettings = {
   title_model: "model-a",
 }
 
-afterEach(cleanup)
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: { status: "supported", models: [], truncated: false },
+          }),
+          { headers: { "content-type": "application/json" } }
+        )
+    )
+  )
+})
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 function render(element: ReactElement) {
   return renderComponent(
@@ -63,6 +81,32 @@ function render(element: ReactElement) {
 }
 
 describe("model editor conflict feedback", () => {
+  it("confirms before discarding a change to only the channel test model", async () => {
+    await i18n.changeLanguage("en-US")
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(
+      <ChannelEditor
+        channel={channel}
+        settings={settings}
+        pending={false}
+        error={null}
+        onClose={onClose}
+        onSave={vi.fn()}
+      />
+    )
+    const model = screen.getByRole("combobox", { name: "Model ID to test" })
+    await user.clear(model)
+    await user.type(model, "test")
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(
+      screen.getByRole("dialog", {
+        name: i18n.t("admin.modelProvider.discardTitle"),
+      })
+    ).toBeVisible()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
   it.each(
     supportedLanguages.flatMap((language) => [
       { language, mode: "new", editedChannel: null },

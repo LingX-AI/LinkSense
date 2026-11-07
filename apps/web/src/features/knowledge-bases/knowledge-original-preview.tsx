@@ -4,6 +4,11 @@ import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
   downloadKnowledgeDocument,
   loadKnowledgeCitationOriginal,
   loadKnowledgeDocumentPreview,
@@ -11,6 +16,7 @@ import {
 import type { KnowledgeDocument } from "@/features/knowledge-bases/knowledge-base-contracts"
 import { KnowledgeFileViewer } from "@/features/knowledge-bases/knowledge-file-viewer"
 import { getErrorMessage } from "@/api/error-message"
+import { isKnowledgeUiDemoEnabled } from "./knowledge-ui-demo-mode"
 import { downloadBlob } from "@/lib/download-blob"
 
 export function KnowledgeOriginalPreview({
@@ -78,23 +84,29 @@ export function KnowledgeDownloadButton({
   knowledgeBaseId,
   document,
   variant = "outline",
+  iconOnly = false,
   documentVersionId,
   onDownloadErrorChange,
 }: {
   knowledgeBaseId: string
   document: KnowledgeDocument
   variant?: "outline" | "secondary" | "ghost"
+  iconOnly?: boolean
   documentVersionId?: string
   onDownloadErrorChange: (message: string | null) => void
 }) {
   const { t } = useTranslation()
   const [downloading, setDownloading] = useState(false)
 
-  return (
+  const button = (
     <Button
       type="button"
       variant={variant}
-      disabled={downloading}
+      size={iconOnly ? "icon-lg" : "default"}
+      aria-label={
+        iconOnly ? t("knowledge.preview.downloadOriginal") : undefined
+      }
+      disabled={downloading || isKnowledgeUiDemoEnabled()}
       onClick={() => {
         setDownloading(true)
         onDownloadErrorChange(null)
@@ -113,8 +125,17 @@ export function KnowledgeDownloadButton({
       ) : (
         <DownloadIcon data-icon="inline-start" aria-hidden="true" />
       )}
-      {t("knowledge.preview.downloadOriginal")}
+      {!iconOnly && t("knowledge.preview.downloadOriginal")}
     </Button>
+  )
+
+  return iconOnly ? (
+    <Tooltip>
+      <TooltipTrigger render={button} />
+      <TooltipContent>{t("knowledge.preview.downloadOriginal")}</TooltipContent>
+    </Tooltip>
+  ) : (
+    button
   )
 }
 

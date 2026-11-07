@@ -4,173 +4,102 @@ import path from "node:path"
 import test from "node:test"
 
 const root = path.resolve(import.meta.dirname, "..")
-const englishPath = path.join(root, "README.md")
-const chinesePath = path.join(root, "README.zh-CN.md")
-const readBoth = () => Promise.all([
-  readFile(englishPath, "utf8"),
-  readFile(chinesePath, "utf8"),
-])
+const website = "https://linksense.guygubaby.top"
+const read = (file) => readFile(path.join(root, file), "utf8")
+const links = (source) => [
+  ...[...source.matchAll(/\]\(([^\s)]+)\)/gu)].map(([, target]) => target),
+  ...[...source.matchAll(/(?:src|href)="([^"\s]+)"/gu)].map(([, target]) => target),
+]
+const slug = (title) => title.toLowerCase().replace(/[^\p{L}\p{N}_ -]/gu, "").replaceAll(" ", "-")
 
-test("relocated community and legal documents keep their local links usable", async () => {
+test("README images, local links, and heading anchors resolve", async () => {
   for (const file of [
-    ".github/CONTRIBUTING.md", ".github/CODE_OF_CONDUCT.md",
-    ".github/SECURITY.md", ".github/SUPPORT.md",
+    "README.md", "README.zh-CN.md", "docs/contact.zh-CN.md", ".github/CONTRIBUTING.md",
+    ".github/CODE_OF_CONDUCT.md", ".github/SECURITY.md", ".github/SUPPORT.md",
     "docs/community/ADOPTERS.md", "docs/legal/CLA.md",
   ]) {
-    const source = await readFile(path.join(root, file), "utf8")
-    for (const [, target] of source.matchAll(/\]\((\.\.?\/[^)#]+)(?:#[^)]+)?\)/gu)) {
-      await access(path.resolve(root, path.dirname(file), target))
-    }
-  }
-})
-
-test("the bilingual READMEs follow the current public section order", async () => {
-  const [english, chinese] = await readBoth()
-  assert.match(chinese, /\[English\]\(\.\/README\.md\)/u)
-  assert.match(english, /\[简体中文\]\(\.\/README\.zh-CN\.md\)/u)
-
-  const pairedHeadings = [
-    ["Why LinkSense", "为什么选择 LinkSense"],
-    ["One-Line Agent Setup", "一句话 Agent 安装"],
-    ["Quick Start", "快速开始"],
-    ["Organizational Capabilities", "组织能力"],
-    ["Built on the Open-source Codex Runtime", "基于开源 Codex 运行时"],
-    ["Open Source. Self-hosted. Under Your Control.", "开源。自主部署。由你掌控。"],
-    ["Architecture", "系统架构"],
-    ["Build with LinkSense", "基于 LinkSense 扩展"],
-    ["Deployment reference", "部署参考"],
-    ["Technology Stack", "技术栈"],
-    ["Local Development", "本地开发"],
-    ["Building from Source with Docker", "使用 Docker 从源码构建"],
-    ["Security", "安全"],
-    ["Contributing", "贡献"],
-    ["Who is using LinkSense", "谁在使用 LinkSense"],
-    ["Support", "获取支持"],
-    ["License", "开源协议"],
-  ]
-  const headings = (source) => [...source.matchAll(/^## (.+)$/gmu)].map(([, title]) => title)
-  assert.deepEqual(headings(english), pairedHeadings.map(([title]) => title))
-  assert.deepEqual(headings(chinese), pairedHeadings.map(([, title]) => title))
-
-  for (const source of [chinese, english]) {
-    for (const required of [
-      "60+ GiB", "120+ GiB", "Intel", "Apple Silicon", "v1.45", "v2.24.4",
-      "CPAL-1.0", "Apache-2.0", "18–24px", "security@linksense.org",
-      "hello@linksense.org", "licensing@linksense.org", "./docs/community/ADOPTERS.md",
-      "./docs/legal/CLA.md", "./THIRD-PARTY-NOTICES.md", "../../discussions",
-      "volume://linksense-backups/postgres/", "linux/amd64", "linux/arm64",
-      "x86-64-v2", "host-passthrough", "x86-64-v2-AES",
-      "cx16", "lahf_lm", "popcnt", "ssse3", "sse4_1", "sse4_2", "pni",
-      "Fatal glibc error: CPU does not support x86-64-v2",
-    ]) {
-      assert.ok(source.includes(required), `README is missing ${required}`)
-    }
-  }
-})
-
-test("README deployment, development and attribution details have one canonical section", async () => {
-  const sources = await readBoth()
-  for (const [index, titles] of [
-    [0, ["Quick Start", "Deployment reference", "Local Development", "License"]],
-    [1, ["快速开始", "部署参考", "本地开发", "开源协议"]],
-  ]) {
-    const source = sources[index]
-    const details = [
-      ["4+ vCPU", "10+ GiB"],
-      ["v1.45+", "v2.24.4+", "linksense status", "linksense doctor --network", "linksense upgrade"],
-      ["Node.js 24+", "pnpm 10.34.6", "pnpm dev:prepare"],
-      ["18–24px", "licensing@linksense.org"],
-    ]
-    for (const [offset, title] of titles.entries()) {
-      const section = source.split(`## ${title}\n`)[1]?.split("\n## ")[0]
-      assert.ok(section, title)
-      for (const detail of details[offset]) {
-        const total = source.split(detail).length - 1
-        assert.ok(total > 0, `Missing ${detail}`)
-        assert.equal(total, section.split(detail).length - 1, `${detail} must stay in ${title}`)
+    for (const target of links(await read(file))) {
+      if (/^[a-z]+:/iu.test(target) || target === "../../discussions") continue
+      const [pathname, anchor] = target.split("#")
+      const destination = pathname ? path.resolve(root, path.dirname(file), pathname) : path.join(root, file)
+      await access(destination)
+      if (anchor && destination.endsWith(".md")) {
+        const content = await readFile(destination, "utf8")
+        const headings = [...content.matchAll(/^#{1,6} (.+)$/gmu)].map(([, title]) => slug(title.trim()))
+        assert.ok(headings.includes(decodeURIComponent(anchor)), `${file}: unresolved ${target}`)
       }
     }
-    for (const detail of ["4+ vCPU", "v1.45+", "v2.24.4+", "linksense status", "licensing@linksense.org"]) {
-      assert.equal(source.split(detail).length - 1, 1, `${detail} is duplicated`)
-    }
   }
 })
 
-test("the bilingual READMEs preserve deployment commands and architectural diagrams", async () => {
-  const [english, chinese] = await readBoth()
-  const commands = (source) => [...source.matchAll(/```bash\n([\s\S]*?)```/gu)]
-    .map(([, block]) => block.replace(/^\s*#.*\n/gmu, ""))
-  assert.equal(commands(english).length, 10)
-  assert.deepEqual(commands(chinese), commands(english))
-  const managementCommands = (source) => [...source.matchAll(/`(linksense(?: [^`\n]+)?)`/gu)]
-    .map(([, command]) => command)
-  assert.deepEqual(managementCommands(chinese), managementCommands(english))
-  const diagrams = (source) => [...source.matchAll(/<img src="(\.\/docs\/diagrams\/[^"]+)" alt="([^"]+)" width="(\d+)"\s*\/>/gu)]
-  const expected = [
-    "organizational-capability-lifecycle",
-    "application-composition",
-    "finance-application",
-    "open-capability-layer",
-    "system-architecture",
-    "realtime-execution-path",
-    "event-delivery",
-    "skill-directory-structure",
-    "plugin-package-structure",
-  ].map((name) => `./docs/diagrams/${name}.svg`)
-  for (const source of [english, chinese]) {
-    const images = diagrams(source)
-    assert.deepEqual(images.map(([, src]) => src), expected)
-    for (const [, , alt, width] of images) {
-      assert.ok(alt.trim().length > 0)
-      assert.ok(Number(width) >= 200 && Number(width) <= 1280)
-    }
-  }
-  for (const [, , alt] of diagrams(chinese)) assert.match(alt, /\p{Script=Han}/u)
-})
-
-test("every local README link and HTML image resolves to a repository file", async () => {
-  for (const readmePath of [chinesePath, englishPath]) {
-    const source = await readFile(readmePath, "utf8")
-    const targets = [
-      ...[...source.matchAll(/\]\((\.\/[^)#]+)(?:#[^)]+)?\)/gu)].map(([, target]) => target),
-      ...[...source.matchAll(/(?:src|href)="(\.\/[^"#]+)(?:#[^"]+)?"/gu)].map(([, target]) => target),
-    ]
-    assert.ok(targets.length > 12)
-    for (const target of targets) {
-      await access(path.resolve(path.dirname(readmePath), target))
-    }
-  }
-})
-
-test("both READMEs use the configured installer and Docker development ports", async () => {
-  const [installer, environment, english, chinese] = await Promise.all([
-    readFile(path.join(root, "deploy/release/linksense-installer.sh"), "utf8"),
-    readFile(path.join(root, ".env.example"), "utf8"),
-    ...[englishPath, chinesePath].map((file) => readFile(file, "utf8")),
-  ])
-  const installerPort = installer.match(/^HTTP_PORT=\$\{REQUESTED_HTTP_PORT:-(\d+)\}$/mu)?.[1]
-  assert.ok(installerPort)
-  const configuredPort = (name) => {
-    const value = environment.match(new RegExp(`^${name}=(\\d+)$`, "mu"))?.[1]
-    assert.ok(value, `Missing configured port: ${name}`)
-    return value
-  }
-  const developmentAddresses = [
-    `http://localhost:${configuredPort("LINKSENSE_DEV_WEB_PORT")}`,
-    `https://localhost:${configuredPort("LINKSENSE_DEV_WEB_HTTPS_PORT")}`,
-    `http://localhost:${configuredPort("LINKSENSE_DEV_API_PORT")}`,
-    `http://localhost:${configuredPort("LINKSENSE_DEV_RUNNER_PORT")}`,
+test("both READMEs retain centered introductions and link to matching public guides without product videos", async () => {
+  const paths = [
+    "", "deploy/core/", "deploy/full/", "deploy/operations/", "deploy/development/", "deploy/architecture/",
+    "user-guide/overview/", "admin-guide/overview/", "developer-guide/interactive-application/",
+    "admin-guide/model-settings/", "user-guide/getting-started/first-task/",
+    "user-guide/plugin-center/discover-and-install/", "user-guide/knowledge-bases/sharing/",
   ]
-  for (const source of [english, chinese]) {
-    assert.ok(source.includes(`http://localhost:${installerPort}`))
-    assert.ok(source.includes(`http://<server-address>:${installerPort}`))
-    assert.match(source, /LINKSENSE_HTTP_PORT=19090/u)
-    assert.match(source, /linksense port 19090/u)
-    const development = source.split(/## (?:Local Development|本地开发)\n/u)[1]?.split("\n## ")[0]
-    assert.ok(development)
-    for (const address of developmentAddresses) {
-      assert.ok(development.includes(address), `README is missing ${address}`)
+  for (const [file, localePath] of [
+    ["README.md", ""],
+    ["README.zh-CN.md", "zh-CN/"],
+  ]) {
+    const source = await read(file)
+    assert.match(source, /^<p align="center">/u)
+    assert.match(source, /<h2 align="center">/u)
+    assert.match(source, /raw\.githubusercontent\.com\/LingX-AI\/linksense\/main\/Install\.md/u)
+    assert.doesNotMatch(source, /<video\b|<iframe\b|user-attachments\/assets\/|docs\/demo\/|VideoDemo|入口待提供|\/help\//iu)
+    const targets = links(source)
+    // Public deployment guides live in the separate linksense-site repository.
+    for (const route of paths) {
+      const url = `${website}/doc/${localePath}${route}`
+      assert.ok(targets.includes(url), `${file}: missing ${route}`)
     }
-    assert.doesNotMatch(development, /localhost:5173|http:\/\/localhost:18173|https:\/\/localhost:18174/u)
+  }
+})
+
+test("manual Core and Full installation keeps matching host, network, and OS commands", async () => {
+  const commands = (source) => [...source.matchAll(/```bash\n([\s\S]*?)```/gu)].map(([, block]) => block)
+  const [desktopCheck, ...englishCommands] = commands(await read("README.md"))
+  assert.deepEqual(commands(await read("README.zh-CN.md")), [desktopCheck, ...englishCommands])
+  assert.equal(
+    desktopCheck.trim(),
+    "docker info --format '{{.NCPU}} {{.MemTotal}}' |\n  awk '{printf \"CPUs=%s\\nDocker memory=%.2f GiB\\n\", $1, $2 / 1024 / 1024 / 1024}'",
+  )
+  assert.equal(englishCommands.length, 9)
+  assert.equal(
+    englishCommands[0].trim(),
+    "uname -s\nuname -m\ndocker version\ndocker compose version\ndocker info --format 'CPUs={{.NCPU}} MemoryBytes={{.MemTotal}} DockerRoot={{.DockerRootDir}}'\ncurl --version\ndf -h",
+  )
+  assert.equal(englishCommands[1].trim(), "LC_ALL=C lscpu\ngrep -m1 '^flags' /proc/cpuinfo")
+  assert.match(englishCommands[2], /^edition=core\ncurl --http1\.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 -fsSL \\\n/u)
+  assert.match(englishCommands[2], /install-\$\{edition\}\.sh" &&\nsh "install-\$\{edition\}\.sh" --check-network\n$/u)
+  for (const [index, edition, env = ""] of [[3, "core"], [5, "full"], [7, "core", "env LINKSENSE_HTTP_PORT=19090 "]]) {
+    const script = `install-${edition}.sh`
+    const download = `-o ${script} https://raw.githubusercontent.com/LingX-AI/linksense/main/${script} &&\n`
+    const execute = `${env}sh ${script}\n`
+    assert.match(englishCommands[index], /^curl /u)
+    assert.ok(englishCommands[index].includes(`${download}sudo --preserve-env=`))
+    assert.ok(englishCommands[index].endsWith(` ${execute}`))
+    assert.match(englishCommands[index + 1], /^curl /u)
+    assert.ok(englishCommands[index + 1].endsWith(`${download}${execute}`))
+  }
+})
+
+test("README memory, Docker requirements, and startup output match the installer", async () => {
+  const installer = await read("deploy/release/linksense-installer.sh")
+  const manifest = await read("scripts/generate-release-manifest.mjs")
+  const coreMemory = manifest.match(/CORE_MIN_MEMORY_GIB=(\d+)/u)?.[1]
+  const fullMemory = manifest.match(/FULL_MIN_MEMORY_GIB=(\d+)/u)?.[1]
+  const api = installer.match(/^REQUIRED_DOCKER_API=([\d.]+)$/mu)?.[1]
+  const compose = installer.match(/^REQUIRED_COMPOSE_VERSION=([\d.]+)$/mu)?.[1]
+  const port = installer.match(/^HTTP_PORT=\$\{REQUESTED_HTTP_PORT:-(\d+)\}$/mu)?.[1]
+  assert.ok(coreMemory && fullMemory && api && compose && port)
+  assert.ok(installer.includes("LinkSense is ready at:"))
+  for (const file of ["README.md", "README.zh-CN.md"]) {
+    const source = await read(file)
+    for (const detail of [`${coreMemory} GiB`, `${fullMemory} GiB`, `API version ≥ ${api}`, `≥ ${compose}`, `http://localhost:${port}`, "LinkSense is ready at:", "Full release probe passed.", "x86-64-v2"]) {
+      assert.ok(source.includes(detail), `${file}: missing ${detail}`)
+    }
+    assert.ok(source.includes(`:${port}\``))
   }
 })

@@ -251,27 +251,31 @@ describe("knowledge original file preview", () => {
     expect(loadKnowledgeDocumentPreview).toHaveBeenCalledTimes(2)
   })
 
-  it("reports a localized error when an original download fails", async () => {
-    const user = userEvent.setup()
-    const onDownloadErrorChange = vi.fn()
-    downloadKnowledgeDocument.mockRejectedValue(new Error("network failed"))
+  it.each([false, true])(
+    "reports a localized download error with iconOnly=%s",
+    async (iconOnly) => {
+      const user = userEvent.setup()
+      const onDownloadErrorChange = vi.fn()
+      downloadKnowledgeDocument.mockRejectedValue(new Error("network failed"))
 
-    render(
-      <KnowledgeDownloadButton
-        knowledgeBaseId={knowledgeBaseId}
-        document={documentFixture()}
-        onDownloadErrorChange={onDownloadErrorChange}
-      />
-    )
-
-    await user.click(screen.getByRole("button", { name: "下载原文件" }))
-
-    await waitFor(() =>
-      expect(onDownloadErrorChange).toHaveBeenLastCalledWith(
-        i18n.t("errors.unknown")
+      render(
+        <KnowledgeDownloadButton
+          iconOnly={iconOnly}
+          knowledgeBaseId={knowledgeBaseId}
+          document={documentFixture()}
+          onDownloadErrorChange={onDownloadErrorChange}
+        />
       )
-    )
-    expect(onDownloadErrorChange).toHaveBeenNthCalledWith(1, null)
-    expect(screen.getByRole("button", { name: "下载原文件" })).toBeEnabled()
-  })
+
+      await user.click(screen.getByRole("button", { name: "下载原文件" }))
+
+      await waitFor(() =>
+        expect(onDownloadErrorChange).toHaveBeenLastCalledWith(
+          i18n.t("errors.unknown")
+        )
+      )
+      expect(onDownloadErrorChange).toHaveBeenNthCalledWith(1, null)
+      expect(screen.getByRole("button", { name: "下载原文件" })).toBeEnabled()
+    }
+  )
 })
