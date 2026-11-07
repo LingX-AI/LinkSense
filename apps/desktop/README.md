@@ -65,7 +65,8 @@ signing command or certificate is configured, so SmartScreen may warn. Linux is 
 ARM64 runs the same tests without `-race`), including the real
 Fastify/WebSocket pairing protocol against an isolated fixture and fake engine.
 It does not read existing accounts or private user content. A separate opt-in test
-runs the actual packaged engine against its own disposable native input window:
+runs the actual packaged engine through an isolated Fastify HTTP API and
+authenticated WebSocket against disposable native windows:
 
 ```sh
 cd apps/desktop
@@ -75,15 +76,20 @@ LINKSENSE_AGENT_DESKTOP_BIN="/absolute/LinkSense helper.app/Contents/Resources/b
 GOTOOLCHAIN=go1.27.3 go test -run TestInstalledEngineAgainstIsolatedNativeWindow -count=1
 ```
 
-This test creates a real window, focuses its input, clicks its test button, writes
-only its test field, sends a scoped key, re-observes the effects, captures that
-window when permitted, then verifies stopped refs cannot be reused. It also checks
-that a non-clickable text field fails without a physical fallback.
-It requires macOS permissions and does not establish arbitrary third-party app
-compatibility. `-preview` remains explicitly labelled UI-only mode.
+This test checks status without task consent, lists apps/windows, focuses its
+input, clicks its test button, writes only its test field, sends a scoped key,
+re-observes the effects, and captures that window. It compiles a disposable
+AppKit scroll view using Xcode Command Line Tools, scrolls it semantically, and
+re-observes its actual offset. It then verifies a fresh ref becomes unusable after
+Stop and remote release blocks further actions. All actions share exactly one
+local task grant. A non-clickable text field must fail without a physical fallback.
+The full test requires both macOS Accessibility and Screen Recording permissions;
+without opt-in it is reported as skipped. The AppKit fixture is test-only and is
+not required by the installed client. These checks do not establish arbitrary
+third-party app compatibility. `-preview` remains explicitly labelled UI-only mode.
 
 See `docs/development/computer-use.md` for the protocol/debug workflow and
-`docs/reviews/computer-use-whitebox-2026-11-02.md` for verification boundaries.
+`docs/reviews/computer-use-whitebox-2026-11-07.md` for the latest local verification boundaries.
 Native UI uses the current LinkSense Figma tokens, six languages, built-in MyGo
 springs/poses/transitions and reduced motion. Brand SVGs are unchanged copies of
 existing assets; Lucide's license is included. MyGo is MIT licensed.
