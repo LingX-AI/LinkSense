@@ -681,6 +681,7 @@ describe("LinkSense application", () => {
       within(completedItem as HTMLElement).queryByRole("status")
     ).not.toBeInTheDocument()
 
+    fireEvent.pointerEnter(item as HTMLElement)
     const moreButton = within(item as HTMLElement).getByRole("button", {
       name: /的更多操作$/u,
     })
@@ -784,6 +785,7 @@ describe("LinkSense application", () => {
     expect(hoveredItem).not.toBeNull()
     expect(focusedLink).not.toBeNull()
 
+    fireEvent.focus(focusedLink as HTMLElement)
     const focusedArchiveButton = within(focusedItem as HTMLElement).getByRole(
       "button",
       { name: /^归档任务/u }
@@ -968,6 +970,7 @@ describe("LinkSense application", () => {
     )
     const archiveItem = archiveTitle.closest(".sidebar-conversation-item")
     expect(archiveItem).not.toBeNull()
+    await interaction.hover(archiveItem as HTMLElement)
     await interaction.click(
       within(archiveItem as HTMLElement).getByRole("button", {
         name: /^归档任务/u,
@@ -992,6 +995,7 @@ describe("LinkSense application", () => {
     const remainingTitle = within(sidebar).getByText(conversations[2]!.title)
     const remainingItem = remainingTitle.closest(".sidebar-conversation-item")
     expect(remainingItem).not.toBeNull()
+    await interaction.hover(remainingItem as HTMLElement)
     expect(
       within(remainingItem as HTMLElement).getByRole("button", {
         name: /的更多操作$/u,
@@ -1032,6 +1036,7 @@ describe("LinkSense application", () => {
       ".sidebar-conversation-item"
     )
     expect(taskItem).not.toBeNull()
+    await interaction.hover(taskItem as HTMLElement)
     await interaction.click(
       within(taskItem as HTMLElement).getByRole("button", {
         name: `${taskTitle}的更多操作`,
@@ -1067,6 +1072,7 @@ describe("LinkSense application", () => {
       .getByText(taskTitle)
       .closest(".sidebar-conversation-item")
     expect(pinnedItem).not.toBeNull()
+    await interaction.hover(pinnedItem as HTMLElement)
     await interaction.click(
       within(pinnedItem as HTMLElement).getByRole("button", {
         name: `${taskTitle}的更多操作`,
@@ -1158,6 +1164,7 @@ describe("LinkSense application", () => {
     expect(keyboardActivator.querySelector("svg")).toBeNull()
     expect(firstTask).toHaveClass("cursor-grab")
 
+    fireEvent.pointerEnter(firstTask)
     const moreButton = within(firstTask).getByRole("button", {
       name: `${conversations[1]!.title}的更多操作`,
     })
@@ -1227,6 +1234,7 @@ describe("LinkSense application", () => {
       ".sidebar-conversation-item"
     )
     expect(taskItem).not.toBeNull()
+    await interaction.hover(taskItem as HTMLElement)
 
     await interaction.click(
       within(taskItem as HTMLElement).getByRole("button", {
@@ -1455,6 +1463,12 @@ describe("LinkSense application", () => {
   )
 
   it("shows running tasks and their actions together in the mobile task list", async () => {
+    const media = window.matchMedia("(hover: none)")
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      ...media,
+      matches: query === "(hover: none)",
+      media: query,
+    }))
     installApiMock()
     const interaction = userEvent.setup()
     renderApp()

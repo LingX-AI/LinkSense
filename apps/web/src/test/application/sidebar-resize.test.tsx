@@ -29,6 +29,17 @@ describe("sidebar resize rendering", () => {
   setupApplicationTests()
 
   it("resizes a populated sidebar without rendering task actions again", async () => {
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.closest("[data-sidebar-conversation-id]") ? 32 : 600
+      }
+    )
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(240)
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        return DOMRect.fromRect({ width: 240, height: this.offsetHeight })
+      }
+    )
     const tasks = Array.from({ length: 100 }, (_, index) => ({
       ...conversations[0],
       id: `10000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
@@ -39,7 +50,14 @@ describe("sidebar resize rendering", () => {
         json({ success: true, data: { items: tasks, next_cursor: null } }),
     })
     const { container } = renderApp()
-    await screen.findByText("Resize task 99")
+    const firstTask = await screen.findByText("Resize task 0")
+    expect(screen.queryByText("Resize task 99")).not.toBeInTheDocument()
+    expect(
+      container.querySelectorAll(".sidebar-conversation-item").length
+    ).toBeLessThan(40)
+    fireEvent.pointerEnter(
+      firstTask.closest(".sidebar-conversation-item") as HTMLElement
+    )
     // Settle initial query notifications before measuring resize-only work.
     await act(
       () =>
@@ -48,7 +66,8 @@ describe("sidebar resize rendering", () => {
     const handle = screen.getByRole("separator", { name: "调整侧边栏宽度" })
     const shell = container.querySelector(".app-shell")
     const renderCount = vi.mocked(SidebarConversationActions).mock.calls.length
-    expect(renderCount).toBeGreaterThanOrEqual(tasks.length)
+    expect(renderCount).toBeGreaterThan(0)
+    expect(renderCount).toBeLessThan(tasks.length)
 
     fireEvent.pointerDown(handle, { button: 0, clientX: 272, pointerId: 7 })
     for (const clientX of [270, 300, 320]) {

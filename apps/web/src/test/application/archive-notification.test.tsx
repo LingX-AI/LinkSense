@@ -18,6 +18,16 @@ function toastButton(toast: HTMLElement, name: string): HTMLElement {
   return button
 }
 
+async function hoverTask(
+  interaction: ReturnType<typeof userEvent.setup>,
+  title: string
+) {
+  const sidebar = await screen.findByRole("complementary", {
+    name: "LinkSense 导航",
+  })
+  await interaction.hover(await within(sidebar).findByText(title))
+}
+
 describe("task archive notification", () => {
   setupApplicationTests()
   afterEach(() => notify.dismiss())
@@ -40,6 +50,7 @@ describe("task archive notification", () => {
       const id = origin === "sidebar" ? "c2" : "c1"
       const title = conversations[origin === "sidebar" ? 1 : 0].title
       if (pinned) {
+        await hoverTask(interaction, title)
         await interaction.click(
           within(sidebar).getByRole("button", { name: `${title}的更多操作` })
         )
@@ -49,6 +60,7 @@ describe("task archive notification", () => {
         await within(sidebar).findByRole("heading", { name: "置顶" })
       }
       if (origin === "sidebar") {
+        await hoverTask(interaction, title)
         await interaction.click(
           within(sidebar).getByRole("button", {
             name: `归档任务“${conversations[1].title}”`,
@@ -113,6 +125,7 @@ describe("task archive notification", () => {
     installApiMock()
     const interaction = userEvent.setup()
     renderApp()
+    await hoverTask(interaction, conversations[1].title)
     await interaction.click(
       await screen.findByRole("button", {
         name: `归档任务“${conversations[1].title}”`,
@@ -157,6 +170,7 @@ describe("task archive notification", () => {
     })
     const interaction = userEvent.setup()
     renderApp()
+    await hoverTask(interaction, conversations[1].title)
     await interaction.click(
       await screen.findByRole("button", {
         name: `归档任务“${conversations[1].title}”`,
@@ -195,6 +209,7 @@ describe("task archive notification", () => {
     })
     const interaction = userEvent.setup()
     renderApp()
+    await hoverTask(interaction, conversations[1].title)
     await interaction.click(
       await screen.findByRole("button", {
         name: `归档任务“${conversations[1].title}”`,

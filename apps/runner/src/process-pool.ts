@@ -401,19 +401,17 @@ const skillsListResponseSchema = z
       z
         .object({
           cwd: z.string().min(1),
-          skills: z
-            .array(
-              z
-                .object({
-                  name: z.string().min(1).max(256),
-                  description: z.string().max(4_000).nullable().optional(),
-                  path: z.string().min(1).max(4_096),
-                  scope: z.enum(["user", "repo", "system", "admin"]),
-                  enabled: z.boolean(),
-                })
-                .passthrough(),
-            )
-            .max(128),
+          skills: z.array(
+            z
+              .object({
+                name: z.string().min(1).max(256),
+                description: z.string().max(4_000).nullable().optional(),
+                path: z.string().min(1).max(4_096),
+                scope: z.enum(["user", "repo", "system", "admin"]),
+                enabled: z.boolean(),
+              })
+              .passthrough(),
+          ),
           errors: z.array(
             z
               .object({
@@ -5944,6 +5942,31 @@ export class AppServerProcessPool {
     }
     const response = skillsListResponseSchema.safeParse(rawResponse);
     if (!response.success) {
+      const catalogs: unknown[] =
+        typeof rawResponse === "object" &&
+        rawResponse !== null &&
+        "data" in rawResponse &&
+        Array.isArray(rawResponse.data)
+          ? rawResponse.data
+          : [];
+      const skillCount = catalogs.reduce<number>((count, catalog) => {
+        return typeof catalog === "object" &&
+          catalog !== null &&
+          "skills" in catalog &&
+          Array.isArray(catalog.skills)
+          ? count + catalog.skills.length
+          : count;
+      }, 0);
+      this.options.logger.warn(
+        {
+          catalogCount: catalogs.length,
+          skillCount,
+          errorTypes: [
+            ...new Set(response.error.issues.map((issue) => issue.code)),
+          ],
+        },
+        "Codex skill catalog validation failed",
+      );
       throw new CodexProtocolError("Codex skill catalog is invalid");
     }
     const [catalog] = response.data.data;
@@ -5954,6 +5977,17 @@ export class AppServerProcessPool {
       !catalog ||
       !hasExpectedWorkspace
     ) {
+      this.options.logger.warn(
+        {
+          catalogCount: response.data.data.length,
+          skillCount: response.data.data.reduce(
+            (count, entry) => count + entry.skills.length,
+            0,
+          ),
+          errorTypes: ["unexpected_workspace"],
+        },
+        "Codex skill catalog validation failed",
+      );
       throw new CodexProtocolError("Codex skill catalog is invalid");
     }
     if (catalog.errors.length > 0) {
