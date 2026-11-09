@@ -48,6 +48,8 @@
 
 <p><strong><font size="4">💬 多渠道与定时任务</font></strong>：通过 Web、微信、飞书、企业微信、钉钉和 Microsoft Teams 发起任务，也可设置定时任务自动运行。</p>
 
+**从个人实践到团队复用。** 官网的[组织能力与系统架构](https://linksense.guygubaby.top/doc/zh-CN/deploy/architecture/)用图解和财务应用示例，说明团队如何共享能力，以及任务如何在自有基础设施上运行。
+
 ## 如何选择部署方案
 
 LinkSense 在同一仓库中提供 **Core** 和 **Full** 两种部署方案，区别在于是否包含内置知识库服务，并非免费版与付费版之分。

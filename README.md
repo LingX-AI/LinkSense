@@ -39,6 +39,8 @@
 - **Self-hosting and model choice** — Run on your servers or private cloud, connect compatible hosted or local model services, and store task records, files, Knowledge indexes, and credentials on your infrastructure.
 - **Messaging and scheduled tasks** — Start tasks through Web, WeChat, Feishu, WeCom, DingTalk, or Microsoft Teams, or schedule tasks to run automatically.
 
+**From personal work to team-wide reuse.** See [Organizational capabilities and architecture](https://linksense.guygubaby.top/doc/deploy/architecture/) for the illustrated guide to sharing capabilities, building a finance application, and running tasks on your own infrastructure.
+
 ## Choose a deployment
 
 LinkSense provides **Core** and **Full** deployment profiles in the same repository. They differ in whether they include built-in Knowledge services, not in whether they are free or paid.
