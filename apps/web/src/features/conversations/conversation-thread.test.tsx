@@ -32,6 +32,7 @@ import {
 } from "@/features/conversations/assistant-html-preview-document"
 import i18n, { supportedLanguages } from "@/i18n"
 import { AssistantKnowledgeImage } from "@/features/conversations/assistant-knowledge-image"
+import { createIntersectionObserverMock } from "@/test/intersection-observer"
 
 const knowledgeBaseApiMocks = vi.hoisted(() => ({
   getKnowledgeCitationPreview: vi.fn(),
@@ -203,8 +204,31 @@ describe("conversation turn responses", () => {
     }
     vi.restoreAllMocks()
     vi.useRealTimers()
+    vi.unstubAllGlobals()
     restoreUrlMethod("createObjectURL", originalCreateObjectUrl)
     restoreUrlMethod("revokeObjectURL", originalRevokeObjectUrl)
+  })
+
+  it("does not expose an external image URL to the browser until it approaches the viewport", async () => {
+    const visibility = createIntersectionObserverMock()
+    vi.stubGlobal("IntersectionObserver", visibility.Observer)
+    const view = render(
+      <MemoryRouter>
+        <AssistantMarkdown content="![external.png](https://images.example.test/external.png)" />
+      </MemoryRouter>
+    )
+    await act(async () => {})
+    expect(view.container.querySelector("img[src]")).toBeNull()
+    const trigger = screen.getByRole("button", {
+      name: "预览图片 external.png",
+    })
+    act(() => visibility.intersect(trigger))
+    expect(
+      await screen.findByRole("img", { name: "external.png" })
+    ).toHaveAttribute("src", "https://images.example.test/external.png")
+    act(() => visibility.intersect(trigger, false))
+    act(() => visibility.intersect(trigger))
+    expect(view.container.querySelectorAll("img")).toHaveLength(1)
   })
 
   it("branches from the final terminal assistant message", async () => {
@@ -2309,7 +2333,7 @@ describe("conversation turn responses", () => {
     })
     expect(previewButton).toHaveClass("conversation-image-thumbnail-trigger")
     expect(
-      within(previewButton).getByRole("img", { name: "PPT 风格选项" })
+      await within(previewButton).findByRole("img", { name: "PPT 风格选项" })
     ).toHaveClass("conversation-image-thumbnail-image")
 
     await interaction.click(previewButton)
@@ -2331,7 +2355,7 @@ describe("conversation turn responses", () => {
       />
     )
 
-    fireEvent.error(screen.getByRole("img", { name: imageName }))
+    fireEvent.error(await screen.findByRole("img", { name: imageName }))
 
     const errorThumbnail = await screen.findByRole("img", {
       name: `无法预览图片 ${imageName}`,

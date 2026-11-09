@@ -114,6 +114,8 @@ import { CapabilityIcon } from "@/components/capabilities/capability-icon"
 import { capabilityPresentation } from "@/features/capabilities/built-in-presentation"
 import { EmptyState } from "@/components/feedback/page-state"
 import { FileTypeIcon } from "@/components/media/file-type-icon"
+import { useImageVisibility } from "@/components/media/use-image-visibility"
+import { AssistantInlineImagePlaceholder } from "@/features/conversations/assistant-inline-image-placeholder"
 import {
   ImagePreviewDialog,
   type ImagePreviewItem,
@@ -2205,6 +2207,7 @@ function AssistantExternalMarkdownImage({
   onPreview: () => void
 }) {
   const { t } = useTranslation()
+  const { ref, visible } = useImageVisibility<HTMLButtonElement>()
   const [failedSource, setFailedSource] = useState<string | null>(null)
   const failed = failedSource === source
 
@@ -2233,27 +2236,35 @@ function AssistantExternalMarkdownImage({
 
   return (
     <Button
+      ref={ref}
       type="button"
       variant="ghost"
       className="conversation-image-thumbnail-trigger"
       aria-label={t("conversation.previewImage", { name })}
       onClick={onPreview}
     >
-      <img
-        {...props}
-        className={cn("conversation-image-thumbnail-image", className)}
-        src={source}
-        alt={alt ?? ""}
-        width={props.width ?? 320}
-        height={props.height ?? 180}
-        loading="lazy"
-        decoding="async"
-        referrerPolicy="no-referrer"
-        onError={(event) => {
-          onError?.(event)
-          setFailedSource(source)
-        }}
-      />
+      {visible ? (
+        <img
+          {...props}
+          className={cn("conversation-image-thumbnail-image", className)}
+          src={source}
+          alt={alt ?? ""}
+          width={props.width ?? 320}
+          height={props.height ?? 180}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={(event) => {
+            onError?.(event)
+            setFailedSource(source)
+          }}
+        />
+      ) : (
+        <AssistantInlineImagePlaceholder
+          className="assistant-inline-image-thumbnail-placeholder"
+          label={t("conversation.previewLoading", { name })}
+        />
+      )}
     </Button>
   )
 }

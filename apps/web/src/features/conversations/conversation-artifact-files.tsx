@@ -17,6 +17,7 @@ import {
   type ImagePreviewItem,
 } from "@/components/media/image-preview"
 import { Button } from "@/components/ui/button"
+import { ImageVisibilityTarget } from "@/components/media/image-visibility-target"
 import { isPreviewableConversationImage } from "@/features/conversations/conversation-attachment-preview-utils"
 import {
   getConversationFilePreviewKind,
@@ -84,6 +85,14 @@ export function ConversationArtifactFiles({
   const openOfficeDocument = onPreviewOfficeDocument ?? onPreviewPresentation
   const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [visibleFileIds, setVisibleFileIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  )
+  const markVisible = useCallback((id: string) => {
+    setVisibleFileIds((current) =>
+      current.has(id) ? current : new Set([...current, id])
+    )
+  }, [])
   const [previewStates, setPreviewStates] = useState(
     () => new Map<string, PreviewState>()
   )
@@ -91,6 +100,7 @@ export function ConversationArtifactFiles({
   const loadPreviewRef = useRef(loadPreview)
   const resourcesRef = useRef(new Map<string, PreviewResource>())
   const previewFilesRef = useRef<readonly ConversationFile[]>([])
+  const requestedPreviewIdRef = useRef<string | null>(null)
 
   const previewFiles = useMemo(
     () =>
@@ -226,12 +236,15 @@ export function ConversationArtifactFiles({
     )
 
     for (const file of currentFiles) {
-      if (!resourcesRef.current.has(file.id)) void loadFilePreview(file)
+      if (visibleFileIds.has(file.id) && !resourcesRef.current.has(file.id)) {
+        void loadFilePreview(file)
+      }
     }
-  }, [loadFilePreview, previewSignature])
+  }, [loadFilePreview, previewSignature, visibleFileIds])
 
   useEffect(
     () => () => {
+      requestedPreviewIdRef.current = null
       for (const resource of resourcesRef.current.values()) {
         resource.controller.abort()
       }
@@ -261,21 +274,25 @@ export function ConversationArtifactFiles({
   const openPreview = (id: string) => {
     const file = previewFilesById.get(id)
     if (!file) return
+    requestedPreviewIdRef.current = id
     const state = previewStatesRef.current.get(id)
-    if (state?.status !== "ready") return
-    if (!isExpired(state.source)) {
+    if (state?.status === "ready" && !isExpired(state.source)) {
       setActiveId(id)
       return
     }
 
-    void loadFilePreview(file, { preserveReady: true }).then((source) => {
-      if (source) setActiveId(id)
+    void loadFilePreview(file, {
+      preserveReady: state?.status === "ready",
+    }).then((source) => {
+      if (source && requestedPreviewIdRef.current === id) setActiveId(id)
     })
   }
 
   const changeActiveId = (id: string | null) => {
-    if (id === null) setActiveId(null)
-    else openPreview(id)
+    if (id === null) {
+      requestedPreviewIdRef.current = null
+      setActiveId(null)
+    } else openPreview(id)
   }
 
   const downloadItem = (item: ImagePreviewItem) => {
@@ -385,98 +402,115 @@ export function ConversationArtifactFiles({
         }
 
         return (
-          <div
+          <ImageVisibilityTarget
             key={file.id}
-            className="artifact-image-tile artifact-tile file-tile"
+            id={file.id}
+            onVisible={markVisible}
           >
-            {item ? (
-              <Button
-                type="button"
-                variant="ghost"
-                className="artifact-image-open-button"
-                aria-label={t("conversation.previewImage", {
-                  name: file.name,
-                })}
-                onClick={previewImage}
+            {(ref) => (
+              <div
+                ref={ref}
+                className="artifact-image-tile artifact-tile file-tile"
               >
-                <span className="image-preview-thumbnail" aria-hidden="true">
-                  <span className="image-preview-thumbnail-trigger">
-                    <img
-                      src={item.src}
-                      alt=""
-                      width="60"
-                      height="60"
-                      loading="lazy"
-                      decoding="async"
-                      referrerPolicy="no-referrer"
-                    />
-                  </span>
-                </span>
-                <span className="min-w-0 flex-1 text-left">
-                  <span className="file-tile-name block truncate font-medium">
-                    {file.name}
-                  </span>
-                  <span className="file-tile-meta block pt-0.5 text-[var(--app-muted)]">
-                    {formatFileSize(file.size, language)}
-                  </span>
-                </span>
-              </Button>
-            ) : (
-              <>
-                <div className="image-preview-thumbnail">
-                  <div
-                    className="image-preview-thumbnail-trigger image-preview-thumbnail-state"
-                    role="status"
-                    aria-label={statusText}
-                    aria-live="polite"
+                {item ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="artifact-image-open-button"
+                    aria-label={t("conversation.previewImage", {
+                      name: file.name,
+                    })}
+                    onClick={previewImage}
                   >
-                    {state?.status === "loading" || !state ? (
-                      <LoaderCircleIcon
-                        className="animate-spin"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <ImageIcon aria-hidden="true" />
-                    )}
-                    <span className="sr-only">{statusText}</span>
-                  </div>
-                </div>
-                <span className="min-w-0 flex-1 text-left">
-                  <span className="file-tile-name block truncate font-medium">
-                    {file.name}
-                  </span>
-                  <span className="file-tile-meta block pt-0.5 text-[var(--app-muted)]">
-                    {formatFileSize(file.size, language)}
-                  </span>
-                </span>
-              </>
-            )}
+                    <span
+                      className="image-preview-thumbnail"
+                      aria-hidden="true"
+                    >
+                      <span className="image-preview-thumbnail-trigger">
+                        <img
+                          src={item.src}
+                          alt=""
+                          width="60"
+                          height="60"
+                          loading="lazy"
+                          decoding="async"
+                          referrerPolicy="no-referrer"
+                        />
+                      </span>
+                    </span>
+                    <span className="min-w-0 flex-1 text-left">
+                      <span className="file-tile-name block truncate font-medium">
+                        {file.name}
+                      </span>
+                      <span className="file-tile-meta block pt-0.5 text-[var(--app-muted)]">
+                        {formatFileSize(file.size, language)}
+                      </span>
+                    </span>
+                  </Button>
+                ) : (
+                  <>
+                    <div className="image-preview-thumbnail">
+                      <div
+                        className="image-preview-thumbnail-trigger image-preview-thumbnail-state"
+                        role="status"
+                        aria-label={statusText}
+                        aria-live="polite"
+                      >
+                        {state?.status === "loading" || !state ? (
+                          <LoaderCircleIcon
+                            className="animate-spin"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <ImageIcon aria-hidden="true" />
+                        )}
+                        <span className="sr-only">{statusText}</span>
+                      </div>
+                    </div>
+                    <span className="min-w-0 flex-1 text-left">
+                      <span className="file-tile-name block truncate font-medium">
+                        {file.name}
+                      </span>
+                      <span className="file-tile-meta block pt-0.5 text-[var(--app-muted)]">
+                        {formatFileSize(file.size, language)}
+                      </span>
+                    </span>
+                  </>
+                )}
 
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="artifact-image-download-button text-[var(--app-muted)]"
-              aria-label={t("conversation.downloadArtifact", {
-                name: file.name,
-              })}
-              aria-busy={downloading || undefined}
-              disabled={!onDownload || downloading}
-              onClick={() => void onDownload?.(file)}
-            >
-              {downloading ? (
-                <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
-              ) : (
-                <DownloadIcon aria-hidden="true" />
-              )}
-            </Button>
-          </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="artifact-image-download-button text-[var(--app-muted)]"
+                  aria-label={t("conversation.downloadArtifact", {
+                    name: file.name,
+                  })}
+                  aria-busy={downloading || undefined}
+                  disabled={!onDownload || downloading}
+                  onClick={() => void onDownload?.(file)}
+                >
+                  {downloading ? (
+                    <LoaderCircleIcon
+                      className="animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <DownloadIcon aria-hidden="true" />
+                  )}
+                </Button>
+              </div>
+            )}
+          </ImageVisibilityTarget>
         )
       })}
 
       {!openOfficeDocument && (
         <ImagePreviewDialog
           items={items}
+          navigationIds={previewFiles
+            .filter((file) => previewStates.get(file.id)?.status !== "error")
+            .map((file) => file.id)}
           activeId={activeId}
           onActiveIdChange={changeActiveId}
           onDownload={onDownload ? downloadItem : undefined}

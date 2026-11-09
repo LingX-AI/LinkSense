@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -8,6 +8,7 @@ import {
   type ArtifactPreviewSource,
 } from "@/features/conversations/conversation-artifact-files"
 import i18n from "@/i18n"
+import { createIntersectionObserverMock } from "@/test/intersection-observer"
 
 const futureExpiry = "2999-01-01T00:00:00.000Z"
 
@@ -40,6 +41,142 @@ describe("conversation artifact files", () => {
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it("requests each artifact preview only when its tile approaches the viewport", async () => {
+    const visibility = createIntersectionObserverMock()
+    vi.stubGlobal("IntersectionObserver", visibility.Observer)
+    const first = artifact("first", "first.png", "image/png")
+    const second = artifact("second", "second.png", "image/png")
+    const loadPreview = vi.fn(async (file: ConversationFile) => ({
+      url: `https://files.example/${file.id}.png`,
+      expiresAt: futureExpiry,
+    }))
+    const view = render(
+      <ConversationArtifactFiles
+        files={[first, second]}
+        loadPreview={loadPreview}
+        renderFallback={fallback}
+      />
+    )
+    await act(async () => {})
+    expect(loadPreview).not.toHaveBeenCalled()
+    expect(view.container.querySelector("img")).toBeNull()
+    const tiles = view.container.querySelectorAll(".artifact-image-tile")
+    expect(tiles).toHaveLength(2)
+    act(() => visibility.intersect(tiles.item(1)))
+    expect(
+      await screen.findByRole("button", { name: "预览图片 second.png" })
+    ).toBeVisible()
+    expect(loadPreview).toHaveBeenCalledExactlyOnceWith(
+      second,
+      expect.any(AbortSignal)
+    )
+    act(() => visibility.intersect(tiles.item(0)))
+    expect(
+      await screen.findByRole("button", { name: "预览图片 first.png" })
+    ).toBeVisible()
+    expect(loadPreview).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([false, true])(
+    "loads offscreen gallery artifacts on demand and skips failures (second fails=%s)",
+    async (secondFails) => {
+      const visibility = createIntersectionObserverMock()
+      vi.stubGlobal("IntersectionObserver", visibility.Observer)
+      const files = ["first", "second", "third"].map((id) =>
+        artifact(id, `${id}.png`, "image/png")
+      )
+      const loadPreview = vi.fn(async (file: ConversationFile) => {
+        if (secondFails && file.id === "second") throw new Error("unavailable")
+        return {
+          url: `https://files.example/${file.id}.png`,
+          expiresAt: futureExpiry,
+        }
+      })
+      const view = render(
+        <ConversationArtifactFiles
+          files={files}
+          loadPreview={loadPreview}
+          renderFallback={fallback}
+        />
+      )
+      const tiles = view.container.querySelectorAll(".artifact-image-tile")
+      act(() => visibility.intersect(tiles.item(0)))
+      await userEvent.click(
+        await screen.findByRole("button", { name: "预览图片 first.png" })
+      )
+      expect(loadPreview).toHaveBeenCalledOnce()
+      await userEvent.click(screen.getByRole("button", { name: "下一张图片" }))
+      if (secondFails) {
+        await screen.findByTestId("fallback-second")
+        expect(loadPreview).toHaveBeenCalledTimes(2)
+        await userEvent.click(
+          screen.getByRole("button", { name: "下一张图片" })
+        )
+        expect(
+          await screen.findByRole("img", { name: "third.png" })
+        ).toBeVisible()
+        expect(loadPreview).toHaveBeenCalledTimes(3)
+        return
+      }
+      expect(
+        await screen.findByRole("img", { name: "second.png" })
+      ).toHaveAttribute("src", "https://files.example/second.png")
+      expect(loadPreview).toHaveBeenCalledTimes(2)
+      expect(loadPreview).toHaveBeenLastCalledWith(
+        files[1],
+        expect.any(AbortSignal)
+      )
+    }
+  )
+
+  it("does not reopen a closed gallery when an offscreen artifact finishes loading", async () => {
+    const visibility = createIntersectionObserverMock()
+    vi.stubGlobal("IntersectionObserver", visibility.Observer)
+    const files = ["first", "second"].map((id) =>
+      artifact(id, `${id}.png`, "image/png")
+    )
+    let finish: ((source: ArtifactPreviewSource) => void) | undefined
+    const loadPreview = vi.fn(
+      async (file: ConversationFile): Promise<ArtifactPreviewSource> => {
+        if (file.id === "second")
+          return new Promise((resolve) => {
+            finish = resolve
+          })
+        return {
+          url: "https://files.example/first.png",
+          expiresAt: futureExpiry,
+        }
+      }
+    )
+    const view = render(
+      <ConversationArtifactFiles
+        files={files}
+        loadPreview={loadPreview}
+        renderFallback={fallback}
+      />
+    )
+    act(() =>
+      visibility.intersect(
+        view.container.querySelectorAll(".artifact-image-tile").item(0)
+      )
+    )
+    await userEvent.click(
+      await screen.findByRole("button", { name: "预览图片 first.png" })
+    )
+    await userEvent.click(screen.getByRole("button", { name: "下一张图片" }))
+    expect(loadPreview).toHaveBeenCalledTimes(2)
+    await userEvent.click(screen.getByRole("button", { name: "关闭" }))
+    await act(async () => {
+      if (!finish) throw new Error("The second preview was not requested")
+      finish({
+        url: "https://files.example/second.png",
+        expiresAt: futureExpiry,
+      })
+    })
+    expect(screen.queryByRole("dialog")).toBeNull()
   })
 
   it("loads only downloadable PNG, JPEG, and WebP artifacts", async () => {

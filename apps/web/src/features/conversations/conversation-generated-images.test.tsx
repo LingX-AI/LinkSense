@@ -12,6 +12,7 @@ import userEvent from "@testing-library/user-event"
 import type { ConversationFile, NativeCodexItem } from "@/api/contracts"
 import { ConversationGeneratedImages } from "@/features/conversations/conversation-generated-images"
 import i18n, { supportedLanguages } from "@/i18n"
+import { createIntersectionObserverMock } from "@/test/intersection-observer"
 
 const fileId = "30000000-0000-4000-8000-000000000011"
 const secondFileId = "30000000-0000-4000-8000-000000000012"
@@ -43,9 +44,62 @@ beforeEach(async () => {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe("generated image cards", () => {
+  it("defers main images and independently clipped thumbnails until they become visible", async () => {
+    const visibility = createIntersectionObserverMock()
+    vi.stubGlobal("IntersectionObserver", visibility.Observer)
+    const second = { ...image, id: secondFileId, name: "second.png" }
+    const loadPreview = vi.fn(async (file: ConversationFile) => ({
+      ...previewSource,
+      url: `https://files.example.test/${file.id}.png`,
+    }))
+    const view = render(
+      <ConversationGeneratedImages
+        items={[]}
+        registeredFileIds={[fileId, secondFileId]}
+        turnId="turn-1"
+        turnStatus="completed"
+        running={false}
+        filesById={
+          new Map([
+            [fileId, image],
+            [secondFileId, second],
+          ])
+        }
+        loadPreview={loadPreview}
+        onDownload={vi.fn()}
+      />
+    )
+    await act(async () => {})
+    expect(loadPreview).not.toHaveBeenCalled()
+    expect(view.container.querySelector("img")).toBeNull()
+
+    const main = view.container.querySelector(
+      '[data-slot="generated-image-frame"] [data-slot="assistant-image-surface"]'
+    )
+    if (!main) throw new Error("Missing generated main image")
+    act(() => visibility.intersect(main))
+    expect(await screen.findByRole("img", { name: image.name })).toBeVisible()
+    expect(loadPreview).toHaveBeenCalledExactlyOnceWith(
+      image,
+      expect.any(AbortSignal)
+    )
+
+    const thumbnail = screen
+      .getByRole("tab", { name: "选择图片 second.png" })
+      .querySelector('[data-slot="assistant-image-surface"]')
+    if (!thumbnail) throw new Error("Missing generated thumbnail")
+    act(() => visibility.intersect(thumbnail))
+    await waitFor(() => expect(loadPreview).toHaveBeenCalledTimes(2))
+    expect(loadPreview).toHaveBeenLastCalledWith(
+      second,
+      expect.any(AbortSignal)
+    )
+  })
+
   it.each([1, 2])(
     "fits the main image to its natural height at the same responsive width with %s images",
     async (count) => {
@@ -376,6 +430,7 @@ describe("generated image cards", () => {
       card
     )
     expect(screen.getByRole("status", { name: "正在生成图片…" })).toBeVisible()
+    await act(async () => {})
     await act(async () => resolvePreview(previewSource))
     expect(screen.getByRole("img", { name: image.name })).toHaveAttribute(
       "src",

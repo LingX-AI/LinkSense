@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ImageIcon, LoaderCircleIcon, XIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
@@ -9,6 +9,7 @@ import {
   type ImagePreviewItem,
 } from "@/components/media/image-preview"
 import { Button } from "@/components/ui/button"
+import { ImageVisibilityTarget } from "@/components/media/image-visibility-target"
 import {
   getConversationAttachmentPreviewCacheKey,
   peekConversationAttachmentPreviewState,
@@ -36,6 +37,14 @@ export function ConversationAttachmentPreviews({
 }) {
   const { t } = useTranslation()
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [visibleFileIds, setVisibleFileIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  )
+  const markVisible = useCallback((id: string) => {
+    setVisibleFileIds((current) =>
+      current.has(id) ? current : new Set([...current, id])
+    )
+  }, [])
   const [previewStates, setPreviewStates] = useState(
     () => new Map<string, ConversationAttachmentPreviewState>()
   )
@@ -44,6 +53,7 @@ export function ConversationAttachmentPreviews({
   )
   const loadPreviewRef = useRef(loadPreview)
   const previewFilesRef = useRef<readonly ConversationFile[]>([])
+  const requestedPreviewIdRef = useRef<string | null>(null)
 
   const previewFiles = useMemo(
     () => files.filter(isPreviewableConversationImage),
@@ -60,6 +70,29 @@ export function ConversationAttachmentPreviews({
   useEffect(() => {
     previewFilesRef.current = previewFiles
   }, [previewFiles])
+
+  const loadFilePreview = useCallback((file: ConversationFile) => {
+    const existing = resourcesRef.current.get(file.id)
+    if (existing) return existing.resource.promise
+
+    const retained = retainConversationAttachmentPreviewResource(
+      file,
+      (previewFile, signal) => loadPreviewRef.current(previewFile, signal)
+    )
+    resourcesRef.current.set(file.id, retained)
+    const updateState = (state: ConversationAttachmentPreviewState) => {
+      if (resourcesRef.current.get(file.id)?.resource !== retained.resource)
+        return
+      setPreviewStates((current) => {
+        const next = new Map(current)
+        next.set(file.id, state)
+        return next
+      })
+    }
+    if (retained.resource.state) updateState(retained.resource.state)
+    else void retained.resource.promise.then(updateState)
+    return retained.resource.promise
+  }, [])
 
   useEffect(() => {
     const currentFiles = previewFilesRef.current
@@ -93,39 +126,13 @@ export function ConversationAttachmentPreviews({
     )
 
     for (const file of currentFiles) {
-      if (resourcesRef.current.has(file.id)) continue
-
-      const resource = retainConversationAttachmentPreviewResource(
-        file,
-        (previewFile, signal) => loadPreviewRef.current(previewFile, signal)
-      )
-      resourcesRef.current.set(file.id, resource)
-
-      const cachedState = resource.resource.state
-      if (cachedState) {
-        setPreviewStates((current) => {
-          const next = new Map(current)
-          next.set(file.id, cachedState)
-          return next
-        })
-        continue
-      }
-
-      void resource.resource.promise.then((state) => {
-        if (resourcesRef.current.get(file.id)?.resource !== resource.resource) {
-          return
-        }
-        setPreviewStates((current) => {
-          const next = new Map(current)
-          next.set(file.id, state)
-          return next
-        })
-      })
+      if (visibleFileIds.has(file.id)) void loadFilePreview(file)
     }
-  }, [previewSignature])
+  }, [loadFilePreview, previewSignature, visibleFileIds])
 
   useEffect(
     () => () => {
+      requestedPreviewIdRef.current = null
       for (const resource of resourcesRef.current.values()) {
         releaseConversationAttachmentPreviewResource(resource)
       }
@@ -163,6 +170,26 @@ export function ConversationAttachmentPreviews({
     [displayPreviewStates, previewFiles]
   )
 
+  const openPreview = (id: string | null) => {
+    requestedPreviewIdRef.current = id
+    if (id === null) {
+      setActiveId(null)
+      return
+    }
+    const file = previewFiles.find((candidate) => candidate.id === id)
+    if (!file) return
+    const preview = loadFilePreview(file)
+    if (displayPreviewStates.get(id)?.status === "ready") {
+      setActiveId(id)
+      return
+    }
+    void preview.then((state) => {
+      if (state.status === "ready" && requestedPreviewIdRef.current === id) {
+        setActiveId(id)
+      }
+    })
+  }
+
   const removeFile = (id: string) => {
     const file = previewFiles.find((candidate) => candidate.id === id)
     if (file) onRemove?.(file)
@@ -183,74 +210,95 @@ export function ConversationAttachmentPreviews({
 
   return (
     <>
-      {previewFiles.map((file) => {
-        const state = displayPreviewStates.get(file.id)
-        if (state?.status === "ready") {
-          const item = items.find((candidate) => candidate.id === file.id)
-          if (!item) return null
-          return (
-            <ImageThumbnail
-              key={file.id}
-              item={item}
-              onPreview={
-                onPreviewImage
-                  ? () => onPreviewImage(item)
-                  : onPreviewFile
-                    ? () => onPreviewFile(file)
-                    : (id) => setActiveId(id)
-              }
-              onRemove={onRemove ? removeFile : undefined}
-              removeDisabled={disabled}
-            />
-          )
-        }
+      {previewFiles.map((file) => (
+        <ImageVisibilityTarget
+          key={file.id}
+          id={file.id}
+          onVisible={markVisible}
+        >
+          {(ref) => {
+            const state =
+              previewStates.get(file.id) ??
+              (visibleFileIds.has(file.id)
+                ? displayPreviewStates.get(file.id)
+                : undefined)
+            if (state?.status === "ready") {
+              const item = items.find((candidate) => candidate.id === file.id)
+              if (!item) return null
+              return (
+                <ImageThumbnail
+                  ref={ref}
+                  key={file.id}
+                  item={item}
+                  onPreview={
+                    onPreviewImage
+                      ? () => onPreviewImage(item)
+                      : onPreviewFile
+                        ? () => onPreviewFile(file)
+                        : openPreview
+                  }
+                  onRemove={onRemove ? removeFile : undefined}
+                  removeDisabled={disabled}
+                />
+              )
+            }
 
-        const statusText = t(
-          state?.status === "error"
-            ? "conversation.previewLoadFailed"
-            : "conversation.previewLoading",
-          { name: file.name }
-        )
+            const statusText = t(
+              state?.status === "error"
+                ? "conversation.previewLoadFailed"
+                : "conversation.previewLoading",
+              { name: file.name }
+            )
 
-        return (
-          <div key={file.id} className="image-preview-thumbnail">
-            <div
-              className="image-preview-thumbnail-trigger image-preview-thumbnail-state"
-              role="status"
-              aria-label={statusText}
-              aria-live="polite"
-            >
-              {state?.status === "error" ? (
-                <ImageIcon aria-hidden="true" />
-              ) : (
-                <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
-              )}
-              <span className="sr-only">{statusText}</span>
-            </div>
-            {onRemove && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                className="image-preview-thumbnail-remove"
-                aria-label={t("conversation.removeAttachment", {
-                  name: file.name,
-                })}
-                disabled={disabled}
-                onClick={() => onRemove(file)}
-              >
-                <XIcon aria-hidden="true" />
-              </Button>
-            )}
-          </div>
-        )
-      })}
+            return (
+              <div ref={ref} className="image-preview-thumbnail">
+                <div
+                  className="image-preview-thumbnail-trigger image-preview-thumbnail-state"
+                  role="status"
+                  aria-label={statusText}
+                  aria-live="polite"
+                >
+                  {state?.status === "error" ? (
+                    <ImageIcon aria-hidden="true" />
+                  ) : (
+                    <LoaderCircleIcon
+                      className="animate-spin"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span className="sr-only">{statusText}</span>
+                </div>
+                {onRemove && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    className="image-preview-thumbnail-remove"
+                    aria-label={t("conversation.removeAttachment", {
+                      name: file.name,
+                    })}
+                    disabled={disabled}
+                    onClick={() => onRemove(file)}
+                  >
+                    <XIcon aria-hidden="true" />
+                  </Button>
+                )}
+              </div>
+            )
+          }}
+        </ImageVisibilityTarget>
+      ))}
 
       {!onPreviewImage && !onPreviewFile && (
         <ImagePreviewDialog
           items={items}
+          navigationIds={previewFiles
+            .filter(
+              (file) => displayPreviewStates.get(file.id)?.status !== "error"
+            )
+            .map((file) => file.id)}
           activeId={activeId}
-          onActiveIdChange={setActiveId}
+          onActiveIdChange={openPreview}
           onDownload={downloadItem}
         />
       )}

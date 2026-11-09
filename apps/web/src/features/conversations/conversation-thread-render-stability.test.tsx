@@ -1177,7 +1177,7 @@ describe("conversation stream render stability", () => {
     expect(screen.queryByRole("article", { name: "助手回复" })).toBeNull()
   })
 
-  it("keeps the Markdown root and completed prefix mounted when code and images arrive", () => {
+  it("keeps the Markdown root and completed prefix mounted when code and images arrive", async () => {
     const prefix = "已经稳定的说明。"
     const { container, rerender } = render(
       <AssistantMarkdown streaming content={prefix} />
@@ -1199,7 +1199,9 @@ describe("conversation stream render stability", () => {
 
     expect(container.querySelector(".assistant-markdown")).toBe(markdownRoot)
     expect(screen.getByText(prefix).closest("p")).toBe(initialPrefix)
-    expect(screen.getByRole("img", { name: "新增图片" })).toBeVisible()
+    expect(await screen.findByRole("img", { name: "新增图片" })).toBeVisible()
+    expect(container.querySelector(".assistant-markdown")).toBe(markdownRoot)
+    expect(screen.getByText(prefix).closest("p")).toBe(initialPrefix)
   })
 
   it("keeps completed blocks mounted when structured citations arrive", () => {
@@ -1283,7 +1285,7 @@ describe("conversation stream render stability", () => {
     ).toHaveLength(2)
   })
 
-  it("re-renders Markdown when a referenced artifact becomes available", () => {
+  it("re-renders Markdown when a referenced artifact becomes available", async () => {
     const artifactId = "50000000-0000-4000-8000-000000000099"
     const content = `![结果](linksense-artifact:${artifactId})`
     const { container, rerender } = render(
@@ -1317,6 +1319,7 @@ describe("conversation stream render stability", () => {
     expect(
       container.querySelector(".assistant-inline-image-thumbnail-placeholder")
     ).not.toBeNull()
+    await act(async () => {})
     expect(loadPreview).toHaveBeenCalledTimes(1)
   })
 
