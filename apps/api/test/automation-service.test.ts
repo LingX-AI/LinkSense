@@ -403,6 +403,39 @@ describe("AutomationService", () => {
     expect(fixture.repository.updateOwned).toHaveBeenCalledWith(OWNER_ID, AUTOMATION_ID, expect.objectContaining({ nextRunAt: new Date("2026-07-30T01:00:00.000Z") }));
   });
 
+  it.each([
+    { max_runs: 5 },
+    { stop_condition: "New condition" },
+    { context_mode: "reuse_task" as const },
+    { stop_condition: null },
+    { max_runs: null },
+  ])("preserves saved monitoring fields when updating %j", async (monitoring) => {
+    const fixture = automationFixture();
+    const previous = readAutomationMonitoring({
+      stop_condition: "Checklist complete",
+      max_runs: 4,
+      context_mode: "fresh_task",
+      automatic_run_count: 2,
+    });
+    const existing = automationRecord({ monitoring: previous });
+    fixture.repository.findOwnedRecord.mockResolvedValueOnce(existing);
+    fixture.repository.updateOwned.mockImplementationOnce(async (_ownerId, _automationId, update: UpdateAutomationRecord) =>
+      automationWithConversation({ ...existing, ...update }));
+
+    const updated = await fixture.service.update(OWNER_ID, AUTOMATION_ID, { monitoring }, {});
+
+    expect(updated.monitoring).toMatchObject({
+      stop_condition: previous.stop_condition,
+      max_runs: previous.max_runs,
+      context_mode: previous.context_mode,
+      automatic_run_count: previous.automatic_run_count,
+      ...monitoring,
+    });
+    expect(fixture.repository.updateOwned).toHaveBeenCalledWith(
+      OWNER_ID, AUTOMATION_ID, expect.objectContaining({ monitoring: { ...previous, ...monitoring } }),
+    );
+  });
+
   it("does not report notifications when every task is already read", async () => {
     const fixture = automationFixture();
     fixture.repository.latestUnreadCompletion.mockResolvedValueOnce(null);

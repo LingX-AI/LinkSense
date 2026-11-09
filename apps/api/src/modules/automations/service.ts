@@ -222,7 +222,10 @@ export class AutomationService {
     let createdConversationId: string | null = null;
     try {
       const update: UpdateAutomationRecord = {};
-      if (input.monitoring) update.monitoring = { ...readAutomationMonitoring(existing.monitoring), ...input.monitoring };
+      if (input.monitoring) update.monitoring = readAutomationMonitoring({
+        ...readAutomationMonitoring(existing.monitoring),
+        ...input.monitoring,
+      });
       if (input.notification_target !== undefined) {
         if (input.notification_target) {
           if (!this.notifications) throw new AppError("VALIDATION_ERROR");

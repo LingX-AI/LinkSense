@@ -3,6 +3,8 @@ import {
   automationMonitoringSettingsSchema,
   readAutomationMonitoring,
 } from "../src/automation-monitoring.js";
+import { automationUpdateInputSchema } from "../src/automations.js";
+import { automationToolRequestSchema } from "../src/automation-tools.js";
 
 describe("automation monitoring compatibility", () => {
   it("keeps older plans unlimited and reuses their task", () => {
@@ -34,9 +36,39 @@ describe("automation monitoring compatibility", () => {
       { stop_condition: " " },
       { stop_condition: "x".repeat(501) },
       { context_mode: "new_task" },
-    ])
+    ]) {
       expect(automationMonitoringSettingsSchema.safeParse(input).success).toBe(
         false,
       );
+      expect(automationUpdateInputSchema.safeParse({ monitoring: input }).success).toBe(false);
+      expect(automationToolRequestSchema.safeParse({
+        operation: "update",
+        automation_id: "10000000-0000-4000-8000-000000000001",
+        changes: { monitoring: input },
+      }).success).toBe(false);
+    }
+  });
+  it.each([
+    { max_runs: 5 },
+    { stop_condition: "Checklist complete" },
+    { context_mode: "fresh_task" },
+    { stop_condition: null },
+    { max_runs: null },
+    {},
+  ])("preserves only the supplied monitoring update fields: %j", (monitoring) => {
+    expect(automationUpdateInputSchema.parse({ monitoring })).toEqual({
+      monitoring,
+    });
+    expect(
+      automationToolRequestSchema.parse({
+        operation: "update",
+        automation_id: "10000000-0000-4000-8000-000000000001",
+        changes: { monitoring },
+      }),
+    ).toEqual({
+      operation: "update",
+      automation_id: "10000000-0000-4000-8000-000000000001",
+      changes: { monitoring },
+    });
   });
 });

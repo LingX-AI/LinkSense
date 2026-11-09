@@ -130,7 +130,11 @@ export const automationCreateInputSchema = z.strictObject({
 
 export const automationUpdateInputSchema = z
   .strictObject({
-    monitoring: automationMonitoringSettingsSchema.optional(),
+    monitoring: z.strictObject({
+      stop_condition: automationMonitoringSettingsSchema.shape.stop_condition.unwrap().optional(),
+      max_runs: automationMonitoringSettingsSchema.shape.max_runs.unwrap().optional(),
+      context_mode: automationMonitoringSettingsSchema.shape.context_mode.unwrap().optional(),
+    }).optional(),
     notification_target: automationNotificationTargetSchema.nullable().optional(),
     title: z.string().trim().min(1).max(160).optional(),
     instruction: z.string().trim().min(1).max(1_000_000).optional(),
