@@ -837,6 +837,59 @@ describe("automation creation request receipts", () => {
     expect(f.repository.createWithinOwnerLimit).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { notification_target: { kind: "feishu" as const, connection_id: OWNER_ID, peer_session_id: REQUEST_ID } },
+    { monitoring: { stop_condition: "Checklist complete" } },
+    { monitoring: { max_runs: 5 } },
+    { monitoring: { context_mode: "fresh_task" as const } },
+  ])("rejects a reused creation request with changed settings: %j", async (changes) => {
+    const f = automationFixture();
+    f.repository.findById.mockResolvedValueOnce(automationRecord());
+
+    await expect(f.service.create(OWNER_ID, { ...input, ...changes }, {}, "zh-CN", { creationId: AUTOMATION_ID }))
+      .rejects.toMatchObject({ code: "CONFLICT" });
+
+    expect(f.repository.createWithinOwnerLimit).not.toHaveBeenCalled();
+    expect(f.audit.write).not.toHaveBeenCalled();
+  });
+
+  it("accepts matching creation settings after monitoring execution state changes", async () => {
+    const f = automationFixture();
+    const monitoring = { stop_condition: "Checklist complete", max_runs: 5, context_mode: "fresh_task" as const };
+    const notificationTarget = { kind: "feishu" as const, connection_id: OWNER_ID, peer_session_id: REQUEST_ID };
+    const existing = automationRecord({
+      monitoring: readAutomationMonitoring({
+        ...monitoring, automatic_run_count: 2, stop_reason: "condition_met", last_run_conversation_id: NEW_CONVERSATION_ID,
+      }),
+      notificationTarget,
+    });
+    f.repository.findById.mockResolvedValueOnce(existing);
+    f.repository.findOwned.mockResolvedValueOnce(automationWithConversation(existing));
+
+    await expect(f.service.create(OWNER_ID, {
+      ...input, monitoring, notification_target: notificationTarget,
+    }, {}, "zh-CN", { creationId: AUTOMATION_ID })).resolves.toMatchObject({
+      id: AUTOMATION_ID,
+      monitoring: { ...monitoring, automatic_run_count: 2, stop_reason: "condition_met", last_run_conversation_id: NEW_CONVERSATION_ID },
+      notification_target: notificationTarget,
+    });
+
+    expect(f.repository.createWithinOwnerLimit).not.toHaveBeenCalled();
+    expect(f.conversations.createPinnedConversation).not.toHaveBeenCalled();
+    expect(f.audit.write).not.toHaveBeenCalled();
+  });
+
+  it("accepts explicit default settings for a historical receipt with absent optional fields", async () => {
+    const f = automationFixture();
+    f.repository.findById.mockResolvedValueOnce(automationRecord());
+
+    await expect(f.service.create(OWNER_ID, {
+      ...input, monitoring: { stop_condition: null, max_runs: null, context_mode: "reuse_task" }, notification_target: null,
+    }, {}, "zh-CN", { creationId: AUTOMATION_ID })).resolves.toMatchObject({ id: AUTOMATION_ID });
+
+    expect(f.repository.createWithinOwnerLimit).not.toHaveBeenCalled();
+  });
+
   it.each([{ deletedAt: NOW }, { ownerId: "foreign-owner" }])("does not recreate a deleted or foreign creation receipt", async (overrides) => {
     const f = automationFixture();
     f.repository.findById.mockResolvedValueOnce(automationRecord(overrides));
@@ -854,6 +907,20 @@ describe("automation creation request receipts", () => {
     expect(f.conversations.delete).toHaveBeenCalledWith(OWNER_ID, NEW_CONVERSATION_ID, {});
     expect(f.audit.write).not.toHaveBeenCalled();
     expect(f.repository.createWithinOwnerLimit).toHaveBeenCalledWith(expect.objectContaining({ id: AUTOMATION_ID }), 100, { pinTarget: false });
+  });
+
+  it("rejects changed settings after concurrent creation and cleans up only the extra target", async () => {
+    const f = automationFixture();
+    f.repository.findById.mockResolvedValueOnce(null);
+    f.conversations.createPinnedConversation.mockResolvedValueOnce({ id: NEW_CONVERSATION_ID });
+    f.repository.createWithinOwnerLimit.mockResolvedValueOnce({ ...automationWithConversation(automationRecord()), wasCreated: false });
+
+    await expect(f.service.create(OWNER_ID, {
+      ...input, target: { mode: "new_task" }, monitoring: { max_runs: 5 },
+    }, {}, "zh-CN", { creationId: AUTOMATION_ID })).rejects.toMatchObject({ code: "CONFLICT" });
+
+    expect(f.conversations.delete).toHaveBeenCalledExactlyOnceWith(OWNER_ID, NEW_CONVERSATION_ID, {});
+    expect(f.audit.write).not.toHaveBeenCalled();
   });
 
   it("does not delete a committed new target when auditing fails", async () => {

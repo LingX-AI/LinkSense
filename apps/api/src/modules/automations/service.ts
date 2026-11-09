@@ -546,10 +546,16 @@ export class AutomationService {
 }
 
 function assertSameCreation(existing: AutomationRecord, input: AutomationCreateInput): void {
+  const savedMonitoring = readAutomationMonitoring(existing.monitoring);
+  const requestedMonitoring = readAutomationMonitoring(input.monitoring);
   if (
     existing.title !== input.title || existing.instruction !== input.instruction ||
     (input.target.mode === "existing_task" && existing.conversationId !== input.target.conversation_id) ||
     JSON.stringify(scheduleFromRecord(existing)) !== JSON.stringify(parseSchedule(input.schedule)) ||
+    JSON.stringify(existing.notificationTarget ?? null) !== JSON.stringify(input.notification_target ?? null) ||
+    savedMonitoring.stop_condition !== requestedMonitoring.stop_condition ||
+    savedMonitoring.max_runs !== requestedMonitoring.max_runs ||
+    savedMonitoring.context_mode !== requestedMonitoring.context_mode ||
     existing.modelId !== (input.model_preference?.model_id ?? null) ||
     existing.reasoningEffort !== (input.model_preference?.reasoning_effort ?? null) ||
     (existing.expiresAt ? automationExpirationOn(existing.expiresAt, existing.timeZone) : null) !== (input.expires_on ?? null)
