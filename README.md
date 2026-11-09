@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="./apps/web/public/attribution/linksense-mark.svg" alt="LinkSense" width="180">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./apps/web/src/assets/brand/linksense-lockup-on-dark.svg">
+    <img src="./apps/web/public/attribution/linksense-mark.svg" alt="LinkSense" width="180">
+  </picture>
 </p>
 
 <h2 align="center">
