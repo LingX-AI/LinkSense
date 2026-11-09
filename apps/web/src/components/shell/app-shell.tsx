@@ -1407,7 +1407,7 @@ function AppSidebarContent({
               side="top"
               align="start"
               sideOffset={8}
-              className="account-menu max-w-[min(var(--app-popup-max-width),calc(100vw-24px))] min-w-(--anchor-width) border-0 p-1.5"
+              className="account-menu max-w-[min(var(--app-popup-max-width),var(--available-width),calc(100vw-24px))] min-w-[min(var(--anchor-width),var(--app-popup-max-width),var(--available-width),calc(100vw-24px))] border-0 p-1.5"
               finalFocus={(closeType) =>
                 closeType === "keyboard" ? accountTriggerRef.current : true
               }

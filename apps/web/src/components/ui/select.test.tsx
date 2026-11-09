@@ -101,7 +101,8 @@ describe("Select popup placement", () => {
         '[data-slot="select-content"]'
       )
       expect(popup).toHaveClass(
-        "max-w-[min(var(--app-popup-max-width),var(--available-width))]"
+        "max-w-[min(var(--app-popup-max-width),var(--available-width))]",
+        "min-w-[min(max(var(--anchor-width),--spacing(36)),var(--app-popup-max-width),var(--available-width))]"
       )
       expect(popup).toHaveAttribute("data-align-trigger", "false")
       await waitFor(() => expect(popup).toHaveAttribute("data-side", "bottom"))

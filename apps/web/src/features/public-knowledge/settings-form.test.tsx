@@ -239,7 +239,8 @@ describe("public knowledge settings", () => {
     expect(
       document.querySelector('[data-slot="combobox-content"]')
     ).toHaveClass(
-      "max-w-[min(var(--app-popup-max-width),var(--available-width))]"
+      "max-w-[min(var(--app-popup-max-width),var(--available-width))]",
+      "min-w-[min(var(--anchor-width),var(--app-popup-max-width),var(--available-width))]"
     )
     expect(
       screen.getByRole("option", { name: /Disabled guide/u })

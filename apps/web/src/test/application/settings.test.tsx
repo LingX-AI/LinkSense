@@ -134,7 +134,10 @@ describe("LinkSense application", () => {
       within(menu).queryByRole("menuitem", { name: "界面语言" })
     ).not.toBeInTheDocument()
     expect(within(menu).queryByRole("menuitemradio")).not.toBeInTheDocument()
-    expect(menu).toHaveClass("w-max", "min-w-(--anchor-width)")
+    expect(menu).toHaveClass(
+      "w-max",
+      "min-w-[min(var(--anchor-width),var(--app-popup-max-width),var(--available-width),calc(100vw-24px))]"
+    )
     expect(menu).not.toHaveClass("w-[260px]")
     expect(within(menu).getAllByText("林晓").length).toBeGreaterThan(0)
     expect(within(menu).getByText("额度")).toBeVisible()
