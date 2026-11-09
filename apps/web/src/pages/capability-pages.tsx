@@ -120,6 +120,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { FieldLegend, FieldSet } from "@/components/ui/field"
+import { HeaderIconButton } from "@/components/ui/header-icon-button"
 import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
 import { Label } from "@/components/ui/label"
@@ -3719,10 +3720,8 @@ export function CapabilityManagementPage() {
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <Button
+                  <HeaderIconButton
                     type="button"
-                    variant="ghost"
-                    size="icon-lg"
                     className={cn("shrink-0", view === "store" && "ml-auto")}
                     aria-label={t(
                       view === "store"
@@ -3736,9 +3735,9 @@ export function CapabilityManagementPage() {
                 }
               >
                 {view === "store" ? (
-                  <CopyCheckIcon className="size-6" aria-hidden="true" />
+                  <CopyCheckIcon className="size-4" aria-hidden="true" />
                 ) : (
-                  <ArrowLeftIcon className="size-5" aria-hidden="true" />
+                  <ArrowLeftIcon className="size-4" aria-hidden="true" />
                 )}
               </TooltipTrigger>
               <TooltipContent>

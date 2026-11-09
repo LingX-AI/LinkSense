@@ -502,11 +502,12 @@ describe("capability marketplace pages", () => {
       vi.stubGlobal("fetch", fetchMock)
       const interaction = userEvent.setup()
       renderUserPageWithRouter("/capabilities?section=skill")
-      await interaction.click(
-        screen.getByRole("button", {
-          name: i18n.t("marketplace.tabs.publishing"),
-        })
-      )
+      const publicationsButton = screen.getByRole("button", {
+        name: i18n.t("marketplace.tabs.publishing"),
+      })
+      expect(publicationsButton).toHaveClass("size-7")
+      expect(publicationsButton.querySelector("svg")).toHaveClass("size-4")
+      await interaction.click(publicationsButton)
       expect(
         screen.getByRole("heading", {
           name: i18n.t("marketplace.tabs.publishing"),
@@ -543,8 +544,11 @@ describe("capability marketplace pages", () => {
         name: i18n.t("marketplace.backToCenter"),
       })
       expect(backButton).not.toHaveClass("ml-auto")
+      expect(backButton).toHaveClass("size-7")
       expect(backButton.parentElement?.firstElementChild).toBe(backButton)
-      expect(backButton.querySelector("svg.lucide-arrow-left")).not.toBeNull()
+      expect(backButton.querySelector("svg.lucide-arrow-left")).toHaveClass(
+        "size-4"
+      )
       expect(
         screen.getByRole("banner").closest(".management-page")
       ).not.toContainElement(backButton)
