@@ -7,6 +7,7 @@ import {
   useState,
   type KeyboardEvent,
   type ReactNode,
+  type Ref,
 } from "react"
 import { useDrag, usePinch } from "@use-gesture/react"
 import {
@@ -62,12 +63,14 @@ function ImagePreviewControlsSlot({
 export type { ImagePreviewItem } from "@/components/media/image-preview.types"
 
 export function ImageThumbnail({
+  ref,
   item,
   onPreview,
   onRemove,
   removeDisabled,
   className,
 }: {
+  ref?: Ref<HTMLDivElement>
   item: ImagePreviewItem
   onPreview: (id: string) => void
   onRemove?: (id: string) => void
@@ -79,7 +82,7 @@ export function ImageThumbnail({
   const loadFailed = failedSource === item.src
 
   return (
-    <div className={cn("image-preview-thumbnail", className)}>
+    <div ref={ref} className={cn("image-preview-thumbnail", className)}>
       <Button
         type="button"
         variant="ghost"
@@ -120,22 +123,25 @@ export function ImageThumbnail({
 
 export function ImagePreviewDialog({
   items,
+  navigationIds,
   activeId,
   onActiveIdChange,
   onDownload,
   downloadingId,
 }: {
   items: readonly ImagePreviewItem[]
+  navigationIds?: readonly string[]
   activeId: string | null
   onActiveIdChange: (id: string | null) => void
   onDownload?: (item: ImagePreviewItem) => void | Promise<void>
   downloadingId?: string
 }) {
-  const activeIndex = useMemo(
-    () => items.findIndex((item) => item.id === activeId),
-    [activeId, items]
+  const imageIds = useMemo(
+    () => navigationIds ?? items.map((item) => item.id),
+    [items, navigationIds]
   )
-  const activeItem = activeIndex >= 0 ? items[activeIndex] : undefined
+  const activeIndex = activeId === null ? -1 : imageIds.indexOf(activeId)
+  const activeItem = items.find((item) => item.id === activeId)
   const open = Boolean(activeItem)
 
   return (
@@ -148,7 +154,7 @@ export function ImagePreviewDialog({
       {activeItem && (
         <ImagePreviewDialogContent
           key={`${activeItem.id}:${activeItem.src}`}
-          items={items}
+          imageIds={imageIds}
           activeItem={activeItem}
           activeIndex={activeIndex}
           onActiveIdChange={onActiveIdChange}
@@ -503,14 +509,14 @@ export function ImagePreviewViewer({
 }
 
 function ImagePreviewDialogContent({
-  items,
+  imageIds,
   activeItem,
   activeIndex,
   onActiveIdChange,
   onDownload,
   downloadingId,
 }: {
-  items: readonly ImagePreviewItem[]
+  imageIds: readonly string[]
   activeItem: ImagePreviewItem
   activeIndex: number
   onActiveIdChange: (id: string | null) => void
@@ -530,8 +536,8 @@ function ImagePreviewDialogContent({
   const stageTarget = useMemo(() => ({ current: stageElement }), [stageElement])
   const [loadFailed, setLoadFailed] = useState(false)
   const hasPrevious = activeIndex > 0
-  const hasNext = activeIndex < items.length - 1
-  const showNavigation = items.length > 1
+  const hasNext = activeIndex < imageIds.length - 1
+  const showNavigation = imageIds.length > 1
   const downloading =
     downloadingId === activeItem.id || (!onDownload && fallbackDownloading)
 
@@ -734,8 +740,8 @@ function ImagePreviewDialogContent({
   const stageDragHandlers = bindStageDrag()
 
   const changeImage = (direction: -1 | 1) => {
-    const nextItem = items[activeIndex + direction]
-    if (nextItem) onActiveIdChange(nextItem.id)
+    const nextId = imageIds[activeIndex + direction]
+    if (nextId) onActiveIdChange(nextId)
   }
 
   const changeZoom = (direction: -1 | 1) => {

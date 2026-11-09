@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest"
 import { vi } from "vitest"
 import { configure } from "@testing-library/react"
+import { createIntersectionObserverMock } from "./intersection-observer"
 
 function createStorage(): Storage {
   const values = new Map<string, string>()
@@ -29,6 +30,13 @@ class ResizeObserverMock {
 class DOMMatrixMock {}
 
 if (typeof window !== "undefined" && typeof HTMLElement !== "undefined") {
+  // JSDOM has no layout. Individual lazy-loading tests supply explicit
+  // intersections; other component tests treat mounted targets as visible.
+  Object.defineProperty(globalThis, "IntersectionObserver", {
+    configurable: true,
+    writable: true,
+    value: createIntersectionObserverMock(true).Observer,
+  })
   // JSDOM does not fetch or decode image resources. Tests that exercise the
   // loading boundary override this promise to model pending or failed decodes.
   Object.defineProperty(HTMLImageElement.prototype, "decode", {

@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -10,6 +10,7 @@ import {
 } from "@/features/conversations/conversation-attachment-preview-utils"
 import { ConversationAttachmentPreviews } from "@/features/conversations/conversation-attachment-previews"
 import i18n from "@/i18n"
+import { createIntersectionObserverMock } from "@/test/intersection-observer"
 
 const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(
   URL,
@@ -70,8 +71,188 @@ describe("conversation attachment image previews", () => {
     clearConversationAttachmentPreviewCacheForTests()
     vi.useRealTimers()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     restoreUrlMethod("createObjectURL", originalCreateObjectUrl)
     restoreUrlMethod("revokeObjectURL", originalRevokeObjectUrl)
+  })
+
+  it("downloads only visible attachments and keeps their previews while scrolling", async () => {
+    const visibility = createIntersectionObserverMock()
+    vi.stubGlobal("IntersectionObserver", visibility.Observer)
+    const first = file("image-1", "first.png", "image/png")
+    const second = file("image-2", "second.png", "image/png")
+    const loadPreview = vi.fn(
+      async () => new Blob(["png"], { type: "image/png" })
+    )
+    const view = render(
+      <ConversationAttachmentPreviews
+        files={[first, second]}
+        loadPreview={loadPreview}
+      />
+    )
+    await act(async () => {})
+    expect(loadPreview).not.toHaveBeenCalled()
+    expect(createObjectURL).not.toHaveBeenCalled()
+    const thumbnails = view.container.querySelectorAll(
+      ".image-preview-thumbnail"
+    )
+    const firstThumbnail = thumbnails.item(0)
+    const secondThumbnail = thumbnails.item(1)
+    expect(thumbnails).toHaveLength(2)
+
+    act(() => visibility.intersect(secondThumbnail))
+    const preview = await screen.findByRole("button", {
+      name: "预览图片 second.png",
+    })
+    expect(loadPreview).toHaveBeenCalledExactlyOnceWith(
+      second,
+      expect.any(AbortSignal)
+    )
+    expect(createObjectURL).toHaveBeenCalledOnce()
+
+    act(() => visibility.intersect(secondThumbnail, false))
+    act(() => visibility.intersect(secondThumbnail))
+    expect(preview).toBeVisible()
+    expect(loadPreview).toHaveBeenCalledOnce()
+    expect(
+      screen.queryByRole("button", { name: "预览图片 first.png" })
+    ).toBeNull()
+
+    act(() => visibility.intersect(firstThumbnail))
+    expect(
+      await screen.findByRole("button", { name: "预览图片 first.png" })
+    ).toBeVisible()
+    expect(loadPreview).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([false, true])(
+    "loads offscreen gallery attachments on demand and skips failures (second fails=%s)",
+    async (secondFails) => {
+      const visibility = createIntersectionObserverMock()
+      vi.stubGlobal("IntersectionObserver", visibility.Observer)
+      const files = ["first", "second", "third"].map((id) =>
+        file(id, `${id}.png`, "image/png")
+      )
+      const loadPreview = vi.fn(async (file: ConversationFile) => {
+        if (secondFails && file.id === "second") throw new Error("unavailable")
+        return new Blob(["png"], { type: "image/png" })
+      })
+      const view = render(
+        <ConversationAttachmentPreviews
+          files={files}
+          loadPreview={loadPreview}
+        />
+      )
+      const thumbnails = view.container.querySelectorAll(
+        ".image-preview-thumbnail"
+      )
+      act(() => visibility.intersect(thumbnails.item(0)))
+      await userEvent.click(
+        await screen.findByRole("button", { name: "预览图片 first.png" })
+      )
+      expect(loadPreview).toHaveBeenCalledOnce()
+      await userEvent.click(screen.getByRole("button", { name: "下一张图片" }))
+      if (secondFails) {
+        expect(loadPreview).toHaveBeenCalledTimes(2)
+        await userEvent.click(
+          screen.getByRole("button", { name: "下一张图片" })
+        )
+        expect(
+          await screen.findByRole("img", { name: "third.png" })
+        ).toBeVisible()
+        expect(loadPreview).toHaveBeenCalledTimes(3)
+        return
+      }
+      expect(
+        await screen.findByRole("img", { name: "second.png" })
+      ).toBeVisible()
+      expect(loadPreview).toHaveBeenCalledTimes(2)
+      expect(loadPreview).toHaveBeenLastCalledWith(
+        files[1],
+        expect.any(AbortSignal)
+      )
+    }
+  )
+
+  it("does not reopen a closed gallery when the requested attachment finishes downloading", async () => {
+    const visibility = createIntersectionObserverMock()
+    vi.stubGlobal("IntersectionObserver", visibility.Observer)
+    const files = ["first", "second"].map((id) =>
+      file(id, `${id}.png`, "image/png")
+    )
+    let finish: ((blob: Blob) => void) | undefined
+    const loadPreview = vi.fn(async (file: ConversationFile): Promise<Blob> => {
+      if (file.id === "second")
+        return new Promise((resolve) => {
+          finish = resolve
+        })
+      return new Blob(["first"], { type: "image/png" })
+    })
+    const view = render(
+      <ConversationAttachmentPreviews files={files} loadPreview={loadPreview} />
+    )
+    act(() =>
+      visibility.intersect(
+        view.container.querySelectorAll(".image-preview-thumbnail").item(0)
+      )
+    )
+    await userEvent.click(
+      await screen.findByRole("button", { name: "预览图片 first.png" })
+    )
+    await userEvent.click(screen.getByRole("button", { name: "下一张图片" }))
+    expect(loadPreview).toHaveBeenCalledTimes(2)
+    await userEvent.click(screen.getByRole("button", { name: "关闭" }))
+    await act(async () => {
+      if (!finish) throw new Error("The second attachment was not requested")
+      finish(new Blob(["second"], { type: "image/png" }))
+    })
+    expect(screen.queryByRole("dialog")).toBeNull()
+  })
+
+  it("retains an offscreen cached attachment selected from the gallery past its handoff timeout", async () => {
+    vi.useFakeTimers()
+    const visibility = createIntersectionObserverMock()
+    vi.stubGlobal("IntersectionObserver", visibility.Observer)
+    const files = ["first", "second"].map((id) =>
+      file(id, `${id}.png`, "image/png")
+    )
+    const loadPreview = vi.fn(
+      async () => new Blob(["png"], { type: "image/png" })
+    )
+    const first = render(
+      <ConversationAttachmentPreviews
+        files={files.slice(0, 1)}
+        loadPreview={loadPreview}
+      />
+    )
+    act(() =>
+      visibility.intersect(
+        first.container.querySelectorAll(".image-preview-thumbnail").item(0)
+      )
+    )
+    await act(async () => {})
+    expect(loadPreview).toHaveBeenCalledOnce()
+    first.unmount()
+
+    const second = render(
+      <ConversationAttachmentPreviews files={files} loadPreview={loadPreview} />
+    )
+    act(() =>
+      visibility.intersect(
+        second.container.querySelectorAll(".image-preview-thumbnail").item(1)
+      )
+    )
+    await act(async () => {})
+    fireEvent.click(screen.getByRole("button", { name: "预览图片 second.png" }))
+    fireEvent.click(screen.getByRole("button", { name: "上一张图片" }))
+    await act(async () => {})
+    expect(screen.getByRole("img", { name: "first.png" })).toHaveAttribute(
+      "src",
+      "blob:conversation-preview-1"
+    )
+    act(() => vi.advanceTimersByTime(2_000))
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+    expect(loadPreview).toHaveBeenCalledTimes(2)
   })
 
   it.each([
@@ -267,6 +448,7 @@ describe("conversation attachment image previews", () => {
         loadPreview={secondLoader}
       />
     )
+    await act(async () => {})
 
     expect(secondLoader).not.toHaveBeenCalled()
     expect(createObjectURL).toHaveBeenCalledOnce()
@@ -353,6 +535,7 @@ describe("conversation attachment image previews", () => {
     expect(
       screen.getByRole("status", { name: "正在加载图片 pending.png" })
     ).toBeVisible()
+    await act(async () => {})
     unmount()
     expect(previewSignal?.aborted).toBe(false)
     act(() => {

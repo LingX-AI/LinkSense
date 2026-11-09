@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { ConversationFile } from "@/api/contracts"
 import { AssistantMarkdownImage } from "@/features/conversations/assistant-markdown-image"
 import i18n from "@/i18n"
+import { createIntersectionObserverMock } from "@/test/intersection-observer"
 
 const FILE_ID = "30000000-0000-4000-8000-000000000001"
 const NOW = new Date("2026-09-03T00:00:00.000Z")
@@ -64,6 +65,7 @@ describe("assistant Markdown image preview cache", () => {
     vi.clearAllTimers()
     vi.useRealTimers()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     if (originalDecode) {
       Object.defineProperty(
         HTMLImageElement.prototype,
@@ -75,17 +77,87 @@ describe("assistant Markdown image preview cache", () => {
     }
   })
 
+  it("requests and decodes only the image that approaches the viewport", async () => {
+    const visibility = createIntersectionObserverMock()
+    vi.stubGlobal("IntersectionObserver", visibility.Observer)
+    const loadPreview = vi.fn(async (file: ConversationFile) => ({
+      url: `https://files.example.test/${file.id}.png`,
+      expiresAt: new Date(NOW.getTime() + 120_000).toISOString(),
+    }))
+    const secondFile = {
+      ...imageFile,
+      id: "30000000-0000-4000-8000-000000000002",
+      name: "second.png",
+    }
+    const view = render(
+      <>
+        <InlineImage loadPreview={loadPreview} />
+        <AssistantMarkdownImage
+          source={`linksense-artifact:${secondFile.id}`}
+          file={secondFile}
+          alt={secondFile.name}
+          loadPreview={loadPreview}
+          loading="eager"
+        />
+      </>
+    )
+    await flushPreviewLoad()
+    expect(loadPreview).not.toHaveBeenCalled()
+    expect(decodeImage).not.toHaveBeenCalled()
+    expect(view.container.querySelector("img")).toBeNull()
+    const surfaces = view.container.querySelectorAll(
+      '[data-slot="assistant-image-surface"]'
+    )
+    expect(surfaces).toHaveLength(2)
+
+    act(() => visibility.intersect(surfaces.item(1)))
+    await flushPreviewLoad()
+    expect(loadPreview).toHaveBeenCalledExactlyOnceWith(
+      secondFile,
+      expect.any(AbortSignal)
+    )
+    expect(screen.getByRole("img", { name: secondFile.name })).toBeVisible()
+    expect(decodeImage).toHaveBeenCalledOnce()
+
+    act(() => visibility.intersect(surfaces.item(1), false))
+    act(() => visibility.intersect(surfaces.item(1)))
+    await flushPreviewLoad()
+    expect(loadPreview).toHaveBeenCalledOnce()
+
+    act(() => visibility.intersect(surfaces.item(0)))
+    await flushPreviewLoad()
+    expect(loadPreview).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole("img", { name: imageFile.name })).toBeVisible()
+  })
+
+  it("aborts a shared pending preview only after its last visible consumer unmounts", async () => {
+    const loadPreview = vi.fn<
+      (
+        file: ConversationFile,
+        signal: AbortSignal
+      ) => Promise<{ url: string; expiresAt: string }>
+    >(() => new Promise(() => {}))
+    const first = render(<InlineImage loadPreview={loadPreview} />)
+    const second = render(<InlineImage loadPreview={loadPreview} />)
+    await flushPreviewLoad()
+    expect(loadPreview).toHaveBeenCalledOnce()
+    const signal = loadPreview.mock.calls[0]?.[1]
+    expect(signal?.aborted).toBe(false)
+    first.unmount()
+    expect(signal?.aborted).toBe(false)
+    second.unmount()
+    expect(signal?.aborted).toBe(true)
+  })
+
   it.each(["attachment", "image_preview"] as const)(
     "previews a non-downloadable %s and releases its object URL after the last consumer",
     async (kind) => {
       const release = vi.fn()
-      const loadPreview = vi
-        .fn()
-        .mockResolvedValue({
-          url: "blob:private-image",
-          expiresAt: "9999-12-31T23:59:59.999Z",
-          release,
-        })
+      const loadPreview = vi.fn().mockResolvedValue({
+        url: "blob:private-image",
+        expiresAt: "9999-12-31T23:59:59.999Z",
+        release,
+      })
       const props = {
         source: `linksense-artifact:${FILE_ID}`,
         alt: "private.png",
@@ -133,6 +205,7 @@ describe("assistant Markdown image preview cache", () => {
         loadPreview={loadPreview}
       />
     )
+    await flushPreviewLoad()
     preview.unmount()
     finish({
       url: "blob:late-image",
@@ -170,7 +243,7 @@ describe("assistant Markdown image preview cache", () => {
     expect(image).toBeVisible()
   })
 
-  it("renders a decoded cached preview immediately after a virtual row remounts", async () => {
+  it("reuses a decoded cached preview when a remounted virtual row becomes visible", async () => {
     const loadPreview = vi.fn().mockResolvedValue({
       url: "https://files.example.test/cached.png",
       expiresAt: new Date(NOW.getTime() + 120_000).toISOString(),
@@ -181,9 +254,43 @@ describe("assistant Markdown image preview cache", () => {
     view.unmount()
 
     render(<InlineImage loadPreview={loadPreview} />)
+    await flushPreviewLoad()
 
     expect(screen.queryByRole("status")).toBeNull()
     expect(screen.getByRole("img", { name: "preview.png" })).toBeVisible()
+    expect(loadPreview).toHaveBeenCalledOnce()
+  })
+
+  it("decodes a cached URL after a remounted image becomes visible even if its first decode was interrupted", async () => {
+    const visibility = createIntersectionObserverMock()
+    vi.stubGlobal("IntersectionObserver", visibility.Observer)
+    decodeImage.mockImplementationOnce(() => new Promise(() => {}))
+    const loadPreview = vi.fn().mockResolvedValue({
+      url: "https://files.example.test/undecoded.png",
+      expiresAt: new Date(NOW.getTime() + 120_000).toISOString(),
+    })
+    const first = render(<InlineImage loadPreview={loadPreview} />)
+    const firstSurface = first.container.querySelector(
+      '[data-slot="assistant-image-surface"]'
+    )
+    if (!firstSurface) throw new Error("Missing first image surface")
+    act(() => visibility.intersect(firstSurface))
+    await flushPreviewLoad()
+    expect(decodeImage).toHaveBeenCalledOnce()
+    first.unmount()
+
+    const second = render(<InlineImage loadPreview={loadPreview} />)
+    await flushPreviewLoad()
+    expect(second.container.querySelector("img")).toBeNull()
+    expect(decodeImage).toHaveBeenCalledOnce()
+    const secondSurface = second.container.querySelector(
+      '[data-slot="assistant-image-surface"]'
+    )
+    if (!secondSurface) throw new Error("Missing remounted image surface")
+    act(() => visibility.intersect(secondSurface))
+    await flushPreviewLoad()
+    expect(screen.getByRole("img", { name: "preview.png" })).toBeVisible()
+    expect(decodeImage).toHaveBeenCalledTimes(2)
     expect(loadPreview).toHaveBeenCalledOnce()
   })
 
@@ -348,6 +455,7 @@ describe("assistant Markdown image preview cache", () => {
     expect(loadPreview).toHaveBeenCalledTimes(2)
     view.unmount()
     render(<InlineImage loadPreview={loadPreview} />)
+    await flushPreviewLoad()
     expect(screen.getByRole("img", { name: "preview.png" })).toHaveAttribute(
       "src",
       "https://files.example.test/after-refresh.png"

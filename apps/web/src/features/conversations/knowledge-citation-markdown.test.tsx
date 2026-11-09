@@ -43,7 +43,7 @@ describe("knowledge citations beside Markdown images", () => {
 
   it.each(["", "\n\n下一步", "\n\n![第二张图](https://example.test/next.png)"])(
     "keeps the image and citation together before %j without changing preview actions",
-    (suffix) => {
+    async (suffix) => {
       const onPreviewImage = vi.fn()
       render(
         <MemoryRouter>
@@ -61,7 +61,7 @@ describe("knowledge citations beside Markdown images", () => {
       if (!(group instanceof HTMLElement))
         throw new Error("Missing image group")
       expect(
-        within(group).getByRole("img", { name: "登录示意图" })
+        await within(group).findByRole("img", { name: "登录示意图" })
       ).toBeVisible()
       expect(link).toHaveAttribute(
         "href",
@@ -77,7 +77,7 @@ describe("knowledge citations beside Markdown images", () => {
     }
   )
 
-  it("groups multiple citations with only the last image in a sequence", () => {
+  it("groups multiple citations with only the last image in a sequence", async () => {
     const content = `![第一张图](https://example.test/first.png)\n${image}`
     const { container } = render(
       <MemoryRouter>
@@ -87,6 +87,7 @@ describe("knowledge citations beside Markdown images", () => {
         />
       </MemoryRouter>
     )
+    await screen.findByRole("img", { name: "登录示意图" })
     const group = container.querySelector("[data-image-citations]")
     expect(group?.querySelectorAll(".knowledge-citation-link")).toHaveLength(2)
     expect(group?.querySelectorAll("img")).toHaveLength(1)
@@ -97,7 +98,7 @@ describe("knowledge citations beside Markdown images", () => {
     ).toBeNull()
   })
 
-  it("preserves text citations and uncited images without image grouping", () => {
+  it("preserves text citations and uncited images without image grouping", async () => {
     const content = `说明文字。\n\n${image}`
     const { container } = render(
       <MemoryRouter>
@@ -108,7 +109,7 @@ describe("knowledge citations beside Markdown images", () => {
     expect(screen.getByRole("link").closest("p")).toHaveTextContent(
       "说明文字。1"
     )
-    expect(screen.getByRole("img")).toBeVisible()
+    expect(await screen.findByRole("img")).toBeVisible()
   })
 })
 

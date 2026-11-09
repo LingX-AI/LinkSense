@@ -11,6 +11,7 @@ import { ImageIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { useImageVisibility } from "@/components/media/use-image-visibility"
 import { AssistantInlineImagePlaceholder } from "@/features/conversations/assistant-inline-image-placeholder"
 import {
   loadKnowledgeCitationAsset,
@@ -62,7 +63,44 @@ export function ConversationKnowledgeAssetProvider({
   )
 }
 
-export function AssistantKnowledgeImage({
+type AssistantKnowledgeImageProps = Omit<
+  ComponentPropsWithoutRef<"img">,
+  "src"
+> & {
+  assetReferenceId: string
+  citationIds: readonly string[]
+  conversationId?: string
+  turnId?: string
+  previewTriggerClassName?: string
+  placeholderClassName?: string
+  authorizationPending?: boolean
+  onPreview?: (url: string) => void
+}
+
+export function AssistantKnowledgeImage(props: AssistantKnowledgeImageProps) {
+  const { t } = useTranslation()
+  const { ref, visible } = useImageVisibility<HTMLSpanElement>()
+  return (
+    <span
+      ref={ref}
+      data-slot="knowledge-image-surface"
+      className="inline-grid min-h-0 max-w-full min-w-0 align-middle"
+    >
+      {visible ? (
+        <AssistantKnowledgeImageContent {...props} />
+      ) : (
+        <AssistantInlineImagePlaceholder
+          className={props.placeholderClassName}
+          label={t("conversation.previewLoading", {
+            name: props.alt?.trim() || t("conversation.inlineImage"),
+          })}
+        />
+      )}
+    </span>
+  )
+}
+
+function AssistantKnowledgeImageContent({
   assetReferenceId,
   citationIds,
   conversationId,
@@ -75,16 +113,7 @@ export function AssistantKnowledgeImage({
   authorizationPending = false,
   onPreview,
   ...imageProps
-}: Omit<ComponentPropsWithoutRef<"img">, "src"> & {
-  assetReferenceId: string
-  citationIds: readonly string[]
-  conversationId?: string
-  turnId?: string
-  previewTriggerClassName?: string
-  placeholderClassName?: string
-  authorizationPending?: boolean
-  onPreview?: (url: string) => void
-}) {
+}: AssistantKnowledgeImageProps) {
   const { t } = useTranslation()
   const scopedAssetLoader = useContext(ConversationKnowledgeAssetContext)
   const [reloadKey, setReloadKey] = useState(0)

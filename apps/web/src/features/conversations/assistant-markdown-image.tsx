@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next"
 
 import type { ConversationFile } from "@/api/contracts"
 import { Button } from "@/components/ui/button"
+import { useImageVisibility } from "@/components/media/use-image-visibility"
 import { AssistantInlineImagePlaceholder } from "@/features/conversations/assistant-inline-image-placeholder"
 import { isPreviewableConversationImage } from "@/features/conversations/conversation-attachment-preview-utils"
 import type { ArtifactPreviewSource } from "@/features/conversations/conversation-artifact-files"
@@ -35,6 +36,7 @@ type PreviewState =
     }>
 
 type PreviewRequest = {
+  controller: AbortController
   promise: Promise<ArtifactPreviewSource>
   consumers: number
   source?: ArtifactPreviewSource
@@ -77,6 +79,7 @@ export function AssistantMarkdownImage({
   errorPlaceholder?: ReactNode
 }) {
   const { t } = useTranslation()
+  const { ref: surfaceRef, visible } = useImageVisibility<HTMLSpanElement>()
   const [reloadKey, setReloadKey] = useState(0)
   const [state, setState] = useState<PreviewState | null>(null)
   const [decoded, setDecoded] = useState<{
@@ -139,7 +142,8 @@ export function AssistantMarkdownImage({
 
   useEffect(() => {
     const requestFile = fileRef.current
-    if (!requestKey || !fileKey || !requestFile || !loadPreview) return
+    if (!visible || !requestKey || !fileKey || !requestFile || !loadPreview)
+      return
 
     const controller = new AbortController()
     let refreshTimer: number | undefined
@@ -181,13 +185,16 @@ export function AssistantMarkdownImage({
     return () => {
       controller.abort()
       request.consumers -= 1
-      if (request.consumers === 0 && request.source?.release) {
+      if (
+        request.consumers === 0 &&
+        (!request.source || request.source.release)
+      ) {
         const requests = previewRequests.get(loadPreview)
         if (requests) deletePreviewRequest(requests, fileKey, request)
       }
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
     }
-  }, [fileKey, loadPreview, requestKey])
+  }, [fileKey, loadPreview, requestKey, visible])
 
   useEffect(() => {
     const image = imageRef.current
@@ -203,8 +210,8 @@ export function AssistantMarkdownImage({
       return
 
     let active = true
-    // Decode the mounted image so native lazy loading still controls when its
-    // bytes are fetched. The placeholder remains in the same grid cell.
+    // Only mount and decode an image after its surface approaches the viewport.
+    // The placeholder remains in the same grid cell until decoding finishes.
     void image.decode().then(
       () => {
         if (!active) return
@@ -222,7 +229,7 @@ export function AssistantMarkdownImage({
     return () => {
       active = false
     }
-  }, [fileKey, loadPreview, previewSource, requestKey, retainedSource])
+  }, [fileKey, loadPreview, previewSource, requestKey, retainedSource, visible])
 
   const placeholder = loadingPlaceholder ?? (
     <AssistantInlineImagePlaceholder
@@ -231,7 +238,7 @@ export function AssistantMarkdownImage({
     />
   )
   let content: ReactNode
-  const candidateSource = previewSource ?? displayedSource
+  const candidateSource = visible ? (previewSource ?? displayedSource) : null
   if (
     candidateSource &&
     currentState?.status !== "error" &&
@@ -308,7 +315,7 @@ export function AssistantMarkdownImage({
         )}
       </>
     )
-  } else if (!currentState && canLoad) {
+  } else if ((!visible || !currentState) && canLoad) {
     content = placeholder
   } else if (errorPlaceholder !== undefined) {
     content = errorPlaceholder
@@ -342,6 +349,7 @@ export function AssistantMarkdownImage({
 
   return (
     <span
+      ref={surfaceRef}
       data-slot="assistant-image-surface"
       className={cn(
         "relative inline-grid min-h-0 max-w-full min-w-0 grid-cols-1 grid-rows-1 align-middle",
@@ -399,8 +407,10 @@ function loadCachedPreview(
     }
   }
 
+  const controller = new AbortController()
   const entry: PreviewRequest = {
-    promise: loadPreview(file, new AbortController().signal),
+    controller,
+    promise: loadPreview(file, controller.signal),
     consumers: 0,
   }
   requests.set(requestKey, entry)
@@ -465,6 +475,7 @@ function deletePreviewRequest(
   requestKey: string,
   entry: PreviewRequest
 ) {
+  entry.controller.abort()
   if (entry.evictionTimer !== undefined) {
     window.clearTimeout(entry.evictionTimer)
   }
