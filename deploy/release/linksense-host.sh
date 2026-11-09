@@ -555,6 +555,8 @@ host_version_ge() {
 host_bounded() (
   host_seconds=$1
   shift
+  host_watchdog_ready=$(mktemp)
+  trap 'rm -f "$host_watchdog_ready"' EXIT
   # dash redirects background stdin before redirections; preserve the backup stream separately.
   exec 3<&0
   "$@" <&3 3<&- &
@@ -563,6 +565,7 @@ host_bounded() (
   (
     /bin/sleep "$host_seconds" & host_timer_pid=$!
     trap 'kill "$host_timer_pid" 2>/dev/null || true; wait "$host_timer_pid" 2>/dev/null || true; exit 0' TERM INT HUP
+    printf 'ready\n' > "$host_watchdog_ready"
     wait "$host_timer_pid"
     kill -TERM "$host_command_pid" 2>/dev/null || true
     sleep 2
@@ -571,6 +574,8 @@ host_bounded() (
   host_watchdog_pid=$!
   host_status=0
   wait "$host_command_pid" || host_status=$?
+  # Bash can miss a stop signal sent before the background handler is installed.
+  while [ ! -s "$host_watchdog_ready" ] && kill -0 "$host_watchdog_pid" 2>/dev/null; do /bin/sleep 0.01; done
   kill "$host_watchdog_pid" 2>/dev/null || true
   wait "$host_watchdog_pid" 2>/dev/null || true
   return "$host_status"

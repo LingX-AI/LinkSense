@@ -318,6 +318,24 @@ test("bounded clients finish normally and hanging clients are terminated", () =>
   assert.ok(Date.now() - start < 5000)
 })
 
+for (const status of [0, 7]) {
+  test(`bounded clients preserve exit ${status} without waiting for their cancelled watchdogs`, t => {
+    const dir = directory(t)
+    writeFileSync(path.join(dir, "client"), '#!/bin/sh\nexit "$1"\n', { mode: 0o755 })
+    const start = Date.now()
+    const result = run(`
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  status=0
+  host_bounded 5 "$DIR/client" "$STATUS" || status=$?
+  printf '%s\\n' "$status"
+done
+`, { DIR: dir, STATUS: String(status) })
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(result.stdout, `${status}\n`.repeat(10))
+    assert.ok(Date.now() - start < 3000)
+  })
+}
+
 test("bounded Docker clients preserve the PostgreSQL backup stream on standard input", t => {
   const dir = directory(t)
   writeFileSync(path.join(dir, "docker-cli"), '#!/bin/sh\ncat > "$DIR/backup.dump"\ntest -s "$DIR/backup.dump"\n', { mode: 0o700 })
