@@ -77,7 +77,6 @@ export function ApplicationInstallationAction({
       <DropdownMenuContent
         align="end"
         aria-label={t("applications.distribution.usageModes")}
-        className="w-max max-w-(--available-width)"
       >
         <DropdownMenuGroup>
           {modes.map((mode) => (

@@ -247,6 +247,7 @@
   --app-administration-page-width: 1440px;
   --app-reading-width: 1112px;
   --app-composer-width: var(--app-reading-width);
+  --app-popup-max-width: 32rem;
   --app-ui-font-size: 14px;
   --project-icon-red: #ff3b3f;
   --project-icon-orange: #ff6b21;

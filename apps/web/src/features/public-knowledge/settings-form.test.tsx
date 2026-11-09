@@ -237,6 +237,11 @@ describe("public knowledge settings", () => {
     await waitFor(() => expect(picker).toBeEnabled())
     await user.click(picker)
     expect(
+      document.querySelector('[data-slot="combobox-content"]')
+    ).toHaveClass(
+      "max-w-[min(var(--app-popup-max-width),var(--available-width))]"
+    )
+    expect(
       screen.getByRole("option", { name: /Disabled guide/u })
     ).toHaveAttribute("aria-disabled", "true")
     expect(

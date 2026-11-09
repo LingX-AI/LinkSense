@@ -1954,7 +1954,7 @@ describe("LinkSense application", () => {
     expect(screen.getByRole("menu")).toHaveClass(
       "w-max",
       "min-w-(--anchor-width)",
-      "max-w-[calc(100vw-24px)]"
+      "max-w-[min(var(--app-popup-max-width),calc(100vw-24px))]"
     )
     expect(settingsMenuItem).toHaveClass(
       "font-medium",

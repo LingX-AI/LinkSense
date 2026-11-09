@@ -58,6 +58,9 @@ describe("interactive typography", () => {
 
     await interaction.click(screen.getByRole("button", { name: "Open menu" }))
     expect(await screen.findByText("Account")).toHaveClass("font-medium")
+    expect(screen.getByRole("menu")).toHaveClass(
+      "max-w-[min(var(--app-popup-max-width),var(--available-width))]"
+    )
     expect(screen.getByRole("menuitem", { name: "Profile" })).toHaveClass(
       "font-medium"
     )

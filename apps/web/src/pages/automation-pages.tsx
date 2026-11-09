@@ -1629,7 +1629,7 @@ function AutomationModelPreferenceFields({
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="start"
-            className="w-max max-w-[calc(100vw-1rem)] min-w-48"
+            className="min-w-48"
           >
             <DropdownMenuGroup>
               <DropdownMenuLabel>
@@ -1693,7 +1693,7 @@ function AutomationModelPreferenceFields({
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="start"
-            className="w-max max-w-[calc(100vw-1rem)] min-w-36"
+            className="min-w-36"
           >
             <DropdownMenuGroup>
               <DropdownMenuLabel>
