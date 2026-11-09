@@ -85,7 +85,7 @@ export function TaskReferencePicker({
           />
           {t("taskReferences.archived")}
         </Label>
-        <fieldset className="max-h-72 space-y-1 overflow-y-auto">
+        <fieldset className="max-h-72 min-w-0 space-y-1 overflow-y-auto">
           <legend className="sr-only">{t("taskReferences.title")}</legend>
           {query.isPending && <LoadingState />}
           {query.isError && (
@@ -117,7 +117,9 @@ export function TaskReferencePicker({
                     )
                   }
                 />
-                <span className="min-w-0 truncate">{task.title}</span>
+                <span className="min-w-0 leading-normal wrap-anywhere">
+                  {task.title}
+                </span>
               </Label>
             )
           })}

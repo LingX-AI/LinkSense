@@ -54,6 +54,66 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page)
 })
 
+for (const width of [1440, 390]) {
+  test(`task reference picker contains long task titles at ${width}px`, async ({
+    page,
+  }) => {
+    const titles = [
+      "很长的中文任务标题".repeat(16),
+      "long-unbroken-task-title".repeat(10),
+    ]
+    await page.route("**/api/v1/conversations?**", (route) =>
+      ok(route, {
+        items: titles.map((title, index) => ({
+          id: `20000000-0000-4000-8000-00000000000${index + 2}`,
+          title,
+          archive_status: "active",
+          project_id: null,
+          execution_status: "completed",
+          updated_at: NOW,
+        })),
+        next_cursor: null,
+      })
+    )
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto("/conversations/20000000-0000-4000-8000-000000000001")
+    await page.getByRole("button", { name: "附件", exact: true }).click()
+    await page.getByText("引用其他任务", { exact: true }).click()
+    const picker = page.locator('[data-slot="popover-content"]').filter({
+      has: page.getByRole("textbox", { name: "搜索任务" }),
+    })
+    await expect(picker).toBeVisible()
+
+    for (const title of titles) {
+      const checkbox = picker.getByRole("checkbox", { name: title })
+      const text = picker.getByText(title, { exact: true })
+      await expect(checkbox).toBeVisible()
+      const bounds = await text.boundingBox()
+      const pickerBounds = await picker.boundingBox()
+      expect(pickerBounds!.x).toBeGreaterThanOrEqual(0)
+      expect(pickerBounds!.x + pickerBounds!.width).toBeLessThanOrEqual(width)
+      expect(bounds!.x).toBeGreaterThanOrEqual(pickerBounds!.x)
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(
+        pickerBounds!.x + pickerBounds!.width
+      )
+      expect(
+        await text.evaluate(
+          (element) =>
+            element.scrollWidth <= element.clientWidth &&
+            element.scrollHeight <= element.clientHeight
+        )
+      ).toBe(true)
+      await checkbox.click()
+      await expect(checkbox).toBeChecked()
+    }
+    await expect(picker.getByText("已选择 2 / 3 个任务")).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(
+      page.getByRole("textbox", { name: "任务输入框" })
+    ).toBeFocused()
+  })
+}
+
 test("automation editor floats without resizing the page and keeps its actions reachable", async ({
   page,
 }) => {
