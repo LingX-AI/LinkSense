@@ -1,3 +1,8 @@
+import { workspaceUiDemoMessages } from "@/features/ui-demo/messages"
+import { browserPanelMessages } from "@/features/browser-panel/messages"
+import { monitoringMessages } from "@/features/automations/monitoring-messages"
+import { automationNotificationMessages } from "@/features/conversations/automation-notification-messages"
+import { taskReferenceMessages } from "@/features/conversations/task-reference-messages"
 import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
 import {
@@ -14,6 +19,9 @@ import { ptBR } from "@/i18n/pt-BR"
 import { zhCN } from "@/i18n/zh-CN"
 import { onboardingMessages } from "@/features/onboarding/messages"
 import { applicationSetupMessages } from "@/features/applications/application-setup-messages"
+import { accountAccessMessages } from "@/components/auth/account-access-messages"
+import { workspaceHomeMessages } from "@/features/conversations/workspace-home-messages"
+import { settingsInterfaceMessages } from "@/components/settings/interface-messages"
 import { adminConnectionMessages } from "@/features/connections/admin-messages"
 
 export const supportedLanguages = supportedLocales
@@ -68,54 +76,102 @@ void i18n.use(initReactI18next).init({
     "zh-CN": {
       translation: {
         ...zhCN,
+        accountAccess: accountAccessMessages["zh-CN"],
+        workspaceHome: workspaceHomeMessages["zh-CN"],
+        settingsInterface: settingsInterfaceMessages["zh-CN"],
+        browserPanel: browserPanelMessages["zh-CN"],
+        monitoring: monitoringMessages["zh-CN"],
+        taskReferences: taskReferenceMessages["zh-CN"],
+        automationNotifications: automationNotificationMessages["zh-CN"],
         applicationSetup: applicationSetupMessages["zh-CN"],
         adminConnections: adminConnectionMessages["zh-CN"],
         onboarding: onboardingMessages["zh-CN"],
+        workspaceUiDemo: workspaceUiDemoMessages["zh-CN"],
         auditValues: auditTranslationResource("zh-CN"),
       },
     },
     "en-US": {
       translation: {
         ...enUS,
+        accountAccess: accountAccessMessages["en-US"],
+        workspaceHome: workspaceHomeMessages["en-US"],
+        settingsInterface: settingsInterfaceMessages["en-US"],
+        browserPanel: browserPanelMessages["en-US"],
+        monitoring: monitoringMessages["en-US"],
+        taskReferences: taskReferenceMessages["en-US"],
+        automationNotifications: automationNotificationMessages["en-US"],
         applicationSetup: applicationSetupMessages["en-US"],
         adminConnections: adminConnectionMessages["en-US"],
         onboarding: onboardingMessages["en-US"],
+        workspaceUiDemo: workspaceUiDemoMessages["en-US"],
         auditValues: auditTranslationResource("en-US"),
       },
     },
     "es-ES": {
       translation: {
         ...esES,
+        accountAccess: accountAccessMessages["es-ES"],
+        workspaceHome: workspaceHomeMessages["es-ES"],
+        settingsInterface: settingsInterfaceMessages["es-ES"],
+        browserPanel: browserPanelMessages["es-ES"],
+        monitoring: monitoringMessages["es-ES"],
+        taskReferences: taskReferenceMessages["es-ES"],
+        automationNotifications: automationNotificationMessages["es-ES"],
         applicationSetup: applicationSetupMessages["es-ES"],
         adminConnections: adminConnectionMessages["es-ES"],
         onboarding: onboardingMessages["es-ES"],
+        workspaceUiDemo: workspaceUiDemoMessages["es-ES"],
         auditValues: auditTranslationResource("es-ES"),
       },
     },
     "pt-BR": {
       translation: {
         ...ptBR,
+        accountAccess: accountAccessMessages["pt-BR"],
+        workspaceHome: workspaceHomeMessages["pt-BR"],
+        settingsInterface: settingsInterfaceMessages["pt-BR"],
+        browserPanel: browserPanelMessages["pt-BR"],
+        monitoring: monitoringMessages["pt-BR"],
+        taskReferences: taskReferenceMessages["pt-BR"],
+        automationNotifications: automationNotificationMessages["pt-BR"],
         applicationSetup: applicationSetupMessages["pt-BR"],
         adminConnections: adminConnectionMessages["pt-BR"],
         onboarding: onboardingMessages["pt-BR"],
+        workspaceUiDemo: workspaceUiDemoMessages["pt-BR"],
         auditValues: auditTranslationResource("pt-BR"),
       },
     },
     "fr-FR": {
       translation: {
         ...frFR,
+        accountAccess: accountAccessMessages["fr-FR"],
+        workspaceHome: workspaceHomeMessages["fr-FR"],
+        settingsInterface: settingsInterfaceMessages["fr-FR"],
+        browserPanel: browserPanelMessages["fr-FR"],
+        monitoring: monitoringMessages["fr-FR"],
+        taskReferences: taskReferenceMessages["fr-FR"],
+        automationNotifications: automationNotificationMessages["fr-FR"],
         applicationSetup: applicationSetupMessages["fr-FR"],
         adminConnections: adminConnectionMessages["fr-FR"],
         onboarding: onboardingMessages["fr-FR"],
+        workspaceUiDemo: workspaceUiDemoMessages["fr-FR"],
         auditValues: auditTranslationResource("fr-FR"),
       },
     },
     "ja-JP": {
       translation: {
         ...jaJP,
+        accountAccess: accountAccessMessages["ja-JP"],
+        workspaceHome: workspaceHomeMessages["ja-JP"],
+        settingsInterface: settingsInterfaceMessages["ja-JP"],
+        browserPanel: browserPanelMessages["ja-JP"],
+        monitoring: monitoringMessages["ja-JP"],
+        taskReferences: taskReferenceMessages["ja-JP"],
+        automationNotifications: automationNotificationMessages["ja-JP"],
         applicationSetup: applicationSetupMessages["ja-JP"],
         adminConnections: adminConnectionMessages["ja-JP"],
         onboarding: onboardingMessages["ja-JP"],
+        workspaceUiDemo: workspaceUiDemoMessages["ja-JP"],
         auditValues: auditTranslationResource("ja-JP"),
       },
     },

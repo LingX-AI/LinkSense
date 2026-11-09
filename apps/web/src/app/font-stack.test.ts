@@ -38,7 +38,7 @@ describe("application font stack", () => {
       .trim()
 
     expect(fontStack).toBe(
-      '"Inter Variable", "PingFang SC", "Noto Sans SC Variable", "Microsoft YaHei", sans-serif'
+      '-apple-system, BlinkMacSystemFont, "Inter Variable", "PingFang SC", "Noto Sans SC Variable", "Microsoft YaHei", sans-serif'
     )
   })
 })

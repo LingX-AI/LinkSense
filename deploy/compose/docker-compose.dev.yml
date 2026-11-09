@@ -78,6 +78,21 @@ services:
         - action: sync+restart
           path: ./apps/api/tsconfig.json
           target: /workspace/apps/api/tsconfig.json
+        - action: sync+restart
+          path: ./apps/api/browser-extension
+          target: /workspace/apps/api/browser-extension
+        - action: sync+restart
+          path: ./apps/web/public/linksense-appicon.svg
+          target: /workspace/apps/web/public/linksense-appicon.svg
+        - action: sync+restart
+          path: ./apps/web/src/index.css
+          target: /workspace/apps/web/src/index.css
+        - action: sync+restart
+          path: ./apps/api/scripts
+          target: /workspace/apps/api/scripts
+        - action: sync+restart
+          path: ./apps/api/tsconfig.browser-extension.json
+          target: /workspace/apps/api/tsconfig.browser-extension.json
         - action: rebuild
           path: ./apps/api/package.json
         - action: rebuild

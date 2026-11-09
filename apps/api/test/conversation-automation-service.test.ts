@@ -38,6 +38,7 @@ function fixture() {
     last_run_at: null,
     last_run_status: null,
     last_error_code: null,
+    notification_target: null,
     model_preference: null,
     created_at: now.toISOString(),
     updated_at: now.toISOString(),
@@ -84,6 +85,35 @@ function fixture() {
 }
 
 describe("conversation automation management", () => {
+  it("preserves monitoring and notification settings when creating an automation from a conversation", async () => {
+    const f = fixture();
+    const request = automationToolRequestSchema.parse({
+      operation: "create",
+      request_id: requestId,
+      title: f.automation.title,
+      instruction: f.automation.instruction,
+      target: { mode: "current_task" },
+      schedule: f.automation.schedule,
+      monitoring: { stop_condition: "Target ready", max_runs: 3 },
+      notification_target: {
+        kind: "bot_channel", connection_id: ownerId, peer_session_id: conversationId,
+      },
+    });
+    await f.execute(request);
+    expect(f.automations.create).toHaveBeenCalledWith(
+      ownerId,
+      expect.objectContaining({
+        monitoring: expect.objectContaining({ stop_condition: "Target ready", max_runs: 3 }),
+        notification_target: {
+          kind: "bot_channel", connection_id: ownerId, peer_session_id: conversationId,
+        },
+      }),
+      {},
+      "zh-CN",
+      expect.objectContaining({ pinTarget: true }),
+    );
+  });
+
   it("creates a separate execution task by default without pinning the configuration chat", async () => {
     const f = fixture();
     f.automations.list.mockResolvedValue({ items: [] });
@@ -131,6 +161,7 @@ describe("conversation automation management", () => {
         target: { mode: "current_task" },
         schedule: f.automation.schedule,
         expires_on: null,
+        notification_target: null,
         model_preference: null,
       };
       await f.execute(request);
@@ -185,6 +216,7 @@ describe("conversation automation management", () => {
       target: { mode: "new_task" },
       schedule: f.automation.schedule,
       expires_on: null,
+      notification_target: null,
       model_preference: null,
     });
     expect(f.automations.create).toHaveBeenCalledWith(
@@ -299,6 +331,7 @@ describe("conversation automation management", () => {
         schedule: f.automation.schedule,
         target: { mode: "new_task" },
         expires_on: null,
+        notification_target: null,
         model_preference: null,
       }),
     ).rejects.toMatchObject({ code: "AUTOMATION_TARGET_ALREADY_CONFIGURED" });
@@ -315,6 +348,7 @@ describe("conversation automation management", () => {
       schedule: f.automation.schedule,
       target: { mode: "new_task" },
       expires_on: null,
+      notification_target: null,
       model_preference: null,
       additional: true,
     });

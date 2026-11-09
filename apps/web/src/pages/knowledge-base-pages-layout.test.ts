@@ -4,6 +4,15 @@ import appStyles from "@/index.css?raw"
 import { describe, expect, it } from "vitest"
 
 describe("knowledge-base detail page layout", () => {
+  it("keeps the document table unframed like Figma without clipping its scrollable contents", () => {
+    const rule = appStyles.match(
+      /\.knowledge-document-table\s*\{([^}]*)\}/u
+    )?.[1]
+    expect(rule).toBeDefined()
+    expect(rule).not.toMatch(/border(?:-radius)?:/u)
+    expect(rule).not.toMatch(/overflow:\s*hidden/u)
+  })
+
   it("does not add a knowledge-only gap above the library search toolbar", () => {
     const toolbarRule = appStyles.match(
       /\.knowledge-library-toolbar\s*\{([^}]*)\}/u
@@ -82,9 +91,9 @@ describe("knowledge-base detail page layout", () => {
     const filePreviewRule = appStyles.match(
       /\.knowledge-file-preview\s*\{([^}]*)\}/u
     )?.[1]
-    const mobileFilePreviewRule = appStyles.match(
-      /@media\s*\([^)]*max-width:\s*767px[^)]*\)\s*\{[\s\S]*?\.knowledge-file-preview\s*\{([^}]*)\}/u
-    )?.[1]
+    const mobileFilePreviewRule = Array.from(
+      appStyles.matchAll(/\.knowledge-file-preview\s*\{([^}]*)\}/gu)
+    ).at(-1)?.[1]
 
     expect(appStyles).toMatch(
       /\.knowledge-preview-page\s*\{[^}]*display:\s*flex;[^}]*padding-bottom:\s*24px;/u
@@ -148,7 +157,7 @@ describe("knowledge-base detail page layout", () => {
     expect(cardRule).toMatch(/background:\s*transparent;/u)
     expect(cardRule).toMatch(/transition:\s*background-color 160ms ease;/u)
     expect(cardRule).not.toMatch(/box-shadow/u)
-    expect(hoverRule).toMatch(/background:\s*var\(--app-hover\);/u)
+    expect(hoverRule).toMatch(/background:\s*var\(--app-hover-subtle\);/u)
     expect(hoverRule).not.toMatch(/box-shadow/u)
     expect(focusRule).toMatch(/outline:\s*2px solid/u)
     expect(focusRule).toMatch(/outline-offset:\s*-2px;/u)
@@ -157,7 +166,7 @@ describe("knowledge-base detail page layout", () => {
     )
   })
 
-  it("aligns the knowledge icon with a compact single-line card title and description", () => {
+  it("aligns the knowledge name and description and preserves compact metadata", () => {
     const headingRule = appStyles.match(
       /\.knowledge-card-heading\s*\{([^}]*)\}/u
     )?.[1]
@@ -189,15 +198,13 @@ describe("knowledge-base detail page layout", () => {
     expect(headingRule).toMatch(/gap:\s*8px;/u)
     expect(titleRule).toMatch(/min-width:\s*0;/u)
     expect(titleRule).toMatch(/flex:\s*0 1 auto;/u)
-    expect(titleRule).toMatch(/font-size:\s*var\(--app-font-15\);/u)
-    expect(titleRule).toMatch(/line-height:\s*var\(--app-line-22\);/u)
-    expect(iconRule).toMatch(/width:\s*24px;/u)
-    expect(iconRule).toMatch(/height:\s*24px;/u)
-    expect(iconRule).toMatch(/color:\s*var\(--app-text\);/u)
-    expect(iconRule).not.toMatch(/linear-gradient/u)
-    expect(iconRule).not.toMatch(/box-shadow/u)
-    expect(iconSvgRule).toMatch(/width:\s*18px;/u)
-    expect(iconSvgRule).toMatch(/height:\s*18px;/u)
+    expect(titleRule).toMatch(/font-size:\s*var\(--app-ui-font-size\);/u)
+    expect(titleRule).toMatch(/line-height:\s*var\(--app-ui-compact-line-height\);/u)
+    expect(iconRule).toBeUndefined()
+    expect(iconSvgRule).toBeUndefined()
+    expect(appStyles).toMatch(
+      /\.knowledge-card-row\s*\{[^}]*grid-template-columns:\s*var\(--knowledge-list-columns\);/u
+    )
     expect(sourceTextRule).toMatch(/font-size:\s*var\(--app-font-12\);/u)
     expect(sourceTextRule).toMatch(/font-weight:\s*400;/u)
     expect(sourceTextRule).toMatch(/line-height:\s*var\(--app-line-18\);/u)
@@ -268,9 +275,9 @@ describe("knowledge-base detail page layout", () => {
     const actionsHeaderRule = appStyles.match(
       /\.knowledge-document-table\s+\[data-slot="table-head"\]\.knowledge-document-actions-column\s*\{([^}]*)\}/u
     )?.[1]
-    const mobileActionsColumnRule = appStyles.match(
-      /@media\s*\([^)]*max-width:\s*767px[^)]*\)\s*\{[\s\S]*?\.knowledge-document-actions-column\s*\{([^}]*)\}/u
-    )?.[1]
+    const mobileActionsColumnRule = Array.from(
+      appStyles.matchAll(/\.knowledge-document-actions-column\s*\{([^}]*)\}/gu)
+    ).at(-1)?.[1]
 
     expect(appStyles).toMatch(
       /\.knowledge-document-table table\s*\{[^}]*min-width:\s*980px;/u

@@ -3,11 +3,11 @@ export const conversation = {
   title: "Tâche",
   taskSort: {
     open: "Définir l’ordre des tâches de {{section}}",
-    label: "Ordre des tâches",
+    label: "Trier les tâches",
     priority: "Priorité",
     priorityDescription:
       "Les tâches nécessitant votre réponse et les tâches non lues apparaissent en premier.",
-    updated_at: "Dernière modification",
+    updated_at: "Récemment mises à jour",
     manual: "Ordre manuel",
   },
   share: {
@@ -24,6 +24,11 @@ export const conversation = {
       "Impossible de copier le lien. Vérifiez les permissions du navigateur et réessayez.",
     unavailable: "Ce lien de partage n’existe pas ou n’est plus disponible.",
     continueInProduct: "Continuer dans {{productName}}",
+    snapshotDate: "Instantané partagé · {{date}}",
+    sharedConversation: "Conversation partagée",
+    readOnly: "Lecture seule",
+    snapshotNotice:
+      "Ceci est un instantané. Les messages ultérieurs ne sont pas inclus.",
   },
   rename: "Renommer",
   archive: "Archiver la tâche",
@@ -129,11 +134,14 @@ export const conversation = {
   historyViewExchange: "Cliquez pour voir cet échange",
   historyRetry: "Impossible de charger les messages. Réessayer",
   scrollToBottom: "Aller en bas",
+  newReplies_one: "{{count}} nouvelle réponse",
+  newReplies_other: "{{count}} nouvelles réponses",
   placeholder: "Décrivez ce que vous souhaitez confier à {{productName}}…",
   followUpPlaceholder: "Ajoutez une demande…",
   send: "Envoyer",
   model: "Modèle",
   modelSelector: "Choisir le modèle et l’effort de raisonnement",
+  chooseReasoningModel: "Choisir le modèle de raisonnement",
   resetReasoningEffort: "Rétablir l’effort de raisonnement par défaut",
   modelNotConfigured: "Service de modèles non configuré",
   reasoningEffort: "Effort de raisonnement",
@@ -191,6 +199,12 @@ export const conversation = {
   htmlAnnotationCount_other: "{{count}} annotations",
   voice: "Saisie vocale",
   voiceChecking: "Vérification du service de transcription vocale…",
+  voiceDemoNotice:
+    "Démo vocale : enregistrement simulé et texte d’exemple. Votre microphone n’est pas utilisé.",
+  voiceDemoExit: "Quitter la démo",
+  voiceDemoStart: "Essayer la saisie vocale simulée",
+  voiceDemoTranscript:
+    "[Démo vocale] Résume les points clés de la réunion d’aujourd’hui et crée une liste d’actions.",
   voiceNotConfigured: "La transcription vocale n’est pas configurée",
   voiceServiceUnavailable:
     "La transcription vocale est temporairement indisponible. Réessayez plus tard.",
@@ -264,6 +278,8 @@ export const conversation = {
     noMatches: "Aucune compétence correspondante",
   },
   addMenu: "Ajouter",
+  toolbarAttach: "Joindre",
+  toolbarKnowledge: "Connaissances",
   addMenuTitle: "Ajouter du contenu",
   addGroup: "Ajouter",
   attachFileMenuLabel: "Fichiers locaux",
@@ -543,6 +559,7 @@ export const conversation = {
   messageCopied: "Message copié",
   copyMessageFailed: "Impossible de copier le message. Réessayez.",
   forkMessage: "Créer une conversation dérivée",
+  forkMessageTooltip: "Créer une branche",
   forkingMessage: "Création de la conversation dérivée…",
   forkMessageFailed: "Impossible de créer la tâche dérivée. Réessayez.",
   forkSource: {

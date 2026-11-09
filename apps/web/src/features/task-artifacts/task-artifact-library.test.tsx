@@ -165,7 +165,7 @@ describe("task artifact library", () => {
       )
     ).toBeVisible()
     const tabs = screen.getByRole("tablist", { name: "资料库内容" })
-    expect(tabs).toHaveAttribute("data-variant", "default")
+    expect(tabs).toHaveAttribute("data-variant", "pills")
     expect(within(tabs).getByRole("tab", { name: "任务产物" })).toHaveAttribute(
       "data-active",
       ""
@@ -206,8 +206,9 @@ describe("task artifact library", () => {
 
     for (const link of [taskLink, archivedTaskLink]) {
       const card = link.closest("section")?.querySelector(":scope > div")
-      expect(card).toHaveClass("rounded-card", "overflow-hidden")
-      expect(card).not.toHaveClass("rounded-[var(--radius-3xl)]")
+      expect(card).toHaveClass("min-w-0")
+      expect(card).not.toHaveClass("rounded-card", "overflow-hidden")
+      expect(card?.firstElementChild).toHaveClass("min-h-15", "border-b")
     }
 
     await interaction.click(

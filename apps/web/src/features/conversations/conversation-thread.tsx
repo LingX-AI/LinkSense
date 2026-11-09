@@ -29,6 +29,7 @@ import {
 import {
   coreMcpServerKey,
   officeAnnotationDisplaySchema,
+  type ApplicationEmbedPresentation,
   type OfficeAnnotationDisplay,
 } from "@linksense/shared"
 import type { TFunction } from "i18next"
@@ -37,8 +38,6 @@ import {
   BoxIcon,
   CheckIcon,
   BookOpenIcon,
-  BookOpenTextIcon,
-  ChartNoAxesCombinedIcon,
   ChevronRightIcon,
   CircleCheckIcon,
   CircleAlertIcon,
@@ -46,17 +45,14 @@ import {
   CopyIcon,
   DownloadIcon,
   EyeIcon,
-  FileTextIcon,
   ImageOffIcon,
   LoaderCircleIcon,
   Maximize2Icon,
   PencilIcon,
-  PresentationIcon,
   GoalIcon,
   GitForkIcon,
   MessagesSquareIcon,
   CornerUpLeftIcon,
-  SparklesIcon,
   WifiIcon,
   WrenchIcon,
 } from "lucide-react"
@@ -100,6 +96,9 @@ import {
   type ConversationHistoryControl,
 } from "@/features/conversations/conversation-message-list"
 import { ConversationForkSourceMarker } from "@/features/conversations/conversation-fork-source-marker"
+import { NewTaskWelcome } from "@/features/conversations/new-task-welcome"
+import { ConversationThinkingOrb } from "@/features/conversations/conversation-thinking-orb"
+import { getConversationMessageRenderKey } from "@/features/conversations/streaming-messages"
 import { ConversationGeneratedImages } from "@/features/conversations/conversation-generated-images"
 import {
   NativeSubAgentActivityGroup,
@@ -267,87 +266,6 @@ const emptyLiveReasoningContentEvents: ConversationEvent[] = []
 const GeneratedImageArtifactContext = createContext<ReadonlySet<string>>(
   new Set()
 )
-
-const newTaskStarterQuestions = [
-  {
-    id: "analyzeFile",
-    icon: FileTextIcon,
-    tone: "file",
-    titleKey: "conversation.starterQuestions.analyzeFile.title",
-    descriptionKey: "conversation.starterQuestions.analyzeFile.description",
-    promptKey: "conversation.starterQuestions.analyzeFile.prompt",
-  },
-  {
-    id: "searchKnowledge",
-    icon: BookOpenTextIcon,
-    tone: "knowledge",
-    titleKey: "conversation.starterQuestions.searchKnowledge.title",
-    descriptionKey: "conversation.starterQuestions.searchKnowledge.description",
-    promptKey: "conversation.starterQuestions.searchKnowledge.prompt",
-  },
-  {
-    id: "analyzeData",
-    icon: ChartNoAxesCombinedIcon,
-    tone: "data",
-    titleKey: "conversation.starterQuestions.analyzeData.title",
-    descriptionKey: "conversation.starterQuestions.analyzeData.description",
-    promptKey: "conversation.starterQuestions.analyzeData.prompt",
-  },
-  {
-    id: "createDeliverable",
-    icon: PresentationIcon,
-    tone: "deliverable",
-    titleKey: "conversation.starterQuestions.createDeliverable.title",
-    descriptionKey:
-      "conversation.starterQuestions.createDeliverable.description",
-    promptKey: "conversation.starterQuestions.createDeliverable.prompt",
-  },
-] as const
-
-function NewTaskStarterQuestions({
-  onSelect,
-}: Readonly<{
-  onSelect: (prompt: string) => void
-}>) {
-  const { t } = useTranslation()
-
-  return (
-    <div
-      className="conversation-starter-questions"
-      role="group"
-      aria-label={t("conversation.starterQuestions.label")}
-    >
-      {newTaskStarterQuestions.map((question) => {
-        const QuestionIcon = question.icon
-        return (
-          <Button
-            key={question.id}
-            type="button"
-            variant="outline"
-            className="conversation-starter-question"
-            onClick={() => onSelect(t(question.promptKey))}
-          >
-            <span
-              className="conversation-starter-question-icon"
-              data-tone={question.tone}
-              aria-hidden="true"
-            >
-              <QuestionIcon data-icon="inline-start" strokeWidth={1.9} />
-            </span>
-            <span className="conversation-starter-question-copy">
-              <span className="conversation-starter-question-title">
-                {t(question.titleKey)}
-              </span>
-              <span className="conversation-starter-question-description">
-                {t(question.descriptionKey)}
-              </span>
-            </span>
-          </Button>
-        )
-      })}
-    </div>
-  )
-}
 
 function ConversationEmptyNotice({
   children,
@@ -2491,15 +2409,23 @@ async function copyTextToClipboard(content: string) {
 
 function getOfficeAnnotationDisplay(
   value: unknown
-): Exclude<OfficeAnnotationDisplay, { kind: "conversation_reference" }> | null {
+): Exclude<
+  OfficeAnnotationDisplay,
+  { kind: "conversation_reference" | "task_references" }
+> | null {
   const parsed = officeAnnotationDisplaySchema.safeParse(value)
-  return parsed.success && parsed.data.kind !== "conversation_reference"
+  return parsed.success &&
+    parsed.data.kind !== "conversation_reference" &&
+    parsed.data.kind !== "task_references"
     ? parsed.data
     : null
 }
 
 function officeAnnotationCardItems(
-  display: Exclude<OfficeAnnotationDisplay, { kind: "conversation_reference" }>,
+  display: Exclude<
+    OfficeAnnotationDisplay,
+    { kind: "conversation_reference" | "task_references" }
+  >,
   t: TFunction
 ): ReadonlyArray<Readonly<{ request: string; locationLabel: string }>> {
   if (display.kind === "presentation_annotation") {
@@ -2777,9 +2703,17 @@ const Message = memo(function Message({
       onClick={() => void copyMessage()}
     >
       {copyState === "copied" ? (
-        <CheckIcon className="size-3" strokeWidth={1.5} aria-hidden="true" />
+        <CheckIcon
+          className="size-[var(--app-ui-font-size)]"
+          strokeWidth={2}
+          aria-hidden="true"
+        />
       ) : (
-        <CopyIcon className="size-3" strokeWidth={1.5} aria-hidden="true" />
+        <CopyIcon
+          className="size-[var(--app-ui-font-size)]"
+          strokeWidth={2}
+          aria-hidden="true"
+        />
       )}
     </Button>
   )
@@ -2796,14 +2730,14 @@ const Message = memo(function Message({
       >
         {forkState === "forking" ? (
           <LoaderCircleIcon
-            className="size-3 animate-spin"
-            strokeWidth={1.5}
+            className="size-[var(--app-ui-font-size)] animate-spin"
+            strokeWidth={2}
             aria-hidden="true"
           />
         ) : (
           <GitForkIcon
-            className="size-3"
-            strokeWidth={1.5}
+            className="size-[var(--app-ui-font-size)]"
+            strokeWidth={2}
             aria-hidden="true"
           />
         )}
@@ -2812,7 +2746,9 @@ const Message = memo(function Message({
   const copyAction = (
     <Tooltip>
       <TooltipTrigger render={copyButton} />
-      <ActionTooltipContent side="top">{copyActionLabel}</ActionTooltipContent>
+      <ActionTooltipContent side="top">
+        {t(copyState === "copied" ? "common.copied" : "common.copy")}
+      </ActionTooltipContent>
     </Tooltip>
   )
   const referenceAction =
@@ -2853,14 +2789,14 @@ const Message = memo(function Message({
             >
               {messageReferenceAction.mode === "ask" ? (
                 <MessagesSquareIcon
-                  className="size-3"
-                  strokeWidth={1.5}
+                  className="size-[var(--app-ui-font-size)]"
+                  strokeWidth={2}
                   aria-hidden="true"
                 />
               ) : (
                 <CornerUpLeftIcon
-                  className="size-3"
-                  strokeWidth={1.5}
+                  className="size-[var(--app-ui-font-size)]"
+                  strokeWidth={2}
                   aria-hidden="true"
                 />
               )}
@@ -2868,14 +2804,20 @@ const Message = memo(function Message({
           }
         />
         <ActionTooltipContent side="top">
-          {messageReferenceAction.label}
+          {messageReferenceAction.tooltipLabel ?? messageReferenceAction.label}
         </ActionTooltipContent>
       </Tooltip>
     ) : null
   const forkAction = forkButton ? (
     <Tooltip>
       <TooltipTrigger render={forkButton} />
-      <ActionTooltipContent side="top">{forkActionLabel}</ActionTooltipContent>
+      <ActionTooltipContent side="top">
+        {t(
+          forkState === "forking"
+            ? "common.loading"
+            : "conversation.forkMessageTooltip"
+        )}
+      </ActionTooltipContent>
     </Tooltip>
   ) : null
   const goalCompletionElement =
@@ -2929,6 +2871,22 @@ const Message = memo(function Message({
           onPreviewImage={onPreviewImage}
           onPreviewFile={onPreviewOfficeDocument}
         />
+      )}
+      {user && message.display?.kind === "task_references" && !editing && (
+        <div
+          className="mb-2 flex flex-wrap gap-1 text-xs"
+          aria-label={t("taskReferences.source")}
+        >
+          {message.display.sources.map((source) => (
+            <Link
+              key={source.id}
+              className="max-w-64 truncate rounded-md border bg-muted px-2 py-1 text-muted-foreground hover:text-foreground"
+              to={`/conversations/${source.id}`}
+            >
+              {source.title}
+            </Link>
+          ))}
+        </div>
       )}
       {user &&
         message.display?.kind === "conversation_reference" &&
@@ -3232,12 +3190,12 @@ const Message = memo(function Message({
                       className="message-action-button"
                       ref={editButtonRef}
                       aria-label={t("conversation.editMessage")}
-                      title={t("conversation.editMessage")}
+                      title={t("common.edit")}
                       onClick={startEditing}
                     >
                       <PencilIcon
-                        className="size-3"
-                        strokeWidth={1.5}
+                        className="size-[var(--app-ui-font-size)]"
+                        strokeWidth={2}
                         aria-hidden="true"
                       />
                     </Button>
@@ -3309,6 +3267,10 @@ function areMessagePropsEqual(previous: MessageProps, next: MessageProps) {
     previous.editingDisabled === next.editingDisabled &&
     previous.onRegenerateMessage === next.onRegenerateMessage &&
     previous.onForkMessage === next.onForkMessage &&
+    previous.messageReferenceAction?.label ===
+      next.messageReferenceAction?.label &&
+    previous.messageReferenceAction?.tooltipLabel ===
+      next.messageReferenceAction?.tooltipLabel &&
     previous.forkDisabled === next.forkDisabled &&
     previous.isGoalTask === next.isGoalTask &&
     previous.goalCompletion?.durationLabel ===
@@ -3457,16 +3419,6 @@ function recoverAssistantMessageTurnIds(
       turnIdByMessageId.get(message.id)
     return turnId ? { ...message, turn_id: turnId } : message
   })
-}
-
-function getConversationMessageRenderKey(message: ConversationMessage) {
-  if (message.client_render_key) return message.client_render_key
-  // The database message id replaces the temporary streaming id at completion,
-  // while the native Codex item id remains stable for the whole lifecycle.
-  if (message.role === "assistant" && message.item_id) {
-    return `assistant-item-${message.item_id}`
-  }
-  return `message-${message.id}`
 }
 
 function getConversationActivityRenderKey(activity: ConversationActivity) {
@@ -3737,6 +3689,7 @@ function TurnSummary({
   selectedSubAgentId,
   onSubAgentSelect,
   onActivityDisclosureToggle,
+  activityPresentation,
 }: {
   turn: ConversationTurn
   conversationId: string
@@ -3782,6 +3735,7 @@ function TurnSummary({
   selectedSubAgentId?: string
   onSubAgentSelect?: (agent: NativeSubAgentViewModel) => void
   onActivityDisclosureToggle?: () => void
+  activityPresentation: ApplicationEmbedPresentation
 }) {
   const { t } = useTranslation()
   const productName = useProductName()
@@ -4137,6 +4091,80 @@ function TurnSummary({
       ? t("conversation.activities.working")
       : fallback
   }
+  if (activityPresentation === "end_user") {
+    const failed =
+      turn.status === "failed" ||
+      completedWithoutOutput ||
+      Boolean(terminalErrorActivity)
+    let simpleStatus = t(`statuses.${turn.status}`)
+    if (running && interruptRequestedAt)
+      simpleStatus = t("conversation.interrupting")
+    else if (nativeReconnectFailed)
+      simpleStatus = t("conversation.streamDisconnectedBeforeCompletion")
+    else if (reconnectingState)
+      simpleStatus = t("conversation.activities.reconnecting")
+    else if (hasBlockingRequest)
+      simpleStatus = t("conversation.userInput.title")
+    else if (failed) simpleStatus = t("statuses.failed")
+    else if (interruptedForDisplay) simpleStatus = t("statuses.interrupted")
+    else if (visuallyRunning)
+      simpleStatus = t("conversation.activities.working")
+    return (
+      <section
+        className="turn-summary"
+        aria-label={t("conversation.activity")}
+        data-testid={`turn-summary-${turn.id}`}
+      >
+        <div role={failed || nativeReconnectFailed ? "alert" : "status"}>
+          <p className="text-sm text-muted-foreground">{simpleStatus}</p>
+          {failed && (
+            <p className="text-sm text-destructive">
+              {completedWithoutOutput
+                ? t("errors.turnCompletedWithoutOutput")
+                : getPublicRuntimeMessage(
+                    turn.error_message ?? terminalErrorActivity?.label,
+                    t("errors.codexTurnFailed"),
+                    (key) => t(key)
+                  )}
+            </p>
+          )}
+        </div>
+        {timeline.map((entry) => {
+          if (entry.kind === "guided_message") {
+            return (
+              <div key={entry.id} className="turn-guidance-message">
+                {renderGuidedMessage(entry.message)}
+              </div>
+            )
+          }
+          if (entry.kind === "user_input_request") {
+            return (
+              <ConversationUserInputRequestCard
+                key={entry.id}
+                request={entry.request}
+                submitting={false}
+              />
+            )
+          }
+          return null
+        })}
+        <ArtifactFiles
+          files={artifacts}
+          loadPreview={loadArtifactPreview}
+          onPreviewOfficeDocument={onPreviewOfficeDocument}
+          onDownload={onDownload}
+          downloadingFileId={downloadingFileId}
+        />
+      </section>
+    )
+  }
+  const showThinkingOrb =
+    visuallyRunning &&
+    !interruptRequestedAt &&
+    !nativeReconnectState &&
+    !hasBlockingRequest &&
+    !terminalErrorActivity &&
+    !finalAnswerVisible
   const summaryHeading = (
     <Marker
       render={<span />}
@@ -4146,6 +4174,7 @@ function TurnSummary({
       aria-busy={visuallyRunning || undefined}
       role={visuallyRunning ? "status" : undefined}
     >
+      {showThinkingOrb && <ConversationThinkingOrb />}
       <MarkerContent
         className={cn(
           "turn-summary-marker-content",
@@ -4549,6 +4578,7 @@ export function ConversationThread({
   forkingDisabled = false,
   editingDisabled = false,
   showNewTaskWelcome = false,
+  newTaskUserName,
   newTaskGuide,
   onStarterQuestionSelect,
   suppressEmptyState = false,
@@ -4566,6 +4596,7 @@ export function ConversationThread({
   onActivityDisclosureToggle,
   embedded = false,
   defaultActivityOpen = false,
+  activityPresentation = "technical",
   hideMessageActions = false,
   renderMessageFooter,
   navigationRef,
@@ -4601,6 +4632,7 @@ export function ConversationThread({
   forkingDisabled?: boolean
   editingDisabled?: boolean
   showNewTaskWelcome?: boolean
+  newTaskUserName?: string
   newTaskGuide?: ReactNode
   onStarterQuestionSelect?: (prompt: string) => void
   suppressEmptyState?: boolean
@@ -4624,6 +4656,7 @@ export function ConversationThread({
   onActivityDisclosureToggle?: () => void
   embedded?: boolean
   defaultActivityOpen?: boolean
+  activityPresentation?: ApplicationEmbedPresentation
   hideMessageActions?: boolean
   renderMessageFooter?: (message: ConversationMessage) => ReactNode
   navigationRef?: Ref<ConversationThreadNavigation>
@@ -5130,7 +5163,9 @@ export function ConversationThread({
           firstUserMessageByTurn.get(turn.id) === message.id
         )}
         goalCompletion={
-          message.id === completedGoalMessage?.id && completedGoalDurationLabel
+          activityPresentation === "technical" &&
+          message.id === completedGoalMessage?.id &&
+          completedGoalDurationLabel
             ? { durationLabel: completedGoalDurationLabel }
             : undefined
         }
@@ -5286,6 +5321,7 @@ export function ConversationThread({
     return (
       <TurnSummary
         key={`turn-summary-${turnRenderKey}`}
+        activityPresentation={activityPresentation}
         turn={turn}
         conversationId={conversation.id}
         running={turnRunning}
@@ -5662,25 +5698,19 @@ export function ConversationThread({
               )}
             </div>
           ) : showWelcome ? (
-            <section
-              className="conversation-welcome"
-              aria-labelledby="new-task-welcome-title"
-            >
-              <SparklesIcon
-                className="conversation-welcome-icon"
-                aria-hidden="true"
-              />
-              <h2 id="new-task-welcome-title">
-                {t("conversation.newTaskWelcome", { productName })}
-              </h2>
-              {emptyNotice && (
-                <ConversationEmptyNotice>{emptyNotice}</ConversationEmptyNotice>
-              )}
-              {newTaskGuide}
-              {onStarterQuestionSelect && (
-                <NewTaskStarterQuestions onSelect={onStarterQuestionSelect} />
-              )}
-            </section>
+            <NewTaskWelcome
+              productName={productName}
+              userName={newTaskUserName}
+              guide={newTaskGuide}
+              notice={
+                emptyNotice ? (
+                  <ConversationEmptyNotice>
+                    {emptyNotice}
+                  </ConversationEmptyNotice>
+                ) : undefined
+              }
+              onSelect={onStarterQuestionSelect}
+            />
           ) : (
             (!suppressEmptyState || emptyNotice) && (
               <div className="conversation-empty-stack">

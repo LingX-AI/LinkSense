@@ -48,7 +48,6 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import {
   externalAccessSecurityConfigurationChanged,
   externalIframeSnippet,
@@ -84,7 +83,7 @@ function SettingsSection({
 }) {
   return (
     <section aria-labelledby={id} className="flex flex-col gap-3">
-      <h2 id={id} className="font-heading text-sm font-medium">
+      <h2 id={id} className="font-heading text-base leading-6 font-medium">
         {title}
       </h2>
       {children}
@@ -138,7 +137,10 @@ export function ApplicationExternalAccessPage() {
       ) : application.data ? (
         <ApplicationExternalAccessSettings application={application.data} />
       ) : (
-        <EmptyState title={t("common.notFound")} />
+        <EmptyState
+          title={t("common.notFound")}
+          description={t("common.notFoundDescription")}
+        />
       )}
     </PageLayout>
   )
@@ -156,6 +158,7 @@ function ApplicationExternalAccessSettings({
   const [authMode, setAuthMode] = useState<"required" | "public">("required")
   const [originsText, setOriginsText] = useState("")
   const [activeEmbedOrigin, setActiveEmbedOrigin] = useState("")
+  const [endUserPresentation, setEndUserPresentation] = useState(false)
   const [activeStarterQuestionOrigin, setActiveStarterQuestionOrigin] =
     useState("")
   const [starterQuestionsByOrigin, setStarterQuestionsByOrigin] = useState<
@@ -235,10 +238,16 @@ function ApplicationExternalAccessSettings({
   const appSecret =
     authMode === "required" ? (configuredAccess?.app_secret ?? null) : null
   const embedLocale = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
+  const embedPresentation = endUserPresentation ? "end_user" : "technical"
   const embedConfigurations: EmbedConfiguration[] = effectiveAccess
     ? uniqueOrigins.map((origin) => ({
         origin,
-        iframeUrl: externalIframeUrl(effectiveAccess, origin, embedLocale),
+        iframeUrl: externalIframeUrl(
+          effectiveAccess,
+          origin,
+          embedLocale,
+          embedPresentation
+        ),
         iframeSnippet: externalIframeSnippet(
           effectiveAccess,
           origin,
@@ -248,7 +257,8 @@ function ApplicationExternalAccessSettings({
               "applications.externalAccess.snippetTicketComment"
             ),
           },
-          embedLocale
+          embedLocale,
+          embedPresentation
         ),
       }))
     : []
@@ -348,7 +358,7 @@ function ApplicationExternalAccessSettings({
 
   return (
     <>
-      <div className="flex w-full max-w-6xl flex-col gap-8 pb-8">
+      <div className="flex w-full max-w-6xl flex-col gap-5 pb-8">
         {access.isLoading ? (
           <LoadingState />
         ) : access.isError ? (
@@ -362,8 +372,8 @@ function ApplicationExternalAccessSettings({
               id="external-access-settings"
               title={t("applications.externalAccess.accessSettingsSection")}
             >
-              <Card className="gap-0 py-0">
-                <CardHeader className="border-b py-5">
+              <Card className="gap-5 rounded-none border-0 bg-transparent p-0 shadow-none">
+                <CardHeader className="gap-2 p-0">
                   <CardTitle>
                     {t("applications.externalAccess.enabled")}
                   </CardTitle>
@@ -381,7 +391,7 @@ function ApplicationExternalAccessSettings({
                 </CardHeader>
                 <CardContent className="px-0">
                   <FieldGroup className="gap-0">
-                    <Field orientation="responsive" className="px-5 py-5">
+                    <Field orientation="responsive" className="gap-4">
                       <FieldContent>
                         <FieldTitle>
                           {t(
@@ -396,28 +406,27 @@ function ApplicationExternalAccessSettings({
                           )}
                         </FieldDescription>
                       </FieldContent>
-                      <ToggleGroup
-                        variant="outline"
-                        spacing={0}
-                        value={[authMode]}
-                        onValueChange={(values) => {
-                          const value = values[0]
+                      <Tabs
+                        value={authMode}
+                        onValueChange={(value) => {
                           if (value === "required" || value === "public") {
                             setAuthMode(value)
                           }
                         }}
-                        aria-label={t(
-                          "applications.externalAccess.authRequirementLabel"
-                        )}
-                        className="max-w-full flex-wrap"
                       >
-                        <ToggleGroupItem value="required">
-                          {t("applications.externalAccess.authModeRequired")}
-                        </ToggleGroupItem>
-                        <ToggleGroupItem value="public">
-                          {t("applications.externalAccess.authModePublic")}
-                        </ToggleGroupItem>
-                      </ToggleGroup>
+                        <TabsList
+                          aria-label={t(
+                            "applications.externalAccess.authRequirementLabel"
+                          )}
+                        >
+                          <TabsTrigger value="required">
+                            {t("applications.externalAccess.authModeRequired")}
+                          </TabsTrigger>
+                          <TabsTrigger value="public">
+                            {t("applications.externalAccess.authModePublic")}
+                          </TabsTrigger>
+                        </TabsList>
+                      </Tabs>
                     </Field>
                   </FieldGroup>
                 </CardContent>
@@ -428,8 +437,8 @@ function ApplicationExternalAccessSettings({
               id="external-origin-settings"
               title={t("applications.externalAccess.originSettingsSection")}
             >
-              <Card className="gap-0 py-0">
-                <CardHeader className="border-b py-5">
+              <Card className="gap-2 rounded-none border-0 bg-transparent p-0 shadow-none">
+                <CardHeader className="gap-2 p-0">
                   <CardTitle className="flex items-center gap-1">
                     {t("applications.externalAccess.allowedOrigins")}
                     <span aria-hidden="true" className="text-destructive">
@@ -440,7 +449,7 @@ function ApplicationExternalAccessSettings({
                     {t("applications.externalAccess.allowedOriginsDescription")}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="py-5">
+                <CardContent className="p-0">
                   <Field
                     data-invalid={!originInputValid && originsText.length > 0}
                   >
@@ -455,7 +464,7 @@ function ApplicationExternalAccessSettings({
                       required
                       value={originsText}
                       aria-invalid={!originInputValid && originsText.length > 0}
-                      className="min-h-32 border-transparent bg-field text-sm leading-6 focus-visible:bg-field"
+                      className="min-h-25 text-sm leading-[var(--app-line-22)]"
                       placeholder={t(
                         "applications.externalAccess.allowedOriginsPlaceholder"
                       )}
@@ -470,8 +479,8 @@ function ApplicationExternalAccessSettings({
               id="external-starter-question-settings"
               title={t("applications.externalAccess.starterQuestionsSection")}
             >
-              <Card className="gap-0 py-0">
-                <CardHeader className="border-b py-5">
+              <Card className="gap-2 rounded-none border-0 bg-transparent p-0 shadow-none">
+                <CardHeader className="gap-2 p-0">
                   <CardTitle>
                     {t("applications.externalAccess.starterQuestions")}
                   </CardTitle>
@@ -481,7 +490,7 @@ function ApplicationExternalAccessSettings({
                     )}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="py-5">
+                <CardContent className="p-0">
                   {activeStarterQuestionOriginValue ? (
                     uniqueOrigins.length > 1 ? (
                       <Tabs
@@ -559,8 +568,8 @@ function ApplicationExternalAccessSettings({
                   "applications.externalAccess.credentialSettingsSection"
                 )}
               >
-                <Card className="gap-0 py-0">
-                  <CardContent className="py-5">
+                <Card className="gap-0 rounded-none border-0 bg-transparent p-0 shadow-none">
+                  <CardContent className="p-0">
                     <FieldGroup className="gap-5">
                       <ReadonlyCopyField
                         label={t("applications.externalAccess.appId")}
@@ -632,6 +641,21 @@ function ApplicationExternalAccessSettings({
                 id="external-embed-settings"
                 title={t("applications.externalAccess.embedSettingsSection")}
               >
+                <Field orientation="horizontal">
+                  <FieldContent>
+                    <FieldLabel htmlFor="embed-end-user-presentation">
+                      {t("applications.externalAccess.endUserPresentation")}
+                    </FieldLabel>
+                    <FieldDescription>
+                      {t("applications.externalAccess.endUserPresentationHint")}
+                    </FieldDescription>
+                  </FieldContent>
+                  <Switch
+                    id="embed-end-user-presentation"
+                    checked={endUserPresentation}
+                    onCheckedChange={setEndUserPresentation}
+                  />
+                </Field>
                 {embedConfigurations.length > 1 ? (
                   <Tabs
                     value={activeEmbedConfiguration.origin}
@@ -693,6 +717,7 @@ function ApplicationExternalAccessSettings({
         )}
       </div>
       <ConfirmDialog
+        variant="workspace"
         open={pendingSecurityAction !== null}
         onOpenChange={(open) => {
           if (!open) setPendingSecurityAction(null)
@@ -1021,9 +1046,9 @@ function codeTokenKind(token: string) {
 function codeTokenClassName(token: string) {
   const kind = codeTokenKind(token)
   if (kind === "comment") return "text-muted-foreground"
-  if (kind === "string") return "text-primary"
+  if (kind === "string") return "text-link-foreground"
   if (kind === "tag") return "text-foreground"
-  if (kind === "literal") return "text-primary"
+  if (kind === "literal") return "text-link-foreground"
   if (kind === "punctuation") return "text-muted-foreground"
   return "text-foreground"
 }

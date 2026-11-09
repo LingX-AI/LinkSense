@@ -26,18 +26,18 @@ export function SocialLoginButtons() {
     )
   if (!providers.data.length) return null
   return (
-    <section className="grid gap-3" aria-label={t("social.title")}>
+    <section className="grid min-w-0 gap-3" aria-label={t("social.title")}>
       <p className="text-center text-sm text-muted-foreground">
         {t("social.available")}
       </p>
-      <div className="grid gap-2">
+      <div className="grid min-w-0 gap-2">
         {providers.data.map((provider) => (
           <Button
             key={provider}
             type="button"
             variant="plain"
             size="xl"
-            className={`w-full ${providerButtonClassName}`}
+            className={`h-auto min-h-11 w-full min-w-0 whitespace-normal ${providerButtonClassName}`}
             data-social-provider={provider}
             disabled={start.isPending}
             aria-busy={
@@ -49,7 +49,10 @@ export function SocialLoginButtons() {
               <Spinner data-icon="inline-start" />
             )}
             <SocialProviderLogo provider={provider} />
-            <span data-social-provider-label>
+            <span
+              data-social-provider-label
+              className="min-w-0 wrap-anywhere whitespace-normal"
+            >
               {t("social.continueWith", {
                 provider: t(`social.providers.${provider}`),
               })}

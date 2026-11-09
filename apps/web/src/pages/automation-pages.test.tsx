@@ -22,31 +22,6 @@ const CONVERSATION_ID = "30000000-0000-4000-8000-000000000001"
 const TURN_ID = "40000000-0000-4000-8000-000000000001"
 const NOW = "2026-07-30T00:00:00.000Z"
 
-function mockDesktopSplitLayout() {
-  Object.defineProperty(window, "innerWidth", {
-    configurable: true,
-    value: 1_600,
-  })
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
-    function getBoundingClientRect(this: HTMLElement) {
-      const width = this.classList.contains("conversation-presentation-layout")
-        ? 1_200
-        : 0
-      return {
-        x: 0,
-        y: 0,
-        top: 0,
-        right: width,
-        bottom: 800,
-        left: 0,
-        width,
-        height: 800,
-        toJSON: () => ({}),
-      }
-    }
-  )
-}
-
 function expectRequiredField(id: string) {
   const label = document.querySelector(`label[for="${id}"]`)
   expect(label?.lastElementChild).toHaveTextContent("*")
@@ -107,9 +82,19 @@ describe("AutomationPage", () => {
     renderPage()
     await screen.findByText(automation.title)
     await openAutomationEditor(interaction, automation.title)
-    const editor = await screen.findByRole("complementary", {
+    const editor = await screen.findByRole("dialog", {
       name: "编辑自动化",
     })
+    expect(
+      document
+        .getElementById("automation-frequency")
+        ?.closest("[data-slot=field-group]")
+    ).toHaveClass("gap-5")
+    expect(
+      document
+        .getElementById("automation-frequency")
+        ?.closest("[data-slot=field-group]")?.parentElement
+    ).not.toHaveClass("border")
     expectRequiredField("automation-month-of-year")
     expectRequiredField("automation-year-day")
     expect(
@@ -210,7 +195,7 @@ describe("AutomationPage", () => {
 
       await interaction.click(screen.getByRole("button", { name: buttonName }))
 
-      const editor = await screen.findByRole("complementary", {
+      const editor = await screen.findByRole("dialog", {
         name: "新建自动化",
       })
       expect(
@@ -220,8 +205,8 @@ describe("AutomationPage", () => {
         within(editor).getByRole("textbox", { name: "自动化指令" })
       ).toHaveValue(instruction)
       expect(
-        within(editor).getByRole("button", { name: "新建任务" })
-      ).toHaveAttribute("aria-pressed", "true")
+        within(editor).getByRole("tab", { name: "新建任务" })
+      ).toHaveAttribute("aria-selected", "true")
       expect(
         within(editor).getByRole("combobox", { name: "重复" })
       ).toHaveTextContent("每周")
@@ -314,23 +299,31 @@ describe("AutomationPage", () => {
         throw new Error(`Unexpected request: ${method} ${path}`)
       })
     )
-    mockDesktopSplitLayout()
     const interaction = userEvent.setup()
     renderPage()
 
     const workspace = await screen.findByTestId("automation-workspace")
-    const splitLayout = workspace.closest(".conversation-office-layout")
-    expect(splitLayout).not.toHaveAttribute("data-has-office-preview")
+    expect(workspace.closest(".conversation-office-layout")).toBeNull()
     await interaction.click(
       await screen.findByRole("button", { name: "新建自动化" })
     )
-    const editor = await screen.findByRole("complementary", {
+    const editor = await screen.findByRole("dialog", {
       name: "新建自动化",
     })
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-    expect(editor).toHaveClass("office-preview-pane", "automation-editor-pane")
+    expect(editor).toHaveClass(
+      "automation-editor-pane",
+      "fixed",
+      "right-4",
+      "rounded-2xl"
+    )
     expect(editor).toHaveAttribute("data-mode", "create")
-    expect(editor.parentElement).toBe(splitLayout)
+    expect(editor).not.toContainElement(workspace)
+    expect(workspace).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        within(editor).getByRole("textbox", { name: "自动化标题" })
+      ).toHaveFocus()
+    )
     for (const id of [
       "automation-title",
       "automation-instruction",
@@ -345,12 +338,11 @@ describe("AutomationPage", () => {
     expect(
       within(editor).getByText("运行于").lastElementChild
     ).toHaveTextContent("*")
-    expect(splitLayout).toHaveAttribute("data-has-office-preview", "true")
     expect(
-      screen.getByRole("separator", {
+      screen.queryByRole("separator", {
         name: "调整自动化编辑区域宽度",
       })
-    ).toBeVisible()
+    ).not.toBeInTheDocument()
     await interaction.type(
       within(editor).getByRole("textbox", { name: "自动化标题" }),
       "每小时简报"
@@ -435,7 +427,7 @@ describe("AutomationPage", () => {
       })
     ).toHaveClass("mt-0.5")
     await interaction.click(
-      within(editor).getByRole("button", { name: "新建任务" })
+      within(editor).getByRole("tab", { name: "新建任务" })
     )
     await interaction.click(
       within(editor).getByRole("combobox", { name: "重复" })
@@ -479,9 +471,9 @@ describe("AutomationPage", () => {
       expect(request?.body).not.toHaveProperty("notification")
     })
     expect(
-      screen.queryByRole("complementary", { name: "新建自动化" })
+      screen.queryByRole("dialog", { name: "新建自动化" })
     ).not.toBeInTheDocument()
-    expect(splitLayout).not.toHaveAttribute("data-has-office-preview")
+    expect(screen.getByTestId("automation-workspace")).toBe(workspace)
     expect(await screen.findByText("每小时简报")).toBeVisible()
     expect(screen.getByText(/第 15 分钟执行/)).toBeVisible()
   }, 10_000)
@@ -515,10 +507,9 @@ describe("AutomationPage", () => {
     await interaction.click(
       await screen.findByRole("button", { name: "新建自动化" })
     )
-    const editor = await screen.findByRole("complementary", {
+    const editor = await screen.findByRole("dialog", {
       name: "新建自动化",
     })
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     await interaction.click(
       within(editor).getByRole("combobox", { name: "任务" })
     )
@@ -601,9 +592,7 @@ describe("AutomationPage", () => {
     expect(
       screen.getByRole("button", { name: "使用“跟进监控”模板" })
     ).toBeVisible()
-    const automationRow = screen
-      .getByText("已暂停自动化")
-      .closest('[role="listitem"]')
+    const automationRow = screen.getByText("已暂停自动化").closest("tr")
     const suggestions = screen.getByRole("region", { name: "建议" })
     expect(automationRow).not.toBeNull()
     expect(
@@ -616,16 +605,27 @@ describe("AutomationPage", () => {
       screen.queryByText("按设定周期在同一个置顶任务中自动执行指令。")
     ).not.toBeInTheDocument()
 
-    const activeRow = screen
-      .getByText("运行中的自动化")
-      .closest('[role="listitem"]')
+    const activeRow = screen.getByText("运行中的自动化").closest("tr")
     expect(activeRow).not.toBeNull()
     expect(activeRow).not.toHaveTextContent("生成每日简报。")
     expect(activeRow).not.toHaveTextContent("上次运行")
     expect(activeRow).not.toHaveTextContent("任务：")
-    expect(activeRow?.className).not.toMatch(/\bbg-/)
+    expect(activeRow?.className).not.toMatch(/(?:^|\s)bg-/)
     expect(screen.getByText("运行中的自动化")).toHaveClass("text-sm")
-    expect(screen.getByText(/09:00 执行/).parentElement).toHaveClass("text-xs")
+    expect(screen.getByRole("table")).toBeVisible()
+    expect(
+      within(activeRow!).getByRole("cell", { name: /09:00 执行/ })
+    ).toBeVisible()
+    expect(
+      within(activeRow!).getByRole("button", { name: "立即执行" })
+    ).toBeVisible()
+    const template = screen
+      .getByRole("button", { name: "使用“每日简报”模板" })
+      .closest("li")
+    expect(template).toHaveClass("grid")
+    expect(
+      within(template!).getByRole("heading", { name: "每日简报" })
+    ).toBeVisible()
     const activeStatusButton = screen.getByRole("button", {
       name: "暂停 运行中的自动化",
     })
@@ -769,7 +769,7 @@ describe("AutomationPage", () => {
     })
   })
 
-  it("edits an automation in the same full-height split pane used by file previews", async () => {
+  it("edits an automation in a floating dialog without adding a split pane", async () => {
     const requests: Array<{ path: string; method: string; body?: unknown }> = []
     let automation = {
       ...automationFixture({
@@ -821,30 +821,31 @@ describe("AutomationPage", () => {
         throw new Error(`Unexpected request: ${method} ${path}`)
       })
     )
-    mockDesktopSplitLayout()
     const interaction = userEvent.setup()
     renderPage()
 
     expect(await screen.findByText("待编辑自动化")).toBeVisible()
     const workspace = screen.getByTestId("automation-workspace")
-    const splitLayout = workspace.closest(".conversation-office-layout")
-    expect(splitLayout).not.toHaveAttribute("data-has-office-preview")
+    expect(workspace.closest(".conversation-office-layout")).toBeNull()
 
     await openAutomationEditor(interaction, "待编辑自动化")
 
-    const editor = await screen.findByRole("complementary", {
+    const editor = await screen.findByRole("dialog", {
       name: "编辑自动化",
     })
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-    expect(editor).toHaveClass("office-preview-pane", "automation-editor-pane")
+    expect(editor).toHaveClass(
+      "automation-editor-pane",
+      "fixed",
+      "right-4",
+      "rounded-2xl"
+    )
     expect(editor).toHaveAttribute("data-mode", "edit")
-    expect(editor.parentElement).toBe(splitLayout)
-    expect(splitLayout).toHaveAttribute("data-has-office-preview", "true")
+    expect(editor).not.toContainElement(workspace)
     expect(
-      screen.getByRole("separator", {
+      screen.queryByRole("separator", {
         name: "调整自动化编辑区域宽度",
       })
-    ).toBeVisible()
+    ).not.toBeInTheDocument()
     expect(
       within(editor).getByRole("textbox", { name: "自动化标题" })
     ).toHaveValue("待编辑自动化")
@@ -857,10 +858,10 @@ describe("AutomationPage", () => {
     )
     await waitFor(() => {
       expect(
-        screen.queryByRole("complementary", { name: "编辑自动化" })
+        screen.queryByRole("dialog", { name: "编辑自动化" })
       ).not.toBeInTheDocument()
     })
-    expect(splitLayout).not.toHaveAttribute("data-has-office-preview")
+    expect(screen.getByTestId("automation-workspace")).toBe(workspace)
     expect(
       screen.queryByRole("separator", {
         name: "调整自动化编辑区域宽度",
@@ -868,7 +869,7 @@ describe("AutomationPage", () => {
     ).not.toBeInTheDocument()
 
     await openAutomationEditor(interaction, "待编辑自动化")
-    const reopenedEditor = await screen.findByRole("complementary", {
+    const reopenedEditor = await screen.findByRole("dialog", {
       name: "编辑自动化",
     })
     const titleInput = within(reopenedEditor).getByRole("textbox", {
@@ -897,7 +898,7 @@ describe("AutomationPage", () => {
       })
     })
     expect(
-      screen.queryByRole("complementary", { name: "编辑自动化" })
+      screen.queryByRole("dialog", { name: "编辑自动化" })
     ).not.toBeInTheDocument()
     expect(await screen.findByText("更新后的自动化")).toBeVisible()
   })
@@ -954,7 +955,7 @@ describe("AutomationPage", () => {
 
     expect(await screen.findByText("等待保存的自动化")).toBeVisible()
     await openAutomationEditor(interaction, "等待保存的自动化")
-    const editor = await screen.findByRole("complementary", {
+    const editor = await screen.findByRole("dialog", {
       name: "编辑自动化",
     })
     const titleInput = within(editor).getByRole("textbox", {
@@ -974,6 +975,8 @@ describe("AutomationPage", () => {
     })
     expect(within(editor).getByRole("button", { name: "关闭" })).toBeDisabled()
     expect(within(editor).getByRole("button", { name: "取消" })).toBeDisabled()
+    await interaction.keyboard("{Escape}")
+    expect(editor).toBeVisible()
 
     resolvePatch(
       envelope({
@@ -985,7 +988,7 @@ describe("AutomationPage", () => {
 
     await waitFor(() => {
       expect(
-        screen.queryByRole("complementary", { name: "编辑自动化" })
+        screen.queryByRole("dialog", { name: "编辑自动化" })
       ).not.toBeInTheDocument()
     })
     expect(await screen.findByText("保存完成的自动化")).toBeVisible()
@@ -1049,9 +1052,9 @@ describe("AutomationPage", () => {
     expect(
       await screen.findByRole("button", { name: "恢复 运行中的自动化" })
     ).toBeVisible()
-    expect(
-      screen.getByText("运行中的自动化").closest('[role="listitem"]')
-    ).toHaveTextContent("已暂停")
+    expect(screen.getByText("运行中的自动化").closest("tr")).toHaveTextContent(
+      "已暂停"
+    )
   })
 
   it("localizes the status filters and action menu in English", async () => {

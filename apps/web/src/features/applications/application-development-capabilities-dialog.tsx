@@ -62,7 +62,8 @@ export function ApplicationDevelopmentCapabilitiesDialog({
       }}
     >
       <DialogContent
-        className="flex max-h-[calc(100dvh-2rem)] flex-col sm:max-w-2xl"
+        variant="workspace"
+        className="flex flex-col"
         closeLabel={t("common.close")}
       >
         <DialogHeader>
@@ -240,7 +241,8 @@ function CapabilitiesForm({
             </Button>
           }
         >
-          {mutation.error instanceof ApiError && mutation.error.errorCode === "APPLICATION_DEVELOPMENT_SOURCE_CHANGED"
+          {mutation.error instanceof ApiError &&
+          mutation.error.errorCode === "APPLICATION_DEVELOPMENT_SOURCE_CHANGED"
             ? t("applicationDevelopment.capabilitiesChanged")
             : getErrorMessage(mutation.error, t)}
         </StatusBanner>

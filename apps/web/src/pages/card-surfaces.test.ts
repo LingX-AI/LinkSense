@@ -16,7 +16,7 @@ function rule(selector: string) {
 
 describe("card and form surfaces", () => {
   it("uses the reference gray for every dark card variant while preserving light surfaces", () => {
-    expect(rule(".dark")).toContain("--card: #252525;")
+    expect(rule(".dark")).toContain("--card: #202020;")
     expect(rule(".dark")).toContain("--card-soft: var(--card);")
     expect(rule(".dark")).toContain("--card-subtle: var(--card);")
     expect(rule(":root")).toContain("--card: #ffffff;")
@@ -33,7 +33,6 @@ describe("card and form surfaces", () => {
     ".personalization-memory-card",
     ".profile-usage-loading",
     ".profile-stat-strip",
-    ".knowledge-card-list",
     ".knowledge-document-table",
   ])("gives %s the shared opaque card surface", (selector) => {
     expect(rule(selector)).toContain("background: var(--card);")
@@ -75,15 +74,11 @@ describe("card and form surfaces", () => {
     }
   )
 
-  it("keeps dark fields opaque and distinct from cards with a separate focus surface", () => {
-    expect(rule(".dark")).toContain("--field: #303030;")
-    expect(rule(".dark")).toContain("--field-focus: #383838;")
-    expect(rule(":root")).toContain(
-      "--field: color-mix(in oklab, var(--input) 50%, transparent);"
-    )
-    expect(rule(":root")).toContain(
-      "--field-focus: color-mix(in oklab, var(--input) 65%, transparent);"
-    )
+  it("keeps outlined fields opaque while using a border and ring for focus", () => {
+    expect(rule(".dark")).toContain("--field: #202020;")
+    expect(rule(".dark")).toContain("--field-focus: #202020;")
+    expect(rule(":root")).toContain("--field: #ffffff;")
+    expect(rule(":root")).toContain("--field-focus: #ffffff;")
   })
 
   it("generates semantic card and field backgrounds from the global tokens", async () => {

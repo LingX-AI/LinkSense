@@ -1,7 +1,11 @@
-import { render } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import { render, screen } from "@testing-library/react"
+import { describe, expect, it, vi } from "vitest"
 
-import { ConversationScrollToBottomIndicator } from "@/features/conversations/conversation-scroll-to-bottom-indicator"
+import {
+  ConversationScrollToBottomButton,
+  ConversationScrollToBottomIndicator,
+} from "@/features/conversations/conversation-scroll-to-bottom-indicator"
+import i18n from "@/i18n"
 import appStyles from "@/index.css?raw"
 
 describe("ConversationScrollToBottomIndicator", () => {
@@ -50,5 +54,103 @@ describe("ConversationScrollToBottomIndicator", () => {
     expect(
       container.querySelector('[data-slot="conversation-running-indicator"]')
     ).toBeNull()
+  })
+})
+
+describe("ConversationScrollToBottomButton", () => {
+  it("does not count older replies loaded while reading history", () => {
+    const messages = [
+      { id: "reply-10", role: "assistant" as const, sequence_no: 10 },
+    ]
+    const { rerender } = render(
+      <ConversationScrollToBottomButton
+        messages={messages}
+        running={false}
+        onScrollToBottom={vi.fn()}
+      />
+    )
+
+    rerender(
+      <ConversationScrollToBottomButton
+        messages={[
+          { id: "reply-2", role: "assistant", sequence_no: 2 },
+          ...messages,
+        ]}
+        running={false}
+        onScrollToBottom={vi.fn()}
+      />
+    )
+
+    expect(
+      screen.getByRole("button", {
+        name: i18n.t("conversation.scrollToBottom"),
+      })
+    ).not.toHaveAttribute("data-count")
+  })
+
+  it.each([
+    { item_id: "native-item-2" },
+    { client_render_key: "assistant-item-legacy-2" },
+  ])(
+    "counts a streamed reply only once when its database ID arrives: %j",
+    (identity) => {
+      const messages = [{ id: "reply-1", role: "assistant" as const }]
+      const { rerender } = render(
+        <ConversationScrollToBottomButton
+          messages={messages}
+          running
+          onScrollToBottom={vi.fn()}
+        />
+      )
+      const reply = {
+        ...identity,
+        id: "streaming-reply-2",
+        role: "assistant" as const,
+      }
+      rerender(
+        <ConversationScrollToBottomButton
+          messages={[...messages, reply]}
+          running
+          onScrollToBottom={vi.fn()}
+        />
+      )
+      expect(screen.getByRole("button")).toHaveAttribute("data-count", "1")
+
+      rerender(
+        <ConversationScrollToBottomButton
+          messages={[...messages, { ...reply, id: "persisted-reply-2" }]}
+          running={false}
+          onScrollToBottom={vi.fn()}
+        />
+      )
+      expect(screen.getByRole("button")).toHaveAttribute("data-count", "1")
+    }
+  )
+
+  it("counts assistant replies that arrive while the reader is scrolled away", async () => {
+    await i18n.changeLanguage("zh-CN")
+    const messages = [{ id: "reply-1", role: "assistant" as const }]
+    const { rerender } = render(
+      <ConversationScrollToBottomButton
+        messages={messages}
+        running={false}
+        onScrollToBottom={vi.fn()}
+      />
+    )
+    expect(screen.getByRole("button", { name: "回到底部" })).toBeVisible()
+
+    rerender(
+      <ConversationScrollToBottomButton
+        messages={[...messages, { id: "reply-2", role: "assistant" as const }]}
+        running
+        onScrollToBottom={vi.fn()}
+      />
+    )
+
+    expect(
+      await screen.findByRole("button", {
+        name: i18n.t("conversation.newReplies", { count: 1 }),
+      })
+    ).toBeVisible()
   })
 })

@@ -115,6 +115,7 @@ describe("Core automation MCP protocol", () => {
         last_run_status: null,
         last_error_code: null,
         model_preference: null,
+        notification_target: null,
         created_at: "2026-10-26T01:00:00.000Z",
         updated_at: "2026-10-26T01:00:00.000Z",
       };

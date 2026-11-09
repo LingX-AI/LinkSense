@@ -19,6 +19,7 @@ import { errors } from "./fr-FR/errors"
 import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 
 export const frFR = {
+  browserUse: browserUseMessages["fr-FR"],
   publicKnowledge: publicKnowledgeMessages["fr-FR"],
   modelSetup: modelSetupMessages["fr-FR"],
   connections: connectionMessages["fr-FR"],
@@ -53,6 +54,10 @@ export const frFR = {
     search: "Rechercher",
     loading: "Chargement…",
     pageLoading: "Chargement…",
+    emptyDescription:
+      "Les éléments apparaîtront ici lorsqu'ils seront disponibles.",
+    notFoundDescription:
+      "La page a peut-être été déplacée ou supprimée.",
     actions: "Actions",
     status: "État",
     name: "Nom",
@@ -143,6 +148,8 @@ export const frFR = {
     helpCenter: "Centre d’aide",
     helpCenterNewTab: "Ouvrir le Centre d’aide dans un nouvel onglet",
     automationNotifications: "Notifications d’automatisation",
+    automationNotificationsEmpty:
+      "Aucune notification d’automatisation non lue",
     automationNotificationsUnread:
       "Notifications d’automatisation avec une tâche terminée non lue",
     automationTask: "Tâche automatisée",
@@ -243,3 +250,4 @@ export const frFR = {
   admin,
   errors,
 } satisfies TranslationResource<typeof enUS>
+import { browserUseMessages } from "@/features/browser-use/messages"

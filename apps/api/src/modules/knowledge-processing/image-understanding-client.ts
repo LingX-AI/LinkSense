@@ -1,4 +1,5 @@
 import {
+  createModelProviderFetch,
   imageUnderstandingDescriptionSchema,
   type ImageUnderstandingDescription,
 } from "@linksense/shared"
@@ -293,6 +294,7 @@ function createScopedFetch(
   forceQwenThinkingDisabled: boolean,
 ): typeof fetch {
   const allowed = new URL(baseUrl)
+  const providerFetch = createModelProviderFetch(baseUrl)
   return async (input, init) => {
     const requested = new URL(
       typeof input === "string"
@@ -311,11 +313,11 @@ function createScopedFetch(
       )
     }
     if (!forceQwenThinkingDisabled || typeof init?.body !== "string") {
-      return fetch(input, { ...init, redirect: "error" })
+      return providerFetch(input, { ...init, redirect: "error" })
     }
     const body = parseRequestBody(init.body)
     const current = asRecord(body.chat_template_kwargs)
-    return fetch(input, {
+    return providerFetch(input, {
       ...init,
       redirect: "error",
       body: JSON.stringify({

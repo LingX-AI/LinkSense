@@ -65,7 +65,8 @@ export const modelUsageCaptureSchema = z
         : usage.workload === "rerank"
         ? "rerank"
         : usage.workload === "memory_generation" ||
-            usage.workload === "task_title_generation"
+            usage.workload === "task_title_generation" ||
+            usage.workload === "browser_use_intent"
           ? "generation"
           : "embedding"
     if (usage.modelKind !== expectedModelKind) {

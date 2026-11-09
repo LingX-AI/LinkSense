@@ -265,7 +265,7 @@ describe("maintenance settings form", () => {
     })
     const toggleRow = maintenanceSwitch.closest('[data-layout="settings"]')
     expect(toggleRow).toHaveClass(
-      "md:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)]"
+      "@2xl/field-group:grid-cols-[minmax(0,1fr)_minmax(18rem,42%)]"
     )
     expect(toggleRow).not.toHaveClass("border")
     expect(toggleRow).not.toHaveClass("rounded-card")

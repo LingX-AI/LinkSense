@@ -22,6 +22,7 @@ import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom"
 
 import { setAccessToken } from "@/api/session"
 import { ApplicationTestHistory } from "@/features/applications/application-test-history"
+import { applicationIconArtwork } from "@/features/applications/application-icon-presets"
 import { writeLocalConversationDraft } from "@/features/conversations/conversation-local-draft"
 import { clearConversationAttachmentPreviewCacheForTests } from "@/features/conversations/conversation-attachment-preview-cache"
 import i18n from "@/i18n"
@@ -227,26 +228,21 @@ describe("archived conversation pagination", () => {
     vi.unstubAllGlobals()
   })
 
-  it("positions the LinkSense credit at the lower-right on desktop and hides it without extra spacing on mobile", async () => {
+  it("omits the attribution mark from new and existing tasks", async () => {
+    const interaction = userEvent.setup()
     renderPrewarmPage()
+    await screen.findByRole("textbox", { name: "任务输入框" })
+    expect(
+      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+    ).not.toBeInTheDocument()
+    await interaction.click(
+      screen.getByRole("button", { name: "测试切换已有任务" })
+    )
 
-    const badge = await screen.findByRole("link", {
-      name: "由 LinkSense 提供支持",
-    })
-    const frame = badge.parentElement
-    expect(frame).toHaveAttribute("data-placement", "conversation")
-    expect(frame).toHaveClass(
-      "justify-self-end",
-      "hidden",
-      "md:flex",
-      "[--attribution-inset:18px]"
-    )
-    expect(badge).not.toHaveClass(
-      "max-md:mr-0",
-      "max-md:justify-self-center",
-      "max-md:mt-3"
-    )
-    expect(frame?.parentElement).toHaveClass("conversation-bottom-stack")
+    await screen.findByRole("textbox", { name: "任务输入框" })
+    expect(
+      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+    ).not.toBeInTheDocument()
   })
 
   it("prewarms again when the empty composer starts another new task", async () => {
@@ -707,11 +703,13 @@ describe("conversation knowledge base snapshots", () => {
       expect(
         header.getByRole("button", { name: i18n.t("common.actions") })
       ).toBeVisible()
+      const shareButton = header.getByRole("button", {
+        name: i18n.t("conversation.share.action"),
+      })
+      expect(shareButton).toBeVisible()
       expect(
-        header.getByRole("button", {
-          name: i18n.t("conversation.share.action"),
-        })
-      ).toBeVisible()
+        shareButton.querySelector("[data-design-icon='share']")
+      ).toHaveClass("size-4")
       await waitFor(() => expect(client.isFetching()).toBe(0))
       if (hidden) {
         expect(
@@ -1009,12 +1007,12 @@ describe("conversation knowledge base snapshots", () => {
 
     const composer = await screen.findByRole("textbox", { name: "任务输入框" })
     expect(
-      screen.getByRole("link", { name: "由 LinkSense 提供支持" })
-    ).toBeVisible()
+      screen.queryByRole("link", { name: "由 LinkSense 提供支持" })
+    ).not.toBeInTheDocument()
     expect(
       await screen.findByRole("button", { name: "移除附件 goal-brief.pdf" })
     ).toBeVisible()
-    await interaction.click(screen.getByRole("button", { name: "添加" }))
+    await interaction.click(screen.getByRole("button", { name: "附件" }))
     await interaction.click(screen.getByRole("option", { name: /目标/ }))
     await interaction.type(composer, objective)
     await interaction.click(screen.getByRole("button", { name: "发送" }))
@@ -1913,7 +1911,9 @@ describe("conversation knowledge base snapshots", () => {
     await interaction.keyboard("{Enter}")
 
     await waitFor(() => expect(turnStartAttempts).toBe(1))
-    expect(await screen.findByText("正在启动任务", { exact: true })).toBeVisible()
+    expect(
+      await screen.findByText("正在启动任务", { exact: true })
+    ).toBeVisible()
     await waitFor(() => expect(eventController).toBeDefined())
     const emitCompaction = (
       method: "item/started" | "item/completed",
@@ -3607,8 +3607,12 @@ describe("conversation knowledge base snapshots", () => {
       if (!applicationIcon) {
         throw new Error("Expected the application logo before the task title")
       }
-      expect(applicationIcon.querySelector("svg")).toBeInTheDocument()
-      expect(applicationIcon.querySelector("svg")).toHaveClass("size-full")
+      expect(applicationIcon.querySelector("img")).toHaveAttribute(
+        "src",
+        applicationIconArtwork.bot
+      )
+      expect(applicationIcon.querySelector("img")).toHaveClass("size-full")
+      expect(applicationIcon.querySelector("img")).toHaveAttribute("alt", "")
       expect(
         applicationIcon.compareDocumentPosition(taskTitle) &
           Node.DOCUMENT_POSITION_FOLLOWING

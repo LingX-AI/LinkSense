@@ -1,3 +1,4 @@
+import { settleCancelledAutomationPending } from "../automations/monitoring.js";
 import { Prisma } from "../../generated/prisma/client.js";
 import { isLocale, loginMethodSchema } from "@linksense/shared";
 import type {
@@ -945,6 +946,7 @@ async function cancelPendingRequests(
     requestsByConversation.set(pending.conversationId, items);
   }
   for (const [conversationId, pending] of requestsByConversation) {
+    for (const request of pending) await settleCancelledAutomationPending(transaction, request, "USER_DISABLED");
     const pendingIds = pending.map((item) => item.id);
     await transaction.conversationFile.updateMany({
       where: { pendingRequestId: { in: pendingIds }, turnId: null },

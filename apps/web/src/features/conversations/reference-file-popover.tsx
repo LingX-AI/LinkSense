@@ -181,7 +181,7 @@ export function ReferenceFilePopover({
         side="top"
         align="start"
         sideOffset={4}
-        className="capability-popover capability-picker-popover max-h-[min(70vh,680px)] gap-2 overflow-hidden"
+        className="capability-popover capability-picker-popover max-h-[min(70vh,680px)] gap-2 overflow-hidden rounded-xl"
       >
         <PopoverHeader className="sr-only">
           <PopoverTitle>{t("conversation.referenceFile.title")}</PopoverTitle>

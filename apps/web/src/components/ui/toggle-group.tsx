@@ -10,12 +10,10 @@ import { toggleVariants } from "@/components/ui/toggle"
 
 const ToggleGroupContext = React.createContext<
   VariantProps<typeof toggleVariants> & {
-    appearance?: "default" | "segmented"
     spacing?: number
     orientation?: "horizontal" | "vertical"
   }
 >({
-  appearance: "default",
   size: "default",
   variant: "default",
   spacing: 2,
@@ -24,7 +22,6 @@ const ToggleGroupContext = React.createContext<
 
 function ToggleGroup({
   className,
-  appearance = "default",
   variant,
   size,
   spacing = 2,
@@ -33,14 +30,12 @@ function ToggleGroup({
   ...props
 }: ToggleGroupPrimitive.Props &
   VariantProps<typeof toggleVariants> & {
-    appearance?: "default" | "segmented"
     spacing?: number
     orientation?: "horizontal" | "vertical"
   }) {
   return (
     <ToggleGroupPrimitive
       data-slot="toggle-group"
-      data-appearance={appearance}
       data-variant={variant}
       data-size={size}
       data-spacing={spacing}
@@ -48,13 +43,12 @@ function ToggleGroup({
       style={{ "--gap": spacing } as React.CSSProperties}
       className={cn(
         "group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] data-[spacing=0]:data-[variant=outline]:rounded-2xl data-vertical:flex-col data-vertical:items-stretch",
-        appearance === "segmented" && "gap-0 rounded-lg bg-muted/50 p-0.5",
         className
       )}
       {...props}
     >
       <ToggleGroupContext.Provider
-        value={{ appearance, variant, size, spacing, orientation }}
+        value={{ variant, size, spacing, orientation }}
       >
         {children}
       </ToggleGroupContext.Provider>
@@ -83,8 +77,6 @@ function ToggleGroupItem({
           variant: context.variant || variant,
           size: context.size || size,
         }),
-        context.appearance === "segmented" &&
-          "rounded-md px-2.5 text-muted-foreground hover:bg-background/60 data-pressed:bg-background data-pressed:text-foreground data-pressed:shadow-sm",
         className
       )}
       {...props}

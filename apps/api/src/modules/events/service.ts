@@ -39,6 +39,7 @@ import {
 } from "../../adapters/redis.js";
 import { AppError } from "../../lib/errors.js";
 import { truncateConversationTitle } from "../../lib/conversation-title.js";
+import { settleMonitoringStop, settleMonitoringRunStop } from "../automations/monitoring.js";
 import type { ConversationService } from "../conversations/service.js";
 import { projectKnowledgeCitations } from "./knowledge-citations.js";
 import { createProjectedAssistantMessage } from "./knowledge-message-projection.js";
@@ -573,6 +574,7 @@ export class ConversationEventService {
         });
         becameTerminal = update.count === 1;
         if (becameTerminal) {
+          if (terminalStatus !== "completed") await settleMonitoringStop(tx, conversationId, turn);
           await tx.conversationUserInputRequest.updateMany({
             where: {
               turnId: turn.id,
@@ -1141,6 +1143,7 @@ export class ConversationEventService {
           });
           becameTerminal = update.count === 1;
           if (becameTerminal) {
+            if (terminalStatus !== "completed") await settleMonitoringStop(tx, conversationId, turn);
             await tx.conversationUserInputRequest.updateMany({
               where: {
                 turnId: turn.id,
@@ -1994,10 +1997,11 @@ export class ConversationEventService {
         completedAt: null,
         OR: identity,
       },
-      select: { id: true, automationId: true },
+      select: { id: true, automationId: true, executionContextJson: true },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
     if (!run) return "not_automation";
+    if (run.executionContextJson) await settleMonitoringRunStop(tx, run);
 
     const [assistantMessages, artifact] = await Promise.all([
       tx.conversationMessage.findMany({
@@ -2340,6 +2344,7 @@ export class ConversationEventService {
         status === "completed" &&
         !options.nativePlanOutputPresent &&
         (await this.isPlanOutputMissing(tx, conversationId, turn));
+      if (status !== "completed") await settleMonitoringStop(tx, conversationId, turn);
       const automationOutcome =
         status === "completed"
           ? await this.settleCompletedAutomationRun(

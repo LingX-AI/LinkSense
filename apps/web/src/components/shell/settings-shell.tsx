@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type ElementType } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useSearchShortcut } from "@/lib/use-search-shortcut"
+import { DesignIcon, type DesignIconName } from "@/components/ui/design-icon"
+import { SearchShortcut } from "@/components/ui/search-shortcut"
 import {
   ArrowLeftIcon,
-  ArchiveIcon,
   BotIcon,
-  BookOpenCheckIcon,
   BrainIcon,
   ChartNoAxesCombinedIcon,
   FileKey2Icon,
@@ -14,7 +15,6 @@ import {
   PanelLeftIcon,
   PlugIcon,
   RefreshCwIcon,
-  SearchIcon,
   ServerCogIcon,
   Settings2Icon,
   ShieldCheckIcon,
@@ -23,6 +23,7 @@ import {
   UserRoundIcon,
   UserRoundCogIcon,
   UsersRoundIcon,
+  type LucideIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { NavLink, Outlet, useLocation } from "react-router-dom"
@@ -31,6 +32,7 @@ import { useAuth } from "@/app/auth-state"
 import { useProductName } from "@/app/product-branding"
 import { PoweredByLinkSense } from "@/components/brand/powered-by-linksense"
 import { ProductLogo } from "@/components/brand/product-logo"
+import { PageTopBar } from "@/components/shell/page-top-bar"
 import {
   resolveSettingsReturn,
   type SettingsReturnState,
@@ -53,7 +55,7 @@ type SettingsNavigationItem = {
   activePaths?: readonly string[]
   labelKey: string
   descriptionKey: string
-  icon: ElementType
+  icon: LucideIcon | DesignIconName
 }
 
 const personalSettingsItems: SettingsNavigationItem[] = [
@@ -115,7 +117,7 @@ const personalSettingsItems: SettingsNavigationItem[] = [
     to: "/archived",
     labelKey: "nav.archived",
     descriptionKey: "settings.archivedDescription",
-    icon: ArchiveIcon,
+    icon: "archive",
   },
   {
     to: "/settings/feedback",
@@ -143,7 +145,7 @@ const administratorItems: SettingsNavigationItem[] = [
     to: "/admin/capabilities",
     labelKey: "nav.adminCapabilities",
     descriptionKey: "settings.adminCapabilitiesDescription",
-    icon: ShieldCheckIcon,
+    icon: "plugins",
   },
   {
     to: "/admin/connectors",
@@ -156,7 +158,7 @@ const administratorItems: SettingsNavigationItem[] = [
     activePaths: ["/admin/knowledge-bases", "/admin/knowledge-sources"],
     labelKey: "nav.adminKnowledgeBases",
     descriptionKey: "settings.adminKnowledgeBasesDescription",
-    icon: BookOpenCheckIcon,
+    icon: "library",
   },
   {
     to: "/admin/models",
@@ -215,6 +217,21 @@ export function SettingsShell() {
   const location = useLocation()
   const [search, setSearch] = useState("")
   const [mobileOpen, setMobileOpen] = useState(false)
+  const focusSearchRequestedRef = useRef(false)
+  const focusSearch = () => {
+    const input = Array.from(
+      document.querySelectorAll<HTMLInputElement>(
+        ".settings-search-field input"
+      )
+    ).find((element) => element.getClientRects().length > 0)
+    input?.focus()
+    return Boolean(input)
+  }
+  useSearchShortcut(() => {
+    if (focusSearch()) return
+    focusSearchRequestedRef.current = true
+    setMobileOpen(true)
+  })
   const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null)
   const mainRef = useRef<HTMLElement>(null)
   const normalizedSearch = search.trim().toLocaleLowerCase()
@@ -255,22 +272,32 @@ export function SettingsShell() {
   const navigation = (
     <div className="settings-navigation-body">
       <div className="settings-navigation-header">
+        <div className="-mx-4 hidden h-(--conversation-top-bar-height) items-center border-b border-border px-4 md:flex">
+          <ProductLogo
+            productName={productName}
+            className="sidebar-brand-logo min-w-0"
+          />
+        </div>
         <NavLink
           to={appReturnTo}
-          className="settings-back-link font-semibold max-md:mr-10"
+          className="settings-back-link font-normal max-md:mr-10"
         >
           <ArrowLeftIcon aria-hidden="true" />
           <span>{t("settings.backToApp", { productName })}</span>
         </NavLink>
         <div className="settings-search-field">
-          <SearchIcon aria-hidden="true" />
+          <DesignIcon name="search" />
           <Input
             aria-label={t("settings.search")}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t("settings.search")}
-            className="font-medium"
+            aria-keyshortcuts="Meta+K Control+K"
+            className="font-normal"
           />
+          <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
+            <SearchShortcut />
+          </div>
         </div>
       </div>
       <div className="settings-navigation-scroll">
@@ -310,7 +337,7 @@ export function SettingsShell() {
           <div className="settings-mobile-header">
             <NavLink
               to={appReturnTo}
-              className="settings-back-link font-semibold"
+              className="settings-back-link font-normal"
             >
               <ArrowLeftIcon aria-hidden="true" />
               <ProductLogo
@@ -338,6 +365,13 @@ export function SettingsShell() {
         </aside>
         <SheetContent
           side="left"
+          initialFocus={() => {
+            if (!focusSearchRequestedRef.current) return true
+            focusSearchRequestedRef.current = false
+            return document.querySelector<HTMLInputElement>(
+              '[data-slot="sheet-content"] .settings-search-field input'
+            )
+          }}
           closeLabel={t("common.close")}
           finalFocus={() =>
             window.matchMedia(desktopViewportQuery).matches
@@ -356,9 +390,18 @@ export function SettingsShell() {
         </SheetContent>
       </Sheet>
       <div className="shell-content @container/shell-content relative flex min-h-0 min-w-0 flex-col">
+        <PageTopBar
+          title={t(
+            location.pathname.startsWith("/admin/")
+              ? "settings.administrationGroup"
+              : "settingsInterface.title",
+            { productName }
+          )}
+          className="hidden md:flex"
+        />
         <main
           ref={mainRef}
-          className="settings-main min-h-0 flex-1"
+          className="settings-main min-h-0 flex-1 [scrollbar-gutter:stable]"
           id="main-content"
           tabIndex={0}
         >
@@ -398,7 +441,7 @@ function SettingsNavigationGroup({
   if (items.length === 0) return null
   return (
     <section className="settings-navigation-group">
-      <h2 className="font-semibold">{title}</h2>
+      <h2 className="font-normal">{title}</h2>
       <nav aria-label={title}>
         {items.map(({ to, activePaths, labelKey, icon: Icon }) => (
           <NavLink
@@ -408,13 +451,17 @@ function SettingsNavigationGroup({
             onClick={onNavigate}
             className={({ isActive }) =>
               cn(
-                "settings-navigation-link font-medium",
+                "settings-navigation-link font-normal",
                 (isActive || activePaths?.includes(currentPath)) &&
                   "settings-navigation-link-active"
               )
             }
           >
-            <Icon aria-hidden="true" />
+            {typeof Icon === "string" ? (
+              <DesignIcon name={Icon} />
+            ) : (
+              <Icon strokeWidth={2} aria-hidden="true" />
+            )}
             <span className="min-w-0 truncate">{t(labelKey)}</span>
           </NavLink>
         ))}

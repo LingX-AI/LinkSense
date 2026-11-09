@@ -2,6 +2,8 @@ import type { Locale } from "@linksense/shared";
 
 export const supplementalBackendMessages = {
   "zh-CN": {
+    "automationNotifications.completed": "定时任务“{{title}}”已完成。\n结果摘要：{{summary}}\n请在 LinkSense 查看完整结果。",
+    "automationNotifications.failed": "定时任务“{{title}}”执行失败，请在 LinkSense 查看详情。",
     "conversation.untitled": "未命名任务",
     "audit.export.createdAt": "创建时间",
     "audit.export.actorId": "操作人 ID",
@@ -53,6 +55,8 @@ export const supplementalBackendMessages = {
     "applicationTemplate.submitFailed": "提交失败，请先查看任务面板再重试。"
   },
   "en-US": {
+    "automationNotifications.completed": "Scheduled task “{{title}}” completed.\nSummary: {{summary}}\nView the full result in LinkSense.",
+    "automationNotifications.failed": "Scheduled task “{{title}}” failed. Check LinkSense for details.",
     "conversation.untitled": "Untitled task",
     "audit.export.createdAt": "Created At",
     "audit.export.actorId": "Actor ID",
@@ -104,6 +108,8 @@ export const supplementalBackendMessages = {
     "applicationTemplate.submitFailed": "Submission failed. Check the task panel before trying again."
   },
   "es-ES": {
+    "automationNotifications.completed": "La tarea programada «{{title}}» finalizó.\nResumen: {{summary}}\nConsulta el resultado completo en LinkSense.",
+    "automationNotifications.failed": "La tarea programada «{{title}}» falló. Consulta los detalles en LinkSense.",
     "conversation.untitled": "Tarea sin título",
     "audit.export.createdAt": "Fecha de creación",
     "audit.export.actorId": "ID del usuario",
@@ -155,6 +161,8 @@ export const supplementalBackendMessages = {
     "applicationTemplate.submitFailed": "El envío falló. Consulta el panel de tareas antes de reintentarlo."
   },
   "pt-BR": {
+    "automationNotifications.completed": "A tarefa agendada “{{title}}” foi concluída.\nResumo: {{summary}}\nVeja o resultado completo no LinkSense.",
+    "automationNotifications.failed": "A tarefa agendada “{{title}}” falhou. Veja os detalhes no LinkSense.",
     "conversation.untitled": "Tarefa sem título",
     "audit.export.createdAt": "Data de criação",
     "audit.export.actorId": "ID do autor da ação",
@@ -206,6 +214,8 @@ export const supplementalBackendMessages = {
     "applicationTemplate.submitFailed": "O envio falhou. Verifique o painel de tarefas antes de tentar novamente."
   },
   "fr-FR": {
+    "automationNotifications.completed": "La tâche planifiée « {{title}} » est terminée.\nRésumé : {{summary}}\nConsultez le résultat complet dans LinkSense.",
+    "automationNotifications.failed": "La tâche planifiée « {{title}} » a échoué. Consultez les détails dans LinkSense.",
     "conversation.untitled": "Tâche sans titre",
     "audit.export.createdAt": "Date de création",
     "audit.export.actorId": "ID de l’auteur",
@@ -257,6 +267,8 @@ export const supplementalBackendMessages = {
     "applicationTemplate.submitFailed": "L’envoi a échoué. Consultez le panneau de la tâche avant de réessayer."
   },
   "ja-JP": {
+    "automationNotifications.completed": "定期タスク「{{title}}」が完了しました。\n要約：{{summary}}\n結果の全文は LinkSense で確認してください。",
+    "automationNotifications.failed": "定期タスク「{{title}}」に失敗しました。詳細は LinkSense で確認してください。",
     "conversation.untitled": "無題のタスク",
     "audit.export.createdAt": "作成日時",
     "audit.export.actorId": "操作ユーザー ID",

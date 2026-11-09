@@ -13,9 +13,9 @@ describe("Button", () => {
         </Button>
       )
       expect(screen.getByRole("button", { name: "Annotate" })).toHaveClass(
-        "bg-[var(--app-selection)]",
-        "text-white",
-        "hover:bg-[color-mix(in_srgb,var(--app-selection)_88%,var(--app-text))]"
+        "bg-primary-action",
+        "text-primary-foreground",
+        "hover:bg-primary-hover"
       )
     }
   )
@@ -47,7 +47,7 @@ describe("Button", () => {
     expect(screen.getByRole("button", { name: "Delete" })).toHaveClass(
       "bg-destructive",
       "text-destructive-foreground",
-      "hover:bg-destructive/90"
+      "hover:bg-destructive-hover"
     )
   })
 
@@ -56,7 +56,7 @@ describe("Button", () => {
 
     expect(screen.getByRole("button", { name: "Clear all" })).toHaveClass(
       "bg-destructive/10",
-      "text-destructive",
+      "text-destructive-text",
       "hover:bg-destructive/15"
     )
   })

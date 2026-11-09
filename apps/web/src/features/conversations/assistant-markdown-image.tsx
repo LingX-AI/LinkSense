@@ -210,24 +210,38 @@ export function AssistantMarkdownImage({
       return
 
     let active = true
-    // Only mount and decode an image after its surface approaches the viewport.
-    // The placeholder remains in the same grid cell until decoding finishes.
-    void image.decode().then(
-      () => {
-        if (!active) return
-        const request = getFreshPreviewRequest(loadPreview, fileKey)
-        if (request?.source?.url === previewSource.url) request.decoded = true
-        setDecoded({ fileKey, loader: loadPreview, source: previewSource })
-      },
-      () => {
-        if (!active) return
-        invalidatePreviewRequest(loadPreview, fileKey)
-        setDecoded(null)
-        setState({ status: "error", requestKey, loader: loadPreview })
-      }
-    )
+    let decodedAfterLoad = false
+    // Only mount and decode images near the viewport. A pending native lazy
+    // request may still need its load event before decoding can finish.
+    const decodeImage = () => {
+      void image.decode().then(
+        () => {
+          if (!active) return
+          const request = getFreshPreviewRequest(loadPreview, fileKey)
+          if (request?.source?.url === previewSource.url) request.decoded = true
+          setDecoded({ fileKey, loader: loadPreview, source: previewSource })
+        },
+        () => {
+          if (!active) return
+          // A lazy request can reject decode before the browser selects its source.
+          if (!image.complete && !decodedAfterLoad) {
+            image.addEventListener("load", decodeLoadedImage, { once: true })
+            return
+          }
+          invalidatePreviewRequest(loadPreview, fileKey)
+          setDecoded(null)
+          setState({ status: "error", requestKey, loader: loadPreview })
+        }
+      )
+    }
+    const decodeLoadedImage = () => {
+      decodedAfterLoad = true
+      decodeImage()
+    }
+    decodeImage()
     return () => {
       active = false
+      image.removeEventListener("load", decodeLoadedImage)
     }
   }, [fileKey, loadPreview, previewSource, requestKey, retainedSource, visible])
 

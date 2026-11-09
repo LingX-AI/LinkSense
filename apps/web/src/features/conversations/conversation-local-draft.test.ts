@@ -145,3 +145,31 @@ describe("local conversation drafts", () => {
     ).not.toThrow()
   })
 })
+it("retains explicit task references without invalidating older drafts", () => {
+  const storage = memoryStorage()
+  const reference = {
+    id: "11111111-1111-4111-8111-111111111111",
+    title: "Research",
+  }
+  writeLocalConversationDraft(storage, "reference-test", "task", {
+    input: "Compare",
+    capabilityIds: [],
+    knowledgeBaseIds: [],
+    taskReferences: [reference],
+  })
+  expect(
+    readLocalConversationDraft(storage, "reference-test", "task").taskReferences
+  ).toEqual([reference])
+  writeLocalConversationDraft(storage, "reference-test", "old-task", {
+    input: "Old draft",
+    capabilityIds: [],
+    knowledgeBaseIds: [],
+  })
+  expect(
+    readLocalConversationDraft(storage, "reference-test", "old-task").input
+  ).toBe("Old draft")
+  storage.removeItem(localConversationDraftStorageKey("reference-test", "task"))
+  storage.removeItem(
+    localConversationDraftStorageKey("reference-test", "old-task")
+  )
+})

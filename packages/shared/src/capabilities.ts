@@ -10,6 +10,7 @@ import {
 
 export const builtInSkillNames = [
   "linksense-browser",
+  "linksense-local-browser",
   "linksense-document-reader",
   "linksense-docs",
   "linksense-file-service",
@@ -76,10 +77,11 @@ export function builtInCapabilityDefinitionForId(id: string) {
   );
 }
 
-export const builtInCapabilityIdSchema = z.custom<BuiltInCapabilityId>(
-  (value) => typeof value === "string" && isBuiltInCapabilityId(value),
-  { message: "invalid_builtin_capability_id" },
-);
+export const builtInCapabilityIdSchema =
+  z.custom<BuiltInCapabilityId>(
+    (value) => typeof value === "string" && isBuiltInCapabilityId(value),
+    { message: "invalid_builtin_capability_id" },
+  );
 
 export const capabilitySelectionIdSchema = z.union([
   uuidSchema,

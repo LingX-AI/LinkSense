@@ -35,8 +35,9 @@ Docker Desktop and use the current account **without sudo**. Its VM must report
 at least 8 GiB usable memory for Core or 24 GiB for a new Full installation;
 leave overhead above those thresholds. A 16 GiB Mac should start with Core.
 
-Linux x86_64/ARM64 and macOS Intel/Apple Silicon are supported. The released
-installer requires a local Docker Unix socket, Engine API 1.45+, and Compose
+Linux x86_64/ARM64 and macOS Intel/Apple Silicon are supported. Mirror-enabled
+installers also require `script` (included in macOS; util-linux on Linux).
+The released installer requires a local Docker Unix socket, Engine API 1.45+, and Compose
 2.24.4+ (private client/Compose adaptation is described in the host guide).
 If Docker is absent, stopped, or inaccessible, report that prerequisite rather
 than claiming installation succeeded. For unsupported hosts, report the limit.
@@ -60,7 +61,7 @@ directory. The example uses Core:
 
 ```sh
 setup_dir=$(mktemp -d)
-curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 \
+curl --http1.1 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 --speed-limit 1024 --speed-time 30 \
   -fsSL -o "$setup_dir/install-core.sh" \
   https://raw.githubusercontent.com/LingX-AI/linksense/main/install-core.sh
 ```
@@ -82,12 +83,43 @@ executing its installer. If a previously downloaded bootstrap rejects the flag w
 remain unchanged; use the current bootstrap for this check. See the
 [network guide](deploy/release/HOST-ADAPTATION.md#network-and-proxies) for manual checks.
 Linux diagnostics can run without root when the account can access Docker.
-Checks verify the release manifest checksum and pull its BusyBox and API images,
-covering the actual external and application registries. If metadata validation
-fails, the check remains failed and only a Docker Hub probe continues. They do not
+Checks verify the release manifest checksum and pull its BusyBox and API images.
+These are representative checks, not a test of every Core or Full dependency.
+If metadata validation fails, only a Docker Hub probe continues and the overall
+check still fails. The checks do not
 start containers or create installation state. Image pulls may populate a sizeable
 local cache. Terminal curl and Docker Engine
 proxies are configured separately. Never infer one channel works from the other.
+
+### If downloads or image pulls are slow or blocked
+
+- Check from the **installation host**, not from another machine. Check whether
+  `https_proxy` / `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` are already set without
+  printing their values. Check the existing system proxy and loopback listeners
+  (`lsof` on macOS, `ss` on Linux), including common ports such as 7890, 10809 or
+  10808. Confirm the listener and protocol with a short HTTPS request to the
+  official source before using it. Use `http://` for an HTTP proxy or `socks5h://`
+  for SOCKS5 with remote DNS. Scope the proxy to the download command.
+- If GitHub files download but Docker pulls fail, check Docker Engine's own proxy
+  and run `--check-network`. A mirror-enabled release tries `ghcr.io` first for
+  LinkSense images, then ranks `ghcr.nju.edu.cn` and `ghcr.dockerproxy.net` from
+  that host and tries the same pinned digest. This includes service images
+  published by LinkSense on GHCR. A manifest response is not proof
+  that the image layers can be downloaded. Confirm actual Docker pull success.
+- If neither mirror works, look up other maintained, trusted HTTPS registry
+  mirrors. Confirm the registry and optional repository prefix, and verify the
+  exact release digest through an actual pull. Pass the mapping for the selected
+  installer through `LINKSENSE_IMAGE_MIRRORS` as shown in the
+  [mirror configuration](deploy/release/HOST-ADAPTATION.md#registry-mirrors-for-release-images).
+  For Docker Hub, Quay, or other dependencies, use the corresponding origin in
+  the mapping or a working Engine proxy. Never substitute `latest`, change the
+  manifest digest, disable TLS, or send upstream credentials to a mirror.
+- Older released installers do not gain mirror support by downloading a new
+  bootstrap. For those releases use an existing working Docker Engine proxy or
+  request approval for proxy configuration. Do not change global Docker settings
+  or restart Docker without approval. If every trusted route fails, report the
+  failed image, registry, and whether the problem is the terminal or Docker
+  Engine; ask the user for a working proxy or trusted mirror and repository prefix.
 
 After prerequisites pass, execute the selected installer:
 

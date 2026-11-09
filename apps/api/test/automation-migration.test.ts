@@ -12,6 +12,12 @@ const expirationMigrationUrl = new URL(
 );
 
 describe("automation migration", () => {
+  it("keeps monitoring optional and retains existing scheduling constraints", async () => {
+    const sql = await readFile(new URL("../../../prisma/migrations/20261023100000_add_automation_monitoring/migration.sql", import.meta.url), "utf8");
+    expect(sql).toContain('ALTER TABLE "automations" ADD COLUMN "monitoring_json" JSONB');
+    expect(sql).toContain('ALTER TABLE "automation_runs" ADD COLUMN "execution_context_json" JSONB');
+    expect(sql).not.toMatch(/\b(?:DROP|TRUNCATE|DELETE|UPDATE|NOT\s+NULL|REFERENCES)\b/iu);
+  });
   it("is additive, foreign-key free, and constrains every schedule shape", async () => {
     const sql = await readFile(migrationUrl, "utf8");
 

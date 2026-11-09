@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url"
 export const installerTestFiles = [
   "scripts/installer-entrypoints.test.mjs",
   "scripts/installer-host.test.mjs",
+  "scripts/installer-image-pull.test.mjs",
   "scripts/installer-runtime-regressions.test.mjs",
   "scripts/release-installation-smoke.test.mjs",
   "scripts/installer-platform-tests.test.mjs",

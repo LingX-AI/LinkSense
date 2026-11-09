@@ -54,6 +54,7 @@ export function TimePicker({
               size={size === "sm" ? "default" : "lg"}
               className={cn(
                 "w-full justify-between px-3 font-normal focus-visible:ring-0",
+                size === "sm" && "h-9",
                 size === "default" && "rounded-xl"
               )}
               aria-expanded={open}

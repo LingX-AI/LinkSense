@@ -108,6 +108,7 @@ describe("parallel side chat", () => {
     const mainComposer = await screen.findByRole("textbox", {
       name: "任务输入框",
     })
+    const banner = await screen.findByRole("banner")
     await waitFor(() => expect(mainComposer).toHaveValue("主任务原有草稿"))
     const quote = await screen.findByText("主任务里的引用段落。")
     act(() => {
@@ -119,7 +120,7 @@ describe("parallel side chat", () => {
     await interaction.click(
       await screen.findByRole("button", { name: "旁边问这段" })
     )
-    const panel = await screen.findByRole("complementary", { name: "旁聊" })
+    let panel = await screen.findByRole("complementary", { name: "旁聊" })
     expect(await within(panel).findByText("旁聊结论，可带回。")).toBeVisible()
     expect(
       within(panel).queryByRole("heading", { level: 1 })
@@ -137,6 +138,26 @@ describe("parallel side chat", () => {
       name: "任务输入框",
     })
     await interaction.type(sideComposer, "旁聊未发送的草稿")
+    await interaction.click(
+      within(banner).getByRole("button", {
+        name: "打开任务概览",
+      })
+    )
+    expect(
+      await screen.findByRole("region", { name: "任务概览" })
+    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("complementary", { name: "旁聊" })
+      ).not.toBeInTheDocument()
+    )
+    await interaction.click(screen.getByRole("button", { name: "打开旁聊" }))
+    panel = await screen.findByRole("complementary", { name: "旁聊" })
+    await waitFor(() =>
+      expect(
+        within(panel).getByRole("textbox", { name: "任务输入框" })
+      ).toHaveValue("旁聊未发送的草稿")
+    )
     await interaction.click(
       within(panel).getByRole("button", { name: "带回主任务输入框" })
     )

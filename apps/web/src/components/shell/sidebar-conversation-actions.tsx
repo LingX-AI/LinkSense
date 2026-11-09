@@ -1,10 +1,13 @@
-import { ArchiveIcon, FolderInputIcon, MoreHorizontalIcon } from "lucide-react"
-import { useEffect, useId } from "react"
-import { TbPin, TbPinFilled } from "react-icons/tb"
+import { useEffect, useId, useRef } from "react"
+import { TbPinFilled } from "react-icons/tb"
 import { useTranslation } from "react-i18next"
 import type { Project } from "@linksense/shared"
 
 import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
+import { HeaderIcon } from "@/components/ui/header-icon-button"
+import { SidebarActionIcon } from "./sidebar-action-icon"
+import { SidebarMoreIcon } from "./sidebar-more-icon"
 import { ProjectIcon } from "@/features/projects/project-icon"
 import {
   DropdownMenuContent,
@@ -20,9 +23,9 @@ import { useSidebarConversationOverlays } from "./sidebar-conversation-overlays-
 
 const tooltipHoverDelay = 300
 const actionButtonClassName =
-  "w-5 text-[var(--app-muted)] transition-none hover:bg-transparent hover:text-[var(--app-text)] aria-expanded:bg-transparent dark:hover:bg-transparent"
+  "text-[var(--app-sidebar-action)] transition-none hover:bg-transparent hover:text-[var(--app-text)] aria-expanded:bg-transparent aria-expanded:text-[var(--app-text)] dark:hover:bg-transparent"
 
-export type SidebarConversationActionsProps = {
+type SidebarConversationActionsProps = {
   title: string
   pinned: boolean
   pinDisabled: boolean
@@ -35,11 +38,16 @@ export type SidebarConversationActionsProps = {
   onMoveToProject?: (projectId: string | null) => void
 }
 
+export type SidebarConversationMenuPayload = SidebarConversationActionsProps & {
+  anchor: () => HTMLElement | null
+}
+
 export function SidebarConversationActions(
   props: SidebarConversationActionsProps
 ) {
   const { t } = useTranslation()
   const handles = useSidebarConversationOverlays()
+  const actionsRef = useRef<HTMLDivElement>(null)
   const archiveTriggerId = useId()
   const { tooltip, tooltipTriggerId } = handles
   useEffect(
@@ -51,7 +59,8 @@ export function SidebarConversationActions(
   const { title, archiveDisabled, onArchive } = props
   return (
     <div
-      className="sidebar-conversation-actions pointer-events-none absolute top-1/2 right-1 flex -translate-y-1/2 cursor-default items-center gap-1 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100 has-data-[popup-open]:pointer-events-auto has-data-[popup-open]:opacity-100"
+      ref={actionsRef}
+      className="sidebar-conversation-actions pointer-events-none absolute top-1/2 right-1 flex -translate-y-1/2 cursor-default items-center opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100 has-data-[popup-open]:pointer-events-auto has-data-[popup-open]:opacity-100"
       onPointerDown={(event) => event.stopPropagation()}
     >
       <TooltipTrigger
@@ -63,7 +72,7 @@ export function SidebarConversationActions(
           <Button
             type="button"
             variant="ghost"
-            size="icon-xs"
+            size="icon-sm"
             className={actionButtonClassName}
             aria-label={t("conversation.archiveNamed", { title })}
             disabled={archiveDisabled}
@@ -71,32 +80,34 @@ export function SidebarConversationActions(
           />
         }
       >
-        <ArchiveIcon className="size-3.5" strokeWidth={2} aria-hidden="true" />
+        <SidebarActionIcon>
+          <HeaderIcon name="archive" className="size-4" />
+        </SidebarActionIcon>
       </TooltipTrigger>
       <DropdownMenuTrigger
         handle={handles.menu}
-        payload={props}
+        payload={{
+          ...props,
+          anchor: () => actionsRef.current?.parentElement ?? null,
+        }}
         render={
           <Button
             type="button"
             variant="ghost"
-            size="icon-xs"
+            size="icon-sm"
             className={actionButtonClassName}
             aria-label={t("common.moreActionsNamed", { name: title })}
           />
         }
       >
-        <MoreHorizontalIcon
-          className="size-3.5"
-          strokeWidth={2}
-          aria-hidden="true"
-        />
+        <SidebarMoreIcon />
       </DropdownMenuTrigger>
     </div>
   )
 }
 
 export function SidebarConversationMenu({
+  anchor,
   pinned,
   pinDisabled,
   moveDisabled = false,
@@ -104,22 +115,30 @@ export function SidebarConversationMenu({
   currentProjectId = null,
   onTogglePinned,
   onMoveToProject,
-}: SidebarConversationActionsProps) {
+}: SidebarConversationMenuPayload) {
   const { t } = useTranslation()
   const pinLabel = t(pinned ? "conversation.unpin" : "conversation.pin")
 
   return (
-    <DropdownMenuContent align="start" className="w-max min-w-40">
+    <DropdownMenuContent
+      anchor={anchor}
+      side="right"
+      sideOffset={8}
+      align="start"
+      className="w-55 p-2 [&_[data-slot=dropdown-menu-item]]:min-h-8 [&_[data-slot=dropdown-menu-item]]:font-normal"
+    >
       <DropdownMenuGroup>
         {onMoveToProject && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger disabled={moveDisabled}>
-              <FolderInputIcon strokeWidth={2} aria-hidden="true" />
+              <DesignIcon name="move-project" />
               {t("projects.move")}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent
               side="right"
-              className="max-w-[min(18rem,calc(100vw-2rem))] min-w-40"
+              sideOffset={16}
+              alignOffset={-8}
+              className="w-55 max-w-[calc(100vw-2rem)] p-2"
             >
               <DropdownMenuGroup>
                 <DropdownMenuItem
@@ -152,12 +171,7 @@ export function SidebarConversationMenu({
               aria-hidden="true"
             />
           ) : (
-            <TbPin
-              className="size-4"
-              data-icon="sidebar-pin"
-              strokeWidth={2}
-              aria-hidden="true"
-            />
+            <DesignIcon name="pin" />
           )}
           {pinLabel}
         </DropdownMenuItem>

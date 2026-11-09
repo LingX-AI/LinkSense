@@ -300,7 +300,7 @@ describe("runner health", () => {
     });
   });
 
-  it("accepts only the exact built-in Skill identity as a priority", () => {
+  it.each(["linksense-browser", "linksense-local-browser"])("accepts only the exact persisted built-in Skill identity %s as a priority", (name) => {
     const body = {
       ownerId: "01900000-0000-7000-8000-000000000002",
       projectionTurnId: "01900000-0000-7000-8000-000000000099",
@@ -314,8 +314,8 @@ describe("runner health", () => {
         priorityPlugins: [],
         prioritySkills: [
           {
-            id: "builtin:capability:linksense-browser",
-            name: "linksense-browser",
+            id: `builtin:capability:${name}`,
+            name,
             description: null,
           },
         ],

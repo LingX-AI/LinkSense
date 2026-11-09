@@ -17,13 +17,6 @@ import { notify } from "@/components/feedback/notification"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import {
   Combobox,
   ComboboxContent,
   ComboboxEmpty,
@@ -88,7 +81,7 @@ export function ApplicationSetupDialog({
         if (!open && !pending) onClose()
       }}
     >
-      <DialogContent className="flex max-h-[85dvh] flex-col sm:max-w-3xl">
+      <DialogContent variant="workspace" className="flex flex-col">
         <DialogHeader>
           <DialogTitle>{t("applicationSetup.title")}</DialogTitle>
           <DialogDescription className="wrap-anywhere">
@@ -152,7 +145,7 @@ export function ApplicationSetupDialog({
                   </p>
                 </section>
               )}
-              <ol className="flex min-w-0 flex-col gap-3">
+              <ol className="flex min-w-0 flex-col">
                 {guide.items.map((item) => {
                   const typeName = t(`applicationSetup.types.${item.type}`)
                   const name =
@@ -164,75 +157,76 @@ export function ApplicationSetupDialog({
                           number: item.position + 1,
                         }))
                   return (
-                    <li key={`${item.type}:${item.id}`}>
-                      <Card size="sm">
-                        <CardHeader>
-                          <CardTitle className="flex flex-wrap items-center gap-2">
-                            {item.status === "configured" && (
-                              <CircleCheckIcon
-                                aria-hidden="true"
-                                className="size-4 shrink-0 text-success"
-                              />
-                            )}
-                            <span className="min-w-0 flex-1 wrap-anywhere">
-                              {name}
-                            </span>
-                            <Badge variant="outline">
-                              {t("applicationSetup.required")}
-                            </Badge>
-                            <Badge
-                              variant={
-                                item.status === "configured"
-                                  ? "secondary"
-                                  : "outline"
-                              }
-                            >
-                              {t(`applicationSetup.statuses.${item.status}`)}
-                            </Badge>
-                          </CardTitle>
-                          <CardDescription className="wrap-anywhere">
-                            {item.type === "model"
-                              ? t("applicationSetup.modelHelp")
-                              : item.description ||
-                                t(`applicationSetup.purposes.${item.type}`)}
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          {item.type === "model" ? (
-                            <ApplicationSetupModelField
-                              guide={guide}
-                              disabled={blocked}
-                              onChange={(input) => saveModel.mutate(input)}
-                            />
-                          ) : (
-                            <SetupResourceField
-                              item={item}
-                              type={item.type}
-                              name={name}
-                              disabled={blocked}
-                              usedIds={guide.items
-                                .filter(
-                                  (other) =>
-                                    other.type === item.type &&
-                                    other.id !== item.id
-                                )
-                                .flatMap((other) =>
-                                  other.resource_id ? [other.resource_id] : []
-                                )}
-                              onChange={(type, resourceId) =>
-                                save.mutate({
-                                  installed_version_id:
-                                    guide.installed_version_id,
-                                  updated_at: guide.updated_at,
-                                  type,
-                                  position: item.position,
-                                  resource_id: resourceId,
-                                })
-                              }
+                    <li
+                      key={`${item.type}:${item.id}`}
+                      className="flex min-h-22 min-w-0 flex-col gap-4 border-b border-divider p-4"
+                    >
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <h3 className="flex flex-wrap items-center gap-2 text-sm leading-[var(--app-line-22)] font-medium">
+                          {item.status === "configured" && (
+                            <CircleCheckIcon
+                              aria-hidden="true"
+                              className="size-4 shrink-0 text-success"
                             />
                           )}
-                        </CardContent>
-                      </Card>
+                          <span className="min-w-0 flex-1 wrap-anywhere">
+                            {name}
+                          </span>
+                          <Badge variant="outline">
+                            {t("applicationSetup.required")}
+                          </Badge>
+                          <Badge
+                            variant={
+                              item.status === "configured"
+                                ? "secondary"
+                                : "outline"
+                            }
+                          >
+                            {t(`applicationSetup.statuses.${item.status}`)}
+                          </Badge>
+                        </h3>
+                        <p className="text-sm leading-[var(--app-line-22)] wrap-anywhere text-muted-foreground">
+                          {item.type === "model"
+                            ? t("applicationSetup.modelHelp")
+                            : item.description ||
+                              t(`applicationSetup.purposes.${item.type}`)}
+                        </p>
+                      </div>
+                      <div className="min-w-0">
+                        {item.type === "model" ? (
+                          <ApplicationSetupModelField
+                            guide={guide}
+                            disabled={blocked}
+                            onChange={(input) => saveModel.mutate(input)}
+                          />
+                        ) : (
+                          <SetupResourceField
+                            item={item}
+                            type={item.type}
+                            name={name}
+                            disabled={blocked}
+                            usedIds={guide.items
+                              .filter(
+                                (other) =>
+                                  other.type === item.type &&
+                                  other.id !== item.id
+                              )
+                              .flatMap((other) =>
+                                other.resource_id ? [other.resource_id] : []
+                              )}
+                            onChange={(type, resourceId) =>
+                              save.mutate({
+                                installed_version_id:
+                                  guide.installed_version_id,
+                                updated_at: guide.updated_at,
+                                type,
+                                position: item.position,
+                                resource_id: resourceId,
+                              })
+                            }
+                          />
+                        )}
+                      </div>
                     </li>
                   )
                 })}

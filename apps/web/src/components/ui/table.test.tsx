@@ -26,7 +26,11 @@ describe("Table appearance", () => {
         </Table>
       )
       for (const header of screen.getAllByRole("columnheader")) {
-        expect(header).toHaveClass("text-sm", "font-medium", "text-foreground")
+        expect(header).toHaveClass(
+          "text-xs",
+          "font-normal",
+          "text-muted-foreground"
+        )
       }
     }
   )

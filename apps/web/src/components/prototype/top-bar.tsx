@@ -81,7 +81,7 @@ export function TopBar({ mobileNavigation }: TopBarProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
-            className="w-44 border-0 bg-[var(--app-popover)] text-[var(--app-text)] ring-0"
+            className="min-w-44 border-0 bg-[var(--app-popover)] text-[var(--app-text)] ring-0"
           >
             <DropdownMenuItem>
               <PencilIcon aria-hidden="true" />

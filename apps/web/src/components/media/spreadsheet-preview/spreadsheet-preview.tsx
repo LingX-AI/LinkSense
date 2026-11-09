@@ -194,7 +194,6 @@ function SpreadsheetWorkbookTabs({
         className="w-max min-w-full gap-0"
       >
         <TabsList
-          variant="line"
           aria-label={t("spreadsheetPreview.sheetTabsLabel")}
           className="min-h-8 justify-start gap-1 px-1"
         >
@@ -203,7 +202,7 @@ function SpreadsheetWorkbookTabs({
               key={tab.id}
               value={String(index)}
               title={tab.name}
-              className="min-h-7 flex-none rounded-md px-2.5 py-0.5 text-xs data-active:bg-[var(--app-user-surface)]! data-active:text-foreground! data-active:shadow-none data-active:after:hidden"
+              className="min-h-7 flex-none px-2.5 py-0.5 text-xs"
             >
               {tab.name}
             </TabsTrigger>

@@ -80,6 +80,7 @@ export const backendMessages = {
   "usageExport.workloads.assistant_response": "Réponses de l’IA",
   "usageExport.workloads.memory_generation": "Création de souvenirs",
   "usageExport.workloads.task_title_generation": "Nommage automatique des tâches",
+  "usageExport.workloads.browser_use_intent": "Détection de l’intention de navigation",
   "usageExport.workloads.document_embedding": "Vectorisation des documents",
   "usageExport.workloads.query_embedding": "Vectorisation des requêtes",
   "usageExport.workloads.rerank": "Reclassement des résultats",

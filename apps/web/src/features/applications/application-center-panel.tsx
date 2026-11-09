@@ -2,7 +2,7 @@ import { useOpenApplicationConversation } from "./application-opening"
 import { useDeferredValue, useEffect, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
-import { ArrowUpRightIcon, ListFilterIcon } from "lucide-react"
+import { ArrowUpRightIcon, ListFilterIcon, SearchIcon } from "lucide-react"
 import { useSearchParams } from "react-router-dom"
 import {
   applicationCatalogFilterSchema,
@@ -22,7 +22,7 @@ import { StatusBanner } from "@/components/feedback/status-banner"
 import { notify } from "@/components/feedback/notification"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
-import { InputGroup } from "@/components/ui/input-group"
+import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
 import { SearchInput } from "@/components/ui/search-input"
 import {
   Select,
@@ -113,12 +113,13 @@ export function ApplicationsWorkspacePanel(
     <Tabs value={tab} onValueChange={selectTab} className="gap-6">
       <div
         data-slot="application-catalog-toolbar"
-        className="flex min-w-0 flex-col gap-3"
+        className="flex min-w-0 flex-col gap-6"
       >
         {organizationSharingEnabled && (
           <TabsList
+            variant="catalog"
             aria-label={t("applications.scopeLabel")}
-            className="h-auto w-full flex-wrap justify-start overflow-visible"
+            className="justify-start"
           >
             <TabsTrigger value="owned" className="flex-none">
               {t("applications.distribution.myApplications")}
@@ -133,6 +134,9 @@ export function ApplicationsWorkspacePanel(
         )}
         <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
           <InputGroup className="min-w-0 flex-1 basis-64">
+            <InputGroupAddon className="pl-3">
+              <SearchIcon aria-hidden="true" />
+            </InputGroupAddon>
             <SearchInput
               aria-label={t(
                 tab === "center"
@@ -280,9 +284,10 @@ export function ApplicationCenterPanel({
           title={t("applications.distribution.noCenterApplications")}
         />
       )}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="flex min-w-0 flex-col">
         {query.data?.items.map((item) => (
           <ApplicationCard
+            layout="row"
             key={item.id}
             id={item.application_id}
             name={item.name}

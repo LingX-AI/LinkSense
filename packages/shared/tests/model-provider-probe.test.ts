@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { modelProviderPresets, modelServiceProviderValues, modelProviderProbeInputSchema, testModelProviderConnectionInputSchema, discoverModelProviderResultSchema } from "../src/model-provider.js"
+import { modelProviderPresets, modelServiceProviderValues, modelProviderProbeInputSchema, testModelProviderConnectionInputSchema, discoverModelProviderResultSchema, detectModelProviderProtocolInputSchema, detectModelProviderProtocolResultSchema } from "../src/model-provider.js"
 
 describe("model channel probe contracts", () => {
   const draft = { provider: "openai_compatible", base_url: "https://models.example.test/v1/", protocol_mode: "chat_completions_bridge" }
@@ -12,6 +12,13 @@ describe("model channel probe contracts", () => {
       expect(modelProviderProbeInputSchema.safeParse({ ...draft, base_url }).success).toBe(false)
     }
     expect(modelProviderProbeInputSchema.safeParse({ ...draft, raw_credential: "secret" }).success).toBe(false)
+  })
+  it("detects before a model is selected while keeping resolved protocols concrete and redacted", () => {
+    expect(detectModelProviderProtocolInputSchema.safeParse(draft).success).toBe(true)
+    expect(detectModelProviderProtocolInputSchema.safeParse({ ...draft, model_id: "" }).success).toBe(false)
+    expect(detectModelProviderProtocolResultSchema.safeParse({ status: "model_required" }).success).toBe(true)
+    expect(detectModelProviderProtocolResultSchema.safeParse({ status: "detected", model_id: "test-model", protocol_mode: "auto" }).success).toBe(false)
+    expect(detectModelProviderProtocolResultSchema.safeParse({ status: "detected", model_id: "test-model", protocol_mode: "native_responses", api_key: "synthetic-key" }).success).toBe(false)
   })
   it("covers every provider with a task-compatible recommendation and avoids unsupported native URLs", () => {
     expect(Object.keys(modelProviderPresets).sort()).toEqual([...modelServiceProviderValues].sort())

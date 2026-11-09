@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -12,19 +13,18 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
+  type SyntheticEvent,
 } from "react"
 import {
-  ArrowUpIcon,
   CircleAlertIcon,
   BookOpenIcon,
   FileIcon,
-  FolderOpenIcon,
+  FileInputIcon,
   GoalIcon,
   Link2Icon,
   LightbulbIcon,
   LoaderCircleIcon,
-  MicIcon,
-  PlusIcon,
+  PaperclipIcon,
   SquareIcon,
   TriangleAlertIcon,
   XIcon,
@@ -37,10 +37,20 @@ import type {
   ConversationFile,
 } from "@/api/contracts"
 import { useProductName } from "@/app/product-branding"
-import type { ModelPreference, ReasoningEffort } from "@linksense/shared"
+import { StatusBanner } from "@/components/feedback/status-banner"
+import {
+  isVoiceInputDemoEnabled,
+  useVoiceInputDemo,
+} from "@/features/conversations/use-voice-input-demo"
+import {
+  maximumConversationReferences,
+  type ModelPreference,
+  type ReasoningEffort,
+} from "@linksense/shared"
 import { CapabilityIcon } from "@/components/capabilities/capability-icon"
 import { FileTypeIcon } from "@/components/media/file-type-icon"
 import { Button } from "@/components/ui/button"
+import { DesignIcon } from "@/components/ui/design-icon"
 import {
   Command,
   CommandEmpty,
@@ -48,6 +58,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandSeparator,
 } from "@/components/ui/command"
 import { Input } from "@/components/ui/input"
 import { FieldDescription } from "@/components/ui/field"
@@ -66,14 +77,18 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
 import {
+  ActionTooltipContent,
   Tooltip,
-  TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ConversationAttachmentPreviews } from "@/features/conversations/conversation-attachment-previews"
 import { ConversationAttachmentUploadPreview } from "@/features/conversations/conversation-attachment-upload-preview"
 import { ConversationAttachmentOverflow } from "@/features/conversations/conversation-attachment-overflow"
 import { ReferenceFilePopover } from "@/features/conversations/reference-file-popover"
+import {
+  TaskReferencePicker,
+  type TaskReference,
+} from "./task-reference-picker"
 import type { ReferenceableFile } from "@/features/conversations/reference-file-api"
 import { capabilityPresentation } from "@/features/capabilities/built-in-presentation"
 import {
@@ -85,14 +100,17 @@ import { ConversationModelSelector } from "@/features/conversations/conversation
 import type { ConversationModelContextUsage } from "@/features/conversations/conversation-context-usage"
 import {
   ConversationSkillCommandMenu,
+  ConversationTaskReferenceCommandMenu,
   ConversationSlashCommandMenu,
   type ConversationSlashCommandPanel,
 } from "@/features/conversations/conversation-slash-command-menu"
 import {
   findConversationSkillCommandTrigger,
+  findConversationTaskReferenceTrigger,
   findConversationSlashCommandTrigger,
   isConversationContextCompactionCommand,
   removeConversationSkillCommandTrigger,
+  removeConversationTaskReferenceTrigger,
   removeConversationSlashCommandTrigger,
 } from "@/features/conversations/conversation-slash-command"
 import { ConversationComposerUrlHighlightLayer } from "@/features/conversations/conversation-composer-url-highlight-layer"
@@ -137,6 +155,24 @@ const voiceWaveHeightClasses = [
   "h-5",
   "h-6",
 ] as const
+
+function ConversationCapabilityMenuIcon({
+  capability,
+}: {
+  capability: CapabilitySummary
+}): ReactNode {
+  if (capability.is_builtin && !capability.logo_url?.trim()) {
+    switch (capability.builtin_key) {
+      case "linksense-document-reader":
+        return <FileTypeIcon filename="document.docx" className="size-5" />
+      case "linksense-knowledge-base":
+        return <DesignIcon name="knowledge" className="size-5" />
+      case "linksense-image-generation":
+        return <DesignIcon name="image-generation" className="size-4.5" />
+    }
+  }
+  return <CapabilityIcon type={capability.type} logoUrl={capability.logo_url} />
+}
 
 function formatVoiceDuration(seconds: number) {
   const safeSeconds = Math.max(0, Math.floor(seconds))
@@ -406,6 +442,7 @@ type ConversationComposerProps = Readonly<{
   requiredIds?: readonly string[]
   onSelectedIdsChange: (ids: string[]) => void
   showKnowledgeBaseButton?: boolean
+  projectPicker?: ReactNode
   knowledgeBases?: KnowledgeBase[]
   knowledgeBasesLoading?: boolean
   knowledgeBasesError?: boolean
@@ -444,6 +481,8 @@ type ConversationComposerProps = Readonly<{
     reasoningEffort: ReasoningEffort
   ) => void
   onSubmit: (value: string) => void
+  taskReferences?: TaskReference[]
+  onTaskReferencesChange?: (references: TaskReference[]) => void
   onCompact?: () => void
   compactAvailable?: boolean
   compacting?: boolean
@@ -487,6 +526,7 @@ export const ConversationComposer = forwardRef<
     requiredIds = noRequiredCapabilityIds,
     onSelectedIdsChange,
     showKnowledgeBaseButton = true,
+    projectPicker,
     knowledgeBases = [],
     knowledgeBasesLoading,
     knowledgeBasesError,
@@ -520,6 +560,8 @@ export const ConversationComposer = forwardRef<
     allowManagedApplicationModelSelection = false,
     onModelPreferenceChange,
     onSubmit,
+    taskReferences = [],
+    onTaskReferencesChange,
     onCompact = () => undefined,
     compactAvailable = false,
     compacting = false,
@@ -547,6 +589,13 @@ export const ConversationComposer = forwardRef<
   const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
   const [menuOpen, setMenuOpen] = useState(false)
   const [referenceFileOpen, setReferenceFileOpen] = useState(false)
+  const [taskReferenceOpen, setTaskReferenceOpen] = useState(false)
+  const [taskReferenceCaret, setTaskReferenceCaret] = useState<number | null>(
+    null
+  )
+  const [dismissedTaskReferenceValue, setDismissedTaskReferenceValue] =
+    useState<string | null>(null)
+  const taskReferenceMenuId = useId()
   const [knowledgeMenuOpen, setKnowledgeMenuOpen] = useState(false)
   const [slashPanel, setSlashPanel] =
     useState<ConversationSlashCommandPanel | null>(null)
@@ -625,7 +674,29 @@ export const ConversationComposer = forwardRef<
     slashPanel === null &&
     skillTrigger !== null &&
     dismissedSkillValue !== value
-  const commandMenuOpen = slashMenuOpen || skillMenuOpen
+  const taskReferenceTrigger = findConversationTaskReferenceTrigger(
+    value,
+    taskReferenceCaret ?? value.length
+  )
+  const taskReferenceMenuOpen = Boolean(
+    onTaskReferencesChange &&
+    taskReferenceTrigger &&
+    dismissedTaskReferenceValue !== value &&
+    !slashMenuOpen &&
+    !skillMenuOpen &&
+    !menuOpen &&
+    !taskReferenceOpen &&
+    !interactionBlocked &&
+    !submitting
+  )
+  const commandMenuOpen =
+    slashMenuOpen || skillMenuOpen || taskReferenceMenuOpen
+  const handleInputSelection = useCallback(
+    (event: SyntheticEvent<HTMLTextAreaElement>) => {
+      setTaskReferenceCaret(event.currentTarget.selectionStart)
+    },
+    []
+  )
 
   const dismissSlashMenu = useCallback(() => {
     setSlashPanel(null)
@@ -638,6 +709,7 @@ export const ConversationComposer = forwardRef<
   const dismissCommandMenu = useCallback(() => {
     dismissSlashMenu()
     const currentValue = latestValueRef.current
+    setDismissedTaskReferenceValue(currentValue)
     setDismissedSkillValue(
       findConversationSkillCommandTrigger(currentValue) ? currentValue : null
     )
@@ -689,17 +761,28 @@ export const ConversationComposer = forwardRef<
     [onError, t]
   )
 
-  const voice = useVoiceTranscription({
+  const [voiceDemoEnabled, setVoiceDemoEnabled] = useState(
+    isVoiceInputDemoEnabled
+  )
+  const demoVoice = useVoiceInputDemo({
+    transcript: t("conversation.voiceDemoTranscript"),
+    onTranscriptPreview: applyTranscript,
+    onTranscript: applyTranscript,
+  })
+  const realVoice = useVoiceTranscription({
     language,
     onTranscriptPreview: applyTranscript,
     onTranscript: applyTranscript,
     onError: reportVoiceFailure,
     request: requestVoiceTranscription,
   })
+  const voice = voiceDemoEnabled ? demoVoice : realVoice
   const voiceBusy = voice.phase !== "idle"
-  const voiceAvailable = voiceTranscriptionAvailability === "available"
-  const voiceTooltipKey =
-    voiceTranscriptionAvailability === "not_configured"
+  const voiceAvailable =
+    voiceDemoEnabled || voiceTranscriptionAvailability === "available"
+  const voiceTooltipKey = voiceDemoEnabled
+    ? "conversation.voiceDemoStart"
+    : voiceTranscriptionAvailability === "not_configured"
       ? "conversation.voiceNotConfigured"
       : voiceTranscriptionAvailability === "checking"
         ? "conversation.voiceChecking"
@@ -970,6 +1053,37 @@ export const ConversationComposer = forwardRef<
     onValueChange(nextValue)
   }
 
+  const selectTaskReference = (task: TaskReference) => {
+    if (
+      !onTaskReferencesChange ||
+      taskReferences.length >= maximumConversationReferences ||
+      taskReferences.some((source) => source.id === task.id)
+    )
+      return
+    const currentValue = latestValueRef.current
+    const trigger = findConversationTaskReferenceTrigger(
+      currentValue,
+      textareaRef.current?.selectionStart ?? currentValue.length
+    )
+    if (!trigger) return
+    const nextValue = removeConversationTaskReferenceTrigger(
+      currentValue,
+      trigger
+    )
+    onTaskReferencesChange([
+      ...taskReferences,
+      { id: task.id, title: task.title },
+    ])
+    latestValueRef.current = nextValue
+    onValueChange(nextValue)
+    setTaskReferenceCaret(trigger.start)
+    setDismissedTaskReferenceValue(nextValue)
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true })
+      textareaRef.current?.setSelectionRange(trigger.start, trigger.start)
+    })
+  }
+
   const openSlashPanel = (panel: ConversationSlashCommandPanel) => {
     const expanding = slashPanel !== panel
     setDismissedSlashValue(null)
@@ -1052,6 +1166,20 @@ export const ConversationComposer = forwardRef<
         event.preventDefault()
         dismissCommandMenu()
         return
+      }
+      if (event.key === "Tab" && !event.shiftKey && !taskReferenceMenuOpen) {
+        const item =
+          commandMenuRef.current?.querySelector<HTMLElement>(
+            '[data-slot="command-item"][aria-selected="true"]:not([aria-disabled="true"])'
+          ) ??
+          commandMenuRef.current?.querySelector<HTMLElement>(
+            '[data-slot="command-item"]:not([aria-disabled="true"])'
+          )
+        if (item) {
+          event.preventDefault()
+          item.click()
+          return
+        }
       }
       if (
         event.key === "ArrowDown" ||
@@ -1314,6 +1442,26 @@ export const ConversationComposer = forwardRef<
       onDrop={handleDrop}
       onSubmit={submit}
     >
+      {voiceDemoEnabled && (
+        <StatusBanner
+          className="mb-3"
+          actions={
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                demoVoice.cancel()
+                setVoiceDemoEnabled(false)
+              }}
+            >
+              {t("conversation.voiceDemoExit")}
+            </Button>
+          }
+        >
+          {t("conversation.voiceDemoNotice")}
+        </StatusBanner>
+      )}
       {isDraggingFiles && (
         <div
           className="composer-drop-target"
@@ -1335,6 +1483,49 @@ export const ConversationComposer = forwardRef<
           onReference={onReferenceFile}
         />
       )}
+      {onTaskReferencesChange && (
+        <>
+          {taskReferences.length > 0 && (
+            <div
+              className="flex min-w-0 flex-wrap gap-1.5 pb-1"
+              aria-label={t("taskReferences.source")}
+            >
+              {taskReferences.map((source) => (
+                <Button
+                  key={source.id}
+                  type="button"
+                  variant="secondary"
+                  size="xs"
+                  disabled={submitting}
+                  aria-label={t("taskReferences.remove", {
+                    title: source.title,
+                  })}
+                  onClick={() =>
+                    onTaskReferencesChange(
+                      taskReferences.filter((item) => item.id !== source.id)
+                    )
+                  }
+                >
+                  <span className="max-w-48 truncate">{source.title}</span>
+                  <XIcon aria-hidden="true" />
+                </Button>
+              ))}
+            </div>
+          )}
+          {taskReferenceOpen && (
+            <TaskReferencePicker
+              anchor={composerShellRef}
+              finalFocus={textareaRef}
+              currentConversationId={currentConversationId}
+              open={taskReferenceOpen}
+              onOpenChange={setTaskReferenceOpen}
+              selected={taskReferences}
+              onChange={onTaskReferencesChange}
+              disabled={submitting}
+            />
+          )}
+        </>
+      )}
       {skillMenuOpen && (
         <ConversationSkillCommandMenu
           ref={commandMenuRef}
@@ -1345,6 +1536,16 @@ export const ConversationComposer = forwardRef<
           selectedCapabilityIds={selectedIds}
           onRetryCapabilities={onRetryCapabilities}
           onSelectCapability={selectSkillCapability}
+        />
+      )}
+      {taskReferenceMenuOpen && (
+        <ConversationTaskReferenceCommandMenu
+          ref={commandMenuRef}
+          id={taskReferenceMenuId}
+          query={taskReferenceTrigger?.query ?? ""}
+          currentConversationId={currentConversationId}
+          selected={taskReferences}
+          onSelect={selectTaskReference}
         />
       )}
       {slashMenuOpen && !skillMenuOpen && (
@@ -1643,7 +1844,7 @@ export const ConversationComposer = forwardRef<
           {unavailableMessage}
         </FieldDescription>
       )}
-      <div className="composer-input-layer">
+      <div className="composer-input-layer -mr-3">
         {hasComposerInputUrl && (
           <ConversationComposerUrlHighlightLayer
             ref={composerInputHighlightRef}
@@ -1652,13 +1853,17 @@ export const ConversationComposer = forwardRef<
         )}
         <ConversationComposerInput
           ref={textareaRef}
+          rows={1}
           value={value}
           onChange={(event) => {
             const nextValue = event.target.value
             setSlashPanel(null)
             setDismissedSlashValue(null)
             setDismissedSkillValue(null)
+            setDismissedTaskReferenceValue(null)
+            setTaskReferenceCaret(event.target.selectionStart)
             if (
+              !onTaskReferencesChange &&
               !attachmentActionDisabled &&
               isCapabilityMenuShortcutInsertion(
                 latestValueRef.current,
@@ -1674,6 +1879,7 @@ export const ConversationComposer = forwardRef<
             onValueChange(nextValue)
           }}
           onKeyDown={handleKeyDown}
+          onSelect={handleInputSelection}
           onPaste={handlePaste}
           onScroll={(event) => {
             const highlight = composerInputHighlightRef.current
@@ -1682,11 +1888,13 @@ export const ConversationComposer = forwardRef<
           aria-label={t("conversation.messageInput")}
           maxLength={maxLength}
           aria-controls={
-            skillMenuOpen
-              ? "conversation-skill-command-menu"
-              : slashMenuOpen
-                ? "conversation-slash-command-menu"
-                : undefined
+            taskReferenceMenuOpen
+              ? taskReferenceMenuId
+              : skillMenuOpen
+                ? "conversation-skill-command-menu"
+                : slashMenuOpen
+                  ? "conversation-slash-command-menu"
+                  : undefined
           }
           placeholder={
             unavailableMessage
@@ -1707,15 +1915,18 @@ export const ConversationComposer = forwardRef<
           disabled={interactionBlocked}
           readOnly={submitting}
           className={cn(
-            "composer-input composer-input-textarea min-h-14 border-0 bg-transparent px-1 py-2 text-sm leading-6 shadow-none focus-visible:bg-transparent focus-visible:ring-0",
+            "composer-input composer-input-textarea min-h-10 border-0 bg-transparent p-0 pr-3 text-sm leading-6 shadow-none focus-visible:bg-transparent focus-visible:ring-0 @min-[48rem]/conversation-workspace:min-h-14",
             hasComposerInputUrl && "composer-input-has-url",
             hasLeadingComposerInputUrl && "composer-input-has-leading-url"
           )}
         />
       </div>
 
-      <div className="mt-1 flex min-w-0 items-center gap-3">
-        <div className="flex shrink-0 items-center gap-1">
+      <div
+        className="mt-2 flex min-w-0 flex-wrap items-end gap-x-3 gap-y-2 @min-[48rem]/conversation-workspace:mt-4"
+        data-slot="composer-toolbar"
+      >
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 @max-[28rem]/conversation-workspace:gap-x-1">
           {!textOnly && (
             <Popover
               open={menuOpen}
@@ -1726,49 +1937,50 @@ export const ConversationComposer = forwardRef<
                   <Button
                     type="button"
                     variant="ghost"
-                    size="icon-sm"
+                    size="sm"
                     className={cn(
-                      "composer-control",
+                      "composer-control -mx-1.5 h-8 gap-2 px-1.5 font-normal @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs",
                       modelPreferenceBlockingActions && "disabled:opacity-100"
                     )}
-                    aria-label={t("conversation.addMenu")}
+                    aria-label={t("conversation.toolbarAttach")}
+                    aria-description={t("conversation.addMenuTitle")}
                     disabled={attachmentActionDisabled}
                   />
                 }
               >
-                <PlusIcon
-                  className="size-[18px] text-[var(--app-text)]"
-                  aria-hidden="true"
-                />
+                <DesignIcon name="composer-add" className="text-foreground" />
+                <span>{t("conversation.toolbarAttach")}</span>
               </PopoverTrigger>
               <PopoverContent
-                anchor={composerShellRef}
                 side="top"
                 align="start"
-                sideOffset={4}
-                className="capability-popover capability-picker-popover gap-2"
+                sideOffset={8}
+                className="capability-picker-popover max-h-(--available-height) w-80 max-w-[calc(100vw-2rem)] gap-1 overflow-hidden rounded-xl border border-border p-2 ring-0"
               >
                 <PopoverHeader className="sr-only">
                   <PopoverTitle>{t("conversation.addMenuTitle")}</PopoverTitle>
                 </PopoverHeader>
-                <Command className="bg-transparent">
+                <Command className="min-h-0 gap-2 overflow-visible rounded-none bg-transparent p-1 [&_[data-slot=command-input-wrapper]]:shrink-0 [&_[data-slot=command-input-wrapper]]:p-0 [&_[data-slot=input-group]]:h-10! [&_[data-slot=input-group]]:bg-muted/40">
                   {!managedApplicationName && (
                     <CommandInput
                       placeholder={t("conversation.capabilitySearch")}
                       autoFocus={shouldAutoFocusOnDesktop()}
                     />
                   )}
-                  <CommandList className="[&_[data-slot=command-item]]:rounded-md">
-                    <CommandGroup heading={t("conversation.addGroup")}>
+                  <CommandList className="-mr-3 max-h-128 min-h-0 pr-3 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-items]]:space-y-1 [&_[data-slot=command-group]]:p-0 [&_[data-slot=command-item]]:min-h-8 [&_[data-slot=command-item]]:rounded-md [&_[data-slot=command-item]]:py-1 [&_[data-slot=command-item]]:font-normal">
+                    <CommandGroup aria-label={t("conversation.addGroup")}>
                       <CommandItem
                         value={t("conversation.attachFileMenuSearchValue")}
                         disabled={attachmentActionDisabled}
                         onSelect={openAttachmentFilePicker}
                       >
-                        <span className="capability-menu-icon capability-menu-action-icon">
-                          <FileIcon aria-hidden="true" />
+                        <span className="grid size-5 shrink-0 place-items-center">
+                          <PaperclipIcon
+                            aria-hidden="true"
+                            className="size-5"
+                          />
                         </span>
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                        <span className="min-w-0 flex-1 truncate text-sm">
                           {t("conversation.attachFileMenuLabel")}
                         </span>
                       </CommandItem>
@@ -1780,12 +1992,38 @@ export const ConversationComposer = forwardRef<
                           disabled={attachmentActionDisabled}
                           onSelect={openReferenceFilePicker}
                         >
-                          <span className="capability-menu-icon capability-menu-action-icon">
-                            <Link2Icon aria-hidden="true" />
+                          <span className="grid size-5 shrink-0 place-items-center">
+                            <FileInputIcon
+                              aria-hidden="true"
+                              className="size-5"
+                            />
                           </span>
-                          <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                          <span className="min-w-0 flex-1 truncate text-sm">
                             {t("conversation.referenceFile.menuLabel")}
                           </span>
+                        </CommandItem>
+                      )}
+                      {onTaskReferencesChange && (
+                        <CommandItem
+                          value={t("taskReferences.title")}
+                          disabled={attachmentActionDisabled}
+                          onSelect={() => {
+                            setMenuOpen(false)
+                            setTaskReferenceOpen(true)
+                          }}
+                        >
+                          <span className="grid size-5 shrink-0 place-items-center">
+                            <Link2Icon aria-hidden="true" className="size-5" />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-sm">
+                            {t("taskReferences.title")}
+                          </span>
+                          <kbd
+                            className="ml-auto text-xs text-muted-foreground"
+                            aria-hidden="true"
+                          >
+                            @
+                          </kbd>
                         </CommandItem>
                       )}
                       <CommandItem
@@ -1793,30 +2031,28 @@ export const ConversationComposer = forwardRef<
                         disabled={attachmentActionDisabled}
                         onSelect={openAttachmentFolderPicker}
                       >
-                        <span className="capability-menu-icon capability-menu-action-icon">
-                          <FolderOpenIcon aria-hidden="true" />
+                        <span className="grid size-5 shrink-0 place-items-center">
+                          <DesignIcon name="folder" className="size-4.5" />
                         </span>
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                        <span className="min-w-0 flex-1 truncate text-sm">
                           {t("conversation.attachFolderMenuLabel")}
                         </span>
                       </CommandItem>
                       {!managedApplicationName && goalModeAvailable && (
                         <CommandItem
                           value={t("conversation.goal.menuSearchValue")}
+                          title={t("conversation.goal.menuDescription")}
                           disabled={attachmentActionDisabled}
                           onSelect={enableGoalMode}
                         >
-                          <span className="capability-menu-icon capability-menu-action-icon">
-                            <GoalIcon aria-hidden="true" />
+                          <span className="grid size-5 shrink-0 place-items-center">
+                            <GoalIcon aria-hidden="true" className="size-5" />
                           </span>
-                          <span
-                            className="flex min-w-0 flex-1 items-center gap-2"
-                            data-goal-labels=""
-                          >
-                            <span className="max-w-[48%] shrink-0 truncate text-xs font-medium">
+                          <span className="min-w-0 flex-1" data-goal-labels="">
+                            <span className="block truncate text-sm">
                               {t("conversation.goal.menuLabel")}
                             </span>
-                            <span className="min-w-0 flex-1 truncate text-[length:var(--app-font-12)] font-normal text-[var(--app-muted)]">
+                            <span className="sr-only">
                               {t("conversation.goal.menuDescription")}
                             </span>
                           </span>
@@ -1825,20 +2061,24 @@ export const ConversationComposer = forwardRef<
                       {planModeAvailable && (
                         <CommandItem
                           value={t("conversation.plan.menuSearchValue")}
+                          title={t("conversation.plan.menuDescription")}
                           data-checked={planMode || undefined}
                           disabled={
                             attachmentActionDisabled || planModeDisabled
                           }
                           onSelect={togglePlanMode}
                         >
-                          <span className="capability-menu-icon capability-menu-action-icon">
-                            <LightbulbIcon aria-hidden="true" />
+                          <span className="grid size-5 shrink-0 place-items-center">
+                            <LightbulbIcon
+                              aria-hidden="true"
+                              className="size-5"
+                            />
                           </span>
-                          <span className="flex min-w-0 flex-1 items-center gap-2">
-                            <span className="max-w-[48%] shrink-0 truncate text-xs font-medium">
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm">
                               {t("conversation.plan.menuLabel")}
                             </span>
-                            <span className="min-w-0 flex-1 truncate text-[length:var(--app-font-12)] font-normal text-[var(--app-muted)]">
+                            <span className="sr-only">
                               {t("conversation.plan.menuDescription")}
                             </span>
                           </span>
@@ -1847,6 +2087,7 @@ export const ConversationComposer = forwardRef<
                     </CommandGroup>
                     {!managedApplicationName && (
                       <>
+                        <CommandSeparator />
                         {capabilitiesLoading && (
                           <div className="page-state" role="status">
                             <LoaderCircleIcon
@@ -1912,6 +2153,10 @@ export const ConversationComposer = forwardRef<
                                   <CommandItem
                                     key={capability.id}
                                     value={`${capability.name} ${presentation.name} ${presentation.description ?? ""}`}
+                                    title={
+                                      presentation.description ??
+                                      presentation.name
+                                    }
                                     data-checked={
                                       selectedIds.includes(capability.id) ||
                                       undefined
@@ -1927,25 +2172,25 @@ export const ConversationComposer = forwardRef<
                                       }
                                     }}
                                   >
-                                    <span className="capability-menu-icon">
-                                      <CapabilityIcon
-                                        type={capability.type}
-                                        logoUrl={capability.logo_url}
+                                    <span className="grid size-5 shrink-0 place-items-center [&>img]:size-full">
+                                      <ConversationCapabilityMenuIcon
+                                        capability={capability}
                                       />
                                     </span>
                                     <span
-                                      className="flex min-w-0 flex-1 items-center gap-2"
+                                      className="min-w-0 flex-1"
                                       data-capability-labels=""
                                     >
                                       <span
-                                        className="max-w-[48%] shrink-0 truncate text-xs font-medium"
+                                        className="block truncate text-sm"
                                         data-capability-name=""
+                                        title={presentation.name}
                                       >
                                         {presentation.name}
                                       </span>
                                       {presentation.description && (
                                         <span
-                                          className="min-w-0 flex-1 truncate text-[length:var(--app-font-12)] font-normal text-[var(--app-muted)]"
+                                          className="sr-only"
                                           data-capability-description=""
                                         >
                                           {presentation.description}
@@ -1953,7 +2198,7 @@ export const ConversationComposer = forwardRef<
                                       )}
                                     </span>
                                     {capability.is_builtin && (
-                                      <span className="shrink-0 text-[length:var(--app-font-10)] text-[var(--app-muted)]">
+                                      <span className="sr-only">
                                         {t("capability.builtIn")}
                                       </span>
                                     )}
@@ -1972,236 +2217,242 @@ export const ConversationComposer = forwardRef<
 
           {!managedApplicationName && showKnowledgeBaseButton && (
             <>
-              {knowledgeSearchUnavailable ? (
-                <HoverCard>
-                  <HoverCardTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="composer-control cursor-not-allowed opacity-50"
-                        aria-label={t("conversation.addKnowledgeBase")}
-                        aria-disabled="true"
+              <div className="flex items-center gap-3 @max-[28rem]/conversation-workspace:gap-1">
+                <span
+                  aria-hidden="true"
+                  className="h-4 w-px shrink-0 bg-divider"
+                  data-slot="composer-separator"
+                />
+                {knowledgeSearchUnavailable ? (
+                  <HoverCard>
+                    <HoverCardTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="composer-control -mx-1.5 h-8 cursor-not-allowed gap-2 px-1.5 font-normal opacity-50 @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs"
+                          aria-label={t("conversation.addKnowledgeBase")}
+                          aria-disabled="true"
+                        />
+                      }
+                    >
+                      <DesignIcon
+                        name="knowledge"
+                        className="text-foreground"
                       />
-                    }
-                  >
-                    <BookOpenIcon
-                      className="size-[18px] text-[var(--app-text)]"
-                      aria-hidden="true"
-                    />
-                  </HoverCardTrigger>
-                  <HoverCardContent
-                    side="top"
-                    align="start"
-                    sideOffset={10}
-                    aria-label={t(
-                      "knowledge.searchCapability.unavailableTitle"
-                    )}
-                    className="w-[min(360px,calc(100vw-2rem))]"
-                  >
-                    <div className="flex items-start gap-2.5">
-                      <TriangleAlertIcon
-                        className="mt-0.5 size-4 shrink-0 text-destructive"
-                        aria-hidden="true"
-                      />
-                      <div className="min-w-0">
-                        <p className="font-medium">
-                          {t("knowledge.searchCapability.unavailableTitle")}
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-[var(--app-muted)]">
-                          {t(
-                            getKnowledgeSearchUnavailableDescriptionKey(
-                              knowledgeSearchCapability
-                            )
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                  </HoverCardContent>
-                </HoverCard>
-              ) : (
-                <Popover
-                  open={knowledgeMenuOpen}
-                  onOpenChange={(open) => {
-                    setKnowledgeMenuOpen(open)
-                    if (open) onRetryKnowledgeBases?.()
-                  }}
-                >
-                  <PopoverTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className={cn(
-                          "composer-control",
-                          modelPreferenceBlockingActions &&
-                            "disabled:opacity-100"
-                        )}
-                        aria-label={t("conversation.addKnowledgeBase")}
-                        disabled={attachmentActionDisabled}
-                      />
-                    }
-                  >
-                    <BookOpenIcon
-                      className="size-[18px] text-[var(--app-text)]"
-                      aria-hidden="true"
-                    />
-                  </PopoverTrigger>
-                  <PopoverContent
-                    anchor={composerShellRef}
-                    side="top"
-                    align="start"
-                    sideOffset={4}
-                    className="capability-popover gap-2"
-                  >
-                    <PopoverHeader className="px-2 pt-1">
-                      <PopoverTitle className="text-sm">
-                        {t("conversation.knowledgeBaseTitle")}
-                      </PopoverTitle>
-                    </PopoverHeader>
-                    <Command className="bg-transparent">
-                      <CommandInput
-                        placeholder={t("conversation.knowledgeBaseSearch")}
-                        autoFocus={shouldAutoFocusOnDesktop()}
-                      />
-                      <CommandList>
-                        {knowledgeBasesLoading && (
-                          <div className="page-state" role="status">
-                            <LoaderCircleIcon
-                              className="size-3.5 animate-spin"
-                              aria-hidden="true"
-                            />
-                            {t("common.loading")}
-                          </div>
-                        )}
-                        {knowledgeBasesError && (
-                          <div className="search-error" role="alert">
-                            <p>{t("conversation.knowledgeBasesUnavailable")}</p>
-                            {onRetryKnowledgeBases && (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                className="mt-2"
-                                onClick={onRetryKnowledgeBases}
-                              >
-                                {t("common.retry")}
-                              </Button>
-                            )}
-                          </div>
-                        )}
-                        {!knowledgeBasesLoading && !knowledgeBasesError && (
-                          <CommandEmpty>
-                            {t("conversation.noKnowledgeBases")}
-                          </CommandEmpty>
-                        )}
-                        {!knowledgeBasesLoading && !knowledgeBasesError && (
-                          <CommandGroup>
-                            {knowledgeBases
-                              .filter(
-                                (knowledgeBase) =>
-                                  knowledgeBase.lifecycle_status === "active" &&
-                                  knowledgeBase.availability_status ===
-                                    "enabled"
+                      <span>{t("conversation.toolbarKnowledge")}</span>
+                    </HoverCardTrigger>
+                    <HoverCardContent
+                      side="top"
+                      align="start"
+                      sideOffset={10}
+                      aria-label={t(
+                        "knowledge.searchCapability.unavailableTitle"
+                      )}
+                      className="w-[min(360px,calc(100vw-2rem))]"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <TriangleAlertIcon
+                          className="mt-0.5 size-4 shrink-0 text-destructive"
+                          aria-hidden="true"
+                        />
+                        <div className="min-w-0">
+                          <p className="font-medium">
+                            {t("knowledge.searchCapability.unavailableTitle")}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-[var(--app-muted)]">
+                            {t(
+                              getKnowledgeSearchUnavailableDescriptionKey(
+                                knowledgeSearchCapability
                               )
-                              .map((knowledgeBase) => {
-                                const checked =
-                                  selectedKnowledgeBaseIds.includes(
-                                    knowledgeBase.id
-                                  )
-                                return (
-                                  <CommandItem
-                                    key={knowledgeBase.id}
-                                    value={`${knowledgeBase.name} ${knowledgeBase.description ?? ""}`}
-                                    data-checked={checked || undefined}
-                                    disabled={submitting}
-                                    onSelect={() =>
-                                      toggleKnowledgeBase(knowledgeBase.id)
-                                    }
-                                  >
-                                    <span className="capability-menu-icon">
-                                      <BookOpenIcon aria-hidden="true" />
-                                    </span>
-                                    <span
-                                      className="flex min-w-0 flex-1 items-center gap-2"
-                                      data-knowledge-base-labels=""
-                                    >
-                                      <span
-                                        className="max-w-[48%] shrink-0 truncate text-xs font-medium"
-                                        data-knowledge-base-name=""
-                                      >
-                                        {knowledgeBase.name}
-                                      </span>
-                                      <span
-                                        className="min-w-0 flex-1 truncate text-[length:var(--app-font-12)] font-normal text-[var(--app-muted)]"
-                                        data-knowledge-base-description=""
-                                      >
-                                        {knowledgeBase.description ||
-                                          t("knowledge.noDescription")}
-                                      </span>
-                                    </span>
-                                  </CommandItem>
-                                )
-                              })}
-                            {hasMoreKnowledgeBases &&
-                              onLoadMoreKnowledgeBases && (
-                                <div className="p-1">
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="w-full"
-                                    disabled={loadingMoreKnowledgeBases}
-                                    onClick={onLoadMoreKnowledgeBases}
-                                  >
-                                    {loadingMoreKnowledgeBases && (
-                                      <LoaderCircleIcon
-                                        className="animate-spin"
-                                        aria-hidden="true"
-                                      />
-                                    )}
-                                    {t("knowledge.loadMore")}
-                                  </Button>
-                                </div>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    </HoverCardContent>
+                  </HoverCard>
+                ) : (
+                  <Popover
+                    open={knowledgeMenuOpen}
+                    onOpenChange={(open) => {
+                      setKnowledgeMenuOpen(open)
+                      if (open) onRetryKnowledgeBases?.()
+                    }}
+                  >
+                    <PopoverTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className={cn(
+                            "composer-control -mx-1.5 h-8 gap-2 px-1.5 font-normal @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs",
+                            modelPreferenceBlockingActions &&
+                              "disabled:opacity-100"
+                          )}
+                          aria-label={t("conversation.addKnowledgeBase")}
+                          disabled={attachmentActionDisabled}
+                        />
+                      }
+                    >
+                      <DesignIcon
+                        name="knowledge"
+                        className="text-foreground"
+                      />
+                      <span>{t("conversation.toolbarKnowledge")}</span>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      anchor={composerShellRef}
+                      side="top"
+                      align="start"
+                      sideOffset={4}
+                      className="capability-popover gap-2 rounded-xl"
+                    >
+                      <PopoverHeader className="px-2 pt-1">
+                        <PopoverTitle className="text-sm">
+                          {t("conversation.knowledgeBaseTitle")}
+                        </PopoverTitle>
+                      </PopoverHeader>
+                      <Command className="bg-transparent">
+                        <CommandInput
+                          placeholder={t("conversation.knowledgeBaseSearch")}
+                          autoFocus={shouldAutoFocusOnDesktop()}
+                        />
+                        <CommandList>
+                          {knowledgeBasesLoading && (
+                            <div className="page-state" role="status">
+                              <LoaderCircleIcon
+                                className="size-3.5 animate-spin"
+                                aria-hidden="true"
+                              />
+                              {t("common.loading")}
+                            </div>
+                          )}
+                          {knowledgeBasesError && (
+                            <div className="search-error" role="alert">
+                              <p>
+                                {t("conversation.knowledgeBasesUnavailable")}
+                              </p>
+                              {onRetryKnowledgeBases && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  className="mt-2"
+                                  onClick={onRetryKnowledgeBases}
+                                >
+                                  {t("common.retry")}
+                                </Button>
                               )}
-                          </CommandGroup>
-                        )}
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              )}
+                            </div>
+                          )}
+                          {!knowledgeBasesLoading && !knowledgeBasesError && (
+                            <CommandEmpty>
+                              {t("conversation.noKnowledgeBases")}
+                            </CommandEmpty>
+                          )}
+                          {!knowledgeBasesLoading && !knowledgeBasesError && (
+                            <CommandGroup>
+                              {knowledgeBases
+                                .filter(
+                                  (knowledgeBase) =>
+                                    knowledgeBase.lifecycle_status ===
+                                      "active" &&
+                                    knowledgeBase.availability_status ===
+                                      "enabled"
+                                )
+                                .map((knowledgeBase) => {
+                                  const checked =
+                                    selectedKnowledgeBaseIds.includes(
+                                      knowledgeBase.id
+                                    )
+                                  return (
+                                    <CommandItem
+                                      key={knowledgeBase.id}
+                                      value={`${knowledgeBase.name} ${knowledgeBase.description ?? ""}`}
+                                      data-checked={checked || undefined}
+                                      disabled={submitting}
+                                      onSelect={() =>
+                                        toggleKnowledgeBase(knowledgeBase.id)
+                                      }
+                                    >
+                                      <span className="capability-menu-icon">
+                                        <BookOpenIcon aria-hidden="true" />
+                                      </span>
+                                      <span
+                                        className="flex min-w-0 flex-1 items-center gap-2"
+                                        data-knowledge-base-labels=""
+                                      >
+                                        <span
+                                          className="max-w-[48%] shrink-0 truncate text-xs font-medium"
+                                          data-knowledge-base-name=""
+                                        >
+                                          {knowledgeBase.name}
+                                        </span>
+                                        <span
+                                          className="min-w-0 flex-1 truncate text-[length:var(--app-font-12)] font-normal text-[var(--app-muted)]"
+                                          data-knowledge-base-description=""
+                                        >
+                                          {knowledgeBase.description ||
+                                            t("knowledge.noDescription")}
+                                        </span>
+                                      </span>
+                                    </CommandItem>
+                                  )
+                                })}
+                              {hasMoreKnowledgeBases &&
+                                onLoadMoreKnowledgeBases && (
+                                  <div className="p-1">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="w-full"
+                                      disabled={loadingMoreKnowledgeBases}
+                                      onClick={onLoadMoreKnowledgeBases}
+                                    >
+                                      {loadingMoreKnowledgeBases && (
+                                        <LoaderCircleIcon
+                                          className="animate-spin"
+                                          aria-hidden="true"
+                                        />
+                                      )}
+                                      {t("knowledge.loadMore")}
+                                    </Button>
+                                  </div>
+                                )}
+                            </CommandGroup>
+                          )}
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                )}
+              </div>
 
               {goalMode && (
                 <>
                   <span
-                    className="composer-goal-separator"
+                    className="h-4 w-px shrink-0 bg-divider"
+                    data-slot="composer-separator"
                     aria-hidden="true"
                   />
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="composer-goal-mode"
+                    className="composer-control composer-goal-mode h-8 gap-1.5 px-1.5 font-normal @max-[28rem]/conversation-workspace:text-xs"
                     aria-label={t("conversation.goal.disableMode")}
                     disabled={attachmentActionDisabled}
                     onClick={disableGoalMode}
                   >
-                    <span
-                      className="composer-goal-mode-target"
+                    <GoalIcon
+                      className="size-[calc(var(--app-ui-font-size)+2px)] text-foreground"
                       aria-hidden="true"
-                    >
-                      <GoalIcon aria-hidden="true" />
-                    </span>
-                    <span
-                      className="composer-goal-mode-dismiss"
-                      aria-hidden="true"
-                    >
-                      <XIcon aria-hidden="true" />
-                    </span>
+                    />
                     <span>{t("conversation.goal.modeLabel")}</span>
+                    <XIcon className="size-3.5" aria-hidden="true" />
                   </Button>
                 </>
               )}
@@ -2210,27 +2461,40 @@ export const ConversationComposer = forwardRef<
 
           {planMode && (
             <>
-              <span className="composer-goal-separator" aria-hidden="true" />
+              <span
+                className="h-4 w-px shrink-0 bg-divider"
+                data-slot="composer-separator"
+                aria-hidden="true"
+              />
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="composer-goal-mode"
+                className="composer-control composer-goal-mode h-8 gap-1.5 px-1.5 font-normal @max-[28rem]/conversation-workspace:text-xs"
                 aria-label={t("conversation.plan.disableMode")}
                 disabled={attachmentActionDisabled || planModeDisabled}
                 onClick={togglePlanMode}
               >
-                <span className="composer-goal-mode-target" aria-hidden="true">
-                  <LightbulbIcon aria-hidden="true" />
-                </span>
-                <span className="composer-goal-mode-dismiss" aria-hidden="true">
-                  <XIcon aria-hidden="true" />
-                </span>
+                <LightbulbIcon
+                  className="size-[calc(var(--app-ui-font-size)+2px)] text-foreground"
+                  aria-hidden="true"
+                />
                 <span>{t("conversation.plan.modeLabel")}</span>
+                <XIcon className="size-3.5" aria-hidden="true" />
               </Button>
             </>
           )}
 
+          {projectPicker && (
+            <div className="flex min-w-0 items-center gap-3 @max-[28rem]/conversation-workspace:gap-1 @max-[24rem]/conversation-workspace:max-w-24">
+              <span
+                aria-hidden="true"
+                className="h-4 w-px shrink-0 bg-divider"
+                data-slot="composer-separator"
+              />
+              {projectPicker}
+            </div>
+          )}
           {!textOnly && (
             <>
               <Input
@@ -2256,8 +2520,9 @@ export const ConversationComposer = forwardRef<
         </div>
 
         <div
-          className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1.5"
+          className="ml-auto flex min-w-0 flex-1 basis-64 items-end justify-end gap-3 @max-[48rem]/conversation-workspace:gap-1.5"
           data-testid="composer-primary-actions"
+          data-slot="composer-primary-actions"
         >
           {(voice.phase === "recording" ||
             voice.phase === "stopping" ||
@@ -2301,7 +2566,7 @@ export const ConversationComposer = forwardRef<
                   variant="ghost"
                   size="icon-sm"
                   className={cn(
-                    "composer-control",
+                    "composer-control size-8",
                     voiceAvailable &&
                       !taskStartDisabled &&
                       modelPreferenceBlockingActions &&
@@ -2321,10 +2586,13 @@ export const ConversationComposer = forwardRef<
                     void voice.startRecording()
                   }}
                 >
-                  <MicIcon aria-hidden="true" />
+                  <DesignIcon
+                    name="microphone"
+                    className={voiceAvailable ? "text-foreground" : undefined}
+                  />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>{t(voiceTooltipKey)}</TooltipContent>
+              <ActionTooltipContent>{t(voiceTooltipKey)}</ActionTooltipContent>
             </Tooltip>
           )}
 
@@ -2332,7 +2600,7 @@ export const ConversationComposer = forwardRef<
             <Button
               type="button"
               size="icon"
-              className="send-button rounded-full"
+              className="send-button size-8 rounded-full"
               aria-label={t(
                 interrupting ? "conversation.interrupting" : "conversation.stop"
               )}
@@ -2345,8 +2613,8 @@ export const ConversationComposer = forwardRef<
                   aria-hidden="true"
                 />
               ) : (
-                <SquareIcon
-                  className="size-3 fill-current"
+                <span
+                  className="size-3 rounded-[2px] bg-current"
                   aria-hidden="true"
                 />
               )}
@@ -2356,7 +2624,7 @@ export const ConversationComposer = forwardRef<
             <Button
               type="submit"
               size="icon"
-              className="send-button rounded-full aria-disabled:opacity-50"
+              className="send-button size-8 rounded-full"
               aria-label={t("conversation.send")}
               aria-disabled={!canSend}
               disabled={sendButtonDisabled}
@@ -2365,7 +2633,7 @@ export const ConversationComposer = forwardRef<
               {submitting ? (
                 <LoaderCircleIcon className="animate-spin" aria-hidden="true" />
               ) : (
-                <ArrowUpIcon aria-hidden="true" />
+                <DesignIcon name="send" className="size-4.5" />
               )}
             </Button>
           )}

@@ -75,19 +75,19 @@ export function SidebarConversationOverlays({
           payload && (
             <HoverCardContent
               side="right"
-              sideOffset={2}
+              sideOffset={8}
               align="start"
               aria-label={payload.title}
               initialFocus={false}
               finalFocus={false}
-              className="sidebar-conversation-preview flex w-72 max-w-[calc(100vw-1rem)] flex-col items-stretch gap-2 shadow-md!"
+              className="sidebar-conversation-preview flex w-75! max-w-[calc(100vw-1rem)] flex-col items-stretch gap-2 p-3! shadow-[var(--app-dialog-shadow)]!"
             >
-              <span className="sidebar-conversation-preview-title line-clamp-3 w-full min-w-0 text-[length:var(--app-ui-font-size)] leading-[var(--app-ui-compact-line-height)] font-medium break-words whitespace-normal">
+              <span className="sidebar-conversation-preview-title w-full min-w-0 text-sm leading-[var(--app-line-22)] font-normal break-words whitespace-normal">
                 {payload.title}
               </span>
               <time
                 dateTime={payload.updatedAt}
-                className="sidebar-conversation-preview-time block w-full text-left text-[length:var(--app-font-10-5)] leading-5 font-medium whitespace-nowrap text-[var(--app-muted)]"
+                className="sidebar-conversation-preview-time block w-full text-left text-xs leading-[var(--app-line-18)] font-normal text-muted-foreground"
               >
                 {payload.relativeUpdatedAt}
               </time>

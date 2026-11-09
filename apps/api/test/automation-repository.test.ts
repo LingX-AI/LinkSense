@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { automationNotificationTargetSchema, readAutomationMonitoring } from "@linksense/shared";
 import type { Prisma } from "../src/generated/prisma/client.js";
 
 import { PrismaAutomationRepository } from "../src/modules/automations/repository.js";
@@ -174,6 +175,21 @@ describe("PrismaAutomationRepository target mode locking", () => {
 });
 
 describe("PrismaAutomationRepository manual runs", () => {
+  it.each([false, true])("persists the notification with the new run only when explicitly enabled: %s", async enabled => {
+    const target = { kind: "feishu", connection_id: OWNER_ID, peer_session_id: CONVERSATION_ID };
+    const row = { ...automationRow(), notificationTargetJson: enabled ? target : null };
+    const run = { id: RUN_ID, automationId: AUTOMATION_ID, ownerId: OWNER_ID, conversationId: CONVERSATION_ID, scheduledFor: NOW, idempotencyKey: "manual-notice", status: "dispatching", turnId: null, pendingRequestId: null, errorCode: null, completedAt: null, completionReadAt: null, createdAt: NOW, updatedAt: NOW };
+    const tx = {
+      $executeRaw: vi.fn(async () => 1),
+      automation: { findFirst: vi.fn(async () => row) },
+      automationRun: { findUnique: vi.fn(async () => null), create: vi.fn(async () => run) },
+      automationNotificationDelivery: { create: vi.fn(async () => undefined) },
+    };
+    const repository = new PrismaAutomationRepository({ $transaction: vi.fn(async action => action(tx)) } as never);
+    await repository.claimManualRun({ ownerId: OWNER_ID, automationId: AUTOMATION_ID, requestedAt: NOW, idempotencyKey: "manual-notice" });
+    if (enabled) expect(tx.automationNotificationDelivery.create).toHaveBeenCalledWith({ data: { automationId: AUTOMATION_ID, runId: RUN_ID, ownerId: OWNER_ID, targetJson: target } });
+    else expect(tx.automationNotificationDelivery.create).not.toHaveBeenCalled();
+  });
   it("claims a manual run for an owned paused automation without changing its schedule", async () => {
     const automation = {
       id: AUTOMATION_ID,
@@ -328,6 +344,21 @@ describe("automation creation and pinning transactions", () => {
     expect(await f.repository.createWithinOwnerLimit(f.input, 100, { pinTarget: true })).toBeNull();
     expect(f.transaction.conversation.update).not.toHaveBeenCalled();
     expect(f.transaction.automation.create).not.toHaveBeenCalled();
+  });
+
+  it("persists notification and monitoring settings while pinning a new automation target", async () => {
+    const f = fixture();
+    const monitoring = readAutomationMonitoring({ stop_condition: "Target ready", max_runs: 3 });
+    const notificationTarget = automationNotificationTargetSchema.parse({
+      kind: "bot_channel", connection_id: OWNER_ID, peer_session_id: CONVERSATION_ID,
+    });
+    const result = await f.repository.createWithinOwnerLimit(
+      { ...f.input, monitoring, notificationTarget }, 100, { pinTarget: true },
+    );
+    expect(result?.conversation?.pinnedAt).toEqual(NOW);
+    expect(f.transaction.automation.create).toHaveBeenCalledWith({ data: {
+      ...f.input, monitoringJson: monitoring, notificationTargetJson: notificationTarget,
+    } });
   });
 
   it("rejects another default chat creation for an already configured target without pinning or writing", async () => {

@@ -61,9 +61,10 @@ export function SkillUpdateDialog(props: SkillUpdateDialogProps) {
       }}
     >
       <DialogContent
+        variant="workspace"
         closeLabel={t("common.close")}
         showCloseButton={!confirming}
-        className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-3xl"
+        className="flex flex-col"
       >
         <DialogHeader>
           <DialogTitle>{t("marketplace.updatePersonalSkill")}</DialogTitle>

@@ -11,6 +11,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 import { localizedErrorMessage } from "@linksense/shared"
 
 export const ptBR = {
+  browserUse: browserUseMessages["pt-BR"],
   publicKnowledge: publicKnowledgeMessages["pt-BR"],
   modelSetup: modelSetupMessages["pt-BR"],
   connections: connectionMessages["pt-BR"],
@@ -285,6 +286,8 @@ export const ptBR = {
     search: "Pesquisar",
     loading: "Carregando…",
     pageLoading: "Carregando…",
+    emptyDescription: "Os itens aparecerão aqui quando estiverem disponíveis.",
+    notFoundDescription: "A página pode ter sido movida ou removida.",
     actions: "Ações",
     status: "Status",
     name: "Nome",
@@ -426,6 +429,7 @@ export const ptBR = {
     helpCenter: "Central de ajuda",
     helpCenterNewTab: "Abrir a Central de ajuda em uma nova aba",
     automationNotifications: "Notificações de automações",
+    automationNotificationsEmpty: "Nenhuma notificação de automação não lida",
     automationNotificationsUnread:
       "Notificações de automações, com uma tarefa concluída não lida",
     automationTask: "Tarefa de automação",
@@ -470,6 +474,7 @@ export const ptBR = {
     emptyDescription:
       "Crie uma automação para iniciar uma nova execução em uma tarefa fixa nos horários agendados.",
     suggestions: {
+      useTemplate: "Usar modelo",
       title: "Sugestões",
       useTemplateNamed: "Usar o modelo {{name}}",
       dailyBrief: {
@@ -1272,6 +1277,11 @@ export const ptBR = {
     },
   },
   knowledge: {
+    uiDemo: {
+      readOnly:
+        "Dados de exemplo para testar a interface local. Explore e filtre sem alterar os recursos reais.",
+      exit: "Sair do exemplo",
+    },
     title: "Bases de conhecimento",
     description:
       "Organize, compartilhe e pesquise os documentos a que você tem acesso.",
@@ -2072,6 +2082,7 @@ export const ptBR = {
     taskActive:
       "Conclua as tarefas ativas antes de movê-las ou remover seu projeto",
     empty: "Nenhuma tarefa ainda",
+    emptyList: "Nenhum projeto ainda",
     create: "Novo projeto",
     createDescription:
       "As tarefas de um projeto compartilham arquivos e mantêm históricos de mensagens separados.",
@@ -2162,11 +2173,11 @@ export const ptBR = {
     title: "Tarefa",
     taskSort: {
       open: "Definir a ordem das tarefas em {{section}}",
-      label: "Ordem das tarefas",
+      label: "Ordenar tarefas",
       priority: "Prioridade",
       priorityDescription:
         "Tarefas que precisam da sua resposta e tarefas não lidas aparecem primeiro.",
-      updated_at: "Última atualização",
+      updated_at: "Atualizadas recentemente",
       manual: "Ordem manual",
     },
     share: {
@@ -2184,6 +2195,11 @@ export const ptBR = {
       unavailable:
         "Este link compartilhado não existe ou não está mais disponível.",
       continueInProduct: "Continuar no {{productName}}",
+      snapshotDate: "Registro compartilhado · {{date}}",
+      sharedConversation: "Conversa compartilhada",
+      readOnly: "Somente leitura",
+      snapshotNotice:
+        "Este é um registro da conversa. Mensagens posteriores não estão incluídas.",
     },
     rename: "Renomear",
     archive: "Arquivar tarefa",
@@ -2291,11 +2307,14 @@ export const ptBR = {
     historyViewExchange: "Clique para visualizar esta interação",
     historyRetry: "Não foi possível carregar as mensagens. Tentar novamente",
     scrollToBottom: "Rolar até o final",
+    newReplies_one: "{{count}} nova resposta",
+    newReplies_other: "{{count}} novas respostas",
     placeholder: "Descreva o que você quer que o {{productName}} faça…",
     followUpPlaceholder: "Adicione uma nova mensagem…",
     send: "Enviar",
     model: "Modelo",
     modelSelector: "Escolher modelo e esforço de raciocínio",
+    chooseReasoningModel: "Escolher modelo de raciocínio",
     resetReasoningEffort: "Redefinir esforço de raciocínio para o padrão",
     modelNotConfigured: "Serviço de modelos não configurado",
     reasoningEffort: "Esforço de raciocínio",
@@ -2353,6 +2372,12 @@ export const ptBR = {
     htmlAnnotationCount_other: "{{count}} anotações",
     voice: "Entrada por voz",
     voiceChecking: "Verificando o serviço de transcrição de voz…",
+    voiceDemoNotice:
+      "Demonstração de voz: gravação simulada e texto de exemplo. O microfone não é utilizado.",
+    voiceDemoExit: "Sair da demonstração",
+    voiceDemoStart: "Testar entrada de voz simulada",
+    voiceDemoTranscript:
+      "[Demonstração de voz] Resuma os pontos principais da reunião de hoje e crie uma lista de ações.",
     voiceNotConfigured: "A transcrição de voz não foi configurada",
     voiceServiceUnavailable:
       "A transcrição de voz está temporariamente indisponível. Tente novamente mais tarde.",
@@ -2426,6 +2451,8 @@ export const ptBR = {
       noMatches: "Nenhuma habilidade correspondente",
     },
     addMenu: "Adicionar",
+    toolbarAttach: "Anexar",
+    toolbarKnowledge: "Conhecimento",
     addMenuTitle: "Adicionar conteúdo",
     addGroup: "Adicionar",
     attachFileMenuLabel: "Arquivos locais",
@@ -2709,6 +2736,7 @@ export const ptBR = {
     messageCopied: "Mensagem copiada",
     copyMessageFailed: "Não foi possível copiar a mensagem. Tente novamente.",
     forkMessage: "Ramificar para uma nova conversa",
+    forkMessageTooltip: "Ramificar",
     forkingMessage: "Criando ramificação…",
     forkMessageFailed:
       "Não foi possível criar a tarefa ramificada. Tente novamente.",
@@ -3222,6 +3250,8 @@ export const ptBR = {
       "Aplicativo atualizado. Os próximos turnos das tarefas usarão automaticamente a configuração mais recente.",
     deleted: "Aplicativo excluído.",
     emptyTitle: "Nenhum aplicativo disponível ainda",
+    emptyDescription:
+      "Os itens aparecerão aqui quando você criá-los ou adicioná-los.",
     createdByMe: "Criadas por mim",
     createdBy: "Criado por {{name}}",
     status: {
@@ -3392,6 +3422,9 @@ export const ptBR = {
     conversationManagedUserModelDescription:
       "com plugins, habilidades, bases de conhecimento e instruções",
     externalAccess: {
+      endUserPresentation: "Apresentação para o usuário final",
+      endUserPresentationHint:
+        "Aplica-se apenas ao código de incorporação gerado abaixo. Oculta atividades técnicas e duração, mas mantém respostas, anexos, confirmações e erros. Desative para a visualização técnica.",
       action: "Acesso externo",
       title: "Acesso externo ao aplicativo",
       description:
@@ -3686,6 +3719,7 @@ export const ptBR = {
     submitForReview: "Enviar para revisão",
     submitted: "A versão foi enviada para revisão do administrador.",
     submittedAt: "Enviado em {{date}}",
+    reviewedAt: "Revisado em {{date}}",
     reviewPolicyNotice:
       "Cada nova versão é revisada novamente. Versões aprovadas nunca atualizam automaticamente as instalações existentes.",
     publicationsEmpty:
@@ -3984,6 +4018,11 @@ export const ptBR = {
       "Experimente seu aplicativo na visualização. Erros de execução são registrados aqui, e o assistente pode consultá-los para ajudar a investigar.",
   },
   capability: {
+    uiDemo: {
+      readOnly:
+        "Exemplos locais de plugins. Explore a busca, os detalhes e os menus sem instalar plugins nem alterar dados reais.",
+      exit: "Sair da demonstração",
+    },
     title: "Plugins e habilidades",
     description:
       "Gerencie plugins pessoais, habilidades, origens da Central de plugins e status de execução.",
@@ -4511,6 +4550,7 @@ export const ptBR = {
       assistant_response: "Respostas de IA",
       memory_generation: "Geração de memórias",
       task_title_generation: "Nomeação automática de tarefas",
+      browser_use_intent: "Detecção de intenção de navegação",
       document_embedding: "Embeddings de documentos",
       query_embedding: "Embeddings de consultas",
       rerank: "Reordenação da busca",
@@ -6064,6 +6104,10 @@ export const ptBR = {
       emptyResult:
         "A automação terminou sem produzir um resultado exibível. Execute novamente.",
       expired: "Esta automação expirou e não pode mais ser executada.",
+      expirationInPast: localizedErrorMessage(
+        "AUTOMATION_EXPIRATION_IN_PAST",
+        "pt-BR"
+      ),
     },
     userDisabled:
       "Este usuário está desativado. Entre em contato com um administrador.",
@@ -6086,3 +6130,4 @@ export const ptBR = {
     teams: "SSO do Teams",
   },
 } satisfies TranslationResource<typeof enUS>
+import { browserUseMessages } from "@/features/browser-use/messages"

@@ -57,19 +57,15 @@ describe.each(["zh-CN", "en-US"])(
       )
       const primary = actions[0]
       if (!primary) throw new Error("Expected chat creation action")
+      expect(primary).toHaveClass("min-h-18", "rounded-lg", "p-3")
       expect(within(dialog).getAllByRole("button")).toHaveLength(5)
       expect(
-        within(primary).getByText(i18n.t("applications.creation.recommended"))
-      ).toBeVisible()
-      expect(
-        within(primary).getByText(i18n.t("applications.creation.start"))
-      ).toBeVisible()
-      expect(
         dialog.querySelector('[data-slot="application-creation-illustration"]')
-      ).toHaveAttribute("aria-hidden", "true")
-      expect(
-        dialog.querySelector('[data-slot="application-creation-illustration"]')
-      ).toHaveClass("hidden", "sm:block")
+      ).toBeNull()
+      expect(dialog).toHaveClass("sm:max-w-150")
+      for (const action of actions) {
+        expect(action).toHaveClass("min-h-18", "rounded-lg", "p-3")
+      }
       expect(dialog).toHaveClass("max-h-[calc(100dvh-2rem)]", "flex-col")
       expect(actions[0]?.parentElement).toHaveClass("overflow-y-auto")
       const alternatives = dialog.querySelector(
@@ -107,7 +103,16 @@ describe.each(["zh-CN", "en-US"])(
       const primary = screen.getByRole("button", {
         name: i18n.t("applications.creation.interactiveTitle"),
       })
-      await waitFor(() => expect(primary).toHaveFocus())
+      await waitFor(() =>
+        expect(
+          screen.getByRole("heading", {
+            name: i18n.t("applications.createTitle"),
+          })
+        ).toHaveFocus()
+      )
+      expect(choose).not.toHaveBeenCalled()
+      await user.tab()
+      expect(primary).toHaveFocus()
       await user.keyboard("{Enter}")
       expect(choose).toHaveBeenLastCalledWith("development")
       await user.tab()

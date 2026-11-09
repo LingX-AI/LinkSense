@@ -1,5 +1,6 @@
 import { conversationReconnectingWarningDelayMs } from "@/features/conversations/use-conversation-events"
 import { rememberSidebarTaskSortModes } from "@/features/conversations/sidebar-task-sort-preference"
+import { applicationIconArtwork } from "@/features/applications/application-icon-presets"
 import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
@@ -586,6 +587,7 @@ describe("LinkSense application", () => {
       .closest("a")
     expect(completedTaskLink).not.toBeNull()
     expect(unreadDot).toBeVisible()
+    expect(unreadDot).toHaveClass("bg-primary")
 
     await interaction.click(completedTaskLink as HTMLAnchorElement)
 
@@ -864,7 +866,7 @@ describe("LinkSense application", () => {
     const fallbackIcon = fallbackLink!.querySelector(
       ".sidebar-conversation-application-icon"
     )
-    const presetIcon = applicationIcon?.querySelector("svg")
+    const presetIcon = applicationIcon?.querySelector("img")
 
     expect(applicationIcon).not.toBeNull()
     expect(applicationIcon).toHaveClass(
@@ -878,12 +880,19 @@ describe("LinkSense application", () => {
     ).toHaveClass("bg-transparent")
     expect(presetIcon).not.toBeNull()
     expect(presetIcon).toHaveClass("size-full")
-    expect(presetIcon?.querySelectorAll("[fill]").length).toBeGreaterThan(0)
+    expect(presetIcon).toHaveAttribute(
+      "src",
+      applicationIconArtwork["graduation-cap"]
+    )
+    expect(presetIcon).toHaveAttribute("alt", "")
     expect(
       applicationIcon!.compareDocumentPosition(applicationTitle) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
-    expect(fallbackIcon?.querySelector("svg")).not.toBeNull()
+    expect(fallbackIcon?.querySelector("img")).toHaveAttribute(
+      "src",
+      applicationIconArtwork.bot
+    )
     expect(
       fallbackIcon?.querySelector('[data-application-icon-preset="bot"]')
     ).not.toBeNull()

@@ -12,7 +12,7 @@ import {
 import { ThemeProvider } from "@/app/theme-context"
 import { useTheme } from "@/app/theme-state"
 
-function installMatchMedia(initialMatches: boolean) {
+function installMatchMedia(initialMatches: boolean, reducedMotion = false) {
   let matches = initialMatches
   const listeners = new Set<EventListener>()
   const mediaQuery = {
@@ -38,7 +38,11 @@ function installMatchMedia(initialMatches: boolean) {
 
   vi.stubGlobal(
     "matchMedia",
-    vi.fn(() => mediaQuery)
+    vi.fn((query: string) =>
+      query === "(prefers-reduced-motion: reduce)"
+        ? { ...mediaQuery, matches: reducedMotion, media: query }
+        : mediaQuery
+    )
   )
 
   return {
@@ -89,6 +93,7 @@ describe("theme preferences", () => {
     cleanup()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+    Reflect.deleteProperty(document, "startViewTransition")
     document.documentElement.classList.remove("dark")
     delete document.documentElement.dataset.theme
     delete document.documentElement.dataset.themePreference
@@ -178,6 +183,111 @@ describe("theme preferences", () => {
     act(() => media.setMatches(true))
     expect(document.documentElement).toHaveClass("dark")
     expect(document.documentElement.dataset.theme).toBe("dark")
+  })
+
+  it("captures light and dark changes with the React state inside the view transition", async () => {
+    installMatchMedia(false)
+    let update: (() => void) | undefined
+    const transition = { ready: Promise.resolve(), skipTransition: vi.fn() }
+    const startViewTransition = vi.fn((callback: () => void) => {
+      update = callback
+      return transition
+    })
+    Object.defineProperty(document, "startViewTransition", {
+      configurable: true,
+      value: startViewTransition,
+    })
+    const interaction = userEvent.setup()
+    render(
+      <ThemeProvider>
+        <ThemeProbe />
+      </ThemeProvider>
+    )
+    expect(startViewTransition).not.toHaveBeenCalled()
+
+    for (const [index, theme] of ["dark", "light"].entries()) {
+      await interaction.click(screen.getByRole("button", { name: theme }))
+      expect(startViewTransition).toHaveBeenCalledTimes(index + 1)
+      expect(window.localStorage.getItem("linksense.theme")).toBe(theme)
+      act(() => {
+        update?.()
+        expect(document.documentElement.dataset.theme).toBe(theme)
+        expect(screen.getByText(theme, { selector: "output" })).toBeVisible()
+      })
+    }
+  })
+
+  it.each([false, true])(
+    "does not animate choosing a preference with the same resolved colors (system dark: %s)",
+    async (systemDark) => {
+      installMatchMedia(systemDark)
+      const startViewTransition = vi.fn()
+      Object.defineProperty(document, "startViewTransition", {
+        configurable: true,
+        value: startViewTransition,
+      })
+      const interaction = userEvent.setup()
+      render(
+        <ThemeProvider>
+          <ThemeProbe />
+        </ThemeProvider>
+      )
+
+      const theme = systemDark ? "dark" : "light"
+      await interaction.click(screen.getByRole("button", { name: theme }))
+      expect(startViewTransition).not.toHaveBeenCalled()
+      expect(screen.getByText(theme, { selector: "output" })).toBeVisible()
+      expect(window.localStorage.getItem("linksense.theme")).toBe(theme)
+    }
+  )
+
+  it("switches without animation when reduced motion is requested", async () => {
+    installMatchMedia(false, true)
+    const startViewTransition = vi.fn()
+    Object.defineProperty(document, "startViewTransition", {
+      configurable: true,
+      value: startViewTransition,
+    })
+    const interaction = userEvent.setup()
+    render(
+      <ThemeProvider>
+        <ThemeProbe />
+      </ThemeProvider>
+    )
+
+    await interaction.click(screen.getByRole("button", { name: "dark" }))
+    expect(startViewTransition).not.toHaveBeenCalled()
+    expect(document.documentElement.dataset.theme).toBe("dark")
+    expect(screen.getByText("dark", { selector: "output" })).toBeVisible()
+    expect(window.localStorage.getItem("linksense.theme")).toBe("dark")
+  })
+
+  it("keeps the latest theme when an earlier transition callback arrives late", async () => {
+    installMatchMedia(false)
+    let update: (() => void) | undefined
+    const transition = { ready: Promise.resolve(), skipTransition: vi.fn() }
+    const startViewTransition = vi.fn((callback: () => void) => {
+      update = callback
+      return transition
+    })
+    Object.defineProperty(document, "startViewTransition", {
+      configurable: true,
+      value: startViewTransition,
+    })
+    const interaction = userEvent.setup()
+    render(
+      <ThemeProvider>
+        <ThemeProbe />
+      </ThemeProvider>
+    )
+
+    await interaction.click(screen.getByRole("button", { name: "dark" }))
+    expect(startViewTransition).toHaveBeenCalledOnce()
+    await interaction.click(screen.getByRole("button", { name: "light" }))
+    act(() => update?.())
+    expect(document.documentElement.dataset.theme).toBe("light")
+    expect(screen.getByText("light", { selector: "output" })).toBeVisible()
+    expect(window.localStorage.getItem("linksense.theme")).toBe("light")
   })
 
   it("stops following the system for a fixed theme and removes listeners", async () => {

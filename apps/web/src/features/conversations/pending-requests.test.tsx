@@ -124,14 +124,16 @@ describe("pending request summaries", () => {
     expect(screen.queryByRole("button", { name: "引导" })).toBeNull()
     expect(screen.queryByText("活动名单.xlsx")).not.toBeInTheDocument()
     expect(
-      screen.queryByText(/优先插件\/Skill.*LinkSense 浏览器/)
+      screen.queryByText(/优先插件\/Skill.*LinkSense 云端浏览器/)
     ).not.toBeInTheDocument()
 
     await interaction.click(
       screen.getByRole("button", { name: "查看后续请求详情" })
     )
     expect(await screen.findByText("活动名单.xlsx")).toBeVisible()
-    expect(screen.getByText(/优先插件\/Skill.*LinkSense 浏览器/)).toBeVisible()
+    expect(
+      screen.getByText(/优先插件\/Skill.*LinkSense 云端浏览器/)
+    ).toBeVisible()
     expect(screen.getByText("2 kB")).toBeVisible()
     expect(screen.queryByText("第 1 条")).not.toBeInTheDocument()
     expect(screen.queryByText(/创建时间/)).not.toBeInTheDocument()

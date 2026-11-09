@@ -110,7 +110,8 @@ export function ApplicationMetadataDialog({
       }}
     >
       <DialogContent
-        className="flex max-h-[calc(100dvh-2rem)] flex-col sm:max-w-xl"
+        variant="workspace"
+        className="flex flex-col"
         closeLabel={t("common.close")}
       >
         <DialogHeader>
@@ -168,6 +169,7 @@ export function ApplicationMetadataDialog({
               </FieldLabel>
               <Textarea
                 id={`${id}-description`}
+                className="min-h-25 p-3"
                 value={description}
                 maxLength={4000}
                 disabled={save.isPending}

@@ -15,10 +15,10 @@ tmp=$(mktemp -d)
 trap 'rm -r "$tmp"' EXIT HUP INT TERM
 bootstrap_download() {
   download_status=0
-  curl --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 --retry-max-time 300 --connect-timeout 15 --max-time 300 -fsSL "$1" -o "$2" || download_status=$?
+  curl --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 --retry-max-time 300 --connect-timeout 15 --max-time 300 --speed-limit 1024 --speed-time 30 -fsSL "$1" -o "$2" || download_status=$?
   case "$download_status" in
     0) ;;
-    16|92) curl --http1.1 --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 --retry-max-time 300 --connect-timeout 15 --max-time 300 -fsSL "$1" -o "$2" ;;
+    16|92) curl --http1.1 --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 --retry-max-time 300 --connect-timeout 15 --max-time 300 --speed-limit 1024 --speed-time 30 -fsSL "$1" -o "$2" ;;
     *) return "$download_status" ;;
   esac
 }

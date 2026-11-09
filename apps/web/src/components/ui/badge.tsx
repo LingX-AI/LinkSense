@@ -17,7 +17,8 @@ const badgeVariants = cva(
         sm: "h-4 px-1.5 py-0 text-[10px] font-normal",
       },
       variant: {
-        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        default:
+          "bg-primary-action text-primary-foreground [a]:hover:bg-primary-hover",
         success: "bg-success text-white [a]:hover:bg-success/80",
         secondary:
           "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
@@ -28,7 +29,7 @@ const badgeVariants = cva(
         outline:
           "border-border text-foreground [a]:hover:bg-hover [a]:hover:text-muted-foreground",
         ghost: "hover:bg-hover hover:text-muted-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+        link: "text-link-foreground underline-offset-4 hover:underline",
       },
     },
     defaultVariants: {
