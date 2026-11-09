@@ -90,15 +90,17 @@ describe("PoweredByLinkSense", () => {
           expect(frame).toHaveClass(
             "absolute",
             "w-max",
-            "bg-transparent",
-            "p-0"
+            "bg-[var(--app-canvas)]",
+            "rounded-sm",
+            "p-1"
           )
           expect(frame).toHaveClass("pointer-events-none")
           expect(attribution).toHaveClass("pointer-events-auto")
           expect(styles).toMatch(/\.absolute\s*\{\s*position:\s*absolute;/u)
           expect(styles).toMatch(/width:\s*max-content;/u)
-          expect(styles).toMatch(/background-color:\s*transparent;/u)
-          expect(styles).toMatch(/padding:\s*0;/u)
+          expect(styles).toMatch(/background-color:\s*var\(--app-canvas\);/u)
+          expect(styles).toMatch(/border-radius:\s*var\(--radius-sm\);/u)
+          expect(styles).toMatch(/padding:\s*var\(--spacing\);/u)
         } else {
           expect(frame).toHaveClass(
             "px-[var(--attribution-inset)]",

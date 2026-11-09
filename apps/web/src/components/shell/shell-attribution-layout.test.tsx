@@ -29,8 +29,9 @@ describe("shared shell attribution layout", () => {
     expect(footer).toHaveClass(
       "absolute",
       "w-max",
-      "bg-transparent",
-      "p-0",
+      "rounded-sm",
+      "bg-[var(--app-canvas)]",
+      "p-1",
       "pointer-events-none"
     )
     expect(footer).not.toHaveClass("fixed", "w-full")
