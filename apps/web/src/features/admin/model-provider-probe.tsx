@@ -1,10 +1,11 @@
-import { useId, useState } from "react"
+import { useId, useState, type ComponentProps } from "react"
 import { useTranslation } from "react-i18next"
 import {
   modelProviderProbeInputSchema,
+  discoverImageGenerationModelsInputSchema,
+  discoverVoiceTranscriptionModelsInputSchema,
   testModelProviderConnectionInputSchema,
   type DiscoveredProviderModel,
-  type ModelProviderProbeInput,
   type TestModelProviderConnectionInput,
 } from "@linksense/shared"
 import { getErrorMessage } from "@/api/error-message"
@@ -24,42 +25,66 @@ import {
 import {
   useDiscoverModels,
   useTestModelConnection,
+  type ModelDiscoverySource,
 } from "./use-model-provider-probe"
 
-export function ModelDiscovery({
-  input,
-  credentialsReady,
-  disabled,
-  selectedId,
-  onSelect,
-  manualEntry,
-}: {
-  input: ModelProviderProbeInput
-  credentialsReady: boolean
-  disabled: boolean
-  selectedId: string
-  onSelect: (model: DiscoveredProviderModel) => void
-  manualEntry?: {
-    label: string
-    onChange: (modelId: string) => void
-  }
-}) {
+export function ModelDiscovery(
+  props: {
+    credentialsReady: boolean
+    disabled: boolean
+    selectedId: string
+    onSelect: (model: DiscoveredProviderModel) => void
+    autoDiscover?: boolean
+    hint?: string
+    field?: Pick<
+      ComponentProps<typeof FieldShell>,
+      "id" | "layout" | "controlWidth" | "required" | "hint"
+    >
+    manualEntry?: {
+      label: string
+      name?: string
+      onChange: (modelId: string) => void
+    }
+  } & ModelDiscoverySource
+) {
+  const {
+    input,
+    credentialsReady,
+    disabled,
+    selectedId,
+    onSelect,
+    manualEntry,
+    autoDiscover = false,
+    field,
+    hint,
+  } = props
   const { t } = useTranslation()
-  const id = useId()
-  const mutation = useDiscoverModels(input)
+  const generatedId = useId()
+  const id = field?.id ?? generatedId
+  const canDiscover =
+    !disabled &&
+    credentialsReady &&
+    (props.kind === "image"
+      ? discoverImageGenerationModelsInputSchema
+      : props.kind === "voice"
+        ? discoverVoiceTranscriptionModelsInputSchema
+        : modelProviderProbeInputSchema
+    ).safeParse(input).success
+  const discovery = useDiscoverModels(props, autoDiscover && canDiscover)
   const [open, setOpen] = useState(false)
-  const data = mutation.data
+  const data = discovery.data
   const models = data?.models ?? []
   const selectionDisabled =
-    disabled || (!manualEntry && (mutation.isPending || models.length === 0))
+    disabled || (!manualEntry && (discovery.isFetching || models.length === 0))
   const selected = models.find((model) => model.id === selectedId) ?? null
   const { contains } = useComboboxFilter()
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <p className="text-xs text-muted-foreground">
-        {t("modelSetup.discoveryHint")}
+        {hint ?? t("modelSetup.discoveryHint")}
       </p>
       <FieldShell
+        {...field}
         id={id}
         label={manualEntry?.label ?? t("modelSetup.selectModel")}
       >
@@ -99,6 +124,8 @@ export function ModelDiscovery({
           >
             <ComboboxInput
               id={id}
+              name={manualEntry?.name}
+              required={field?.required}
               className="min-w-0 flex-1"
               disabled={selectionDisabled}
               maxLength={manualEntry ? 240 : undefined}
@@ -120,27 +147,22 @@ export function ModelDiscovery({
             type="button"
             variant="secondary"
             className="shrink-0"
-            disabled={
-              disabled ||
-              mutation.isPending ||
-              !credentialsReady ||
-              !modelProviderProbeInputSchema.safeParse(input).success
-            }
-            aria-busy={mutation.isPending || undefined}
-            onClick={() => mutation.mutate()}
+            disabled={!canDiscover || discovery.isFetching}
+            aria-busy={discovery.isFetching || undefined}
+            onClick={() => void discovery.refetch()}
           >
-            {mutation.isPending && <Spinner data-icon="inline-start" />}
+            {discovery.isFetching && <Spinner data-icon="inline-start" />}
             {t(
-              mutation.isPending
+              discovery.isFetching
                 ? "modelSetup.discovering"
                 : "modelSetup.discover"
             )}
           </Button>
         </div>
       </FieldShell>
-      {mutation.error && (
+      {discovery.error && (
         <StatusBanner variant="error">
-          {getErrorMessage(mutation.error, t)}
+          {getErrorMessage(discovery.error, t)}
         </StatusBanner>
       )}
       {data && data.models.length === 0 && (

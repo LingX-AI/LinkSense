@@ -1,3 +1,4 @@
+import { settleMonitoringRunStop } from "../modules/automations/monitoring.js";
 import { z } from "zod";
 
 import { Prisma, type PrismaClient } from "../generated/prisma/client.js";
@@ -383,6 +384,7 @@ export async function settleDeploymentTasks(
             completedAt: now,
           },
         });
+        if (run.executionContextJson) await settleMonitoringRunStop(tx, run);
         await tx.automation.updateMany({
           where: {
             id: run.automationId,

@@ -3,7 +3,7 @@ import { useState, type ComponentProps } from "react"
 import type { CapabilitySummary } from "@/api/contracts"
 import mcpIconUrl from "@/assets/capabilities/mcp-icon.svg"
 import pluginIconUrl from "@/assets/capabilities/plugin-icon.png"
-import skillIconUrl from "@/assets/capabilities/skill-icon.png"
+import skillIconUrl from "@/assets/capabilities/skill-icon.svg"
 
 const defaultIconUrls: Record<CapabilitySummary["type"], string> = {
   plugin: pluginIconUrl,

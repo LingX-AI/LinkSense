@@ -225,6 +225,7 @@ export function ApplicationSharingPanel({
             }}
           >
             <TabsList
+              variant="pills"
               className="share-target-type-options"
               aria-label={t("applications.shareTargetType")}
             >

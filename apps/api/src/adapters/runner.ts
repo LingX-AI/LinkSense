@@ -1,3 +1,4 @@
+import { browserPanelRequestSchema, browserPanelStateSchema, browserPanelErrorCodes, type BrowserPanelRequest, type BrowserPanelState } from "@linksense/shared";
 import { publicKnowledgeRunnerResultSchema, type PublicKnowledgeRunnerInput, type PublicKnowledgeRunnerResult } from "@linksense/shared";
 import { diskUsageSchema, runtimePlacementSchema, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, type RuntimePlacement } from "@linksense/shared";
 import type { AppConfig } from "../config.js";
@@ -794,6 +795,13 @@ export class RunnerClient {
     const parsed = runnerTurnInterruptResultSchema.safeParse(result);
     if (!parsed.success) throw new AppError("RUNNER_UNAVAILABLE");
     return parsed.data;
+  }
+
+  async browserPanel(ownerId: string, conversationId: string, request: BrowserPanelRequest): Promise<BrowserPanelState> {
+    const response = await this.request<unknown>(`/conversations/${conversationId}/browser`, "POST", browserPanelRequestSchema.parse(request), { ownerId, acceptErrorResponse: true, timeoutMs: 20_000 });
+    const failure = z.object({ error_code: z.enum(browserPanelErrorCodes) }).safeParse(response);
+    if (failure.success) throw new AppError(failure.data.error_code);
+    return browserPanelStateSchema.parse(response);
   }
 
   async respondUserInputRequest(input: {

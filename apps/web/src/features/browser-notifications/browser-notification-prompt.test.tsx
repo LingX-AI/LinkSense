@@ -108,9 +108,9 @@ describe("BrowserNotificationPrompt", () => {
     )
     expect(screen.getByRole("button", { name: "暂时不用" })).toHaveClass(
       "browser-notification-prompt-dismiss",
-      "h-8"
+      "h-9"
     )
-    expect(screen.getByRole("button", { name: "开启" })).toHaveClass("h-8")
+    expect(screen.getByRole("button", { name: "开启" })).toHaveClass("h-9")
   })
 
   it("hides the prompt for the rest of the current browser session", async () => {

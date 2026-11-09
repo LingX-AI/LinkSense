@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  createModelProviderFetch,
   KNOWLEDGE_SEARCH_MAX_NUM_CANDIDATES,
   type ModelTokenPricing,
 } from "@linksense/shared";
@@ -100,7 +101,9 @@ export class RerankClient {
     private readonly fetcher: typeof fetch = fetch,
     private readonly estimator: TokenEstimator = cl100kTokenEstimator,
   ) {
-    this.endpoint = `${config.baseUrl.replace(/\/$/u, "")}/rerank`;
+    const baseUrl = config.baseUrl.replace(/\/+$/u, "");
+    this.endpoint = `${baseUrl}/rerank`;
+    this.fetcher = createModelProviderFetch(baseUrl, fetcher);
   }
 
   async rerank(

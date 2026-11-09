@@ -49,6 +49,9 @@ export type BotChannelConversations = {
 };
 
 export class BotChannelRuntime {
+  private notificationWork?: { start(): void; wake(): void; close(): Promise<void> };
+  attachNotificationWork(work: { start(): void; wake(): void; close(): Promise<void> }): void { this.notificationWork = work; }
+  notificationConnectionIds(): string[] { return [...this.sessions].filter(([, entry]) => entry.session.isConnected() && !entry.controller.signal.aborted && entry.guard?.isActive() !== false).map(([id]) => id); }
   private started = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   private connectionTimer: ReturnType<typeof setInterval> | null = null;
@@ -100,6 +103,7 @@ export class BotChannelRuntime {
   }
 
   async start(): Promise<void> {
+    this.notificationWork?.start();
     if (this.started) return;
     this.started = true;
     this.inboundWork.start();
@@ -115,6 +119,7 @@ export class BotChannelRuntime {
   }
 
   wake(): void {
+    this.notificationWork?.wake();
     if (!this.started) return;
     this.inboundWork.wake();
     this.outboundWork.wake();
@@ -128,6 +133,7 @@ export class BotChannelRuntime {
   }
 
   async close(): Promise<void> {
+    await this.notificationWork?.close();
     this.started = false;
     if (this.timer) clearInterval(this.timer);
     if (this.connectionTimer) clearInterval(this.connectionTimer);
@@ -156,6 +162,31 @@ export class BotChannelRuntime {
     return entry?.session.handleRequest
       ? entry.session.handleRequest(request)
       : { status: 503 };
+  }
+
+  async sendNotification(input: { ownerId: string; connectionId: string; inbound: Parameters<typeof decryptReplyContext>[0]; text: string; beforeSend: () => Promise<void> }): Promise<void> {
+    // The shared lease helper skips busy connections; notifications must retry instead.
+    let delivered = false;
+    await this.#withConnectionLease(input.connectionId, assertConnectionActive => this.#withLocks(input.ownerId, null, async assertActive => {
+      const connection = await this.repository.findActiveConnection(input.connectionId);
+      const context = decryptReplyContext(input.inbound, this.encryption);
+      const group = context.provider === "dingtalk" ? context.group : true;
+      if (
+        !connection ||
+        (connection.ownerId !== null && connection.ownerId !== input.ownerId) ||
+        input.inbound.ownerId !== input.ownerId ||
+        input.inbound.connectionId !== connection.id ||
+        (await this.repository.resolveSenderOwner(connection.id, input.inbound.senderId)) !== input.ownerId ||
+        context.provider !== connection.provider ||
+        (group && !connection.allowGroupMessages)
+      ) throw new ChannelProtocolError("BOT_CHANNEL_DELIVERY_FAILED");
+      await input.beforeSend();
+      assertConnectionActive();
+      assertActive();
+      await this.#send(connection.id, input.inbound, input.text);
+      delivered = true;
+    }));
+    if (!delivered) throw new ChannelProtocolError("BOT_CHANNEL_DELIVERY_FAILED");
   }
 
   async #sweepConnections(): Promise<void> {

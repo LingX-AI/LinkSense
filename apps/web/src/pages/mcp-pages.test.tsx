@@ -390,10 +390,10 @@ describe("McpManagementPage", () => {
     )
 
     const dialog = screen.getByRole("dialog", { name: "连接自定义 MCP" })
-    expect(dialog).toHaveClass("min-w-0", "overflow-x-hidden")
+    expect(dialog).toHaveAttribute("data-variant", "workspace")
+    expect(dialog).toHaveClass("min-w-0")
     expect(dialog.querySelector("form")).toHaveClass(
       "min-w-0",
-      "overflow-x-hidden",
       "overflow-y-auto"
     )
     const configuration = screen.getByLabelText(/^STDIO 配置（JSON）\s*\*?$/)

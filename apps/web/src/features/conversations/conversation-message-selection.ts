@@ -3,6 +3,7 @@ import type { ConversationMessage } from "@/api/contracts"
 
 export type MessageReferenceAction = Readonly<{
   label: string
+  tooltipLabel?: string
   mode: "ask" | "return"
   disabled?: boolean
   onSelect: (message: ConversationMessage, text: string) => void
@@ -11,7 +12,16 @@ export type MessageReferenceAction = Readonly<{
 export function sideChatTurnInput(submission: {
   input: string
   referenceId?: string
+  taskReferences?: readonly { id: string; title: string }[]
 }) {
+  if (submission.taskReferences?.length)
+    return {
+      message_display: {
+        kind: "task_references" as const,
+        request: submission.input,
+        conversation_ids: submission.taskReferences.map((source) => source.id),
+      },
+    }
   return submission.referenceId
     ? {
         message_display: {

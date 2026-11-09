@@ -203,24 +203,38 @@ export function AssistantMarkdownImage({
       return
 
     let active = true
+    let decodedAfterLoad = false
     // Decode the mounted image so native lazy loading still controls when its
     // bytes are fetched. The placeholder remains in the same grid cell.
-    void image.decode().then(
-      () => {
-        if (!active) return
-        const request = getFreshPreviewRequest(loadPreview, fileKey)
-        if (request?.source?.url === previewSource.url) request.decoded = true
-        setDecoded({ fileKey, loader: loadPreview, source: previewSource })
-      },
-      () => {
-        if (!active) return
-        invalidatePreviewRequest(loadPreview, fileKey)
-        setDecoded(null)
-        setState({ status: "error", requestKey, loader: loadPreview })
-      }
-    )
+    const decodeImage = () => {
+      void image.decode().then(
+        () => {
+          if (!active) return
+          const request = getFreshPreviewRequest(loadPreview, fileKey)
+          if (request?.source?.url === previewSource.url) request.decoded = true
+          setDecoded({ fileKey, loader: loadPreview, source: previewSource })
+        },
+        () => {
+          if (!active) return
+          // A lazy request can reject decode before the browser selects its source.
+          if (!image.complete && !decodedAfterLoad) {
+            image.addEventListener("load", decodeLoadedImage, { once: true })
+            return
+          }
+          invalidatePreviewRequest(loadPreview, fileKey)
+          setDecoded(null)
+          setState({ status: "error", requestKey, loader: loadPreview })
+        }
+      )
+    }
+    const decodeLoadedImage = () => {
+      decodedAfterLoad = true
+      decodeImage()
+    }
+    decodeImage()
     return () => {
       active = false
+      image.removeEventListener("load", decodeLoadedImage)
     }
   }, [fileKey, loadPreview, previewSource, requestKey, retainedSource])
 

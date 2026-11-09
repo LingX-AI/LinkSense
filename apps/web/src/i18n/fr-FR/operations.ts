@@ -153,6 +153,7 @@ export const operationsResources = {
       assistant_response: "Réponses de l’IA",
       memory_generation: "Création de souvenirs",
       task_title_generation: "Nommage automatique des tâches",
+      browser_use_intent: "Détection de l’intention de navigation",
       document_embedding: "Vectorisation des documents",
       query_embedding: "Vectorisation des requêtes",
       rerank: "Reclassement des résultats",

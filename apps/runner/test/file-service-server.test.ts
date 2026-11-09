@@ -357,15 +357,31 @@ describe("LinkSense Core MCP subprocess", () => {
         .map((tool) => tool.name)
         .sort(),
     ).toEqual([
+      "browser_use",
       "convert_document_to_markdown",
       "emit_application_event",
       "get_current_user_info",
       "get_knowledge_document_markdown",
       "list_knowledge_documents",
       "list_skills",
+      "read_referenced_conversation",
       "request_user_form",
       "search_knowledge_base",
     ]);
+    for (const [index, name] of ["browser_use"].entries()) {
+      await expect(
+        rpc.call(20 + index, "tools/call", {
+          name,
+          arguments: { action: "type", tab_id: 1, text: "text" },
+        }),
+      ).resolves.toMatchObject({
+        isError: true,
+        content: [{
+          type: "text",
+          text: expect.stringContaining("BROWSER_USE_ACCESS_DENIED"),
+        }],
+      });
+    }
     await expect(
       rpc.call(1, "tools/call", {
         name: "search_knowledge_base",

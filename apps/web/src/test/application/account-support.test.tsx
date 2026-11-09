@@ -22,7 +22,7 @@ describe("account support actions", () => {
         name: "LinkSense 导航",
       })
       const account = within(sidebar).getByRole("button", { name: "林晓" })
-      expect(account.parentElement?.querySelectorAll("button")).toHaveLength(1)
+      expect(account.parentElement?.querySelectorAll("button")).toHaveLength(2)
       expect(
         within(sidebar).queryByRole("button", { name: "反馈与帮助" })
       ).not.toBeInTheDocument()
@@ -99,7 +99,7 @@ describe("account support actions", () => {
     )
     const navigation = await screen.findByRole("dialog", { name: "LinkSense" })
     const account = within(navigation).getByRole("button", { name: "林晓" })
-    expect(account.parentElement?.querySelectorAll("button")).toHaveLength(1)
+    expect(account.parentElement?.querySelectorAll("button")).toHaveLength(2)
     await interaction.click(account)
     await interaction.click(
       await screen.findByRole("menuitem", { name: "反馈" })

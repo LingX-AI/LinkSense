@@ -13,6 +13,7 @@ export const settingsResources = {
     emptyDescription:
       "Créez une automatisation pour lancer une nouvelle exécution dans une tâche dédiée aux horaires prévus.",
     suggestions: {
+      useTemplate: "Utiliser le modèle",
       title: "Suggestions",
       useTemplateNamed: "Utiliser le modèle {{name}}",
       dailyBrief: {

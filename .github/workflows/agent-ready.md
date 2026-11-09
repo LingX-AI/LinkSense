@@ -45,7 +45,7 @@ safe-outputs:
   threat-detection:
     engine:
       id: codex
-      model: detection
+      model: gpt-6.1-sol
   create-pull-request:
     title-prefix: "[agent] "
     labels:

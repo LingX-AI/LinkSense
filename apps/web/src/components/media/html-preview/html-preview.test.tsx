@@ -381,7 +381,10 @@ describe("HTML preview", () => {
     const modeButton = screen.getByRole("button", {
       name: "进入 HTML 标注模式",
     })
-    expect(modeButton).toHaveClass("bg-[var(--app-selection)]", "text-white")
+    expect(modeButton).toHaveClass(
+      "bg-primary-action",
+      "text-primary-foreground"
+    )
     expect(modeButton).toBeDisabled()
     fireEvent.load(interactionFrame)
     sendInteractionReady(interactionFrame)
@@ -401,7 +404,10 @@ describe("HTML preview", () => {
     expect(
       screen.getByRole("button", { name: "退出 HTML 标注模式" })
     ).toHaveAttribute("aria-pressed", "true")
-    expect(modeButton).toHaveClass("bg-[var(--app-selection)]", "text-white")
+    expect(modeButton).toHaveClass(
+      "bg-primary-action",
+      "text-primary-foreground"
+    )
     expect(screen.getByTestId("html-preview-interaction-frame")).toBe(
       interactionFrame
     )

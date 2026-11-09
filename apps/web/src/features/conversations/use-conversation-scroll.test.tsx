@@ -2,10 +2,12 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
-  CONVERSATION_SCROLL_BUTTON_THRESHOLD_PX,
+  CONVERSATION_SCROLL_BUTTON_HIDE_THRESHOLD_PX,
+  CONVERSATION_SCROLL_BUTTON_SHOW_THRESHOLD_PX,
   CONVERSATION_SCROLL_TO_BOTTOM_DURATION_MS,
   CONVERSATION_STREAM_FOLLOW_HALF_LIFE_MS,
   getConversationDistanceFromBottom,
+  shouldShowConversationScrollButton,
   useConversationScroll,
 } from "@/features/conversations/use-conversation-scroll"
 
@@ -79,10 +81,12 @@ function ScrollHarness({
   conversationId,
   preservePositionOnConversationChange = false,
   followBehavior = "smooth",
+  initialPosition = "bottom",
 }: {
   conversationId: string
   preservePositionOnConversationChange?: boolean
   followBehavior?: ScrollBehavior
+  initialPosition?: "top" | "bottom"
 }) {
   const {
     scrollContainerRef,
@@ -95,6 +99,7 @@ function ScrollHarness({
   } = useConversationScroll(conversationId, {
     preservePositionOnConversationChange,
     followBehavior,
+    initialPosition,
   })
 
   return (
@@ -295,8 +300,9 @@ describe("conversation scroll behavior", () => {
     window.ResizeObserver = originalResizeObserver
   })
 
-  it("calculates a non-negative distance from the bottom and exposes the 500px threshold", () => {
-    expect(CONVERSATION_SCROLL_BUTTON_THRESHOLD_PX).toBe(500)
+  it("calculates a non-negative distance from the bottom and exposes the 80/24px thresholds", () => {
+    expect(CONVERSATION_SCROLL_BUTTON_SHOW_THRESHOLD_PX).toBe(80)
+    expect(CONVERSATION_SCROLL_BUTTON_HIDE_THRESHOLD_PX).toBe(24)
     expect(
       getConversationDistanceFromBottom({
         clientHeight: 500,
@@ -311,6 +317,23 @@ describe("conversation scroll behavior", () => {
         scrollTop: 1_600,
       })
     ).toBe(0)
+    expect(shouldShowConversationScrollButton(80, false)).toBe(false)
+    expect(shouldShowConversationScrollButton(81, false)).toBe(true)
+    expect(shouldShowConversationScrollButton(25, true)).toBe(true)
+    expect(shouldShowConversationScrollButton(24, true)).toBe(false)
+  })
+
+  it("keeps the new task welcome at the top while its content loads", () => {
+    const { rerender } = render(
+      <ScrollHarness conversationId="new" initialPosition="top" />
+    )
+    const container = screen.getByTestId("scroll-container")
+    expect(container.scrollTop).toBe(0)
+    layout.scrollHeight = 3_000
+    act(() => resizeObservers.forEach((observer) => observer.trigger()))
+    expect(container.scrollTop).toBe(0)
+    rerender(<ScrollHarness conversationId="conversation-1" />)
+    expect(container.scrollTop).toBe(2_500)
   })
 
   it("immediately scrolls to the bottom on first mount and after switching conversations", () => {
@@ -363,15 +386,21 @@ describe("conversation scroll behavior", () => {
     })
   })
 
-  it("shows the button only when the distance from the bottom exceeds 500px", () => {
+  it("shows the button past 80px and keeps it until 24px from the bottom", () => {
     render(<ScrollHarness conversationId="conversation-1" />)
     const container = screen.getByTestId("scroll-container")
 
-    act(() => setScrollTop(container, 1_000))
+    act(() => setScrollTop(container, 1_420))
     expect(screen.queryByRole("button", { name: "回到底部" })).toBeNull()
 
-    act(() => setScrollTop(container, 999))
+    act(() => setScrollTop(container, 1_419))
     expect(screen.getByRole("button", { name: "回到底部" })).toBeVisible()
+
+    act(() => setScrollTop(container, 1_475))
+    expect(screen.getByRole("button", { name: "回到底部" })).toBeVisible()
+
+    act(() => setScrollTop(container, 1_476))
+    expect(screen.queryByRole("button", { name: "回到底部" })).toBeNull()
   })
 
   it("smoothly follows content growth while auto-follow remains enabled", () => {
@@ -561,13 +590,13 @@ describe("conversation scroll behavior", () => {
     expect(scrollToMock).not.toHaveBeenCalled()
   })
 
-  it("pauses follow after a 200px user scroll without showing the button", () => {
+  it("pauses follow after a 200px user scroll and offers the button", () => {
     render(<ScrollHarness conversationId="conversation-1" />)
     const container = screen.getByTestId("scroll-container")
 
     fireEvent.wheel(container, { deltaY: -200 })
     act(() => setScrollTop(container, 1_300))
-    expect(screen.queryByRole("button", { name: "回到底部" })).toBeNull()
+    expect(screen.getByRole("button", { name: "回到底部" })).toBeVisible()
     scrollToMock.mockClear()
 
     layout.scrollHeight = 2_200
@@ -575,7 +604,7 @@ describe("conversation scroll behavior", () => {
 
     expect(container.scrollTop).toBe(1_300)
     expect(scrollToMock).not.toHaveBeenCalled()
-    expect(screen.queryByRole("button", { name: "回到底部" })).toBeNull()
+    expect(screen.getByRole("button", { name: "回到底部" })).toBeVisible()
   })
 
   it.each([0.5, 1, 12, 24])(

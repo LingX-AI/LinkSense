@@ -3,7 +3,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { XIcon } from "lucide-react"
+import { DesignIcon } from "@/components/ui/design-icon"
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />
@@ -29,7 +29,7 @@ function DialogOverlay({
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-black/30 duration-100 supports-backdrop-filter:backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 isolate z-50 bg-[var(--app-dialog-overlay)] duration-100 motion-reduce:animate-none data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}
       {...props}
@@ -41,6 +41,7 @@ function DialogOverlay({
 // from ./dialog-layout on the body only (not on nested scrollable controls).
 function DialogContent({
   className,
+  variant = "default",
   children,
   showCloseButton = true,
   closeLabel = "Close",
@@ -48,6 +49,7 @@ function DialogContent({
   portalContainer,
   ...props
 }: DialogPrimitive.Popup.Props & {
+  variant?: "default" | "workspace"
   showCloseButton?: boolean
   closeLabel?: string
   overlayClassName?: string
@@ -58,8 +60,11 @@ function DialogContent({
       <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
+        data-variant={variant}
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overscroll-contain rounded-[min(var(--radius-4xl),24px)] bg-popover p-6 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-none sm:max-w-md dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overscroll-contain rounded-2xl border border-border bg-popover p-6 text-sm text-popover-foreground shadow-[var(--app-dialog-shadow)] duration-100 outline-none motion-reduce:animate-none sm:max-w-[30rem] data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          variant === "workspace" &&
+            "max-h-[calc(100dvh-2rem)] overflow-y-auto border-0 ring-1 ring-border ring-inset sm:max-w-150 [&_[data-slot=dialog-description]]:leading-[var(--app-line-22)] [&_[data-slot=dialog-footer]]:gap-3 [&_[data-slot=dialog-header]]:gap-2 [&_[data-slot=dialog-title]]:text-lg [&_[data-slot=dialog-title]]:leading-[var(--app-line-26)] [&_[data-slot=dialog-title]]:font-medium [&_[data-slot=dialog-title]:not(.sr-only)]:min-h-9 [&_[data-slot=dialog-title]:not(.sr-only)]:content-center [&_[data-slot=dialog-title]:not(.sr-only)]:pr-12 [&_[data-slot=field-group]]:gap-5 [&_[data-slot=field-label]]:leading-[var(--app-line-22)] [&_[data-slot=field][data-orientation=vertical]]:gap-2 [&>button[data-slot=dialog-close]]:top-6 [&>button[data-slot=dialog-close]]:right-6 [&>button[data-slot=dialog-close]]:size-9",
           className
         )}
         {...props}
@@ -71,12 +76,12 @@ function DialogContent({
             render={
               <Button
                 variant="ghost"
-                className="absolute top-4 right-4 bg-secondary"
+                className="absolute top-3 right-3 text-muted-foreground"
                 size="icon-sm"
               />
             }
           >
-            <XIcon />
+            <DesignIcon name="close" />
             <span className="sr-only">{closeLabel}</span>
           </DialogPrimitive.Close>
         )}
@@ -127,7 +132,7 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
     <DialogPrimitive.Title
       data-slot="dialog-title"
       className={cn(
-        "font-heading text-base leading-none font-medium",
+        "font-heading text-xl leading-7 font-semibold text-heading",
         className
       )}
       {...props}

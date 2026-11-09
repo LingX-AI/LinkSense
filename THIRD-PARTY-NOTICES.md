@@ -58,3 +58,14 @@ the upstream terms for your distribution and deployment model, especially if
 you modify or redistribute an upstream image or provide one of its services
 directly to others. The release manifest and the software inside each image
 remain the authority for the exact installed version and its notices.
+
+## React Bits interface effects
+
+The card spotlight decoration in `apps/web/src/components/ui/card-spotlight.ts`
+and its stylesheet adapts React Bits SpotlightCard at commit
+[`e12c22192ac7b4b452c5e2feb9b586d74765d696`](https://github.com/DavidHDev/react-bits/blob/e12c22192ac7b4b452c5e2feb9b586d74765d696/src/ts-tailwind/Components/SpotlightCard/SpotlightCard.tsx).
+Copyright (c) 2026 David Haz. It retains the upstream MIT + Commons Clause terms,
+which are included in [the shipped notice](apps/web/public/licenses/react-bits.txt)
+and served at `/licenses/react-bits.txt`. It is part of the LinkSense interface;
+it is not added to downloadable application, plugin or site templates. These
+third-party portions are not relicensed under CPAL-1.0.

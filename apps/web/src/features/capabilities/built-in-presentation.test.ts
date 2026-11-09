@@ -45,14 +45,56 @@ const translations = createInstance()
 beforeAll(async () => {
   await translations.init({
     resources: {
-      "zh-CN": { translation: zhCN },
-      "en-US": { translation: enUS },
+      "zh-CN": {
+        translation: zhCN,
+      },
+      "en-US": {
+        translation: enUS,
+      },
     },
     fallbackLng: "zh-CN",
   })
 })
 
 describe("built-in capability presentation", () => {
+  it(
+    "does not relabel an existing custom Browser Use package as a built-in",
+    () => {
+      const name = "linksense-browser-use"
+      expect(
+        capabilityPresentation(
+          {
+            ...docsCapability,
+            id: "60000000-0000-4000-8000-000000000001",
+            name,
+            display_name: "Existing custom workflow",
+            builtin_key: null,
+            is_builtin: false,
+            source_type: "local",
+          },
+          translations.getFixedT("en-US"),
+          "LinkSense"
+        )
+      ).toEqual({
+        name: "Existing custom workflow",
+        description: null,
+      })
+    }
+  )
+  it("localizes Browser Use while retaining the persisted built-in identity", () => {
+    const result = capabilityPresentation(
+      {
+        ...docsCapability,
+        id: "builtin:capability:linksense-local-browser",
+        name: "linksense-local-browser",
+        builtin_key: "linksense-local-browser",
+      },
+      translations.getFixedT("en-US"),
+      "LinkSense"
+    )
+    expect(result.name).toBe("LinkSense Browser Use")
+    expect(result.description).not.toBeNull()
+  })
   it.each(["zh-CN", "en-US", "unknown"])(
     "shows optional personal names and formatted historical names in %s",
     (language) => {

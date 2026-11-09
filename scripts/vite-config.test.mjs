@@ -14,6 +14,7 @@ const { loadConfigFromFile } = await import(pathToFileURL(requireWeb.resolve("vi
 test("Vite loads development and build configuration without compiled shared output", async () => {
   const root = mkdtempSync(join(tmpdir(), "linksense-vite-config-"));
   const fixtureWeb = join(root, "apps/web");
+  const previousDirectory = process.cwd();
   try {
     // Mirror the source-only shared package in Docker development without
     // deleting or changing any build output in the developer's checkout.
@@ -34,6 +35,8 @@ test("Vite loads development and build configuration without compiled shared out
       symlinkSync(name === "@linksense/shared" ? join(root, "packages/shared") : join(webRoot, "node_modules", name), target, "dir");
     }
     assert.equal(existsSync(join(root, "packages/shared/dist")), false);
+    // Match the web CLI working directory used by plugins to resolve dependencies.
+    process.chdir(fixtureWeb);
     for (const command of ["serve", "build"]) {
       const loaded = await loadConfigFromFile({ command, mode: command === "serve" ? "development" : "production" }, join(fixtureWeb, "vite.config.ts"), fixtureWeb, "silent");
       assert(loaded, `${command} configuration must load without a shared build`);
@@ -50,6 +53,7 @@ test("Vite loads development and build configuration without compiled shared out
       assert.equal(body, emitted.source, "Development and production must serve the same shell");
     }
   } finally {
+    process.chdir(previousDirectory);
     rmSync(root, { recursive: true, force: true });
   }
 });

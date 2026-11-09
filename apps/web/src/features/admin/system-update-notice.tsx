@@ -1,5 +1,5 @@
 import { useRef, useState } from "react"
-import { SparklesIcon, XIcon } from "lucide-react"
+import { XIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { NavLink } from "react-router-dom"
 
@@ -10,6 +10,7 @@ import { SystemNoticeDialogContent } from "@/components/shell/system-notice-dial
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogClose } from "@/components/ui/dialog"
 import { useSystemUpdateStatus } from "@/features/admin/system-update-query"
+import { SystemUpdateArtwork } from "./system-update-artwork"
 
 const UPDATE_NOTICE_STORAGE_PREFIX = "linksense.system-update.dismissed."
 
@@ -61,18 +62,7 @@ export function SystemUpdateNotice() {
       <SystemNoticeDialogContent
         title={t("systemUpdate.notice.title", { version })}
         description={t("systemUpdate.notice.description")}
-        heroIcon={
-          <>
-            <SparklesIcon
-              className="absolute inset-0 size-full translate-x-1.5 translate-y-2 text-maintenance-hero-ink/20"
-              strokeWidth={1.5}
-            />
-            <SparklesIcon
-              className="relative size-full text-maintenance-hero-ink/85"
-              strokeWidth={1.5}
-            />
-          </>
-        }
+        hero={<SystemUpdateArtwork />}
         initialFocus={updateLink}
         footer={
           <>
@@ -100,7 +90,7 @@ export function SystemUpdateNotice() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="absolute top-4 right-4 rounded-full text-maintenance-hero-ink hover:bg-maintenance-hero-ink/15 hover:text-maintenance-hero-ink"
+                className="absolute top-4 right-4 rounded-full bg-background/75 text-foreground hover:bg-background hover:text-foreground"
               />
             }
           >

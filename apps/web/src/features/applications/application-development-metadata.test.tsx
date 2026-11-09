@@ -172,7 +172,7 @@ describe("development metadata autosave", () => {
     )
     expect(
       screen.getByRole("button", { name: "编辑应用描述" })
-    ).toHaveTextContent(edited.replace("\n", " "))
+    ).toHaveTextContent(edited.replaceAll("\n", " "))
   })
   it.each([
     ["编辑应用名称", "text-sm", "md:text-sm", "font-semibold", "leading-5"],
@@ -196,8 +196,10 @@ describe("development metadata autosave", () => {
       expect(screen.getByRole("textbox")).toHaveClass(
         "border-[color:var(--app-border)]"
       )
-      expect(screen.getByRole("textbox")).not.toHaveClass(
-        "focus-visible:border-ring"
+      expect(screen.getByRole("textbox")).toHaveClass(
+        label === "编辑应用描述"
+          ? "focus-visible:border-ring"
+          : "focus:not-aria-invalid:border-ring"
       )
     }
   )

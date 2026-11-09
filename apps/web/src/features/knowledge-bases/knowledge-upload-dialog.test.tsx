@@ -504,7 +504,12 @@ describe("knowledge document upload queue", () => {
     await waitFor(() =>
       expect(screen.getByLabelText(/^选择文档\s*\*?$/)).toBeEnabled()
     )
-    await interaction.click(screen.getByRole("button", { name: "目录" }))
+    const directoryTab = screen.getByRole("tab", { name: "目录" })
+    expect(directoryTab.closest('[data-slot="tabs-list"]')).toHaveAttribute(
+      "data-variant",
+      "segmented"
+    )
+    await interaction.click(directoryTab)
     const directoryInput = screen.getByLabelText(/^选择本地目录\s*\*?$/)
     expect(
       document.querySelector(
@@ -527,6 +532,15 @@ describe("knowledge document upload queue", () => {
 
     await interaction.upload(directoryInput, [supported, unsupported])
 
+    for (const tab of screen.getAllByRole("tab")) {
+      expect(tab).toHaveAttribute("aria-disabled", "true")
+    }
+    expect(directoryTab).toHaveAttribute("aria-selected", "true")
+    await interaction.click(
+      screen.getByRole("tab", { name: i18n.t("knowledge.upload.filesMode") })
+    )
+    expect(directoryTab).toHaveAttribute("aria-selected", "true")
+    expect(directoryInput).toHaveAttribute("webkitdirectory")
     expect(screen.getByText("政策库/人事/制度.pdf")).toBeVisible()
     expect(screen.getByText("政策库/工具/tool.exe")).toBeVisible()
     const skippedReason = screen.getByText("不支持此文件格式。")

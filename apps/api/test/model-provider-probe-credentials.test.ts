@@ -27,6 +27,10 @@ function fixture(version = 9, enabled = true) {
   const transaction = vi.fn().mockRejectedValue(new Error("probe must not persist"))
   const prisma = { systemSetting: { findUnique }, $transaction: transaction } as unknown as PrismaClient
   const probe = {
+    detectProtocol: vi.fn().mockResolvedValue({
+      status: "detected", protocol_mode: "native_responses", model_id: "test-model",
+      probes: [{ protocol_mode: "native_responses", status: "success", latency_ms: 25 }],
+    }),
     discover: vi.fn().mockResolvedValue({ status: "supported", models: [], truncated: false }),
     testConnection: vi.fn().mockResolvedValue({ status: "success", model_id: "test-model" }),
   }
@@ -39,8 +43,10 @@ describe("read-only model probe credentials", () => {
     const before = structuredClone(settingsJson)
     await service.discover(draft)
     await service.testConnection({ ...draft, model_id: "test-model" })
+    await service.detectProtocol(draft)
     expect(probe.discover).toHaveBeenCalledWith(expect.objectContaining({ api_key: "saved-synthetic-key", protocol_mode: "chat_completions_bridge" }))
     expect(probe.testConnection).toHaveBeenCalledWith(expect.objectContaining({ api_key: "saved-synthetic-key", model_id: "test-model", kind: "chat" }))
+    expect(probe.detectProtocol).toHaveBeenCalledWith(expect.objectContaining({ api_key: "saved-synthetic-key", protocol_mode: "chat_completions_bridge" }), undefined)
     expect(transaction).not.toHaveBeenCalled()
     expect(settingsJson).toEqual(before)
   })
@@ -56,8 +62,10 @@ describe("read-only model probe credentials", () => {
     const { service, probe } = fixture()
     await expect(service.discover({ ...draft, ...change })).rejects.toMatchObject({ code: "MODEL_PROVIDER_CREDENTIAL_REQUIRED" })
     await expect(service.testConnection({ ...draft, ...change, model_id: "test-model" })).rejects.toMatchObject({ code: "MODEL_PROVIDER_CREDENTIAL_REQUIRED" })
+    await expect(service.detectProtocol({ ...draft, ...change })).rejects.toMatchObject({ code: "MODEL_PROVIDER_CREDENTIAL_REQUIRED" })
     expect(probe.discover).not.toHaveBeenCalled()
     expect(probe.testConnection).not.toHaveBeenCalled()
+    expect(probe.detectProtocol).not.toHaveBeenCalled()
   })
 
   it("uses a newly entered key for a changed target without reading the stored key", async () => {
@@ -79,6 +87,7 @@ describe("read-only model probe credentials", () => {
     const { service, probe, findUnique } = fixture(9, false)
     await expect(service.discover(draft)).rejects.toMatchObject({ code: "MODEL_MANAGEMENT_DISABLED" })
     await expect(service.testConnection({ ...draft, model_id: "test-model" })).rejects.toMatchObject({ code: "MODEL_MANAGEMENT_DISABLED" })
+    await expect(service.detectProtocol(draft)).rejects.toMatchObject({ code: "MODEL_MANAGEMENT_DISABLED" })
     expect(findUnique).not.toHaveBeenCalled()
     expect(probe.discover).not.toHaveBeenCalled()
     expect(probe.testConnection).not.toHaveBeenCalled()

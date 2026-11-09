@@ -62,7 +62,7 @@ export function ApplicationDevelopmentToolbar({
       >
         <MoreHorizontalIcon aria-hidden="true" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-auto min-w-48">
+      <DropdownMenuContent align="end" className="min-w-48">
         <DropdownMenuGroup>
           <DropdownMenuItem disabled={publishDisabled} onClick={onPublish}>
             <UploadIcon />

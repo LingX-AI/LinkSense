@@ -32,7 +32,7 @@ export function ApplicationDevelopmentCreateDialog({
         if (!open && !mutation.isPending) onClose()
       }}
     >
-      <DialogContent closeLabel={t("common.close")}>
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         <DialogHeader>
           <DialogTitle>{t("applicationDevelopment.create")}</DialogTitle>
           <DialogDescription>

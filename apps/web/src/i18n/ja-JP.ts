@@ -11,6 +11,7 @@ import { modelSetupMessages } from "@/features/admin/model-setup-messages"
 import { localizedErrorMessage } from "@linksense/shared"
 
 export const jaJP = {
+  browserUse: browserUseMessages["ja-JP"],
   publicKnowledge: publicKnowledgeMessages["ja-JP"],
   modelSetup: modelSetupMessages["ja-JP"],
   connections: connectionMessages["ja-JP"],
@@ -286,6 +287,8 @@ export const jaJP = {
     search: "検索",
     loading: "読み込み中…",
     pageLoading: "読み込み中…",
+    emptyDescription: "項目が利用可能になると、ここに表示されます。",
+    notFoundDescription: "ページが移動または削除された可能性があります。",
     actions: "操作",
     status: "ステータス",
     name: "名前",
@@ -427,6 +430,7 @@ export const jaJP = {
     helpCenter: "ヘルプセンター",
     helpCenterNewTab: "ヘルプセンターを新しいタブで開く",
     automationNotifications: "自動化通知",
+    automationNotificationsEmpty: "未読の自動化通知はありません",
     automationNotificationsUnread: "未読の完了タスクがある自動化通知",
     automationTask: "自動化タスク",
     unreadCompletion: "完了後、まだ確認されていないタスク",
@@ -468,6 +472,7 @@ export const jaJP = {
     emptyDescription:
       "自動化を作成すると、指定したタスクで予定に沿って新しい実行を開始できます。",
     suggestions: {
+      useTemplate: "テンプレートを使用",
       title: "おすすめ",
       useTemplateNamed: "「{{name}}」テンプレートを使用",
       dailyBrief: {
@@ -1260,6 +1265,11 @@ export const jaJP = {
     },
   },
   knowledge: {
+    uiDemo: {
+      readOnly:
+        "ローカル UI テスト用のサンプルデータです。実際の資料を変更せずに閲覧や絞り込みができます。",
+      exit: "サンプルを終了",
+    },
     title: "ナレッジベース",
     description: "アクセスできるドキュメントを整理・共有・検索します。",
     searchCapability: {
@@ -2041,6 +2051,7 @@ export const jaJP = {
     taskActive:
       "タスクを移動したりプロジェクトを削除したりする前に、実行中のタスクを完了してください",
     empty: "タスクはまだありません",
+    emptyList: "プロジェクトはまだありません",
     create: "新しいプロジェクト",
     createDescription:
       "プロジェクト内のタスクはファイルを共有し、メッセージ履歴はそれぞれ個別に保持します。",
@@ -2132,10 +2143,10 @@ export const jaJP = {
     title: "タスク",
     taskSort: {
       open: "{{section}} のタスクの順序を設定",
-      label: "タスクの順序",
+      label: "タスクの並べ替え",
       priority: "優先順位",
       priorityDescription: "入力が必要なタスクと未読のタスクを先に表示します。",
-      updated_at: "最終更新",
+      updated_at: "最近更新",
       manual: "手動の順序",
     },
     share: {
@@ -2151,6 +2162,11 @@ export const jaJP = {
         "リンクをコピーできませんでした。ブラウザーの権限を確認して再試行してください。",
       unavailable: "この共有リンクは存在しないか、利用できなくなっています。",
       continueInProduct: "{{productName}} で続行",
+      snapshotDate: "共有スナップショット · {{date}}",
+      sharedConversation: "共有された会話",
+      readOnly: "読み取り専用",
+      snapshotNotice:
+        "これは会話のスナップショットです。以降のメッセージは含まれません。",
     },
     rename: "名前を変更",
     archive: "タスクをアーカイブ",
@@ -2254,11 +2270,14 @@ export const jaJP = {
     historyViewExchange: "クリックしてこのやり取りを表示",
     historyRetry: "メッセージを読み込めませんでした。再試行",
     scrollToBottom: "一番下へスクロール",
+    newReplies_one: "{{count}} 件の新しい返信",
+    newReplies_other: "{{count}} 件の新しい返信",
     placeholder: "{{productName}} にしてほしいことを入力してください…",
     followUpPlaceholder: "追加の依頼を入力…",
     send: "送信",
     model: "モデル",
     modelSelector: "モデルと推論の強度を選択",
+    chooseReasoningModel: "推論モデルを選択",
     resetReasoningEffort: "推論の強度を既定値に戻す",
     modelNotConfigured: "モデルサービスは未設定です",
     reasoningEffort: "推論の強度",
@@ -2317,6 +2336,12 @@ export const jaJP = {
     htmlAnnotationCount_other: "{{count}} 件の注釈",
     voice: "音声入力",
     voiceChecking: "音声文字起こしサービスを確認中…",
+    voiceDemoNotice:
+      "音声デモ：録音とサンプル文字起こしをシミュレーションします。マイクは使用しません。",
+    voiceDemoExit: "デモを終了",
+    voiceDemoStart: "音声入力デモを試す",
+    voiceDemoTranscript:
+      "【音声デモ】今日の会議の要点をまとめ、対応事項のリストを作成してください。",
     voiceNotConfigured: "音声文字起こしは未設定です",
     voiceServiceUnavailable:
       "音声文字起こしを一時的に利用できません。しばらくしてから再試行してください。",
@@ -2387,6 +2412,8 @@ export const jaJP = {
       noMatches: "一致するスキルがありません",
     },
     addMenu: "追加",
+    toolbarAttach: "添付",
+    toolbarKnowledge: "ナレッジ",
     addMenuTitle: "コンテンツを追加",
     addGroup: "追加",
     attachFileMenuLabel: "ローカルファイル",
@@ -2663,6 +2690,7 @@ export const jaJP = {
     copyMessageFailed:
       "メッセージをコピーできませんでした。再試行してください。",
     forkMessage: "新しいチャットに分岐",
+    forkMessageTooltip: "分岐",
     forkingMessage: "分岐を作成中…",
     forkMessageFailed:
       "分岐したタスクを作成できませんでした。再試行してください。",
@@ -3168,6 +3196,7 @@ export const jaJP = {
       "アプリケーションを更新しました。今後のタスクのターンでは、最新の設定が自動で使用されます。",
     deleted: "アプリケーションを削除しました。",
     emptyTitle: "利用可能なアプリケーションはまだありません",
+    emptyDescription: "作成または追加すると、ここに項目が表示されます。",
     createdByMe: "自分が作成",
     createdBy: "作成者：{{name}}",
     status: {
@@ -3337,6 +3366,9 @@ export const jaJP = {
     conversationManagedUserModelDescription:
       "プラグイン、スキル、ナレッジベース、指示を使用",
     externalAccess: {
+      endUserPresentation: "エンドユーザー向け表示",
+      endUserPresentationHint:
+        "下に生成される埋め込みコードのみに適用されます。技術的な処理と所要時間を非表示にし、回答、添付ファイル、確認、エラーは表示します。オフにすると技術的な詳細を表示します。",
       action: "外部アクセス",
       title: "アプリケーションの外部アクセス",
       description:
@@ -3631,6 +3663,7 @@ export const jaJP = {
     submitForReview: "審査を申請",
     submitted: "リリーススナップショットの審査を管理者に申請しました。",
     submittedAt: "申請日：{{date}}",
+    reviewedAt: "審査日：{{date}}",
     reviewPolicyNotice:
       "新しいリリースは毎回審査されます。承認済みリリースが既存のインストールを自動更新することはありません。",
     publicationsEmpty:
@@ -3925,6 +3958,11 @@ export const jaJP = {
       "プレビューでアプリケーションを試してください。実行時のエラーはここに記録され、アシスタントが確認して問題の解決を支援できます。",
   },
   capability: {
+    uiDemo: {
+      readOnly:
+        "ローカルのプラグインサンプルです。検索、詳細、メニューを確認できます。実際のインストールやデータ変更は行いません。",
+      exit: "デモを終了",
+    },
     title: "プラグインとスキル",
     description:
       "個人用プラグイン、スキル、プラグインセンターのソース、実行状況を管理します。",
@@ -4446,6 +4484,7 @@ export const jaJP = {
       assistant_response: "AI の回答",
       memory_generation: "メモリ生成",
       task_title_generation: "タスクの自動命名",
+      browser_use_intent: "ブラウザー操作の意図検出",
       document_embedding: "ドキュメントのベクトル化",
       query_embedding: "クエリのベクトル化",
       rerank: "検索結果の再ランキング",
@@ -5959,6 +5998,10 @@ export const jaJP = {
       emptyResult:
         "自動化は終了しましたが、表示可能な出力がありません。再実行してください。",
       expired: "この自動化の有効期限が切れたため、実行できません。",
+      expirationInPast: localizedErrorMessage(
+        "AUTOMATION_EXPIRATION_IN_PAST",
+        "ja-JP"
+      ),
     },
     userDisabled: "このユーザーは無効です。管理者にお問い合わせください。",
     conflict:
@@ -5979,3 +6022,4 @@ export const jaJP = {
     teams: "Teams SSO",
   },
 } satisfies TranslationResource<typeof enUS>
+import { browserUseMessages } from "@/features/browser-use/messages"

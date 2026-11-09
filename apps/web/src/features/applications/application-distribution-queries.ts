@@ -9,10 +9,17 @@ import {
 } from "@linksense/shared"
 import { apiRequest } from "@/api/client"
 import { paginatedSchema } from "@/api/contracts"
+import { workspaceUiDemoQueryKey } from "@/features/ui-demo/workspace-ui-demo-mode"
 
 export const applicationDistributionKeys = {
   all: ["applications", "distribution"] as const,
-  summaries: () => ["applications", "distribution", "summaries"] as const,
+  summaries: () =>
+    [
+      "applications",
+      "distribution",
+      "summaries",
+      ...workspaceUiDemoQueryKey(),
+    ] as const,
   mine: ["applications", "distribution", "mine"] as const,
   publishable: (search: string) =>
     ["applications", "distribution", "publishable", search] as const,
@@ -27,9 +34,16 @@ export const applicationDistributionKeys = {
       "details",
       applicationId,
       channel,
+      ...workspaceUiDemoQueryKey(),
     ] as const,
   center: (search: string) =>
-    ["applications", "distribution", "center", search] as const,
+    [
+      "applications",
+      "distribution",
+      "center",
+      search,
+      ...workspaceUiDemoQueryKey(),
+    ] as const,
   releases: (applicationId: string) =>
     ["applications", "distribution", "releases", applicationId] as const,
   update: (applicationId: string) =>

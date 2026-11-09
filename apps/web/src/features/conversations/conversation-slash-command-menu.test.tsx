@@ -270,6 +270,33 @@ describe("conversation slash command resource panels", () => {
     expect(onSelectCapability).toHaveBeenCalledWith(builtInSkillFixture.id)
   })
 
+  it("selects Browser Use with its persisted builtin ID beside an existing custom package", async () => {
+    const interaction = userEvent.setup()
+    const onSelectCapability = vi.fn()
+    const browserUse = {
+      ...builtInSkillFixture,
+      id: "builtin:capability:linksense-local-browser",
+      name: "linksense-local-browser",
+      slug: "linksense-local-browser",
+      builtin_key: "linksense-local-browser",
+    }
+    renderMenu("root", {
+      query: "browser",
+      capabilities: [
+        browserUse,
+        personalSkillFixture({
+          id: "custom-browser",
+          name: "linksense-browser-use",
+        }),
+      ],
+      onSelectCapability,
+    })
+    await interaction.click(
+      screen.getByRole("option", { name: /LinkSense Browser Use/ })
+    )
+    expect(onSelectCapability).toHaveBeenCalledWith(browserUse.id)
+  })
+
   it("marks a selected built-in Skill and allows it to be toggled", async () => {
     const interaction = userEvent.setup()
     const onSelectCapability = vi.fn()
@@ -360,7 +387,7 @@ describe("conversation slash command resource panels", () => {
     ).toEqual([
       "Alpha Skill",
       "Zulu Skill",
-      "LinkSense 浏览器",
+      "LinkSense 云端浏览器",
       "LinkSense 文件服务",
     ])
   })

@@ -104,7 +104,7 @@ describe("shared preview actions", () => {
       await user.hover(copyButton)
       const tooltip = await screen.findByRole("tooltip")
       expect(tooltip).toHaveTextContent(copyLabel)
-      expect(tooltip).toHaveClass("rounded-md", "font-medium")
+      expect(tooltip).toHaveClass("rounded-md", "font-normal")
       expect(tooltip.querySelector("svg")).toBeNull()
       await user.click(copyButton)
       expect(select).toHaveBeenCalledOnce()

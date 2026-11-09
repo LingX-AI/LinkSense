@@ -43,7 +43,7 @@ function fixture(t) {
   const baseline = { schemaVersion: 1, id: "baseline-123-1", recipeFingerprint: baselineFingerprint(source), sourceCommit: "b".repeat(40), workflowUrl: "https://github.com/LingX-AI/LinkSense/actions/runs/123", builtAt: "2026-10-06T00:00:00Z", runtimes: Object.fromEntries(runtimeNames.map(name => [name, reference(`runtime-${name}`)])), services: Object.fromEntries(serviceNames.map(name => [name, vendorComponents[name] ? reference(vendorComponents[name]) : `docker.io/${name === "MINIO" ? "pgsty/silo" : "library/busybox"}@sha256:${indexHash}`])) }
   writeFileSync(path.join(source, "deploy/baselines/images.lock.json"), JSON.stringify(baseline))
   for (const name of ["deploy/docker/Dockerfile.api", "deploy/docker/Dockerfile.web", "deploy/docker/Dockerfile.runner"]) writeFileSync(path.join(source, name), baselineDockerfileDefaults(baseline, name, readFileSync(path.join(root, name), "utf8")))
-  writeFileSync(path.join(bin, "gh"), `#!${process.execPath}
+  writeFileSync(path.join(bin, "gh"), `#!/usr/bin/env node
 if (process.env.RELEASE_TEST_PROOF_FAILURE) process.exit(1);
 process.stdout.write(JSON.stringify({id:123,run_attempt:1,head_sha:'b'.repeat(40),head_branch:'main',event:'workflow_dispatch',conclusion:'success',path:'.github/workflows/maintain-baselines.yml',repository:{full_name:'LingX-AI/LinkSense'}}));
 `, { mode: 0o755 })
@@ -58,7 +58,7 @@ process.stdout.write(JSON.stringify({id:123,run_attempt:1,head_sha:'b'.repeat(40
   const countFile = path.join(directory, "docker-count")
   writeFileSync(
     path.join(bin, "docker"),
-    `#!${process.execPath}
+    `#!/usr/bin/env node
 const fs = require('node:fs');
 const file = process.env.RELEASE_TEST_COUNT;
 fs.appendFileSync(file + '.images', process.argv.at(-1) + '\\n');
@@ -72,7 +72,7 @@ process.stdout.write(JSON.stringify({schemaVersion:2, manifests:platforms.map(ar
   )
   writeFileSync(
     path.join(bin, "curl"),
-    `#!${process.execPath}
+    `#!/usr/bin/env node
 if(process.env.RELEASE_TEST_CURL_FAILURE) process.exit(22);
 require('node:fs').writeFileSync(process.argv[process.argv.indexOf('-o')+1], 'locked tokenizer fixture');
 `,
@@ -84,7 +84,7 @@ require('node:fs').writeFileSync(process.argv[process.argv.indexOf('-o')+1], 'lo
   const output = path.join(directory, "inputs")
   const env = {
     ...process.env,
-    PATH: `${bin}:${process.env.PATH}`,
+    PATH: `${bin}:${path.dirname(process.execPath)}:${process.env.PATH}`,
     RELEASE_TEST_COUNT: countFile,
     RELEASE_VERSION: "v0.2.3",
     SOURCE_SHA: "a".repeat(40),

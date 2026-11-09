@@ -35,6 +35,7 @@ export function ApplicationDevelopmentPublishSuccessDialog({
       }}
     >
       <DialogContent
+        variant="workspace"
         closeLabel={t("common.close")}
         className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
       >
@@ -91,6 +92,7 @@ export function ApplicationDevelopmentPublishDialog({
       }}
     >
       <DialogContent
+        variant="workspace"
         showCloseButton={!pending}
         closeLabel={t("common.close")}
         className="max-h-[calc(100dvh-2rem)] overflow-y-auto"

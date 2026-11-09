@@ -62,7 +62,7 @@ if (typeof window !== "undefined" && typeof HTMLElement !== "undefined") {
   })
   Object.defineProperty(window, "matchMedia", {
     writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
+    value: vi.fn((query: string) => ({
       matches: false,
       media: query,
       onchange: null,

@@ -81,7 +81,7 @@ describe("form control radius", () => {
     }
   })
 
-  it("keeps form-control focus feedback free of outer rings and shadows", () => {
+  it("uses a thin focus ring on outlined controls without adding shadows", () => {
     render(
       <>
         <Input aria-label="Focus name" />
@@ -115,11 +115,20 @@ describe("form control radius", () => {
         .filter((className) =>
           /(?:focus-visible|focus-within|aria-invalid|has-\[)/u.test(className)
         )
-        .filter((className) =>
-          /(?:^|:)(?:ring(?:-|\[)|shadow(?:-|\[))/u.test(className)
-        )
+        .filter((className) => /(?:^|:)shadow(?:-|\[)/u.test(className))
       expect(statefulShadowClasses).toEqual([])
     }
+    expect(screen.getByRole("textbox", { name: "Focus name" })).toHaveClass(
+      "focus:ring-1",
+      "focus:not-aria-invalid:border-ring"
+    )
+    expect(
+      screen.getByRole("textbox", { name: "Focus description" })
+    ).toHaveClass("focus-visible:ring-1", "focus-visible:border-ring")
+    expect(screen.getByRole("combobox", { name: "Focus choice" })).toHaveClass(
+      "focus-visible:ring-1",
+      "focus-visible:border-ring"
+    )
   })
 
   it("uses background feedback without adding focus borders to editable controls", () => {

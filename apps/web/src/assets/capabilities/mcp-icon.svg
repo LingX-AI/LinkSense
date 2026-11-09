@@ -1,15 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-  <path
-    fill-rule="evenodd"
-    clip-rule="evenodd"
-    d="M256 96L395 176V336L256 416L117 336V176L256 96ZM256 156L343 206V306L256 356L169 306V206L256 156Z"
-    fill="#6757F5"
-  />
-  <path d="M117 176L256 96V156L169 206L117 176Z" fill="#FF9B42"/>
-  <path d="M256 96L395 176L343 206L256 156V96Z" fill="#FF7A45"/>
-  <path d="M395 176V336L343 306V206L395 176Z" fill="#FF5F5D"/>
-  <path d="M395 336L256 416V356L343 306L395 336Z" fill="#8E3AE8"/>
-  <path d="M256 416L117 336L169 306L256 356V416Z" fill="#6D37DB"/>
-  <path d="M117 336V176L169 206V306L117 336Z" fill="#4D78E8"/>
-  <path d="M256 216L291 236V276L256 296L221 276V236L256 216Z" fill="#E85D24"/>
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="&#233;&#187;&#152;&#232;&#174;&#164;MCP&#239;&#188;&#143;&#230;&#184;&#144;&#229;&#143;&#152;&#231;&#159;&#162;&#233;&#135;&#143;" clip-path="url(#clip0_0_4)">
+<path id="Vector" d="M30 0H10C4.47715 0 0 4.47715 0 10V30C0 35.5228 4.47715 40 10 40H30C35.5228 40 40 35.5228 40 30V10C40 4.47715 35.5228 0 30 0Z" fill="url(#paint0_linear_0_4)"/>
+<path id="Vector_2" d="M12 12H22C23.5913 12 25.1174 12.6321 26.2426 13.7574C27.3679 14.8826 28 16.4087 28 18V28H18C16.4087 28 14.8826 27.3679 13.7574 26.2426C12.6321 25.1174 12 23.5913 12 22V12Z" stroke-width="3" stroke-linecap="round" stroke="#C9FFF1"/>
+<path id="Vector_3" d="M13.5 7.5H10.5C8.84315 7.5 7.5 8.84315 7.5 10.5V13.5C7.5 15.1569 8.84315 16.5 10.5 16.5H13.5C15.1569 16.5 16.5 15.1569 16.5 13.5V10.5C16.5 8.84315 15.1569 7.5 13.5 7.5Z" fill="white"/>
+<path id="Vector_4" d="M29.5 23.5H26.5C24.8431 23.5 23.5 24.8431 23.5 26.5V29.5C23.5 31.1569 24.8431 32.5 26.5 32.5H29.5C31.1569 32.5 32.5 31.1569 32.5 29.5V26.5C32.5 24.8431 31.1569 23.5 29.5 23.5Z" fill="white"/>
+<path id="Vector_5" d="M12 13.8C12.9941 13.8 13.8 12.9941 13.8 12C13.8 11.0059 12.9941 10.2 12 10.2C11.0059 10.2 10.2 11.0059 10.2 12C10.2 12.9941 11.0059 13.8 12 13.8Z" fill="#11B5A7"/>
+<path id="Vector_6" d="M28 29.8C28.9941 29.8 29.8 28.9941 29.8 28C29.8 27.0059 28.9941 26.2 28 26.2C27.0059 26.2 26.2 27.0059 26.2 28C26.2 28.9941 27.0059 29.8 28 29.8Z" fill="#11B5A7"/>
+</g>
+<defs>
+<linearGradient id="paint0_linear_0_4" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+<stop stop-color="#3CD3BC"/>
+<stop offset="1" stop-color="#079E94"/>
+</linearGradient>
+<clipPath id="clip0_0_4">
+<rect width="40" height="40" fill="white"/>
+</clipPath>
+</defs>
 </svg>

@@ -1390,6 +1390,7 @@ export function EmbedApp({ config }: { config: EmbedFrameConfig }) {
               onDownload={(file) => void downloadArtifact(file)}
               editingDisabled
               embedded
+              activityPresentation={config.presentation}
               defaultActivityOpen
               suppressEmptyState
               emptyStateContent={

@@ -3,7 +3,7 @@ import { Menu } from "@base-ui/react/menu"
 import { Popover } from "@base-ui/react/popover"
 import { Tooltip } from "@base-ui/react/tooltip"
 
-import type { SidebarConversationActionsProps } from "./sidebar-conversation-actions"
+import type { SidebarConversationMenuPayload } from "./sidebar-conversation-actions"
 
 export type SidebarConversationPreview = {
   title: string
@@ -12,7 +12,7 @@ export type SidebarConversationPreview = {
 }
 
 export type SidebarConversationOverlayState = {
-  menu: Menu.Handle<SidebarConversationActionsProps>
+  menu: Menu.Handle<SidebarConversationMenuPayload>
   preview: Popover.Handle<SidebarConversationPreview>
   tooltip: Tooltip.Handle<string>
   previewTriggerId: RefObject<string | null>
@@ -25,7 +25,7 @@ export function createSidebarConversationOverlayHandles(): Pick<
   "menu" | "preview" | "tooltip"
 > {
   return {
-    menu: Menu.createHandle<SidebarConversationActionsProps>(),
+    menu: Menu.createHandle<SidebarConversationMenuPayload>(),
     preview: Popover.createHandle<SidebarConversationPreview>(),
     tooltip: Tooltip.createHandle<string>(),
   }

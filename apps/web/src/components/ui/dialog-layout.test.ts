@@ -40,8 +40,10 @@ describe("shared dialog body scrolling", () => {
     expect(dialogSource.includes(" p-6 ")).toBe(true)
     expect(dialogBodyStyles().split(" ")).toEqual(
       expect.arrayContaining([
-        "-mr-6",
-        "pr-6",
+        "-mx-6",
+        "px-6",
+        "-my-1",
+        "py-1",
         "w-auto",
         "min-h-0",
         "overflow-y-auto",
@@ -63,8 +65,10 @@ describe("shared dialog body scrolling", () => {
         "overflow-x-auto",
         "flex-1",
         "gap-6",
-        "-mr-6",
-        "pr-6",
+        "-mx-6",
+        "px-6",
+        "-my-1",
+        "py-1",
       ])
     )
     expect(classes).not.toContain("w-full")

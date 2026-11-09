@@ -41,7 +41,6 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
-import { cn } from "@/lib/utils"
 import { copyConversationShareUrl } from "@/features/conversations/conversation-share-contracts"
 import {
   createWebSite,
@@ -51,7 +50,6 @@ import {
   updateWebSite,
   webSiteKeys,
 } from "./api"
-import { SiteDialogHero } from "./site-dialog-hero"
 import { SiteTargetPicker } from "./site-target-picker"
 
 export type WebSiteSourceFile = {
@@ -200,14 +198,10 @@ export function SiteDialog({
       }}
     >
       <DialogContent
+        variant="workspace"
         showCloseButton={false}
         portalContainer={portalContainer ?? undefined}
-        className={cn(
-          "max-h-[calc(100dvh_-_2rem)] w-[calc(100vw_-_2rem)] grid-rows-[minmax(0,1fr)_auto] gap-0 overflow-hidden p-0",
-          action.kind === "share"
-            ? "max-w-lg sm:max-w-lg"
-            : "max-w-md sm:max-w-md"
-        )}
+        className="max-h-[calc(100dvh_-_2rem)] grid-rows-[minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-150"
       >
         <form
           id={formId}
@@ -220,26 +214,9 @@ export function SiteDialog({
             }
           }}
         >
-          {action.kind !== "delete" && (
-            <SiteDialogHero
-              mode={
-                visibleResult ? "success" : updating ? "publish" : action.kind
-              }
-            />
-          )}
-          <DialogHeader
-            className={
-              action.kind === "delete"
-                ? "items-start gap-2 px-6 pt-6 pb-4 text-left"
-                : "items-center gap-2 px-6 pt-5 pb-5 text-center"
-            }
-          >
+          <DialogHeader className="items-start gap-2 px-6 pt-6 pb-5 text-left">
             <DialogTitle
-              className={
-                action.kind === "delete"
-                  ? "pr-8 text-base leading-snug font-semibold"
-                  : "text-xl leading-snug font-semibold tracking-tight"
-              }
+              className={action.kind === "delete" ? "pr-8 text-base" : "pr-8"}
             >
               {t(
                 viewingExisting
@@ -253,13 +230,7 @@ export function SiteDialog({
                     : `webSites.dialog.${action.kind}`
               )}
             </DialogTitle>
-            <DialogDescription
-              className={
-                action.kind === "delete"
-                  ? "text-sm leading-relaxed"
-                  : "max-w-xs text-sm leading-relaxed"
-              }
-            >
+            <DialogDescription className="text-sm leading-[var(--app-line-22)]">
               {t(
                 viewingExisting
                   ? visibleResult?.status === "disabled"
@@ -279,7 +250,7 @@ export function SiteDialog({
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="flex min-w-0 flex-col gap-4 px-6 pb-5">
+          <div className="flex min-w-0 flex-col gap-5 px-6 pb-6">
             {mutation.error && (
               <StatusBanner variant="error">
                 {getErrorMessage(mutation.error, t)}
@@ -330,7 +301,7 @@ export function SiteDialog({
                 )}
               </FieldShell>
             ) : (
-              <FieldGroup className="gap-4">
+              <FieldGroup className="gap-5">
                 {action.kind === "share" && !existingSite && (
                   <FieldSet>
                     <FieldLegend
@@ -528,32 +499,18 @@ export function SiteDialog({
             )}
           </div>
         </form>
-        <DialogFooter
-          className={
-            action.kind === "delete"
-              ? "flex-row justify-end gap-2 px-6 pb-6"
-              : "flex-row justify-center gap-2 px-6 pb-5 sm:justify-center"
-          }
-        >
+        <DialogFooter className="flex-row justify-end gap-2 px-6 pb-6 sm:justify-end">
           <Button
             type="button"
             variant="ghost"
-            className={
-              action.kind === "delete"
-                ? "h-8 px-4"
-                : "h-9 min-w-24 rounded-full"
-            }
+            className={action.kind === "delete" ? "h-8 px-4" : undefined}
             disabled={mutation.isPending}
             onClick={onClose}
           >
             {t(visibleResult ? "webSites.done" : "webSites.cancel")}
           </Button>
           {visibleResult ? (
-            <Button
-              type="button"
-              className="h-9 min-w-32 rounded-full"
-              onClick={() => void copy()}
-            >
+            <Button type="button" onClick={() => void copy()}>
               <CopyIcon aria-hidden="true" />
               {t("webSites.copy")}
             </Button>
@@ -561,11 +518,7 @@ export function SiteDialog({
             <Button
               type="submit"
               form={formId}
-              className={
-                action.kind === "delete"
-                  ? "h-8 px-4"
-                  : "h-9 min-w-32 rounded-full"
-              }
+              className={action.kind === "delete" ? "h-8 px-4" : undefined}
               disabled={!valid || mutation.isPending}
               variant={action.kind === "delete" ? "destructive" : "default"}
             >
@@ -593,11 +546,7 @@ export function SiteDialog({
             <Button
               variant="ghost"
               size="icon-sm"
-              className={
-                action.kind === "delete"
-                  ? "absolute top-3 right-3 rounded-full"
-                  : "absolute top-3 right-3 rounded-full text-maintenance-hero-ink hover:bg-maintenance-hero-ink/15 hover:text-maintenance-hero-ink"
-              }
+              className="absolute top-3 right-3 text-muted-foreground"
             />
           }
           disabled={mutation.isPending}

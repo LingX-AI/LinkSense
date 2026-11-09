@@ -39,7 +39,7 @@ export function ConversationForkSourceMarker({
     <Marker
       variant="separator"
       render={<Link to={`/conversations/${source.conversation_id}`} />}
-      className="my-8 rounded-sm py-3 text-muted-foreground/70 !no-underline transition-colors before:bg-foreground/10 before:transition-colors after:bg-foreground/10 after:transition-colors hover:text-primary hover:before:bg-foreground/20 hover:after:bg-foreground/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+      className="my-8 rounded-sm py-3 text-muted-foreground/70 !no-underline transition-colors before:bg-foreground/10 before:transition-colors after:bg-foreground/10 after:transition-colors hover:text-link-foreground hover:before:bg-foreground/20 hover:after:bg-foreground/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
       data-slot="fork-source-marker"
       aria-label={accessibleLabel}
       title={accessibleLabel}

@@ -22,6 +22,15 @@ const AGENT_KEY = `agent_${"a".repeat(24)}`;
 const apps: Array<ReturnType<typeof Fastify>> = [];
 
 describe("side chat routes", () => {
+  it("accepts explicit task references through the ordinary turn route and rejects duplicate sources", async () => {
+    const { app, startTurn } = await conversationRouteFixture();
+    const annotation = { kind: "task_references", request: "Compare sources", conversation_ids: [MESSAGE_ID, TURN_ID] };
+    const response = await app.inject({ method: "POST", url: `/conversations/${CONVERSATION_ID}/turns`, payload: { message_display: annotation } });
+    expect(response.statusCode, response.body).toBe(202);
+    expect(startTurn).toHaveBeenCalledWith(OWNER_ID, CONVERSATION_ID, expect.objectContaining({ officeAnnotation: annotation }), expect.any(Object));
+    const duplicate = await app.inject({ method: "POST", url: `/conversations/${CONVERSATION_ID}/turns`, payload: { message_display: { ...annotation, conversation_ids: [MESSAGE_ID, MESSAGE_ID] } } });
+    expect(duplicate.statusCode).toBe(400);
+  });
   it("passes only validated selection context and the authenticated owner to the service", async () => {
     const { app, openSideChat } = await conversationRouteFixture();
     const selection = { source_message_id: MESSAGE_ID, selection_text: "quoted claim", include_recent_messages: false };

@@ -22,6 +22,7 @@ import { ApplicationDevelopmentCreateDialog } from "./application-development-cr
 import { ApplicationDevelopmentPanel } from "./application-development-panel"
 import { applicationDevelopmentKeys } from "./application-development-api"
 import { ApplicationTestHistory } from "./application-test-history"
+import { applicationIconArtwork } from "./application-icon-presets"
 
 const renderPreview = vi.hoisted(() =>
   vi.fn<(annotation?: ApplicationAnnotationOptions) => void>()
@@ -329,8 +330,11 @@ describe("application development interface", () => {
       name: i18n.t("applications.editMetadata"),
     })
     expect(
-      editMetadata.querySelector('[data-application-icon-preset="bot"] svg')
+      editMetadata.querySelector('[data-application-icon-preset="bot"] img')
     ).toHaveClass("size-full")
+    expect(
+      editMetadata.querySelector('[data-application-icon-preset="bot"] img')
+    ).toHaveAttribute("src", applicationIconArtwork.bot)
     await userEvent.click(editMetadata)
     await userEvent.click(
       screen.getByRole("button", {

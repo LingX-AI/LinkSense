@@ -3,6 +3,7 @@ import { cleanup, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
 import i18n from "@/i18n"
 import { ApplicationDevelopmentSummaryContent } from "./application-development-summary"
+import { applicationIconArtwork } from "./application-icon-presets"
 
 const development: ApplicationDevelopmentSummary = {
   id: "10000000-0000-4000-8000-000000000001",
@@ -122,7 +123,10 @@ describe("development summary hierarchy", () => {
       document.querySelector('[data-application-icon-preset="bot"]')
     ).not.toBeNull()
     expect(
-      document.querySelector('[data-application-icon-preset="bot"] svg')
+      document.querySelector('[data-application-icon-preset="bot"] img')
     ).toHaveClass("size-full")
+    expect(
+      document.querySelector('[data-application-icon-preset="bot"] img')
+    ).toHaveAttribute("src", applicationIconArtwork.bot)
   })
 })

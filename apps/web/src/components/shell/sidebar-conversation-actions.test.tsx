@@ -77,7 +77,9 @@ describe("SidebarConversationActions", () => {
       )
     }
     await interaction.click(more)
-    await screen.findByRole("menu")
+    const menu = await screen.findByRole("menu")
+    expect(menu).toHaveClass("w-55")
+    expect(menu).toHaveAttribute("data-side", "right")
     expect(more).toHaveAttribute("aria-expanded", "true")
     expect(more).toHaveAttribute("data-popup-open")
     expect(more.closest(".sidebar-conversation-actions")).toHaveClass(

@@ -3,6 +3,11 @@ import type { TranslationResource } from "@/i18n/types"
 
 export const knowledgeMessages = {
   knowledge: {
+    uiDemo: {
+      readOnly:
+        "Datos de ejemplo para probar la interfaz local. Explora y filtra sin modificar los recursos reales.",
+      exit: "Salir del ejemplo",
+    },
     title: "Bases de conocimiento",
     description:
       "Organiza, comparte y busca los documentos a los que tienes acceso.",

@@ -353,6 +353,7 @@ describe("CapabilityPackageImporter", () => {
     "presentation--helper",
     "presentation_helper",
     "a".repeat(65),
+    "linksense-local-browser",
     "linksense-docs",
     "linksense-file-service",
     "linksense-image-generation",

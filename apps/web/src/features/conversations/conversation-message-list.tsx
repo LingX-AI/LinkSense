@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { ConversationHistoryControl } from "@/features/conversations/use-conversation-history"
 import { useVisibleConversationMessages } from "@/features/conversations/use-visible-conversation-messages"
+import { getConversationScrollViewport } from "@/features/conversations/conversation-scroll-viewport"
 
 export type { ConversationHistoryControl } from "@/features/conversations/use-conversation-history"
 
@@ -133,7 +134,7 @@ function VirtualMessageList({
   ) => item.end <= (instance.scrollOffset ?? 0)
   useLayoutEffect(() => {
     const host = hostRef.current
-    const scroller = host?.closest<HTMLElement>(".conversation-scroll")
+    const scroller = getConversationScrollViewport(host)
     if (!host || !scroller) return
     setScrollElement(scroller)
     const header = scroller

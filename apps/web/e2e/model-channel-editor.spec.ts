@@ -1,6 +1,15 @@
 import { expect, test, type Page } from "@playwright/test"
-import type { ModelProviderSettings } from "@linksense/shared"
+import {
+  imageGenerationProviderDefinitions,
+  imageGenerationSettingsSchema,
+  updateImageGenerationSettingsSchema,
+  managedConversationModelSchema,
+  supportedLocales,
+  type Locale,
+  type ModelProviderSettings,
+} from "@linksense/shared"
 import { createE2EAuthSession, E2E_ADMIN } from "./support/auth-fixture"
+import { expectPopupPadding } from "./support/popup-padding"
 
 const settings: ModelProviderSettings = {
   configured: false,
@@ -23,6 +32,229 @@ const settings: ModelProviderSettings = {
   title_model: null,
 }
 
+test("image generation models can be fetched, searched, selected and saved", async ({
+  page,
+}, testInfo) => {
+  await mockApi(page, settings, "en-US")
+  let imageSettings = imageGenerationSettingsSchema.parse({
+    configured: true,
+    revision: 1,
+    enabled: true,
+    provider: "openai",
+    provider_options: { workspace_id: null, region: null },
+    base_url: "https://images.example.test/v1",
+    api_key_configured: true,
+    model: "existing-image",
+    price_per_image: "0.1",
+    currency: "USD",
+    providers: imageGenerationProviderDefinitions,
+  })
+  const saves: string[] = []
+  await page.route(
+    "**/api/v1/admin/image-generation-settings",
+    async (route) => {
+      if (route.request().method() === "PUT") {
+        const input = updateImageGenerationSettingsSchema.parse(
+          route.request().postDataJSON()
+        )
+        saves.push(input.model ?? "")
+        imageSettings = {
+          ...imageSettings,
+          revision: imageSettings.revision + 1,
+          model: input.model,
+        }
+        return route.fulfill({
+          status: 200,
+          json: {
+            success: true,
+            data: { code: "SYSTEM_SETTINGS_UPDATED", settings: imageSettings },
+          },
+        })
+      }
+      return route.fulfill({
+        status: 200,
+        json: { success: true, data: imageSettings },
+      })
+    }
+  )
+  const discoveries: unknown[] = []
+  await page.route(
+    "**/api/v1/admin/image-generation-settings/discover",
+    (route) => {
+      discoveries.push(route.request().postDataJSON())
+      return route.fulfill({
+        status: 200,
+        json: {
+          success: true,
+          data: {
+            status: "supported",
+            truncated: false,
+            models: [
+              {
+                id: "browser-image",
+                display_name: "Browser image model",
+                context_window: null,
+                supports_image_input: null,
+              },
+            ],
+          },
+        },
+      })
+    }
+  )
+  for (const width of [1440, 375]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto("/admin/models")
+    await page
+      .getByRole("tab", { name: "Image generation model", exact: true })
+      .click()
+    await page.getByRole("button", { name: "Get available models" }).click()
+    const model = page.getByRole("combobox", {
+      name: "Image generation model name",
+      exact: true,
+    })
+    await expect(model).toBeEnabled()
+    await model.fill("Browser image")
+    const option = page.getByRole("option", {
+      name: "Browser image model (browser-image)",
+      exact: true,
+    })
+    await expect(option).toBeVisible()
+    if (width === 1440)
+      await page.screenshot({
+        path: testInfo.outputPath("image-model-list.png"),
+      })
+    await option.click()
+    await expect(model).toHaveValue("browser-image")
+    await page
+      .getByRole("button", {
+        name: "Save image generation model",
+        exact: true,
+      })
+      .click()
+    await expect.poll(() => saves.length).toBe(width === 1440 ? 1 : 2)
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    ).toBe(true)
+  }
+  expect(discoveries).toEqual([
+    {
+      provider: "openai",
+      provider_options: { workspace_id: null, region: null },
+      base_url: imageSettings.base_url,
+    },
+    {
+      provider: "openai",
+      provider_options: { workspace_id: null, region: null },
+      base_url: imageSettings.base_url,
+    },
+  ])
+})
+
+test("form focus indicators stay inside scroll clipping edges", async ({
+  page,
+}, testInfo) => {
+  await mockApi(page, settings, "en-US")
+  for (const width of [1440, 375]) {
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.emulateMedia({ colorScheme })
+      await page.goto("/admin/models")
+      await page.getByRole("button", { name: "Add model", exact: true }).click()
+      await page.getByRole("button", { name: "Enter a model manually" }).click()
+      for (const [role, name, group] of [
+        ["textbox", "Model ID", false],
+        ["combobox", "Model type", false],
+        ["combobox", "Select an available model", true],
+        ["button", "Get available models", false],
+      ] as const) {
+        const control = page.getByRole(role, { name, exact: true })
+        await expect(control).toBeEnabled()
+        await page.keyboard.press("Tab")
+        await control.focus()
+        await expect(control).toBeFocused()
+        const bounds = await control.evaluate(async (element, group) => {
+          const surface = group
+            ? element.closest('[data-slot="input-group"]')
+            : element
+          if (!surface) throw new Error("Missing control surface")
+          await Promise.all(
+            surface.getAnimations().map((animation) => animation.finished)
+          )
+          const style = getComputedStyle(surface)
+          const box = surface.getBoundingClientRect()
+          let outward = 0
+          let focusWidth = 0
+          for (const shadow of style.boxShadow.split(/,(?![^(]*\))/u)) {
+            const lengths = [...shadow.matchAll(/(-?[\d.]+)px/gu)].map(
+              (match) => Number(match[1])
+            )
+            const [x = 0, y = 0, blur = 0, spread = 0] = lengths
+            focusWidth = Math.max(focusWidth, spread)
+            if (!shadow.includes("inset"))
+              outward = Math.max(
+                outward,
+                spread + blur + Math.abs(x) + Math.abs(y)
+              )
+          }
+          const outlineWidth =
+            style.outlineStyle === "none" ? 0 : parseFloat(style.outlineWidth)
+          outward = Math.max(
+            outward,
+            outlineWidth + parseFloat(style.outlineOffset)
+          )
+          focusWidth = Math.max(focusWidth, outlineWidth)
+          const clipped: string[] = []
+          for (
+            let parent = surface.parentElement;
+            parent;
+            parent = parent.parentElement
+          ) {
+            const clipping = getComputedStyle(parent)
+            const edge = parent.getBoundingClientRect()
+            const left = edge.left + parent.clientLeft
+            const top = edge.top + parent.clientTop
+            if (
+              /(auto|hidden|scroll|clip)/u.test(clipping.overflowX) &&
+              (box.left - outward < left - 0.5 ||
+                box.right + outward > left + parent.clientWidth + 0.5)
+            )
+              clipped.push("horizontal")
+            if (
+              /(auto|hidden|scroll|clip)/u.test(clipping.overflowY) &&
+              (box.top - outward < top - 0.5 ||
+                box.bottom + outward > top + parent.clientHeight + 0.5)
+            )
+              clipped.push("vertical")
+          }
+          return {
+            focusWidth,
+            clipped,
+            shadow: style.boxShadow,
+            outlineWidth,
+            outlineOffset: style.outlineOffset,
+          }
+        }, group)
+        expect(
+          bounds.focusWidth,
+          `${name} retains a visible focus indicator`
+        ).toBeGreaterThan(0)
+        expect(bounds.clipped, `${name}: ${JSON.stringify(bounds)}`).toEqual([])
+      }
+      if (width === 1440 && colorScheme === "light") {
+        await page
+          .getByRole("textbox", { name: "Model ID", exact: true })
+          .focus()
+        await page.screenshot({
+          path: testInfo.outputPath("focus-model-form.png"),
+        })
+      }
+    }
+  }
+})
+
 for (const width of [1440, 375]) {
   for (const mode of ["create", "edit"] as const) {
     test(`${mode} channel keeps connection fields usable after every provider change at ${width}px`, async ({
@@ -36,6 +268,7 @@ for (const width of [1440, 375]) {
       } else {
         await page.getByRole("button", { name: "渠道操作" }).click()
         await page.getByRole("menuitem", { name: "编辑渠道" }).click()
+        await expect.poll(() => probes.length).toBe(1)
       }
       const dialog = page.getByRole("dialog")
       const name = dialog.getByRole("textbox", {
@@ -104,6 +337,7 @@ for (const width of [1440, 375]) {
         dialog.getByText(/模型 manual-model 已成功响应/)
       ).toBeVisible()
       expect(probes.map(({ body }) => body.model_id)).toEqual([
+        ...(mode === "edit" ? [undefined] : []),
         undefined,
         "demo-model",
         "manual-model",
@@ -117,8 +351,240 @@ for (const width of [1440, 375]) {
   }
 }
 
+for (const locale of supportedLocales) {
+  test(`model action menus preserve text padding in ${locale}`, async ({
+    page,
+  }) => {
+    const model = managedConversationModelSchema.parse({
+      id: "model-a",
+      display_name: "Model A",
+      kind: "chat",
+      enabled: true,
+      supported_reasoning_efforts: ["medium"],
+      default_reasoning_effort: "medium",
+    })
+    await mockApi(
+      page,
+      {
+        ...settings,
+        configured: true,
+        default_model: model.id,
+        title_model: model.id,
+        providers: settings.providers.map((provider) => ({
+          ...provider,
+          models: [model, { ...model, id: "model-b", display_name: "Model B" }],
+        })),
+      },
+      locale
+    )
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto("/admin/models")
+      await expect(page.locator("html")).toHaveAttribute("lang", locale)
+      await page
+        .getByRole("row", { name: "Model A", exact: true })
+        .locator('[data-slot="dropdown-menu-trigger"]')
+        .click()
+      const menu = page.getByRole("menu")
+      await expect(menu).toBeVisible()
+      for (const item of await menu.getByRole("menuitem").all()) {
+        const spacing = await item.evaluate((element) => {
+          const text = [...element.childNodes].find(
+            (node) =>
+              node.nodeType === Node.TEXT_NODE && node.textContent?.trim()
+          )
+          if (!text) throw new Error("Menu item has no text")
+          const range = document.createRange()
+          range.selectNodeContents(text)
+          return {
+            actual:
+              element.getBoundingClientRect().right -
+              range.getBoundingClientRect().right,
+            expected: parseFloat(getComputedStyle(element).paddingRight),
+          }
+        })
+        expect(spacing.actual).toBeGreaterThanOrEqual(spacing.expected - 0.5)
+      }
+      const bounds = await menu.boundingBox()
+      if (!bounds) throw new Error("Menu has no layout box")
+      expect(bounds.x).toBeGreaterThanOrEqual(0)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
+      await page.keyboard.press("Escape")
+    }
+  })
+}
+
+test("discovered model popup padding handles long model IDs at the largest UI font size", async ({
+  page,
+}) => {
+  await mockApi(page, settings, "en-US")
+  await page.addInitScript(() =>
+    localStorage.setItem("linksense.uiFontSize", "18")
+  )
+  await page.route(
+    "**/api/v1/admin/model-provider-settings/discover",
+    (route) =>
+      route.fulfill({
+        status: 200,
+        json: {
+          success: true,
+          data: {
+            status: "supported",
+            models: [
+              {
+                id: `model-${"a".repeat(210)}`,
+                display_name: "Long discovered model",
+                context_window: null,
+                supports_image_input: null,
+              },
+            ],
+            truncated: false,
+          },
+        },
+      })
+  )
+  for (const width of [1440, 375]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto("/admin/models")
+    await page.getByRole("button", { name: "Add model", exact: true }).click()
+    const selection = page.getByRole("combobox", {
+      name: "Select an available model",
+    })
+    await expect(selection).toBeEnabled()
+    await selection.click()
+    await expectPopupPadding(page.getByRole("listbox"), '[role="option"]')
+    await page.keyboard.press("Escape")
+  }
+})
+
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+  test(`segmented tab backgrounds remain local during layout shifts with ${reducedMotion} motion`, async ({
+    page,
+  }) => {
+    await mockApi(page, settings, "en-US")
+    await page.emulateMedia({ reducedMotion })
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.goto("/admin/models")
+    const list = page.getByRole("tablist", { name: "Model setting categories" })
+    const background = list.locator('[data-slot="tabs-indicator"]')
+    await expect(background).toBeVisible()
+    const original = await background.elementHandle()
+    if (!original) throw new Error("Missing segmented background")
+    await page.addStyleTag({
+      content:
+        '[data-slot="tabs"]:has(> [data-slot="tabs-list"] > [role="tab"]:nth-child(2)[aria-selected="true"]) { margin-top: 120px; }',
+    })
+    const sampleFrames = () =>
+      page.evaluate(async () => {
+        const list = document.querySelector(
+          '[role="tablist"][aria-label="Model setting categories"]'
+        )
+        if (!list) throw new Error("Missing model segments")
+        const frames: {
+          x: number
+          y: number
+          listY: number
+          rootHeight: number
+          inBounds: boolean
+        }[] = []
+        for (let index = 0; index < 36; index++) {
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve())
+          )
+          const listBox = list.getBoundingClientRect()
+          const indicator = list
+            .querySelector('[data-slot="tabs-indicator"]')
+            ?.getBoundingClientRect()
+          if (!indicator) throw new Error("Segmented background was removed")
+          frames.push({
+            x: indicator.left - listBox.left,
+            y: indicator.top - listBox.top,
+            listY: listBox.top,
+            rootHeight:
+              list.closest('[data-slot="tabs"]')?.getBoundingClientRect()
+                .height ?? 0,
+            inBounds:
+              indicator.left >= listBox.left - 1 &&
+              indicator.right <= listBox.right + 1 &&
+              indicator.top >= listBox.top - 1 &&
+              indicator.bottom <= listBox.bottom + 1,
+          })
+        }
+        return frames
+      })
+    for (const target of [1, 0, 2, 0]) {
+      const [frames] = await Promise.all([
+        sampleFrames(),
+        list.getByRole("tab").nth(target).click(),
+      ])
+      expect(frames.every((frame) => frame.inBounds)).toBe(true)
+      const first = frames[0]
+      const last = frames.at(-1)
+      if (!first || !last) throw new Error("Missing animation frames")
+      expect(frames.every((frame) => Math.abs(frame.y - last.y) < 1)).toBe(true)
+      if (target === 1) {
+        expect(
+          Math.max(...frames.map((frame) => frame.listY)) -
+            Math.min(...frames.map((frame) => frame.listY))
+        ).toBeGreaterThan(80)
+        expect(
+          Math.max(...frames.map((frame) => frame.rootHeight)) -
+            Math.min(...frames.map((frame) => frame.rootHeight))
+        ).toBeGreaterThan(40)
+      }
+      expect(
+        frames.some(
+          (frame) =>
+            Math.abs(frame.x - first.x) > 2 && Math.abs(frame.x - last.x) > 2
+        )
+      ).toBe(reducedMotion === "no-preference")
+      expect(await original.evaluate((node) => node.isConnected)).toBe(true)
+      await expect(background).toHaveCount(1)
+      await expect
+        .poll(() =>
+          background.evaluate((element) => {
+            const selected = element
+              .closest('[role="tablist"]')
+              ?.querySelector('[role="tab"][aria-selected="true"]')
+            if (!selected) return Infinity
+            const from = element.getBoundingClientRect()
+            const to = selected.getBoundingClientRect()
+            return Math.max(
+              Math.abs(from.left - to.left),
+              Math.abs(from.top - to.top),
+              Math.abs(from.width - to.width)
+            )
+          })
+        )
+        .toBeLessThan(1)
+    }
+    const [rapidFrames] = await Promise.all([
+      sampleFrames(),
+      (async () => {
+        await list.getByRole("tab").nth(1).click()
+        await list.getByRole("tab").nth(2).click()
+        await list.getByRole("tab").nth(0).click()
+      })(),
+    ])
+    expect(rapidFrames.every((frame) => frame.inBounds)).toBe(true)
+    await expect(background).toHaveCount(1)
+    expect(await original.evaluate((node) => node.isConnected)).toBe(true)
+    await page.setViewportSize({ width: 375, height: 900 })
+    await list.getByRole("tab").nth(2).click()
+    await expect(list).toBeInViewport()
+    await expect(list.getByRole("tab").nth(2)).toBeInViewport()
+    expect(
+      await list.evaluate(
+        (element) => element.getBoundingClientRect().right <= window.innerWidth
+      )
+    ).toBe(true)
+  })
+}
+
 async function mockApi(
-  page: Page
+  page: Page,
+  modelSettings = settings,
+  locale: Locale = "zh-CN"
 ): Promise<Array<{ path: string; body: Record<string, unknown> }>> {
   const probes: Array<{ path: string; body: Record<string, unknown> }> = []
   await page.route("**/api/v1/**", async (route) => {
@@ -132,11 +598,12 @@ async function mockApi(
       return ok({
         initialized: true,
         system_name: "LinkSense",
-        default_language: "zh-CN",
+        default_language: locale,
       })
-    if (path === "/auth/refresh") return ok(createE2EAuthSession())
-    if (path === "/me") return ok(E2E_ADMIN)
-    if (path === "/admin/model-provider-settings") return ok(settings)
+    if (path === "/auth/refresh") return ok(createE2EAuthSession(locale))
+    if (path === "/me")
+      return ok({ ...E2E_ADMIN, preferred_locale: locale, language: locale })
+    if (path === "/admin/model-provider-settings") return ok(modelSettings)
     if (path === "/admin/model-provider-settings/discover") {
       probes.push({ path, body: route.request().postDataJSON() })
       return ok({

@@ -26,6 +26,7 @@ import {
   CheckCircle2Icon,
   ChevronDownIcon,
   Clock3Icon,
+  CopyCheckIcon,
   DownloadIcon,
   EyeIcon,
   EyeOffIcon,
@@ -48,7 +49,12 @@ import {
 import { useTranslation } from "react-i18next"
 import { z } from "zod"
 
-import { apiRequest, apiUploadRequest } from "@/api/client"
+import {
+  apiRequest,
+  apiUploadRequest,
+  isPluginUiDemoEnabled,
+  pluginUiDemoQueryKey,
+} from "@/features/capabilities/plugin-ui-demo"
 import {
   capabilityImportPreviewSchema,
   capabilitySummarySchema,
@@ -87,6 +93,7 @@ import {
 import { notify } from "@/components/feedback/notification"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { FieldShell } from "@/components/forms/form-field"
+import { FilePicker } from "@/components/forms/file-picker"
 import { PageLayout } from "@/components/shell/page-layout"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -138,7 +145,11 @@ import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
 import { cn } from "@/lib/utils"
@@ -750,7 +761,7 @@ function MarketplaceDetailDialog({
   const { t } = useTranslation()
   return (
     <Dialog open={item !== null} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel={t("common.close")} className="sm:max-w-2xl">
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         {item && (
           <>
             <DialogHeader>
@@ -838,7 +849,7 @@ function CapabilityDetailDialog({
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent closeLabel={t("common.close")} className="sm:max-w-2xl">
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         <DialogHeader>
           <DialogTitle>{presentation.name}</DialogTitle>
           <DialogDescription>
@@ -1083,8 +1094,9 @@ function CapabilityImportDialog({
       }}
     >
       <DialogContent
+        variant="workspace"
         closeLabel={t("common.close")}
-        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl"
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-150"
       >
         <DialogHeader>
           <DialogTitle>
@@ -1188,12 +1200,12 @@ function CapabilityImportDialog({
                   id="capability-package"
                   label={t(zipPackageLabelKey(importType))}
                   required
-                  hint={t(zipPackageHintKey(importType))}
                 >
-                  <Input
+                  <FilePicker
+                    prompt={file?.name ?? t(zipPackageLabelKey(importType))}
+                    description={t(zipPackageHintKey(importType))}
                     id="capability-package"
                     aria-required="true"
-                    type="file"
                     accept=".zip,application/zip"
                     disabled={previewMutation.isPending}
                     onChange={(event) =>
@@ -1403,7 +1415,7 @@ function MyCapabilitiesPanel({
   )
 
   const publications = useQuery({
-    queryKey: ["marketplace", "mine"],
+    queryKey: ["marketplace", "mine", ...pluginUiDemoQueryKey()],
     queryFn: () =>
       apiRequest("/marketplace/mine", {
         schema: marketplacePublicationPageSchema,
@@ -1423,7 +1435,7 @@ function MyCapabilitiesPanel({
         capability.marketplace_listing_id !== null
     )
   const marketplaceInstallations = useQuery({
-    queryKey: ["marketplace", "installations"],
+    queryKey: ["marketplace", "installations", ...pluginUiDemoQueryKey()],
     queryFn: () =>
       apiRequest("/marketplace/installations", {
         schema: marketplaceCatalogPageSchema,
@@ -1738,6 +1750,7 @@ function MyCapabilitiesPanel({
         }}
       />
       <ConfirmDialog
+        variant="workspace"
         open={deleteTarget !== null}
         onOpenChange={(open) => {
           if (!open) setDeleteTarget(null)
@@ -2078,26 +2091,27 @@ function PersonalMcpPanel({
             return (
               <article
                 key={server.id}
-                className="capability-library-row"
+                className="capability-library-row min-h-15! gap-3! border-b-0! px-3! py-2.5! shadow-[inset_0_-1px_0_var(--app-divider)]"
                 aria-label={server.name}
               >
-                <McpLogo />
                 <div className="capability-library-body">
                   <div className="capability-library-title-row">
-                    <h3 className="capability-library-name">{server.name}</h3>
+                    <h3 className="capability-library-name leading-[var(--app-line-22)]! font-medium!">
+                      {server.name}
+                    </h3>
+                    <div className="capability-library-meta mt-0!">
+                      <span>{t(`mcp.transport.${server.transport}`)}</span>
+                      {server.transport === "streamable_http" && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span>{t(`mcp.auth.${server.auth_type}`)}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <p className="capability-library-description">
+                  <p className="capability-library-description mt-0! text-xs! leading-[var(--app-line-18)]!">
                     {description || t("marketplace.noDescription")}
                   </p>
-                  <div className="capability-library-meta">
-                    <span>{t(`mcp.transport.${server.transport}`)}</span>
-                    {server.transport === "streamable_http" && (
-                      <>
-                        <span aria-hidden="true">·</span>
-                        <span>{t(`mcp.auth.${server.auth_type}`)}</span>
-                      </>
-                    )}
-                  </div>
                 </div>
                 <div className="capability-library-tail">
                   <CapabilityStatusBadge disabled={disabled} />
@@ -2167,7 +2181,11 @@ function MarketplaceCatalogPanel({
     }>,
     options: { replace?: boolean } = {}
   ) => {
-    const nextPath = capabilityCenterPath({ ...catalogLocation, ...update })
+    const basePath = capabilityCenterPath({ ...catalogLocation, ...update })
+    const nextPath =
+      isPluginUiDemoEnabled() && (update.section ?? section) === "plugin"
+        ? `${basePath}&pluginDemo=1`
+        : basePath
     if (`${location.pathname}${location.search}` === nextPath) return
     navigate(nextPath, { replace: options.replace })
   }
@@ -2192,7 +2210,7 @@ function MarketplaceCatalogPanel({
     organizationMarketplaceEnabled && section !== "mcp"
 
   const managed = useQuery({
-    queryKey: ["capabilities", "managed"],
+    queryKey: ["capabilities", "managed", ...pluginUiDemoQueryKey()],
     queryFn: ({ signal }) =>
       apiRequest("/capabilities", {
         query: { view: "managed" },
@@ -2202,7 +2220,7 @@ function MarketplaceCatalogPanel({
     enabled: section !== "application",
   })
   const mcpServers = useQuery({
-    queryKey: ["mcp-servers"],
+    queryKey: ["mcp-servers", ...pluginUiDemoQueryKey()],
     queryFn: ({ signal }) =>
       apiRequest("/mcp-servers", {
         schema: mcpServerListSchema,
@@ -2211,7 +2229,13 @@ function MarketplaceCatalogPanel({
     enabled: section === "mcp",
   })
   const catalog = useQuery({
-    queryKey: ["marketplace", "catalog", section, deferredSearch],
+    queryKey: [
+      "marketplace",
+      "catalog",
+      section,
+      deferredSearch,
+      ...pluginUiDemoQueryKey(),
+    ],
     queryFn: () =>
       apiRequest("/marketplace", {
         query: {
@@ -2633,6 +2657,25 @@ function MarketplaceCatalogPanel({
               />
             ) : (
               <div className="capability-center-catalog">
+                {isPluginUiDemoEnabled() && (
+                  <StatusBanner variant="info">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span>{t("capability.uiDemo.readOnly")}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          window.location.assign(
+                            capabilityCenterPath(catalogLocation)
+                          )
+                        }
+                      >
+                        {t("capability.uiDemo.exit")}
+                      </Button>
+                    </div>
+                  </StatusBanner>
+                )}
                 <div className="capability-center-search-row">
                   <InputGroup className="flex-1">
                     <InputGroupAddon>
@@ -2705,15 +2748,10 @@ function MarketplaceCatalogPanel({
                     }))
                   }
                 />
-                <Separator />
                 <div className="capability-center-scope-row">
-                  <ToggleGroup
-                    value={[scope]}
-                    variant="default"
-                    spacing={2}
-                    aria-label={t("marketplace.catalogScopesLabel")}
-                    onValueChange={(values) => {
-                      const value = values[0]
+                  <Tabs
+                    value={scope}
+                    onValueChange={(value) => {
                       if (
                         (value === "public" && publicScopeAvailable) ||
                         value === "personal" ||
@@ -2723,20 +2761,25 @@ function MarketplaceCatalogPanel({
                       }
                     }}
                   >
-                    <ToggleGroupItem value="personal">
-                      {t("marketplace.scopes.personal")}
-                    </ToggleGroupItem>
-                    {publicScopeAvailable && (
-                      <ToggleGroupItem value="public">
-                        {t("marketplace.scopes.public")}
-                      </ToggleGroupItem>
-                    )}
-                    {section === "skill" && (
-                      <ToggleGroupItem value="clawhub">
-                        {t("clawHub.repository")}
-                      </ToggleGroupItem>
-                    )}
-                  </ToggleGroup>
+                    <TabsList
+                      variant="catalog"
+                      aria-label={t("marketplace.catalogScopesLabel")}
+                    >
+                      <TabsTrigger value="personal">
+                        {t("marketplace.scopes.personal")}
+                      </TabsTrigger>
+                      {publicScopeAvailable && (
+                        <TabsTrigger value="public">
+                          {t("marketplace.scopes.public")}
+                        </TabsTrigger>
+                      )}
+                      {section === "skill" && (
+                        <TabsTrigger value="clawhub">
+                          {t("clawHub.repository")}
+                        </TabsTrigger>
+                      )}
+                    </TabsList>
+                  </Tabs>
                 </div>
                 <section
                   className="capability-center-directory"
@@ -2821,6 +2864,7 @@ function MarketplaceCatalogPanel({
         }}
       />
       <ConfirmDialog
+        variant="workspace"
         open={uninstallTarget !== null}
         onOpenChange={(open) => {
           if (!open) setUninstallTarget(null)
@@ -2965,7 +3009,7 @@ function PublishDialog({
         onOpenChange(nextOpen)
       }}
     >
-      <DialogContent closeLabel={t("common.close")}>
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         <DialogHeader>
           <DialogTitle>
             {t(
@@ -3213,7 +3257,9 @@ function ReleaseDetailDialog({
   admin: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const language =
+    normalizeLanguage(i18n.resolvedLanguage ?? i18n.language) ?? "zh-CN"
   const releaseId = publication?.latest_release.id
   const detail = useQuery({
     queryKey: ["marketplace", "release-detail", admin, releaseId],
@@ -3228,7 +3274,7 @@ function ReleaseDetailDialog({
   })
   return (
     <Dialog open={publication !== null} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel={t("common.close")} className="sm:max-w-3xl">
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         <DialogHeader>
           <DialogTitle>
             {publication
@@ -3260,6 +3306,44 @@ function ReleaseDetailDialog({
                 })}
               </Badge>
             </div>
+            <p className="text-sm leading-[var(--app-line-22)] text-muted-foreground">
+              <time dateTime={detail.data.release.submitted_at}>
+                {t("marketplace.submittedAt", {
+                  date: formatDateTime(
+                    detail.data.release.submitted_at,
+                    language
+                  ),
+                })}
+              </time>
+            </p>
+            {(detail.data.release.reviewed_at ||
+              detail.data.release.review_comment) && (
+              <section className="flex min-w-0 flex-col gap-2">
+                <h3 className="text-base leading-6 font-medium">
+                  {t("marketplace.reviewComment")}
+                </h3>
+                <div className="flex min-h-22 min-w-0 flex-col justify-center gap-1 border-b border-divider p-4">
+                  {detail.data.release.reviewed_at && (
+                    <time
+                      dateTime={detail.data.release.reviewed_at}
+                      className="text-xs leading-[var(--app-line-18)] text-muted-foreground"
+                    >
+                      {t("marketplace.reviewedAt", {
+                        date: formatDateTime(
+                          detail.data.release.reviewed_at,
+                          language
+                        ),
+                      })}
+                    </time>
+                  )}
+                  {detail.data.release.review_comment && (
+                    <p className="text-sm leading-[var(--app-line-22)] wrap-anywhere whitespace-pre-wrap">
+                      {detail.data.release.review_comment}
+                    </p>
+                  )}
+                </div>
+              </section>
+            )}
             <section>
               <h3 className="mb-2 font-medium">
                 {t("marketplace.packageFiles")}
@@ -3294,7 +3378,7 @@ function ReleaseDetailDialog({
                 />
               </section>
             )}
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+            <dl className="grid min-w-0 gap-x-4 gap-y-3 text-sm leading-[var(--app-line-22)] sm:grid-cols-[9rem_minmax(0,1fr)]">
               <dt className="text-muted-foreground">
                 {t("marketplace.contentHash")}
               </dt>
@@ -3341,7 +3425,7 @@ function MyPublicationsPanel({
     useState<MarketplacePublication | null>(null)
 
   const sources = useQuery({
-    queryKey: ["capabilities", "publishable"],
+    queryKey: ["capabilities", "publishable", ...pluginUiDemoQueryKey()],
     queryFn: () =>
       apiRequest("/capabilities", {
         query: { view: "managed" },
@@ -3349,7 +3433,7 @@ function MyPublicationsPanel({
       }),
   })
   const publications = useQuery({
-    queryKey: ["marketplace", "mine"],
+    queryKey: ["marketplace", "mine", ...pluginUiDemoQueryKey()],
     queryFn: () =>
       apiRequest("/marketplace/mine", {
         schema: marketplacePublicationPageSchema,
@@ -3563,6 +3647,7 @@ function MyPublicationsPanel({
         }}
       />
       <ConfirmDialog
+        variant="workspace"
         open={unlistTarget !== null}
         onOpenChange={(open) => {
           if (!open) setUnlistTarget(null)
@@ -3625,41 +3710,47 @@ export function CapabilityManagementPage() {
         )
       }}
     >
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 pt-4 pr-4 pl-14 sm:pr-6">
-        {view === "store" && (
-          <TabsList
-            className="max-w-full overflow-x-auto"
-            aria-label={t("marketplace.catalogTabsLabel")}
-          >
-            {capabilityCenterSections.map((value) => (
-              <TabsTrigger key={value} value={value}>
-                {t(marketplaceCatalogSectionKeys[value])}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        )}
-        {organizationMarketplaceEnabled && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={cn("shrink-0", view === "store" && "ml-auto")}
-            onClick={() => setView(view === "store" ? "publishing" : "store")}
-          >
-            {view === "store" ? (
-              <UploadIcon data-icon="inline-start" />
-            ) : (
-              <ArrowLeftIcon data-icon="inline-start" />
-            )}
-            {t(
-              view === "store"
-                ? "marketplace.tabs.publishing"
-                : "marketplace.backToCenter"
-            )}
-          </Button>
-        )}
-      </div>
       <PageLayout
+        variant="workspace"
+        className="[&>.management-header_p]:mt-6!"
+        navigationTitle={t("nav.capabilities")}
+        navigationActions={
+          organizationMarketplaceEnabled && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-lg"
+                    className={cn("shrink-0", view === "store" && "ml-auto")}
+                    aria-label={t(
+                      view === "store"
+                        ? "marketplace.tabs.publishing"
+                        : "marketplace.backToCenter"
+                    )}
+                    onClick={() =>
+                      setView(view === "store" ? "publishing" : "store")
+                    }
+                  />
+                }
+              >
+                {view === "store" ? (
+                  <CopyCheckIcon className="size-6" aria-hidden="true" />
+                ) : (
+                  <ArrowLeftIcon className="size-5" aria-hidden="true" />
+                )}
+              </TooltipTrigger>
+              <TooltipContent>
+                {t(
+                  view === "store"
+                    ? "marketplace.tabs.publishing"
+                    : "marketplace.backToCenter"
+                )}
+              </TooltipContent>
+            </Tooltip>
+          )
+        }
         title={t(
           view === "store"
             ? marketplaceCatalogSectionKeys[section]
@@ -3681,7 +3772,22 @@ export function CapabilityManagementPage() {
           ) : undefined
         }
         afterHeader={
-          view !== "publishing" && error ? <Feedback error={error} /> : null
+          <>
+            {view === "store" && (
+              <TabsList
+                className="justify-start"
+                variant="navigation"
+                aria-label={t("marketplace.catalogTabsLabel")}
+              >
+                {capabilityCenterSections.map((value) => (
+                  <TabsTrigger key={value} value={value} className="flex-none">
+                    {t(marketplaceCatalogSectionKeys[value])}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            )}
+            {view !== "publishing" && error ? <Feedback error={error} /> : null}
+          </>
         }
       >
         {view === "store" && section === "connector" && (
@@ -3770,7 +3876,7 @@ function ReviewDialog({
         onOpenChange(nextOpen)
       }}
     >
-      <DialogContent closeLabel={t("common.close")} className="sm:max-w-3xl">
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         <DialogHeader>
           <DialogTitle>
             {t("marketplace.reviewRelease", {
@@ -3982,7 +4088,7 @@ function GovernanceDialog({
         onOpenChange(nextOpen)
       }}
     >
-      <DialogContent closeLabel={t("common.close")}>
+      <DialogContent variant="workspace" closeLabel={t("common.close")}>
         <DialogHeader>
           <DialogTitle>
             {t(

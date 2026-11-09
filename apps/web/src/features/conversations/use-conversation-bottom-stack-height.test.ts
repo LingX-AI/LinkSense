@@ -65,4 +65,53 @@ describe("conversation bottom stack height", () => {
       workspace.style.getPropertyValue("--conversation-bottom-stack-height")
     ).toBe("")
   })
+
+  it("anchors the message fade to the composer top as the editor and surrounding controls resize", () => {
+    const workspace = document.createElement("div")
+    const bottomStack = document.createElement("div")
+    const composer = document.createElement("form")
+    composer.className = "composer-shell"
+    bottomStack.append(composer)
+    workspace.append(bottomStack)
+    let composerTop = 700
+    vi.spyOn(workspace, "getBoundingClientRect").mockReturnValue(
+      DOMRect.fromRect({ height: 900 })
+    )
+    vi.spyOn(bottomStack, "getBoundingClientRect").mockReturnValue(
+      DOMRect.fromRect({ y: 640, height: 242 })
+    )
+    vi.spyOn(composer, "getBoundingClientRect").mockImplementation(() =>
+      DOMRect.fromRect({ y: composerTop, height: 146 })
+    )
+
+    const stopObserving = observeConversationBottomStackHeight(bottomStack)
+    const composerOffset = () =>
+      workspace.style.getPropertyValue("--conversation-composer-top-offset")
+
+    expect(composerOffset()).toBe("200px")
+
+    composerTop = 552
+    ResizeObserverStub.instances[0]?.callback(
+      [],
+      ResizeObserverStub.instances[0]
+    )
+    expect(composerOffset()).toBe("348px")
+
+    composer.remove()
+    ResizeObserverStub.instances[0]?.callback(
+      [],
+      ResizeObserverStub.instances[0]
+    )
+    expect(composerOffset()).toBe("")
+
+    bottomStack.append(composer)
+    ResizeObserverStub.instances[0]?.callback(
+      [],
+      ResizeObserverStub.instances[0]
+    )
+    expect(composerOffset()).toBe("348px")
+
+    stopObserving()
+    expect(composerOffset()).toBe("")
+  })
 })

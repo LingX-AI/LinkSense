@@ -169,7 +169,7 @@ export function TaskArtifactLibrary({
   return (
     <section aria-label={t("library.artifacts.title")}>
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-        <InputGroup className="w-full max-w-[520px]">
+        <InputGroup className="w-full sm:flex-1">
           <InputGroupAddon>
             <SearchIcon aria-hidden="true" />
           </InputGroupAddon>
@@ -186,7 +186,7 @@ export function TaskArtifactLibrary({
           onValueChange={updateFileType}
         >
           <SelectTrigger
-            className="w-36 shrink-0"
+            className="w-full shrink-0 sm:w-70"
             aria-label={t("library.artifacts.fileTypeLabel")}
           >
             <TagsIcon aria-hidden="true" />
@@ -205,9 +205,10 @@ export function TaskArtifactLibrary({
       </div>
 
       {query.isLoading ? (
-        <LoadingState />
+        <LoadingState variant="workspace" />
       ) : query.error ? (
         <ErrorState
+          variant="workspace"
           message={getErrorMessage(query.error, t)}
           onRetry={() => void query.refetch()}
         />
@@ -224,7 +225,7 @@ export function TaskArtifactLibrary({
         />
       ) : (
         <div
-          className="mt-7 space-y-8"
+          className="mt-6 space-y-6"
           aria-label={t("library.artifacts.listLabel")}
         >
           {groups.map((group) => (
@@ -259,7 +260,7 @@ export function TaskArtifactLibrary({
                 </time>
               </header>
 
-              <div className="overflow-hidden rounded-card border border-[var(--app-divider)] bg-[var(--app-canvas)]">
+              <div className="min-w-0">
                 {group.files.map((file) => {
                   const previewKind = getConversationFilePreviewKind(file)
                   const downloading = downloadingFileId === file.id
@@ -293,7 +294,7 @@ export function TaskArtifactLibrary({
                   return (
                     <div
                       key={file.id}
-                      className="group flex min-w-0 items-center gap-2 border-b border-[var(--app-divider)] px-3 py-2.5 last:border-b-0 hover:bg-[var(--app-hover)]"
+                      className="group flex min-h-15 min-w-0 items-center gap-3 border-b border-divider px-3 py-2.5 hover:bg-hover"
                     >
                       {previewKind ? (
                         <Button
