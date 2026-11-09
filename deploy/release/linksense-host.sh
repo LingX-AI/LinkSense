@@ -449,11 +449,11 @@ host_pull_attempt() (
     host_start=$(date +%s)
     host_started=false
     while kill -0 "$host_script_pid" 2>/dev/null; do
+      host_elapsed=$(($(date +%s) - host_start))
       # Pull complete can be emitted for a snapshot that was already committed.
       if [ "$host_started" = false ] && grep -Eq ': (Downloading([[:space:]]*\[[^]]*\])?[[:space:]]+([1-9][0-9.]*|0\.[0-9]*[1-9][0-9]*)[kMGTPE]?i?B|Download complete|Extracting[[:space:]])' "$host_log"; then
         host_started=true
       fi
-      host_elapsed=$(($(date +%s) - host_start))
       if [ "$host_elapsed" -ge "$host_seconds" ] || { [ "$host_started" = false ] && [ "$host_elapsed" -ge "$host_start_seconds" ]; }; then
         touch "$host_work/timeout"
         host_cancel_pull

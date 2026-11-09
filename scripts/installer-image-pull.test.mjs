@@ -234,6 +234,35 @@ esac
   })
 }
 
+for (const [elapsed, expected] of [[1, 0], [5, 124]]) {
+  test(`the PTY watchdog checks fresh progress at elapsed second ${elapsed}`, t => {
+    const dir = directory(t)
+    writeFileSync(path.join(dir, "docker"), `#!/bin/sh
+echo $$ > "$DIR/client-pid"
+/bin/sleep 2
+echo 'layer: Pull complete'
+`, { mode: 0o755 })
+    const result = run(`
+date() {
+  if [ ! -f "$DIR/clock" ]; then
+    touch "$DIR/clock"
+    printf '100\\n'
+  else
+    printf 'layer: Extracting 1 s\\r' >> "$DIR/pull.log"
+    printf '%s\\n' ${100 + elapsed}
+  fi
+}
+DOCKER_CLI="$DIR/docker"
+host_pull_attempt "$IMAGE" 5 "$DIR/pull.log" 1
+`, { DIR: dir, IMAGE: image })
+    assert.equal(result.status, expected, result.stderr)
+    if (existsSync(path.join(dir, "client-pid"))) {
+      const pid = Number(readFileSync(path.join(dir, "client-pid"), "utf8").trim())
+      assert.throws(() => process.kill(pid, 0), { code: "ESRCH" })
+    }
+  })
+}
+
 test("disk preflight counts exact mirror digests already cached before the runtime config was saved", t => {
   const dir = directory(t)
   writeFileSync(path.join(dir, "cache"), `${mirror}\n`)
