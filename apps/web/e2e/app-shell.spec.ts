@@ -407,6 +407,101 @@ for (const width of [1440, 390]) {
   })
 }
 
+test("resource picker popups respect the width limit and preserve long option text", async ({
+  page,
+}) => {
+  const longName = "School data query and reporting guide ".repeat(3).trim()
+  const longDescription =
+    "Query authorized school data and use evidence to answer scoped questions. "
+      .repeat(8)
+      .trim()
+  await mockTaskHomeApi(page, longName)
+  await page.route("**/api/v1/capabilities?**", (route) =>
+    ok(route, {
+      items: [
+        {
+          id: "popup-width-guide",
+          name: longName,
+          slug: "popup-width-guide",
+          type: "skill",
+          description: longDescription,
+          status: "active",
+          source_type: "local",
+          is_builtin: false,
+          marketplace_listing_id: null,
+          marketplace_release_id: null,
+          logo_url: null,
+          has_logo: false,
+          manifest: null,
+          risk_summary: null,
+          preference_status: "enabled",
+          can_manage: true,
+          can_govern: false,
+          can_select: true,
+          is_owner: true,
+          created_at: NOW,
+          updated_at: NOW,
+        },
+      ],
+      next_cursor: null,
+    })
+  )
+
+  for (const width of [1440, 700, 375]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto("/capabilities?section=application")
+    await page
+      .getByRole("banner")
+      .getByRole("button", { name: "创建应用", exact: true })
+      .click()
+    await page
+      .getByRole("dialog", { name: "创建应用", exact: true })
+      .getByRole("button", { name: "公共知识问答应用", exact: true })
+      .click()
+    const dialog = page.getByRole("dialog", { name: "创建公共知识问答应用" })
+    await expect(dialog).toBeVisible()
+
+    for (const { name, slot } of [
+      { name: "Skill", slot: "combobox" },
+      { name: "回答模型", slot: "select" },
+    ]) {
+      const trigger = dialog.getByRole("combobox", { name, exact: true })
+      await expect(trigger).toBeEnabled()
+      if (width === 700) {
+        expect(
+          await trigger.evaluate((element) => element.clientWidth)
+        ).toBeGreaterThan(512)
+      }
+      await trigger.click()
+      const popup = page.locator(`[data-slot="${slot}-content"]`)
+      await expectPopupPadding(popup, `[data-slot="${slot}-item"]`)
+      const bounds = await popup.evaluate((element) => ({
+        width: element.getBoundingClientRect().width,
+        available: Number.parseFloat(
+          getComputedStyle(element).getPropertyValue("--available-width")
+        ),
+      }))
+      expect(bounds.width).toBeLessThanOrEqual(
+        Math.min(512, bounds.available) + 0.5
+      )
+      if (slot === "combobox") {
+        const description = popup.getByText(longDescription, { exact: true })
+        await expect(description).toHaveCSS("white-space", "normal")
+        const textBounds = await description.evaluate((element) => ({
+          width: element.clientWidth,
+          scrollWidth: element.scrollWidth,
+          height: element.clientHeight,
+          lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
+        }))
+        expect(textBounds.scrollWidth).toBeLessThanOrEqual(textBounds.width)
+        expect(textBounds.height).toBeGreaterThan(textBounds.lineHeight)
+      }
+      await page.keyboard.press("Escape")
+    }
+    await expectNoHorizontalOverflow(page)
+  }
+})
+
 test("catalog scope follows the Figma geometry and installed rows remain continuous", async ({
   page,
 }) => {
