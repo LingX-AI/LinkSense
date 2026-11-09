@@ -7,7 +7,7 @@
 
 <h2 align="center">
   Open-source agentic work platform for organizations.<br>
-  <sub>Run AI teammates on infrastructure you control.</sub>
+  <sub>Help teams get work done with AI, shared knowledge, and tools.</sub>
 </h2>
 
 <p align="center">
