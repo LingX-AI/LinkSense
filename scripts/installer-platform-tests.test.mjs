@@ -19,7 +19,7 @@ uname() { case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac; }
 realpath() { printf '%s\\n' "$2"; }
 test() { if [ "$#" -eq 2 ] && [ "$1" = -c ] && [ "$2" = /dev/kvm ]; then return 0; fi; builtin test "$@"; }
 curl() { :; }
-sha256sum() { :; }
+sha256sum() { cat >/dev/null; }
 df() { printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\nhost 999999999 1 %s 1%% /\\n' "$HOST_AVAILABLE_KIB"; }
 qemu-img() { printf '%s\\n' "$@" > "$QEMU_TRACE"; }
 ${source.slice(0, end)}
