@@ -44,19 +44,18 @@ Docker requirements, installation commands, and
 
 ## Key features
 
-- **Agent execution and deliverables:** research sources, operate tools, run code, analyze
-  data, and produce documents, spreadsheets, presentations, and other files in a user Worker.
-- **Shared organizational capabilities:** publish governed Knowledge, Skills, Plugins, and
-  Applications for specific users and groups.
-- **Access and governance:** manage members, model credentials, quotas, usage, and audit
-  records from one administration surface.
-- **Business system connections:** connect documents, email, ERP, CRM, and other systems
-  through connectors or MCP within configured permissions.
-- **Flexible entry points:** start work from the web workspace, messaging channels, or
-  scheduled tasks.
-- **Self-hosting and model choice:** use your own infrastructure, external model APIs, or
-  compatible self-hosted endpoints with per-user runtime resource limits.
+- 🤖 **Agent execution and deliverables:** research sources, operate tools, run code, analyze data, and produce documents, spreadsheets, presentations, and other files in a user Worker.
 
+- 🧩 **Shared organizational capabilities:** publish governed Knowledge, Skills, Plugins, and Applications for specific users and groups.
+
+- 🔗 **Business system connections:** connect documents, email, ERP, CRM, and other systems through connectors or MCP within configured permissions.
+
+- 🛡️ **Access and governance:** manage members, model credentials, quotas, usage, and audit records from one administration surface.
+
+- 🏠 **Self-hosting and model choice:** use your own infrastructure, external model APIs, or compatible self-hosted endpoints with per-user runtime resource limits.
+
+- ⚡ **Flexible entry points:** start work from the web workspace, messaging channels, or scheduled tasks.
+  
 ## Documentation
 
 | I want to… | Read |
