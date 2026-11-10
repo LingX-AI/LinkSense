@@ -1012,7 +1012,7 @@ describe("conversation knowledge base snapshots", () => {
     expect(
       await screen.findByRole("button", { name: "移除附件 goal-brief.pdf" })
     ).toBeVisible()
-    await interaction.click(screen.getByRole("button", { name: "附件" }))
+    await interaction.click(screen.getByRole("button", { name: "添加内容" }))
     await interaction.click(screen.getByRole("option", { name: /目标/ }))
     await interaction.type(composer, objective)
     await interaction.click(screen.getByRole("button", { name: "发送" }))

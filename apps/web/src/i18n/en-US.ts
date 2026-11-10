@@ -2181,7 +2181,6 @@ export const enUS = {
       noMatches: "No matching Skills",
     },
     addMenu: "Add",
-    toolbarAttach: "Attach",
     toolbarKnowledge: "Knowledge",
     addMenuTitle: "Add content",
     addGroup: "Add",
