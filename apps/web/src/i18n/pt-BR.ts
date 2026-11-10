@@ -2451,7 +2451,6 @@ export const ptBR = {
       noMatches: "Nenhuma habilidade correspondente",
     },
     addMenu: "Adicionar",
-    toolbarAttach: "Anexar",
     toolbarKnowledge: "Conhecimento",
     addMenuTitle: "Adicionar conteúdo",
     addGroup: "Adicionar",
