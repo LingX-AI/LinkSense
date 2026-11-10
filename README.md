@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <a href="https://linksense.guygubaby.top/doc/">Documentation</a> ·
+  <a href="https://linksense.org/doc/">Documentation</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="https://explore.linksense.org/">Live demo</a> ·
   <a href="mailto:hello@linksense.org">Contact</a>
@@ -37,10 +37,10 @@ The fastest installation path is to give a coding agent this prompt:
 Help me install and start LinkSense Core by following https://raw.githubusercontent.com/LingX-AI/linksense/main/Install.md
 ```
 
-For a manual installation, choose [Core](https://linksense.guygubaby.top/doc/deploy/core/)
-or [Full](https://linksense.guygubaby.top/doc/deploy/full/). The site covers host checks,
+For a manual installation, choose [Core](https://linksense.org/doc/deploy/core/)
+or [Full](https://linksense.org/doc/deploy/full/). The site covers host checks,
 Docker requirements, installation commands, and
-[first-time setup](https://linksense.guygubaby.top/doc/deploy/first-setup/).
+[first-time setup](https://linksense.org/doc/deploy/first-setup/).
 
 ## Key features
 
@@ -61,12 +61,12 @@ Docker requirements, installation commands, and
 
 | I want to… | Read |
 | --- | --- |
-| Compare deployment profiles | [Core and Full](https://linksense.guygubaby.top/doc/deploy/) |
-| Operate, repair, or upgrade a deployment | [Operations](https://linksense.guygubaby.top/doc/deploy/operations/) |
-| Run tasks and use shared resources | [User guide](https://linksense.guygubaby.top/doc/user-guide/overview/) |
-| Manage members, models, permissions, and usage | [Administrator guide](https://linksense.guygubaby.top/doc/admin-guide/overview/) |
-| Build applications or connect external systems | [Developer guide](https://linksense.guygubaby.top/doc/developer-guide/interactive-application/) |
-| Work from source or understand the runtime | [Source development](https://linksense.guygubaby.top/doc/deploy/development/) · [Architecture](https://linksense.guygubaby.top/doc/deploy/architecture/) |
+| Compare deployment profiles | [Core and Full](https://linksense.org/doc/deploy/) |
+| Operate, repair, or upgrade a deployment | [Operations](https://linksense.org/doc/deploy/operations/) |
+| Run tasks and use shared resources | [User guide](https://linksense.org/doc/user-guide/overview/) |
+| Manage members, models, permissions, and usage | [Administrator guide](https://linksense.org/doc/admin-guide/overview/) |
+| Build applications or connect external systems | [Developer guide](https://linksense.org/doc/developer-guide/interactive-application/) |
+| Work from source or understand the runtime | [Source development](https://linksense.org/doc/deploy/development/) · [Architecture](https://linksense.org/doc/deploy/architecture/) |
 
 For private deployment or business system integration, email
 [hello@linksense.org](mailto:hello@linksense.org) with your environment, expected usage,

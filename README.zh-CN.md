@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <a href="https://linksense.guygubaby.top/doc/zh-CN/">官方文档</a> ·
+  <a href="https://linksense.org/doc/zh-CN/">官方文档</a> ·
   <a href="#快速开始">快速开始</a> ·
   <a href="https://explore.linksense.org/">在线体验</a> ·
   <a href="mailto:hello@linksense.org">联系我们</a>
@@ -37,9 +37,9 @@ LinkSense 支持安装了 Docker 的 Linux 和 macOS。Core 体验环境至少�
 Help me install and start LinkSense Core by following https://raw.githubusercontent.com/LingX-AI/linksense/main/Install.md
 ```
 
-手动安装时，可选择 [Core](https://linksense.guygubaby.top/doc/zh-CN/deploy/core/) 或
-[Full](https://linksense.guygubaby.top/doc/zh-CN/deploy/full/)。主机检查、Docker 要求、
-安装命令和[首次配置](https://linksense.guygubaby.top/doc/zh-CN/deploy/first-setup/)都在站点中维护。
+手动安装时，可选择 [Core](https://linksense.org/doc/zh-CN/deploy/core/) 或
+[Full](https://linksense.org/doc/zh-CN/deploy/full/)。主机检查、Docker 要求、
+安装命令和[首次配置](https://linksense.org/doc/zh-CN/deploy/first-setup/)都在站点中维护。
 
 ## 核心能力
 
@@ -56,12 +56,12 @@ Help me install and start LinkSense Core by following https://raw.githubusercont
 
 | 我想要…… | 阅读文档 |
 | --- | --- |
-| 对比部署方案 | [Core 与 Full](https://linksense.guygubaby.top/doc/zh-CN/deploy/) |
-| 运维、修复或升级现有部署 | [运维参考](https://linksense.guygubaby.top/doc/zh-CN/deploy/operations/) |
-| 执行任务并使用组织共享资源 | [用户指南](https://linksense.guygubaby.top/doc/zh-CN/user-guide/overview/) |
-| 管理成员、模型、权限与用量 | [管理员指南](https://linksense.guygubaby.top/doc/zh-CN/admin-guide/overview/) |
-| 构建应用或连接外部系统 | [开发者指南](https://linksense.guygubaby.top/doc/zh-CN/developer-guide/interactive-application/) |
-| 从源码开发或了解运行机制 | [源码开发](https://linksense.guygubaby.top/doc/zh-CN/deploy/development/) · [系统架构](https://linksense.guygubaby.top/doc/zh-CN/deploy/architecture/) |
+| 对比部署方案 | [Core 与 Full](https://linksense.org/doc/zh-CN/deploy/) |
+| 运维、修复或升级现有部署 | [运维参考](https://linksense.org/doc/zh-CN/deploy/operations/) |
+| 执行任务并使用组织共享资源 | [用户指南](https://linksense.org/doc/zh-CN/user-guide/overview/) |
+| 管理成员、模型、权限与用量 | [管理员指南](https://linksense.org/doc/zh-CN/admin-guide/overview/) |
+| 构建应用或连接外部系统 | [开发者指南](https://linksense.org/doc/zh-CN/developer-guide/interactive-application/) |
+| 从源码开发或了解运行机制 | [源码开发](https://linksense.org/doc/zh-CN/deploy/development/) · [系统架构](https://linksense.org/doc/zh-CN/deploy/architecture/) |
 
 如需私有化部署或业务系统集成，请发送邮件至
 [hello@linksense.org](mailto:hello@linksense.org)，说明部署环境、预计使用规模和希望接入的系统。

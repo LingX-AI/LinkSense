@@ -4,13 +4,17 @@ import path from "node:path"
 import test from "node:test"
 
 const root = path.resolve(import.meta.dirname, "..")
-const website = "https://linksense.guygubaby.top"
+const website = "https://linksense.org"
 const read = (file) => readFile(path.join(root, file), "utf8")
 const links = (source) => [
   ...[...source.matchAll(/\]\(([^\s)]+)\)/gu)].map(([, target]) => target),
   ...[...source.matchAll(/(?:src|href)="([^"\s]+)"/gu)].map(([, target]) => target),
 ]
 const slug = (title) => title.toLowerCase().replace(/[^\p{L}\p{N}_ -]/gu, "").replaceAll(" ", "-")
+
+test("package homepage points to the official website", async () => {
+  assert.equal(JSON.parse(await read("package.json")).homepage, website)
+})
 
 test("README images, local links, and heading anchors resolve", async () => {
   for (const file of [
