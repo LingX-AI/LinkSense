@@ -7,7 +7,7 @@
 
 <h2 align="center">
   面向组织的开源 Agent 工作平台<br>
-  <sub>在你掌控的基础设施上运行 AI 团队</sub>
+  <sub>让团队借助 AI、共享知识和工具完成工作</sub>
 </h2>
 
 <p align="center">
@@ -89,3 +89,10 @@ LinkSense 自有代码采用 [CPAL-1.0](./LICENSE) 许可。内部部署、署�
 
 上游 Codex 运行时采用 Apache-2.0 许可。LinkSense 是独立项目，详情见
 [第三方声明](./THIRD-PARTY-NOTICES.md)。
+
+## 加入用户群
+
+<img src="./docs/brand/wechat-group-2026-11-17.jpg" alt="LinkSense 用户群二维码" width="400">
+
+该二维码 7 天内有效。过期或无法入群时，请发送邮件至
+[hello@linksense.org](mailto:hello@linksense.org) 获取最新入群方式。

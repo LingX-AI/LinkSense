@@ -2016,7 +2016,6 @@ export const zhCN = {
       noMatches: "没有匹配的 Skill",
     },
     addMenu: "添加",
-    toolbarAttach: "附件",
     toolbarKnowledge: "知识库",
     addMenuTitle: "添加内容",
     addGroup: "添加",

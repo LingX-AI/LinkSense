@@ -7,7 +7,7 @@
 
 <h2 align="center">
   Open-source agentic work platform for organizations.<br>
-  <sub>Run AI teammates on infrastructure you control.</sub>
+  <sub>Help teams get work done with AI, shared knowledge, and tools.</sub>
 </h2>
 
 <p align="center">
@@ -21,17 +21,15 @@
   <a href="mailto:hello@linksense.org">Contact</a>
 </p>
 
-LinkSense gives organizations one governed place to run agent tasks, share reusable
-Knowledge, Skills, Plugins, and Applications, and connect business systems without
-handing members the underlying credentials. Deploy it on your servers or private cloud,
-choose hosted or compatible local models, and keep task data and files on your own
-infrastructure.
+LinkSense gives organizations one governed place to run agent tasks, share reusable Knowledge,
+Skills, Plugins, and Applications, and connect business systems without handing members the underlying
+credentials. Deploy it on your servers or private cloud, choose hosted or compatible local models, and
+keep task data and files on your own infrastructure.
 
 ## Quick start
 
-LinkSense supports Linux and macOS hosts with Docker. A Core evaluation needs at least
-4 vCPU, 8 GiB of memory available to Docker, and 60 GiB of free SSD. Full adds built-in
-document parsing, indexing, and retrieval and needs more capacity.
+LinkSense supports Linux and macOS hosts with Docker. A Core evaluation needs at least 4 vCPU, 8 GiB of memory
+available to Docker, and 60 GiB of free SSD. Full adds built-in document parsing, indexing, and retrieval and needs more capacity.
 
 The fastest installation path is to give a coding agent this prompt:
 
