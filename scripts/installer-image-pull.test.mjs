@@ -263,6 +263,27 @@ host_pull_attempt "$IMAGE" 5 "$DIR/pull.log" 1
   })
 }
 
+test("the PTY watchdog gives a pull one polling interval to start across a clock-second boundary", t => {
+  const dir = directory(t)
+  writeFileSync(path.join(dir, "docker"), `#!/bin/sh
+/bin/sleep 0.3
+echo 'layer: Download complete'
+`, { mode: 0o755 })
+  const result = run(`
+date() {
+  if [ ! -f "$DIR/clock" ]; then
+    touch "$DIR/clock"
+    printf '100\\n'
+  else
+    printf '101\\n'
+  fi
+}
+DOCKER_CLI="$DIR/docker"
+host_pull_attempt "$IMAGE" 5 "$DIR/pull.log" 1
+`, { DIR: dir, IMAGE: image })
+  assert.equal(result.status, 0, result.stderr)
+})
+
 test("disk preflight counts exact mirror digests already cached before the runtime config was saved", t => {
   const dir = directory(t)
   writeFileSync(path.join(dir, "cache"), `${mirror}\n`)
