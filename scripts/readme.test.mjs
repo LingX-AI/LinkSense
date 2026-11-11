@@ -69,8 +69,9 @@ test("both READMEs include the same contributor avatars and visible usernames at
     assert.ok(source.trimEnd().endsWith(contributorEnd), `${file}: contributors must be at the bottom`)
     const block = source.slice(source.indexOf(contributorStart) + contributorStart.length, source.indexOf(contributorEnd)).trim()
     assert.match(block, /<img [^>]+alt=""/u)
-    assert.match(block, /<sub>@[a-z\d-]+<\/sub>/iu)
-    assert.equal([...block.matchAll(/<img /gu)].length, [...block.matchAll(/<sub>@/gu)].length)
+    assert.match(block, /<br \/>@[a-z\d-]+<\/a>/iu)
+    assert.doesNotMatch(block, /<(?:sub|sup)\b/u)
+    assert.equal([...block.matchAll(/<img /gu)].length, [...block.matchAll(/<br \/>@/gu)].length)
     blocks.push(block)
   }
   assert.equal(blocks[0], blocks[1])

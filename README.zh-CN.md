@@ -102,9 +102,9 @@ LinkSense 自有代码采用 [CPAL-1.0](./LICENSE) 许可。内部部署、署�
 <!-- contributors:start -->
 <table role="presentation">
   <tr>
-    <td align="center"><a href="https://github.com/Metrolive"><img src="https://avatars.githubusercontent.com/u/44701445?s=128" width="64" height="64" alt="" /><br /><sub>@Metrolive</sub></a></td>
-    <td align="center"><a href="https://github.com/guygubaby"><img src="https://avatars.githubusercontent.com/u/21158055?s=128" width="64" height="64" alt="" /><br /><sub>@guygubaby</sub></a></td>
-    <td align="center"><a href="https://github.com/Bo-infocare"><img src="https://avatars.githubusercontent.com/u/146154905?s=128" width="64" height="64" alt="" /><br /><sub>@Bo-infocare</sub></a></td>
+    <td align="center"><a href="https://github.com/Metrolive"><img src="https://avatars.githubusercontent.com/u/44701445?s=128" width="64" height="64" alt="" /><br />@Metrolive</a></td>
+    <td align="center"><a href="https://github.com/guygubaby"><img src="https://avatars.githubusercontent.com/u/21158055?s=128" width="64" height="64" alt="" /><br />@guygubaby</a></td>
+    <td align="center"><a href="https://github.com/Bo-infocare"><img src="https://avatars.githubusercontent.com/u/146154905?s=128" width="64" height="64" alt="" /><br />@Bo-infocare</a></td>
   </tr>
 </table>
 <!-- contributors:end -->
