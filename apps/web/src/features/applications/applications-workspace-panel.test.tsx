@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   applicationDetailsSchema,
   applicationSchema,
+  supportedLocales,
   type ApplicationCatalogItem,
   type Application,
 } from "@linksense/shared"
@@ -172,6 +173,47 @@ function mockCatalog(ownedApplications: Application[] = [owned, installed]) {
 }
 
 describe("three application categories", () => {
+  it.each(supportedLocales)(
+    "renders all application kinds in the same compact list in %s",
+    async (language) => {
+      await i18n.changeLanguage(language)
+      const interactive = applicationSchema.parse({
+        ...installed,
+        kind: "interactive",
+      })
+      const publicKnowledge = applicationSchema.parse({
+        ...owned,
+        id: sharedId,
+        name: "Website assistant",
+        kind: "public_knowledge",
+      })
+      const applications = [owned, interactive, publicKnowledge]
+      mockCatalog(applications)
+      show()
+      const first = await screen.findByRole("article", { name: owned.name })
+      const list = first.parentElement
+      expect(list).toHaveClass("flex", "flex-col")
+      expect(list).not.toHaveClass("grid", "md:grid-cols-2")
+      for (const application of applications) {
+        const row = screen.getByRole("article", {
+          name: application.name,
+        })
+        expect(row).toHaveAttribute("data-layout", "row")
+        expect(row.parentElement).toBe(list)
+        expect(
+          within(row).getByText(i18n.t("applications.createdByMe"))
+        ).toBeVisible()
+        expect(
+          within(row).getByRole("button", {
+            name: i18n.t("common.moreActionsNamed", {
+              name: application.name,
+            }),
+          })
+        ).toBeEnabled()
+      }
+    }
+  )
+
   it.each(["zh-CN", "en-US", "de-DE"])(
     "shows the current standard application version beside its kind in %s",
     async (language) => {
@@ -187,8 +229,11 @@ describe("three application categories", () => {
       expect(metadata).toHaveTextContent(
         i18n.t("applications.details.kinds.standard")
       )
+      expect(metadata).not.toHaveTextContent(
+        i18n.t("applications.status.active")
+      )
       expect(
-        card.querySelector('[data-slot="application-card-status"]')
+        card.querySelector('[data-slot="application-card-summary"]')
       ).toHaveTextContent(i18n.t("applications.status.active"))
     }
   )
@@ -869,6 +914,7 @@ describe("three application categories", () => {
       })
       show()
       const draftCard = await screen.findByRole("article", { name: draft.name })
+      expect(draftCard).toHaveAttribute("data-layout", "row")
       expect(screen.getAllByRole("article")).toHaveLength(3)
       expect(
         within(draftCard).getByText(
@@ -892,6 +938,12 @@ describe("three application categories", () => {
       )
       expect(
         changedCard.querySelector('[data-slot="application-card-status"]')
+      ).toHaveTextContent(i18n.t("applications.status.active"))
+      expect(changedHeader).toHaveTextContent(
+        i18n.t("applications.details.kinds.standard")
+      )
+      expect(
+        changedCard.querySelector('[data-slot="application-card-summary"]')
       ).toHaveTextContent(i18n.t("applications.status.active"))
       expect(
         changedCard.querySelector(
@@ -1203,6 +1255,10 @@ describe("three application categories", () => {
       })
       expect(button).toHaveAttribute("aria-haspopup", "dialog")
       expect(button.closest('[data-slot="card"]')).toHaveClass("relative")
+      expect(button.closest('[data-slot="card"]')).toHaveAttribute(
+        "data-layout",
+        "row"
+      )
       expect(button.closest('[data-slot="card-header"]')).toHaveClass(
         "@container-normal"
       )

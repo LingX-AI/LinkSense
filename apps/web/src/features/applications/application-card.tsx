@@ -68,7 +68,7 @@ function ApplicationCardIcon({
 }
 
 export function ApplicationCard({
-  layout = "card",
+  layout = "row",
   id,
   name,
   kind,
@@ -203,7 +203,7 @@ function ApplicationListRow({
       data-layout="row"
       className="relative min-h-19 min-w-0 gap-0 rounded-none border-x-0 border-t-0 border-b border-divider bg-transparent px-4 py-3 shadow-none transition-colors focus-within:bg-(--app-hover-subtle) hover:bg-(--app-hover-subtle)"
     >
-      <CardHeader className="@container-normal grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-x-4 gap-y-2 p-0 has-data-[slot=card-description]:grid-rows-none @min-[48rem]/shell-content:grid-cols-[2.5rem_minmax(0,1fr)_7.5rem_8rem] [&>[data-slot=application-card-icon]]:self-start @min-[48rem]/shell-content:[&>[data-slot=application-card-icon]]:self-center">
+      <CardHeader className="@container-normal grid min-w-0 grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-x-4 gap-y-2 p-0 has-data-[slot=card-description]:grid-rows-none @min-[48rem]/shell-content:grid-cols-[2.5rem_minmax(0,1fr)_7.5rem_8rem] [&>[data-slot=application-card-icon]]:self-start @min-[48rem]/shell-content:[&>[data-slot=application-card-icon]]:self-center">
         {icon ? (
           <ApplicationCardIcon icon={icon} compact />
         ) : (
@@ -253,24 +253,32 @@ function ApplicationListRow({
             {description || t("applications.noDescription")}
           </CardDescription>
           {children && (
-            <CardContent className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 p-0 [&>[role=status]]:basis-full">
+            <CardContent className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 p-0 [&>[role=alert]]:basis-full [&>[role=status]]:basis-full">
               {children}
             </CardContent>
           )}
         </div>
         <CardFooter className="contents">
-          <div className="col-start-2 row-start-2 flex min-w-0 flex-col gap-1 text-xs leading-[var(--app-line-18)] text-muted-foreground @min-[48rem]/shell-content:col-start-3 @min-[48rem]/shell-content:row-start-1">
+          <div
+            data-slot="application-card-summary"
+            className="col-start-2 row-start-2 flex min-w-0 flex-col gap-1 text-xs leading-[var(--app-line-18)] text-muted-foreground @min-[48rem]/shell-content:col-start-3 @min-[48rem]/shell-content:row-start-1"
+          >
             <ApplicationCardStatus
               status={status}
               developing={developing}
               separate
             />
-            <div className="min-w-0">{footer}</div>
+            <div className="min-w-0 wrap-anywhere">{footer}</div>
           </div>
-          <div className="relative col-start-2 row-start-3 flex max-w-full flex-wrap items-center gap-2 @min-[48rem]/shell-content:col-start-4 @min-[48rem]/shell-content:row-start-1 @min-[48rem]/shell-content:justify-end [&_[aria-haspopup=menu]]:rounded-md [&_[aria-haspopup=menu]:hover]:bg-(--app-sidebar-action-hover) [&_[aria-haspopup=menu][data-popup-open]]:bg-(--app-sidebar-action-hover) [&>[data-slot=button]]:max-w-full [&>[data-slot=button]]:whitespace-normal">
-            {actions}
-            {headerActions}
-          </div>
+          {(actions || headerActions) && (
+            <div
+              data-slot="application-card-actions"
+              className="relative col-start-2 row-start-3 flex max-w-full min-w-0 flex-wrap items-center gap-2 @min-[48rem]/shell-content:col-start-4 @min-[48rem]/shell-content:row-start-1 @min-[48rem]/shell-content:justify-end [&_[aria-haspopup=menu]]:rounded-md [&_[aria-haspopup=menu]:hover]:bg-(--app-sidebar-action-hover) [&_[aria-haspopup=menu][data-popup-open]]:bg-(--app-sidebar-action-hover) [&>[data-slot=button]]:max-w-full [&>[data-slot=button]]:whitespace-normal"
+            >
+              {actions}
+              {headerActions}
+            </div>
+          )}
         </CardFooter>
       </CardHeader>
     </Card>

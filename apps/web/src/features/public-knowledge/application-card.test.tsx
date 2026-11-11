@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter } from "react-router-dom"
@@ -115,6 +121,36 @@ async function open(user: ReturnType<typeof userEvent.setup>) {
 }
 describe("public application card actions", () => {
   it.each(supportedLocales)(
+    "uses the shared compact row with creator, status and resources in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      show()
+      const card = screen.getByRole("article", { name: application.name })
+      expect(card).toHaveAttribute("data-layout", "row")
+      expect(card).not.toHaveTextContent(i18n.t("publicKnowledge.description"))
+      const footer = card.querySelector('[data-slot="card-footer"]')
+      expect(footer).toHaveTextContent(i18n.t("applications.createdByMe"))
+      expect(footer).toHaveTextContent(i18n.t("applications.status.active"))
+      expect(footer).not.toHaveClass("border-t", "mt-auto")
+      expect(within(card).getByText("Public knowledge")).toBeVisible()
+      expect(within(card).getByText("model")).toBeVisible()
+      expect(
+        within(card).getByRole("list", {
+          name: i18n.t("applications.details.resources"),
+        })
+      ).toHaveTextContent(
+        i18n.t("applications.card.knowledgeBaseCount", { count: 1 })
+      )
+      expect(
+        within(card).queryByRole("button", {
+          name: i18n.t("applications.distribution.useService"),
+        })
+      ).not.toBeInTheDocument()
+      expect(getPublicKnowledgeManagement).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(supportedLocales)(
     "offers separate actions in the corner menu in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)
@@ -145,6 +181,14 @@ describe("public application card actions", () => {
       ).toHaveAttribute(
         "href",
         `/capabilities/applications/${id}/public-knowledge/usage`
+      )
+      expect(
+        screen.getByRole("menuitem", {
+          name: i18n.t("publicKnowledge.embedAction"),
+        })
+      ).toHaveAttribute(
+        "href",
+        `/capabilities/applications/${id}/public-knowledge/embed`
       )
     }
   )
@@ -217,12 +261,26 @@ describe("public application card actions", () => {
       expect(onFeedback).toHaveBeenCalledWith(expect.any(String), true)
     )
   })
-  it("hides management actions from a non-owner", () => {
-    show("active", false)
-    expect(
-      screen.queryByRole("button", {
-        name: i18n.t("common.moreActionsNamed", { name: application.name }),
-      })
-    ).not.toBeInTheDocument()
-  })
+  it.each(supportedLocales)(
+    "hides management actions from a non-owner in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      show("active", false)
+      const card = screen.getByRole("article", { name: application.name })
+      expect(card).toHaveAttribute("data-layout", "row")
+      expect(
+        within(card).getByText(
+          i18n.t("applications.createdBy", { name: application.owner.name })
+        )
+      ).toBeVisible()
+      expect(
+        card.querySelector('[data-slot="application-card-actions"]')
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", {
+          name: i18n.t("common.moreActionsNamed", { name: application.name }),
+        })
+      ).not.toBeInTheDocument()
+    }
+  )
 })
