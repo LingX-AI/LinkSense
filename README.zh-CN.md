@@ -99,3 +99,7 @@ LinkSense 自有代码采用 [CPAL-1.0](./LICENSE) 许可。内部部署、署�
 
 该二维码 7 天内有效。过期或无法入群时，请发送邮件至
 [hello@linksense.org](mailto:hello@linksense.org) 获取最新入群方式。
+
+## 致谢
+
+感谢 [Linux.do](https://linux.do) 社区的支持。

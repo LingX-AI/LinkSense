@@ -97,3 +97,7 @@ Licensing questions: [licensing@linksense.org](mailto:licensing@linksense.org).
 
 The upstream Codex runtime is licensed under Apache-2.0. LinkSense is an independent project;
 see the [third-party notices](./THIRD-PARTY-NOTICES.md).
+
+## Acknowledgements
+
+Thanks to the [Linux.do](https://linux.do) community for its support.
