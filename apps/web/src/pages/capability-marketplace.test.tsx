@@ -2689,7 +2689,7 @@ describe("capability marketplace pages", () => {
     }
   )
 
-  it("renders wide two-column application cards with status and owner actions aligned", async () => {
+  it("renders compact application rows with status and owner actions aligned", async () => {
     const longDescription =
       "通过结构化表单配置研究任务，并在应用内接收洞察、风险和行动建议。".repeat(
         12
@@ -2807,7 +2807,7 @@ describe("capability marketplace pages", () => {
     if (!(card instanceof HTMLElement)) {
       throw new Error("Expected owned application card")
     }
-    const grid = card.parentElement
+    const list = card.parentElement
     const cardHeader = card.querySelector<HTMLElement>(
       '[data-slot="card-header"]'
     )
@@ -2823,22 +2823,19 @@ describe("capability marketplace pages", () => {
     )
     const shareSummary = within(card).getByText("已共享 · 林老师、教务组…")
 
-    expect(grid).toHaveClass("grid", "md:grid-cols-2")
-    expect(grid).not.toHaveClass("xl:grid-cols-3")
-    expect(card).toHaveClass("gap-5", "shadow-none")
-    expect(cardHeader).toHaveClass("flex", "flex-row", "gap-3")
+    expect(list).toHaveClass("flex", "flex-col")
+    expect(list).not.toHaveClass("grid", "md:grid-cols-2")
+    expect(card).toHaveAttribute("data-layout", "row")
+    expect(card).toHaveClass("gap-0", "shadow-none")
+    expect(cardHeader).toHaveClass("grid", "min-w-0")
     expect(cardHeader).toContainElement(
       within(card).getByRole("button", {
         name: applications[0]!.name + "的更多操作",
       })
     )
-    expect(description).toHaveClass(
-      "line-clamp-2",
-      "min-h-10",
-      "wrap-anywhere",
-      "leading-5"
-    )
-    expect(description.nextElementSibling).toBe(statistics)
+    expect(description).toHaveClass("line-clamp-2", "wrap-anywhere")
+    expect(description).not.toHaveClass("min-h-10")
+    expect(description.nextElementSibling).toContainElement(statistics)
     expect(statistics).toHaveClass("flex-wrap", "tabular-nums")
     expect(statistics).toHaveTextContent("插件 / Skill 0")
     expect(statistics).toHaveTextContent("知识库 1")
@@ -2850,11 +2847,12 @@ describe("capability marketplace pages", () => {
     expect(
       card.querySelector('[data-slot="application-card-model"]')
     ).toBeNull()
-    expect(footer).toHaveClass("flex-wrap", "border-t")
+    expect(footer).toHaveClass("contents")
+    expect(footer).not.toHaveClass("border-t")
     expect(footer).toContainElement(shareSummary)
     expect(statistics).not.toContainElement(shareSummary)
     expect(within(card).queryByText(/王老师/u)).toBeNull()
-    expect(iconTile).toHaveClass("size-12", "rounded-lg")
+    expect(iconTile).toHaveClass("size-10", "rounded-lg")
     expect(card.querySelector('[data-slot="avatar"]')).toHaveClass(
       "size-10",
       "after:border-0"
@@ -2871,16 +2869,12 @@ describe("capability marketplace pages", () => {
     }
     const fixedModelDescription =
       within(fixedModelCard).getByText(longDescription)
-    expect(fixedModelDescription).toHaveClass(
-      "line-clamp-2",
-      "min-h-10",
-      "wrap-anywhere"
-    )
+    expect(fixedModelDescription).toHaveClass("line-clamp-2", "wrap-anywhere")
     const versionLabel = within(fixedModelCard).getByText("v1.1.0")
     const interactiveCreator = within(fixedModelCard).getByText("由我创建")
     const versionHeader = versionLabel.closest('[data-slot="card-header"]')
     expect(versionHeader).toHaveTextContent("交互式应用")
-    expect(versionHeader).not.toContainElement(interactiveCreator)
+    expect(versionHeader).toContainElement(interactiveCreator)
     expect(
       interactiveCreator.closest('[data-slot="card-footer"]')
     ).not.toBeNull()
@@ -2891,10 +2885,12 @@ describe("capability marketplace pages", () => {
     const fixedModelRow = fixedModelName.closest(
       '[data-slot="application-card-model-row"]'
     )
-    expect(fixedModelDescription.nextElementSibling).toBe(fixedModelStatistics)
+    expect(fixedModelDescription.nextElementSibling).toContainElement(
+      fixedModelStatistics
+    )
     expect(fixedModelStatistics).not.toContainElement(fixedModelName)
     expect(
-      fixedModelCard.querySelector('[data-slot="application-card-metadata"]')
+      fixedModelCard.querySelector('[data-slot="application-card-summary"]')
     ).toHaveTextContent("已启用")
     expect(fixedModelRow).not.toHaveTextContent("已启用")
     expect(fixedModelName).toHaveAttribute("title", "gpt-5.6-terra")
@@ -2903,8 +2899,10 @@ describe("capability marketplace pages", () => {
     expect(
       within(footer!)
         .getAllByRole("button")
-        .map((button) => button.textContent)
-    ).toEqual(["使用"])
+        .map(
+          (button) => button.getAttribute("aria-label") ?? button.textContent
+        )
+    ).toEqual(["使用", `${applications[0]!.name}的更多操作`])
     const useButton = within(footer!).getByRole("button", { name: "使用" })
     expect(useButton).toHaveClass("border-border", "bg-background")
     expect(useButton.querySelector('svg[data-icon="inline-end"]')).toBeVisible()

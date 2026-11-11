@@ -2,7 +2,11 @@ import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { I18nextProvider } from "react-i18next"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { supportedLocales, type ApplicationIcon } from "@linksense/shared"
+import {
+  supportedLocales,
+  type Application,
+  type ApplicationIcon,
+} from "@linksense/shared"
 import { Button } from "@/components/ui/button"
 import i18n from "@/i18n"
 import { enUS } from "@/i18n/en-US"
@@ -31,7 +35,7 @@ function showCard({
   onUse = vi.fn(),
 }: {
   name?: string
-  kind?: "standard" | "interactive"
+  kind?: Application["kind"]
   status?: "active" | "disabled"
   developing?: boolean
   description?: string | null
@@ -69,8 +73,24 @@ function showCard({
 }
 
 describe("application card presentation", () => {
+  it.each(["standard", "interactive", "public_knowledge"] as const)(
+    "uses the same compact row for a %s application",
+    (kind) => {
+      showCard({ kind })
+      const card = screen.getByRole("article", { name })
+      expect(card).toHaveAttribute("data-layout", "row")
+      expect(card).toHaveClass("rounded-none", "border-x-0", "border-t-0")
+      const footer = card.querySelector('[data-slot="card-footer"]')
+      expect(footer).toHaveClass("contents")
+      expect(footer).not.toHaveClass("border-t", "mt-auto")
+      expect(
+        within(card).getByText(i18n.t("applications.status.active"))
+      ).toBeVisible()
+    }
+  )
+
   it.each(supportedLocales)(
-    "reserves the same footer action row with absent, empty and visible actions in %s",
+    "keeps absent and empty actions compact and lets visible actions wrap in %s",
     async (language) => {
       await i18n.changeLanguage(language)
       const cases = [
@@ -86,7 +106,7 @@ describe("application card presentation", () => {
         },
       ]
       render(
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="flex flex-col">
           {cases.map((item) => (
             <ApplicationCard
               key={item.name}
@@ -104,10 +124,17 @@ describe("application card presentation", () => {
       for (const item of cases) {
         const card = screen.getByRole("article", { name: item.name })
         const footer = card.querySelector('[data-slot="card-footer"]')
-        expect(footer).toHaveClass("mt-auto", "border-t", "flex-wrap")
-        const actionRow = footer?.lastElementChild
-        expect(actionRow).toHaveClass("min-h-7", "flex-wrap")
-        expect(actionRow).not.toHaveClass("h-7")
+        expect(footer).toHaveClass("contents")
+        expect(footer).not.toHaveClass("mt-auto", "border-t")
+        const actionRow = card.querySelector(
+          '[data-slot="application-card-actions"]'
+        )
+        if (item.actions) {
+          expect(actionRow).toHaveClass("max-w-full", "flex-wrap")
+          expect(actionRow).not.toHaveClass("h-7", "min-h-7")
+        } else {
+          expect(actionRow).not.toBeInTheDocument()
+        }
         expect(within(card).queryAllByRole("button")).toHaveLength(
           item.name === "Ready application" ? 1 : 0
         )
@@ -134,6 +161,9 @@ describe("application card presentation", () => {
       ).not.toContainElement(status)
       expect(
         card.querySelector('[data-slot="application-card-metadata"]')
+      ).not.toContainElement(status)
+      expect(
+        card.querySelector('[data-slot="application-card-summary"]')
       ).toContainElement(status)
       expect(title).not.toContainElement(status)
       expect(
@@ -142,7 +172,7 @@ describe("application card presentation", () => {
       expect(
         card.querySelector('[data-slot="card-content"]')
       ).not.toContainElement(status)
-      expect(header).not.toHaveTextContent(i18n.t("applications.createdByMe"))
+      expect(header).toHaveTextContent(i18n.t("applications.createdByMe"))
       const resources = within(card).getByRole("list", {
         name: i18n.t("applications.details.resources"),
       })
@@ -158,10 +188,11 @@ describe("application card presentation", () => {
       expect(resources).not.toHaveTextContent("gpt-5.6-luna")
       const model = within(card).getByText("gpt-5.6-luna")
       expect(model.closest('[data-slot="card-content"]')).not.toBeNull()
-      expect(model.closest('[data-slot="card-header"]')).toBeNull()
+      expect(model.closest('[data-slot="card-header"]')).toBe(header)
       const owner = within(card).getByText(i18n.t("applications.createdByMe"))
       const footer = owner.closest('[data-slot="card-footer"]')
-      expect(footer).toHaveClass("border-t")
+      expect(footer).toHaveClass("contents")
+      expect(footer).not.toHaveClass("border-t")
       expect(
         within(card)
           .getByRole("button", {
@@ -173,7 +204,7 @@ describe("application card presentation", () => {
   )
 
   it.each(["zh-CN", "en-US"])(
-    "groups neutral development and enabled statuses below the name and overlays the original icon in %s",
+    "groups development and enabled statuses with the creator and overlays the original icon in %s",
     async (language) => {
       await i18n.changeLanguage(language)
       showCard({ kind: "interactive", developing: true, version: "1.2.3" })
@@ -193,8 +224,13 @@ describe("application card presentation", () => {
       )
       expect(metadata).toHaveTextContent(i18n.t("applications.interactiveApp"))
       expect(metadata).toHaveTextContent("v1.2.3")
-      expect(metadata).toContainElement(developing)
-      expect(metadata).toContainElement(enabled)
+      expect(metadata).not.toContainElement(developing)
+      expect(metadata).not.toContainElement(enabled)
+      const summary = card.querySelector(
+        '[data-slot="application-card-summary"]'
+      )
+      expect(summary).toContainElement(developing)
+      expect(summary).toContainElement(enabled)
       expect(metadata).toHaveClass("flex-wrap", "gap-x-2")
       expect(row?.querySelector('[data-slot="badge"]')).toBeNull()
       expect(
@@ -202,15 +238,11 @@ describe("application card presentation", () => {
       ).not.toHaveClass("text-application-create-accent")
       expect(
         enabled.closest('[data-slot="application-card-status"]')
-      ).toHaveClass("text-muted-foreground", "font-normal", "gap-x-2")
+      ).toHaveClass("text-muted-foreground", "font-normal", "flex-col")
       const dots = card.querySelectorAll(
         '[data-slot="application-card-status"] [aria-hidden="true"]'
       )
-      expect(dots).toHaveLength(2)
-      for (const dot of dots) {
-        expect(dot).toHaveTextContent("·")
-        expect(dot).not.toHaveClass("rounded-full")
-      }
+      expect(dots).toHaveLength(0)
       expect(row).toHaveClass("min-w-0")
       const overlay = card.querySelector<HTMLElement>(
         '[data-slot="application-card-development-overlay"]'
@@ -251,7 +283,7 @@ describe("application card presentation", () => {
       ).toBeNull()
       expect(within(card).queryByText("开发中")).not.toBeInTheDocument()
       expect(
-        card.querySelector('[data-slot="application-card-metadata"]')
+        card.querySelector('[data-slot="application-card-summary"]')
       ).toHaveTextContent(i18n.t(`applications.status.${status}`))
       expect(
         within(card).getAllByText(i18n.t(`applications.status.${status}`))
@@ -388,9 +420,7 @@ describe("application card presentation", () => {
     )
     expect(screen.getByText("普通应用")).toBeVisible()
     expect(
-      screen
-        .getByText("草稿")
-        .closest('[data-slot="application-card-metadata"]')
+      screen.getByText("草稿").closest('[data-slot="application-card-summary"]')
     ).toContainElement(screen.getByText("已启用"))
     for (const key of Object.keys(zhCN.applications.card)) {
       const path = `applications.card.${key}`

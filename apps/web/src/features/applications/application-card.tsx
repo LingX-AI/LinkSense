@@ -55,7 +55,7 @@ function ApplicationCardIcon({
     <div
       data-slot="application-card-icon"
       className={cn(
-        "relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg",
+        "relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg",
         tone
       )}
     >
@@ -93,70 +93,83 @@ export function ApplicationCard({
     <Card
       role="article"
       aria-label={name}
-      className="@container/application-card relative min-w-0 gap-5 shadow-none transition-colors hover:border-foreground/20"
+      data-layout="row"
+      className="@container/application-card relative min-h-19 min-w-0 gap-0 rounded-none border-x-0 border-t-0 border-b border-divider bg-transparent px-4 py-3 shadow-none transition-colors focus-within:bg-hover hover:bg-hover"
     >
-      <CardHeader className="@container-normal flex flex-row items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          {icon && <ApplicationCardIcon icon={icon} developing={developing} />}
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <div data-slot="application-card-title-row" className="min-w-0">
-              <CardTitle className="min-w-0">
-                <h3
-                  className="line-clamp-2 wrap-anywhere"
-                  aria-label={name}
-                  title={name}
-                >
-                  {onOpenDetails ? (
-                    <ApplicationDetailsButton
-                      id={id}
-                      name={name}
-                      onOpen={onOpenDetails}
-                    />
-                  ) : (
-                    name
-                  )}
-                </h3>
-              </CardTitle>
-            </div>
+      <CardHeader className="@container-normal grid min-w-0 grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-x-4 gap-y-2 p-0 has-data-[slot=card-description]:grid-rows-none @min-[48rem]/application-card:grid-cols-[2.5rem_minmax(0,1fr)_7.5rem_8rem] [&>[data-slot=application-card-icon]]:self-start @min-[48rem]/application-card:[&>[data-slot=application-card-icon]]:self-center">
+        {icon ? (
+          <ApplicationCardIcon icon={icon} developing={developing} />
+        ) : (
+          <span aria-hidden="true" className="size-10" />
+        )}
+        <div className="col-start-2 row-start-1 flex min-w-0 flex-col gap-1">
+          <div
+            data-slot="application-card-title-row"
+            className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1"
+          >
+            <CardTitle className="max-w-full min-w-0">
+              <h3
+                className="line-clamp-2 wrap-anywhere"
+                aria-label={name}
+                title={name}
+              >
+                {onOpenDetails ? (
+                  <ApplicationDetailsButton
+                    id={id}
+                    name={name}
+                    onOpen={onOpenDetails}
+                  />
+                ) : (
+                  name
+                )}
+              </h3>
+            </CardTitle>
             <div
               data-slot="application-card-metadata"
               className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
             >
-              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                <span>{t(`applications.details.kinds.${kind}`)}</span>
-                {version && (
-                  <>
-                    <span aria-hidden="true">·</span>
-                    <span className="min-w-0 truncate">
-                      {t("applications.distribution.version", { version })}
-                    </span>
-                  </>
-                )}
-              </div>
-              <ApplicationCardStatus status={status} developing={developing} />
+              <span>{t(`applications.details.kinds.${kind}`)}</span>
+              {version && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="min-w-0 truncate">
+                    {t("applications.distribution.version", { version })}
+                  </span>
+                </>
+              )}
             </div>
           </div>
+          <CardDescription
+            className="line-clamp-2 text-[length:var(--app-font-13)] leading-5 wrap-anywhere"
+            title={description || t("applications.noDescription")}
+          >
+            {description || t("applications.noDescription")}
+          </CardDescription>
+          {children && (
+            <CardContent className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 p-0 [&>[role=alert]]:basis-full [&>[role=status]]:basis-full">
+              {children}
+            </CardContent>
+          )}
         </div>
-        {headerActions && (
-          <div className="relative flex shrink-0 items-center">
-            {headerActions}
+        <CardFooter className="contents">
+          <div
+            data-slot="application-card-summary"
+            className="col-start-2 row-start-2 flex min-w-0 flex-col gap-1 text-xs text-muted-foreground @min-[48rem]/application-card:col-start-3 @min-[48rem]/application-card:row-start-1"
+          >
+            <ApplicationCardStatus status={status} developing={developing} />
+            <div className="min-w-0 wrap-anywhere">{footer}</div>
           </div>
-        )}
+          {(actions || headerActions) && (
+            <div
+              data-slot="application-card-actions"
+              className="relative col-start-2 row-start-3 flex max-w-full min-w-0 flex-wrap items-center gap-2 @min-[48rem]/application-card:col-start-4 @min-[48rem]/application-card:row-start-1 @min-[48rem]/application-card:justify-end [&>[data-slot=button]]:max-w-full [&>[data-slot=button]]:whitespace-normal"
+            >
+              {actions}
+              {headerActions}
+            </div>
+          )}
+        </CardFooter>
       </CardHeader>
-      <CardContent className="flex min-w-0 flex-1 flex-col gap-4">
-        <CardDescription className="line-clamp-2 min-h-10 text-[length:var(--app-font-13)] leading-5 wrap-anywhere">
-          {description || t("applications.noDescription")}
-        </CardDescription>
-        {children}
-      </CardContent>
-      <CardFooter className="relative mt-auto min-w-0 flex-wrap justify-between gap-x-4 gap-y-3 border-t">
-        <div className="min-w-0 flex-1 basis-32 text-xs text-muted-foreground">
-          {footer}
-        </div>
-        <div className="ml-auto flex min-h-7 max-w-full flex-wrap items-center justify-end gap-2">
-          {actions}
-        </div>
-      </CardFooter>
     </Card>
   )
 }
@@ -173,20 +186,23 @@ function ApplicationCardStatus({
   return (
     <div
       data-slot="application-card-status"
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-normal text-muted-foreground"
+      className="flex min-w-0 flex-col items-start gap-1 text-xs font-normal text-muted-foreground"
     >
       {developing && (
         <span
           data-slot="application-card-development-status"
           className="inline-flex items-center gap-2 whitespace-nowrap"
         >
-          <span aria-hidden="true">·</span>
           {t("applicationDevelopment.publish.draft")}
         </span>
       )}
       {status && (
-        <span className="inline-flex items-center gap-2 whitespace-nowrap">
-          <span aria-hidden="true">·</span>
+        <span
+          className={cn(
+            "inline-flex items-center gap-2 whitespace-nowrap",
+            status === "active" ? "text-primary" : "text-destructive"
+          )}
+        >
           {t(`applications.status.${status}`)}
         </span>
       )}

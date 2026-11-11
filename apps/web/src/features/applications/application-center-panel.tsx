@@ -280,7 +280,7 @@ export function ApplicationCenterPanel({
           title={t("applications.distribution.noCenterApplications")}
         />
       )}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="flex min-w-0 flex-col">
         {query.data?.items.map((item) => (
           <ApplicationCard
             key={item.id}

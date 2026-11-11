@@ -121,16 +121,14 @@ export function ApplicationDevelopmentCard({
             </DropdownMenuContent>
           </DropdownMenu>
         }
-        actions={
-          <div className="flex min-w-0 flex-col items-start gap-2">
-            {error && (
-              <StatusBanner variant="error">
-                {getErrorMessage(error, t)}
-              </StatusBanner>
-            )}
-          </div>
-        }
-      />
+        actions={null}
+      >
+        {error && (
+          <StatusBanner variant="error">
+            {getErrorMessage(error, t)}
+          </StatusBanner>
+        )}
+      </ApplicationCard>
       {detailsTarget && (
         <Dialog
           open
