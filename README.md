@@ -21,10 +21,8 @@
   <a href="mailto:hello@linksense.org">Contact</a>
 </p>
 
-LinkSense gives organizations one governed place to run agent tasks, share reusable Knowledge,
-Skills, Plugins, and Applications, and connect business systems without handing members the underlying
-credentials. Deploy it on your servers or private cloud, choose hosted or compatible local models, and
-keep task data and files on your own infrastructure.
+LinkSense gives organizations one governed place to run agent tasks, share reusable Knowledge, Skills, Plugins, and Applications, and connect business systems without handing members the underlying credentials.
+Deploy it on your servers or private cloud, choose hosted or compatible local models, and keep task data and files on your own infrastructure.
 
 ## Quick start
 
@@ -37,10 +35,8 @@ The fastest installation path is to give a coding agent this prompt:
 Help me install and start LinkSense Core by following https://raw.githubusercontent.com/LingX-AI/linksense/main/Install.md
 ```
 
-For a manual installation, choose [Core](https://linksense.org/doc/deploy/core/)
-or [Full](https://linksense.org/doc/deploy/full/). The site covers host checks,
-Docker requirements, installation commands, and
-[first-time setup](https://linksense.org/doc/deploy/first-setup/).
+For a manual installation, choose [Core](https://linksense.org/doc/deploy/core/) or [Full](https://linksense.org/doc/deploy/full/).
+The site covers host checks, Docker requirements, installation commands, and [first-time setup](https://linksense.org/doc/deploy/first-setup/).
 
 ## Key features
 
@@ -62,8 +58,7 @@ Docker requirements, installation commands, and
 | Build applications or connect external systems | [Developer guide](https://linksense.org/doc/developer-guide/interactive-application/) |
 | Work from source or understand the runtime | [Source development](https://linksense.org/doc/deploy/development/) · [Architecture](https://linksense.org/doc/deploy/architecture/) |
 
-For private deployment or business system integration, email
-[hello@linksense.org](mailto:hello@linksense.org) with your environment, expected usage,
+For private deployment or business system integration, email [hello@linksense.org](mailto:hello@linksense.org) with your environment, expected usage,
 and the systems you want to connect.
 
 ## Contributing
