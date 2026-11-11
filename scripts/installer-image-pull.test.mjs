@@ -207,7 +207,18 @@ host_pull_image "$IMAGE" "$(($(date +%s) + 120))" probe
   assert.deepEqual(readFileSync(path.join(dir, "pulls"), "utf8").trim().split("\n"), [mirror])
 })
 
-for (const [scenario, expected] of [["progress", 0], ["extracting", 0], ["zero-bytes", 124], ["metadata", 124], ["cached-layer", 124], ["ignores-term", 124], ["transfer-limit", 124], ["failure", 1]]) {
+const waitForPullClient = `
+fixture_wait_for_pull_client() {
+  fixture_wait=0
+  while [ ! -s "$DIR/client-pid" ]; do
+    fixture_wait=$((fixture_wait + 1))
+    [ "$fixture_wait" -lt 500 ] || return 1
+    /bin/sleep 0.01
+  done
+}
+`
+
+for (const [scenario, expected] of [["progress", 0], ["unterminated-progress", 0], ["extracting", 0], ["zero-bytes", 124], ["metadata", 124], ["cached-layer", 124], ["ignores-term", 124], ["transfer-limit", 124], ["failure", 1]]) {
   test(`the PTY watchdog handles ${scenario} without using metadata as downloaded bytes`, t => {
     const dir = directory(t)
     const command = path.join(dir, "docker")
@@ -216,6 +227,7 @@ test -t 1 || exit 99
 echo $$ > "$DIR/client-pid"
 case "$SCENARIO" in
   progress) printf 'layer: Downloading [=>] 1kB/2MB\\r'; /bin/sleep 2; echo 'layer: Download complete' ;;
+  unterminated-progress) printf 'layer: Downloading 1kB/2MB'; /bin/sleep 2; echo 'layer: Download complete' ;;
   extracting) printf 'layer: Extracting 1 s\\r'; /bin/sleep 2; echo 'layer: Pull complete' ;;
   zero-bytes) echo 'layer: Downloading [>] 0B/2MB'; /bin/sleep 8 ;;
   metadata) echo 'layer: Pulling fs layer'; /bin/sleep 8 ;;
@@ -225,7 +237,18 @@ case "$SCENARIO" in
   failure) exit 1 ;;
 esac
 `, { mode: 0o755 })
-    const result = run(`DOCKER_CLI="$DIR/docker"\nhost_pull_attempt "$IMAGE" ${scenario === "transfer-limit" ? 1 : 5} "$DIR/pull.log" 1`, {
+    // Measure watchdog deadlines after the real PTY client is running, so
+    // macOS process startup does not consume the fixture's one-second window.
+    const result = run(`${waitForPullClient}
+date() {
+  if [ ! -f "$DIR/clock-started" ]; then
+    fixture_wait_for_pull_client
+    touch "$DIR/clock-started"
+  fi
+  command date "$@"
+}
+DOCKER_CLI="$DIR/docker"
+host_pull_attempt "$IMAGE" ${scenario === "transfer-limit" ? 1 : 5} "$DIR/pull.log" 1`, {
       DIR: dir, SCENARIO: scenario, IMAGE: image,
     })
     assert.equal(result.status, expected, result.stderr)
@@ -242,9 +265,10 @@ echo $$ > "$DIR/client-pid"
 /bin/sleep 2
 echo 'layer: Pull complete'
 `, { mode: 0o755 })
-    const result = run(`
+    const result = run(`${waitForPullClient}
 date() {
   if [ ! -f "$DIR/clock" ]; then
+    fixture_wait_for_pull_client
     touch "$DIR/clock"
     printf '100\\n'
   else
@@ -256,22 +280,22 @@ DOCKER_CLI="$DIR/docker"
 host_pull_attempt "$IMAGE" 5 "$DIR/pull.log" 1
 `, { DIR: dir, IMAGE: image })
     assert.equal(result.status, expected, result.stderr)
-    if (existsSync(path.join(dir, "client-pid"))) {
-      const pid = Number(readFileSync(path.join(dir, "client-pid"), "utf8").trim())
-      assert.throws(() => process.kill(pid, 0), { code: "ESRCH" })
-    }
+    const pid = Number(readFileSync(path.join(dir, "client-pid"), "utf8").trim())
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" })
   })
 }
 
 test("the PTY watchdog gives a pull one polling interval to start across a clock-second boundary", t => {
   const dir = directory(t)
   writeFileSync(path.join(dir, "docker"), `#!/bin/sh
+echo $$ > "$DIR/client-pid"
 /bin/sleep 0.3
 echo 'layer: Download complete'
 `, { mode: 0o755 })
-  const result = run(`
+  const result = run(`${waitForPullClient}
 date() {
   if [ ! -f "$DIR/clock" ]; then
+    fixture_wait_for_pull_client
     touch "$DIR/clock"
     printf '100\\n'
   else
@@ -282,6 +306,8 @@ DOCKER_CLI="$DIR/docker"
 host_pull_attempt "$IMAGE" 5 "$DIR/pull.log" 1
 `, { DIR: dir, IMAGE: image })
   assert.equal(result.status, 0, result.stderr)
+  const pid = Number(readFileSync(path.join(dir, "client-pid"), "utf8").trim())
+  assert.throws(() => process.kill(pid, 0), { code: "ESRCH" })
 })
 
 test("disk preflight counts exact mirror digests already cached before the runtime config was saved", t => {
