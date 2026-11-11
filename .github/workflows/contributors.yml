@@ -75,9 +75,9 @@ jobs:
           commit-message: "docs: update README contributors [skip ci]"
           title: "docs: update README contributors [skip ci]"
           body: |
-            Update the English and Chinese contributor avatars from GitHub's contributor records.
+            Update the English and Chinese contributor avatars and usernames from GitHub's contributor records.
             Only human GitHub accounts are included. No source code, images, or releases are changed.
             Maintainers must review and merge this documentation-only PR; keep [skip ci] in the merge message.
 
-            根据 GitHub 贡献记录同步中英文 README 的贡献者头像，仅展示开发者账号。
+            根据 GitHub 贡献记录同步中英文 README 的贡献者头像和用户名，仅展示开发者账号。
             本次仅更新文档，不修改源码、不构建镜像、不发布版本，请维护者审阅后合并并保留跳过 CI 标记。

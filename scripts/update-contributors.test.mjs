@@ -60,7 +60,7 @@ test("contributors are sorted by commits, deduplicated by identity, and exclude 
   assert.deepEqual(input, original)
 })
 
-test("avatars link to public profiles and use only validated GitHub identifiers", () => {
+test("avatars and visible usernames share a public profile link and use only validated GitHub identifiers", () => {
   const block = renderContributors([{
     ...user("example-user", 7),
     avatar_url: "https://untrusted.example.test/track?token=not-a-real-secret",
@@ -68,11 +68,23 @@ test("avatars link to public profiles and use only validated GitHub identifiers"
     email: "private@example.test",
   }])
   assert.equal(block, [
-    "<p>",
-    '  <a href="https://github.com/example-user"><img src="https://avatars.githubusercontent.com/u/7?s=128" width="64" height="64" alt="example-user" title="example-user" /></a>',
-    "</p>",
+    '<table role="presentation">',
+    "  <tr>",
+    '    <td align="center"><a href="https://github.com/example-user"><img src="https://avatars.githubusercontent.com/u/7?s=128" width="64" height="64" alt="" /><br /><sub>@example-user</sub></a></td>',
+    "  </tr>",
+    "</table>",
   ].join("\n"))
   assert.doesNotMatch(block, /token|secret|javascript|private@example|untrusted/iu)
+})
+
+test("contributor rows contain at most six profiles and keep the last incomplete row", () => {
+  const entries = Array.from({ length: 7 }, (_, index) => user(`user-${index + 1}`, index + 1, 7 - index))
+  const block = renderContributors(entries)
+  const rows = [...block.matchAll(/<tr>([\s\S]*?)<\/tr>/gu)].map(([, row]) => row)
+  assert.deepEqual(rows.map((row) => [...row.matchAll(/<td /gu)].length), [6, 1])
+  assert.match(rows[0], /@user-6<\/sub>/u)
+  assert.match(rows[1], /@user-7<\/sub>/u)
+  assert.equal([...block.matchAll(/<a href=/gu)].length, 7)
 })
 
 test("commit-count changes that preserve the order do not cause README churn", () => {
@@ -163,6 +175,19 @@ test("the updater validates both READMEs before changing either one", async (t) 
     /exactly one ordered pair/u,
   )
   assert.deepEqual(await readBoth(directory), before)
+})
+
+test("existing avatar-only sections gain visible usernames without changing surrounding content", async (t) => {
+  const directory = await fixture(t)
+  const oldAvatars = '<p><a href="https://github.com/example-user"><img src="https://avatars.githubusercontent.com/u/1?s=128" alt="example-user" /></a></p>'
+  for (const file of readmeFiles) {
+    await writeFile(path.join(directory, file), readme(file).replace("old avatars", oldAvatars), "utf8")
+  }
+  assert.deepEqual(await updateContributors({ github: client([user()]), owner: "example", repo: "project", directory }), readmeFiles)
+  for (const [index, content] of (await readBoth(directory)).entries()) {
+    assert.equal(content, readme(readmeFiles[index]).replace("old avatars", renderContributors([user()])))
+    assert.match(content, /<sub>@example-user<\/sub>/u)
+  }
 })
 
 test("READMEs without a contributor section are preserved without a GitHub request", async (t) => {
