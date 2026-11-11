@@ -2014,7 +2014,7 @@ export function ApplicationEditorDialog({
       <DialogContent
         variant="workspace"
         showCloseButton={!save.isPending}
-        className="flex flex-col gap-0 overflow-hidden p-0"
+        className="flex flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(56rem,calc(100%_-_2rem))]"
       >
         <DialogHeader className="shrink-0 border-b border-divider px-6 py-5 pr-16">
           <DialogTitle>

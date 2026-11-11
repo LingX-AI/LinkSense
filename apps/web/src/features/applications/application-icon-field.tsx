@@ -18,10 +18,7 @@ import {
   ApplicationIconDisplay,
   ApplicationPresetIcon,
 } from "./application-icon"
-import {
-  applicationDesignIconPresets,
-  applicationIconPresetOptions,
-} from "./application-icon-presets"
+import { applicationIconPresetOptions } from "./application-icon-presets"
 import { cn } from "@/lib/utils"
 
 export function ApplicationIconField({
@@ -42,10 +39,6 @@ export function ApplicationIconField({
   const generation = useRef(0)
   const [error, setError] = useState<string | null>(null)
   const [reading, setReading] = useState(false)
-  const presetOptions =
-    layout === "page"
-      ? applicationDesignIconPresets.map((value) => ({ value }))
-      : applicationIconPresetOptions
   const busy = (value: boolean) => {
     setReading(value)
     onReadingChange(value)
@@ -63,11 +56,11 @@ export function ApplicationIconField({
   return (
     <Field data-invalid={Boolean(error)}>
       <FieldLabel>{t("applications.icon")}</FieldLabel>
-      <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+      <div className="flex flex-wrap items-start gap-x-8 gap-y-3">
         <div
           className={cn(
             "flex min-w-0 flex-wrap items-center gap-2",
-            layout === "page" ? "max-w-148" : "flex-1"
+            layout === "page" ? "max-w-148" : "w-full"
           )}
         >
           {(layout !== "page" || value.mode !== "preset") && (
@@ -89,7 +82,7 @@ export function ApplicationIconField({
             spacing={2}
             className="flex-wrap gap-2"
           >
-            {presetOptions.map((option) => {
+            {applicationIconPresetOptions.map((option) => {
               const selected =
                 value.mode === "preset" && value.preset === option.value
               return (
@@ -127,9 +120,6 @@ export function ApplicationIconField({
                 : "applications.replaceIcon"
             )}
           </Button>
-          <span className="text-xs leading-[18px] text-muted-foreground">
-            PNG, JPG, WebP
-          </span>
           <Input
             ref={input}
             type="file"

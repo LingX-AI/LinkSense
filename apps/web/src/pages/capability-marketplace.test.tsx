@@ -3576,18 +3576,28 @@ describe("capability marketplace pages", () => {
         "size-full"
       )
       expect(iconPresetGroup).toHaveClass("flex-wrap", "gap-2")
-      expect(within(iconPresetGroup).getAllByRole("button")).toHaveLength(10)
+      expect(within(iconPresetGroup).getAllByRole("button")).toHaveLength(20)
       for (const label of [
         "机器人",
         "研究搜索",
         "知识库",
         "教育培训",
+        "商务办公",
         "数据分析",
         "代码开发",
         "内容写作",
         "创意设计",
+        "创新策划",
+        "客户服务",
         "文档处理",
+        "财务金融",
+        "法律合规",
+        "医疗健康",
+        "安全风控",
         "流程自动化",
+        "日程管理",
+        "团队协作",
+        "全球业务",
       ]) {
         expect(
           within(iconPresetGroup).getByRole("button", { name: label })
