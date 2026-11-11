@@ -67,7 +67,11 @@ export function PublicKnowledgeApplicationCard({
         status={application.status}
         icon={application.icon}
         description={application.description}
-        footer={t("publicKnowledge.description")}
+        footer={
+          application.is_owner
+            ? t("applications.createdByMe")
+            : t("applications.createdBy", { name: application.owner.name })
+        }
         actions={null}
         headerActions={
           application.is_owner && (
