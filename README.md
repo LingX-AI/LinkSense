@@ -93,6 +93,13 @@ Licensing questions: [licensing@linksense.org](mailto:licensing@linksense.org).
 The upstream Codex runtime is licensed under Apache-2.0. LinkSense is an independent project;
 see the [third-party notices](./THIRD-PARTY-NOTICES.md).
 
+## Join the WeChat group
+
+<img src="./docs/brand/wechat-group-2026-11-17.jpg" alt="LinkSense WeChat group QR code" width="400">
+
+The QR code is valid for 7 days. If it has expired or you cannot join, email
+[hello@linksense.org](mailto:hello@linksense.org) for the latest invite.
+
 ## Acknowledgements
 
 Thanks to the [Linux.do](https://linux.do) community for its support.
