@@ -53,7 +53,7 @@ export function renderContributors(input) {
   const users = normalizeContributors(input)
   // Construct public GitHub URLs from validated identifiers, never API-supplied URLs.
   const profiles = users.map(({ login, id }) =>
-    `    <td align="center"><a href="https://github.com/${login}"><img src="https://avatars.githubusercontent.com/u/${id}?s=128" width="64" height="64" alt="" /><br /><sub>@${login}</sub></a></td>`,
+    `    <td align="center"><a href="https://github.com/${login}"><img src="https://avatars.githubusercontent.com/u/${id}?s=128" width="64" height="64" alt="" /><br />@${login}</a></td>`,
   )
   // GitHub strips custom CSS; a presentational table keeps each avatar and username together.
   const rows = []

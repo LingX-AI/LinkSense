@@ -70,11 +70,17 @@ test("avatars and visible usernames share a public profile link and use only val
   assert.equal(block, [
     '<table role="presentation">',
     "  <tr>",
-    '    <td align="center"><a href="https://github.com/example-user"><img src="https://avatars.githubusercontent.com/u/7?s=128" width="64" height="64" alt="" /><br /><sub>@example-user</sub></a></td>',
+    '    <td align="center"><a href="https://github.com/example-user"><img src="https://avatars.githubusercontent.com/u/7?s=128" width="64" height="64" alt="" /><br />@example-user</a></td>',
     "  </tr>",
     "</table>",
   ].join("\n"))
   assert.doesNotMatch(block, /token|secret|javascript|private@example|untrusted/iu)
+})
+
+test("usernames stay on the link baseline so GitHub underlines do not cross the text", () => {
+  const block = renderContributors([user("example-user")])
+  assert.doesNotMatch(block, /<(?:sub|sup)\b/u)
+  assert.match(block, /<br \/>@example-user<\/a>/u)
 })
 
 test("contributor rows contain at most six profiles and keep the last incomplete row", () => {
@@ -82,8 +88,8 @@ test("contributor rows contain at most six profiles and keep the last incomplete
   const block = renderContributors(entries)
   const rows = [...block.matchAll(/<tr>([\s\S]*?)<\/tr>/gu)].map(([, row]) => row)
   assert.deepEqual(rows.map((row) => [...row.matchAll(/<td /gu)].length), [6, 1])
-  assert.match(rows[0], /@user-6<\/sub>/u)
-  assert.match(rows[1], /@user-7<\/sub>/u)
+  assert.match(rows[0], /@user-6<\/a>/u)
+  assert.match(rows[1], /@user-7<\/a>/u)
   assert.equal([...block.matchAll(/<a href=/gu)].length, 7)
 })
 
@@ -186,7 +192,7 @@ test("existing avatar-only sections gain visible usernames without changing surr
   assert.deepEqual(await updateContributors({ github: client([user()]), owner: "example", repo: "project", directory }), readmeFiles)
   for (const [index, content] of (await readBoth(directory)).entries()) {
     assert.equal(content, readme(readmeFiles[index]).replace("old avatars", renderContributors([user()])))
-    assert.match(content, /<sub>@example-user<\/sub>/u)
+    assert.match(content, /<br \/>@example-user<\/a>/u)
   }
 })
 
