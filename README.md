@@ -69,37 +69,42 @@ and the systems you want to connect.
 ## Contributing
 
 Read the [contribution guide](./.github/CONTRIBUTING.md) and [repository instructions](./AGENTS.md)
-before opening a pull request. Code contributions require a
-[Contributor License Agreement](./docs/legal/CLA.md).
+before opening a pull request. Code contributions require a [Contributor License Agreement](./docs/legal/CLA.md).
 
-Questions and feature ideas belong in [GitHub Discussions](../../discussions). Organizations
-can opt in to the [adopters list](./docs/community/ADOPTERS.md).
+Questions and feature ideas belong in [GitHub Discussions](../../discussions). Organizations can opt in to the [adopters list](./docs/community/ADOPTERS.md).
 
 ## Security
 
-The isolation boundary is the user Worker; tasks owned by the same user can access their
-shared files. Normal execution allows outbound internet access without per-command
-approval, and configured external services receive the data sent to them. Read the
-[security policy](./.github/SECURITY.md) before exposing a deployment. Report vulnerabilities
+The isolation boundary is the user Worker; tasks owned by the same user can access their shared files. Normal execution allows outbound internet access without per-command
+approval, and configured external services receive the data sent to them. Read the [security policy](./.github/SECURITY.md) before exposing a deployment. Report vulnerabilities
 privately to [security@linksense.org](mailto:security@linksense.org).
 
 ## License
 
 LinkSense-owned code is licensed under [CPAL-1.0](./LICENSE). See the
-[internal deployment exception](./LICENSE-EXCEPTIONS.md),
-[attribution requirements](./ATTRIBUTION.md), and [trademark policy](./TRADEMARK.md).
+[internal deployment exception](./LICENSE-EXCEPTIONS.md), [attribution requirements](./ATTRIBUTION.md), and [trademark policy](./TRADEMARK.md).
 Licensing questions: [licensing@linksense.org](mailto:licensing@linksense.org).
 
-The upstream Codex runtime is licensed under Apache-2.0. LinkSense is an independent project;
-see the [third-party notices](./THIRD-PARTY-NOTICES.md).
+The upstream Codex runtime is licensed under Apache-2.0. LinkSense is an independent project; see the [third-party notices](./THIRD-PARTY-NOTICES.md).
 
 ## Join the WeChat group
 
 <img src="./docs/brand/wechat-group-2026-11-17.jpg" alt="LinkSense WeChat group QR code" width="400">
 
-The QR code is valid for 7 days. If it has expired or you cannot join, email
-[hello@linksense.org](mailto:hello@linksense.org) for the latest invite.
+The QR code is valid for 7 days. If it has expired or you cannot join, email [hello@linksense.org](mailto:hello@linksense.org) for the latest invite.
 
 ## Acknowledgements
 
 Thanks to the [Linux.do](https://linux.do) community for its support.
+
+Thanks to all the developers who contribute to LinkSense.
+
+<!-- contributors:start -->
+<table role="presentation">
+  <tr>
+    <td align="center"><a href="https://github.com/Metrolive"><img src="https://avatars.githubusercontent.com/u/44701445?s=128" width="64" height="64" alt="" /><br /><sub>@Metrolive</sub></a></td>
+    <td align="center"><a href="https://github.com/guygubaby"><img src="https://avatars.githubusercontent.com/u/21158055?s=128" width="64" height="64" alt="" /><br /><sub>@guygubaby</sub></a></td>
+    <td align="center"><a href="https://github.com/Bo-infocare"><img src="https://avatars.githubusercontent.com/u/146154905?s=128" width="64" height="64" alt="" /><br /><sub>@Bo-infocare</sub></a></td>
+  </tr>
+</table>
+<!-- contributors:end -->

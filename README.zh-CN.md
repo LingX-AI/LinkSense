@@ -69,8 +69,7 @@ Help me install and start LinkSense Core by following https://raw.githubusercont
 提交 PR 前，请阅读[贡献指南](./.github/CONTRIBUTING.md)和[仓库开发规范](./AGENTS.md)。
 代码贡献需要签署[贡献者许可协议](./docs/legal/CLA.md)。
 
-使用问题和功能建议请前往 [GitHub Discussions](../../discussions)。使用 LinkSense 的组织可自愿加入
-[使用组织列表](./docs/community/ADOPTERS.md)。
+使用问题和功能建议请前往 [GitHub Discussions](../../discussions)。使用 LinkSense 的组织可自愿加入[使用组织列表](./docs/community/ADOPTERS.md)。
 
 ## 安全
 
@@ -85,8 +84,7 @@ LinkSense 自有代码采用 [CPAL-1.0](./LICENSE) 许可。内部部署、署�
 [内部部署例外](./LICENSE-EXCEPTIONS.md)、[署名要求](./ATTRIBUTION.md)和
 [商标政策](./TRADEMARK.md)。许可相关问题：[licensing@linksense.org](mailto:licensing@linksense.org)。
 
-上游 Codex 运行时采用 Apache-2.0 许可。LinkSense 是独立项目，详情见
-[第三方声明](./THIRD-PARTY-NOTICES.md)。
+上游 Codex 运行时采用 Apache-2.0 许可。LinkSense 是独立项目，详情见[第三方声明](./THIRD-PARTY-NOTICES.md)。
 
 ## 加入用户群
 
@@ -98,3 +96,15 @@ LinkSense 自有代码采用 [CPAL-1.0](./LICENSE) 许可。内部部署、署�
 ## 致谢
 
 感谢 [Linux.do](https://linux.do) 社区的支持。
+
+感谢所有为 LinkSense 做出贡献的开发者。
+
+<!-- contributors:start -->
+<table role="presentation">
+  <tr>
+    <td align="center"><a href="https://github.com/Metrolive"><img src="https://avatars.githubusercontent.com/u/44701445?s=128" width="64" height="64" alt="" /><br /><sub>@Metrolive</sub></a></td>
+    <td align="center"><a href="https://github.com/guygubaby"><img src="https://avatars.githubusercontent.com/u/21158055?s=128" width="64" height="64" alt="" /><br /><sub>@guygubaby</sub></a></td>
+    <td align="center"><a href="https://github.com/Bo-infocare"><img src="https://avatars.githubusercontent.com/u/146154905?s=128" width="64" height="64" alt="" /><br /><sub>@Bo-infocare</sub></a></td>
+  </tr>
+</table>
+<!-- contributors:end -->

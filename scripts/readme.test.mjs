@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { access, readFile } from "node:fs/promises"
 import path from "node:path"
 import test from "node:test"
+import { contributorEnd, contributorStart, readmeFiles } from "./update-contributors.mjs"
 
 const root = path.resolve(import.meta.dirname, "..")
 const website = "https://linksense.org"
@@ -46,7 +47,9 @@ test("both READMEs stay concise and defer product documentation to the public si
 
   for (const [file, locale] of [["README.md", ""], ["README.zh-CN.md", "zh-CN/"]]) {
     const source = await read(file)
-    assert.ok(source.trim().split("\n").length <= 100, `${file} should stay within 100 lines`)
+    // The generated roster grows with the community; keep the README prose within its existing budget.
+    const prose = source.replace(/<!-- contributors:start -->[\s\S]*?<!-- contributors:end -->\n?/u, "")
+    assert.ok(prose.trim().split("\n").length <= 100, `${file} prose should stay within 100 lines`)
     assert.match(source, /raw\.githubusercontent\.com\/LingX-AI\/linksense\/main\/Install\.md/u)
     assert.doesNotMatch(source, /```(?:bash|sh)|curl --|pnpm dev:prepare|\/help\//u)
     const targets = links(source)
@@ -54,4 +57,21 @@ test("both READMEs stay concise and defer product documentation to the public si
       assert.ok(targets.includes(`${website}/doc/${locale}${route}`), `${file}: missing ${route}`)
     }
   }
+})
+
+test("both READMEs include the same contributor avatars and visible usernames at the bottom", async () => {
+  const blocks = []
+  for (const file of readmeFiles) {
+    const source = await read(file)
+    assert.equal(source.split(contributorStart).length, 2, `${file}: missing or duplicate start marker`)
+    assert.equal(source.split(contributorEnd).length, 2, `${file}: missing or duplicate end marker`)
+    assert.ok(source.indexOf(contributorStart) < source.indexOf(contributorEnd))
+    assert.ok(source.trimEnd().endsWith(contributorEnd), `${file}: contributors must be at the bottom`)
+    const block = source.slice(source.indexOf(contributorStart) + contributorStart.length, source.indexOf(contributorEnd)).trim()
+    assert.match(block, /<img [^>]+alt=""/u)
+    assert.match(block, /<sub>@[a-z\d-]+<\/sub>/iu)
+    assert.equal([...block.matchAll(/<img /gu)].length, [...block.matchAll(/<sub>@/gu)].length)
+    blocks.push(block)
+  }
+  assert.equal(blocks[0], blocks[1])
 })
