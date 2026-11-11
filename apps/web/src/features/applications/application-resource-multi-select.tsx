@@ -36,6 +36,8 @@ export function ResourceMultiSelect({
   placeholder,
   searchPlaceholder,
   disabled = false,
+  required = false,
+  invalid = false,
   loading = false,
   loadingMore = false,
   onSearch,
@@ -53,6 +55,8 @@ export function ResourceMultiSelect({
   placeholder: string
   searchPlaceholder: string
   disabled?: boolean
+  required?: boolean
+  invalid?: boolean
   loading?: boolean
   loadingMore?: boolean
   onSearch?: (search: string) => void
@@ -71,12 +75,15 @@ export function ResourceMultiSelect({
   return (
     <Field
       data-disabled={disabled}
+      data-invalid={invalid}
       className={cn(
         layout === "row" &&
           "min-h-22 py-4 @2xl/field-group:grid @2xl/field-group:grid-cols-2 @2xl/field-group:gap-x-6 @2xl/field-group:gap-y-1!"
       )}
     >
-      <FieldLabel htmlFor={id}>{title}</FieldLabel>
+      <FieldLabel htmlFor={id} required={required}>
+        {title}
+      </FieldLabel>
       <FieldDescription>{description}</FieldDescription>
       <Combobox
         items={items}
@@ -130,6 +137,8 @@ export function ResourceMultiSelect({
           <ComboboxChipsInput
             id={id}
             aria-label={title}
+            aria-required={required || undefined}
+            aria-invalid={invalid || undefined}
             disabled={disabled || (!onSearch && items.length === 0)}
             maxLength={onSearch ? 160 : undefined}
             placeholder={

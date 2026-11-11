@@ -20,8 +20,6 @@ import { instrumentApplicationPreview } from "./development-diagnostics.js";
 
 import {
   DEFAULT_APPLICATION_ICON_PRESET,
-  applicationIconInputSchema,
-  applicationIconPresetSchema,
   applicationSchema,
   applicationDetailsSchema,
   type ApplicationDetails,
@@ -37,8 +35,6 @@ import {
   type ApplicationCatalogQuery,
   type ApplicationCatalogPage,
   type ApplicationUnavailableReason,
-  type ApplicationIconInput,
-  type ApplicationIconPreset,
   type CreateApplicationInput,
   interactiveApplicationManifestSchema,
   interactiveApplicationImportPreviewSchema,
@@ -57,7 +53,7 @@ import type { ApplicationVersion } from "../../generated/prisma/client.js";
 import type { ApplicationPublicationService } from "./publication-service.js";
 import { publishedApplicationDefinitionSchema, type PublishedCapability } from "./published-definition.js";
 import { AppError } from "../../lib/errors.js";
-import { decodeApplicationIcon } from "./icon-input.js";
+import { ApplicationIconService, type ApplicationIconStore } from "./icon-service.js";
 import type { AuditContext, AuditService } from "../audit/service.js";
 import type { RequestActor } from "../capabilities/types.js";
 import type { CredentialService } from "../credentials/service.js";
@@ -105,13 +101,6 @@ export type ApplicationTaskMetadata = {
   unavailable_reason: ApplicationUnavailableReason | null;
 };
 
-export interface ApplicationIconStore {
-  put(objectKey: string, bytes: Buffer, contentType: string): Promise<void>;
-  remove(objectKey: string): Promise<void>;
-  presignGet(objectKey: string, expiresSeconds: number): Promise<string>;
-  enqueueRemoval?(objectKey: string): Promise<void>;
-}
-
 export interface InteractiveApplicationAssetStore {
   put(objectKey: string, bytes: Buffer, contentType: string): Promise<void>;
   get(objectKey: string): Promise<Readable>;
@@ -127,13 +116,8 @@ export interface InteractivePackageWriteOptions {
   complete?(tx: Prisma.TransactionClient, applicationId: string): Promise<void>;
 }
 
-type PreparedApplicationIcon = {
-  preset: ApplicationIconPreset;
-  objectKey: string | null;
-  newObjectKey: string | null;
-};
-
 export class ApplicationService {
+  private readonly icons: ApplicationIconService;
   constructor(
     private readonly prisma: PrismaClient,
     private readonly models: ModelRuntimeSettingsReader,
@@ -144,7 +128,9 @@ export class ApplicationService {
     private readonly publications?: ApplicationPublicationService,
     private readonly installations?: ApplicationInstallationService,
     private readonly runtimeInstallations?: ApplicationRuntimeInstallationService,
-  ) {}
+  ) {
+    this.icons = new ApplicationIconService(prisma, iconStore);
+  }
 
   private async installedVersionId(ownerId: string, application: StoredApplication): Promise<string | null> {
     const installation = await this.prisma.applicationRuntimeInstallation.findUnique({ where: { ownerId_applicationId: { ownerId, applicationId: application.id } } });
@@ -574,7 +560,7 @@ export class ApplicationService {
         input.reasoning_effort,
       );
     }
-    const preparedIcon = await this.#prepareIcon(actor.id, input.icon);
+    const preparedIcon = await this.icons.prepare(actor.id, input.icon);
     let row;
     try {
       row = await this.prisma.$transaction(async (tx) => {
@@ -626,7 +612,7 @@ export class ApplicationService {
       });
     } catch (error) {
       if (preparedIcon.newObjectKey) {
-        await this.#removeIconAfterFailure(preparedIcon.newObjectKey);
+        await this.icons.removeAfterFailure(preparedIcon.newObjectKey);
       }
       throw error;
     }
@@ -914,7 +900,7 @@ export class ApplicationService {
       current.iconObjectKey &&
       current.iconObjectKey !== nextIconObjectKey
     ) {
-      await this.#enqueueIconRemoval(current.iconObjectKey);
+      await this.icons.enqueueRemoval(current.iconObjectKey);
     }
     await this.audit.write({
       ...context,
@@ -1168,7 +1154,7 @@ export class ApplicationService {
     const preparedIcon =
       input.icon === undefined
         ? null
-        : await this.#prepareIcon(actor.id, input.icon);
+        : await this.icons.prepare(actor.id, input.icon);
     const now = new Date();
     try {
       const saveChanges = async (tx: Prisma.TransactionClient): Promise<void> => {
@@ -1294,7 +1280,7 @@ export class ApplicationService {
       }
     } catch (error) {
       if (preparedIcon?.newObjectKey) {
-        await this.#removeIconAfterFailure(preparedIcon.newObjectKey);
+        await this.icons.removeAfterFailure(preparedIcon.newObjectKey);
       }
       throw error;
     }
@@ -1303,7 +1289,7 @@ export class ApplicationService {
       current.iconObjectKey !== null &&
       current.iconObjectKey !== preparedIcon.objectKey
     ) {
-      await this.#enqueueIconRemoval(current.iconObjectKey);
+      await this.icons.enqueueRemoval(current.iconObjectKey);
     }
     await this.audit.write({
       ...context,
@@ -1326,7 +1312,7 @@ export class ApplicationService {
   /** Presentation edits preserve bindings; publication validates and installs a new immutable release. */
   async #updateInteractiveMetadata(actor: RequestActor, current: StoredApplication, input: UpdateApplicationInput, context: AuditContext,
     publication?: { release: ApplicationVersionInput; assertCurrent: () => void }): Promise<Application> {
-    const prepared = input.icon ? await this.#prepareIcon(actor.id, input.icon) : null;
+    const prepared = input.icon ? await this.icons.prepare(actor.id, input.icon) : null;
     try {
       const saveChanges = async (tx: Prisma.TransactionClient) => {
         const changed = await tx.application.updateMany({
@@ -1360,10 +1346,10 @@ export class ApplicationService {
         await this.prisma.$transaction(saveChanges);
       }
     } catch (error) {
-      if (prepared?.newObjectKey) await this.#removeIconAfterFailure(prepared.newObjectKey);
+      if (prepared?.newObjectKey) await this.icons.removeAfterFailure(prepared.newObjectKey);
       throw error;
     }
-    if (prepared && current.iconObjectKey && current.iconObjectKey !== prepared.objectKey) await this.#enqueueIconRemoval(current.iconObjectKey);
+    if (prepared && current.iconObjectKey && current.iconObjectKey !== prepared.objectKey) await this.icons.enqueueRemoval(current.iconObjectKey);
     await this.audit.write({ ...context, actorId: actor.id, action: "application_updated", targetType: "application", targetId: current.id, result: "success" });
     return this.get(actor, current.id);
   }
@@ -1429,7 +1415,7 @@ export class ApplicationService {
       });
     });
     if (current.iconObjectKey !== null) {
-      await this.#enqueueIconRemoval(current.iconObjectKey);
+      await this.icons.enqueueRemoval(current.iconObjectKey);
     }
     await this.audit.write({
       ...context,
@@ -2388,93 +2374,7 @@ export class ApplicationService {
     iconPreset: string;
     iconObjectKey: string | null;
   }): Promise<Application["icon"]> {
-    const parsedPreset = applicationIconPresetSchema.safeParse(row.iconPreset);
-    const fallbackPreset = parsedPreset.success ? parsedPreset.data : DEFAULT_APPLICATION_ICON_PRESET;
-    if (row.iconObjectKey === null || this.iconStore === undefined) {
-      return { type: "preset", preset: fallbackPreset };
-    }
-    try {
-      return {
-        type: "custom",
-        url: await this.iconStore.presignGet(row.iconObjectKey, 5 * 60),
-        fallback_preset: fallbackPreset,
-      };
-    } catch {
-      return { type: "preset", preset: fallbackPreset };
-    }
-  }
-
-  async #prepareIcon(
-    ownerId: string,
-    input?: ApplicationIconInput,
-  ): Promise<PreparedApplicationIcon> {
-    if (input === undefined) {
-      return { preset: DEFAULT_APPLICATION_ICON_PRESET, objectKey: null, newObjectKey: null };
-    }
-    const parsed = applicationIconInputSchema.safeParse(input);
-    if (!parsed.success) throw new AppError("APPLICATION_ICON_UPLOAD_INVALID");
-    if (parsed.data.type === "preset") {
-      return {
-        preset: parsed.data.preset,
-        objectKey: null,
-        newObjectKey: null,
-      };
-    }
-    if (this.iconStore === undefined) {
-      throw new AppError("APPLICATION_ICON_UPLOAD_INVALID");
-    }
-    const { bytes, contentType: detectedType, extension } = decodeApplicationIcon(parsed.data);
-    const objectKey = `applications/${ownerId}/icons/${randomUUID()}.${extension}`;
-    try {
-      await this.iconStore.put(objectKey, bytes, detectedType);
-    } catch {
-      await this.#removeIconAfterFailure(objectKey);
-      throw new AppError("APPLICATION_ICON_UPLOAD_INVALID");
-    }
-    return {
-      preset: DEFAULT_APPLICATION_ICON_PRESET,
-      objectKey,
-      newObjectKey: objectKey,
-    };
-  }
-
-  async #removeIconAfterFailure(objectKey: string): Promise<void> {
-    if (this.iconStore === undefined) return;
-    try {
-      await this.iconStore.remove(objectKey);
-    } catch {
-      try {
-        await this.iconStore.enqueueRemoval?.(objectKey);
-      } catch {
-        // Durable cleanup retries are best-effort after a failed mutation.
-      }
-    }
-  }
-
-  async #enqueueIconRemoval(objectKey: string): Promise<void> {
-    if (this.iconStore === undefined) return;
-    // Released icons can be shared by immutable versions and installed copies.
-    // A failed reference check must retain the object, never delete optimistically.
-    try {
-      const [version, application] = await Promise.all([
-        this.prisma.applicationVersion.findFirst({ where: { assetsReady: true, definitionJson: { path: ["iconObjectKey"], equals: objectKey } }, select: { id: true } }),
-        this.prisma.application.findFirst({ where: { iconObjectKey: objectKey, status: { not: "deleted" } }, select: { id: true } }),
-      ]);
-      if (version || application) return;
-    } catch { return; }
-    try {
-      if (this.iconStore.enqueueRemoval !== undefined) {
-        await this.iconStore.enqueueRemoval(objectKey);
-        return;
-      }
-      await this.iconStore.remove(objectKey);
-    } catch {
-      try {
-        await this.iconStore.remove(objectKey);
-      } catch {
-        // A committed application update must not fail because cleanup failed.
-      }
-    }
+    return this.icons.project(row);
   }
 }
 

@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
+import { publicKnowledgeSettingsSchema } from "@linksense/shared";
 import {
   publicKnowledgeVisitorRoutes,
   publicKnowledgeManagementRoutes,
@@ -51,15 +52,17 @@ describe("public knowledge HTTP boundary", () => {
       await app.close();
     }
   });
-  async function fixture() {
+  async function fixture(authenticated = false) {
     const service = {
       closeEventStreams: vi.fn(),
+      save: vi.fn(async () => ({})),
       visitorEvents: vi.fn(async function* () {
         yield ": ready\n\n";
       }),
       publicConfiguration: vi.fn(async () => ({
         name: '<script>alert("x")</script>',
         description: null,
+        icon: { type: "preset", preset: "globe-2" },
         retention_days: 30,
       })),
       startSession: vi.fn(),
@@ -93,11 +96,40 @@ describe("public knowledge HTTP boundary", () => {
       service: service as unknown as PublicKnowledgeService,
       prefix: "/owner",
       resolveActor: () => {
+        if (authenticated) return { id: appId, role: "user", status: "active" };
         throw new AppError("AUTH_REQUIRED");
       },
     });
     return { app, service };
   }
+  it.each(["POST", "PUT"] as const)("accepts a selected or uploaded logo through the authenticated %s endpoint", async (method) => {
+    const { app, service } = await fixture(true);
+    const settings = publicKnowledgeSettingsSchema.parse({
+      name: "Website", instructions: "Use evidence", model: "model", reasoning_effort: "medium",
+      knowledge_base_ids: [appId], allowed_origins: ["https://website.example"],
+    });
+    const url = method === "POST" ? "/owner/public-knowledge" : `/owner/${appId}/public-knowledge`;
+    try {
+      for (const icon of [
+        { type: "preset", preset: "globe-2" },
+        { type: "upload", filename: "website.png", mime_type: "image/png", data_base64: "AAAA".repeat(20_000) },
+      ]) {
+        const response = await app.inject({ method, url, payload: { ...settings, icon } });
+        expect(response.statusCode).toBe(method === "POST" ? 201 : 200);
+        expect(service.save).toHaveBeenLastCalledWith(
+          { id: appId, role: "user", status: "active" },
+          { ...settings, icon },
+          ...(method === "POST" ? [] : [appId]),
+        );
+      }
+      service.save.mockClear();
+      for (const icon of [
+        { type: "custom", url: "https://example.test/foreign.png", fallback_preset: "bot" },
+        { type: "upload", filename: "unsafe.svg", mime_type: "image/svg+xml", data_base64: "AAAA" },
+      ]) expect((await app.inject({ method, url, payload: { ...settings, icon } })).statusCode).toBe(400);
+      expect(service.save).not.toHaveBeenCalled();
+    } finally { await app.close(); }
+  });
   it("requires visitor credentials and validates questions before dispatch", async () => {
     const { app, service } = await fixture();
     try {
@@ -160,6 +192,11 @@ describe("public knowledge HTTP boundary", () => {
       ).toBe(401);
       expect(service.ownerDetail).not.toHaveBeenCalled();
       for (const route of [
+        { method: "POST" as const, url: "/owner/public-knowledge", payload: {} },
+        { method: "PUT" as const, url: `/owner/${appId}/public-knowledge`, payload: {} },
+      ]) expect((await app.inject(route)).statusCode).toBe(401);
+      expect(service.save).not.toHaveBeenCalled();
+      for (const route of [
         {
           method: "PATCH" as const,
           url: `/owner/${appId}/public-knowledge/status`,
@@ -193,6 +230,7 @@ describe("public knowledge HTTP boundary", () => {
       expect(result.body).toContain('lang="ja-JP"');
       expect(result.body).not.toContain('<script>alert("x")</script>');
       expect(result.body).toContain("/assets/public-knowledge-app.js");
+      expect(result.body).toContain('&quot;icon&quot;:{&quot;type&quot;:&quot;preset&quot;,&quot;preset&quot;:&quot;globe-2&quot;}');
       expect(result.headers["cache-control"]).toBe("private, no-store");
     } finally {
       await app.close();

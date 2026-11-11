@@ -8,12 +8,44 @@ import {
 import {
   publicKnowledgeQuestionSchema,
   publicKnowledgeSettingsSchema,
+  publicKnowledgeSaveInputSchema,
   publicKnowledgeSkillsSchema,
   publicKnowledgeStatusInputSchema,
   publicKnowledgeUsageQuerySchema,
 } from "../src/public-knowledge.js";
 
 describe("public knowledge contracts", () => {
+  it("accepts an optional preset or upload separately from bounded persistent settings", () => {
+    const settings = publicKnowledgeSettingsSchema.parse({
+      name: "Website",
+      instructions: "Answer from evidence",
+      model: "model",
+      reasoning_effort: "medium",
+      knowledge_base_ids: ["00000000-0000-4000-8000-000000000001"],
+      allowed_origins: ["https://example.test"],
+    });
+    expect(publicKnowledgeSaveInputSchema.parse(settings)).toEqual(settings);
+    for (const icon of [
+      { type: "preset", preset: "book-open" },
+      { type: "upload", filename: "website.png", mime_type: "image/png", data_base64: "AAAA".repeat(25_000) },
+    ]) {
+      expect(publicKnowledgeSaveInputSchema.parse({ ...settings, icon }).icon).toEqual(icon);
+      expect(publicKnowledgeSettingsSchema.safeParse({ ...settings, icon }).success).toBe(false);
+    }
+    for (const icon of [
+      { type: "preset", preset: "unknown" },
+      { type: "custom", url: "https://example.test/foreign.png", fallback_preset: "bot" },
+      { type: "upload", filename: "website.svg", mime_type: "image/svg+xml", data_base64: "AAAA" },
+      { type: "upload", filename: "website.png", mime_type: "image/png", data_base64: "AAAA".repeat(180_000) },
+    ]) expect(publicKnowledgeSaveInputSchema.safeParse({ ...settings, icon }).success).toBe(false);
+    expect(publicKnowledgeSaveInputSchema.safeParse({
+      ...settings,
+      instructions: "中".repeat(20_000),
+      description: "中".repeat(4_000),
+      icon: { type: "preset", preset: "bot" },
+    }).success).toBe(false);
+  });
+
   it("shares the output budget between chunks and saved text without splitting Unicode characters", () => {
     expect(limitPublicKnowledgeOutput("small")).toBe("small");
     expect(limitPublicKnowledgeOutput("abc", 0)).toBe("");

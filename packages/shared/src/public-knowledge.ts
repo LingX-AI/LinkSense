@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { applicationExternalOriginSchema } from "./application-embed.js";
 import {
+  applicationIconInputSchema,
+  applicationIconSchema,
+} from "./application-icons.js";
+import {
   modelIdentifierSchema,
   reasoningEffortSchema,
   modelProviderProtocolModeSchema,
@@ -13,7 +17,7 @@ export const publicKnowledgeConcurrencyLimit = 20;
 export const publicKnowledgeFrameSandbox =
   "allow-scripts allow-same-origin allow-forms";
 
-export const publicKnowledgeSettingsSchema = z
+const publicKnowledgeSettingsFieldsSchema = z
   .strictObject({
     name: z.string().trim().min(1).max(160),
     description: z.string().trim().max(4_000).nullable().default(null),
@@ -45,15 +49,28 @@ export const publicKnowledgeSettingsSchema = z
     retention_days: z.number().int().min(1).max(365).default(30),
     enabled: z.boolean().default(true),
     show_references: z.boolean().default(true),
-  })
-  .refine(
-    (settings) =>
-      // Leave room for display preferences on existing settings near the old limit.
-      new TextEncoder().encode(JSON.stringify(settings)).byteLength <= 61_000,
-    "public_knowledge_settings_too_large",
-  );
+  });
+function settingsWithinSizeLimit(
+  settings: z.infer<typeof publicKnowledgeSettingsFieldsSchema>,
+): boolean {
+  // Leave room for display preferences on existing settings near the old limit.
+  return new TextEncoder().encode(JSON.stringify(settings)).byteLength <= 61_000;
+}
+export const publicKnowledgeSettingsSchema = publicKnowledgeSettingsFieldsSchema.refine(
+  settingsWithinSizeLimit,
+  "public_knowledge_settings_too_large",
+);
 export type PublicKnowledgeSettings = z.infer<
   typeof publicKnowledgeSettingsSchema
+>;
+export const publicKnowledgeSaveInputSchema = publicKnowledgeSettingsFieldsSchema
+  .extend({ icon: applicationIconInputSchema.optional() })
+  .refine(
+    ({ icon: _icon, ...settings }) => settingsWithinSizeLimit(settings),
+    "public_knowledge_settings_too_large",
+  );
+export type PublicKnowledgeSaveInput = z.infer<
+  typeof publicKnowledgeSaveInputSchema
 >;
 export const publicKnowledgeStatusInputSchema = z.strictObject({
   enabled: z.boolean(),
@@ -62,6 +79,7 @@ export const publicKnowledgeManagementSchema = z.strictObject({
   application_id: z.uuid(),
   public_id: z.string().min(24).max(80),
   version_number: z.string(),
+  icon: applicationIconSchema,
   settings: publicKnowledgeSettingsSchema,
 });
 export const publicKnowledgeSessionInputSchema = z.strictObject({

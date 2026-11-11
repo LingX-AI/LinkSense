@@ -53,6 +53,7 @@ function show(configuration = settings, embed = false) {
     application_id: applicationId,
     public_id: "public-application-identifier-1234",
     version_number: "1.0.0",
+    icon: { type: "preset", preset: "bot" } as const,
     settings: configuration,
   })
   vi.mocked(getPublicKnowledgeConversations).mockResolvedValue({

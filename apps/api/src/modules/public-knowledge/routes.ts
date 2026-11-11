@@ -2,7 +2,7 @@ import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { Readable } from "node:stream";
 import { z } from "zod";
 import {
-  publicKnowledgeSettingsSchema,
+  publicKnowledgeSaveInputSchema,
   publicKnowledgeSessionInputSchema,
   publicKnowledgeQuestionSchema,
   publicKnowledgeConversationQuerySchema,
@@ -54,7 +54,7 @@ export const publicKnowledgeManagementRoutes: FastifyPluginAsync<{
         ok(
           await options.service.save(
             await actorFor(request),
-            publicKnowledgeSettingsSchema.parse(request.body),
+            publicKnowledgeSaveInputSchema.parse(request.body),
           ),
           request.id,
         ),
@@ -76,7 +76,7 @@ export const publicKnowledgeManagementRoutes: FastifyPluginAsync<{
       ok(
         await options.service.save(
           await actorFor(request),
-          publicKnowledgeSettingsSchema.parse(request.body),
+          publicKnowledgeSaveInputSchema.parse(request.body),
           application.parse(request.params).id,
         ),
         request.id,

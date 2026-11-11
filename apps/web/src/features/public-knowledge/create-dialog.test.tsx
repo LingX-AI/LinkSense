@@ -21,6 +21,11 @@ vi.mock("@/features/knowledge-bases/knowledge-base-hooks", () => ({
 vi.mock("./api", async (original) => ({
   ...(await original<typeof import("./api")>()),
   getPublicKnowledgeManagement: vi.fn(async () => ({
+    icon: {
+      type: "custom",
+      url: "https://icons.example.test/website.png",
+      fallback_preset: "globe-2",
+    },
     settings: publicKnowledgeSettingsSchema.parse({
       name: "Website assistant",
       instructions: "Answer from evidence",
@@ -115,6 +120,16 @@ it.each(
     )
     expect(body).not.toContainElement(header)
     expect(body).not.toContainElement(footer)
+    expect(within(dialog).getByText(i18n.t("applications.icon"))).toBeVisible()
+    expect(
+      within(dialog).getByRole("button", {
+        name: i18n.t(
+          mode === "create"
+            ? "applications.uploadIcon"
+            : "applications.replaceIcon"
+        ),
+      })
+    ).toBeVisible()
     expect(footer).toHaveClass(
       "shrink-0",
       "flex-row",
