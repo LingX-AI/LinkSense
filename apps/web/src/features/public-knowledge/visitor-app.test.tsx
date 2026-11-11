@@ -637,7 +637,18 @@ describe("anonymous visitor interactions", () => {
       view.container.querySelector(".conversation-scroll-embedded")
     ).not.toBeNull()
     expect(view.container.querySelector(".composer-shell")).not.toBeNull()
-    expect(view.container.querySelector("img, iframe, script")).toBeNull()
+    const answer = screen.getByRole("article", {
+      name: i18n.t("conversation.assistantMessage"),
+    })
+    expect(answer.querySelector("img, iframe, script")).toBeNull()
+    expect(view.container.querySelector("iframe, script")).toBeNull()
+    const headerLogo = view.container.querySelector(
+      '.embed-header-title [data-application-icon-preset="bot"]'
+    )
+    expect(headerLogo).toBeVisible()
+    for (const image of view.container.querySelectorAll("img")) {
+      expect(headerLogo).toContainElement(image)
+    }
     expect(
       screen.queryByRole("link", { name: "private" })
     ).not.toBeInTheDocument()
