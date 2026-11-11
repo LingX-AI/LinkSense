@@ -60,6 +60,7 @@ export function PublicKnowledgeEditDialog({
           <PublicKnowledgeSettingsForm
             onCancel={onClose}
             initial={settings.data.settings}
+            initialIcon={settings.data.icon}
             applicationId={applicationId}
             onSaved={async (result) => {
               queryClient.setQueryData(

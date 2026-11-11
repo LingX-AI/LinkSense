@@ -545,21 +545,22 @@ export function createServices(input: {
   const applicationRuntimeGate = new ApplicationRuntimeGate(input.prisma, input.redis,
     async (ownerId, conversationId) => { await input.runner.closeRuntimeProcess(conversationId, ownerId); });
   const applicationRuntimeInstallations = new ApplicationRuntimeInstallationService(input.prisma, applicationPublications, applicationRuntimeGate);
+  const applicationIconStore: import("./modules/applications/icon-service.js").ApplicationIconStore = {
+    put: (objectKey, bytes, contentType) =>
+      input.storage.putObject(objectKey, bytes, {
+        "content-type": contentType,
+      }),
+    remove: (objectKey) => input.storage.removeObject(objectKey),
+    presignGet: (objectKey, expiresSeconds) =>
+      input.storage.presignedGetObject(objectKey, expiresSeconds),
+    enqueueRemoval: (objectKey) => jobs.enqueueObjectDelete(objectKey),
+  };
   const applications = new ApplicationService(
     input.prisma,
     modelProviderSettings,
     audit,
     credentials,
-    {
-      put: (objectKey, bytes, contentType) =>
-        input.storage.putObject(objectKey, bytes, {
-          "content-type": contentType,
-        }),
-      remove: (objectKey) => input.storage.removeObject(objectKey),
-      presignGet: (objectKey, expiresSeconds) =>
-        input.storage.presignedGetObject(objectKey, expiresSeconds),
-      enqueueRemoval: (objectKey) => jobs.enqueueObjectDelete(objectKey),
-    },
+    applicationIconStore,
     applicationAssets,
     applicationPublications,
     new ApplicationInstallationService(input.prisma, input.config.capabilityRoot, applicationPublications, applicationRuntimeGate, credentials),
@@ -905,7 +906,7 @@ export function createServices(input: {
     applications,
     applicationCenter,
     applicationExternalAccess,
-    publicKnowledge: new PublicKnowledgeService({ prisma: input.prisma, models: modelProviderSettings, knowledge: knowledgeStore,
+    publicKnowledge: new PublicKnowledgeService({ prisma: input.prisma, iconStore: applicationIconStore, models: modelProviderSettings, knowledge: knowledgeStore,
       progress: new PrismaPublicKnowledgeProgress(input.prisma, input.redis, pino({ level: process.env.LOG_LEVEL ?? "info" })),
       skills: new PublicKnowledgeSkills(input.prisma, input.config.capabilityRoot),
       retrieve: knowledgeRuntime ? createPublicKnowledgeRetriever(input.prisma, knowledgeStore, knowledgeRuntime.retrieval) : null,

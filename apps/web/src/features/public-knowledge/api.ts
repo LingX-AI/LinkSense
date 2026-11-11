@@ -7,7 +7,7 @@ import {
   publicKnowledgeSessionSchema,
   publicKnowledgeConversationSchema,
   publicKnowledgeUsageSchema,
-  type PublicKnowledgeSettings,
+  type PublicKnowledgeSaveInput,
 } from "@linksense/shared"
 import { apiRequest, ApiError, buildApiUrl } from "@/api/client"
 
@@ -35,7 +35,7 @@ export const getPublicKnowledgeManagement = (
     signal,
   })
 export const savePublicKnowledge = (
-  settings: PublicKnowledgeSettings,
+  settings: PublicKnowledgeSaveInput,
   id?: string
 ) =>
   apiRequest(

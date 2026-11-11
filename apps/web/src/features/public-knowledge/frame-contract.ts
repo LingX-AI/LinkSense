@@ -2,6 +2,7 @@ import { z } from "zod"
 import {
   supportedLocales,
   applicationExternalOriginSchema,
+  applicationIconSchema,
 } from "@linksense/shared"
 
 export const publicKnowledgeFrameSchema = z.strictObject({
@@ -10,6 +11,7 @@ export const publicKnowledgeFrameSchema = z.strictObject({
   locale: z.enum(supportedLocales),
   name: z.string(),
   description: z.string().nullable(),
+  icon: applicationIconSchema,
   retention_days: z.number().int().positive(),
   show_references: z.boolean().default(true),
 })

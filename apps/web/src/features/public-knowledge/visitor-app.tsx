@@ -5,6 +5,7 @@ import type { z } from "zod"
 import { publicKnowledgeSessionSchema } from "@linksense/shared"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { ApplicationIconDisplay } from "@/features/applications/application-icon"
 import {
   Select,
   SelectContent,
@@ -232,7 +233,8 @@ export function PublicKnowledgeVisitorApp({
   return (
     <main className="embed-app">
       <header className="embed-header">
-        <div className="embed-header-title">
+        <div className="embed-header-title flex items-center gap-3">
+          <ApplicationIconDisplay icon={config.icon} className="size-8" />
           <h1 className="truncate text-base font-semibold">{config.name}</h1>
         </div>
         {session !== null && (

@@ -2,9 +2,12 @@ import { useId, useState } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
 import {
-  publicKnowledgeSettingsSchema,
+  DEFAULT_APPLICATION_ICON_PRESET,
+  publicKnowledgeSaveInputSchema,
   publicKnowledgeConcurrencyLimit,
   type PublicKnowledgeSettings,
+  type PublicKnowledgeSaveInput,
+  type ApplicationIcon,
 } from "@linksense/shared"
 import { apiRequest } from "@/api/client"
 import {
@@ -15,6 +18,11 @@ import {
 import { getErrorMessage } from "@/api/error-message"
 import { useKnowledgeBaseList } from "@/features/knowledge-bases/knowledge-base-hooks"
 import { ResourceMultiSelect } from "@/features/applications/application-resource-multi-select"
+import { ApplicationIconField } from "@/features/applications/application-icon-field"
+import {
+  applicationIconInputFor,
+  type ApplicationIconFormState,
+} from "@/features/applications/application-icon-form"
 import {
   Field,
   FieldGroup,
@@ -40,11 +48,13 @@ import { savePublicKnowledge } from "./api"
 
 export function PublicKnowledgeSettingsForm({
   initial,
+  initialIcon,
   applicationId,
   onCancel,
   onSaved,
 }: {
   initial?: PublicKnowledgeSettings
+  initialIcon?: ApplicationIcon
   applicationId?: string
   onCancel: () => void
   onSaved: (
@@ -71,6 +81,16 @@ export function PublicKnowledgeSettingsForm({
     show_references: initial?.show_references ?? true,
   })
   const [invalid, setInvalid] = useState(false)
+  const [icon, setIcon] = useState<ApplicationIconFormState>(
+    initialIcon?.type === "custom"
+      ? { mode: "existing-custom", icon: initialIcon }
+      : {
+          mode: "preset",
+          preset: initialIcon?.preset ?? DEFAULT_APPLICATION_ICON_PRESET,
+        }
+  )
+  const [iconChanged, setIconChanged] = useState(false)
+  const [readingIcon, setReadingIcon] = useState(false)
   const models = useQuery({
     queryKey: ["me", "model-preference", "public-knowledge"],
     queryFn: ({ signal }) =>
@@ -94,7 +114,7 @@ export function PublicKnowledgeSettingsForm({
       }),
   })
   const save = useMutation({
-    mutationFn: (settings: PublicKnowledgeSettings) =>
+    mutationFn: (settings: PublicKnowledgeSaveInput) =>
       savePublicKnowledge(settings, applicationId),
     onSuccess: onSaved,
   })
@@ -135,10 +155,15 @@ export function PublicKnowledgeSettingsForm({
       className="flex min-h-0 flex-1 flex-col"
       onSubmit={(event) => {
         event.preventDefault()
-        if (save.isPending) return
+        if (save.isPending || readingIcon) return
         const { origins, ...values } = form
-        const parsed = publicKnowledgeSettingsSchema.safeParse({
+        const changedIcon =
+          !applicationId || iconChanged
+            ? applicationIconInputFor(icon)
+            : undefined
+        const parsed = publicKnowledgeSaveInputSchema.safeParse({
           ...values,
+          ...(changedIcon ? { icon: changedIcon } : {}),
           description: values.description || null,
           allowed_origins: origins
             .split(/\r?\n/u)
@@ -154,6 +179,17 @@ export function PublicKnowledgeSettingsForm({
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5"
       >
         <FieldGroup className="grid grid-cols-1 items-start md:grid-cols-2">
+          <FieldGroup className="md:col-span-2">
+            <ApplicationIconField
+              value={icon}
+              onChange={(next) => {
+                setIcon(next)
+                setIconChanged(true)
+              }}
+              onReadingChange={setReadingIcon}
+              disabled={save.isPending}
+            />
+          </FieldGroup>
           <Field data-invalid={invalid && !form.name}>
             <FieldLabel htmlFor={`${id}-name`} required>
               {t("publicKnowledge.name")}
@@ -278,6 +314,8 @@ export function PublicKnowledgeSettingsForm({
           <ResourceMultiSelect
             id={`${id}-knowledge`}
             title={t("publicKnowledge.knowledge")}
+            required
+            invalid={invalid && form.knowledge_base_ids.length === 0}
             description={t("publicKnowledge.knowledgeHelp")}
             items={(
               knowledge.data?.pages.flatMap((page) => page.items) ?? []
@@ -420,6 +458,7 @@ export function PublicKnowledgeSettingsForm({
           aria-busy={save.isPending || undefined}
           disabled={
             save.isPending ||
+            readingIcon ||
             models.isPending ||
             knowledge.isPending ||
             capabilities.isPending ||

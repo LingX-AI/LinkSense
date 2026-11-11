@@ -20,15 +20,17 @@ import i18n from "@/i18n"
 import { PublicKnowledgeVisitorApp } from "./visitor-app"
 import { PublicKnowledgeTurnView } from "./turn-view"
 import { publicSearchEvent, publicProgressEvent } from "./progress.test-fixture"
+import type { PublicKnowledgeFrame } from "./frame-contract"
 
 const conversationId = "00000000-0000-4000-8000-000000000001",
   visitorId = "00000000-0000-4000-8000-000000000002",
   turnId = "00000000-0000-4000-8000-000000000003"
-const config = {
+const config: PublicKnowledgeFrame = {
   public_id: "public-website-application-1234",
   parent_origin: "https://website.example.test",
   locale: "zh-CN" as const,
   name: "Website assistant",
+  icon: { type: "preset", preset: "bot" },
   description: "Product information",
   retention_days: 30,
   show_references: true,
@@ -79,6 +81,42 @@ function show(overrides: Partial<typeof config> = {}) {
 }
 
 describe("anonymous visitor interactions", () => {
+  it.each(supportedLocales)(
+    "displays the configured logo beside the application name in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      show({ icon: { type: "preset", preset: "globe-2" } })
+      const heading = screen.getByRole("heading", { name: config.name })
+      expect(
+        heading.parentElement?.querySelector(
+          '[data-application-icon-preset="globe-2"]'
+        )
+      ).toBeVisible()
+    }
+  )
+
+  it("displays the uploaded application logo in the visitor header", () => {
+    const images: { src: string; onload: (() => void) | null }[] = []
+    vi.stubGlobal(
+      "Image",
+      class {
+        src = ""
+        onload: (() => void) | null = null
+        constructor() {
+          images.push(this)
+        }
+      }
+    )
+    const url = "https://icons.example.test/website.png"
+    show({ icon: { type: "custom", url, fallback_preset: "bot" } })
+    act(() => images[0]?.onload?.())
+    const heading = screen.getByRole("heading", { name: config.name })
+    expect(heading.parentElement?.querySelector("img")).toHaveAttribute(
+      "src",
+      url
+    )
+  })
+
   it("streams search and intermediate messages before completion, then retains the full process after reload", async () => {
     await i18n.changeLanguage("zh-CN")
     window.sessionStorage.setItem(
