@@ -11,7 +11,7 @@
   "bugs": {
     "url": "https://github.com/LingX-AI/linksense/issues"
   },
-  "homepage": "https://github.com/LingX-AI/linksense#readme",
+  "homepage": "https://linksense.org",
   "packageManager": "pnpm@10.34.6",
   "scripts": {
     "dev": "node scripts/dev.mjs",

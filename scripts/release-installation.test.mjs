@@ -1615,8 +1615,8 @@ test("the public snapshot applies exclusions before the tar file list", async ()
 
 test("workflows that install dependencies use the resolvable pinned pnpm setup action", async () => {
   const expectedReference =
-    "pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413"
-  for (const workflow of ["ci.yml", "security.yml", "release.yml", "maintain-baselines.yml", "verify-application-images.yml"]) {
+    "pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115"
+  for (const workflow of ["ci.yml", "contributors.yml", "security.yml", "release.yml", "maintain-baselines.yml", "verify-application-images.yml"]) {
     const source = await readFile(
       path.join(root, ".github/workflows", workflow),
       "utf8",

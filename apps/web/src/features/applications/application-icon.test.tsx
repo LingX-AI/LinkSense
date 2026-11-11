@@ -8,6 +8,7 @@ import {
   ApplicationIconDisplay,
   ApplicationPresetIcon,
 } from "@/features/applications/application-icon"
+import { ApplicationIconField } from "@/features/applications/application-icon-field"
 import {
   applicationDesignIconPresets,
   applicationIconArtwork,
@@ -37,6 +38,25 @@ describe("application icons", () => {
       new Set(applicationIconPresetOptions.map((option) => option.icon)).size
     ).toBe(20)
     expect(Object.keys(applicationIconPresetDefinitions)).toHaveLength(20)
+  })
+
+  it("offers the same presets in page and dialog layouts", () => {
+    const props = {
+      value: { mode: "preset" as const, preset: "bot" as const },
+      onChange: vi.fn(),
+      onReadingChange: vi.fn(),
+    }
+    const { container, rerender } = render(
+      <ApplicationIconField {...props} layout="page" />
+    )
+    const presets = () =>
+      [...container.querySelectorAll('[data-slot="toggle-group-item"]')].map(
+        (item) => item.getAttribute("aria-label")
+      )
+    const pagePresets = presets()
+    expect(pagePresets).toHaveLength(20)
+    rerender(<ApplicationIconField {...props} layout="default" />)
+    expect(presets()).toEqual(pagePresets)
   })
 
   it("uses the ten Figma assets while preserving every legacy preset", () => {

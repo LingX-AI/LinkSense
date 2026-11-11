@@ -235,7 +235,7 @@ function ModelReasoningControls({
             side="top"
             align="center"
             sideOffset={8}
-            className="w-max max-w-[calc(100vw-1rem)] min-w-48"
+            className="min-w-48"
           >
             <DropdownMenuGroup>
               <DropdownMenuLabel>{t("conversation.model")}</DropdownMenuLabel>

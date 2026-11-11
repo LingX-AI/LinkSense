@@ -152,19 +152,19 @@ export function ResourceMultiSelect({
                 value={item}
                 disabled={item.disabled && !selected.has(item.id)}
               >
-                <span className="min-w-0">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-sm font-medium">
+                <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="min-w-0 text-sm font-medium whitespace-normal">
                       {item.label}
                     </span>
                     {item.detailInline && item.detail && (
-                      <span className="shrink-0 text-xs text-muted-foreground">
+                      <span className="text-xs whitespace-normal text-muted-foreground">
                         {item.detail}
                       </span>
                     )}
                   </span>
                   {!item.detailInline && item.detail && (
-                    <span className="block truncate text-xs text-muted-foreground">
+                    <span className="block text-xs whitespace-normal text-muted-foreground">
                       {item.detail}
                     </span>
                   )}

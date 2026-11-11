@@ -1,10 +1,13 @@
 <p align="center">
-  <img src="./apps/web/public/attribution/linksense-mark.svg" alt="LinkSense" width="180">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./apps/web/src/assets/brand/linksense-lockup-on-dark.svg">
+    <img src="./apps/web/public/attribution/linksense-mark.svg" alt="LinkSense" width="180">
+  </picture>
 </p>
 
 <h2 align="center">
   Open-source agentic work platform for organizations.<br>
-  <sub>Run AI teammates on infrastructure you control.</sub>
+  <sub>Help teams get work done with AI, shared knowledge, and tools.</sub>
 </h2>
 
 <p align="center">
@@ -12,23 +15,21 @@
 </p>
 
 <p align="center">
-  <a href="https://linksense.guygubaby.top/doc/">Documentation</a> ·
+  <a href="https://linksense.org/doc/">Documentation</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="https://explore.linksense.org/">Live demo</a> ·
   <a href="mailto:hello@linksense.org">Contact</a>
 </p>
 
-LinkSense gives organizations one governed place to run agent tasks, share reusable
-Knowledge, Skills, Plugins, and Applications, and connect business systems without
-handing members the underlying credentials. Deploy it on your servers or private cloud,
-choose hosted or compatible local models, and keep task data and files on your own
-infrastructure.
+LinkSense gives organizations one governed place to run agent tasks, share reusable Knowledge,
+Skills, Plugins, and Applications, and connect business systems without handing members the underlying
+credentials. Deploy it on your servers or private cloud, choose hosted or compatible local models, and
+keep task data and files on your own infrastructure.
 
 ## Quick start
 
-LinkSense supports Linux and macOS hosts with Docker. A Core evaluation needs at least
-4 vCPU, 8 GiB of memory available to Docker, and 60 GiB of free SSD. Full adds built-in
-document parsing, indexing, and retrieval and needs more capacity.
+LinkSense supports Linux and macOS hosts with Docker. A Core evaluation needs at least 4 vCPU, 8 GiB of memory
+available to Docker, and 60 GiB of free SSD. Full adds built-in document parsing, indexing, and retrieval and needs more capacity.
 
 The fastest installation path is to give a coding agent this prompt:
 
@@ -36,36 +37,35 @@ The fastest installation path is to give a coding agent this prompt:
 Help me install and start LinkSense Core by following https://raw.githubusercontent.com/LingX-AI/linksense/main/Install.md
 ```
 
-For a manual installation, choose [Core](https://linksense.guygubaby.top/doc/deploy/core/)
-or [Full](https://linksense.guygubaby.top/doc/deploy/full/). The site covers host checks,
+For a manual installation, choose [Core](https://linksense.org/doc/deploy/core/)
+or [Full](https://linksense.org/doc/deploy/full/). The site covers host checks,
 Docker requirements, installation commands, and
-[first-time setup](https://linksense.guygubaby.top/doc/deploy/first-setup/).
+[first-time setup](https://linksense.org/doc/deploy/first-setup/).
 
 ## Key features
 
-- **Agent execution and deliverables:** research sources, operate tools, run code, analyze
-  data, and produce documents, spreadsheets, presentations, and other files in a user Worker.
-- **Shared organizational capabilities:** publish governed Knowledge, Skills, Plugins, and
-  Applications for specific users and groups.
-- **Access and governance:** manage members, model credentials, quotas, usage, and audit
-  records from one administration surface.
-- **Business system connections:** connect documents, email, ERP, CRM, and other systems
-  through connectors or MCP within configured permissions.
-- **Flexible entry points:** start work from the web workspace, messaging channels, or
-  scheduled tasks.
-- **Self-hosting and model choice:** use your own infrastructure, external model APIs, or
-  compatible self-hosted endpoints with per-user runtime resource limits.
+- 🤖 **Agent execution and deliverables:** research sources, operate tools, run code, analyze data, and produce documents, spreadsheets, presentations, and other files in a user Worker.
 
+- 🧩 **Shared organizational capabilities:** publish governed Knowledge, Skills, Plugins, and Applications for specific users and groups.
+
+- 🔗 **Business system connections:** connect documents, email, ERP, CRM, and other systems through connectors or MCP within configured permissions.
+
+- 🛡️ **Access and governance:** manage members, model credentials, quotas, usage, and audit records from one administration surface.
+
+- 🏠 **Self-hosting and model choice:** use your own infrastructure, external model APIs, or compatible self-hosted endpoints with per-user runtime resource limits.
+
+- ⚡ **Flexible entry points:** start work from the web workspace, messaging channels, or scheduled tasks.
+  
 ## Documentation
 
 | I want to… | Read |
 | --- | --- |
-| Compare deployment profiles | [Core and Full](https://linksense.guygubaby.top/doc/deploy/) |
-| Operate, repair, or upgrade a deployment | [Operations](https://linksense.guygubaby.top/doc/deploy/operations/) |
-| Run tasks and use shared resources | [User guide](https://linksense.guygubaby.top/doc/user-guide/overview/) |
-| Manage members, models, permissions, and usage | [Administrator guide](https://linksense.guygubaby.top/doc/admin-guide/overview/) |
-| Build applications or connect external systems | [Developer guide](https://linksense.guygubaby.top/doc/developer-guide/interactive-application/) |
-| Work from source or understand the runtime | [Source development](https://linksense.guygubaby.top/doc/deploy/development/) · [Architecture](https://linksense.guygubaby.top/doc/deploy/architecture/) |
+| Compare deployment profiles | [Core and Full](https://linksense.org/doc/deploy/) |
+| Operate, repair, or upgrade a deployment | [Operations](https://linksense.org/doc/deploy/operations/) |
+| Run tasks and use shared resources | [User guide](https://linksense.org/doc/user-guide/overview/) |
+| Manage members, models, permissions, and usage | [Administrator guide](https://linksense.org/doc/admin-guide/overview/) |
+| Build applications or connect external systems | [Developer guide](https://linksense.org/doc/developer-guide/interactive-application/) |
+| Work from source or understand the runtime | [Source development](https://linksense.org/doc/deploy/development/) · [Architecture](https://linksense.org/doc/deploy/architecture/) |
 
 For private deployment or business system integration, email
 [hello@linksense.org](mailto:hello@linksense.org) with your environment, expected usage,
@@ -97,3 +97,7 @@ Licensing questions: [licensing@linksense.org](mailto:licensing@linksense.org).
 
 The upstream Codex runtime is licensed under Apache-2.0. LinkSense is an independent project;
 see the [third-party notices](./THIRD-PARTY-NOTICES.md).
+
+## Acknowledgements
+
+Thanks to the [Linux.do](https://linux.do) community for its support.

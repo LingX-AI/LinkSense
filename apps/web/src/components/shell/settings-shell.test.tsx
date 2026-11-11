@@ -118,8 +118,9 @@ describe("SettingsShell administrator navigation", () => {
       "[--attribution-inset:18px]",
       "absolute",
       "w-max",
-      "bg-transparent",
-      "p-0",
+      "rounded-sm",
+      "bg-[var(--app-canvas)]",
+      "p-1",
       "pointer-events-none",
       "right-[var(--attribution-inset)]",
       "bottom-[var(--attribution-inset)]"

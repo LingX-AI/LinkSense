@@ -1942,14 +1942,12 @@ export const ConversationComposer = forwardRef<
                       "composer-control -mx-1.5 h-8 gap-2 px-1.5 font-normal @max-[28rem]/conversation-workspace:gap-1 @max-[28rem]/conversation-workspace:text-xs",
                       modelPreferenceBlockingActions && "disabled:opacity-100"
                     )}
-                    aria-label={t("conversation.toolbarAttach")}
-                    aria-description={t("conversation.addMenuTitle")}
+                    aria-label={t("conversation.addMenuTitle")}
                     disabled={attachmentActionDisabled}
                   />
                 }
               >
                 <DesignIcon name="composer-add" className="text-foreground" />
-                <span>{t("conversation.toolbarAttach")}</span>
               </PopoverTrigger>
               <PopoverContent
                 side="top"

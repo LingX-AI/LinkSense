@@ -1,10 +1,13 @@
 <p align="center">
-  <img src="./docs/brand/linksense-lockup-primary.svg" alt="LinkSense" width="280">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./apps/web/src/assets/brand/linksense-lockup-on-dark.svg">
+    <img src="./docs/brand/linksense-lockup-primary.svg" alt="LinkSense" width="280">
+  </picture>
 </p>
 
 <h2 align="center">
   面向组织的开源 Agent 工作平台<br>
-  <sub>在你掌控的基础设施上运行 AI 团队</sub>
+  <sub>让团队借助 AI、共享知识和工具完成工作</sub>
 </h2>
 
 <p align="center">
@@ -12,7 +15,7 @@
 </p>
 
 <p align="center">
-  <a href="https://linksense.guygubaby.top/doc/zh-CN/">官方文档</a> ·
+  <a href="https://linksense.org/doc/zh-CN/">官方文档</a> ·
   <a href="#快速开始">快速开始</a> ·
   <a href="https://explore.linksense.org/">在线体验</a> ·
   <a href="mailto:hello@linksense.org">联系我们</a>
@@ -34,31 +37,34 @@ LinkSense 支持安装了 Docker 的 Linux 和 macOS。Core 体验环境至少�
 Help me install and start LinkSense Core by following https://raw.githubusercontent.com/LingX-AI/linksense/main/Install.md
 ```
 
-手动安装时，可选择 [Core](https://linksense.guygubaby.top/doc/zh-CN/deploy/core/) 或
-[Full](https://linksense.guygubaby.top/doc/zh-CN/deploy/full/)。主机检查、Docker 要求、
-安装命令和[首次配置](https://linksense.guygubaby.top/doc/zh-CN/deploy/first-setup/)都在站点中维护。
+手动安装时，可选择 [Core](https://linksense.org/doc/zh-CN/deploy/core/) 或
+[Full](https://linksense.org/doc/zh-CN/deploy/full/)。主机检查、Docker 要求、
+安装命令和[首次配置](https://linksense.org/doc/zh-CN/deploy/first-setup/)都在站点中维护。
 
 ## 核心能力
 
-- **Agent 执行与成果交付：** 在用户 Worker 中检索资料、调用工具、执行代码、分析数据，
-  并生成文档、表格、演示文稿和其他文件。
-- **组织能力共享：** 按用户和用户组发布可治理的知识库、技能、插件和应用。
-- **权限与治理：** 统一管理成员、模型凭据、额度、用量和审计记录。
-- **业务系统连接：** 在授权范围内通过连接器或 MCP 接入文档、邮件、ERP、CRM 等系统。
-- **多渠道入口：** 从 Web 工作台、消息渠道或定时任务发起工作。
-- **自主部署与模型选择：** 使用自有基础设施、云端模型 API 或兼容的自建模型端点，
-  并按用户设置运行时资源限制。
+- 🤖 **智能体执行与成果交付：** 检索资料、调用工具、运行代码、分析数据，并在独立的 Worker 环境中生成文档、电子表格、演示文稿及其他文件。
+
+- 🧩 **组织级 AI 能力共享：** 将知识库（Knowledge）、技能（Skills）、插件（Plugins）和应用（Applications）发布为可复用的组织能力，并按用户或用户组进行授权和共享。
+
+- 🔗 **业务系统集成：** 通过连接器或 MCP，在受控权限下连接文档、邮件、ERP、CRM 及其他业务系统，让 AI 融入现有业务流程。
+
+- 🛡️ **权限管理与组织治理：** 通过统一管理后台，集中管理组织成员、模型凭据、资源配额、使用情况及审计日志。
+
+- 🏠 **私有化部署与模型自由选择：** 支持在自有基础设施上部署，灵活接入外部大模型 API 或兼容的本地模型服务，并支持用户级运行资源限制。
+
+- ⚡ **灵活的使用入口：** 支持通过 Web 工作空间、消息渠道或定时任务启动 AI 工作流。
 
 ## 文档导航
 
 | 我想要…… | 阅读文档 |
 | --- | --- |
-| 对比部署方案 | [Core 与 Full](https://linksense.guygubaby.top/doc/zh-CN/deploy/) |
-| 运维、修复或升级现有部署 | [运维参考](https://linksense.guygubaby.top/doc/zh-CN/deploy/operations/) |
-| 执行任务并使用组织共享资源 | [用户指南](https://linksense.guygubaby.top/doc/zh-CN/user-guide/overview/) |
-| 管理成员、模型、权限与用量 | [管理员指南](https://linksense.guygubaby.top/doc/zh-CN/admin-guide/overview/) |
-| 构建应用或连接外部系统 | [开发者指南](https://linksense.guygubaby.top/doc/zh-CN/developer-guide/interactive-application/) |
-| 从源码开发或了解运行机制 | [源码开发](https://linksense.guygubaby.top/doc/zh-CN/deploy/development/) · [系统架构](https://linksense.guygubaby.top/doc/zh-CN/deploy/architecture/) |
+| 对比部署方案 | [Core 与 Full](https://linksense.org/doc/zh-CN/deploy/) |
+| 运维、修复或升级现有部署 | [运维参考](https://linksense.org/doc/zh-CN/deploy/operations/) |
+| 执行任务并使用组织共享资源 | [用户指南](https://linksense.org/doc/zh-CN/user-guide/overview/) |
+| 管理成员、模型、权限与用量 | [管理员指南](https://linksense.org/doc/zh-CN/admin-guide/overview/) |
+| 构建应用或连接外部系统 | [开发者指南](https://linksense.org/doc/zh-CN/developer-guide/interactive-application/) |
+| 从源码开发或了解运行机制 | [源码开发](https://linksense.org/doc/zh-CN/deploy/development/) · [系统架构](https://linksense.org/doc/zh-CN/deploy/architecture/) |
 
 如需私有化部署或业务系统集成，请发送邮件至
 [hello@linksense.org](mailto:hello@linksense.org)，说明部署环境、预计使用规模和希望接入的系统。
@@ -86,3 +92,14 @@ LinkSense 自有代码采用 [CPAL-1.0](./LICENSE) 许可。内部部署、署�
 
 上游 Codex 运行时采用 Apache-2.0 许可。LinkSense 是独立项目，详情见
 [第三方声明](./THIRD-PARTY-NOTICES.md)。
+
+## 加入用户群
+
+<img src="./docs/brand/wechat-group-2026-11-17.jpg" alt="LinkSense 用户群二维码" width="400">
+
+该二维码 7 天内有效。过期或无法入群时，请发送邮件至
+[hello@linksense.org](mailto:hello@linksense.org) 获取最新入群方式。
+
+## 致谢
+
+感谢 [Linux.do](https://linux.do) 社区的支持。

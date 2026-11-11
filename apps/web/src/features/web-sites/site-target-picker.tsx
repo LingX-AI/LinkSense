@@ -98,7 +98,7 @@ export function SiteTargetPicker({
             <ComboboxValue placeholder={t("webSites.selectExistingSite")} />
           </span>
         </ComboboxTrigger>
-        <ComboboxContent className="flex min-w-(--anchor-width) flex-col">
+        <ComboboxContent className="flex flex-col">
           <ComboboxInput
             aria-label={t("webSites.search")}
             placeholder={t("webSites.search")}

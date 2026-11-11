@@ -50,6 +50,22 @@ function Host() {
   )
 }
 describe("task reference selection", () => {
+  it("keeps a long task title accessible when selecting and deselecting it", async () => {
+    await i18n.changeLanguage("en-US")
+    const title = "LongTaskTitleWithoutSpaces".repeat(8)
+    vi.mocked(apiRequest).mockResolvedValue({
+      items: [{ id: id(1), title }],
+      next_cursor: null,
+    })
+    render(<Host />)
+    const checkbox = await screen.findByRole("checkbox", { name: title })
+    fireEvent.click(checkbox)
+    expect(checkbox).toBeChecked()
+    expect(screen.getByText("1 / 3 tasks selected")).toBeInTheDocument()
+    fireEvent.click(checkbox)
+    expect(checkbox).not.toBeChecked()
+  })
+
   it("excludes the current task, limits selection to three and allows deselection", async () => {
     await i18n.changeLanguage("en-US")
     vi.mocked(apiRequest).mockResolvedValue({

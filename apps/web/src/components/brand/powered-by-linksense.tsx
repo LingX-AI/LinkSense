@@ -7,7 +7,7 @@ type AttributionPlacement = "shell" | "page" | "public" | "conversation"
 
 const placementClasses: Record<AttributionPlacement, string> = {
   shell:
-    "shell-attribution pointer-events-none absolute w-max bg-transparent p-0",
+    "shell-attribution pointer-events-none absolute w-max rounded-sm bg-[var(--app-canvas)] p-1",
   page: "",
   public: "-mx-[var(--public-shell-horizontal-padding)] mt-auto",
   // The bottom stack already has its own insets. Subtract them so the mark

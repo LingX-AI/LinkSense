@@ -2412,7 +2412,6 @@ export const jaJP = {
       noMatches: "一致するスキルがありません",
     },
     addMenu: "追加",
-    toolbarAttach: "添付",
     toolbarKnowledge: "ナレッジ",
     addMenuTitle: "コンテンツを追加",
     addGroup: "追加",
