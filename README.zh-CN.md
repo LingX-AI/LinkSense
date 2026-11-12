@@ -6,8 +6,7 @@
 </p>
 
 <h2 align="center">
-  WorkBuddy / ChatGPT Enterprise 的开源替代方案<br>
-  <sub>面向组织的 Agent 工作平台，基于共享知识和工具</sub>
+  WorkBuddy / ChatGPT Enterprise 的开源替代方案
 </h2>
 
 <p align="center">

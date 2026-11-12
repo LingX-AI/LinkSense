@@ -6,8 +6,7 @@
 </p>
 
 <h2 align="center">
-  The open-source alternative to WorkBuddy / ChatGPT Enterprise.<br>
-  <sub>An agentic work platform for organizations, built on shared knowledge and tools.</sub>
+  The open-source alternative to WorkBuddy / ChatGPT Enterprise.
 </h2>
 
 <p align="center">
