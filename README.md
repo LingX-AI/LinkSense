@@ -25,8 +25,7 @@ Deploy it on your servers or private cloud, choose hosted or compatible local mo
 
 ## Quick start
 
-LinkSense supports Linux and macOS hosts with Docker. A Core evaluation needs at least 4 vCPU, 8 GiB of memory
-available to Docker, and 60 GiB of free SSD. Full adds built-in document parsing, indexing, and retrieval and needs more capacity.
+LinkSense supports Linux and macOS hosts with Docker. A Core evaluation needs at least 4 vCPU, 8 GiB of memory available to Docker, and 60 GiB of free SSD. Full adds built-in document parsing, indexing, and retrieval and needs more capacity.
 
 The fastest installation path is to give a coding agent this prompt:
 
@@ -34,8 +33,7 @@ The fastest installation path is to give a coding agent this prompt:
 Help me install and start LinkSense Core by following https://raw.githubusercontent.com/LingX-AI/linksense/main/Install.md
 ```
 
-For a manual installation, choose [Core](https://linksense.org/doc/deploy/core/) or [Full](https://linksense.org/doc/deploy/full/).
-The site covers host checks, Docker requirements, installation commands, and [first-time setup](https://linksense.org/doc/deploy/first-setup/).
+For a manual installation, choose [Core](https://linksense.org/doc/deploy/core/) or [Full](https://linksense.org/doc/deploy/full/). The site covers host checks, Docker requirements, installation commands, and [first-time setup](https://linksense.org/doc/deploy/first-setup/).
 
 ## Key features
 
@@ -45,7 +43,7 @@ The site covers host checks, Docker requirements, installation commands, and [fi
 - 🛡️ **Access and governance:** manage members, model credentials, quotas, usage, and audit records from one administration surface.
 - 🏠 **Self-hosting and model choice:** use your own infrastructure, external model APIs, or compatible self-hosted endpoints with per-user runtime resource limits.
 - ⚡ **Flexible entry points:** start work from the web workspace, messaging channels, or scheduled tasks.
-  
+
 ## Documentation
 
 | I want to… | Read |
@@ -57,8 +55,7 @@ The site covers host checks, Docker requirements, installation commands, and [fi
 | Build applications or connect external systems | [Developer guide](https://linksense.org/doc/developer-guide/interactive-application/) |
 | Work from source or understand the runtime | [Source development](https://linksense.org/doc/deploy/development/) · [Architecture](https://linksense.org/doc/deploy/architecture/) |
 
-For private deployment or business system integration, email [hello@linksense.org](mailto:hello@linksense.org) with your environment, expected usage,
-and the systems you want to connect.
+For private deployment or business system integration, email [hello@linksense.org](mailto:hello@linksense.org) with your environment, expected usage, and the systems you want to connect.
 
 ## Contributing
 
@@ -69,9 +66,7 @@ Questions and feature ideas belong in [GitHub Discussions](../../discussions). O
 
 ## Security
 
-The isolation boundary is the user Worker; tasks owned by the same user can access their shared files. Normal execution allows outbound internet access without per-command
-approval, and configured external services receive the data sent to them. Read the [security policy](./.github/SECURITY.md) before exposing a deployment. Report vulnerabilities
-privately to [security@linksense.org](mailto:security@linksense.org).
+The isolation boundary is the user Worker; tasks owned by the same user can access their shared files. Normal execution allows outbound internet access without per-command approval, and configured external services receive the data sent to them. Read the [security policy](./.github/SECURITY.md) before exposing a deployment. Report vulnerabilities privately to [security@linksense.org](mailto:security@linksense.org).
 
 ## License
 
@@ -80,6 +75,16 @@ LinkSense-owned code is licensed under [CPAL-1.0](./LICENSE). See the
 Licensing questions: [licensing@linksense.org](mailto:licensing@linksense.org).
 
 The upstream Codex runtime is licensed under Apache-2.0. LinkSense is an independent project; see the [third-party notices](./THIRD-PARTY-NOTICES.md).
+
+## Star the Repository
+
+<p align="center"><img src="./docs/brand/star-guide.zh-CN.gif" alt="Star LinkSense on GitHub" width="100%"></p>
+
+If you find LinkSense useful or interesting, a GitHub Star ⭐️ would be greatly appreciated.
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=lingx-ai%2Flinksense&type=date&legend=bottom-right"><picture><source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=lingx-ai/linksense&type=date&theme=dark&legend=bottom-right" /><source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=lingx-ai/linksense&type=date&legend=bottom-right" /><img alt="Star History Chart" src="https://api.star-history.com/chart?repos=lingx-ai/linksense&type=date&legend=bottom-right" /></picture></a>
 
 ## Join the WeChat group
 
