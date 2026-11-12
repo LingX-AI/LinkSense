@@ -5,9 +5,7 @@
   </picture>
 </p>
 
-<h2 align="center">
-  WorkBuddy / ChatGPT Enterprise 的开源替代方案
-</h2>
+<h2 align="center">WorkBuddy / ChatGPT Enterprise 的开源替代方案</h2>
 
 <p align="center">
   <a href="./README.md">English</a> | 简体中文
@@ -19,6 +17,8 @@
   <a href="https://explore.linksense.org/">在线体验</a> ·
   <a href="mailto:hello@linksense.org">联系我们</a>
 </p>
+
+<p align="center"><a href="https://github.com/LingX-AI/LinkSense/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/LingX-AI/LinkSense?style=flat-square&color=FFD700&logo=github&logoColor=white&label=Stars"></a> <a href="./package.json"><img alt="Node.js 24" src="https://img.shields.io/badge/Node.js-24-5FA04E?style=flat-square&logo=nodedotjs&logoColor=white"></a> <a href="./package.json"><img alt="pnpm 10.34.6" src="https://img.shields.io/badge/pnpm-10.34.6-F69220?style=flat-square&logo=pnpm&logoColor=white"></a> <a href="./apps/web/package.json"><img alt="TypeScript 6" src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white"></a> <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/License-CPAL--1.0-E3B341?style=flat-square"></a><br><br>⭐ <em>帮助更多人发现 LinkSense，一起壮大社区。欢迎为仓库点亮 Star！</em></p>
 
 LinkSense 为组织提供统一、可治理的 Agent 工作空间。成员可以执行任务，按权限共享知识库、技能、插件和应用，并通过受控连接访问业务系统，无需获取底层凭据。你可以将 LinkSense 部署在自有服务器或私有云中，接入云端模型或兼容的自建模型端点，并让任务数据与文件保留在自己的基础设施上。
 

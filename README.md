@@ -5,9 +5,7 @@
   </picture>
 </p>
 
-<h2 align="center">
-  The open-source alternative to WorkBuddy / ChatGPT Enterprise.
-</h2>
+<h2 align="center">The open-source alternative to WorkBuddy / ChatGPT Enterprise.</h2>
 
 <p align="center">
   English | <a href="./README.zh-CN.md">简体中文</a>
@@ -19,6 +17,8 @@
   <a href="https://explore.linksense.org/">Live demo</a> ·
   <a href="mailto:hello@linksense.org">Contact</a>
 </p>
+
+<p align="center"><a href="https://github.com/LingX-AI/LinkSense/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/LingX-AI/LinkSense?style=flat-square&color=FFD700&logo=github&logoColor=white&label=Stars"></a> <a href="./package.json"><img alt="Node.js 24" src="https://img.shields.io/badge/Node.js-24-5FA04E?style=flat-square&logo=nodedotjs&logoColor=white"></a> <a href="./package.json"><img alt="pnpm 10.34.6" src="https://img.shields.io/badge/pnpm-10.34.6-F69220?style=flat-square&logo=pnpm&logoColor=white"></a> <a href="./apps/web/package.json"><img alt="TypeScript 6" src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white"></a> <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/License-CPAL--1.0-E3B341?style=flat-square"></a><br><br>⭐ <em>Help more people find LinkSense and grow the community. Star this repo!</em></p>
 
 LinkSense gives organizations one governed place to run agent tasks, share reusable Knowledge, Skills, Plugins, and Applications, and connect business systems without handing members the underlying credentials.
 Deploy it on your servers or private cloud, choose hosted or compatible local models, and keep task data and files on your own infrastructure.
