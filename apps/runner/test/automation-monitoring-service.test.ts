@@ -114,6 +114,8 @@ describe("scheduled monitoring Core MCP", () => {
       environment: {
         LINKSENSE_CURRENT_USER_ENDPOINT: "http://127.0.0.1:4000/current-user",
         LINKSENSE_CURRENT_USER_TOKEN: token,
+        LINKSENSE_WEB_SEARCH_ENDPOINT: "http://127.0.0.1:4000/web-search",
+        LINKSENSE_WEB_SEARCH_TOKEN: token,
         LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT: "http://127.0.0.1:4000/search",
         LINKSENSE_KNOWLEDGE_SERVICE_TOKEN: token,
         LINKSENSE_FORM_SERVICE_ENDPOINT: "http://127.0.0.1:4000/form",
