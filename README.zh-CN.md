@@ -1,29 +1,14 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./apps/web/src/assets/brand/linksense-lockup-on-dark.svg">
-    <img src="./docs/brand/linksense-lockup-primary.svg" alt="LinkSense" width="280">
-  </picture>
-</p>
+<p align="center"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./apps/web/src/assets/brand/linksense-lockup-on-dark.svg"> <img src="./docs/brand/linksense-lockup-primary.svg" alt="LinkSense" width="280"> </picture> </p>
 
 <h2 align="center">WorkBuddy / ChatGPT Enterprise 的开源替代方案</h2>
 
-<p align="center">
-  <a href="./README.md">English</a> | 简体中文
-</p>
+<p align="center"> <a href="./README.md">English</a> | 简体中文 </p>
 
-<p align="center">
-  <a href="https://linksense.org/doc/zh-CN/">官方文档</a> ·
-  <a href="#快速开始">快速开始</a> ·
-  <a href="https://explore.linksense.org/">在线体验</a> ·
-  <a href="mailto:hello@linksense.org">联系我们</a>
-</p>
+<p align="center"> <a href="https://linksense.org/doc/zh-CN/">官方文档</a> · <a href="#快速开始">快速开始</a> · <a href="https://explore.linksense.org/">在线体验</a> · <a href="mailto:hello@linksense.org">联系我们</a> </p>
 
 <p align="center"><a href="https://github.com/LingX-AI/LinkSense/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/LingX-AI/LinkSense?style=flat-square&color=FFD700&logo=github&logoColor=white&label=Stars"></a> <a href="./package.json"><img alt="Node.js 24" src="https://img.shields.io/badge/Node.js-24-5FA04E?style=flat-square&logo=nodedotjs&logoColor=white"></a> <a href="./package.json"><img alt="pnpm 10.34.6" src="https://img.shields.io/badge/pnpm-10.34.6-F69220?style=flat-square&logo=pnpm&logoColor=white"></a> <a href="./apps/web/package.json"><img alt="TypeScript 6" src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white"></a> <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/License-CPAL--1.0-E3B341?style=flat-square"></a></p>
 
-<p align="center">
-  <a href="https://x.com/LinkSense_OSS"><img alt="关注 X 上的 @LinkSense_OSS" src="https://img.shields.io/badge/Follow%20%40LinkSense__OSS-000000?style=for-the-badge&logo=x&logoColor=white"></a>
-  <a href="https://discord.gg/NBQYnaDWuD"><img alt="加入 Discord 社区" src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a>
-</p>
+<p align="center"> <a href="https://x.com/LinkSense_OSS"><img alt="关注 X 上的 @LinkSense_OSS" src="https://img.shields.io/badge/Follow%20%40LinkSense__OSS-000000?style=for-the-badge&logo=x&logoColor=white"></a> <a href="https://discord.gg/NBQYnaDWuD"><img alt="加入 Discord 社区" src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a> </p>
 
 <p align="center">⭐ <em>帮助更多人发现 LinkSense，一起壮大社区。欢迎为仓库点亮 Star！</em></p>
 
@@ -76,7 +61,7 @@ Help me install and start LinkSense Core by following https://raw.githubusercont
 请根据问题类型选择合适的渠道：
 
 - [GitHub Discussions](../../discussions)：提问求助、反馈建议和提出想法。
-- [GitHub Issues](../../issues)：报告可复现的缺陷、跟进工程事项。提交前请先阅读[贡献指南](./.github/CONTRIBUTING.md)。
+- [GitHub Issues](https://github.com/LingX-AI/LinkSense/issues)：报告可复现的缺陷、跟进工程事项。提交前请先阅读[贡献指南](./.github/CONTRIBUTING.md)。
 - [Discord](https://discord.gg/NBQYnaDWuD)：实时交流，分享你的应用，与其他 LinkSense 用户沟通。
 - [X](https://x.com/LinkSense_OSS)：关注 LinkSense，获取版本发布和项目动态。
 
