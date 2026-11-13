@@ -36,6 +36,33 @@ it("rejects a callback after shutdown so the transport cannot acknowledge an unp
   expect(fixture.repository.persistInbound).not.toHaveBeenCalled();
 });
 describe.each(testCredentials)("$provider runtime", (credentials) => {
+  it("delivers the rich result summary in the channel's text format", async () => {
+    const fixture = harness(credentials);
+    const richOutput = {
+      version: 1,
+      summary: "Compare [A] and [B]",
+      spec: {
+        root: "result",
+        elements: { result: { type: "Panel", props: { title: "Comparison" } } },
+      },
+    };
+    fixture.repository.getTurnOutcome.mockResolvedValue({
+      status: "completed",
+      text: ["Answer", "```json-render", JSON.stringify(richOutput), "```"].join("\n"),
+    });
+    await fixture.runtime.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await fixture.receive();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(fixture.send).toHaveBeenCalledExactlyOnceWith(
+      expect.any(Object),
+      credentials.provider === "wecom"
+        ? "Answer\nCompare \\[A\\] and \\[B\\]"
+        : "Answer\nCompare [A] and [B]",
+    );
+  });
+
   it("sends a proactive notice only through the verified current connection without starting a task", async () => {
     const fixture = harness(credentials);
     await fixture.runtime.start();

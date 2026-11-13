@@ -10,6 +10,7 @@ import { documentConversionCoreMcpModule } from "./core-services/document-conver
 import { fileServiceCoreMcpModule } from "./core-services/file-service.js"
 import { imageGenerationCoreMcpModule } from "./core-services/image-generation-service.js"
 import { interactiveFormCoreMcpModule } from "./core-services/interactive-form-service.js"
+import { richOutputCoreMcpModule } from "./core-services/rich-output-service.js"
 import { knowledgeCoreMcpModule } from "./core-services/knowledge-service.js"
 import { skillCreatorCoreMcpModule } from "./core-services/skill-creator-service.js"
 import { skillManagementReadCoreMcpModule, skillManagementWriteCoreMcpModule } from "./core-services/skill-management-service.js"
@@ -35,6 +36,7 @@ export const coreMcpModuleRegistry: readonly CoreMcpModuleDefinition[] = [
   imageGenerationCoreMcpModule,
   knowledgeCoreMcpModule,
   interactiveFormCoreMcpModule,
+  richOutputCoreMcpModule,
   skillCreatorCoreMcpModule,
   skillManagementReadCoreMcpModule,
   skillManagementWriteCoreMcpModule,

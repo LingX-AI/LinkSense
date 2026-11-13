@@ -12,6 +12,7 @@ export * from "./common.js";
 export * from "./conversations.js";
 export * from "./conversation-operation-identity.js";
 export * from "./conversation-forms.js";
+export * from "./rich-output.js";
 export * from "./conversation-history.js";
 export * from "./conversation-sources.js";
 export * from "./credentials.js";

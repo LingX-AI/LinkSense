@@ -37,6 +37,8 @@
     "@floating-ui/react-dom": "2.1.8",
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/noto-sans-sc": "5.2.10",
+    "@json-render/core": "0.22.0",
+    "@json-render/react": "0.22.0",
     "@linksense/shared": "workspace:^",
     "@microsoft/teams-js": "^2",
     "@noble/hashes": "2.4.0",

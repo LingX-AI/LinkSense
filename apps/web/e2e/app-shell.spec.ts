@@ -9,6 +9,7 @@ import {
   voiceTranscriptionProviderDefinitions,
 } from "@linksense/shared"
 import { expectPopupPadding } from "./support/popup-padding"
+import { richOutputFixtureMarkdown } from "./support/rich-output-fixture"
 
 import {
   createE2EAuthSession,
@@ -52,6 +53,156 @@ const HEALTH_STATUS = {
 
 test.beforeEach(async ({ page }) => {
   await mockApi(page)
+})
+
+async function openRichOutputConversation(
+  page: Page,
+  content = richOutputFixtureMarkdown
+) {
+  const conversationId = "20000000-0000-4000-8000-000000000001"
+  await page.route(`**/api/v1/conversations/${conversationId}`, (route) =>
+    ok(route, {
+      conversation: {
+        id: conversationId,
+        title: "富内容测试",
+        archive_status: "active",
+        project_id: null,
+        execution_status: "completed",
+        updated_at: NOW,
+      },
+      draft: null,
+      messages: [
+        {
+          id: "rich-output-answer",
+          role: "assistant",
+          turn_id: "rich-turn",
+          phase: "final_answer",
+          content,
+          created_at: NOW,
+        },
+      ],
+      turns: [
+        {
+          id: "rich-turn",
+          status: "completed",
+          started_at: NOW,
+          completed_at: NOW,
+        },
+      ],
+      pending_requests: [],
+      files: [],
+      events: [],
+      activities: [],
+    })
+  )
+  await page.goto(`/conversations/${conversationId}`)
+}
+
+for (const [width, theme] of [
+  [1440, "light"],
+  [390, "light"],
+  [1440, "dark"],
+] as const) {
+  test(`rich AI output supports local interactions at ${width}px in ${theme} mode`, async ({
+    page,
+  }) => {
+    await page.addInitScript(
+      (mode) => localStorage.setItem("linksense.theme", mode),
+      theme
+    )
+    await page.setViewportSize({ width, height: 1000 })
+    await openRichOutputConversation(page)
+    const result = page.getByTestId("assistant-rich-output")
+    await expect(result).toBeVisible()
+    await expect(result.locator(".recharts-bar-rectangle").first()).toBeAttached()
+    await result.getByRole("button", { name: "查看分析依据" }).click()
+    await expect(result.getByText(/三个团队的数据分别为/)).toBeVisible()
+    await result.getByRole("radio", { name: "完整建设" }).click()
+    await expect(result.getByText("在需求清晰后统一建设完整流程。")).toBeVisible()
+    await result.getByRole("button", { name: "数据表", exact: true }).click()
+    await expect(result.getByRole("table", { name: "团队数据" })).toBeVisible()
+    await result.getByRole("button", { name: "数值 (项)" }).click()
+    await expect(result.locator("th[aria-sort=ascending]")).toHaveText("数值 (项)")
+    await expect(result.getByText("暂无数据", { exact: true })).toBeVisible()
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+    ).toBe(true)
+    const { violations } = await new AxeBuilder({ page })
+      .include('[data-testid="assistant-rich-output"]')
+      .analyze()
+    expect(violations).toEqual([])
+  })
+}
+
+for (const [width, input] of [
+  [1440, "pointer"],
+  [390, "keyboard"],
+] as const) {
+  test(`rich AI output preserves scroll position on radio selection by ${input} at ${width}px`, async ({
+    page,
+  }) => {
+    await page.addInitScript((userId) => {
+      sessionStorage.setItem(
+        `linksense.browserNotifications.promptDismissed:${userId}`,
+        "true"
+      )
+    }, ADMIN.id)
+    await page.setViewportSize({ width, height: 1200 })
+    const context = "用于滚动测试的上下文段落。\n\n".repeat(25)
+    await openRichOutputConversation(
+      page,
+      `${context}${richOutputFixtureMarkdown}`
+    )
+    const result = page.getByTestId("assistant-rich-output")
+    const selection = result.getByRole("radiogroup", { name: "比较实施方式" })
+    await expect(selection).toBeInViewport({ ratio: 1 })
+    const scroll = page.locator(".conversation-scroll")
+    await expect
+      .poll(() =>
+        scroll.evaluate(
+          (viewport) =>
+            viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+        )
+      )
+      .toBeLessThanOrEqual(1)
+    const { scrollTop, scrollHeight } = await scroll.evaluate((viewport) => ({
+      scrollTop: viewport.scrollTop,
+      scrollHeight: viewport.scrollHeight,
+    }))
+    expect(scrollTop).toBeGreaterThan(100)
+
+    if (input === "pointer") {
+      await selection.getByText("完整建设", { exact: true }).click()
+    } else {
+      await selection.getByRole("radio", { name: "先做验证" }).press("ArrowRight")
+    }
+    const selectedRadio = selection.getByRole("radio", { name: "完整建设" })
+    await expect(selectedRadio).toBeChecked()
+    await expect(selectedRadio).toBeFocused()
+    await expect
+      .poll(() => scroll.evaluate((viewport) => viewport.scrollHeight))
+      .toBeGreaterThan(scrollHeight)
+    await expect
+      .poll(async () =>
+        Math.abs(
+          (await scroll.evaluate((viewport) => viewport.scrollTop)) - scrollTop
+        )
+      )
+      .toBeLessThanOrEqual(1)
+  })
+}
+
+test("rich AI output keeps the answer and readable data if the renderer cannot load", async ({
+  page,
+}) => {
+  await page.route("**/assets/assistant-rich-output-renderer-*.js", (route) =>
+    route.abort()
+  )
+  await openRichOutputConversation(page)
+  await expect(page.getByText("此结果暂时无法展示。你仍可阅读回答正文。")).toBeVisible()
+  await expect(page.getByText("这是分析结论，下面可以查看依据、比较方案并核对数据。")).toBeVisible()
+  await expect(page.getByText(/团队 A: 12 项/)).toBeVisible()
+  await expect(page.getByTestId("assistant-rich-output")).toHaveCount(0)
 })
 
 for (const width of [1440, 390]) {

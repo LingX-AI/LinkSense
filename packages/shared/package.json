@@ -34,6 +34,7 @@
   },
   "dependencies": {
     "es-toolkit": "1.50.0",
+    "mdast-util-from-markdown": "2.0.3",
     "semver": "7.8.5",
     "zod": "^4.6.6"
   },

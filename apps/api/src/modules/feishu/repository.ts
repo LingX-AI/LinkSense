@@ -1,5 +1,5 @@
 import { Prisma } from "../../generated/prisma/client.js";
-import { isLocale, type Locale } from "@linksense/shared";
+import { isLocale, richOutputMarkdownToText, type Locale } from "@linksense/shared";
 import type {
   FeishuAppBinding,
   FeishuConnection,
@@ -715,7 +715,7 @@ export class PrismaFeishuRepository {
       select: { contentText: true },
     });
     return message
-      ? { status: "completed", text: message.contentText }
+      ? { status: "completed", text: richOutputMarkdownToText(message.contentText, "summary") }
       : { status: "running" };
   }
 

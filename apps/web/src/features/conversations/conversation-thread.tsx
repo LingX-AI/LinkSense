@@ -7,6 +7,7 @@ import {
 import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { AssistantMermaid } from "@/features/conversations/assistant-mermaid"
 import { AssistantPreviewAction } from "@/features/conversations/assistant-preview-actions"
+import AssistantRichOutput from "@/features/conversations/assistant-rich-output"
 import { responseLatency } from "./response-latency"
 import {
   Children,
@@ -29,6 +30,8 @@ import {
 import {
   coreMcpServerKey,
   officeAnnotationDisplaySchema,
+  richOutputLanguage,
+  richOutputMarkdownToText,
   type ApplicationEmbedPresentation,
   type OfficeAnnotationDisplay,
 } from "@linksense/shared"
@@ -220,6 +223,7 @@ import { useGoalClockNow } from "@/features/conversations/conversation-goal-cloc
 import {
   getKnowledgeCitationNumberFromFragment,
   getKnowledgeCitationPreviewPath,
+  knowledgeCitationFragmentPrefix,
   remarkKnowledgeCitations,
   remarkTextCitations,
   type TextCitationPolicy,
@@ -731,8 +735,12 @@ function MarkdownCodeBlock({
   ...props
 }: ComponentPropsWithoutRef<"pre">) {
   const { t } = useTranslation()
-  const { textOnly } = useContext(ConversationContentPolicyContext)
-  const { streaming } = useContext(AssistantMarkdownAssetContext)
+  const { textOnly, richOutputTextOnly } = useContext(
+    ConversationContentPolicyContext
+  )
+  const { streaming, citationsByNumber, textCitations } = useContext(
+    AssistantMarkdownAssetContext
+  )
   const preRef = useRef<HTMLPreElement>(null)
   const [htmlCodeView, setHtmlCodeView] = useState<
     Readonly<{ source: string | null; mode: "code" | "preview" }>
@@ -743,6 +751,31 @@ function MarkdownCodeBlock({
   const htmlCodeMode =
     htmlCodeView.source === htmlCodeSource ? htmlCodeView.mode : "code"
   const showHtmlCodePreview = canPreviewHtmlCode && htmlCodeMode === "preview"
+  const richSource = getMarkdownCodeTextForLanguages(children, [
+    richOutputLanguage,
+  ])
+  if (richSource !== null) {
+    return (
+      <AssistantRichOutput
+        source={richSource}
+        streaming={streaming}
+        textOnly={textOnly || richOutputTextOnly}
+        renderCitation={(number) => {
+          const knownCitation =
+            citationsByNumber?.has(number) ||
+            (textCitations?.visible &&
+              textCitations.sources.some((source) => source.number === number))
+          return knownCitation ? (
+            <AssistantMarkdownLinkElement
+              href={`${knowledgeCitationFragmentPrefix}${number}`}
+            >
+              {number}
+            </AssistantMarkdownLinkElement>
+          ) : null
+        }}
+      />
+    )
+  }
 
   const mermaidSource = getMarkdownCodeTextForLanguages(children, ["mermaid"])
   if (!textOnly && mermaidSource !== null) {
@@ -1274,6 +1307,7 @@ type AssistantMarkdownProps = Readonly<{
 
 type ConversationContentPolicy = Readonly<{
   textOnly: boolean
+  richOutputTextOnly?: boolean
   textCitations?: Readonly<{
     visible: boolean
     sourcesByTurn: ReadonlyMap<string, readonly TextCitationSource[]>
@@ -1284,15 +1318,17 @@ const ConversationContentPolicyContext =
     textOnly: false,
   })
 export function ConversationContentPolicyProvider({
-  textOnly,
+  textOnly = false,
+  richOutputTextOnly,
   textCitations,
   children,
-}: ConversationContentPolicy & {
+}: Omit<ConversationContentPolicy, "textOnly"> & {
+  textOnly?: boolean
   children: ReactNode
 }) {
   const policy = useMemo(
-    () => ({ textOnly, textCitations }),
-    [textOnly, textCitations]
+    () => ({ textOnly, richOutputTextOnly, textCitations }),
+    [textOnly, richOutputTextOnly, textCitations]
   )
   return (
     <ConversationContentPolicyContext.Provider value={policy}>
@@ -2553,11 +2589,14 @@ const Message = memo(function Message({
     !user && !proposedPlan
       ? parseAssistantProposedPlanSourceSegments(safeAssistantContent)
       : null
-  const assistantCopyContent = embeddedProposedPlan
-    ? embeddedProposedPlan.before.content +
-      embeddedProposedPlan.plan.content +
-      embeddedProposedPlan.after.content
-    : safeAssistantContent
+  const assistantCopyContent = richOutputMarkdownToText(
+    embeddedProposedPlan
+      ? embeddedProposedPlan.before.content +
+          embeddedProposedPlan.plan.content +
+          embeddedProposedPlan.after.content
+      : safeAssistantContent,
+    "text"
+  )
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle"
   )

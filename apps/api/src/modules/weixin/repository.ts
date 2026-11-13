@@ -1,4 +1,4 @@
-import { isLocale, type Locale } from "@linksense/shared";
+import { isLocale, richOutputMarkdownToText, type Locale } from "@linksense/shared";
 
 import type {
   PrismaClient,
@@ -744,7 +744,10 @@ export class PrismaWeixinRepository {
         select: { contentText: true },
       });
       if (finalAnswer) {
-        return { status: "completed", text: finalAnswer.contentText };
+        return {
+          status: "completed",
+          text: richOutputMarkdownToText(finalAnswer.contentText, "summary"),
+        };
       }
     }
     if (turn.collaborationMode === "plan") {
