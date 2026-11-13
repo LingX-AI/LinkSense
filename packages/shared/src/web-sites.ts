@@ -42,11 +42,59 @@ export const webSiteSourceSchema = z.object({
   id: z.uuid(), filename: z.string(), created_at: z.iso.datetime(),
 });
 export const webSiteSourcesSchema = z.array(webSiteSourceSchema);
+export const conversationWebSiteSchema = webSiteSchema.pick({
+  id: true, name: true, slug: true, status: true, source_file_id: true,
+}).extend({ turn_id: z.uuid(), url: z.url({ protocol: /^https?$/u }) });
+export const conversationWebSitesSchema = z.array(conversationWebSiteSchema);
+export type ConversationWebSite = z.infer<typeof conversationWebSiteSchema>;
+
+export const webSiteCursorSchema = z.string().max(100).refine(value => {
+  const parts = value.split("|");
+  return parts.length === 2 && z.iso.datetime().safeParse(parts[0]).success && z.uuid().safeParse(parts[1]).success;
+});
+
+/** Agent-facing site publishing tools. The conversation and turn scope come from the runtime. */
+export const webSitePublishToolSchema = z.strictObject({
+  name: z.string().trim().min(1).max(240).optional(),
+  description: z.string().trim().max(1_000).optional(),
+  slug: webSiteSlugSchema.optional(),
+  file_id: z.uuid(),
+  site_id: z.uuid().optional(),
+});
+export const webSiteListToolSchema = z.strictObject({
+  search: z.string().trim().max(240).optional(),
+  status: webSiteStatusSchema.optional(),
+  cursor: webSiteCursorSchema.optional(),
+  limit: z.number().int().min(1).max(100).default(20),
+});
+export const webSiteUpdateToolSchema = z.strictObject({
+  site_id: z.uuid(),
+  name: z.string().trim().min(1).max(240).optional(),
+  description: z.string().trim().max(1_000).optional(),
+  slug: webSiteSlugSchema.optional(),
+  status: webSiteStatusSchema.optional(),
+});
+export const webSiteToolRequestSchema = z.discriminatedUnion("operation", [
+  webSitePublishToolSchema.extend({ operation: z.literal("publish") }),
+  webSiteListToolSchema.extend({ operation: z.literal("list") }),
+  webSiteUpdateToolSchema.extend({ operation: z.literal("update") }),
+]);
+export const webSiteWithUrlSchema = webSiteSchema.extend({ url: z.url() });
+export const webSiteToolPageSchema = z.object({
+  items: z.array(webSiteWithUrlSchema),
+  next_cursor: z.string().nullable(),
+});
 export type WebSite = z.infer<typeof webSiteSchema>;
 export type WebSiteCreate = z.infer<typeof webSiteCreateSchema>;
 export type WebSiteUpdate = z.infer<typeof webSiteUpdateSchema>;
 export type WebSiteStatus = z.infer<typeof webSiteStatusSchema>;
 export type WebSiteSource = z.infer<typeof webSiteSourceSchema>;
+export type WebSitePublishTool = z.infer<typeof webSitePublishToolSchema>;
+export type WebSiteListTool = z.infer<typeof webSiteListToolSchema>;
+export type WebSiteUpdateTool = z.infer<typeof webSiteUpdateToolSchema>;
+export type WebSiteToolRequest = z.infer<typeof webSiteToolRequestSchema>;
+export type WebSiteWithUrl = z.infer<typeof webSiteWithUrlSchema>;
+export type WebSiteToolPage = z.infer<typeof webSiteToolPageSchema>;
 
 export const webBundleLimits = { files: 500, fileBytes: 20 * 1024 * 1024, totalBytes: 50 * 1024 * 1024 } as const;
 export const webBundlePathSchema = z.string().min(1).max(1_000).refine(value =>

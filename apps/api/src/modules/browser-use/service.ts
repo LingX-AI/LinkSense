@@ -3,10 +3,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import {
   browserUseCommandSchema,
+  browserUseOpenSiteCapability,
   browserUseFailure,
   browserUseReplySchema,
   type BrowserUseCommand,
-  type BrowserUseRequest,
+  type BrowserUseExtensionRequest,
   type BrowserUseResult,
 } from "@linksense/shared";
 import { AppError } from "../../lib/errors.js";
@@ -30,6 +31,9 @@ const connectionSchema = z.strictObject({
 });
 // Persisted credentials, revocations and active connections keep their original namespace.
 const key = (owner: string, part: string) => `local-browser:${owner}:${part}`;
+// Pre-upgrade replicas cannot parse site-window jobs in the legacy mailbox.
+const siteWindowJobKey = (owner: string, connectionId: string, part: "command" | "request") =>
+  key(owner, `site-window:${connectionId}:${part}`);
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 export type BrowserCredential = z.infer<typeof credentialSchema>;
@@ -130,6 +134,7 @@ export class BrowserUseService {
     owner: string,
     token: string,
     browser: "chrome" | "edge",
+    siteWindow?: typeof browserUseOpenSiteCapability,
   ): Promise<string> {
     const credential = await this.authenticate(token);
     if (!credential || credential.owner !== owner) throw new AppError("AUTH_REQUIRED");
@@ -139,14 +144,23 @@ export class BrowserUseService {
       credential_hash: digest(token),
       ...(credential.approval_id ? { approval_id: credential.approval_id } : {}),
     };
+    const encoded = JSON.stringify(connection);
     const accepted = await this.store.putIf(
       key(owner, "connection"),
-      JSON.stringify(connection),
+      encoded,
       ttl,
       key(owner, "credential"),
       digest(token),
     );
     if (!accepted) throw new AppError("AUTH_REQUIRED");
+    // Keep the connection JSON readable by older API replicas during rollout.
+    if (siteWindow) await this.store.putIf(
+      key(owner, `site-window:${connection.id}`),
+      siteWindow,
+      ttl,
+      key(owner, "connection"),
+      encoded,
+    );
     return connection.id;
   }
 
@@ -184,13 +198,20 @@ export class BrowserUseService {
       connection.credential_hash
     )
       return false;
-    return this.store.touch(key(owner, "connection"), value, ttl);
+    const refreshed = await this.store.touch(key(owner, "connection"), value, ttl);
+    if (refreshed) await this.store.touch(
+      key(owner, `site-window:${connectionId}`),
+      browserUseOpenSiteCapability,
+      ttl,
+    );
+    return refreshed;
   }
 
   async disconnect(owner: string, connectionId: string): Promise<void> {
     const value = await this.store.get(key(owner, "connection"));
     if (value && connectionSchema.parse(JSON.parse(value)).id === connectionId)
       await this.store.remove(key(owner, "connection"), value);
+    await this.store.remove(key(owner, `site-window:${connectionId}`));
   }
 
   async next(
@@ -208,6 +229,10 @@ export class BrowserUseService {
       key(owner, "command"),
       key(owner, "connection"),
       current,
+    ) ?? await this.store.takeIf(
+      siteWindowJobKey(owner, connectionId, "command"),
+      key(owner, "connection"),
+      current,
     );
     if (!value) return null;
     const command = browserUseCommandSchema.parse(JSON.parse(value));
@@ -219,11 +244,19 @@ export class BrowserUseService {
     return command;
   }
 
-  async activeCommand(owner: string): Promise<string | null> {
-    const value = await this.store.get(key(owner, "request"));
+  private async pendingCommand(owner: string, connectionId: string): Promise<BrowserUseCommand | null> {
+    if ((await this.status(owner)).connection_id !== connectionId) return null;
+    const value = await this.store.get(key(owner, "request")) ??
+      await this.store.get(siteWindowJobKey(owner, connectionId, "request"));
     if (!value) return null;
     const command = browserUseCommandSchema.parse(JSON.parse(value));
-    return command.expires_at > Date.now() ? command.id : null;
+    return command.connection_id === connectionId && command.expires_at > Date.now()
+      ? command
+      : null;
+  }
+
+  async activeCommand(owner: string, connectionId: string): Promise<string | null> {
+    return (await this.pendingCommand(owner, connectionId))?.id ?? null;
   }
 
   async reply(
@@ -232,16 +265,8 @@ export class BrowserUseService {
     body: unknown,
   ): Promise<void> {
     const reply = browserUseReplySchema.parse(body);
-    const request = await this.store.get(key(owner, "request"));
-    if (!request || (await this.status(owner)).connection_id !== connectionId)
-      return;
-    const command = browserUseCommandSchema.parse(JSON.parse(request));
-    if (
-      command.id !== reply.id ||
-      command.connection_id !== connectionId ||
-      command.expires_at <= Date.now()
-    )
-      return;
+    const command = await this.pendingCommand(owner, connectionId);
+    if (command?.id !== reply.id) return;
     await this.store.put(
       key(owner, `reply:${reply.id}`),
       JSON.stringify(reply.result),
@@ -253,7 +278,7 @@ export class BrowserUseService {
   async execute(
     owner: string,
     conversationId: string,
-    request: BrowserUseRequest,
+    request: BrowserUseExtensionRequest,
     signal?: AbortSignal,
   ): Promise<BrowserUseResult> {
     const status = await this.status(owner);
@@ -261,6 +286,10 @@ export class BrowserUseService {
       return { ok: true, browser: "local", data: status };
     if (!status.connection_id)
       return browserUseFailure("BROWSER_USE_NOT_CONNECTED");
+    if (request.action === "open_site_window") {
+      if (await this.store.get(key(owner, `site-window:${status.connection_id}`)) !== browserUseOpenSiteCapability)
+        return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
+    }
     const id = randomUUID();
     if (!(await this.store.put(key(owner, "lock"), id, ttl, true)))
       return browserUseFailure("BROWSER_USE_BUSY");
@@ -272,11 +301,17 @@ export class BrowserUseService {
       request,
     };
     const encoded = JSON.stringify(command);
+    const commandKey = request.action === "open_site_window"
+      ? siteWindowJobKey(owner, command.connection_id, "command")
+      : key(owner, "command");
+    const requestKey = request.action === "open_site_window"
+      ? siteWindowJobKey(owner, command.connection_id, "request")
+      : key(owner, "request");
     try {
       if (signal?.aborted)
         return browserUseFailure("BROWSER_USE_CANCELLED");
-      await this.store.put(key(owner, "request"), encoded, ttl);
-      await this.store.put(key(owner, "command"), encoded, ttl);
+      await this.store.put(requestKey, encoded, ttl);
+      await this.store.put(commandKey, encoded, ttl);
       while (Date.now() < command.expires_at) {
         if (signal?.aborted)
           return browserUseFailure("BROWSER_USE_CANCELLED");
@@ -295,8 +330,8 @@ export class BrowserUseService {
         return browserUseFailure("BROWSER_USE_CANCELLED");
       throw error;
     } finally {
-      await this.store.remove(key(owner, "command"), encoded);
-      await this.store.remove(key(owner, "request"), encoded);
+      await this.store.remove(commandKey, encoded);
+      await this.store.remove(requestKey, encoded);
       await this.store.remove(key(owner, "lock"), id);
       await this.store.remove(key(owner, `reply:${id}`));
     }

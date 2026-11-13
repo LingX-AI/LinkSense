@@ -427,6 +427,11 @@ export const pluginResources = {
         description:
           "Crée et modifie des applications par conversation, avec aperçu en direct, débogage et installation.",
       },
+      publicSite: {
+        name: "Développement de sites publics {{productName}}",
+        description:
+          "Crée un site web statique et le publie sous forme de lien public partageable.",
+      },
       skillCreator: {
         name: "Créateur de compétences {{productName}}",
         description:

@@ -26,6 +26,7 @@ const tool: Tool = {
           "status",
           "tabs",
           "open",
+          "open_site",
           "navigate",
           "snapshot",
           "screenshot",
@@ -38,6 +39,11 @@ const tool: Tool = {
         ],
       },
       tab_id: { type: "integer", minimum: 1 },
+      site_id: {
+        type: "string",
+        format: "uuid",
+        description: "For open_site only: ID of an owned published LinkSense site. Opens a new local window without granting page control. Call once only when the user explicitly asks to open the site.",
+      },
       url: { type: "string", maxLength: 4096 },
       ref: {
         type: "string",

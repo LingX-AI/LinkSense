@@ -70,6 +70,7 @@ describe("buildTurnInput", () => {
     expect(Object.keys(output ?? {}).sort()).toEqual([
       "linksense.automation-mode",
       "linksense.browser-selection",
+      "linksense.deliverable-routing",
       "linksense.inline-html-preview",
       "linksense.interactive-forms",
       "linksense.knowledge-selection",
@@ -81,7 +82,30 @@ describe("buildTurnInput", () => {
     expect(entries.every((entry) => entry.kind === "application")).toBe(true);
     expect(output?.["linksense.browser-selection"]?.value).toContain("Core browser_use");
     // A text budget catches prompt growth without pretending to measure model usage.
-    expect(encode(entries.map((entry) => entry.value).join("\n")).length).toBeLessThanOrEqual(1_000);
+    expect(encode(entries.map((entry) => entry.value).join("\n")).length).toBeLessThanOrEqual(1_300);
+  });
+
+  it("asks once before choosing between a public site and an interactive application", () => {
+    const base = {
+      userInput: "做一个每 2 小时提醒喝水的小工具",
+      attachments: [],
+      priorityPlugins: [],
+      prioritySkills: [],
+    };
+    const output = buildTurnAdditionalContext(base, [{
+      name: "linksense-public-site-builtin-2",
+      path: "/fixture/skills/linksense-public-site-builtin-2/SKILL.md",
+      builtInPublicSite: true,
+    }], "default");
+    const routing = output?.["linksense.deliverable-routing"];
+    expect(routing?.kind).toBe("application");
+    expect(routing?.value).toContain("request_user_form");
+    expect(routing?.value).toContain("the linksense-public-site-builtin-2 Skill");
+    expect(routing?.value).toContain("linksense-interactive-app-builder");
+    expect(routing?.value).toContain("explain what each option means");
+    expect(routing?.value).toContain("one-line description");
+    expect(routing?.value).toContain("Do not silently default");
+    expect(buildTurnAdditionalContext(base, undefined, "plan")).not.toHaveProperty("linksense.deliverable-routing");
   });
 
   it("serializes selected capabilities as native desktop Markdown references", () => {

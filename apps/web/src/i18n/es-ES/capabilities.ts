@@ -55,6 +55,11 @@ export const capabilityMessages = {
         description:
           "Crea y edita aplicaciones mediante conversación, con vista previa en directo, depuración e instalación.",
       },
+      publicSite: {
+        name: "Desarrollo de sitios públicos de {{productName}}",
+        description:
+          "Crea un sitio web estático y publícalo como un enlace público compartible.",
+      },
       skillCreator: {
         name: "Creador de Skills de {{productName}}",
         description:

@@ -31,6 +31,7 @@ import { skillCreatorErrorFromApi } from "./skill-creator-error.js";
 import { skillManagementErrorFromApi } from "./skill-management-error.js";
 import type { InternalSkillManagementRequest } from "@linksense/shared";
 import { applicationBuilderErrorFromApi } from "./application-builder-error.js";
+import { webSiteErrorFromApi } from "./web-site-error.js";
 import { currentUserInfoErrorFromApi } from "./current-user-error.js";
 import { automationErrorFromApi } from "./automation-error.js";
 import type { AutomationToolRequest } from "@linksense/shared";
@@ -86,6 +87,7 @@ export interface RunnerEventSink {
     workspaceRelativePath: string;
   }): Promise<unknown>;
   applicationBuilder?(input: { conversationId: string; turnId: string; request: import("@linksense/shared").ApplicationBuilderRequest }): Promise<unknown>;
+  webSite?(input: { conversationId: string; turnId: string; request: import("@linksense/shared").WebSiteToolRequest }): Promise<unknown>;
   confirmSkillInstall?(input: {
     conversationId: string;
     turnId: string;
@@ -409,6 +411,12 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     const response = await this.request("/internal/application-builder", { ...input, workspacePath }, this.workspaceManager.ownerFor(input.conversationId));
     const body = await parseResponseBody(response);
     if (!response.ok) throw applicationBuilderErrorFromApi(response.status, body);
+    return body;
+  }
+  async webSite(input: { conversationId: string; turnId: string; request: import("@linksense/shared").WebSiteToolRequest }): Promise<unknown> {
+    const response = await this.request("/internal/web-sites", input, this.workspaceManager.ownerFor(input.conversationId));
+    const body = await parseResponseBody(response);
+    if (!response.ok) throw webSiteErrorFromApi(response.status, body);
     return body;
   }
   async readConversationReference(input: { conversationId: string; turnId: string; input: import("@linksense/shared").ReadConversationReferenceInput }): Promise<unknown> {
@@ -842,7 +850,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
         ).workerRelayMs
       : pathname.startsWith("/internal/image-generation/")
         ? 180_000
-      : pathname === "/internal/application-builder" || pathname.startsWith("/internal/connections/") || pathname === "/internal/browser-use/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000
+      : pathname === "/internal/application-builder" || pathname === "/internal/web-sites" || pathname.startsWith("/internal/connections/") || pathname === "/internal/browser-use/execute" || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000
       : pathname === "/internal/runner/process-exit"
         ? (this.options.processExitTimeoutMs ?? 150_000)
         : (this.options.requestTimeoutMs ?? 15_000);

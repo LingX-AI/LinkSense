@@ -9,6 +9,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { z } from "zod";
 import {
   browserUseReadOnly,
+  browserUseOpenSiteCapability,
   browserUseRequestSchema,
   browserUseFailure,
   browserUseLegacyResult,
@@ -24,6 +25,7 @@ import { ok } from "../../lib/http.js";
 import { BrowserUseService } from "./service.js";
 import { browserExtensionZip } from "./extension.js";
 import type { BrowserUseIntentService } from "./intent.js";
+import type { WebSiteService } from "../web-sites/service.js";
 
 const secret = z.string().min(32).max(100);
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -37,6 +39,7 @@ export async function registerBrowserUseRoutes(
     intent: Pick<BrowserUseIntentService, "detect">;
     redis: Redis;
     rateLimitHmacSecret: string;
+    webSites?: Pick<WebSiteService, "publishedSlugForOwner">;
   },
 ): Promise<void> {
   const { service, prisma } = options;
@@ -189,6 +192,12 @@ export async function registerBrowserUseRoutes(
       };
       reply.raw.once("close", abort);
       try {
+        if (body.input.action === "open_site") {
+          if (!options.webSites || path === "/internal/local-browser/execute")
+            return browserUseFailure("BROWSER_USE_ACCESS_DENIED");
+          const slug = await options.webSites.publishedSlugForOwner(owner, body.input.site_id);
+          return await service.execute(owner, body.conversationId, { action: "open_site_window", slug }, controller.signal);
+        }
         const result = await service.execute(
           owner,
           body.conversationId,
@@ -228,11 +237,14 @@ export async function registerBrowserUseRoutes(
       return;
     }
     sockets.handleUpgrade(request, socket, head, (ws) =>
-      sockets.emit("connection", ws),
+      sockets.emit("connection", ws, request),
     );
   };
   app.server.on("upgrade", upgrade);
-  sockets.on("connection", (socket) => {
+  sockets.on("connection", (socket, request) => {
+    const siteWindow = new URLSearchParams(request.url?.split("?")[1]).get("capability") === browserUseOpenSiteCapability
+      ? browserUseOpenSiteCapability
+      : undefined;
     let owner: string | undefined;
     let connection: string | undefined;
     let authenticating = false;
@@ -269,6 +281,7 @@ export async function registerBrowserUseRoutes(
           credential.owner,
           input.token,
           input.browser,
+          siteWindow,
         );
         if (socket.readyState !== WebSocket.OPEN) {
           await service.disconnect(credential.owner, id);
@@ -316,7 +329,7 @@ export async function registerBrowserUseRoutes(
           refreshAt = Date.now() + 10_000;
         }
         if (inFlight) {
-          if ((await service.activeCommand(owner)) !== inFlight) {
+          if ((await service.activeCommand(owner, connection)) !== inFlight) {
             socket.send(JSON.stringify({ type: "cancel", id: inFlight }));
             inFlight = undefined;
           }

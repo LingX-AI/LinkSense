@@ -18,6 +18,7 @@ export async function createBrowserExtensionFixture(owner: string, date: Date) {
   );
   api.get("/conversations/new", async (_request, reply) => reply.type("text/html").send("<!doctype html><html><body>LinkSense task fixture</body></html>"));
   api.get("/conversations/:id", async (_request, reply) => reply.type("text/html").send("<!doctype html><html><body>LinkSense task fixture</body></html>"));
+  api.get("/web/fixture-site", async (_request, reply) => reply.type("text/html").send("<!doctype html><html><title>Published fixture site</title><h1>Published fixture site</h1></html>"));
   const service = new BrowserUseService(
     new MemoryBrowserStore(),
     "http://127.0.0.1/api/v1/browser-use",

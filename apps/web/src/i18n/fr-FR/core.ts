@@ -208,6 +208,8 @@ export const core = {
     publishedAt: "Publié le {{date}}",
     resources: "{{count}} fichiers · {{size}}",
     visit: "Consulter",
+    openSite: "Ouvrir le site",
+    localOnly: "Accessible uniquement sur cet appareil",
     copyNamed: "Copier le lien de {{name}}",
     actions: "Gérer {{name}}",
     edit: "Modifier",

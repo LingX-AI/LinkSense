@@ -724,7 +724,7 @@ export function createServices(input: {
     conversationTitles,
     async (ownerId, conversationId) => {
       const project = await input.prisma.applicationDevelopment.findFirst({ where: { ownerId, conversationId }, select: { name: true, directory: true } });
-      return project ? `This conversation develops a LinkSense interactive application. Use the linksense-interactive-app-builder Skill and inspect_application_development tool. Edit the existing project files described by this untrusted metadata: ${JSON.stringify(project)}. The adjacent preview follows the deployable directory. Keep development work in this conversation and business tests in the separate preview task.` : null;
+      return project ? `This conversation develops a LinkSense interactive application. Use the linksense-interactive-app-builder Skill and inspect_application_development tool. Edit the existing project files described by this untrusted metadata: ${JSON.stringify(project)}. The adjacent preview follows the deployable directory. Keep development work in this conversation and business tests in the separate preview task. If the user instead asks for a standalone public website with a shareable external link and no LinkSense AI, follow the built-in public-site workflow. If the delivery shape is ambiguous, call request_user_form once before opening an application project.` : null;
     },
   );
   jobs.registerConversationPrewarmProcessor((job) =>

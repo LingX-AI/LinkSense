@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { webSiteSlugSchema } from "./web-sites.js";
 
 export const browserUseToolName = "browser_use";
 export const legacyLocalBrowserToolName = "local_browser";
@@ -36,7 +37,7 @@ export const browserUseKeySchema = z.enum([
   "PageDown",
   "SelectAll",
 ]);
-export const browserUseRequestSchema = z.discriminatedUnion("action", [
+const browserUseControlActions = [
   z.strictObject({ action: z.literal("status") }),
   z.strictObject({ action: z.literal("tabs") }),
   z.strictObject({ action: z.literal("open"), url: browserUseUrlSchema }),
@@ -79,6 +80,10 @@ export const browserUseRequestSchema = z.discriminatedUnion("action", [
     tab_id: tabId,
     key: browserUseKeySchema,
   }),
+] as const;
+export const browserUseRequestSchema = z.discriminatedUnion("action", [
+  ...browserUseControlActions,
+  z.strictObject({ action: z.literal("open_site"), site_id: z.uuid() }),
 ]);
 export type BrowserUseRequest = z.infer<typeof browserUseRequestSchema>;
 export function browserUseReadOnly(request: BrowserUseRequest): boolean {
@@ -168,12 +173,22 @@ export function browserUseFailure(
 ): BrowserUseResult {
   return { ok: false, code, retryable: false, help_path: browserUseHelpPath };
 }
+export const browserUseOpenSiteCommandSchema = z.strictObject({
+  action: z.literal("open_site_window"),
+  slug: webSiteSlugSchema,
+});
+export const browserUseOpenSiteCapability = "open-site-window";
+const browserUseExtensionRequestSchema = z.discriminatedUnion("action", [
+  ...browserUseControlActions,
+  browserUseOpenSiteCommandSchema,
+]);
+export type BrowserUseExtensionRequest = z.infer<typeof browserUseExtensionRequestSchema>;
 export const browserUseCommandSchema = z.strictObject({
   id: z.uuid(),
   connection_id: z.uuid(),
   conversation_id: z.uuid(),
   expires_at: z.number().int(),
-  request: browserUseRequestSchema,
+  request: browserUseExtensionRequestSchema,
 });
 export type BrowserUseCommand = z.infer<typeof browserUseCommandSchema>;
 export const browserUseReplySchema = z.strictObject({

@@ -12,6 +12,52 @@ export type SiteListInput = { search?: string; status?: WebSiteStatus; conversat
 export class WebSiteRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
+  async assertActor(ownerId: string): Promise<void> {
+    if (!await this.prisma.user.count({ where: { id: ownerId, status: "active" } })) throw new AppError("FORBIDDEN");
+  }
+
+  async assertActiveTurn(ownerId: string, conversationId: string, turnId: string): Promise<void> {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        ownerId,
+        archiveStatus: "active",
+        applicationId: null,
+        collaborationMode: "default",
+      },
+      select: { codexThreadId: true },
+    });
+    if (!conversation?.codexThreadId) throw new AppError("FORBIDDEN");
+    const active = await this.prisma.conversationTurn.count({
+      where: {
+        id: turnId,
+        conversationId,
+        submittedBy: ownerId,
+        codexThreadId: conversation.codexThreadId,
+        collaborationMode: "default",
+        status: "running",
+      },
+    });
+    if (!active) throw new AppError("FORBIDDEN");
+  }
+
+  async conversationDeliveries(ownerId: string, conversationId: string): Promise<unknown[]> {
+    // Releases retain the original file even when a later task updates the same site.
+    return this.prisma.$queryRaw<unknown[]>(Prisma.sql`
+      SELECT DISTINCT
+        s.id, s.name, s.slug, s.status, f.id AS source_file_id, f.turn_id
+      FROM conversation_files f
+      JOIN conversations c ON c.id = f.conversation_id
+      JOIN conversation_turns t ON t.id = f.turn_id AND t.conversation_id = c.id
+        AND t.codex_thread_id = c.codex_thread_id
+      JOIN web_site_releases r ON r.source_file_id = f.id
+      JOIN web_sites s ON s.id = r.site_id AND s.owner_id = c.owner_id
+      WHERE f.conversation_id = ${conversationId}::uuid AND c.owner_id = ${ownerId}::uuid
+        AND f.kind = 'artifact'
+      ORDER BY f.turn_id, s.id, f.id
+    `);
+  }
+
   async list(ownerId: string, input: SiteListInput): Promise<SiteAndRelease[]> {
     const sites = await this.prisma.webSite.findMany({
       where: { ownerId,
@@ -156,4 +202,4 @@ async function lockSite(tx: Prisma.TransactionClient, ownerId: string, id: strin
 function translateConflict(error: unknown): unknown {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002" ? new AppError("WEB_SITE_SLUG_TAKEN") : error;
 }
-export type WebSiteStore = Pick<WebSiteRepository, "list" | "owned" | "publicSite" | "source" | "sources" | "create" | "update" | "publish" | "delete">;
+export type WebSiteStore = Pick<WebSiteRepository, "assertActor" | "assertActiveTurn" | "conversationDeliveries" | "list" | "owned" | "publicSite" | "source" | "sources" | "create" | "update" | "publish" | "delete">;

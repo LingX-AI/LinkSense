@@ -6,7 +6,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { createBrowserExtensionFixture } from "../../api/test/fixtures/browser-use-extension.js"
-import type { BrowserUseRequest, BrowserUseResult } from "@linksense/shared"
+import type { BrowserUseExtensionRequest, BrowserUseResult } from "@linksense/shared"
 
 test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, controls and revokes a real tab", async ({
   playwright,
@@ -65,7 +65,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     ],
   })
   const execute = async (
-    input: BrowserUseRequest,
+    input: BrowserUseExtensionRequest,
     conversation = task
   ): Promise<Extract<BrowserUseResult, { ok: true }>> => {
     const result = await service.execute(owner, conversation, input)
@@ -84,7 +84,7 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     ).toMatchObject({
       manifest_version: 3,
       default_locale: "en",
-      version: "0.4.5",
+      version: "0.4.6",
     })
     expect(archive.file("background.js")).not.toBeNull()
     expect(archive.file("ZOD-LICENSE")).not.toBeNull()
@@ -137,6 +137,14 @@ test("an isolated Chrome extension pairs over non-localhost HTTP, reconnects, co
     await expect
       .poll(async () => (await service.status(owner)).connected)
       .toBe(true)
+    const [openedSite, siteResult] = await Promise.all([
+      browser.waitForEvent("page"),
+      execute({ action: "open_site_window", slug: "fixture-site" }),
+    ])
+    expect(siteResult.data.tab_id).toBeUndefined()
+    await expect(openedSite).toHaveURL(`${address}/web/fixture-site`)
+    await expect(openedSite.getByRole("heading", { name: "Published fixture site" })).toBeVisible()
+    await openedSite.close()
     const managementTab = browser.waitForEvent("page")
     await page.evaluate(
       (owner) =>

@@ -8,6 +8,7 @@ import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { AssistantMermaid } from "@/features/conversations/assistant-mermaid"
 import { AssistantPreviewAction } from "@/features/conversations/assistant-preview-actions"
 import AssistantRichOutput from "@/features/conversations/assistant-rich-output"
+import { ConversationSiteCard } from "@/features/web-sites/conversation-site-card"
 import { responseLatency } from "./response-latency"
 import {
   Children,
@@ -33,6 +34,7 @@ import {
   richOutputLanguage,
   richOutputMarkdownToText,
   type ApplicationEmbedPresentation,
+  type ConversationWebSite,
   type OfficeAnnotationDisplay,
 } from "@linksense/shared"
 import type { TFunction } from "i18next"
@@ -4595,6 +4597,7 @@ function TurnSummary({
 
 export function ConversationThread({
   conversation,
+  siteDeliveries,
   startingTaskTurnId,
   knowledgeBases = emptyKnowledgeBases,
   applicationKnowledgeBases = emptyApplicationKnowledgeBases,
@@ -4644,6 +4647,7 @@ export function ConversationThread({
   history,
 }: {
   conversation: Conversation
+  siteDeliveries?: readonly ConversationWebSite[]
   messageReferenceAction?: MessageReferenceAction
   startingTaskTurnId?: string
   knowledgeBases?: KnowledgeBase[]
@@ -4884,9 +4888,21 @@ export function ConversationThread({
       activityImageArtifactIds.add(native.params.item.fileId.toLowerCase())
     }
   }
+  const siteDeliveriesByTurn = new Map<
+    string,
+    Map<string, ConversationWebSite>
+  >()
+  const deliveredSiteFileIds = new Set<string>()
+  for (const site of siteDeliveries ?? []) {
+    const sites = siteDeliveriesByTurn.get(site.turn_id) ?? new Map()
+    sites.set(site.id, site)
+    siteDeliveriesByTurn.set(site.turn_id, sites)
+    deliveredSiteFileIds.add(site.source_file_id.toLowerCase())
+  }
   const visibleArtifacts = (files: ConversationFile[] | undefined) => {
     const isHiddenArtifact = (file: ConversationFile) =>
       inlineArtifactIds.has(file.id.toLowerCase()) ||
+      deliveredSiteFileIds.has(file.id.toLowerCase()) ||
       activityImageArtifactIds.has(file.id.toLowerCase())
     if (!files?.some(isHiddenArtifact)) {
       return files
@@ -5038,7 +5054,9 @@ export function ConversationThread({
     }
   }
   const artifactsByTurn = selectConversationArtifactCards({
-    files: [...conversationFilesById.values()],
+    files: [...conversationFilesById.values()].filter(
+      (file) => !deliveredSiteFileIds.has(file.id.toLowerCase())
+    ),
     turns,
     finalMessagesByTurn: finalMessageByTurn,
     inlineArtifactIds,
@@ -5668,6 +5686,13 @@ export function ConversationThread({
         const turn = row.turnId ? turnById.get(row.turnId) : undefined
         if (turn && !finalMessageByTurn.has(turn.id)) {
           nodes.push(renderGeneratedImages(turn))
+        }
+        for (const site of siteDeliveriesByTurn
+          .get(row.turnId ?? "")
+          ?.values() ?? []) {
+          nodes.push(
+            <ConversationSiteCard key={`${site.id}:${site.url}`} site={site} />
+          )
         }
         return nodes
       },

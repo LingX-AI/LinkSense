@@ -16,6 +16,7 @@ import i18n from "@/i18n"
 import { notify } from "@/components/feedback/notification"
 import { OfficePreviewShell } from "@/components/media/office-preview/office-preview-shell"
 import { SiteLibrary } from "./site-library"
+import { ConversationSiteCard } from "./conversation-site-card"
 import { SiteDialog } from "./site-dialog"
 import { SiteShareButton } from "./site-share-button"
 import { webSitesEnUS, webSitesZhCN } from "./messages"
@@ -71,6 +72,25 @@ afterEach(() => {
 })
 
 describe("website management", () => {
+  it("lets users open and copy a published local site and removes both actions when unpublished", async () => {
+    const user = userEvent.setup()
+    const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined)
+    const url = "http://localhost:5273/web/shanhai"
+    const delivery = { ...site, turn_id: id, url }
+    const { rerender } = render(<MemoryRouter><ConversationSiteCard site={delivery} /></MemoryRouter>)
+    const open = screen.getByRole("link", { name: "打开网站" })
+    expect(open).toHaveAttribute("href", url)
+    expect(open).toHaveAttribute("target", "_blank")
+    expect(open).toHaveAttribute("rel", "noopener noreferrer")
+    expect(screen.getByText("仅在本机可访问")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "复制链接" }))
+    expect(copy).toHaveBeenCalledExactlyOnceWith(url)
+    expect(screen.getByRole("status")).toHaveTextContent("链接已复制")
+    rerender(<MemoryRouter><ConversationSiteCard site={{ ...delivery, status: "disabled" }} /></MemoryRouter>)
+    expect(screen.getByText("未发布")).toBeVisible()
+    expect(screen.queryByRole("link", { name: "打开网站" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "复制链接" })).not.toBeInTheDocument()
+  })
   it.each(["zh-CN", "en-US"])(
     "places copy beside each card's URL and shows a temporary check without a success toast in %s",
     async (language) => {

@@ -49,6 +49,39 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 })
 
 describe.concurrent("UserHomeCapabilityMaterializer", () => {
+  it("keeps pre-existing public-site packages and publishes the built-in under an unused Skill name", async () => {
+    const root = await temporaryDirectory()
+    const name = "linksense-public-site"
+    const occupiedAlias = "linksense-public-site-builtin-1"
+    const source = await createSkillSource(join(root, "skills"), name, "# Existing Skill")
+    const alias = await createSkillSource(join(root, "skills"), occupiedAlias, "# Existing alternate name")
+    const plugin = await createPluginSource(join(root, "plugins"), name, "# Existing plugin")
+    const onStage = vi.fn()
+    const materializer = new UserHomeCapabilityMaterializer({
+      userDataRoot: join(root, "users"),
+      instrumentation: { onStage },
+    })
+    const input = {
+      ownerId: OWNER_ID,
+      conversationId: TASK_ID,
+      capabilities: [
+        { ...skillCapability(source), name },
+        { ...skillCapability(alias), id: "33333333-3333-4333-8333-333333333334", name: occupiedAlias },
+        { ...pluginCapability(plugin), name },
+      ],
+    }
+    const published = await materializer.reconcile(input)
+    expect(await readFile(join(published.skillsRoot, name, "SKILL.md"), "utf8")).toContain("# Existing Skill")
+    expect(await readFile(join(published.skillsRoot, occupiedAlias, "SKILL.md"), "utf8")).toContain("# Existing alternate name")
+    expect(await readFile(join(published.pluginsRoot, name, "README.md"), "utf8")).toContain("# Existing plugin")
+    const builtIn = await readFile(join(published.skillsRoot, "linksense-public-site-builtin-2", "SKILL.md"), "utf8")
+    expect(builtIn).toContain("name: linksense-public-site-builtin-2\n")
+    expect(builtIn).toContain("linksense_core.publish_web_site")
+    const reused = await materializer.resolvePublishedRuntimeWithinPublicationStartFence(input)
+    expect(reused.generation).toBe(published.generation)
+    expect(onStage).toHaveBeenCalledOnce()
+  })
+
   it(
     "preserves an existing custom linksense-browser-use Skill and plugin while publishing Browser Use",
     async () => {

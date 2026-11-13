@@ -34,6 +34,7 @@ describe.each(["zh-CN", "en-US"])(
       )
       const titles = [
         i18n.t("applications.creation.interactiveTitle"),
+        i18n.t("applications.creation.publicSiteTitle"),
         i18n.t("applications.createStandardApp"),
         i18n.t("applications.importInteractiveApp"),
         i18n.t("publicKnowledge.title"),
@@ -42,12 +43,14 @@ describe.each(["zh-CN", "en-US"])(
         locale === "zh-CN"
           ? "说出你的想法，LinkSense帮你实现"
           : "Share your idea and let LinkSense bring it to life.",
+        i18n.t("applications.creation.publicSiteDescription"),
         i18n.t("applications.createStandardAppDescription"),
         i18n.t("applications.importInteractiveAppDescription"),
         i18n.t("publicKnowledge.description"),
       ]
       const methods = [
         "development",
+        "public_site",
         "standard",
         "interactive",
         "public_knowledge",
@@ -58,7 +61,7 @@ describe.each(["zh-CN", "en-US"])(
       const primary = actions[0]
       if (!primary) throw new Error("Expected chat creation action")
       expect(primary).toHaveClass("min-h-18", "rounded-lg", "p-3")
-      expect(within(dialog).getAllByRole("button")).toHaveLength(5)
+      expect(within(dialog).getAllByRole("button")).toHaveLength(6)
       expect(
         dialog.querySelector('[data-slot="application-creation-illustration"]')
       ).toBeNull()
@@ -72,9 +75,10 @@ describe.each(["zh-CN", "en-US"])(
         '[data-slot="application-creation-alternatives"]'
       )
       expect(alternatives).toHaveClass("flex-col")
-      expect(alternatives).toContainElement(actions[1])
       expect(alternatives).toContainElement(actions[2])
+      expect(alternatives).toContainElement(actions[3])
       expect(alternatives).not.toContainElement(actions[0])
+      expect(alternatives).not.toContainElement(actions[1])
       expect(dialog.textContent).not.toMatch(
         /manifest\.json|index\.html|MCP|Skill/u
       )
@@ -118,6 +122,14 @@ describe.each(["zh-CN", "en-US"])(
       await user.tab()
       expect(
         screen.getByRole("button", {
+          name: i18n.t("applications.creation.publicSiteTitle"),
+        })
+      ).toHaveFocus()
+      await user.keyboard("{Enter}")
+      expect(choose).toHaveBeenLastCalledWith("public_site")
+      await user.tab()
+      expect(
+        screen.getByRole("button", {
           name: i18n.t("applications.createStandardApp"),
         })
       ).toHaveFocus()
@@ -146,7 +158,7 @@ describe.each(["zh-CN", "en-US"])(
         false,
         expect.objectContaining({ reason: "escape-key" })
       )
-      expect(choose).toHaveBeenCalledTimes(4)
+      expect(choose).toHaveBeenCalledTimes(5)
     })
   }
 )
@@ -169,7 +181,10 @@ it("falls back to Chinese for the creation choices and package instructions", as
     "applications.creation.recommended",
     "applications.creation.interactiveTitle",
     "applications.creation.interactiveDescription",
+    "applications.creation.publicSiteTitle",
+    "applications.creation.publicSiteDescription",
     "applications.creation.start",
+    "applications.publicSiteCreation.title",
     "applications.createTypeDescription",
     "applications.createStandardAppDescription",
     "applications.importInteractiveAppDescription",

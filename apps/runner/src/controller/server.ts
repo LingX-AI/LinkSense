@@ -61,13 +61,20 @@ export function buildControllerServer(
     const scope = uuid.optional().safeParse(request.headers[runtimeServiceSessionHeader])
     if (!scope.success) return reply.code(400).send({ error_code: "RUNNER_SERVICE_SCOPE_INVALID" })
     if (!scope.data) return
-    if (request.url.startsWith("/internal/connections/")) {
+    const route = request.routeOptions.url ?? ""
+    if (route.startsWith("/internal/connections/")) {
       return reply.code(403).send({ error_code: "CONNECTION_ACCESS_DENIED" })
     }
-    if (request.url.startsWith("/internal/browser-use/") || request.url.startsWith("/internal/local-browser/")) {
+    if (route.startsWith("/internal/browser-use/") || route.startsWith("/internal/local-browser/")) {
       return reply.code(403).send({ error_code: "FORBIDDEN" })
     }
-    if (request.url.startsWith("/internal/skill-creator/") || request.url.startsWith("/internal/skills/") || request.url === "/internal/application-builder" || request.url.startsWith("/internal/automations/")) {
+    if (
+      route.startsWith("/internal/skill-creator/") ||
+      route.startsWith("/internal/skills/") ||
+      route === "/internal/application-builder" ||
+      route === "/internal/web-sites" ||
+      route.startsWith("/internal/automations/")
+    ) {
       return reply.code(403).send({ error_code: "RUNNER_SERVICE_SCOPE_MISMATCH" })
     }
   })
@@ -177,6 +184,7 @@ export function buildControllerServer(
     "/internal/connections/execute",
     "/internal/application-events/emit",
     "/internal/application-builder",
+    "/internal/web-sites",
   ]) {
     app.post(route, { ...(route === "/internal/connections/execute" ? { bodyLimit: MICROSOFT_CONNECTION_BODY_LIMIT } : route === "/internal/automations/execute" ? { bodyLimit: AUTOMATION_TOOL_BODY_LIMIT } : {}) }, async (request, reply) => {
       const ownerId = parseOwnerHeader(request.headers["x-linksense-owner-id"])
@@ -203,7 +211,7 @@ export function buildControllerServer(
               ? 180_000
             : route === "/internal/runner/process-exit"
               ? 130_000
-            : route === "/internal/application-builder" || route === "/internal/connections/execute" || route === "/internal/browser-use/execute" || route === "/internal/local-browser/execute" || route === "/internal/automations/execute" || route === "/internal/skills/execute"
+            : route === "/internal/application-builder" || route === "/internal/web-sites" || route === "/internal/connections/execute" || route === "/internal/browser-use/execute" || route === "/internal/local-browser/execute" || route === "/internal/automations/execute" || route === "/internal/skills/execute"
               ? 60_000
             : 15_000,
           controller.signal,

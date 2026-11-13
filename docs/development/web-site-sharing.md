@@ -22,6 +22,18 @@
 
 跨任务更新后，“我的站点”的来源链接及后续更新文件列表指向新任务。删除旧任务不会停用已转移的站点；删除新来源任务仍按现有规则停用站点。原任务已删除的保留站点也可选择新任务的 HTML 更新内容，但保持未发布状态。此次调整无数据库迁移，不改变既有发布接口格式，已发布站点无需重新创建或重新发布。
 
+## 对话内创建与发布
+
+普通任务中的助手可以使用内置 `linksense-public-site` Skill，把静态网页成果直接发布为公开站点，而不经过任务产物预览工具栏。Skill 与 `linksense-interactive-app-builder` 平级；需要 LinkSense AI、任务、知识库、文件、插件或组织分发时仍使用后者。
+
+- 助手先在 `artifacts/<site-name>/` 生成完整静态站点，再用 `register_artifact` 登记 HTML 入口和 `web_root_relative_path`，最后调用 `publish_web_site`。工具返回 `url` 和 `slug`，一次对话即可拿到外链。
+- `publish_web_site` 支持带 `site_id` 发布已有站点的新版本；`list_web_sites` 用于在后续任务中查找站点；`update_web_site` 只修改名称、简介、slug 或发布状态。
+- 工具只在 `default` 协作模式、当前用户、运行中的轮次内可用。API 内部路由 `/internal/web-sites` 使用 runner shared secret 和 owner header，复用现有 `WebSiteService` 的所有权、来源任务、资源包和 slug 唯一约束；没有新增表或迁移。
+- 发布即公开。助手只在用户明确要求公开站点或通过 `request_user_form` 选择公开站点后调用；不会把交互式应用自动转换或公开。
+- 对话中的站点卡片显示当前发布状态，并提供打开、复制和管理入口。源 HTML 仍可从任务产物预览或下载。刷新对话会根据已有发布记录恢复卡片，无需重新发布。
+- 用户可在创建时选择发布后打开，或在对话里明确要求打开。Browser Use 扩展 0.4.6 支持在独立窗口打开当前用户拥有的已发布站点；扩展必须已配对且允许打开新页面。这个动作不会把新窗口交给助手控制。
+- 当前 `/web/{slug}` 仍是同域沙箱 iframe，网页不能使用 localStorage、IndexedDB、Cookie、Service Worker 或浏览器通知。需要持久化或提醒的站点应改用 LinkSense 应用或外部后端；Skill 必须如实说明这一限制。
+
 ## 网页包
 
 运行器的 `register_artifact` 增加可选 `web_root_relative_path`，明确指定任务工作区内专门用于公开的目录；`workspace_relative_path` 指向其中的 HTML 入口。例如：

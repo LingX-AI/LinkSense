@@ -15,6 +15,7 @@ import { knowledgeCoreMcpModule } from "./core-services/knowledge-service.js"
 import { skillCreatorCoreMcpModule } from "./core-services/skill-creator-service.js"
 import { skillManagementReadCoreMcpModule, skillManagementWriteCoreMcpModule } from "./core-services/skill-management-service.js"
 import { applicationBuilderCoreMcpModule } from "./core-services/application-builder-service.js"
+import { webSiteCoreMcpModule } from "./core-services/web-site-service.js"
 import { automationCoreMcpModule } from "./core-services/automation-service.js"
 import type {
   CoreMcpCollaborationMode,
@@ -41,6 +42,7 @@ export const coreMcpModuleRegistry: readonly CoreMcpModuleDefinition[] = [
   skillManagementReadCoreMcpModule,
   skillManagementWriteCoreMcpModule,
   applicationBuilderCoreMcpModule,
+  webSiteCoreMcpModule,
   automationCoreMcpModule,
 ]
 

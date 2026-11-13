@@ -84,6 +84,8 @@ export const siteMessages = {
     publishedAt: "Publicado el {{date}}",
     resources: "{{count}} archivos · {{size}}",
     visit: "Visitar",
+    openSite: "Abrir sitio web",
+    localOnly: "Solo se puede acceder desde este dispositivo",
     copyNamed: "Copiar enlace de {{name}}",
     actions: "Gestionar {{name}}",
     edit: "Editar",

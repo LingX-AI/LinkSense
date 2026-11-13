@@ -40,6 +40,9 @@ export function siteFixture() {
     bundle: null,
   };
   const store = {
+    assertActor: vi.fn<WebSiteStore["assertActor"]>(async () => {}),
+    assertActiveTurn: vi.fn<WebSiteStore["assertActiveTurn"]>(async () => {}),
+    conversationDeliveries: vi.fn<WebSiteStore["conversationDeliveries"]>(async () => []),
     list: vi.fn<WebSiteStore["list"]>(async () => [row]),
     owned: vi.fn<WebSiteStore["owned"]>(async () => row),
     publicSite: vi.fn<WebSiteStore["publicSite"]>(async () => row),

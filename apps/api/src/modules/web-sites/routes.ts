@@ -1,35 +1,35 @@
+import { timingSafeEqual } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { webSiteCreateSchema, webSitePublishSchema, webSiteSlugSchema, webSiteStatusSchema, webSiteUpdateSchema } from "@linksense/shared";
+import { runtimeServiceSessionHeader, webSiteCreateSchema, webSiteCursorSchema, webSitePublishSchema, webSiteSlugSchema, webSiteStatusSchema, webSiteToolRequestSchema, webSiteUpdateSchema } from "@linksense/shared";
 import type { AuthenticatedRequest } from "../../plugins/authentication.js";
 import { attachmentContentDisposition } from "../../lib/content-disposition.js";
 import { ok } from "../../lib/http.js";
-import { errorDetails, normalizeError } from "../../lib/errors.js";
+import { AppError, errorDetails, normalizeError } from "../../lib/errors.js";
 import { resolveLocale } from "../../lib/locale.js";
-import type { WebSiteService } from "./service.js";
+import { parseWebSiteCursor, type WebSiteService } from "./service.js";
 import { resourceContentType } from "./resources.js";
 import { escapeHtml, siteNotFoundPage, siteNotFoundPolicy } from "./public-page.js";
 
 const idParams = z.object({ id: z.uuid() });
-const cursorSchema = z.string().max(100).transform((value, context) => {
-  const [time, id] = value.split("|");
-  if (!z.iso.datetime().safeParse(time).success || !z.uuid().safeParse(id).success || !time || !id) {
-    context.addIssue({ code: "custom", message: "Invalid cursor" });
-    return z.NEVER;
-  }
-  return { updatedAt: new Date(time), id };
-});
-export const webSiteRoutes: FastifyPluginAsync<{ service: WebSiteService }> = async (app, { service }) => {
+export const webSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; publicBaseUrl: string }> = async (app, { service, publicBaseUrl }) => {
   app.addHook("preHandler", app.authenticate);
+  app.get("/by-conversation/:id", async (request, reply) => {
+    const { id } = idParams.parse(request.params);
+    return reply.header("cache-control", "private, no-store").send(ok(
+      await service.conversationDeliveries((request as AuthenticatedRequest).authUser.id, id, publicBaseUrl),
+      request.id,
+    ));
+  });
   app.get("/", async (request, reply) => {
-    const query = z.object({ search: z.string().trim().max(240).optional(), status: webSiteStatusSchema.optional(), conversation_id: z.uuid().optional(), origin_file_id: z.uuid().optional(), cursor: cursorSchema.optional(), limit: z.coerce.number().int().min(1).max(100).default(30) }).parse(request.query);
+    const query = z.object({ search: z.string().trim().max(240).optional(), status: webSiteStatusSchema.optional(), conversation_id: z.uuid().optional(), origin_file_id: z.uuid().optional(), cursor: webSiteCursorSchema.optional(), limit: z.coerce.number().int().min(1).max(100).default(30) }).parse(request.query);
     return reply.send(ok(await service.list((request as AuthenticatedRequest).authUser.id, {
       limit: query.limit,
       ...(query.search !== undefined ? { search: query.search } : {}),
       ...(query.status !== undefined ? { status: query.status } : {}),
       ...(query.conversation_id !== undefined ? { conversationId: query.conversation_id } : {}),
       ...(query.origin_file_id !== undefined ? { originFileId: query.origin_file_id } : {}),
-      ...(query.cursor !== undefined ? { cursor: query.cursor } : {}),
+      ...(query.cursor !== undefined ? { cursor: parseWebSiteCursor(query.cursor) } : {}),
     }), request.id));
   });
   app.post("/", async (request, reply) => reply.code(201).send(ok(await service.create((request as AuthenticatedRequest).authUser.id, webSiteCreateSchema.parse(request.body)), request.id)));
@@ -46,15 +46,33 @@ export const webSiteRoutes: FastifyPluginAsync<{ service: WebSiteService }> = as
   });
 };
 
+export const internalWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; sharedSecret: string; publicBaseUrl: string }> = async (app, { service, sharedSecret, publicBaseUrl }) => {
+  app.addHook("onRequest", async (request, reply) => {
+    const provided = Buffer.from(request.headers.authorization?.replace(/^Bearer\s+/iu, "") ?? "");
+    const expected = Buffer.from(sharedSecret);
+    if (!expected.length || provided.length !== expected.length || !timingSafeEqual(provided, expected)) return reply.code(401).send({ error_code: "AUTH_REQUIRED" });
+    if (request.headers[runtimeServiceSessionHeader] !== undefined) throw new AppError("FORBIDDEN");
+  });
+  app.post("/", async request => {
+    const owner = z.uuid().parse(request.headers["x-linksense-owner-id"]);
+    const body = z.strictObject({ conversationId: z.uuid(), turnId: z.uuid(), request: webSiteToolRequestSchema }).parse(request.body);
+    return service.toolForOwner(owner, body.conversationId, body.turnId, body.request, publicBaseUrl);
+  });
+};
+
 export const webSiteSandbox = "allow-scripts allow-modals allow-downloads allow-forms";
-export function publishedResourcePolicy(publicBaseUrl: string): string {
-  const origin = new URL(publicBaseUrl).origin;
+export function publishedResourcePolicy(publicBaseUrl: string, requestOrigin?: string): string {
+  const origins = new Set([new URL(publicBaseUrl).origin]);
+  if (requestOrigin) {
+    try { origins.add(new URL(requestOrigin).origin); } catch { /* Keep the configured origin when the request host is malformed. */ }
+  }
+  const webSources = [...origins].map(origin => `${origin}/web/`).join(" ");
   return [
     `sandbox ${webSiteSandbox}`, "default-src 'none'", "base-uri 'none'", "object-src 'none'", "frame-src 'none'", "worker-src 'none'", "form-action 'none'",
-    `script-src 'unsafe-inline' 'unsafe-eval' https: ${origin}/web/`,
-    `style-src 'unsafe-inline' https: ${origin}/web/`,
-    `img-src data: blob: https: ${origin}/web/`, `font-src data: https: ${origin}/web/`,
-    `media-src blob: https: ${origin}/web/`, `connect-src https: ${origin}/web/`,
+    `script-src 'unsafe-inline' 'unsafe-eval' https: ${webSources}`,
+    `style-src 'unsafe-inline' https: ${webSources}`,
+    `img-src data: blob: https: ${webSources}`, `font-src data: https: ${webSources}`,
+    `media-src blob: https: ${webSources}`, `connect-src https: ${webSources}`,
   ].join("; ");
 }
 
@@ -97,7 +115,7 @@ export const publicWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; 
     const resource = await service.resource(slug, releaseId, path);
     return reply.type(resourceContentType(resource.mimeType)).header("access-control-allow-origin", "*")
       .header("cross-origin-resource-policy", "cross-origin")
-      .header("content-security-policy", publishedResourcePolicy(publicBaseUrl))
+      .header("content-security-policy", publishedResourcePolicy(publicBaseUrl, `${request.protocol}://${request.host}`))
       .send(resource.data);
   });
 };

@@ -227,6 +227,8 @@ export const ptBR = {
     publishedAt: "Publicado em {{date}}",
     resources: "{{count}} arquivos · {{size}}",
     visit: "Visitar",
+    openSite: "Abrir site",
+    localOnly: "Acessível apenas neste dispositivo",
     copyNamed: "Copiar link de {{name}}",
     actions: "Gerenciar {{name}}",
     edit: "Editar",
@@ -3170,7 +3172,26 @@ export const ptBR = {
       interactiveTitle: "Criar um aplicativo interativo por conversa",
       interactiveDescription:
         "Compartilhe sua ideia e deixe o LinkSense dar vida a ela.",
+      publicSiteTitle: "Criar um site público",
+      publicSiteDescription:
+        "Crie um site estático que qualquer pessoa com o link possa abrir.",
       start: "Começar a criar",
+    },
+    publicSiteCreation: {
+      title: "Criar um site público",
+      description:
+        "Crie um site estático público. Você pode adicionar mais requisitos na conversa.",
+      name: "Nome do site",
+      goal: "O que o site deve fazer? (opcional)",
+      goalPlaceholder:
+        "Por exemplo: crie uma programação de eventos com filtro por data",
+      defaultGoal:
+        "Pergunte-me quais conteúdos e interações o site precisa.",
+      start: "Criar e começar",
+      openLocally: "Abrir no meu navegador após publicar",
+      openInstruction: "Depois de publicar, use o Browser Use para abrir o site uma vez no meu navegador local.",
+      prompt:
+        "Crie um site público para mim. Nome do site: {{name}}. Requisitos: {{goal}}. Use o fluxo de site público para criar uma página estática, publicá-la e me enviar o link público.",
     },
     createStandardApp: "Criar aplicativo padrão",
     createStandardAppDescription:
@@ -4070,6 +4091,11 @@ export const ptBR = {
         name: "Desenvolvimento de aplicativos interativos do {{productName}}",
         description:
           "Crie e edite aplicativos por conversa, com visualização em tempo real, depuração e instalação.",
+      },
+      publicSite: {
+        name: "Desenvolvimento de sites públicos do {{productName}}",
+        description:
+          "Crie um site estático e publique-o como um link público compartilhável.",
       },
       skillCreator: {
         name: "Criador de habilidades do {{productName}}",

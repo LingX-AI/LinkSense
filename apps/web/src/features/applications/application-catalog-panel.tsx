@@ -17,6 +17,7 @@ import { FilePicker } from "@/components/forms/file-picker"
 import { ApplicationUsageGuideDialog } from "./application-usage-guide-dialog"
 import { ApplicationSetupDialog } from "./application-setup-dialog"
 import { ApplicationDevelopmentCreateDialog } from "./application-development-create-dialog"
+import { ApplicationPublicSiteCreateDialog } from "./application-public-site-create-dialog"
 import {
   ApplicationCreateDialog,
   type ApplicationCreationMethod,
@@ -1288,6 +1289,9 @@ export function ApplicationCreateButton({
       />
       {step === "development" && (
         <ApplicationDevelopmentCreateDialog onClose={() => setStep(null)} />
+      )}
+      {step === "public_site" && (
+        <ApplicationPublicSiteCreateDialog onClose={() => setStep(null)} />
       )}
       {step === "public_knowledge" && (
         <PublicKnowledgeCreateDialog

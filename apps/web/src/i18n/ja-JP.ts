@@ -227,6 +227,8 @@ export const jaJP = {
     publishedAt: "公開日：{{date}}",
     resources: "{{count}} ファイル · {{size}}",
     visit: "サイトを開く",
+    openSite: "サイトを開く",
+    localOnly: "この端末でのみアクセスできます",
     copyNamed: "{{name}} のリンクをコピー",
     actions: "{{name}} を管理",
     edit: "編集",
@@ -3116,7 +3118,25 @@ export const jaJP = {
       recommended: "おすすめ",
       interactiveTitle: "会話で操作可能なアプリを作成",
       interactiveDescription: "アイデアを伝えると、LinkSense が形にします。",
+      publicSiteTitle: "公開サイトを作成",
+      publicSiteDescription:
+        "リンクを知っている人が誰でも開ける静的サイトを作成します。",
       start: "作成を開始",
+    },
+    publicSiteCreation: {
+      title: "公開サイトを作成",
+      description:
+        "公開静的サイトを作成します。作成後の会話で要件を追加できます。",
+      name: "サイト名",
+      goal: "サイトで行うこと（任意）",
+      goalPlaceholder:
+        "例：日付で絞り込めるイベント日程ページを作成する",
+      defaultGoal: "サイトに必要な内容と操作を確認してください。",
+      start: "作成して開始",
+      openLocally: "公開後にローカルブラウザーで開く",
+      openInstruction: "公開後、Browser Use でこのサイトをローカルブラウザーに一度だけ開いてください。",
+      prompt:
+        "公開ウェブサイトを作成してください。サイト名：{{name}}。要件：{{goal}}。公開サイトの手順で静的ページを作成して公開し、公開リンクを教えてください。",
     },
     createStandardApp: "標準アプリを作成",
     createStandardAppDescription:
@@ -4010,6 +4030,11 @@ export const jaJP = {
         name: "{{productName}} 対話型アプリケーション開発",
         description:
           "会話を通じてアプリケーションを作成・編集し、リアルタイムのプレビュー、デバッグ、インストールを行います。",
+      },
+      publicSite: {
+        name: "{{productName}} 公開サイト開発",
+        description:
+          "静的サイトを作成し、誰でも開ける公開リンクとして発行します。",
       },
       skillCreator: {
         name: "{{productName}} スキル作成",

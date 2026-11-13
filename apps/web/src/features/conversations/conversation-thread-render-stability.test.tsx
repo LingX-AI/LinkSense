@@ -78,6 +78,58 @@ function createConversation(
   }
 }
 
+it("shows a site before the final reply and replaces only its source file card", async () => {
+  await i18n.changeLanguage("zh-CN")
+  const siteFile: ConversationFile = {
+    id: "50000000-0000-4000-8000-000000000001",
+    name: "site-source.html",
+    mime_type: "text/html",
+    size: 1024,
+    kind: "artifact",
+    status: "available",
+    download_available: true,
+    turn_id: runningTurn.id,
+  }
+  const otherFile = {
+    ...siteFile,
+    id: "50000000-0000-4000-8000-000000000002",
+    name: "another-page.html",
+  }
+  const delivery = {
+    id: "50000000-0000-4000-8000-000000000003",
+    turn_id: runningTurn.id,
+    source_file_id: siteFile.id,
+    name: "喝水时刻",
+    slug: "water-reminder",
+    status: "published" as const,
+    url: "http://localhost:5273/web/water-reminder",
+  }
+  const renderThread = (complete: boolean) => (
+    <MemoryRouter>
+      <ConversationThread
+        conversation={{
+          ...createConversation(
+            complete
+              ? [userMessage, { ...firstCommentary, phase: "final_answer", artifacts: [siteFile, otherFile] }]
+              : [userMessage]
+          ),
+          ...(complete
+            ? { running_turn: null, turns: [{ ...runningTurn, status: "completed", completed_at: "2026-08-02T08:00:02.000Z" }] }
+            : {}),
+        }}
+        siteDeliveries={[delivery]}
+        onDownload={vi.fn()}
+      />
+    </MemoryRouter>
+  )
+  const { rerender } = render(renderThread(false))
+  expect(screen.getByRole("link", { name: "打开网站" })).toHaveAttribute("href", delivery.url)
+  rerender(renderThread(true))
+  expect(screen.getByText("another-page.html")).toBeVisible()
+  expect(screen.queryByText("site-source.html")).not.toBeInTheDocument()
+  expect(screen.getByRole("link", { name: "打开网站" })).toBeVisible()
+})
+
 function nativeCommandLifecycleEvent({
   id,
   itemId,

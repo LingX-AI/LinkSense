@@ -21,6 +21,7 @@ import {
   capabilitySnapshotIdSchema,
   capabilitySnapshotManifest,
   capabilitySnapshotSchema,
+  capabilityPackageNameSchema,
   type CapabilitySnapshot,
   type BuiltInSkillName,
   builtInSkillNames,
@@ -28,6 +29,8 @@ import {
   coreMcpServerKey,
   managedProjectionProbeContents,
   managedProjectionProbeFileName,
+  PUBLIC_SITE_SKILL_NAME,
+  publicSiteRuntimeSkillName,
 } from "@linksense/shared"
 import { lock } from "proper-lockfile"
 
@@ -36,6 +39,7 @@ import { CapabilitySnapshotStore, writeSnapshotFile } from "./capability-snapsho
 import { writeBuiltInLinksenseDocs } from "./built-in-linksense-docs.js"
 import { writeBuiltInSkillCreator } from "./built-in-skill-creator.js"
 import { writeBuiltInApplicationBuilder } from "./built-in-application-builder.js"
+import { writeBuiltInPublicSite } from "./built-in-public-site.js"
 import {
   SkillManifestValidationError,
   parseSkillManifest,
@@ -59,7 +63,7 @@ export const PLUGIN_STDIO_LAUNCHER_COMMAND = "linksense-plugin-stdio"
 // The regression test intentionally pins it to the actual generated tree so
 // every built-in writer or bundled documentation change must update it.
 export const BUILT_IN_CAPABILITY_RUNTIME_REVISION =
-  "b053fe16180bdb3492811b4a652f963a6f5628479685d6e4816ceb5d5c85274e"
+  "15460e160581b21c423e8fbcad37c2ed67886ffe40bd356b9fd5fbd9c73ad2d0"
 
 const BUILT_IN_BROWSER_SKILL_NAME = "linksense-browser"
 const BUILT_IN_BROWSER_USE_SKILL_NAME = "linksense-local-browser"
@@ -71,7 +75,6 @@ const CAPABILITY_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
 const RESERVED_PLUGIN_DIRECTORY_NAMES = new Set(["cache"])
-const RESERVED_CAPABILITY_NAMES = new Set<string>(builtInSkillNames)
 
 export interface UserHomeCapabilityInput {
   id: string
@@ -576,6 +579,7 @@ export class UserHomeCapabilityMaterializer {
 
     await mkdir(root, { mode: 0o700 })
     try {
+      const publicSiteName = publicSiteRuntimeSkillName(customSkillNames(capabilities))
       await Promise.all([
         mkdir(skillsRoot, { mode: 0o750 }),
         mkdir(pluginsRoot, { mode: 0o750 }),
@@ -591,7 +595,8 @@ export class UserHomeCapabilityMaterializer {
         writeBuiltInKnowledgeBaseSkill(skillsRoot),
         writeBuiltInLinksenseDocs(skillsRoot),
         writeBuiltInSkillCreator(skillsRoot),
-        writeBuiltInApplicationBuilder(skillsRoot),
+        writeBuiltInApplicationBuilder(skillsRoot, publicSiteName),
+        writeBuiltInPublicSite(skillsRoot, publicSiteName),
       ])
 
       const sortedCapabilities = [...capabilities].sort(compareCapabilities)
@@ -729,9 +734,7 @@ function validateCapabilitySet(
       )
     }
     if (
-      capability.name.length > 64 ||
-      !CAPABILITY_NAME_PATTERN.test(capability.name) ||
-      RESERVED_CAPABILITY_NAMES.has(capability.name) ||
+      !capabilityPackageNameSchema.safeParse(capability.name).success ||
       (capability.type === "plugin" &&
         RESERVED_PLUGIN_DIRECTORY_NAMES.has(capability.name))
     ) {
@@ -831,15 +834,18 @@ function pluginNamesForCapabilities(
     .sort()
 }
 
+function customSkillNames(capabilities: UserHomeCapabilityInput[]): Set<string> {
+  return new Set(capabilities.filter((capability) => capability.type === "skill").map((capability) => capability.name))
+}
+
 function skillNamesForCapabilities(
   capabilities: UserHomeCapabilityInput[],
   enabledBuiltIns: readonly BuiltInSkillName[],
 ): string[] {
+  const custom = customSkillNames(capabilities)
   return [
-    ...enabledBuiltIns,
-    ...capabilities
-      .filter((capability) => capability.type === "skill")
-      .map((capability) => capability.name),
+    ...enabledBuiltIns.map((name) => name === PUBLIC_SITE_SKILL_NAME ? publicSiteRuntimeSkillName(custom) : name),
+    ...custom,
   ].sort()
 }
 

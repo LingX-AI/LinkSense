@@ -136,7 +136,26 @@ export const applicationResources = {
       interactiveTitle: "Créer une application interactive par conversation",
       interactiveDescription:
         "Partagez votre idée et laissez LinkSense la réaliser.",
+      publicSiteTitle: "Créer un site public",
+      publicSiteDescription:
+        "Créez un site web statique que toute personne disposant du lien peut ouvrir.",
       start: "Commencer la création",
+    },
+    publicSiteCreation: {
+      title: "Créer un site public",
+      description:
+        "Créez un site web statique public. Vous pourrez ajouter des besoins dans la conversation.",
+      name: "Nom du site",
+      goal: "Que doit faire le site ? (facultatif)",
+      goalPlaceholder:
+        "Par exemple : créez un programme des événements avec un filtre par date",
+      defaultGoal:
+        "Demandez-moi le contenu et les interactions nécessaires.",
+      start: "Créer et commencer",
+      openLocally: "Ouvrir dans mon navigateur après la publication",
+      openInstruction: "Après la publication, utilise Browser Use pour ouvrir le site une fois dans mon navigateur local.",
+      prompt:
+        "Crée un site web public pour moi. Nom du site : {{name}}. Besoins : {{goal}}. Utilise le flux de site public pour créer une page statique, la publier et me donner le lien public.",
     },
     createStandardApp: "Créer une application standard",
     createStandardAppDescription:

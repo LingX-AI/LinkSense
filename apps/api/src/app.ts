@@ -53,7 +53,7 @@ import { systemRoutes, adminSystemRoutes } from "./modules/system/routes.js";
 import { projectRoutes } from "./modules/projects/routes.js";
 import { conversationRoutes } from "./modules/conversations/routes.js";
 import { publicConversationShareRoutes } from "./modules/conversations/share-routes.js";
-import { publicWebSiteRoutes, webSiteRoutes } from "./modules/web-sites/routes.js";
+import { internalWebSiteRoutes, publicWebSiteRoutes, webSiteRoutes } from "./modules/web-sites/routes.js";
 import { fileRoutes } from "./modules/files/routes.js";
 import { internalRunnerRoutes, sseRoutes } from "./modules/events/routes.js";
 import { auditRoutes } from "./modules/audit/routes.js";
@@ -544,8 +544,9 @@ export async function buildApi(
   await app.register(conversationBrowserRoutes, { prefix: "/api/v1/conversations", services });
   await app.register(htmlPreviewRoutes, { prefix: "/api/v1/conversations", service: services.htmlPreviews });
   await app.register(htmlPreviewResourceRoutes, { prefix: "/html-preview", service: services.htmlPreviews });
-  await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: services.webSites });
+  await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl });
   await app.register(publicWebSiteRoutes, { prefix: "/web", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl });
+  await app.register(internalWebSiteRoutes, { prefix: "/internal/web-sites", service: services.webSites, sharedSecret: services.config.runnerSharedSecret, publicBaseUrl: services.config.publicBaseUrl });
   await app.register(automationRoutes, {
     prefix: "/api/v1/automations",
     services,
@@ -633,6 +634,7 @@ export async function buildApi(
     redis: services.redis.client,
     rateLimitHmacSecret: services.config.loginRateLimitHmacSecret,
     service: new BrowserUseService(new RedisBrowserStore(services.redis.client), browserUseEndpoint.href),
+    webSites: services.webSites,
     prisma: services.prisma,
     sharedSecret: services.config.runnerSharedSecret,
     socketPath: `${browserUseEndpoint.pathname}/socket`,

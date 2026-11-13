@@ -2881,7 +2881,25 @@ export const enUS = {
       interactiveTitle: "Create an interactive app through chat",
       interactiveDescription:
         "Share your idea and let LinkSense bring it to life.",
+      publicSiteTitle: "Create a public site",
+      publicSiteDescription:
+        "Build a static website that anyone with the link can open.",
       start: "Start creating",
+    },
+    publicSiteCreation: {
+      title: "Create a public site",
+      description:
+        "Build a public static website. You can add more requirements in the conversation.",
+      name: "Site name",
+      goal: "What should the site do? (optional)",
+      goalPlaceholder:
+        "For example: make an event schedule with a date filter",
+      defaultGoal: "Ask me what content and interactions the site needs.",
+      start: "Create and start",
+      openLocally: "Open in my browser after publishing",
+      openInstruction: "After publishing, use Browser Use to open the site once in my local browser.",
+      prompt:
+        "Create a public website for me. Site name: {{name}}. Requirements: {{goal}}. Use the public-site workflow to build a static page, publish it, and give me the public link.",
     },
     createStandardApp: "Create standard app",
     createStandardAppDescription:
@@ -3765,6 +3783,11 @@ export const enUS = {
         name: "{{productName}} Interactive Application Development",
         description:
           "Create and edit applications through conversation, with live preview, debugging and installation.",
+      },
+      publicSite: {
+        name: "{{productName}} Public Site Development",
+        description:
+          "Build a static website and publish it as a shareable public link.",
       },
       skillCreator: {
         name: "{{productName}} Skill Creator",

@@ -12,6 +12,7 @@ const capabilityTranslationKeys = {
   "linksense-knowledge-base": "knowledgeBase",
   "linksense-skill-creator": "skillCreator",
   "linksense-interactive-app-builder": "applicationBuilder",
+  "linksense-public-site": "publicSite",
 } as const
 
 export function capabilityPresentation(

@@ -12,6 +12,7 @@ import {
 } from "@/features/conversations/automation-tool-activity"
 import type { ApplicationAnnotationSubmit } from "@/features/applications/application-annotation-submission"
 import { SiteShareButton } from "@/features/web-sites/site-share-button"
+import { listConversationWebSites, webSiteKeys } from "@/features/web-sites/api"
 import { FirstUseGuide } from "@/features/onboarding/first-use-guide"
 
 import { responseLatency } from "@/features/conversations/response-latency"
@@ -61,6 +62,7 @@ import {
   officeAnnotationRequestText,
   APPLICATION_BUILDER_SKILL_NAME,
   builtInCapabilityId,
+  coreMcpServerKey,
   type ConversationCollaborationMode,
   type ConversationUserInputResponse,
   type SideChatReference,
@@ -1274,6 +1276,23 @@ export function ConversationPage({
     (knowledgeBasesLoading || knowledgeBaseSelectionVerificationFailed)
 
   const conversation = conversationQuery.data
+  const canShowSiteDeliveries = Boolean(
+    user &&
+      conversationId &&
+      !isNew &&
+      !embedded &&
+      !readOnly &&
+      !conversation?.application &&
+      conversation?.files?.some(
+        (file) => file.kind === "artifact" && file.mime_type === "text/html"
+      )
+  )
+  const siteDeliveries = useQuery({
+    queryKey: webSiteKeys.deliveries(user?.id, conversationId),
+    enabled: canShowSiteDeliveries,
+    queryFn: ({ signal }) => listConversationWebSites(conversationId ?? "", signal),
+    retry: false,
+  })
   const sideChat = useSideChat(
     conversationId,
     !isNew &&
@@ -2068,6 +2087,15 @@ export function ConversationPage({
 
         const native = getNativeCodexPayload(event)
         if (native) {
+          if (
+            native.method === "item/completed" &&
+            native.params.item.type === "mcpToolCall" &&
+            native.params.item.server === coreMcpServerKey &&
+            native.params.item.status === "completed" &&
+            ["publish_web_site", "update_web_site"].includes(native.params.item.tool)
+          ) {
+            void queryClient.invalidateQueries({ queryKey: webSiteKeys.all })
+          }
           if (
             conversationId &&
             native.method === "item/completed" &&
@@ -6193,6 +6221,7 @@ export function ConversationPage({
       )}
 
       <ConversationThread
+        siteDeliveries={canShowSiteDeliveries ? siteDeliveries.data : undefined}
         messageReferenceAction={
           onReturnSideChatSelection
             ? {

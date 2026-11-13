@@ -55,6 +55,8 @@ export const coreMcpEnvironmentVariables = [
   "LINKSENSE_SKILL_MANAGEMENT_TOKEN",
   "LINKSENSE_APPLICATION_BUILDER_ENDPOINT",
   "LINKSENSE_APPLICATION_BUILDER_TOKEN",
+  "LINKSENSE_WEB_SITE_ENDPOINT",
+  "LINKSENSE_WEB_SITE_TOKEN",
 ] as const;
 
 const managedBrowserEnvironmentVariables = [

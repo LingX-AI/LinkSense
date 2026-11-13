@@ -17,6 +17,7 @@ import {
 import os from "node:os"
 import path from "node:path"
 
+import { PUBLIC_SITE_SKILL_NAME } from "@linksense/shared"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -702,7 +703,7 @@ describe("WorkspaceManager", () => {
     )
     expect(managedServiceConfig).toContain('args = ["core-service.js"]')
     expect(managedServiceConfig).toContain(
-      'env_vars = ["LINKSENSE_COLLABORATION_MODE", "LINKSENSE_CONVERSATION_ID", "LINKSENSE_CURRENT_USER_ENDPOINT", "LINKSENSE_CURRENT_USER_TOKEN", "LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT", "LINKSENSE_AUTOMATION_STOP_ENDPOINT", "LINKSENSE_AUTOMATION_ENDPOINT", "LINKSENSE_AUTOMATION_TOKEN", "LINKSENSE_FILE_SERVICE_ENDPOINT", "LINKSENSE_FILE_SERVICE_TOKEN", "LINKSENSE_FORM_SERVICE_ENDPOINT", "LINKSENSE_FORM_SERVICE_TOKEN", "LINKSENSE_IMAGE_GENERATION_ENDPOINT", "LINKSENSE_IMAGE_GENERATION_TOKEN", "LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT", "LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS", "LINKSENSE_KNOWLEDGE_SERVICE_TOKEN", "LINKSENSE_SKILL_CREATOR_ENDPOINT", "LINKSENSE_SKILL_CREATOR_TOKEN", "LINKSENSE_SKILL_MANAGEMENT_ENDPOINT", "LINKSENSE_SKILL_MANAGEMENT_TOKEN", "LINKSENSE_APPLICATION_BUILDER_ENDPOINT", "LINKSENSE_APPLICATION_BUILDER_TOKEN"]',
+      'env_vars = ["LINKSENSE_COLLABORATION_MODE", "LINKSENSE_CONVERSATION_ID", "LINKSENSE_CURRENT_USER_ENDPOINT", "LINKSENSE_CURRENT_USER_TOKEN", "LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT", "LINKSENSE_AUTOMATION_STOP_ENDPOINT", "LINKSENSE_AUTOMATION_ENDPOINT", "LINKSENSE_AUTOMATION_TOKEN", "LINKSENSE_FILE_SERVICE_ENDPOINT", "LINKSENSE_FILE_SERVICE_TOKEN", "LINKSENSE_FORM_SERVICE_ENDPOINT", "LINKSENSE_FORM_SERVICE_TOKEN", "LINKSENSE_IMAGE_GENERATION_ENDPOINT", "LINKSENSE_IMAGE_GENERATION_TOKEN", "LINKSENSE_KNOWLEDGE_SEARCH_ENDPOINT", "LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS", "LINKSENSE_KNOWLEDGE_SERVICE_TOKEN", "LINKSENSE_SKILL_CREATOR_ENDPOINT", "LINKSENSE_SKILL_CREATOR_TOKEN", "LINKSENSE_SKILL_MANAGEMENT_ENDPOINT", "LINKSENSE_SKILL_MANAGEMENT_TOKEN", "LINKSENSE_APPLICATION_BUILDER_ENDPOINT", "LINKSENSE_APPLICATION_BUILDER_TOKEN", "LINKSENSE_WEB_SITE_ENDPOINT", "LINKSENSE_WEB_SITE_TOKEN"]',
     )
     expect(managedServiceConfig).toContain("required = true")
     expect(managedServiceConfig).toContain("tool_timeout_sec = 3153600000")
@@ -1516,6 +1517,8 @@ async function publishedRuntimeFixture() {
   const userHome = path.join(root, "home")
   const controlRoot = path.join(root, "control")
   const skillsRoot = path.join(userHome, ".agents", "skills")
+  const publicSiteSkillRoot = path.join(skillsRoot, PUBLIC_SITE_SKILL_NAME)
+  const publicSiteSkill = path.join(publicSiteSkillRoot, "SKILL.md")
   const pluginsRoot = path.join(userHome, ".agents", "plugin-sources")
   const pluginRoot = path.join(pluginsRoot, "documents")
   const marketplacePath = path.join(
@@ -1546,6 +1549,7 @@ async function publishedRuntimeFixture() {
       recursive: true,
     }),
     mkdir(path.join(skillsRoot, "linksense-interactive-app-builder"), { recursive: true }),
+    mkdir(publicSiteSkillRoot, { recursive: true }),
     mkdir(pluginRoot, { recursive: true }),
     mkdir(path.join(userHome, ".codex", "plugins"), { recursive: true }),
     mkdir(path.dirname(marketplacePath), { recursive: true }),
@@ -1595,6 +1599,7 @@ async function publishedRuntimeFixture() {
       "creator",
     ),
     writeFile(path.join(skillsRoot, "linksense-interactive-app-builder", "SKILL.md"), "application builder"),
+    writeFile(publicSiteSkill, "public site"),
     writeFile(path.join(pluginRoot, "plugin.json"), "documents"),
     writeFile(marketplacePath, marketplace),
   ])
@@ -1612,6 +1617,7 @@ async function publishedRuntimeFixture() {
     [path.join(skillsRoot, "linksense-knowledge-base"), 0o750],
     [path.join(skillsRoot, "linksense-skill-creator"), 0o750],
     [path.join(skillsRoot, "linksense-interactive-app-builder"), 0o750],
+    [publicSiteSkillRoot, 0o750],
     [path.join(userHome, ".agents", "plugins"), 0o750],
     [path.join(userHome, ".codex"), 0o770],
     [pluginsRoot, 0o750],
@@ -1632,6 +1638,7 @@ async function publishedRuntimeFixture() {
     path.join(skillsRoot, "linksense-knowledge-base", "SKILL.md"),
     path.join(skillsRoot, "linksense-skill-creator", "SKILL.md"),
     path.join(skillsRoot, "linksense-interactive-app-builder", "SKILL.md"),
+    publicSiteSkill,
     path.join(pluginRoot, "plugin.json"),
     marketplacePath,
   ]

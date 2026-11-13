@@ -9969,6 +9969,49 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it("invokes the built-in public-site Skill and an existing same-named Skill by their distinct IDs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-site-skill-collision-"));
+    roots.push(root);
+    const name = "linksense-public-site";
+    const alias = "linksense-public-site-builtin-2";
+    const customId = "01900000-0000-7000-8000-000000000011";
+    const occupiedAlias = "linksense-public-site-builtin-1";
+    const skills = await Promise.all([name, occupiedAlias, alias].map(async (name) => {
+      const path = join(taskRuntimeHome(root), ".agents", "skills", name, "SKILL.md");
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, `---\nname: ${name}\n---\n`);
+      return { name, path, scope: "user" as const, enabled: true };
+    }));
+    const controlled = createControlledAppServer({ skills });
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    const base = startOperationInput();
+    try {
+      await pool.startTurn({
+        ...base,
+        capabilities: [
+          { id: customId, name, type: "skill", revision: capabilityRevision },
+          { id: "01900000-0000-7000-8000-000000000012", name: occupiedAlias, type: "skill", revision: capabilityRevision },
+        ],
+        context: {
+          ...base.context,
+          prioritySkills: [
+            { id: "builtin:capability:linksense-public-site", name },
+            { id: customId, name },
+          ],
+        },
+      });
+      const start = controlled.requests.find((request) => request.method === "turn/start");
+      expect(start?.params).toMatchObject({
+        input: [{
+          type: "text",
+          text: `[$${alias}](${join(taskRuntimeHome(root), ".agents", "skills", alias, "SKILL.md")}) [$${name}](${join(taskRuntimeHome(root), ".agents", "skills", name, "SKILL.md")}) ${base.context.userInput}`,
+        }],
+      });
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
   it("starts a turn with 129 valid skills and can select the last skill", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-large-skill-catalog-"));
     roots.push(root);
@@ -12354,6 +12397,9 @@ function createControlledAppServer(
                                     inspect_application_development: {},
                                     inspect_application_tests: {},
                                     update_application_metadata: {},
+                                    publish_web_site: {},
+                                    list_web_sites: {},
+                                    update_web_site: {},
                                     generate_image: {},
                                     preview_skill_zip: {},
                                     install_skill: {},

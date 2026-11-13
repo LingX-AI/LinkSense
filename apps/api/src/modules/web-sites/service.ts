@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import JSZip from "jszip";
-import { webBundleManifestSchema, webSiteSchema, type WebBundleManifest, type WebSite, type WebSiteCreate, type WebSiteUpdate } from "@linksense/shared";
+import { conversationWebSiteSchema, conversationWebSitesSchema, webSiteCursorSchema, type ConversationWebSite } from "@linksense/shared";
+import { webBundleManifestSchema, webSiteSchema, webSiteToolPageSchema, webSiteWithUrlSchema, type WebBundleManifest, type WebSite, type WebSiteCreate, type WebSiteToolPage, type WebSiteToolRequest, type WebSiteUpdate, type WebSiteWithUrl } from "@linksense/shared";
 import type { ObjectStorage } from "../../adapters/object-storage.js";
 import { AppError } from "../../lib/errors.js";
 import type { SiteAndRelease, SiteListInput, WebSiteStore } from "./repository.js";
@@ -11,6 +12,18 @@ import { WebArtifactResources } from "./artifact-resources.js";
 export class WebSiteService {
   private readonly resources: WebArtifactResources;
   constructor(private readonly store: WebSiteStore, private readonly storage: ObjectStorage) { this.resources = new WebArtifactResources(store, storage); }
+  async conversationDeliveries(ownerId: string, conversationId: string, publicBaseUrl: string): Promise<ConversationWebSite[]> {
+    const rows = await this.store.conversationDeliveries(ownerId, conversationId);
+    return conversationWebSitesSchema.parse(rows.map(row => {
+      const delivery = conversationWebSiteSchema.omit({ url: true }).parse(row);
+      return { ...delivery, url: new URL(`/web/${delivery.slug}`, publicBaseUrl).href };
+    }));
+  }
+  async publishedSlugForOwner(ownerId: string, siteId: string): Promise<string> {
+    const { site } = await this.store.owned(ownerId, siteId);
+    if (site.status !== "published") throw new AppError("WEB_SITE_NOT_FOUND");
+    return webSiteSchema.shape.slug.parse(site.slug);
+  }
   async list(ownerId: string, input: SiteListInput) {
     const rows = await this.store.list(ownerId, input);
     const items = rows.slice(0, input.limit).map(projectSite);
@@ -47,6 +60,39 @@ export class WebSiteService {
     for (const file of manifest.files) zip.file(file.path, await prepareWebResource(await this.resources.read(file), file.path, paths));
     return { data: await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 1 } }), filename: `${site.slug}.zip` };
   }
+  /** Owner- and active-turn-scoped entry point for the agent publishing tool. */
+  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: WebSiteToolRequest, publicBaseUrl: string): Promise<WebSiteWithUrl | WebSiteToolPage> {
+    await this.store.assertActor(ownerId);
+    await this.store.assertActiveTurn(ownerId, conversationId, turnId);
+    if (request.operation === "list") {
+      const page = await this.list(ownerId, {
+        limit: request.limit,
+        ...(request.search !== undefined ? { search: request.search } : {}),
+        ...(request.status !== undefined ? { status: request.status } : {}),
+        ...(request.cursor !== undefined ? { cursor: parseWebSiteCursor(request.cursor) } : {}),
+      });
+      return webSiteToolPageSchema.parse({ items: page.items.map(site => withUrl(site, publicBaseUrl)), next_cursor: page.next_cursor });
+    }
+    if (request.operation === "update") {
+      const input: WebSiteUpdate = {
+        ...(request.name !== undefined ? { name: request.name } : {}),
+        ...(request.description !== undefined ? { description: request.description } : {}),
+        ...(request.slug !== undefined ? { slug: request.slug } : {}),
+        ...(request.status !== undefined ? { status: request.status } : {}),
+      };
+      if (Object.keys(input).length === 0) throw new AppError("VALIDATION_ERROR");
+      return withUrl(await this.update(ownerId, request.site_id, input), publicBaseUrl);
+    }
+    if (request.site_id) return withUrl(await this.publish(ownerId, request.site_id, request.file_id), publicBaseUrl);
+    if (!request.name) throw new AppError("VALIDATION_ERROR");
+    return withUrl(await this.create(ownerId, {
+      conversation_id: conversationId,
+      file_id: request.file_id,
+      name: request.name,
+      description: request.description ?? "",
+      ...(request.slug !== undefined ? { slug: request.slug } : {}),
+    }), publicBaseUrl);
+  }
   private async sourceBundle(ownerId: string, conversationId: string | null, fileId: string): Promise<{ manifest: WebBundleManifest; sourceTitle: string; conversationId: string }> {
     const source = await this.resources.source(ownerId, conversationId, fileId);
     for (const asset of source.manifest.files) if (await this.storage.getObjectSize(asset.object_key) !== asset.size_bytes) throw new AppError("WEB_SITE_BUNDLE_INVALID");
@@ -65,3 +111,11 @@ export function projectSite({ site, release }: SiteAndRelease): WebSite {
   });
 }
 export function encodeResourcePath(path: string): string { return path.split("/").map(encodeURIComponent).join("/"); }
+export function parseWebSiteCursor(value: string): NonNullable<SiteListInput["cursor"]> {
+  const [time, id] = webSiteCursorSchema.parse(value).split("|");
+  if (!time || !id) throw new AppError("VALIDATION_ERROR");
+  return { updatedAt: new Date(time), id };
+}
+function withUrl(site: WebSite, publicBaseUrl: string): WebSiteWithUrl {
+  return webSiteWithUrlSchema.parse({ ...site, url: new URL(site.url_path, publicBaseUrl).href });
+}

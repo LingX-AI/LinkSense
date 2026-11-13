@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
-import { webSiteSchema, htmlPreviewSourceSchema } from "@linksense/shared";
+import { conversationWebSitesSchema, webSiteSchema, htmlPreviewSourceSchema } from "@linksense/shared";
 import { createPrismaClient } from "../../src/db.js";
 import { testConfig } from "../test-config.js";
 import { LinkSenseRedis } from "../../src/adapters/redis.js";
@@ -141,10 +141,18 @@ try {
   await writeFile(join(publicDirectory, "data.json"), JSON.stringify({ message: "配套 JSON 数据加载成功" }));
   await writeFile(join(publicDirectory, "assets/counter.js"), 'export const label = "第一版";');
   await writeFile(join(publicDirectory, "assets/main.js"), `import {label} from "/assets/counter.js";document.querySelector('#version').textContent=label;let count=0;document.querySelector('#counter').onclick=()=>{document.querySelector('#counter').textContent='点击 '+(++count)};const data=await fetch('./data.json').then(r=>r.json());document.querySelector('#data').textContent=data.message;let protectedCount=0;try{void parent.document.body}catch{protectedCount++}try{if(localStorage.getItem('linksense.auth.access-session')===null)protectedCount++}catch{protectedCount++}document.querySelector('#isolation').textContent='隔离检查 '+protectedCount+'/2';await document.fonts.ready;document.querySelector('#fonts').textContent=document.fonts.check('16px Demo')?'配套字体加载成功':'字体加载失败';`);
-  await db.conversationTurn.create({ data: { conversationId: task.id, submittedBy: owner.id, sequenceNo: 1, codexThreadId: "qa-thread", codexTurnId: "qa-turn", status: "running", submitMode: "normal", capabilityGeneration: "a".repeat(64), capabilitiesJson: [], startedAt: new Date() } });
+  await db.conversation.update({ where: { id: task.id }, data: { codexThreadId: "qa-thread" } });
+  const sourceTurn = await db.conversationTurn.create({ data: { conversationId: task.id, submittedBy: owner.id, sequenceNo: 1, codexThreadId: "qa-thread", codexTurnId: "qa-turn", status: "running", submitMode: "normal", capabilityGeneration: "a".repeat(64), capabilitiesJson: [], startedAt: new Date() } });
   const register = () => services!.files.registerArtifact({ ownerId: owner.id, conversationId: task.id, codexTurnId: "qa-turn", workspaceRelativePath: "artifacts/site/index.html", displayName: "山海集.html", mimeType: "text/html", webRootRelativePath: "artifacts/site" });
   const first = await register();
   const site = await createSite(first.file_id, "shanhai-demo");
+  const deliveryUrl = `${prefix}/by-conversation/${task.id}`;
+  const deliveries = async () => conversationWebSitesSchema.parse((await api.inject({ url: deliveryUrl, headers })).json().data);
+  assert.deepEqual(await deliveries(), [{
+    id: site.id, turn_id: sourceTurn.id, source_file_id: first.file_id,
+    name: site.name, slug: site.slug, status: "published", url: `${publicBaseUrl}${site.url_path}`,
+  }]);
+  assert.deepEqual((await api.inject({ url: deliveryUrl, headers: { authorization: `Bearer ${otherToken}` } })).json().data, []);
   const initialEntry = await services.webSites.publicEntry(site.slug);
   const firstContent = await api.inject(initialEntry.path);
   assert.equal(firstContent.statusCode, 200, firstContent.body);
@@ -282,6 +290,10 @@ try {
   assert.equal((await api.inject(crossEntry.path.replace("index.html", "assets/logo.svg"))).statusCode, 200);
   assert.equal((await api.inject({ url: `${prefix}/${site.id}/sources`, headers })).json().data.some((file: { id: string }) => file.id === redesigned.file_id), true);
   assert.equal((await api.inject({ url: `${prefix}?conversation_id=${newTask.id}`, headers })).json().data.items[0].id, site.id);
+  assert((await deliveries()).some(delivery => delivery.source_file_id === first.file_id));
+  assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${site.id}`, headers, payload: { status: "disabled" } })).statusCode, 200);
+  assert((await deliveries()).every(delivery => delivery.status === "disabled"));
+  assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${site.id}`, headers, payload: { status: "published" } })).statusCode, 200);
 
   const remainingSites = await db.webSite.findMany({ where: { conversationId: task.id } });
   await services.conversations.delete(owner.id, task.id, {});

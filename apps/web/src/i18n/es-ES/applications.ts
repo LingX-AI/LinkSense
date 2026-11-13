@@ -135,7 +135,26 @@ export const applicationsMessages = {
       interactiveTitle: "Crear una aplicación interactiva por chat",
       interactiveDescription:
         "Comparte tu idea y deja que LinkSense la haga realidad.",
+      publicSiteTitle: "Crear un sitio público",
+      publicSiteDescription:
+        "Crea un sitio web estático que cualquiera con el enlace pueda abrir.",
       start: "Empezar a crear",
+    },
+    publicSiteCreation: {
+      title: "Crear un sitio público",
+      description:
+        "Crea un sitio web estático público. Puedes añadir más requisitos en la conversación.",
+      name: "Nombre del sitio",
+      goal: "¿Qué debe hacer el sitio? (opcional)",
+      goalPlaceholder:
+        "Por ejemplo: crea un programa de eventos con un filtro por fecha",
+      defaultGoal:
+        "Pregúntame qué contenido e interacciones necesita el sitio.",
+      start: "Crear y empezar",
+      openLocally: "Abrir en mi navegador después de publicar",
+      openInstruction: "Después de publicar, usa Browser Use para abrir el sitio una sola vez en mi navegador local.",
+      prompt:
+        "Crea un sitio web público para mí. Nombre del sitio: {{name}}. Requisitos: {{goal}}. Usa el flujo de sitio público para crear una página estática, publícala y dame el enlace público.",
     },
     createStandardApp: "Crear aplicación estándar",
     createStandardAppDescription:

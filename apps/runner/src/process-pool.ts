@@ -8,6 +8,7 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { ApplicationBuilderRequestError } from "./application-builder-error.js";
+import { WebSiteRequestError } from "./web-site-error.js";
 import {
   chmod,
   mkdtemp,
@@ -40,6 +41,7 @@ import type {
   RuntimeMcpServer,
 } from "@linksense/shared";
 import {
+  builtInCapabilityId,
   builtInSkillNames,
   codexModelReasoningCatalogSchema,
   conversationFormRecommendationDelayMs,
@@ -52,6 +54,8 @@ import {
   conversationFormUiHintsSchema,
   coreMcpServerKey,
   modelIdentifierSchema,
+  PUBLIC_SITE_SKILL_NAME,
+  publicSiteRuntimeSkillName,
   reasoningEffortSchema,
   runnerCodexPreviewLimits,
   RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT,
@@ -203,6 +207,8 @@ const PLAN_MUTATION_SERVICE_ENVIRONMENT_NAMES = new Set([
   "LINKSENSE_SKILL_CREATOR_TOKEN",
   "LINKSENSE_APPLICATION_BUILDER_ENDPOINT",
   "LINKSENSE_APPLICATION_BUILDER_TOKEN",
+  "LINKSENSE_WEB_SITE_ENDPOINT",
+  "LINKSENSE_WEB_SITE_TOKEN",
 ]);
 
 export type StartTurnInput = {
@@ -501,15 +507,17 @@ function resolvePrioritySkills(
     authorizedSkills.map((skill) => [skill.name, skill] as const),
   );
   const seen = new Set<string>();
-  const skills = context.prioritySkills.map(({ name }) => {
-    const skill = byName.get(name);
+  const skills = context.prioritySkills.map(({ id, name }) => {
+    const skill = id === builtInCapabilityId(PUBLIC_SITE_SKILL_NAME)
+      ? authorizedSkills.find((entry) => entry.builtInPublicSite)
+      : byName.get(name);
     if (!skill) {
       throw new CodexProtocolError("priority skill is unavailable");
     }
-    if (seen.has(name)) {
+    if (seen.has(skill.name)) {
       throw new CodexProtocolError("priority skill is duplicated");
     }
-    seen.add(name);
+    seen.add(skill.name);
     return skill;
   });
   // Knowledge selection already carries a server-authorized scope. Reuse its
@@ -1678,6 +1686,8 @@ export class AppServerProcessPool {
               LINKSENSE_SKILL_MANAGEMENT_TOKEN: skillManagementToken,
               LINKSENSE_APPLICATION_BUILDER_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-application-builder/${input.conversationId}`,
               LINKSENSE_APPLICATION_BUILDER_TOKEN: skillCreatorToken,
+              LINKSENSE_WEB_SITE_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-web-site/${input.conversationId}`,
+              LINKSENSE_WEB_SITE_TOKEN: skillCreatorToken,
               LINKSENSE_CURRENT_USER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/info`,
               LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/referenced-conversation`,
               LINKSENSE_AUTOMATION_STOP_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/stop-monitor`,
@@ -3789,6 +3799,8 @@ export class AppServerProcessPool {
               LINKSENSE_SKILL_MANAGEMENT_TOKEN: skillManagementToken,
               LINKSENSE_APPLICATION_BUILDER_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-application-builder/${input.conversationId}`,
               LINKSENSE_APPLICATION_BUILDER_TOKEN: skillCreatorToken,
+              LINKSENSE_WEB_SITE_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-web-site/${input.conversationId}`,
+              LINKSENSE_WEB_SITE_TOKEN: skillCreatorToken,
               LINKSENSE_CURRENT_USER_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/info`,
               LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/referenced-conversation`,
               LINKSENSE_AUTOMATION_STOP_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/stop-monitor`,
@@ -4274,6 +4286,14 @@ export class AppServerProcessPool {
     if (!safeTokenEqual(token, managed.skillCreatorToken) || managed.activeCollaborationMode === "plan") throw new ApplicationBuilderRequestError("APPLICATION_DEVELOPMENT_FORBIDDEN", false, 403);
     if (!this.options.eventSink.applicationBuilder) throw new ApplicationBuilderRequestError("APPLICATION_DEVELOPMENT_UNAVAILABLE", true, 503);
     return this.options.eventSink.applicationBuilder({ conversationId, turnId: managed.activeProjectionTurnId, request });
+  }
+
+  async webSite(conversationId: string, token: string, request: import("@linksense/shared").WebSiteToolRequest): Promise<unknown> {
+    const managed = this.processes.get(conversationId);
+    if (!managed?.activeTurnId || !managed.activeProjectionTurnId) throw new WebSiteRequestError("WEB_SITE_TURN_INACTIVE", false, 409);
+    if (!safeTokenEqual(token, managed.skillCreatorToken) || managed.activeCollaborationMode === "plan") throw new WebSiteRequestError("WEB_SITE_FORBIDDEN", false, 403);
+    if (!this.options.eventSink.webSite) throw new WebSiteRequestError("WEB_SITE_UNAVAILABLE", true, 503);
+    return this.options.eventSink.webSite({ conversationId, turnId: managed.activeProjectionTurnId, request });
   }
 
   async confirmSkillInstall(
@@ -5999,6 +6019,7 @@ export class AppServerProcessPool {
     const enabledSkills = catalog.skills.filter((skill) => skill.enabled);
     const enabledStandaloneSkillNames = new Set<string>();
     const authorizedSkills: AuthorizedTurnSkill[] = [];
+    const publicSiteName = publicSiteRuntimeSkillName(authorizedStandaloneSkillNames);
     const canonicalSkillsRoot = capabilityRuntime
       ? await realpath(capabilityRuntime.skillsRoot).catch(() => null)
       : null;
@@ -6011,6 +6032,7 @@ export class AppServerProcessPool {
       if (
         isStandaloneSkillPath &&
         !RESERVED_LINKSENSE_SKILL_NAMES.has(skill.name) &&
+        skill.name !== publicSiteName &&
         !authorizedStandaloneSkillNames.has(skill.name)
       ) {
         throw new CodexProtocolError(
@@ -6078,6 +6100,7 @@ export class AppServerProcessPool {
           ? { description: skill.description }
           : {}),
         path: stablePath,
+        ...(isStandaloneSkillPath && skill.name === publicSiteName ? { builtInPublicSite: true } : {}),
       });
     }
     for (const skillName of authorizedStandaloneSkillNames) {

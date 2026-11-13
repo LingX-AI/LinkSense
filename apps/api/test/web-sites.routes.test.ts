@@ -22,11 +22,22 @@ async function setup() {
     if (request.headers.authorization !== "Bearer test-owner") throw new AppError("AUTH_REQUIRED");
     Object.assign(request, { authUser: { id: ownerId } });
   });
-  await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: fixture.service });
+  await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: fixture.service, publicBaseUrl: "https://linksense.example.test" });
   await app.register(publicWebSiteRoutes, { prefix: "/web", service: fixture.service, publicBaseUrl: "https://linksense.example.test" });
   return { ...fixture, app };
 }
 describe("website HTTP boundary", () => {
+  it("returns only owner-scoped site delivery metadata with the site's current status", async () => {
+    const fixture = await setup();
+    const turnId = "60000000-0000-4000-8000-000000000001";
+    fixture.store.conversationDeliveries.mockResolvedValue([{ id: siteId, turn_id: turnId, source_file_id: fileId, name: "Sample", slug: "sample", status: "disabled", internal: "private" }]);
+    const url = `/api/v1/web-sites/by-conversation/${taskId}`;
+    expect((await fixture.app.inject(url)).statusCode).toBe(401);
+    const response = await fixture.app.inject({ url, headers: { authorization: "Bearer test-owner" } });
+    expect(response.statusCode).toBe(200);
+    expect(fixture.store.conversationDeliveries).toHaveBeenCalledExactlyOnceWith(ownerId, taskId);
+    expect(response.json().data).toEqual([{ id: siteId, turn_id: turnId, source_file_id: fileId, name: "Sample", slug: "sample", status: "disabled", url: "https://linksense.example.test/web/sample" }]);
+  });
   it("serves an anonymous sandboxed shell and directly sandboxed assets with anonymous CORS", async () => {
     const fixture = await setup();
     fixture.row.site.name = '<img src=x onerror="alert(1)">';
@@ -57,6 +68,17 @@ describe("website HTTP boundary", () => {
     }
     expect(fixture.store.create).not.toHaveBeenCalled();
     expect(fixture.store.publish).not.toHaveBeenCalled();
+  });
+  it("allows release assets from the request origin as well as the configured public origin", async () => {
+    const fixture = await setup();
+    const response = await fixture.app.inject({
+      url: `/web/sample/_releases/${releaseId}/index.html`,
+      headers: { host: "127.0.0.1:5273" },
+    });
+    const policy = response.headers["content-security-policy"];
+    expect(response.statusCode).toBe(200);
+    expect(policy).toContain("http://127.0.0.1:5273/web/");
+    expect(policy).toContain("https://linksense.example.test/web/");
   });
   it.each(["/web/sample", "/web/sample/", `/web/sample/_releases/${releaseId}/index.html`])("keeps existing site HEAD responses embeddable at %s", async (url) => {
     const fixture = await setup();

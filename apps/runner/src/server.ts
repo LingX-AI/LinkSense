@@ -5,6 +5,7 @@ import type { RunnerEventSink } from "./event-sink.js";
 import { MICROSOFT_CONNECTION_BODY_LIMIT } from "@linksense/shared";
 import { timingSafeEqual } from "node:crypto";
 import { ApplicationBuilderRequestError } from "./application-builder-error.js";
+import { WebSiteRequestError } from "./web-site-error.js";
 import { constants } from "node:fs";
 import { access, mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -16,6 +17,7 @@ import {
   runtimeWorkspaceHeader,
   applicationBuilderRequestSchema,
   userWorkspacePathSchema,
+  webSiteToolRequestSchema,
   builtInCapabilityDefinitionForId,
   capabilitySelectionIdSchema,
   conversationFormRequestedSchema,
@@ -818,6 +820,7 @@ export function buildRunnerServer(
       request.url.startsWith("/mcp-skill-creator/") ||
       request.url.startsWith("/mcp-skills/") ||
       request.url.startsWith("/mcp-application-builder/") ||
+      request.url.startsWith("/mcp-web-site/") ||
       request.url.startsWith("/mcp-current-user/") ||
       request.url.startsWith("/mcp-automations/") ||
       request.url.startsWith("/mcp-connections/") ||
@@ -1281,6 +1284,30 @@ export function buildRunnerServer(
           ? error
           : new ApplicationBuilderRequestError("APPLICATION_DEVELOPMENT_UNAVAILABLE", true, 503);
         request.log.warn({ conversationId: conversationId.data, reasonCode: failure.code }, "application development request rejected");
+        return reply.code(failure.statusCode).send({ code: failure.code, retryable: failure.retryable });
+      }
+    },
+  );
+
+  app.post<{ Params: { conversationId: string } }>(
+    "/mcp-web-site/:conversationId",
+    async (request, reply) => {
+      const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
+      if (!token) {
+        return reply.code(401).send({ code: "WEB_SITE_FORBIDDEN", retryable: false });
+      }
+      const conversationId = uuid.safeParse(request.params.conversationId);
+      const body = webSiteToolRequestSchema.safeParse(request.body);
+      if (!conversationId.success || !body.success) {
+        return reply.code(400).send({ code: "WEB_SITE_INVALID", retryable: false });
+      }
+      try {
+        return await pool.webSite(conversationId.data, token, body.data);
+      } catch (error) {
+        const failure = error instanceof WebSiteRequestError
+          ? error
+          : new WebSiteRequestError("WEB_SITE_UNAVAILABLE", true, 503);
+        request.log.warn({ conversationId: conversationId.data, reasonCode: failure.code }, "web site request rejected");
         return reply.code(failure.statusCode).send({ code: failure.code, retryable: failure.retryable });
       }
     },
