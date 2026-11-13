@@ -71,6 +71,15 @@ Help me install and start LinkSense Core by following https://raw.githubusercont
 
 使用问题和功能建议请前往 [GitHub Discussions](../../discussions)。使用 LinkSense 的组织可自愿加入[使用组织列表](./docs/community/ADOPTERS.md)。
 
+## 社区与联系
+
+请根据问题类型选择合适的渠道：
+
+- [GitHub Discussions](../../discussions)：提问求助、反馈建议和提出想法。
+- [GitHub Issues](../../issues)：报告可复现的缺陷、跟进工程事项。提交前请先阅读[贡献指南](./.github/CONTRIBUTING.md)。
+- [Discord](https://discord.gg/NBQYnaDWuD)：实时交流，分享你的应用，与其他 LinkSense 用户沟通。
+- [X](https://x.com/LinkSense_OSS)：关注 LinkSense，获取版本发布和项目动态。
+
 ## 安全
 
 隔离边界是用户 Worker，同一用户的任务可以访问该用户共享的文件。普通执行允许互联网出站，不逐条审批命令；接入外部服务时，相关数据会按配置发送至对应服务。对外开放部署前，请阅读[安全策略](./.github/SECURITY.md)。安全问题请私下报告至 [security@linksense.org](mailto:security@linksense.org)。

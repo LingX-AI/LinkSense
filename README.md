@@ -71,6 +71,16 @@ before opening a pull request. Code contributions require a [Contributor License
 
 Questions and feature ideas belong in [GitHub Discussions](../../discussions). Organizations can opt in to the [adopters list](./docs/community/ADOPTERS.md).
 
+## Community & contact
+
+Choose the channel that best fits your question:
+
+- [GitHub Discussions](../../discussions): Get help, share feedback, and propose ideas.
+- [GitHub Issues](../../issues): Report reproducible bugs and track engineering work. Read the [contribution guide](./.github/CONTRIBUTING.md) before opening one.
+- [Discord](https://discord.gg/NBQYnaDWuD): Chat in real time, share your apps, and connect with other LinkSense users.
+- [X](https://x.com/LinkSense_OSS): Follow LinkSense for release news and project updates.
+- [WeChat group](./docs/brand/wechat-group-2026-11-17.jpg): Scan the QR code to join the LinkSense user group. It is valid for 7 days; if it has expired, email [hello@linksense.org](mailto:hello@linksense.org) for the latest invite.
+
 ## Security
 
 The isolation boundary is the user Worker; tasks owned by the same user can access their shared files. Normal execution allows outbound internet access without per-command approval, and configured external services receive the data sent to them. Read the [security policy](./.github/SECURITY.md) before exposing a deployment. Report vulnerabilities privately to [security@linksense.org](mailto:security@linksense.org).
@@ -92,12 +102,6 @@ If you find LinkSense useful or interesting, a GitHub Star ⭐️ would be great
 ## Star History
 
 <a href="https://www.star-history.com/?repos=lingx-ai%2Flinksense&type=date&legend=bottom-right"><picture><source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=lingx-ai/linksense&type=date&theme=dark&legend=bottom-right" /><source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=lingx-ai/linksense&type=date&legend=bottom-right" /><img alt="Star History Chart" src="https://api.star-history.com/chart?repos=lingx-ai/linksense&type=date&legend=bottom-right" /></picture></a>
-
-## Join the WeChat group
-
-<img src="./docs/brand/wechat-group-2026-11-17.jpg" alt="LinkSense WeChat group QR code" width="400">
-
-The QR code is valid for 7 days. If it has expired or you cannot join, email [hello@linksense.org](mailto:hello@linksense.org) for the latest invite.
 
 ## Acknowledgements
 
