@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import {
   coreMcpServerKey,
+  codexMessagePhaseSchema,
   imageGenerationMcpSuccessSchema,
   imageGenerationMcpFailureSchema,
   knowledgeNoAvailableBasesCodeSchema,
@@ -956,10 +957,8 @@ function sanitizeItem(
   switch (type) {
     case "agentMessage": {
       if (typeof item.text !== "string") return null;
-      const phase =
-        item.phase === "commentary" || item.phase === "final_answer"
-          ? item.phase
-          : null;
+      const parsedPhase = codexMessagePhaseSchema.safeParse(item.phase);
+      const phase = parsedPhase.success ? parsedPhase.data : null;
       return parseItem({
         type, id, text: item.text, phase,
         ...(item.delivery === "async" ? { delivery: "async" } : {}),

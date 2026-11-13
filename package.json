@@ -47,6 +47,7 @@
     "test:codex:shared-home": "tsx scripts/codex-shared-home-smoke.mts",
     "test:codex:integration": "tsx scripts/codex-thread-smoke.mts",
     "test:codex:upgrade": "pnpm --filter @linksense/runner exec tsx test/functional/codex-upgrade.ts",
+    "test:codex:history-upgrade": "tsx scripts/codex-history-upgrade-smoke.mts",
     "test:codex:upgrade:postgres": "pnpm --filter @linksense/api exec tsx test/integration/async-user-input-postgres.ts",
     "test:connections:postgres": "pnpm --filter @linksense/api exec tsx test/integration/connections-postgres.ts",
     "test:codex:model-gateway": "tsx scripts/codex-model-gateway-smoke.mts",

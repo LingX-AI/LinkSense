@@ -192,7 +192,7 @@ async function captureNativeRequest(arm: CacheBenchmarkArm, round: number): Prom
       "model_providers.link-sense.supports_websockets=false",
       "model_providers.link-sense.request_max_retries=0", "model_providers.link-sense.stream_max_retries=0",
       "features.memories=false", "features.plugins=false", "features.apps=false",
-      "features.multi_agent=false", "features.hooks=false", "features.shell_snapshot=false",
+      "agents.enabled=false", "features.hooks=false", "features.shell_snapshot=false",
       "skills.bundled.enabled=false", 'web_search="disabled"',
     ],
   });

@@ -532,8 +532,8 @@ describe("mapCodexNotification", () => {
     }
   });
 
-  it("retains final and commentary message phases on native item completion", () => {
-    for (const phase of ["commentary", "final_answer", null] as const) {
+  it("retains every native message phase and historical null phases on item completion", () => {
+    for (const phase of ["commentary", "partial_answer", "final_answer", null] as const) {
       const events = mapCodexNotification({
         method: "item/completed",
         params: {

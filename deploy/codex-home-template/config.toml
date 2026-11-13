@@ -40,7 +40,6 @@ image_generation = false
 in_app_browser = false
 # 默认关闭；Runner 根据用户的记忆选择覆盖原生功能开关。
 memories = false
-multi_agent = true
 plugin_sharing = false
 plugins = true
 remote_plugin = false
@@ -52,6 +51,10 @@ skill_mcp_dependency_install = false
 tool_call_mcp_elicitation = false
 tool_suggest = false
 workspace_dependencies = false
+
+[agents]
+# 以进程级覆盖应用于已有 HOME；不依赖已弃用的 features.multi_agent。
+enabled = true
 
 [memories]
 # 用户可在“个性化”中主动启用记忆；Runner 以更高优先级的启动参数同时

@@ -185,7 +185,7 @@ describe("public native runtime durability", () => {
     expect(JSON.stringify(projected)).not.toContain("private-message");
     expect(JSON.stringify(projected)).not.toContain("private-thread");
   });
-  it("publishes safe native progress before completion and keeps commentary out of the final answer", async () => {
+  it.each(["commentary", "partial_answer"] as const)("publishes safe %s progress before completion and selects only the final answer", async (phase) => {
     const { runtime, input } = fixture();
     const publish = vi.fn(async () => undefined);
     let emit: (value: unknown) => void = () => undefined;
@@ -211,7 +211,7 @@ describe("public native runtime durability", () => {
       item: {
         id: "comment",
         type: "agentMessage",
-        phase: "commentary",
+        phase,
         text: "Checking the evidence",
       },
     });
@@ -219,7 +219,7 @@ describe("public native runtime durability", () => {
       item: {
         id: "comment",
         type: "agentMessage",
-        phase: "commentary",
+        phase,
         text: "Checking the evidence",
       },
     });
@@ -272,7 +272,7 @@ describe("public native runtime durability", () => {
           items: [
             {
               type: "agentMessage",
-              phase: "commentary",
+              phase,
               text: "Checking the evidence",
             },
             {
@@ -288,6 +288,24 @@ describe("public native runtime durability", () => {
       await runtime.close();
     }
   });
+  it("does not return a partial answer as final output when native history contains no final answer", async () => {
+    const { runtime, input } = fixture();
+    let emit: (value: unknown) => void = () => undefined;
+    control.stream = (send) => { emit = send; };
+    const task = runtime.run(input);
+    await vi.waitFor(() => expect(control.requests).toHaveBeenCalledWith("turn/start", expect.anything()));
+    for (const [method, values] of [
+      ["item/started", { item: { id: "partial", type: "agentMessage", phase: "partial_answer", text: "" } }],
+      ["item/agentMessage/delta", { itemId: "partial", delta: "Preliminary answer" }],
+      ["item/completed", { item: { id: "partial", type: "agentMessage", phase: "partial_answer", text: "Preliminary answer" } }],
+      ["turn/completed", { turn: { id: "native-turn", status: "completed", items: [] } }],
+    ] as const) {
+      emit({ method, params: { threadId: "native-thread", turnId: "native-turn", ...values } });
+    }
+    expect((await task).outputText).toBe("");
+    await runtime.close();
+  });
+
   it("passes only selected guidance through native Skill inputs while retaining tool denial", async () => {
     const { runtime, input } = fixture();
     const skill = {

@@ -25,7 +25,7 @@ describe("the repository-pinned Codex runtime", () => {
     vi.unstubAllEnvs();
   });
 
-  it.each(["0.150.1", "999.0.0"])("rejects Codex %s before it can serve tasks", async (version) => {
+  it.each(["0.150.1", "0.154.0", "999.0.0"])("rejects Codex %s before it can serve tasks", async (version) => {
     const run = vi.fn<CodexVersionCommand>().mockResolvedValue({ stdout: `codex-cli ${version}\n` });
 
     await expect(assertCodexRuntimeVersion({ command: "codex" }, run)).rejects.toThrow(

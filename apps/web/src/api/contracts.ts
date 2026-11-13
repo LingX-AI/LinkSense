@@ -2,6 +2,7 @@ import {
   INTERACTIVE_APPLICATION_FILE_SOURCE,
   diskUsageSchema,
   conversationStartingTurnSchema,
+  codexMessagePhaseSchema,
   skillDisplayNameSchema,
   currentUserCreditQuotaPeriodSchema,
   creditLimitValueSchema,
@@ -421,7 +422,7 @@ export const conversationFileSchema = z
 
 export type ConversationFile = z.infer<typeof conversationFileSchema>
 
-export const nativeMessagePhaseSchema = z.enum(["commentary", "final_answer"])
+export const nativeMessagePhaseSchema = codexMessagePhaseSchema
 export type NativeMessagePhase = z.infer<typeof nativeMessagePhaseSchema>
 export const nativeMessageOutputKindSchema = z.enum(["agent_message", "plan"])
 export type NativeMessageOutputKind = z.infer<

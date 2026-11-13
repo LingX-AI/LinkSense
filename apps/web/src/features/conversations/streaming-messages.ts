@@ -1,3 +1,4 @@
+import type { CodexMessagePhase } from "@linksense/shared"
 import type { ConversationMessage } from "@/api/contracts"
 import {
   filterKnowledgeSourceMarkerDelta,
@@ -34,7 +35,7 @@ type StreamingMessagePhaseUpdate = Readonly<{
   itemId: string
   messageId?: string
   turnId?: string | null
-  phase?: "commentary" | "final_answer" | null
+  phase?: CodexMessagePhase | null
   outputKind?: "agent_message" | "plan"
 }>
 
@@ -105,7 +106,7 @@ export function appendStreamingMessageDelta(
     itemId: string
     messageId?: string
     turnId?: string | null
-    phase?: "commentary" | "final_answer" | null
+    phase?: CodexMessagePhase | null
     outputKind?: "agent_message" | "plan"
     delta: string
     createdAt: string
@@ -158,7 +159,7 @@ export function applyStreamingMessageLifecycle(
     itemId: string
     messageId?: string
     turnId?: string | null
-    phase?: "commentary" | "final_answer" | null
+    phase?: CodexMessagePhase | null
     outputKind?: "agent_message" | "plan"
     text?: string
     createdAt: string
