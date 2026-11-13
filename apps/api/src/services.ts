@@ -1,3 +1,4 @@
+import { WebSearchSettingsService } from "./modules/system/web-search-settings.js";
 import { PublicKnowledgeService } from "./modules/public-knowledge/service.js";
 import { PrismaPublicKnowledgeProgress } from "./modules/public-knowledge/progress.js";
 import { PublicKnowledgeSkills } from "./modules/public-knowledge/skills.js";
@@ -207,6 +208,7 @@ export type AppServices = {
   mailer: Mailer;
   authenticationSettings: AuthenticationSettingsService;
   modelProviderSettings: ModelProviderSettingsService;
+  webSearchSettings: WebSearchSettingsService;
   imageGenerationSettings: ImageGenerationSettingsService;
   voiceTranscriptionSettings: VoiceTranscriptionSettingsService;
   imageUnderstandingSettings: ImageUnderstandingSettingsService;
@@ -290,6 +292,7 @@ export function createServices(input: {
   const usageAnalytics = new UsageAnalyticsService(input.prisma, {
     modelCatalog: modelProviderSettings,
   });
+  const webSearchSettings = new WebSearchSettingsService(input.prisma, input.config);
   const imageGenerationSettings = new ImageGenerationSettingsService(
     input.prisma,
     input.config,
@@ -873,6 +876,7 @@ export function createServices(input: {
     mailer,
     authenticationSettings,
     modelProviderSettings,
+    webSearchSettings,
     imageGenerationSettings,
     voiceTranscriptionSettings,
     imageUnderstandingSettings,

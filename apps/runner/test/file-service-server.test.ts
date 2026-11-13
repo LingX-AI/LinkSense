@@ -365,6 +365,7 @@ describe("LinkSense Core MCP subprocess", () => {
       "list_skills",
       "request_user_form",
       "search_knowledge_base",
+      "search_web",
     ]);
     await expect(
       rpc.call(1, "tools/call", {
@@ -659,6 +660,8 @@ function startMcpServer(
       LINKSENSE_SKILL_CREATOR_ENDPOINT: "http://127.0.0.1:1/skill",
       LINKSENSE_SKILL_CREATOR_TOKEN:
         "unused-skill-token-00000000000000000000000000000000",
+      LINKSENSE_WEB_SEARCH_ENDPOINT: "http://127.0.0.1:4000/web-search",
+      LINKSENSE_WEB_SEARCH_TOKEN: "synthetic-web-search-token-000000000000000000000",
       LINKSENSE_CURRENT_USER_ENDPOINT: "http://127.0.0.1:1/current-user",
       LINKSENSE_CURRENT_USER_TOKEN:
         "unused-current-user-token-0000000000000000000000",
@@ -689,6 +692,8 @@ function startKnowledgeMcpServer(
       LINKSENSE_FORM_SERVICE_ENDPOINT: "http://127.0.0.1:1/form",
       LINKSENSE_FORM_SERVICE_TOKEN:
         "unused-form-token-00000000000000000000000000000000",
+      LINKSENSE_WEB_SEARCH_ENDPOINT: "http://127.0.0.1:4000/web-search",
+      LINKSENSE_WEB_SEARCH_TOKEN: "synthetic-web-search-token-000000000000000000000",
       LINKSENSE_CURRENT_USER_ENDPOINT: "http://127.0.0.1:1/current-user",
       LINKSENSE_CURRENT_USER_TOKEN:
         "unused-current-user-token-0000000000000000000000",

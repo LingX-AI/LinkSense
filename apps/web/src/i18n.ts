@@ -1,3 +1,4 @@
+import { webSearchMessages } from "@/features/admin/web-search-messages"
 import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
 import {
@@ -67,6 +68,7 @@ void i18n.use(initReactI18next).init({
   resources: {
     "zh-CN": {
       translation: {
+        webSearch: webSearchMessages["zh-CN"],
         ...zhCN,
         applicationSetup: applicationSetupMessages["zh-CN"],
         adminConnections: adminConnectionMessages["zh-CN"],
@@ -76,6 +78,7 @@ void i18n.use(initReactI18next).init({
     },
     "en-US": {
       translation: {
+        webSearch: webSearchMessages["en-US"],
         ...enUS,
         applicationSetup: applicationSetupMessages["en-US"],
         adminConnections: adminConnectionMessages["en-US"],
@@ -85,6 +88,7 @@ void i18n.use(initReactI18next).init({
     },
     "es-ES": {
       translation: {
+        webSearch: webSearchMessages["es-ES"],
         ...esES,
         applicationSetup: applicationSetupMessages["es-ES"],
         adminConnections: adminConnectionMessages["es-ES"],
@@ -94,6 +98,7 @@ void i18n.use(initReactI18next).init({
     },
     "pt-BR": {
       translation: {
+        webSearch: webSearchMessages["pt-BR"],
         ...ptBR,
         applicationSetup: applicationSetupMessages["pt-BR"],
         adminConnections: adminConnectionMessages["pt-BR"],
@@ -103,6 +108,7 @@ void i18n.use(initReactI18next).init({
     },
     "fr-FR": {
       translation: {
+        webSearch: webSearchMessages["fr-FR"],
         ...frFR,
         applicationSetup: applicationSetupMessages["fr-FR"],
         adminConnections: adminConnectionMessages["fr-FR"],
@@ -112,6 +118,7 @@ void i18n.use(initReactI18next).init({
     },
     "ja-JP": {
       translation: {
+        webSearch: webSearchMessages["ja-JP"],
         ...jaJP,
         applicationSetup: applicationSetupMessages["ja-JP"],
         adminConnections: adminConnectionMessages["ja-JP"],

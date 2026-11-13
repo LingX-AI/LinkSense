@@ -5,6 +5,17 @@ import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 
 export const errorMessages = {
   errors: {
+    webSearch: {
+      notConfigured: localizedErrorMessage("WEB_SEARCH_NOT_CONFIGURED", "es-ES"),
+      disabled: localizedErrorMessage("WEB_SEARCH_DISABLED", "es-ES"),
+      forbidden: localizedErrorMessage("WEB_SEARCH_FORBIDDEN", "es-ES"),
+      invalid: localizedErrorMessage("WEB_SEARCH_INVALID", "es-ES"),
+      unavailable: localizedErrorMessage("WEB_SEARCH_UNAVAILABLE", "es-ES"),
+      authFailed: localizedErrorMessage("WEB_SEARCH_AUTH_FAILED", "es-ES"),
+      rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "es-ES"),
+      responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "es-ES"),
+      timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "es-ES"),
+    },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(
         "SKILL_UNINSTALL_NOT_ALLOWED",

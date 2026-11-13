@@ -1,3 +1,5 @@
+import type { WebSearchRequest } from "@linksense/shared";
+import { WebSearchRequestError, webSearchErrorFromApi } from "./web-search-error.js";
 import type { Logger } from "pino";
 import { relative } from "node:path";
 
@@ -45,6 +47,7 @@ import { MemoryUsageOutboxStore } from "./workspace/memory-usage-outbox.js";
 import { WorkspaceManager } from "./workspace/workspace-manager.js";
 
 export interface RunnerEventSink {
+  searchWeb?(input: { conversationId: string; turnId: string; request: WebSearchRequest; signal?: AbortSignal }): Promise<unknown>;
   manageSkills?(input: InternalSkillManagementRequest & { signal?: AbortSignal }): Promise<unknown>;
   manageAutomation?(input: {
     conversationId: string;
@@ -488,6 +491,15 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     return result;
   }
 
+  async searchWeb(input: { conversationId: string; turnId: string; request: WebSearchRequest; signal?: AbortSignal }): Promise<unknown> {
+    const { signal, ...body } = input;
+    const response = await this.request("/internal/web-search/search", body, this.workspaceManager.ownerFor(input.conversationId), signal)
+      .catch(() => { throw new WebSearchRequestError("WEB_SEARCH_UNAVAILABLE"); });
+    const result = await parseResponseBody(response);
+    if (!response.ok) throw webSearchErrorFromApi(result);
+    return result;
+  }
+
   getCurrentUserInfo(input: {
     conversationId: string;
     turnId: string;
@@ -819,6 +831,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
           this.options.knowledgeSearchTimeoutMs ??
             DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS,
         ).workerRelayMs
+      : pathname.startsWith("/internal/web-search/") ? 75_000
       : pathname.startsWith("/internal/image-generation/")
         ? 180_000
       : pathname === "/internal/application-builder" || pathname.startsWith("/internal/connections/") || pathname.startsWith("/internal/automations/") || pathname.startsWith("/internal/skills/") ? 60_000

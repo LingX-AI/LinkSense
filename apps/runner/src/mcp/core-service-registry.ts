@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { webSearchCoreMcpModule } from "./core-services/web-search-service.js"
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js"
 
 import { currentUserCoreMcpModule } from "./core-services/current-user-service.js"
@@ -25,6 +26,7 @@ export const coreMcpModuleRegistry: readonly CoreMcpModuleDefinition[] = [
   fileServiceCoreMcpModule,
   documentConversionCoreMcpModule,
   currentUserCoreMcpModule,
+  webSearchCoreMcpModule,
   imageGenerationCoreMcpModule,
   knowledgeCoreMcpModule,
   interactiveFormCoreMcpModule,

@@ -720,6 +720,23 @@ describe("controller authentication and routing", () => {
     await server.close()
   })
 
+  it("relays web search through the authenticated owner callback and preserves failures", async () => {
+    const { server } = await createServer()
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ error_code: "WEB_SEARCH_DISABLED" }, { status: 503 }))
+    vi.stubGlobal("fetch", fetchMock)
+    const payload = { conversationId: "01900000-0000-7000-8000-000000000001", turnId: "01900000-0000-7000-8000-000000000004", request: { query: "test" } }
+    expect((await server.inject({ method: "POST", url: "/internal/web-search/search", payload })).statusCode).toBe(401)
+    expect(fetchMock).not.toHaveBeenCalled()
+    const response = await server.inject({ method: "POST", url: "/internal/web-search/search", headers: {
+      authorization: `Bearer ${ownerWorkerSecret(ownerId, secret)}`, "x-linksense-owner-id": ownerId,
+    }, payload })
+    expect(response.statusCode).toBe(503)
+    expect(response.json()).toEqual({ error_code: "WEB_SEARCH_DISABLED" })
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/internal/web-search/search")
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual(payload)
+    await server.close()
+  })
+
   it("relays current user info through the scoped internal callback boundary", async () => {
     const { server } = await createServer()
     const apiResponse = {

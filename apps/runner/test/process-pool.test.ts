@@ -1814,6 +1814,23 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it.each(["default", "plan"] as const)("binds web search to the active task in %s mode and rejects wrong or retired tokens", async (collaborationMode) => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-web-search-token-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+    const input = { ...startOperationInput(), collaborationMode };
+    await pool.startTurn(input);
+    const token = controlled.environment?.LINKSENSE_WEB_SEARCH_TOKEN;
+    if (!token) throw new Error("missing test search token");
+    expect(controlled.environment?.LINKSENSE_WEB_SEARCH_ENDPOINT).toBe(`http://127.0.0.1:4010/mcp-web-search/${input.conversationId}/search`);
+    await expect(pool.searchWeb(input.conversationId, "wrong-token", { query: "test" })).rejects.toMatchObject({ code: "WEB_SEARCH_FORBIDDEN" });
+    await expect(pool.searchWeb(input.conversationId, token, { query: "test", max_results: 3 })).resolves.toEqual({});
+    expect(eventSink.searchWeb).toHaveBeenCalledWith({ conversationId: input.conversationId, turnId: input.projectionTurnId, request: { query: "test", max_results: 3 } });
+    await pool.closeAll();
+    await expect(pool.searchWeb(input.conversationId, token, { query: "test" })).rejects.toMatchObject({ code: "WEB_SEARCH_FORBIDDEN" });
+  });
+
   it("binds current user info to the active projection turn and MCP token", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-current-user-token-"));
     roots.push(root);
@@ -11897,6 +11914,7 @@ function createStartOperationPool(
     listKnowledgeDocuments: vi.fn(async () => ({})),
     getKnowledgeDocumentMarkdown: vi.fn(async () => ({})),
     getCurrentUserInfo: vi.fn(async () => ({})),
+    searchWeb: vi.fn(async () => ({})),
     manageAutomation: vi.fn(async () => ({})),
     accessConnection: vi.fn(async () => ({ kind: "connections", items: [] })),
     alignConversationThread: vi.fn(async () => undefined),

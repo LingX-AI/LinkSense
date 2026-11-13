@@ -166,6 +166,7 @@ export function buildControllerServer(
     "/internal/skill-creator/confirm",
     "/internal/skills/execute",
     "/internal/current-user/info",
+    "/internal/web-search/search",
     "/internal/automations/execute",
     "/internal/connections/execute",
     "/internal/application-events/emit",
@@ -192,6 +193,7 @@ export function buildControllerServer(
           reply,
           route.startsWith("/internal/knowledge/")
             ? knowledgeSearchTimeouts.apiProxyMs
+            : route.startsWith("/internal/web-search/") ? 70_000
             : route.startsWith("/internal/image-generation/")
               ? 180_000
             : route === "/internal/runner/process-exit"

@@ -1,6 +1,8 @@
 import type { FastifyPluginAsync } from "fastify"
 import {
   quotaSettingsSchema,
+  updateWebSearchSettingsSchema,
+  testWebSearchSettingsSchema,
   maintenanceStatusSchema,
   resetMemberQuotasInputSchema,
   applyMemberCreditLimitsInputSchema,
@@ -437,6 +439,31 @@ export const adminSystemRoutes: FastifyPluginAsync<{
       )
     )
   )
+
+  app.get("/web-search-settings", async (request, reply) =>
+    reply.header("cache-control", "private, no-store").send(ok(await services.webSearchSettings.getAdminSettings(), request.id)),
+  )
+  app.put("/web-search-settings", async (request, reply) => {
+    const actor = (request as AuthenticatedRequest).authUser
+    const settings = await services.webSearchSettings.update(actor.id, updateWebSearchSettingsSchema.parse(request.body), {
+      ipAddress: request.ip, userAgent: request.headers["user-agent"] ?? null,
+    })
+    return reply.header("cache-control", "private, no-store").send(ok({ code: "SYSTEM_SETTINGS_UPDATED", settings }, request.id))
+  })
+  app.post("/web-search-settings/test-connection", async (request, reply) => {
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    const onClose = () => { if (!reply.raw.writableEnded) abort() }
+    request.raw.once("aborted", abort)
+    reply.raw.once("close", onClose)
+    try {
+      const result = await services.webSearchSettings.testConnection(testWebSearchSettingsSchema.parse(request.body), controller.signal)
+      return reply.header("cache-control", "private, no-store").send(ok(result, request.id))
+    } finally {
+      request.raw.off("aborted", abort)
+      reply.raw.off("close", onClose)
+    }
+  })
 
   app.get("/image-generation-settings", async (request, reply) =>
     reply.send(

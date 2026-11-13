@@ -1,3 +1,4 @@
+import { internalWebSearchRoutes } from "./modules/system/web-search-internal-routes.js";
 import { publicKnowledgeManagementRoutes, publicKnowledgeVisitorRoutes } from "./modules/public-knowledge/routes.js";
 import { htmlPreviewRoutes, htmlPreviewResourceRoutes } from "./modules/html-preview/routes.js";
 import { SamlSettingsService } from "./modules/saml/settings.js";
@@ -608,6 +609,9 @@ export async function buildApi(
       sharedSecret: services.config.runnerSharedSecret,
     });
   }
+  await app.register(internalWebSearchRoutes, {
+    prefix: "/internal", service: services.webSearchSettings, sharedSecret: services.config.runnerSharedSecret,
+  });
   await app.register(internalImageGenerationRoutes, {
     prefix: "/internal",
     service: services.imageGenerationSettings,

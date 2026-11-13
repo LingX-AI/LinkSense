@@ -5687,6 +5687,17 @@ export const ptBR = {
     riskRequired: "Revise e confirme primeiro a origem e o aviso de riscos.",
   },
   errors: {
+    webSearch: {
+      notConfigured: localizedErrorMessage("WEB_SEARCH_NOT_CONFIGURED", "pt-BR"),
+      disabled: localizedErrorMessage("WEB_SEARCH_DISABLED", "pt-BR"),
+      forbidden: localizedErrorMessage("WEB_SEARCH_FORBIDDEN", "pt-BR"),
+      invalid: localizedErrorMessage("WEB_SEARCH_INVALID", "pt-BR"),
+      unavailable: localizedErrorMessage("WEB_SEARCH_UNAVAILABLE", "pt-BR"),
+      authFailed: localizedErrorMessage("WEB_SEARCH_AUTH_FAILED", "pt-BR"),
+      rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "pt-BR"),
+      responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "pt-BR"),
+      timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "pt-BR"),
+    },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(
         "SKILL_UNINSTALL_NOT_ALLOWED",
