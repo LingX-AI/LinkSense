@@ -5,10 +5,7 @@
   </picture>
 </p>
 
-<h2 align="center">
-  面向组织的开源 Agent 工作平台<br>
-  <sub>让团队借助 AI、共享知识和工具完成工作</sub>
-</h2>
+<h2 align="center">WorkBuddy / ChatGPT Enterprise 的开源替代方案</h2>
 
 <p align="center">
   <a href="./README.md">English</a> | 简体中文
@@ -21,15 +18,20 @@
   <a href="mailto:hello@linksense.org">联系我们</a>
 </p>
 
-LinkSense 为组织提供统一、可治理的 Agent 工作空间。成员可以执行任务，按权限共享
-知识库、技能、插件和应用，并通过受控连接访问业务系统，无需获取底层凭据。你可以将
-LinkSense 部署在自有服务器或私有云中，接入云端模型或兼容的自建模型端点，并让任务
-数据与文件保留在自己的基础设施上。
+<p align="center"><a href="https://github.com/LingX-AI/LinkSense/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/LingX-AI/LinkSense?style=flat-square&color=FFD700&logo=github&logoColor=white&label=Stars"></a> <a href="./package.json"><img alt="Node.js 24" src="https://img.shields.io/badge/Node.js-24-5FA04E?style=flat-square&logo=nodedotjs&logoColor=white"></a> <a href="./package.json"><img alt="pnpm 10.34.6" src="https://img.shields.io/badge/pnpm-10.34.6-F69220?style=flat-square&logo=pnpm&logoColor=white"></a> <a href="./apps/web/package.json"><img alt="TypeScript 6" src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white"></a> <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/License-CPAL--1.0-E3B341?style=flat-square"></a></p>
+
+<p align="center">
+  <a href="https://x.com/LinkSense_OSS"><img alt="关注 X 上的 @LinkSense_OSS" src="https://img.shields.io/badge/Follow%20%40LinkSense__OSS-000000?style=for-the-badge&logo=x&logoColor=white"></a>
+  <a href="https://discord.gg/NBQYnaDWuD"><img alt="加入 Discord 社区" src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a>
+</p>
+
+<p align="center">⭐ <em>帮助更多人发现 LinkSense，一起壮大社区。欢迎为仓库点亮 Star！</em></p>
+
+LinkSense 为组织提供统一、可治理的 Agent 工作空间。成员可以执行任务，按权限共享知识库、技能、插件和应用，并通过受控连接访问业务系统，无需获取底层凭据。你可以将 LinkSense 部署在自有服务器或私有云中，接入云端模型或兼容的自建模型端点，并让任务数据与文件保留在自己的基础设施上。
 
 ## 快速开始
 
-LinkSense 支持安装了 Docker 的 Linux 和 macOS。Core 体验环境至少需要 4 vCPU、Docker
-可用内存 8 GiB、可用 SSD 60 GiB；Full 增加内置文档解析、索引与检索，需要更多资源。
+LinkSense 支持安装了 Docker 的 Linux 和 macOS。Core 体验环境至少需要 4 vCPU、Docker 可用内存 8 GiB、可用 SSD 60 GiB；Full 增加内置文档解析、索引与检索，需要更多资源。
 
 最快的安装方式是将下面的提示词交给编程助手：
 
@@ -61,30 +63,42 @@ Help me install and start LinkSense Core by following https://raw.githubusercont
 | 构建应用或连接外部系统 | [开发者指南](https://linksense.org/doc/zh-CN/developer-guide/interactive-application/) |
 | 从源码开发或了解运行机制 | [源码开发](https://linksense.org/doc/zh-CN/deploy/development/) · [系统架构](https://linksense.org/doc/zh-CN/deploy/architecture/) |
 
-如需私有化部署或业务系统集成，请发送邮件至
-[hello@linksense.org](mailto:hello@linksense.org)，说明部署环境、预计使用规模和希望接入的系统。
+如需私有化部署或业务系统集成，请发送邮件至 [hello@linksense.org](mailto:hello@linksense.org)，说明部署环境、预计使用规模和希望接入的系统。
 
 ## 参与贡献
 
-提交 PR 前，请阅读[贡献指南](./.github/CONTRIBUTING.md)和[仓库开发规范](./AGENTS.md)。
-代码贡献需要签署[贡献者许可协议](./docs/legal/CLA.md)。
+提交 PR 前，请阅读[贡献指南](./.github/CONTRIBUTING.md)和[仓库开发规范](./AGENTS.md)。代码贡献需要签署[贡献者许可协议](./docs/legal/CLA.md)。
 
 使用问题和功能建议请前往 [GitHub Discussions](../../discussions)。使用 LinkSense 的组织可自愿加入[使用组织列表](./docs/community/ADOPTERS.md)。
 
+## 社区与联系
+
+请根据问题类型选择合适的渠道：
+
+- [GitHub Discussions](../../discussions)：提问求助、反馈建议和提出想法。
+- [GitHub Issues](../../issues)：报告可复现的缺陷、跟进工程事项。提交前请先阅读[贡献指南](./.github/CONTRIBUTING.md)。
+- [Discord](https://discord.gg/NBQYnaDWuD)：实时交流，分享你的应用，与其他 LinkSense 用户沟通。
+- [X](https://x.com/LinkSense_OSS)：关注 LinkSense，获取版本发布和项目动态。
+
 ## 安全
 
-隔离边界是用户 Worker，同一用户的任务可以访问该用户共享的文件。普通执行允许互联网
-出站，不逐条审批命令；接入外部服务时，相关数据会按配置发送至对应服务。对外开放部署前，
-请阅读[安全策略](./.github/SECURITY.md)。安全问题请私下报告至
-[security@linksense.org](mailto:security@linksense.org)。
+隔离边界是用户 Worker，同一用户的任务可以访问该用户共享的文件。普通执行允许互联网出站，不逐条审批命令；接入外部服务时，相关数据会按配置发送至对应服务。对外开放部署前，请阅读[安全策略](./.github/SECURITY.md)。安全问题请私下报告至 [security@linksense.org](mailto:security@linksense.org)。
 
 ## 开源协议
 
-LinkSense 自有代码采用 [CPAL-1.0](./LICENSE) 许可。内部部署、署名和品牌使用分别参阅
-[内部部署例外](./LICENSE-EXCEPTIONS.md)、[署名要求](./ATTRIBUTION.md)和
-[商标政策](./TRADEMARK.md)。许可相关问题：[licensing@linksense.org](mailto:licensing@linksense.org)。
+LinkSense 自有代码采用 [CPAL-1.0](./LICENSE) 许可。内部部署、署名和品牌使用分别参阅[内部部署例外](./LICENSE-EXCEPTIONS.md)、[署名要求](./ATTRIBUTION.md)和[商标政策](./TRADEMARK.md)。许可相关问题：[licensing@linksense.org](mailto:licensing@linksense.org)。
 
 上游 Codex 运行时采用 Apache-2.0 许可。LinkSense 是独立项目，详情见[第三方声明](./THIRD-PARTY-NOTICES.md)。
+
+## Star 支持
+
+<p align="center"><img src="./docs/brand/star-guide.zh-CN.gif" alt="在 GitHub 为 LinkSense 点亮 Star" width="100%"></p>
+
+如果 LinkSense 对你有帮助或让你感兴趣，欢迎点亮一个 GitHub Star ⭐️。
+
+## Star 历史
+
+<a href="https://www.star-history.com/?repos=lingx-ai%2Flinksense&type=date&legend=bottom-right"><picture><source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=lingx-ai/linksense&type=date&theme=dark&legend=bottom-right" /><source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=lingx-ai/linksense&type=date&legend=bottom-right" /><img alt="Star 增长曲线" src="https://api.star-history.com/chart?repos=lingx-ai/linksense&type=date&legend=bottom-right" /></picture></a>
 
 ## 加入用户群
 
