@@ -41,6 +41,7 @@ describe("CapabilityPackageImporter", () => {
       const prepared = await importer.prepare({
         kind: "manual_skill",
         name: "meeting-notes",
+        description: "Meeting notes",
         ...(displayName === undefined ? {} : { displayName }),
         skillMarkdown: "# Instructions",
       });
@@ -315,6 +316,27 @@ describe("CapabilityPackageImporter", () => {
     await expect(readFile(join(root, "escape", "SKILL.md"))).rejects.toThrow();
   });
 
+  it("adds the provided description to manual Skill frontmatter that omits it", async () => {
+    const root = await temporaryDirectory();
+    const importer = new CapabilityPackageImporter({
+      stagingRoot: join(root, "staging"),
+    });
+
+    const prepared = await importer.prepare({
+      kind: "manual_skill",
+      name: "report-helper",
+      description: "Creates reports",
+      skillMarkdown: "---\nname: report-helper\n---\n# Instructions",
+    });
+
+    await expect(
+      readFile(join(prepared.packageRoot, "SKILL.md"), "utf8"),
+    ).resolves.toBe(
+      "---\nname: report-helper\ndescription: Creates reports\n---\n# Instructions",
+    );
+    await importer.cleanup(prepared);
+  });
+
   it("prepares a manual Skill and only statically reports dependency commands", async () => {
     const root = await temporaryDirectory();
     const importer = new CapabilityPackageImporter({
@@ -369,6 +391,7 @@ describe("CapabilityPackageImporter", () => {
       importer.prepare({
         kind: "manual_skill",
         name,
+        description: "Instructions",
         skillMarkdown: "# Instructions",
       }),
     ).rejects.toMatchObject({ code: "INVALID_PACKAGE" });

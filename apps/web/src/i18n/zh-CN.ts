@@ -2984,6 +2984,7 @@ export const zhCN = {
       "更新后以新技能包为准，当前技能中未包含在新包内的文件将被删除。请上传包含全部所需文件的完整技能包。",
     identifierHint: "更新时技能标识保持不变。",
     content: "技能正文",
+    descriptionRequired: "请输入技能说明。",
     contentRequired: "请输入技能正文。",
     contentTooLarge:
       "此技能正文较长，暂不支持在线编辑。请下载完整技能包，修改后重新上传。",
@@ -3148,6 +3149,7 @@ export const zhCN = {
     skillMarkdown: "SKILL.md 内容",
     skillIdentifier: "技能标识",
     skillNameRequired: "请输入技能标识。",
+    skillDescriptionRequired: "请输入技能说明。",
     skillNameTooLong: "技能标识不能超过 64 个字符。",
     skillNameInvalid:
       "技能标识只能使用小写英文字母、数字和连字符（-）；连字符不能在开头、结尾或连续出现。",

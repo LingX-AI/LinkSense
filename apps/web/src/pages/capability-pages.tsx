@@ -967,6 +967,11 @@ function CapabilityImportDialog({
     ? undefined
     : t("errors.importReasons.skill_display_name_invalid")
   const [description, setDescription] = useState("")
+  const [descriptionTouched, setDescriptionTouched] = useState(false)
+  const descriptionError =
+    descriptionTouched && !description.trim()
+      ? t("marketplace.skillDescriptionRequired")
+      : undefined
   const [skillMarkdown, setSkillMarkdown] = useState("")
   const [preview, setPreview] = useState<CapabilityImportPreview | null>(null)
   const [importProgress, setImportProgress] =
@@ -992,6 +997,7 @@ function CapabilityImportDialog({
     setNameTouched(false)
     setDisplayNameOverride(null)
     setDescription("")
+    setDescriptionTouched(false)
     setSkillMarkdown("")
     setPreview(null)
     setImportProgress(null)
@@ -1029,7 +1035,7 @@ function CapabilityImportDialog({
           type: "skill",
           name: name.trim(),
           display_name: displayName.trim() || null,
-          description: description.trim() || null,
+          description: description.trim(),
           skill_markdown: skillMarkdown,
         },
         schema: capabilityImportPreviewSchema,
@@ -1057,6 +1063,7 @@ function CapabilityImportDialog({
     (source === "manual_skill" &&
       nameValidation.success &&
       displayNameValidation.success &&
+      description.trim().length > 0 &&
       skillMarkdown.trim().length > 0)
 
   const startConfirmImport = (nextPreview: CapabilityImportPreview) => {
@@ -1302,13 +1309,26 @@ function CapabilityImportDialog({
                 <FieldShell
                   id="capability-description"
                   label={t("common.description")}
+                  required
+                  error={descriptionError}
                 >
                   <Textarea
                     id="capability-description"
+                    aria-required="true"
+                    aria-invalid={descriptionError ? true : undefined}
+                    aria-describedby={
+                      descriptionError
+                        ? "capability-description-error"
+                        : undefined
+                    }
                     value={description}
                     className="max-h-40 overflow-y-auto"
                     maxLength={4_000}
-                    onChange={(event) => setDescription(event.target.value)}
+                    onChange={(event) => {
+                      setDescription(event.target.value)
+                      setDescriptionTouched(true)
+                    }}
+                    onBlur={() => setDescriptionTouched(true)}
                   />
                 </FieldShell>
                 <FieldShell

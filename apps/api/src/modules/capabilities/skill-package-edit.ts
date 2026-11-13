@@ -13,10 +13,9 @@ export async function editSkillPackageFiles(root: string, input: SkillEditInput)
   const metadata = parseSkillManifest(markdown);
   const document = splitSkillMarkdown(markdown);
   let prefix = document.prefix;
-  if ((metadata.description || null) !== input.description) {
+  if (metadata.description !== input.description) {
     const yaml = parseDocument(document.frontmatter, { prettyErrors: false });
-    if (input.description === null) yaml.delete("description");
-    else yaml.set("description", input.description);
+    yaml.set("description", input.description);
     prefix = `---\n${yaml.toString()}---\n`;
   }
   if (!prefix.endsWith("\n")) prefix += "\n";

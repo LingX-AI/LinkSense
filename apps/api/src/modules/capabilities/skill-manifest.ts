@@ -71,6 +71,23 @@ export function parseSkillManifest(
   return metadata
 }
 
+/** Rewrites SKILL.md frontmatter so it carries the given description. */
+export function setSkillDescription(
+  markdown: string,
+  description: string,
+): string {
+  const document = splitSkillMarkdown(markdown)
+  const yaml = parseDocument(document.frontmatter, { prettyErrors: false })
+  if (yaml.errors.length > 0) {
+    throw new SkillManifestValidationError("skill frontmatter is invalid YAML", {
+      cause: yaml.errors[0],
+    })
+  }
+  yaml.set("description", description)
+  const bom = markdown.charCodeAt(0) === 0xfeff ? String.fromCharCode(0xfeff) : ""
+  return `${bom}---\n${yaml.toString()}---\n${document.content}`
+}
+
 function extractSkillFrontmatter(markdown: string): string {
   return splitSkillMarkdown(markdown).frontmatter
 }

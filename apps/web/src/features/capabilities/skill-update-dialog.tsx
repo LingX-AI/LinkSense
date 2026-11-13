@@ -128,7 +128,7 @@ function SkillUpdateForm({
   const input = skillEditInputSchema.safeParse({
     base_revision: detail.revision,
     display_name: displayName.trim() || null,
-    description: description.trim() || null,
+    description: description.trim(),
     content,
   })
   const changed =
@@ -277,9 +277,22 @@ function SkillUpdateForm({
                   <FieldShell
                     id="skill-update-description"
                     label={t("common.description")}
+                    required
+                    error={
+                      description.trim()
+                        ? undefined
+                        : t("skillUpdate.descriptionRequired")
+                    }
                   >
                     <Textarea
                       id="skill-update-description"
+                      aria-required="true"
+                      aria-invalid={!description.trim() || undefined}
+                      aria-describedby={
+                        !description.trim()
+                          ? "skill-update-description-error"
+                          : undefined
+                      }
                       value={description}
                       disabled={pending}
                       maxLength={4_000}

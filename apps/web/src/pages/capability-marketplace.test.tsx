@@ -3823,14 +3823,18 @@ describe("capability marketplace pages", () => {
         )
       ).toHaveTextContent("*")
       await interaction.click(manual)
-      for (const id of ["capability-name", "capability-skill-markdown"]) {
+      for (const id of [
+        "capability-name",
+        "capability-description",
+        "capability-skill-markdown",
+      ]) {
         expect(
           document.querySelector(
             `label[for='${id}'] span.text-destructive[aria-hidden='true']`
           )
         ).toHaveTextContent("*")
       }
-      for (const id of ["capability-display-name", "capability-description"]) {
+      for (const id of ["capability-display-name"]) {
         expect(
           document.querySelector(`label[for='${id}'] span.text-destructive`)
         ).not.toBeInTheDocument()
@@ -3963,6 +3967,9 @@ describe("capability marketplace pages", () => {
       const display = within(dialog).getByRole("textbox", {
         name: i18n.t("marketplace.skillDisplayName"),
       })
+      const description = within(dialog).getByRole("textbox", {
+        name: i18n.t("common.description"),
+      })
       const preview = within(dialog).getByRole("button", {
         name: i18n.t("capability.previewSubmit"),
       })
@@ -3972,6 +3979,14 @@ describe("capability marketplace pages", () => {
       expect(identifier).toHaveAccessibleDescription(
         i18n.t("marketplace.skillNameRequired")
       )
+      await interaction.click(description)
+      await interaction.tab()
+      expect(description).toHaveAttribute("aria-required", "true")
+      expect(description).toHaveAccessibleDescription(
+        i18n.t("marketplace.skillDescriptionRequired")
+      )
+      await interaction.click(description)
+      await interaction.paste("Skill description")
       await interaction.click(
         within(dialog).getByRole("textbox", {
           name: i18n.t("marketplace.skillMarkdown"),
@@ -4176,6 +4191,12 @@ describe("capability marketplace pages", () => {
       expect(display).toHaveValue(expectedName ?? "")
       await interaction.click(
         within(dialog).getByRole("textbox", {
+          name: i18n.t("common.description"),
+        })
+      )
+      await interaction.paste("Meeting notes description")
+      await interaction.click(
+        within(dialog).getByRole("textbox", {
           name: i18n.t("marketplace.skillMarkdown"),
         })
       )
@@ -4193,6 +4214,7 @@ describe("capability marketplace pages", () => {
       expect(submittedBody).toMatchObject({
         name: "meeting-notes-daily",
         display_name: expectedName,
+        description: "Meeting notes description",
         skill_markdown: "# Instructions",
       })
       await interaction.click(

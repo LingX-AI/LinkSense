@@ -49,6 +49,7 @@ import type {
 import {
   SkillManifestValidationError,
   parseSkillManifest,
+  setSkillDescription,
 } from "./skill-manifest.js";
 import {
   NativePluginMcpValidationError,
@@ -306,13 +307,13 @@ export class CapabilityPackageImporter {
       throw invalidPackage("skillFrontmatterMissing");
     }
     const markdown = source.skillMarkdown.startsWith("---\n")
-      ? source.skillMarkdown
+      ? parseSkillMetadata(source.skillMarkdown).description
+        ? source.skillMarkdown
+        : setSkillDescription(source.skillMarkdown, source.description)
       : [
           "---",
           "name: " + JSON.stringify(name),
-          ...(source.description
-            ? ["description: " + JSON.stringify(source.description)]
-            : []),
+          "description: " + JSON.stringify(source.description),
           "---",
           "",
           source.skillMarkdown,

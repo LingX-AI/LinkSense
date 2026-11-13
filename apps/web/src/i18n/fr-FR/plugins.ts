@@ -14,6 +14,7 @@ export const pluginResources = {
     identifierHint:
       "L’identifiant de la compétence reste inchangé lors d’une mise à jour.",
     content: "Instructions de la compétence",
+    descriptionRequired: "Saisissez une description de la compétence.",
     contentRequired: "Saisissez les instructions de la compétence.",
     contentTooLarge:
       "Ces instructions sont trop longues pour l’édition en ligne. Téléchargez le paquet complet, modifiez-le puis importez-le à nouveau.",
@@ -193,6 +194,7 @@ export const pluginResources = {
     skillMarkdown: "Contenu de SKILL.md",
     skillIdentifier: "Identifiant de la compétence",
     skillNameRequired: "Saisissez un identifiant de compétence.",
+    skillDescriptionRequired: "Saisissez une description de la compétence.",
     skillNameTooLong: "L’identifiant ne peut pas dépasser 64 caractères.",
     skillNameInvalid:
       "Utilisez uniquement des lettres latines minuscules, des chiffres et des traits d’union (-), jamais au début, à la fin ou consécutifs.",

@@ -4,12 +4,13 @@ import { skillEditDetailSchema, skillEditInputSchema, skillUpdatePreviewSchema }
 const input = { base_revision: "a".repeat(64), display_name: "报告助手", description: "说明", content: "# Instructions\n" };
 
 describe("skill update contracts", () => {
-  it("normalizes optional metadata without trimming the instructions", () => {
-    expect(skillEditInputSchema.parse({ ...input, display_name: " ", description: " ", content: "\n# Instructions\n\n" })).toEqual({ ...input, display_name: null, description: null, content: "\n# Instructions\n\n" });
+  it("normalizes metadata without trimming the instructions", () => {
+    expect(skillEditInputSchema.parse({ ...input, display_name: " ", description: " 说明 ", content: "\n# Instructions\n\n" })).toEqual({ ...input, display_name: null, description: "说明", content: "\n# Instructions\n\n" });
   });
   it.each([
     { base_revision: "bad" }, { base_revision: undefined }, { name: "renamed" },
     { content: "  \n" }, { content: "x".repeat(1_000_001) }, { display_name: "x".repeat(65) },
+    { description: " " }, { description: null }, { description: undefined },
   ])("rejects invalid changes (case %#)", (changes) => {
     expect(skillEditInputSchema.safeParse({ ...input, ...changes }).success).toBe(false);
   });

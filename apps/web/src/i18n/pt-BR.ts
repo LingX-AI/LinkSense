@@ -3513,6 +3513,7 @@ export const ptBR = {
     identifierHint:
       "O identificador da habilidade permanece o mesmo durante a atualização.",
     content: "Instruções da habilidade",
+    descriptionRequired: "Insira uma descrição da habilidade.",
     contentRequired: "Insira as instruções da habilidade.",
     contentTooLarge:
       "Estas instruções são longas demais para editar online. Baixe o pacote completo da habilidade, edite-o e envie-o novamente.",
@@ -3692,6 +3693,7 @@ export const ptBR = {
     skillMarkdown: "Conteúdo do SKILL.md",
     skillIdentifier: "Identificador da habilidade",
     skillNameRequired: "Insira um identificador de habilidade.",
+    skillDescriptionRequired: "Insira uma descrição da habilidade.",
     skillNameTooLong:
       "O identificador da habilidade não pode exceder 64 caracteres.",
     skillNameInvalid:

@@ -171,9 +171,9 @@ describe("SkillUpdateDialog", () => {
     ).not.toBeInTheDocument()
     expect(
       document.querySelector(
-        "label[for='skill-update-description'] span.text-destructive"
+        "label[for='skill-update-description'] span.text-destructive[aria-hidden='true']"
       )
-    ).not.toBeInTheDocument()
+    ).toHaveTextContent("*")
     const updateMethod = screen.getByRole("radiogroup", { name: "更新方式" })
     expect(updateMethod).toHaveClass("flex", "flex-wrap", "gap-2")
     for (const option of within(updateMethod).getAllByRole("radio")) {
@@ -194,7 +194,7 @@ describe("SkillUpdateDialog", () => {
     expect(name).toHaveValue("reports")
     expect(name).toHaveAttribute("readonly")
     expect(screen.getByLabelText("展示名称（选填）")).toHaveValue("报告助手")
-    expect(screen.getByLabelText("说明")).toHaveValue("报告说明")
+    expect(screen.getByLabelText(/^说明/)).toHaveValue("报告说明")
     expect(screen.getByLabelText(/^技能正文\s*\*?$/)).toHaveValue(
       "# Original\n"
     )
@@ -226,6 +226,21 @@ describe("SkillUpdateDialog", () => {
     expect(screen.getByText("assets/template.txt").closest("ul")).toHaveClass(
       "border-[var(--app-border)]"
     )
+  })
+
+  it("requires a description before an edit can be checked", async () => {
+    setup()
+    const user = userEvent.setup()
+    const description = await screen.findByLabelText(/^说明/)
+    expect(description).toHaveAttribute("aria-required", "true")
+    await user.clear(description)
+    expect(description).toHaveAttribute("aria-invalid", "true")
+    expect(description).toHaveAccessibleDescription(
+      i18n.t("skillUpdate.descriptionRequired")
+    )
+    expect(
+      screen.getByRole("button", { name: "查看变更与风险" })
+    ).toBeDisabled()
   })
 
   it("previews the draft with its base revision, retains it on failure and prevents duplicate confirmations", async () => {

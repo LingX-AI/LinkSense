@@ -3452,6 +3452,7 @@ export const jaJP = {
       "新しいパッケージで現在のスキルを置き換えます。新しいパッケージに含まれない既存ファイルは削除されます。スキルに必要なファイルをすべて含む完全なパッケージをアップロードしてください。",
     identifierHint: "更新してもスキルの識別子は変わりません。",
     content: "スキルの指示",
+    descriptionRequired: "スキルの説明を入力してください。",
     contentRequired: "スキルの指示を入力してください。",
     contentTooLarge:
       "指示が長すぎるため、オンラインでは編集できません。完全なスキルパッケージをダウンロードして編集し、再アップロードしてください。",
@@ -3637,6 +3638,7 @@ export const jaJP = {
     skillMarkdown: "SKILL.md の内容",
     skillIdentifier: "スキルの識別子",
     skillNameRequired: "スキルの識別子を入力してください。",
+    skillDescriptionRequired: "スキルの説明を入力してください。",
     skillNameTooLong: "スキルの識別子は 64 文字以内にしてください。",
     skillNameInvalid:
       "英小文字、数字、ハイフン（-）のみ使用できます。先頭・末尾のハイフンや連続するハイフンは使用できません。",

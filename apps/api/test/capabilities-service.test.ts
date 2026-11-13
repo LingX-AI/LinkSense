@@ -71,7 +71,7 @@ describe("CapabilityService owner-only visibility", () => {
     const preview = await previewContentEdit(service, installed.id, { content: "# Added instructions" });
     await service.confirmCapabilityImport(ownerActor(), preview.preview_token);
 
-    expect(await readFile(filename, "utf8")).toBe("---\nname: reports\n---\n# Added instructions");
+    expect(await readFile(filename, "utf8")).toBe("---\nname: reports\ndescription: Reports\n---\n# Added instructions");
   });
 
   it("accepts the base revision from multipart ZIP updates and rejects uploads that omit it", async () => {
@@ -167,7 +167,7 @@ describe("CapabilityService owner-only visibility", () => {
     const first = await previewContentEdit(service, installed.id, { content: "# First" });
     await service.confirmCapabilityImport(ownerActor(), first.preview_token);
     await expect(service.previewSkillEdit(ownerActor(), installed.id, {
-      base_revision: original.revision, display_name: null, description: null, content: "# Stale",
+      base_revision: original.revision, display_name: null, description: "Stale", content: "# Stale",
     })).rejects.toMatchObject({ code: "CAPABILITY_UPDATE_CONFLICT" });
     const next = await previewContentEdit(service, installed.id, { content: "# Next" });
     await service.patch(ownerActor(), installed.id, { description: "Metadata changed" });
@@ -192,7 +192,7 @@ describe("CapabilityService owner-only visibility", () => {
     const root = await tempRoot();
     const current = join(root, "capabilities", CAPABILITY_ID, "current");
     await mkdir(join(current, "scripts"), { recursive: true });
-    const prefix = "\uFEFF---\r\nname: reports\r\nmetadata:\r\n  custom: retained\r\n---\r\n";
+    const prefix = "\uFEFF---\r\nname: reports\r\ndescription: Reports\r\nmetadata:\r\n  custom: retained\r\n---\r\n";
     await writeFile(join(current, "SKILL.md"), prefix + "\r\n# Old\r\n");
     await writeFile(join(current, "scripts", "report.py"), "print('retained')\n", { mode: 0o700 });
     const store = new MemoryCapabilityStore();
@@ -250,10 +250,14 @@ describe("CapabilityService owner-only visibility", () => {
       expect(detailResponse.statusCode).toBe(200);
       expect(detailResponse.body).not.toContain("storage");
       const detail = await service.getSkillEdit(actor, installed.id);
-      const input = { base_revision: detail.revision, display_name: null, description: null, content: "# Updated" };
+      const input = { base_revision: detail.revision, display_name: null, description: detail.description ?? "Reports", content: "# Updated" };
       const invalid = await app.inject({ method: "POST", url: `/${installed.id}/skill-edit`, payload: { ...input, name: "renamed" } });
       expect(invalid.statusCode).toBe(400);
-      expect((await app.inject({ method: "POST", url: `/${installed.id}/import`, payload: { source_type: "local", type: "skill", name: "reports", skill_markdown: "# Old path" } })).statusCode).toBe(400);
+      const missingDescription = await app.inject({ method: "POST", url: "/", payload: { source_type: "local", type: "skill", name: "reports", skill_markdown: "# Missing description" } });
+      expect(missingDescription.statusCode).toBe(400);
+      const blankDescription = await app.inject({ method: "POST", url: `/${installed.id}/skill-edit`, payload: { ...input, description: "   " } });
+      expect(blankDescription.statusCode).toBe(400);
+      expect((await app.inject({ method: "POST", url: `/${installed.id}/import`, payload: { source_type: "local", type: "skill", name: "reports", description: "Old path", skill_markdown: "# Old path" } })).statusCode).toBe(400);
       const update = await app.inject({ method: "POST", url: `/${installed.id}/skill-edit`, payload: input });
       expect(update.statusCode).toBe(202);
       expect(update.json().data.skill_update.changes.deleted).toEqual([]);
@@ -429,6 +433,7 @@ describe("CapabilityService owner-only visibility", () => {
         source: {
           kind: "manual_skill",
           name: "remote-skill",
+          description: "Replacement",
           skillMarkdown: "# replacement",
         },
       }),
@@ -835,6 +840,7 @@ describe("CapabilityService owner-only visibility", () => {
       source: {
         kind: "manual_skill",
         name: "home-sync",
+        description: "Home sync",
         skillMarkdown: "# First instructions",
       },
       requestedType: "skill",
@@ -1042,6 +1048,7 @@ describe("CapabilityService owner-only visibility", () => {
         source: {
           kind: "manual_skill",
           name: "personal-reports",
+          description: "Personal reports",
           skillMarkdown: "# Duplicate",
         },
         requestedType: "skill",
@@ -1069,6 +1076,7 @@ describe("CapabilityService owner-only visibility", () => {
         source: {
           kind: "manual_skill",
           name: "private-presentations",
+          description: "Administrator presentations",
           skillMarkdown: "# Administrator-owned Skill",
         },
         requestedType: "skill",
@@ -1080,6 +1088,7 @@ describe("CapabilityService owner-only visibility", () => {
         source: {
           kind: "manual_skill",
           name: "private-presentations",
+          description: "Owner presentations",
           skillMarkdown: "# Owner-specific Skill",
         },
         requestedType: "skill",
@@ -1095,6 +1104,7 @@ describe("CapabilityService owner-only visibility", () => {
       source: {
         kind: "manual_skill",
         name: "late-conflict",
+        description: "Initially available",
         skillMarkdown: "# Initially available",
       },
       requestedType: "skill",
@@ -1125,6 +1135,7 @@ describe("CapabilityService owner-only visibility", () => {
       source: {
         kind: "manual_skill",
         name: "lock-failure",
+        description: "Registry lock failure",
         skillMarkdown: "# Registry lock failure",
       },
       requestedType: "skill",
@@ -1155,6 +1166,7 @@ describe("CapabilityService owner-only visibility", () => {
         source: {
           kind: "manual_skill",
           name: "occupied-name",
+          description: "Replacement",
           skillMarkdown: "# Replacement",
         },
         requestedType: "skill",
@@ -1470,6 +1482,7 @@ describe("CapabilityService owner-only visibility", () => {
       source: {
         kind: "manual_skill",
         name: "reviewed-skill",
+        description: "Reviewed instructions",
         skillMarkdown: "# Reviewed instructions",
       },
       requestedType: "skill",
@@ -1500,6 +1513,7 @@ describe("CapabilityService owner-only visibility", () => {
       source: {
         kind: "manual_skill",
         name: "owner-only-preview",
+        description: "Owner instructions",
         skillMarkdown: "# Owner instructions",
       },
       requestedType: "skill",
@@ -1542,6 +1556,7 @@ describe("capabilityRoutes", () => {
             type: "skill",
             name: "meeting-notes",
             display_name: displayName,
+            description: "Meeting notes",
             skill_markdown: "# Notes",
           },
         });
@@ -1618,6 +1633,7 @@ describe("capabilityRoutes", () => {
             type: "skill",
             name: "meeting-notes",
             display_name: displayName,
+            description: "Meeting notes",
             skill_markdown: "# Notes",
           },
         });
@@ -1675,6 +1691,7 @@ describe("capabilityRoutes", () => {
         source_type: "local",
         type: "skill",
         name: "lesson-planner",
+        description: "Lesson planning",
         skill_markdown: "# Plan lessons",
       },
     });
@@ -1779,6 +1796,7 @@ describe("capabilityRoutes", () => {
         source_type: "local",
         type: "skill",
         name: "example-skill",
+        description: "Example skill",
         skill_markdown: `# Instructions\n\nUse ${token}`,
       },
     });
@@ -1951,6 +1969,7 @@ describe("capabilityRoutes", () => {
         source_type: "local",
         type: "skill",
         name: "admin-store-skill",
+        description: "Admin store skill",
         skill_markdown: "# Instructions",
         scope: "global",
       },
@@ -1992,7 +2011,7 @@ async function previewContentEdit(service: CapabilityService, id: string, change
   return service.previewSkillEdit(ownerActor(), id, {
     base_revision: detail.revision,
     display_name: detail.display_name,
-    description: detail.description,
+    description: detail.description ?? "Reports",
     content: detail.content ?? "",
     ...changes,
   });
@@ -2001,7 +2020,7 @@ async function previewContentEdit(service: CapabilityService, id: string, change
 async function installSkillPackage(service: CapabilityService) {
   const preview = await service.previewImportCapability(ownerActor(), {
     source: { kind: "zip", filename: "reports.zip", bytes: createStoredZip([
-      { path: "reports/SKILL.md", bytes: "---\nname: reports\n---\n# Original" },
+      { path: "reports/SKILL.md", bytes: "---\nname: reports\ndescription: Reports\n---\n# Original" },
       { path: "reports/scripts/report.py", bytes: "print('report')\n" },
       { path: "reports/assets/template.txt", bytes: "template" },
     ]) },

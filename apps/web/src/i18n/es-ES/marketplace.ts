@@ -17,6 +17,7 @@ export const marketplaceMessages = {
     identifierHint:
       "El identificador de la Skill no cambia durante una actualización.",
     content: "Instrucciones de la Skill",
+    descriptionRequired: "Introduce una descripción para la Skill.",
     contentRequired: "Introduce las instrucciones de la Skill.",
     contentTooLarge:
       "Estas instrucciones son demasiado largas para editarlas en línea. Descarga el paquete completo, edítalo y vuelve a subirlo.",
@@ -194,6 +195,7 @@ export const marketplaceMessages = {
     skillMarkdown: "Contenido de SKILL.md",
     skillIdentifier: "Identificador de la Skill",
     skillNameRequired: "Introduce un identificador para la Skill.",
+    skillDescriptionRequired: "Introduce una descripción para la Skill.",
     skillNameTooLong: "El identificador no puede superar los 64 caracteres.",
     skillNameInvalid:
       "Usa solo letras inglesas minúsculas, números y guiones (-). Los guiones no pueden estar al principio ni al final, ni aparecer consecutivamente.",

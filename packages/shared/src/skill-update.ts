@@ -26,7 +26,7 @@ export const skillUpdatePreviewSchema = z.strictObject({
 export const skillEditInputSchema = z.strictObject({
   base_revision: skillRevisionSchema,
   display_name: skillDisplayNameSchema,
-  description: z.string().trim().max(4_000).nullable().transform((value) => value || null),
+  description: z.string().trim().min(1).max(4_000),
   content: z.string().min(1).max(1_000_000).refine((value) => value.trim().length > 0),
 });
 

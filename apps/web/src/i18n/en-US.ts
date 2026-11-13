@@ -3216,6 +3216,7 @@ export const enUS = {
       "The new package will replace the current skill. Existing files missing from the new package will be deleted. Upload a complete package containing every file the skill needs.",
     identifierHint: "The skill identifier stays the same during an update.",
     content: "Skill instructions",
+    descriptionRequired: "Enter a skill description.",
     contentRequired: "Enter the skill instructions.",
     contentTooLarge:
       "These instructions are too long to edit online. Download the complete skill package, edit it and upload it again.",
@@ -3393,6 +3394,7 @@ export const enUS = {
     skillMarkdown: "SKILL.md content",
     skillIdentifier: "Skill identifier",
     skillNameRequired: "Enter a skill identifier.",
+    skillDescriptionRequired: "Enter a skill description.",
     skillNameTooLong: "The skill identifier cannot exceed 64 characters.",
     skillNameInvalid:
       "Use only lowercase English letters, numbers, and hyphens (-). Hyphens cannot appear at the start or end, or consecutively.",
