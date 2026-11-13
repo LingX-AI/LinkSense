@@ -20,8 +20,8 @@ checkout and Node.js runtime; it does not install a global command.
 - Python 3.12+ with the standard-library `venv` module available. Host task
   workers create a per-user virtual environment with `python3 -m venv`; the
   launcher does not install Python or system packages.
-- A Codex CLI compatible with `CODEX_VERSION` in `.env.example`, available as
-  `codex` on `PATH` or configured with `CODEX_BIN`.
+- A Codex CLI matching `apps/runner/src/codex/runtime-version.json` exactly,
+  available as `codex` on `PATH` or configured with `CODEX_BIN`.
 - A running PostgreSQL database and Redis instance reachable from the host.
   PostgreSQL credentials must be allowed to run the committed Prisma migrations,
   and the target database must already exist.
@@ -113,6 +113,8 @@ ignored by Git and is read only by `pnpm dev:host`; Docker workflows continue to
 use `.env` or their explicit Compose environment file.
 
 ## Container development and production parity
+
+When only the repository's pinned Codex version differs from the recorded image baseline, `pnpm dev` builds and caches a local Codex runtime on that verified Worker base. It installs the exact version declared by the current branch and builds the normal Worker image, including its version and runtime checks. The launcher verifies the remaining recipe bytes against the baseline's recorded source commit. Other runtime or vendor recipe changes still require baseline maintenance. This local runtime is used only by development; production builds and release baseline admission retain their existing checks.
 
 Run `pnpm dev:prepare` once to build images, prepare infrastructure and the database, synchronize source, and start every application until ready, warming runtime caches. Services remain running when preparation finishes; `pnpm dev` then attaches logs and source watching. Running `pnpm dev` directly also performs any missing preparation.
 

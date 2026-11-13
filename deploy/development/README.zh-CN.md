@@ -17,8 +17,8 @@ Controller 会在 `LINKSENSE_USER_DATA_ROOT` 下生成 Host 专用的
 - Node.js 24+，以及根目录 `package.json` 声明的 pnpm 版本。
 - Python 3.12+，并且标准库 `venv` 模块可用。宿主机任务 Worker 会通过
   `python3 -m venv` 为每个用户创建虚拟环境；启动器不会安装 Python 或系统依赖。
-- 与 `.env.example` 中 `CODEX_VERSION` 兼容的 Codex CLI；确保 `codex` 在
-  `PATH` 中，或通过 `CODEX_BIN` 指定。
+- 与 `apps/runner/src/codex/runtime-version.json` 完全一致的 Codex CLI；确保
+  `codex` 在 `PATH` 中，或通过 `CODEX_BIN` 指定。
 - 宿主机可访问且已运行的 PostgreSQL 数据库和 Redis。PostgreSQL 账号需要能够执行
   已提交的 Prisma migration，并且目标数据库需要提前创建。
 - 使用 `pnpm install --frozen-lockfile` 安装仓库依赖。
@@ -94,6 +94,8 @@ Host 模式还会关闭内置 `linksense-browser` Skill、托管浏览器 MCP �
 环境文件。
 
 ## 容器开发与生产一致性
+
+如果仅仓库固定的 Codex 版本与已记录镜像基线不同，`pnpm dev` 会基于已验证的 Worker 基线构建并缓存本地 Codex 运行时，安装当前分支声明的准确版本，再构建正常的 Worker 镜像并执行版本及运行时检查。启动器会根据基线记录的源码提交核对其他配方内容；其他运行时或第三方镜像配方变化仍要求维护基线。本地运行时仅供开发使用，生产构建与发布基线校验继续执行原有检查。
 
 首次执行 `pnpm dev:prepare` 会构建镜像、准备基础设施与数据库、校准源码，并启动所有应用直至就绪，预热运行时缓存。命令完成后服务保持运行，随后执行 `pnpm dev` 接入日志和源码监听。也可直接执行 `pnpm dev`，自动完成缺少的准备步骤。
 

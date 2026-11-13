@@ -8,6 +8,15 @@ export const errorMessages: Record<ErrorCode, string> = {
   BROWSER_PANEL_UNAVAILABLE: "このタスクには表示できるブラウザーセッションがありません。",
   BROWSER_CONTROL_BUSY: "ブラウザーが操作を実行中です。少し待って再試行してください。",
   BROWSER_CONTROL_REQUIRED: "操作権が失効したか別のウィンドウが使用中です。もう一度引き継いでください。",
+  WEB_SEARCH_NOT_CONFIGURED: "管理者によるウェブ検索の設定が必要です。",
+  WEB_SEARCH_DISABLED: "ウェブ検索は無効になっています。",
+  WEB_SEARCH_FORBIDDEN: "このタスクではウェブ検索を利用できません。",
+  WEB_SEARCH_INVALID: "検索語と検索設定を確認してください。",
+  WEB_SEARCH_UNAVAILABLE: "検索サービスを一時的に利用できません。しばらくしてから再試行してください。",
+  WEB_SEARCH_AUTH_FAILED: "検索サービスの認証に失敗しました。管理者にキーの確認を依頼してください。",
+  WEB_SEARCH_RATE_LIMITED: "検索リクエストが多すぎます。しばらくしてから再試行してください。",
+  WEB_SEARCH_RESPONSE_INVALID: "検索結果を利用できません。管理者にお問い合わせください。",
+  WEB_SEARCH_TIMEOUT: "検索がタイムアウトしました。しばらくしてから再試行してください。",
 
   CONNECTION_CLIENT_SECRET_REQUIRED: "アプリのシークレットを入力してください。アプリ ID を変更する場合は、新しいアプリのシークレットも必要です。",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "認可済みアカウント数：{{count}}。アプリ ID を変更すると、これらのユーザーは再接続が必要になります。保存前にこの影響を確認してください。",
@@ -269,6 +278,7 @@ export const errorMessages: Record<ErrorCode, string> = {
 
 export const auditMessages = {
   actions: {
+    web_search_settings_updated: "ウェブ検索設定を更新",
     connection_settings_updated: "コネクタ設定を更新",
     connection_authorized: "接続を認証",
     connection_disconnected: "接続を解除",
@@ -485,6 +495,7 @@ export const auditMessages = {
     weixin_connection_updated: "Weixin の接続を更新",
   },
   targetTypes: {
+    web_search: "ウェブ検索設定",
     connection_provider: "コネクタ",
     connection: "個人用接続",
     web_site: "共有サイト", application: "アプリケーション",

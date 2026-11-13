@@ -1906,62 +1906,65 @@ describe("conversation turn responses", () => {
     expect(revokeObjectURL).not.toHaveBeenCalled()
   })
 
-  it("keeps a commentary card mounted when its persistent message id arrives", () => {
-    const itemId = "agent-commentary-stable-card"
-    const runningTurn = {
-      id: "turn-1",
-      status: "running" as const,
-      started_at: "2026-07-11T08:00:00.000Z",
-      completed_at: null,
-    }
-    const streamedMessage = {
-      id: `streaming-${itemId}`,
-      role: "assistant" as const,
-      turn_id: runningTurn.id,
-      item_id: itemId,
-      phase: "commentary" as const,
-      content: "正在读取知识库",
-      created_at: "2026-07-11T08:00:02.000Z",
-      streaming: true,
-    }
-    const { rerender } = render(
-      <ConversationThread
-        conversation={{
-          ...completedConversation,
-          messages: [completedConversation.messages![0]!, streamedMessage],
-          turns: [runningTurn],
-          running_turn: runningTurn,
-        }}
-        onDownload={vi.fn()}
-      />
-    )
-    const initialCard = screen
-      .getByText("正在读取知识库")
-      .closest(".process-commentary")
+  it.each(["commentary", "partial_answer"] as const)(
+    "keeps a %s card mounted when its persistent message id arrives",
+    (phase) => {
+      const itemId = "agent-commentary-stable-card"
+      const runningTurn = {
+        id: "turn-1",
+        status: "running" as const,
+        started_at: "2026-07-11T08:00:00.000Z",
+        completed_at: null,
+      }
+      const streamedMessage = {
+        id: `streaming-${itemId}`,
+        role: "assistant" as const,
+        turn_id: runningTurn.id,
+        item_id: itemId,
+        phase,
+        content: "正在读取知识库",
+        created_at: "2026-07-11T08:00:02.000Z",
+        streaming: true,
+      }
+      const { rerender } = render(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            messages: [completedConversation.messages![0]!, streamedMessage],
+            turns: [runningTurn],
+            running_turn: runningTurn,
+          }}
+          onDownload={vi.fn()}
+        />
+      )
+      const initialCard = screen
+        .getByText("正在读取知识库")
+        .closest(".process-commentary")
 
-    rerender(
-      <ConversationThread
-        conversation={{
-          ...completedConversation,
-          messages: [
-            completedConversation.messages![0]!,
-            {
-              ...streamedMessage,
-              id: "message-commentary-stable-card",
-              streaming: false,
-            },
-          ],
-          turns: [runningTurn],
-          running_turn: runningTurn,
-        }}
-        onDownload={vi.fn()}
-      />
-    )
+      rerender(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            messages: [
+              completedConversation.messages![0]!,
+              {
+                ...streamedMessage,
+                id: "message-commentary-stable-card",
+                streaming: false,
+              },
+            ],
+            turns: [runningTurn],
+            running_turn: runningTurn,
+          }}
+          onDownload={vi.fn()}
+        />
+      )
 
-    expect(
-      screen.getByText("正在读取知识库").closest(".process-commentary")
-    ).toBe(initialCard)
-  })
+      expect(
+        screen.getByText("正在读取知识库").closest(".process-commentary")
+      ).toBe(initialCard)
+    }
+  )
 
   it("recovers a legacy redacted knowledge asset URL during streaming", async () => {
     const conversationId = "20000000-0000-4000-8000-000000000001"

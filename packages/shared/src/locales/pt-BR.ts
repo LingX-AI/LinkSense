@@ -8,6 +8,15 @@ export const errorMessages: Record<ErrorCode, string> = {
   BROWSER_PANEL_UNAVAILABLE: "Esta tarefa não tem uma sessão de navegador disponível.",
   BROWSER_CONTROL_BUSY: "O navegador está executando uma ação. Tente novamente em instantes.",
   BROWSER_CONTROL_REQUIRED: "O controle expirou ou pertence a outra janela. Assuma o controle novamente.",
+  WEB_SEARCH_NOT_CONFIGURED: "Um administrador precisa configurar a pesquisa na web.",
+  WEB_SEARCH_DISABLED: "A pesquisa na web está desativada.",
+  WEB_SEARCH_FORBIDDEN: "Esta tarefa não tem permissão para pesquisar na web.",
+  WEB_SEARCH_INVALID: "Verifique a consulta e as configurações de pesquisa.",
+  WEB_SEARCH_UNAVAILABLE: "O serviço de pesquisa está indisponível no momento. Tente novamente mais tarde.",
+  WEB_SEARCH_AUTH_FAILED: "A autenticação da pesquisa falhou. Peça ao administrador para verificar a chave.",
+  WEB_SEARCH_RATE_LIMITED: "Há muitas solicitações de pesquisa. Tente novamente mais tarde.",
+  WEB_SEARCH_RESPONSE_INVALID: "O serviço retornou resultados inválidos. Contate o administrador.",
+  WEB_SEARCH_TIMEOUT: "A pesquisa excedeu o tempo limite. Tente novamente mais tarde.",
 
   CONNECTION_CLIENT_SECRET_REQUIRED: "Informe o segredo do aplicativo. Ao alterar o ID, informe também o segredo do novo aplicativo.",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Contas autorizadas: {{count}}. Alterar o ID do aplicativo exige que esses usuários se conectem novamente. Confirme esse efeito antes de salvar.",
@@ -269,6 +278,7 @@ export const errorMessages: Record<ErrorCode, string> = {
 
 export const auditMessages = {
   "actions": {
+    "web_search_settings_updated": "Configurações de pesquisa na web atualizadas",
     connection_settings_updated: "Configuração do conector atualizada",
     connection_authorized: "Conexão autorizada",
     connection_disconnected: "Conexão desconectada",
@@ -485,6 +495,7 @@ export const auditMessages = {
     "weixin_connection_updated": "Conexão com o Weixin atualizada"
   },
   "targetTypes": {
+    "web_search": "Configuração de pesquisa na web",
     connection_provider: "Conector",
     connection: "Conexão pessoal",
     "web_site": "Site compartilhado",

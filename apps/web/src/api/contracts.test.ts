@@ -746,89 +746,92 @@ describe("API response contracts", () => {
     expect(result.last_event_id).toBe("conversation-with-explicit-cursor:950")
   })
 
-  it("joins native message phases and assigns turn artifacts only to the final answer", () => {
-    const result = conversationDetailSchema.parse({
-      conversation: {
-        project_id: null,
-        id: "conversation-native",
-        title: "原生事件",
-        archive_status: "active",
-        updated_at: now,
-      },
-      turns: [
-        {
-          id: "turn-native",
-          status: "completed",
-          started_at: now,
-          completed_at: now,
+  it.each(["commentary", "partial_answer"] as const)(
+    "joins native %s phases and assigns turn artifacts only to the final answer",
+    (phase) => {
+      const result = conversationDetailSchema.parse({
+        conversation: {
+          project_id: null,
+          id: "conversation-native",
+          title: "原生事件",
+          archive_status: "active",
+          updated_at: now,
         },
-      ],
-      messages: [
-        {
-          id: "40000000-0000-4000-8000-000000000001",
-          turn_id: "turn-native",
-          role: "assistant",
-          content_text: "正在检查文件",
-        },
-        {
-          id: "40000000-0000-4000-8000-000000000002",
-          turn_id: "turn-native",
-          role: "assistant",
-          content_text: "检查完成",
-        },
-      ],
-      events: [
-        nativeEvent({
-          sequence: 2,
-          itemId: "item-commentary",
-          messageId: "40000000-0000-4000-8000-000000000001",
-          phase: "commentary",
-        }),
-        nativeEvent({
-          sequence: 5,
-          itemId: "item-final",
-          messageId: "40000000-0000-4000-8000-000000000002",
-          phase: "final_answer",
-        }),
-      ],
-      files: [
-        {
-          id: "artifact-native",
-          filename: "report.xlsx",
-          kind: "artifact",
-          status: "available",
-          turn_id: "turn-native",
-          downloadable: true,
-        },
-      ],
-    })
+        turns: [
+          {
+            id: "turn-native",
+            status: "completed",
+            started_at: now,
+            completed_at: now,
+          },
+        ],
+        messages: [
+          {
+            id: "40000000-0000-4000-8000-000000000001",
+            turn_id: "turn-native",
+            role: "assistant",
+            content_text: "正在检查文件",
+          },
+          {
+            id: "40000000-0000-4000-8000-000000000002",
+            turn_id: "turn-native",
+            role: "assistant",
+            content_text: "检查完成",
+          },
+        ],
+        events: [
+          nativeEvent({
+            sequence: 2,
+            itemId: "item-commentary",
+            messageId: "40000000-0000-4000-8000-000000000001",
+            phase,
+          }),
+          nativeEvent({
+            sequence: 5,
+            itemId: "item-final",
+            messageId: "40000000-0000-4000-8000-000000000002",
+            phase: "final_answer",
+          }),
+        ],
+        files: [
+          {
+            id: "artifact-native",
+            filename: "report.xlsx",
+            kind: "artifact",
+            status: "available",
+            turn_id: "turn-native",
+            downloadable: true,
+          },
+        ],
+      })
 
-    expect(result.messages?.[0]).toMatchObject({
-      item_id: "item-commentary",
-      phase: "commentary",
-      event_sequence_no: 2,
-    })
-    expect(result.messages?.[0]?.artifacts).toBeUndefined()
-    expect(result.messages?.[1]).toMatchObject({
-      item_id: "item-final",
-      phase: "final_answer",
-      event_sequence_no: 5,
-      artifacts: [expect.objectContaining({ id: "artifact-native" })],
-    })
-    expect(result.artifacts).toEqual([])
-    expect(result.events).toEqual([
-      expect.objectContaining({
-        id: "conversation-native:2",
-        type: "item/completed",
-        sequence_no: 2,
-      }),
-      expect.objectContaining({
-        id: "conversation-native:5",
-        type: "item/completed",
-        sequence_no: 5,
-      }),
-    ])
-  })
+      expect(result.messages?.[0]).toMatchObject({
+        item_id: "item-commentary",
+        phase,
+        event_sequence_no: 2,
+      })
+      expect(result.messages?.[0]?.artifacts).toBeUndefined()
+      expect(result.messages?.[1]).toMatchObject({
+        item_id: "item-final",
+        phase: "final_answer",
+        event_sequence_no: 5,
+        artifacts: [expect.objectContaining({ id: "artifact-native" })],
+      })
+      expect(result.artifacts).toEqual([])
+      expect(result.events).toEqual([
+        expect.objectContaining({
+          id: "conversation-native:2",
+          type: "item/completed",
+          sequence_no: 2,
+        }),
+        expect.objectContaining({
+          id: "conversation-native:5",
+          type: "item/completed",
+          sequence_no: 5,
+        }),
+      ])
+    }
+  )
 
   it("preserves sanitized native activity detail fields", () => {
     const event = sseEventSchema.parse({
@@ -1459,7 +1462,7 @@ function nativeEvent({
   sequence: number
   itemId: string
   messageId: string
-  phase: "commentary" | "final_answer"
+  phase: "commentary" | "partial_answer" | "final_answer"
 }) {
   return {
     id: `60000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`,

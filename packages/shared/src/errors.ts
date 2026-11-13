@@ -26,6 +26,16 @@ export const errorCatalog = {
   BROWSER_CONTROL_REQUIRED: {"message_key": "browserPanel.controlRequired", "http_status": 409, "messages": {"zh-CN": "接管已失效或由其他窗口持有，请重新接管。", "en-US": "Control expired or belongs to another window. Take control again."}},
   BROWSER_USE_PAIR_RATE_LIMITED: browserUsePairRateLimitError,
   LOCAL_BROWSER_PAIR_RATE_LIMITED: browserUsePairRateLimitError,
+  WEB_SEARCH_NOT_CONFIGURED: { message_key: "errors.webSearch.notConfigured", http_status: 503, messages: { "zh-CN": "管理员尚未配置联网搜索。", "en-US": "An administrator must configure web search first." } },
+  WEB_SEARCH_DISABLED: { message_key: "errors.webSearch.disabled", http_status: 503, messages: { "zh-CN": "联网搜索已关闭。", "en-US": "Web search is disabled." } },
+  WEB_SEARCH_FORBIDDEN: { message_key: "errors.webSearch.forbidden", http_status: 403, messages: { "zh-CN": "当前任务无权使用联网搜索。", "en-US": "This task is not authorized to use web search." } },
+  WEB_SEARCH_INVALID: { message_key: "errors.webSearch.invalid", http_status: 400, messages: { "zh-CN": "请检查搜索词和搜索设置。", "en-US": "Check the search query and settings." } },
+  WEB_SEARCH_UNAVAILABLE: { message_key: "errors.webSearch.unavailable", http_status: 503, messages: { "zh-CN": "搜索服务暂时不可用，请稍后重试。", "en-US": "The search service is temporarily unavailable. Try again later." } },
+  WEB_SEARCH_AUTH_FAILED: { message_key: "errors.webSearch.authFailed", http_status: 502, messages: { "zh-CN": "搜索服务验证失败，请联系管理员检查密钥。", "en-US": "Search authentication failed. Ask an administrator to check the API key." } },
+  WEB_SEARCH_RATE_LIMITED: { message_key: "errors.webSearch.rateLimited", http_status: 429, messages: { "zh-CN": "搜索请求过于频繁，请稍后重试。", "en-US": "Too many search requests. Try again later." } },
+  WEB_SEARCH_RESPONSE_INVALID: { message_key: "errors.webSearch.responseInvalid", http_status: 502, messages: { "zh-CN": "搜索服务返回的结果无法使用，请联系管理员。", "en-US": "The search service returned unusable results. Contact an administrator." } },
+  WEB_SEARCH_TIMEOUT: { message_key: "errors.webSearch.timeout", http_status: 504, messages: { "zh-CN": "搜索超时，请稍后重试。", "en-US": "The search timed out. Try again later." } },
+
   CONNECTION_CLIENT_SECRET_REQUIRED: {
     message_key: "adminConnections.secretRequired", http_status: 400,
     messages: {

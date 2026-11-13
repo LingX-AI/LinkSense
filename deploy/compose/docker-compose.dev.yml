@@ -7,6 +7,9 @@ services:
 
   runner-worker-image:
     build:
+      args:
+        # Set by pnpm dev; absent values retain Dockerfile.runner's frozen default.
+        BASELINE_WORKER_IMAGE:
       labels:
         com.linksense.development.owner: ${LINKSENSE_DEV_RESOURCE_OWNER:-unmanaged}
         com.linksense.development.role: worker

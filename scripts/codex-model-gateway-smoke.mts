@@ -12,6 +12,7 @@ import { promisify } from "node:util";
 import type { ModelProviderProtocolMode } from "@linksense/shared";
 import WebSocket, { WebSocketServer, type RawData } from "ws";
 
+import pino from "../apps/runner/node_modules/pino/pino.js";
 import { CodexJsonRpcClient } from "../apps/runner/src/codex/json-rpc-client.ts";
 import {
   CODEX_SCHEMA_VERSION,
@@ -48,10 +49,7 @@ if (actualCodexVersion !== CODEX_SCHEMA_VERSION) {
 const root = await mkdtemp(
   path.join(tmpdir(), "linksense-model-gateway-smoke-"),
 );
-const logger = {
-  warn: () => undefined,
-  error: () => undefined,
-} as never;
+const logger = pino({ enabled: false });
 const requests: Array<{
   mode: ModelProviderProtocolMode;
   path: string;
@@ -151,7 +149,9 @@ try {
         "shell_snapshot = false",
         "apps = false",
         "plugins = false",
-        "multi_agent = false",
+        "",
+        "[agents]",
+        "enabled = false",
         "",
         "[model_providers.link-sense]",
         'name = "LinkSense Gateway Smoke"',
@@ -226,7 +226,13 @@ try {
       });
       const completed = await completedTurns.wait(turn.turn.id);
       if (completed.status !== "completed") {
-        throw new Error(`${mode} turn did not complete`);
+        throw new Error(
+          `${mode} turn did not complete: ${JSON.stringify({
+            status: completed.status,
+            codexErrorInfo: completed.error?.codexErrorInfo,
+            message: completed.error?.message,
+          })}`,
+        );
       }
       const read = await client.request<{ thread: CodexThread }>(
         "thread/read",

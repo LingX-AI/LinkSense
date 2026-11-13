@@ -8,6 +8,16 @@ export const errorMessages = {
   BROWSER_PANEL_UNAVAILABLE: "Esta tarea no tiene una sesión de navegador disponible.",
   BROWSER_CONTROL_BUSY: "El navegador está realizando una acción. Vuelve a intentarlo en breve.",
   BROWSER_CONTROL_REQUIRED: "El control caducó o pertenece a otra ventana. Toma el control de nuevo.",
+  WEB_SEARCH_NOT_CONFIGURED: "Un administrador debe configurar la búsqueda web.",
+  WEB_SEARCH_DISABLED: "La búsqueda web está desactivada.",
+  WEB_SEARCH_FORBIDDEN: "Esta tarea no tiene permiso para usar la búsqueda web.",
+  WEB_SEARCH_INVALID: "Revisa la consulta y los ajustes de búsqueda.",
+  WEB_SEARCH_UNAVAILABLE: "El servicio de búsqueda no está disponible temporalmente. Inténtalo más tarde.",
+  WEB_SEARCH_AUTH_FAILED: "Falló la autenticación de búsqueda. Pide al administrador que revise la clave.",
+  WEB_SEARCH_RATE_LIMITED: "Demasiadas solicitudes de búsqueda. Inténtalo más tarde.",
+  WEB_SEARCH_RESPONSE_INVALID: "El servicio devolvió resultados no válidos. Contacta con el administrador.",
+  WEB_SEARCH_TIMEOUT: "La búsqueda agotó el tiempo de espera. Inténtalo más tarde.",
+
   CONNECTION_CLIENT_SECRET_REQUIRED: "Introduce el secreto de la aplicación. Si cambias el ID, también debes introducir el secreto de la nueva aplicación.",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Cuentas autorizadas: {{count}}. Cambiar el ID de la aplicación obliga a estos usuarios a volver a conectarse. Confirma este efecto antes de guardar.",
   SKILL_UNINSTALL_NOT_ALLOWED: "Esta habilidad no se puede desinstalar. El sistema proporciona las habilidades integradas.",
@@ -268,6 +278,7 @@ export const errorMessages = {
 
 export const auditMessages = {
   "actions": {
+    "web_search_settings_updated": "Ajustes de búsqueda web actualizados",
     connection_settings_updated: "Configuración del conector actualizada",
     connection_authorized: "Conexión autorizada",
     connection_disconnected: "Conexión desconectada",
@@ -484,6 +495,7 @@ export const auditMessages = {
     "weixin_connection_updated": "Conexión de Weixin actualizada"
   },
   "targetTypes": {
+    "web_search": "Configuración de búsqueda web",
     connection_provider: "Conector",
     connection: "Conexión personal",
     "web_site": "Sitio compartido",

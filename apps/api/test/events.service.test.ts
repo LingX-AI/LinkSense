@@ -660,7 +660,7 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
     expect(fixture.tx.conversationUserInputRequest.updateMany).not.toHaveBeenCalled();
   });
 
-  it("keeps the native agentMessage phase while materializing the assistant message", async () => {
+  it.each(["commentary", "partial_answer", "final_answer", null] as const)("keeps native phase %s while materializing the assistant message", async (phase) => {
     const fixture = eventFixture();
 
     await fixture.service.ingest(CONVERSATION_ID, {
@@ -674,7 +674,7 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
           type: "agentMessage",
           id: "native-message-1",
           text: "正在核对下载登记链路。",
-          phase: "commentary",
+          phase,
         },
       },
     });
@@ -695,7 +695,7 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
         item: {
           id: "native-message-1",
           type: "agentMessage",
-          phase: "commentary",
+          phase,
         },
       },
       local: {
@@ -762,7 +762,7 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
     });
   });
 
-  it("does not supersede commentary when a blocked Stop hook association is invalid", async () => {
+  it.each(["commentary", "partial_answer"] as const)("does not supersede %s when a blocked Stop hook association is invalid", async (phase) => {
     const fixture = eventFixture(undefined, { collaborationMode: "plan" });
     fixture.tx.conversationEvent.findFirst.mockResolvedValueOnce({
       payloadJson: {
@@ -774,7 +774,7 @@ describe("ConversationEventService sanitization and terminal semantics", () => {
             type: "agentMessage",
             id: "native-commentary-1",
             text: "正在核对数据。",
-            phase: "commentary",
+            phase,
           },
         },
         local: {

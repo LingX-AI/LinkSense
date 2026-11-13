@@ -145,6 +145,36 @@ export async function assertPublicHttpUrl(
   )
 }
 
+/** A bounded API request with pinned DNS and no redirect following, including for credentials. */
+export async function requestPublicHttpResource(
+  url: URL,
+  options: SafeHttpFetchOptions & {
+    method: "GET" | "POST"
+    headers: Record<string, string>
+    body?: string
+  },
+): Promise<Response> {
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, AbortSignal.timeout(options.requestTimeoutMs)])
+    : AbortSignal.timeout(options.requestTimeoutMs)
+  const addresses = await resolvePublicHttpAddresses(
+    url, options.lookup ?? dns.lookup, options.allowedProtocols ?? ["https:"],
+    options.errorCode, options.allowBenchmarkProxyAddresses ?? false, signal,
+  )
+  return options.fetcher
+    ? options.fetcher(url, {
+        method: options.method, headers: options.headers,
+        ...(options.body === undefined ? {} : { body: options.body }),
+        redirect: "manual", signal,
+      })
+    : pinnedHttpFetch({
+        url, addresses, signal, byteLimit: options.byteLimit,
+        accept: options.accept, userAgent: options.userAgent, errorCode: options.errorCode,
+        method: options.method, headers: options.headers,
+        ...(options.body === undefined ? {} : { body: options.body }),
+      })
+}
+
 export function isPublicAddress(address: string): boolean {
   if (!ipaddr.isValid(address)) return false
   let parsed = ipaddr.parse(address)
@@ -279,6 +309,9 @@ function pinnedHttpFetch({
   accept,
   userAgent,
   errorCode,
+  method = "GET",
+  headers = {},
+  body,
 }: {
   url: URL
   addresses: LookupAddress[]
@@ -287,6 +320,9 @@ function pinnedHttpFetch({
   accept: string
   userAgent: string
   errorCode: ErrorCode
+  method?: "GET" | "POST"
+  headers?: Record<string, string>
+  body?: string
 }): Promise<Response> {
   const lookup: LookupFunction = (_hostname, options, callback) => {
     if (options.all) {
@@ -314,7 +350,7 @@ function pinnedHttpFetch({
     const outgoing = request(
       url,
       {
-        method: "GET",
+        method,
         // A global keep-alive agent can reuse a socket that was resolved before
         // this request. Disable pooling so every request uses this request's
         // validated, pinned DNS lookup result.
@@ -323,8 +359,9 @@ function pinnedHttpFetch({
         signal,
         headers: {
           accept,
-          "accept-encoding": "identity",
           "user-agent": userAgent,
+          ...headers,
+          "accept-encoding": "identity",
         },
       },
       (incoming) => {
@@ -335,7 +372,7 @@ function pinnedHttpFetch({
       },
     )
     outgoing.once("error", reject)
-    outgoing.end()
+    outgoing.end(body)
   })
 }
 

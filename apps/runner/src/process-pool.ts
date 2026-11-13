@@ -1,5 +1,7 @@
 import { runBrowserPanel } from "./browser/panel-client.js";
 import { BrowserPanelError } from "./browser/session-control.js";
+import type { WebSearchRequest } from "@linksense/shared";
+import { WebSearchRequestError } from "./web-search-error.js";
 import {
   createHash,
   createHmac,
@@ -731,6 +733,7 @@ type ManagedProcess = {
   skillManagementToken: string;
   interactiveFormToken: string;
   currentUserToken: string;
+  webSearchToken: string;
   automationToken: string;
   connectionToken: string;
   notificationQueue: OrderedBatchQueue<QueuedCodexNotification>;
@@ -1652,6 +1655,7 @@ export class AppServerProcessPool {
         const skillManagementToken = randomBytes(32).toString("base64url");
         const interactiveFormToken = randomBytes(32).toString("base64url");
         const currentUserToken = randomBytes(32).toString("base64url");
+        const webSearchToken = randomBytes(32).toString("base64url");
         const automationToken = randomBytes(32).toString("base64url");
         const connectionToken = randomBytes(32).toString("base64url");
         const transferredReservation = reservedProcessSlot;
@@ -1682,6 +1686,8 @@ export class AppServerProcessPool {
               LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/referenced-conversation`,
               LINKSENSE_AUTOMATION_STOP_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/stop-monitor`,
               LINKSENSE_CURRENT_USER_TOKEN: currentUserToken,
+              LINKSENSE_WEB_SEARCH_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-web-search/${input.conversationId}/search`,
+              LINKSENSE_WEB_SEARCH_TOKEN: webSearchToken,
               LINKSENSE_AUTOMATION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-automations/${input.conversationId}/execute`,
               LINKSENSE_AUTOMATION_TOKEN: automationToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
@@ -3765,6 +3771,7 @@ export class AppServerProcessPool {
         const skillManagementToken = randomBytes(32).toString("base64url");
         const interactiveFormToken = randomBytes(32).toString("base64url");
         const currentUserToken = randomBytes(32).toString("base64url");
+        const webSearchToken = randomBytes(32).toString("base64url");
         const automationToken = randomBytes(32).toString("base64url");
         const connectionToken = randomBytes(32).toString("base64url");
         managed = await this.getOrCreate(
@@ -3793,6 +3800,8 @@ export class AppServerProcessPool {
               LINKSENSE_CONVERSATION_REFERENCES_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/referenced-conversation`,
               LINKSENSE_AUTOMATION_STOP_ENDPOINT: `${this.currentUserMcpEndpointBase}/${input.conversationId}/stop-monitor`,
               LINKSENSE_CURRENT_USER_TOKEN: currentUserToken,
+              LINKSENSE_WEB_SEARCH_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-web-search/${input.conversationId}/search`,
+              LINKSENSE_WEB_SEARCH_TOKEN: webSearchToken,
               LINKSENSE_AUTOMATION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-automations/${input.conversationId}/execute`,
               LINKSENSE_AUTOMATION_TOKEN: automationToken,
               LINKSENSE_CONNECTION_ENDPOINT: `${new URL(this.options.mcpEndpointBase).origin}/mcp-connections/${input.conversationId}/execute`,
@@ -4453,6 +4462,18 @@ export class AppServerProcessPool {
     if (!safeTokenEqual(token, managed.automationToken) || managed.activeCollaborationMode !== "default") throw new AutomationRequestError("FORBIDDEN", false, 403);
     if (!this.options.eventSink.manageAutomation) throw new AutomationRequestError("INTERNAL_ERROR", true, 503);
     return this.options.eventSink.manageAutomation({ conversationId, turnId: managed.activeProjectionTurnId, request, ...(signal ? { signal } : {}) });
+  }
+
+  async searchWeb(conversationId: string, token: string, request: WebSearchRequest, signal?: AbortSignal): Promise<unknown> {
+    const managed = this.processes.get(conversationId);
+    if (!managed?.activeTurnId || !managed.activeProjectionTurnId || !safeTokenEqual(token, managed.webSearchToken)) {
+      throw new WebSearchRequestError("WEB_SEARCH_FORBIDDEN");
+    }
+    if (!this.options.eventSink.searchWeb) throw new WebSearchRequestError("WEB_SEARCH_UNAVAILABLE");
+    const turnId = managed.activeProjectionTurnId;
+    const result = await this.options.eventSink.searchWeb({ conversationId, turnId, request, ...(signal ? { signal } : {}) });
+    if (!managed.activeTurnId || managed.activeProjectionTurnId !== turnId) throw new WebSearchRequestError("WEB_SEARCH_FORBIDDEN");
+    return result;
   }
 
   async getCurrentUserInfo(
@@ -5430,6 +5451,8 @@ export class AppServerProcessPool {
       if (!interactiveFormToken) {
         throw new CodexProtocolError("interactive form token is missing");
       }
+      const webSearchToken = input.environment.LINKSENSE_WEB_SEARCH_TOKEN;
+      if (!webSearchToken) throw new CodexProtocolError("web search token is missing");
       const currentUserToken = input.environment.LINKSENSE_CURRENT_USER_TOKEN;
       const automationToken = input.environment.LINKSENSE_AUTOMATION_TOKEN;
       if (!automationToken) throw new CodexProtocolError("automation token is missing");
@@ -5609,6 +5632,7 @@ export class AppServerProcessPool {
         skillManagementToken,
         interactiveFormToken,
         currentUserToken,
+        webSearchToken,
         automationToken,
         connectionToken,
         notificationQueue: new OrderedBatchQueue<QueuedCodexNotification>(

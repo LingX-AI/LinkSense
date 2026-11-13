@@ -36,6 +36,28 @@ afterEach(async () => {
 });
 
 describe("HttpRunnerEventSink", () => {
+  it("relays web search with the task owner, cancellation, and redacted failures without retrying", async () => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const result = { success: true, provider: "deepseek", query: "test", results: [] };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json(result));
+    const sink = new HttpRunnerEventSink("http://api:4000", "runner-secret", workspaceManager, { fetch: fetchMock });
+    const controller = new AbortController();
+    const body = { conversationId, turnId: ownerId, request: { query: "test" } };
+    try {
+      await expect(sink.searchWeb({ ...body, signal: controller.signal })).resolves.toEqual(result);
+      expect(fetchMock).toHaveBeenCalledWith(new URL("http://api:4000/internal/web-search/search"), expect.objectContaining({
+        method: "POST", body: JSON.stringify(body), headers: expect.objectContaining({ authorization: "Bearer runner-secret", "x-linksense-owner-id": ownerId }),
+      }));
+      controller.abort();
+      expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+      fetchMock.mockResolvedValueOnce(Response.json({ error_code: "WEB_SEARCH_AUTH_FAILED", message: "synthetic-private-token" }, { status: 502 }));
+      await expect(sink.searchWeb(body)).rejects.toMatchObject({ code: "WEB_SEARCH_AUTH_FAILED", message: "WEB_SEARCH_AUTH_FAILED", retryable: false });
+      fetchMock.mockRejectedValueOnce(new TypeError("synthetic-private-token"));
+      await expect(sink.searchWeb(body)).rejects.toMatchObject({ code: "WEB_SEARCH_UNAVAILABLE", message: "WEB_SEARCH_UNAVAILABLE", retryable: true });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally { await sink.close(); }
+  });
+
   it("preserves an API internal image error through the relay without retries or sensitive details", async () => {
     const { workspaceManager } = await createWorkspaceManager();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ error_code: "INTERNAL_ERROR", message: "synthetic-private-token", request_id: "request-1" }, { status: 500 }));

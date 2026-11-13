@@ -28,7 +28,7 @@ try {
       filter: path => dirname(path) !== source || !nativeHomeTemporaryEntries.has(basename(path)) });
     await prepareNativeHomeFiles(source, codexHome);
     const client = new CodexJsonRpcClient({ command, userHome: home, codexHome, logger, requestTimeoutMs: 30000,
-      configOverrides: ['features.memories=false', 'features.hooks=false', 'features.multi_agent=false'] });
+      configOverrides: ['features.memories=false', 'features.hooks=false', 'agents.enabled=false'] });
     try { await client.initialize(); await client.request("thread/list", { limit: 1 }); }
     finally { await client.close(); }
     normalized.set(source, codexHome);

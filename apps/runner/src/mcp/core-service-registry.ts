@@ -2,6 +2,7 @@ import { z } from "zod"
 import { browserUseToolName, legacyLocalBrowserToolName } from "@linksense/shared"
 import { automationMonitoringCoreMcpModule } from "./core-services/automation-monitoring-service.js"
 import { conversationReferenceCoreMcpModule } from "./core-services/conversation-reference-service.js"
+import { webSearchCoreMcpModule } from "./core-services/web-search-service.js"
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js"
 
 import { currentUserCoreMcpModule } from "./core-services/current-user-service.js"
@@ -32,6 +33,7 @@ export const coreMcpModuleRegistry: readonly CoreMcpModuleDefinition[] = [
   documentConversionCoreMcpModule,
   currentUserCoreMcpModule,
   browserUseCoreMcpModule,
+  webSearchCoreMcpModule,
   imageGenerationCoreMcpModule,
   knowledgeCoreMcpModule,
   interactiveFormCoreMcpModule,

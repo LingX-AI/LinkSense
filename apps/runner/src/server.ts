@@ -1,5 +1,7 @@
 import { browserPanelRequestSchema } from "@linksense/shared";
 import { BrowserPanelError } from "./browser/session-control.js";
+import { webSearchRequestSchema } from "@linksense/shared";
+import { WebSearchRequestError } from "./web-search-error.js";
 import { registerPublicKnowledgeRuntime } from "./public-knowledge/routes.js";
 import type { RunnerEventSink } from "./event-sink.js";
 import { MICROSOFT_CONNECTION_BODY_LIMIT } from "@linksense/shared";
@@ -818,6 +820,7 @@ export function buildRunnerServer(
       request.url.startsWith("/mcp-skill-creator/") ||
       request.url.startsWith("/mcp-skills/") ||
       request.url.startsWith("/mcp-application-builder/") ||
+      request.url.startsWith("/mcp-web-search/") ||
       request.url.startsWith("/mcp-current-user/") ||
       request.url.startsWith("/mcp-automations/") ||
       request.url.startsWith("/mcp-connections/") ||
@@ -1347,6 +1350,31 @@ export function buildRunnerServer(
         const failure = error instanceof AutomationRequestError ? error : new AutomationRequestError("INTERNAL_ERROR", true, 503);
         request.log.warn({ conversationId: conversationId.data, reasonCode: failure.code }, "automation request rejected");
         return reply.code(failure.statusCode).send({ code: failure.code, retryable: failure.retryable });
+      }
+    },
+  );
+
+  app.post<{ Params: { conversationId: string } }>(
+    "/mcp-web-search/:conversationId/search", { bodyLimit: 8_192 }, async (request, reply) => {
+      const token = request.headers.authorization?.replace(/^Bearer\s+/iu, "");
+      if (!token) return reply.code(401).send({ code: "WEB_SEARCH_FORBIDDEN", retryable: false });
+      const conversationId = uuid.safeParse(request.params.conversationId);
+      const body = webSearchRequestSchema.safeParse(request.body);
+      if (!conversationId.success || !body.success) return reply.code(400).send({ code: "WEB_SEARCH_INVALID", retryable: false });
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      const onClose = () => { if (!reply.raw.writableEnded) abort(); };
+      request.raw.once("aborted", abort);
+      reply.raw.once("close", onClose);
+      try {
+        return await pool.searchWeb(conversationId.data, token, body.data, controller.signal);
+      } catch (error) {
+        const failure = error instanceof WebSearchRequestError ? error : new WebSearchRequestError("WEB_SEARCH_UNAVAILABLE");
+        request.log.warn({ conversationId: conversationId.data, reasonCode: failure.code }, "web search request rejected");
+        return reply.code(failure.statusCode).send({ code: failure.code, retryable: failure.retryable });
+      } finally {
+        request.raw.off("aborted", abort);
+        reply.raw.off("close", onClose);
       }
     },
   );

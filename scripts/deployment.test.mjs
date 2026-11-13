@@ -1651,7 +1651,8 @@ test("Codex template requires the isolated Responses provider and disables nativ
   assert.match(config, /^requires_openai_auth = false$/mu);
   assert.match(config, /^plugins = true$/mu);
   assert.match(config, /^include_instructions = true$/mu);
-  assert.match(config, /^multi_agent = true$/mu);
+  assert.match(config, /^\[agents\]\n(?:#[^\n]*\n)*enabled = true$/mu);
+  assert.doesNotMatch(config, /^multi_agent = /mu);
   assert.match(config, /^tool_call_mcp_elicitation = false$/mu);
   assert.match(
     config,

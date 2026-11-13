@@ -107,6 +107,8 @@ ENV NODE_OPTIONS=--import=/opt/linksense/runtime/node/register-hooks.mjs
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV MPLCONFIGDIR=/tmp/matplotlib
 ENV XDG_CACHE_HOME=/tmp/cache
+RUN setpriv --reuid=1001 --regid=1000 --clear-groups env NODE_OPTIONS= \
+  node --input-type=module -e 'import { assertCodexRuntimeVersion } from "./dist/codex/runtime-version.js"; await assertCodexRuntimeVersion({ command: "codex" });'
 RUN uv venv --python /opt/linksense/runtime/python/bin/python /tmp/linksense-user-python-smoke \
   && printf '%s\n' "$LINKSENSE_PYTHON_BASE_SITE_PACKAGES" > /tmp/linksense-user-python-smoke/lib/python3.12/site-packages/linksense-public-runtime.pth \
   && /tmp/linksense-user-python-smoke/bin/python -c "import bs4, docx, httpx, jinja2, lxml, matplotlib, numpy, openpyxl, pandas, pdfplumber, PIL, pptx, pypdf, reportlab, requests, xlsxwriter, yaml" \
