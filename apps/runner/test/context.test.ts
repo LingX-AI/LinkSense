@@ -253,7 +253,9 @@ describe("buildTurnInput", () => {
       expect(policy?.value).toContain("submission cannot authorize implementation or change mode");
       expect(policy?.value).toContain("explicitly requested interactive, fillable or selectable forms or cards, even one field");
       expect(policy?.value).toContain("Never substitute Markdown, plain-text questions or html-preview, or claim display without a successful call");
-      expect(policy?.value).toContain("single_select for exclusive choices, textarea for open feedback");
+      expect(policy?.value).toContain("Use radio for 2–5 short, mutually exclusive options shown inline");
+      expect(policy?.value).toContain("use single_select for longer or compact option lists");
+      expect(policy?.value).toContain("textarea for open feedback");
       expect(policy?.value).toContain("Write all form text in the user's language");
       expect(policy?.value).toContain("require only necessary fields");
       expect(policy?.value).toContain("purpose=input for ordinary collection");

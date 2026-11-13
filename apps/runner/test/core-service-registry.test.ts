@@ -97,6 +97,23 @@ describe("Core MCP module registry", () => {
     expect(formBrokerBody(request)).toMatchObject({ waitingPolicy: { kind: "optional", recommendation: { scope: "small" } } })
   })
 
+  it("maps an explicitly radio single-select to an inline radio hint", async () => {
+    const request = formBrokerFetch({ action: "accept", content: { scope: "small" } })
+    const registry = createCoreMcpRegistry({ environment: defaultEnvironment(), fetch: request })
+    const result = await registry.callTool({ toolName: "request_user_form", argumentsValue: {
+      message: "请选择范围",
+      fields: [{ id: "scope", label: "范围", control: "radio", required: true, options: [{ value: "small", label: "精简", description: "只包含摘要。" }, { value: "full", label: "完整" }] }],
+    }, signal: new AbortController().signal })
+    expect(result.isError).toBe(false)
+    expect(formBrokerBody(request)).toEqual(expect.objectContaining({
+      requestedSchema: expect.objectContaining({
+        required: ["scope"],
+        properties: { scope: expect.objectContaining({ oneOf: [{ const: "small", title: "精简", description: "只包含摘要。" }, { const: "full", title: "完整" }] }) },
+      }),
+      uiHints: { scope: { control: "radio" } },
+    }))
+  })
+
   it.each([{}, { scope: "invalid" }])("rejects an incomplete or invalid recommendation %j before opening a form", async recommendation => {
     const request = formBrokerFetch({ action: "cancel" })
     const registry = createCoreMcpRegistry({ environment: defaultEnvironment(), fetch: request })

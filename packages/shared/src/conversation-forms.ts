@@ -28,6 +28,7 @@ const enumValuesSchema = z
 const titledEnumOptionSchema = z.strictObject({
   const: enumValueSchema,
   title: z.string().trim().min(1).max(500),
+  description: z.string().trim().max(500).optional(),
 });
 const titledEnumOptionsSchema = z
   .array(titledEnumOptionSchema)
@@ -170,7 +171,7 @@ export const conversationFormRequestedSchema = z
   });
 
 export const conversationFormUiHintSchema = z.strictObject({
-  control: z.enum(["text", "textarea", "number"]),
+  control: z.enum(["text", "textarea", "number", "radio"]),
   placeholder: z.string().max(500).optional(),
 });
 

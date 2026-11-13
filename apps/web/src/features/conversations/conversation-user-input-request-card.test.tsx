@@ -282,6 +282,53 @@ describe("ConversationUserInputRequestCard", () => {
     })
   })
 
+  it("renders an explicitly requested radio single-select as an inline radio group", async () => {
+    const onSubmit = vi.fn()
+    const interaction = userEvent.setup()
+    render(
+      <ConversationUserInputRequestCard
+        request={{
+          ...optionalRequest,
+          requested_schema: {
+            ...optionalRequest.requested_schema,
+            properties: {
+              scope: {
+                type: "string",
+                title: "范围",
+                oneOf: [
+                  {
+                    const: "small",
+                    title: "精简范围",
+                    description: "只包含摘要。",
+                  },
+                  {
+                    const: "full",
+                    title: "完整范围",
+                    description: "包含完整报告。",
+                  },
+                ],
+              },
+            },
+          },
+          ui_hints: { scope: { control: "radio" } },
+        }}
+        submitting={false}
+        onSubmit={onSubmit}
+      />
+    )
+    expect(screen.getByRole("radiogroup", { name: "范围" })).toBeVisible()
+    expect(screen.getByText("只包含摘要。")).toBeVisible()
+    expect(screen.getByText("包含完整报告。")).toBeVisible()
+    expect(screen.getByRole("radio", { name: /精简范围/ })).toBeChecked()
+    await interaction.click(screen.getByRole("radio", { name: /完整范围/ }))
+    expect(screen.getByRole("radio", { name: /完整范围/ })).toBeChecked()
+    await interaction.click(screen.getByRole("button", { name: "提交回答" }))
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith({
+      action: "accept",
+      content: { scope: "full" },
+    })
+  })
+
   it("lets a user replace a recommended text answer before submitting", async () => {
     const onSubmit = vi.fn()
     const interaction = userEvent.setup()

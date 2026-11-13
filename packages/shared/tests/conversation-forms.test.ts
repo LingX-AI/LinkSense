@@ -24,7 +24,7 @@ const requestedSchema = conversationFormRequestedSchema.parse({
       type: "string",
       title: "渠道",
       oneOf: [
-        { const: "email", title: "邮件" },
+        { const: "email", title: "邮件", description: "发送邮件通知。" },
         { const: "teams", title: "Teams" },
       ],
     },
@@ -123,6 +123,7 @@ describe("conversation form contracts", () => {
         requested_schema: requestedSchema,
         ui_hints: {
           title: { control: "textarea", placeholder: "输入标题" },
+          channel: { control: "radio" },
           retries: { control: "number", placeholder: "0～3" },
         },
         response_semantics: { kind: "input" },

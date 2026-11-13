@@ -13,7 +13,7 @@ export const interactiveFormInstructions = [
   requestUserFormUsageInstructions,
   "Also use it for explicitly requested interactive, fillable or selectable forms or cards, even one field. Never substitute Markdown, plain-text questions or html-preview, or claim display without a successful call.",
   "Do not ask again for information or authorization already provided unless scope or circumstances change; continue directly when no response is needed.",
-  "Form message: explain the question and why; combine related questions, require only necessary fields. Use single_select for exclusive choices, textarea for open feedback, typed controls otherwise. Write all form text in the user's language plainly.",
+  "Form message: explain the question and why; combine related questions, require only necessary fields. Use radio for 2–5 short, mutually exclusive options shown inline (such as a delivery-shape choice); use single_select for longer or compact option lists; use textarea for open feedback and typed controls otherwise. When options are not self-explanatory, introduce the trade-offs in message and give each option a short description. Write all form text in the user's language plainly.",
   "Use purpose=input for ordinary collection, preferences and feedback. Use purpose=approval only for a clearly described external side effect, with a required two-option decision field and exact approve/reject values. Do not preselect approval.",
   "waiting_policy: required waits indefinitely; optional uses a complete valid recommendation for all fields after 3 minutes without submission. Drafts cannot extend deadlines; approvals require required.",
   requestUserFormSafetyInstructions,
