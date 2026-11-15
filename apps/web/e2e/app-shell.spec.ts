@@ -7,9 +7,18 @@ import {
   supportedLocales,
   updateVoiceTranscriptionSettingsSchema,
   voiceTranscriptionProviderDefinitions,
+  type PublicKnowledgeCitation,
+  type RichOutput,
 } from "@linksense/shared"
 import { expectPopupPadding } from "./support/popup-padding"
-import { richOutputFixtureMarkdown } from "./support/rich-output-fixture"
+import {
+  richOutputExpansionMarkdown,
+  richOutputFixtureMarkdown,
+  richOutputReadingMarkdown,
+  richOutputResourceFiles,
+  richOutputResourceMarkdown,
+} from "./support/rich-output-fixture"
+import type { ConversationFile } from "../src/api/contracts"
 
 import {
   createE2EAuthSession,
@@ -57,7 +66,9 @@ test.beforeEach(async ({ page }) => {
 
 async function openRichOutputConversation(
   page: Page,
-  content = richOutputFixtureMarkdown
+  content = richOutputFixtureMarkdown,
+  files: readonly ConversationFile[] = [],
+  citations?: readonly PublicKnowledgeCitation[]
 ) {
   const conversationId = "20000000-0000-4000-8000-000000000001"
   await page.route(`**/api/v1/conversations/${conversationId}`, (route) =>
@@ -78,6 +89,7 @@ async function openRichOutputConversation(
           turn_id: "rich-turn",
           phase: "final_answer",
           content,
+          knowledge_citations: citations,
           created_at: NOW,
         },
       ],
@@ -90,13 +102,264 @@ async function openRichOutputConversation(
         },
       ],
       pending_requests: [],
-      files: [],
+      files,
       events: [],
       activities: [],
     })
   )
   await page.goto(`/conversations/${conversationId}`)
 }
+
+for (const [width, theme] of [
+  [1440, "light"],
+  [390, "dark"],
+] as const) {
+  test(`rich AI output opens a recorded evidence source by keyboard at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    const prose = "先用小范围试点验证流程，再评估扩大覆盖范围。"
+    const citation: PublicKnowledgeCitation = {
+      citation_id: "40000000-0000-4000-8000-000000000081",
+      citation_no: 1,
+      summary: {
+        knowledge_base_name: "实施资料库",
+        document_name: "试点管理手册.pdf",
+        title_path: ["实施计划", "试点要求"],
+        page_numbers: [2, 4],
+      },
+      anchors: [{ occurrence_no: 1, after_offset_utf16: prose.length }],
+    }
+    const output: RichOutput = {
+      version: 1,
+      summary: prose,
+      spec: {
+        root: "result",
+        elements: {
+          result: {
+            type: "Panel",
+            props: { title: "试点建议" },
+            children: ["evidence"],
+          },
+          evidence: {
+            type: "Evidence",
+            props: {
+              title: "查看试点依据",
+              detail: "先验证核心流程，扩大覆盖范围前须另行评估。",
+              citations: [1, 99],
+            },
+          },
+        },
+      },
+    }
+    await page.addInitScript(
+      (mode) => localStorage.setItem("linksense.theme", mode),
+      theme
+    )
+    await page.setViewportSize({ width, height: 900 })
+    await page.route("**/api/v1/knowledge-bases/search-capability", (route) =>
+      ok(route, { status: "available", reason_code: null, checked_at: NOW })
+    )
+    const previewPath = `/knowledge-citations/${citation.citation_id}`
+    let requestedPreview = false
+    await page.route(`**/api/v1${previewPath}`, (route) => {
+      requestedPreview = true
+      return ok(route, {
+        status: "available",
+        citation_id: citation.citation_id,
+        citation_no: citation.citation_no,
+        summary: citation.summary,
+        parent_excerpt: "试点通过后，须重新评估全团队推广成本。",
+        original: { supported: false, renderer: null },
+      })
+    })
+    await page.route(`**/api/v1${previewPath}/events`, (route) =>
+      route.fulfill({
+        contentType: "text/event-stream",
+        body: ": keepalive\n\n",
+      })
+    )
+    await openRichOutputConversation(
+      page,
+      `${prose}\n\n\`\`\`json-render\n${JSON.stringify(output)}\n\`\`\``,
+      [],
+      [citation]
+    )
+    await page.getByRole("button", { name: "关闭任务概览" }).click()
+
+    const result = page.getByTestId("assistant-rich-output")
+    const disclosure = result.getByRole("button", { name: "查看试点依据" })
+    const source = result.getByRole("link", { name: /试点管理手册\.pdf/u })
+    await expect(source).toHaveCount(0)
+    await disclosure.focus()
+    await page.keyboard.press("Enter")
+    await expect(source).toBeVisible()
+    await expect(source).toHaveAccessibleDescription(
+      "实施计划 / 试点要求 · 第 2, 4 页"
+    )
+    await expect(result.getByRole("link")).toHaveCount(1)
+    expect(requestedPreview).toBe(false)
+    await page.keyboard.press("Tab")
+    await expect(source).toBeFocused()
+    expect(
+      await result.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth
+      )
+    ).toBe(true)
+    const { violations } = await new AxeBuilder({ page })
+      .include('[data-testid="assistant-rich-output"]')
+      .analyze()
+    expect(violations).toEqual([])
+    await result.screenshot({
+      path: testInfo.outputPath("rich-output-evidence.png"),
+    })
+    await page.keyboard.press("Enter")
+    await expect(page).toHaveURL(new RegExp(`${previewPath}$`, "u"))
+    await expect(
+      page.getByRole("heading", { name: "试点管理手册.pdf" })
+    ).toBeVisible()
+    await expect(
+      page.getByText("试点通过后，须重新评估全团队推广成本。")
+    ).toBeVisible()
+    expect(requestedPreview).toBe(true)
+  })
+}
+
+async function mockRichOutputResources(page: Page) {
+  const conversationId = "20000000-0000-4000-8000-000000000001"
+  await page.route("**/rich-gallery-preview.png", (route) =>
+    route.fulfill({
+      contentType: "image/png",
+      body: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "base64"
+      ),
+    })
+  )
+  await page.route(
+    `**/api/v1/conversations/${conversationId}/files/*/preview`,
+    (route) =>
+      ok(route, {
+        url: "http://127.0.0.1:4173/rich-gallery-preview.png",
+        expires_at: "2099-07-14T10:49:00.000Z",
+        filename: "design-a.png",
+      })
+  )
+  await page.route(
+    `**/api/v1/conversations/${conversationId}/files/*/content`,
+    (route) =>
+      route.fulfill({
+        contentType: "text/plain",
+        body: "Rich output file preview.",
+      })
+  )
+  await page.route(
+    `**/api/v1/conversations/${conversationId}/files/*/download`,
+    (route) =>
+      route.fulfill({
+        contentType: "text/plain",
+        body: "Rich output file preview.",
+      })
+  )
+}
+
+for (const [width, theme] of [
+  [1440, "light"],
+  [390, "light"],
+  [1440, "dark"],
+] as const) {
+  test(`rich AI output previews and downloads authorized resources at ${width}px in ${theme} mode`, async ({
+    page,
+  }, testInfo) => {
+    await page.addInitScript(
+      (mode) => localStorage.setItem("linksense.theme", mode),
+      theme
+    )
+    await page.setViewportSize({ width, height: 1000 })
+    await mockRichOutputResources(page)
+    const fileRequests: string[] = []
+    page.on("request", (request) => {
+      if (request.url().includes("/files/")) fileRequests.push(request.url())
+    })
+    await openRichOutputConversation(
+      page,
+      richOutputResourceMarkdown,
+      richOutputResourceFiles
+    )
+    const answer = page.getByRole("article", { name: "助手回复" })
+    const result = page.getByTestId("assistant-rich-output")
+    await expect(result).toBeVisible()
+    const preview = result.getByRole("button", { name: "预览图片 设计方案 A" })
+    await expect(preview).toBeEnabled()
+    await expect(
+      result.getByText("此文件不可用，可能已被移除或无权访问。")
+    ).toBeVisible()
+    await expect(
+      answer.getByRole("button", { name: "下载 design-a.png", exact: true })
+    ).toHaveCount(1)
+    await expect(
+      answer.getByRole("button", { name: "下载 analysis.txt", exact: true })
+    ).toHaveCount(1)
+    await preview.focus()
+    await preview.press("Enter")
+    await expect(page.getByRole("dialog")).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+    await expect(preview).toBeFocused()
+
+    const download = page.waitForEvent("download")
+    await result
+      .getByRole("button", { name: "下载 analysis.txt", exact: true })
+      .click()
+    expect((await download).suggestedFilename()).toBe("analysis.txt")
+    await result
+      .getByRole("button", { name: "预览文件 analysis.txt", exact: true })
+      .click()
+    const documentPreview = page.getByLabel("预览文档 analysis.txt", {
+      exact: true,
+    })
+    await expect(documentPreview).toBeVisible()
+    await expect(documentPreview).toContainText("Rich output file preview.")
+    await documentPreview
+      .getByRole("button", { name: "关闭文档预览", exact: true })
+      .click()
+    expect(fileRequests.some((url) => url.includes("000000000073"))).toBe(false)
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    ).toBe(true)
+    const { violations } = await new AxeBuilder({ page })
+      .include('[data-testid="assistant-rich-output"]')
+      .analyze()
+    expect(violations).toEqual([])
+    await page.screenshot({
+      path: testInfo.outputPath("rich-output-resources.png"),
+    })
+  })
+}
+
+test("rich AI output preserves automatic resource access when its renderer cannot load", async ({
+  page,
+}) => {
+  await mockRichOutputResources(page)
+  await page.route("**/assets/assistant-rich-output-renderer-*.js", (route) =>
+    route.abort()
+  )
+  await openRichOutputConversation(
+    page,
+    richOutputResourceMarkdown,
+    richOutputResourceFiles
+  )
+  await expect(
+    page.getByText("此结果暂时无法展示。你仍可阅读回答正文。")
+  ).toBeVisible()
+  await expect(
+    page
+      .getByRole("article", { name: "助手回复" })
+      .getByRole("button", { name: "下载 analysis.txt", exact: true })
+  ).toBeEnabled()
+  await expect(page.getByText(/已移除的候选/)).toBeVisible()
+})
 
 for (const [width, theme] of [
   [1440, "light"],
@@ -114,18 +377,26 @@ for (const [width, theme] of [
     await openRichOutputConversation(page)
     const result = page.getByTestId("assistant-rich-output")
     await expect(result).toBeVisible()
-    await expect(result.locator(".recharts-bar-rectangle").first()).toBeAttached()
+    await expect(
+      result.locator(".recharts-bar-rectangle").first()
+    ).toBeAttached()
     await result.getByRole("button", { name: "查看分析依据" }).click()
     await expect(result.getByText(/三个团队的数据分别为/)).toBeVisible()
     await result.getByRole("radio", { name: "完整建设" }).click()
-    await expect(result.getByText("在需求清晰后统一建设完整流程。")).toBeVisible()
+    await expect(
+      result.getByText("在需求清晰后统一建设完整流程。")
+    ).toBeVisible()
     await result.getByRole("button", { name: "数据表", exact: true }).click()
     await expect(result.getByRole("table", { name: "团队数据" })).toBeVisible()
     await result.getByRole("button", { name: "数值 (项)" }).click()
-    await expect(result.locator("th[aria-sort=ascending]")).toHaveText("数值 (项)")
+    await expect(result.locator("th[aria-sort=ascending]")).toHaveText(
+      "数值 (项)"
+    )
     await expect(result.getByText("暂无数据", { exact: true })).toBeVisible()
     expect(
-      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
     ).toBe(true)
     const { violations } = await new AxeBuilder({ page })
       .include('[data-testid="assistant-rich-output"]')
@@ -174,7 +445,9 @@ for (const [width, input] of [
     if (input === "pointer") {
       await selection.getByText("完整建设", { exact: true }).click()
     } else {
-      await selection.getByRole("radio", { name: "先做验证" }).press("ArrowRight")
+      await selection
+        .getByRole("radio", { name: "先做验证" })
+        .press("ArrowRight")
     }
     const selectedRadio = selection.getByRole("radio", { name: "完整建设" })
     await expect(selectedRadio).toBeChecked()
@@ -192,6 +465,221 @@ for (const [width, input] of [
   })
 }
 
+for (const [width, theme] of [
+  [1440, "light"],
+  [390, "dark"],
+] as const) {
+  test(`rich AI output expands common content and filters data at ${width}px in ${theme} mode`, async ({
+    page,
+  }, testInfo) => {
+    await page.addInitScript((mode) => {
+      localStorage.setItem("linksense.theme", mode)
+      localStorage.setItem("linksense.taskOverviewOpen", "false")
+    }, theme)
+    await page.setViewportSize({ width, height: 1000 })
+    await openRichOutputConversation(page, richOutputExpansionMarkdown)
+    const result = page.getByTestId("assistant-rich-output")
+    await expect(result.getByRole("region", { name: "关键信息" })).toBeVisible()
+    if (width === 1440) {
+      expect(
+        await result.evaluate(
+          (element) => element.getBoundingClientRect().width
+        )
+      ).toBeGreaterThan(600)
+    }
+    const timeline = result.getByRole("region", { name: "事件时间线" })
+    await expect(timeline.getByRole("listitem")).toHaveCount(2)
+    await expect(timeline.getByRole("list")).toHaveCSS(
+      "list-style-type",
+      "none"
+    )
+    await expect(
+      result.getByRole("region", { name: "建议步骤" }).getByRole("listitem")
+    ).toHaveCount(2)
+    await expect(result.getByText("+2 项", { exact: true })).toBeVisible()
+    const chart = result.getByRole("region", { name: "多系列堆叠柱图" })
+    await expect(chart.locator(".recharts-bar")).toHaveCount(2)
+    await chart.getByRole("button", { name: "数据表", exact: true }).click()
+    await expect(chart.getByRole("table")).toBeVisible()
+    await expect(
+      chart.getByRole("columnheader", { name: "已处理 (项)" })
+    ).toBeVisible()
+    const line = result.getByRole("region", { name: "多系列折线图" })
+    await expect(line.locator(".recharts-line")).toHaveCount(2)
+    await line.locator(".recharts-line-dot").first().hover()
+    await expect(
+      line.getByText("已处理: 12.123456 项", { exact: true })
+    ).toBeVisible()
+
+    const filter = result.getByRole("searchbox", { name: "筛选可筛选明细" })
+    await filter.fill("第二组")
+    const table = result.getByRole("table", { name: "可筛选明细" })
+    await expect(table.getByRole("row")).toHaveCount(2)
+    await expect(result.getByText("显示 1 / 3 行")).toBeVisible()
+    await expect(
+      table.getByRole("cell", { name: "0", exact: true })
+    ).toBeVisible()
+    await filter.fill("不存在")
+    await expect(result.getByText("没有匹配的数据。")).toBeVisible()
+    await filter.fill("")
+    await table.getByRole("button", { name: "日期", exact: true }).click()
+    await expect(table.getByRole("row").nth(1)).toContainText("第二组")
+    await expect(
+      table.getByRole("button", { name: "日期", exact: true })
+    ).toBeFocused()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    ).toBe(true)
+    const { violations } = await new AxeBuilder({ page })
+      .include('[data-testid="assistant-rich-output"]')
+      .analyze()
+    expect(violations).toEqual([])
+    await result
+      .getByRole("region", { name: "关键信息" })
+      .scrollIntoViewIfNeeded()
+    await page.screenshot({
+      path: testInfo.outputPath("rich-output-expanded.png"),
+    })
+  })
+}
+
+for (const [width, theme] of [
+  [1440, "light"],
+  [390, "dark"],
+] as const) {
+  test(`rich AI output keeps the reading position and temporary checks across views at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    await page.addInitScript(
+      ({ mode, userId }) => {
+        localStorage.setItem("linksense.theme", mode)
+        localStorage.setItem("linksense.taskOverviewOpen", "false")
+        sessionStorage.setItem(
+          `linksense.browserNotifications.promptDismissed:${userId}`,
+          "true"
+        )
+      },
+      { mode: theme, userId: ADMIN.id }
+    )
+    await page.setViewportSize({ width, height: 1100 })
+    await openRichOutputConversation(
+      page,
+      `${"这里是报告的背景说明。\n\n".repeat(30)}${richOutputReadingMarkdown}\n\n${"附录：本段用于留出阅读空间。\n\n".repeat(13)}`
+    )
+    const result = page.getByTestId("assistant-rich-output")
+    const tablist = result.getByRole("tablist", { name: "阅读视图" })
+    const summary = tablist.getByRole("tab", { name: "摘要与主要结论" })
+    const preparation = tablist.getByRole("tab", { name: "交付准备及逐项核对" })
+    const limits = tablist.getByRole("tab", { name: "数据口径与使用限制" })
+    const scroll = page.locator(".conversation-scroll")
+    await expect(tablist).toBeInViewport({ ratio: 1 })
+    await expect(summary).toHaveAttribute("aria-selected", "true")
+    await expect
+      .poll(() =>
+        scroll.evaluate(
+          (element) =>
+            element.scrollHeight - element.clientHeight - element.scrollTop
+        )
+      )
+      .toBeLessThanOrEqual(1)
+    const top = await scroll.evaluate((element) => element.scrollTop)
+    const startingHeight = await scroll.evaluate(
+      (element) => element.scrollHeight
+    )
+    expect(top).toBeGreaterThan(100)
+    const expectScrollUnchanged = () =>
+      expect
+        .poll(() =>
+          scroll.evaluate(
+            (element, initialTop) => Math.abs(element.scrollTop - initialTop),
+            top
+          )
+        )
+        .toBeLessThanOrEqual(1)
+
+    if (width === 390) {
+      await expect
+        .poll(() =>
+          tablist.evaluate(
+            (element) => element.scrollWidth - element.clientWidth
+          )
+        )
+        .toBeGreaterThan(0)
+      await summary.press("ArrowRight")
+      await expect(preparation).toBeFocused()
+      await expect(summary).toHaveAttribute("aria-selected", "true")
+      await preparation.press("Enter")
+    } else {
+      await preparation.click()
+    }
+    await expect(preparation).toHaveAttribute("aria-selected", "true")
+    await expect(preparation).toBeFocused()
+    await expect
+      .poll(() => scroll.evaluate((element) => element.scrollHeight))
+      .toBeGreaterThan(startingHeight)
+    await expectScrollUnchanged()
+
+    const disclosure = result.getByRole("button", { name: "查看核对要求" })
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false")
+    const foldedHeight = await scroll.evaluate(
+      (element) => element.scrollHeight
+    )
+    if (width === 390) await disclosure.press("Space")
+    else await disclosure.click()
+    await expect(disclosure).toHaveAttribute("aria-expanded", "true")
+    await expect(disclosure).toBeFocused()
+    await expect
+      .poll(() => scroll.evaluate((element) => element.scrollHeight))
+      .toBeGreaterThan(foldedHeight)
+    await expectScrollUnchanged()
+    const source = result.getByRole("checkbox", { name: "确认资料来源" })
+    await expect(source).toHaveAccessibleDescription("与原始文件核对。")
+    if (width === 390) await source.press("Space")
+    else await result.getByText("确认资料来源", { exact: true }).click()
+    await expect(source).toBeChecked()
+    await expectScrollUnchanged()
+    await disclosure.press("Enter")
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false")
+    await expect(disclosure).toBeFocused()
+    await expect(source).toHaveCount(0)
+    await expectScrollUnchanged()
+
+    await preparation.press("ArrowRight")
+    await expect(limits).toBeFocused()
+    await limits.press("Space")
+    await expect(
+      result.getByRole("tabpanel", { name: "数据口径与使用限制" })
+    ).toHaveText("本次不包含跨季度数据。")
+    await preparation.press("Enter")
+    await summary.press("Enter")
+    await preparation.press("Enter")
+    await expect(preparation).toBeFocused()
+    await expectScrollUnchanged()
+    await disclosure.click()
+    await expect(source).toBeChecked()
+    await expectScrollUnchanged()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    ).toBe(true)
+    const { violations } = await new AxeBuilder({ page })
+      .include('[data-testid="assistant-rich-output"]')
+      .analyze()
+    expect(violations).toEqual([])
+    await page.screenshot({
+      path: testInfo.outputPath("rich-output-reading.png"),
+    })
+
+    await page.reload()
+    await result.getByRole("tab", { name: "交付准备及逐项核对" }).press("Enter")
+    await disclosure.press("Enter")
+    await expect(source).not.toBeChecked()
+  })
+}
+
 test("rich AI output keeps the answer and readable data if the renderer cannot load", async ({
   page,
 }) => {
@@ -199,8 +687,12 @@ test("rich AI output keeps the answer and readable data if the renderer cannot l
     route.abort()
   )
   await openRichOutputConversation(page)
-  await expect(page.getByText("此结果暂时无法展示。你仍可阅读回答正文。")).toBeVisible()
-  await expect(page.getByText("这是分析结论，下面可以查看依据、比较方案并核对数据。")).toBeVisible()
+  await expect(
+    page.getByText("此结果暂时无法展示。你仍可阅读回答正文。")
+  ).toBeVisible()
+  await expect(
+    page.getByText("这是分析结论，下面可以查看依据、比较方案并核对数据。")
+  ).toBeVisible()
   await expect(page.getByText(/团队 A: 12 项/)).toBeVisible()
   await expect(page.getByTestId("assistant-rich-output")).toHaveCount(0)
 })

@@ -1,6 +1,7 @@
 import { Component, lazy, Suspense, useMemo, type ReactNode } from "react"
 import { parseRichOutput, richOutputText } from "@linksense/shared"
 import { useTranslation } from "react-i18next"
+import { RichOutputTurnContext } from "./rich-output-resource-context"
 
 const Renderer = lazy(() => import("./assistant-rich-output-renderer"))
 
@@ -23,11 +24,13 @@ export default function AssistantRichOutput({
   source,
   streaming = false,
   textOnly = false,
+  turnId,
   renderCitation,
 }: {
   source: string
   streaming?: boolean
   textOnly?: boolean
+  turnId?: string
   renderCitation?: (number: number) => ReactNode
 }) {
   const { t } = useTranslation()
@@ -73,7 +76,9 @@ export default function AssistantRichOutput({
       }
     >
       <Suspense fallback={pending}>
-        <Renderer output={output} renderCitation={renderCitation} />
+        <RichOutputTurnContext.Provider value={turnId}>
+          <Renderer output={output} renderCitation={renderCitation} />
+        </RichOutputTurnContext.Provider>
       </Suspense>
     </RichOutputBoundary>
   )

@@ -1,4 +1,5 @@
 import {
+  Children,
   createContext,
   useContext,
   useId,
@@ -13,10 +14,12 @@ import {
   schema,
 } from "@json-render/react"
 import {
+  richOutputChartData,
   richOutputComponents,
   type RichOutput,
   type RichOutputProps,
 } from "@linksense/shared"
+import dayjs from "dayjs"
 import { ChevronRightIcon, ArrowDownUpIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
@@ -43,6 +46,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Collapsible,
   CollapsibleContent,
@@ -62,6 +66,13 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
+import { InputGroup } from "@/components/ui/input-group"
+import { Label } from "@/components/ui/label"
+import { SearchInput } from "@/components/ui/search-input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { normalizeLanguage } from "@/i18n"
+import { formatCalendarDate } from "@/i18n/date"
+import { MediaGallery, ResourceList } from "./assistant-rich-output-resources"
 
 const CitationContext = createContext<
   ((number: number) => ReactNode) | undefined
@@ -71,8 +82,154 @@ const catalog = defineCatalog(schema, {
   actions: {},
 })
 
-function Evidence({ title, detail, citations }: RichOutputProps<"Evidence">) {
-  const renderCitation = useContext(CitationContext)
+function KeyValue({ title, items }: RichOutputProps<"KeyValue">) {
+  const { t, i18n } = useTranslation()
+  const titleId = useId()
+  const numbers = new Intl.NumberFormat(i18n.resolvedLanguage, {
+    maximumSignificantDigits: 21,
+  })
+  return (
+    <section aria-labelledby={titleId} className="min-w-0 space-y-2">
+      <h3 id={titleId} className="text-sm font-medium wrap-anywhere">
+        {title}
+      </h3>
+      <dl className="divide-y divide-border text-sm">
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className="grid min-w-0 gap-1 py-2 @sm/rich:grid-cols-3 @sm/rich:gap-3"
+          >
+            <dt className="wrap-anywhere text-muted-foreground">
+              {item.label}
+            </dt>
+            <dd className="min-w-0 wrap-anywhere whitespace-pre-wrap tabular-nums @sm/rich:col-span-2">
+              {item.value === null
+                ? t("richOutput.missing")
+                : typeof item.value === "number"
+                  ? numbers.format(item.value)
+                  : item.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {items.length === 0 && (
+        <p className="text-sm text-muted-foreground">{t("richOutput.empty")}</p>
+      )}
+    </section>
+  )
+}
+
+function Timeline({ title, items }: RichOutputProps<"Timeline">) {
+  const { t } = useTranslation()
+  const titleId = useId()
+  return (
+    <section aria-labelledby={titleId} className="min-w-0 space-y-3">
+      <h3 id={titleId} className="text-sm font-medium wrap-anywhere">
+        {title}
+      </h3>
+      <ol role="list" className="list-none text-sm">
+        {items.map((item) => (
+          <li
+            key={item.id}
+            className="relative ms-1 min-w-0 border-s border-border ps-4 pb-4 before:absolute before:start-0 before:top-1.5 before:size-2 before:-translate-x-1/2 before:rounded-full before:bg-primary last:pb-0"
+          >
+            {item.time && (
+              <p className="mb-1 text-xs wrap-anywhere text-muted-foreground">
+                {item.time}
+              </p>
+            )}
+            <p className="font-medium wrap-anywhere">{item.title}</p>
+            {item.detail && (
+              <p className="mt-1 wrap-anywhere whitespace-pre-wrap text-muted-foreground">
+                {item.detail}
+              </p>
+            )}
+          </li>
+        ))}
+      </ol>
+      {items.length === 0 && (
+        <p className="text-sm text-muted-foreground">{t("richOutput.empty")}</p>
+      )}
+    </section>
+  )
+}
+
+function Steps({ title, items }: RichOutputProps<"Steps">) {
+  const { t } = useTranslation()
+  const titleId = useId()
+  return (
+    <section aria-labelledby={titleId} className="min-w-0 space-y-3">
+      <h3 id={titleId} className="text-sm font-medium wrap-anywhere">
+        {title}
+      </h3>
+      <ol className="list-decimal space-y-3 ps-5 text-sm marker:font-medium marker:text-muted-foreground">
+        {items.map((item) => (
+          <li key={item.id} className="ps-1">
+            <p className="font-medium wrap-anywhere">{item.title}</p>
+            {item.detail && (
+              <p className="mt-1 wrap-anywhere whitespace-pre-wrap text-muted-foreground">
+                {item.detail}
+              </p>
+            )}
+          </li>
+        ))}
+      </ol>
+      {items.length === 0 && (
+        <p className="text-sm text-muted-foreground">{t("richOutput.empty")}</p>
+      )}
+    </section>
+  )
+}
+
+function ResultTabs({
+  title,
+  tabs,
+  children,
+}: RichOutputProps<"Tabs"> & { children?: ReactNode }) {
+  const titleId = useId()
+  // The validated tab IDs and child IDs are in the same order.
+  const panels = Children.toArray(children)
+  return (
+    <div className="min-w-0 space-y-2">
+      <h3 id={titleId} className="text-sm font-medium wrap-anywhere">
+        {title}
+      </h3>
+      <Tabs defaultValue={tabs[0]?.id}>
+        <TabsList aria-labelledby={titleId} activateOnFocus={false}>
+          {tabs.map((tab) => (
+            <TabsTrigger
+              key={tab.id}
+              value={tab.id}
+              className="min-h-11 max-w-full flex-none text-start wrap-anywhere whitespace-normal"
+            >
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {tabs.map((tab, index) => (
+          <TabsContent
+            key={tab.id}
+            value={tab.id}
+            keepMounted
+            className="min-w-0 rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          >
+            {panels[index]}
+          </TabsContent>
+        ))}
+      </Tabs>
+    </div>
+  )
+}
+
+function ResultDisclosure({
+  title,
+  children,
+  keepMounted,
+}: {
+  title: string
+  children: ReactNode
+  keepMounted?: boolean
+}) {
   return (
     <Collapsible className="min-w-0 border-t border-border">
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-3 text-left text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
@@ -82,17 +239,94 @@ function Evidence({ title, detail, citations }: RichOutputProps<"Evidence">) {
         />
         <span className="min-w-0 wrap-anywhere">{title}</span>
       </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-2 pb-3 pl-6 text-sm">
-        <p className="wrap-anywhere whitespace-pre-wrap">{detail}</p>
-        {renderCitation && citations && (
-          <div className="flex flex-wrap gap-2">
-            {citations.map((number) => (
-              <span key={number}>{renderCitation(number)}</span>
-            ))}
-          </div>
-        )}
+      <CollapsibleContent
+        keepMounted={keepMounted}
+        className="min-w-0 space-y-2 ps-6 pb-3 text-sm"
+      >
+        {children}
       </CollapsibleContent>
     </Collapsible>
+  )
+}
+
+function Checklist({ title, items }: RichOutputProps<"Checklist">) {
+  const { t } = useTranslation()
+  const groupId = useId()
+  return (
+    <section
+      aria-labelledby={`${groupId}-title`}
+      aria-describedby={`${groupId}-hint`}
+      className="min-w-0 space-y-2"
+    >
+      <h3 id={`${groupId}-title`} className="text-sm font-medium wrap-anywhere">
+        {title}
+      </h3>
+      <p id={`${groupId}-hint`} className="text-xs text-muted-foreground">
+        {t("richOutput.temporaryChecks")}
+      </p>
+      <ul role="list" className="space-y-1">
+        {items.map((item) => {
+          const inputId = `${groupId}-check-${item.id}`
+          const labelId = `${groupId}-label-${item.id}`
+          const detailId = `${groupId}-detail-${item.id}`
+          return (
+            <li key={item.id}>
+              <Label
+                htmlFor={inputId}
+                className="min-h-11 cursor-pointer items-start gap-2.5 rounded-lg border border-border px-2.5 py-2 leading-5 font-normal hover:bg-muted/50 has-data-checked:bg-muted/50 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring"
+              >
+                <Checkbox
+                  id={inputId}
+                  aria-labelledby={labelId}
+                  aria-describedby={item.detail ? detailId : undefined}
+                  className="mt-0.5 border-muted-foreground/60"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.preventDefault()
+                  }}
+                />
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span id={labelId} className="wrap-anywhere">
+                    {item.label}
+                  </span>
+                  {item.detail && (
+                    <span
+                      id={detailId}
+                      className="text-xs wrap-anywhere whitespace-pre-wrap text-muted-foreground"
+                    >
+                      {item.detail}
+                    </span>
+                  )}
+                </span>
+              </Label>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+function Evidence({ title, detail, citations }: RichOutputProps<"Evidence">) {
+  const { t } = useTranslation()
+  const renderCitation = useContext(CitationContext)
+  const sources =
+    citations?.flatMap((number) => {
+      const source = renderCitation?.(number)
+      return source ? [<li key={number}>{source}</li>] : []
+    }) ?? []
+  return (
+    <ResultDisclosure title={title}>
+      <p className="wrap-anywhere whitespace-pre-wrap">{detail}</p>
+      {sources.length > 0 && (
+        <ul
+          role="list"
+          aria-label={t("conversation.taskOverview.sources")}
+          className="space-y-1.5"
+        >
+          {sources}
+        </ul>
+      )}
+    </ResultDisclosure>
   )
 }
 
@@ -160,40 +394,99 @@ function Comparison({ title, options }: RichOutputProps<"Comparison">) {
   )
 }
 
-function DataTable({ title, columns, rows }: RichOutputProps<"DataTable">) {
+function DataTable({
+  title,
+  columns,
+  rows,
+  filterable,
+}: RichOutputProps<"DataTable">) {
   const { t, i18n } = useTranslation()
+  const [query, setQuery] = useState("")
   const [sort, setSort] = useState<{
     column: number
     descending: boolean
   } | null>(null)
   const captionId = useId()
+  const filterId = useId()
+  const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
   const collator = new Intl.Collator(i18n.resolvedLanguage, {
     numeric: true,
     sensitivity: "base",
   })
+  const numberFormat = new Intl.NumberFormat(i18n.resolvedLanguage, {
+    maximumSignificantDigits: 21,
+  })
+  const formatCell = (
+    value: string | number | null | undefined,
+    column: (typeof columns)[number] | undefined
+  ): string =>
+    value == null
+      ? t("richOutput.missing")
+      : typeof value === "number"
+        ? numberFormat.format(value)
+        : column?.type === "date"
+          ? formatCalendarDate(value, language)
+          : value
+  const search = filterable
+    ? query.trim().toLocaleLowerCase(i18n.resolvedLanguage)
+    : ""
+  const filtered = search
+    ? rows.filter((row) =>
+        row.values.some(
+          (value, index) =>
+            value !== null &&
+            `${value} ${formatCell(value, columns[index])}`
+              .toLocaleLowerCase(i18n.resolvedLanguage)
+              .includes(search)
+        )
+      )
+    : rows
   const ordered = sort
-    ? [...rows].sort((a, b) => {
+    ? [...filtered].sort((a, b) => {
         const left = a.values[sort.column]
         const right = b.values[sort.column]
         // Missing values remain last in both directions, and never become zero.
         if (left == null) return right == null ? 0 : 1
         if (right == null) return -1
         const compared =
-          typeof left === "number"
-            ? typeof right === "number"
-              ? left - right
-              : -1
-            : typeof right === "number"
-              ? 1
-              : collator.compare(left, right)
+          columns[sort.column]?.type === "date" &&
+          typeof left === "string" &&
+          typeof right === "string"
+            ? dayjs(left).valueOf() - dayjs(right).valueOf()
+            : typeof left === "number"
+              ? typeof right === "number"
+                ? left - right
+                : -1
+              : typeof right === "number"
+                ? 1
+                : collator.compare(left, right)
         return sort.descending ? -compared : compared
       })
-    : rows
-  const numberFormat = new Intl.NumberFormat(i18n.resolvedLanguage, {
-    maximumSignificantDigits: 21,
-  })
+    : filtered
   return (
     <div className="min-w-0 space-y-2">
+      {filterable && (
+        <div className="space-y-1.5">
+          <Label htmlFor={filterId} className="sr-only">
+            {t("richOutput.filter", { title })}
+          </Label>
+          <InputGroup>
+            <SearchInput
+              id={filterId}
+              type="search"
+              value={query}
+              onValueChange={setQuery}
+              placeholder={t("richOutput.filter", { title })}
+            />
+          </InputGroup>
+          <p role="status" className="text-xs text-muted-foreground">
+            {t("richOutput.rowCount", {
+              shown: filtered.length,
+              total: rows.length,
+            })}
+          </p>
+        </div>
+      )}
       <Table
         className="min-w-80"
         containerClassName="max-w-full rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -212,6 +505,7 @@ function DataTable({ title, columns, rows }: RichOutputProps<"DataTable">) {
               <TableHead
                 key={column.id}
                 scope="col"
+                data-type={column.type}
                 className="px-2"
                 aria-sort={
                   sort?.column === index
@@ -235,6 +529,7 @@ function DataTable({ title, columns, rows }: RichOutputProps<"DataTable">) {
                   }
                 >
                   {column.label}
+                  {column.unit ? ` (${column.unit})` : ""}
                   <ArrowDownUpIcon
                     aria-hidden="true"
                     className="size-3.5 shrink-0"
@@ -254,11 +549,7 @@ function DataTable({ title, columns, rows }: RichOutputProps<"DataTable">) {
                     key={column.id}
                     className="max-w-64 px-3 wrap-anywhere whitespace-normal tabular-nums"
                   >
-                    {value == null
-                      ? t("richOutput.missing")
-                      : typeof value === "number"
-                        ? numberFormat.format(value)
-                        : value}
+                    {formatCell(value, column)}
                   </TableCell>
                 )
               })}
@@ -269,6 +560,11 @@ function DataTable({ title, columns, rows }: RichOutputProps<"DataTable">) {
       {rows.length === 0 && (
         <p className="text-sm text-muted-foreground">{t("richOutput.empty")}</p>
       )}
+      {rows.length > 0 && filtered.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          {t("richOutput.noMatches")}
+        </p>
+      )}
       <span role="status" className="sr-only">
         {sort
           ? t("richOutput.sort", { column: columns[sort.column]?.label })
@@ -278,11 +574,23 @@ function DataTable({ title, columns, rows }: RichOutputProps<"DataTable">) {
   )
 }
 
-function ResultChart({ title, kind, unit, points }: RichOutputProps<"Chart">) {
+function ResultChart(props: RichOutputProps<"Chart">) {
+  const { title, kind, unit } = props
+  const { series, points, stacked } = richOutputChartData(props)
   const { t, i18n } = useTranslation()
   const [table, setTable] = useState(false)
   const chartTitleId = useId()
-  const numberFormat = new Intl.NumberFormat(i18n.resolvedLanguage)
+  const numberFormat = new Intl.NumberFormat(i18n.resolvedLanguage, {
+    maximumSignificantDigits: 21,
+  })
+  const colors = [
+    "var(--chart-1)",
+    "var(--chart-2)",
+    "var(--chart-3)",
+    "var(--chart-4)",
+    "var(--chart-5)",
+    "var(--primary)",
+  ]
   const axes = (
     <>
       <CartesianGrid vertical={false} />
@@ -301,9 +609,15 @@ function ResultChart({ title, kind, unit, points }: RichOutputProps<"Chart">) {
       <ChartTooltip
         content={
           <ChartTooltipContent
-            formatter={(value) =>
-              `${typeof value === "number" ? numberFormat.format(value) : String(value)} ${unit}`
-            }
+            formatter={(value, name) => (
+              <span>
+                {series.length > 1 ? `${name}: ` : ""}
+                {typeof value === "number"
+                  ? numberFormat.format(value)
+                  : String(value)}{" "}
+                {unit}
+              </span>
+            )}
           />
         }
       />
@@ -337,35 +651,81 @@ function ResultChart({ title, kind, unit, points }: RichOutputProps<"Chart">) {
           </Button>
         </div>
       </div>
-      {points.length === 0 || points.every((point) => point.value === null) ? (
+      {series.length > 1 && (
+        <ul
+          role="list"
+          aria-label={t("richOutput.series")}
+          className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"
+        >
+          {series.map((item, index) => (
+            <li key={item.id} className="flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "size-2 shrink-0 rounded-sm",
+                  [
+                    "bg-chart-1",
+                    "bg-chart-2",
+                    "bg-chart-3",
+                    "bg-chart-4",
+                    "bg-chart-5",
+                    "bg-primary",
+                  ][index]
+                )}
+              />
+              {item.label}
+            </li>
+          ))}
+        </ul>
+      )}
+      {points.length === 0 ||
+      points.every((point) => point.values.every((value) => value === null)) ? (
         <p className="text-sm text-muted-foreground">{t("richOutput.empty")}</p>
       ) : (
         !table && (
           <ChartContainer
-            config={{ value: { label: unit, color: "var(--primary)" } }}
+            config={Object.fromEntries(
+              series.map((item, index) => [
+                `series${index}`,
+                { label: item.label, color: colors[index] },
+              ])
+            )}
             className="h-56 w-full min-w-0"
+            role="group"
             aria-label={`${title} (${unit})`}
           >
             {kind === "bar" ? (
               <BarChart data={points} accessibilityLayer>
                 {axes}
-                <Bar
-                  dataKey="value"
-                  fill="var(--color-value)"
-                  radius={4}
-                  isAnimationActive={false}
-                />
+                {series.map((item, index) => (
+                  <Bar
+                    key={item.id}
+                    name={item.label}
+                    dataKey={`values.${index}`}
+                    fill={colors[index]}
+                    stackId={stacked ? "values" : undefined}
+                    radius={4}
+                    isAnimationActive={false}
+                  />
+                ))}
               </BarChart>
             ) : (
               <LineChart data={points} accessibilityLayer>
                 {axes}
-                <Line
-                  dataKey="value"
-                  stroke="var(--color-value)"
-                  strokeWidth={2}
-                  connectNulls={false}
-                  isAnimationActive={false}
-                />
+                {series.map((item, index) => (
+                  <Line
+                    key={item.id}
+                    name={item.label}
+                    dataKey={`values.${index}`}
+                    stroke={colors[index]}
+                    strokeWidth={2}
+                    strokeDasharray={
+                      ["", "6 3", "2 3", "8 3 2 3", "10 3", "3 2 1 2"][index]
+                    }
+                    connectNulls={false}
+                    isAnimationActive={false}
+                  />
+                ))}
               </LineChart>
             )}
           </ChartContainer>
@@ -376,15 +736,20 @@ function ResultChart({ title, kind, unit, points }: RichOutputProps<"Chart">) {
           title={title}
           columns={[
             { id: "category", label: t("richOutput.category") },
-            { id: "value", label: `${t("richOutput.value")} (${unit})` },
+            ...series.map((item) => ({
+              id: `series-${item.id}`,
+              label: "series" in props ? item.label : t("richOutput.value"),
+              type: "number" as const,
+              unit,
+            })),
           ]}
           rows={points.map((point) => ({
             id: point.id,
-            values: [point.label, point.value],
+            values: [point.label, ...point.values],
           }))}
         />
       )}
-      {points.some((point) => point.value === null) && (
+      {points.some((point) => point.values.some((value) => value === null)) && (
         <p className="text-xs text-muted-foreground">
           {t("richOutput.missingHint")}
         </p>
@@ -429,9 +794,21 @@ const { registry } = defineRegistry(catalog, {
         {children}
       </div>
     ),
+    Tabs: ({ props, children }) => (
+      <ResultTabs {...props}>{children}</ResultTabs>
+    ),
+    Details: ({ props, children }) => (
+      <ResultDisclosure title={props.title} keepMounted>
+        {children}
+      </ResultDisclosure>
+    ),
     Text: ({ props }) => (
       <p className="text-sm wrap-anywhere whitespace-pre-wrap">{props.text}</p>
     ),
+    KeyValue: ({ props }) => <KeyValue {...props} />,
+    Timeline: ({ props }) => <Timeline {...props} />,
+    Steps: ({ props }) => <Steps {...props} />,
+    Checklist: ({ props }) => <Checklist {...props} />,
     Callout: ({ props }) => (
       <Alert
         role="note"
@@ -448,6 +825,8 @@ const { registry } = defineRegistry(catalog, {
       </Alert>
     ),
     Evidence: ({ props }) => <Evidence {...props} />,
+    MediaGallery: ({ props }) => <MediaGallery {...props} />,
+    ResourceList: ({ props }) => <ResourceList {...props} />,
     Comparison: ({ props }) => <Comparison {...props} />,
     Metric: ({ props }) => <Metric {...props} />,
     DataTable: ({ props }) => (
@@ -460,11 +839,21 @@ const { registry } = defineRegistry(catalog, {
   },
 })
 
-function Metric({ label, value, unit, detail }: RichOutputProps<"Metric">) {
+function Metric({
+  label,
+  value,
+  unit,
+  detail,
+  period,
+  comparison,
+}: RichOutputProps<"Metric">) {
   const { i18n } = useTranslation()
   return (
     <div className="min-w-0 space-y-1 rounded-lg bg-muted/50 p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
+      {period && (
+        <p className="text-xs wrap-anywhere text-muted-foreground">{period}</p>
+      )}
       <p className="text-xl font-medium wrap-anywhere tabular-nums">
         {typeof value === "number"
           ? new Intl.NumberFormat(i18n.resolvedLanguage, {
@@ -477,6 +866,18 @@ function Metric({ label, value, unit, detail }: RichOutputProps<"Metric">) {
           </span>
         )}
       </p>
+      {comparison && (
+        <p className="text-xs wrap-anywhere text-muted-foreground">
+          {comparison.label}{" "}
+          <span className="tabular-nums">
+            {new Intl.NumberFormat(i18n.resolvedLanguage, {
+              maximumSignificantDigits: 21,
+              signDisplay: "exceptZero",
+            }).format(comparison.change)}
+            {comparison.unit ? ` ${comparison.unit}` : ""}
+          </span>
+        </p>
+      )}
       {detail && (
         <p className="text-xs wrap-anywhere text-muted-foreground">{detail}</p>
       )}
@@ -494,7 +895,8 @@ export default function AssistantRichOutputRenderer({
   return (
     <div
       data-testid="assistant-rich-output"
-      className="@container/rich my-3 max-w-full min-w-0 text-foreground"
+      data-slot="rich-output"
+      className="@container/rich my-3 w-full max-w-full min-w-0 text-foreground"
     >
       <CitationContext.Provider value={renderCitation}>
         <JSONUIProvider registry={registry}>

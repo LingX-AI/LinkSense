@@ -219,7 +219,7 @@ describe("conversation message spacing", () => {
     expect(iconMediaRule).toMatch(/margin:\s*0;/u)
     expect(iconMediaRule).toMatch(/border:\s*0;/u)
     expect(conversationStyles).toMatch(
-      /\.assistant-markdown\s+img:not\(\.conversation-image-thumbnail-image\):not\(\.image-preview-image\):not\(\s*\[data-diagram-image\]\s*\)\s*\{/u
+      /\.assistant-markdown\s+img:not\(\.conversation-image-thumbnail-image\):not\(\.image-preview-image\):not\(\s*\[data-diagram-image\]\s*\):where\(:not\(\[data-slot="rich-output"\] \*\)\)\s*\{/u
     )
   })
 
@@ -1021,7 +1021,7 @@ describe("conversation activity typography", () => {
       /\.process-commentary\s*\{([^}]*)\}/u
     )?.[1]
     const markdownBlocksRule = conversationStyles.match(
-      /\.assistant-markdown p,\s*\.assistant-markdown ul,\s*\.assistant-markdown ol,\s*\.assistant-markdown pre,\s*\.assistant-markdown blockquote,\s*\.assistant-markdown table\s*\{([^}]*)\}/u
+      /\.assistant-markdown\s+:is\(p, ul, ol, pre, blockquote, table\):where\(:not\(\[data-slot="rich-output"\] \*\)\)\s*\{([^}]*)\}/u
     )?.[1]
 
     expect(commentaryRule).toMatch(/margin-block:\s*0;/u)

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseRichOutput } from "@linksense/shared";
 
 import {
   forkBaseTitle,
@@ -43,6 +44,26 @@ describe("conversation fork helpers", () => {
     expect(remapForkedJson({ text: `![image](linksense-artifact:${sourceId})\nReference ${sourceId}` }, new Map([[sourceId, targetId]]))).toEqual({
       text: `![image](linksense-artifact:${targetId})\nReference ${sourceId}`,
     });
+  });
+
+  it("rebinds gallery and file cards to the copied files without changing prose or labels", () => {
+    const sourceId = "10000000-0000-4000-8000-000000000001";
+    const targetId = "20000000-0000-4000-8000-000000000001";
+    const output = {
+      version: 1, summary: "Delivered files",
+      spec: { root: "panel", elements: {
+        panel: { type: "Panel", props: { title: sourceId }, children: ["gallery", "files"] },
+        gallery: { type: "MediaGallery", props: { title: "Images", items: [{ fileId: sourceId, alt: "Landscape" }] } },
+        files: { type: "ResourceList", props: { title: "Files", items: [{ fileId: sourceId, label: sourceId }] } },
+      } },
+    };
+    const text = remapForkedJson(`\`\`\`json-render\n${JSON.stringify(output)}\n\`\`\``, new Map([[sourceId, targetId]]));
+    expect(typeof text).toBe("string");
+    if (typeof text !== "string") throw new Error("Expected a copied message");
+    const parsed = parseRichOutput(text.split("\n")[1] ?? "");
+    expect(parsed?.spec.elements.gallery?.props.items).toEqual([{ fileId: targetId, alt: "Landscape" }]);
+    expect(parsed?.spec.elements.files?.props.items).toEqual([{ fileId: targetId, label: sourceId }]);
+    expect(parsed?.spec.elements.panel?.props.title).toBe(sourceId);
   });
 
   it("accepts internal native turns while preserving every visible turn through the target", () => {

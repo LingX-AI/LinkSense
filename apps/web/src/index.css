@@ -5987,12 +5987,9 @@ button.annotation-hover-file:focus-visible {
   margin-bottom: 0;
 }
 
-.assistant-markdown p,
-.assistant-markdown ul,
-.assistant-markdown ol,
-.assistant-markdown pre,
-.assistant-markdown blockquote,
-.assistant-markdown table {
+/* Rich output components control their own spacing inside Markdown replies. */
+.assistant-markdown
+  :is(p, ul, ol, pre, blockquote, table):where(:not([data-slot="rich-output"] *)) {
   margin-block: 12px;
 }
 
@@ -6302,43 +6299,38 @@ button.annotation-hover-file:focus-visible {
   color: var(--app-text);
 }
 
-.assistant-markdown h1,
-.assistant-markdown h2,
-.assistant-markdown h3,
-.assistant-markdown h4 {
+.assistant-markdown :is(h1, h2, h3, h4):where(:not([data-slot="rich-output"] *)) {
   margin: 20px 0 8px;
   color: var(--app-text);
   font-weight: 600;
   line-height: 1.45;
 }
 
-.assistant-markdown h1 {
+.assistant-markdown h1:where(:not([data-slot="rich-output"] *)) {
   font-size: var(--app-font-18);
 }
 
-.assistant-markdown h2 {
+.assistant-markdown h2:where(:not([data-slot="rich-output"] *)) {
   font-size: var(--app-font-16);
 }
 
-.assistant-markdown h3,
-.assistant-markdown h4 {
+.assistant-markdown :is(h3, h4):where(:not([data-slot="rich-output"] *)) {
   font-size: var(--app-ui-font-size);
 }
 
-.assistant-markdown ul,
-.assistant-markdown ol {
+.assistant-markdown :is(ul, ol):where(:not([data-slot="rich-output"] *)) {
   padding-left: 22px;
 }
 
-.assistant-markdown ul {
+.assistant-markdown ul:where(:not([data-slot="rich-output"] *)) {
   list-style: disc;
 }
 
-.assistant-markdown ol {
+.assistant-markdown ol:where(:not([data-slot="rich-output"] *)) {
   list-style: decimal;
 }
 
-.assistant-markdown li + li {
+.assistant-markdown li + li:where(:not([data-slot="rich-output"] *)) {
   margin-top: 4px;
 }
 
@@ -6417,7 +6409,7 @@ button.annotation-hover-file:focus-visible {
 .assistant-markdown
   img:not(.conversation-image-thumbnail-image):not(.image-preview-image):not(
     [data-diagram-image]
-  ) {
+  ):where(:not([data-slot="rich-output"] *)) {
   display: block;
   width: auto;
   max-width: min(100%, 760px);
@@ -6495,7 +6487,7 @@ button.annotation-hover-file:focus-visible {
   color: var(--app-muted);
 }
 
-.assistant-markdown table {
+.assistant-markdown table:where(:not([data-slot="rich-output"] *)) {
   border-collapse: collapse;
 }
 

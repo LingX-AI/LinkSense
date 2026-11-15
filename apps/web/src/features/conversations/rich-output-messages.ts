@@ -14,6 +14,12 @@ export const richOutputMessages = {
     empty: "没有可展示的数据。",
     missingHint: "缺失值保留为空，不计为零。",
     sort: "按{{column}}排序",
+    filter: "筛选{{title}}",
+    rowCount: "显示 {{shown}} / {{total}} 行",
+    noMatches: "没有匹配的数据。",
+    series: "数据系列",
+    temporaryChecks: "勾选仅供本次查看，不会保存或提交。",
+    resourceUnavailable: "此文件不可用，可能已被移除或无权访问。",
   },
   "en-US": {
     loading: "Organizing results…",
@@ -29,6 +35,14 @@ export const richOutputMessages = {
     empty: "There is no data to display.",
     missingHint: "Missing values remain empty and are not counted as zero.",
     sort: "Sort by {{column}}",
+    filter: "Filter {{title}}",
+    rowCount: "Showing {{shown}} of {{total}} rows",
+    noMatches: "No matching data.",
+    series: "Data series",
+    temporaryChecks:
+      "Checkmarks are temporary. They aren’t saved or submitted.",
+    resourceUnavailable:
+      "This file is unavailable. It may have been removed or access may be restricted.",
   },
   "es-ES": {
     loading: "Organizando resultados…",
@@ -45,6 +59,13 @@ export const richOutputMessages = {
     missingHint:
       "Los valores ausentes permanecen vacíos y no se cuentan como cero.",
     sort: "Ordenar por {{column}}",
+    filter: "Filtrar {{title}}",
+    rowCount: "Se muestran {{shown}} de {{total}} filas",
+    noMatches: "No hay datos coincidentes.",
+    series: "Series de datos",
+    temporaryChecks: "Las marcas son temporales. No se guardan ni se envían.",
+    resourceUnavailable:
+      "Este archivo no está disponible. Puede haberse eliminado o tener acceso restringido.",
   },
   "pt-BR": {
     loading: "Organizando resultados…",
@@ -61,6 +82,14 @@ export const richOutputMessages = {
     missingHint:
       "Valores ausentes permanecem vazios e não são contados como zero.",
     sort: "Ordenar por {{column}}",
+    filter: "Filtrar {{title}}",
+    rowCount: "Exibindo {{shown}} de {{total}} linhas",
+    noMatches: "Nenhum dado correspondente.",
+    series: "Séries de dados",
+    temporaryChecks:
+      "As marcações são temporárias. Elas não são salvas nem enviadas.",
+    resourceUnavailable:
+      "Este arquivo não está disponível. Ele pode ter sido removido ou ter acesso restrito.",
   },
   "fr-FR": {
     loading: "Organisation des résultats…",
@@ -77,6 +106,14 @@ export const richOutputMessages = {
     missingHint:
       "Les valeurs manquantes restent vides et ne sont pas comptées comme zéro.",
     sort: "Trier par {{column}}",
+    filter: "Filtrer {{title}}",
+    rowCount: "{{shown}} lignes affichées sur {{total}}",
+    noMatches: "Aucune donnée correspondante.",
+    series: "Séries de données",
+    temporaryChecks:
+      "Les coches sont temporaires. Elles ne sont ni enregistrées ni envoyées.",
+    resourceUnavailable:
+      "Ce fichier est indisponible. Il a peut-être été supprimé ou son accès est restreint.",
   },
   "ja-JP": {
     loading: "結果を整理しています…",
@@ -91,5 +128,12 @@ export const richOutputMessages = {
     empty: "表示するデータがありません。",
     missingHint: "欠損値は空のまま保持され、ゼロとして扱われません。",
     sort: "{{column}}で並べ替え",
+    filter: "{{title}}を絞り込む",
+    rowCount: "{{total}} 行中 {{shown}} 行を表示",
+    noMatches: "一致するデータがありません。",
+    series: "データ系列",
+    temporaryChecks: "チェックは一時的なもので、保存も送信もされません。",
+    resourceUnavailable:
+      "このファイルは利用できません。削除されたか、アクセスが制限されている可能性があります。",
   },
 } satisfies Record<Locale, Record<string, string>>

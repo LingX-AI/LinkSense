@@ -15,6 +15,49 @@ const image: ConversationFile = {
 }
 
 describe("rendered inline image references", () => {
+  it("recognizes validated rich resource deliveries without hiding fallback cards before rendering", () => {
+    const document = {
+      version: 1,
+      summary: "Delivered result",
+      spec: {
+        root: "panel",
+        elements: {
+          panel: {
+            type: "Panel",
+            props: { title: "Delivery" },
+            children: ["gallery"],
+          },
+          gallery: {
+            type: "MediaGallery",
+            props: {
+              title: "Images",
+              items: [{ fileId: image.id.toUpperCase(), alt: "Landscape" }],
+            },
+          },
+        },
+      },
+    }
+    const block = `\`\`\`json-render\n${JSON.stringify(document)}\n\`\`\``
+    expect(resolveConversationDeliveryFiles(block, [image])).toEqual([image])
+    expect(
+      resolveConversationDeliveryFiles(block, [image], {
+        inlineImagesOnly: true,
+      })
+    ).toEqual([])
+    expect(resolveConversationDeliveryFiles(block, [])).toEqual([])
+    expect(
+      resolveConversationDeliveryFiles(block.replace("json-render", "json"), [
+        image,
+      ])
+    ).toEqual([])
+    expect(
+      resolveConversationDeliveryFiles(
+        block.replace('"MediaGallery"', '"Unknown"'),
+        [image]
+      )
+    ).toEqual([])
+  })
+
   it("resolves rendered images and image references by exact artifact ID", () => {
     expect(
       resolveConversationDeliveryFiles(

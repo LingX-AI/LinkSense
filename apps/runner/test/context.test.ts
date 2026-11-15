@@ -624,6 +624,8 @@ describe("buildTurnInput", () => {
       "info string is exactly html-preview",
     );
     expect(instructions).toContain("get_rich_output_catalog");
+    expect(instructions).toContain("Comparisons/charts/file groups: call get_rich_output_catalog");
+    expect(instructions).toContain("Short answers: prose");
     expect(instructions).toContain(
       "Current-conversation questions, choices, confirmation and feedback use request_user_form",
     );

@@ -8,6 +8,9 @@ import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { AssistantMermaid } from "@/features/conversations/assistant-mermaid"
 import { AssistantPreviewAction } from "@/features/conversations/assistant-preview-actions"
 import AssistantRichOutput from "@/features/conversations/assistant-rich-output"
+import { FileTile } from "@/features/conversations/conversation-file-tile"
+import { useRichOutputResources } from "@/features/conversations/rich-output-resource-context"
+import { RichOutputResourceProvider } from "@/features/conversations/rich-output-resource-provider"
 import { ConversationSiteCard } from "@/features/web-sites/conversation-site-card"
 import { responseLatency } from "./response-latency"
 import {
@@ -48,7 +51,6 @@ import {
   CircleAlertIcon,
   CodeIcon,
   CopyIcon,
-  DownloadIcon,
   EyeIcon,
   ImageOffIcon,
   LoaderCircleIcon,
@@ -225,7 +227,6 @@ import { useGoalClockNow } from "@/features/conversations/conversation-goal-cloc
 import {
   getKnowledgeCitationNumberFromFragment,
   getKnowledgeCitationPreviewPath,
-  knowledgeCitationFragmentPrefix,
   remarkKnowledgeCitations,
   remarkTextCitations,
   type TextCitationPolicy,
@@ -252,7 +253,6 @@ import { getPublicRuntimeMessage } from "@/lib/public-copy"
 import {
   formatCompactDuration,
   formatDateTime,
-  formatFileSize,
   formatMessageTime,
 } from "@/i18n/date"
 import { cn } from "@/lib/utils"
@@ -283,66 +283,6 @@ function ConversationEmptyNotice({
       <CircleAlertIcon aria-hidden="true" />
       <span>{children}</span>
     </div>
-  )
-}
-
-function FileTile({
-  file,
-  artifact,
-  onDownload,
-  downloading,
-}: {
-  file: ConversationFile
-  artifact?: boolean
-  onDownload?: (file: ConversationFile) => void
-  downloading?: boolean
-}) {
-  const { t, i18n } = useTranslation()
-  const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
-  const label = artifact
-    ? t("conversation.downloadArtifact", { name: file.name })
-    : file.name
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      className={
-        artifact ? "artifact-tile file-tile" : "attachment-tile file-tile"
-      }
-      aria-label={label}
-      aria-busy={downloading || undefined}
-      disabled={artifact && (!file.download_available || downloading)}
-      onClick={() => artifact && onDownload?.(file)}
-    >
-      <span className="file-icon">
-        <FileTypeIcon filename={file.name} mimeType={file.mime_type} />
-      </span>
-      <span className="min-w-0 flex-1 text-left">
-        <span className="file-tile-name block truncate font-medium">
-          {file.name}
-        </span>
-        <span className="file-tile-meta block pt-0.5 text-[var(--app-muted)]">
-          {[
-            formatFileSize(file.size, language),
-            artifact ? null : formatDateTime(file.created_at, language),
-          ]
-            .filter((value) => value && value !== "—")
-            .join(" · ")}
-        </span>
-      </span>
-      {artifact &&
-        (downloading ? (
-          <LoaderCircleIcon
-            className="size-4 animate-spin text-[var(--app-muted)]"
-            aria-hidden="true"
-          />
-        ) : (
-          <DownloadIcon
-            className="size-4 text-[var(--app-muted)]"
-            aria-hidden="true"
-          />
-        ))}
-    </Button>
   )
 }
 
@@ -611,11 +551,15 @@ function ArtifactFiles({
   onDownload: (file: ConversationFile) => void
   downloadingFileId?: string
 }) {
-  if (!files?.length) return null
+  const { renderedFileIds } = useRichOutputResources()
+  const visibleFiles = files?.filter(
+    (file) => !renderedFileIds.has(file.id.toLowerCase())
+  )
+  if (!visibleFiles?.length) return null
 
   return (
     <ConversationArtifactFiles
-      files={files}
+      files={visibleFiles}
       loadPreview={loadPreview}
       onPreviewOfficeDocument={onPreviewOfficeDocument}
       onDownload={onDownload}
@@ -740,7 +684,7 @@ function MarkdownCodeBlock({
   const { textOnly, richOutputTextOnly } = useContext(
     ConversationContentPolicyContext
   )
-  const { streaming, citationsByNumber, textCitations } = useContext(
+  const { streaming, citationsByNumber, knowledgeAssetScope } = useContext(
     AssistantMarkdownAssetContext
   )
   const preRef = useRef<HTMLPreElement>(null)
@@ -762,18 +706,10 @@ function MarkdownCodeBlock({
         source={richSource}
         streaming={streaming}
         textOnly={textOnly || richOutputTextOnly}
+        turnId={knowledgeAssetScope?.turnId}
         renderCitation={(number) => {
-          const knownCitation =
-            citationsByNumber?.has(number) ||
-            (textCitations?.visible &&
-              textCitations.sources.some((source) => source.number === number))
-          return knownCitation ? (
-            <AssistantMarkdownLinkElement
-              href={`${knowledgeCitationFragmentPrefix}${number}`}
-            >
-              {number}
-            </AssistantMarkdownLinkElement>
-          ) : null
+          const citation = citationsByNumber?.get(number)
+          return citation ? <EvidenceCitationLink citation={citation} /> : null
         }}
       />
     )
@@ -1915,6 +1851,53 @@ function formatInlineKnowledgeCitationLocation(
   return parts.join(" · ")
 }
 
+function EvidenceCitationLink({
+  citation,
+}: {
+  citation: AssistantKnowledgeCitation
+}) {
+  const { t } = useTranslation()
+  const id = useId()
+  const { document_name, knowledge_base_name } = citation.summary
+  return (
+    <Link
+      to={getKnowledgeCitationPreviewPath(citation)}
+      aria-labelledby={`${id}-document ${id}-source`}
+      aria-describedby={`${id}-location`}
+      className="group/source flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-border bg-muted/30 px-2.5 py-2 no-underline! hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+    >
+      <BookOpenIcon
+        className="size-4 shrink-0 self-start text-muted-foreground"
+        aria-hidden="true"
+      />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5 wrap-anywhere">
+        <span
+          id={`${id}-document`}
+          className="font-medium text-foreground group-hover/source:underline"
+        >
+          {document_name}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          <span id={`${id}-source`}>
+            {t("knowledge.citation.source", {
+              knowledgeBase: knowledge_base_name,
+              number: citation.citation_no,
+            })}
+          </span>
+          {" · "}
+          <span id={`${id}-location`}>
+            {formatInlineKnowledgeCitationLocation(citation.summary, t)}
+          </span>
+        </span>
+      </span>
+      <ArrowRightIcon
+        className="size-4 shrink-0 text-muted-foreground"
+        aria-hidden="true"
+      />
+    </Link>
+  )
+}
+
 function KnowledgeCitationInlineLink({
   citation,
   className,
@@ -2991,7 +2974,8 @@ const Message = memo(function Message({
           <div
             className={cn(
               "message-content",
-              !user && "has-[[data-assistant-diagram]]:w-full",
+              !user &&
+                "has-[[data-assistant-diagram]]:w-full has-[[data-slot=rich-output]]:w-full",
               user && "user-message",
               (proposedPlan || embeddedProposedPlan) && "w-full",
               !user &&
@@ -5789,30 +5773,38 @@ export function ConversationThread({
               </div>
             )
           ))}
-        <GeneratedImageArtifactContext.Provider value={generatedImageFileIds}>
-          <ConversationMessageList
-            pinnedMessageId={editingMessageId}
-            rows={messageRows}
-            navigationRef={navigationRef}
-            onVisibleMessageChange={onVisibleMessageChange}
-            history={history}
-          />
-        </GeneratedImageArtifactContext.Provider>
-        {messages.length > 0 && emptyNotice && (
-          <div className="conversation-inline-notice-row">
-            <ConversationEmptyNotice>{emptyNotice}</ConversationEmptyNotice>
-          </div>
-        )}
-
-        <ArtifactFiles
-          files={visibleArtifacts(conversation.artifacts)?.filter(
-            (file) => !file.turn_id || !turnById.has(file.turn_id)
-          )}
+        <RichOutputResourceProvider
+          filesById={conversationFilesById}
           loadPreview={loadArtifactPreview}
-          onPreviewOfficeDocument={openOfficeDocument}
+          onPreviewFile={openOfficeDocument}
           onDownload={onDownload}
           downloadingFileId={downloadingFileId}
-        />
+        >
+          <GeneratedImageArtifactContext.Provider value={generatedImageFileIds}>
+            <ConversationMessageList
+              pinnedMessageId={editingMessageId}
+              rows={messageRows}
+              navigationRef={navigationRef}
+              onVisibleMessageChange={onVisibleMessageChange}
+              history={history}
+            />
+          </GeneratedImageArtifactContext.Provider>
+          {messages.length > 0 && emptyNotice && (
+            <div className="conversation-inline-notice-row">
+              <ConversationEmptyNotice>{emptyNotice}</ConversationEmptyNotice>
+            </div>
+          )}
+
+          <ArtifactFiles
+            files={visibleArtifacts(conversation.artifacts)?.filter(
+              (file) => !file.turn_id || !turnById.has(file.turn_id)
+            )}
+            loadPreview={loadArtifactPreview}
+            onPreviewOfficeDocument={openOfficeDocument}
+            onDownload={onDownload}
+            downloadingFileId={downloadingFileId}
+          />
+        </RichOutputResourceProvider>
         {blockingPanel && (
           <div
             ref={blockingPanelContainerRef}

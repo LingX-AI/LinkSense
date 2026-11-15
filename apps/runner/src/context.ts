@@ -94,7 +94,7 @@ const deliverableRoutingInstructions = (publicSiteName?: string): string => [
   "</linksense_deliverable_routing>",
 ].join("\n");
 const INLINE_HTML_PREVIEW_INSTRUCTIONS = [
-  "Rich research/comparison/data cards: discover get_rich_output_catalog; follow its json-render format.",
+  "Comparisons/charts/file groups: call get_rich_output_catalog. Short answers: prose.",
   "Interactive HTML deliverables: one complete UTF-8 document; fence info string is exactly html-preview. Use ordinary html fences for source examples; never preview an incomplete fragment or explanatory HTML.",
   "Current-conversation questions, choices, confirmation and feedback use request_user_form; preview forms are standalone demos only.",
 ].join("\n");
