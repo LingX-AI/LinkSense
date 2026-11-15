@@ -522,6 +522,16 @@ export function useConversationScroll(
         pauseAutoFollow()
       }
     }
+    const handleRichOutputInteraction = (event: Event) => {
+      if (
+        interactionRestoreFrameRef.current === null &&
+        event.target instanceof Element &&
+        event.target.closest('[data-slot="rich-output"]') &&
+        event.target.closest("button, input, select, textarea")
+      ) {
+        pauseAutoFollow()
+      }
+    }
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
@@ -577,6 +587,8 @@ export function useConversationScroll(
     container.addEventListener("scroll", handleScroll, { passive: true })
     container.addEventListener("scrollend", handleScrollEnd)
     container.addEventListener("change", handleChange, true)
+    container.addEventListener("input", handleRichOutputInteraction, true)
+    container.addEventListener("click", handleRichOutputInteraction, true)
     interactionContainer.addEventListener("wheel", handleWheel, {
       passive: true,
     })
@@ -602,6 +614,8 @@ export function useConversationScroll(
       container.removeEventListener("scroll", handleScroll)
       container.removeEventListener("scrollend", handleScrollEnd)
       container.removeEventListener("change", handleChange, true)
+      container.removeEventListener("input", handleRichOutputInteraction, true)
+      container.removeEventListener("click", handleRichOutputInteraction, true)
       interactionContainer.removeEventListener("wheel", handleWheel)
       interactionContainer.removeEventListener("keydown", handleKeyDown)
       interactionContainer.removeEventListener("pointerdown", handlePointerDown)

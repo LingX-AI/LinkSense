@@ -117,6 +117,10 @@ function ScrollHarness({
             aria-label="选项"
             onPointerDown={preserveScrollPositionForInteraction}
           />
+          <div data-slot="rich-output">
+            <input type="search" aria-label="筛选结果" />
+            <button type="button">显示数据表</button>
+          </div>
         </div>
         {showScrollToBottom && (
           <button type="button" onClick={() => scrollToBottom("smooth")}>
@@ -457,7 +461,9 @@ describe("conversation scroll behavior", () => {
   })
 
   it("keeps the reading position when selecting a radio option makes a reply taller", () => {
-    render(<ScrollHarness conversationId="completed-task" followBehavior="auto" />)
+    render(
+      <ScrollHarness conversationId="completed-task" followBehavior="auto" />
+    )
     const container = screen.getByTestId("scroll-container")
     const scrollTop = container.scrollTop
 
@@ -467,6 +473,25 @@ describe("conversation scroll behavior", () => {
 
     expect(container.scrollTop).toBe(scrollTop)
   })
+
+  it.each(["filter", "view"])(
+    "keeps the reading position when a rich result changes by %s",
+    (interaction) => {
+      render(
+        <ScrollHarness conversationId="completed-task" followBehavior="auto" />
+      )
+      const container = screen.getByTestId("scroll-container")
+      const scrollTop = container.scrollTop
+      if (interaction === "filter")
+        fireEvent.input(screen.getByRole("searchbox", { name: "筛选结果" }), {
+          target: { value: "one" },
+        })
+      else fireEvent.click(screen.getByRole("button", { name: "显示数据表" }))
+      layout.scrollHeight += 48
+      triggerContentResize()
+      expect(container.scrollTop).toBe(scrollTop)
+    }
+  )
 
   it("stops a streaming follow animation when the task becomes historical", () => {
     const view = render(<ScrollHarness conversationId="task" />)
