@@ -59,6 +59,7 @@ describe("Core automation MCP protocol", () => {
         "FILE_SERVICE",
         "FORM_SERVICE",
         "CURRENT_USER",
+        "WEB_SEARCH",
         "IMAGE_GENERATION",
         "KNOWLEDGE_SERVICE",
         "SKILL_CREATOR",
@@ -81,6 +82,12 @@ describe("Core automation MCP protocol", () => {
         }),
       );
       const tools = await client.listTools();
+      expect(tools.tools.map((tool) => tool.name)).toContain("search_web");
+      responseBody = { success: true, provider: "deepseek", query: "test", results: [] };
+      expect(resultData(await client.callTool({ name: "search_web", arguments: { query: "test" } }))).toEqual(responseBody);
+      expect(receivedBody).toEqual({ query: "test" });
+      expect(receivedToken).toBe(`Bearer ${token}`);
+      responseBody = result;
       expect(tools.tools.map((tool) => tool.name)).toContain(
         "create_automation",
       );

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { modelServiceProviderValues } from "@linksense/shared"
 
 import { createModelProviderProbeClient, type ResolvedProviderProbe } from "../src/modules/system/model-provider-probe.js"
 
@@ -13,7 +14,7 @@ const responsesReply = () => Response.json({ status: "completed", output: [
 const chatReply = () => Response.json({ choices: [{ message: { content: "OK" }, finish_reason: "stop" }] })
 
 describe("configuration-time model protocol detection", () => {
-  it("chooses a chat model from discovery and validates the provider's preferred protocol", async () => {
+  it("chooses a chat model from discovery and uses Chat Completions when Responses replies are invalid", async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url) =>
       String(url).endsWith("/models")
         ? Response.json({ data: [{ id: "text-embedding-test" }, { id: "chat-model" }] })
@@ -23,28 +24,74 @@ describe("configuration-time model protocol detection", () => {
     expect(result).toMatchObject({ status: "detected", protocol_mode: "chat_completions_bridge", model_id: "chat-model" })
     if (result.status !== "detected") throw new Error("expected detection")
     expect(result.probes.map((probe) => [probe.protocol_mode, probe.status])).toEqual([
-      ["chat_completions_bridge", "success"],
       ["native_responses", "invalid_response"],
       ["responses_tool_compat", "invalid_response"],
+      ["chat_completions_bridge", "success"],
     ])
     expect(fetcher).toHaveBeenCalledTimes(4)
-    expect(String(fetcher.mock.calls[1]?.[0])).toBe(`${channel.base_url}/chat/completions`)
-    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({ model: "chat-model", tool_choice: "none", tools: [{ type: "function", function: { name: "linksense_protocol_probe" } }] })
+    expect(String(fetcher.mock.calls[3]?.[0])).toBe(`${channel.base_url}/chat/completions`)
+    expect(JSON.parse(String(fetcher.mock.calls[3]?.[1]?.body))).toMatchObject({ model: "chat-model", tool_choice: "none", tools: [{ type: "function", function: { name: "linksense_protocol_probe" } }] })
   })
 
-  it("distinguishes native custom tools from Responses function compatibility", async () => {
-    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (_url, init) => {
+  it("recognizes DeepSeek native Responses when only the apply_patch custom tool name is accepted", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
+      if (String(url).endsWith("/chat/completions")) return chatReply()
+      const body = JSON.parse(String(init?.body))
+      return body.tools.some((tool: { type: string; name: string }) => tool.type === "custom" && tool.name !== "apply_patch")
+        ? new Response(null, { status: 400 })
+        : responsesReply()
+    })
+
+    const result = await createModelProviderProbeClient(fetcher).detectProtocol({
+      ...channel, provider: "deepseek", protocol_mode: "chat_completions_bridge", model_id: "deepseek-flash",
+    })
+    expect(result).toMatchObject({
+      status: "detected", protocol_mode: "native_responses", model_id: "deepseek-flash",
+    })
+    if (result.status !== "detected") throw new Error("expected detection")
+    expect(result.probes.map((probe) => [probe.protocol_mode, probe.status])).toEqual([
+      ["native_responses", "success"],
+      ["responses_tool_compat", "success"],
+      ["chat_completions_bridge", "success"],
+    ])
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({
+      tool_choice: "none", tools: [{ type: "custom", name: "apply_patch" }],
+    })
+    expect(fetcher).toHaveBeenCalledTimes(3)
+  })
+
+  it.each(modelServiceProviderValues)("prefers native Responses over function compatibility and Chat Completions for %s", async (provider) => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url) =>
+      String(url).endsWith("/chat/completions") ? chatReply() : responsesReply())
+
+    const result = await createModelProviderProbeClient(fetcher).detectProtocol({
+      ...channel, provider, protocol_mode: "chat_completions_bridge", model_id: "chat-model",
+    })
+    expect(result).toMatchObject({
+      status: "detected", protocol_mode: "native_responses",
+      probes: [
+        { protocol_mode: "native_responses", status: "success" },
+        { protocol_mode: "responses_tool_compat", status: "success" },
+        { protocol_mode: "chat_completions_bridge", status: "success" },
+      ],
+    })
+    expect(fetcher).toHaveBeenCalledTimes(3)
+  })
+
+  it.each(modelServiceProviderValues)("prefers Responses function compatibility over Chat Completions when native custom tools are unsupported for %s", async (provider) => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
+      if (String(url).endsWith("/chat/completions")) return chatReply()
       const body = JSON.parse(String(init?.body))
       return body.tools[0].type === "custom" ? new Response(null, { status: 400 }) : responsesReply()
     })
 
-    const result = await createModelProviderProbeClient(fetcher).detectProtocol({ ...channel, model_id: "chat-model" })
+    const result = await createModelProviderProbeClient(fetcher).detectProtocol({ ...channel, provider, model_id: "chat-model" })
     expect(result).toMatchObject({ status: "detected", protocol_mode: "responses_tool_compat", model_id: "chat-model" })
     if (result.status !== "detected") throw new Error("expected detection")
     expect(result.probes.map((probe) => [probe.protocol_mode, probe.status])).toEqual([
       ["native_responses", "unsupported"],
       ["responses_tool_compat", "success"],
-      ["chat_completions_bridge", "invalid_response"],
+      ["chat_completions_bridge", "success"],
     ])
     expect(fetcher).toHaveBeenCalledTimes(3)
     expect(String(fetcher.mock.calls[0]?.[0])).toBe(`${channel.base_url}/responses`)

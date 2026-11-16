@@ -15,6 +15,7 @@ import type { Logger } from "pino";
 import lockfile from "proper-lockfile";
 import {
   publicKnowledgeConcurrencyLimit,
+  codexMessagePhaseSchema,
   publicKnowledgeOutputLimit,
   limitPublicKnowledgeOutput,
   publicKnowledgeRunnerInputSchema,
@@ -65,6 +66,13 @@ const notification = z.object({
       threadId: z.string().optional(),
       turnId: z.string().optional(),
       delta: z.string().optional(),
+      item: z
+        .object({
+          type: z.string(),
+          phase: codexMessagePhaseSchema.nullable().optional(),
+        })
+        .passthrough()
+        .optional(),
       turn: z
         .object({
           id: z.string(),
@@ -75,10 +83,7 @@ const notification = z.object({
                 .object({
                   type: z.string(),
                   text: z.string().optional(),
-                  phase: z
-                    .enum(["commentary", "final_answer"])
-                    .nullable()
-                    .optional(),
+                  phase: codexMessagePhaseSchema.nullable().optional(),
                 })
                 .passthrough(),
             )
@@ -102,7 +107,7 @@ export const publicKnowledgeNativeOverrides = [
   "features.unified_exec=false",
   "features.js_repl=false",
   "features.apply_patch_freeform=false",
-  "features.multi_agent=false",
+  "agents.enabled=false",
   "features.memories=false",
   "features.plugins=false",
   "features.remote_plugin=false",
@@ -342,6 +347,7 @@ export class PublicKnowledgeRuntime {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let settled = false;
     let outputText = "";
+    let partialAnswerSeen = false;
     let turnRequested = false;
     const displayedCharacters = new Map<string, number>();
     const progress = new OrderedBatchQueue<PublicKnowledgeProgress>(
@@ -473,6 +479,12 @@ export class PublicKnowledgeRuntime {
               }
             if (method === "turn/started" && params.turn)
               live.turnId = params.turn.id;
+            if (
+              params.item?.type === "agentMessage" &&
+              params.item.phase === "partial_answer"
+            ) {
+              partialAnswerSeen = true;
+            }
             if (method === "item/agentMessage/delta" && params.delta)
               outputText = limitPublicKnowledgeOutput(
                 outputText + params.delta,
@@ -490,13 +502,21 @@ export class PublicKnowledgeRuntime {
               const answer =
                 messages
                   ?.filter((item) => item.phase === "final_answer")
-                  .at(-1) ?? messages?.at(-1);
+                  .at(-1) ??
+                messages?.filter((item) => item.phase !== "partial_answer").at(-1);
+              // Codex omits partial answers from terminal history. Previously
+              // streamed partial text must not become the final result fallback.
+              const fallbackOutput =
+                partialAnswerSeen ||
+                messages?.some((item) => item.phase === "partial_answer")
+                  ? ""
+                  : outputText;
               resolve({
                 threadId: live.threadId,
                 turnId: params.turn.id,
                 status: params.turn.status,
                 outputText: limitPublicKnowledgeOutput(
-                  answer?.text ?? outputText,
+                  answer?.text ?? fallbackOutput,
                 ),
               });
             }

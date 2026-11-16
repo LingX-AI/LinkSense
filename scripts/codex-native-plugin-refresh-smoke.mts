@@ -431,7 +431,7 @@ function createClient(userHome: string, codexHome: string): CodexJsonRpcClient {
       'model_providers.offline-probe.wire_api="responses"',
       'model_providers.offline-probe.base_url="http://127.0.0.1:1/v1"',
       'model_providers.offline-probe.requires_openai_auth=false',
-      "features.memories=false", "features.multi_agent=false", "features.hooks=false",
+      "features.memories=false", "agents.enabled=false", "features.hooks=false",
     ],
   })
 }

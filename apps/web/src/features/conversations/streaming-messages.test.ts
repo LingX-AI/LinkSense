@@ -170,32 +170,35 @@ describe("streaming assistant messages", () => {
     ).toBe(completed)
   })
 
-  it("fills a missing phase from a late lifecycle event without replaying stale text", () => {
-    const streamed = appendStreamingMessageDelta(
-      {},
-      update("final-item", "最终回复", 3)
-    )
+  it.each(["commentary", "partial_answer", "final_answer", null] as const)(
+    "fills missing phase %s from a late lifecycle event without replaying stale text",
+    (phase) => {
+      const streamed = appendStreamingMessageDelta(
+        {},
+        update("final-item", "最终回复", 3)
+      )
 
-    const repaired = applyStreamingMessageLifecycle(streamed, {
-      itemId: "final-item",
-      messageId: "message-final",
-      turnId: "turn-1",
-      phase: "final_answer",
-      text: "",
-      createdAt: "2026-07-11T08:00:02.000Z",
-      sequence: 2,
-      completed: false,
-    })
+      const repaired = applyStreamingMessageLifecycle(streamed, {
+        itemId: "final-item",
+        messageId: "message-final",
+        turnId: "turn-1",
+        phase,
+        text: "",
+        createdAt: "2026-07-11T08:00:02.000Z",
+        sequence: 2,
+        completed: false,
+      })
 
-    expect(repaired).not.toBe(streamed)
-    expect(repaired["final-item"]).toMatchObject({
-      id: "message-final",
-      phase: "final_answer",
-      content: "最终回复",
-      last_applied_sequence_no: 3,
-      streaming: true,
-    })
-  })
+      expect(repaired).not.toBe(streamed)
+      expect(repaired["final-item"]).toMatchObject({
+        id: "message-final",
+        phase,
+        content: "最终回复",
+        last_applied_sequence_no: 3,
+        streaming: true,
+      })
+    }
+  )
 
   it("keeps legitimate repeated text from later sequences", () => {
     const first = appendStreamingMessageDelta({}, update("final-item", "哈", 2))

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { conversationFileKindSchema } from "./conversations.js";
 import { projectRichOutputResourcesForShare } from "./rich-output.js";
+import { codexMessagePhaseSchema } from "./events.js";
 
 const sharedConversationMessageSchema = z
   .object({
@@ -11,7 +12,7 @@ const sharedConversationMessageSchema = z
     sequence_no: z.number().int().positive().optional(),
     created_at: z.string().optional(),
     updated_at: z.string().optional(),
-    phase: z.enum(["commentary", "final_answer"]).nullable().optional(),
+    phase: codexMessagePhaseSchema.nullable().optional(),
     output_kind: z.enum(["agent_message", "plan"]).optional(),
     usage_type: z.literal("steer_current_turn").optional(),
   })
@@ -78,7 +79,7 @@ const nativeCompletedMessageEventSchema = z.object({
     item: z.discriminatedUnion("type", [
       z.object({
         type: z.literal("agentMessage"),
-        phase: z.enum(["commentary", "final_answer"]).nullable(),
+        phase: codexMessagePhaseSchema.nullable(),
       }),
       z.object({ type: z.literal("plan") }),
     ]),
@@ -127,6 +128,7 @@ export const conversationShareSnapshotSchema = z
         finalMessageIdByTurn.set(message.turn_id ?? null, message.id);
       } else if (
         message.phase === "commentary" ||
+        message.phase === "partial_answer" ||
         message.output_kind === "plan"
       ) {
         nonFinalAssistantMessageIds.add(message.id);
@@ -146,7 +148,8 @@ export const conversationShareSnapshotSchema = z
         }
       } else if (
         item.type === "plan" ||
-        (item.type === "agentMessage" && item.phase === "commentary")
+        (item.type === "agentMessage" &&
+          (item.phase === "commentary" || item.phase === "partial_answer"))
       ) {
         nonFinalAssistantMessageIds.add(messageId);
       }

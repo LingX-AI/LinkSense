@@ -1,29 +1,14 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./apps/web/src/assets/brand/linksense-lockup-on-dark.svg">
-    <img src="./apps/web/public/attribution/linksense-mark.svg" alt="LinkSense" width="180">
-  </picture>
-</p>
+<p align="center"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./apps/web/src/assets/brand/linksense-lockup-on-dark.svg"> <img src="./apps/web/public/attribution/linksense-mark.svg" alt="LinkSense" width="180"> </picture> </p>
 
 <h2 align="center">The open-source alternative to WorkBuddy / ChatGPT Enterprise.</h2>
 
-<p align="center">
-  English | <a href="./README.zh-CN.md">简体中文</a>
-</p>
+<p align="center"> English | <a href="./README.zh-CN.md">简体中文</a> </p>
 
-<p align="center">
-  <a href="https://linksense.org/doc/">Documentation</a> ·
-  <a href="#quick-start">Quick start</a> ·
-  <a href="https://explore.linksense.org/">Live demo</a> ·
-  <a href="mailto:hello@linksense.org">Contact</a>
-</p>
+<p align="center"> <a href="https://linksense.org/doc/">Documentation</a> · <a href="#quick-start">Quick start</a> · <a href="https://explore.linksense.org/">Live demo</a> · <a href="mailto:hello@linksense.org">Contact</a> </p>
 
 <p align="center"><a href="https://github.com/LingX-AI/LinkSense/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/LingX-AI/LinkSense?style=flat-square&color=FFD700&logo=github&logoColor=white&label=Stars"></a> <a href="./package.json"><img alt="Node.js 24" src="https://img.shields.io/badge/Node.js-24-5FA04E?style=flat-square&logo=nodedotjs&logoColor=white"></a> <a href="./package.json"><img alt="pnpm 10.34.6" src="https://img.shields.io/badge/pnpm-10.34.6-F69220?style=flat-square&logo=pnpm&logoColor=white"></a> <a href="./apps/web/package.json"><img alt="TypeScript 6" src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white"></a> <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/License-CPAL--1.0-E3B341?style=flat-square"></a></p>
 
-<p align="center">
-  <a href="https://x.com/LinkSense_OSS"><img alt="Follow @LinkSense_OSS on X" src="https://img.shields.io/badge/Follow%20%40LinkSense__OSS-000000?style=for-the-badge&logo=x&logoColor=white"></a>
-  <a href="https://discord.gg/NBQYnaDWuD"><img alt="Join our Discord" src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a>
-</p>
+<p align="center"> <a href="https://x.com/LinkSense_OSS"><img alt="Follow @LinkSense_OSS on X" src="https://img.shields.io/badge/Follow%20%40LinkSense__OSS-000000?style=for-the-badge&logo=x&logoColor=white"></a> <a href="https://discord.gg/NBQYnaDWuD"><img alt="Join our Discord" src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a> </p>
 
 <p align="center">⭐ <em>Help more people find LinkSense and grow the community. Star this repo!</em></p>
 
@@ -71,6 +56,16 @@ before opening a pull request. Code contributions require a [Contributor License
 
 Questions and feature ideas belong in [GitHub Discussions](../../discussions). Organizations can opt in to the [adopters list](./docs/community/ADOPTERS.md).
 
+## Community & contact
+
+Choose the channel that best fits your question:
+
+- [GitHub Discussions](../../discussions): Get help, share feedback, and propose ideas.
+- [GitHub Issues](https://github.com/LingX-AI/LinkSense/issues): Report reproducible bugs and track engineering work. Read the [contribution guide](./.github/CONTRIBUTING.md) before opening one.
+- [Discord](https://discord.gg/NBQYnaDWuD): Chat in real time, share your apps, and connect with other LinkSense users.
+- [X](https://x.com/LinkSense_OSS): Follow LinkSense for release news and project updates.
+- [WeChat group](./docs/brand/wechat-group-2026-11-23.png): Scan the QR code to join the LinkSense user group. It is valid for 7 days; if it has expired, email [hello@linksense.org](mailto:hello@linksense.org) for the latest invite.
+
 ## Security
 
 The isolation boundary is the user Worker; tasks owned by the same user can access their shared files. Normal execution allows outbound internet access without per-command approval, and configured external services receive the data sent to them. Read the [security policy](./.github/SECURITY.md) before exposing a deployment. Report vulnerabilities privately to [security@linksense.org](mailto:security@linksense.org).
@@ -92,12 +87,6 @@ If you find LinkSense useful or interesting, a GitHub Star ⭐️ would be great
 ## Star History
 
 <a href="https://www.star-history.com/?repos=lingx-ai%2Flinksense&type=date&legend=bottom-right"><picture><source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=lingx-ai/linksense&type=date&theme=dark&legend=bottom-right" /><source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=lingx-ai/linksense&type=date&legend=bottom-right" /><img alt="Star History Chart" src="https://api.star-history.com/chart?repos=lingx-ai/linksense&type=date&legend=bottom-right" /></picture></a>
-
-## Join the WeChat group
-
-<img src="./docs/brand/wechat-group-2026-11-23.png" alt="LinkSense WeChat group QR code" width="400">
-
-The QR code is valid for 7 days. If it has expired or you cannot join, email [hello@linksense.org](mailto:hello@linksense.org) for the latest invite.
 
 ## Acknowledgements
 

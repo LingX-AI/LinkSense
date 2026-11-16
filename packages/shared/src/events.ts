@@ -911,9 +911,13 @@ export const runnerCodexErrorInfoSchema = z.union([
     "sessionBudgetExceeded",
     "usageLimitExceeded",
     "rateLimitExceeded",
+    "flexUnavailable",
     "serverOverloaded",
+    "modelNotFound",
+    "policyCapacityUnavailable",
     "cyberPolicy",
     "misalignmentPolicyViolation",
+    "tooManyDenials",
     "internalServerError",
     "unauthorized",
     "badRequest",
@@ -948,11 +952,18 @@ export const runnerCodexErrorInfoSchema = z.union([
   }),
 ]);
 
+export const codexMessagePhaseSchema = z.enum([
+  "commentary",
+  "partial_answer",
+  "final_answer",
+]);
+export type CodexMessagePhase = z.infer<typeof codexMessagePhaseSchema>;
+
 const runnerCodexAgentMessageItemSchema = z.strictObject({
   type: z.literal("agentMessage"),
   id: runnerNativeIdSchema,
   text: runnerNativeTextSchema,
-  phase: z.enum(["commentary", "final_answer"]).nullable(),
+  phase: codexMessagePhaseSchema.nullable(),
   delivery: z.literal("async").optional(),
   questions: codexAsyncUserInputQuestionsSchema.optional(),
 });

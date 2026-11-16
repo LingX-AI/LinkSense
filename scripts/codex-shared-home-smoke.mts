@@ -113,7 +113,7 @@ async function main(): Promise<void> {
         return child;
       },
       configOverrides: [
-        "features.memories=false", "features.multi_agent=false", "features.hooks=false",
+        "features.memories=false", "agents.enabled=false", "features.hooks=false",
         'model="gpt-5.4"', 'model_provider="fixture"',
         'model_providers.fixture.name="Fixture"',
         'model_providers.fixture.wire_api="responses"',

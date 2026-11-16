@@ -20,6 +20,22 @@ afterEach(async () => {
 })
 
 describe("Codex template feature policy", () => {
+  it.each([true, false])("applies agents.enabled=%s to existing native homes even without features", async (enabled) => {
+    const template = await createTemplate(`[agents]\nenabled = ${enabled}\n`)
+
+    await expect(loadCodexTemplateFeatureOverrides(template)).resolves.toEqual([
+      `agents.enabled=${enabled}`,
+    ])
+  })
+
+  it.each(['agents = false\n', '[agents]\nenabled = "false"\n'])(
+    "rejects invalid native agent policy: %s", async (source) => {
+      const template = await createTemplate(source)
+      await expect(loadCodexTemplateFeatureOverrides(template)).rejects.toBeInstanceOf(
+        CodexTemplateFeatureConfigError,
+      )
+    },
+  )
   it("disables native memory generation and use in the deployment template", async () => {
     const template = fileURLToPath(
       new URL("../../../deploy/codex-home-template", import.meta.url),
@@ -60,6 +76,9 @@ describe("Codex template feature policy", () => {
       "utf8",
     )
     expect(dockerfile).toContain("FROM ${BASELINE_WORKER_IMAGE} AS worker")
+    expect(dockerfile).toContain(
+      'await assertCodexRuntimeVersion({ command: "codex" })',
+    )
     expect(baseline).toContain(
       "node --check /opt/linksense/runtime/node/plan-stop-hook.mjs",
     )
@@ -99,7 +118,7 @@ describe("Codex template feature policy", () => {
     expect(overrides.length).toBeGreaterThan(0)
     expect(
       overrides.every((value) =>
-        /^features\.[A-Za-z0-9_-]+=(?:true|false)$/u.test(value),
+        /^(?:features\.[A-Za-z0-9_-]+|agents\.enabled)=(?:true|false)$/u.test(value),
       ),
     ).toBe(true)
   })
@@ -111,7 +130,9 @@ model = "test-model"
 [features]
 plugins = true
 apps = false
-multi_agent = true
+
+[agents]
+enabled = true
 
 [projects."/persisted-user-project"]
 trust_level = "trusted"
@@ -119,8 +140,8 @@ trust_level = "trusted"
 
     await expect(loadCodexTemplateFeatureOverrides(template)).resolves.toEqual([
       "features.apps=false",
-      "features.multi_agent=true",
       "features.plugins=true",
+      "agents.enabled=true",
     ])
   })
 

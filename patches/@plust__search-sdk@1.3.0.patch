@@ -1,0 +1,218 @@
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index a80bf212608d5449deeaa958d464d263acc5114b..db677c297d2b0f8bca661608e60ce37f69513db0 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -9,4 +9,3 @@ export declare function webSearch(options: WebSearchOptions): Promise<SearchResu
+ export * from './types';
+ export * from './providers';
+ export { debug } from './utils/debug';
+-export { asMcp } from './mcp';
+diff --git a/dist/index.js b/dist/index.js
+index 7e7785a0e53cf96fa449db70e64677f4ca9ffe0d..7c844efc8f777204fc12219fc57153fe8d9c707e 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -187,6 +187,4 @@ __exportStar(require("./providers"), exports);
+ // Export debug utilities
+ var debug_2 = require("./utils/debug");
+ Object.defineProperty(exports, "debug", { enumerable: true, get: function () { return debug_2.debug; } });
+-// Export MCP interface
+-var mcp_1 = require("./mcp");
+-Object.defineProperty(exports, "asMcp", { enumerable: true, get: function () { return mcp_1.asMcp; } });
++
+diff --git a/dist/providers/brave.js b/dist/providers/brave.js
+index 40e836b161f6a3774481bdfff918bd88bf8e5363..ca997a6d6a6ecbe289276ff7bd0ae5f35b5f7ffa 100644
+--- a/dist/providers/brave.js
++++ b/dist/providers/brave.js
+@@ -33,7 +33,7 @@ function createBraveProvider(config) {
+             }
+             const searchUrl = new URL(baseUrl);
+             searchUrl.searchParams.append('q', query);
+-            searchUrl.searchParams.append('size', maxResults.toString());
++            searchUrl.searchParams.append('count', maxResults.toString());
+             if (offset > 0) {
+                 searchUrl.searchParams.append('offset', offset.toString());
+             }
+@@ -71,6 +71,8 @@ function createBraveProvider(config) {
+                 const response = await (0, http_1.get)(searchUrl.toString(), {
+                     headers,
+                     timeout,
++                    fetch: config.fetch,
++                    signal: options.signal,
+                 });
+                 // Log response if debugging is enabled
+                 debug_1.debug.logResponse(debugOptions, 'Brave Search raw response', {
+diff --git a/dist/providers/exa.js b/dist/providers/exa.js
+index a133c08a23ef5907f272da169d707dc36bfd4eb6..2a9e305bdd55f9059e1a64e25ce7f5fdc827efc0 100644
+--- a/dist/providers/exa.js
++++ b/dist/providers/exa.js
+@@ -28,15 +28,14 @@ function createExaProvider(config) {
+             // Prepare headers with authorization token
+             const headers = {
+                 'Content-Type': 'application/json',
+-                'Authorization': `Bearer ${config.apiKey}`,
++                'x-api-key': config.apiKey,
+             };
+             // Prepare request body
+             const requestBody = {
+                 query,
+-                max_results: maxResults,
+-                model: config.model || 'keyword',
+-                include_contents: config.includeContents || false,
+-                timeout: timeout || undefined,
++                numResults: maxResults,
++                type: 'auto',
++                contents: { text: { maxCharacters: 8_000 } },
+             };
+             // Log request details if debugging is enabled
+             debug_1.debug.logRequest(debugOptions, 'Exa Search request', {
+@@ -48,6 +47,8 @@ function createExaProvider(config) {
+                 const response = await (0, http_1.post)(baseUrl, requestBody, {
+                     headers,
+                     timeout,
++                    fetch: config.fetch,
++                    signal: options.signal,
+                 });
+                 // Log response if debugging is enabled
+                 debug_1.debug.logResponse(debugOptions, 'Exa Search raw response', {
+@@ -72,9 +73,9 @@ function createExaProvider(config) {
+                     return {
+                         url: result.url,
+                         title: result.title,
+-                        snippet: result.text,
++                        snippet: result.text || (result.highlights || []).join("\n"),
+                         domain,
+-                        publishedDate: result.publish_date,
++                        publishedDate: result.publishedDate,
+                         provider: 'exa',
+                         raw: result,
+                     };
+diff --git a/dist/providers/google.js b/dist/providers/google.js
+index d33145cb2e746127c99ace84edc4fee34e0a6b3a..b239ee9199ad91a8c76b8959672a4e48253f96b0 100644
+--- a/dist/providers/google.js
++++ b/dist/providers/google.js
+@@ -58,7 +58,7 @@ function createGoogleProvider(config) {
+                 },
+             });
+             try {
+-                const response = await (0, http_1.get)(url, { timeout });
++                const response = await (0, http_1.get)(url, { timeout, fetch: config.fetch, signal: options.signal });
+                 // Log response if debugging is enabled
+                 debug_1.debug.logResponse(debugOptions, 'Google Search raw response', {
+                     status: 'success',
+diff --git a/dist/providers/searxng.js b/dist/providers/searxng.js
+index 5863b1f9798b396e449495b13b3acfd4f8519dff..cc886e25d523972d566bfe0914df8a8463e11e34 100644
+--- a/dist/providers/searxng.js
++++ b/dist/providers/searxng.js
+@@ -58,7 +58,7 @@ function createSearxNGProvider(config) {
+                 }
+             });
+             try {
+-                const response = await (0, http_1.get)(searchUrl.toString(), { timeout });
++                const response = await (0, http_1.get)(searchUrl.toString(), { timeout, fetch: config.fetch, signal: options.signal });
+                 // Log response if debugging is enabled
+                 debug_1.debug.logResponse(debugOptions, 'SearxNG Search raw response', {
+                     status: 'success',
+diff --git a/dist/providers/serpapi.js b/dist/providers/serpapi.js
+index 4d2b752356574828b58b31163b0d002658441395..b5a8f1d923e2d8fc51bf28c5414307a6de71aced 100644
+--- a/dist/providers/serpapi.js
++++ b/dist/providers/serpapi.js
+@@ -54,7 +54,7 @@ function createSerpApiProvider(config) {
+                 },
+             });
+             try {
+-                const response = await (0, http_1.get)(url, { timeout });
++                const response = await (0, http_1.get)(url, { timeout, fetch: config.fetch, signal: options.signal });
+                 // Log response if debugging is enabled
+                 debug_1.debug.logResponse(debugOptions, 'SerpAPI raw response', {
+                     status: response.error ? 'error' : 'success',
+diff --git a/dist/providers/tavily.js b/dist/providers/tavily.js
+index 93cf9ec36778d448f18118dc0db3514c25b2d91d..769bedc6f06c188b77ae9f47c2ba99e5c68a033e 100644
+--- a/dist/providers/tavily.js
++++ b/dist/providers/tavily.js
+@@ -27,12 +27,10 @@ function createTavilyProvider(config) {
+             const { query, maxResults = 10, page = 1, language, region, safeSearch, timeout, debug: debugOptions } = options;
+             // Prepare request body
+             const requestBody = {
+-                api_key: config.apiKey || '',
+                 query: query || '',
+-                limit: maxResults,
++                max_results: maxResults,
+                 include_answer: config.includeAnswer || false,
+                 search_depth: config.searchDepth || 'basic',
+-                sort_by: config.sortBy || 'relevance',
+             };
+             // Add optional parameters
+             if (language || region) {
+@@ -55,7 +53,7 @@ function createTavilyProvider(config) {
+                 }
+             });
+             try {
+-                const response = await (0, http_1.post)(baseUrl, requestBody, { timeout });
++                const response = await (0, http_1.post)(baseUrl, requestBody, { timeout, fetch: config.fetch, signal: options.signal, headers: { Authorization: `Bearer ${config.apiKey}` } });
+                 // Log response if debugging is enabled
+                 debug_1.debug.logResponse(debugOptions, 'Tavily Search raw response', {
+                     status: 'success',
+diff --git a/dist/types/index.d.ts b/dist/types/index.d.ts
+index 0cfbfb5e7133962ff35c3608c7921bcb913babf6..a4a60970dbdb11f161e35fc37c3f57c5409b0f92 100644
+--- a/dist/types/index.d.ts
++++ b/dist/types/index.d.ts
+@@ -34,6 +34,7 @@ export interface DebugOptions {
+  * Common options for web search across all providers
+  */
+ export interface SearchOptions {
++    signal?: AbortSignal;
+     /** The search query text */
+     query?: string;
+     /** (Arxiv specific) A comma-delimited list of Arxiv IDs to fetch. */
+@@ -74,6 +75,7 @@ export interface SearchProvider {
+  * Provider configuration options
+  */
+ export interface ProviderConfig {
++    fetch?: typeof globalThis.fetch;
+     /** API key or token */
+     apiKey?: string;
+     /** Base URL for API requests */
+diff --git a/dist/utils/http.d.ts b/dist/utils/http.d.ts
+index d23fbb5a10e0fd10e042e1c28f42574436bde02b..9bba002f97f193ad449c25f23fbf9a8a18ba4465 100644
+--- a/dist/utils/http.d.ts
++++ b/dist/utils/http.d.ts
+@@ -6,6 +6,8 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  * Options for HTTP requests
+  */
+ export interface HttpRequestOptions {
++    fetch?: typeof globalThis.fetch;
++    signal?: AbortSignal;
+     /** HTTP method for the request */
+     method?: HttpMethod;
+     /** Request headers */
+diff --git a/dist/utils/http.js b/dist/utils/http.js
+index b38b6ce380f0296934c0a042d4a36b2081c68a38..2a804601c198015ccae536be30146e288c704cb7 100644
+--- a/dist/utils/http.js
++++ b/dist/utils/http.js
+@@ -63,7 +63,7 @@ const DEFAULT_TIMEOUT = 15000;
+  * @returns Promise that resolves to the response data
+  */
+ async function makeRequest(url, options = {}) {
+-    const { method = 'GET', headers = {}, body, timeout = DEFAULT_TIMEOUT, } = options;
++    const { method = 'GET', headers = {}, body, timeout = DEFAULT_TIMEOUT, fetch: requestFetch, signal: callerSignal, } = options;
+     // Create abort controller for timeout handling
+     const controller = new AbortController();
+     const timeoutId = setTimeout(() => controller.abort(), timeout);
+@@ -75,7 +75,7 @@ async function makeRequest(url, options = {}) {
+                 'Accept': 'application/json',
+                 ...headers,
+             },
+-            signal: controller.signal,
++            signal: callerSignal ? AbortSignal.any([controller.signal, callerSignal]) : controller.signal,
+         };
+         // Add body for non-GET requests
+         if (body && method !== 'GET') {
+@@ -94,7 +94,7 @@ async function makeRequest(url, options = {}) {
+             }
+         }
+         // Make the request
+-        const response = await (0, cross_fetch_1.default)(url, requestOptions);
++        const response = await (requestFetch || cross_fetch_1.default)(url, requestOptions);
+         // Handle HTTP errors
+         if (!response.ok) {
+             const httpError = new HttpError(`Request failed with status: ${response.status} ${response.statusText}`, response.status, response);

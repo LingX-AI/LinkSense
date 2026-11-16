@@ -1,0 +1,10 @@
+# syntax=docker/dockerfile:1.7
+
+ARG BASELINE_WORKER_IMAGE
+FROM ${BASELINE_WORKER_IMAGE}
+ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL=https://registry.npmjs.org/
+ENV NPM_CONFIG_REGISTRY=${LINKSENSE_NODE_PACKAGE_REGISTRY_URL}
+COPY --chmod=0444 apps/runner/src/codex/runtime-version.json /opt/linksense/codex-runtime-version.json
+RUN codex_version="$(node -e 'const { version } = require("/opt/linksense/codex-runtime-version.json"); if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error("Invalid pinned Codex version"); process.stdout.write(version)')" \
+  && NODE_OPTIONS= corepack pnpm add --global "@openai/codex@${codex_version}" \
+  && test "$(codex --version)" = "codex-cli ${codex_version}"

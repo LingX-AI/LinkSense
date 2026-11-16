@@ -1,3 +1,4 @@
+import { WebSearchSettingsForm } from "@/features/admin/web-search-settings-form"
 import { AdminBotChannels } from "@/features/bot-channels/admin-bot-channels"
 import { SamlSettingsForm } from "@/features/saml/settings-form"
 import { CallbackUrlInput } from "@/components/settings/callback-url-input"
@@ -4004,6 +4005,7 @@ function ModelSettingsPage() {
     knowledge: 0,
     voiceTranscription: 0,
     imageGeneration: 0,
+    webSearch: 0,
   })
   const modelProviderQuery = useQuery({
     queryKey: ["admin", "model-provider-settings"],
@@ -4049,6 +4051,7 @@ function ModelSettingsPage() {
   })
   const refreshTab = (nextTab: ModelSettingsTab) => {
     setSelectedTab(nextTab)
+    if (nextTab === "webSearch") return
     const queries =
       nextTab === "knowledge"
         ? [modelProviderQuery, knowledgeModelQuery, imageUnderstandingQuery]
@@ -4117,7 +4120,11 @@ function ModelSettingsPage() {
           <TabsTrigger value="imageGeneration">
             {t("admin.modelTabs.imageGeneration")}
           </TabsTrigger>
+          <TabsTrigger value="webSearch">{t("webSearch.title")}</TabsTrigger>
         </TabsList>
+        <TabsContent value="webSearch" className="min-w-0" keepMounted>
+          <WebSearchSettingsForm />
+        </TabsContent>
         <TabsContent value="channels" className="min-w-0" keepMounted>
           {channelsLoading && <LoadingState />}
           {!channelsLoading && modelProviderQuery.error && (
@@ -4256,7 +4263,11 @@ function ModelSettingsPage() {
 }
 
 type ModelSettingsTab =
-  "channels" | "knowledge" | "voiceTranscription" | "imageGeneration"
+  | "channels"
+  | "knowledge"
+  | "voiceTranscription"
+  | "imageGeneration"
+  | "webSearch"
 
 type AuthenticationProvider = "smtp" | "oidc" | "teams"
 type AuthenticationMode = AuthenticationSettings["smtp"]["mode"]

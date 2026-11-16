@@ -247,6 +247,18 @@ function settingsPayload(path: string) {
     }))
   }
   if (path.endsWith("/product-settings")) return productSettings
+  if (path.endsWith("/web-search-settings")) {
+    return {
+      revision: 1,
+      enabled: true,
+      provider: "deepseek",
+      base_url: "https://api.deepseek.com/v1/tools/search",
+      search_engine_id: null,
+      api_key_configured: true,
+      default_max_results: 5,
+      timeout_ms: 15_000,
+    }
+  }
   if (path.endsWith("/execution-concurrency-settings")) {
     return executionConcurrencySettings
   }
@@ -343,6 +355,34 @@ async function waitForModelProviderSettingsPut(requests: RecordedRequest[]) {
 }
 
 describe("administrator authentication settings", () => {
+  it("groups web search with model settings and preserves its draft across model tabs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        envelope(
+          settingsPayload(
+            new URL(String(input), window.location.origin).pathname
+          )
+        )
+      )
+    )
+    const user = userEvent.setup()
+    renderSettings("models")
+    const tab = await screen.findByRole("tab", { name: "联网搜索" })
+    await user.click(tab)
+    expect(
+      await screen.findByRole("heading", { name: "联网搜索" })
+    ).toBeVisible()
+    const panel = within(screen.getByRole("tabpanel", { name: "联网搜索" }))
+    expect(panel.getByLabelText("API Key")).toHaveValue("")
+    const query = panel.getByLabelText("测试搜索词")
+    await user.clear(query)
+    await user.type(query, "Search draft")
+    await user.click(screen.getByRole("tab", { name: "模型渠道" }))
+    await user.click(screen.getByRole("tab", { name: "联网搜索" }))
+    expect(panel.getByLabelText("测试搜索词")).toHaveValue("Search draft")
+  })
+
   it("marks the system name while keeping the optional logo and concurrency overrides unmarked", async () => {
     vi.stubGlobal(
       "fetch",

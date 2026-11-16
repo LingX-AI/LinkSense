@@ -50,6 +50,35 @@ function snapshot() {
 }
 
 describe("conversation sharing contracts", () => {
+  it.each(["commentary", "partial_answer"])("does not promote %s messages to final shared output", (phase) => {
+    const input = snapshot();
+    const result = conversationShareSnapshotSchema.parse({
+      ...input,
+      messages: [{ ...input.messages[0], phase }],
+    });
+    expect(result.messages).toEqual([]);
+    expect(result.files).toEqual([]);
+  });
+
+  it("uses persisted partial-answer events to exclude old messages without phase metadata", () => {
+    const input = snapshot();
+    const result = conversationShareSnapshotSchema.parse({
+      ...input,
+      messages: [{ ...input.messages[0], phase: null }],
+      events: [{
+        payload: {
+          schema_version: 2,
+          source: "codex_app_server",
+          method: "item/completed",
+          params: { item: { type: "agentMessage", phase: "partial_answer" } },
+          local: { message_id: messageId },
+        },
+      }],
+    });
+    expect(result.messages).toEqual([]);
+    expect(result.files).toEqual([]);
+  });
+
   it("projects only resources attached to shared messages and strips private fields", () => {
     const input = snapshot();
     input.files.push({

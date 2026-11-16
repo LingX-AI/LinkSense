@@ -317,6 +317,18 @@ async function run(
       1,
     );
     assert.equal(failures.length, 0);
+    if (mode !== "chat_completions_bridge") {
+      assert(
+        notifications.some((notification) =>
+          mapCodexNotification(notification).some(
+            (mapped) => mapped.method === "item/completed" &&
+              mapped.params.item.type === "agentMessage" &&
+              mapped.params.item.phase === "partial_answer",
+          ),
+        ),
+        "native partial answers must retain their message phase",
+      );
+    }
     return {
       mode,
       answerDuringTurn,
@@ -407,6 +419,16 @@ async function run(
       );
     }
     return [
+      {
+        id: `partial-${generation}`,
+        type: "message",
+        role: "assistant",
+        phase: "partial_answer",
+        status: "completed",
+        content: [
+          { type: "output_text", text: "FUNCTIONAL_PARTIAL", annotations: [] },
+        ],
+      },
       {
         id: `msg-${generation}`,
         type: "message",

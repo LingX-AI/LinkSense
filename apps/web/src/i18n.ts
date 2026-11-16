@@ -4,6 +4,7 @@ import { monitoringMessages } from "@/features/automations/monitoring-messages"
 import { automationNotificationMessages } from "@/features/conversations/automation-notification-messages"
 import { taskReferenceMessages } from "@/features/conversations/task-reference-messages"
 import { richOutputMessages } from "@/features/conversations/rich-output-messages"
+import { webSearchMessages } from "@/features/admin/web-search-messages"
 import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
 import {
@@ -76,6 +77,7 @@ void i18n.use(initReactI18next).init({
   resources: {
     "zh-CN": {
       translation: {
+        webSearch: webSearchMessages["zh-CN"],
         ...zhCN,
         accountAccess: accountAccessMessages["zh-CN"],
         workspaceHome: workspaceHomeMessages["zh-CN"],
@@ -94,6 +96,7 @@ void i18n.use(initReactI18next).init({
     },
     "en-US": {
       translation: {
+        webSearch: webSearchMessages["en-US"],
         ...enUS,
         accountAccess: accountAccessMessages["en-US"],
         workspaceHome: workspaceHomeMessages["en-US"],
@@ -112,6 +115,7 @@ void i18n.use(initReactI18next).init({
     },
     "es-ES": {
       translation: {
+        webSearch: webSearchMessages["es-ES"],
         ...esES,
         accountAccess: accountAccessMessages["es-ES"],
         workspaceHome: workspaceHomeMessages["es-ES"],
@@ -130,6 +134,7 @@ void i18n.use(initReactI18next).init({
     },
     "pt-BR": {
       translation: {
+        webSearch: webSearchMessages["pt-BR"],
         ...ptBR,
         accountAccess: accountAccessMessages["pt-BR"],
         workspaceHome: workspaceHomeMessages["pt-BR"],
@@ -148,6 +153,7 @@ void i18n.use(initReactI18next).init({
     },
     "fr-FR": {
       translation: {
+        webSearch: webSearchMessages["fr-FR"],
         ...frFR,
         accountAccess: accountAccessMessages["fr-FR"],
         workspaceHome: workspaceHomeMessages["fr-FR"],
@@ -166,6 +172,7 @@ void i18n.use(initReactI18next).init({
     },
     "ja-JP": {
       translation: {
+        webSearch: webSearchMessages["ja-JP"],
         ...jaJP,
         accountAccess: accountAccessMessages["ja-JP"],
         workspaceHome: workspaceHomeMessages["ja-JP"],

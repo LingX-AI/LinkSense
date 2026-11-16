@@ -10,7 +10,7 @@ const { requestMock } = vi.hoisted(() => ({ requestMock: vi.fn() }))
 vi.mock("node:http", () => ({ request: requestMock }))
 vi.mock("node:https", () => ({ request: requestMock }))
 
-import { fetchPublicHttpResource } from "../src/lib/safe-http-fetch.js"
+import { fetchPublicHttpResource, requestPublicHttpResource } from "../src/lib/safe-http-fetch.js"
 import { SiteIconService } from "../src/modules/site-icons/service.js"
 import { ExternalImageService } from "../src/modules/external-images/service.js"
 
@@ -104,6 +104,67 @@ describe("fetchPublicHttpResource", () => {
     requestMock.mockReset()
   })
   afterEach(() => vi.useRealTimers())
+
+  it("sends authenticated POST requests with pinned DNS and bounded responses", async () => {
+    configurePinnedRequest({ headers: { "content-type": "application/json" }, chunks: [Buffer.from('{"results":[]}')] })
+    const response = await requestPublicHttpResource(new URL("https://search.example/search"), {
+      method: "POST", headers: { authorization: "Bearer synthetic-key", "content-type": "application/json" }, body: '{"query":"test"}',
+      byteLimit: 1_024, redirectCount: 0, requestTimeoutMs: 1_000, accept: "application/json", userAgent: "LinkSense-test", errorCode: "WEB_SEARCH_UNAVAILABLE",
+      lookup: vi.fn(async (): Promise<LookupAddress[]> => [{ address: "93.184.216.34", family: 4 }]) as unknown as typeof import("node:dns").promises.lookup,
+    })
+    expect(await response.json()).toEqual({ results: [] })
+    expect(requestMock.mock.calls[0]?.[1]).toMatchObject({ method: "POST", agent: false, lookup: expect.any(Function), headers: { authorization: "Bearer synthetic-key", "accept-encoding": "identity" } })
+  })
+
+  it("rejects a private API destination before sending credentials", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+    await expect(requestPublicHttpResource(new URL("https://search.example/search"), {
+      method: "POST", headers: { authorization: "Bearer synthetic-key" }, byteLimit: 1_024, redirectCount: 0, requestTimeoutMs: 1_000,
+      accept: "application/json", userAgent: "LinkSense-test", errorCode: "WEB_SEARCH_UNAVAILABLE", fetcher,
+      lookup: vi.fn(async (): Promise<LookupAddress[]> => [{ address: "127.0.0.1", family: 4 }]) as unknown as typeof import("node:dns").promises.lookup,
+    })).rejects.toMatchObject({ code: "WEB_SEARCH_UNAVAILABLE" })
+    expect(fetcher).not.toHaveBeenCalled()
+    expect(requestMock).not.toHaveBeenCalled()
+  })
+
+  it("allows a named API through the explicitly trusted development DNS proxy", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ results: [] }))
+    const response = await requestPublicHttpResource(new URL("https://search.example/search"), {
+      method: "POST", headers: { authorization: "Bearer synthetic-key" }, byteLimit: 1_024, redirectCount: 0, requestTimeoutMs: 1_000,
+      accept: "application/json", userAgent: "LinkSense-test", errorCode: "WEB_SEARCH_UNAVAILABLE", fetcher,
+      allowBenchmarkProxyAddresses: true,
+      lookup: vi.fn(async (): Promise<LookupAddress[]> => [{ address: "198.18.4.222", family: 4 }]) as unknown as typeof import("node:dns").promises.lookup,
+    })
+    expect(await response.json()).toEqual({ results: [] })
+    expect(fetcher).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    { url: "https://search.example/search", address: "198.18.4.222", allowed: false },
+    { url: "https://198.18.4.222/search", address: "198.18.4.222", allowed: true },
+    { url: "https://search.example/search", address: "127.0.0.1", allowed: true },
+    { url: "https://search.example/search", address: "192.168.1.1", allowed: true },
+  ])("keeps untrusted API destinations blocked: %j", async ({ url, address, allowed }) => {
+    const fetcher = vi.fn<typeof fetch>()
+    await expect(requestPublicHttpResource(new URL(url), {
+      method: "POST", headers: { authorization: "Bearer synthetic-key" }, byteLimit: 1_024, redirectCount: 0, requestTimeoutMs: 1_000,
+      accept: "application/json", userAgent: "LinkSense-test", errorCode: "WEB_SEARCH_UNAVAILABLE", fetcher,
+      allowBenchmarkProxyAddresses: allowed,
+      lookup: vi.fn(async (): Promise<LookupAddress[]> => [{ address, family: 4 }]) as unknown as typeof import("node:dns").promises.lookup,
+    })).rejects.toMatchObject({ code: "WEB_SEARCH_UNAVAILABLE" })
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it("does not follow an API redirect with credentials", async () => {
+    configurePinnedRequest({ status: 302, headers: { location: "https://private.example/search" }, chunks: [] })
+    const response = await requestPublicHttpResource(new URL("https://search.example/search"), {
+      method: "POST", headers: { authorization: "Bearer synthetic-key" }, byteLimit: 1_024, redirectCount: 0, requestTimeoutMs: 1_000,
+      accept: "application/json", userAgent: "LinkSense-test", errorCode: "WEB_SEARCH_UNAVAILABLE",
+      lookup: vi.fn(async (): Promise<LookupAddress[]> => [{ address: "93.184.216.34", family: 4 }]) as unknown as typeof import("node:dns").promises.lookup,
+    })
+    expect(response.status).toBe(302)
+    expect(requestMock).toHaveBeenCalledTimes(1)
+  })
 
   it.each([204, 205, 304])("isolates a bodyless %i response and allows the next download", async (status) => {
     const { escapedErrors, incoming } = configurePinnedRequest({ status, headers: {}, chunks: [] })

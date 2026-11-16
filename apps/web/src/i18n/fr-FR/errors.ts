@@ -2,6 +2,17 @@ import { localizedErrorMessage } from "@linksense/shared"
 import { modelGatewayMessages } from "@/lib/model-gateway-messages"
 
 export const errors = {
+    webSearch: {
+      notConfigured: localizedErrorMessage("WEB_SEARCH_NOT_CONFIGURED", "fr-FR"),
+      disabled: localizedErrorMessage("WEB_SEARCH_DISABLED", "fr-FR"),
+      forbidden: localizedErrorMessage("WEB_SEARCH_FORBIDDEN", "fr-FR"),
+      invalid: localizedErrorMessage("WEB_SEARCH_INVALID", "fr-FR"),
+      unavailable: localizedErrorMessage("WEB_SEARCH_UNAVAILABLE", "fr-FR"),
+      authFailed: localizedErrorMessage("WEB_SEARCH_AUTH_FAILED", "fr-FR"),
+      rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "fr-FR"),
+      responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "fr-FR"),
+      timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "fr-FR"),
+    },
   skillManagement: {
     uninstallNotAllowed: localizedErrorMessage(
       "SKILL_UNINSTALL_NOT_ALLOWED",

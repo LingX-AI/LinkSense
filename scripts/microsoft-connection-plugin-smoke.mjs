@@ -88,7 +88,7 @@ async function connect(task, { mode = "default" } = {}) {
   const config = [
     ...await loadCodexTemplateFeatureOverrides(template),
     ...linkSenseSkillConfigOverrides(mode),
-    "features.memories=false", "features.multi_agent=false", "features.hooks=false",
+    "features.memories=false", "agents.enabled=false", "features.hooks=false",
     "model_provider=\"fixture\"", `model=${JSON.stringify(model)}`,
     "model_providers.fixture.name=\"Fixture\"", "model_providers.fixture.wire_api=\"responses\"",
     `model_providers.fixture.base_url=\"http://127.0.0.1:${server.address().port}/v1\"`,

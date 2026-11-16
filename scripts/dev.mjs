@@ -23,6 +23,7 @@ import { developmentTlsDirectory, prepareDevelopmentTls, trustDevelopmentCertifi
 import { assertDevelopmentHttp2 } from "./dev-http2.mjs";
 import { developmentResourceOwner, planDevelopmentImageBuilds, reportDevelopmentImageCleanup } from "./dev-images.mjs";
 import { checkBaselineAdoption } from "./baseline-adoption.mjs";
+import { checkDevelopmentBaseline, prepareDevelopmentCodexRuntime } from "./dev-codex-runtime.mjs";
 export { developmentImageNames } from "./dev-images.mjs";
 export { sourceFingerprint } from "./source-fingerprint.mjs";
 
@@ -915,9 +916,11 @@ function ensureDevelopmentImages(
   return buildEnvironment;
 }
 
-export function developmentImageBuildEnvironment(environmentFile, environment, fingerprints = configuredDevelopmentFingerprints(environmentFile, environment)) {
+export function developmentImageBuildEnvironment(environmentFile, environment, fingerprints) {
+  const runtimeEnvironment = fingerprints ? environment : prepareDevelopmentCodexRuntime(environment);
+  fingerprints ??= configuredDevelopmentFingerprints(environmentFile, runtimeEnvironment);
   return {
-    ...environment,
+    ...runtimeEnvironment,
     LINKSENSE_DEV_RESOURCE_OWNER: developmentResourceOwner(repositoryRoot, environmentFile),
     LINKSENSE_DEV_IMAGE_FINGERPRINT: fingerprints.api,
     LINKSENSE_MIGRATION_IMAGE_FINGERPRINT: fingerprints.migrate,
@@ -932,7 +935,7 @@ export function fingerprintBuildConfiguration(sourceHash, build) {
 }
 
 export function configuredDevelopmentFingerprints(environmentFile, environment) {
-  checkBaselineAdoption();
+  checkDevelopmentBaseline();
   const result = spawnSync("docker", developmentComposeArguments(environmentFile, ["config", "--format", "json"]), {
     cwd: repositoryRoot, env: environment, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 15_000, maxBuffer: 4 * 1024 * 1024,
   });
