@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
   getAccessToken,
+  getAccessTokenSubject,
   getStoredAccessSession,
   hasUsableAccessToken,
   restoreAccessTokenFromStorage,
@@ -39,6 +40,24 @@ function dispatchStorageChange(newValue: string | null) {
 }
 
 describe("access token session storage", () => {
+  it("reads a validated JWT subject without creating an authenticated session", () => {
+    expect(
+      getAccessTokenSubject(createJwt(new Date("2026-07-14T00:00:00Z")))
+    ).toBe("user-id")
+    expect(getAccessToken()).toBeNull()
+  })
+
+  it.each([
+    null,
+    "",
+    "opaque-token",
+    "header.invalid-json.signature",
+    `header.${btoa(JSON.stringify({ sub: 12 }))}.signature`,
+    `header.${btoa(JSON.stringify({ exp: 10 }))}.signature`,
+  ])("ignores missing or invalid identity metadata in %s", (token) => {
+    expect(getAccessTokenSubject(token)).toBeNull()
+  })
+
   beforeEach(() => {
     setAccessToken(null)
     window.localStorage.clear()

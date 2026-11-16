@@ -22,10 +22,12 @@ import { AuthProvider } from "@/app/auth-context"
 import { useAuth } from "@/app/auth-state"
 import { BootstrapContext } from "@/app/bootstrap-state"
 import { setAppLanguage } from "@/i18n"
+import { supportedLocales } from "@linksense/shared"
 
 const sessionState = vi.hoisted(() => ({
   token: null as string | null,
   listeners: new Set<(token: string | null) => void>(),
+  subjects: new Map<string, string>(),
 }))
 
 vi.mock("@/api/client", () => ({
@@ -37,6 +39,9 @@ vi.mock("@/api/client", () => ({
 
 vi.mock("@/api/session", () => ({
   getAccessToken: vi.fn(() => sessionState.token),
+  getAccessTokenSubject: vi.fn((token: string | null) =>
+    token ? (sessionState.subjects.get(token) ?? null) : null
+  ),
   setAccessToken: vi.fn((token: string | null) => {
     sessionState.token = token
     sessionState.listeners.forEach((listener) => listener(token))
@@ -140,6 +145,7 @@ describe("AuthProvider session restoration", () => {
   beforeEach(() => {
     sessionState.token = null
     sessionState.listeners.clear()
+    sessionState.subjects.clear()
     vi.mocked(apiRequest).mockReset()
     vi.mocked(refreshSession).mockReset()
     vi.mocked(isDefinitiveAuthenticationError).mockReset()
@@ -155,6 +161,127 @@ describe("AuthProvider session restoration", () => {
     vi.useRealTimers()
   })
 
+  it.each(supportedLocales)(
+    "synchronizes another account's token, cache and language in %s",
+    async (locale) => {
+      sessionState.token = "account-a-token"
+      sessionState.subjects.set("account-a-token", user.id)
+      sessionState.subjects.set("account-b-token", "user-2")
+      vi.mocked(apiRequest)
+        .mockResolvedValueOnce(user)
+        .mockResolvedValueOnce({
+          ...user,
+          id: "user-2",
+          email: "two@example.test",
+          language: locale,
+        })
+      const client = createAuthQueryClient()
+      client.setQueryData(["conversations"], { owner: user.id })
+      client.setQueryData(["system", "bootstrap"], { initialized: true })
+      renderAuthProvider(client)
+      await expectAuthStatus("authenticated")
+      await act(async () => {
+        setAccessToken("account-b-token")
+      })
+      await waitFor(() =>
+        expect(screen.getByTestId("auth-user")).toHaveTextContent(
+          "two@example.test"
+        )
+      )
+      expect(client.getQueryData(["conversations"])).toBeUndefined()
+      expect(client.getQueryData(["system", "bootstrap"])).toEqual({
+        initialized: true,
+      })
+      expect(setAppLanguage).toHaveBeenLastCalledWith(locale)
+    }
+  )
+
+  it("keeps the same-account cache and authentication UI usable during token rotation", async () => {
+    sessionState.token = "account-a-token"
+    sessionState.subjects.set("account-a-token", user.id)
+    sessionState.subjects.set("rotated-token", user.id)
+    vi.mocked(apiRequest).mockResolvedValue(user)
+    const client = createAuthQueryClient()
+    client.setQueryData(["conversations"], { owner: user.id })
+    renderAuthProvider(client)
+    await expectAuthStatus("authenticated")
+    vi.mocked(apiRequest).mockClear()
+    await act(async () => {
+      setAccessToken("rotated-token")
+    })
+    expect(apiRequest).toHaveBeenCalledOnce()
+    expect(client.getQueryData(["conversations"])).toEqual({ owner: user.id })
+    expect(screen.getByTestId("auth-user")).toHaveTextContent(user.email)
+  })
+
+  it("clears prior administrator data when the refreshed profile has a different role", async () => {
+    sessionState.token = "account-a-token"
+    sessionState.subjects.set("account-a-token", user.id)
+    sessionState.subjects.set("rotated-token", user.id)
+    vi.mocked(apiRequest)
+      .mockResolvedValueOnce(user)
+      .mockResolvedValueOnce({ ...user, role: "user" })
+    const client = createAuthQueryClient()
+    client.setQueryData(["admin", "users"], { count: 1 })
+    renderAuthProvider(client)
+    await expectAuthStatus("authenticated")
+    await act(async () => {
+      setAccessToken("rotated-token")
+    })
+    expect(client.getQueryData(["admin", "users"])).toBeUndefined()
+    expect(screen.getByTestId("auth-status")).toHaveTextContent("authenticated")
+  })
+
+  it("updates an anonymous tab when another tab signs in", async () => {
+    vi.mocked(refreshSession).mockRejectedValue(new Error("no session"))
+    vi.mocked(isDefinitiveAuthenticationError).mockReturnValue(true)
+    renderAuthProvider()
+    await expectAuthStatus("anonymous")
+    vi.mocked(apiRequest).mockResolvedValue(user)
+    await act(async () => {
+      setAccessToken("new-tab-token")
+    })
+    await expectAuthStatus("authenticated")
+    expect(screen.getByTestId("auth-user")).toHaveTextContent(user.email)
+  })
+
+  it("ignores an earlier account's late profile response after a tab signs in as another account", async () => {
+    sessionState.token = "account-a-token"
+    sessionState.subjects.set("account-a-token", user.id)
+    sessionState.subjects.set("account-b-token", "user-2")
+    let resolveEarlier: ((value: User) => void) | undefined
+    vi.mocked(apiRequest)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveEarlier = resolve
+          })
+      )
+      .mockResolvedValueOnce({
+        ...user,
+        id: "user-2",
+        email: "two@example.test",
+        language: "en-US",
+      })
+    renderAuthProvider()
+    await waitFor(() => expect(apiRequest).toHaveBeenCalled())
+    await act(async () => {
+      setAccessToken("account-b-token")
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId("auth-user")).toHaveTextContent(
+        "two@example.test"
+      )
+    )
+    await act(async () => {
+      resolveEarlier?.(user)
+    })
+    expect(screen.getByTestId("auth-user")).toHaveTextContent(
+      "two@example.test"
+    )
+    expect(setAppLanguage).not.toHaveBeenLastCalledWith("zh-CN")
+  })
+
   it("uses the persisted access token to load the user without rotating the refresh session", async () => {
     sessionState.token = "persisted-access-token"
     vi.mocked(apiRequest).mockResolvedValue(user)
@@ -166,6 +293,53 @@ describe("AuthProvider session restoration", () => {
     expect(apiRequest).toHaveBeenCalledWith("/me", expect.any(Object))
     expect(refreshSession).not.toHaveBeenCalled()
     expect(setAccessToken).not.toHaveBeenCalledWith(null)
+  })
+
+  it("cancels an explicitly abortable profile request when another tab replaces the account", async () => {
+    sessionState.token = "account-a-token"
+    sessionState.subjects.set("account-a-token", user.id)
+    sessionState.subjects.set("account-b-token", "user-2")
+    vi.mocked(apiRequest).mockResolvedValueOnce(user)
+    const caller = new AbortController()
+    let requestSignal: AbortSignal | undefined
+    let finish: ((value: User) => void) | undefined
+    renderAuthProvider(
+      createAuthQueryClient(),
+      <>
+        <AuthProbe />
+        <AuthRefreshProbe onRender={vi.fn()} signal={caller.signal} />
+      </>
+    )
+    await expectAuthStatus("authenticated")
+    vi.mocked(apiRequest)
+      .mockImplementationOnce((_path, options) => {
+        requestSignal = options.signal
+        return new Promise((resolve) => {
+          finish = resolve
+        })
+      })
+      .mockResolvedValueOnce({
+        ...user,
+        id: "user-2",
+        email: "two@example.test",
+      })
+    fireEvent.click(screen.getByRole("button", { name: "refresh user" }))
+    await act(async () => {
+      setAccessToken("account-b-token")
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId("auth-user")).toHaveTextContent(
+        "two@example.test"
+      )
+    )
+    expect(requestSignal?.aborted).toBe(true)
+    expect(caller.signal.aborted).toBe(false)
+    await act(async () => {
+      finish?.(user)
+    })
+    expect(screen.getByTestId("auth-user")).toHaveTextContent(
+      "two@example.test"
+    )
   })
 
   it("applies the database language before exposing the restored session", async () => {
@@ -212,7 +386,7 @@ describe("AuthProvider session restoration", () => {
     fireEvent.click(screen.getByRole("button", { name: "refresh user" }))
     expect(apiRequest).toHaveBeenLastCalledWith(
       "/me",
-      expect.objectContaining({ signal: controller.signal })
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
     controller.abort()
     await act(async () => {

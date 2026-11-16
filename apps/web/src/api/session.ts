@@ -1,4 +1,7 @@
+import { z } from "zod"
+
 const ACCESS_SESSION_STORAGE_KEY = "linksense.auth.access-session"
+const tokenSubjectSchema = z.object({ sub: z.string().min(1) })
 const DEFAULT_ACCESS_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
 const MAX_TIMEOUT_MS = 2_147_483_647
 
@@ -166,7 +169,7 @@ function updateAccessSession(
   if (options.notify) notifyListeners(token)
 }
 
-function decodeJwtExpiration(token: string) {
+function decodeJwtPayload(token: string): unknown {
   const payloadSegment = token.split(".")[1]
   if (!payloadSegment || typeof atob !== "function") return null
 
@@ -178,21 +181,28 @@ function decodeJwtExpiration(token: string) {
       character.charCodeAt(0)
     )
     const jsonPayload = new TextDecoder().decode(bytes)
-    const payload = JSON.parse(jsonPayload) as unknown
-    if (
-      typeof payload !== "object" ||
-      payload === null ||
-      !("exp" in payload)
-    ) {
-      return null
-    }
-    const expiration = payload.exp
-    return typeof expiration === "number" && Number.isFinite(expiration)
-      ? expiration * 1000
-      : null
+    return JSON.parse(jsonPayload) as unknown
   } catch {
     return null
   }
+}
+
+/** This only identifies cache ownership; the API still authenticates the token. */
+export function getAccessTokenSubject(token: string | null): string | null {
+  if (!token) return null
+  const parsed = tokenSubjectSchema.safeParse(decodeJwtPayload(token))
+  return parsed.success ? parsed.data.sub : null
+}
+
+function decodeJwtExpiration(token: string) {
+  const payload = decodeJwtPayload(token)
+  if (typeof payload !== "object" || payload === null || !("exp" in payload)) {
+    return null
+  }
+  const expiration = payload.exp
+  return typeof expiration === "number" && Number.isFinite(expiration)
+    ? expiration * 1000
+    : null
 }
 
 function normalizeExpiration(
