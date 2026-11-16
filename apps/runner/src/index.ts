@@ -5,7 +5,8 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { flushCompileCache } from "node:module"
 
-import pino from "pino"
+import type { Logger } from "pino"
+import { createLogger } from "./lib/logger.js"
 
 import { linksenseRuntimeIdentity } from "@linksense/shared"
 
@@ -98,7 +99,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 }
 
 async function startController(config: RunnerConfig): Promise<void> {
-  const logger = pino({ level: process.env.LOG_LEVEL ?? "info" })
+  const logger = createLogger("controller")
   const provider = createWorkerProvider(config, logger)
   const workers = new WorkerManager(
     config,
@@ -142,7 +143,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     import("./workspace/capability-runtime.js"),
     import("./workspace/workspace-manager.js"),
   ])
-  const logger = pino({ level: process.env.LOG_LEVEL ?? "info" })
+  const logger = createLogger("execution")
   const workerOwnerId = config.LINKSENSE_WORKER_OWNER_ID
   const isWorker = config.LINKSENSE_RUNNER_MODE === "worker"
   const isLocalProcessWorker =
@@ -441,7 +442,7 @@ function requiredLocalProcessRuntimeToolBin(
 }
 
 function installSignalHandlers(
-  logger: pino.Logger,
+  logger: Logger,
   stop: () => Promise<void>,
 ): void {
   let stopping = false

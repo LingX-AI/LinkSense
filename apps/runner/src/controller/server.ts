@@ -2,6 +2,7 @@ import { AUTOMATION_TOOL_BODY_LIMIT, MICROSOFT_CONNECTION_BODY_LIMIT } from "@li
 import { timingSafeEqual } from "node:crypto"
 
 import Fastify, { type FastifyReply } from "fastify"
+import { createLoggerOptions, RunnerLogController } from "../lib/logger.js"
 import { z } from "zod"
 import { runtimeWorkspaceHeader, runtimeServiceSessionHeader, runtimeCleanupEnvironmentHeader, userWorkspacePathSchema } from "@linksense/shared"
 
@@ -30,7 +31,8 @@ export function buildControllerServer(
     config.LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS,
   )
   const app = Fastify({
-    logger: { level: process.env.LOG_LEVEL ?? "info" },
+    logController: new RunnerLogController(),
+    logger: createLoggerOptions(),
     bodyLimit: 16 * 1024 * 1024,
   })
 

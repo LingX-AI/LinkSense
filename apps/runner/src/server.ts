@@ -13,6 +13,7 @@ import { access, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import { createLoggerOptions, RunnerLogController } from "./lib/logger.js";
 import { z } from "zod";
 
 import {
@@ -811,7 +812,10 @@ export function buildRunnerServer(
   userProcessCount: () => Promise<number> = async () => 0,
   publicEventSink?: Pick<RunnerEventSink, "publishBatch">,
 ) {
-  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
+  const app = Fastify({
+    logController: new RunnerLogController(),
+    logger: createLoggerOptions(),
+  });
   const healthRoots = resolveHealthRoots(config);
 
   app.addHook("onRequest", async (request, reply) => {
