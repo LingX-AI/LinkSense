@@ -33,12 +33,11 @@ export function formatIntegerCount(
 
 export function formatTokenCount(
   value: number | string,
-  language: UsageNumberLanguage,
-  unitBase: 1_000 | 1_024 = 1_000
+  language: UsageNumberLanguage
 ): string {
   const parsed = parseNonNegativeInteger(value)
   if (parsed === null) return "—"
-  const base = BigInt(unitBase)
+  const base = 1_000n
   const scaleIndex = tokenScales.findIndex(
     (scale) => parsed >= base ** scale.exponent
   )
@@ -47,12 +46,16 @@ export function formatTokenCount(
   return formatScaledTokenCount(parsed, scaleIndex, language, base)
 }
 
-/** Compact token label for context sizes, for example "393.8k". */
+/**
+ * Compact token label for context sizes, for example "258.4k". Context
+ * windows are configured and documented in decimal units, so 1,000,000
+ * renders as "1m" rather than a binary 976.6k.
+ */
 export function formatCompactTokenCount(
   value: number | string,
   language: UsageNumberLanguage
 ): string {
-  return formatTokenCount(value, language, 1_024).replace(/[KMB]$/u, (suffix) =>
+  return formatTokenCount(value, language).replace(/[KMB]$/u, (suffix) =>
     suffix.toLowerCase()
   )
 }

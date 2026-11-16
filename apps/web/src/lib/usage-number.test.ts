@@ -7,6 +7,7 @@ import {
   formatUsdCost,
   formatUsdMinorUnits,
   formatIntegerCount,
+  formatCompactTokenCount,
   formatTokenCount,
 } from "@/lib/usage-number"
 
@@ -39,20 +40,13 @@ describe("usage number formatting", () => {
   })
 
   it.each(["zh-CN", "en-US"] as const)(
-    "formats context tokens using powers of 1024 in %s",
+    "formats context sizes with decimal units in %s",
     (language) => {
-      expect(formatTokenCount(0, language, 1_024)).toBe("0")
-      expect(formatTokenCount(1_000, language, 1_024)).toBe("1,000")
-      expect(formatTokenCount(1_023, language, 1_024)).toBe("1,023")
-      expect(formatTokenCount(1_024, language, 1_024)).toBe("1K")
-      expect(formatTokenCount(1_536, language, 1_024)).toBe("1.5K")
-      expect(formatTokenCount(262_144, language, 1_024)).toBe("256K")
-      expect(formatTokenCount(1_048_524, language, 1_024)).toBe("1,023.9K")
-      expect(formatTokenCount(1_048_525, language, 1_024)).toBe("1M")
-      expect(formatTokenCount(1_048_576, language, 1_024)).toBe("1M")
-      expect(formatTokenCount("1073741824", language, 1_024)).toBe("1B")
-      expect(formatTokenCount(-1, language, 1_024)).toBe("—")
-      expect(formatTokenCount("invalid", language, 1_024)).toBe("—")
+      expect(formatCompactTokenCount(24_264, language)).toBe("24.3k")
+      expect(formatCompactTokenCount(258_400, language)).toBe("258.4k")
+      expect(formatCompactTokenCount(1_000_000, language)).toBe("1m")
+      expect(formatCompactTokenCount(-1, language)).toBe("—")
+      expect(formatCompactTokenCount("invalid", language)).toBe("—")
     }
   )
 

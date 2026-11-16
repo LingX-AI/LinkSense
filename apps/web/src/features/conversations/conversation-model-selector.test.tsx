@@ -94,7 +94,7 @@ describe("ConversationModelSelector", () => {
         contextUsage={{ ...modelContextUsage, usedTokens: 129_000 }}
       />
     )
-    expect(screen.getByLabelText("上下文 126k / 252k（50%）")).toBeVisible()
+    expect(screen.getByLabelText("上下文 129k / 258k（50%）")).toBeVisible()
     expect(contextUsageRender).toHaveBeenCalledTimes(renders + 1)
   })
 
@@ -266,7 +266,7 @@ describe("ConversationModelSelector", () => {
       "aria-expanded:bg-card",
       "aria-expanded:border-border"
     )
-    const contextTrigger = screen.getByLabelText("上下文 151.4k / 252k（60%）")
+    const contextTrigger = screen.getByLabelText("上下文 155k / 258k（60%）")
     expect(contextTrigger).toBeVisible()
     expect(contextTrigger).toHaveClass(
       "size-7",
@@ -350,10 +350,10 @@ describe("ConversationModelSelector", () => {
     )
 
     await interaction.click(
-      screen.getByLabelText("上下文 151.4k / 252k（60%）")
+      screen.getByLabelText("上下文 155k / 258k（60%）")
     )
     const card = await screen.findByRole("dialog", { name: "上下文窗口" })
-    expect(within(card).getByText("151.4k / 252k（60%）")).toBeVisible()
+    expect(within(card).getByText("155k / 258k（60%）")).toBeVisible()
     expect(within(card).queryByText("输入")).not.toBeInTheDocument()
 
     await interaction.click(
@@ -390,10 +390,10 @@ describe("ConversationModelSelector", () => {
     )
 
     await interaction.hover(
-      screen.getByLabelText("上下文 151.4k / 252k（60%）")
+      screen.getByLabelText("上下文 155k / 258k（60%）")
     )
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "上下文 151.4k / 252k（60%）"
+      "上下文 155k / 258k（60%）"
     )
   })
 
@@ -429,21 +429,21 @@ describe("ConversationModelSelector", () => {
   it.each([
     {
       language: "zh-CN",
-      badge: "上下文 128k / 256k（50%）",
-      summary: "128k / 256k（50%）",
+      badge: "上下文 131.1k / 262.1k（50%）",
+      summary: "131.1k / 262.1k（50%）",
     },
     {
       language: "en-US",
-      badge: "Context 128k / 256k (50%)",
-      summary: "128k / 256k (50%)",
+      badge: "Context 131.1k / 262.1k (50%)",
+      summary: "131.1k / 262.1k (50%)",
     },
     {
       language: "de-DE",
-      badge: "上下文 128k / 256k（50%）",
-      summary: "128k / 256k（50%）",
+      badge: "上下文 131.1k / 262.1k（50%）",
+      summary: "131.1k / 262.1k（50%）",
     },
   ])(
-    "shows runtime context counts in units of 1024 with $language translations or fallback",
+    "shows runtime context counts with decimal units with $language translations or fallback",
     async ({ language, badge, summary }) => {
       await i18n.changeLanguage(language)
       const interaction = userEvent.setup()
@@ -551,7 +551,7 @@ describe("ConversationModelSelector", () => {
       />
     )
 
-    const contextTrigger = screen.getByLabelText("上下文 355.5k / 252k（141%）")
+    const contextTrigger = screen.getByLabelText("上下文 364k / 258k（141%）")
     expect(
       contextTrigger.querySelector('circle[stroke-dasharray="100 0"]')
     ).toBeInTheDocument()
@@ -614,7 +614,7 @@ describe("ConversationModelSelector", () => {
 
     await interaction.click(screen.getByRole("button", { name: "模型" }))
     await interaction.click(
-      await screen.findByRole("menuitemradio", { name: "GPT-5.6-Sol" })
+      await screen.findByRole("menuitemradio", { name: /GPT-5\.6-Sol/u })
     )
     expect(onChange).toHaveBeenLastCalledWith("gpt-5.6-sol", "low")
     expect(screen.getByRole("slider", { name: "推理强度" })).toBeEnabled()

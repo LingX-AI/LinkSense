@@ -302,8 +302,7 @@ function ModelReasoningControls({
                           {t("conversation.modelContextWindowOption", {
                             size: formatTokenCount(
                               candidate.context_window,
-                              language,
-                              1_000
+                              language
                             ),
                           })}
                         </span>
