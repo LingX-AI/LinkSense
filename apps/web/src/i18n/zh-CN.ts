@@ -2433,6 +2433,8 @@ export const zhCN = {
       exitedReviewMode: "已退出审查模式",
       contextCompactionRunning: "正在压缩上下文",
       contextCompactionCompleted: "上下文已压缩",
+      contextCompactionCompletedSavedTokens:
+        "上下文已压缩 · 节省 {{tokens}} Token",
       contextCompactionIncomplete: "上下文压缩未完成",
       collabAgentRunning: "正在协调子智能体",
       collabAgentCompleted: "已协调子智能体",

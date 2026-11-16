@@ -2628,6 +2628,8 @@ export const enUS = {
       exitedReviewMode: "Exited review mode",
       contextCompactionRunning: "Compacting context",
       contextCompactionCompleted: "Context compacted",
+      contextCompactionCompletedSavedTokens:
+        "Context compacted · saved {{tokens}} tokens",
       contextCompactionIncomplete: "Context compaction did not complete",
       collabAgentRunning: "Coordinating subagents",
       collabAgentCompleted: "Coordinated subagents",

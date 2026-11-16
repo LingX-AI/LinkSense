@@ -2918,6 +2918,8 @@ export const ptBR = {
       exitedReviewMode: "Saiu do modo de revisão",
       contextCompactionRunning: "Compactando contexto",
       contextCompactionCompleted: "Contexto compactado",
+      contextCompactionCompletedSavedTokens:
+        "Contexto compactado · {{tokens}} tokens economizados",
       contextCompactionIncomplete:
         "A compactação do contexto não foi concluída",
       collabAgentRunning: "Coordenando subagentes",

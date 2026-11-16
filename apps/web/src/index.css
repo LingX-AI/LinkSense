@@ -6820,6 +6820,10 @@ button.annotation-hover-file:focus-visible {
   border-bottom-color: transparent;
 }
 
+.turn-summary-heading[data-context-compaction="true"] {
+  border-bottom-color: transparent;
+}
+
 .turn-summary-marker-content {
   display: inline-flex;
   min-width: 0;
@@ -6859,6 +6863,11 @@ button.annotation-hover-file:focus-visible {
   flex-direction: column;
   gap: var(--conversation-assistant-block-gap, 8px);
   padding: 12px 0 0;
+}
+
+/* An empty panel must not add its padding to the turn layout. */
+.activity-panel-inner:empty {
+  padding-top: 0;
 }
 
 .activity-panel-inner > p {

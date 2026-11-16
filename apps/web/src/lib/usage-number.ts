@@ -47,6 +47,16 @@ export function formatTokenCount(
   return formatScaledTokenCount(parsed, scaleIndex, language, base)
 }
 
+/** Compact token label for context sizes, for example "393.8k". */
+export function formatCompactTokenCount(
+  value: number | string,
+  language: UsageNumberLanguage
+): string {
+  return formatTokenCount(value, language, 1_024).replace(/[KMB]$/u, (suffix) =>
+    suffix.toLowerCase()
+  )
+}
+
 export function formatUsdCost(
   value: number | string,
   language: UsageNumberLanguage

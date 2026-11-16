@@ -733,6 +733,8 @@ export const conversation = {
     exitedReviewMode: "Mode révision quitté",
     contextCompactionRunning: "Compactage du contexte",
     contextCompactionCompleted: "Contexte compacté",
+    contextCompactionCompletedSavedTokens:
+      "Contexte compacté · {{tokens}} tokens économisés",
     contextCompactionIncomplete: "Le compactage du contexte n’a pas abouti",
     collabAgentRunning: "Coordination des sous-agents",
     collabAgentCompleted: "Sous-agents coordonnés",

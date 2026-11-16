@@ -2867,6 +2867,8 @@ export const jaJP = {
       exitedReviewMode: "レビューモードを終了しました",
       contextCompactionRunning: "コンテキストを圧縮中",
       contextCompactionCompleted: "コンテキストを圧縮しました",
+      contextCompactionCompletedSavedTokens:
+        "コンテキストを圧縮しました · {{tokens}} トークン節約",
       contextCompactionIncomplete: "コンテキストの圧縮が完了しませんでした",
       collabAgentRunning: "サブエージェントを調整中",
       collabAgentCompleted: "サブエージェントを調整しました",

@@ -11,6 +11,54 @@ export type ConversationModelContextUsageSnapshot = Readonly<{
   model_context_window: number | null
 }>
 
+/**
+ * Tokens the context shrank by when the given compaction item ran, or null
+ * when the native stream does not report both sizes.
+ *
+ * The size before the compaction is the last one reported before the item,
+ * which belongs to the preceding turn, so the whole conversation stream is
+ * needed. The compacted size is the smallest one reported from the item up to
+ * the next compaction: the compaction request itself still reports the
+ * pre-compaction size, and the context only grows again afterwards.
+ */
+export function selectContextCompactionSavedTokens(
+  events: readonly ConversationEvent[],
+  itemId: string | undefined
+): number | null {
+  if (!itemId) return null
+  let beforeCompaction: number | null = null
+  let compacted: number | null = null
+  let compactionStarted = false
+  for (const event of events) {
+    const native = getNativeCodexPayload(event)
+    if (!native) continue
+    if (
+      native.method === "item/started" ||
+      native.method === "item/completed"
+    ) {
+      if (native.params.item.type !== "contextCompaction") continue
+      if (native.params.item.id !== itemId) {
+        // A later compaction owns every size reported after it.
+        if (compactionStarted) break
+        continue
+      }
+      compactionStarted = true
+      continue
+    }
+    if (native.method !== "thread/tokenUsage/updated") continue
+    const usedTokens = native.params.tokenUsage.last.totalTokens
+    if (!compactionStarted) {
+      beforeCompaction = usedTokens
+      continue
+    }
+    compacted =
+      compacted === null ? usedTokens : Math.min(compacted, usedTokens)
+  }
+  if (beforeCompaction === null || compacted === null) return null
+  const savedTokens = beforeCompaction - compacted
+  return savedTokens > 0 ? savedTokens : null
+}
+
 export function selectConversationModelContextUsage(
   events: readonly ConversationEvent[],
   snapshot?: ConversationModelContextUsageSnapshot | null

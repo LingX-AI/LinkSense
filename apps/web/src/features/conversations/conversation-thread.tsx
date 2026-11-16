@@ -249,6 +249,12 @@ import {
 } from "@/features/conversations/reasoning-activity-content"
 import { ReasoningActivity } from "@/features/conversations/reasoning-activity"
 import { normalizeLanguage } from "@/i18n"
+import { selectContextCompactionSavedTokens } from "@/features/conversations/conversation-context-usage"
+import {
+  insertConversationCompactionCommandMessages,
+  isConversationCompactionCommandMessage,
+} from "@/features/conversations/conversation-compaction-command"
+import { formatCompactTokenCount } from "@/lib/usage-number"
 import { getPublicRuntimeMessage } from "@/lib/public-copy"
 import {
   formatCompactDuration,
@@ -3681,6 +3687,7 @@ function TurnSummary({
   onNativeActivityOpenChange,
   activities,
   nativeEvents,
+  contextEvents,
   subAgentSummaries,
   intermediateMessages,
   guidedMessages,
@@ -3727,6 +3734,7 @@ function TurnSummary({
   onNativeActivityOpenChange: (itemId: string, open: boolean) => void
   activities: ConversationActivity[]
   nativeEvents: ConversationEvent[]
+  contextEvents: ConversationEvent[]
   subAgentSummaries?: readonly NativeSubAgentSummary[]
   intermediateMessages: ConversationMessage[]
   guidedMessages: ConversationMessage[]
@@ -3762,7 +3770,7 @@ function TurnSummary({
   onActivityDisclosureToggle?: () => void
   activityPresentation: ApplicationEmbedPresentation
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const productName = useProductName()
   const rawRunning = turn.status === "running"
   const interruptRequestedAt = turn.interrupt_requested_at ?? null
@@ -3783,6 +3791,16 @@ function TurnSummary({
   const nativeActivities = collapseNativeLifecycle(nativeEvents).filter(
     isVisibleNativeLifecycleEntry
   )
+  // Compaction is what this turn is, so its single summary line reports the
+  // compaction instead of the generic processing states.
+  const completedContextCompaction =
+    turn.task_kind === "compact"
+      ? nativeActivities.findLast(
+          (activity) =>
+            activity.item.type === "contextCompaction" &&
+            activity.method === "item/completed"
+        )
+      : undefined
   const nativeSubAgentActivities = buildNativeSubAgentActivityViewModels(
     nativeActivities,
     {
@@ -3836,6 +3854,45 @@ function TurnSummary({
         activity.method === "item/started" &&
         !activity.stopped
     )
+  const isContextCompactionTurn = turn.task_kind === "compact"
+  const contextCompactionInProgress =
+    rawRunning &&
+    !interruptedForDisplay &&
+    !terminalErrorActivity &&
+    completedContextCompaction === undefined &&
+    (isContextCompactionTurn || contextCompactionRunning)
+  // The compaction result replaces the heading as soon as the native item
+  // completes, before the turn row catches up with its own completion.
+  const contextCompactionSettled =
+    completedContextCompaction !== undefined &&
+    !interruptedForDisplay &&
+    !terminalErrorActivity &&
+    (rawRunning || turn.status === "completed")
+  const savedTokens = contextCompactionSettled
+    ? selectContextCompactionSavedTokens(
+        contextEvents,
+        completedContextCompaction.item.id
+      )
+    : null
+  const completedContextCompactionLabel = contextCompactionSettled
+    ? savedTokens === null
+      ? t("conversation.nativeActivities.contextCompactionCompleted")
+      : t(
+          "conversation.nativeActivities.contextCompactionCompletedSavedTokens",
+          {
+            tokens: formatCompactTokenCount(
+              savedTokens,
+              normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
+            ),
+          }
+        )
+    : null
+  const contextCompactionLabel = contextCompactionInProgress
+    ? t("conversation.nativeActivities.contextCompactionRunning")
+    : completedContextCompactionLabel
+  // A compaction turn has nothing to expand: the status line is the whole result.
+  const compactionOwnsSummary =
+    isContextCompactionTurn && Boolean(contextCompactionLabel)
   const visibleIntermediateMessages = intermediateMessages.filter(
     (message) => message.content.trim().length > 0
   )
@@ -3922,9 +3979,18 @@ function TurnSummary({
     Boolean(usedCapabilities?.length) ||
     Boolean(plan?.total) ||
     Boolean(nativeReconnectState) ||
-    timeline.length > 0
+    // Reasoning only fills the panel when the reader asked to see it; otherwise
+    // a reasoning-only turn would offer an expansion that reveals nothing.
+    timeline.some(
+      (entry) =>
+        entry.kind !== "reasoning" ||
+        (showReasoning && entry.activity.content.trim().length > 0)
+    )
   const canCollapseActivity =
-    hasActivityDetails && activityCollapseAvailable && !nativeReconnectFailed
+    hasActivityDetails &&
+    activityCollapseAvailable &&
+    !nativeReconnectFailed &&
+    !compactionOwnsSummary
   const progressAllowed =
     visuallyRunning &&
     hasProcessedContent &&
@@ -3960,7 +4026,8 @@ function TurnSummary({
           { id: "thinking", kind: "thinking", fallbackOrder: fallbackOrder++ },
         ]
       : timeline
-  const showActivityPanel = hasActivityDetails || showThinkingActivity
+  const showActivityPanel =
+    (hasActivityDetails || showThinkingActivity) && !compactionOwnsSummary
 
   const endedAt = nativeReconnectFailed
     ? new Date(nativeReconnectState.stoppedAtMs ?? nowMs).toISOString()
@@ -4071,8 +4138,8 @@ function TurnSummary({
   const statusLabel =
     running && interruptRequestedAt
       ? t("conversation.interrupting")
-      : contextCompactionRunning
-        ? t("conversation.processing")
+      : contextCompactionLabel
+        ? contextCompactionLabel
         : initialThinking || thinkingAfterCompaction
           ? t(
               initialThinking && startingTask
@@ -4189,13 +4256,15 @@ function TurnSummary({
     !nativeReconnectState &&
     !hasBlockingRequest &&
     !terminalErrorActivity &&
-    !finalAnswerVisible
+    !finalAnswerVisible &&
+    !contextCompactionLabel
   const summaryHeading = (
     <Marker
       render={<span />}
       variant="border"
       className="turn-summary-heading"
       data-initial-thinking={initialThinking || undefined}
+      data-context-compaction={compactionOwnsSummary || undefined}
       aria-busy={visuallyRunning || undefined}
       role={visuallyRunning ? "status" : undefined}
     >
@@ -4207,7 +4276,7 @@ function TurnSummary({
         )}
       >
         <span className="turn-status">{statusLabel}</span>
-        {duration && (
+        {duration && !completedContextCompactionLabel && (
           <span
             className="turn-duration"
             aria-label={
@@ -4714,9 +4783,12 @@ export function ConversationThread({
       ?.focus({ preventScroll: true })
   }, [blockingPanelKey, onBlockingPanelReveal])
 
-  const messages = recoverAssistantMessageTurnIds(
-    conversation.messages ?? [],
-    conversation.events ?? []
+  const messages = insertConversationCompactionCommandMessages(
+    recoverAssistantMessageTurnIds(
+      conversation.messages ?? [],
+      conversation.events ?? []
+    ),
+    conversation.turns ?? []
   )
   const planMessageIds = new Set(
     (conversation.plan_reviews ?? []).map((review) => review.plan_message_id)
@@ -4901,7 +4973,8 @@ export function ConversationThread({
             !isHiddenPlanImplementationMessage(message) &&
             message.turn_id === latestTurn.id &&
             message.usage_type !== "steer_current_turn" &&
-            !isStructuredUserMessage(message)
+            !isStructuredUserMessage(message) &&
+            !isConversationCompactionCommandMessage(message)
         )?.id
       : undefined
   const assistantMessagesByTurn = new Map<string, ConversationMessage[]>()
@@ -5403,6 +5476,7 @@ export function ConversationThread({
         }}
         activities={turnActivities}
         nativeEvents={turnNativeEvents}
+        contextEvents={conversation.events ?? []}
         subAgentSummaries={subAgentSummariesByTurnId?.get(turn.id)}
         nativeReconnectStateOverride={
           turnRunning ||
@@ -5528,10 +5602,14 @@ export function ConversationThread({
       turn && firstUserMessageByTurn.get(turn.id) === message.id
         ? modelChangeByTurnId.get(turn.id)
         : undefined
-    const showSummary =
-      message.role === "assistant" &&
-      turn &&
-      firstAssistantMessageByTurn.get(turn.id) === message.id
+    // A compaction turn has no assistant message, so its status line follows
+    // the command that started it.
+    const isCompactionCommand = isConversationCompactionCommandMessage(message)
+    const showSummary = turn
+      ? isCompactionCommand ||
+        (message.role === "assistant" &&
+          firstAssistantMessageByTurn.get(turn.id) === message.id)
+      : false
     const isFinal =
       message.role === "assistant" &&
       turn &&
@@ -5576,7 +5654,8 @@ export function ConversationThread({
         </Marker>
       )
     }
-    if (showSummary) nodes.push(summaryFor(turn))
+    if (showSummary && turn && !isCompactionCommand)
+      nodes.push(summaryFor(turn))
     if (
       message.role === "assistant" &&
       turn &&
@@ -5589,6 +5668,7 @@ export function ConversationThread({
 
     if (rendersMessage) {
       nodes.push(renderConversationMessage(message, isFinal))
+      if (isCompactionCommand && turn) nodes.push(summaryFor(turn))
       if (renderMessageFooter)
         nodes.push(
           <Fragment key={`footer-${message.id}`}>
@@ -5652,7 +5732,11 @@ export function ConversationThread({
       turn?.id
     )
   }
-  if (recentTurn && !firstAssistantMessageByTurn.has(recentTurn.id)) {
+  if (
+    recentTurn &&
+    recentTurn.task_kind !== "compact" &&
+    !firstAssistantMessageByTurn.has(recentTurn.id)
+  ) {
     addRow(
       getTurnRenderKey(recentTurn),
       () => summaryFor(recentTurn),

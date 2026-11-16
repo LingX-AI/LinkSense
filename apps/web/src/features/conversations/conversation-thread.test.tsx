@@ -30,7 +30,8 @@ import {
   assistantHtmlPreviewShellReadyMessageType,
   assistantHtmlPreviewWheelMessageType,
 } from "@/features/conversations/assistant-html-preview-document"
-import i18n, { supportedLanguages } from "@/i18n"
+import i18n, { normalizeLanguage, supportedLanguages } from "@/i18n"
+import { formatCompactTokenCount } from "@/lib/usage-number"
 import { AssistantKnowledgeImage } from "@/features/conversations/assistant-knowledge-image"
 import { createIntersectionObserverMock } from "@/test/intersection-observer"
 
@@ -2592,7 +2593,7 @@ describe("conversation turn responses", () => {
     ["en-US", "Compacting context"],
     ["de-DE", "正在压缩上下文"],
   ])(
-    "preserves the compaction row and shows thinking only once after completion in %s",
+    "reports a compaction turn as its own status line while running and once completed in %s",
     async (language, label) => {
       await i18n.changeLanguage(language)
       const started = nativeItemLifecycleEvent({
@@ -2607,12 +2608,14 @@ describe("conversation turn responses", () => {
         running_turn: {
           ...completedConversation.turns![0]!,
           status: "running",
+          task_kind: "compact",
         },
         turns: [
           {
             ...completedConversation.turns![0]!,
             status: "running",
             completed_at: null,
+            task_kind: "compact",
           },
         ],
         messages: [],
@@ -2625,11 +2628,21 @@ describe("conversation turn responses", () => {
       )
       expect(
         screen.getByTestId("turn-summary-turn-1").querySelector(".turn-status")
-      ).toHaveTextContent(i18n.t("conversation.processing"))
-      expect(screen.getAllByText(label, { exact: true })).toHaveLength(1)
+      ).toHaveTextContent(label)
       expect(
-        screen.getByText(label).closest(".native-activity-item")
-      ).toBeVisible()
+        screen.queryByText(i18n.t("conversation.thinking"))
+      ).not.toBeInTheDocument()
+      expect(
+        screen
+          .getByTestId("turn-summary-turn-1")
+          .querySelector('[data-slot="thinking-orb"]')
+      ).toBeNull()
+      // The status line carries the compaction, so there is nothing to expand.
+      expect(
+        screen
+          .getByTestId("turn-summary-turn-1")
+          .querySelector(".native-activity-item")
+      ).toBeNull()
       const completed = nativeItemLifecycleEvent({
         id: "compact-end",
         sequence: 2,
@@ -2643,47 +2656,94 @@ describe("conversation turn responses", () => {
       )
       expect(
         screen.getByTestId("turn-summary-turn-1").querySelector(".turn-status")
-      ).not.toHaveTextContent(label)
-      expect(
-        screen.getByTestId("turn-summary-turn-1").querySelector(".turn-status")
-      ).toHaveTextContent(i18n.t("conversation.thinking"))
-      expect(
-        screen.getAllByText(i18n.t("conversation.thinking"), { exact: true })
-      ).toHaveLength(1)
-      expect(
-        screen.getByText(
-          i18n.t("conversation.nativeActivities.contextCompactionCompleted")
-        )
-      ).toBeVisible()
-      rerender(
-        <ConversationThread
-          conversation={{
-            ...conversation,
-            events: [started, completed],
-            messages: [
-              {
-                id: "after-compaction-commentary",
-                role: "assistant",
-                phase: "commentary",
-                turn_id: "turn-1",
-                content: "继续处理",
-                created_at: "2026-07-11T08:00:03.000Z",
-              },
-            ],
-          }}
-          onDownload={vi.fn()}
-        />
+      ).toHaveTextContent(
+        i18n.t("conversation.nativeActivities.contextCompactionCompleted")
       )
       expect(
-        screen.getAllByText(i18n.t("conversation.thinking"), { exact: true })
+        screen.getAllByText(
+          i18n.t("conversation.nativeActivities.contextCompactionCompleted"),
+          { exact: true }
+        )
       ).toHaveLength(1)
       expect(
-        screen.getByText(
-          i18n.t("conversation.nativeActivities.contextCompactionCompleted")
-        )
-      ).toBeVisible()
+        screen.queryByText(i18n.t("conversation.thinking"), { exact: true })
+      ).not.toBeInTheDocument()
+      // The turn row lags the completed item, so no thinking orb may flash
+      // between the compaction result and the turn ending.
+      expect(
+        screen
+          .getByTestId("turn-summary-turn-1")
+          .querySelector('[data-slot="thinking-orb"]')
+      ).toBeNull()
     }
   )
+
+  it("does not offer an activity panel that would show nothing", () => {
+    render(
+      <ConversationThread
+        conversation={{
+          ...completedConversation,
+          events: [
+            nativeReasoningEvent({
+              id: "reasoning-completed",
+              itemId: "reasoning-1",
+              sequence: 1,
+              method: "item/completed",
+              summary: ["考虑了一个方案"],
+            }),
+          ],
+        }}
+        onDownload={vi.fn()}
+      />
+    )
+
+    const summary = screen.getByTestId("turn-summary-turn-1")
+    expect(
+      within(summary).queryByRole("button", { name: "展开中间过程" })
+    ).not.toBeInTheDocument()
+    expect(summary.querySelector(".activity-panel")).toBeNull()
+  })
+
+  it("keeps the activity panel of a turn that compacts its context mid-way", () => {
+    render(
+      <ConversationThread
+        conversation={{
+          ...completedConversation,
+          execution_status: "running",
+          running_turn: {
+            ...completedConversation.turns![0]!,
+            status: "running",
+          },
+          turns: [
+            {
+              ...completedConversation.turns![0]!,
+              status: "running",
+              completed_at: null,
+            },
+          ],
+          messages: [],
+          activities: [],
+          artifacts: [],
+          events: [
+            nativeItemLifecycleEvent({
+              id: "compact-start",
+              sequence: 1,
+              method: "item/started",
+              item: { id: "compact", type: "contextCompaction" },
+            }),
+          ],
+        }}
+        onDownload={vi.fn()}
+      />
+    )
+
+    const summary = screen.getByTestId("turn-summary-turn-1")
+    expect(summary.querySelector(".turn-status")).toHaveTextContent(
+      i18n.t("conversation.nativeActivities.contextCompactionRunning")
+    )
+    expect(summary.querySelector('[data-slot="thinking-orb"]')).toBeNull()
+    expect(summary.querySelector(".native-activity-item")).toBeVisible()
+  })
 
   it.each(["failed", "interrupted", "completed"] as const)(
     "clears running compaction when the turn becomes %s without item completion",
@@ -2762,8 +2822,7 @@ describe("conversation turn responses", () => {
     }
   )
 
-  it("shows elapsed time for a completed context compaction without an empty-output failure", async () => {
-    const interaction = userEvent.setup()
+  it("reports a completed context compaction as a single status line without an empty-output failure", () => {
     render(
       <ConversationThread
         conversation={{
@@ -2792,20 +2851,161 @@ describe("conversation turn responses", () => {
     )
 
     const summary = screen.getByTestId("turn-summary-turn-1")
-    expect(within(summary).getByText("用时", { exact: true })).toBeVisible()
+    expect(summary.querySelector(".turn-status")).toHaveTextContent(
+      i18n.t("conversation.nativeActivities.contextCompactionCompleted")
+    )
+    expect(
+      within(summary).queryByText("用时", { exact: true })
+    ).not.toBeInTheDocument()
     expect(
       within(summary).queryByText("执行失败", { exact: true })
     ).not.toBeInTheDocument()
 
-    await interaction.click(
-      within(summary).getByRole("button", { name: "展开中间过程" })
-    )
-    expect(within(summary).getByText("上下文已压缩")).toBeVisible()
+    expect(
+      within(summary).getAllByText(
+        i18n.t("conversation.nativeActivities.contextCompactionCompleted")
+      )
+    ).toHaveLength(1)
+    expect(
+      summary
+        .querySelector(".turn-summary-heading")
+        ?.getAttribute("data-context-compaction")
+    ).toBe("true")
     expect(
       within(summary).queryByText(
         "本轮执行已结束，但没有产出可展示的内容，请重新执行。"
       )
     ).not.toBeInTheDocument()
+  })
+
+  it("keeps a completed compaction visible under a sent message that follows it", () => {
+    render(
+      <ConversationThread
+        conversation={{
+          ...completedConversation,
+          messages: [
+            {
+              id: "message-user-2",
+              role: "user",
+              turn_id: "turn-2",
+              sequence_no: 3,
+              content: "继续处理",
+              created_at: "2026-07-11T08:05:00.000Z",
+            },
+            {
+              id: "message-assistant-2",
+              role: "assistant",
+              turn_id: "turn-2",
+              sequence_no: 4,
+              content: "已继续处理",
+              created_at: "2026-07-11T08:05:02.000Z",
+            },
+          ],
+          turns: [
+            {
+              ...completedConversation.turns![0]!,
+              task_kind: "compact",
+            },
+            {
+              id: "turn-2",
+              status: "completed",
+              started_at: "2026-07-11T08:05:00.000Z",
+              completed_at: "2026-07-11T08:05:03.000Z",
+            },
+          ],
+          events: [
+            nativeItemLifecycleEvent({
+              id: "context-compaction-completed",
+              sequence: 1,
+              item: {
+                id: "context-compaction-1",
+                type: "contextCompaction",
+              },
+            }),
+          ],
+          artifacts: [],
+        }}
+        onDownload={vi.fn()}
+      />
+    )
+
+    const command = screen.getByText("/compact", { exact: true })
+    const result = screen.getByText(
+      i18n.t("conversation.nativeActivities.contextCompactionCompleted")
+    )
+    expect(command).toBeVisible()
+    expect(result).toBeVisible()
+    // The command reads before the result it produced.
+    expect(
+      command.compareDocumentPosition(result) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it("reports the tokens a completed context compaction saved", () => {
+    render(
+      <ConversationThread
+        conversation={{
+          ...completedConversation,
+          messages: [],
+          turns: [
+            {
+              ...completedConversation.turns![0]!,
+              task_kind: "compact",
+            },
+          ],
+          events: [
+            // The pre-compaction size is the last one the previous turn reported.
+            contextTokenUsageEvent({
+              id: "usage-before-compaction",
+              sequence: 1,
+              turnId: "earlier-turn",
+              totalTokens: 24_609,
+            }),
+            nativeItemLifecycleEvent({
+              id: "context-compaction-started",
+              sequence: 2,
+              method: "item/started",
+              item: {
+                id: "context-compaction-1",
+                type: "contextCompaction",
+              },
+            }),
+            contextTokenUsageEvent({
+              id: "usage-compaction-request",
+              sequence: 3,
+              totalTokens: 19_300,
+            }),
+            contextTokenUsageEvent({
+              id: "usage-after-compaction",
+              sequence: 4,
+              totalTokens: 6_173,
+            }),
+            nativeItemLifecycleEvent({
+              id: "context-compaction-completed",
+              sequence: 5,
+              item: {
+                id: "context-compaction-1",
+                type: "contextCompaction",
+              },
+            }),
+          ],
+          artifacts: [],
+        }}
+        onDownload={vi.fn()}
+      />
+    )
+
+    const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
+    expect(
+      screen.getByTestId("turn-summary-turn-1").querySelector(".turn-status")
+    ).toHaveTextContent(
+      i18n.t(
+        "conversation.nativeActivities.contextCompactionCompletedSavedTokens",
+        {
+          tokens: formatCompactTokenCount(18_436, language),
+        }
+      )
+    )
   })
 
   it("renders the current plugin logo for a selected user capability", () => {
@@ -10065,6 +10265,47 @@ function nativeItemLifecycleEvent({
         threadId: "thread-1",
         turnId: "turn-1",
         item,
+      },
+    },
+  }
+}
+
+function contextTokenUsageEvent({
+  id,
+  sequence,
+  totalTokens,
+  turnId = "turn-1",
+}: {
+  id: string
+  sequence: number
+  totalTokens: number
+  turnId?: string
+}) {
+  const breakdown = {
+    totalTokens,
+    inputTokens: totalTokens,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    reasoningOutputTokens: 0,
+  }
+  return {
+    id,
+    type: "thread/tokenUsage/updated",
+    turn_id: turnId,
+    sequence_no: sequence,
+    created_at: `2026-07-11T08:00:0${sequence}.000Z`,
+    payload: {
+      schema_version: 2 as const,
+      source: "codex_app_server" as const,
+      method: "thread/tokenUsage/updated" as const,
+      params: {
+        threadId: "thread-1",
+        turnId,
+        tokenUsage: {
+          total: breakdown,
+          last: breakdown,
+          modelContextWindow: 258_000,
+        },
       },
     },
   }

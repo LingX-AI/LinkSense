@@ -756,6 +756,8 @@ export const conversationMessages = {
       exitedReviewMode: "Modo de revisión finalizado",
       contextCompactionRunning: "Compactando contexto",
       contextCompactionCompleted: "Contexto compactado",
+      contextCompactionCompletedSavedTokens:
+        "Contexto compactado · {{tokens}} tokens ahorrados",
       contextCompactionIncomplete:
         "La compactación del contexto no se ha completado",
       collabAgentRunning: "Coordinando subagentes",

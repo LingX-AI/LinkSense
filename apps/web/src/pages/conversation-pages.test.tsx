@@ -1949,13 +1949,12 @@ describe("conversation knowledge base snapshots", () => {
         screen
           .getByTestId(`turn-summary-${firstTurnId}`)
           .querySelector(".turn-status")
-      ).toHaveTextContent("正在处理")
-    )
-    expect(screen.getAllByText("正在压缩上下文", { exact: true })).toHaveLength(
-      1
+      ).toHaveTextContent("正在压缩上下文")
     )
     expect(
-      screen.getByText("正在压缩上下文").closest(".native-activity-item")
+      screen
+        .getByTestId(`turn-summary-${firstTurnId}`)
+        .querySelector(".native-activity-item")
     ).toBeVisible()
     expect(
       screen.queryByText("正在思考", { exact: true })
