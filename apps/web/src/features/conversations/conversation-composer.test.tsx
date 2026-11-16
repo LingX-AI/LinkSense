@@ -1226,6 +1226,51 @@ describe("conversation voice input", () => {
     }
   )
 
+  it("keeps newly typed text in order after accepting a task reference before the next frame", async () => {
+    const frames: FrameRequestCallback[] = []
+    let frameId = 0
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback)
+      return ++frameId
+    })
+    const task = {
+      id: "11111111-1111-4111-8111-111111111111",
+      title: "产品调研",
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          success: true,
+          data: { items: [task], next_cursor: null },
+        })
+      )
+    )
+    const onTaskReferencesChange = vi.fn()
+    const interaction = userEvent.setup()
+    renderStatefulComposer({ value: "@产品", onTaskReferencesChange })
+    const input = screen.getByRole("textbox", { name: "任务输入框" })
+    if (!(input instanceof HTMLTextAreaElement))
+      throw new Error("Composer textarea is missing")
+    await interaction.click(input)
+    await screen.findByRole("option", { name: task.title })
+
+    await interaction.keyboard("{Enter}")
+
+    expect(onTaskReferencesChange).toHaveBeenCalledWith([task])
+    expect(input).toHaveValue("")
+    fireEvent.change(input, { target: { value: "结" } })
+    input.setSelectionRange(1, 1)
+    act(() => {
+      for (const callback of frames.splice(0)) callback(performance.now())
+    })
+
+    expect(input).toHaveFocus()
+    expect(input.selectionStart).toBe(1)
+    await interaction.keyboard("合调研结论做个比较")
+    expect(input).toHaveValue("结合调研结论做个比较")
+  })
+
   it.each([0, maximumConversationReferences])(
     "keeps native Tab navigation without selectable task references at count %i",
     async (selectedCount) => {

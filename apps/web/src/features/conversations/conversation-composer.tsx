@@ -4,6 +4,7 @@ import {
   useEffect,
   useImperativeHandle,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -619,6 +620,10 @@ export const ConversationComposer = forwardRef<
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const directoryInputRef = useRef<HTMLInputElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const pendingTaskReferenceSelectionRef = useRef<{
+    value: string
+    caret: number
+  } | null>(null)
   const composerInputHighlightRef = useRef<HTMLDivElement | null>(null)
   const composerShellRef = useRef<HTMLFormElement | null>(null)
   const commandMenuRef = useRef<HTMLDivElement | null>(null)
@@ -630,6 +635,16 @@ export const ConversationComposer = forwardRef<
     }),
     []
   )
+
+  useLayoutEffect(() => {
+    const selection = pendingTaskReferenceSelectionRef.current
+    if (!selection) return
+    pendingTaskReferenceSelectionRef.current = null
+    if (value !== selection.value) return
+    // Restore the caret with the committed value, before typing can resume.
+    textareaRef.current?.focus({ preventScroll: true })
+    textareaRef.current?.setSelectionRange(selection.caret, selection.caret)
+  }, [value])
 
   useEffect(() => {
     latestValueRef.current = value
@@ -1070,6 +1085,10 @@ export const ConversationComposer = forwardRef<
       currentValue,
       trigger
     )
+    pendingTaskReferenceSelectionRef.current = {
+      value: nextValue,
+      caret: trigger.start,
+    }
     onTaskReferencesChange([
       ...taskReferences,
       { id: task.id, title: task.title },
@@ -1078,10 +1097,6 @@ export const ConversationComposer = forwardRef<
     onValueChange(nextValue)
     setTaskReferenceCaret(trigger.start)
     setDismissedTaskReferenceValue(nextValue)
-    window.requestAnimationFrame(() => {
-      textareaRef.current?.focus({ preventScroll: true })
-      textareaRef.current?.setSelectionRange(trigger.start, trigger.start)
-    })
   }
 
   const openSlashPanel = (panel: ConversationSlashCommandPanel) => {
