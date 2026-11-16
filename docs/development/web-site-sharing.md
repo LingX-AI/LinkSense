@@ -24,15 +24,17 @@
 
 ## 对话内创建与发布
 
-普通任务中的助手可以使用内置 `linksense-public-site` Skill，把静态网页成果直接发布为公开站点，而不经过任务产物预览工具栏。Skill 与 `linksense-interactive-app-builder` 平级；需要 LinkSense AI、任务、知识库、文件、插件或组织分发时仍使用后者。
+用户可以在新建或已有的普通对话直接要求制作公开网站或动态应用，无需先进入“创建应用”或手动选择 Skill。助手通过内置 `linksense-public-site` 选择静态站点或下节的自部署动态后端；独立访客账号、持久化数据、上传和业务 API 属于公开动态应用。需要 LinkSense 平台 AI、任务、知识库、文件、插件或组织分发时使用 `linksense-interactive-app-builder`。“创建公开站点”保留为填写目标并显式选择 Skill 的快捷入口。
 
 - 助手先在 `artifacts/<site-name>/` 生成完整静态站点，再用 `register_artifact` 登记 HTML 入口和 `web_root_relative_path`，最后调用 `publish_web_site`。工具返回 `url` 和 `slug`，一次对话即可拿到外链。
 - `publish_web_site` 支持带 `site_id` 发布已有站点的新版本；`list_web_sites` 用于在后续任务中查找站点；`update_web_site` 只修改名称、简介、slug 或发布状态。
+- 修改已有动态应用前先查询站点并检查其 `backend_id`，跨对话继续使用原后端配置。原静态站点不能通过发布新版本添加后端绑定；若需求转为动态应用，先说明需独立动态应用和新地址，在用户要求或同意后创建，保留原静态站点及链接。
 - 工具只在 `default` 协作模式、当前用户、运行中的轮次内可用。API 内部路由 `/internal/web-sites` 使用 runner shared secret 和 owner header，复用现有 `WebSiteService` 的所有权、来源任务、资源包和 slug 唯一约束；没有新增表或迁移。
 - 发布即公开。助手只在用户明确要求公开站点或通过 `request_user_form` 选择公开站点后调用；不会把交互式应用自动转换或公开。
+- 用户只要求预览时保持未发布。动态应用的 HTML 产物仅提供 UI 预览，不能验证实际登录和后端调用；通用 HTML“发布为站点”首次创建不携带动态后端绑定。用户后续可在原对话要求发布，助手复用已准备的 `backend_id` 通过发布工具完成绑定。
 - 对话中的站点卡片显示当前发布状态，并提供打开、复制和管理入口。源 HTML 仍可从任务产物预览或下载。刷新对话会根据已有发布记录恢复卡片，无需重新发布。
 - 用户可在创建时选择发布后打开，或在对话里明确要求打开。Browser Use 扩展 0.4.6 支持在独立窗口打开当前用户拥有的已发布站点；扩展必须已配对且允许打开新页面。这个动作不会把新窗口交给助手控制。
-- 当前 `/web/{slug}` 仍是同域沙箱 iframe，网页不能使用 localStorage、IndexedDB、Cookie、Service Worker 或浏览器通知。需要持久化或提醒的站点应改用 LinkSense 应用或外部后端；Skill 必须如实说明这一限制。
+- 静态站点的 `/web/{slug}` 仍是同域沙箱 iframe，网页不能使用 localStorage、IndexedDB、Cookie、Service Worker 或浏览器通知。需要独立访客账号、持久化数据或接口时使用下节的自部署动态后端；页面关闭后仍须执行的提醒应按现有定时通知工作流另行处理。
 
 ## 自部署动态应用
 
