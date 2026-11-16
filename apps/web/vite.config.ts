@@ -5,11 +5,11 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import type { Plugin } from "vite"
 import { defineConfig } from "vitest/config"
-import { sharedDomTests } from "./src/test/shared-dom-files"
+import { sharedDomTests } from "./src/test/shared-dom-files.ts"
 import { applicationBuildId } from "../../scripts/application-build.mjs"
 // Config is bundled before Vite applies development export conditions; Docker
 // development has shared sources only, so do not depend on shared/dist here.
-import { htmlPreviewShellDocument } from "../../packages/shared/src/html-preview-shell-document"
+import { htmlPreviewShellDocument } from "../../packages/shared/src/html-preview-shell-document.ts"
 
 const embedStylesheetFileName = "assets/embed-app.css"
 const applicationTests = ["src/App.test.tsx", "src/test/application/*.test.tsx"]
@@ -139,7 +139,9 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: [{ find: "@", replacement: path.resolve(__dirname, "./src") }],
+    alias: [
+      { find: "@", replacement: path.resolve(import.meta.dirname, "./src") },
+    ],
   },
   optimizeDeps: {
     // This package is patched locally; pre-bundling can keep an older, unpatched loader alive.
@@ -153,10 +155,10 @@ export default defineConfig({
     cssCodeSplit: false,
     rollupOptions: {
       input: {
-        main: path.resolve(__dirname, "index.html"),
-        embed: path.resolve(__dirname, "src/embed-main.tsx"),
+        main: path.resolve(import.meta.dirname, "index.html"),
+        embed: path.resolve(import.meta.dirname, "src/embed-main.tsx"),
         publicKnowledge: path.resolve(
-          __dirname,
+          import.meta.dirname,
           "src/public-knowledge-main.tsx"
         ),
       },
