@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
-ARG BASELINE_NODE_IMAGE=ghcr.io/lingx-ai/linksense-runtime-node@sha256:4c26d7de85c4bbf120df38961a5f4580274a8550880fdda222b7937cf509b159
-ARG BASELINE_WEB_IMAGE=ghcr.io/lingx-ai/linksense-runtime-web@sha256:cb6a5217185e6bbc4430e3e622ffb749faa5fae118f3c8b99c8ddddfd1b0e219
+ARG BASELINE_NODE_IMAGE=ghcr.io/lingx-ai/linksense-runtime-node@sha256:9413f3ec2faec1a34a395962c1784231b2c99aa443d3b0a5b2f0cd645604037b
+ARG BASELINE_WEB_IMAGE=ghcr.io/lingx-ai/linksense-runtime-web@sha256:d6105fd814a9f338b0ff9fdb820f39f7924ef4b4f68be4c44c57feaf06a81511
 ARG LINKSENSE_NODE_PACKAGE_REGISTRY_URL=https://registry.npmjs.org/
 
 FROM ${BASELINE_NODE_IMAGE} AS dependencies
