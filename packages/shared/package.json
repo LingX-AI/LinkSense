@@ -33,10 +33,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "es-toolkit": "1.50.0",
-    "mdast-util-from-markdown": "2.0.3",
-    "semver": "7.8.5",
-    "zod": "^4.6.6"
+    "es-toolkit": "1.53.2",
+    "mdast-util-from-markdown": "2.1.0",
+    "semver": "7.8.6",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/semver": "7.8.0",

@@ -52,7 +52,13 @@ export class SdkMcpConnectionProbe implements McpConnectionProbe {
         transport.onmessage = (message) => clientTransport.onmessage?.(message)
         await transport.start()
       },
-      send: (message, options) => transport.send(message, options),
+      send: (message, options) => {
+        const { resumptionToken, onresumptiontoken } = options ?? {}
+        return transport.send(message, {
+          ...(resumptionToken === undefined ? {} : { resumptionToken }),
+          ...(onresumptiontoken === undefined ? {} : { onresumptiontoken }),
+        })
+      },
       close: () => transport.close(),
       setProtocolVersion: (version) => transport.setProtocolVersion(version),
     }

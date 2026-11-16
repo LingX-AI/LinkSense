@@ -98,7 +98,13 @@ async function startStatelessMcpServer(
         transport.onmessage = (message) => mcpTransport.onmessage?.(message)
         await transport.start()
       },
-      send: (message, options) => transport.send(message, options),
+      send: (message, options) =>
+        transport.send(
+          message,
+          options?.relatedRequestId === undefined
+            ? undefined
+            : { relatedRequestId: options.relatedRequestId }
+        ),
       close: () => transport.close(),
     }
     try {

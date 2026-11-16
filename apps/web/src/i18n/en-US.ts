@@ -5460,14 +5460,20 @@ export const enUS = {
   },
   errors: {
     webSearch: {
-      notConfigured: localizedErrorMessage("WEB_SEARCH_NOT_CONFIGURED", "en-US"),
+      notConfigured: localizedErrorMessage(
+        "WEB_SEARCH_NOT_CONFIGURED",
+        "en-US"
+      ),
       disabled: localizedErrorMessage("WEB_SEARCH_DISABLED", "en-US"),
       forbidden: localizedErrorMessage("WEB_SEARCH_FORBIDDEN", "en-US"),
       invalid: localizedErrorMessage("WEB_SEARCH_INVALID", "en-US"),
       unavailable: localizedErrorMessage("WEB_SEARCH_UNAVAILABLE", "en-US"),
       authFailed: localizedErrorMessage("WEB_SEARCH_AUTH_FAILED", "en-US"),
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "en-US"),
-      responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "en-US"),
+      responseInvalid: localizedErrorMessage(
+        "WEB_SEARCH_RESPONSE_INVALID",
+        "en-US"
+      ),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "en-US"),
     },
     privacyMasking: {

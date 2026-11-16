@@ -5069,14 +5069,20 @@ export const zhCN = {
   },
   errors: {
     webSearch: {
-      notConfigured: localizedErrorMessage("WEB_SEARCH_NOT_CONFIGURED", "zh-CN"),
+      notConfigured: localizedErrorMessage(
+        "WEB_SEARCH_NOT_CONFIGURED",
+        "zh-CN"
+      ),
       disabled: localizedErrorMessage("WEB_SEARCH_DISABLED", "zh-CN"),
       forbidden: localizedErrorMessage("WEB_SEARCH_FORBIDDEN", "zh-CN"),
       invalid: localizedErrorMessage("WEB_SEARCH_INVALID", "zh-CN"),
       unavailable: localizedErrorMessage("WEB_SEARCH_UNAVAILABLE", "zh-CN"),
       authFailed: localizedErrorMessage("WEB_SEARCH_AUTH_FAILED", "zh-CN"),
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "zh-CN"),
-      responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "zh-CN"),
+      responseInvalid: localizedErrorMessage(
+        "WEB_SEARCH_RESPONSE_INVALID",
+        "zh-CN"
+      ),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "zh-CN"),
     },
     privacyMasking: {

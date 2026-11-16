@@ -5710,14 +5710,20 @@ export const jaJP = {
   },
   errors: {
     webSearch: {
-      notConfigured: localizedErrorMessage("WEB_SEARCH_NOT_CONFIGURED", "ja-JP"),
+      notConfigured: localizedErrorMessage(
+        "WEB_SEARCH_NOT_CONFIGURED",
+        "ja-JP"
+      ),
       disabled: localizedErrorMessage("WEB_SEARCH_DISABLED", "ja-JP"),
       forbidden: localizedErrorMessage("WEB_SEARCH_FORBIDDEN", "ja-JP"),
       invalid: localizedErrorMessage("WEB_SEARCH_INVALID", "ja-JP"),
       unavailable: localizedErrorMessage("WEB_SEARCH_UNAVAILABLE", "ja-JP"),
       authFailed: localizedErrorMessage("WEB_SEARCH_AUTH_FAILED", "ja-JP"),
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "ja-JP"),
-      responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "ja-JP"),
+      responseInvalid: localizedErrorMessage(
+        "WEB_SEARCH_RESPONSE_INVALID",
+        "ja-JP"
+      ),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "ja-JP"),
     },
     privacyMasking: {

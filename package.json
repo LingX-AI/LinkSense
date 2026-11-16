@@ -63,17 +63,17 @@
     "test:development-instructions:postgres": "pnpm --filter @linksense/api exec tsx test/integration/development-turn-instructions-postgres.ts"
   },
   "dependencies": {
-    "@prisma/adapter-pg": "7.8.0",
-    "@prisma/client": "7.8.0",
-    "pg": "8.16.3"
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "pg": "8.23.1"
   },
   "devDependencies": {
-    "@types/ws": "8.18.1",
+    "@types/ws": "8.18.2",
     "chokidar": "5.0.0",
-    "prisma": "7.8.0",
-    "tsx": "^4.20.6",
-    "ws": "8.21.2",
-    "zod": "4.6.6"
+    "prisma": "7.10.1",
+    "tsx": "^4.23.15",
+    "ws": "8.23.0",
+    "zod": "4.6.7"
   },
   "pnpm": {
     "overrides": {
