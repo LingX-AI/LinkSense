@@ -1,12 +1,18 @@
 import { useContext, useRef, useState, type ReactNode } from "react"
 import { useSortable } from "@dnd-kit/sortable"
 import type { Project } from "@linksense/shared"
-import { PencilIcon, Trash2Icon } from "lucide-react"
+import { PencilIcon, PlusIcon, Trash2Icon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { SidebarActionIcon } from "@/components/shell/sidebar-action-icon"
 import { SidebarMoreIcon } from "@/components/shell/sidebar-more-icon"
 import { Spinner } from "@/components/ui/spinner"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { ProjectIcon } from "./project-icon"
 import { cn } from "@/lib/utils"
 import {
@@ -39,6 +45,7 @@ export function SidebarTaskGroup({
   hasRunningTasks = false,
   children,
   onAction,
+  onStartTask,
 }: {
   userId: string | undefined
   project?: Project
@@ -46,6 +53,7 @@ export function SidebarTaskGroup({
   hasRunningTasks?: boolean
   children: ReactNode
   onAction: (action: ProjectAction) => void
+  onStartTask?: (projectId: string) => void
 }) {
   const { t } = useTranslation()
   const menuTriggerRef = useRef<HTMLButtonElement>(null)
@@ -113,7 +121,7 @@ export function SidebarTaskGroup({
               type="button"
               variant="ghost"
               className={cn(
-                "h-(--app-sidebar-row-height) w-full min-w-0 justify-start gap-2 rounded-lg pr-12 pl-2 font-normal hover:bg-transparent aria-expanded:bg-transparent",
+                "h-(--app-sidebar-row-height) w-full min-w-0 justify-start gap-2 rounded-lg pr-[calc(12px+var(--app-sidebar-row-height))] pl-2 font-normal hover:bg-transparent active:translate-y-0! aria-expanded:bg-transparent",
                 showRunningIndicator && "[@media(hover:none)]:pr-18",
                 !projectsDisabled && "cursor-grab active:cursor-grabbing"
               )}
@@ -127,7 +135,7 @@ export function SidebarTaskGroup({
             className="size-4"
           />
           <span
-            className="min-w-0 flex-1 truncate text-left text-sm"
+            className="min-w-0 flex-1 truncate text-left text-[length:var(--app-font-13)]"
             title={active ? undefined : project.name}
           >
             {project.name}
@@ -159,6 +167,31 @@ export function SidebarTaskGroup({
             <Spinner className="size-3.5 [animation-duration:1.5s] motion-reduce:animate-none" />
           </span>
         )}
+        {onStartTask && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="pointer-events-none absolute top-1/2 right-0 size-(--app-sidebar-row-height) -translate-y-1/2 opacity-0 group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-has-[:focus-visible]/project:pointer-events-auto group-has-[:focus-visible]/project:opacity-100 hover:bg-transparent active:translate-y-[-50%]! active:bg-transparent [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+                  aria-label={t("projects.newTaskNamed", {
+                    title: project.name,
+                  })}
+                  onClick={() => onStartTask(project.id)}
+                >
+                  <SidebarActionIcon>
+                    <PlusIcon className="size-3.5" aria-hidden="true" />
+                  </SidebarActionIcon>
+                </Button>
+              }
+            />
+            <TooltipContent>
+              {t("projects.newTaskNamed", { title: project.name })}
+            </TooltipContent>
+          </Tooltip>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -167,7 +200,7 @@ export function SidebarTaskGroup({
                 variant="ghost"
                 size="icon"
                 ref={menuTriggerRef}
-                className="pointer-events-none absolute top-1/2 right-0 size-(--app-sidebar-row-height) -translate-y-1/2 opacity-0 group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-has-[:focus-visible]/project:pointer-events-auto group-has-[:focus-visible]/project:opacity-100 hover:bg-transparent aria-expanded:bg-transparent data-popup-open:pointer-events-auto data-popup-open:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+                className="pointer-events-none absolute top-1/2 right-(--app-sidebar-row-height) size-(--app-sidebar-row-height) -translate-y-1/2 opacity-0 group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-has-[:focus-visible]/project:pointer-events-auto group-has-[:focus-visible]/project:opacity-100 hover:bg-transparent active:translate-y-[-50%]! aria-expanded:bg-transparent data-popup-open:pointer-events-auto data-popup-open:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
                 aria-label={t("common.moreActionsNamed", {
                   name: project.name,
                 })}
@@ -181,20 +214,22 @@ export function SidebarTaskGroup({
             sideOffset={8}
             anchor={() => menuTriggerRef.current?.parentElement ?? null}
             align="start"
-            className="w-55 p-2"
+            className="w-35 p-1.5"
           >
             <DropdownMenuGroup>
               <DropdownMenuItem
+                className="min-h-6 gap-1.5 px-2 py-1 text-[length:var(--app-font-13)]"
                 onClick={() => onAction({ mode: "edit", project })}
               >
-                <PencilIcon className="mx-px size-3.5" />
+                <PencilIcon className="size-3.5" />
                 {t("projects.editAction")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 variant="destructive"
+                className="min-h-6 gap-1.5 px-2 py-1 text-[length:var(--app-font-13)]"
                 onClick={() => onAction({ mode: "delete", project })}
               >
-                <Trash2Icon />
+                <Trash2Icon className="size-3.5" />
                 {t("projects.delete")}
               </DropdownMenuItem>
             </DropdownMenuGroup>

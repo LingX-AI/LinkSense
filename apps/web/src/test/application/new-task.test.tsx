@@ -910,8 +910,9 @@ describe("LinkSense application", () => {
       ).toHaveLength(1)
     )
     expect(
-      await screen.findByRole("button", { name: "打开会话侧栏" })
+      await screen.findByRole("region", { name: "会话侧栏" })
     ).toBeVisible()
+    expect(screen.getByRole("button", { name: "关闭会话侧栏" })).toBeVisible()
     expect(screen.getByTestId(`turn-summary-${projectedTurnId}`)).toBe(
       optimisticTurnSummary
     )
@@ -975,9 +976,7 @@ describe("LinkSense application", () => {
     )
     releaseStaleNewTaskDetail()
     await staleNewTaskDetailSettled
-    expect(
-      screen.queryByRole("region", { name: "会话侧栏" })
-    ).not.toBeInTheDocument()
+    expect(screen.getByRole("region", { name: "会话侧栏" })).toBeVisible()
     await waitFor(() => {
       expect(document.querySelector(".conversation-workspace")).toBe(
         initialWorkspace
@@ -992,7 +991,7 @@ describe("LinkSense application", () => {
         optimisticTurnSummary
       )
     })
-    expect(initialWorkspace).not.toHaveAttribute("data-task-overview-open")
+    expect(initialWorkspace).toHaveAttribute("data-task-overview-open", "true")
     expect(
       document.querySelector(".page-state-loading-fullscreen")
     ).not.toBeInTheDocument()
@@ -1080,12 +1079,7 @@ describe("LinkSense application", () => {
       optimisticStopButton
     )
 
-    await interaction.click(
-      screen.getByRole("button", { name: "打开会话侧栏" })
-    )
-    expect(
-      await screen.findByRole("region", { name: "会话侧栏" })
-    ).toBeVisible()
+    expect(screen.getByRole("region", { name: "会话侧栏" })).toBeVisible()
     expect(initialWorkspace).toHaveAttribute("data-task-overview-open", "true")
   })
 

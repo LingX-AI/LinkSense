@@ -42,6 +42,7 @@ export function SidebarTaskGroups({
   sortModes = defaultSidebarTaskSortModes,
   onSortModeChange,
   onAction,
+  onStartTask,
   children,
 }: {
   userId: string | undefined
@@ -57,6 +58,7 @@ export function SidebarTaskGroups({
     mode: SidebarTaskSortMode
   ) => void
   onAction: (action: ProjectAction) => void
+  onStartTask?: (projectId: string) => void
   children: (group: SidebarTaskGroupData) => ReactNode
 }) {
   const { t } = useTranslation()
@@ -164,6 +166,7 @@ export function SidebarTaskGroups({
                     !reconnectFailedConversationIds?.has(conversation.id)
                 )}
               onAction={onAction}
+              onStartTask={onStartTask}
             >
               {renderProject(project.id)}
               {!loadingMore && !byProject.get(project.id)?.length && (

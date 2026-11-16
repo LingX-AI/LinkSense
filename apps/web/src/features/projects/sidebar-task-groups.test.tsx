@@ -405,7 +405,9 @@ describe("sidebar task project controls", () => {
       expect(heading).toHaveClass("text-xs", "font-normal")
       expect(heading).not.toHaveClass("text-[length:var(--app-ui-font-size)]")
     }
-    expect(screen.getByText(project.name)).toHaveClass("text-sm")
+    expect(screen.getByText(project.name)).toHaveClass(
+      "text-[length:var(--app-font-13)]"
+    )
   })
 
   it.each([
@@ -699,13 +701,13 @@ describe("sidebar task project controls", () => {
     expect(folder).toHaveClass(
       "h-(--app-sidebar-row-height)",
       "w-full",
-      "pr-12",
+      "pr-[calc(12px+var(--app-sidebar-row-height))]",
       "hover:bg-transparent",
       "aria-expanded:bg-transparent"
     )
     expect(more).toHaveClass(
       "absolute",
-      "right-0",
+      "right-(--app-sidebar-row-height)",
       "size-(--app-sidebar-row-height)",
       "hover:bg-transparent",
       "aria-expanded:bg-transparent",
@@ -753,6 +755,31 @@ describe("sidebar task project controls", () => {
     )
   })
 
+  it("starts a new task in the project from the project row", async () => {
+    const interaction = userEvent.setup()
+    const onStartTask = vi.fn()
+    render(
+      <SidebarTaskGroups
+        userId="first"
+        pinned={[]}
+        recent={[]}
+        projects={[project]}
+        loadingMore={false}
+        onAction={vi.fn()}
+        onStartTask={onStartTask}
+      >
+        {() => null}
+      </SidebarTaskGroups>
+    )
+
+    await interaction.click(
+      screen.getByRole("button", {
+        name: i18n.t("projects.newTaskNamed", { title: project.name }),
+      })
+    )
+    expect(onStartTask).toHaveBeenCalledExactlyOnceWith(project.id)
+  })
+
   it("keeps the menu active away from the header and invokes an action without collapsing the folder", async () => {
     const interaction = userEvent.setup()
     const onAction = renderGroups()
@@ -764,7 +791,7 @@ describe("sidebar task project controls", () => {
       within(menu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent)
-    ).toEqual(["编辑", "移除项目"])
+    ).toEqual(["编辑", "移除"])
     await interaction.hover(menu)
     expect(more).toHaveAttribute("data-popup-open")
     expect(folder).toHaveAttribute("aria-expanded", "true")

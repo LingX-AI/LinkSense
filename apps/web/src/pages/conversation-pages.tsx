@@ -1270,6 +1270,9 @@ export function ConversationPage({
     knowledgeBaseSelectionLoading
   const knowledgeBasesError =
     knowledgeBaseQuery.isError || knowledgeBaseSelectionVerificationFailed
+  const knowledgeBasesUnsupported =
+    knowledgeBaseQuery.error instanceof ApiError &&
+    knowledgeBaseQuery.error.status === 404
   const knowledgeBaseSelectionPending =
     selectedKnowledgeBaseIds.length > 0 &&
     (knowledgeBasesLoading || knowledgeBaseSelectionVerificationFailed)
@@ -6511,6 +6514,7 @@ export function ConversationPage({
             knowledgeBases={availableKnowledgeBases}
             knowledgeBasesLoading={knowledgeBasesLoading}
             knowledgeBasesError={knowledgeBasesError}
+            knowledgeBasesUnsupported={knowledgeBasesUnsupported}
             knowledgeSearchCapability={knowledgeSearchCapability.capability}
             onRetryKnowledgeBases={() => {
               void knowledgeBaseQuery.refetch()

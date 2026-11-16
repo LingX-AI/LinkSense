@@ -126,7 +126,10 @@ import {
   type ProjectAction,
 } from "@/features/projects/project-dialog"
 import { SidebarTaskGroups } from "@/features/projects/sidebar-task-groups"
-import { newProjectNavigationState } from "@/features/projects/new-project-preference"
+import {
+  newProjectNavigationState,
+  rememberNewProject,
+} from "@/features/projects/new-project-preference"
 import { ConversationRenameDialog } from "@/features/conversations/conversation-rename-dialog"
 import {
   applySidebarConversationOrder,
@@ -435,6 +438,11 @@ function AppSidebarContent({
     taskRoute?.params.conversationId ??
       applicationTaskRoute?.params.conversationId
   )
+  const startTaskInProject = (projectId: string) => {
+    if (user?.id) rememberNewProject(user.id, projectId)
+    onNavigate?.()
+    navigate("/conversations/new", { state: { newTaskProjectId: projectId } })
+  }
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false)
   const [signOutPending, setSignOutPending] = useState(false)
@@ -1124,6 +1132,7 @@ function AppSidebarContent({
                 conversationsQuery.isLoading
               }
               onAction={setProjectAction}
+              onStartTask={startTaskInProject}
             >
               {(group) => (
                 <SortableConversationGroup
@@ -1259,7 +1268,7 @@ function AppSidebarContent({
                             )}
                           <span className="flex min-w-0 flex-1 items-center gap-2">
                             <span
-                              className="sidebar-conversation-title-fade min-w-0 flex-1 text-sm font-normal"
+                              className="sidebar-conversation-title-fade min-w-0 flex-1 text-[length:var(--app-font-13)] font-normal"
                               onDoubleClick={(event) => {
                                 event.preventDefault()
                                 event.stopPropagation()

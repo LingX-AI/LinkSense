@@ -1085,7 +1085,7 @@ describe("LinkSense application", () => {
       "data-icon",
       "sidebar-pin-filled"
     )
-    expect(unpinButton.querySelector("svg")).toHaveClass("size-4")
+    expect(unpinButton.querySelector("svg")).toHaveClass("size-3.5")
     expect(unpinButton.querySelector("svg")).toHaveAttribute(
       "stroke-width",
       "0"
@@ -1551,7 +1551,9 @@ describe("LinkSense application", () => {
 
     await interaction.click(notificationButton)
 
-    expect(await screen.findByText("暂无未读的自动化通知")).toBeVisible()
+    await waitFor(() =>
+      expect(screen.getByText("暂无未读的自动化通知")).toBeVisible()
+    )
     expect(
       screen.queryByRole("heading", { name: "自动化" })
     ).not.toBeInTheDocument()
@@ -1917,7 +1919,7 @@ describe("LinkSense application", () => {
     )
     expect(
       await within(sidebar).findByText(conversations[0]!.title)
-    ).toHaveClass("font-normal", "text-sm")
+    ).toHaveClass("font-normal", "text-[length:var(--app-font-13)]")
     expect(sidebar.querySelector("time")).toBeNull()
 
     const accountTrigger = within(sidebar).getByRole("button", {

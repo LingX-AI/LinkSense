@@ -17,9 +17,9 @@ describe("task project localization", () => {
       },
     })
     for (const [language, projects, recent, remove] of [
-      ["zh-CN", "项目", "最近", "移除项目"],
-      ["en-US", "Projects", "Recent", "Remove project"],
-      ["de-DE", "项目", "最近", "移除项目"],
+      ["zh-CN", "项目", "最近", "移除"],
+      ["en-US", "Projects", "Recent", "Remove"],
+      ["de-DE", "项目", "最近", "移除"],
     ]) {
       const t = instance.getFixedT(language)
       expect(t("nav.projects")).toBe(projects)

@@ -2152,7 +2152,8 @@ export const jaJP = {
     dragSaving: "プロジェクトの順序を保存しています。",
     dragSaveFailed:
       "プロジェクトの順序を保存できませんでした。再試行してください。",
-    delete: "プロジェクトを削除",
+    delete: "削除",
+    newTaskNamed: "プロジェクト「{{title}}」で新規タスク",
     move: "プロジェクトに移動",
     moveNamed: "「{{title}}」をプロジェクトに移動",
     name: "プロジェクト名",

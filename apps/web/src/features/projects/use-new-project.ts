@@ -1,12 +1,14 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useLocation, useNavigate } from "react-router-dom"
 import { conversationDetailQueryOptions } from "@/features/conversations/conversation-detail-query"
 import { useProjects } from "./project-api"
 import {
   readNewProject,
+  readNewTaskProject,
   readNewTaskSource,
   rememberNewProject,
+  withoutNewTaskProject,
   withoutNewTaskSource,
 } from "./new-project-preference"
 
@@ -43,6 +45,7 @@ export function useNewProject({
   const location = useLocation()
   const navigate = useNavigate()
   const sourceId = readNewTaskSource(location.state, userId)
+  const requestedProjectId = readNewTaskProject(location.state)
   const projects = useProjects()
   const [selection, setSelection] = useState(() =>
     initialSelection(userId, isNew ? sourceId : undefined)
@@ -55,6 +58,24 @@ export function useNewProject({
       setSelection(initialSelection(userId, isNew ? sourceId : undefined))
     }
   }, [userId, isNew, sourceId])
+  useEffect(() => {
+    if (!isNew || !requestedProjectId) return
+    setSelection({ userId, kind: "choice", projectId: requestedProjectId })
+    if (userId) rememberNewProject(userId, requestedProjectId)
+    navigate(`${location.pathname}${location.search}${location.hash}`, {
+      replace: true,
+      state: withoutNewTaskProject(location.state),
+    })
+  }, [
+    isNew,
+    userId,
+    requestedProjectId,
+    navigate,
+    location.pathname,
+    location.search,
+    location.hash,
+    location.state,
+  ])
 
   const contextId =
     selection.userId === userId && selection.kind === "context"

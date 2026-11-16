@@ -2182,7 +2182,8 @@ export const ptBR = {
     dragSaving: "Salvando ordem dos projetos.",
     dragSaveFailed:
       "Não foi possível salvar a ordem dos projetos. Tente novamente.",
-    delete: "Remover projeto",
+    delete: "Remover",
+    newTaskNamed: "Nova tarefa no projeto “{{title}}”",
     move: "Mover para projeto",
     moveNamed: "Mover “{{title}}” para um projeto",
     name: "Nome do projeto",

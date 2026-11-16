@@ -122,6 +122,15 @@ describe("new task project defaults", () => {
     await waitFor(() => expect(result.current.isResolving).toBe(false))
     expect(result.current.projectId).toBe(work)
   })
+  it("applies a requested project from navigation state and clears it after use", async () => {
+    request.mockResolvedValue(projects)
+    const { result } = mount({ newTaskProjectId: work, other: true })
+    await waitFor(() => expect(result.current.projectId).toBe(work))
+    expect(readNewProject("first")).toBe(work)
+    await waitFor(() =>
+      expect(result.current.location.state).toEqual({ other: true })
+    )
+  })
   it("keeps a manual choice when a delayed source task finishes loading and after refresh", async () => {
     let finishSource!: (value: Conversation) => void
     const pendingSource = new Promise<Conversation>((resolve) => {

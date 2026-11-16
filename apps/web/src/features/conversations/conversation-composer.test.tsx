@@ -268,6 +268,51 @@ function renderStatefulComposer(
   }
 }
 
+type ComposerUser = ReturnType<typeof userEvent.setup>
+
+async function openAddMenu(interaction: ComposerUser) {
+  await interaction.click(
+    screen.getByRole("button", { name: i18n.t("conversation.addMenuTitle") })
+  )
+}
+
+async function openCapabilityPicker(
+  interaction: ComposerUser,
+  label = i18n.t("conversation.skillGroup")
+) {
+  await openAddMenu(interaction)
+  await interaction.click(screen.getByRole("option", { name: label }))
+}
+
+async function openKnowledgePicker(interaction: ComposerUser) {
+  await openAddMenu(interaction)
+  await interaction.click(
+    screen.getByRole("option", {
+      name: i18n.t("conversation.toolbarKnowledge"),
+    })
+  )
+}
+
+function capabilityPickerPopover(): HTMLElement {
+  const popover = screen
+    .getByPlaceholderText(i18n.t("conversation.capabilitySearch"))
+    .closest('[data-slot="popover-content"]')
+  if (!(popover instanceof HTMLElement)) {
+    throw new Error("Missing capability picker")
+  }
+  return popover
+}
+
+function knowledgePickerPopover(): HTMLElement {
+  const popover = screen
+    .getByPlaceholderText(i18n.t("conversation.knowledgeBaseSearch"))
+    .closest('[data-slot="popover-content"]')
+  if (!(popover instanceof HTMLElement)) {
+    throw new Error("Missing knowledge picker")
+  }
+  return popover
+}
+
 function capabilityFixture(
   overrides: Partial<CapabilitySummary> = {}
 ): CapabilitySummary {
@@ -488,6 +533,7 @@ describe("conversation voice input", () => {
     "shows an icon-only add button with a localized accessible name in %s",
     async (language, addLabel, knowledgeLabel) => {
       await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
       const { container } = renderComposer({
         projectPicker: <button type="button">Project</button>,
       })
@@ -499,22 +545,15 @@ describe("conversation voice input", () => {
       expect(
         addButton.querySelector("[data-design-icon=composer-add]")
       ).toBeInTheDocument()
-      expect(
-        within(toolbar).getByRole("button", {
-          name: i18n.t("conversation.addKnowledgeBase"),
-        })
-      ).toHaveTextContent(knowledgeLabel)
-      for (const key of [
-        "conversation.addMenuTitle",
-        "conversation.addKnowledgeBase",
-      ]) {
-        expect(
-          within(toolbar).getByRole("button", { name: i18n.t(key) })
-        ).toHaveClass("-mx-1.5", "px-1.5")
-      }
+      expect(addButton).toHaveClass("-mx-1.5", "px-1.5")
       expect(
         toolbar.querySelectorAll('[data-slot="composer-separator"]')
-      ).toHaveLength(2)
+      ).toHaveLength(1)
+
+      await interaction.click(addButton)
+      expect(
+        screen.getByRole("option", { name: knowledgeLabel })
+      ).toBeVisible()
     }
   )
 
@@ -538,51 +577,56 @@ describe("conversation voice input", () => {
     ).toHaveLength(1)
   })
 
-  it("anchors the compact Add menu to its trigger and the knowledge picker to the Composer", async () => {
+  it("anchors the Add menu to its trigger and the pickers to their menu rows", async () => {
     const interaction = userEvent.setup()
-    const { container } = renderComposer()
-    const composer = container.querySelector(".composer-shell")
-    if (!(composer instanceof HTMLFormElement)) {
-      throw new Error("Missing conversation Composer")
-    }
-    vi.spyOn(composer, "getBoundingClientRect").mockReturnValue(
-      new DOMRect(120, 500, 640, 120)
-    )
+    renderComposer()
 
     const addButton = screen.getByRole("button", { name: "添加内容" })
     vi.spyOn(addButton, "getBoundingClientRect").mockReturnValue(
       new DOMRect(128, 580, 90, 32)
     )
     await interaction.click(addButton)
-    const capabilityPopover = screen
-      .getByPlaceholderText(i18n.t("conversation.capabilitySearch"))
+    const addMenu = screen
+      .getByRole("option", { name: "本地文件" })
       .closest('[data-slot="popover-content"]')
-    const capabilityPositioner = capabilityPopover?.parentElement
+    const addPositioner = addMenu?.parentElement
     await waitFor(() =>
-      expect(
-        capabilityPositioner?.style.getPropertyValue("--anchor-width")
-      ).toBe("90px")
+      expect(addPositioner?.style.getPropertyValue("--anchor-width")).toBe(
+        "90px"
+      )
     )
-    expect(capabilityPositioner).toHaveAttribute("data-side", "top")
-    expect(capabilityPositioner).toHaveStyle({
+    expect(addPositioner).toHaveAttribute("data-side", "top")
+    expect(addPositioner).toHaveStyle({
       transform: "translate(128px, 572px)",
     })
 
-    await interaction.click(addButton)
-    await interaction.click(screen.getByRole("button", { name: "添加知识库" }))
-    const knowledgePopover = screen
-      .getByPlaceholderText(i18n.t("conversation.knowledgeBaseSearch"))
-      .closest('[data-slot="popover-content"]')
-    const knowledgePositioner = knowledgePopover?.parentElement
-    await waitFor(() =>
-      expect(
-        knowledgePositioner?.style.getPropertyValue("--anchor-width")
-      ).toBe("640px")
+    await interaction.click(
+      screen.getByRole("option", { name: i18n.t("conversation.skillGroup") })
     )
-    expect(knowledgePositioner).toHaveAttribute("data-side", "top")
-    expect(knowledgePositioner).toHaveStyle({
-      transform: "translate(120px, 496px)",
-    })
+    const capabilityPositioner = capabilityPickerPopover().parentElement
+    await waitFor(() =>
+      expect(capabilityPositioner).toHaveAttribute("data-side", "right")
+    )
+    expect(capabilityPositioner).toHaveAttribute("data-align", "start")
+    expect(capabilityPickerPopover()).toHaveClass(
+      "capability-picker-popover",
+      "w-72"
+    )
+
+    await interaction.click(
+      screen.getByRole("option", {
+        name: i18n.t("conversation.toolbarKnowledge"),
+      })
+    )
+    const knowledgePositioner = knowledgePickerPopover().parentElement
+    await waitFor(() =>
+      expect(knowledgePositioner).toHaveAttribute("data-side", "right")
+    )
+    expect(knowledgePositioner).toHaveAttribute("data-align", "start")
+    expect(knowledgePickerPopover()).toHaveClass(
+      "capability-picker-popover",
+      "w-72"
+    )
   })
 
   it.each(["zh-CN", "en-US", "de-DE"])(
@@ -1524,7 +1568,7 @@ describe("conversation voice input", () => {
       ],
     })
 
-    await interaction.click(screen.getByRole("button", { name: "添加知识库" }))
+    await openKnowledgePicker(interaction)
 
     const option = screen.getByRole("option", { name: /AISG Policy/ })
     const labels = option.querySelector("[data-knowledge-base-labels]")
@@ -1624,7 +1668,7 @@ describe("conversation voice input", () => {
       screen.queryByRole("button", { name: "移除知识库 产品手册" })
     ).not.toBeInTheDocument()
 
-    await interaction.click(screen.getByRole("button", { name: "添加知识库" }))
+    await openKnowledgePicker(interaction)
     await interaction.click(screen.getByText("产品手册"))
     await interaction.click(screen.getByText("售后知识"))
 
@@ -3073,41 +3117,38 @@ describe("conversation voice input", () => {
 
     expect(
       addCapability.querySelector("[data-design-icon=composer-add]")
-    ).toHaveClass(
-      "size-[calc(var(--app-ui-font-size)+2px)]",
-      "text-foreground",
-      "[mask-size:88.35%]"
-    )
+    ).toHaveClass("size-3.5", "text-foreground")
     expect(
       screen.queryByRole("button", { name: "添加附件" })
     ).not.toBeInTheDocument()
   })
 
   it.each(["zh-CN", "en-US", "de-DE"])(
-    "hides the knowledge button when disabled and restores it by default in %s",
+    "hides the knowledge menu row when disabled and restores it by default in %s",
     async (language) => {
       await i18n.changeLanguage(language)
+      const interaction = userEvent.setup()
       const { props, rerender } = renderComposer({
         showKnowledgeBaseButton: false,
       })
-      const buttonName = i18n.t("conversation.addKnowledgeBase")
+      const rowName = i18n.t("conversation.toolbarKnowledge")
+      await openAddMenu(interaction)
       expect(
-        screen.queryByRole("button", { name: buttonName })
+        screen.queryByRole("option", { name: rowName })
       ).not.toBeInTheDocument()
-      expect(
-        screen.getByRole("button", {
-          name: i18n.t("conversation.addMenuTitle"),
-        })
-      ).toBeVisible()
+      await interaction.keyboard("{Escape}")
       rerender(
         <ConversationComposer {...props} showKnowledgeBaseButton={undefined} />
       )
-      expect(screen.getByRole("button", { name: buttonName })).toBeVisible()
+      await openAddMenu(interaction)
+      expect(screen.getByRole("option", { name: rowName })).toBeVisible()
+      await interaction.keyboard("{Escape}")
       await i18n.changeLanguage("zh-CN")
     }
   )
 
-  it("also hides the unavailable knowledge search button when disabled", () => {
+  it("also hides the unavailable knowledge menu row when disabled", async () => {
+    const interaction = userEvent.setup()
     renderComposer({
       showKnowledgeBaseButton: false,
       knowledgeSearchCapability: {
@@ -3116,12 +3157,13 @@ describe("conversation voice input", () => {
         checked_at: "2026-07-22T08:00:00.000Z",
       },
     })
+    await openAddMenu(interaction)
     expect(
-      screen.queryByRole("button", { name: "添加知识库" })
+      screen.queryByRole("option", { name: "知识库" })
     ).not.toBeInTheDocument()
   })
 
-  it("shows the knowledge search warning in a white hover card instead of a persistent banner", async () => {
+  it("shows the knowledge search warning inside the knowledge picker", async () => {
     const interaction = userEvent.setup()
     renderComposer({
       knowledgeSearchCapability: {
@@ -3132,35 +3174,17 @@ describe("conversation voice input", () => {
     })
 
     expect(screen.getByRole("button", { name: "添加内容" })).toBeEnabled()
-    const knowledgeTrigger = screen.getByRole("button", {
-      name: "添加知识库",
-    })
-    expect(knowledgeTrigger).toHaveClass("-mx-1.5", "px-1.5")
-    expect(knowledgeTrigger).toHaveAttribute("aria-disabled", "true")
-    expect(
-      screen.queryByRole("button", { name: "添加附件" })
-    ).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "发送" })).toBeEnabled()
     expect(screen.queryByText("知识库检索暂不可用")).not.toBeInTheDocument()
-    expect(
-      screen.queryByText(
-        "当前无法使用知识库检索。你仍可继续使用插件、Skill、附件并正常提交任务，请稍后重试。"
-      )
-    ).not.toBeInTheDocument()
 
-    await interaction.hover(knowledgeTrigger)
+    await openKnowledgePicker(interaction)
 
     const title = await screen.findByText("知识库检索暂不可用")
-    const hoverCard = title.closest('[data-slot="hover-card-content"]')
-    if (!(hoverCard instanceof HTMLElement)) {
-      throw new Error("Missing knowledge search hover card")
+    const picker = title.closest('[data-slot="popover-content"]')
+    if (!(picker instanceof HTMLElement)) {
+      throw new Error("Missing knowledge picker")
     }
-    expect(hoverCard).toHaveClass(
-      "bg-[var(--app-popover)]",
-      "border",
-      "shadow-md"
-    )
-    expect(hoverCard).toHaveAccessibleName("知识库检索暂不可用")
+    expect(picker).toHaveClass("capability-picker-popover", "w-72")
     expect(
       screen.getByText(
         "当前无法使用知识库检索。你仍可继续使用插件、Skill、附件并正常提交任务，请稍后重试。"
@@ -3183,9 +3207,11 @@ describe("conversation voice input", () => {
         ],
         selectedIds: [],
       })
-      await interaction.click(screen.getByRole("button", { name: "添加内容" }))
+      await openCapabilityPicker(interaction)
       await interaction.type(screen.getByRole("combobox"), query)
-      const option = screen.getByRole("option", { name: /会议纪要助手/u })
+      const option = within(capabilityPickerPopover()).getByRole("option", {
+        name: /会议纪要助手/u,
+      })
       expect(option).not.toHaveTextContent("meeting-notes")
       await interaction.click(option)
       expect(onSelectedIdsChange).toHaveBeenCalledWith(["skill-notes"])
@@ -3209,21 +3235,18 @@ describe("conversation voice input", () => {
       selectedIds: ["skill-pptx"],
     })
 
-    await interaction.click(screen.getByRole("button", { name: "添加内容" }))
+    await openCapabilityPicker(interaction)
 
-    const selectedItem = screen.getByRole("option", { name: /Pptx/ })
-    expect(selectedItem.closest('[data-slot="popover-content"]')).toHaveClass(
-      "capability-picker-popover",
-      "w-80",
-      "rounded-xl"
-    )
+    const picker = capabilityPickerPopover()
+    const selectedItem = within(picker).getByRole("option", { name: /Pptx/ })
+    expect(picker).toHaveClass("capability-picker-popover", "w-72", "rounded-xl")
     expect(
-      screen.queryByText(
+      within(picker).queryByText(
         "选择后，该插件或 Skill 会加载到本轮 Codex，并作为显式调用附加到消息。"
       )
     ).not.toBeInTheDocument()
-    expect(screen.getByText("Skill")).toBeVisible()
-    expect(screen.queryByText("插件")).not.toBeInTheDocument()
+    expect(within(picker).getByText("Skill")).toBeVisible()
+    expect(within(picker).queryByText("插件")).not.toBeInTheDocument()
     expect(selectedItem).toHaveAttribute("data-checked", "true")
     expect(selectedItem.querySelectorAll("svg.lucide-check")).toHaveLength(1)
     const labels = selectedItem.querySelector("[data-capability-labels]")
@@ -3260,8 +3283,8 @@ describe("conversation voice input", () => {
         capabilityFixture({ is_builtin: true, builtin_key: key }),
       ],
     })
-    await interaction.click(screen.getByRole("button", { name: "添加内容" }))
-    const option = screen
+    await openCapabilityPicker(interaction)
+    const option = within(capabilityPickerPopover())
       .getByText(i18n.t(nameKey, { productName: "LinkSense" }))
       .closest('[role="option"]')
     expect(option?.querySelector(selector)).not.toBeNull()
@@ -3300,10 +3323,11 @@ describe("conversation voice input", () => {
       screen.getByRole("button", { name: "移除 Optional Skill" })
     )
     expect(props.onSelectedIdsChange).toHaveBeenCalledWith([id])
-    await interaction.click(screen.getByRole("button", { name: "添加内容" }))
-    const requiredOption = screen.getByRole("option", {
-      name: /LinkSense 交互式应用开发/,
-    })
+    await openCapabilityPicker(interaction)
+    const requiredOption = within(capabilityPickerPopover()).getByRole(
+      "option",
+      { name: /LinkSense 交互式应用开发/ }
+    )
     expect(requiredOption).toHaveAttribute("aria-disabled", "true")
     expect(requiredOption).toHaveAttribute("data-checked", "true")
     await interaction.keyboard("{Escape}")
@@ -3362,10 +3386,10 @@ describe("conversation voice input", () => {
       ],
     })
 
-    await interaction.click(screen.getByRole("button", { name: "添加内容" }))
+    await openCapabilityPicker(interaction)
 
     expect(
-      screen
+      within(capabilityPickerPopover())
         .getAllByRole("option")
         .map(
           (option) =>
@@ -3399,9 +3423,9 @@ describe("conversation voice input", () => {
       ],
     })
     const interaction = userEvent.setup()
-    await interaction.click(screen.getByRole("button", { name: "添加内容" }))
+    await openCapabilityPicker(interaction)
 
-    const option = await screen.findByRole("option", {
+    const option = await within(capabilityPickerPopover()).findByRole("option", {
       name: /LinkSense 云端浏览器/,
     })
     expect(option).not.toHaveAttribute("data-disabled", "true")
@@ -3409,10 +3433,10 @@ describe("conversation voice input", () => {
     await interaction.click(option)
     expect(onSelectedIdsChange).toHaveBeenLastCalledWith([builtInId])
 
-    await interaction.click(screen.getByRole("button", { name: "添加内容" }))
-    const selectedOption = await screen.findByRole("option", {
-      name: /LinkSense 云端浏览器/,
-    })
+    await openCapabilityPicker(interaction)
+    const selectedOption = await within(
+      capabilityPickerPopover()
+    ).findByRole("option", { name: /LinkSense 云端浏览器/ })
     expect(selectedOption).toHaveAttribute("data-checked", "true")
     await interaction.click(selectedOption)
     expect(onSelectedIdsChange).toHaveBeenLastCalledWith([])
@@ -3422,11 +3446,12 @@ describe("conversation voice input", () => {
     const interaction = userEvent.setup()
     renderComposer()
 
-    await interaction.click(screen.getByRole("button", { name: "添加内容" }))
+    await openCapabilityPicker(interaction)
 
-    expect(screen.getByText("没有可用插件或 Skill")).toBeVisible()
-    expect(screen.queryByText("插件")).not.toBeInTheDocument()
-    expect(screen.queryByText("Skill")).not.toBeInTheDocument()
+    const picker = capabilityPickerPopover()
+    expect(within(picker).getByText("没有可用插件或 Skill")).toBeVisible()
+    expect(within(picker).queryByText("插件")).not.toBeInTheDocument()
+    expect(within(picker).queryByText("Skill")).not.toBeInTheDocument()
   })
 
   it("shows only the plugin heading when the Skill group is empty", async () => {
@@ -3442,11 +3467,15 @@ describe("conversation voice input", () => {
       ],
     })
 
-    await interaction.click(screen.getByRole("button", { name: "添加内容" }))
+    await openCapabilityPicker(
+      interaction,
+      i18n.t("conversation.pluginGroup")
+    )
 
-    expect(screen.getByText("插件")).toBeVisible()
-    expect(screen.queryByText("Skill")).not.toBeInTheDocument()
-    expect(screen.getByRole("option", { name: /search/ })).toBeVisible()
+    const picker = capabilityPickerPopover()
+    expect(within(picker).getByText("插件")).toBeVisible()
+    expect(within(picker).queryByText("Skill")).not.toBeInTheDocument()
+    expect(within(picker).getByRole("option", { name: /search/ })).toBeVisible()
   })
 
   it("closes the capability picker after selecting a capability", async () => {
@@ -3462,8 +3491,10 @@ describe("conversation voice input", () => {
       ],
     })
 
-    await interaction.click(screen.getByRole("button", { name: "添加内容" }))
-    await interaction.click(screen.getByRole("option", { name: /Pptx/ }))
+    await openCapabilityPicker(interaction)
+    await interaction.click(
+      within(capabilityPickerPopover()).getByRole("option", { name: /Pptx/ })
+    )
 
     expect(props.onSelectedIdsChange).toHaveBeenCalledWith(["skill-pptx"])
     await waitFor(() =>

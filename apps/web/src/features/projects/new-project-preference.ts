@@ -8,6 +8,7 @@ const navigationSchema = z.looseObject({
       conversationId: z.string().min(1).max(200),
     })
     .optional(),
+  newTaskProjectId: z.string().uuid().optional(),
 })
 
 export function newProjectStorageKey(userId: string): string {
@@ -64,5 +65,19 @@ export function withoutNewTaskSource(
   const parsed = navigationSchema.safeParse(state)
   if (!parsed.success) return null
   delete parsed.data.newTaskSource
+  return parsed.data
+}
+
+export function readNewTaskProject(state: unknown): string | undefined {
+  const parsed = navigationSchema.safeParse(state)
+  return parsed.success ? parsed.data.newTaskProjectId : undefined
+}
+
+export function withoutNewTaskProject(
+  state: unknown
+): Record<string, unknown> | null {
+  const parsed = navigationSchema.safeParse(state)
+  if (!parsed.success) return null
+  delete parsed.data.newTaskProjectId
   return parsed.data
 }
