@@ -56,6 +56,7 @@ export function buildChatCompletionRequest(
     model: source.model,
     messages: responsesInputToChatMessages(source),
     stream,
+    ...(stream ? { stream_options: { include_usage: true } } : {}),
   };
   if (tools.length > 0) {
     result.tools = tools;
