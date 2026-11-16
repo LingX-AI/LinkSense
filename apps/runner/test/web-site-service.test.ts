@@ -40,12 +40,27 @@ function fixture() {
 
 describe("public site Core MCP tools", () => {
   it("registers publishing tools only in default mode", () => {
-    for (const name of ["publish_web_site", "list_web_sites", "update_web_site"]) {
+    for (const name of ["publish_web_site", "list_web_sites", "update_web_site", "prepare_web_site_backend", "configure_web_site_backend", "inspect_web_site_backend"]) {
       expect(coreMcpToolNamesFor("default")).toContain(name);
       expect(coreMcpToolNamesFor("plan")).not.toContain(name);
     }
   });
 
+  it("forwards backend configuration through the existing scoped publication boundary", async () => {
+    const f = fixture();
+    const backend = {
+      id: site.id, name: "App", project_id: "ls-app", status: "ready",
+      origin: "https://app.example.test", endpoint: "https://app.example.test/appwrite/v1", database_id: "app",
+    };
+    f.fetch.mockResolvedValueOnce(Response.json(backend));
+    expect((await f.call("prepare_web_site_backend", { name: "App" })).isError).toBe(false);
+    expect(JSON.parse(String(f.fetch.mock.calls[0]?.[1]?.body))).toEqual({ operation: "prepare_backend", name: "App" });
+    f.fetch.mockResolvedValueOnce(Response.json({ $id: "appointments" }));
+    expect((await f.call("configure_web_site_backend", {
+      backend_id: site.id, change: { action: "create_table", id: "appointments", name: "Appointments" },
+    })).isError).toBe(false);
+    expect(JSON.parse(String(f.fetch.mock.calls[1]?.[1]?.body))).toMatchObject({ operation: "configure_backend", backend_id: site.id });
+  });
   it("forwards a validated publish request with the scoped credential", async () => {
     const f = fixture();
     const result = await f.call("publish_web_site", {

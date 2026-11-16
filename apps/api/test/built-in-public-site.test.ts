@@ -21,6 +21,11 @@ describe("built-in public site builder", () => {
       expect(skill).toContain("linksense_core.publish_web_site");
       expect(skill).toContain("linksense_core.list_web_sites");
       expect(skill).toContain("linksense_core.update_web_site");
+      expect(skill).toContain("linksense_core.prepare_web_site_backend");
+      expect(skill).toContain("linksense_core.configure_web_site_backend");
+      expect(skill).toContain("Never recreate");
+      expect(skill).toContain("self-hosted");
+      expect(skill).toContain("Function execution is limited to 30 seconds");
       expect(skill).toContain("linksense_core.request_user_form");
       expect(skill).toContain("one-line description");
       expect(skill).toContain("linksense-interactive-app-builder");

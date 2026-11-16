@@ -72,6 +72,27 @@ afterEach(() => {
 })
 
 describe("website management", () => {
+  it("opens and copies the actual dynamic application URL in the library and publication dialog", async () => {
+    const user = userEvent.setup()
+    const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined)
+    const url = `https://${id}.apps.example.test`
+    const dynamicSite = { ...site, backend_id: id, url }
+    vi.stubGlobal("fetch", vi.fn(async () => success({ items: [dynamicSite], next_cursor: null })))
+    const library = mount(<SiteLibrary />)
+    expect(await screen.findByRole("link", { name: i18n.t("webSites.visit") })).toHaveAttribute("href", url)
+    await user.click(screen.getByRole("button", { name: i18n.t("webSites.copyNamed", { name: site.name }) }))
+    expect(copy).toHaveBeenLastCalledWith(url)
+    library.unmount()
+    mount(<SiteDialog
+      action={{ kind: "share", source: { conversationId: id, fileId, name: "index.html" } }}
+      lookup={{ kind: "ready", site: dynamicSite }}
+      onClose={vi.fn()}
+    />)
+    expect(await screen.findByRole("textbox", { name: i18n.t("webSites.url") })).toHaveValue(url)
+    await user.click(screen.getByRole("button", { name: i18n.t("webSites.copy") }))
+    expect(copy).toHaveBeenLastCalledWith(url)
+  })
+
   it("lets users open and copy a published local site and removes both actions when unpublished", async () => {
     const user = userEvent.setup()
     const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined)

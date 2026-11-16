@@ -10,12 +10,12 @@ export async function writeBuiltInPublicSite(skillsRoot: string, name: string = 
   const files = {
     "SKILL.md": `---
 name: ${name}
-description: Create and publish a standalone public website with a shareable link. Use when the user wants a public page, landing page, or browser-only tool that anyone can open without LinkSense login or LinkSense AI. Do not use for applications that need LinkSense tasks, AI, knowledge bases, files, plugins, organization sharing, or in-LinkSense login; use linksense-interactive-app-builder instead.
+description: Create and publish a standalone public website or dynamic application with a shareable link. Use for public pages and externally used applications, including their own visitor login, data, files and backend functions on self-hosted Appwrite. Applications using LinkSense tasks, AI, knowledge bases, plugins, organization sharing or platform login use linksense-interactive-app-builder instead.
 ---
 
 # Public website development
 
-Create and register a complete static website in the current task. Deliver a
+Create and register a complete website in the current task. Deliver a
 preview unless the user explicitly requests publication or a public link.
 
 ## Choose the right delivery shape
@@ -27,11 +27,15 @@ preview unless the user explicitly requests publication or a public link.
 - Use \`linksense-interactive-app-builder\` instead when the user wants the result
   inside LinkSense, needs LinkSense AI or task execution, needs LinkSense
   resources or identity, or needs organization/install distribution.
+- For a public application needing its own visitor accounts, persistent data,
+  uploads or business APIs, follow the dynamic application workflow below.
+  These visitors do not need LinkSense accounts.
 - If the delivery shape is genuinely ambiguous, ask once with
   \`${coreMcpServerKey}.request_user_form\` using one \`radio\` field with 2–5
   short options. In \`message\`, explain what each shape means and when to use
   it, and give each option a one-line description: public website — anyone with
-  the link can open it, static, no LinkSense login or AI; LinkSense application —
+  the link can open it, optionally with its own visitor accounts and backend,
+  no LinkSense platform login or AI; LinkSense application —
   runs inside LinkSense and can use AI, tasks, knowledge, files, plugins, or
   organization sharing. Do not create either artifact before the answer. Do not
   ask again when the user already said “public / website / link / no login” or
@@ -51,17 +55,78 @@ preview unless the user explicitly requests publication or a public link.
   release path, not at the domain root.
 - Do not rely on SPA history routing. Use hash routing or separate pages if the
   site needs multiple views.
-- Public sites are static: no server-side code, no secrets, no background jobs.
+- Static sites have no server-side code, secrets, or background jobs.
   External HTTPS assets are loaded by the visitor's browser and remain subject
   to CORS and availability.
+- The preceding static runtime restrictions apply to ordinary static sites.
+  A prepared dynamic backend uses its own isolated top-level origin instead.
 - The current public-site runtime is a sandboxed iframe without same-origin:
   \`localStorage\`, \`sessionStorage\`, IndexedDB, cookies, Service Workers, and
   browser notifications are unavailable. Keep state in memory or in the URL.
   If the user needs progress to survive reloads or needs reminders, explain the
-  limitation and offer a LinkSense application or an external backend; never
+  limitation and use the self-hosted dynamic workflow if appropriate; never
   claim that local persistence works.
 - Match the language the user asked for. Keep the page usable on mobile and
   cover loading, empty, and error states where relevant.
+
+## Dynamic application workflow
+
+1. For an authorized public dynamic application, call
+   \`${coreMcpServerKey}.prepare_web_site_backend\` with a short name. It returns
+   \`backend_id\`, \`project_id\`, \`origin\`, \`endpoint\` and \`database_id: app\`.
+   Reuse this backend for subsequent versions. If the service is not configured,
+   report the actual error; do not silently use a cloud service or simulate
+   successful persistence in localStorage.
+2. Use \`${coreMcpServerKey}.configure_web_site_backend\` to create tables,
+   columns/indexes, upload buckets and HTTP functions. Tables and files use
+   record-level permissions and default to private. Give a visitor explicit
+   read/update/delete permissions for their own records. Broad table reads
+   are additive and defeat row privacy: use \`public_read\` only for intentionally
+   public content. For server-controlled workflows such as approval, set
+   \`client_create: false\` and create records through a function that validates
+   fields and assigns owner permissions. Add only optional columns to existing tables. Never recreate
+   a database, project or table to implement an update.
+3. Bundle the compatible Appwrite Web SDK locally with the frontend, or use
+   native fetch against the returned same-origin endpoint. Public configuration
+   contains project/database IDs only. Use native visitor Account sessions,
+   never LinkSense credentials or management keys. Build assets locally;
+   external CDN scripts, fonts, analytics, hosted storage and cloud functions
+   are not default dependencies. Relative API URLs must be based on the
+   application's origin, not the HTML artifact preview URL.
+4. For business APIs, create a Node.js 24 function, package its source and all
+   dependencies as \`code.tar.gz\`, register that archive as a normal artifact,
+   and deploy its \`file_id\` with \`deploy_function\`. Builds are asynchronous:
+   inspect \`/functions/<id>/deployments/<deployment-id>\` until the native status
+   is ready. Uploading code does not change the active function. At the
+   authorized rollout, explicitly call \`activate_function\` with the ready
+   deployment ID; retain the previous active ID for recovery. A failed draft
+   build must not replace a working function. The entrypoint is an Appwrite function exporting
+   \`async ({ req, res, log, error }) => ...\`, not a listening HTTP server.
+   Prefer native fetch and bundled dependencies; no build-time install command
+   is run. Function execution is limited to 30 seconds. Do not add schedules,
+   event triggers, always-on processes or external services in this workflow.
+5. Grant only the function scopes it actually needs. Appwrite injects a
+   project-scoped execution key for server data access. Keep it in the function;
+   validate the actual visitor and record ownership before privileged actions.
+   An admin approval function must check an administrator role; login alone is
+   insufficient. Test another visitor's direct record ID and concurrent writes
+   when uniqueness matters. Never put execution keys or credentials in logs,
+   responses, browser code, the HTML bundle or chat.
+6. Inspect tables, indexes and native function deployments before publishing.
+   Register the frontend HTML and complete asset bundle normally, then pass
+   \`backend_id\` to \`publish_web_site\` when creating the site. The tool refuses
+   publication while resources are still building. Use the returned URL as the
+   main result. An artifact preview is still sandboxed and does not validate
+   the dynamic application's login or backend behavior.
+7. Update with the existing \`site_id\`; the backend, visitor accounts, data and
+   application URL remain unchanged. New function deployments are managed by
+   Appwrite separately from frontend releases; do not claim frontend rollback
+   also restores database schemas or function code.
+8. Disable through the existing site controls. Application pages and client
+   APIs are served through the same LS publication gate. Data is retained on
+   disable or site deletion; permanent backend-data deletion needs a separate,
+   explicit decision. Realtime, OAuth/SMS, scheduled jobs and SSR are outside
+   this first workflow; explain a required unsupported capability explicitly.
 
 ## Register and publish
 

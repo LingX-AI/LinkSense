@@ -199,7 +199,7 @@ export function SiteLibrary() {
                         nativeButton={false}
                         render={
                           <a
-                            href={site.url_path}
+                            href={site.url ?? site.url_path}
                             role="link"
                             target="_blank"
                             rel="noopener noreferrer"

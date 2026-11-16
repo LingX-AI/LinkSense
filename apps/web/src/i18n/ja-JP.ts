@@ -3120,13 +3120,13 @@ export const jaJP = {
       interactiveDescription: "アイデアを伝えると、LinkSense が形にします。",
       publicSiteTitle: "公開サイトを作成",
       publicSiteDescription:
-        "リンクを知っている人が誰でも開ける静的サイトを作成します。",
+        "公開サイトやアプリを作成し、開く・コピーできるリンクを受け取ります。",
       start: "作成を開始",
     },
     publicSiteCreation: {
       title: "公開サイトを作成",
       description:
-        "公開静的サイトを作成します。作成後の会話で要件を追加できます。",
+        "公開サイトや動的アプリを作成します。アカウント、データ、業務の要件は会話で追加できます。",
       name: "サイト名",
       goal: "サイトで行うこと（任意）",
       goalPlaceholder:
@@ -3136,7 +3136,7 @@ export const jaJP = {
       openLocally: "公開後にローカルブラウザーで開く",
       openInstruction: "公開後、Browser Use でこのサイトをローカルブラウザーに一度だけ開いてください。",
       prompt:
-        "公開ウェブサイトを作成してください。サイト名：{{name}}。要件：{{goal}}。公開サイトの手順で静的ページを作成して公開し、公開リンクを教えてください。",
+        "公開サイトまたはアプリを作成してください。名前：{{name}}。要件：{{goal}}。要件に合わせて静的サイトまたはセルフホスト型の動的バックエンドを選び、完成後に公開してアクセスリンクを渡してください。",
     },
     createStandardApp: "標準アプリを作成",
     createStandardAppDescription:
@@ -4034,7 +4034,7 @@ export const jaJP = {
       publicSite: {
         name: "{{productName}} 公開サイト開発",
         description:
-          "静的サイトを作成し、誰でも開ける公開リンクとして発行します。",
+          "公開サイトやセルフホスト型の動的アプリを作成し、アクセスリンクを提供します。",
       },
       skillCreator: {
         name: "{{productName}} スキル作成",

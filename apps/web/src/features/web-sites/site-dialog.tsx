@@ -183,7 +183,8 @@ export function SiteDialog({
     if (!visibleResult) return
     try {
       await copyConversationShareUrl(
-        new URL(visibleResult.url_path, window.location.origin).href
+        visibleResult.url ??
+          new URL(visibleResult.url_path, window.location.origin).href
       )
       notify.success(t("webSites.copied"))
     } catch {
@@ -283,6 +284,7 @@ export function SiteDialog({
                   id={`${id}-url`}
                   readOnly
                   value={
+                    visibleResult.url ??
                     new URL(visibleResult.url_path, window.location.origin).href
                   }
                 />
@@ -358,6 +360,7 @@ export function SiteDialog({
                           id={`${id}-existing-url`}
                           readOnly
                           value={
+                            selectedSite.url ??
                             new URL(
                               selectedSite.url_path,
                               window.location.origin

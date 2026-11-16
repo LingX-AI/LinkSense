@@ -2883,13 +2883,13 @@ export const enUS = {
         "Share your idea and let LinkSense bring it to life.",
       publicSiteTitle: "Create a public site",
       publicSiteDescription:
-        "Build a static website that anyone with the link can open.",
+        "Create a public website or application and deliver a link to open or copy.",
       start: "Start creating",
     },
     publicSiteCreation: {
       title: "Create a public site",
       description:
-        "Build a public static website. You can add more requirements in the conversation.",
+        "Create a public website or dynamic application. Add account, data and business requirements in the conversation.",
       name: "Site name",
       goal: "What should the site do? (optional)",
       goalPlaceholder:
@@ -2899,7 +2899,7 @@ export const enUS = {
       openLocally: "Open in my browser after publishing",
       openInstruction: "After publishing, use Browser Use to open the site once in my local browser.",
       prompt:
-        "Create a public website for me. Site name: {{name}}. Requirements: {{goal}}. Use the public-site workflow to build a static page, publish it, and give me the public link.",
+        "Create a public website or application for me. Name: {{name}}. Requirements: {{goal}}. Choose a static site or self-hosted dynamic backend as needed, publish the result, and give me its link.",
     },
     createStandardApp: "Create standard app",
     createStandardAppDescription:
@@ -3787,7 +3787,7 @@ export const enUS = {
       publicSite: {
         name: "{{productName}} Public Site Development",
         description:
-          "Build a static website and publish it as a shareable public link.",
+          "Build public websites or self-hosted dynamic applications and deliver their links.",
       },
       skillCreator: {
         name: "{{productName}} Skill Creator",

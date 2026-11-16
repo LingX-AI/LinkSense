@@ -137,13 +137,13 @@ export const applicationsMessages = {
         "Comparte tu idea y deja que LinkSense la haga realidad.",
       publicSiteTitle: "Crear un sitio público",
       publicSiteDescription:
-        "Crea un sitio web estático que cualquiera con el enlace pueda abrir.",
+        "Crea un sitio o una aplicación pública y recibe un enlace para abrir o copiar.",
       start: "Empezar a crear",
     },
     publicSiteCreation: {
       title: "Crear un sitio público",
       description:
-        "Crea un sitio web estático público. Puedes añadir más requisitos en la conversación.",
+        "Crea un sitio público o una aplicación dinámica. Añade los requisitos de cuentas, datos y negocio en la conversación.",
       name: "Nombre del sitio",
       goal: "¿Qué debe hacer el sitio? (opcional)",
       goalPlaceholder:
@@ -154,7 +154,7 @@ export const applicationsMessages = {
       openLocally: "Abrir en mi navegador después de publicar",
       openInstruction: "Después de publicar, usa Browser Use para abrir el sitio una sola vez en mi navegador local.",
       prompt:
-        "Crea un sitio web público para mí. Nombre del sitio: {{name}}. Requisitos: {{goal}}. Usa el flujo de sitio público para crear una página estática, publícala y dame el enlace público.",
+        "Crea un sitio o una aplicación pública para mí. Nombre: {{name}}. Requisitos: {{goal}}. Elige un sitio estático o un backend dinámico autoalojado según sea necesario, publica el resultado y dame su enlace.",
     },
     createStandardApp: "Crear aplicación estándar",
     createStandardAppDescription:

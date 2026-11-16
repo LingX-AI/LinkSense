@@ -2670,12 +2670,12 @@ export const zhCN = {
       interactiveTitle: "用对话创建交互式应用",
       interactiveDescription: "说出你的想法，LinkSense帮你实现",
       publicSiteTitle: "创建公开站点",
-      publicSiteDescription: "生成任何人拿到链接都能打开的静态网站。",
+      publicSiteDescription: "创建对外访问的网站或应用，交付可打开和复制的链接。",
       start: "开始创建",
     },
     publicSiteCreation: {
       title: "创建公开站点",
-      description: "生成一个公开静态网站。创建后可在对话里继续补充需求。",
+      description: "创建公开网站或动态应用。可在对话里补充账号、数据和业务需求。",
       name: "站点名称",
       goal: "网站要做什么（可选）",
       goalPlaceholder: "例如：制作一个可按日期筛选的活动日程页",
@@ -2683,7 +2683,7 @@ export const zhCN = {
       start: "创建并开始",
       openLocally: "发布后在本机浏览器打开",
       openInstruction: "发布成功后，请用 Browser Use 在我的本机浏览器中打开这个站点一次。",
-      prompt: "请帮我创建一个公开网站。站点名称：{{name}}。需求：{{goal}}。请使用公开站点流程生成静态页面并发布，最后把公开链接发给我。",
+      prompt: "请帮我创建一个公开网站或应用。名称：{{name}}。需求：{{goal}}。请根据需求选择静态站点或自部署动态后端，完成后发布并把访问链接发给我。",
     },
     createStandardApp: "创建普通应用",
     createStandardAppDescription: "配置专属助手，复用常用能力和资料。",
@@ -3509,7 +3509,7 @@ export const zhCN = {
       },
       publicSite: {
         name: "{{productName}} 公开站点开发",
-        description: "生成静态网站并发布为任何人可打开的外链。",
+        description: "创建公开网站或自部署动态应用，并交付访问链接。",
       },
       skillCreator: {
         name: "{{productName}} Skill 创建器",

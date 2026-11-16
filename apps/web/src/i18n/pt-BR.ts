@@ -3174,13 +3174,13 @@ export const ptBR = {
         "Compartilhe sua ideia e deixe o LinkSense dar vida a ela.",
       publicSiteTitle: "Criar um site público",
       publicSiteDescription:
-        "Crie um site estático que qualquer pessoa com o link possa abrir.",
+        "Crie um site ou aplicativo público e receba um link para abrir ou copiar.",
       start: "Começar a criar",
     },
     publicSiteCreation: {
       title: "Criar um site público",
       description:
-        "Crie um site estático público. Você pode adicionar mais requisitos na conversa.",
+        "Crie um site público ou aplicativo dinâmico. Acrescente os requisitos de contas, dados e negócio na conversa.",
       name: "Nome do site",
       goal: "O que o site deve fazer? (opcional)",
       goalPlaceholder:
@@ -3191,7 +3191,7 @@ export const ptBR = {
       openLocally: "Abrir no meu navegador após publicar",
       openInstruction: "Depois de publicar, use o Browser Use para abrir o site uma vez no meu navegador local.",
       prompt:
-        "Crie um site público para mim. Nome do site: {{name}}. Requisitos: {{goal}}. Use o fluxo de site público para criar uma página estática, publicá-la e me enviar o link público.",
+        "Crie um site ou aplicativo público para mim. Nome: {{name}}. Requisitos: {{goal}}. Escolha um site estático ou um backend dinâmico auto-hospedado conforme necessário, publique o resultado e me envie o link.",
     },
     createStandardApp: "Criar aplicativo padrão",
     createStandardAppDescription:
@@ -4095,7 +4095,7 @@ export const ptBR = {
       publicSite: {
         name: "Desenvolvimento de sites públicos do {{productName}}",
         description:
-          "Crie um site estático e publique-o como um link público compartilhável.",
+          "Crie sites públicos ou aplicativos dinâmicos auto-hospedados e entregue seus links.",
       },
       skillCreator: {
         name: "Criador de habilidades do {{productName}}",

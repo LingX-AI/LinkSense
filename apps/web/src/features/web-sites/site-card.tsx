@@ -22,7 +22,7 @@ export function SiteCard({
 }) {
   const { t, i18n } = useTranslation()
   const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
-  const url = new URL(site.url_path, window.location.origin).href
+  const url = site.url ?? new URL(site.url_path, window.location.origin).href
 
   return (
     <Card

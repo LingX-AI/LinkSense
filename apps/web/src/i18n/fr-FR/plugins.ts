@@ -430,7 +430,7 @@ export const pluginResources = {
       publicSite: {
         name: "Développement de sites publics {{productName}}",
         description:
-          "Crée un site web statique et le publie sous forme de lien public partageable.",
+          "Créez des sites publics ou des applications dynamiques auto-hébergées et fournissez leurs liens.",
       },
       skillCreator: {
         name: "Créateur de compétences {{productName}}",

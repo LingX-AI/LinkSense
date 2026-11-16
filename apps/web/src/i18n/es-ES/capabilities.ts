@@ -58,7 +58,7 @@ export const capabilityMessages = {
       publicSite: {
         name: "Desarrollo de sitios públicos de {{productName}}",
         description:
-          "Crea un sitio web estático y publícalo como un enlace público compartible.",
+          "Crea sitios públicos o aplicaciones dinámicas autoalojadas y entrega sus enlaces.",
       },
       skillCreator: {
         name: "Creador de Skills de {{productName}}",
