@@ -2056,6 +2056,7 @@ export const enUS = {
     modelContextUsageLabel: "Context {{used}} / {{total}} ({{percent}}%)",
     modelContextUsageSummary: "{{used}} / {{total}} ({{percent}}%)",
     modelContextWindowTitle: "Context window",
+    modelContextWindowOption: "{{size}} context window",
     modelContextDetailedBreakdown: "See detailed breakdown",
     stop: "Stop",
     interrupting: "Interrupting…",

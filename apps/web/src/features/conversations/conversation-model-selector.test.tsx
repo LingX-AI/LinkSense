@@ -156,7 +156,29 @@ describe("ConversationModelSelector", () => {
       within(menu)
         .getAllByRole("menuitemradio")
         .map((item) => item.textContent)
-    ).toEqual(ordered.map((model) => model.display_name))
+    ).toEqual(ordered.map((model) => expect.stringContaining(model.display_name)))
+  })
+
+  it("shows each model's context window in the model list", async () => {
+    const interaction = userEvent.setup()
+    render(
+      <ConversationModelSelector
+        pending={false}
+        onChange={vi.fn()}
+        preference={modelPreference}
+      />
+    )
+    await interaction.click(
+      screen.getByRole("button", { name: "选择模型与推理强度" })
+    )
+    await interaction.click(screen.getByRole("button", { name: "模型" }))
+    const menu = await screen.findByRole("group", { name: "模型" })
+    expect(
+      within(menu).getByRole("menuitemradio", { name: /GPT-5\.6-Sol/u })
+    ).toHaveTextContent("258K 上下文窗口")
+    expect(
+      within(menu).getByRole("menuitemradio", { name: "Model B" })
+    ).not.toHaveTextContent("上下文窗口")
   })
 
   it("keeps the same entry and open popup while saving a different model", async () => {

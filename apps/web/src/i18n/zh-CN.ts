@@ -1901,6 +1901,7 @@ export const zhCN = {
     modelContextUsageLabel: "上下文 {{used}} / {{total}}（{{percent}}%）",
     modelContextUsageSummary: "{{used}} / {{total}}（{{percent}}%）",
     modelContextWindowTitle: "上下文窗口",
+    modelContextWindowOption: "{{size}} 上下文窗口",
     modelContextDetailedBreakdown: "查看完整明细",
     stop: "停止",
     interrupting: "正在中断…",

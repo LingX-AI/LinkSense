@@ -2324,6 +2324,7 @@ export const ptBR = {
     modelContextUsageLabel: "Contexto {{used}} / {{total}} ({{percent}}%)",
     modelContextUsageSummary: "{{used}} / {{total}} ({{percent}}%)",
     modelContextWindowTitle: "Janela de contexto",
+    modelContextWindowOption: "Janela de contexto de {{size}}",
     modelContextDetailedBreakdown: "Ver detalhamento completo",
     stop: "Parar",
     interrupting: "Interrompendo…",

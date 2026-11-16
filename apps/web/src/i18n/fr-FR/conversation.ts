@@ -149,6 +149,7 @@ export const conversation = {
   modelContextUsageLabel: "Contexte {{used}} / {{total}} ({{percent}} %)",
   modelContextUsageSummary: "{{used}} / {{total}} ({{percent}} %)",
   modelContextWindowTitle: "Fenêtre de contexte",
+  modelContextWindowOption: "Fenêtre de contexte de {{size}}",
   modelContextDetailedBreakdown: "Voir le détail",
   stop: "Arrêter",
   interrupting: "Interruption…",

@@ -155,6 +155,7 @@ export const conversationMessages = {
     modelContextUsageLabel: "Contexto {{used}} / {{total}} ({{percent}} %)",
     modelContextUsageSummary: "{{used}} / {{total}} ({{percent}} %)",
     modelContextWindowTitle: "Ventana de contexto",
+    modelContextWindowOption: "Ventana de contexto de {{size}}",
     modelContextDetailedBreakdown: "Ver desglose detallado",
     stop: "Detener",
     interrupting: "Interrumpiendo…",

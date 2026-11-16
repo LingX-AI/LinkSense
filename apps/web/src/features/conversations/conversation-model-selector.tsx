@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/slider"
 import {
   formatCompactTokenCount,
+  formatTokenCount,
   type UsageNumberLanguage,
 } from "@/lib/usage-number"
 
@@ -205,7 +206,8 @@ function ModelReasoningControls({
   pending: boolean
   onChange: (model: string, reasoningEffort: ReasoningEffort) => void
 }) {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
+  const language = toUsageNumberLanguage(i18n.language)
   const [previewEffort, setPreviewEffort] = useState(effort)
   const [previousSelection, setPreviousSelection] = useState({
     effort,
@@ -290,8 +292,22 @@ function ModelReasoningControls({
                     disabled={pending}
                     className="min-h-9 text-[length:var(--app-font-13)] leading-5"
                   >
-                    <span className="max-w-[min(20rem,calc(100vw-5rem))] truncate">
-                      {candidate.display_name}
+                    <span className="flex min-w-0 flex-col items-start gap-0.5">
+                      <span className="max-w-[min(20rem,calc(100vw-5rem))] truncate">
+                        {candidate.display_name}
+                      </span>
+                      {candidate.context_window !== null &&
+                      candidate.context_window > 0 ? (
+                        <span className="text-xs font-normal text-muted-foreground tabular-nums">
+                          {t("conversation.modelContextWindowOption", {
+                            size: formatTokenCount(
+                              candidate.context_window,
+                              language,
+                              1_000
+                            ),
+                          })}
+                        </span>
+                      ) : null}
                     </span>
                   </DropdownMenuRadioItem>
                 ))}

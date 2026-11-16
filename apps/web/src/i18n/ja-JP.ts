@@ -2287,6 +2287,7 @@ export const jaJP = {
     modelContextUsageLabel: "コンテキスト {{used}} / {{total}}（{{percent}}%）",
     modelContextUsageSummary: "{{used}} / {{total}}（{{percent}}%）",
     modelContextWindowTitle: "コンテキストウィンドウ",
+    modelContextWindowOption: "{{size}} コンテキストウィンドウ",
     modelContextDetailedBreakdown: "詳細な内訳を見る",
     stop: "停止",
     interrupting: "中断中…",
