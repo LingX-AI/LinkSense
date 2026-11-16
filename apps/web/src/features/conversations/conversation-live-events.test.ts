@@ -7,6 +7,7 @@ import {
   appendConversationLiveEvent,
   isStreamOnlyNativeEvent,
 } from "@/features/conversations/conversation-live-events"
+import { selectConversationTurnPlan } from "@/features/conversations/conversation-plan-selector"
 
 const TURN_ID = "40000000-0000-4000-8000-000000000001"
 
@@ -69,6 +70,103 @@ describe("conversation live event retention", () => {
     ).toEqual([latest])
   })
 
+  it("keeps live plan progress after a long tool sequence instead of reverting to the initial detail snapshot", () => {
+    const initial = nativeEvent(1, "turn/plan/updated", {
+      plan: [
+        { step: "Inspect", status: "inProgress" },
+        { step: "Implement", status: "pending" },
+        { step: "Verify", status: "pending" },
+      ],
+    })
+    const latest = nativeEvent(2, "turn/plan/updated", {
+      plan: [
+        { step: "Inspect", status: "completed" },
+        { step: "Implement", status: "completed" },
+        { step: "Verify", status: "inProgress" },
+      ],
+    })
+    let retained = appendConversationLiveEvent([], latest)
+
+    for (let sequence = 3; sequence <= 253; sequence += 1) {
+      retained = appendConversationLiveEvent(retained, toolEvent(sequence))
+    }
+
+    expect(
+      selectConversationTurnPlan([initial, ...retained], TURN_ID)
+    ).toMatchObject({
+      currentStepIndex: 2,
+      completedCount: 2,
+      sourceEventId: latest.id,
+    })
+    expect(retained).toHaveLength(200)
+    expect(retained).toContainEqual(latest)
+    expect(retained).toContainEqual(toolEvent(253))
+    expect(retained).not.toContainEqual(toolEvent(3))
+  })
+
+  it("does not let a replayed older plan replace the latest snapshot for the same turn", () => {
+    const older = nativeEvent(1, "turn/plan/updated", {
+      plan: [{ step: "Inspect", status: "inProgress" }],
+    })
+    const latest = nativeEvent(3, "turn/plan/updated", {
+      plan: [{ step: "Verify", status: "inProgress" }],
+    })
+    const retained = appendConversationLiveEvent([], latest)
+
+    expect(appendConversationLiveEvent(retained, older)).toEqual([latest])
+  })
+
+  it("preserves an empty latest plan during long tool sequences without reviving its previous steps", () => {
+    const initial = nativeEvent(1, "turn/plan/updated", {
+      plan: [{ step: "Obsolete step", status: "inProgress" }],
+    })
+    const cleared = nativeEvent(2, "turn/plan/updated", { plan: [] })
+    let retained = appendConversationLiveEvent([], cleared)
+
+    for (let sequence = 3; sequence <= 203; sequence += 1) {
+      retained = appendConversationLiveEvent(retained, toolEvent(sequence))
+    }
+
+    expect(
+      selectConversationTurnPlan([initial, ...retained], TURN_ID)
+    ).toMatchObject({ steps: [], sourceEventId: cleared.id })
+  })
+
+  it("preserves separate turn plans within the bounded event window", () => {
+    const first = nativeEvent(1, "turn/plan/updated", {
+      plan: [{ step: "First turn", status: "completed" }],
+    })
+    const second = {
+      ...nativeEvent(2, "turn/plan/updated", {
+        plan: [{ step: "Second turn", status: "inProgress" }],
+      }),
+      turn_id: "40000000-0000-4000-8000-000000000002",
+    }
+    let retained = appendConversationLiveEvent([first], second)
+
+    for (let sequence = 3; sequence <= 203; sequence += 1) {
+      retained = appendConversationLiveEvent(retained, toolEvent(sequence))
+    }
+
+    expect(retained).toHaveLength(200)
+    expect(retained.slice(0, 2)).toEqual([first, second])
+    expect(retained.at(-1)).toEqual(toolEvent(203))
+  })
+
+  it("keeps the event cache bounded even when every event is a different turn plan", () => {
+    let retained: ConversationEvent[] = []
+    for (let sequence = 1; sequence <= 205; sequence += 1) {
+      retained = appendConversationLiveEvent(retained, {
+        ...nativeEvent(sequence, "turn/plan/updated", { plan: [] }),
+        turn_id: `local-turn-${sequence}`,
+      })
+    }
+
+    expect(retained).toHaveLength(200)
+    expect(retained[0]?.sequence_no).toBe(6)
+    expect(retained.at(-1)?.sequence_no).toBe(205)
+  })
+
   it("keeps only the latest context usage snapshot", () => {
     const first = nativeEvent(1, "thread/tokenUsage/updated", {
       tokenUsage: tokenUsage(30, 258_000),
@@ -85,6 +183,17 @@ describe("conversation live event retention", () => {
     ).toEqual([latest])
   })
 })
+
+function toolEvent(sequence: number): ConversationEvent {
+  return nativeEvent(sequence, "item/started", {
+    item: {
+      type: "commandExecution",
+      id: `command-${sequence}`,
+      status: "inProgress",
+      commandActions: [],
+    },
+  })
+}
 
 function nativeEvent(
   sequence: number,
