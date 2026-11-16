@@ -103,9 +103,9 @@ import {
   type NativePluginActivation,
 } from "./codex/native-plugin-manager.js";
 import {
-  createCodexModelCatalogCacheWriter,
-  type ModelCatalogCacheWriter,
-} from "./codex/model-catalog-cache.js";
+  createCodexModelCatalogWriter,
+  type CodexModelCatalogWriter,
+} from "./codex/model-catalog.js";
 import { activePluginNames, connectionPluginConfigOverrides } from "./codex/connection-plugin-policy.js";
 import { isConnectionWrite } from "@linksense/shared";
 import {
@@ -872,12 +872,11 @@ export class AppServerProcessPool {
     Promise<Omit<CodexAppServerHealth, "cached">> | undefined;
   private modelCatalogCache:
     { expiresAt: number; catalog: CodexModelReasoningCatalog } | undefined;
-  private readonly codexModelCatalogCache: ModelCatalogCacheWriter;
+  private readonly codexModelCatalog: CodexModelCatalogWriter;
   constructor(
     private readonly options: {
       command: string;
-      codexVersion?: string;
-      modelCatalogCache?: ModelCatalogCacheWriter;
+      modelCatalog?: CodexModelCatalogWriter;
       /** @deprecated Model selection is supplied per turn. */
       model?: string;
       processLimit: number;
@@ -933,20 +932,18 @@ export class AppServerProcessPool {
     this.steerOperationStore = new SteerOperationStore(
       this.options.workspaceManager,
     );
-    this.codexModelCatalogCache =
-      options.modelCatalogCache ?? createCodexModelCatalogCacheWriter();
+    this.codexModelCatalog =
+      options.modelCatalog ?? createCodexModelCatalogWriter();
   }
 
-  private async ensureModelCatalogCache(
+  private async ensureModelCatalog(
     input: StartTurnInput,
     codexHome: string,
-  ): Promise<void> {
-    if (!this.options.codexVersion) return;
-    await this.codexModelCatalogCache
+  ): Promise<string | null> {
+    return this.codexModelCatalog
       .ensure({
         command: this.options.command,
         codexHome,
-        codexVersion: this.options.codexVersion,
         model: input.model,
         ...(input.modelProvider.modelContextWindow === undefined
           ? {}
@@ -957,7 +954,7 @@ export class AppServerProcessPool {
           ? { processIdentity: this.options.codexProcessIdentity }
           : {}),
       })
-      .catch(() => undefined);
+      .catch(() => null);
   }
 
   get size(): number {
@@ -5565,7 +5562,10 @@ export class AppServerProcessPool {
           preparedMcpProxy.runtime,
         );
       }
-      await this.ensureModelCatalogCache(input, paths.codexHome);
+      const modelCatalogPath = await this.ensureModelCatalog(
+        input,
+        paths.codexHome,
+      );
       let client: CodexJsonRpcClient;
       const managedReference: { current: ManagedProcess | null } = {
         current: null,
@@ -5597,6 +5597,7 @@ export class AppServerProcessPool {
               allowWebSockets:
                 input.modelTransitionSource === undefined &&
                 input.modelProvider.privacyMasking === undefined,
+              ...(modelCatalogPath === null ? {} : { modelCatalogPath }),
               ...(input.modelProvider.modelContextWindow === undefined
                 ? {}
                 : {

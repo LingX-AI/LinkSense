@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createCodexModelCatalogCacheWriter } from "../src/codex/model-catalog-cache.js";
+import { createCodexModelCatalogWriter } from "../src/codex/model-catalog.js";
 
 const roots: string[] = [];
 
@@ -48,7 +48,7 @@ afterEach(async () => {
 });
 
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), "linksense-model-cache-"));
+  const root = await mkdtemp(join(tmpdir(), "linksense-model-catalog-"));
   roots.push(root);
   const codexHome = join(root, "codex");
   await mkdir(codexHome, { recursive: true });
@@ -77,44 +77,48 @@ async function writeSession(
   return path;
 }
 
-async function readCache(codexHome: string) {
-  return JSON.parse(await readFile(join(codexHome, "models_cache.json"), "utf8"));
+async function readCatalog(catalogPath: string) {
+  return JSON.parse(await readFile(catalogPath, "utf8")) as {
+    models: Array<Record<string, unknown>>;
+  };
 }
 
-describe("Codex model catalog cache", () => {
-  it("seeds the configured model window with LinkSense's synthetic instructions", async () => {
+describe("Codex model catalog", () => {
+  it("writes the configured model window with LinkSense's synthetic instructions", async () => {
     const { codexHome } = await fixture();
     await writeSession(codexHome, "link-sense", "linksense instructions", "a");
     const runCommand = vi.fn(async () => ({
       stdout: JSON.stringify(template),
     }));
-    const writer = createCodexModelCatalogCacheWriter({ runCommand });
+    const writer = createCodexModelCatalogWriter({ runCommand });
 
-    await writer.ensure({
+    const catalogPath = await writer.ensure({
       command: "/managed/codex",
       codexHome,
-      codexVersion: "0.154.0",
       model: "workbuddy-ai/glm-5.3-flash",
       modelContextWindow: 1_000_000,
     });
 
-    const cache = await readCache(codexHome);
-    expect(cache).toMatchObject({
-      client_version: "0.154.0",
-      identity: "linksense",
-      models: [
-        {
-          slug: "workbuddy-ai/glm-5.3-flash",
-          display_name: "workbuddy-ai/glm-5.3-flash",
-          context_window: 1_000_000,
-          max_context_window: 1_000_000,
-          effective_context_window_percent: 100,
-          auto_compact_token_limit: null,
-          model_messages: {
-            instructions_template: "linksense instructions",
-          },
-        },
-      ],
+    expect(catalogPath).toBe(join(codexHome, "linksense-models.json"));
+    if (!catalogPath) throw new Error("expected a catalog path");
+    const catalog = await readCatalog(catalogPath);
+    expect(catalog.models.map((model) => model.slug)).toEqual([
+      "gpt-6-astra",
+      "workbuddy-ai/glm-5.3-flash",
+    ]);
+    expect(
+      catalog.models.find(
+        (model) => model.slug === "workbuddy-ai/glm-5.3-flash"
+      )
+    ).toMatchObject({
+      display_name: "workbuddy-ai/glm-5.3-flash",
+      context_window: 1_000_000,
+      max_context_window: 1_000_000,
+      effective_context_window_percent: 100,
+      auto_compact_token_limit: null,
+      model_messages: {
+        instructions_template: "linksense instructions",
+      },
     });
     expect(runCommand).toHaveBeenCalledWith(
       "/managed/codex",
@@ -132,7 +136,7 @@ describe("Codex model catalog cache", () => {
     const { codexHome } = await fixture();
     await writeSession(codexHome, "link-sense", "instructions", "a");
     let modes: { root: number; codexHome: number; home: number } | null = null;
-    const writer = createCodexModelCatalogCacheWriter({
+    const writer = createCodexModelCatalogWriter({
       runCommand: async (_command, _args, options) => {
         const probeCodexHome = options.env?.CODEX_HOME ?? "";
         const probeHome = options.env?.HOME ?? "";
@@ -153,7 +157,6 @@ describe("Codex model catalog cache", () => {
     await writer.ensure({
       command: "codex",
       codexHome,
-      codexVersion: "0.168.0",
       model: "model-a",
       modelContextWindow: 1_000_000,
       processIdentity: { uid: 1001, gid: 1000 },
@@ -162,104 +165,106 @@ describe("Codex model catalog cache", () => {
     expect(modes).toEqual({ root: 0o770, codexHome: 0o770, home: 0o770 });
   });
 
-  it("merges models and replaces stale caches from another Codex version", async () => {
+  it("replaces the seeded model when the window changes", async () => {
     const { codexHome } = await fixture();
     await writeSession(codexHome, "link-sense", "instructions", "a");
-    const writer = createCodexModelCatalogCacheWriter({
+    const writer = createCodexModelCatalogWriter({
       runCommand: async () => ({ stdout: JSON.stringify(template) }),
     });
 
     await writer.ensure({
       command: "codex",
       codexHome,
-      codexVersion: "0.154.0",
       model: "model-a",
       modelContextWindow: 500_000,
     });
-    await writer.ensure({
+    const catalogPath = await writer.ensure({
       command: "codex",
       codexHome,
-      codexVersion: "0.154.0",
-      model: "model-b",
-      modelContextWindow: 200_000,
-    });
-    expect((await readCache(codexHome)).models.map((model: { slug: string }) => model.slug)).toEqual([
-      "model-a",
-      "model-b",
-    ]);
-
-    await writer.ensure({
-      command: "codex",
-      codexHome,
-      codexVersion: "0.155.0",
-      model: "model-c",
+      model: "model-a",
       modelContextWindow: 1_000_000,
     });
-    const cache = await readCache(codexHome);
-    expect(cache.client_version).toBe("0.155.0");
-    expect(cache.models.map((model: { slug: string }) => model.slug)).toEqual([
-      "model-c",
-    ]);
+    if (!catalogPath) throw new Error("expected a catalog path");
+    const seeded = (await readCatalog(catalogPath)).models.filter(
+      (model) => model.slug === "model-a"
+    );
+    expect(seeded).toHaveLength(1);
+    expect(seeded[0]).toMatchObject({
+      context_window: 1_000_000,
+      max_context_window: 1_000_000,
+    });
   });
 
   it("uses the newest LinkSense session and ignores other providers", async () => {
     const { codexHome } = await fixture();
     await writeSession(codexHome, "openai", "openai instructions", "old");
     await writeSession(codexHome, "link-sense", "older link-sense", "newer");
-    const writer = createCodexModelCatalogCacheWriter({
+    const writer = createCodexModelCatalogWriter({
       runCommand: async () => ({ stdout: JSON.stringify(template) }),
     });
 
-    await writer.ensure({
+    const catalogPath = await writer.ensure({
       command: "codex",
       codexHome,
-      codexVersion: "0.154.0",
       model: "model-a",
       modelContextWindow: 1_000_000,
     });
-
-    expect((await readCache(codexHome)).models[0].model_messages.instructions_template).toBe(
-      "older link-sense"
+    if (!catalogPath) throw new Error("expected a catalog path");
+    const seeded = (await readCatalog(catalogPath)).models.find(
+      (model) => model.slug === "model-a"
     );
+    expect(
+      (seeded?.model_messages as { instructions_template: string })
+        .instructions_template
+    ).toBe("older link-sense");
   });
 
-  it("does not write a cache without a window, a LinkSense session, or a template", async () => {
+  it("does not write a catalog without a window, a LinkSense session, or a template", async () => {
     const { codexHome } = await fixture();
     await writeSession(codexHome, "link-sense", "instructions", "a");
-    const writer = createCodexModelCatalogCacheWriter({
+    const writer = createCodexModelCatalogWriter({
       runCommand: async () => ({ stdout: JSON.stringify(template) }),
     });
 
-    await writer.ensure({
-      command: "codex",
-      codexHome,
-      codexVersion: "0.154.0",
-      model: "model-a",
-    });
-    await expect(readCache(codexHome)).rejects.toThrow();
+    expect(
+      await writer.ensure({
+        command: "codex",
+        codexHome,
+        model: "model-a",
+      })
+    ).toBeNull();
+    await expect(
+      readFile(join(codexHome, "linksense-models.json"))
+    ).rejects.toThrow();
 
     const noSession = await fixture();
-    await writer.ensure({
-      command: "codex",
-      codexHome: noSession.codexHome,
-      codexVersion: "0.154.0",
-      model: "model-a",
-      modelContextWindow: 1_000_000,
-    });
-    await expect(readCache(noSession.codexHome)).rejects.toThrow();
+    expect(
+      await writer.ensure({
+        command: "codex",
+        codexHome: noSession.codexHome,
+        model: "model-a",
+        modelContextWindow: 1_000_000,
+      })
+    ).toBeNull();
+    await expect(
+      readFile(join(noSession.codexHome, "linksense-models.json"))
+    ).rejects.toThrow();
 
-    const failing = createCodexModelCatalogCacheWriter({
+    const failing = createCodexModelCatalogWriter({
       runCommand: async () => {
         throw new Error("debug models failed");
       },
     });
-    await failing.ensure({
-      command: "codex",
-      codexHome,
-      codexVersion: "0.154.0",
-      model: "model-a",
-      modelContextWindow: 1_000_000,
-    });
-    await expect(readCache(codexHome)).rejects.toThrow();
+    expect(
+      await failing.ensure({
+        command: "codex",
+        codexHome,
+        model: "model-a",
+        modelContextWindow: 1_000_000,
+      })
+    ).toBeNull();
+    await expect(
+      readFile(join(codexHome, "linksense-models.json"))
+    ).rejects.toThrow();
   });
 });

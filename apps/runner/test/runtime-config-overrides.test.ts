@@ -46,12 +46,14 @@ describe("Codex process-level runtime config", () => {
         protocolMode: "chat_completions_bridge",
         allowWebSockets: true,
         modelAutoCompactTokenLimit: 123_456,
+        modelCatalogPath: "/home/.codex/linksense-models.json",
       }),
     ).toEqual(
       expect.arrayContaining([
         "model_providers.link-sense.supports_websockets=false",
         "model_auto_compact_token_limit=123456",
         'model_auto_compact_token_limit_scope="total"',
+        'model_catalog_json="/home/.codex/linksense-models.json"',
       ]),
     );
   });

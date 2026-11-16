@@ -8503,18 +8503,18 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
-  it("seeds the Codex model catalog with the configured context window", async () => {
+  it("writes the Codex model catalog with the configured context window", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-model-catalog-"));
     roots.push(root);
     const controlled = createControlledAppServer();
-    const ensure = vi.fn(async () => undefined);
+    const catalogPath = join(root, "codex", "linksense-models.json");
+    const ensure = vi.fn(async () => catalogPath);
     const { pool } = createStartOperationPool(
       root,
       controlled.factory,
       undefined,
       {
-        codexVersion: "0.154.0",
-        modelCatalogCache: { ensure },
+        modelCatalog: { ensure },
       },
     );
     const input = startOperationInput();
@@ -8530,10 +8530,12 @@ trust_level = "trusted"
         expect.objectContaining({
           command: "codex",
           codexHome: expect.any(String),
-          codexVersion: "0.154.0",
           model: input.model,
           modelContextWindow: 1_000_000,
         }),
+      );
+      expect(controlled.args).toContain(
+        `model_catalog_json=${JSON.stringify(catalogPath)}`,
       );
     } finally {
       await pool.closeAll();
@@ -12032,15 +12034,13 @@ function createStartOperationPool(
     modelTransitionCompactionTimeoutMs?: number;
     nativeImageTemporaryRootsForOwner?: (ownerId: string) => readonly string[];
     logger?: Logger;
-    codexVersion?: string;
-    modelCatalogCache?: {
+    modelCatalog?: {
       ensure: (input: {
         command: string;
         codexHome: string;
-        codexVersion: string;
         model: string;
         modelContextWindow?: number;
-      }) => Promise<void>;
+      }) => Promise<string | null>;
     };
   } = {},
 ) {
@@ -12076,9 +12076,8 @@ function createStartOperationPool(
   const pool = new AppServerProcessPool({
     command: "codex",
     model: "test-model",
-    ...(overrides.codexVersion ? { codexVersion: overrides.codexVersion } : {}),
-    ...(overrides.modelCatalogCache
-      ? { modelCatalogCache: overrides.modelCatalogCache }
+    ...(overrides.modelCatalog
+      ? { modelCatalog: overrides.modelCatalog }
       : {}),
     processLimit: 2,
     idleTtlMs: overrides.idleTtlMs ?? 60_000,

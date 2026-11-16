@@ -1,5 +1,15 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  mkdir,
+  open,
+  readdir,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -12,8 +22,7 @@ import {
 } from "../child-process-isolation.js";
 
 const execFileAsync = promisify(execFile);
-const cacheFile = "models_cache.json";
-const cacheIdentity = "linksense";
+export const codexModelCatalogFileName = "linksense-models.json";
 
 const templateCatalogSchema = z.object({
   models: z.array(z.record(z.string(), z.unknown())).min(1),
@@ -21,45 +30,57 @@ const templateCatalogSchema = z.object({
 
 type JsonObject = Record<string, unknown>;
 
-export type ModelCatalogCacheInput = {
+export type CodexModelCatalogInput = {
   command: string;
   codexHome: string;
-  codexVersion: string;
   model: string;
   modelContextWindow?: number;
   processIdentity?: ProcessIdentity;
 };
 
-export interface ModelCatalogCacheWriter {
-  ensure(input: ModelCatalogCacheInput): Promise<void>;
+export interface CodexModelCatalogWriter {
+  /** Writes the catalog Codex should load and returns its absolute path. */
+  ensure(input: CodexModelCatalogInput): Promise<string | null>;
 }
 
 type CommandRunner = (
   command: string,
   args: string[],
-  options: { encoding: "utf8"; timeout: number; maxBuffer: number; env?: NodeJS.ProcessEnv },
+  options: {
+    encoding: "utf8";
+    timeout: number;
+    maxBuffer: number;
+    env?: NodeJS.ProcessEnv;
+  }
 ) => Promise<{ stdout: string }>;
 
 /**
- * Codex clamps `model_context_window` to the model's `max_context_window`. Unknown
- * models fall back to 272k, so a 1M model still compacts at ~258k unless Codex has
- * a catalog entry. Seed `models_cache.json` with the configured model and window.
+ * Codex clamps `model_context_window` to the model's `max_context_window`, and
+ * unknown models fall back to 272k, so a 1M model still compacts at ~258k.
+ *
+ * `models_cache.json` cannot fix that: Codex 0.168 only reuses cache entries
+ * whose identity hash matches the current provider and credentials, and the
+ * hash covers the gateway URL and token, which change per run. `model_catalog_json`
+ * replaces the bundled catalog without that gate, so write a catalog that keeps
+ * the bundled models and adds the configured model with its real window.
  */
-export function createCodexModelCatalogCacheWriter(deps: {
-  runCommand?: CommandRunner;
-  now?: () => Date;
-} = {}): ModelCatalogCacheWriter {
+export function createCodexModelCatalogWriter(
+  deps: {
+    runCommand?: CommandRunner;
+  } = {}
+): CodexModelCatalogWriter {
   const runCommand = deps.runCommand ?? execFileAsync;
-  const now = deps.now ?? (() => new Date());
   const templates = new Map<string, Promise<JsonObject | null>>();
   const baseInstructions = new Map<string, Promise<string | null>>();
   const writeLocks = new Map<string, Promise<void>>();
 
   function templateFor(
     command: string,
-    processIdentity: ProcessIdentity | undefined,
+    processIdentity: ProcessIdentity | undefined
   ): Promise<JsonObject | null> {
-    const key = processIdentity ? `${command}\0${processIdentity.uid}:${processIdentity.gid}` : command;
+    const key = processIdentity
+      ? `${command}\0${processIdentity.uid}:${processIdentity.gid}`
+      : command;
     let template = templates.get(key);
     if (!template) {
       template = loadTemplate(command, processIdentity, runCommand);
@@ -70,34 +91,33 @@ export function createCodexModelCatalogCacheWriter(deps: {
 
   return {
     async ensure(input) {
-      if (input.modelContextWindow === undefined) return;
+      if (input.modelContextWindow === undefined) return null;
       const template = await templateFor(input.command, input.processIdentity);
-      if (!template) return;
+      if (!template) return null;
       const instructions = await instructionsFor(
         input.codexHome,
-        baseInstructions,
+        baseInstructions
       );
       // Without a prior LinkSense session there is no known-good synthetic
       // instruction template; skip rather than replacing Codex's instructions.
-      if (!instructions) return;
+      if (!instructions) return null;
       const entry = buildModelEntry(template, {
         model: input.model,
         contextWindow: input.modelContextWindow,
         instructions,
       });
-      const cachePath = join(input.codexHome, cacheFile);
-      const previous = writeLocks.get(cachePath) ?? Promise.resolve();
+      const catalogPath = join(input.codexHome, codexModelCatalogFileName);
+      const previous = writeLocks.get(catalogPath) ?? Promise.resolve();
       const next = previous
         .catch(() => undefined)
-        .then(() =>
-          writeCacheEntry(cachePath, input.codexVersion, entry, now()),
-        );
-      writeLocks.set(cachePath, next);
+        .then(() => writeCatalog(catalogPath, template, entry));
+      writeLocks.set(catalogPath, next);
       try {
         await next;
       } finally {
-        if (writeLocks.get(cachePath) === next) writeLocks.delete(cachePath);
+        if (writeLocks.get(catalogPath) === next) writeLocks.delete(catalogPath);
       }
+      return catalogPath;
     },
   };
 }
@@ -105,7 +125,7 @@ export function createCodexModelCatalogCacheWriter(deps: {
 async function loadTemplate(
   command: string,
   processIdentity: ProcessIdentity | undefined,
-  runCommand: CommandRunner,
+  runCommand: CommandRunner
 ): Promise<JsonObject | null> {
   const root = await mkdtemp(join(tmpdir(), "linksense-codex-models-"));
   try {
@@ -120,7 +140,11 @@ async function loadTemplate(
     await mkdir(home, { recursive: true, mode: 0o770 });
     // mkdir modes are masked by umask, so set the shared group explicitly.
     await Promise.all([chmod(codexHome, 0o770), chmod(home, 0o770)]);
-    const invocation = isolatedChildInvocation(command, ["debug", "models"], processIdentity);
+    const invocation = isolatedChildInvocation(
+      command,
+      ["debug", "models"],
+      processIdentity
+    );
     const { stdout } = await runCommand(invocation.command, invocation.args, {
       encoding: "utf8",
       timeout: 15_000,
@@ -129,16 +153,8 @@ async function loadTemplate(
     });
     const parsed = templateCatalogSchema.safeParse(JSON.parse(stdout));
     if (!parsed.success) return null;
-    return (
-      parsed.data.models.find((model) => {
-        const messages = model.model_messages;
-        return (
-          isRecord(messages) &&
-          typeof messages.instructions_template === "string" &&
-          messages.instructions_template.trim() !== ""
-        );
-      }) ?? null
-    );
+    if (!baseTemplateModel(parsed.data.models)) return null;
+    return parsed.data;
   } catch {
     return null;
   } finally {
@@ -146,9 +162,22 @@ async function loadTemplate(
   }
 }
 
+function baseTemplateModel(models: readonly JsonObject[]): JsonObject | null {
+  return (
+    models.find((model) => {
+      const messages = model.model_messages;
+      return (
+        isRecord(messages) &&
+        typeof messages.instructions_template === "string" &&
+        messages.instructions_template.trim() !== ""
+      );
+    }) ?? null
+  );
+}
+
 async function instructionsFor(
   codexHome: string,
-  cache: Map<string, Promise<string | null>>,
+  cache: Map<string, Promise<string | null>>
 ): Promise<string | null> {
   let instructions = cache.get(codexHome);
   if (!instructions) {
@@ -158,15 +187,21 @@ async function instructionsFor(
   return await instructions;
 }
 
-async function readLatestBaseInstructions(codexHome: string): Promise<string | null> {
+async function readLatestBaseInstructions(
+  codexHome: string
+): Promise<string | null> {
   try {
     const sessionsRoot = join(codexHome, "sessions");
     const files = await collectSessionFiles(sessionsRoot, 3);
     for (const file of files) {
       const firstLine = await readFirstLine(file);
       const parsed = safeJson(firstLine);
-      const payload = isRecord(parsed) && isRecord(parsed.payload) ? parsed.payload : null;
-      const base = payload && isRecord(payload.base_instructions) ? payload.base_instructions : null;
+      const payload =
+        isRecord(parsed) && isRecord(parsed.payload) ? parsed.payload : null;
+      const base =
+        payload && isRecord(payload.base_instructions)
+          ? payload.base_instructions
+          : null;
       if (
         payload?.model_provider === "link-sense" &&
         base &&
@@ -182,7 +217,10 @@ async function readLatestBaseInstructions(codexHome: string): Promise<string | n
   }
 }
 
-async function collectSessionFiles(root: string, limit: number): Promise<string[]> {
+async function collectSessionFiles(
+  root: string,
+  limit: number
+): Promise<string[]> {
   const files: Array<{ path: string; mtimeMs: number }> = [];
   async function walk(directory: string, depth: number): Promise<void> {
     const entries = await readdir(directory, { withFileTypes: true });
@@ -205,11 +243,15 @@ async function collectSessionFiles(root: string, limit: number): Promise<string[
 
 function buildModelEntry(
   template: JsonObject,
-  input: { model: string; contextWindow: number; instructions: string },
+  input: { model: string; contextWindow: number; instructions: string }
 ): JsonObject {
-  const messages = isRecord(template.model_messages) ? template.model_messages : {};
+  const base = baseTemplateModel(
+    Array.isArray(template.models) ? template.models : []
+  );
+  const messages =
+    base && isRecord(base.model_messages) ? base.model_messages : {};
   return {
-    ...template,
+    ...base,
     slug: input.model,
     display_name: input.model,
     description: null,
@@ -225,40 +267,21 @@ function buildModelEntry(
   };
 }
 
-async function writeCacheEntry(
-  cachePath: string,
-  codexVersion: string,
-  entry: JsonObject,
-  timestamp: Date,
+async function writeCatalog(
+  catalogPath: string,
+  template: JsonObject,
+  entry: JsonObject
 ): Promise<void> {
-  const models = new Map<string, JsonObject>();
-  try {
-    const existing = JSON.parse(await readFile(cachePath, "utf8")) as unknown;
-    if (
-      isRecord(existing) &&
-      existing.client_version === codexVersion &&
-      Array.isArray(existing.models)
-    ) {
-      for (const model of existing.models) {
-        if (isRecord(model) && typeof model.slug === "string") {
-          models.set(model.slug, model);
-        }
-      }
-    }
-  } catch {
-    // Missing or unreadable caches are replaced.
-  }
-  models.set(String(entry.slug), entry);
-  const payload = {
-    fetched_at: timestamp.toISOString(),
-    client_version: codexVersion,
-    identity: cacheIdentity,
-    models: [...models.values()].slice(-50),
-  };
-  await mkdir(dirname(cachePath), { recursive: true });
-  const temporary = `${cachePath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
-  await writeFile(temporary, JSON.stringify(payload), { mode: 0o600 });
-  await rename(temporary, cachePath);
+  const models = (
+    Array.isArray(template.models) ? template.models : []
+  ).filter((model) => !isRecord(model) || model.slug !== entry.slug);
+  const payload = { models: [...models, entry] };
+  await mkdir(dirname(catalogPath), { recursive: true });
+  const temporary = `${catalogPath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  // The task identity reads the catalog, so keep it readable inside the
+  // group-shared CODEX_HOME.
+  await writeFile(temporary, JSON.stringify(payload), { mode: 0o644 });
+  await rename(temporary, catalogPath);
 }
 
 async function readFirstLine(path: string): Promise<string> {
