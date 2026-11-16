@@ -8,6 +8,7 @@ import i18n from "@/i18n"
 import { cleanup, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
+import { toast } from "sonner"
 import { afterEach, beforeAll, beforeEach, vi } from "vitest"
 import {
   isLocale,
@@ -1789,6 +1790,9 @@ export function setupApplicationTests() {
 
   afterEach(() => {
     cleanup()
+    // The sonner store lives at module scope, so a toast from one test would
+    // otherwise leak into the next one that reuses its id.
+    toast.dismiss()
     clearConversationAttachmentPreviewCacheForTests()
     vi.useRealTimers()
     vi.restoreAllMocks()
