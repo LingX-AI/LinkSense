@@ -51,6 +51,14 @@ export const errorCatalog = {
   WEB_SEARCH_RATE_LIMITED: { message_key: "errors.webSearch.rateLimited", http_status: 429, messages: { "zh-CN": "搜索请求过于频繁，请稍后重试。", "en-US": "Too many search requests. Try again later." } },
   WEB_SEARCH_RESPONSE_INVALID: { message_key: "errors.webSearch.responseInvalid", http_status: 502, messages: { "zh-CN": "搜索服务返回的结果无法使用，请联系管理员。", "en-US": "The search service returned unusable results. Contact an administrator." } },
   WEB_SEARCH_TIMEOUT: { message_key: "errors.webSearch.timeout", http_status: 504, messages: { "zh-CN": "搜索超时，请稍后重试。", "en-US": "The search timed out. Try again later." } },
+  PRIVACY_MASKING_SETTINGS_UNAVAILABLE: {
+    message_key: "errors.privacyMasking.unavailable",
+    http_status: 503,
+    messages: {
+      "zh-CN": "隐私脱敏设置暂时无法读取。为避免明文发送，请稍后重试或联系管理员。",
+      "en-US": "Privacy masking settings are temporarily unavailable. To avoid sending unmasked content, try again later or contact an administrator.",
+    },
+  },
 
   CONNECTION_CLIENT_SECRET_REQUIRED: {
     message_key: "adminConnections.secretRequired", http_status: 400,

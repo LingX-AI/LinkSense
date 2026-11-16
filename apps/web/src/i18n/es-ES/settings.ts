@@ -109,6 +109,34 @@ export const settingsMessages = {
       "Esta acción no se puede deshacer. Se conservarán tus tareas, instrucciones personalizadas, plugins y Skills.",
     resettingMemories: "Restableciendo recuerdos…",
     memoriesReset: "Recuerdos restablecidos",
+    privacyMasking: "Enmascaramiento de privacidad",
+    privacyMaskingDescription:
+      "Sustituye secretos por marcadores antes de enviar una solicitud al proveedor del modelo y los restaura antes de que la respuesta llegue al entorno de ejecución.",
+    privacyMaskingEnabled: "Activar el enmascaramiento de privacidad",
+    privacyMaskingEnabledDescription:
+      "Solo se aplica a las solicitudes enviadas al proveedor del modelo. LinkSense sigue guardando el historial y los eventos tal como se escribieron.",
+    privacyMaskingSecrets: "Secretos y credenciales",
+    privacyMaskingSecretsDescription:
+      "Claves de API, tokens, claves privadas, contraseñas y valores de las cabeceras Authorization o Cookie.",
+    privacyMaskingWords: "Palabras personalizadas",
+    privacyMaskingWordsDescription:
+      "Una palabra o frase por línea: nombres de proyectos, nombres internos o nombres que no quieres enviar al proveedor.",
+    privacyMaskingWordsPlaceholder: "Proyecto Nightjar\nInterno de Acme",
+    privacyMaskingWordsCount: "{{count}} / {{max}}",
+    privacyMaskingAnyCase: "Coincidir sin distinguir mayúsculas",
+    privacyMaskingAnyCaseDescription:
+      "Trata nightjar, Nightjar y NIGHTJAR como la misma palabra.",
+    privacyMaskingWholeWord: "Solo palabras completas",
+    privacyMaskingWholeWordDescription:
+      "No enmascara una palabra dentro de otra palabra o identificador más largo.",
+    privacyMaskingAllow: "Valores permitidos",
+    privacyMaskingAllowDescription:
+      "Un valor por línea. Un valor que coincida exactamente se envía tal cual, por ejemplo un correo de prueba.",
+    privacyMaskingAllowPlaceholder: "ejemplo@ejemplo.test",
+    privacyMaskingSaved: "Configuración de enmascaramiento guardada.",
+    privacyMaskingSave: "Guardar enmascaramiento",
+    privacyMaskingBehaviorNote:
+      "El modelo ve marcadores en lugar de los valores reales. Las tareas que deben inspeccionar un secreto pueden no funcionar hasta que añadas ese valor a la lista permitida.",
     appearancePageDescription:
       "Configura el tema y el tamaño de letra base de {{productName}}.",
     theme: "Tema",

@@ -767,6 +767,34 @@ export const ptBR = {
       "Esta ação não pode ser desfeita. Suas tarefas, instruções personalizadas, plugins e habilidades serão mantidos.",
     resettingMemories: "Redefinindo memórias…",
     memoriesReset: "Memórias redefinidas",
+    privacyMasking: "Mascaramento de privacidade",
+    privacyMaskingDescription:
+      "Substitui segredos por marcadores antes de enviar ao provedor do modelo e os restaura antes que a resposta chegue ao ambiente de execução.",
+    privacyMaskingEnabled: "Ativar o mascaramento de privacidade",
+    privacyMaskingEnabledDescription:
+      "Aplica-se apenas às solicitações enviadas ao provedor do modelo. O LinkSense continua armazenando o histórico e os eventos como foram escritos.",
+    privacyMaskingSecrets: "Segredos e credenciais",
+    privacyMaskingSecretsDescription:
+      "Chaves de API, tokens, chaves privadas, senhas e valores dos cabeçalhos Authorization ou Cookie.",
+    privacyMaskingWords: "Palavras personalizadas",
+    privacyMaskingWordsDescription:
+      "Uma palavra ou frase por linha: nomes de projetos, codinomes internos ou nomes que você não quer enviar ao provedor.",
+    privacyMaskingWordsPlaceholder: "Projeto Nightjar\nInterno da Acme",
+    privacyMaskingWordsCount: "{{count}} / {{max}}",
+    privacyMaskingAnyCase: "Ignorar maiúsculas e minúsculas",
+    privacyMaskingAnyCaseDescription:
+      "Trata nightjar, Nightjar e NIGHTJAR como a mesma palavra.",
+    privacyMaskingWholeWord: "Somente palavras inteiras",
+    privacyMaskingWholeWordDescription:
+      "Não mascara uma palavra dentro de outra palavra ou identificador maior.",
+    privacyMaskingAllow: "Valores permitidos",
+    privacyMaskingAllowDescription:
+      "Um valor por linha. Um valor com correspondência exata é enviado como está, por exemplo um e-mail de teste.",
+    privacyMaskingAllowPlaceholder: "exemplo@exemplo.test",
+    privacyMaskingSaved: "Configurações de mascaramento salvas.",
+    privacyMaskingSave: "Salvar mascaramento",
+    privacyMaskingBehaviorNote:
+      "O modelo vê marcadores em vez dos valores reais. Tarefas que precisam inspecionar um segredo podem não funcionar até que você adicione esse valor à lista permitida.",
     appearancePageDescription:
       "Defina o tema da interface e o tamanho da fonte base do {{productName}}.",
     theme: "Tema",
@@ -5787,6 +5815,12 @@ export const ptBR = {
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "pt-BR"),
       responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "pt-BR"),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "pt-BR"),
+    privacyMasking: {
+      unavailable: localizedErrorMessage(
+        "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
+        "pt-BR"
+      ),
+    },
     },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(

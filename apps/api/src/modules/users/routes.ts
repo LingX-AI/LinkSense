@@ -7,6 +7,7 @@ import {
   creditMicrosToDecimal,
   updateModelPreferenceSchema,
   updatePersonalizationSettingsSchema,
+  updatePrivacyMaskingSettingsSchema,
 } from "@linksense/shared";
 import { z } from "zod";
 
@@ -16,6 +17,7 @@ import { ok } from "../../lib/http.js";
 import { translateBackend } from "../../lib/i18n.js";
 import { resolveLocale } from "../../lib/locale.js";
 import type { ModelProviderSettingsService } from "../system/model-provider-settings.js";
+import type { PrivacyMaskingSettingsService } from "../privacy-masking/service.js";
 import type { RunnerClient } from "../../adapters/runner.js";
 import { buildUserImportTemplate } from "./import-workbook.js";
 import type { UserService, UserCreditQuotaUsage } from "./service.js";
@@ -37,11 +39,21 @@ export type UserRouteAuthentication = {
 export const meRoutes: FastifyPluginAsync<{
   service: UserService;
   modelProviderSettings?: ModelProviderSettingsService;
+  privacyMaskingSettings?: Pick<
+    PrivacyMaskingSettingsService,
+    "getForUser" | "updateForUser"
+  >;
   runner?: RunnerClient;
   authentication: UserRouteAuthentication;
 }> = async (
   app,
-  { service, modelProviderSettings, runner, authentication },
+  {
+    service,
+    modelProviderSettings,
+    privacyMaskingSettings,
+    runner,
+    authentication,
+  },
 ) => {
   app.addHook("preHandler", authentication.authenticate);
 
@@ -113,6 +125,30 @@ export const meRoutes: FastifyPluginAsync<{
     app.post("/personalization/memories/reset", async (request, reply) => {
       const actor = await authentication.getActor(request);
       return reply.send(ok(await runner.resetMemories(actor.id), request));
+    });
+  }
+
+  if (privacyMaskingSettings) {
+    app.get("/privacy-masking-settings", async (request, reply) => {
+      const actor = await authentication.getActor(request);
+      return reply
+        .header("cache-control", "private, no-store")
+        .send(ok(await privacyMaskingSettings.getForUser(actor.id), request));
+    });
+
+    app.put("/privacy-masking-settings", async (request, reply) => {
+      const actor = await authentication.getActor(request);
+      const input = updatePrivacyMaskingSettingsSchema.parse(request.body);
+      return reply.send(
+        ok(
+          await privacyMaskingSettings.updateForUser(
+            actor.id,
+            input,
+            auditContext(request),
+          ),
+          request,
+        ),
+      );
     });
   }
 

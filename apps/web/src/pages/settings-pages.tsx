@@ -110,6 +110,7 @@ import {
   personalizationQueryKey,
   usePersonalization,
 } from "@/features/personalization/use-personalization"
+import { PrivacyMaskingSettingsCard } from "@/features/privacy-masking/privacy-masking-settings"
 
 const resetMemoriesNotificationId = "personalization-memories-reset"
 export function SettingsGeneralPage() {
@@ -743,6 +744,8 @@ export function SettingsPersonalizationPage() {
               </SettingsFieldRow>
             </SettingsFieldGroup>
           </SettingsCard>
+
+          <PrivacyMaskingSettingsCard />
 
           {personalizationQuery.data && (
             <TaskAutoNamingSettings

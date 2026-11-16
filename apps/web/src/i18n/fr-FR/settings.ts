@@ -301,6 +301,34 @@ export const settingsResources = {
       "Cette action est irréversible. Vos tâches, instructions personnalisées, plugins et compétences seront conservés.",
     resettingMemories: "Réinitialisation de la mémoire…",
     memoriesReset: "Mémoire réinitialisée",
+    privacyMasking: "Masquage de confidentialité",
+    privacyMaskingDescription:
+      "Remplace les secrets par des jetons avant l’envoi au fournisseur du modèle et les restaure avant que la réponse n’atteigne l’environnement d’exécution.",
+    privacyMaskingEnabled: "Activer le masquage de confidentialité",
+    privacyMaskingEnabledDescription:
+      "S’applique uniquement aux requêtes envoyées au fournisseur du modèle. LinkSense conserve l’historique et les événements tels qu’ils ont été écrits.",
+    privacyMaskingSecrets: "Secrets et identifiants",
+    privacyMaskingSecretsDescription:
+      "Clés d’API, jetons, clés privées, mots de passe et valeurs des en-têtes Authorization ou Cookie.",
+    privacyMaskingWords: "Mots personnalisés",
+    privacyMaskingWordsDescription:
+      "Un mot ou une expression par ligne : noms de projets, noms internes ou noms que vous ne voulez pas envoyer au fournisseur.",
+    privacyMaskingWordsPlaceholder: "Projet Nightjar\nInterne Acme",
+    privacyMaskingWordsCount: "{{count}} / {{max}}",
+    privacyMaskingAnyCase: "Ignorer la casse",
+    privacyMaskingAnyCaseDescription:
+      "Traite nightjar, Nightjar et NIGHTJAR comme le même mot.",
+    privacyMaskingWholeWord: "Mots entiers uniquement",
+    privacyMaskingWholeWordDescription:
+      "Ne masque pas un mot à l’intérieur d’un mot ou d’un identifiant plus long.",
+    privacyMaskingAllow: "Valeurs autorisées",
+    privacyMaskingAllowDescription:
+      "Une valeur par ligne. Une valeur qui correspond exactement est envoyée telle quelle, par exemple une adresse e-mail de test.",
+    privacyMaskingAllowPlaceholder: "exemple@exemple.test",
+    privacyMaskingSaved: "Paramètres de masquage enregistrés.",
+    privacyMaskingSave: "Enregistrer le masquage",
+    privacyMaskingBehaviorNote:
+      "Le modèle voit des jetons au lieu des valeurs réelles. Les tâches qui doivent examiner un secret peuvent échouer tant que vous n’ajoutez pas cette valeur à la liste autorisée.",
     appearancePageDescription:
       "Choisissez le thème de {{productName}} et la taille de police de base.",
     theme: "Thème",

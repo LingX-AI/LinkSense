@@ -138,6 +138,7 @@ import type {
   ResolvedModelTransitionRuntime,
   ResolvedModelRuntime,
 } from "../system/model-provider-settings.js";
+import type { PrivacyMaskingSettingsService } from "../privacy-masking/service.js";
 import {
   buildOfficeAnnotationRunnerContext,
   inspectOfficeAnnotationPrompt,
@@ -800,6 +801,10 @@ export class ConversationService {
       "scheduleForUserMessage"
     >,
     private readonly developmentInstructions?: (ownerId: string, conversationId: string) => Promise<string | null>,
+    private readonly privacyMaskingSettings?: Pick<
+      PrivacyMaskingSettingsService,
+      "runtimeForUser"
+    >,
   ) {}
 
   private async executionConcurrencyForStart(): Promise<ResolvedExecutionConcurrencySettings> {
@@ -876,7 +881,10 @@ export class ConversationService {
       userId,
       conversationId,
     );
-    return this.withObservedAutoCompaction(userId, conversationId, runtime);
+    return this.withPrivacyMasking(
+      userId,
+      await this.withObservedAutoCompaction(userId, conversationId, runtime),
+    );
   }
 
   private async modelRuntimeForSelection(
@@ -892,7 +900,10 @@ export class ConversationService {
       model,
       reasoningEffort,
     );
-    return this.withObservedAutoCompaction(userId, conversationId, runtime);
+    return this.withPrivacyMasking(
+      userId,
+      await this.withObservedAutoCompaction(userId, conversationId, runtime),
+    );
   }
 
   private async modelRuntimeForIntent(
@@ -953,6 +964,20 @@ export class ConversationService {
         modelAutoCompactTokenLimit:
           modelAutoCompactTokenLimitFor(modelContextWindow),
       },
+    };
+  }
+
+  private async withPrivacyMasking(
+    userId: string,
+    runtime: ResolvedModelRuntime,
+  ): Promise<ResolvedModelRuntime> {
+    if (!this.privacyMaskingSettings) return runtime;
+    const privacyMasking =
+      await this.privacyMaskingSettings.runtimeForUser(userId);
+    if (!privacyMasking) return runtime;
+    return {
+      ...runtime,
+      provider: { ...runtime.provider, privacyMasking },
     };
   }
 

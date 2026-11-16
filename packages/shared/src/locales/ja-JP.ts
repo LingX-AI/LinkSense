@@ -21,6 +21,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   WEB_SEARCH_RATE_LIMITED: "検索リクエストが多すぎます。しばらくしてから再試行してください。",
   WEB_SEARCH_RESPONSE_INVALID: "検索結果を利用できません。管理者にお問い合わせください。",
   WEB_SEARCH_TIMEOUT: "検索がタイムアウトしました。しばらくしてから再試行してください。",
+  PRIVACY_MASKING_SETTINGS_UNAVAILABLE: "プライバシーマスキング設定を一時的に読み取れません。マスクされていない内容を送信しないため、しばらくしてから再試行するか管理者に連絡してください。",
 
   CONNECTION_CLIENT_SECRET_REQUIRED: "アプリのシークレットを入力してください。アプリ ID を変更する場合は、新しいアプリのシークレットも必要です。",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "認可済みアカウント数：{{count}}。アプリ ID を変更すると、これらのユーザーは再接続が必要になります。保存前にこの影響を確認してください。",

@@ -334,6 +334,7 @@ export async function buildApi(
     prefix: "/api/v1/me",
     service: services.users,
     modelProviderSettings: services.modelProviderSettings,
+    privacyMaskingSettings: services.privacyMaskingSettings,
     runner: services.runner,
     authentication: userAuthentication,
   });

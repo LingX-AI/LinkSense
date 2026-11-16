@@ -37,6 +37,7 @@ import type {
   ReasoningEffort,
   ModelProviderProtocolMode,
   ModelTokenPricing,
+  PrivacyMaskingRuntime,
   RunnerCodexSubAgentDetail,
   RunnerCodexSubAgentSummaries,
   RunnerCodexSubAgentSummary,
@@ -269,6 +270,7 @@ export type StartTurnInput = {
     modelContextWindow?: number;
     modelAutoCompactTokenLimit?: number;
     memoryExtraction?: MemoryExtractionRuntime;
+    privacyMasking?: PrivacyMaskingRuntime;
   };
 };
 
@@ -5546,6 +5548,9 @@ export class AppServerProcessPool {
         ...(input.modelProvider.memoryExtraction
           ? { memoryExtraction: input.modelProvider.memoryExtraction }
           : {}),
+        ...(input.modelProvider.privacyMasking
+          ? { privacyMasking: input.modelProvider.privacyMasking }
+          : {}),
       });
       let preparedMcpProxy: PreparedUserMcpProxyRuntime;
       try {
@@ -5589,7 +5594,9 @@ export class AppServerProcessPool {
             ...linkSenseModelProviderConfigOverrides({
               baseUrl: this.options.modelGateway.baseUrl,
               protocolMode: input.modelProvider.protocolMode,
-              allowWebSockets: input.modelTransitionSource === undefined,
+              allowWebSockets:
+                input.modelTransitionSource === undefined &&
+                input.modelProvider.privacyMasking === undefined,
               ...(input.modelProvider.modelContextWindow === undefined
                 ? {}
                 : {
@@ -7348,6 +7355,15 @@ export class AppServerProcessPool {
       modelProviderRevision: input.modelProvider.revision,
       modelProviderBaseUrl: input.modelProvider.baseUrl,
       modelProviderProtocolMode: input.modelProvider.protocolMode,
+      privacyMasking: input.modelProvider.privacyMasking
+        ? {
+            revision: input.modelProvider.privacyMasking.revision,
+            placeholderKey: createHash("sha256")
+              .update(input.modelProvider.privacyMasking.placeholder_key)
+              .digest("hex")
+              .slice(0, 16),
+          }
+        : null,
       memoryExtraction: input.modelProvider.memoryExtraction ?? null,
       modelContextWindow: input.modelProvider.modelContextWindow ?? null,
       modelAutoCompactTokenLimit:

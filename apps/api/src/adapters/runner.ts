@@ -13,6 +13,7 @@ import {
   type ModelProviderProtocolMode,
   type ModelTokenPricing,
   type MemoryExtractionRuntime,
+  type PrivacyMaskingRuntime,
   type CodexModelReasoningCatalog,
   type ConversationUserInputResponse,
   runnerCodexSubAgentDetailSchema,
@@ -225,6 +226,7 @@ export type RunnerModelProviderRuntime = {
   modelContextWindow?: number;
   modelAutoCompactTokenLimit?: number;
   memoryExtraction?: MemoryExtractionRuntime;
+  privacyMasking?: PrivacyMaskingRuntime;
 };
 
 export type RunnerStartInput = {

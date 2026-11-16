@@ -39,6 +39,7 @@ import {
   modelProviderProtocolModeSchema,
   modelTokenPricingSchema,
   personalizationSettingsSchema,
+  privacyMaskingRuntimeSchema,
   reasoningEffortSchema,
   runnerKnowledgeBaseSelectionSchema,
   runnerCodexAgentKeySchema,
@@ -166,6 +167,7 @@ const modelProviderRuntimeSchema = z.strictObject({
   pricing: modelTokenPricingSchema.optional(),
   modelContextWindow: modelContextWindowSchema.optional(),
   modelAutoCompactTokenLimit: modelContextWindowSchema.optional(),
+  privacyMasking: privacyMaskingRuntimeSchema.optional(),
 });
 
 const modelTransitionSourceSchema = z.strictObject({

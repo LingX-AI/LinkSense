@@ -499,6 +499,33 @@ export const zhCN = {
       "此操作无法撤销。你的任务、自定义指令、插件和 Skill 将保留。",
     resettingMemories: "正在重置记忆…",
     memoriesReset: "记忆已重置",
+    privacyMasking: "隐私脱敏",
+    privacyMaskingDescription:
+      "在请求发送给模型渠道前，把密钥和敏感值替换为占位符，并在回复返回运行时前还原。",
+    privacyMaskingEnabled: "启用隐私脱敏",
+    privacyMaskingEnabledDescription:
+      "只影响发送给模型渠道的请求。LinkSense 仍会按原文保存任务历史与事件。",
+    privacyMaskingSecrets: "密钥与凭据",
+    privacyMaskingSecretsDescription:
+      "API Key、Token、私钥、密码，以及 Authorization 或 Cookie 请求头的值。",
+    privacyMaskingWords: "自定义词",
+    privacyMaskingWordsDescription:
+      "每行一个词或短语，例如项目名、内部代号或你不希望发送给渠道的名称。",
+    privacyMaskingWordsPlaceholder: "Nightjar 项目\nAcme 内部",
+    privacyMaskingWordsCount: "{{count}} / {{max}}",
+    privacyMaskingAnyCase: "任意大小写",
+    privacyMaskingAnyCaseDescription:
+      "不区分大小写匹配，例如 nightjar、Nightjar 和 NIGHTJAR 视为同一个词。",
+    privacyMaskingWholeWord: "仅匹配完整词",
+    privacyMaskingWholeWordDescription: "不匹配更长单词或标识符中的一部分。",
+    privacyMaskingAllow: "允许原样发送的值",
+    privacyMaskingAllowDescription:
+      "每行一个值，完全匹配时原样发送，例如测试邮箱地址。",
+    privacyMaskingAllowPlaceholder: "example@example.test",
+    privacyMaskingSaved: "隐私脱敏设置已保存。",
+    privacyMaskingSave: "保存隐私脱敏",
+    privacyMaskingBehaviorNote:
+      "模型看到的是占位符而不是原值。需要检查密钥本身的任务可能无法继续，可把该值加入允许列表。",
     appearancePageDescription: "设置 {{productName}} 的界面主题与基准字号。",
     theme: "主题",
     themeSystem: "系统",
@@ -5051,6 +5078,12 @@ export const zhCN = {
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "zh-CN"),
       responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "zh-CN"),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "zh-CN"),
+    privacyMasking: {
+      unavailable: localizedErrorMessage(
+        "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
+        "zh-CN"
+      ),
+    },
     },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(

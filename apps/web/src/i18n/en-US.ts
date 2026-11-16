@@ -541,6 +541,34 @@ export const enUS = {
       "This cannot be undone. Your tasks, custom instructions, plugins, and Skills will remain.",
     resettingMemories: "Resetting memories…",
     memoriesReset: "Memories reset",
+    privacyMasking: "Privacy masking",
+    privacyMaskingDescription:
+      "Replace secrets with placeholders before a request goes to the model provider, and restore them before a reply reaches the runtime.",
+    privacyMaskingEnabled: "Enable privacy masking",
+    privacyMaskingEnabledDescription:
+      "Applies only to requests sent to the model provider. LinkSense still stores task history and events as written.",
+    privacyMaskingSecrets: "Secrets and credentials",
+    privacyMaskingSecretsDescription:
+      "API keys, tokens, private keys, passwords, and Authorization or Cookie header values.",
+    privacyMaskingWords: "Custom words",
+    privacyMaskingWordsDescription:
+      "One word or phrase per line: project names, internal codenames, or names you do not want sent to the provider.",
+    privacyMaskingWordsPlaceholder: "Nightjar project\nAcme internal",
+    privacyMaskingWordsCount: "{{count}} / {{max}}",
+    privacyMaskingAnyCase: "Match any case",
+    privacyMaskingAnyCaseDescription:
+      "Treat nightjar, Nightjar, and NIGHTJAR as the same word.",
+    privacyMaskingWholeWord: "Whole words only",
+    privacyMaskingWholeWordDescription:
+      "Do not mask a word inside a longer word or identifier.",
+    privacyMaskingAllow: "Allowed values",
+    privacyMaskingAllowDescription:
+      "One value per line. A value that matches exactly is sent as written, for example a test email address.",
+    privacyMaskingAllowPlaceholder: "example@example.test",
+    privacyMaskingSaved: "Privacy masking settings saved.",
+    privacyMaskingSave: "Save privacy masking",
+    privacyMaskingBehaviorNote:
+      "The model sees placeholders instead of the real values. Tasks that must inspect a secret itself may not work until you add that value to the allowed list.",
     appearancePageDescription:
       "Set the {{productName}} interface theme and base font size.",
     theme: "Theme",
@@ -5441,6 +5469,12 @@ export const enUS = {
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "en-US"),
       responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "en-US"),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "en-US"),
+    privacyMasking: {
+      unavailable: localizedErrorMessage(
+        "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
+        "en-US"
+      ),
+    },
     },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(

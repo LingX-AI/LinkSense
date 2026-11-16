@@ -2400,6 +2400,20 @@ model SystemSetting {
   @@map("system_settings")
 }
 
+// One row per user that enabled or changed privacy masking; no row means
+// the defaults. The settings are encrypted because custom words and the
+// allowlist may name internal projects or values.
+model UserPrivacyMaskingSetting {
+  userId            String   @id @map("user_id") @db.Uuid
+  encryptedSettings String   @map("encrypted_settings") @db.Text
+  encryptionKeyId   String   @map("encryption_key_id") @db.VarChar(120)
+  revision          Int      @default(0)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("user_privacy_masking_settings")
+}
+
 model BotChannelConnection {
   id                   String    @id @default(uuid()) @db.Uuid
   ownerId              String?    @map("owner_id") @db.Uuid

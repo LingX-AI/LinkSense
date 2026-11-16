@@ -21,6 +21,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   WEB_SEARCH_RATE_LIMITED: "Há muitas solicitações de pesquisa. Tente novamente mais tarde.",
   WEB_SEARCH_RESPONSE_INVALID: "O serviço retornou resultados inválidos. Contate o administrador.",
   WEB_SEARCH_TIMEOUT: "A pesquisa excedeu o tempo limite. Tente novamente mais tarde.",
+  PRIVACY_MASKING_SETTINGS_UNAVAILABLE: "As configurações de mascaramento de privacidade estão temporariamente indisponíveis. Para evitar o envio de conteúdo sem máscara, tente novamente mais tarde ou contate um administrador.",
 
   CONNECTION_CLIENT_SECRET_REQUIRED: "Informe o segredo do aplicativo. Ao alterar o ID, informe também o segredo do novo aplicativo.",
   CONNECTION_CLIENT_CHANGE_REQUIRES_CONFIRMATION: "Contas autorizadas: {{count}}. Alterar o ID do aplicativo exige que esses usuários se conectem novamente. Confirme esse efeito antes de salvar.",

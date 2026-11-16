@@ -6,6 +6,10 @@ export const modelGatewayErrorMessages = {
   model_provider_unavailable: "The model provider is temporarily unavailable.",
   model_provider_timeout: "The model provider request timed out.",
   model_gateway_error: "The model gateway request failed.",
+  privacy_masking_unavailable:
+    "Privacy masking is unavailable, so the request was not sent.",
+  privacy_masking_blocked:
+    "Privacy masking blocked this request because it contains a value the current policy does not allow.",
 } as const;
 
 export type ModelGatewayFailureCode = keyof typeof modelGatewayErrorMessages;

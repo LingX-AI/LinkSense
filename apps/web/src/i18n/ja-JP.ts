@@ -756,6 +756,34 @@ export const jaJP = {
       "この操作は取り消せません。タスク、カスタム指示、プラグイン、スキルは保持されます。",
     resettingMemories: "メモリをリセット中…",
     memoriesReset: "メモリをリセットしました",
+    privacyMasking: "プライバシーマスキング",
+    privacyMaskingDescription:
+      "モデルプロバイダーへ送信する前に秘密情報をプレースホルダーへ置き換え、応答がランタイムに届く前に元へ戻します。",
+    privacyMaskingEnabled: "プライバシーマスキングを有効にする",
+    privacyMaskingEnabledDescription:
+      "モデルプロバイダーへ送信するリクエストだけに適用されます。LinkSense はタスク履歴とイベントを原文のまま保存します。",
+    privacyMaskingSecrets: "秘密情報と認証情報",
+    privacyMaskingSecretsDescription:
+      "API キー、トークン、秘密鍵、パスワード、Authorization または Cookie ヘッダーの値。",
+    privacyMaskingWords: "カスタム語句",
+    privacyMaskingWordsDescription:
+      "1 行に 1 語または 1 フレーズ。プロジェクト名、社内コード名、プロバイダーへ送りたくない名前など。",
+    privacyMaskingWordsPlaceholder: "Nightjar プロジェクト\nAcme 社内",
+    privacyMaskingWordsCount: "{{count}} / {{max}}",
+    privacyMaskingAnyCase: "大文字と小文字を区別しない",
+    privacyMaskingAnyCaseDescription:
+      "nightjar、Nightjar、NIGHTJAR を同じ語として扱います。",
+    privacyMaskingWholeWord: "単語全体のみ",
+    privacyMaskingWholeWordDescription:
+      "より長い単語や識別子の一部はマスクしません。",
+    privacyMaskingAllow: "許可する値",
+    privacyMaskingAllowDescription:
+      "1 行に 1 値。完全一致した値はそのまま送信されます（テスト用メールアドレスなど）。",
+    privacyMaskingAllowPlaceholder: "example@example.test",
+    privacyMaskingSaved: "プライバシーマスキング設定を保存しました。",
+    privacyMaskingSave: "プライバシーマスキングを保存",
+    privacyMaskingBehaviorNote:
+      "モデルには実際の値ではなくプレースホルダーが見えます。秘密情報そのものを確認するタスクは、その値を許可リストへ追加するまで動作しない場合があります。",
     appearancePageDescription:
       "{{productName}} の画面テーマと基本の文字サイズを設定します。",
     theme: "テーマ",
@@ -5691,6 +5719,12 @@ export const jaJP = {
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "ja-JP"),
       responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "ja-JP"),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "ja-JP"),
+    privacyMasking: {
+      unavailable: localizedErrorMessage(
+        "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
+        "ja-JP"
+      ),
+    },
     },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(

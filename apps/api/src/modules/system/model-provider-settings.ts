@@ -39,6 +39,7 @@ import {
   type ModelProviderProtocolMode,
   type ModelProviderSettings,
   type ModelTokenPricing,
+  type PrivacyMaskingRuntime,
   type ReasoningEffort,
   type UpdateModelAvailability,
   type UpdateModelPreference,
@@ -321,6 +322,7 @@ export type ResolvedModelRuntime = {
     modelContextWindow?: number
     modelAutoCompactTokenLimit?: number
     memoryExtraction?: MemoryExtractionRuntime
+    privacyMasking?: PrivacyMaskingRuntime
   }
 }
 

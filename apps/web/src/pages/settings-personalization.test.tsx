@@ -218,7 +218,7 @@ describe("personalization settings", () => {
     "omits environment settings and does not request the removed endpoint in %s",
     async (language) => {
       await i18n.changeLanguage(language)
-      const fetchMock = vi.fn(async () =>
+      const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () =>
         envelope({
           custom_instructions: "saved instructions",
           memories_enabled: true,
@@ -236,7 +236,11 @@ describe("personalization settings", () => {
           name: /保持工作环境运行|Keep your environment running/,
         })
       ).not.toBeInTheDocument()
-      expect(fetchMock).toHaveBeenCalledOnce()
+      expect(
+        fetchMock.mock.calls.filter(
+          ([input]) => String(input) === "/api/v1/me/personalization"
+        )
+      ).toHaveLength(1)
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/v1/me/personalization",
         expect.anything()
@@ -507,7 +511,11 @@ describe("personalization settings", () => {
       expect(select.closest('[data-layout="settings"]')).toBeInTheDocument()
       await user.click(select)
       await user.click(await screen.findByRole("option", { name: first }))
-      expect(fetchMock).toHaveBeenCalledOnce()
+      expect(
+        fetchMock.mock.calls.filter(
+          ([, init]) => init?.method === "PATCH"
+        )
+      ).toHaveLength(0)
       await user.click(select)
       await user.click(await screen.findByRole("option", { name: every }))
       expect(select).toBeDisabled()

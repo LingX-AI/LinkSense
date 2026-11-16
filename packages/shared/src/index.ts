@@ -91,3 +91,4 @@ export * from "./browser-use.js";
 export * from "./local-browser.js";
 export * from "./public-knowledge.js";
 export * from "./public-knowledge-output.js";
+export * from "./privacy-masking.js";

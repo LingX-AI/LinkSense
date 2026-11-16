@@ -13,6 +13,12 @@ export const errors = {
       responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "fr-FR"),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "fr-FR"),
     },
+    privacyMasking: {
+      unavailable: localizedErrorMessage(
+        "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
+        "fr-FR"
+      ),
+    },
   skillManagement: {
     uninstallNotAllowed: localizedErrorMessage(
       "SKILL_UNINSTALL_NOT_ALLOWED",

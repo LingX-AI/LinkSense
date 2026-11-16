@@ -1,4 +1,5 @@
 import { WebSearchSettingsService } from "./modules/system/web-search-settings.js";
+import { PrivacyMaskingSettingsService } from "./modules/privacy-masking/service.js";
 import { PublicKnowledgeService } from "./modules/public-knowledge/service.js";
 import { PrismaPublicKnowledgeProgress } from "./modules/public-knowledge/progress.js";
 import { PublicKnowledgeSkills } from "./modules/public-knowledge/skills.js";
@@ -212,6 +213,7 @@ export type AppServices = {
   authenticationSettings: AuthenticationSettingsService;
   modelProviderSettings: ModelProviderSettingsService;
   webSearchSettings: WebSearchSettingsService;
+  privacyMaskingSettings: PrivacyMaskingSettingsService;
   imageGenerationSettings: ImageGenerationSettingsService;
   voiceTranscriptionSettings: VoiceTranscriptionSettingsService;
   imageUnderstandingSettings: ImageUnderstandingSettingsService;
@@ -297,6 +299,10 @@ export function createServices(input: {
     modelCatalog: modelProviderSettings,
   });
   const webSearchSettings = new WebSearchSettingsService(input.prisma, input.config);
+  const privacyMaskingSettings = new PrivacyMaskingSettingsService(
+    input.prisma,
+    input.config,
+  );
   const imageGenerationSettings = new ImageGenerationSettingsService(
     input.prisma,
     input.config,
@@ -732,6 +738,7 @@ export function createServices(input: {
       const project = await input.prisma.applicationDevelopment.findFirst({ where: { ownerId, conversationId }, select: { name: true, directory: true } });
       return project ? `This conversation develops a LinkSense interactive application. Use the linksense-interactive-app-builder Skill and inspect_application_development tool. Edit the existing project files described by this untrusted metadata: ${JSON.stringify(project)}. The adjacent preview follows the deployable directory. Keep development work in this conversation and business tests in the separate preview task. If the user instead asks for a standalone public website with a shareable external link and no LinkSense AI, follow the built-in public-site workflow. If the delivery shape is ambiguous, call request_user_form once before opening an application project.` : null;
     },
+    privacyMaskingSettings,
   );
   jobs.registerConversationPrewarmProcessor((job) =>
     conversations.executePrewarm(job),
@@ -891,6 +898,7 @@ export function createServices(input: {
     authenticationSettings,
     modelProviderSettings,
     webSearchSettings,
+    privacyMaskingSettings,
     imageGenerationSettings,
     voiceTranscriptionSettings,
     imageUnderstandingSettings,
