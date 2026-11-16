@@ -14,7 +14,9 @@ describe("the repository-pinned Codex runtime", () => {
       stdout: `codex-cli ${runtimeVersion.version}\n`,
     });
 
-    await expect(assertCodexRuntimeVersion({ command: "/managed/codex" }, run)).resolves.toBeUndefined();
+    await expect(
+      assertCodexRuntimeVersion({ command: "/managed/codex" }, run),
+    ).resolves.toBe(runtimeVersion.version);
 
     expect(CODEX_SCHEMA_VERSION).toBe(runtimeVersion.version);
     expect(run).toHaveBeenCalledExactlyOnceWith("/managed/codex", ["--version"], {

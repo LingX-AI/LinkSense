@@ -19,7 +19,7 @@ export type CodexVersionCommand = (
 export async function assertCodexRuntimeVersion(
   input: { command: string; processIdentity?: ProcessIdentity },
   runCommand: CodexVersionCommand = execFileAsync,
-): Promise<void> {
+): Promise<string> {
   const invocation = isolatedChildInvocation(input.command, ["--version"], input.processIdentity);
   let stdout: string;
   try {
@@ -43,4 +43,5 @@ export async function assertCodexRuntimeVersion(
       `Codex version mismatch: expected ${CODEX_SCHEMA_VERSION}, received ${actualVersion}`,
     );
   }
+  return actualVersion;
 }

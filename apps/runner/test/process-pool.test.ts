@@ -8486,6 +8486,71 @@ trust_level = "trusted"
     await pool.closeAll();
   });
 
+  it("seeds the Codex model catalog with the configured context window", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-model-catalog-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const ensure = vi.fn(async () => undefined);
+    const { pool } = createStartOperationPool(
+      root,
+      controlled.factory,
+      undefined,
+      {
+        codexVersion: "0.154.0",
+        modelCatalogCache: { ensure },
+      },
+    );
+    const input = startOperationInput();
+    try {
+      await pool.startTurn({
+        ...input,
+        modelProvider: {
+          ...input.modelProvider,
+          modelContextWindow: 1_000_000,
+        },
+      });
+      expect(ensure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: "codex",
+          codexHome: expect.any(String),
+          codexVersion: "0.154.0",
+          model: input.model,
+          modelContextWindow: 1_000_000,
+        }),
+      );
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
+  it("applies the configured context window to a fresh native thread", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-native-context-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const { pool } = createStartOperationPool(root, controlled.factory);
+    try {
+      await pool.startTurn({
+        ...startOperationInput(),
+        modelProvider: {
+          ...startOperationInput().modelProvider,
+          modelContextWindow: 1_000_000,
+        },
+      });
+      const threadStart = controlled.requests.find(
+        (request) => request.method === "thread/start",
+      );
+      expect(threadStart?.params).toMatchObject({
+        config: {
+          model_context_window: 1_000_000,
+          model_auto_compact_token_limit: 850_000,
+          model_auto_compact_token_limit_scope: "total",
+        },
+      });
+    } finally {
+      await pool.closeAll();
+    }
+  });
+
   it.each(["revision", "provider", "context"] as const)(
     "keeps an active turn running across %s changes during reconciliation and applies them to the next turn",
     async (change) => {
@@ -8519,7 +8584,10 @@ trust_level = "trusted"
             }
           : {}),
         ...(change === "context"
-          ? { modelAutoCompactTokenLimit: 200_000 }
+          ? {
+              modelContextWindow: 1_000_000,
+              modelAutoCompactTokenLimit: 200_000,
+            }
           : {}),
       };
       const recovery = {
@@ -8571,6 +8639,18 @@ trust_level = "trusted"
             apiKey: updatedProvider.apiKey,
           }),
         );
+        if (change === "context") {
+          const resume = controlled.requests.find(
+            (request) => request.method === "thread/resume",
+          );
+          expect(resume?.params).toMatchObject({
+            config: {
+              model_context_window: 1_000_000,
+              model_auto_compact_token_limit: 200_000,
+              model_auto_compact_token_limit_scope: "total",
+            },
+          });
+        }
         expect(
           controlled.methods.filter((method) => method === "turn/start"),
         ).toHaveLength(2);
@@ -11935,6 +12015,16 @@ function createStartOperationPool(
     modelTransitionCompactionTimeoutMs?: number;
     nativeImageTemporaryRootsForOwner?: (ownerId: string) => readonly string[];
     logger?: Logger;
+    codexVersion?: string;
+    modelCatalogCache?: {
+      ensure: (input: {
+        command: string;
+        codexHome: string;
+        codexVersion: string;
+        model: string;
+        modelContextWindow?: number;
+      }) => Promise<void>;
+    };
   } = {},
 ) {
   const runtimeState = controlledWorkspaceRuntimeGeneration(workspaceManager);
@@ -11968,6 +12058,10 @@ function createStartOperationPool(
   const pool = new AppServerProcessPool({
     command: "codex",
     model: "test-model",
+    ...(overrides.codexVersion ? { codexVersion: overrides.codexVersion } : {}),
+    ...(overrides.modelCatalogCache
+      ? { modelCatalogCache: overrides.modelCatalogCache }
+      : {}),
     processLimit: 2,
     idleTtlMs: overrides.idleTtlMs ?? 60_000,
     templateVersion: "test",

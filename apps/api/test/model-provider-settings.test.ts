@@ -1,3 +1,7 @@
+import {
+  genericModelReasoningProfile,
+  type ModelReasoningProfile,
+} from "@linksense/shared"
 import { describe, expect, it, vi } from "vitest"
 
 import type { PrismaClient } from "../src/generated/prisma/client.js"
@@ -7,6 +11,7 @@ import {
   parseOpenAiCompatibleModelContextWindows,
   type ModelProviderMetadataClient,
 } from "../src/modules/system/model-provider-settings.js"
+import type { ModelProviderProbeClient } from "../src/modules/system/model-provider-probe.js"
 import { testConfig } from "./test-config.js"
 
 const ACTOR_ID = "00000000-0000-4000-8000-000000000099"
@@ -591,6 +596,331 @@ describe("ModelProviderSettingsService", () => {
       )
     ).resolves.toMatchObject({
       providers: [{ models: [{ id: "model-a", context_window: 150_000 }] }],
+    })
+  })
+
+  it("fills a missing context window from the model catalog when saving", async () => {
+    const database = inMemoryDatabase()
+    const readCatalogContextWindows = vi.fn(
+      async () => new Map([["model-a", 1_048_576]])
+    )
+    const service = new ModelProviderSettingsService(
+      database.prisma,
+      testConfig(),
+      {
+        readContextWindows: vi.fn(async () => new Map<string, number>()),
+        readCatalogContextWindows,
+      }
+    )
+
+    const settings = await service.update(
+      ACTOR_ID,
+      {
+        expected_revision: 0,
+        providers: [
+          provider(
+            "provider-a",
+            "https://models.example.test/v1",
+            [pricedModel("model-a", ["medium"], "medium")],
+            "native_responses",
+            "provider-secret"
+          ),
+        ],
+        default_model: "model-a",
+      },
+      {}
+    )
+
+    expect(settings.providers[0]?.models[0]).toMatchObject({
+      id: "model-a",
+      context_window: 1_048_576,
+    })
+    expect(readCatalogContextWindows).toHaveBeenCalledWith({
+      provider: "openai_compatible",
+      models: [{ id: "model-a", display_name: "MODEL-A" }],
+    })
+  })
+
+  it("fills discovered models from the model catalog when the provider omits context windows", async () => {
+    const database = inMemoryDatabase()
+    const probeClient: ModelProviderProbeClient = {
+      discover: vi.fn(async () => ({
+        status: "supported" as const,
+        truncated: false,
+        models: [
+          {
+            id: "deepseek-v4.1-flash",
+            display_name: "DeepSeek V4.1 Flash",
+            context_window: null,
+            supports_image_input: null,
+          },
+          {
+            id: "priced-model",
+            display_name: "Priced Model",
+            context_window: 128_000,
+            supports_image_input: null,
+          },
+        ],
+      })),
+      detectProtocol: vi.fn(async () => ({ status: "model_required" as const })),
+      testConnection: vi.fn(async () => ({
+        status: "success" as const,
+        model_id: "deepseek-v4.1-flash",
+      })),
+    }
+    const readCatalogContextWindows = vi.fn(
+      async () => new Map([["deepseek-v4.1-flash", 1_048_576]])
+    )
+    const service = new ModelProviderSettingsService(
+      database.prisma,
+      testConfig(),
+      {
+        readContextWindows: vi.fn(async () => new Map<string, number>()),
+        readCatalogContextWindows,
+      },
+      probeClient
+    )
+
+    const result = await service.discover({
+      provider: "deepseek",
+      base_url: "https://api.deepseek.com/v1",
+      protocol_mode: "chat_completions_bridge",
+      api_key: "synthetic-key",
+    })
+
+    expect(result).toMatchObject({
+      status: "supported",
+      models: [
+        { id: "deepseek-v4.1-flash", context_window: 1_048_576 },
+        { id: "priced-model", context_window: 128_000 },
+      ],
+    })
+    expect(readCatalogContextWindows).toHaveBeenCalledWith({
+      provider: "deepseek",
+      models: [
+        {
+          id: "deepseek-v4.1-flash",
+          display_name: "DeepSeek V4.1 Flash",
+        },
+      ],
+    })
+  })
+
+  it("resolves a stored null context window from the model catalog without rewriting settings", async () => {
+    const database = inMemoryDatabase()
+    await new ModelProviderSettingsService(
+      database.prisma,
+      testConfig(),
+      noModelMetadata
+    ).update(
+      ACTOR_ID,
+      {
+        expected_revision: 0,
+        providers: [
+          provider(
+            "provider-a",
+            "https://models.example.test/v1",
+            [pricedModel("model-a", ["medium"], "medium")],
+            "native_responses",
+            "provider-secret"
+          ),
+        ],
+        default_model: "model-a",
+      },
+      {}
+    )
+
+    const service = new ModelProviderSettingsService(
+      database.prisma,
+      testConfig(),
+      {
+        readContextWindows: vi.fn(async () => new Map<string, number>()),
+        readCatalogContextWindows: vi.fn(
+          async () => new Map([["model-a", 1_048_576]])
+        ),
+      }
+    )
+
+    await expect(service.resolveRuntime(USER_ID)).resolves.toMatchObject({
+      model: "model-a",
+      provider: { modelContextWindow: 1_048_576 },
+    })
+    expect(
+      (await service.getAdminSettings()).providers[0]?.models[0]
+    ).toMatchObject({ id: "model-a", context_window: null })
+  })
+
+  it("fills an untouched generic reasoning profile from the model catalog when saving", async () => {
+    const database = inMemoryDatabase()
+    const readCatalogReasoningProfiles = vi.fn(
+      async () =>
+        new Map<string, ModelReasoningProfile>([
+          [
+            "model-a",
+            {
+              supported_reasoning_efforts: ["low", "high", "max"],
+              default_reasoning_effort: "high",
+            },
+          ],
+        ])
+    )
+    const service = new ModelProviderSettingsService(
+      database.prisma,
+      testConfig(),
+      {
+        readContextWindows: vi.fn(async () => new Map<string, number>()),
+        readCatalogContextWindows: vi.fn(async () => new Map<string, number>()),
+        readCatalogReasoningProfiles,
+      }
+    )
+
+    const settings = await service.update(
+      ACTOR_ID,
+      {
+        expected_revision: 0,
+        providers: [
+          provider(
+            "provider-a",
+            "https://models.example.test/v1",
+            [
+              pricedModel(
+                "model-a",
+                [...genericModelReasoningProfile.supported_reasoning_efforts],
+                genericModelReasoningProfile.default_reasoning_effort
+              ),
+            ],
+            "native_responses",
+            "provider-secret"
+          ),
+        ],
+        default_model: "model-a",
+      },
+      {}
+    )
+
+    expect(settings.providers[0]?.models[0]).toMatchObject({
+      id: "model-a",
+      supported_reasoning_efforts: ["low", "high", "max"],
+      default_reasoning_effort: "high",
+    })
+    expect(readCatalogReasoningProfiles).toHaveBeenCalledWith({
+      provider: "openai_compatible",
+      models: [{ id: "model-a", display_name: "MODEL-A" }],
+    })
+  })
+
+  it("keeps a manually configured reasoning profile", async () => {
+    const database = inMemoryDatabase()
+    const readCatalogReasoningProfiles = vi.fn(
+      async () =>
+        new Map<string, ModelReasoningProfile>([
+          [
+            "model-a",
+            {
+              supported_reasoning_efforts: ["low", "high", "max"],
+              default_reasoning_effort: "high",
+            },
+          ],
+        ])
+    )
+    const service = new ModelProviderSettingsService(
+      database.prisma,
+      testConfig(),
+      {
+        readContextWindows: vi.fn(async () => new Map<string, number>()),
+        readCatalogReasoningProfiles,
+      }
+    )
+
+    const settings = await service.update(
+      ACTOR_ID,
+      {
+        expected_revision: 0,
+        providers: [
+          provider(
+            "provider-a",
+            "https://models.example.test/v1",
+            [pricedModel("model-a", ["low", "medium"], "low")],
+            "native_responses",
+            "provider-secret"
+          ),
+        ],
+        default_model: "model-a",
+      },
+      {}
+    )
+
+    expect(settings.providers[0]?.models[0]).toMatchObject({
+      id: "model-a",
+      supported_reasoning_efforts: ["low", "medium"],
+      default_reasoning_effort: "low",
+    })
+    expect(readCatalogReasoningProfiles).not.toHaveBeenCalled()
+  })
+
+  it("resolves an untouched generic reasoning profile at runtime without rewriting settings", async () => {
+    const database = inMemoryDatabase()
+    await new ModelProviderSettingsService(
+      database.prisma,
+      testConfig(),
+      noModelMetadata
+    ).update(
+      ACTOR_ID,
+      {
+        expected_revision: 0,
+        providers: [
+          provider(
+            "provider-a",
+            "https://models.example.test/v1",
+            [
+              pricedModel(
+                "model-a",
+                [...genericModelReasoningProfile.supported_reasoning_efforts],
+                genericModelReasoningProfile.default_reasoning_effort
+              ),
+            ],
+            "native_responses",
+            "provider-secret"
+          ),
+        ],
+        default_model: "model-a",
+      },
+      {}
+    )
+
+    const service = new ModelProviderSettingsService(
+      database.prisma,
+      testConfig(),
+      {
+        readContextWindows: vi.fn(async () => new Map<string, number>()),
+        readCatalogReasoningProfiles: vi.fn(
+          async () =>
+            new Map<string, ModelReasoningProfile>([
+              [
+                "model-a",
+                {
+                  supported_reasoning_efforts: ["low", "high", "max"],
+                  default_reasoning_effort: "high",
+                },
+              ],
+            ])
+        ),
+      }
+    )
+
+    await expect(
+      service.resolveManagedModel("model-a", "chat")
+    ).resolves.toMatchObject({
+      model: {
+        supported_reasoning_efforts: ["low", "high", "max"],
+        default_reasoning_effort: "high",
+      },
+    })
+    expect(
+      (await service.getAdminSettings()).providers[0]?.models[0]
+    ).toMatchObject({
+      supported_reasoning_efforts:
+        genericModelReasoningProfile.supported_reasoning_efforts,
     })
   })
 

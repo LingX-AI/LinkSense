@@ -53,6 +53,7 @@ import {
   conversationFormResponseSemanticsSchema,
   conversationFormUiHintsSchema,
   coreMcpServerKey,
+  modelAutoCompactTokenLimitFor,
   modelIdentifierSchema,
   PUBLIC_SITE_SKILL_NAME,
   publicSiteRuntimeSkillName,
@@ -98,6 +99,10 @@ import {
   NativePluginManager,
   type NativePluginActivation,
 } from "./codex/native-plugin-manager.js";
+import {
+  createCodexModelCatalogCacheWriter,
+  type ModelCatalogCacheWriter,
+} from "./codex/model-catalog-cache.js";
 import { activePluginNames, connectionPluginConfigOverrides } from "./codex/connection-plugin-policy.js";
 import { isConnectionWrite } from "@linksense/shared";
 import {
@@ -862,9 +867,12 @@ export class AppServerProcessPool {
     Promise<Omit<CodexAppServerHealth, "cached">> | undefined;
   private modelCatalogCache:
     { expiresAt: number; catalog: CodexModelReasoningCatalog } | undefined;
+  private readonly codexModelCatalogCache: ModelCatalogCacheWriter;
   constructor(
     private readonly options: {
       command: string;
+      codexVersion?: string;
+      modelCatalogCache?: ModelCatalogCacheWriter;
       /** @deprecated Model selection is supplied per turn. */
       model?: string;
       processLimit: number;
@@ -920,6 +928,31 @@ export class AppServerProcessPool {
     this.steerOperationStore = new SteerOperationStore(
       this.options.workspaceManager,
     );
+    this.codexModelCatalogCache =
+      options.modelCatalogCache ?? createCodexModelCatalogCacheWriter();
+  }
+
+  private async ensureModelCatalogCache(
+    input: StartTurnInput,
+    codexHome: string,
+  ): Promise<void> {
+    if (!this.options.codexVersion) return;
+    await this.codexModelCatalogCache
+      .ensure({
+        command: this.options.command,
+        codexHome,
+        codexVersion: this.options.codexVersion,
+        model: input.model,
+        ...(input.modelProvider.modelContextWindow === undefined
+          ? {}
+          : {
+              modelContextWindow: input.modelProvider.modelContextWindow,
+            }),
+        ...(this.options.codexProcessIdentity
+          ? { processIdentity: this.options.codexProcessIdentity }
+          : {}),
+      })
+      .catch(() => undefined);
   }
 
   get size(): number {
@@ -1828,6 +1861,7 @@ export class AppServerProcessPool {
           managed,
           input.model,
           paths.workspace,
+          input.modelProvider,
         );
         await this.options.eventSink.alignConversationThread?.(
           managed.conversationId,
@@ -1845,7 +1879,13 @@ export class AppServerProcessPool {
           managed,
           isModelSwitch ? sourceThreadModel! : input.model,
           paths.workspace,
-          precedingTurnId,
+          {
+            lastTurnId: precedingTurnId,
+            modelConfig:
+              (isModelSwitch
+                ? input.modelTransitionSource?.provider
+                : undefined) ?? input.modelProvider,
+          },
         );
         baselineTurnIds = sourceFork.thread.turns?.map((turn) => turn.id) ?? [];
         if (!sameStringSequence(baselineTurnIds, expectedBaselineTurnIds)) {
@@ -1872,6 +1912,7 @@ export class AppServerProcessPool {
             managed,
             input.model,
             paths.workspace,
+            { modelConfig: input.modelProvider },
           );
           await this.options.eventSink.alignConversationThread?.(
             managed.conversationId,
@@ -1900,6 +1941,7 @@ export class AppServerProcessPool {
           managed,
           input.model,
           paths.workspace,
+          { modelConfig: input.modelProvider },
         );
         await this.options.eventSink.alignConversationThread?.(
           managed.conversationId,
@@ -2236,11 +2278,12 @@ export class AppServerProcessPool {
     managed: ManagedProcess,
     model: string,
     workspace: string,
+    modelConfig?: ThreadModelConfig,
   ): Promise<string> {
     const response = await managed.client.request<ThreadStartResponse>(
       "thread/start",
       {
-        ...linkSenseThreadRuntimeOverrides(model, workspace),
+        ...linkSenseThreadRuntimeOverrides(model, workspace, modelConfig),
         ephemeral: false,
       },
     );
@@ -2261,7 +2304,10 @@ export class AppServerProcessPool {
     managed: ManagedProcess,
     model: string,
     workspace: string,
-    lastTurnId?: string,
+    options: {
+      lastTurnId?: string;
+      modelConfig?: ThreadModelConfig;
+    } = {},
   ): Promise<ThreadForkResponse> {
     const sourceThreadId = managed.codexThreadId;
     if (!sourceThreadId) {
@@ -2271,9 +2317,13 @@ export class AppServerProcessPool {
       "thread/fork",
       {
         threadId: sourceThreadId,
-        ...(lastTurnId ? { lastTurnId } : {}),
+        ...(options.lastTurnId ? { lastTurnId: options.lastTurnId } : {}),
         deferGoalContinuation: true,
-        ...linkSenseThreadRuntimeOverrides(model, workspace),
+        ...linkSenseThreadRuntimeOverrides(
+          model,
+          workspace,
+          options.modelConfig,
+        ),
       } satisfies ThreadForkParams,
     );
     if (!forked.thread.id || forked.thread.id === sourceThreadId) {
@@ -5487,6 +5537,7 @@ export class AppServerProcessPool {
           preparedMcpProxy.runtime,
         );
       }
+      await this.ensureModelCatalogCache(input, paths.codexHome);
       let client: CodexJsonRpcClient;
       const managedReference: { current: ManagedProcess | null } = {
         current: null,
@@ -5813,7 +5864,12 @@ export class AppServerProcessPool {
                 pluginNames,
               });
         const startNativeThread = async (): Promise<void> => {
-          await this.startManagedThread(managed, input.model, paths.workspace);
+          await this.startManagedThread(
+            managed,
+            input.model,
+            paths.workspace,
+            input.modelProvider,
+          );
         };
 
         const ensureNativeThread = async (): Promise<void> => {
@@ -5831,6 +5887,8 @@ export class AppServerProcessPool {
                   ...linkSenseThreadRuntimeOverrides(
                     resumeModel,
                     paths.workspace,
+                    input.modelTransitionSource?.provider ??
+                      input.modelProvider,
                   ),
                   excludeTurns: true,
                 },
@@ -7867,6 +7925,11 @@ function managedBrowserTurnEnvironment(
     : {};
 }
 
+type ThreadModelConfig = {
+  modelContextWindow?: number;
+  modelAutoCompactTokenLimit?: number;
+};
+
 type LinkSenseThreadRuntimeOverrides = {
   model: string;
   modelProvider: typeof linkSenseModelProviderId;
@@ -7874,12 +7937,30 @@ type LinkSenseThreadRuntimeOverrides = {
   runtimeWorkspaceRoots: string[];
   approvalPolicy: typeof LINKSENSE_APPROVAL_POLICY;
   sandbox: "danger-full-access";
+  config?: Record<string, unknown>;
 };
 
 function linkSenseThreadRuntimeOverrides(
   model: string,
   workspace: string,
+  modelConfig?: ThreadModelConfig,
 ): LinkSenseThreadRuntimeOverrides {
+  const autoCompactTokenLimit =
+    modelConfig?.modelAutoCompactTokenLimit ??
+    (modelConfig?.modelContextWindow === undefined
+      ? undefined
+      : modelAutoCompactTokenLimitFor(modelConfig.modelContextWindow));
+  const config = {
+    ...(modelConfig?.modelContextWindow === undefined
+      ? {}
+      : { model_context_window: modelConfig.modelContextWindow }),
+    ...(autoCompactTokenLimit === undefined
+      ? {}
+      : {
+          model_auto_compact_token_limit: autoCompactTokenLimit,
+          model_auto_compact_token_limit_scope: "total",
+        }),
+  };
   return {
     model,
     modelProvider: linkSenseModelProviderId,
@@ -7887,6 +7968,7 @@ function linkSenseThreadRuntimeOverrides(
     runtimeWorkspaceRoots: [workspace],
     approvalPolicy: LINKSENSE_APPROVAL_POLICY,
     sandbox: "danger-full-access" as const,
+    ...(Object.keys(config).length === 0 ? {} : { config }),
   };
 }
 

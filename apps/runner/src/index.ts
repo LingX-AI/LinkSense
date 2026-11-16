@@ -86,14 +86,14 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
     flushCompileCache()
     return
   }
-  await assertCodexRuntimeVersion({
+  const codexVersion = await assertCodexRuntimeVersion({
     command: config.CODEX_BIN,
     ...(config.LINKSENSE_RUNNER_MODE === "worker" &&
     config.LINKSENSE_WORKER_PROVIDER !== "local-process"
       ? { processIdentity: containerTaskProcessIdentity }
       : {}),
   })
-  await startExecutionRunner(config)
+  await startExecutionRunner(config, codexVersion)
   flushCompileCache()
 }
 
@@ -124,7 +124,10 @@ async function startController(config: RunnerConfig): Promise<void> {
   })
 }
 
-async function startExecutionRunner(config: RunnerConfig): Promise<void> {
+async function startExecutionRunner(
+  config: RunnerConfig,
+  codexVersion: string,
+): Promise<void> {
   const [
     { HttpRunnerEventSink },
     { ConversationOwnerRegistry },
@@ -305,6 +308,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   await modelGateway.start()
   const pool = new AppServerProcessPool({
     command: config.CODEX_BIN,
+    codexVersion,
     processLimit: config.LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT,
     idleTtlMs: config.LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS * 1000,
     templateVersion: config.LINKSENSE_AGENTS_TEMPLATE_VERSION,

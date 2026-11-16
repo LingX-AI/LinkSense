@@ -32,6 +32,7 @@ import {
   type ManagedModelKind,
   type ManagedPricedModel,
   type MemoryExtractionRuntime,
+  type ModelReasoningProfile,
   type DeleteModelProvider,
   type DeleteModelProviderModel,
   type ModelPreference,
@@ -43,6 +44,7 @@ import {
   type UpdateModelPreference,
   type UpdateModelProviderSettings,
   type ModelProviderProbeInput,
+  type ModelServiceProvider,
   type TestModelProviderConnectionInput,
   type DiscoverModelProviderResult,
   type TestModelProviderConnectionResult,
@@ -55,6 +57,7 @@ import { decryptJson, encryptJson } from "../../lib/crypto.js"
 import { AppError } from "../../lib/errors.js"
 import type { AuditContext } from "../audit/service.js"
 import { createModelProviderProbeClient, createBoundedModelProviderFetch, type ModelProviderProbeClient, type ResolvedProviderProbe } from "./model-provider-probe.js"
+import { defaultModelCatalog } from "./model-catalog.js"
 
 const SYSTEM_SETTINGS_ID = "00000000-0000-4000-8000-000000000001"
 const ENCRYPTED_SETTINGS_KEY = "model_provider_settings_encrypted"
@@ -91,6 +94,14 @@ export interface ModelProviderMetadataClient {
     baseUrl: string
     apiKey: string
   }): Promise<ReadonlyMap<string, number>>
+  readCatalogContextWindows?(input: {
+    provider: ModelServiceProvider
+    models: readonly { id: string; display_name: string }[]
+  }): Promise<ReadonlyMap<string, number>>
+  readCatalogReasoningProfiles?(input: {
+    provider: ModelServiceProvider
+    models: readonly { id: string; display_name: string }[]
+  }): Promise<ReadonlyMap<string, ModelReasoningProfile>>
 }
 
 const legacyKnowledgeSettingsSchema = z.object({
@@ -389,7 +400,23 @@ export class ModelProviderSettingsService
 
   async discover(rawInput: ModelProviderProbeInput): Promise<DiscoverModelProviderResult> {
     this.assertProbeManagementEnabled()
-    return this.probeClient.discover(await this.resolveProbeCredentials(modelProviderProbeInputSchema.parse(rawInput)))
+    const input = modelProviderProbeInputSchema.parse(rawInput)
+    const result = await this.probeClient.discover(await this.resolveProbeCredentials(input))
+    if (result.status !== "supported") return result
+    const missing = result.models.filter((model) => model.context_window === null)
+    const catalogContextWindows = await this.readCatalogContextWindows(input.provider, missing)
+    if (catalogContextWindows.size === 0) return result
+    return {
+      ...result,
+      models: result.models.map((model) =>
+        model.context_window === null
+          ? {
+              ...model,
+              context_window: catalogContextWindows.get(model.id) ?? null,
+            }
+          : model
+      ),
+    }
   }
 
   async testConnection(rawInput: TestModelProviderConnectionInput): Promise<TestModelProviderConnectionResult> {
@@ -439,7 +466,7 @@ export class ModelProviderSettingsService
   ): Promise<ModelProviderSettings> {
     const input = updateModelProviderSettingsSchema.parse(rawInput)
     const currentForMetadata = await this.readStoredSettingsForMetadata()
-    const enrichedProviders = await this.enrichProvidersWithContextWindows(
+    const enrichedProviders = await this.enrichProvidersWithCapabilities(
       input.providers,
       currentForMetadata
     )
@@ -1075,14 +1102,15 @@ export class ModelProviderSettingsService
     if (!stored || stored.defaultModel === null) {
       throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED")
     }
+    const effective = await this.withCatalogCapabilities(stored)
     const selection = resolveSelection(
-      stored,
+      effective,
       source.conversation?.preferredModel ??
         source.latestTurn?.model ??
         source.user.preferredModel,
       source.user.preferredReasoningEffort
     )
-    return projectRuntime(stored, selection.model, selection.reasoningEffort)
+    return projectRuntime(effective, selection.model, selection.reasoningEffort)
   }
 
   async resolveRuntimeForSelection(
@@ -1092,7 +1120,11 @@ export class ModelProviderSettingsService
     const stored = await this.readStoredSettings()
     if (!stored) throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED")
     assertSelectionAvailable(stored, model, reasoningEffort)
-    return projectRuntime(stored, model, reasoningEffort)
+    return projectRuntime(
+      await this.withCatalogCapabilities(stored),
+      model,
+      reasoningEffort
+    )
   }
 
   async resolveModelTransitionRuntime(
@@ -1100,7 +1132,10 @@ export class ModelProviderSettingsService
   ): Promise<ResolvedModelTransitionRuntime> {
     const stored = await this.readStoredSettings()
     if (!stored) throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED")
-    return projectModelTransitionRuntime(stored, model)
+    return projectModelTransitionRuntime(
+      await this.withCatalogCapabilities(stored),
+      model
+    )
   }
 
   async resolveManagedModel(
@@ -1109,13 +1144,21 @@ export class ModelProviderSettingsService
   ): Promise<ResolvedManagedModelRuntime> {
     const stored = await this.readStoredSettings()
     if (!stored) throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED")
-    return projectManagedRuntime(stored, modelId, expectedKind)
+    return projectManagedRuntime(
+      await this.withCatalogCapabilities(stored),
+      modelId,
+      expectedKind
+    )
   }
 
   async resolveTaskTitleModel(): Promise<ResolvedManagedModelRuntime | null> {
     const stored = await this.readStoredSettings()
     if (!stored?.titleModel) return null
-    return projectManagedRuntime(stored, stored.titleModel, "chat")
+    return projectManagedRuntime(
+      await this.withCatalogCapabilities(stored),
+      stored.titleModel,
+      "chat"
+    )
   }
 
   private async readStoredSettingsForMetadata(): Promise<StoredModelProviderSettings | null> {
@@ -1130,7 +1173,7 @@ export class ModelProviderSettingsService
     )
   }
 
-  private async enrichProvidersWithContextWindows(
+  private async enrichProvidersWithCapabilities(
     providers: ParsedManagedModelProviderUpdate[],
     current: StoredModelProviderSettings | null
   ): Promise<ParsedManagedModelProviderUpdate[]> {
@@ -1155,27 +1198,157 @@ export class ModelProviderSettingsService
                 })
                 .catch(() => new Map<string, number>())
             : new Map<string, number>()
+        const catalogContextWindows = await this.readCatalogContextWindows(
+          provider.provider,
+          provider.models.filter(
+            (model) =>
+              model.kind === "chat" &&
+              model.context_window === null &&
+              !probedContextWindows.has(model.id)
+          )
+        )
+        const catalogReasoningProfiles =
+          await this.readCatalogReasoningProfiles(
+            provider.provider,
+            provider.models.filter(
+              (model) =>
+                model.kind === "chat" && usesGenericReasoningProfile(model)
+            )
+          )
         return {
           ...provider,
           models: provider.models.map((model) => {
-            if (model.kind !== "chat" || model.context_window !== null) {
-              return model
-            }
+            if (model.kind !== "chat") return model
             const currentModel = currentProvider?.models.find(
               (candidate): candidate is ManagedConversationModel =>
                 candidate.kind === "chat" && candidate.id === model.id
             )
+            const contextWindow =
+              model.context_window === null
+                ? probedContextWindows.get(model.id) ??
+                  currentModel?.context_window ??
+                  catalogContextWindows.get(model.id) ??
+                  null
+                : model.context_window
+            const profile = usesGenericReasoningProfile(model)
+              ? catalogReasoningProfiles.get(model.id)
+              : undefined
             return {
               ...model,
-              context_window:
-                probedContextWindows.get(model.id) ??
-                currentModel?.context_window ??
-                null,
+              context_window: contextWindow,
+              ...(profile
+                ? {
+                    supported_reasoning_efforts: [
+                      ...profile.supported_reasoning_efforts,
+                    ],
+                    default_reasoning_effort:
+                      profile.default_reasoning_effort,
+                  }
+                : {}),
             }
           }),
         }
       })
     )
+  }
+
+  private async readCatalogContextWindows(
+    provider: ModelServiceProvider,
+    models: readonly { id: string; display_name: string }[]
+  ): Promise<ReadonlyMap<string, number>> {
+    const read = this.modelMetadataClient.readCatalogContextWindows
+    if (!read || models.length === 0) return new Map()
+    try {
+      return await read({
+        provider,
+        models: models.map(({ id, display_name }) => ({ id, display_name })),
+      })
+    } catch {
+      return new Map()
+    }
+  }
+
+  private async readCatalogReasoningProfiles(
+    provider: ModelServiceProvider,
+    models: readonly { id: string; display_name: string }[]
+  ): Promise<ReadonlyMap<string, ModelReasoningProfile>> {
+    const read = this.modelMetadataClient.readCatalogReasoningProfiles
+    if (!read || models.length === 0) return new Map()
+    try {
+      return await read({
+        provider,
+        models: models.map(({ id, display_name }) => ({ id, display_name })),
+      })
+    } catch {
+      return new Map()
+    }
+  }
+
+  /**
+   * Settings saved before catalog discovery keep a null window or the generic
+   * reasoning profile, which makes Codex fall back to its own defaults and
+   * compact long-context models early. Fill them in memory for runtime
+   * resolution without rewriting admin settings.
+   */
+  private async withCatalogCapabilities(
+    stored: StoredModelProviderSettings
+  ): Promise<StoredModelProviderSettings> {
+    const canReadContext = Boolean(
+      this.modelMetadataClient.readCatalogContextWindows
+    )
+    const canReadReasoning = Boolean(
+      this.modelMetadataClient.readCatalogReasoningProfiles
+    )
+    if (!canReadContext && !canReadReasoning) return stored
+    let filled = false
+    const providers = await Promise.all(
+      stored.providers.map(async (provider) => {
+        const chatModels = provider.models.filter(
+          (model): model is ManagedConversationModel => model.kind === "chat"
+        )
+        const missingContext = canReadContext
+          ? chatModels.filter((model) => model.context_window === null)
+          : []
+        const genericProfiles = canReadReasoning
+          ? chatModels.filter((model) => usesGenericReasoningProfile(model))
+          : []
+        if (missingContext.length === 0 && genericProfiles.length === 0) {
+          return provider
+        }
+        const [windows, profiles] = await Promise.all([
+          this.readCatalogContextWindows(provider.provider, missingContext),
+          this.readCatalogReasoningProfiles(
+            provider.provider,
+            genericProfiles
+          ),
+        ])
+        if (windows.size === 0 && profiles.size === 0) return provider
+        filled = true
+        return {
+          ...provider,
+          models: provider.models.map((model) => {
+            if (model.kind !== "chat") return model
+            const profile = profiles.get(model.id)
+            return {
+              ...model,
+              ...(model.context_window === null && windows.has(model.id)
+                ? { context_window: windows.get(model.id) ?? null }
+                : {}),
+              ...(profile && usesGenericReasoningProfile(model)
+                ? {
+                    supported_reasoning_efforts: [
+                      ...profile.supported_reasoning_efforts,
+                    ],
+                    default_reasoning_effort:
+                      profile.default_reasoning_effort,
+                  }
+                : {}),
+            }
+          }),
+        }
+      })
+    )
+    return filled ? { ...stored, providers } : stored
   }
 
   private async readStoredSettings(): Promise<StoredModelProviderSettings | null> {
@@ -1485,6 +1658,18 @@ function migrateVersion6Settings(
 }
 
 const defaultModelProviderMetadataClient: ModelProviderMetadataClient = {
+  async readCatalogContextWindows(input) {
+    return defaultModelCatalog.resolveContextWindows(
+      input.provider,
+      input.models
+    )
+  },
+  async readCatalogReasoningProfiles(input) {
+    return defaultModelCatalog.resolveReasoningProfiles(
+      input.provider,
+      input.models
+    )
+  },
   async readContextWindows(input) {
     try {
       const signal = AbortSignal.timeout(MODEL_METADATA_REQUEST_TIMEOUT_MS)
@@ -1656,6 +1841,20 @@ function assertSelectionAvailable(
     throw new AppError("MODEL_SELECTION_INVALID")
   }
   return model
+}
+
+function usesGenericReasoningProfile(
+  model: ManagedConversationModel
+): boolean {
+  return (
+    model.default_reasoning_effort ===
+      genericModelReasoningProfile.default_reasoning_effort &&
+    model.supported_reasoning_efforts.length ===
+      genericModelReasoningProfile.supported_reasoning_efforts.length &&
+    genericModelReasoningProfile.supported_reasoning_efforts.every(
+      (effort, index) => model.supported_reasoning_efforts[index] === effort
+    )
+  )
 }
 
 function projectRuntime(
