@@ -7,6 +7,7 @@ import utc from "dayjs/plugin/utc.js";
 
 import type { Prisma, PrismaClient } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
+import { nextCalendarPeriodStart } from "../../lib/calendar-period.js";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -158,7 +159,7 @@ export class CreditLimitService {
         scope: "weekly",
         limit: limits.weeklyCreditLimitMicros,
         start: weekStart,
-        end: weekStart.add(1, "week"),
+        end: nextCalendarPeriodStart(weekStart, "week", this.options.timeZone),
       },
     ];
   }

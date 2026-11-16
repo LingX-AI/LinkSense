@@ -6,6 +6,19 @@ const USER_ID = "00000000-0000-4000-8000-000000000010"
 const NOW = new Date("2026-08-06T04:00:00.000Z")
 
 describe("CreditLimitService", () => {
+  it.each([
+    ["2026-03-06T12:00:00Z", "2026-03-02T05:00:00Z", "2026-03-09T04:00:00Z"],
+    ["2026-10-30T12:00:00Z", "2026-10-26T04:00:00Z", "2026-11-02T05:00:00Z"],
+  ])("uses the next local Monday across DST for a clock at %s", async (now, start, end) => {
+    const fixture = creditLimitFixture({ user: { status: "active", weeklyCreditLimitMicros: 1_000n } });
+    const service = new CreditLimitService(fixture.prisma as never, { timeZone: "America/New_York", now: () => new Date(now) });
+    expect(await service.personalOverview(USER_ID)).toMatchObject({ reset_at: new Date(end).toISOString() });
+    await service.assertCanStartTask(USER_ID);
+    expect(fixture.prisma.tokenUsageRecord.aggregate).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: { ownerId: USER_ID, observedAt: { gte: new Date(start), lt: new Date(end) } },
+    }));
+  });
+
   it("shows the full current-week consumption for unlimited members after a manual reset", async () => {
     const fixture = creditLimitFixture({
       user: { status: "active", weeklyCreditLimitMicros: null },
