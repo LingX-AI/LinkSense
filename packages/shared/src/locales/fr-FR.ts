@@ -1,6 +1,10 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  WEB_SITE_BACKEND_LIMIT_REACHED: "La limite de backends d’applications dynamiques est atteinte. Demandez à un administrateur de vérifier les ressources conservées.",
+  WEB_SITE_BACKEND_NOT_CONFIGURED: "Un administrateur doit configurer le service d’applications dynamiques auto-hébergé.",
+  WEB_SITE_BACKEND_UNAVAILABLE: "Le backend de l’application est temporairement indisponible. Réessayez plus tard.",
+  WEB_SITE_BACKEND_PENDING: "Les ressources ou fonctions du backend ne sont pas encore prêtes. Vérifiez la compilation avant de publier.",
   AUTOMATION_EXPIRATION_IN_PAST: "La date d’expiration ne peut pas être antérieure à aujourd’hui dans le fuseau horaire de l’automatisation. Choisissez une autre date.",
   BROWSER_USE_PAIR_RATE_LIMITED: "Trop de demandes d’association du navigateur. Veuillez réessayer plus tard.",
   LOCAL_BROWSER_PAIR_RATE_LIMITED: "Trop de demandes d’association du navigateur. Veuillez réessayer plus tard.",

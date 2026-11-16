@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { webSiteBackendConfigureSchema, webSiteBackendInspectSchema, webSiteBackendPrepareSchema } from "./web-site-backends.js";
 
 export const webSiteSlugSchema = z.string().trim().toLowerCase().min(3).max(80)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
@@ -9,6 +10,7 @@ export const webSiteCreateSchema = z.strictObject({
   name: z.string().trim().min(1).max(240),
   description: z.string().trim().max(1_000).default(""),
   slug: webSiteSlugSchema.optional(),
+  backend_id: z.uuid().optional(),
 });
 export const webSiteUpdateSchema = z.strictObject({
   name: z.string().trim().min(1).max(240).optional(),
@@ -33,6 +35,8 @@ export const webSiteSchema = z.object({
   published_at: z.iso.datetime(),
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
+  backend_id: z.uuid().nullable().optional(),
+  url: z.url({ protocol: /^https?$/u }).optional(),
 });
 export const webSitePageSchema = z.object({
   items: z.array(webSiteSchema),
@@ -43,7 +47,7 @@ export const webSiteSourceSchema = z.object({
 });
 export const webSiteSourcesSchema = z.array(webSiteSourceSchema);
 export const conversationWebSiteSchema = webSiteSchema.pick({
-  id: true, name: true, slug: true, status: true, source_file_id: true,
+  id: true, name: true, slug: true, status: true, source_file_id: true, backend_id: true,
 }).extend({ turn_id: z.uuid(), url: z.url({ protocol: /^https?$/u }) });
 export const conversationWebSitesSchema = z.array(conversationWebSiteSchema);
 export type ConversationWebSite = z.infer<typeof conversationWebSiteSchema>;
@@ -60,6 +64,7 @@ export const webSitePublishToolSchema = z.strictObject({
   slug: webSiteSlugSchema.optional(),
   file_id: z.uuid(),
   site_id: z.uuid().optional(),
+  backend_id: z.uuid().optional(),
 });
 export const webSiteListToolSchema = z.strictObject({
   search: z.string().trim().max(240).optional(),
@@ -78,6 +83,9 @@ export const webSiteToolRequestSchema = z.discriminatedUnion("operation", [
   webSitePublishToolSchema.extend({ operation: z.literal("publish") }),
   webSiteListToolSchema.extend({ operation: z.literal("list") }),
   webSiteUpdateToolSchema.extend({ operation: z.literal("update") }),
+  webSiteBackendPrepareSchema.extend({ operation: z.literal("prepare_backend") }),
+  webSiteBackendConfigureSchema.extend({ operation: z.literal("configure_backend") }),
+  webSiteBackendInspectSchema.extend({ operation: z.literal("inspect_backend") }),
 ]);
 export const webSiteWithUrlSchema = webSiteSchema.extend({ url: z.url() });
 export const webSiteToolPageSchema = z.object({

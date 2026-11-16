@@ -1,6 +1,10 @@
 import type { ErrorCode } from "../errors.js";
 
 export const errorMessages: Record<ErrorCode, string> = {
+  WEB_SITE_BACKEND_LIMIT_REACHED: "動的アプリのバックエンド数が上限に達しました。保持中のリソースを管理者に確認してください。",
+  WEB_SITE_BACKEND_NOT_CONFIGURED: "管理者がセルフホスト型の動的アプリサービスを設定する必要があります。",
+  WEB_SITE_BACKEND_UNAVAILABLE: "アプリのバックエンドを一時的に利用できません。後でもう一度お試しください。",
+  WEB_SITE_BACKEND_PENDING: "バックエンドのリソースまたは関数の準備が完了していません。ビルド状況を確認してから公開してください。",
   AUTOMATION_EXPIRATION_IN_PAST: "有効期限に自動化のタイムゾーンで今日より前の日付は指定できません。別の日付を選択してください。",
   BROWSER_USE_PAIR_RATE_LIMITED: "ブラウザーのペアリングリクエストが多すぎます。しばらくしてから再試行してください。",
   LOCAL_BROWSER_PAIR_RATE_LIMITED: "ブラウザーのペアリングリクエストが多すぎます。しばらくしてから再試行してください。",

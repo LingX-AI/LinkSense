@@ -102,13 +102,14 @@ export const publicWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; 
       .header("content-security-policy", "sandbox; default-src 'none'")
       .send(`<!doctype html><html lang="${locale}"><meta charset="utf-8"><title>${escapeHtml(details.message)}</title><body><p>${escapeHtml(details.message)}</p></body></html>`);
   });
-  const entry = async (slug: string): Promise<string> => {
-    const page = await service.publicEntry(slug);
+  const entry = (page: Awaited<ReturnType<WebSiteService["publicEntry"]>>): string => {
     return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(page.title)}</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}iframe{display:block;border:0;width:100%;height:100%}</style></head><body><iframe title="${escapeHtml(page.title)}" sandbox="${webSiteSandbox}" referrerpolicy="no-referrer" src="${escapeHtml(page.path)}"></iframe></body></html>`;
   };
   for (const path of ["/:slug", "/:slug/"]) app.get(path, async (request, reply) => {
     const { slug } = z.object({ slug: webSiteSlugSchema }).parse(request.params);
-    return reply.type("text/html; charset=utf-8").header("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'").send(await entry(slug));
+    const page = await service.publicEntry(slug);
+    if (page.url) return reply.redirect(page.url);
+    return reply.type("text/html; charset=utf-8").header("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'").send(entry(page));
   });
   app.get("/:slug/_releases/:releaseId/*", async (request, reply) => {
     const { slug, releaseId, "*": path } = z.object({ slug: webSiteSlugSchema, releaseId: z.uuid(), "*": z.string().min(1).max(1_000) }).parse(request.params);

@@ -2,7 +2,7 @@ import { Prisma, type ConversationFile, type PrismaClient, type WebArtifactBundl
 import type { WebSiteCreate, WebSiteStatus, WebSiteUpdate, WebBundleManifest } from "@linksense/shared";
 import { AppError } from "../../lib/errors.js";
 
-export type SiteAndRelease = { site: WebSite; release: WebSiteRelease };
+export type SiteAndRelease = { site: Omit<WebSite, "backendId"> & { backendId?: string | null }; release: WebSiteRelease };
 type SiteSource = {
   conversation: { id: string; title: string };
   file: Pick<ConversationFile, "id" | "conversationId" | "filename" | "mimeType" | "minioObjectKey" | "sizeBytes" | "checksumSha256">;
@@ -45,7 +45,7 @@ export class WebSiteRepository {
     // Releases retain the original file even when a later task updates the same site.
     return this.prisma.$queryRaw<unknown[]>(Prisma.sql`
       SELECT DISTINCT
-        s.id, s.name, s.slug, s.status, f.id AS source_file_id, f.turn_id
+        s.id, s.name, s.slug, s.status, s.backend_id, f.id AS source_file_id, f.turn_id
       FROM conversation_files f
       JOIN conversations c ON c.id = f.conversation_id
       JOIN conversation_turns t ON t.id = f.turn_id AND t.conversation_id = c.id
@@ -124,14 +124,21 @@ export class WebSiteRepository {
         await lockSource(tx, ownerId, input.conversation_id, input.file_id);
         const existing = await tx.webSite.findFirst({ where: { ownerId, originFileId: input.file_id } });
         if (existing) {
+          if (input.backend_id && existing.backendId !== input.backend_id) throw new AppError("CONFLICT");
           const release = await tx.webSiteRelease.findUniqueOrThrow({ where: { id: existing.currentReleaseId } });
           return { site: existing, release };
+        }
+        if (input.backend_id) {
+          const backends = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id FROM web_site_backends WHERE id=${input.backend_id}::uuid AND owner_id=${ownerId}::uuid AND status='ready' AND (lease_until IS NULL OR lease_until < ${new Date()}) FOR UPDATE`);
+          if (!backends.length) throw new AppError("WEB_SITE_BACKEND_PENDING");
+          if (await tx.webSite.count({ where: { backendId: input.backend_id } })) throw new AppError("CONFLICT");
         }
         await tx.webSiteAddress.create({ data: { slug: ids.slug, siteId: ids.siteId } });
         const site = await tx.webSite.create({ data: {
           id: ids.siteId, ownerId, conversationId: input.conversation_id, originFileId: input.file_id,
           sourceFileId: input.file_id, sourceTaskTitle: sourceTitle, name: input.name,
           description: input.description, slug: ids.slug, status: "published", currentReleaseId: ids.releaseId,
+          ...(input.backend_id ? { backendId: input.backend_id } : {}),
         } });
         const release = await tx.webSiteRelease.create({ data: { id: ids.releaseId, siteId: site.id, sourceFileId: input.file_id, manifestJson: manifest } });
         await audit(tx, ownerId, site.id, "web_site_created");

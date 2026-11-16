@@ -40,7 +40,7 @@ try {
   await db.webSiteRelease.create({ data: { id: firstReleaseId, siteId, sourceFileId: firstFile.id, manifestJson: {} } });
   const repository = new WebSiteRepository(db);
   const expected = {
-    id: siteId, name: "Sample", slug: "sample", status: "published", source_file_id: firstFile.id, turn_id: firstTurn.id,
+    id: siteId, name: "Sample", slug: "sample", status: "published", source_file_id: firstFile.id, turn_id: firstTurn.id, backend_id: null,
   };
   assert.deepEqual(await repository.conversationDeliveries(owner.id, firstTask.id), [expected]);
   assert.deepEqual(await repository.conversationDeliveries(other.id, firstTask.id), []);

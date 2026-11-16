@@ -54,6 +54,7 @@ import { projectRoutes } from "./modules/projects/routes.js";
 import { conversationRoutes } from "./modules/conversations/routes.js";
 import { publicConversationShareRoutes } from "./modules/conversations/share-routes.js";
 import { internalWebSiteRoutes, publicWebSiteRoutes, webSiteRoutes } from "./modules/web-sites/routes.js";
+import { registerWebSiteBackendGateway } from "./modules/web-site-backends/gateway.js";
 import { fileRoutes } from "./modules/files/routes.js";
 import { internalRunnerRoutes, sseRoutes } from "./modules/events/routes.js";
 import { auditRoutes } from "./modules/audit/routes.js";
@@ -124,6 +125,10 @@ import { LocalFilesystemObjectStorage } from "./adapters/object-storage.js";
 import { registerLocalObjectStorageRoutes } from "./adapters/local-object-storage-routes.js";
 
 export const SENSITIVE_REQUEST_LOG_PATHS = [
+  'req.headers["x-appwrite-key"]',
+  'req.headers["x-appwrite-session"]',
+  'req.headers["x-appwrite-jwt"]',
+  'req.headers["x-fallback-cookies"]',
   "req.headers.authorization",
   "req.headers.cookie",
   "req.body.password",
@@ -180,6 +185,7 @@ export async function buildApi(
     bodyLimit: maximumMultipartFileSize + 1024 * 1024,
   });
 
+  registerWebSiteBackendGateway(app, services.webSiteBackends, services.webSites);
   app.addHook("onRequest", (request, _reply, done) => { withTaskLatencyContext(request.log, done); });
   app.addHook("onResponse", async () => { finishTaskRequest(); });
   await app.register(cors, createApiCorsOptions(services.config.publicBaseUrl));
@@ -716,7 +722,7 @@ export function registerResponseSecurityHeaders(app: FastifyInstance): void {
         "camera=(), microphone=(self), geolocation=()",
       );
     }
-    if (!isEmbeddedApplicationFrame(requestPathname(request.url))) {
+    if (!reply.hasHeader("x-frame-options") && !isEmbeddedApplicationFrame(requestPathname(request.url))) {
       reply.header("x-frame-options", "SAMEORIGIN");
     }
     if (!reply.hasHeader("content-security-policy")) {

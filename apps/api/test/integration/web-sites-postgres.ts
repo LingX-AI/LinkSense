@@ -34,7 +34,9 @@ try {
   const password = randomUUID();
   const postgres = `linksense-web-pg-${randomUUID()}`;
   const redisName = `linksense-web-redis-${randomUUID()}`;
-  await docker("run", "--rm", "--label", "com.linksense.test.disposable=true", "-d", "--name", postgres, "-p", "127.0.0.1::5432", "-e", `POSTGRES_PASSWORD=${password}`, "-e", "POSTGRES_DB=web_sites_test", "postgres:16-alpine");
+  const postgresEnvironment = join(root, "postgres.env");
+  await writeFile(postgresEnvironment, `POSTGRES_PASSWORD=${password}\nPOSTGRES_DB=web_sites_test\n`, { mode: 0o600 });
+  await docker("run", "--rm", "--label", "com.linksense.test.disposable=true", "-d", "--name", postgres, "-p", "127.0.0.1::5432", "--env-file", postgresEnvironment, "postgres:16-alpine");
   containers.push(postgres);
   await docker("run", "--rm", "--label", "com.linksense.test.disposable=true", "-d", "--name", redisName, "-p", "127.0.0.1::6379", "redis:7-alpine");
   containers.push(redisName);
@@ -52,7 +54,7 @@ try {
   for (const entry of await readdir(migrations, { withFileTypes: true })) {
     if (entry.name === hardDeleteMigration) continue;
     await cp(join(migrations, entry.name), join(beforeHardDelete, entry.name), { recursive: true });
-    if (entry.name !== "20260917180000_add_web_sites") await cp(join(migrations, entry.name), join(before, entry.name), { recursive: true });
+    if (entry.name !== "20260917180000_add_web_sites" && entry.name !== "20261115000000_add_web_site_backends") await cp(join(migrations, entry.name), join(before, entry.name), { recursive: true });
   }
   const migrate = async (path: string) => { await execute("pnpm", ["exec", "prisma", "migrate", "deploy", "--config", "apps/api/test/integration/prisma.config.ts"], { cwd: repo, timeout: 120_000, env: { ...process.env, DATABASE_URL: databaseUrl, LINKSENSE_TEST_MIGRATIONS_PATH: path }, maxBuffer: 4_000_000 }); };
   await migrate(before);

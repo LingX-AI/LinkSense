@@ -8,15 +8,19 @@ import type { SiteAndRelease, SiteListInput, WebSiteStore } from "./repository.j
 import { bundleSize, prepareWebResource } from "./resources.js";
 
 import { WebArtifactResources } from "./artifact-resources.js";
+import type { WebSiteBackendService } from "../web-site-backends/service.js";
+import type { WebSiteBackend } from "@linksense/shared";
 
 export class WebSiteService {
   private readonly resources: WebArtifactResources;
-  constructor(private readonly store: WebSiteStore, private readonly storage: ObjectStorage) { this.resources = new WebArtifactResources(store, storage); }
+  constructor(private readonly store: WebSiteStore, private readonly storage: ObjectStorage, private readonly backends?: WebSiteBackendService) { this.resources = new WebArtifactResources(store, storage); }
   async conversationDeliveries(ownerId: string, conversationId: string, publicBaseUrl: string): Promise<ConversationWebSite[]> {
     const rows = await this.store.conversationDeliveries(ownerId, conversationId);
     return conversationWebSitesSchema.parse(rows.map(row => {
       const delivery = conversationWebSiteSchema.omit({ url: true }).parse(row);
-      return { ...delivery, url: new URL(`/web/${delivery.slug}`, publicBaseUrl).href };
+      if (!delivery.backend_id) delete delivery.backend_id;
+      const backend = conversationWebSiteSchema.shape.backend_id.safeParse(delivery.backend_id);
+      return { ...delivery, url: backend.success && backend.data && this.backends?.client ? this.backends.origin(backend.data) : new URL(`/web/${delivery.slug}`, publicBaseUrl).href };
     }));
   }
   async publishedSlugForOwner(ownerId: string, siteId: string): Promise<string> {
@@ -26,26 +30,42 @@ export class WebSiteService {
   }
   async list(ownerId: string, input: SiteListInput) {
     const rows = await this.store.list(ownerId, input);
-    const items = rows.slice(0, input.limit).map(projectSite);
+    const items = rows.slice(0, input.limit).map(row => this.project(row));
     const last = items.at(-1);
     return { items, next_cursor: rows.length > input.limit && last ? `${last.updated_at}|${last.id}` : null };
   }
   async create(ownerId: string, input: WebSiteCreate): Promise<WebSite> {
     const { sourceTitle, manifest } = await this.sourceBundle(ownerId, input.conversation_id, input.file_id);
-    return projectSite(await this.store.create(ownerId, input, { siteId: randomUUID(), releaseId: randomUUID(), slug: input.slug ?? randomUUID() }, sourceTitle, manifest));
+    if (input.backend_id) await this.requiredBackends().assertPublishable(ownerId, input.backend_id);
+    return this.project(await this.store.create(ownerId, input, { siteId: randomUUID(), releaseId: randomUUID(), slug: input.slug ?? randomUUID() }, sourceTitle, manifest));
   }
-  async update(ownerId: string, id: string, input: WebSiteUpdate): Promise<WebSite> { return projectSite(await this.store.update(ownerId, id, input)); }
-  async publish(ownerId: string, id: string, fileId: string): Promise<WebSite> {
-    await this.store.owned(ownerId, id);
+  async update(ownerId: string, id: string, input: WebSiteUpdate): Promise<WebSite> {
+    if (input.status === "published") {
+      const { site } = await this.store.owned(ownerId, id);
+      if (site.backendId) await this.requiredBackends().assertPublishable(ownerId, site.backendId);
+    }
+    return this.project(await this.store.update(ownerId, id, input));
+  }
+  async publish(ownerId: string, id: string, fileId: string, expectedBackendId?: string): Promise<WebSite> {
+    const { site } = await this.store.owned(ownerId, id);
+    if (expectedBackendId && site.backendId !== expectedBackendId) throw new AppError("CONFLICT");
+    if (site.backendId) await this.requiredBackends().assertPublishable(ownerId, site.backendId);
     const { manifest, conversationId } = await this.sourceBundle(ownerId, null, fileId);
-    return projectSite(await this.store.publish(ownerId, id, conversationId, fileId, randomUUID(), manifest));
+    return this.project(await this.store.publish(ownerId, id, conversationId, fileId, randomUUID(), manifest));
   }
   sources(ownerId: string, id: string) { return this.store.sources(ownerId, id); }
   delete(ownerId: string, id: string): Promise<void> { return this.store.delete(ownerId, id); }
-  async publicEntry(slug: string): Promise<{ title: string; path: string }> {
+  async publicEntry(slug: string): Promise<{ title: string; path: string; url?: string }> {
     const { site, release } = await this.store.publicSite(slug);
     const manifest = webBundleManifestSchema.parse(release.manifestJson);
-    return { title: site.name, path: `/web/${site.slug}/_releases/${release.id}/${encodeResourcePath(manifest.entry_path)}` };
+    return { title: site.name, path: `/web/${site.slug}/_releases/${release.id}/${encodeResourcePath(manifest.entry_path)}`, ...(site.backendId ? { url: this.requiredBackends().origin(site.backendId) } : {}) };
+  }
+  async applicationResource(ownerId: string, id: string, path: string): Promise<{ data: Buffer; mimeType: string } | { redirect: string }> {
+    const { site, release } = await this.store.owned(ownerId, id);
+    if (site.status !== "published" || !site.backendId) throw new AppError("WEB_SITE_NOT_FOUND");
+    const manifest = webBundleManifestSchema.parse(release.manifestJson);
+    if (path === "/" && manifest.entry_path.includes("/")) return { redirect: `/${encodeResourcePath(manifest.entry_path)}` };
+    return this.resources.resource(manifest, path === "/" ? manifest.entry_path : path.slice(1));
   }
   async resource(slug: string, releaseId: string, path: string): Promise<{ data: Buffer; mimeType: string }> {
     const { release } = await this.store.publicSite(slug, releaseId);
@@ -61,9 +81,15 @@ export class WebSiteService {
     return { data: await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 1 } }), filename: `${site.slug}.zip` };
   }
   /** Owner- and active-turn-scoped entry point for the agent publishing tool. */
-  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: WebSiteToolRequest, publicBaseUrl: string): Promise<WebSiteWithUrl | WebSiteToolPage> {
+  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: Extract<WebSiteToolRequest, { operation: "list" }>, publicBaseUrl: string): Promise<WebSiteToolPage>;
+  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: Extract<WebSiteToolRequest, { operation: "publish" | "update" }>, publicBaseUrl: string): Promise<WebSiteWithUrl>;
+  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: WebSiteToolRequest, publicBaseUrl: string): Promise<WebSiteWithUrl | WebSiteToolPage | WebSiteBackend | Record<string, unknown>>;
+  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: WebSiteToolRequest, publicBaseUrl: string): Promise<WebSiteWithUrl | WebSiteToolPage | WebSiteBackend | Record<string, unknown>> {
     await this.store.assertActor(ownerId);
     await this.store.assertActiveTurn(ownerId, conversationId, turnId);
+    if (request.operation === "prepare_backend") return this.requiredBackends().prepare(ownerId, conversationId, request.name, request.backend_id);
+    if (request.operation === "configure_backend") return this.requiredBackends().configure(ownerId, request.backend_id, request.change);
+    if (request.operation === "inspect_backend") return this.requiredBackends().inspect(ownerId, request.backend_id);
     if (request.operation === "list") {
       const page = await this.list(ownerId, {
         limit: request.limit,
@@ -83,15 +109,24 @@ export class WebSiteService {
       if (Object.keys(input).length === 0) throw new AppError("VALIDATION_ERROR");
       return withUrl(await this.update(ownerId, request.site_id, input), publicBaseUrl);
     }
-    if (request.site_id) return withUrl(await this.publish(ownerId, request.site_id, request.file_id), publicBaseUrl);
+    if (request.site_id) return withUrl(await this.publish(ownerId, request.site_id, request.file_id, request.backend_id), publicBaseUrl);
     if (!request.name) throw new AppError("VALIDATION_ERROR");
     return withUrl(await this.create(ownerId, {
       conversation_id: conversationId,
       file_id: request.file_id,
       name: request.name,
       description: request.description ?? "",
+      ...(request.backend_id ? { backend_id: request.backend_id } : {}),
       ...(request.slug !== undefined ? { slug: request.slug } : {}),
     }), publicBaseUrl);
+  }
+  private project(row: SiteAndRelease): WebSite {
+    const result = projectSite(row);
+    return row.site.backendId && this.backends?.client ? { ...result, url: this.backends.origin(row.site.backendId) } : result;
+  }
+  private requiredBackends(): WebSiteBackendService {
+    if (!this.backends) throw new AppError("WEB_SITE_BACKEND_NOT_CONFIGURED");
+    return this.backends;
   }
   private async sourceBundle(ownerId: string, conversationId: string | null, fileId: string): Promise<{ manifest: WebBundleManifest; sourceTitle: string; conversationId: string }> {
     const source = await this.resources.source(ownerId, conversationId, fileId);
@@ -108,6 +143,7 @@ export function projectSite({ site, release }: SiteAndRelease): WebSite {
     url_path: `/web/${site.slug}`, conversation_id: site.conversationId, source_task_title: site.sourceTaskTitle,
     source_file_id: site.sourceFileId, release_id: release.id, file_count: manifest.files.length, size_bytes: bundleSize(manifest),
     published_at: release.createdAt.toISOString(), created_at: site.createdAt.toISOString(), updated_at: site.updatedAt.toISOString(),
+    ...(site.backendId ? { backend_id: site.backendId } : {}),
   });
 }
 export function encodeResourcePath(path: string): string { return path.split("/").map(encodeURIComponent).join("/"); }
@@ -117,5 +153,5 @@ export function parseWebSiteCursor(value: string): NonNullable<SiteListInput["cu
   return { updatedAt: new Date(time), id };
 }
 function withUrl(site: WebSite, publicBaseUrl: string): WebSiteWithUrl {
-  return webSiteWithUrlSchema.parse({ ...site, url: new URL(site.url_path, publicBaseUrl).href });
+  return webSiteWithUrlSchema.parse({ ...site, url: site.url ?? new URL(site.url_path, publicBaseUrl).href });
 }

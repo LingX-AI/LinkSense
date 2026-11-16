@@ -20,6 +20,22 @@ const browserUsePairRateLimitError = {
 } as const satisfies ErrorCatalogEntry;
 
 export const errorCatalog = {
+  WEB_SITE_BACKEND_LIMIT_REACHED: {
+    message_key: "errors.webSites.backendLimitReached", http_status: 409,
+    messages: { "zh-CN": "动态应用后端数量已达上限，请联系管理员处理保留资源。", "en-US": "The dynamic application backend limit has been reached. Ask an administrator to review retained resources." },
+  },
+  WEB_SITE_BACKEND_NOT_CONFIGURED: {
+    message_key: "errors.webSites.backendNotConfigured", http_status: 503,
+    messages: { "zh-CN": "管理员尚未配置自部署动态应用服务。", "en-US": "An administrator must configure the self-hosted dynamic application service." },
+  },
+  WEB_SITE_BACKEND_UNAVAILABLE: {
+    message_key: "errors.webSites.backendUnavailable", http_status: 503,
+    messages: { "zh-CN": "动态应用后端暂时不可用，请稍后重试。", "en-US": "The application backend is temporarily unavailable. Try again later." },
+  },
+  WEB_SITE_BACKEND_PENDING: {
+    message_key: "errors.webSites.backendPending", http_status: 409,
+    messages: { "zh-CN": "后端资源或函数尚未准备完成，请检查构建状态后再发布。", "en-US": "Backend resources or functions are not ready. Check their build status before publishing." },
+  },
   AUTOMATION_RUN_LIMIT_REACHED: {"message_key": "monitoring.runLimitReached", "http_status": 409, "messages": {"zh-CN": "自动运行次数已用尽，请先提高或取消次数上限。", "en-US": "The automatic run limit is exhausted. Increase or remove the limit before resuming."}},
   BROWSER_PANEL_UNAVAILABLE: {"message_key": "browserPanel.unavailable", "http_status": 409, "messages": {"zh-CN": "当前任务没有可查看的浏览器会话。", "en-US": "This task has no available browser session."}},
   BROWSER_CONTROL_BUSY: {"message_key": "browserPanel.busy", "http_status": 409, "messages": {"zh-CN": "浏览器正在执行操作，请稍后重试。", "en-US": "The browser is performing an action. Try again shortly."}},

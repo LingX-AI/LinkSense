@@ -91,6 +91,39 @@ const optionalSecret = z.preprocess(
   z.string().min(32).max(1_024).optional(),
 );
 
+const appwriteSchema = z.object({
+  LINKSENSE_APPWRITE_ENDPOINT: optionalString,
+  LINKSENSE_APPWRITE_ADMIN_EMAIL: optionalString,
+  LINKSENSE_APPWRITE_ADMIN_PASSWORD: z.preprocess(value => value === "" ? undefined : value, z.string().optional()),
+  LINKSENSE_APPWRITE_ORGANIZATION_ID: optionalString,
+  LINKSENSE_DYNAMIC_APPS_BASE_URL: optionalString,
+}).transform(value => {
+  if (![value.LINKSENSE_APPWRITE_ENDPOINT, value.LINKSENSE_APPWRITE_ADMIN_EMAIL, value.LINKSENSE_APPWRITE_ADMIN_PASSWORD, value.LINKSENSE_DYNAMIC_APPS_BASE_URL].some(Boolean)) return null;
+  const complete = z.object({
+    LINKSENSE_APPWRITE_ENDPOINT: z.url({ protocol: /^https?$/u }),
+    LINKSENSE_APPWRITE_ADMIN_EMAIL: z.email(),
+    LINKSENSE_APPWRITE_ADMIN_PASSWORD: z.string().min(8),
+    LINKSENSE_APPWRITE_ORGANIZATION_ID: z.string().min(1).max(36).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u).optional(),
+    LINKSENSE_DYNAMIC_APPS_BASE_URL: z.url({ protocol: /^https?$/u }),
+  }).parse(value);
+  const endpoint = new URL(complete.LINKSENSE_APPWRITE_ENDPOINT);
+  const apps = new URL(complete.LINKSENSE_DYNAMIC_APPS_BASE_URL);
+  if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash ||
+      endpoint.pathname.replace(/\/$/u, "") !== "/v1" ||
+      apps.username || apps.password || apps.pathname !== "/" || apps.search || apps.hash ||
+      z.ipv4().safeParse(apps.hostname).success || apps.hostname.includes(":") ||
+      (apps.protocol !== "https:" && apps.hostname !== "localhost" && !apps.hostname.endsWith(".localhost"))) {
+    throw new Error("Invalid self-hosted Appwrite URL configuration");
+  }
+  return {
+    endpoint: endpoint.href.replace(/\/$/u, ""),
+    adminEmail: complete.LINKSENSE_APPWRITE_ADMIN_EMAIL,
+    adminPassword: complete.LINKSENSE_APPWRITE_ADMIN_PASSWORD,
+    ...(complete.LINKSENSE_APPWRITE_ORGANIZATION_ID ? { organizationId: complete.LINKSENSE_APPWRITE_ORGANIZATION_ID } : {}),
+    appsBaseUrl: apps.origin,
+  };
+});
+
 const optionalMimeTypeList = z.preprocess(
   (value) =>
     typeof value === "string" && value.trim() === "" ? undefined : value,
@@ -488,6 +521,7 @@ export function requireFullAppConfig(config: AppConfig): FullAppConfig {
 }
 
 export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
+  const appwrite = appwriteSchema.parse(env);
   const raw = rawConfigSchema.parse(env);
   const userDataRoot = resolve(raw.LINKSENSE_USER_DATA_ROOT);
   const objectStorageProvider = resolveObjectStorageProvider(raw);
@@ -512,6 +546,7 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
     adminModelManagementEnabled: raw.LINKSENSE_ADMIN_MODEL_MANAGEMENT_ENABLED,
     managedBrowserEnabled: raw.LINKSENSE_MANAGED_BROWSER_ENABLED,
     publicBaseUrl: raw.LINKSENSE_PUBLIC_BASE_URL,
+    appwrite,
     publicUrlUsesHttps:
       new URL(raw.LINKSENSE_PUBLIC_BASE_URL).protocol === "https:",
     jwtSecret: raw.LINKSENSE_JWT_SECRET,

@@ -1470,6 +1470,7 @@ model WebSite {
   slug             String    @unique(map: "web_sites_slug_key") @db.VarChar(80)
   status           String    @db.VarChar(32)
   currentReleaseId String    @map("current_release_id") @db.Uuid
+  backendId        String?   @unique(map: "web_sites_backend_key") @map("backend_id") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -1477,6 +1478,23 @@ model WebSite {
   @@index([conversationId], map: "web_sites_conversation_idx")
   @@index([originFileId], map: "web_sites_origin_file_idx")
   @@map("web_sites")
+}
+
+model WebSiteBackend {
+  id                  String    @id @default(uuid()) @db.Uuid
+  ownerId             String    @map("owner_id") @db.Uuid
+  conversationId      String    @map("conversation_id") @db.Uuid
+  name                String    @db.VarChar(128)
+  projectId           String    @unique(map: "web_site_backends_project_key") @map("project_id") @db.VarChar(36)
+  status              String    @default("preparing") @db.VarChar(16)
+  encryptedCredential String?   @map("encrypted_credential") @db.Text
+  leaseUntil          DateTime? @map("lease_until") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([ownerId, conversationId, name], map: "web_site_backends_source_name_key")
+  @@index([ownerId, updatedAt], map: "web_site_backends_owner_idx")
+  @@map("web_site_backends")
 }
 
 // Reserve retired addresses while a site exists. Deleting the site releases
