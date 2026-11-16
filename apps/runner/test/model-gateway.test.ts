@@ -35,6 +35,27 @@ afterEach(async () => {
 });
 
 describe("ModelGateway", () => {
+  it.each(["length", "content_filter"])("preserves incomplete JSON bridge responses when requested as SSE: %s", async (finishReason) => {
+    const gateway = await startGateway({ fetch: async () => Response.json({
+      choices: [{ finish_reason: finishReason, message: { content: "Partial answer.", tool_calls: [{
+        id: "call-review", type: "function", function: { name: "inspect_workspace", arguments: '{"path":' },
+      }] } }],
+      usage: { prompt_tokens: 8, completion_tokens: 2, total_tokens: 10 },
+    }) });
+    const lease = gateway.issueLease({
+      ...leaseMetering, conversationId: "incomplete-json", revision: 1,
+      upstreamBaseUrl: "https://provider.example.test/v1", apiKey: "test-provider-key",
+      protocolMode: "chat_completions_bridge", model: "model-a",
+    });
+    const events = await readSse(await requestGateway(gateway, lease.token, { model: "model-a", input: "hello", stream: true }));
+    expect(events.at(-1)).toMatchObject({ event: "response.incomplete", data: { response: {
+      status: "incomplete", incomplete_details: { reason: finishReason === "length" ? "max_output_tokens" : "content_filter" },
+      usage: { input_tokens: 8, output_tokens: 2 },
+    } } });
+    expect(events.map(event => event.event)).not.toContain("response.output_item.done");
+    expect(events.map(event => event.event)).not.toContain("response.completed");
+  });
+
   it.each([404, 405, 401, 503])("bounds WebSocket path adaptation on HTTP %i without sending model input", async (rejectUpgradeStatus) => {
     const onUpgrade = vi.fn();
     const onConnection = vi.fn();
