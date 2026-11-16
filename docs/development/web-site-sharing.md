@@ -34,6 +34,52 @@
 - 用户可在创建时选择发布后打开，或在对话里明确要求打开。Browser Use 扩展 0.4.6 支持在独立窗口打开当前用户拥有的已发布站点；扩展必须已配对且允许打开新页面。这个动作不会把新窗口交给助手控制。
 - 当前 `/web/{slug}` 仍是同域沙箱 iframe，网页不能使用 localStorage、IndexedDB、Cookie、Service Worker 或浏览器通知。需要持久化或提醒的站点应改用 LinkSense 应用或外部后端；Skill 必须如实说明这一限制。
 
+## 自部署动态应用
+
+公开创建流程支持可选 Appwrite 后端，当前适配固定版本 `2.7.2`。普通静态站点继续使用原有 `/web/{slug}` 沙箱；新动态站点在独立应用 origin 托管前端，通过同源 `/appwrite/v1` 使用自己的访客账号、TablesDB、Storage 和 Node.js 24 HTTP Functions。LinkSense 平台认证、Prisma 数据库与运行器职责不变。此路线于 2026-11-15 获准实施，不使用 Appwrite Cloud。
+
+### 配置与入口
+
+1. 在自有基础设施安装官方 Appwrite，初始化组织与具有该组织 owner 权限的专用管理账号，启用 `node-24` runtime。Appwrite 的 API hostname 必须能从函数执行网络解析并访问，不能把函数容器自己的 `localhost` 当作 API 地址。API、执行器及原生函数域只能从受控网络访问，公众仅访问 LS 应用网关；否则直连原生接口会绕过 LS 停用状态。SMTP、对象存储、备份和监控同样由部署方提供。
+2. 配置 `.env.example` 中的 `LINKSENSE_APPWRITE_ENDPOINT`、`LINKSENSE_APPWRITE_ADMIN_EMAIL`、`LINKSENSE_APPWRITE_ADMIN_PASSWORD`、`LINKSENSE_DYNAMIC_APPS_BASE_URL`。前三项是仅 API 使用的管理配置，不下发 Runner、模型或网页。管理员属于多个组织时，还要指定 `LINKSENSE_APPWRITE_ORGANIZATION_ID`；单组织自动识别。保持密码原有字符，凭据文件和部署配置按现有秘密管理要求保护。
+3. 应用 base URL 使用自有域，如 `https://apps.example.net`，配置通配 DNS 和证书。公开应用必须与 LS 控制台及 Appwrite 管理端使用不同的可注册域名，不能只使用同一域名的不同子域；服务启动时使用公共后缀规则校验，避免公开页面通过父域 Cookie 影响管理端。每应用地址为 `https://<backend-id>.apps.example.net`；本地可用 `http://apps.localhost:<api-port>`。修改 base URL 会改变所有动态应用地址及浏览器 origin，不能当作普通重命名操作。
+4. 生产域可采用 [Nginx 配置片段](../../deploy/production/dynamic-apps.nginx.example.conf)，通过现有 LS 网关端口的 `/api/v1/public-app-gateway/` 转发到 API，保留原始 Host。也可在受控网络直接转发全部路径到 API。应用主机空间在平台认证、CORS 和请求体解析前被处理，不能通过该域访问平台 API；平台域也不提供应用后端管理代理。
+
+四个必填配置全为空时禁用动态能力，静态发布和已有站点管理照常工作；部分配置或不安全的应用 URL 会在启动时拒绝。Docker 仅把 Appwrite 管理配置传给 API。
+
+### 生成、发布和维护
+
+- 内置公开站点 Skill 继续使用稳定的能力 ID。`prepare_web_site_backend` 为当前任务创建或恢复稳定后端；同任务同名称重试复用原记录。数据库租约防止多 API worker 并发配置，项目和初始资源使用稳定 ID，失败后可重试配置而不重放 Codex turn。首次发布、替换版本和恢复发布会拒绝仍有效的配置租约；进程中断留下的租约到期后不再阻塞发布。
+- 初次开通使用 Appwrite 原生 Console 登录 Cookie，选择所属组织并创建 Project 和项目 key，然后撤销这次五分钟会话。项目密钥仅在服务端加密保存，并绑定后端 ID 的加密上下文。密钥和 Web platform 的 ID 在实例内使用项目 ID，避免第二个应用与第一个冲突。实例加密密钥不是管理 API 凭据。
+- `configure_web_site_backend` 支持新建表、列、索引、文件 bucket、HTTP 函数和代码部署，以及读取资源/构建状态。表和 bucket 默认私有并启用行/文件权限。审批等服务端工作流使用 `client_create: false`，由业务函数验证用户、字段和角色后写入，避免客户端直接伪造已批准记录。
+- 修改现有表仅开放新增可选列；不提供删表、删列、收紧字段、变更唯一约束或清空数据的工具。索引在新表创建时声明。函数使用打包后的 `.tar.gz` 产物，包含依赖；不运行额外安装命令，构建由 Appwrite 完成，上传不自动替换当前函数。构建就绪后在获准上线时显式调用 `activate_function`，并保留旧 deployment ID 以便恢复；失败草稿不会停用已有版本。发布前检查列、索引已就绪，函数具有可用的激活版本。
+- 先准备和验证后端，再通过 `publish_web_site` 的 `backend_id` 发布完整前端；恢复已停用应用时也检查后端就绪状态。更新使用现有 `site_id`，保留后端、访客账号、数据和应用地址。前端发布、函数部署和 schema 变更独立；回退前端不自动恢复函数或数据库。
+- 对话卡片、站点列表和复制操作使用实际应用 URL，旧 `/web/{slug}` 入口在权限检查后跳转。Browser Use 沿用已有拥有者检查、扩展权限和独立窗口操作，跳转后打开动态应用，无需改变扩展协议。
+- 网页包入口位于子目录时，应用根地址跳转到该入口并保留查询参数，使相对资源路径继续有效；带尾斜杠的目录地址读取该目录的 `index.html`。
+
+### 生命周期与限制
+
+公众 API 请求由网关固定 Project，并拒绝管理 key、管理员模式、跨项目参数及外部 Origin。只转发当前应用的访客 Cookie/JWT；Cookie 改为 host-only、HttpOnly、SameSite=Lax，HTTPS 下设置 Secure 并使用 `__Host-` 名称前缀，防止其他应用通过父域 Cookie 注入会话；网关向 Appwrite 转发时还原原生名称。本机 HTTP 开发使用原生 Cookie 名称。上传文件的响应使用不授予脚本或同源能力的沙箱 CSP，不能把用户上传的 HTML/SVG 当作应用脚本执行。
+
+每次页面、资源和 API 请求检查站点发布状态及所有者状态；返回在途后端响应前再次检查。停用、来源任务删除、站点删除或所有者停用会关闭同一网关入口，历史会话也不能继续调用。已经接受执行的操作和已下载数据不能撤回。当前工具只创建无事件、无计划的 HTTP 函数，网关拒绝异步执行，单次函数最多 30 秒。
+
+首版不提供 Realtime、OAuth/SMS、SSR、常驻服务或计划任务托管。每用户最多准备 50 个后端，包含保留资源；单个发布最多检查 100 个表和函数。永久删除站点仍仅删除发布记录，后端账号、数据、文件和密钥映射保留，永久清理需由管理员按明确的数据保留决定执行。网页 ZIP 仍仅包含前端；完整恢复还需要 Appwrite 数据/文件/配置、实例加密密钥和 LS 数据库中的绑定与凭据加密材料。
+
+### 升级与验证
+
+先执行新增迁移 `20261115000000_add_web_site_backends`，再更新全部 API 实例并配置入口，然后更新 Runner/Web。迁移仅新增后端表、可空绑定字段与新索引，不重建旧站点或修改其原有数据。旧 Web 客户端使用原 `/web/` 入口仍可跳转，旧静态站点不要求重新发布；启用动态应用前应完成全部 API 副本升级。
+
+从本功能早期开发版本升级时，共用 LS 控制台或 Appwrite 管理端可注册域名的应用配置会被拒绝，需在部署前选择隔离域名。HTTPS 下原先没有 `__Host-` 前缀的访客 Cookie 不再接受，访客重新登录即可恢复；账号、数据和文件保留。本机 HTTP 会话格式不变。
+
+`apps/api/test/integration/web-site-backends-appwrite.ts` 使用已有的、本机测试专用 Appwrite 实例，并创建可自动清理的 PostgreSQL/Redis。测试凭据通过权限受限 JSON 文件引用传入，不读取项目 `.env`，不向命令行或日志写入密码/密钥。文件包含 `endpoint`、`email`、`password`，endpoint 必须是本机地址，组织应已初始化。
+
+```sh
+LINKSENSE_TEST_APPWRITE_CREDENTIALS_FILE=/path/to/private/test-operator.json \
+  pnpm --filter @linksense/api exec tsx test/integration/web-site-backends-appwrite.ts
+```
+
+`--serve` 可保留样例供浏览器验证；输出的 fixture 文件含虚构测试账号，权限为 `0600`，中断后随测试目录清理。测试覆盖旧 schema 升级与静态站点继续使用、真实开通与访客会话、私有记录、并发唯一性、审批函数、更新保留数据、停用/恢复及所有者停用。测试结果以实际执行记录为准；这些检查不代替生产容量、容器对抗隔离、邮件投递或备份恢复验收。
+
 ## 网页包
 
 运行器的 `register_artifact` 增加可选 `web_root_relative_path`，明确指定任务工作区内专门用于公开的目录；`workspace_relative_path` 指向其中的 HTML 入口。例如：
