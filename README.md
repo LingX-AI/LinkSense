@@ -95,7 +95,7 @@ If you find LinkSense useful or interesting, a GitHub Star ⭐️ would be great
 
 ## Join the WeChat group
 
-<img src="./docs/brand/wechat-group-2026-11-17.jpg" alt="LinkSense WeChat group QR code" width="400">
+<img src="./docs/brand/wechat-group-2026-11-23.png" alt="LinkSense WeChat group QR code" width="400">
 
 The QR code is valid for 7 days. If it has expired or you cannot join, email [hello@linksense.org](mailto:hello@linksense.org) for the latest invite.
 
