@@ -47,8 +47,13 @@ import { registerClientBuildGuard } from "./plugins/client-build.js";
 import type { AppServices } from "./services.js";
 import { createApiCorsOptions } from "./lib/cors.js";
 import { resolveLocale } from "./lib/locale.js";
-import { errorEnvelope, ok } from "./lib/http.js";
+import { errorEnvelope, ok, requestPathname } from "./lib/http.js";
 import { AppError, errorDetails, normalizeError } from "./lib/errors.js";
+import {
+  ApiLogController,
+  createLoggerOptions,
+  sanitizeRequestForLog,
+} from "./lib/logger.js";
 import { authenticationPlugin } from "./plugins/authentication.js";
 import { systemRoutes, adminSystemRoutes } from "./modules/system/routes.js";
 import { projectRoutes } from "./modules/projects/routes.js";
@@ -175,8 +180,9 @@ export async function buildApi(
   );
   const app = Fastify({
     trustProxy: services.config.trustProxy,
+    logController: new ApiLogController(),
     logger: {
-      level: process.env.LOG_LEVEL ?? "info",
+      ...createLoggerOptions(),
       serializers: { req: sanitizeRequestForLog },
       redact: {
         paths: [...SENSITIVE_REQUEST_LOG_PATHS],
@@ -754,60 +760,7 @@ export function createContentSecurityPolicy(): string {
   ].join("; ");
 }
 
-export function sanitizeRequestForLog(request: unknown) {
-  const value = asRecord(request);
-  const headers = asRecord(value.headers);
-  const socket = asRecord(value.socket);
-  const raw = asRecord(value.raw);
-  const rawHeaders = asRecord(raw.headers);
-  const rawSocket = asRecord(raw.socket);
-  const host =
-    stringValue(value.host) ??
-    stringValue(headers.host) ??
-    stringValue(rawHeaders.host);
-  const requestId = stringValue(value.id);
-  const remoteAddress =
-    stringValue(value.ip) ??
-    stringValue(value.remoteAddress) ??
-    stringValue(socket.remoteAddress) ??
-    stringValue(rawSocket.remoteAddress);
-  const remotePort =
-    numberValue(value.remotePort) ??
-    numberValue(socket.remotePort) ??
-    numberValue(rawSocket.remotePort);
-  return {
-    method: stringValue(value.method) ?? "UNKNOWN",
-    url: requestPathname(stringValue(value.url) ?? "/").replace(/^\/html-preview\/[^/]+/u, "/html-preview/[redacted]"),
-    ...(host ? { host } : {}),
-    ...(requestId ? { requestId } : {}),
-    ...(remoteAddress ? { remoteAddress } : {}),
-    ...(remotePort !== undefined ? { remotePort } : {}),
-  };
-}
-
-function requestPathname(value: string): string {
-  try {
-    return new URL(value, "http://linksense.invalid").pathname;
-  } catch {
-    return value.split(/[?#]/u, 1)[0] || "/";
-  }
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
-}
+export { sanitizeRequestForLog };
 
 function createAuthService(
   app: FastifyInstance,

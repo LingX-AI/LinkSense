@@ -1,6 +1,6 @@
 import { Queue, Worker, type Job } from "bullmq";
 import { z } from "zod";
-import pino from "pino";
+import { createLogger } from "../../lib/logger.js";
 import {
   runnerHeartbeatIntervalMs,
   runnerHeartbeatSchema,
@@ -18,7 +18,7 @@ import type { ConversationEventService } from "./service.js";
 
 const queueName = "linksense-task-recovery";
 const pageSize = 100;
-const logger = pino({ name: "task-recovery" });
+const logger = createLogger("task-recovery");
 const jobSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("maintenance") }),
   z.strictObject({

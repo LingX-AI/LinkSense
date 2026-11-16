@@ -6,7 +6,7 @@ import { PublicKnowledgeSkills } from "./modules/public-knowledge/skills.js";
 import { RedisPublicKnowledgeCoordinator } from "./modules/public-knowledge/coordinator.js";
 import { createPublicKnowledgeRetriever } from "./modules/public-knowledge/retrieval.js";
 import { BullMqPublicKnowledgeQueue } from "./modules/public-knowledge/queue.js";
-import pino from "pino";
+import { createLogger } from "./lib/logger.js";
 import { HtmlPreviewService, RedisHtmlPreviewSessionStore } from "./modules/html-preview/service.js";
 import { WebArtifactResources } from "./modules/web-sites/artifact-resources.js";
 import { assertExecutionPrincipalActive } from "./lib/execution-principal.js";
@@ -934,11 +934,11 @@ export function createServices(input: {
     applicationCenter,
     applicationExternalAccess,
     publicKnowledge: new PublicKnowledgeService({ prisma: input.prisma, iconStore: applicationIconStore, models: modelProviderSettings, knowledge: knowledgeStore,
-      progress: new PrismaPublicKnowledgeProgress(input.prisma, input.redis, pino({ level: process.env.LOG_LEVEL ?? "info" })),
+      progress: new PrismaPublicKnowledgeProgress(input.prisma, input.redis, createLogger("public-knowledge-progress")),
       skills: new PublicKnowledgeSkills(input.prisma, input.config.capabilityRoot),
       retrieve: knowledgeRuntime ? createPublicKnowledgeRetriever(input.prisma, knowledgeStore, knowledgeRuntime.retrieval) : null,
       runner: input.runner, coordinator: new RedisPublicKnowledgeCoordinator(input.redis.client), audit,
-      queue: new BullMqPublicKnowledgeQueue(input.redis.client, input.config.redisUrl, pino({ level: process.env.LOG_LEVEL ?? "info" })) }),
+      queue: new BullMqPublicKnowledgeQueue(input.redis.client, input.config.redisUrl, createLogger("public-knowledge-queue")) }),
     credentials,
     mcpServers,
     users,
