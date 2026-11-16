@@ -289,10 +289,14 @@ describe("ConversationTaskOverviewPanel", () => {
     ).toHaveLength(3)
 
     await user.click(screen.getByTestId("conversation-canvas"))
-    expect(screen.getByText("会话侧栏")).toBeInTheDocument()
+    expect(
+      screen.getByRole("region", { name: "会话侧栏" })
+    ).toBeInTheDocument()
 
     await user.keyboard("{Escape}")
-    expect(screen.getByText("会话侧栏")).toBeInTheDocument()
+    expect(
+      screen.getByRole("region", { name: "会话侧栏" })
+    ).toBeInTheDocument()
 
     await user.click(
       screen.getByRole("button", { name: "下载 ai-overview.pdf" })
@@ -301,7 +305,9 @@ describe("ConversationTaskOverviewPanel", () => {
     expect(overviewCard).toBeInTheDocument()
 
     await user.click(overviewButton)
-    expect(screen.queryByText("会话侧栏")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("region", { name: "会话侧栏" })
+    ).not.toBeInTheDocument()
     expect(onOpenChange).toHaveBeenLastCalledWith(false)
 
     expect(window.localStorage.getItem("linksense.taskOverviewOpen")).toBe(
@@ -309,7 +315,9 @@ describe("ConversationTaskOverviewPanel", () => {
     )
 
     await user.click(screen.getByRole("button", { name: "打开会话侧栏" }))
-    expect(await screen.findByText("会话侧栏")).toBeInTheDocument()
+    expect(
+      await screen.findByRole("region", { name: "会话侧栏" })
+    ).toBeInTheDocument()
     expect(onOpenChange).toHaveBeenLastCalledWith(true)
     expect(window.localStorage.getItem("linksense.taskOverviewOpen")).toBe(
       "true"
@@ -337,9 +345,13 @@ describe("ConversationTaskOverviewPanel", () => {
       />
     )
 
-    expect(screen.queryByText("会话侧栏")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("region", { name: "会话侧栏" })
+    ).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "打开会话侧栏" }))
-    expect(await screen.findByText("会话侧栏")).toBeVisible()
+    expect(
+      await screen.findByRole("region", { name: "会话侧栏" })
+    ).toBeVisible()
   })
 
   it("allows temporary controlled visibility without changing the saved preference", async () => {
@@ -427,7 +439,9 @@ describe("ConversationTaskOverviewPanel", () => {
       />
     )
 
-    expect(await screen.findByText("会话侧栏")).toBeInTheDocument()
+    expect(
+      await screen.findByRole("region", { name: "会话侧栏" })
+    ).toBeInTheDocument()
     expect(screen.queryByText("子智能体")).not.toBeInTheDocument()
     expect(screen.queryByText("0 完成")).not.toBeInTheDocument()
     expect(screen.getByText("产出文件")).toBeInTheDocument()
@@ -448,7 +462,7 @@ describe("ConversationTaskOverviewPanel", () => {
     expect(emptyState).not.toHaveClass("text-sm")
   })
 
-  it("uses compact title hierarchy and 20px file icons in 24px slots", async () => {
+  it("uses compact section headings and 20px file icons in 24px slots", async () => {
     render(
       <ConversationTaskOverviewPanel
         events={[]}
@@ -463,11 +477,7 @@ describe("ConversationTaskOverviewPanel", () => {
     const fileIcon = fileRow.querySelector('[data-file-icon-kind="pdf"]')
 
     expect(appStyles).toContain("--text-sm: var(--app-ui-font-size);")
-    expect(screen.getByText("会话侧栏")).toHaveClass(
-      "text-sm",
-      "leading-[var(--app-line-20)]",
-      "font-semibold"
-    )
+    expect(screen.queryByText("会话侧栏")).not.toBeInTheDocument()
     expect(screen.getByText("产出文件")).toHaveClass("text-sm")
     expect(screen.getByText("产出文件")).not.toHaveClass("text-base")
     expect(fileRow).toHaveClass("text-sm", "hover:bg-hover")

@@ -16,7 +16,6 @@ import { HeaderIcon } from "@/components/ui/header-icon-button"
 import {
   Popover,
   PopoverContent,
-  PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { buildConversationTaskOverview } from "@/features/conversations/conversation-task-overview"
@@ -194,10 +193,6 @@ export function ConversationTaskOverviewPanel({
         sideOffset={8}
         className="task-overview-card-border task-overview-card-shadow max-h-[calc(100dvh-6rem)] w-80 max-w-[calc(100vw-1rem)] gap-3 overflow-y-auto overscroll-contain rounded-card p-3 shadow-none ring-0"
       >
-        <PopoverTitle className="shrink-0 text-sm leading-[var(--app-line-20)] font-semibold text-foreground">
-          {t("conversation.taskOverview.title")}
-        </PopoverTitle>
-
         <div className="flex shrink-0 flex-col gap-3 [&>section+section]:border-t [&>section+section]:border-border/70 [&>section+section]:pt-3">
           {contextPercent !== null &&
           totalTokens !== null &&

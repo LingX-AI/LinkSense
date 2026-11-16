@@ -426,13 +426,17 @@ describe("LinkSense application", () => {
       name: "LinkSense 导航",
     })
     await screen.findByRole("form", { name: "任务输入框" })
-    expect(await screen.findByText("会话侧栏")).toBeVisible()
+    expect(
+      await screen.findByRole("region", { name: "会话侧栏" })
+    ).toBeVisible()
     await interaction.click(
       within(screen.getByRole("banner")).getByRole("button", {
         name: "关闭会话侧栏",
       })
     )
-    expect(screen.queryByText("会话侧栏")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("region", { name: "会话侧栏" })
+    ).not.toBeInTheDocument()
 
     await interaction.click(
       within(sidebar).getByRole("link", { name: "整理项目会议纪要" })
@@ -484,7 +488,9 @@ describe("LinkSense application", () => {
     expect(
       await screen.findByText("会议纪要已加载。", { exact: true })
     ).toBeVisible()
-    expect(screen.queryByText("会话侧栏")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("region", { name: "会话侧栏" })
+    ).not.toBeInTheDocument()
     expect(
       within(screen.getByRole("banner")).getByRole("button", {
         name: "打开会话侧栏",
@@ -495,7 +501,9 @@ describe("LinkSense application", () => {
         name: "打开会话侧栏",
       })
     )
-    expect(await screen.findByText("会话侧栏")).toBeVisible()
+    expect(
+      await screen.findByRole("region", { name: "会话侧栏" })
+    ).toBeVisible()
   })
 
   it("hides the empty-task message while a new task's first message is loading", async () => {
@@ -967,7 +975,9 @@ describe("LinkSense application", () => {
     )
     releaseStaleNewTaskDetail()
     await staleNewTaskDetailSettled
-    expect(screen.queryByText("会话侧栏")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("region", { name: "会话侧栏" })
+    ).not.toBeInTheDocument()
     await waitFor(() => {
       expect(document.querySelector(".conversation-workspace")).toBe(
         initialWorkspace
@@ -1073,7 +1083,9 @@ describe("LinkSense application", () => {
     await interaction.click(
       screen.getByRole("button", { name: "打开会话侧栏" })
     )
-    expect(await screen.findByText("会话侧栏")).toBeVisible()
+    expect(
+      await screen.findByRole("region", { name: "会话侧栏" })
+    ).toBeVisible()
     expect(initialWorkspace).toHaveAttribute("data-task-overview-open", "true")
   })
 
