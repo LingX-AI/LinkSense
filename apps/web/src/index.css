@@ -5322,8 +5322,10 @@
 
 .message-row-user .message-content {
   max-width: min(82%, 596px);
-  padding: 14px 18px;
-  min-height: 50px;
+  padding: 10px 14px;
+  min-height: 40px;
+  font-size: var(--app-font-13);
+  line-height: var(--app-line-20);
 }
 
 .message-row-assistant .message-content {
