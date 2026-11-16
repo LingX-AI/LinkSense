@@ -154,6 +154,37 @@ describe("self-hosted Appwrite backend", () => {
     expect(entry.url).toBe(first.url);
   });
 
+  it("finds and inspects the existing backend from another owned conversation without provisioning", async () => {
+    const fixture = backendFixture();
+    const conversationId = "20000000-0000-4000-8000-000000000002";
+    const turnId = "70000000-0000-4000-8000-000000000001";
+    const page = await fixture.sites.toolForOwner(ownerId, conversationId, turnId, {
+      operation: "list", search: "Sample", limit: 20,
+    }, fixture.config.publicBaseUrl);
+    const existing = page.items[0];
+    if (!existing?.backend_id) throw new Error("Expected an existing dynamic application");
+
+    const backend = await fixture.sites.toolForOwner(ownerId, conversationId, turnId, {
+      operation: "inspect_backend", backend_id: existing.backend_id,
+    }, fixture.config.publicBaseUrl);
+
+    expect(backend).toMatchObject({ id: backendId, project_id: fixture.row.projectId, origin: existing.url });
+    expect(fixture.site.store.assertActiveTurn).toHaveBeenCalledWith(ownerId, conversationId, turnId);
+    expect(fixture.store.reserve).not.toHaveBeenCalled();
+    expect(fixture.fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, null])("rejects adding a backend to a historical static site with backendId=%s", async (originalBackendId) => {
+    const fixture = backendFixture();
+    if (originalBackendId === undefined) delete fixture.site.row.site.backendId;
+    else fixture.site.row.site.backendId = originalBackendId;
+    await expect(fixture.sites.publish(
+      ownerId, fixture.site.row.site.id, fixture.site.source.file.id, backendId,
+    )).rejects.toThrow("CONFLICT");
+    expect(fixture.site.row.site.backendId).toBe(originalBackendId);
+    expect(fixture.site.store.publish).not.toHaveBeenCalled();
+  });
+
   it("keeps existing site management usable when the optional backend configuration is removed", async () => {
     const fixture = backendFixture();
     const disabled = new WebSiteBackendService(fixture.store, fixture.site.storage, { ...fixture.config, appwrite: null });

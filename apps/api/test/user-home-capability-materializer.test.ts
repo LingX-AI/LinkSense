@@ -396,6 +396,10 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     expect(browserSkill).toContain("ordinal")
     expect(browserSkill).toContain("mcp__linksense_core__browser_use")
     expect(await readFile(join(next.skillsRoot, "linksense-browser", "SKILL.md"), "utf8")).toContain("CLOUD managed Chromium")
+    const publicSiteSkill = await readFile(join(next.skillsRoot, "linksense-public-site", "SKILL.md"), "utf8")
+    expect(publicSiteSkill).toContain("directly in the current conversation")
+    expect(publicSiteSkill).toContain("reuse the prepared `backend_id`")
+    expect(publicSiteSkill).toContain("backend binding cannot be added or replaced by publishing an update")
     // Subsequent starts reuse the freshly published snapshot.
     await materializer.resolvePublishedRuntimeWithinPublicationStartFence(input)
     expect(onStage).toHaveBeenCalledOnce()

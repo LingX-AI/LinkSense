@@ -10,13 +10,14 @@ export async function writeBuiltInPublicSite(skillsRoot: string, name: string = 
   const files = {
     "SKILL.md": `---
 name: ${name}
-description: Create and publish a standalone public website or dynamic application with a shareable link. Use for public pages and externally used applications, including their own visitor login, data, files and backend functions on self-hosted Appwrite. Applications using LinkSense tasks, AI, knowledge bases, plugins, organization sharing or platform login use linksense-interactive-app-builder instead.
+description: Create, update and publish standalone public websites or dynamic applications directly in the current conversation. Use for shareable links and externally used apps with independent visitor accounts, persistent data, uploads or business APIs on self-hosted Appwrite. Use linksense-interactive-app-builder for LinkSense AI, tasks, knowledge bases, plugins, platform identity or organization sharing.
 ---
 
 # Public website development
 
 Create and register a complete website in the current task. Deliver a
 preview unless the user explicitly requests publication or a public link.
+Do not send the user to a creation page or require manual Skill selection.
 
 ## Choose the right delivery shape
 
@@ -30,6 +31,7 @@ preview unless the user explicitly requests publication or a public link.
 - For a public application needing its own visitor accounts, persistent data,
   uploads or business APIs, follow the dynamic application workflow below.
   These visitors do not need LinkSense accounts.
+  Visitor login, data and uploads do not require LinkSense platform identity.
 - If the delivery shape is genuinely ambiguous, ask once with
   \`${coreMcpServerKey}.request_user_form\` using one \`radio\` field with 2–5
   short options. In \`message\`, explain what each shape means and when to use
@@ -60,7 +62,7 @@ preview unless the user explicitly requests publication or a public link.
   to CORS and availability.
 - The preceding static runtime restrictions apply to ordinary static sites.
   A prepared dynamic backend uses its own isolated top-level origin instead.
-- The current public-site runtime is a sandboxed iframe without same-origin:
+- Static sites and HTML artifact previews use a sandboxed iframe without same-origin:
   \`localStorage\`, \`sessionStorage\`, IndexedDB, cookies, Service Workers, and
   browser notifications are unavailable. Keep state in memory or in the URL.
   If the user needs progress to survive reloads or needs reminders, explain the
@@ -71,7 +73,19 @@ preview unless the user explicitly requests publication or a public link.
 
 ## Dynamic application workflow
 
-1. For an authorized public dynamic application, call
+For an existing site, first call \`${coreMcpServerKey}.list_web_sites\` and
+resolve the intended site before changing resources. If it has a \`backend_id\`,
+call \`${coreMcpServerKey}.inspect_web_site_backend\` and reuse its configuration,
+even from a different conversation. Only use backend preparation for recovery
+with that same ID; do not prepare a replacement by name.
+
+If an existing static site has no \`backend_id\` and now needs a backend, explain
+that its backend binding cannot be added or replaced by publishing an update.
+Do not overwrite the static site with backend-dependent frontend code.
+Create a separate dynamic application and its new URL only when the user
+requests or approves that change; preserve the original site and link.
+
+1. For a new authorized public dynamic application, call
    \`${coreMcpServerKey}.prepare_web_site_backend\` with a short name. It returns
    \`backend_id\`, \`project_id\`, \`origin\`, \`endpoint\` and \`database_id: app\`.
    Reuse this backend for subsequent versions. If the service is not configured,
@@ -136,12 +150,17 @@ preview unless the user explicitly requests publication or a public link.
    \`web_root_relative_path: artifacts/<site-name>\`, a concise
    \`display_name\`, and \`mime_type: text/html\`. The tool returns \`file_id\`.
 3. If the user only asked to see the result, deliver the registered HTML
-   preview and mention its Publish as site action. Do not publish.
+   preview. Do not publish. For a static site, mention its Publish as site action.
+   For a dynamic application, explain that this is a UI preview without working
+   visitor login or backend access. The generic HTML Publish as site action does not attach a dynamic backend;
+   invite the user to ask for publication in this conversation. Once authorized,
+   reuse the prepared \`backend_id\` and publish through the tool.
 4. For an authorized publication, choose a readable English slug before
    publishing if the user did not specify one: 3–80 lowercase letters, digits,
    and hyphens, for example \`water-reminder\`. Call
    \`${coreMcpServerKey}.publish_web_site\` with the registered \`file_id\` and the
    new site's \`name\` and \`slug\`, or the existing \`site_id\` for an update.
+   For a new dynamic application, also include its prepared \`backend_id\`.
    If the chosen slug is taken, ask the user or offer an alternative; never
    silently replace their choice. If publication fails, keep the preview.
 5. A successful publication with status \`published\` delivers the website card
@@ -181,8 +200,8 @@ preview unless the user explicitly requests publication or a public link.
 `,
     "agents/openai.yaml": `interface:
   display_name: "LinkSense 公开站点开发"
-  short_description: "Build and publish a standalone public website"
-  default_prompt: "Use $${name} to build and publish a public website in this conversation."
+  short_description: "Build public websites and dynamic applications"
+  default_prompt: "Use $${name} to build or update a public website or self-hosted dynamic application in this conversation. Publish when I request a public site or link."
 dependencies:
   tools:
     - type: "mcp"

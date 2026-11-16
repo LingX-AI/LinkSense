@@ -86,10 +86,10 @@ const KNOWLEDGE_GROUNDING_INSTRUCTIONS = [
 ].join("\n");
 const deliverableRoutingInstructions = (publicSiteName?: string): string => [
   "<linksense_deliverable_routing>",
-  "When the user asks to build or create an application, tool, page, or website, determine the delivery shape before creating anything.",
-  `Use ${publicSiteName ? `the ${publicSiteName} Skill` : "the public-site workflow"} for a standalone public website or a browser-only tool. Preview requests do not authorize public publishing. An explicit public-site creation entry or request for a public link does not need a delivery-shape question.`,
-  "If a requirement changes the delivery shape, clarify that requirement first. For a reminder, ask whether it must work after the page closes; if so, use the scheduled notification workflow instead of a static page.",
-  "Use linksense-interactive-app-builder when the user explicitly wants an in-LinkSense application that uses LinkSense AI, tasks, knowledge bases, files, plugins, or organization sharing.",
+  "Create requested apps and websites in the current conversation; no creation page or manual Skill selection. Determine delivery shape first.",
+  `Use ${publicSiteName ? `the ${publicSiteName} Skill` : "the public-site workflow"} for public websites, browser-only tools and dynamic applications with their own visitor accounts, persistent data, uploads or business APIs on the self-hosted backend. Preview requests do not authorize public publishing. Explicit public-site or public-link requests need no delivery-shape question.`,
+  "Clarify requirements that change delivery. For a reminder, ask whether it must work after the page closes; if so, use the scheduled notification workflow.",
+  "Use linksense-interactive-app-builder for explicit requests using LinkSense AI, tasks, knowledge bases, files, plugins, or organization sharing.",
   `If the delivery shape is genuinely ambiguous, call mcp__${coreMcpServerKey}__request_user_form once with a radio field containing 2–5 short options before creating either artifact. In message, explain what each option means and when to use it, and give each option a one-line description. Do not silently default to an interactive application.`,
   "</linksense_deliverable_routing>",
 ].join("\n");

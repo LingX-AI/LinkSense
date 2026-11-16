@@ -46,4 +46,55 @@ describe("built-in public site builder", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("keeps dynamic creation and later publication in the current conversation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-public-site-conversation-"));
+    try {
+      const name = "linksense-public-site-builtin-2";
+      await writeBuiltInPublicSite(root, name);
+      const skill = await readFile(join(root, name, "SKILL.md"), "utf8");
+      const frontmatter = parse(/^---\n([\s\S]*?)\n---/u.exec(skill)?.[1] ?? "");
+      const metadata = parse(await readFile(join(root, name, "agents/openai.yaml"), "utf8"));
+
+      expect(frontmatter.description).toContain("directly in the current conversation");
+      expect(frontmatter.description.length).toBeLessThanOrEqual(512);
+      expect(skill).toContain("Do not send the user to a creation page");
+      expect(skill).toContain("Visitor login, data and uploads do not require LinkSense platform identity");
+      expect(skill).toContain("ask for publication in this conversation");
+      expect(skill).toContain("generic HTML Publish as site action does not attach a dynamic backend");
+      expect(skill).toContain("reuse the prepared");
+      expect(skill).toContain("backend_id");
+      expect(metadata).toMatchObject({
+        interface: {
+          short_description: expect.stringContaining("dynamic applications"),
+          default_prompt: expect.stringContaining(`$${name}`),
+        },
+        policy: { allow_implicit_invocation: true },
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("checks the existing backend before preparing an update and preserves legacy static sites", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-public-site-update-"));
+    try {
+      await writeBuiltInPublicSite(root);
+      const skill = await readFile(join(root, "linksense-public-site", "SKILL.md"), "utf8");
+      const workflow = skill.slice(
+        skill.indexOf("## Dynamic application workflow"),
+        skill.indexOf("## Register and publish"),
+      );
+
+      expect(workflow).toContain("linksense_core.list_web_sites");
+      expect(workflow).toContain("linksense_core.inspect_web_site_backend");
+      expect(workflow.indexOf("list_web_sites")).toBeLessThan(workflow.indexOf("prepare_web_site_backend"));
+      expect(workflow).toContain("even from a different conversation");
+      expect(workflow).toContain("backend binding cannot be added or replaced by publishing an update");
+      expect(workflow).toContain("Do not overwrite the static site with backend-dependent frontend code");
+      expect(workflow).toContain("separate dynamic application and its new URL");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

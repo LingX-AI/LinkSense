@@ -108,6 +108,34 @@ describe("buildTurnInput", () => {
     expect(buildTurnAdditionalContext(base, undefined, "plan")).not.toHaveProperty("linksense.deliverable-routing");
   });
 
+  it.each(["linksense-public-site", "linksense-public-site-builtin-2"])(
+    "guides an ordinary chat to %s for public dynamic applications without a selected Skill",
+    (name) => {
+      const context = {
+        userInput: "做一个预约系统，客户能注册登录、查看自己的预约，管理员审核；完成后发布链接给我。",
+        attachments: [],
+        priorityPlugins: [],
+        prioritySkills: [],
+      };
+      const output = buildTurnAdditionalContext(context, [{
+        name,
+        path: `/fixture/skills/${name}/SKILL.md`,
+        builtInPublicSite: true,
+      }]);
+      const routing = output?.["linksense.deliverable-routing"]?.value;
+
+      expect(routing).toContain("current conversation");
+      expect(routing).toContain(`the ${name} Skill`);
+      expect(routing).toContain("dynamic applications");
+      expect(routing).toContain("visitor accounts, persistent data, uploads or business APIs");
+      expect(routing).toContain("self-hosted backend");
+      expect(routing).toContain("Preview requests do not authorize public publishing");
+      expect(routing).toContain("LinkSense AI, tasks, knowledge bases, files, plugins, or organization sharing");
+      expect(routing).not.toContain("configure_web_site_backend");
+      expect(buildTurnInput(context, { plugins: [], skills: [] })).toBe(context.userInput);
+    },
+  );
+
   it("serializes selected capabilities as native desktop Markdown references", () => {
     const context = {
       userInput: "整理附件",
