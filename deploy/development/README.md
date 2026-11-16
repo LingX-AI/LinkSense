@@ -92,6 +92,41 @@ of the minimal setup. Container-only names such as `postgres`, `redis`, `minio`,
 `api`, `runner`, and `host.docker.internal` are rejected instead of silently
 changing providers.
 
+For dependencies that only listen on the remote server's loopback, configure
+`LINKSENSE_DEV_SSH_TARGET` with an SSH host alias and
+`LINKSENSE_DEV_SSH_FORWARDS` with comma-separated `local:remote` port pairs.
+For example, `19080:19080` forwards Appwrite; its
+`LINKSENSE_APPWRITE_ENDPOINT` is then `http://127.0.0.1:19080/v1`. Set the other
+Appwrite variables described in [public-site hosting](../../docs/development/web-site-sharing.md).
+The dynamic apps base URL still reaches the local API, for example
+`http://apps.localhost:4000`.
+
+Keep `pnpm dev:dependencies` running in one terminal, then run `pnpm dev:host`
+in another. Stop the tunnel with `Ctrl+C`. To select another ignored environment
+file, use `LINKSENSE_ENV_FILE=.env.other pnpm dev:dependencies` and
+`LINKSENSE_ENV_FILE=.env.other node scripts/dev-host.mjs`. Both dependency
+addresses and SSH settings come from that file; no server address is built into
+the launcher.
+
+The optional [Appwrite Compose override](appwrite.override.yml) applies to the
+official Appwrite 2.7.2 PostgreSQL installation and requires Docker Compose
+2.24.4 or later for `!override`. Use a dedicated
+`COMPOSE_PROJECT_NAME`, set `_APP_COMPUTE_RUNTIMES_NETWORK` to
+`<project>-runtimes` and `_APP_BUILDS_VOLUME` to `<project>-builds`. Preserve the
+official executor's `/tmp:/tmp` bind: native runtime mounts use the same host
+path. Set
+`LINKSENSE_APPWRITE_EXECUTOR_NAME` to a unique name of at most four characters
+(default `exc1`); longer names exceed the native runtime ID limit. Pre-pull
+`openruntimes/node:v5-24` and
+`ghcr.io/open-runtimes/orchestrator/job-sidecar:4.0.0` on that server before the
+first function build. Start with
+`docker compose -f docker-compose.yml -f appwrite.override.yml up -d`.
+It scopes container/network names, connects the API to function runtimes, and
+publishes only the HTTP management port on server loopback. Use SSH for local
+development access. Keep the private `.env`, data and backups outside Git.
+Moving an existing installation also requires its database, volumes and
+encryption material; copying the Compose files alone does not migrate data.
+
 ### Isolation and production invariants
 
 The `local-process` Worker Provider uses child processes and the same Worker
