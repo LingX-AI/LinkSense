@@ -262,6 +262,12 @@ describe("PrismaFeishuRepository", () => {
     });
   });
 
+  it("identifies a deleted turn separately from a running or unprojected turn", async () => {
+    const prisma = { conversationTurn: { findUnique: vi.fn(async () => null) } };
+    const repository = new PrismaFeishuRepository(prisma as unknown as PrismaClient);
+    await expect(repository.getTurnOutcome(TURN_ID)).resolves.toEqual({ status: "missing" });
+  });
+
   it("waits for the native final answer projection before delivery", async () => {
     const prisma = {
       conversationTurn: {

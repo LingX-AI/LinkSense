@@ -24,6 +24,38 @@ const encryption = {
 };
 
 describe("FeishuRuntime", () => {
+  it("settles an existing dangling delivery without deleting history or sending a chat message", async () => {
+    const connection = createConnection();
+    const delivery = { id: DELIVERY_ID, conversationId: CONVERSATION_ID, turnId: TURN_ID, attempts: 2, sentChunkCount: 0 };
+    let pending = true;
+    const repository = {
+      listActiveConnections: vi.fn(async () => [connection]), findActiveConnection: vi.fn(async () => connection),
+      markConnected: vi.fn(), recordConnectionError: vi.fn(), listPendingInbound: vi.fn(async () => []),
+      listPendingDeliveries: vi.fn(async () => pending ? [{ connection, delivery, inbound: { chatId: "oc_chat" } }] : []),
+      claimDelivery: vi.fn(async () => { pending = false; return delivery; }),
+      getTurnOutcome: vi.fn(async () => ({ status: "missing" })), getOwnerLocale: vi.fn(async () => "zh-CN"),
+      findClaimedDelivery: vi.fn(async () => delivery), markDeliveryChunkSent: vi.fn(async () => true),
+      markDeliveryRetry: vi.fn(), markDeliverySent: vi.fn(), deferDelivery: vi.fn(),
+    };
+    const coordinator = {
+      acquireLease: vi.fn(async () => ({ key: "lease", token: "lease-token" })),
+      renewLease: vi.fn(async () => true), releaseLease: vi.fn(),
+    };
+    const client = { connect: vi.fn(async () => ({ botName: "LinkSense", close: vi.fn() })), sendText: vi.fn() };
+    const runtime = new FeishuRuntime(repository as unknown as PrismaFeishuRepository, coordinator as unknown as RedisFeishuCoordinator,
+      client as unknown as FeishuOfficialClient, {} as ConversationService, encryption, () => NOW);
+    try {
+      await runtime.start();
+      await vi.waitFor(() => expect(repository.markDeliveryRetry).toHaveBeenCalledWith({
+        deliveryId: DELIVERY_ID, processingToken: "lease-token", attempts: 2,
+        errorCode: "CONVERSATION_NOT_FOUND", nextAttemptAt: NOW, terminal: true,
+      }));
+      expect(client.sendText).not.toHaveBeenCalled();
+      expect(repository.deferDelivery).not.toHaveBeenCalled();
+      expect(repository.markDeliverySent).not.toHaveBeenCalled();
+    } finally { await runtime.close(); }
+  });
+
   it("sends a proactive notice to the bound personal chat and rejects a different owner", async () => {
     const connection = createConnection();
     const repository = { findActiveConnection: vi.fn(async () => connection), findPeerSession: vi.fn(async () => ({ chatId: "verified-chat", senderOpenId: connection.ownerOpenId })) };

@@ -5032,6 +5032,30 @@ describe("ConversationService ownership and draft lifecycle", () => {
     );
   });
 
+  it("deletes the Feishu delivery, inbound and peer graph before deleting its conversation", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(conversationRow());
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{ id: CONVERSATION_ID }]);
+    await fixture.service.delete(OWNER_ID, CONVERSATION_ID, {});
+    const transaction = fixture.defaultTransaction;
+    for (const remove of [transaction.feishuOutboundDelivery.deleteMany, transaction.feishuInboundMessage.deleteMany, transaction.feishuPeerSession.deleteMany]) {
+      expect(remove).toHaveBeenCalledWith({ where: { conversationId: CONVERSATION_ID } });
+      expect(remove.mock.invocationCallOrder[0]).toBeLessThan(transaction.conversation.delete.mock.invocationCallOrder[0]!);
+    }
+    expect(transaction.feishuOutboundDelivery.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(transaction.feishuInboundMessage.deleteMany.mock.invocationCallOrder[0]!);
+    expect(transaction.feishuInboundMessage.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(transaction.feishuPeerSession.deleteMany.mock.invocationCallOrder[0]!);
+  });
+
+  it("propagates Feishu cleanup failure without deleting the parent conversation", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValueOnce(conversationRow());
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{ id: CONVERSATION_ID }]);
+    fixture.defaultTransaction.feishuInboundMessage.deleteMany.mockRejectedValueOnce(new Error("cleanup unavailable"));
+    await expect(fixture.service.delete(OWNER_ID, CONVERSATION_ID, {})).rejects.toThrow("cleanup unavailable");
+    expect(fixture.defaultTransaction.conversation.delete).not.toHaveBeenCalled();
+    expect(fixture.defaultTransaction.feishuPeerSession.deleteMany).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])("records deletion cleanup scope before tolerating a queue outage (service: %s)", async (service) => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findFirst.mockResolvedValueOnce(
@@ -13042,6 +13066,9 @@ function transactionFixture() {
     botChannelOutboundDelivery: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     botChannelInboundMessage: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     botChannelPeerSession: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    feishuOutboundDelivery: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    feishuInboundMessage: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    feishuPeerSession: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     weixinOutboundDelivery: {
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
