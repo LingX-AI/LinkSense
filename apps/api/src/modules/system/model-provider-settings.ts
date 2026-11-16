@@ -980,8 +980,9 @@ export class ModelProviderSettingsService
       throw new AppError("CONVERSATION_NOT_FOUND")
     }
     if (!stored || stored.defaultModel === null) return unconfiguredPreference()
+    const effective = await this.withCatalogCapabilities(stored)
     const selection = resolveSelection(
-      stored,
+      effective,
       source.conversation?.preferredModel ??
         source.latestTurn?.model ??
         source.user.preferredModel,
@@ -989,7 +990,7 @@ export class ModelProviderSettingsService
     )
     return {
       configured: true,
-      models: conversationModels(stored)
+      models: conversationModels(effective)
         .filter((model) => model.enabled)
         .map(projectSelectableModel),
       default_model: stored.defaultModel,
@@ -1005,6 +1006,8 @@ export class ModelProviderSettingsService
     conversationId?: string
   ): Promise<ModelPreference> {
     const input = updateModelPreferenceSchema.parse(rawInput)
+    const settings = await this.readStoredSettings()
+    const effective = settings ? await this.withCatalogCapabilities(settings) : null
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
         SELECT pg_advisory_xact_lock(hashtextextended('linksense-system-settings', 0))
@@ -1043,8 +1046,11 @@ export class ModelProviderSettingsService
         this.config.credentialMasterKey,
         this.config.credentialKeyId
       )
-      const stored = storedRaw
-      if (!stored) throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED")
+      if (!storedRaw) throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED")
+      if (!effective || effective.revision !== storedRaw.revision) {
+        throw new AppError("CONFLICT")
+      }
+      const stored = effective
       assertSelectionAvailable(
         stored,
         input.selected_model,
@@ -1121,12 +1127,9 @@ export class ModelProviderSettingsService
   ): Promise<ResolvedModelRuntime> {
     const stored = await this.readStoredSettings()
     if (!stored) throw new AppError("MODEL_PROVIDER_NOT_CONFIGURED")
-    assertSelectionAvailable(stored, model, reasoningEffort)
-    return projectRuntime(
-      await this.withCatalogCapabilities(stored),
-      model,
-      reasoningEffort
-    )
+    const effective = await this.withCatalogCapabilities(stored)
+    assertSelectionAvailable(effective, model, reasoningEffort)
+    return projectRuntime(effective, model, reasoningEffort)
   }
 
   async resolveModelTransitionRuntime(

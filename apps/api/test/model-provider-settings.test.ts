@@ -924,6 +924,91 @@ describe("ModelProviderSettingsService", () => {
     })
   })
 
+  it.each(["preference", "selection", "update"] as const)(
+    "uses catalog capabilities for an existing version 9 model's %s",
+    async (operation) => {
+      const config = testConfig()
+      const database = inMemoryDatabase({
+        model_provider_settings_key_id: config.credentialKeyId,
+        model_provider_settings_encrypted: encryptJson({
+          version: 9, revision: 4, defaultModel: "existing", titleModel: "existing", providers: [{
+            id: "existing-channel", name: null, provider: "openai_compatible",
+            providerProject: null, providerLocation: null,
+            baseUrl: "https://existing.example/v1", protocolMode: "native_responses",
+            apiKey: "synthetic-provider-key",
+            models: [pricedModel("existing",
+              [...genericModelReasoningProfile.supported_reasoning_efforts],
+              genericModelReasoningProfile.default_reasoning_effort)],
+          }],
+        }, config.credentialMasterKey, config.credentialKeyId, "linksense:model-provider-settings:v1"),
+      })
+      await database.prisma.user.update({
+        where: { id: USER_ID },
+        data: { preferredModel: "existing", preferredReasoningEffort: "medium" },
+      })
+      const profile: ModelReasoningProfile = {
+        supported_reasoning_efforts: ["minimal", "low", "high"],
+        default_reasoning_effort: "high",
+      }
+      const service = new ModelProviderSettingsService(database.prisma, config, {
+        readContextWindows: async () => new Map(),
+        readCatalogContextWindows: async () => new Map([["existing", 1_000_000]]),
+        readCatalogReasoningProfiles: async () => new Map([["existing", profile]]),
+      })
+      const stored = database.settingsJson()
+
+      if (operation === "preference") {
+        await expect(service.getPreference(USER_ID)).resolves.toMatchObject({
+          selected_reasoning_effort: "high",
+          models: [{ id: "existing", context_window: 1_000_000, ...profile }],
+        })
+      } else {
+        if (operation === "update") {
+          await expect(service.updatePreference(USER_ID, {
+            selected_model: "existing", selected_reasoning_effort: "minimal",
+          }, {})).resolves.toMatchObject({
+            selected_reasoning_effort: "minimal",
+            models: [{ context_window: 1_000_000, ...profile }],
+          })
+        }
+        await expect(service.resolveRuntimeForSelection("existing", "minimal"))
+          .resolves.toMatchObject({
+            reasoningEffort: "minimal", provider: { modelContextWindow: 1_000_000 },
+          })
+        await expect(service.resolveRuntimeForSelection("existing", "medium"))
+          .rejects.toMatchObject({ code: "MODEL_SELECTION_INVALID" })
+      }
+      expect(database.settingsJson()).toEqual(stored)
+    }
+  )
+
+  it("rejects a preference update when settings change during catalog discovery", async () => {
+    const database = inMemoryDatabase()
+    const administrator = new ModelProviderSettingsService(database.prisma, testConfig(), noModelMetadata)
+    const channel = provider("primary", "https://models.example.test/v1", [
+      pricedModel("existing", ["high"], "high"),
+    ], "native_responses", "synthetic-provider-key")
+    await administrator.update(ACTOR_ID, {
+      expected_revision: 0, providers: [channel], default_model: "existing",
+    }, {})
+    const service = new ModelProviderSettingsService(database.prisma, testConfig(), {
+      readContextWindows: async () => new Map(),
+      readCatalogContextWindows: async () => {
+        await administrator.update(ACTOR_ID, {
+          expected_revision: 1, providers: [channel], default_model: "existing",
+        }, {})
+        return new Map([["existing", 1_000_000]])
+      },
+    })
+
+    await expect(service.updatePreference(USER_ID, {
+      selected_model: "existing", selected_reasoning_effort: "high",
+    }, {})).rejects.toMatchObject({ code: "CONFLICT" })
+    expect(database.userState()).toMatchObject({
+      preferredModel: null, preferredReasoningEffort: null,
+    })
+  })
+
   it("stores one account-wide preference and falls back when that model is disabled", async () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(
