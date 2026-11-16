@@ -1,16 +1,16 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
   privacyMaskingSettingsResponseSchema,
   type PrivacyMaskingSettings,
-} from "@linksense/shared";
+} from "@linksense/shared"
 
-import { apiRequest } from "@/api/client";
+import { ApiError, apiRequest } from "@/api/client"
 
 export const privacyMaskingQueryKey = [
   "me",
   "privacy-masking-settings",
-] as const;
+] as const
 
 export function usePrivacyMaskingSettings() {
   return useQuery({
@@ -21,15 +21,15 @@ export function usePrivacyMaskingSettings() {
         signal,
       }),
     staleTime: Number.POSITIVE_INFINITY,
-  });
+  })
 }
 
 export function useUpdatePrivacyMaskingSettings() {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (input: {
-      expected_revision: number;
-      settings: PrivacyMaskingSettings;
+      expected_revision: number
+      settings: PrivacyMaskingSettings
     }) =>
       apiRequest("/me/privacy-masking-settings", {
         method: "PUT",
@@ -37,7 +37,12 @@ export function useUpdatePrivacyMaskingSettings() {
         schema: privacyMaskingSettingsResponseSchema,
       }),
     onSuccess: (response) => {
-      queryClient.setQueryData(privacyMaskingQueryKey, response);
+      queryClient.setQueryData(privacyMaskingQueryKey, response)
     },
-  });
+    onError: (error) => {
+      if (error instanceof ApiError && error.errorCode === "CONFLICT") {
+        void queryClient.invalidateQueries({ queryKey: privacyMaskingQueryKey })
+      }
+    },
+  })
 }

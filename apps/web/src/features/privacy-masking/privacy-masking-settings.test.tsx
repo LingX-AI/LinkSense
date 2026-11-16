@@ -1,23 +1,23 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defaultPrivacyMaskingSettings } from "@linksense/shared";
+import { defaultPrivacyMaskingSettings } from "@linksense/shared"
 
-import i18n from "@/i18n";
-import { PrivacyMaskingSettingsCard } from "@/features/privacy-masking/privacy-masking-settings";
+import i18n from "@/i18n"
+import { PrivacyMaskingSettingsCard } from "@/features/privacy-masking/privacy-masking-settings"
 
 afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-});
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 function envelope(data: unknown, status = 200) {
   return new Response(JSON.stringify({ success: true, data }), {
     status,
     headers: { "content-type": "application/json" },
-  });
+  })
 }
 
 function renderCard() {
@@ -26,19 +26,19 @@ function renderCard() {
       queries: { retry: false },
       mutations: { retry: false },
     },
-  });
+  })
   return render(
     <QueryClientProvider client={queryClient}>
       <PrivacyMaskingSettingsCard />
     </QueryClientProvider>
-  );
+  )
 }
 
 describe("privacy masking settings card", () => {
   it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
     "renders the saved settings in %s",
     async (language) => {
-      await i18n.changeLanguage(language);
+      await i18n.changeLanguage(language)
       vi.stubGlobal(
         "fetch",
         vi.fn(async () =>
@@ -47,74 +47,122 @@ describe("privacy masking settings card", () => {
             settings: defaultPrivacyMaskingSettings,
           })
         )
-      );
-      renderCard();
+      )
+      renderCard()
       expect(
         await screen.findByRole("switch", {
           name: i18n.t("settings.privacyMaskingEnabled"),
         })
-      ).not.toBeChecked();
+      ).not.toBeChecked()
       expect(
         screen.getByRole("button", {
           name: i18n.t("settings.privacyMaskingSave"),
         })
-      ).toBeDisabled();
+      ).toBeDisabled()
     }
-  );
+  )
 
   it("saves the switch and parsed custom words", async () => {
-    await i18n.changeLanguage("en-US");
-    let settings = { ...defaultPrivacyMaskingSettings };
+    await i18n.changeLanguage("en-US")
+    let settings = { ...defaultPrivacyMaskingSettings }
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
-        const path = String(input);
+        const path = String(input)
         if (init?.method === "PUT") {
           const body = JSON.parse(String(init.body)) as {
-            expected_revision: number;
-            settings: typeof settings;
-          };
-          settings = body.settings;
-          return envelope({ revision: 1, settings });
+            expected_revision: number
+            settings: typeof settings
+          }
+          settings = body.settings
+          return envelope({ revision: 1, settings })
         }
-        expect(path).toBe("/api/v1/me/privacy-masking-settings");
-        return envelope({ revision: 0, settings });
+        expect(path).toBe("/api/v1/me/privacy-masking-settings")
+        return envelope({ revision: 0, settings })
       }
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    renderCard();
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const user = userEvent.setup()
+    renderCard()
 
     const enable = await screen.findByRole("switch", {
       name: i18n.t("settings.privacyMaskingEnabled"),
-    });
-    await user.click(enable);
-    const words = screen.getByLabelText(
-      i18n.t("settings.privacyMaskingWords")
-    );
-    await user.type(words, "Nightjar\n\nAcme");
+    })
+    await user.click(enable)
+    const words = screen.getByLabelText(i18n.t("settings.privacyMaskingWords"))
+    await user.type(words, "Nightjar\n\nAcme")
     const save = screen.getByRole("button", {
       name: i18n.t("settings.privacyMaskingSave"),
-    });
-    await waitFor(() => expect(save).toBeEnabled());
-    await user.click(save);
+    })
+    await waitFor(() => expect(save).toBeEnabled())
+    await user.click(save)
 
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(
         ([, init]) => init?.method === "PUT"
-      );
-      expect(call).toBeTruthy();
+      )
+      expect(call).toBeTruthy()
       expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
         expected_revision: 0,
         settings: {
           enabled: true,
           words: ["Nightjar", "Acme"],
         },
-      });
-    });
+      })
+    })
     expect(
       await screen.findByRole("switch", {
         name: i18n.t("settings.privacyMaskingEnabled"),
       })
-    ).toBeChecked();
-  });
-});
+    ).toBeChecked()
+  })
+
+  it("reloads settings after a conflicting save and uses the current revision on retry", async () => {
+    await i18n.changeLanguage("en-US")
+    const settings = { ...defaultPrivacyMaskingSettings, enabled: true }
+    let revision = 0
+    const savedRevisions: number[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method !== "PUT") {
+          return envelope({ revision, settings })
+        }
+        const body = JSON.parse(String(init.body)) as {
+          expected_revision: number
+          settings: typeof settings
+        }
+        savedRevisions.push(body.expected_revision)
+        if (savedRevisions.length === 1) {
+          revision = 1
+          settings.words = ["Saved in another tab"]
+          return new Response(
+            JSON.stringify({ success: false, error_code: "CONFLICT" }),
+            {
+              status: 409,
+              headers: { "content-type": "application/json" },
+            }
+          )
+        }
+        return envelope({ revision: 2, settings: body.settings })
+      })
+    )
+    const user = userEvent.setup()
+    renderCard()
+    const words = await screen.findByLabelText(
+      i18n.t("settings.privacyMaskingWords")
+    )
+    await user.type(words, "First draft")
+    const save = screen.getByRole("button", {
+      name: i18n.t("settings.privacyMaskingSave"),
+    })
+    await user.click(save)
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      i18n.t("errors.conflict")
+    )
+    await waitFor(() => expect(words).toHaveValue("Saved in another tab"))
+    await user.type(words, "\nSecond draft")
+    await user.click(save)
+    await waitFor(() => expect(savedRevisions).toEqual([0, 1]))
+    await waitFor(() => expect(save).toBeDisabled())
+  })
+})
