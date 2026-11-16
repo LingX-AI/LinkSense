@@ -1,24 +1,24 @@
 {
   "schemaVersion": 1,
-  "id": "baseline-39371761253-1",
-  "recipeFingerprint": "d6bcd2b03c6e8c00458c6d7e93b4af5ece76d9154d42003da2132f41212f4f21",
-  "sourceCommit": "e99293d9208779c64dc826826b4bc31c709e094c",
-  "workflowUrl": "https://github.com/LingX-AI/LinkSense/actions/runs/39371761253",
-  "builtAt": "2026-10-20T04:51:43Z",
+  "id": "baseline-43400386608-1",
+  "recipeFingerprint": "8d6f67b69a15e538e623bd9f424e96c08c17d1aa458a463936b242373fbca077",
+  "sourceCommit": "d63c77ef5831e2003ab761edef261251e51a00b0",
+  "workflowUrl": "https://github.com/LingX-AI/LinkSense/actions/runs/43400386608",
+  "builtAt": "2026-11-13T09:20:14Z",
   "runtimes": {
-    "node": "ghcr.io/lingx-ai/linksense-runtime-node@sha256:4c26d7de85c4bbf120df38961a5f4580274a8550880fdda222b7937cf509b159",
-    "api": "ghcr.io/lingx-ai/linksense-runtime-api@sha256:e844c5884230a10a39c9c6edb482ae2f014c00c2a62bedb82766a30e24fcf262",
-    "web": "ghcr.io/lingx-ai/linksense-runtime-web@sha256:cb6a5217185e6bbc4430e3e622ffb749faa5fae118f3c8b99c8ddddfd1b0e219",
-    "worker": "ghcr.io/lingx-ai/linksense-runtime-worker@sha256:13c4c6b86045ce8cd19419afe299158a8520d20ac84edca395ce28d05d9ada06"
+    "node": "ghcr.io/lingx-ai/linksense-runtime-node@sha256:9413f3ec2faec1a34a395962c1784231b2c99aa443d3b0a5b2f0cd645604037b",
+    "api": "ghcr.io/lingx-ai/linksense-runtime-api@sha256:7ad29f5cbbab8759d851da0e336af7ac4e31fad03bcc0d98cb0e4a11fac6fe6a",
+    "web": "ghcr.io/lingx-ai/linksense-runtime-web@sha256:d6105fd814a9f338b0ff9fdb820f39f7924ef4b4f68be4c44c57feaf06a81511",
+    "worker": "ghcr.io/lingx-ai/linksense-runtime-worker@sha256:03bdf2372ad565c52ef26afbbe8b15d8cca37a423d7f030d8f5a79b389ce9150"
   },
   "services": {
-    "POSTGRES": "ghcr.io/lingx-ai/linksense-postgres@sha256:5ee9966aaa8708c100b3076fbe2f1956af883c59c61a0696d655b925e1d8eb02",
-    "REDIS": "ghcr.io/lingx-ai/linksense-redis@sha256:f8daefff2e9fba1864f559e9029ab8505a04b1d0735863c0fefe8672a7c3031d",
+    "POSTGRES": "ghcr.io/lingx-ai/linksense-postgres@sha256:4f0e26f306433781726fb444144c1a7072422ee2d1209e955b4ea8ab8056c1d4",
+    "REDIS": "ghcr.io/lingx-ai/linksense-redis@sha256:4ccd33d05049c85c5162c5e4a42544bbcd31fcc8c9a3cd97c53fdec15f6344cb",
     "MINIO": "docker.io/pgsty/silo@sha256:32a8a777d90f3296294c9a57da5e8d397121187c4b868b2a7fc7874c726c0291",
-    "MINIO_CLIENT": "ghcr.io/lingx-ai/linksense-minio-client@sha256:a1c18f3a0ac80ec62481a8c3e911fffe0d6efc334147813f1c0d58d09cee169b",
-    "BUSYBOX": "docker.io/library/busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e",
-    "GATEWAY": "ghcr.io/lingx-ai/linksense-gateway@sha256:eaf6219601519d253ff57abafbb28eb7ce210850dbce7bc0c519ea9a609eab56",
-    "ELASTICSEARCH": "ghcr.io/lingx-ai/linksense-elasticsearch@sha256:9db9356fa48d29912b09679e3480602ee983cf19d450bd77eb092acc36b56b22",
-    "DOCLING": "ghcr.io/lingx-ai/linksense-docling@sha256:841c7493b1e3c1931efceb95f034e7d06535859162a10fddb30fba1c410e9a25"
+    "MINIO_CLIENT": "ghcr.io/lingx-ai/linksense-minio-client@sha256:ce514fa45a6bc8260ac7d4232ade47b3556ebaefd7ee31740efce5fc1d99dbc2",
+    "BUSYBOX": "docker.io/library/busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec",
+    "GATEWAY": "ghcr.io/lingx-ai/linksense-gateway@sha256:40c40ab6221156bffe0be459c4e621a425f4b616f63ebe4dae476d81b77c648f",
+    "ELASTICSEARCH": "ghcr.io/lingx-ai/linksense-elasticsearch@sha256:9f8d9245ad111cb62bf492ff6d2bff24f009b7a80eed6013d160da409ad37ce7",
+    "DOCLING": "ghcr.io/lingx-ai/linksense-docling@sha256:0261273fa0a3b06eab6516f9634438fec3828fadf7696a5477ca40b4b0cc484a"
   }
 }
