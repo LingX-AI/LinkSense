@@ -5719,12 +5719,12 @@ export const jaJP = {
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "ja-JP"),
       responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "ja-JP"),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "ja-JP"),
+    },
     privacyMasking: {
       unavailable: localizedErrorMessage(
         "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
         "ja-JP"
       ),
-    },
     },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(

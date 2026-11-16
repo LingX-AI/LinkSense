@@ -5469,12 +5469,12 @@ export const enUS = {
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "en-US"),
       responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "en-US"),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "en-US"),
+    },
     privacyMasking: {
       unavailable: localizedErrorMessage(
         "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
         "en-US"
       ),
-    },
     },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(

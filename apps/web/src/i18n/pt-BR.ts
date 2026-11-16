@@ -5815,12 +5815,12 @@ export const ptBR = {
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "pt-BR"),
       responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "pt-BR"),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "pt-BR"),
+    },
     privacyMasking: {
       unavailable: localizedErrorMessage(
         "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
         "pt-BR"
       ),
-    },
     },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(

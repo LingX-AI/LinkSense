@@ -5078,12 +5078,12 @@ export const zhCN = {
       rateLimited: localizedErrorMessage("WEB_SEARCH_RATE_LIMITED", "zh-CN"),
       responseInvalid: localizedErrorMessage("WEB_SEARCH_RESPONSE_INVALID", "zh-CN"),
       timeout: localizedErrorMessage("WEB_SEARCH_TIMEOUT", "zh-CN"),
+    },
     privacyMasking: {
       unavailable: localizedErrorMessage(
         "PRIVACY_MASKING_SETTINGS_UNAVAILABLE",
         "zh-CN"
       ),
-    },
     },
     skillManagement: {
       uninstallNotAllowed: localizedErrorMessage(
