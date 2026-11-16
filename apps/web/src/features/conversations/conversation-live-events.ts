@@ -17,9 +17,21 @@ export function isStreamOnlyNativeEvent(event: ConversationEvent) {
 export function appendConversationLiveEvent(
   current: ConversationEvent[],
   event: ConversationEvent
-) {
+): ConversationEvent[] {
   const native = getNativeCodexPayload(event)
   if (!native || STREAM_ONLY_NATIVE_METHODS.has(native.method)) return current
+
+  if (
+    native.method === "turn/plan/updated" &&
+    current.some(
+      (value) =>
+        value.turn_id === event.turn_id &&
+        value.sequence_no > event.sequence_no &&
+        getNativeCodexPayload(value)?.method === "turn/plan/updated"
+    )
+  ) {
+    return current
+  }
 
   const retained = current.filter((value) => {
     if (value.id === event.id) return false
@@ -34,5 +46,22 @@ export function appendConversationLiveEvent(
     )
   })
 
-  return [...retained.slice(-(LIVE_EVENT_LIMIT - 1)), event]
+  const next = [...retained, event]
+  let excess = next.length - LIVE_EVENT_LIMIT
+  if (excess <= 0) return next
+
+  // Plans are current turn state, not rolling tool activity. Evict tools first
+  // so a long task cannot revive an older plan from the cached detail response.
+  return next
+    .filter((value) => {
+      if (
+        excess <= 0 ||
+        getNativeCodexPayload(value)?.method === "turn/plan/updated"
+      ) {
+        return true
+      }
+      excess -= 1
+      return false
+    })
+    .slice(-LIVE_EVENT_LIMIT)
 }
