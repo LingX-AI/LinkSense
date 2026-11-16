@@ -10,7 +10,8 @@ export type RestoredEvent = {
 };
 
 type PendingEvent = {
-  context: string;
+  itemKey: string;
+  streamKey: string;
   tail: string;
   full: JsonObject;
   cut: JsonObject;
@@ -24,11 +25,11 @@ const sealedKeys = new Set([
   "obfuscation",
 ]);
 
-const waitEvents = new Set([
-  "ping",
-  "keepalive",
-  "response.in_progress",
-  "response.queued",
+const terminalEvents = new Set([
+  "response.completed",
+  "response.failed",
+  "response.incomplete",
+  "error",
 ]);
 
 const knownKinds = new Set<string>(privacyMaskingKindValues);
@@ -58,7 +59,7 @@ function restorePayload(
   key = "",
 ): unknown {
   if (typeof value === "string") {
-    if (sealedKeys.has(key) || value.startsWith("data:")) return value;
+    if (sealedKeys.has(key)) return value;
     return masker.restoreText(value, contextFor(key, eventName));
   }
   if (Array.isArray(value)) {
@@ -126,26 +127,30 @@ function streamingField(
  * checked rather than splitting at the first one.
  */
 export function partialPlaceholderTail(text: string): number {
+  const braceTail = text.endsWith("{") ? 1 : 0;
   const start = text.lastIndexOf("{{");
-  if (start < 0) return 0;
+  if (start < 0) return braceTail;
   const tail = text.slice(start);
-  if (tail.includes("}}")) return 0;
+  if (tail.includes("}}")) return braceTail;
   const body = tail.slice(2);
   if (body.length === 0) return tail.length;
   for (const kind of knownKinds) {
     if (body.startsWith(`${kind}_`)) {
       const hash = body.slice(kind.length + 1);
-      if (/^[0-9a-f]{0,32}$/u.test(hash)) return tail.length;
+      if (/^[0-9a-f]{0,32}\}?$/u.test(hash)) return tail.length;
     }
     if (kind.startsWith(body)) return tail.length;
   }
-  return 0;
+  return braceTail;
+}
+
+function itemKey(payload: JsonObject): string {
+  const item = isObject(payload.item) ? payload.item.id : undefined;
+  return String(payload.item_id ?? item ?? payload.output_index ?? "");
 }
 
 function eventKey(payload: JsonObject): string {
-  const item = payload.item_id ?? payload.output_index ?? "";
-  const content = payload.content_index ?? "";
-  return `${String(item)}|${String(content)}`;
+  return `${itemKey(payload)}|${String(payload.content_index ?? "")}|${String(payload.summary_index ?? "")}`;
 }
 
 /**
@@ -155,7 +160,7 @@ function eventKey(payload: JsonObject): string {
  * ahead of the held tail.
  */
 export class PrivacyRestorer {
-  private pending: PendingEvent | null = null;
+  private readonly pending = new Map<string, PendingEvent>();
 
   constructor(private readonly masker: PrivacyMasker) {}
 
@@ -167,12 +172,17 @@ export class PrivacyRestorer {
     const output: RestoredEvent[] = [];
 
     if (!field) {
-      if (this.pending && !waitEvents.has(eventName)) {
-        output.push({
-          event: this.pending.event,
-          payload: this.pending.full,
-        });
-        this.pending = null;
+      for (const [context, pending] of this.pending) {
+        if (
+          terminalEvents.has(eventName) ||
+          (eventName === "response.output_item.done" &&
+            pending.itemKey === itemKey(payload)) ||
+          (eventName.endsWith(".done") &&
+            pending.streamKey === eventKey(payload))
+        ) {
+          output.push({ event: pending.event, payload: pending.full });
+          this.pending.delete(context);
+        }
       }
       output.push({
         event: eventName,
@@ -187,20 +197,11 @@ export class PrivacyRestorer {
 
     const context = `${eventName}|${eventKey(payload)}|${field.key}`;
     let carry = "";
-    if (this.pending) {
-      if (this.pending.context === context) {
-        output.push({
-          event: this.pending.event,
-          payload: this.pending.cut,
-        });
-        carry = this.pending.tail;
-      } else {
-        output.push({
-          event: this.pending.event,
-          payload: this.pending.full,
-        });
-      }
-      this.pending = null;
+    const pending = this.pending.get(context);
+    if (pending) {
+      output.push({ event: pending.event, payload: pending.cut });
+      carry = pending.tail;
+      this.pending.delete(context);
     }
 
     const original = payload[field.key];
@@ -231,13 +232,14 @@ export class PrivacyRestorer {
     };
 
     if (tail.length > 0) {
-      this.pending = {
-        context,
+      this.pending.set(context, {
+        itemKey: itemKey(payload),
+        streamKey: eventKey(payload),
         tail,
         full: withText(combined),
         cut: withText(head),
         event: eventName,
-      };
+      });
       return output;
     }
 
@@ -246,9 +248,11 @@ export class PrivacyRestorer {
   }
 
   flush(): RestoredEvent[] {
-    if (!this.pending) return [];
-    const pending = this.pending;
-    this.pending = null;
-    return [{ event: pending.event, payload: pending.full }];
+    const events = [...this.pending.values()].map((pending) => ({
+      event: pending.event,
+      payload: pending.full,
+    }));
+    this.pending.clear();
+    return events;
   }
 }

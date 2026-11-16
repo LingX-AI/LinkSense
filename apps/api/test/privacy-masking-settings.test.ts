@@ -167,6 +167,27 @@ describe("privacy masking settings", () => {
     });
   });
 
+  it("preserves separately configured case-sensitive words", async () => {
+    const f = fixture();
+    const saved = await f.service.updateForUser(
+      userA,
+      {
+        expected_revision: 0,
+        settings: settings({
+          words: ["Nightjar", "nightjar", "  Nightjar  "],
+          words_any_case: false,
+        }),
+      },
+      {},
+    );
+
+    expect(saved.settings.words).toEqual(["Nightjar", "nightjar"]);
+    await expect(f.service.runtimeForUser(userA)).resolves.toMatchObject({
+      words: ["Nightjar", "nightjar"],
+      words_any_case: false,
+    });
+  });
+
   it("fails closed when the stored settings cannot be decrypted", async () => {
     const f = fixture();
     await f.service.updateForUser(

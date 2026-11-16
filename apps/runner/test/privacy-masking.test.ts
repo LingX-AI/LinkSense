@@ -4,7 +4,10 @@ import type { PrivacyMaskingRuntime } from "@linksense/shared";
 
 import { PrivacyMasker } from "../src/privacy-masking/masker.js";
 import { maskResponsesRequest } from "../src/privacy-masking/request.js";
-import { PrivacyRestorer } from "../src/privacy-masking/restore.js";
+import {
+  PrivacyRestorer,
+  restoreJsonValue,
+} from "../src/privacy-masking/restore.js";
 
 const placeholderKey = "b".repeat(64);
 
@@ -180,6 +183,45 @@ describe("PrivacyMasker", () => {
     expect(serialized).toContain("Acme query");
   });
 
+  it("masks secrets in long compact JSON tool output", () => {
+    const secret = `sk-proj-${"k".repeat(32)}`;
+    const output = JSON.stringify({
+      padding: "x".repeat(9_000),
+      api_key: secret,
+    });
+    const body = {
+      input: [
+        { type: "function_call_output", call_id: "call_1", output },
+      ],
+    };
+    const mask = masker();
+
+    const hits = maskResponsesRequest(body, mask);
+
+    expect(hits).not.toHaveLength(0);
+    expect(body.input[0]?.output).not.toContain(secret);
+    expect(mask.restoreText(body.input[0]?.output ?? "")).toBe(output);
+  });
+
+  it("masks and restores data-prefixed text while keeping binary data URLs", () => {
+    const secret = `sk-proj-${"m".repeat(32)}`;
+    const mask = masker({ words: ["AAAA"], words_whole: false });
+    const body = {
+      input: `data: my key is ${secret}`,
+      file_data: "data:application/pdf;base64,AAAA",
+      image_url: "data:image/png;base64,AAAA",
+    };
+
+    maskResponsesRequest(body, mask);
+
+    expect(body.input).not.toContain(secret);
+    expect(body.file_data).toBe("data:application/pdf;base64,AAAA");
+    expect(body.image_url).toBe("data:image/png;base64,AAAA");
+    expect(restoreJsonValue({ text: body.input }, mask)).toEqual({
+      text: `data: my key is ${secret}`,
+    });
+  });
+
   it("restores a value with quotes and newlines inside tool arguments", () => {
     const value = 'p"w\\ord\nline';
     const mask = masker();
@@ -216,6 +258,37 @@ describe("PrivacyMasker", () => {
     expect(JSON.parse(restored.arguments)).toEqual({ password: value });
   });
 
+  it("keeps tool arguments valid when a value contains a secret header", () => {
+    const value = `Bearer ${"r".repeat(24)}`;
+    const args = {
+      headers: `Authorization: ${value}`,
+      other: "retained",
+    };
+    const body = {
+      input: [
+        {
+          type: "function_call",
+          name: "run",
+          call_id: "call_1",
+          arguments: JSON.stringify(args),
+        },
+      ],
+    };
+    const mask = masker();
+
+    maskResponsesRequest(body, mask);
+
+    const masked = body.input[0]?.arguments ?? "";
+    expect(masked).not.toContain(value);
+    expect(JSON.parse(masked)).toEqual({
+      headers: expect.stringMatching(/^Authorization: \{\{SECRET_/u),
+      other: "retained",
+    });
+    expect(JSON.parse(mask.restoreText(masked, "embedded-json"))).toEqual(
+      args,
+    );
+  });
+
   it("restores a placeholder split between two deltas", () => {
     const mask = masker();
     const original = "my key is sk-proj-" + "z".repeat(32);
@@ -246,6 +319,30 @@ describe("PrivacyMasker", () => {
       .map((event) => event.payload.delta)
       .join("");
     expect(text).toBe(original);
+  });
+
+  it("restores placeholders split at every character boundary", () => {
+    const mask = masker();
+    const original = `sk-proj-${"v".repeat(32)}`;
+    const masked = mask.maskText(original).text;
+
+    for (let split = 1; split < masked.length; split += 1) {
+      const restorer = new PrivacyRestorer(mask);
+      const events = [
+        ...restorer.restoreEvent("response.output_text.delta", {
+          item_id: "item_1",
+          delta: masked.slice(0, split),
+        }),
+        ...restorer.restoreEvent("response.output_text.delta", {
+          item_id: "item_1",
+          delta: masked.slice(split),
+        }),
+        ...restorer.flush(),
+      ];
+      expect(events.map((event) => event.payload.delta).join("")).toBe(
+        original,
+      );
+    }
   });
 
   it("keeps a split placeholder across a keepalive event", () => {
@@ -279,6 +376,81 @@ describe("PrivacyMasker", () => {
       .join("");
     expect(deltas).toBe(original);
     expect(keepalive).toHaveLength(1);
+  });
+
+  it("restores split placeholders across interleaved tool calls", () => {
+    const mask = masker();
+    const values = [
+      `sk-proj-${"n".repeat(32)}`,
+      `sk-proj-${"o".repeat(32)}`,
+    ];
+    const arguments_ = values.map((value) =>
+      JSON.stringify({ key: mask.maskText(value).text }),
+    );
+    const restorer = new PrivacyRestorer(mask);
+    const events = [
+      ...restorer.restoreEvent("response.function_call_arguments.delta", {
+        item_id: "call_1",
+        delta: arguments_[0]?.slice(0, 15),
+      }),
+      ...restorer.restoreEvent("response.output_item.added", {
+        output_index: 1,
+        item: { id: "call_2", type: "function_call" },
+      }),
+      ...restorer.restoreEvent("response.function_call_arguments.delta", {
+        item_id: "call_2",
+        delta: arguments_[1]?.slice(0, 15),
+      }),
+      ...restorer.restoreEvent("response.function_call_arguments.delta", {
+        item_id: "call_2",
+        delta: arguments_[1]?.slice(15),
+      }),
+      ...restorer.restoreEvent("response.output_item.done", {
+        output_index: 1,
+        item: { id: "call_2", type: "function_call" },
+      }),
+      ...restorer.restoreEvent("response.function_call_arguments.delta", {
+        item_id: "call_1",
+        delta: arguments_[0]?.slice(15),
+      }),
+      ...restorer.flush(),
+    ];
+
+    for (const [index, value] of values.entries()) {
+      const text = events
+        .filter(
+          (event) =>
+            event.event === "response.function_call_arguments.delta" &&
+            event.payload.item_id === `call_${index + 1}`,
+        )
+        .map((event) => event.payload.delta)
+        .join("");
+      expect(JSON.parse(text)).toEqual({ key: value });
+    }
+  });
+
+  it.each([
+    "response.output_item.done",
+    "response.completed",
+    "response.failed",
+    "response.incomplete",
+  ])("flushes an unfinished placeholder before %s", (eventName) => {
+    const restorer = new PrivacyRestorer(masker());
+    const delta = "unfinished {{API_KEY_";
+    expect(
+      restorer.restoreEvent("response.output_text.delta", {
+        item_id: "item_1",
+        delta,
+      }),
+    ).toEqual([]);
+
+    expect(
+      restorer.restoreEvent(eventName, { item: { id: "item_1" } }),
+    ).toMatchObject([
+      { event: "response.output_text.delta", payload: { delta } },
+      { event: eventName },
+    ]);
+    expect(restorer.flush()).toEqual([]);
   });
 
   it("leaves an unknown placeholder as it came", () => {

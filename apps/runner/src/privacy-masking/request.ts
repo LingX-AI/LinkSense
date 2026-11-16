@@ -87,12 +87,6 @@ function isIdKey(key: string): boolean {
   );
 }
 
-function isOpaqueValue(value: string): boolean {
-  if (value.startsWith("data:")) return true;
-  // Images, archives and other long unbroken payloads have no useful text.
-  return value.length > 8_192 && !/\s/u.test(value);
-}
-
 /**
  * Returns a copy of the request with free text replaced by placeholders.
  * Ids, tool names, schemas and sealed values stay as they are so Codex and
@@ -104,7 +98,9 @@ export function maskResponsesRequest(
 ): PrivacyMaskHit[] {
   const hits: PrivacyMaskHit[] = [];
   const mask = (value: string, context: MaskContext) => {
-    if (isOpaqueValue(value)) return value;
+    if (/^data:[^,]*;base64,[A-Za-z0-9+/]*={0,2}$/u.test(value)) {
+      return value;
+    }
     const result = masker.maskText(value, context);
     hits.push(...result.hits);
     return result.text;

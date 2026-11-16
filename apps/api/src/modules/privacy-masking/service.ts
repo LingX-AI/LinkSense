@@ -30,13 +30,16 @@ function cloneSettings(
   };
 }
 
-function uniqueValues(values: readonly string[]): string[] {
+function uniqueValues(
+  values: readonly string[],
+  anyCase = true,
+): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const value of values) {
     const trimmed = value.trim();
     if (trimmed === "") continue;
-    const key = trimmed.toLowerCase();
+    const key = anyCase ? trimmed.toLowerCase() : trimmed;
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(trimmed);
@@ -49,7 +52,7 @@ function normalize(
 ): PrivacyMaskingSettings {
   return {
     ...settings,
-    words: uniqueValues(settings.words),
+    words: uniqueValues(settings.words, settings.words_any_case),
     allow: uniqueValues(settings.allow),
   };
 }

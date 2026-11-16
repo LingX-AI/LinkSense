@@ -91,6 +91,30 @@ function resolveOverlaps(spans: Span[]): Span[] {
   return selected;
 }
 
+function boundEmbeddedJsonSpans(text: string, spans: Span[]): Span[] {
+  // Header rules must not consume a tool argument's closing JSON syntax.
+  const strings = text.matchAll(/"(?:\\[\s\S]|[^"\\])*"/gu);
+  let current = strings.next().value;
+  return [...spans]
+    .sort((left, right) => left.start - right.start)
+    .map((span) => {
+      while (
+        current &&
+        current.index + current[0].length <= span.start
+      ) {
+        current = strings.next().value;
+      }
+      if (!current || span.start <= current.index) return span;
+      const stringEnd = current.index + current[0].length - 1;
+      if (span.start >= stringEnd || span.end <= stringEnd) return span;
+      return {
+        ...span,
+        end: stringEnd,
+        value: text.slice(span.start, stringEnd),
+      };
+    });
+}
+
 function collectRuleSpans(
   text: string,
   lower: string,
@@ -164,7 +188,10 @@ export class PrivacyMasker {
 
     const hits: PrivacyMaskHit[] = [];
     let masked = text;
-    for (const span of resolveOverlaps(spans).reverse()) {
+    const bounded = context === "embedded-json"
+      ? boundEmbeddedJsonSpans(text, spans)
+      : spans;
+    for (const span of resolveOverlaps(bounded).reverse()) {
       const raw =
         context === "embedded-json"
           ? unescapeJsonFragment(span.value)
