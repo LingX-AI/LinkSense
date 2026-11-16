@@ -49,6 +49,15 @@ describe("settings page layout", () => {
       "separator",
       "running-message-action-heading",
     ])
+    const content = card?.querySelector('[data-slot="card-content"]')
+    const sections = content?.querySelectorAll("section") ?? []
+    for (const section of sections) {
+      expect(section).not.toHaveClass("py-4", "sm:py-5")
+    }
+    expect(content?.querySelector('[data-slot="separator"]')).toHaveClass(
+      "my-4",
+      "sm:my-5"
+    )
   })
 
   it("stacks the running-message selector in narrow containers with only option names", async () => {

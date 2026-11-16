@@ -172,10 +172,7 @@ export function SettingsGeneralPage() {
             />
           }
         >
-          <section
-            className="py-4 sm:py-5"
-            aria-labelledby="interface-language-heading"
-          >
+          <section aria-labelledby="interface-language-heading">
             <SettingsSectionHeader
               id="interface-language-heading"
               title={t("settings.interfaceLanguage")}
@@ -212,11 +209,8 @@ export function SettingsGeneralPage() {
               }
             />
           </section>
-          <Separator className="bg-[var(--app-divider)]" />
-          <section
-            className="py-4 sm:py-5"
-            aria-labelledby="running-message-action-heading"
-          >
+          <Separator className="my-4 bg-[var(--app-divider)] sm:my-5" />
+          <section aria-labelledby="running-message-action-heading">
             <SettingsSectionHeader
               id="running-message-action-heading"
               title={t("settings.runningMessageAction")}

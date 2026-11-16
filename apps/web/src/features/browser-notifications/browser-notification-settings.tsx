@@ -62,7 +62,7 @@ export function BrowserNotificationSettings({
         />
       }
     >
-      <div className="flex min-h-20 items-center justify-between gap-6 py-4">
+      <div className="flex items-center justify-between gap-6">
         <span className="min-w-0 text-sm font-medium">
           {t("browserNotifications.enable")}
         </span>
