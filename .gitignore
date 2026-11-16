@@ -38,3 +38,6 @@ apps/web/dummy-non-existing-folder/
 **/.venv/
 apps/runner/store
 apps/docs/.public-docs/
+
+# TypeScript incremental build info
+*.tsbuildinfo
