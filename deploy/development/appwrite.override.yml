@@ -1,0 +1,98 @@
+# Apply to the official Appwrite 2.7.2 PostgreSQL Compose installation.
+# Requires Docker Compose 2.24.4 or later for !override.
+# Set COMPOSE_PROJECT_NAME and _APP_COMPUTE_RUNTIMES_NETWORK in its private .env.
+services:
+  traefik:
+    container_name: ${COMPOSE_PROJECT_NAME}-gateway
+    command:
+      - --providers.file.directory=/storage/config
+      - --providers.file.watch=true
+      - --providers.docker=true
+      - --providers.docker.exposedByDefault=false
+      - --providers.docker.constraints=Label(`traefik.constraint-label-stack`,`${COMPOSE_PROJECT_NAME}`)
+      - --entrypoints.appwrite_web.address=:80
+      - --entrypoints.appwrite_websecure.address=:443
+      - --entrypoints.appwrite_mqtt.address=:8883
+      - --entrypoints.appwrite_mqtt_ws.address=:8084
+    ports: !override
+      - 127.0.0.1:${LINKSENSE_APPWRITE_HTTP_PORT:-19080}:80
+  appwrite:
+    container_name: ${COMPOSE_PROJECT_NAME}-api
+    networks:
+      - appwrite
+      - browser
+      - runtimes
+    labels:
+      traefik.docker.network: ${COMPOSE_PROJECT_NAME}
+      traefik.constraint-label-stack: ${COMPOSE_PROJECT_NAME}
+  appwrite-console:
+    container_name: ${COMPOSE_PROJECT_NAME}-console
+    labels:
+      traefik.docker.network: ${COMPOSE_PROJECT_NAME}
+      traefik.constraint-label-stack: ${COMPOSE_PROJECT_NAME}
+  appwrite-realtime:
+    container_name: ${COMPOSE_PROJECT_NAME}-realtime
+    labels:
+      traefik.docker.network: ${COMPOSE_PROJECT_NAME}
+      traefik.constraint-label-stack: ${COMPOSE_PROJECT_NAME}
+  appwrite-mqtt:
+    container_name: ${COMPOSE_PROJECT_NAME}-mqtt
+    labels:
+      traefik.docker.network: ${COMPOSE_PROJECT_NAME}
+      traefik.constraint-label-stack: ${COMPOSE_PROJECT_NAME}
+  appwrite-worker:
+    container_name: ${COMPOSE_PROJECT_NAME}-worker
+  appwrite-task-scheduler:
+    container_name: ${COMPOSE_PROJECT_NAME}-scheduler
+  appwrite-task-maintenance:
+    container_name: ${COMPOSE_PROJECT_NAME}-maintenance
+  appwrite-task-interval:
+    container_name: ${COMPOSE_PROJECT_NAME}-interval
+  appwrite-geo:
+    container_name: ${COMPOSE_PROJECT_NAME}-geo
+  appwrite-browser:
+    container_name: ${COMPOSE_PROJECT_NAME}-browser
+  appwrite-autogravity:
+    container_name: ${COMPOSE_PROJECT_NAME}-autogravity
+  appwrite-exiftool:
+    container_name: ${COMPOSE_PROJECT_NAME}-exiftool
+  openruntimes-executor:
+    # Native runtime IDs include this name and have a 64-character limit.
+    container_name: ${LINKSENSE_APPWRITE_EXECUTOR_NAME:-exc1}
+    hostname: ${LINKSENSE_APPWRITE_EXECUTOR_NAME:-exc1}
+    networks:
+      appwrite:
+        aliases:
+          - exc1
+  orchestrator:
+    container_name: ${COMPOSE_PROJECT_NAME}-orchestrator
+    hostname: ${COMPOSE_PROJECT_NAME}-orchestrator
+    environment:
+      ORCHESTRATOR_NETWORK: ${COMPOSE_PROJECT_NAME}
+      DOCKER_NETWORK: ${COMPOSE_PROJECT_NAME}
+  postgresql:
+    container_name: ${COMPOSE_PROJECT_NAME}-postgresql
+  redis:
+    container_name: ${COMPOSE_PROJECT_NAME}-redis
+  clickhouse:
+    volumes:
+      - type: bind
+        source: ./clickhouse-config.xml
+        target: /etc/clickhouse-server/config.d/appwrite.xml
+        read_only: true
+      - type: bind
+        source: ./clickhouse-init.sh
+        target: /docker-entrypoint-initdb.d/clickhouse-init.sh
+        read_only: true
+networks:
+  appwrite:
+    name: ${COMPOSE_PROJECT_NAME}
+  gateway:
+    name: ${COMPOSE_PROJECT_NAME}-gateway
+  browser:
+    name: ${COMPOSE_PROJECT_NAME}-browser
+  runtimes:
+    name: ${COMPOSE_PROJECT_NAME}-runtimes
+volumes:
+  appwrite-builds:
+    name: ${COMPOSE_PROJECT_NAME}-builds
