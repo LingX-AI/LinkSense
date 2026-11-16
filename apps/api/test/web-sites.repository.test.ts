@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaClient, Prisma } from "../src/generated/prisma/client.js";
 import { WebSiteRepository } from "../src/modules/web-sites/repository.js";
-import { fileId, ownerId, siteFixture, siteId } from "./web-sites.fixture.js";
+import { fileId, ownerId, releaseId, siteFixture, siteId, taskId } from "./web-sites.fixture.js";
 
 function fixture(owned = true) {
   const tx = {
@@ -65,4 +65,36 @@ describe("website lookup by original HTML file", () => {
       where: expect.objectContaining({ ownerId, originFileId: fileId }),
     }));
   });
+});
+
+describe("dynamic publication fencing", () => {
+  it.each(["publish", "restore"] as const)(
+    "rejects %s before writing when the backend publication lease is lost",
+    async (operation) => {
+      const { manifest } = siteFixture();
+      const backendId = "60000000-0000-4000-8000-000000000001";
+      const lease = new Date(Date.now() + 60_000);
+      const query = vi.fn<(query: Prisma.Sql) => Promise<unknown[]>>();
+      if (operation === "publish") query.mockResolvedValueOnce([{ id: taskId, title: "Source" }]);
+      query.mockResolvedValueOnce([{ id: siteId, backendId }]).mockResolvedValueOnce([]);
+      const tx = {
+        $queryRaw: query,
+        conversationFile: { count: vi.fn().mockResolvedValue(1) },
+        webSite: { update: vi.fn() },
+        webSiteRelease: { create: vi.fn() },
+        auditLog: { create: vi.fn() },
+      };
+      const repository = new WebSiteRepository({
+        $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(tx),
+      } as unknown as PrismaClient);
+
+      await expect(operation === "publish"
+        ? repository.publish(ownerId, siteId, taskId, fileId, releaseId, manifest, lease)
+        : repository.update(ownerId, siteId, { status: "published" }, lease)
+      ).rejects.toMatchObject({ code: "WEB_SITE_BACKEND_PENDING" });
+      expect(query.mock.calls.at(-1)?.[0].values).toContain(lease);
+      expect(tx.webSite.update).not.toHaveBeenCalled();
+      expect(tx.webSiteRelease.create).not.toHaveBeenCalled();
+    },
+  );
 });

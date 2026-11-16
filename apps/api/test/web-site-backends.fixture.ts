@@ -30,8 +30,14 @@ export function backendFixture(appsBaseUrl = "https://apps.example.net") {
       if (owner !== ownerId || id !== backendId) throw new AppError("WEB_SITE_NOT_FOUND");
       return row;
     }),
-    acquire: vi.fn(async () => {}),
+    acquire: vi.fn(async (owner, id, lease) => {
+      if (owner !== ownerId || id !== backendId) throw new AppError("WEB_SITE_NOT_FOUND");
+      if (row.leaseUntil && row.leaseUntil.getTime() > Date.now()) throw new AppError("CONFLICT");
+      row.leaseUntil = lease;
+    }),
     finish: vi.fn(async (_id, _lease, status, encryptedCredential) => {
+      if (row.leaseUntil?.getTime() !== _lease.getTime()) throw new AppError("CONFLICT");
+      row.leaseUntil = null;
       if (status) row.status = status;
       if (encryptedCredential) row.encryptedCredential = encryptedCredential;
     }),

@@ -89,9 +89,22 @@ export class WebSiteBackendService {
     return this.project(await this.store.owned(ownerId, id));
   }
 
-  async assertPublishable(ownerId: string, id: string): Promise<void> {
+  async withPublishable<T>(ownerId: string, id: string, publish: (lease: Date) => Promise<T>): Promise<T> {
     const row = await this.store.owned(ownerId, id);
     if (row.leaseUntil && row.leaseUntil.getTime() > Date.now()) throw new AppError("WEB_SITE_BACKEND_PENDING");
+    const lease = new Date(Date.now() + 60_000);
+    await this.store.acquire(ownerId, id, lease);
+    try {
+      await this.assertPublishable(ownerId, id, lease);
+      return await publish(lease);
+    } finally { await this.store.finish(id, lease); }
+  }
+
+  async assertPublishable(ownerId: string, id: string, lease?: Date): Promise<void> {
+    const row = await this.store.owned(ownerId, id);
+    if (lease
+      ? row.leaseUntil?.getTime() !== lease.getTime() || lease.getTime() <= Date.now()
+      : row.leaseUntil && row.leaseUntil.getTime() > Date.now()) throw new AppError("WEB_SITE_BACKEND_PENDING");
     const key = this.key(row);
     const query = new URLSearchParams({ "queries[]": JSON.stringify({ method: "limit", values: [100] }) });
     const functions = z.object({ total: z.number(), functions: z.array(z.object({

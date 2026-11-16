@@ -130,6 +130,38 @@ describe("self-hosted Appwrite backend", () => {
     await expect(fixture.sites.publish(ownerId, id, fixture.site.source.file.id)).resolves.toMatchObject({ backend_id: backendId });
   });
 
+  it.each(["create", "publish", "restore"] as const)(
+    "keeps backend configuration excluded throughout %s readiness and publication",
+    async (operation) => {
+      const fixture = backendFixture();
+      let configurationError: unknown;
+      fixture.fetcher.mockImplementationOnce(async () => {
+        try {
+          await fixture.service.configure(ownerId, backendId, { action: "inspect", path: "/functions" });
+        } catch (error) {
+          configurationError = error;
+        }
+        return Response.json({ total: 0, functions: [] });
+      });
+      if (operation === "create") {
+        await fixture.sites.create(ownerId, {
+          conversation_id: taskId, file_id: fixture.site.source.file.id,
+          name: "Sample", description: "", backend_id: backendId,
+        });
+      } else if (operation === "publish") {
+        await fixture.sites.publish(ownerId, fixture.site.row.site.id, fixture.site.source.file.id);
+      } else {
+        fixture.site.row.site.status = "disabled";
+        await fixture.sites.update(ownerId, fixture.site.row.site.id, { status: "published" });
+      }
+      expect(configurationError).toMatchObject({ code: "CONFLICT" });
+      expect(fixture.row.leaseUntil).toBeNull();
+      await expect(fixture.service.configure(ownerId, backendId, {
+        action: "inspect", path: "/functions",
+      })).resolves.toBeDefined();
+    },
+  );
+
   it("stages code without activating it and only activates a ready native deployment", async () => {
     const fixture = backendFixture();
     fixture.site.objects.set("source/code.tar.gz", Buffer.from("code"));

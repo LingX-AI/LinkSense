@@ -36,22 +36,30 @@ export class WebSiteService {
   }
   async create(ownerId: string, input: WebSiteCreate): Promise<WebSite> {
     const { sourceTitle, manifest } = await this.sourceBundle(ownerId, input.conversation_id, input.file_id);
-    if (input.backend_id) await this.requiredBackends().assertPublishable(ownerId, input.backend_id);
-    return this.project(await this.store.create(ownerId, input, { siteId: randomUUID(), releaseId: randomUUID(), slug: input.slug ?? randomUUID() }, sourceTitle, manifest));
+    const ids = { siteId: randomUUID(), releaseId: randomUUID(), slug: input.slug ?? randomUUID() };
+    return this.project(input.backend_id
+      ? await this.requiredBackends().withPublishable(ownerId, input.backend_id,
+        lease => this.store.create(ownerId, input, ids, sourceTitle, manifest, lease))
+      : await this.store.create(ownerId, input, ids, sourceTitle, manifest));
   }
   async update(ownerId: string, id: string, input: WebSiteUpdate): Promise<WebSite> {
     if (input.status === "published") {
       const { site } = await this.store.owned(ownerId, id);
-      if (site.backendId) await this.requiredBackends().assertPublishable(ownerId, site.backendId);
+      if (site.backendId) return this.project(await this.requiredBackends().withPublishable(
+        ownerId, site.backendId, lease => this.store.update(ownerId, id, input, lease),
+      ));
     }
     return this.project(await this.store.update(ownerId, id, input));
   }
   async publish(ownerId: string, id: string, fileId: string, expectedBackendId?: string): Promise<WebSite> {
     const { site } = await this.store.owned(ownerId, id);
     if (expectedBackendId && site.backendId !== expectedBackendId) throw new AppError("CONFLICT");
-    if (site.backendId) await this.requiredBackends().assertPublishable(ownerId, site.backendId);
     const { manifest, conversationId } = await this.sourceBundle(ownerId, null, fileId);
-    return this.project(await this.store.publish(ownerId, id, conversationId, fileId, randomUUID(), manifest));
+    const releaseId = randomUUID();
+    return this.project(site.backendId
+      ? await this.requiredBackends().withPublishable(ownerId, site.backendId,
+        lease => this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest, lease))
+      : await this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest));
   }
   sources(ownerId: string, id: string) { return this.store.sources(ownerId, id); }
   delete(ownerId: string, id: string): Promise<void> { return this.store.delete(ownerId, id); }

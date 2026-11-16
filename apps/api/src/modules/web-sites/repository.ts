@@ -118,7 +118,7 @@ export class WebSiteRepository {
     return files.map(file => ({ id: file.id, filename: file.filename, created_at: file.createdAt.toISOString() }));
   }
 
-  async create(ownerId: string, input: WebSiteCreate, ids: { siteId: string; releaseId: string; slug: string }, sourceTitle: string, manifest: WebBundleManifest): Promise<SiteAndRelease> {
+  async create(ownerId: string, input: WebSiteCreate, ids: { siteId: string; releaseId: string; slug: string }, sourceTitle: string, manifest: WebBundleManifest, backendLease?: Date): Promise<SiteAndRelease> {
     try {
       return await this.prisma.$transaction(async tx => {
         await lockSource(tx, ownerId, input.conversation_id, input.file_id);
@@ -129,8 +129,7 @@ export class WebSiteRepository {
           return { site: existing, release };
         }
         if (input.backend_id) {
-          const backends = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id FROM web_site_backends WHERE id=${input.backend_id}::uuid AND owner_id=${ownerId}::uuid AND status='ready' AND (lease_until IS NULL OR lease_until < ${new Date()}) FOR UPDATE`);
-          if (!backends.length) throw new AppError("WEB_SITE_BACKEND_PENDING");
+          await lockPublicationBackend(tx, ownerId, input.backend_id, backendLease);
           if (await tx.webSite.count({ where: { backendId: input.backend_id } })) throw new AppError("CONFLICT");
         }
         await tx.webSiteAddress.create({ data: { slug: ids.slug, siteId: ids.siteId } });
@@ -147,10 +146,13 @@ export class WebSiteRepository {
     } catch (error) { throw translateConflict(error); }
   }
 
-  async update(ownerId: string, id: string, input: WebSiteUpdate): Promise<SiteAndRelease> {
+  async update(ownerId: string, id: string, input: WebSiteUpdate, backendLease?: Date): Promise<SiteAndRelease> {
     try {
       await this.prisma.$transaction(async tx => {
-        await lockSite(tx, ownerId, id);
+        const site = await lockSite(tx, ownerId, id);
+        if (input.status === "published" && site.backendId) {
+          await lockPublicationBackend(tx, ownerId, site.backendId, backendLease);
+        }
         if (input.slug) {
           const reservation = await tx.webSiteAddress.findUnique({ where: { slug: input.slug } });
           if (reservation && reservation.siteId !== id) throw new AppError("WEB_SITE_SLUG_TAKEN");
@@ -168,10 +170,11 @@ export class WebSiteRepository {
     } catch (error) { throw translateConflict(error); }
   }
 
-  async publish(ownerId: string, id: string, conversationId: string, fileId: string, releaseId: string, manifest: WebBundleManifest): Promise<SiteAndRelease> {
+  async publish(ownerId: string, id: string, conversationId: string, fileId: string, releaseId: string, manifest: WebBundleManifest, backendLease?: Date): Promise<SiteAndRelease> {
     return this.prisma.$transaction(async tx => {
       const source = await lockSource(tx, ownerId, conversationId, fileId);
-      await lockSite(tx, ownerId, id);
+      const existing = await lockSite(tx, ownerId, id);
+      if (existing.backendId) await lockPublicationBackend(tx, ownerId, existing.backendId, backendLease);
       const release = await tx.webSiteRelease.create({ data: { id: releaseId, siteId: id, sourceFileId: fileId, manifestJson: manifest } });
       const site = await tx.webSite.update({ where: { id }, data: { currentReleaseId: release.id, sourceFileId: fileId, conversationId, sourceTaskTitle: source.title } });
       await audit(tx, ownerId, id, "web_site_published");
@@ -202,9 +205,17 @@ async function lockSource(tx: Prisma.TransactionClient, ownerId: string, convers
   if (!source || !await tx.conversationFile.count({ where: { id: fileId, conversationId, kind: "artifact", status: "registered", downloadable: true, mimeType: "text/html" } })) throw new AppError("WEB_SITE_SOURCE_UNAVAILABLE");
   return source;
 }
-async function lockSite(tx: Prisma.TransactionClient, ownerId: string, id: string): Promise<void> {
-  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id FROM web_sites WHERE id = ${id}::uuid AND owner_id = ${ownerId}::uuid FOR UPDATE`);
-  if (!rows.length) throw new AppError("WEB_SITE_NOT_FOUND");
+async function lockSite(tx: Prisma.TransactionClient, ownerId: string, id: string): Promise<{ id: string; backendId: string | null }> {
+  const rows = await tx.$queryRaw<Array<{ id: string; backendId: string | null }>>(Prisma.sql`SELECT id, backend_id AS "backendId" FROM web_sites WHERE id = ${id}::uuid AND owner_id = ${ownerId}::uuid FOR UPDATE`);
+  if (!rows[0]) throw new AppError("WEB_SITE_NOT_FOUND");
+  return rows[0];
+}
+async function lockPublicationBackend(tx: Prisma.TransactionClient, ownerId: string, id: string, lease?: Date): Promise<void> {
+  const condition = lease
+    ? Prisma.sql`lease_until = ${lease} AND lease_until > ${new Date()}`
+    : Prisma.sql`lease_until IS NULL OR lease_until < ${new Date()}`;
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id FROM web_site_backends WHERE id=${id}::uuid AND owner_id=${ownerId}::uuid AND status='ready' AND (${condition}) FOR UPDATE`);
+  if (!rows.length) throw new AppError("WEB_SITE_BACKEND_PENDING");
 }
 function translateConflict(error: unknown): unknown {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002" ? new AppError("WEB_SITE_SLUG_TAKEN") : error;
