@@ -42,7 +42,7 @@ export function SettingsCard({
       ) : (
         header
       )}
-      <Card className="min-w-0 py-4 sm:py-5">
+      <Card className="h-fit min-w-0 py-4 sm:py-5">
         <CardContent
           className={cn(
             "grid min-w-0 px-4 sm:px-5",
