@@ -111,8 +111,9 @@ export function createModelProviderProbeClient(
           const startedAt = Date.now()
           try {
             const chat = mode === "chat_completions_bridge"
+            // Some native Responses providers only accept Codex's apply_patch custom tool.
             const responsesTool = mode === "native_responses"
-              ? { type: "custom", name: protocolProbeFunction.name, description: protocolProbeFunction.description, format: { type: "text" } }
+              ? { type: "custom", name: "apply_patch", description: protocolProbeFunction.description, format: { type: "text" } }
               : { type: "function", ...protocolProbeFunction }
             const tools = chat ? [{ type: "function", function: protocolProbeFunction }] : [responsesTool]
             const message = { role: "user", content: "Please reply briefly with OK." }

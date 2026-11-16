@@ -33,6 +33,33 @@ describe("configuration-time model protocol detection", () => {
     expect(JSON.parse(String(fetcher.mock.calls[3]?.[1]?.body))).toMatchObject({ model: "chat-model", tool_choice: "none", tools: [{ type: "function", function: { name: "linksense_protocol_probe" } }] })
   })
 
+  it("recognizes DeepSeek native Responses when only the apply_patch custom tool name is accepted", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
+      if (String(url).endsWith("/chat/completions")) return chatReply()
+      const body = JSON.parse(String(init?.body))
+      return body.tools.some((tool: { type: string; name: string }) => tool.type === "custom" && tool.name !== "apply_patch")
+        ? new Response(null, { status: 400 })
+        : responsesReply()
+    })
+
+    const result = await createModelProviderProbeClient(fetcher).detectProtocol({
+      ...channel, provider: "deepseek", protocol_mode: "chat_completions_bridge", model_id: "deepseek-flash",
+    })
+    expect(result).toMatchObject({
+      status: "detected", protocol_mode: "native_responses", model_id: "deepseek-flash",
+    })
+    if (result.status !== "detected") throw new Error("expected detection")
+    expect(result.probes.map((probe) => [probe.protocol_mode, probe.status])).toEqual([
+      ["native_responses", "success"],
+      ["responses_tool_compat", "success"],
+      ["chat_completions_bridge", "success"],
+    ])
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({
+      tool_choice: "none", tools: [{ type: "custom", name: "apply_patch" }],
+    })
+    expect(fetcher).toHaveBeenCalledTimes(3)
+  })
+
   it.each(modelServiceProviderValues)("prefers native Responses over function compatibility and Chat Completions for %s", async (provider) => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url) =>
       String(url).endsWith("/chat/completions") ? chatReply() : responsesReply())
