@@ -1321,6 +1321,23 @@ describe("LinkSense application", () => {
     })
   })
 
+  it("returns to a new task when the brand logo is clicked", async () => {
+    installApiMock()
+    const interaction = userEvent.setup()
+    renderApp("/automations")
+    const sidebar = await screen.findByRole("complementary", {
+      name: "LinkSense 导航",
+    })
+
+    await interaction.click(
+      within(sidebar).getByRole("img", { name: "LinkSense" })
+    )
+
+    expect(
+      await screen.findByRole("form", { name: "任务输入框" })
+    ).toBeVisible()
+  })
+
   it("keeps compact notification, search and collapse controls beside the logo", async () => {
     installApiMock()
     const interaction = userEvent.setup()
@@ -1349,15 +1366,17 @@ describe("LinkSense application", () => {
       "src",
       expect.stringContaining("linksense-lockup-primary.svg")
     )
-    expect(brand.parentElement).not.toHaveClass(
+    const brandBar = brand.closest(".sidebar-brand-bar")
+    expect(brand.closest("a")).toHaveAttribute("href", "/conversations/new")
+    expect(brandBar).not.toHaveClass(
       "text-[length:var(--app-font-18)]"
     )
-    expect(brand.parentElement).not.toHaveClass(
+    expect(brandBar).not.toHaveClass(
       "text-[length:var(--app-font-15)]"
     )
-    expect(brand.parentElement).toContainElement(searchButton)
-    expect(brand.parentElement).toContainElement(collapseButton)
-    expect(brand.parentElement).toContainElement(notificationButton)
+    expect(brandBar).toContainElement(searchButton)
+    expect(brandBar).toContainElement(collapseButton)
+    expect(brandBar).toContainElement(notificationButton)
     expect(header).not.toContainElement(notificationButton)
     expect(notificationButton.closest(".sidebar-account-bar")).toBeNull()
     const headerActions = notificationButton.closest(".sidebar-header-actions")

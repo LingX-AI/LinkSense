@@ -32,6 +32,7 @@ import {
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
+  Link,
   NavLink,
   Outlet,
   useLocation,
@@ -979,10 +980,17 @@ function AppSidebarContent({
         ))}
       <div className="workspace-theme flex h-full min-h-0 flex-col overflow-hidden bg-transparent px-4 font-interface text-foreground">
         <div className="sidebar-brand-bar -mx-4 flex h-(--conversation-top-bar-height) shrink-0 items-center justify-between gap-4 border-b border-border px-4">
-          <ProductLogo
-            productName={productName}
-            className="sidebar-brand-logo min-w-0"
-          />
+          <Link
+            to="/conversations/new"
+            state={newTaskNavigationState}
+            onClick={onNavigate}
+            className="sidebar-brand-link min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            <ProductLogo
+              productName={productName}
+              className="sidebar-brand-logo min-w-0"
+            />
+          </Link>
           <div className="sidebar-header-actions flex shrink-0 items-center gap-0.5 [&_button]:size-7 [&_button]:rounded-md [&_svg[data-design-icon]]:size-4">
             <ShellSidebarActions
               mobile={!observeBackgroundExecutions}
