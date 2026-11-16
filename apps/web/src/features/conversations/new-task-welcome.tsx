@@ -92,7 +92,7 @@ export function NewTaskWelcome({
       {guide}
       {onSelect && (
         <div
-          className="conversation-starter-questions grid min-w-0 grid-cols-1 gap-2 @min-[20rem]/task-home:grid-cols-2 @min-[44rem]/task-home:grid-cols-4 @min-[44rem]/task-home:gap-3"
+          className="conversation-starter-questions grid min-w-0 grid-cols-1 gap-2 @min-[20rem]/task-home:grid-cols-2 @min-[44rem]/task-home:gap-3 @min-[64rem]/task-home:grid-cols-4"
           role="group"
           aria-label={t("conversation.starterQuestions.label")}
         >
@@ -101,26 +101,23 @@ export function NewTaskWelcome({
               key={id}
               type="button"
               variant="outline"
-              className="conversation-starter-question h-auto min-h-24 min-w-0 items-start justify-start gap-3 rounded-xl border-border bg-card p-3 text-left whitespace-normal shadow-home-card hover:border-input-hover hover:bg-card focus-visible:border-ring focus-visible:ring-0! @min-[44rem]/task-home:min-h-32 @min-[44rem]/task-home:flex-col @min-[44rem]/task-home:gap-4 @min-[44rem]/task-home:p-4 @min-[60rem]/task-home:min-h-49.5 @min-[60rem]/task-home:gap-6 @min-[60rem]/task-home:p-5"
+              className="conversation-starter-question h-auto min-h-0 min-w-0 items-start justify-start gap-3 rounded-xl border-border bg-card p-3 text-left whitespace-normal shadow-home-card hover:border-input-hover hover:bg-card focus-visible:border-ring focus-visible:ring-0! @min-[44rem]/task-home:flex-col @min-[44rem]/task-home:gap-2.5"
               onClick={() =>
                 onSelect(t(`conversation.starterQuestions.${id}.prompt`))
               }
             >
               <span
-                className={`conversation-starter-question-icon grid size-9 shrink-0 place-items-center rounded-[10px] border-3 border-(--home-icon-border) shadow-home-icon @min-[44rem]/task-home:size-11 @min-[60rem]/task-home:size-13 @min-[60rem]/task-home:border-4 ${colors}`}
+                className={`conversation-starter-question-icon grid size-8 shrink-0 place-items-center rounded-[10px] border-3 border-(--home-icon-border) shadow-home-icon ${colors}`}
                 data-tone={tone}
                 aria-hidden="true"
               >
-                <Icon
-                  className="size-4.5! @min-[44rem]/task-home:size-5! @min-[60rem]/task-home:size-6!"
-                  strokeWidth={1.8}
-                />
+                <Icon className="size-4!" strokeWidth={1.8} />
               </span>
               <span className="grid w-full min-w-0 gap-1.5">
-                <span className="text-sm font-medium text-home-heading @min-[44rem]/task-home:text-base @min-[60rem]/task-home:text-home-card-title">
+                <span className="text-[length:var(--app-font-13)] font-medium text-home-heading">
                   {t(`conversation.starterQuestions.${id}.title`)}
                 </span>
-                <span className="text-xs leading-[var(--app-line-18)] font-normal text-muted-foreground @min-[44rem]/task-home:text-sm @min-[44rem]/task-home:leading-[var(--app-line-22)]">
+                <span className="text-xs leading-[var(--app-line-18)] font-normal text-muted-foreground">
                   {t(`conversation.starterQuestions.${id}.description`)}
                 </span>
               </span>

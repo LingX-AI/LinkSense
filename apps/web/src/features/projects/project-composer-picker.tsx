@@ -90,7 +90,7 @@ export function ProjectComposerPicker({
               </span>
               <DesignIcon
                 name="chevron-down"
-                className="transition-transform duration-150 group-aria-expanded/button:rotate-180 motion-reduce:transition-none"
+                className="-ml-1 transition-transform duration-150 group-aria-expanded/button:rotate-180 motion-reduce:transition-none"
               />
             </PopoverTrigger>
             {canClear && (

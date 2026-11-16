@@ -24,6 +24,8 @@ import { useSidebarConversationOverlays } from "./sidebar-conversation-overlays-
 const tooltipHoverDelay = 300
 const actionButtonClassName =
   "text-[var(--app-sidebar-action)] transition-none hover:bg-transparent hover:text-[var(--app-text)] aria-expanded:bg-transparent aria-expanded:text-[var(--app-text)] dark:hover:bg-transparent"
+const menuItemClassName =
+  "min-h-6 gap-1.5 px-2 py-1 text-[length:var(--app-font-13)]"
 
 type SidebarConversationActionsProps = {
   title: string
@@ -125,23 +127,27 @@ export function SidebarConversationMenu({
       side="right"
       sideOffset={8}
       align="start"
-      className="w-55 p-2 [&_[data-slot=dropdown-menu-item]]:min-h-8 [&_[data-slot=dropdown-menu-item]]:font-normal"
+      className="w-44 p-1.5"
     >
       <DropdownMenuGroup>
         {onMoveToProject && (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger disabled={moveDisabled}>
-              <DesignIcon name="move-project" />
+            <DropdownMenuSubTrigger
+              className={menuItemClassName}
+              disabled={moveDisabled}
+            >
+              <DesignIcon name="move-project" className="size-3.5" />
               {t("projects.move")}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent
               side="right"
               sideOffset={16}
               alignOffset={-8}
-              className="w-55 max-w-[calc(100vw-2rem)] p-2"
+              className="w-44 max-w-[calc(100vw-2rem)] p-1.5"
             >
               <DropdownMenuGroup>
                 <DropdownMenuItem
+                  className={menuItemClassName}
                   disabled={moveDisabled || currentProjectId === null}
                   onClick={() => onMoveToProject(null)}
                 >
@@ -150,10 +156,15 @@ export function SidebarConversationMenu({
                 {projects.map((project) => (
                   <DropdownMenuItem
                     key={project.id}
+                    className={menuItemClassName}
                     disabled={moveDisabled || project.id === currentProjectId}
                     onClick={() => onMoveToProject(project.id)}
                   >
-                    <ProjectIcon icon={project.icon} color={project.color} />
+                    <ProjectIcon
+                      icon={project.icon}
+                      color={project.color}
+                      className="size-3.5"
+                    />
                     <span className="truncate" title={project.name}>
                       {project.name}
                     </span>
@@ -163,15 +174,19 @@ export function SidebarConversationMenu({
             </DropdownMenuSubContent>
           </DropdownMenuSub>
         )}
-        <DropdownMenuItem disabled={pinDisabled} onClick={onTogglePinned}>
+        <DropdownMenuItem
+          className={menuItemClassName}
+          disabled={pinDisabled}
+          onClick={onTogglePinned}
+        >
           {pinned ? (
             <TbPinFilled
-              className="size-4"
+              className="size-3.5"
               data-icon="sidebar-pin-filled"
               aria-hidden="true"
             />
           ) : (
-            <DesignIcon name="pin" />
+            <DesignIcon name="pin" className="size-3.5" />
           )}
           {pinLabel}
         </DropdownMenuItem>

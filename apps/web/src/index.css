@@ -250,7 +250,7 @@
   --app-sidebar-row-height: 34px;
   --app-settings-page-width: 1200px;
   --app-administration-page-width: 1440px;
-  --app-reading-width: 1112px;
+  --app-reading-width: 768px;
   --app-composer-width: var(--app-reading-width);
   --app-popup-max-width: 32rem;
   --app-ui-font-size: 14px;
@@ -700,6 +700,7 @@
 .composer-control {
   --ring: var(--app-brand);
   color: var(--app-control-foreground);
+  font-size: var(--app-font-13);
 }
 
 .composer-control:not(:disabled):not([aria-disabled="true"]):is(
@@ -925,8 +926,8 @@
   min-width: 0;
   margin-inline: auto;
   border: 1px solid var(--app-border);
-  padding: 16px;
-  border-radius: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
   background: var(--app-composer);
   box-shadow: var(--app-shadow);
   pointer-events: auto;
@@ -971,7 +972,7 @@
 
 .composer-input::placeholder {
   color: var(--placeholder-foreground);
-  font-size: var(--app-ui-font-size);
+  font-size: var(--app-font-13);
   font-weight: 400;
 }
 
@@ -995,9 +996,9 @@
   padding: 0 12px 0 0;
   color: var(--app-text);
   font: inherit;
-  font-size: var(--app-ui-font-size);
+  font-size: var(--app-font-13);
   font-weight: 400;
-  line-height: calc(var(--spacing) * 6);
+  line-height: var(--app-line-20);
   overflow-wrap: anywhere;
   pointer-events: none;
   scrollbar-color: transparent transparent;

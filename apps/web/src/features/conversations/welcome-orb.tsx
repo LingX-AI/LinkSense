@@ -150,7 +150,7 @@ export function WelcomeOrb() {
   return (
     <div
       ref={orbRef}
-      className="conversation-welcome-icon group/orb relative mr-10 hidden size-44 shrink-0 @min-[56rem]/task-home:block"
+      className="conversation-welcome-icon group/orb relative mr-10 hidden size-44 shrink-0 @min-[44rem]/task-home:block"
       data-active={active}
       data-paused={paused}
       onPointerEnter={(event) => {
