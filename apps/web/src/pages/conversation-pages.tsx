@@ -1710,6 +1710,14 @@ export function ConversationPage({
         {
           updatedAt,
           lastRunAt,
+          // This page is the active route, so observing the terminal detail
+          // means the completion was seen. Surface it as unread so the shell
+          // acknowledges it with completion_read; otherwise a completion that
+          // settles while its task is open is only acknowledged if the sidebar
+          // list happens to refresh before the user navigates away.
+          ...(conversation?.has_unread_completion
+            ? { hasUnreadCompletion: true }
+            : {}),
         }
       )
     )
@@ -1718,6 +1726,7 @@ export function ConversationPage({
     conversation?.turns,
     conversation?.updated_at,
     conversation?.last_run_at,
+    conversation?.has_unread_completion,
     conversationId,
     conversationQuery.isFetchedAfterMount,
     conversationQuery.isSuccess,
