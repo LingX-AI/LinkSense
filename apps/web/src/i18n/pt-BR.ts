@@ -2865,6 +2865,7 @@ export const ptBR = {
       noOutputFiles: "Nenhum arquivo de saída ainda",
       context: "Contexto",
       contextUsedDetail: "{{used}} / {{total}}",
+      contextCollapsedSummary: "{{used}} / {{total}} ({{percent}}%)",
       tokenInput: "Entrada",
       tokenCachedInput: "Entrada em cache",
       tokenOutput: "Saída",

@@ -626,10 +626,6 @@ export function ConversationPage({
     pendingFirstMessageConversationId,
     setPendingFirstMessageConversationId,
   ] = useState<string | null>(null)
-  const [
-    taskOverviewSuppressedConversationId,
-    setTaskOverviewSuppressedConversationId,
-  ] = useState<string | null>(null)
   const [newTaskPromotionConversationId, setNewTaskPromotionConversationId] =
     useState<string | null>(null)
   const [optionalCapabilityIds, setSelectedCapabilityIds] = useState<string[]>(
@@ -1312,11 +1308,7 @@ export function ConversationPage({
       conversation?.history?.scope_id,
       conversation?.last_event_id ?? conversation?.updated_at
     ),
-    enabled:
-      !isNew &&
-      Boolean(conversation) &&
-      taskOverviewOpen &&
-      taskOverviewSuppressedConversationId !== conversationId,
+    enabled: !isNew && Boolean(conversation) && taskOverviewOpen,
   })
   const conversationHistory = useConversationHistory(conversation)
   const pendingConversationExecution = usePendingConversationExecution(
@@ -1516,7 +1508,6 @@ export function ConversationPage({
     }
     setPendingFirstMessageConversationId(null)
     resetPrewarm()
-    setTaskOverviewSuppressedConversationId(null)
     setNewTaskPromotionConversationId(null)
     if (user) clearLocalConversationDraft(window.localStorage, user.id, "new")
     hydratedDraftScopeRef.current = null
@@ -2865,7 +2856,6 @@ export function ConversationPage({
         routeConversationIdRef.current === null
       ) {
         setNewTaskPromotionConversationId(createdConversation.id)
-        setTaskOverviewSuppressedConversationId(createdConversation.id)
         hydratedDraftScopeRef.current = createdConversation.id
         routeConversationIdRef.current = createdConversation.id
         if (suppressEmptyStateUntilFirstMessage) {
@@ -5782,14 +5772,10 @@ export function ConversationPage({
     !applicationDeleted &&
     !applicationUnavailableMessage &&
     !blockingPanelActive
-  const taskOverviewSuppressed =
-    taskOverviewSuppressedConversationId === conversationId
+  // Keep the rail open across the new-task promotion so starting a task does
+  // not collapse a workspace the user already had open.
   const taskOverviewVisible =
-    surfaceActive &&
-    !isNew &&
-    !taskOverviewSuppressed &&
-    taskOverviewOpen &&
-    !sideChat.open
+    surfaceActive && taskOverviewOpen && !sideChat.open
   const composerInstanceId = isNewTaskPromotion
     ? newConversationPlaceholderId
     : displayConversation.id
@@ -6114,7 +6100,7 @@ export function ConversationPage({
             ref={setBrowserPreviewToolbar}
             className="min-w-0 empty:hidden"
           />
-          {!isNew && surfaceActive && (
+          {surfaceActive && (
             <ConversationTaskOverviewPanel
               key={conversationId}
               events={visibleEvents}
@@ -6139,7 +6125,6 @@ export function ConversationPage({
               onDownload={handleDownloadArtifact}
               onOpenChange={(open) => {
                 if (open) sideChat.close()
-                setTaskOverviewSuppressedConversationId(null)
                 setTaskOverviewOpen(open)
               }}
             />

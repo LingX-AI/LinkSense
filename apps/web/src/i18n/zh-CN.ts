@@ -2391,6 +2391,7 @@ export const zhCN = {
       noOutputFiles: "暂无产出文件",
       context: "上下文",
       contextUsedDetail: "{{used}} / {{total}}",
+      contextCollapsedSummary: "{{used}} / {{total}}（{{percent}}%）",
       tokenInput: "输入",
       tokenCachedInput: "缓存输入",
       tokenOutput: "输出",

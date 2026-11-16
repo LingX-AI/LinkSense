@@ -2576,6 +2576,7 @@ export const enUS = {
       noOutputFiles: "No output files yet",
       context: "Context",
       contextUsedDetail: "{{used}} / {{total}}",
+      contextCollapsedSummary: "{{used}} / {{total}} ({{percent}}%)",
       tokenInput: "Input",
       tokenCachedInput: "Cached input",
       tokenOutput: "Output",

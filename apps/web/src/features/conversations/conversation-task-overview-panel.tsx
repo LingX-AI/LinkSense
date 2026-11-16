@@ -1,6 +1,6 @@
 import { useCallback, useId, useState, type Ref } from "react"
 import type { VirtualElement } from "@floating-ui/react-dom"
-import { LoaderCircleIcon } from "lucide-react"
+import { ChevronRightIcon, LoaderCircleIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { modelAutoCompactTokenLimitFor } from "@linksense/shared"
@@ -42,6 +42,7 @@ import {
 } from "@/features/conversations/conversation-sources-list"
 import { normalizeLanguage } from "@/i18n"
 import { formatFileSize } from "@/i18n/date"
+import { cn } from "@/lib/utils"
 import { TaskOverviewFileIcon } from "@/features/conversations/task-overview-file-icon"
 import { getTaskOverviewFileFormat } from "@/features/conversations/task-overview-file-format"
 
@@ -113,6 +114,7 @@ export function ConversationTaskOverviewPanel({
   const [internalOpen, setOpen] = useState(
     () => defaultOpen ?? readTaskOverviewOpenPreference()
   )
+  const [contextCollapsed, setContextCollapsed] = useState(false)
   const open = controlledOpen ?? internalOpen
   const overview = buildConversationTaskOverview({
     events,
@@ -201,62 +203,101 @@ export function ConversationTaskOverviewPanel({
               aria-label={t("conversation.taskOverview.context")}
               className="flex flex-col gap-2"
             >
-              <h3 className="text-sm leading-[var(--app-line-20)] font-medium text-foreground">
-                {t("conversation.taskOverview.context")}
-              </h3>
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-sm leading-[var(--app-line-20)] font-semibold text-foreground tabular-nums">
-                  {t("conversation.modelContextUsagePercent", {
+              <Button
+                type="button"
+                variant="ghost"
+                aria-expanded={!contextCollapsed}
+                className="h-auto w-full min-w-0 justify-between gap-2 rounded-none px-0 py-0 text-left font-normal hover:bg-transparent aria-expanded:bg-transparent"
+                onClick={() => setContextCollapsed((value) => !value)}
+              >
+                <span className="text-sm leading-[var(--app-line-20)] font-medium text-foreground">
+                  {t("conversation.taskOverview.context")}
+                </span>
+                <span className="flex min-w-0 items-center gap-1 text-xs text-(--app-task-overview-muted) tabular-nums">
+                  {contextCollapsed ? (
+                    <span className="truncate">
+                      {t("conversation.taskOverview.contextCollapsedSummary", {
+                        used: formatContextTokens(usedTokens),
+                        total: formatContextTokens(totalTokens),
+                        percent: contextPercent,
+                      })}
+                    </span>
+                  ) : null}
+                  <ChevronRightIcon
+                    aria-hidden="true"
+                    className={cn(
+                      "size-3.5 shrink-0 transition-transform duration-150 motion-reduce:transition-none",
+                      !contextCollapsed && "rotate-90"
+                    )}
+                  />
+                </span>
+              </Button>
+              {contextCollapsed ? (
+                <ConversationContextUsageBar
+                  rows={contextRows}
+                  usedTokens={usedTokens}
+                  totalTokens={totalTokens}
+                  label={t("conversation.modelContextUsagePercent", {
                     percent: contextPercent,
                   })}
-                </span>
-                <span className="text-xs text-(--app-task-overview-muted) tabular-nums">
-                  {t("conversation.taskOverview.contextUsedDetail", {
-                    used: formatContextTokens(usedTokens),
-                    total: formatContextTokens(totalTokens),
-                  })}
-                </span>
-              </div>
-              <ConversationContextUsageBar
-                rows={contextRows}
-                usedTokens={usedTokens}
-                totalTokens={totalTokens}
-                label={t("conversation.modelContextUsagePercent", {
-                  percent: contextPercent,
-                })}
-              />
-              {contextRows.length > 0 ? (
-                <ConversationContextBreakdownRows
-                  rows={contextRows}
-                  totalTokens={totalTokens}
-                  formatTokens={formatContextTokens}
                 />
-              ) : null}
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <span className="text-xs text-(--app-task-overview-muted)">
-                  {untilAutoCompact !== null && untilAutoCompact > 0
-                    ? t("conversation.taskOverview.untilAutoCompact", {
-                        tokens: formatContextTokens(untilAutoCompact),
-                      })
-                    : t("conversation.taskOverview.readyToCompact")}
-                </span>
-                {onCompact ? (
-                  <Button
-                    type="button"
-                    size="xs"
-                    variant="secondary"
-                    disabled={!compactAvailable || compacting}
-                    aria-busy={compacting || undefined}
-                    onClick={onCompact}
-                  >
-                    {t(
-                      compacting
-                        ? "conversation.taskOverview.compacting"
-                        : "conversation.taskOverview.compactSession"
-                    )}
-                  </Button>
-                ) : null}
-              </div>
+              ) : (
+                <>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm leading-[var(--app-line-20)] font-semibold text-foreground tabular-nums">
+                      {t("conversation.modelContextUsagePercent", {
+                        percent: contextPercent,
+                      })}
+                    </span>
+                    <span className="text-xs text-(--app-task-overview-muted) tabular-nums">
+                      {t("conversation.taskOverview.contextUsedDetail", {
+                        used: formatContextTokens(usedTokens),
+                        total: formatContextTokens(totalTokens),
+                      })}
+                    </span>
+                  </div>
+                  <ConversationContextUsageBar
+                    rows={contextRows}
+                    usedTokens={usedTokens}
+                    totalTokens={totalTokens}
+                    label={t("conversation.modelContextUsagePercent", {
+                      percent: contextPercent,
+                    })}
+                  />
+                  {contextRows.length > 0 ? (
+                    <ConversationContextBreakdownRows
+                      rows={contextRows}
+                      totalTokens={totalTokens}
+                      formatTokens={formatContextTokens}
+                    />
+                  ) : null}
+                  <div className="flex items-center justify-between gap-2 pt-1">
+                    <span className="text-xs text-(--app-task-overview-muted)">
+                      {untilAutoCompact !== null && untilAutoCompact > 0
+                        ? t("conversation.taskOverview.untilAutoCompact", {
+                            tokens: formatContextTokens(untilAutoCompact),
+                          })
+                        : t("conversation.taskOverview.readyToCompact")}
+                    </span>
+                    {onCompact ? (
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="secondary"
+                        disabled={!compactAvailable || compacting}
+                        aria-busy={compacting || undefined}
+                        onClick={onCompact}
+                      >
+                        {t(
+                          compacting
+                            ? "conversation.taskOverview.compacting"
+                            : "conversation.taskOverview.compactSession"
+                        )}
+                      </Button>
+                    ) : null}
+                  </div>
+                </>
+              )}
             </section>
           ) : null}
 

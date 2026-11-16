@@ -18,6 +18,7 @@ import { ConversationTaskOverviewPanel } from "@/features/conversations/conversa
 import i18n, { supportedLanguages } from "@/i18n"
 import appStyles from "@/index.css?raw"
 import { formatFileSize } from "@/i18n/date"
+import { formatCompactTokenCount } from "@/lib/usage-number"
 
 const agentKeyA = `agent_${"a".repeat(24)}`
 const agentKeyB = `agent_${"b".repeat(24)}`
@@ -606,6 +607,34 @@ describe("ConversationTaskOverviewPanel", () => {
       })
     )
     expect(onCompact).toHaveBeenCalledOnce()
+
+    const collapseContext = within(panel).getByRole("button", {
+      name: i18n.t("conversation.taskOverview.context"),
+    })
+    await user.click(collapseContext)
+    expect(collapseContext).toHaveAttribute("aria-expanded", "false")
+    expect(
+      within(panel).getByText(
+        i18n.t("conversation.taskOverview.contextCollapsedSummary", {
+          used: formatCompactTokenCount(600_000, "zh-CN"),
+          total: formatCompactTokenCount(1_000_000, "zh-CN"),
+          percent: 60,
+        })
+      )
+    ).toBeVisible()
+    expect(
+      within(panel).queryByText(i18n.t("conversation.taskOverview.tokenInput"))
+    ).toBeNull()
+    expect(
+      within(panel).queryByRole("button", {
+        name: i18n.t("conversation.taskOverview.compactSession"),
+      })
+    ).toBeNull()
+
+    await user.click(collapseContext)
+    expect(
+      within(panel).getByText(i18n.t("conversation.taskOverview.tokenInput"))
+    ).toBeVisible()
   })
 
   it.each(supportedLanguages)(

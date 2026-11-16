@@ -2816,6 +2816,7 @@ export const jaJP = {
       noOutputFiles: "出力ファイルはまだありません",
       context: "コンテキスト",
       contextUsedDetail: "{{used}} / {{total}}",
+      contextCollapsedSummary: "{{used}} / {{total}}（{{percent}}%）",
       tokenInput: "入力",
       tokenCachedInput: "キャッシュ入力",
       tokenOutput: "出力",

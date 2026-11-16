@@ -47,17 +47,15 @@ export function formatTokenCount(
 }
 
 /**
- * Compact token label for context sizes, for example "258.4k". Context
- * windows are configured and documented in decimal units, so 1,000,000
- * renders as "1m" rather than a binary 976.6k.
+ * Compact token label for context sizes, for example "258.4k" or "1M".
+ * Context windows are configured and documented in decimal units, so
+ * 1,000,000 renders as "1M".
  */
 export function formatCompactTokenCount(
   value: number | string,
   language: UsageNumberLanguage
 ): string {
-  return formatTokenCount(value, language).replace(/[KMB]$/u, (suffix) =>
-    suffix.toLowerCase()
-  )
+  return formatTokenCount(value, language).replace(/K$/u, "k")
 }
 
 export function formatUsdCost(

@@ -44,7 +44,7 @@ describe("usage number formatting", () => {
     (language) => {
       expect(formatCompactTokenCount(24_264, language)).toBe("24.3k")
       expect(formatCompactTokenCount(258_400, language)).toBe("258.4k")
-      expect(formatCompactTokenCount(1_000_000, language)).toBe("1m")
+      expect(formatCompactTokenCount(1_000_000, language)).toBe("1M")
       expect(formatCompactTokenCount(-1, language)).toBe("—")
       expect(formatCompactTokenCount("invalid", language)).toBe("—")
     }

@@ -674,6 +674,7 @@ export const conversationMessages = {
       noOutputFiles: "Todavía no hay archivos de salida",
       context: "Contexto",
       contextUsedDetail: "{{used}} / {{total}}",
+      contextCollapsedSummary: "{{used}} / {{total}} ({{percent}} %)",
       tokenInput: "Entrada",
       tokenCachedInput: "Entrada en caché",
       tokenOutput: "Salida",

@@ -654,6 +654,7 @@ export const conversation = {
     noOutputFiles: "Aucun fichier produit pour le moment",
     context: "Contexte",
     contextUsedDetail: "{{used}} / {{total}}",
+    contextCollapsedSummary: "{{used}} / {{total}} ({{percent}} %)",
     tokenInput: "Entrée",
     tokenCachedInput: "Entrée en cache",
     tokenOutput: "Sortie",
