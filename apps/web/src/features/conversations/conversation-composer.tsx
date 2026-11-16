@@ -621,6 +621,7 @@ export const ConversationComposer = forwardRef<
     useState<string | null>(null)
   const taskReferenceMenuId = useId()
   const [knowledgeMenuOpen, setKnowledgeMenuOpen] = useState(false)
+  const addMenuListRef = useRef<HTMLDivElement>(null)
   const skillsRowRef = useRef<HTMLDivElement>(null)
   const knowledgeRowRef = useRef<HTMLDivElement>(null)
   const [slashPanel, setSlashPanel] =
@@ -2001,13 +2002,18 @@ export const ConversationComposer = forwardRef<
                 side="top"
                 align="start"
                 sideOffset={8}
+                initialFocus={addMenuListRef}
                 className="capability-picker-popover max-h-(--available-height) w-64 max-w-[calc(100vw-2rem)] gap-1 overflow-hidden rounded-xl border border-border p-2 ring-0"
               >
                 <PopoverHeader className="sr-only">
                   <PopoverTitle>{t("conversation.addMenuTitle")}</PopoverTitle>
                 </PopoverHeader>
                 <Command className="min-h-0 gap-2 overflow-visible rounded-none bg-transparent p-1 [&_[data-slot=command-input-wrapper]]:shrink-0 [&_[data-slot=command-input-wrapper]]:p-0 [&_[data-slot=input-group]]:h-10! [&_[data-slot=input-group]]:bg-muted/40">
-                  <CommandList className="-mr-3 max-h-128 min-h-0 pr-3 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-items]]:space-y-0.5 [&_[data-slot=command-group]]:p-0 [&_[data-slot=command-item]]:min-h-7 [&_[data-slot=command-item]]:rounded-md [&_[data-slot=command-item]]:py-0.5 [&_[data-slot=command-item]]:font-normal">
+                  <CommandList
+                    ref={addMenuListRef}
+                    aria-label={t("conversation.addMenuTitle")}
+                    className="-mr-3 max-h-128 min-h-0 pr-3 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-items]]:space-y-0.5 [&_[data-slot=command-group]]:p-0 [&_[data-slot=command-item]]:min-h-7 [&_[data-slot=command-item]]:rounded-md [&_[data-slot=command-item]]:py-0.5 [&_[data-slot=command-item]]:font-normal"
+                  >
                     <CommandGroup aria-label={t("conversation.addGroup")}>
                       <CommandItem
                         value={t("conversation.attachFileMenuSearchValue")}

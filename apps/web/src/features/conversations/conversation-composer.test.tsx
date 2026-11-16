@@ -434,7 +434,9 @@ describe("text-only conversation composer", () => {
       })
     expect(input).toHaveAttribute("maxlength", "4000")
     expect(
-      screen.queryByRole("button", { name: i18n.t("conversation.addMenuTitle") })
+      screen.queryByRole("button", {
+        name: i18n.t("conversation.addMenuTitle"),
+      })
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: i18n.t("conversation.voice") })
@@ -551,9 +553,7 @@ describe("conversation voice input", () => {
       ).toHaveLength(1)
 
       await interaction.click(addButton)
-      expect(
-        screen.getByRole("option", { name: knowledgeLabel })
-      ).toBeVisible()
+      expect(screen.getByRole("option", { name: knowledgeLabel })).toBeVisible()
     }
   )
 
@@ -627,6 +627,24 @@ describe("conversation voice input", () => {
       "capability-picker-popover",
       "w-72"
     )
+  })
+
+  it("opens the Skill picker and selects a Skill using only the keyboard", async () => {
+    const interaction = userEvent.setup()
+    const { props } = renderComposer({
+      showKnowledgeBaseButton: false,
+      capabilities: [capabilityFixture({ name: "Keyboard Skill" })],
+    })
+    screen.getByRole("button", { name: "添加内容" }).focus()
+    await interaction.keyboard("{Enter}")
+    await interaction.keyboard("{End}{Enter}")
+    const search = await screen.findByPlaceholderText(
+      i18n.t("conversation.capabilitySearch")
+    )
+    await interaction.tab()
+    expect(search).toHaveFocus()
+    await interaction.keyboard("{Enter}")
+    expect(props.onSelectedIdsChange).toHaveBeenCalledWith(["skill-1"])
   })
 
   it.each(["zh-CN", "en-US", "de-DE"])(
@@ -2329,11 +2347,7 @@ describe("conversation voice input", () => {
 
     const stop = screen.getByRole("button", { name: "停止" })
     expect(stop).toBeVisible()
-    expect(stop).toHaveClass(
-      "send-button",
-      "rounded-full",
-      "size-8"
-    )
+    expect(stop).toHaveClass("send-button", "rounded-full", "size-8")
     expect(stop.textContent).toBe("")
     expect(
       screen.queryByRole("button", { name: "发送" })
@@ -3239,7 +3253,11 @@ describe("conversation voice input", () => {
 
     const picker = capabilityPickerPopover()
     const selectedItem = within(picker).getByRole("option", { name: /Pptx/ })
-    expect(picker).toHaveClass("capability-picker-popover", "w-72", "rounded-xl")
+    expect(picker).toHaveClass(
+      "capability-picker-popover",
+      "w-72",
+      "rounded-xl"
+    )
     expect(
       within(picker).queryByText(
         "选择后，该插件或 Skill 会加载到本轮 Codex，并作为显式调用附加到消息。"
@@ -3279,18 +3297,14 @@ describe("conversation voice input", () => {
   ])("uses the designed menu icon for %s", async (key, nameKey, selector) => {
     const interaction = userEvent.setup()
     renderComposer({
-      capabilities: [
-        capabilityFixture({ is_builtin: true, builtin_key: key }),
-      ],
+      capabilities: [capabilityFixture({ is_builtin: true, builtin_key: key })],
     })
     await openCapabilityPicker(interaction)
     const option = within(capabilityPickerPopover())
       .getByText(i18n.t(nameKey, { productName: "LinkSense" }))
       .closest('[role="option"]')
     expect(option?.querySelector(selector)).not.toBeNull()
-    expect(
-      option?.querySelector("[data-default-capability-icon]")
-    ).toBeNull()
+    expect(option?.querySelector("[data-default-capability-icon]")).toBeNull()
   })
 
   it("selects the required development Skill automatically and prevents removal while other Skills remain editable", async () => {
@@ -3425,18 +3439,22 @@ describe("conversation voice input", () => {
     const interaction = userEvent.setup()
     await openCapabilityPicker(interaction)
 
-    const option = await within(capabilityPickerPopover()).findByRole("option", {
-      name: /LinkSense 云端浏览器/,
-    })
+    const option = await within(capabilityPickerPopover()).findByRole(
+      "option",
+      {
+        name: /LinkSense 云端浏览器/,
+      }
+    )
     expect(option).not.toHaveAttribute("data-disabled", "true")
     expect(option).toHaveTextContent("内置")
     await interaction.click(option)
     expect(onSelectedIdsChange).toHaveBeenLastCalledWith([builtInId])
 
     await openCapabilityPicker(interaction)
-    const selectedOption = await within(
-      capabilityPickerPopover()
-    ).findByRole("option", { name: /LinkSense 云端浏览器/ })
+    const selectedOption = await within(capabilityPickerPopover()).findByRole(
+      "option",
+      { name: /LinkSense 云端浏览器/ }
+    )
     expect(selectedOption).toHaveAttribute("data-checked", "true")
     await interaction.click(selectedOption)
     expect(onSelectedIdsChange).toHaveBeenLastCalledWith([])
@@ -3467,10 +3485,7 @@ describe("conversation voice input", () => {
       ],
     })
 
-    await openCapabilityPicker(
-      interaction,
-      i18n.t("conversation.pluginGroup")
-    )
+    await openCapabilityPicker(interaction, i18n.t("conversation.pluginGroup"))
 
     const picker = capabilityPickerPopover()
     expect(within(picker).getByText("插件")).toBeVisible()
