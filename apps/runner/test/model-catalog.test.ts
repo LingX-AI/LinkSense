@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -99,8 +99,8 @@ describe("Codex model catalog", () => {
       modelContextWindow: 1_000_000,
     });
 
-    expect(catalogPath).toBe(join(codexHome, "linksense-models.json"));
     if (!catalogPath) throw new Error("expected a catalog path");
+    expect(dirname(catalogPath)).toBe(codexHome);
     const catalog = await readCatalog(catalogPath);
     expect(catalog.models.map((model) => model.slug)).toEqual([
       "gpt-6-astra",
@@ -219,6 +219,75 @@ describe("Codex model catalog", () => {
     ).toBe("older link-sense");
   });
 
+  it("retries reading instructions after the first LinkSense session is created", async () => {
+    const { codexHome } = await fixture();
+    const writer = createCodexModelCatalogWriter({
+      runCommand: async () => ({ stdout: JSON.stringify(template) }),
+    });
+    const input = {
+      command: "codex",
+      codexHome,
+      model: "model-a",
+      modelContextWindow: 1_000_000,
+    };
+
+    expect(await writer.ensure(input)).toBeNull();
+    await writeSession(codexHome, "link-sense", "first session instructions", "first");
+
+    const catalogPath = await writer.ensure(input);
+    if (!catalogPath) throw new Error("expected a catalog path");
+    expect(dirname(catalogPath)).toBe(codexHome);
+    const seeded = (await readCatalog(catalogPath)).models.find(
+      (model) => model.slug === input.model
+    );
+    expect(seeded).toMatchObject({
+      model_messages: { instructions_template: "first session instructions" },
+    });
+  });
+
+  it("retries the model probe after a transient failure", async () => {
+    const { codexHome } = await fixture();
+    await writeSession(codexHome, "link-sense", "instructions", "first");
+    const runCommand = vi.fn()
+      .mockRejectedValueOnce(new Error("temporary probe failure"))
+      .mockResolvedValue({ stdout: JSON.stringify(template) });
+    const writer = createCodexModelCatalogWriter({ runCommand });
+    const input = {
+      command: "codex", codexHome, model: "model-a", modelContextWindow: 1_000_000,
+    };
+
+    expect(await writer.ensure(input)).toBeNull();
+    expect(await writer.ensure(input)).not.toBeNull();
+    expect(runCommand).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps catalogs for concurrent models and context windows isolated", async () => {
+    const { codexHome } = await fixture();
+    await writeSession(codexHome, "link-sense", "instructions", "first");
+    const writer = createCodexModelCatalogWriter({
+      runCommand: async () => ({ stdout: JSON.stringify(template) }),
+    });
+    const requests = [
+      { model: "model-a", modelContextWindow: 1_000_000 },
+      { model: "model-b", modelContextWindow: 500_000 },
+      { model: "model-a", modelContextWindow: 250_000 },
+    ];
+    const paths = await Promise.all(requests.map((request) =>
+      writer.ensure({ command: "codex", codexHome, ...request })
+    ));
+
+    expect(new Set(paths).size).toBe(requests.length);
+    for (const [index, catalogPath] of paths.entries()) {
+      if (!catalogPath) throw new Error("expected a catalog path");
+      const request = requests[index]!;
+      const catalog = await readCatalog(catalogPath);
+      expect(catalog.models.find((model) => model.slug === request.model)).toMatchObject({
+        context_window: request.modelContextWindow,
+        max_context_window: request.modelContextWindow,
+      });
+    }
+  });
+
   it("does not write a catalog without a window, a LinkSense session, or a template", async () => {
     const { codexHome } = await fixture();
     await writeSession(codexHome, "link-sense", "instructions", "a");
@@ -233,9 +302,7 @@ describe("Codex model catalog", () => {
         model: "model-a",
       })
     ).toBeNull();
-    await expect(
-      readFile(join(codexHome, "linksense-models.json"))
-    ).rejects.toThrow();
+    expect((await readdir(codexHome)).filter((name) => name.endsWith(".json"))).toEqual([]);
 
     const noSession = await fixture();
     expect(
@@ -246,9 +313,7 @@ describe("Codex model catalog", () => {
         modelContextWindow: 1_000_000,
       })
     ).toBeNull();
-    await expect(
-      readFile(join(noSession.codexHome, "linksense-models.json"))
-    ).rejects.toThrow();
+    expect((await readdir(noSession.codexHome)).filter((name) => name.endsWith(".json"))).toEqual([]);
 
     const failing = createCodexModelCatalogWriter({
       runCommand: async () => {
@@ -263,8 +328,6 @@ describe("Codex model catalog", () => {
         modelContextWindow: 1_000_000,
       })
     ).toBeNull();
-    await expect(
-      readFile(join(codexHome, "linksense-models.json"))
-    ).rejects.toThrow();
+    expect((await readdir(codexHome)).filter((name) => name.endsWith(".json"))).toEqual([]);
   });
 });

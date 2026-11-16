@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmod,
   mkdtemp,
@@ -22,8 +23,6 @@ import {
 } from "../child-process-isolation.js";
 
 const execFileAsync = promisify(execFile);
-export const codexModelCatalogFileName = "linksense-models.json";
-
 const templateCatalogSchema = z.object({
   models: z.array(z.record(z.string(), z.unknown())).min(1),
 });
@@ -74,7 +73,7 @@ export function createCodexModelCatalogWriter(
   const baseInstructions = new Map<string, Promise<string | null>>();
   const writeLocks = new Map<string, Promise<void>>();
 
-  function templateFor(
+  async function templateFor(
     command: string,
     processIdentity: ProcessIdentity | undefined
   ): Promise<JsonObject | null> {
@@ -86,7 +85,11 @@ export function createCodexModelCatalogWriter(
       template = loadTemplate(command, processIdentity, runCommand);
       templates.set(key, template);
     }
-    return template;
+    const value = await template;
+    if (value === null && templates.get(key) === template) {
+      templates.delete(key);
+    }
+    return value;
   }
 
   return {
@@ -106,7 +109,11 @@ export function createCodexModelCatalogWriter(
         contextWindow: input.modelContextWindow,
         instructions,
       });
-      const catalogPath = join(input.codexHome, codexModelCatalogFileName);
+      // Other conversations can start with a different model before Codex loads this file.
+      const identity = createHash("sha256")
+        .update(JSON.stringify([input.model, input.modelContextWindow]))
+        .digest("hex");
+      const catalogPath = join(input.codexHome, `linksense-models-${identity}.json`);
       const previous = writeLocks.get(catalogPath) ?? Promise.resolve();
       const next = previous
         .catch(() => undefined)
@@ -184,7 +191,11 @@ async function instructionsFor(
     instructions = readLatestBaseInstructions(codexHome);
     cache.set(codexHome, instructions);
   }
-  return await instructions;
+  const value = await instructions;
+  if (value === null && cache.get(codexHome) === instructions) {
+    cache.delete(codexHome);
+  }
+  return value;
 }
 
 async function readLatestBaseInstructions(
