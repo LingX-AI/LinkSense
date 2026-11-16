@@ -6,7 +6,6 @@ import {
   modelContextWindowSchema,
   modelIdentifierSchema,
   modelProviderProbeInputSchema,
-  modelProviderPresets,
   modelProviderProtocolModeValues,
   modelProviderProtocolProbeSchema,
   type DetectModelProviderProtocolResult,
@@ -106,16 +105,15 @@ export function createModelProviderProbeClient(
           }
         }
         if (!modelId) return { status: "model_required" }
-        const preferred = modelProviderPresets[input.provider].protocol_mode
-        const modes = [preferred, ...modelProviderProtocolModeValues.filter((mode) => mode !== preferred)]
         const boundedFetch = createBoundedModelProviderFetch(input.base_url, fetcher, signal)
         const probes: z.infer<typeof modelProviderProtocolProbeSchema>[] = []
-        for (const mode of modes) {
+        for (const mode of modelProviderProtocolModeValues) {
           const startedAt = Date.now()
           try {
             const chat = mode === "chat_completions_bridge"
+            // Some native Responses providers only accept Codex's apply_patch custom tool.
             const responsesTool = mode === "native_responses"
-              ? { type: "custom", name: protocolProbeFunction.name, description: protocolProbeFunction.description, format: { type: "text" } }
+              ? { type: "custom", name: "apply_patch", description: protocolProbeFunction.description, format: { type: "text" } }
               : { type: "function", ...protocolProbeFunction }
             const tools = chat ? [{ type: "function", function: protocolProbeFunction }] : [responsesTool]
             const message = { role: "user", content: "Please reply briefly with OK." }
@@ -148,7 +146,7 @@ export function createModelProviderProbeClient(
           }
         }
         parentSignal?.throwIfAborted()
-        // Keep the provider's preferred order when several modes succeed.
+        // Prefer native Responses, then Responses tool compatibility, then Chat Completions.
         const winner = probes.find((probe) => probe.status === "success")
         return winner
           ? { status: "detected", protocol_mode: winner.protocol_mode, model_id: modelId, probes }
