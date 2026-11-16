@@ -509,20 +509,20 @@ export function hasRunningDevelopmentApplications(serviceOutput) {
   );
 }
 
-export function developmentApplicationStartCommands() {
+export function developmentApplicationStartCommands(docs = false) {
   return {
     // Infrastructure, storage initialization, and migrations are ready before
     // this command. Do not let Web's service_healthy dependencies block the
     // process that must attach source watching and synchronize current source.
     initial: [
-      ["up", "-d", "--no-build", "--no-deps", "runner", "api", "web", "docs", "dev-gateway"],
+      ["up", "-d", "--no-build", "--no-deps", "runner", "api", "web", ...(docs ? ["docs"] : []), "dev-gateway"],
     ],
   };
 }
 
-export function developmentApplicationLogCommand(since) {
+export function developmentApplicationLogCommand(since, docs = false) {
   // Keep errors emitted before logs attach, but exclude previous sessions.
-  return ["logs", "--follow", "--since", since, "api", "runner", "web", "docs", "dev-gateway"];
+  return ["logs", "--follow", "--since", since, "api", "runner", "web", ...(docs ? ["docs"] : []), "dev-gateway"];
 }
 
 export async function synchronizeDevelopmentApplications(output, { synchronize, restart, isLive, recover, readState }) {
@@ -588,7 +588,7 @@ function developmentPublishedHost(environment, name) {
   return configured.includes(":") ? `[${configured}]` : configured;
 }
 
-export function developmentReadinessTargets(environment) {
+export function developmentReadinessTargets(environment, { docs = false } = {}) {
   const webOrigin = `http://${developmentPublishedHost(
     environment,
     "LINKSENSE_DEV_WEB_BIND_ADDRESS",
@@ -624,8 +624,12 @@ export function developmentReadinessTargets(environment) {
       url: `${webOrigin}/`,
       headers: {},
     },
-    { name: "Help Center (zh-CN)", url: `${webOrigin}/help/`, headers: {}, bodyIncludes: 'lang="zh-CN"' },
-    { name: "Help Center (en-US)", url: `${webOrigin}/help/en-US/`, headers: {}, bodyIncludes: 'lang="en-US"' },
+    ...(docs
+      ? [
+          { name: "Help Center (zh-CN)", url: `${webOrigin}/help/`, headers: {}, bodyIncludes: 'lang="zh-CN"' },
+          { name: "Help Center (en-US)", url: `${webOrigin}/help/en-US/`, headers: {}, bodyIncludes: 'lang="en-US"' },
+        ]
+      : []),
     { name: "Web entry module", url: `${webOrigin}/src/main.tsx`, headers: {}, contentTypeIncludes: "javascript" },
     { name: "Web application module", url: `${webOrigin}/src/App.tsx`, headers: {}, contentTypeIncludes: "javascript" },
     { name: "Web stylesheet", url: `${webOrigin}/src/index.css?direct`, headers: {}, contentTypeIncludes: "text/css" },
@@ -679,7 +683,7 @@ export async function waitForDevelopmentApplicationReadiness(
     ...(options.prerequisiteTargets?.length
       ? [options.prerequisiteTargets]
       : []),
-    developmentReadinessTargets(environment),
+    developmentReadinessTargets(environment, { docs: options.docs }),
   ];
   for (const group of targetGroups) {
     const targets = group.map((target) => ({
@@ -902,13 +906,17 @@ function developmentApplicationsAreRunning(
 function ensureDevelopmentImages(
   environmentFile,
   environment,
-  { force = false, includeApplications = true } = {},
+  { force = false, includeApplications = true, includeDocs = false } = {},
 ) {
   const buildEnvironment = developmentImageBuildEnvironment(environmentFile, environment);
   const composeArguments = (argumentsList) =>
     developmentComposeArguments(environmentFile, argumentsList);
 
-  const services = [...(includeApplications ? ["api", "runner", "web"] : []), "docs", "migrate"];
+  const services = [
+    ...(includeApplications ? ["api", "runner", "web"] : []),
+    ...(includeDocs ? ["docs"] : []),
+    "migrate",
+  ];
   for (const group of planDevelopmentImageBuilds(buildEnvironment, services, dockerImageLabel, force)) {
     if (group.needsBuild) run("docker", composeArguments(["build", ...group.services]), buildEnvironment);
   }
@@ -1142,6 +1150,7 @@ function startComposeDevelopmentSession(
   environmentFile,
   environment,
   since,
+  docs = false,
 ) {
   const detached = process.platform !== "win32";
   const children = [];
@@ -1214,9 +1223,10 @@ function startComposeDevelopmentSession(
     return child;
   };
 
-  startChild("Compose logs", developmentApplicationLogCommand(since));
+  startChild("Compose logs", developmentApplicationLogCommand(since, docs));
   const watch = startChild("Source watch", [
     resolve(repositoryRoot, "scripts/dev-watch.mjs"), environmentFile,
+    ...(docs ? ["--docs"] : []),
   ], process.execPath);
   const ready = waitForWatchEnabled(watch);
   watch.stdout.pipe(process.stdout, { end: false });
@@ -1430,6 +1440,8 @@ export async function main(argumentsList = process.argv.slice(2)) {
 
   const prepareOnly = argumentsList.includes("--prepare-only");
   const forceRebuild = argumentsList.includes("--rebuild");
+  // The Help Center is optional for application work; start it only on demand.
+  const docs = argumentsList.includes("--docs");
   await measure("certificate", () => {
     prepareDevelopmentTls(environment);
     trustDevelopmentCertificate(environment);
@@ -1461,6 +1473,7 @@ export async function main(argumentsList = process.argv.slice(2)) {
     {
       force: forceRebuild,
       includeApplications: true,
+      includeDocs: docs,
     },
   ));
 
@@ -1506,7 +1519,7 @@ export async function main(argumentsList = process.argv.slice(2)) {
     workerRevision,
   );
 
-  const startup = developmentApplicationStartCommands();
+  const startup = developmentApplicationStartCommands(docs);
   await measure("applications", () => {
     for (const command of startup.initial) run("docker", composeArguments(command), composeEnvironment);
   });
@@ -1530,12 +1543,16 @@ export async function main(argumentsList = process.argv.slice(2)) {
     environmentFile,
     composeEnvironment,
     new Date(performance.timeOrigin + startedAt).toISOString(),
+    docs,
   );
   const readinessController = new AbortController();
   try {
     await measure("watch", () => session.ready);
     await measure("readiness", () => Promise.race([
-      waitForDevelopmentApplicationReadiness(environment, { signal: readinessController.signal }),
+      waitForDevelopmentApplicationReadiness(environment, {
+        signal: readinessController.signal,
+        docs,
+      }),
       session.completion.then(() => { throw new Error("Development watch session stopped during startup"); }),
     ]));
   } catch (error) {

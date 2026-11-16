@@ -150,7 +150,7 @@ function assertHostReachableName(name, hostname) {
   }
 }
 
-export function hostDevelopmentCommands(environment) {
+export function hostDevelopmentCommands(environment, { docs = false } = {}) {
   return [
     {
       label: "Runner",
@@ -162,11 +162,15 @@ export function hostDevelopmentCommands(environment) {
       workspace: "@linksense/api",
       args: ["--filter", "@linksense/api", "dev"],
     },
-    {
-      label: "Docs",
-      workspace: "@linksense/docs",
-      args: ["--filter", "@linksense/docs", "dev"],
-    },
+    ...(docs
+      ? [
+          {
+            label: "Docs",
+            workspace: "@linksense/docs",
+            args: ["--filter", "@linksense/docs", "dev"],
+          },
+        ]
+      : []),
     {
       label: "Web",
       workspace: "@linksense/web",
@@ -213,7 +217,9 @@ export function waitForHostDevelopmentApplicationReadiness(
 ) {
   return waitForDevelopmentApplicationReadiness(environment, {
     ...options,
-    prerequisiteTargets: hostReadinessPrerequisiteTargets(environment),
+    prerequisiteTargets: options.docs
+      ? hostReadinessPrerequisiteTargets(environment)
+      : [],
   });
 }
 
@@ -251,7 +257,7 @@ function runPreparation(environment, rootDirectory) {
   }
 }
 
-function startHostSession(environment, rootDirectory) {
+function startHostSession(environment, rootDirectory, docs = false) {
   const detached = process.platform !== "win32";
   const sessionId = randomUUID();
   const registry = createDevelopmentProcessRegistry(rootDirectory, sessionId);
@@ -275,7 +281,7 @@ function startHostSession(environment, rootDirectory) {
     shutdownChildren(signal);
   };
 
-  for (const command of hostDevelopmentCommands(environment)) {
+  for (const command of hostDevelopmentCommands(environment, { docs })) {
     const child = spawn("pnpm", command.args, {
       cwd: rootDirectory,
       env: environment,
@@ -339,13 +345,15 @@ export async function main(argumentsList = process.argv.slice(2)) {
   ]);
   runPreparation(environment, repositoryRoot);
 
-  const session = startHostSession(environment, repositoryRoot);
+  // The Help Center is optional for application work; start it only on demand.
+  const docs = argumentsList.includes("--docs");
+  const session = startHostSession(environment, repositoryRoot, docs);
   const stopFromSignal = (signal) => session.shutdown(signal);
   process.once("SIGINT", stopFromSignal);
   process.once("SIGTERM", stopFromSignal);
   try {
     await Promise.race([
-      waitForHostDevelopmentApplicationReadiness(environment),
+      waitForHostDevelopmentApplicationReadiness(environment, { docs }),
       session.completion.then(() => {
         throw new Error("A host development service stopped during startup");
       }),

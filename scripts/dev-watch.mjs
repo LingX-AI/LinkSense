@@ -10,6 +10,7 @@ import { trustDevelopmentCertificate } from "./dev-tls.mjs";
 import { developmentSourcePaths } from "./dev-source.mjs";
 
 const applicationServices = ["api", "runner", "web", "docs", "dev-gateway"];
+const alwaysStartedServices = applicationServices.filter((service) => service !== "docs");
 const priority = { sync: 0, restart: 1, "sync+restart": 1, rebuild: 2 };
 const ruleSchema = z.object({
   action: z.enum(["sync", "restart", "sync+restart", "rebuild"]),
@@ -17,11 +18,11 @@ const ruleSchema = z.object({
   ignore: z.array(z.string()).default([]),
 });
 
-export function developmentWatchRules(config) {
+export function developmentWatchRules(config, services = applicationServices) {
   const parsed = z.object({ services: z.record(z.string(), z.object({
     develop: z.object({ watch: z.array(ruleSchema) }).optional(),
   })) }).parse(config);
-  return applicationServices.flatMap((service) =>
+  return services.flatMap((service) =>
     (parsed.services[service]?.develop?.watch ?? []).map((rule) => ({ ...rule, service })),
   );
 }
@@ -144,7 +145,7 @@ export function startDevelopmentWatcher(rules, { apply, onUpdateError, watch = c
   return { ready: ready.promise, completion: completion.promise, close: () => close() };
 }
 
-async function main(environmentFile) {
+async function main(environmentFile, docs = false) {
   trustDevelopmentCertificate(buildDevelopmentEnvironment(process.env));
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   let composeEnvironment = process.env;
@@ -153,7 +154,10 @@ async function main(environmentFile) {
     cwd: root, env: composeEnvironment, timeout: 30_000, maxBuffer: 4 * 1024 * 1024, signal: controller.signal,
   })).stdout;
   const composeArgs = (args) => developmentComposeArguments(environmentFile, args);
-  const rules = developmentWatchRules(JSON.parse(await capture("docker", composeArgs(["config", "--format", "json"]))));
+  const rules = developmentWatchRules(
+    JSON.parse(await capture("docker", composeArgs(["config", "--format", "json"]))),
+    docs ? applicationServices : alwaysStartedServices,
+  );
   const compose = (args) => new Promise((resolveCommand, rejectCommand) => {
     const child = spawn("docker", composeArgs(args), {
       cwd: root, env: composeEnvironment, stdio: "inherit", signal: controller.signal,
@@ -177,7 +181,7 @@ async function main(environmentFile) {
         },
         compose,
         waitUntilReady: () => waitForDevelopmentApplicationReadiness(buildDevelopmentEnvironment(process.env), {
-          signal: controller.signal, timeoutMs: 60_000, intervalMs: 1_000, requestTimeoutMs: 2_000,
+          signal: controller.signal, timeoutMs: 60_000, intervalMs: 1_000, requestTimeoutMs: 2_000, docs,
         }),
         synchronize: async (service) => {
           const container = z.string().regex(/^[a-f0-9]{12,64}$/u).parse((await capture("docker", composeArgs(["ps", "--status", "running", "--format", "{{.ID}}", service]))).trim());
@@ -210,7 +214,10 @@ async function main(environmentFile) {
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  void main(z.string().min(1).parse(process.argv[2])).catch((error) => {
+  void main(
+    z.string().min(1).parse(process.argv[2]),
+    process.argv.includes("--docs"),
+  ).catch((error) => {
     console.error(`Development source watch failed: ${error instanceof Error ? error.message : "unknown error"}`);
     process.exitCode = 1;
   });
