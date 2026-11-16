@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -109,10 +109,17 @@ async function loadTemplate(
 ): Promise<JsonObject | null> {
   const root = await mkdtemp(join(tmpdir(), "linksense-codex-models-"));
   try {
+    // The probe runs as the task identity while the supervisor owns the temp
+    // root with mode 0700. Share the supervisor group so Codex can enter and
+    // write its throwaway home; otherwise the probe fails and Codex clamps the
+    // configured model window to its unknown-model default.
+    await chmod(root, 0o770);
     const codexHome = join(root, "codex");
     const home = join(root, "home");
-    await mkdir(codexHome, { recursive: true });
-    await mkdir(home, { recursive: true });
+    await mkdir(codexHome, { recursive: true, mode: 0o770 });
+    await mkdir(home, { recursive: true, mode: 0o770 });
+    // mkdir modes are masked by umask, so set the shared group explicitly.
+    await Promise.all([chmod(codexHome, 0o770), chmod(home, 0o770)]);
     const invocation = isolatedChildInvocation(command, ["debug", "models"], processIdentity);
     const { stdout } = await runCommand(invocation.command, invocation.args, {
       encoding: "utf8",
