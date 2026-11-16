@@ -2023,7 +2023,8 @@ test("worker restricts native marketplaces to the mounted LinkSense source while
     readFile(codexConfigPath, "utf8").then(parse),
   ]);
 
-  assert.deepEqual(requirements.marketplaces, {
+  // TOML dictionaries can have null prototypes; compare the configuration values.
+  assert.deepEqual(JSON.parse(JSON.stringify(requirements.marketplaces)), {
     restrict_to_allowed_sources: true,
     allowed_sources: {
       linksense: { source: "local", path: "/home/linksense" },

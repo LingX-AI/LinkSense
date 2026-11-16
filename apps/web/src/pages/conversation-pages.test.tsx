@@ -716,7 +716,8 @@ describe("conversation knowledge base snapshots", () => {
           screen.queryByRole("button", { name: "添加知识库" })
         ).not.toBeInTheDocument()
       } else {
-        expect(screen.getByRole("button", { name: "添加知识库" })).toBeVisible()
+        await userEvent.click(screen.getByRole("button", { name: "添加内容" }))
+        expect(screen.getByRole("option", { name: "知识库" })).toBeVisible()
       }
       expect(screen.getByRole("textbox", { name: "任务输入框" })).toBeVisible()
       expect(

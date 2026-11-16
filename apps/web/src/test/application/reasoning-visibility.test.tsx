@@ -168,15 +168,19 @@ describe("personal reasoning visibility in conversations", () => {
       })
       renderApp("/conversations/c1")
       expect(await screen.findByText("Task finished.")).toBeVisible()
-      fireEvent.click(screen.getByRole("button", { name: "展开中间过程" }))
-      if (showReasoning)
+      if (showReasoning) {
+        fireEvent.click(screen.getByRole("button", { name: "展开中间过程" }))
         expect(
           await screen.findByText("Full reasoning from the saved preference.")
         ).toBeVisible()
-      else
+      } else {
+        expect(
+          screen.queryByRole("button", { name: "展开中间过程" })
+        ).not.toBeInTheDocument()
         expect(
           screen.queryByText("Full reasoning from the saved preference.")
         ).toBeNull()
+      }
     }
   )
 })

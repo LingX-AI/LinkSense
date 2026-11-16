@@ -2,6 +2,7 @@ import {
   cleanup,
   render as renderComponent,
   screen,
+  waitFor,
 } from "@testing-library/react"
 import type { ReactElement } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -616,6 +617,13 @@ describe("model editor conflict feedback", () => {
         onClose={vi.fn()}
         onSave={vi.fn()}
       />
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("dialog")).toContainElement(
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null
+      )
     )
     const name = screen.getByLabelText(formLabelPattern("Channel name"))
     expect(name).not.toHaveAttribute("aria-describedby")

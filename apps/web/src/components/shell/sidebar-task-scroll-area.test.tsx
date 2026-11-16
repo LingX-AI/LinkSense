@@ -67,7 +67,7 @@ describe("sidebar task scroll fade", () => {
     window.ResizeObserver = originalResizeObserver
   })
 
-  it.each(["wheel", "keyDown", "touchMove"] as const)(
+  it.each(["wheel", "keyDown", "touch"] as const)(
     "reveals the scrollbar for %s scrolling and hides it after scrolling stops",
     async (interaction) => {
       vi.useFakeTimers()
@@ -85,12 +85,16 @@ describe("sidebar task scroll fade", () => {
       expect(scrollbar).not.toHaveClass("data-[hovering]:opacity-100")
       expect(scrollbar).not.toHaveAttribute("data-scrolling")
 
-      fireEvent[interaction](viewport)
+      const interact = () =>
+        interaction === "touch"
+          ? fireEvent.pointerMove(viewport, { pointerType: "touch" })
+          : fireEvent[interaction](viewport)
+      interact()
       viewport.scrollTop = 40
       fireEvent.scroll(viewport)
       expect(scrollbar).toHaveAttribute("data-scrolling")
       await act(async () => vi.advanceTimersByTimeAsync(400))
-      fireEvent[interaction](viewport)
+      interact()
       viewport.scrollTop = 80
       fireEvent.scroll(viewport)
       await act(async () => vi.advanceTimersByTimeAsync(200))
