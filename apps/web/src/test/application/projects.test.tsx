@@ -1345,12 +1345,12 @@ describe("task projects", () => {
       await screen.findByRole("button", { name: "工作的更多操作" })
     )
     await interaction.click(
-      await screen.findByRole("menuitem", { name: "移除项目" })
+      await screen.findByRole("menuitem", { name: "移除" })
     )
-    const dialog = await screen.findByRole("dialog", { name: "移除项目" })
+    const dialog = await screen.findByRole("dialog", { name: "移除" })
     expect(dialog).toHaveTextContent("消息记录和原项目文件都会保留")
     await interaction.click(
-      within(dialog).getByRole("button", { name: "移除项目" })
+      within(dialog).getByRole("button", { name: "移除" })
     )
     await waitFor(() =>
       expect(

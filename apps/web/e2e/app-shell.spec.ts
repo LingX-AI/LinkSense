@@ -64,6 +64,86 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page)
 })
 
+test.describe("sidebar project action layout", () => {
+  test.use({ hasTouch: true })
+
+  test("keeps long project titles and running indicators clear of both touch actions", async ({
+    page,
+  }) => {
+    const projectId = "80000000-0000-4000-8000-000000000001"
+    const projectName = "需要完整保留操作入口的超长项目名称和说明"
+    const task = {
+      id: "20000000-0000-4000-8000-000000000001",
+      title: "运行中的项目任务",
+      archive_status: "active",
+      project_id: projectId,
+      execution_status: "running",
+      updated_at: NOW,
+    }
+    await mockTaskHomeApi(page)
+    await page.route("**/api/v1/projects", (route) =>
+      ok(route, [
+        {
+          id: projectId,
+          name: projectName,
+          icon: "folder",
+          color: "default",
+          created_at: NOW,
+          updated_at: NOW,
+        },
+      ])
+    )
+    await page.route("**/api/v1/conversations?**", (route) =>
+      ok(route, { items: [task], next_cursor: null })
+    )
+    await page.route(`**/api/v1/conversations/${task.id}`, (route) =>
+      ok(route, {
+        conversation: task,
+        messages: [],
+        turns: [{ id: "running-project-turn", status: "running" }],
+        pending_requests: [],
+        files: [],
+        events: [],
+        activities: [],
+      })
+    )
+    await page.goto("/conversations/new")
+    expect(await page.evaluate(() => matchMedia("(hover: none)").matches)).toBe(
+      true
+    )
+    const folder = page.getByRole("button", { name: projectName, exact: true })
+    const title = folder.locator("span.truncate")
+    const more = page.getByRole("button", {
+      name: `${projectName}的更多操作`,
+    })
+    const create = page.getByRole("button", {
+      name: `在项目“${projectName}”中新建任务`,
+    })
+    await expect(folder).toBeVisible()
+    await expect(create).toBeVisible()
+    const titleBounds = await title.boundingBox()
+    const moreBounds = await more.boundingBox()
+    expect(titleBounds!.x + titleBounds!.width).toBeLessThanOrEqual(
+      moreBounds!.x
+    )
+
+    await folder.tap()
+    const running = folder
+      .locator("..")
+      .getByRole("status", { name: "执行中", exact: true })
+    await expect(running).toBeVisible()
+    await expect(running).toHaveCSS("opacity", "1")
+    const runningBounds = await running.boundingBox()
+    const collapsedTitleBounds = await title.boundingBox()
+    expect(runningBounds!.x + runningBounds!.width).toBeLessThanOrEqual(
+      moreBounds!.x
+    )
+    expect(
+      collapsedTitleBounds!.x + collapsedTitleBounds!.width
+    ).toBeLessThanOrEqual(runningBounds!.x)
+  })
+})
+
 async function openRichOutputConversation(
   page: Page,
   content = richOutputFixtureMarkdown,

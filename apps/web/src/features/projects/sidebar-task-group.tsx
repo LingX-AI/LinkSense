@@ -121,8 +121,9 @@ export function SidebarTaskGroup({
               type="button"
               variant="ghost"
               className={cn(
-                "h-(--app-sidebar-row-height) w-full min-w-0 justify-start gap-2 rounded-lg pr-[calc(12px+var(--app-sidebar-row-height))] pl-2 font-normal hover:bg-transparent active:translate-y-0! aria-expanded:bg-transparent",
-                showRunningIndicator && "[@media(hover:none)]:pr-18",
+                "h-(--app-sidebar-row-height) w-full min-w-0 justify-start gap-2 rounded-lg pr-[calc(12px+2*var(--app-sidebar-row-height))] pl-2 font-normal hover:bg-transparent active:translate-y-0! aria-expanded:bg-transparent",
+                showRunningIndicator &&
+                  "[@media(hover:none)]:pr-[calc(4.5rem+var(--app-sidebar-row-height))]",
                 !projectsDisabled && "cursor-grab active:cursor-grabbing"
               )}
             />
@@ -162,7 +163,7 @@ export function SidebarTaskGroup({
           <span
             role="status"
             aria-label={t("statuses.running")}
-            className="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-[var(--app-muted)] group-hover/project:opacity-0 group-has-data-[popup-open]/project:opacity-0 group-has-[:focus-visible]/project:opacity-0 [@media(hover:none)]:right-12"
+            className="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-[var(--app-muted)] group-hover/project:opacity-0 group-has-data-[popup-open]/project:opacity-0 group-has-[:focus-visible]/project:opacity-0 [@media(hover:none)]:right-[calc(3rem+var(--app-sidebar-row-height))]"
           >
             <Spinner className="size-3.5 [animation-duration:1.5s] motion-reduce:animate-none" />
           </span>

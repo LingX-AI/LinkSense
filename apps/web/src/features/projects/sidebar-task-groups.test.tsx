@@ -309,7 +309,7 @@ describe("sidebar task project controls", () => {
         "group-hover/project:opacity-0",
         "group-has-data-[popup-open]/project:opacity-0",
         "group-has-[:focus-visible]/project:opacity-0",
-        "[@media(hover:none)]:right-12"
+        "[@media(hover:none)]:right-[calc(3rem+var(--app-sidebar-row-height))]"
       )
       expect(status.querySelector("svg")).toHaveClass(
         "size-3.5",
@@ -701,7 +701,7 @@ describe("sidebar task project controls", () => {
     expect(folder).toHaveClass(
       "h-(--app-sidebar-row-height)",
       "w-full",
-      "pr-[calc(12px+var(--app-sidebar-row-height))]",
+      "pr-[calc(12px+2*var(--app-sidebar-row-height))]",
       "hover:bg-transparent",
       "aria-expanded:bg-transparent"
     )
