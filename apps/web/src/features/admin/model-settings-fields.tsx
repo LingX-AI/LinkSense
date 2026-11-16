@@ -1,6 +1,5 @@
 import { useId, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
-import { ChevronDownIcon } from "lucide-react"
 import {
   genericReasoningEffortValues,
   managedModelKindValues,
@@ -10,6 +9,7 @@ import {
 import { FieldShell } from "@/components/forms/form-field"
 import { ModelTokenPriceInput } from "@/components/forms/model-token-price-input"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -22,16 +22,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { cn } from "@/lib/utils"
 import { changeModelKind, parseContextWindow } from "./model-settings-draft"
 import { ModelAdvancedSettings } from "./model-advanced-settings"
+
+const contextWindowShortcuts = [
+  128_000, 200_000, 256_000, 400_000, 512_000, 1_000_000,
+] as const
+
+function contextWindowShortcutLabel(value: number): string {
+  return value >= 1_000_000 ? `${value / 1_000_000}M` : `${value / 1_000}K`
+}
 
 export function ModelSettingsSelect<T extends string>({
   label,
@@ -125,7 +126,8 @@ export function ModelSettingsFields({
 }) {
   const { t } = useTranslation()
   const id = useId()
-  const contextValid = parseContextWindow(contextInput).valid
+  const parsedContext = parseContextWindow(contextInput)
+  const contextValid = parsedContext.valid
   const efforts = model.kind === "chat" ? model.supported_reasoning_efforts : []
   return (
     <>
@@ -207,10 +209,144 @@ export function ModelSettingsFields({
                 onContextChange("")
               }}
             />
+            {model.kind === "chat" && (
+              <div className="flex items-center gap-2 self-end py-2">
+                <Switch
+                  id={`${id}-images`}
+                  checked={model.supports_image_input}
+                  onCheckedChange={(checked) =>
+                    onChange({ ...model, supports_image_input: checked })
+                  }
+                />
+                <Label htmlFor={`${id}-images`}>
+                  {t("admin.modelProvider.supportsImageInput")}
+                </Label>
+              </div>
+            )}
           </FieldGroup>
         </FieldSet>
       )}
       <ModelAdvancedSettings>
+        {model.kind === "chat" && (
+          <FieldSet className="gap-3">
+            <FieldLegend className="text-sm font-medium">
+              {t("admin.modelProvider.capabilities")}
+            </FieldLegend>
+            <FieldGroup className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <FieldShell
+                id={`${id}-context`}
+                label={t("admin.modelProvider.contextWindow")}
+                error={
+                  contextValid
+                    ? undefined
+                    : t("admin.modelProvider.contextWindowInvalid")
+                }
+              >
+                <div className="flex flex-col gap-2">
+                  <Input
+                    id={`${id}-context`}
+                    name={`${id}-context`}
+                    inputMode="numeric"
+                    value={contextInput}
+                    aria-invalid={!contextValid}
+                    placeholder={t(
+                      "admin.modelProvider.contextWindowPlaceholder"
+                    )}
+                    onChange={(event) => onContextChange(event.target.value)}
+                  />
+                  <div
+                    role="group"
+                    aria-label={t("admin.modelProvider.contextWindowShortcuts")}
+                    className="flex flex-wrap gap-1.5"
+                  >
+                    {contextWindowShortcuts.map((value) => (
+                      <Button
+                        key={value}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-pressed={parsedContext.value === value}
+                        className={cn(
+                          "h-7 rounded-full px-3 text-xs",
+                          parsedContext.value === value &&
+                            "border-foreground/40 bg-muted text-foreground"
+                        )}
+                        onClick={() => onContextChange(String(value))}
+                      >
+                        {contextWindowShortcutLabel(value)}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </FieldShell>
+              <FieldShell
+                id={`${id}-efforts`}
+                label={t("admin.modelProvider.supportedEfforts")}
+                hint={t("admin.modelProvider.reasoningEffortsAutoHint")}
+                required
+              >
+                <div
+                  id={`${id}-efforts`}
+                  role="group"
+                  aria-label={t("admin.modelProvider.supportedEfforts")}
+                  className="flex flex-wrap gap-x-4 gap-y-2"
+                >
+                  {genericReasoningEffortValues.map((effort) => {
+                    const checked = efforts.includes(effort)
+                    return (
+                      <div key={effort} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`${id}-effort-${effort}`}
+                          checked={checked}
+                          disabled={checked && efforts.length === 1}
+                          onCheckedChange={(nextChecked) => {
+                            const selected =
+                              nextChecked === true
+                                ? [...efforts, effort]
+                                : efforts.filter((value) => value !== effort)
+                            const next = genericReasoningEffortValues.filter(
+                              (value) => selected.includes(value)
+                            )
+                            const defaultEffort = next.some(
+                              (value) =>
+                                value === model.default_reasoning_effort
+                            )
+                              ? model.default_reasoning_effort
+                              : next[0]
+                            if (defaultEffort)
+                              onChange({
+                                ...model,
+                                supported_reasoning_efforts: next,
+                                default_reasoning_effort: defaultEffort,
+                              })
+                          }}
+                        />
+                        <Label
+                          htmlFor={`${id}-effort-${effort}`}
+                          className="text-sm font-normal"
+                        >
+                          {t(`reasoningEffort.${effort}`)}
+                        </Label>
+                      </div>
+                    )
+                  })}
+                </div>
+              </FieldShell>
+              <ModelSettingsSelect
+                label={t("admin.modelProvider.defaultEffort")}
+                required
+                value={model.default_reasoning_effort}
+                options={efforts.map((value) => ({
+                  value,
+                  label: t(`reasoningEffort.${value}`),
+                }))}
+                onChange={(value) =>
+                  onChange({ ...model, default_reasoning_effort: value })
+                }
+              />
+            </FieldGroup>
+          </FieldSet>
+        )}
         <p className="text-xs text-muted-foreground">
           {t("modelSetup.pricingHint")}
         </p>
@@ -288,124 +424,6 @@ export function ModelSettingsFields({
             )}
           </FieldGroup>
         </FieldSet>
-        {model.kind === "chat" && (
-          <FieldSet className="gap-3">
-            <FieldLegend className="text-sm font-medium">
-              {t("admin.modelProvider.capabilities")}
-            </FieldLegend>
-            <FieldGroup className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <FieldShell
-                id={`${id}-context`}
-                label={t("admin.modelProvider.contextWindow")}
-                error={
-                  contextValid
-                    ? undefined
-                    : t("admin.modelProvider.contextWindowInvalid")
-                }
-              >
-                <Input
-                  id={`${id}-context`}
-                  name={`${id}-context`}
-                  inputMode="numeric"
-                  value={contextInput}
-                  aria-invalid={!contextValid}
-                  placeholder={t(
-                    "admin.modelProvider.contextWindowPlaceholder"
-                  )}
-                  onChange={(event) => onContextChange(event.target.value)}
-                />
-              </FieldShell>
-              <FieldShell
-                id={`${id}-efforts`}
-                label={t("admin.modelProvider.supportedEfforts")}
-                required
-              >
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        id={`${id}-efforts`}
-                        type="button"
-                        variant="input"
-                        className="w-full justify-between"
-                        aria-label={t("admin.modelProvider.supportedEfforts")}
-                      />
-                    }
-                  >
-                    {efforts.length === 1
-                      ? t(`reasoningEffort.${efforts[0]}`)
-                      : t("admin.modelProvider.selectedEfforts", {
-                          count: efforts.length,
-                        })}
-                    <ChevronDownIcon data-icon="inline-end" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuGroup>
-                      <DropdownMenuLabel>
-                        {t("admin.modelProvider.supportedEfforts")}
-                      </DropdownMenuLabel>
-                      {genericReasoningEffortValues.map((effort) => (
-                        <DropdownMenuCheckboxItem
-                          key={effort}
-                          checked={efforts.includes(effort)}
-                          disabled={
-                            efforts.includes(effort) && efforts.length === 1
-                          }
-                          onCheckedChange={(checked) => {
-                            const selected = checked
-                              ? [...efforts, effort]
-                              : efforts.filter((value) => value !== effort)
-                            const next = genericReasoningEffortValues.filter(
-                              (value) => selected.includes(value)
-                            )
-                            const defaultEffort = next.some(
-                              (effort) =>
-                                effort === model.default_reasoning_effort
-                            )
-                              ? model.default_reasoning_effort
-                              : next[0]
-                            if (defaultEffort)
-                              onChange({
-                                ...model,
-                                supported_reasoning_efforts: next,
-                                default_reasoning_effort: defaultEffort,
-                              })
-                          }}
-                        >
-                          {t(`reasoningEffort.${effort}`)}
-                        </DropdownMenuCheckboxItem>
-                      ))}
-                    </DropdownMenuGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </FieldShell>
-              <ModelSettingsSelect
-                label={t("admin.modelProvider.defaultEffort")}
-                required
-                value={model.default_reasoning_effort}
-                options={efforts.map((value) => ({
-                  value,
-                  label: t(`reasoningEffort.${value}`),
-                }))}
-                onChange={(value) =>
-                  onChange({ ...model, default_reasoning_effort: value })
-                }
-              />
-              <div className="flex items-center gap-2 self-end py-2">
-                <Switch
-                  id={`${id}-images`}
-                  checked={model.supports_image_input}
-                  onCheckedChange={(checked) =>
-                    onChange({ ...model, supports_image_input: checked })
-                  }
-                />
-                <Label htmlFor={`${id}-images`}>
-                  {t("admin.modelProvider.supportsImageInput")}
-                </Label>
-              </div>
-            </FieldGroup>
-          </FieldSet>
-        )}
       </ModelAdvancedSettings>
     </>
   )

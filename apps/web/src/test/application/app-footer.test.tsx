@@ -136,20 +136,20 @@ describe("application attribution footer", () => {
       ).not.toBeInTheDocument()
     }
 
-    await screen.findByRole("region", { name: "任务概览" })
+    await screen.findByRole("region", { name: "会话侧栏" })
     expect(workspace).toHaveAttribute("data-task-overview-open", "true")
     expectNoAttribution()
 
     await interaction.click(
-      screen.getByRole("button", { name: "关闭任务概览" })
+      screen.getByRole("button", { name: "关闭会话侧栏" })
     )
     expect(workspace).not.toHaveAttribute("data-task-overview-open")
     expectNoAttribution()
 
     await interaction.click(
-      screen.getByRole("button", { name: "打开任务概览" })
+      screen.getByRole("button", { name: "打开会话侧栏" })
     )
-    await screen.findByRole("region", { name: "任务概览" })
+    await screen.findByRole("region", { name: "会话侧栏" })
     expect(workspace).toHaveAttribute("data-task-overview-open", "true")
     expectNoAttribution()
   })

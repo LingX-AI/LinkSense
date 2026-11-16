@@ -4,6 +4,7 @@ import type { ConversationEvent } from "@/api/contracts"
 import {
   selectContextCompactionSavedTokens,
   selectConversationModelContextUsage,
+  selectLatestConversationContextBreakdown,
   selectLatestConversationModelContextUsage,
 } from "@/features/conversations/conversation-context-usage"
 
@@ -32,6 +33,43 @@ describe("selectLatestConversationModelContextUsage", () => {
       turnId: "turn-2",
       usedTokens: 155_000,
       modelContextWindow: 258_000,
+    })
+  })
+
+  it("selects the latest native context breakdown", () => {
+    expect(
+      selectLatestConversationContextBreakdown([
+        tokenUsageEvent({
+          id: "event-1",
+          sequenceNo: 1,
+          turnId: "turn-1",
+          cumulativeTokens: 1_000,
+          lastTokens: 1_000,
+          modelContextWindow: 1_000_000,
+          cachedInputTokens: 300,
+          outputTokens: 200,
+          reasoningOutputTokens: 50,
+        }),
+        tokenUsageEvent({
+          id: "event-2",
+          sequenceNo: 2,
+          turnId: "turn-2",
+          cumulativeTokens: 2_000,
+          lastTokens: 2_000,
+          modelContextWindow: 1_000_000,
+          cachedInputTokens: 500,
+          outputTokens: 400,
+          reasoningOutputTokens: 100,
+        }),
+      ])
+    ).toEqual({
+      turnId: "turn-2",
+      usedTokens: 2_000,
+      modelContextWindow: 1_000_000,
+      inputTokens: 2_000,
+      cachedInputTokens: 500,
+      outputTokens: 400,
+      reasoningOutputTokens: 100,
     })
   })
 
@@ -109,6 +147,9 @@ function tokenUsageEvent({
   cumulativeTokens,
   lastTokens,
   modelContextWindow,
+  cachedInputTokens = 0,
+  outputTokens = 0,
+  reasoningOutputTokens = 0,
 }: {
   id: string
   sequenceNo: number
@@ -116,6 +157,9 @@ function tokenUsageEvent({
   cumulativeTokens: number
   lastTokens: number
   modelContextWindow: number | null
+  cachedInputTokens?: number
+  outputTokens?: number
+  reasoningOutputTokens?: number
 }): ConversationEvent {
   const total = {
     totalTokens: cumulativeTokens,
@@ -127,9 +171,9 @@ function tokenUsageEvent({
   const last = {
     totalTokens: lastTokens,
     inputTokens: lastTokens,
-    cachedInputTokens: 0,
-    outputTokens: 0,
-    reasoningOutputTokens: 0,
+    cachedInputTokens,
+    outputTokens,
+    reasoningOutputTokens,
   }
   return {
     id,

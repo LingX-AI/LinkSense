@@ -57,7 +57,7 @@ vi.mock("@/pages/conversation-pages", () => ({
         data-unavailable-message={unavailableMessage}
       >
         <header data-testid="native-conversation-header">
-          <button type="button" aria-label="任务概览" />
+          <button type="button" aria-label="会话侧栏" />
           {headerActions}
         </header>
         <div>原生任务聊天</div>
@@ -825,7 +825,7 @@ describe("interactive application runtime page", () => {
     expect(layout).toHaveAttribute("data-chat-open", "true")
     expect(screen.getByText("原生任务聊天")).toBeVisible()
     expect(screen.queryByText("LinkSense 聊天")).not.toBeInTheDocument()
-    const overviewButton = screen.getByRole("button", { name: "任务概览" })
+    const overviewButton = screen.getByRole("button", { name: "会话侧栏" })
     const hideButton = screen.getByRole("button", { name: "隐藏聊天" })
     expect(overviewButton.nextElementSibling).toBe(hideButton)
     expect(hideButton.querySelector("svg")).toHaveClass("text-foreground/55")

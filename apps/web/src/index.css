@@ -118,6 +118,11 @@
   --color-destructive-text: var(--destructive-text);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
   --color-application-create-accent: var(--app-selection);
   --color-application-icon-iris: color-mix(in oklab, #8270db 12%, var(--card));
   --color-application-icon-sage: color-mix(in oklab, #6da885 12%, var(--card));
@@ -369,6 +374,11 @@
   --app-usage-cost-rerank: #e65f73;
   --app-usage-cost-image: #0f9f8f;
   --app-usage-chart-grid: rgb(32 32 32 / 8%);
+  --chart-1: #3478f6;
+  --chart-2: #e28a22;
+  --chart-3: #159d8c;
+  --chart-4: #df4b9f;
+  --chart-5: #7857f6;
   --office-viewer-canvas: #f7f8fa;
   --presentation-viewer-canvas: var(--office-viewer-canvas);
   --presentation-viewer-sidebar: #ffffff;
@@ -512,6 +522,11 @@
   --app-usage-cost-rerank: #f28395;
   --app-usage-cost-image: #42d2c2;
   --app-usage-chart-grid: rgb(255 255 255 / 9%);
+  --chart-1: #65a0ff;
+  --chart-2: #f2aa4c;
+  --chart-3: #3bc8b2;
+  --chart-4: #f078bc;
+  --chart-5: #9a83ff;
   --office-viewer-canvas: var(--app-canvas);
   --presentation-viewer-canvas: var(--office-viewer-canvas);
   --presentation-viewer-sidebar: var(--app-canvas);

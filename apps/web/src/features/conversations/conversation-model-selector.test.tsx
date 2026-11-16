@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { MemoryRouter } from "react-router-dom"
+import { MemoryRouter, useLocation } from "react-router-dom"
 import { userSchema } from "@/api/contracts"
 import { AuthContext } from "@/app/auth-state"
 import {
@@ -25,19 +25,10 @@ vi.mock("@/components/ui/popover", async (importOriginal) => {
   return {
     ...original,
     Popover: (props: React.ComponentProps<typeof original.Popover>) => {
-      modelSelectorRender()
+      // The context card is uncontrolled; the model selector is controlled.
+      if (props.open === undefined) contextUsageRender()
+      else modelSelectorRender()
       return <original.Popover {...props} />
-    },
-  }
-})
-vi.mock("@/components/ui/hover-card", async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import("@/components/ui/hover-card")>()
-  return {
-    ...original,
-    HoverCard: (props: React.ComponentProps<typeof original.HoverCard>) => {
-      contextUsageRender()
-      return <original.HoverCard {...props} />
     },
   }
 })
@@ -103,7 +94,7 @@ describe("ConversationModelSelector", () => {
         contextUsage={{ ...modelContextUsage, usedTokens: 129_000 }}
       />
     )
-    expect(screen.getByLabelText("背景信息窗口：50% 已用")).toBeVisible()
+    expect(screen.getByLabelText("上下文 126k / 252k（50%）")).toBeVisible()
     expect(contextUsageRender).toHaveBeenCalledTimes(renders + 1)
   })
 
@@ -253,9 +244,14 @@ describe("ConversationModelSelector", () => {
       "aria-expanded:bg-card",
       "aria-expanded:border-border"
     )
-    const contextTrigger = screen.getByLabelText("背景信息窗口：60% 已用")
+    const contextTrigger = screen.getByLabelText("上下文 151.4k / 252k（60%）")
     expect(contextTrigger).toBeVisible()
-    expect(contextTrigger).toHaveClass("size-7")
+    expect(contextTrigger).toHaveClass(
+      "size-7",
+      "cursor-pointer",
+      "rounded-lg",
+      "hover:bg-hover"
+    )
     expect(contextTrigger.querySelector("svg")).toHaveClass("size-4")
     expect(contextTrigger).not.toHaveTextContent("258K")
     expect(
@@ -316,67 +312,143 @@ describe("ConversationModelSelector", () => {
     expect(selector).toHaveFocus()
   })
 
-  it("shows model context window details on hover", async () => {
+  it("opens the context card, expands the breakdown, and links to the usage page", async () => {
     const interaction = userEvent.setup()
     render(
+      <MemoryRouter initialEntries={["/conversations/c1"]}>
+        <ConversationModelSelector
+          pending={false}
+          onChange={vi.fn()}
+          preference={modelPreference}
+          contextUsage={modelContextUsage}
+          contextBreakdown={modelContextBreakdown}
+        />
+        <LocationProbe />
+      </MemoryRouter>
+    )
+
+    await interaction.click(
+      screen.getByLabelText("上下文 151.4k / 252k（60%）")
+    )
+    const card = await screen.findByRole("dialog", { name: "上下文窗口" })
+    expect(within(card).getByText("151.4k / 252k（60%）")).toBeVisible()
+    expect(within(card).queryByText("输入")).not.toBeInTheDocument()
+
+    await interaction.click(
+      within(card).getByRole("button", { name: /上下文窗口/u })
+    )
+    for (const label of ["输入", "缓存输入", "输出", "推理", "剩余空间"]) {
+      expect(within(card).getByText(label)).toBeVisible()
+    }
+
+    await interaction.click(
+      within(card).getByRole("link", { name: "查看完整明细" })
+    )
+    await waitFor(() =>
+      expect(
+        JSON.parse(screen.getByTestId("location-probe").textContent ?? "")
+      ).toEqual({
+        pathname: "/settings/quota",
+        state: { settingsReturnTo: "/conversations/c1" },
+      })
+    )
+  })
+
+  it("shows the usage tooltip on hover", async () => {
+    const interaction = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <ConversationModelSelector
+          pending={false}
+          onChange={vi.fn()}
+          preference={modelPreference}
+          contextUsage={modelContextUsage}
+        />
+      </MemoryRouter>
+    )
+
+    await interaction.hover(
+      screen.getByLabelText("上下文 151.4k / 252k（60%）")
+    )
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "上下文 151.4k / 252k（60%）"
+    )
+  })
+
+  it("hides the context indicator until a turn reports usage", async () => {
+    await i18n.changeLanguage("zh-CN")
+    const renderSelector = (
+      contextUsage: {
+        turnId: string | null
+        usedTokens: number
+        modelContextWindow: number | null
+      } | null
+    ) => (
       <ConversationModelSelector
         pending={false}
         onChange={vi.fn()}
         preference={modelPreference}
-        contextUsage={modelContextUsage}
+        contextUsage={contextUsage}
       />
     )
+    const { rerender } = render(renderSelector(null))
+    expect(screen.queryByLabelText(/^上下文 /u)).not.toBeInTheDocument()
 
-    await interaction.hover(screen.getByLabelText("背景信息窗口：60% 已用"))
-
-    const popup = await screen.findByRole("dialog", {
-      name: "背景信息窗口：",
-    })
-    expect(within(popup).getByText("背景信息窗口：")).toBeVisible()
-    expect(within(popup).getByText("60% 已用")).toBeVisible()
-    expect(within(popup).getByText("已用 151.4k，共 252k")).toBeVisible()
+    rerender(
+      renderSelector({
+        turnId: null,
+        usedTokens: 0,
+        modelContextWindow: 1_024,
+      })
+    )
+    expect(screen.getByLabelText("上下文 0 / 1k（0%）")).toBeVisible()
   })
 
   it.each([
     {
       language: "zh-CN",
-      badge: "背景信息窗口：50% 已用",
-      detail: "已用 128k，共 256k",
+      badge: "上下文 128k / 256k（50%）",
+      summary: "128k / 256k（50%）",
     },
     {
       language: "en-US",
-      badge: "Background context window: 50% used",
-      detail: "128k used, 256k total",
+      badge: "Context 128k / 256k (50%)",
+      summary: "128k / 256k (50%)",
     },
     {
       language: "de-DE",
-      badge: "背景信息窗口：50% 已用",
-      detail: "已用 128k，共 256k",
+      badge: "上下文 128k / 256k（50%）",
+      summary: "128k / 256k（50%）",
     },
   ])(
     "shows runtime context counts in units of 1024 with $language translations or fallback",
-    async ({ language, badge, detail }) => {
+    async ({ language, badge, summary }) => {
       await i18n.changeLanguage(language)
       const interaction = userEvent.setup()
       render(
-        <ConversationModelSelector
-          pending={false}
-          onChange={vi.fn()}
-          preference={modelPreference}
-          contextUsage={{
-            turnId: "turn-binary-context",
-            usedTokens: 131_072,
-            modelContextWindow: 262_144,
-          }}
-        />
+        <MemoryRouter>
+          <ConversationModelSelector
+            pending={false}
+            onChange={vi.fn()}
+            preference={modelPreference}
+            contextUsage={{
+              turnId: "turn-binary-context",
+              usedTokens: 131_072,
+              modelContextWindow: 262_144,
+            }}
+          />
+        </MemoryRouter>
       )
 
       const trigger = screen.getByLabelText(badge)
       expect(
         trigger.querySelector('circle[stroke-dasharray="50 50"]')
       ).toBeInTheDocument()
-      await interaction.hover(trigger)
-      expect(await screen.findByText(detail)).toBeVisible()
+      await interaction.click(trigger)
+      const card = await screen.findByRole("dialog", {
+        name: i18n.t("conversation.modelContextWindowTitle"),
+      })
+      expect(within(card).getByText(summary)).toBeVisible()
     }
   )
 
@@ -384,7 +456,6 @@ describe("ConversationModelSelector", () => {
     "omits the token unit for zero, one, many, and compact counts in %s",
     async (language) => {
       await i18n.changeLanguage(language)
-      const interaction = userEvent.setup()
       const renderSelector = (usedTokens: number) => (
         <ConversationModelSelector
           pending={false}
@@ -398,26 +469,18 @@ describe("ConversationModelSelector", () => {
         />
       )
       const { rerender } = render(renderSelector(0))
-      await interaction.hover(
-        screen.getByRole("button", {
-          name:
-            language === "en-US"
-              ? "Background context window: 0% used"
-              : "背景信息窗口：0% 已用",
-        })
-      )
-      for (const [usedTokens, used] of [
-        [0, "0"],
-        [1, "1"],
-        [2, "2"],
-        [1_024, "1k"],
+      for (const [usedTokens, used, percent] of [
+        [0, "0", 0],
+        [1, "1", 0],
+        [2, "2", 0],
+        [1_024, "1k", 100],
       ] as const) {
         rerender(renderSelector(usedTokens))
         expect(
-          await screen.findByText(
+          screen.getByLabelText(
             language === "en-US"
-              ? `${used} used, 1k total`
-              : `已用 ${used}，共 1k`
+              ? `Context ${used} / 1k (${percent}%)`
+              : `上下文 ${used} / 1k（${percent}%）`
           )
         ).toBeVisible()
       }
@@ -425,7 +488,7 @@ describe("ConversationModelSelector", () => {
   )
 
   it.each([0, 84, 85, 100, 141])(
-    "keeps the context ring in the foreground color at %i percent usage",
+    "keeps the usage color on the context ring at %i percent usage",
     (percentage) => {
       render(
         <ConversationModelSelector
@@ -440,11 +503,15 @@ describe("ConversationModelSelector", () => {
         />
       )
 
-      const ring = screen
-        .getByLabelText(`背景信息窗口：${percentage}% 已用`)
-        .querySelector("svg")
-      expect(ring).toHaveClass("text-foreground")
-      expect(ring).not.toHaveClass("text-destructive")
+      const contextTrigger = screen.getByLabelText(
+        new RegExp(`^上下文 .+（${percentage}%）$`, "u")
+      )
+      expect(contextTrigger.querySelector("circle:last-of-type")).toHaveClass(
+        "text-[var(--chart-1)]"
+      )
+      expect(contextTrigger.querySelector("circle:first-of-type")).toHaveClass(
+        "text-muted-foreground"
+      )
     }
   )
 
@@ -462,14 +529,13 @@ describe("ConversationModelSelector", () => {
       />
     )
 
-    const contextTrigger = screen.getByLabelText("背景信息窗口：141% 已用")
+    const contextTrigger = screen.getByLabelText("上下文 355.5k / 252k（141%）")
     expect(
       contextTrigger.querySelector('circle[stroke-dasharray="100 0"]')
     ).toBeInTheDocument()
   })
 
-  it("shows an unknown context state when the selected model has no context window", async () => {
-    const interaction = userEvent.setup()
+  it("hides the context indicator when the selected model has no context window", async () => {
     render(
       <ConversationModelSelector
         pending={false}
@@ -497,13 +563,7 @@ describe("ConversationModelSelector", () => {
       />
     )
 
-    const contextTrigger = screen.getByLabelText("背景信息窗口：暂无用量")
-    expect(contextTrigger.querySelector("svg")).toHaveClass("text-foreground")
-    await interaction.hover(contextTrigger)
-
-    expect(await screen.findByText("背景信息窗口：")).toBeVisible()
-    expect(screen.getByText("暂无用量")).toBeVisible()
-    expect(screen.getByText("暂无上下文用量")).toBeVisible()
+    expect(screen.queryByLabelText(/^上下文 /u)).not.toBeInTheDocument()
   })
 
   it("updates the effort choices with the selected model and forwards native values", async () => {
@@ -826,6 +886,15 @@ describe("ConversationModelSelector", () => {
   })
 })
 
+function LocationProbe() {
+  const location = useLocation()
+  return (
+    <output data-testid="location-probe">
+      {JSON.stringify({ pathname: location.pathname, state: location.state })}
+    </output>
+  )
+}
+
 const modelPreference: ModelPreference = {
   configured: true,
   default_model: "gpt-5.6-sol",
@@ -862,6 +931,14 @@ const modelContextUsage = {
   turnId: "turn-1",
   usedTokens: 155_000,
   modelContextWindow: 258_000,
+} as const
+
+const modelContextBreakdown = {
+  ...modelContextUsage,
+  inputTokens: 95_000,
+  cachedInputTokens: 20_000,
+  outputTokens: 60_000,
+  reasoningOutputTokens: 16_000,
 } as const
 
 describe("unconfigured model guidance", () => {

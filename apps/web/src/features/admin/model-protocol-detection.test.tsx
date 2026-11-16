@@ -88,6 +88,15 @@ function setup(
   return { user: userEvent.setup(), fetcher, onSave }
 }
 
+async function expandAdvanced(user: ReturnType<typeof userEvent.setup>) {
+  const button = screen.getByRole("button", {
+    name: i18n.t("modelSetup.advanced"),
+  })
+  if (button.getAttribute("aria-expanded") === "false") {
+    await user.click(button)
+  }
+}
+
 async function fillCredentials(user: ReturnType<typeof userEvent.setup>) {
   await user.type(
     screen.getByLabelText(
@@ -108,6 +117,7 @@ async function fillCredentials(user: ReturnType<typeof userEvent.setup>) {
     "synthetic-test-key"
   )
   await user.tab()
+  await expandAdvanced(user)
 }
 
 describe("automatic channel protocol selection", () => {
@@ -139,6 +149,7 @@ describe("automatic channel protocol selection", () => {
     async (locale) => {
       await i18n.changeLanguage(locale)
       const { user, fetcher, onSave } = setup()
+      await expandAdvanced(user)
       expect(
         screen.getByRole("button", {
           name: i18n.t("modelSetup.detectProtocol"),

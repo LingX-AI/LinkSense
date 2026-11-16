@@ -839,7 +839,7 @@ describe("conversation knowledge base snapshots", () => {
         })
       ).not.toBeInTheDocument()
       expect(
-        header.getByRole("button", { name: /^(打开|关闭)任务概览$/u })
+        header.getByRole("button", { name: /^(打开|关闭)会话侧栏$/u })
       ).toBeVisible()
       expect(
         dialog.queryByRole("textbox", { name: "任务输入框" })
@@ -3585,7 +3585,7 @@ describe("conversation knowledge base snapshots", () => {
       })
       const hideChatButton = screen.getByRole("button", { name: "隐藏聊天" })
       const taskOverviewButton = screen.getByRole("button", {
-        name: /^(打开|关闭)任务概览$/u,
+        name: /^(打开|关闭)会话侧栏$/u,
       })
       expect(
         taskOverviewButton.compareDocumentPosition(hideChatButton) &

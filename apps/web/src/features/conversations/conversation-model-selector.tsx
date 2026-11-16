@@ -1,5 +1,5 @@
 import { memo, useContext, useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useLocation } from "react-router-dom"
 import { AuthContext } from "@/app/auth-state"
 import { ChevronRightIcon, RotateCcwIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -11,11 +11,19 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { DesignIcon } from "@/components/ui/design-icon"
+import { conversationSettingsReturnState } from "@/components/shell/settings-return-navigation"
+import { cn } from "@/lib/utils"
 import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card"
+  ConversationContextBreakdownRows,
+  ConversationContextUsageBar,
+} from "@/features/conversations/conversation-context-usage-blocks"
+import {
+  buildConversationContextRows,
+  equalConversationContextBreakdown,
+  type ConversationContextBreakdown,
+  type ConversationContextRow,
+  type ConversationModelContextUsage,
+} from "@/features/conversations/conversation-context-usage"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +33,11 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  ActionTooltipContent,
+  Tooltip,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { normalizeLanguage } from "@/i18n"
 import {
   Popover,
@@ -39,9 +52,10 @@ import {
   SliderThumb,
   SliderTrack,
 } from "@/components/ui/slider"
-import { cn } from "@/lib/utils"
-import { formatTokenCount, type UsageNumberLanguage } from "@/lib/usage-number"
-import type { ConversationModelContextUsage } from "@/features/conversations/conversation-context-usage"
+import {
+  formatCompactTokenCount,
+  type UsageNumberLanguage,
+} from "@/lib/usage-number"
 
 export const ConversationModelSelector = memo(
   function ConversationModelSelector({
@@ -49,11 +63,13 @@ export const ConversationModelSelector = memo(
     pending,
     onChange,
     contextUsage,
+    contextBreakdown,
   }: {
     preference: ModelPreference
     pending: boolean
     onChange: (model: string, reasoningEffort: ReasoningEffort) => void
     contextUsage?: ConversationModelContextUsage | null
+    contextBreakdown?: ConversationContextBreakdown | null
   }) {
     const { t } = useTranslation()
     const auth = useContext(AuthContext)
@@ -91,14 +107,23 @@ export const ConversationModelSelector = memo(
       )
     }
 
+    const contextWindow =
+      contextUsage?.modelContextWindow ?? selectedModel.context_window
+    const usedTokens = contextUsage?.usedTokens ?? null
+    const usagePath =
+      auth?.user?.role === "admin" && auth.user.status === "active"
+        ? "/admin/usage"
+        : "/settings/quota"
     return (
       <div className="flex min-w-0 items-center gap-1.5">
-        <ModelContextUsageIndicator
-          totalTokens={
-            contextUsage?.modelContextWindow ?? selectedModel.context_window
-          }
-          usedTokens={contextUsage?.usedTokens ?? null}
-        />
+        {usedTokens !== null && contextWindow !== null && contextWindow > 0 ? (
+          <ModelContextUsageIndicator
+            totalTokens={contextWindow}
+            usedTokens={usedTokens}
+            breakdown={contextBreakdown ?? null}
+            usagePath={usagePath}
+          />
+        ) : null}
         <Popover open={selectorOpen} onOpenChange={setSelectorOpen}>
           <PopoverTrigger
             render={
@@ -160,7 +185,11 @@ export const ConversationModelSelector = memo(
     previous.contextUsage?.usedTokens === next.contextUsage?.usedTokens &&
     previous.contextUsage?.modelContextWindow ===
       next.contextUsage?.modelContextWindow &&
-    previous.contextUsage?.turnId === next.contextUsage?.turnId
+    previous.contextUsage?.turnId === next.contextUsage?.turnId &&
+    equalConversationContextBreakdown(
+      previous.contextBreakdown,
+      next.contextBreakdown
+    )
 )
 
 function ModelReasoningControls({
@@ -348,76 +377,143 @@ function ModelReasoningControls({
 const ModelContextUsageIndicator = memo(function ModelContextUsageIndicator({
   totalTokens,
   usedTokens,
+  breakdown,
+  usagePath,
 }: {
-  totalTokens: number | null
-  usedTokens: number | null
+  totalTokens: number
+  usedTokens: number
+  breakdown: ConversationContextBreakdown | null
+  usagePath: string
 }) {
   const { i18n, t } = useTranslation()
   const language = toUsageNumberLanguage(i18n.language)
-  const percentage =
-    usedTokens !== null && totalTokens !== null && totalTokens > 0
-      ? Math.round((usedTokens / totalTokens) * 100)
-      : null
-  const usageLabel =
-    percentage === null
-      ? t("conversation.modelContextUsageUnknown")
-      : t("conversation.modelContextUsagePercent", {
-          percent: percentage,
-        })
+  const [expanded, setExpanded] = useState(false)
+  const percentage = Math.round((usedTokens / totalTokens) * 100)
+  const formatTokens = (value: number) =>
+    formatCompactTokenCount(value, language)
+  const rowLabels: Record<ConversationContextRow["key"], string> = {
+    input: t("conversation.taskOverview.tokenInput"),
+    cached: t("conversation.taskOverview.tokenCachedInput"),
+    output: t("conversation.taskOverview.tokenOutput"),
+    reasoning: t("conversation.taskOverview.tokenReasoning"),
+    free: t("conversation.taskOverview.freeSpace"),
+  }
+  const rows = buildConversationContextRows(
+    breakdown,
+    usedTokens,
+    totalTokens
+  ).map((row) => ({ ...row, label: rowLabels[row.key] }))
+  const usageLabel = t("conversation.modelContextUsageLabel", {
+    used: formatTokens(usedTokens),
+    total: formatTokens(totalTokens),
+    percent: percentage,
+  })
+  const summary = t("conversation.modelContextUsageSummary", {
+    used: formatTokens(usedTokens),
+    total: formatTokens(totalTokens),
+    percent: percentage,
+  })
 
   return (
-    <HoverCard>
-      <HoverCardTrigger
-        delay={100}
-        closeDelay={120}
-        nativeButton={false}
-        render={
-          <span
-            tabIndex={0}
-            className="inline-flex size-7 shrink-0 cursor-default items-center justify-center rounded-full text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-            aria-label={t("conversation.modelContextBadgeLabel", {
-              value: usageLabel,
-            })}
-          />
-        }
-      >
-        <ContextUsageRing percentage={percentage} />
-      </HoverCardTrigger>
-      <HoverCardContent
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger
+          delay={100}
+          closeDelay={120}
+          render={
+            <PopoverTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="cursor-pointer rounded-lg text-muted-foreground"
+                  aria-label={usageLabel}
+                />
+              }
+            />
+          }
+        >
+          <ContextUsageRing percentage={percentage} />
+        </TooltipTrigger>
+        <ActionTooltipContent>{usageLabel}</ActionTooltipContent>
+      </Tooltip>
+      <PopoverContent
         side="top"
-        align="center"
+        align="start"
         sideOffset={8}
-        className="w-[min(14rem,calc(100vw-2rem))] px-3 py-2.5 text-center"
-        aria-label={t("conversation.modelContextTitle")}
+        className="w-[min(20rem,calc(100vw-2rem))] gap-2 rounded-2xl p-3"
       >
-        <div className="flex flex-col items-center gap-1">
-          <p className="text-xs font-medium text-muted-foreground">
-            {t("conversation.modelContextTitle")}
-          </p>
-          <p className="text-xs font-semibold">{usageLabel}</p>
-          <p className="text-xs font-semibold">
-            {usedTokens !== null && totalTokens !== null
-              ? t("conversation.modelContextUsageDetail", {
-                  used: formatContextTokenCount(usedTokens, language),
-                  total: formatContextTokenCount(totalTokens, language),
-                })
-              : t("conversation.modelContextUnavailable")}
-          </p>
+        <PopoverTitle className="sr-only">
+          {t("conversation.modelContextWindowTitle")}
+        </PopoverTitle>
+        <div className="flex flex-col gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+            className="h-auto w-full justify-between gap-2 px-0 py-0 text-xs font-normal hover:bg-transparent aria-expanded:bg-transparent"
+          >
+            <span className="text-muted-foreground">
+              {t("conversation.modelContextWindowTitle")}
+            </span>
+            <span className="flex items-center gap-1 text-foreground tabular-nums">
+              {summary}
+              <ChevronRightIcon
+                aria-hidden="true"
+                className={cn(
+                  "size-3.5 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none",
+                  expanded && "rotate-90"
+                )}
+              />
+            </span>
+          </Button>
+          <ConversationContextUsageBar
+            rows={rows}
+            usedTokens={usedTokens}
+            totalTokens={totalTokens}
+            label={usageLabel}
+          />
+          {expanded && rows.length > 0 ? (
+            <ConversationContextBreakdownRows
+              rows={rows}
+              totalTokens={totalTokens}
+              formatTokens={formatTokens}
+            />
+          ) : null}
+          <UsageBreakdownLink usagePath={usagePath} />
         </div>
-      </HoverCardContent>
-    </HoverCard>
+      </PopoverContent>
+    </Popover>
   )
 })
 
-function ContextUsageRing({ percentage }: { percentage: number | null }) {
-  const progress =
-    percentage === null ? 0 : Math.min(100, Math.max(0, percentage))
+function UsageBreakdownLink({ usagePath }: { usagePath: string }) {
+  const { t } = useTranslation()
+  const location = useLocation()
+  // Keeps the settings shell's back control returning to this conversation.
+  const returnState = conversationSettingsReturnState(location)
   return (
-    <svg
-      viewBox="0 0 20 20"
-      className="size-4 -rotate-90 text-foreground"
-      aria-hidden="true"
-    >
+    <div className="flex border-t border-border pt-2">
+      <Button
+        variant="secondary"
+        size="xs"
+        nativeButton={false}
+        role="link"
+        className="font-normal"
+        render={<Link to={usagePath} state={returnState} />}
+      >
+        {t("conversation.modelContextDetailedBreakdown")}
+      </Button>
+    </div>
+  )
+}
+
+function ContextUsageRing({ percentage }: { percentage: number }) {
+  const progress = Math.min(100, Math.max(0, percentage))
+  return (
+    <svg viewBox="0 0 20 20" className="size-4 -rotate-90" aria-hidden="true">
       <circle
         cx="10"
         cy="10"
@@ -425,7 +521,7 @@ function ContextUsageRing({ percentage }: { percentage: number | null }) {
         fill="none"
         stroke="currentColor"
         strokeWidth="3"
-        className="opacity-25"
+        className="text-muted-foreground opacity-40"
       />
       <circle
         cx="10"
@@ -437,17 +533,9 @@ function ContextUsageRing({ percentage }: { percentage: number | null }) {
         strokeLinecap="round"
         pathLength={100}
         strokeDasharray={`${progress} ${100 - progress}`}
+        className="text-[var(--chart-1)]"
       />
     </svg>
-  )
-}
-
-function formatContextTokenCount(
-  value: number,
-  language: UsageNumberLanguage
-): string {
-  return formatTokenCount(value, language, 1_024).replace(/[KMB]$/u, (suffix) =>
-    suffix.toLowerCase()
   )
 }
 

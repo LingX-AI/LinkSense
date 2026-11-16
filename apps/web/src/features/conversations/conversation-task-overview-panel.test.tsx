@@ -124,7 +124,7 @@ describe("ConversationTaskOverviewPanel", () => {
         />
       </header>
     )
-    const popup = await screen.findByRole("region", { name: "任务概览" })
+    const popup = await screen.findByRole("region", { name: "会话侧栏" })
     const header = screen.getByRole("banner")
     expect(resizeCallbacks.has(header)).toBe(true)
     const positioner = popup.parentElement
@@ -140,15 +140,15 @@ describe("ConversationTaskOverviewPanel", () => {
           `transform: translate(${nextRight - 28}px, 60px)`
         )
       )
-      expect(screen.getByRole("region", { name: "任务概览" })).toBe(popup)
+      expect(screen.getByRole("region", { name: "会话侧栏" })).toBe(popup)
     }
 
-    await user.click(screen.getByRole("button", { name: "关闭任务概览" }))
+    await user.click(screen.getByRole("button", { name: "关闭会话侧栏" }))
     expect(resizeCallbacks.has(header)).toBe(false)
     headerRight = 1450
-    await user.click(screen.getByRole("button", { name: "打开任务概览" }))
+    await user.click(screen.getByRole("button", { name: "打开会话侧栏" }))
     const reopenedPopup = await screen.findByRole("region", {
-      name: "任务概览",
+      name: "会话侧栏",
     })
     await waitFor(() =>
       expect(reopenedPopup.parentElement).toHaveStyle(
@@ -178,7 +178,7 @@ describe("ConversationTaskOverviewPanel", () => {
     const links = screen.getAllByRole("link")
     expect(downloads).toHaveLength(2)
     expect(links).toHaveLength(2)
-    const panel = screen.getByRole("region", { name: "任务概览" })
+    const panel = screen.getByRole("region", { name: "会话侧栏" })
     expect(panel).toHaveClass("w-80", "p-3", "gap-3", "rounded-card")
     for (const name of ["产出文件", "来源"]) {
       const group = within(panel).getByRole("region", { name })
@@ -262,10 +262,10 @@ describe("ConversationTaskOverviewPanel", () => {
     )
 
     const overviewCard = await screen.findByRole("region", {
-      name: "任务概览",
+      name: "会话侧栏",
     })
     const overviewButton = screen.getByRole("button", {
-      name: "关闭任务概览",
+      name: "关闭会话侧栏",
     })
     expect(overviewButton).toHaveClass("data-popup-open:bg-muted")
     expect(overviewCard.parentElement).toHaveStyle({
@@ -289,10 +289,10 @@ describe("ConversationTaskOverviewPanel", () => {
     ).toHaveLength(3)
 
     await user.click(screen.getByTestId("conversation-canvas"))
-    expect(screen.getByText("任务概览")).toBeInTheDocument()
+    expect(screen.getByText("会话侧栏")).toBeInTheDocument()
 
     await user.keyboard("{Escape}")
-    expect(screen.getByText("任务概览")).toBeInTheDocument()
+    expect(screen.getByText("会话侧栏")).toBeInTheDocument()
 
     await user.click(
       screen.getByRole("button", { name: "下载 ai-overview.pdf" })
@@ -301,15 +301,15 @@ describe("ConversationTaskOverviewPanel", () => {
     expect(overviewCard).toBeInTheDocument()
 
     await user.click(overviewButton)
-    expect(screen.queryByText("任务概览")).not.toBeInTheDocument()
+    expect(screen.queryByText("会话侧栏")).not.toBeInTheDocument()
     expect(onOpenChange).toHaveBeenLastCalledWith(false)
 
     expect(window.localStorage.getItem("linksense.taskOverviewOpen")).toBe(
       "false"
     )
 
-    await user.click(screen.getByRole("button", { name: "打开任务概览" }))
-    expect(await screen.findByText("任务概览")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "打开会话侧栏" }))
+    expect(await screen.findByText("会话侧栏")).toBeInTheDocument()
     expect(onOpenChange).toHaveBeenLastCalledWith(true)
     expect(window.localStorage.getItem("linksense.taskOverviewOpen")).toBe(
       "true"
@@ -327,7 +327,7 @@ describe("ConversationTaskOverviewPanel", () => {
       />
     )
 
-    await user.click(screen.getByRole("button", { name: "关闭任务概览" }))
+    await user.click(screen.getByRole("button", { name: "关闭会话侧栏" }))
     rerender(
       <ConversationTaskOverviewPanel
         key="task-2"
@@ -337,9 +337,9 @@ describe("ConversationTaskOverviewPanel", () => {
       />
     )
 
-    expect(screen.queryByText("任务概览")).not.toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "打开任务概览" }))
-    expect(await screen.findByText("任务概览")).toBeVisible()
+    expect(screen.queryByText("会话侧栏")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "打开会话侧栏" }))
+    expect(await screen.findByText("会话侧栏")).toBeVisible()
   })
 
   it("allows temporary controlled visibility without changing the saved preference", async () => {
@@ -357,16 +357,27 @@ describe("ConversationTaskOverviewPanel", () => {
       <ConversationTaskOverviewPanel {...props} open={false} />
     )
     expect(
-      screen.queryByRole("region", { name: "任务概览" })
+      screen.queryByRole("region", { name: "会话侧栏" })
     ).not.toBeInTheDocument()
     rerender(<ConversationTaskOverviewPanel {...props} open />)
-    expect(await screen.findByRole("region", { name: "任务概览" })).toBe(
+    expect(await screen.findByRole("region", { name: "会话侧栏" })).toBe(
       panelRef.current
     )
     expect(window.localStorage.getItem("linksense.taskOverviewOpen")).toBe(
       "true"
     )
     expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it("defines the chart palette in both themes", () => {
+    for (const index of [1, 2, 3, 4, 5]) {
+      expect(appStyles).toContain(
+        `--color-chart-${index}: var(--chart-${index});`
+      )
+      expect(
+        appStyles.match(new RegExp(`--chart-${index}:`, "gu"))
+      ).toHaveLength(2)
+    }
   })
 
   it("uses the shared information-overlay shadow instead of a centered halo", () => {
@@ -416,7 +427,7 @@ describe("ConversationTaskOverviewPanel", () => {
       />
     )
 
-    expect(await screen.findByText("任务概览")).toBeInTheDocument()
+    expect(await screen.findByText("会话侧栏")).toBeInTheDocument()
     expect(screen.queryByText("子智能体")).not.toBeInTheDocument()
     expect(screen.queryByText("0 完成")).not.toBeInTheDocument()
     expect(screen.getByText("产出文件")).toBeInTheDocument()
@@ -452,7 +463,7 @@ describe("ConversationTaskOverviewPanel", () => {
     const fileIcon = fileRow.querySelector('[data-file-icon-kind="pdf"]')
 
     expect(appStyles).toContain("--text-sm: var(--app-ui-font-size);")
-    expect(screen.getByText("任务概览")).toHaveClass(
+    expect(screen.getByText("会话侧栏")).toHaveClass(
       "text-sm",
       "leading-[var(--app-line-20)]",
       "font-semibold"
@@ -511,6 +522,81 @@ describe("ConversationTaskOverviewPanel", () => {
       )
     }
   )
+
+  it("shows context usage, changes, and invokes compaction", async () => {
+    const user = userEvent.setup()
+    const onCompact = vi.fn()
+    const breakdown = {
+      totalTokens: 600_000,
+      inputTokens: 500_000,
+      cachedInputTokens: 100_000,
+      outputTokens: 100_000,
+      reasoningOutputTokens: 20_000,
+    }
+    const usageEvent: ConversationEvent = {
+      id: "usage-1",
+      type: "thread/tokenUsage/updated",
+      turn_id: "turn-1",
+      sequence_no: 1,
+      created_at: "2026-07-20T08:00:00.000Z",
+      payload: {
+        schema_version: 2,
+        source: "codex_app_server",
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          tokenUsage: {
+            total: breakdown,
+            last: breakdown,
+            modelContextWindow: 1_000_000,
+          },
+        },
+      },
+    }
+    render(
+      <ConversationTaskOverviewPanel
+        events={[usageEvent]}
+        files={[]}
+        contextUsage={{
+          turnId: "turn-1",
+          usedTokens: 600_000,
+          modelContextWindow: 1_000_000,
+        }}
+        changedFileCount={3}
+        compactAvailable
+        onCompact={onCompact}
+        onDownload={vi.fn()}
+      />
+    )
+    const panel = await screen.findByRole("region", {
+      name: i18n.t("conversation.taskOverview.title"),
+    })
+    expect(
+      within(panel).getByText(i18n.t("conversation.taskOverview.context"))
+    ).toBeVisible()
+    expect(within(panel).getByText("60% 已用")).toBeVisible()
+    expect(
+      within(panel).getByText(i18n.t("conversation.taskOverview.tokenInput"))
+    ).toBeVisible()
+    for (const [key, color] of [
+      ["tokenInput", "bg-[var(--chart-1)]"],
+      ["tokenCachedInput", "bg-[var(--chart-2)]"],
+      ["tokenOutput", "bg-[var(--chart-3)]"],
+    ] as const) {
+      expect(
+        within(panel).getByText(i18n.t(`conversation.taskOverview.${key}`))
+          .previousElementSibling
+      ).toHaveClass(color)
+    }
+    expect(within(panel).getByText("已变更 3 个文件")).toBeVisible()
+    await user.click(
+      within(panel).getByRole("button", {
+        name: i18n.t("conversation.taskOverview.compactSession"),
+      })
+    )
+    expect(onCompact).toHaveBeenCalledOnce()
+  })
 
   it.each(supportedLanguages)(
     "localizes file details and group labels in %s",

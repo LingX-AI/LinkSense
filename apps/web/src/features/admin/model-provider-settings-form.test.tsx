@@ -18,6 +18,12 @@ import type { ModelProviderSettings } from "@/api/contracts"
 import { ModelProviderSettingsFormHarness } from "./model-provider-settings-form.test-helper"
 import i18n, { supportedLanguages } from "@/i18n"
 
+async function expandAdvanced(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(
+    screen.getByRole("button", { name: i18n.t("modelSetup.advanced") })
+  )
+}
+
 const settings: ModelProviderSettings = {
   management_enabled: true,
   configured: true,
@@ -687,6 +693,7 @@ describe("ModelProviderSettingsForm", () => {
     renderModels()
     const user = userEvent.setup()
     await user.click(screen.getByRole("button", { name: "Edit model Model A" }))
+    await expandAdvanced(user)
     expect(
       screen.getByLabelText(formLabelPattern("Model context length"))
     ).toHaveValue("")
@@ -698,6 +705,7 @@ describe("ModelProviderSettingsForm", () => {
       providers: [{ models: [{ context_window: null }] }],
     })
     await user.click(screen.getByRole("button", { name: "Edit model Model A" }))
+    await expandAdvanced(user)
     const context = screen.getByLabelText(
       formLabelPattern("Model context length")
     )
@@ -712,6 +720,39 @@ describe("ModelProviderSettingsForm", () => {
     })
   })
 
+  it("fills context length shortcuts and marks the selected value", async () => {
+    renderModels()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("button", { name: "Edit model Model A" }))
+    await expandAdvanced(user)
+    const context = screen.getByLabelText(
+      formLabelPattern("Model context length")
+    )
+    await user.clear(context)
+
+    await user.click(screen.getByRole("button", { name: "1M" }))
+    expect(context).toHaveValue("1000000")
+    expect(screen.getByRole("button", { name: "1M" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+    expect(screen.getByRole("button", { name: "128K" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    )
+
+    await user.click(screen.getByRole("button", { name: "128K" }))
+    expect(context).toHaveValue("128000")
+    expect(screen.getByRole("button", { name: "128K" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+    expect(screen.getByRole("button", { name: "1M" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    )
+  })
+
   it.each(["0", "-1", "1.5", "9007199254740992"])(
     "blocks the invalid context length %s",
     async (value) => {
@@ -722,6 +763,7 @@ describe("ModelProviderSettingsForm", () => {
       await user.click(
         screen.getByRole("button", { name: "Edit model Model A" })
       )
+      await expandAdvanced(user)
 
       await user.type(
         screen.getByLabelText(formLabelPattern("Model context length")),

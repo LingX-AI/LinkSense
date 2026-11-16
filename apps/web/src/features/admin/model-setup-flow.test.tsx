@@ -481,10 +481,11 @@ describe("model setup", () => {
   })
 
   it.each(supportedLanguages)(
-    "shows discovery beside selection and all advanced fields immediately in %s",
+    "shows discovery beside selection and expands advanced fields on demand in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)
       renderModel()
+      const user = userEvent.setup()
       const selection = screen.getByRole("combobox", {
         name: i18n.t("modelSetup.selectModel"),
       })
@@ -503,18 +504,31 @@ describe("model setup", () => {
           Node.DOCUMENT_POSITION_FOLLOWING
       ).toBeTruthy()
       expect(
-        screen.getByLabelText(
+        screen.queryByLabelText(
+          formLabelPattern(i18n.t("admin.modelProvider.contextWindow"))
+        )
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByLabelText(
           formLabelPattern(i18n.t("admin.modelProvider.inputPrice"))
         )
-      ).toBeVisible()
+      ).not.toBeInTheDocument()
+      const advanced = screen.getByRole("button", {
+        name: i18n.t("modelSetup.advanced"),
+      })
+      expect(advanced).toHaveAttribute("aria-expanded", "false")
+      await user.click(advanced)
       expect(
         screen.getByLabelText(
           formLabelPattern(i18n.t("admin.modelProvider.contextWindow"))
         )
       ).toBeVisible()
       expect(
-        screen.queryByRole("button", { name: i18n.t("modelSetup.advanced") })
-      ).not.toBeInTheDocument()
+        screen.getByLabelText(
+          formLabelPattern(i18n.t("admin.modelProvider.inputPrice"))
+        )
+      ).toBeVisible()
+      expect(advanced).toHaveAttribute("aria-expanded", "true")
     }
   )
   it("creates a channel, discovers and tests its first model, then saves it as the default and title model", async () => {
@@ -603,7 +617,9 @@ describe("model setup", () => {
     expect(
       screen.queryByLabelText(formLabelPattern("Model ID"))
     ).not.toBeInTheDocument()
-    expect(screen.getByLabelText(formLabelPattern("Input price"))).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: i18n.t("modelSetup.advanced") })
+    ).toBeVisible()
     const selection = await screen.findByRole("combobox", {
       name: "Select an available model",
     })

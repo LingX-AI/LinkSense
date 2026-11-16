@@ -140,11 +140,11 @@ describe("parallel side chat", () => {
     await interaction.type(sideComposer, "旁聊未发送的草稿")
     await interaction.click(
       within(banner).getByRole("button", {
-        name: "打开任务概览",
+        name: "打开会话侧栏",
       })
     )
     expect(
-      await screen.findByRole("region", { name: "任务概览" })
+      await screen.findByRole("region", { name: "会话侧栏" })
     ).toBeVisible()
     await waitFor(() =>
       expect(

@@ -334,7 +334,10 @@ import {
   appendConversationLiveEvent,
   isStreamOnlyNativeEvent,
 } from "@/features/conversations/conversation-live-events"
-import { selectConversationModelContextUsage } from "@/features/conversations/conversation-context-usage"
+import {
+  selectConversationModelContextUsage,
+  selectLatestConversationContextBreakdown,
+} from "@/features/conversations/conversation-context-usage"
 import { mapLegacyConversationActivity } from "@/features/conversations/legacy-conversation-activity"
 import {
   isNativeStreamDisconnectRetry,
@@ -1278,19 +1281,20 @@ export function ConversationPage({
   const conversation = conversationQuery.data
   const canShowSiteDeliveries = Boolean(
     user &&
-      conversationId &&
-      !isNew &&
-      !embedded &&
-      !readOnly &&
-      !conversation?.application &&
-      conversation?.files?.some(
-        (file) => file.kind === "artifact" && file.mime_type === "text/html"
-      )
+    conversationId &&
+    !isNew &&
+    !embedded &&
+    !readOnly &&
+    !conversation?.application &&
+    conversation?.files?.some(
+      (file) => file.kind === "artifact" && file.mime_type === "text/html"
+    )
   )
   const siteDeliveries = useQuery({
     queryKey: webSiteKeys.deliveries(user?.id, conversationId),
     enabled: canShowSiteDeliveries,
-    queryFn: ({ signal }) => listConversationWebSites(conversationId ?? "", signal),
+    queryFn: ({ signal }) =>
+      listConversationWebSites(conversationId ?? "", signal),
     retry: false,
   })
   const sideChat = useSideChat(
@@ -2092,7 +2096,9 @@ export function ConversationPage({
             native.params.item.type === "mcpToolCall" &&
             native.params.item.server === coreMcpServerKey &&
             native.params.item.status === "completed" &&
-            ["publish_web_site", "update_web_site"].includes(native.params.item.tool)
+            ["publish_web_site", "update_web_site"].includes(
+              native.params.item.tool
+            )
           ) {
             void queryClient.invalidateQueries({ queryKey: webSiteKeys.all })
           }
@@ -5503,6 +5509,11 @@ export function ConversationPage({
     visibleEvents,
     displayConversation.model_context_usage
   )
+  const modelContextBreakdown =
+    selectLatestConversationContextBreakdown(visibleEvents)
+  const changedFileCount = Object.values(
+    displayConversation.turn_file_change_counts ?? {}
+  ).reduce((total, count) => total + count, 0)
   const runningPlan =
     displayConversation.running_turn && !reconnectExhausted
       ? selectConversationTurnPlan(
@@ -6018,10 +6029,7 @@ export function ConversationPage({
               <DropdownMenuContent align="start" className="min-w-40">
                 <DropdownMenuGroup>
                   <DropdownMenuItem onClick={openRenameDialog}>
-                    <DesignIcon
-                      name="rename"
-                      className="size-4"
-                    />{" "}
+                    <DesignIcon name="rename" className="size-4" />{" "}
                     {t("conversation.rename")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -6068,10 +6076,7 @@ export function ConversationPage({
                         aria-hidden="true"
                       />
                     ) : (
-                      <DesignIcon
-                        name="archive"
-                        className="size-4"
-                      />
+                      <DesignIcon name="archive" className="size-4" />
                     )}{" "}
                     {t(
                       displayConversation.archived
@@ -6124,6 +6129,11 @@ export function ConversationPage({
               }}
               open={taskOverviewVisible}
               panelRef={setTaskOverviewElement}
+              contextUsage={modelContextUsage}
+              changedFileCount={changedFileCount}
+              compactAvailable={compactionAvailable}
+              compacting={contextCompactionMutation.isPending}
+              onCompact={startContextCompaction}
               subAgentSummariesByTurnId={subAgentSummariesByTurnId}
               downloadingFileId={downloadingFileId}
               onDownload={handleDownloadArtifact}
@@ -6578,6 +6588,7 @@ export function ConversationPage({
               modelPreferenceMutation.isPending
             }
             modelContextUsage={modelContextUsage}
+            modelContextBreakdown={modelContextBreakdown}
             managedApplicationName={
               isManagedApplicationConversation
                 ? displayConversation.application?.name

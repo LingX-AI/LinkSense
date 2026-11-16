@@ -97,7 +97,10 @@ import {
   orderConversationSkills,
 } from "@/features/conversations/conversation-capability-selection"
 import { ConversationModelSelector } from "@/features/conversations/conversation-model-selector"
-import type { ConversationModelContextUsage } from "@/features/conversations/conversation-context-usage"
+import type {
+  ConversationContextBreakdown,
+  ConversationModelContextUsage,
+} from "@/features/conversations/conversation-context-usage"
 import {
   ConversationSkillCommandMenu,
   ConversationTaskReferenceCommandMenu,
@@ -474,6 +477,7 @@ type ConversationComposerProps = Readonly<{
   modelPreference?: ModelPreference
   modelPreferencePending?: boolean
   modelContextUsage?: ConversationModelContextUsage | null
+  modelContextBreakdown?: ConversationContextBreakdown | null
   managedApplicationName?: string
   allowManagedApplicationModelSelection?: boolean
   onModelPreferenceChange?: (
@@ -556,6 +560,7 @@ export const ConversationComposer = forwardRef<
     modelPreference,
     modelPreferencePending = false,
     modelContextUsage,
+    modelContextBreakdown,
     managedApplicationName,
     allowManagedApplicationModelSelection = false,
     onModelPreferenceChange,
@@ -2543,6 +2548,7 @@ export const ConversationComposer = forwardRef<
                 preference={modelPreference}
                 pending={modelPreferencePending}
                 contextUsage={modelContextUsage}
+                contextBreakdown={modelContextBreakdown}
                 onChange={onModelPreferenceChange}
               />
             )}
