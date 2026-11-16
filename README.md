@@ -64,7 +64,7 @@ Choose the channel that best fits your question:
 - [GitHub Issues](https://github.com/LingX-AI/LinkSense/issues): Report reproducible bugs and track engineering work. Read the [contribution guide](./.github/CONTRIBUTING.md) before opening one.
 - [Discord](https://discord.gg/NBQYnaDWuD): Chat in real time, share your apps, and connect with other LinkSense users.
 - [X](https://x.com/LinkSense_OSS): Follow LinkSense for release news and project updates.
-- [WeChat group](./docs/brand/wechat-group-2026-11-17.jpg): Scan the QR code to join the LinkSense user group. It is valid for 7 days; if it has expired, email [hello@linksense.org](mailto:hello@linksense.org) for the latest invite.
+- [WeChat group](./docs/brand/wechat-group-2026-11-23.png): Scan the QR code to join the LinkSense user group. It is valid for 7 days; if it has expired, email [hello@linksense.org](mailto:hello@linksense.org) for the latest invite.
 
 ## Security
 
