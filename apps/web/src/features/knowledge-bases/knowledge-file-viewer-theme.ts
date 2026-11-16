@@ -801,7 +801,7 @@ function createKnowledgeFileViewerToolbarIcon(
   ]) {
     const element = documentRef.createElementNS(namespace, elementName)
     for (const [name, value] of Object.entries(attributes)) {
-      element.setAttribute(name, value)
+      element.setAttribute(name, String(value))
     }
     svg.append(element)
   }
