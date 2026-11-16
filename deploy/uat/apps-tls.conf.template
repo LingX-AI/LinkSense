@@ -1,0 +1,28 @@
+# Optional TLS front for dynamic application hosts on UAT.
+# Mounted as /etc/nginx/templates/default.conf.template by the operator-provided
+# compose override; cert.pem and key.pem come from the operator's local CA.
+server {
+  listen 443 ssl;
+  server_name _;
+  server_tokens off;
+  ssl_certificate /etc/nginx/tls/cert.pem;
+  ssl_certificate_key /etc/nginx/tls/key.pem;
+  client_max_body_size 21m;
+  access_log off;
+
+  location / {
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $linksense_api api:4000;
+    proxy_pass http://$linksense_api/api/v1/public-app-gateway$request_uri;
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header Connection "";
+    proxy_request_buffering off;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 40s;
+  }
+}

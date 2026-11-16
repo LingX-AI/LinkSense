@@ -69,6 +69,10 @@ export function prepareUat(root, { revision, project = "linksense-uat", publicUr
     LINKSENSE_MINIO_MEMORY_MB: "512",
     LINKSENSE_WORKER_IMAGE_REVISION: revision,
   };
+  for (const key of ["LINKSENSE_APPWRITE_ENDPOINT", "LINKSENSE_APPWRITE_ADMIN_EMAIL", "LINKSENSE_APPWRITE_ADMIN_PASSWORD", "LINKSENSE_APPWRITE_ORGANIZATION_ID", "LINKSENSE_DYNAMIC_APPS_BASE_URL"]) {
+    const value = previous[key] ?? process.env[key];
+    if (value) environment[key] = value;
+  }
   for (const role of ["API", "WEB", "MIGRATE", "RUNNER", "WORKER"]) environment[`LINKSENSE_${role}_IMAGE`] = `${project}-${role.toLowerCase()}:${tag}`;
   for (const role of ["POSTGRES", "REDIS", "MINIO", "MINIO_CLIENT", "BUSYBOX", "GATEWAY"]) {
     const image = baseline.services[role];

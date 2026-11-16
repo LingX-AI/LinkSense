@@ -33,6 +33,24 @@ test("UAT updates preserve credentials and data identities while advancing sourc
   for (const file of ["runtime.env", "initialization.txt"]) assert.equal(statSync(resolve(root, ".data/uat", file)).mode & 0o777, 0o600);
   assert(!("ELASTICSEARCH_PASSWORD" in second));
 });
+test("UAT updates preserve operator-supplied dynamic application settings", t => {
+  const root = fixture(t);
+  prepareUat(root, { revision, publicUrl: "http://localhost:19090" });
+  const file = resolve(root, ".data/uat/runtime.env");
+  writeFileSync(file, readFileSync(file, "utf8") +
+    'LINKSENSE_APPWRITE_ENDPOINT="http://traefik/v1"\n' +
+    'LINKSENSE_APPWRITE_ADMIN_EMAIL="operator@example.test"\n' +
+    'LINKSENSE_APPWRITE_ADMIN_PASSWORD="uat-operator-pw-0001"\n' +
+    'LINKSENSE_APPWRITE_ORGANIZATION_ID="linksense-test"\n' +
+    'LINKSENSE_DYNAMIC_APPS_BASE_URL="https://192-168-2-210.nip.io:19443"\n');
+  const updated = prepareUat(root, { revision: "b".repeat(40), publicUrl: "http://localhost:19090" });
+  assert.equal(updated.LINKSENSE_APPWRITE_ENDPOINT, "http://traefik/v1");
+  assert.equal(updated.LINKSENSE_APPWRITE_ADMIN_EMAIL, "operator@example.test");
+  assert.equal(updated.LINKSENSE_APPWRITE_ADMIN_PASSWORD, "uat-operator-pw-0001");
+  assert.equal(updated.LINKSENSE_APPWRITE_ORGANIZATION_ID, "linksense-test");
+  assert.equal(updated.LINKSENSE_DYNAMIC_APPS_BASE_URL, "https://192-168-2-210.nip.io:19443");
+});
+
 test("UAT updates preserve configured concurrency limits", t => {
   const root = fixture(t);
   prepareUat(root, { revision, publicUrl: "http://localhost:19090" });

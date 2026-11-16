@@ -31,3 +31,16 @@ docker compose --project-directory "$PWD" --env-file .data/uat/runtime.env -p li
 ```
 
 公开访问时应使用 HTTPS；HTTP 适合本机或可信测试网络，部分浏览器能力和第三方登录需要 HTTPS。
+
+## 可选：动态应用（Appwrite）接入
+
+UAT 默认关闭动态应用。在 `.data/uat/runtime.env` 中提供 `LINKSENSE_APPWRITE_ENDPOINT`、`LINKSENSE_APPWRITE_ADMIN_EMAIL`、`LINKSENSE_APPWRITE_ADMIN_PASSWORD`、`LINKSENSE_DYNAMIC_APPS_BASE_URL`（管理员属于多个组织时再加 `LINKSENSE_APPWRITE_ORGANIZATION_ID`）后，`prepare.mjs` 会在后续部署中保留这些值；四项必填全为空时保持关闭。
+
+Appwrite 位于另一个 Compose 项目时，可用 `LINKSENSE_UAT_COMPOSE_OVERRIDE` 追加一个 Git 之外的覆盖文件，例如让 API 加入 Appwrite 网关网络，并增加动态应用 HTTPS 入口：
+
+```sh
+LINKSENSE_UAT_COMPOSE_OVERRIDE=.data/uat/appwrite.override.yml \
+  LINKSENSE_PUBLIC_BASE_URL=http://192.168.2.210:19090 sh deploy/uat/deploy-uat.sh
+```
+
+覆盖文件路径相对仓库根目录。`deploy/uat/apps-tls.conf.template` 提供可复用的 TLS 入口模板：将通配证书放在 `.data/uat/tls/cert.pem` 和 `key.pem`，由覆盖文件挂载并转发到 API 的 `/api/v1/public-app-gateway/`。动态应用地址必须使用 HTTPS（`*.localhost` 除外），并与控制台、Appwrite 管理端属于不同可注册域名。

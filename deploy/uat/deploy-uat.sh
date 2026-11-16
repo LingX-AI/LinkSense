@@ -13,6 +13,11 @@ revision=$(git rev-parse HEAD)
 project=${COMPOSE_PROJECT_NAME:-linksense-uat}
 port=${LINKSENSE_HTTP_PORT:-19090}
 public_url=${LINKSENSE_PUBLIC_BASE_URL:-http://127.0.0.1:$port}
+extra_compose=${LINKSENSE_UAT_COMPOSE_OVERRIDE:-}
+if [ -n "$extra_compose" ] && [ ! -f "$extra_compose" ]; then
+  echo "UAT compose override not found: $extra_compose" >&2
+  exit 1
+fi
 if [ ! -f .data/uat/runtime.env ] && docker volume inspect "$project-postgres" >/dev/null 2>&1; then
   echo "Existing UAT data requires its original runtime.env; restore it before deploying" >&2
   exit 1
@@ -37,9 +42,15 @@ timeout 60 docker run --rm --network none --user "$(id -u):$(id -g)" \
   -e "LINKSENSE_UAT_CACHED_BASELINES=${LINKSENSE_UAT_CACHED_BASELINES:-0}" \
   "$node_image" node deploy/uat/prepare.mjs
 compose() {
-  timeout 3600 docker compose --project-directory "$root" --env-file "$root/.data/uat/runtime.env" -p "$project" \
-    -f "$root/deploy/release/compose.common.yml" -f "$root/deploy/release/compose.core.yml" \
-    -f "$root/deploy/uat/compose.yml" "$@"
+  if [ -n "$extra_compose" ]; then
+    timeout 3600 docker compose --project-directory "$root" --env-file "$root/.data/uat/runtime.env" -p "$project" \
+      -f "$root/deploy/release/compose.common.yml" -f "$root/deploy/release/compose.core.yml" \
+      -f "$root/deploy/uat/compose.yml" -f "$extra_compose" "$@"
+  else
+    timeout 3600 docker compose --project-directory "$root" --env-file "$root/.data/uat/runtime.env" -p "$project" \
+      -f "$root/deploy/release/compose.common.yml" -f "$root/deploy/release/compose.core.yml" \
+      -f "$root/deploy/uat/compose.yml" "$@"
+  fi
 }
 active_operation_count() {
   count=$(compose exec -T postgres sh -ec \
