@@ -805,6 +805,121 @@ describe("LinkSense application", () => {
     expect(await screen.findByText("实现输入框上方清单")).toBeVisible()
   })
 
+  it("keeps the composer on the latest streamed plan step throughout a long-running task", async () => {
+    const turnId = "30000000-0000-4000-8000-000000000001"
+    const steps = [
+      "检查环境",
+      "收集资料",
+      "安装工具",
+      "搭建项目",
+      "编写内容",
+      "检查画面",
+      "渲染视频",
+    ]
+    const plan = (current: number) =>
+      steps.map((step, index) => ({
+        step,
+        status:
+          index < current
+            ? "completed"
+            : index === current
+              ? "inProgress"
+              : "pending",
+      }))
+    const payload = (method: string, params: Record<string, unknown>) => ({
+      schema_version: 2,
+      source: "codex_app_server",
+      method,
+      params: {
+        threadId: "thread-native-1",
+        turnId: "turn-native-1",
+        ...params,
+      },
+    })
+    const streamEvent = (
+      sequence: number,
+      method: string,
+      params: Record<string, unknown>
+    ) => {
+      const eventId = `c1:${sequence}`
+      return `id: ${eventId}\nevent: ${method}\ndata: ${JSON.stringify({
+        id: `60000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`,
+        conversation_id: "20000000-0000-4000-8000-000000000001",
+        turn_id: turnId,
+        sequence_no: sequence,
+        event_type: method,
+        visibility: "user_collapsed",
+        payload: payload(method, params),
+        sse_event_id: eventId,
+        created_at: "2026-07-15T08:00:13.000Z",
+      })}\n\n`
+    }
+    let releaseStream = () => {}
+    const eventStreamStart = new Promise<void>((resolve) => {
+      releaseStream = resolve
+    })
+    const interaction = userEvent.setup()
+    installApiMock({
+      conversationOverride: {
+        turns: [{ id: turnId, status: "running" }],
+        running_turn: { id: turnId, status: "running" },
+        events: [
+          {
+            id: "c1:1",
+            type: "turn/plan/updated",
+            turn_id: turnId,
+            sequence_no: 1,
+            created_at: "2026-07-15T08:00:12.000Z",
+            payload: payload("turn/plan/updated", { plan: plan(0) }),
+          },
+        ],
+      },
+      eventStreamStart,
+      eventStreamBody: [
+        streamEvent(2, "turn/plan/updated", { plan: plan(6) }),
+        ...Array.from({ length: 210 }, (_, index) =>
+          streamEvent(index + 3, "item/completed", {
+            item: { type: "imageView", id: `image-${index}` },
+          })
+        ),
+        streamEvent(213, "item/agentMessage/delta", {
+          itemId: "message-render-progress",
+          delta: "视频仍在渲染中",
+        }),
+      ].join(""),
+    })
+    const { container } = renderApp()
+    const trigger = await screen.findByRole("button", {
+      name: "展开执行计划",
+    })
+    const card = trigger.closest<HTMLElement>(
+      ".conversation-plan-card-composer"
+    )
+    if (!card) throw new Error("Composer plan card is missing")
+    expect(within(card).getByText("第 1 / 7 步")).toBeVisible()
+
+    await act(async () => releaseStream())
+
+    expect(await screen.findByText("视频仍在渲染中")).toBeVisible()
+    expect(await within(card).findByText("第 7 / 7 步")).toBeVisible()
+    expect(card.querySelector(".conversation-plan-title-icon")).toHaveAttribute(
+      "data-progress",
+      "86"
+    )
+    await interaction.hover(trigger)
+    const list = await screen.findByRole("list", { name: "执行计划" })
+    expect(list.querySelectorAll('[data-status="completed"]')).toHaveLength(6)
+    expect(within(list).getByText("渲染视频").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step"
+    )
+    expect(container.querySelector(".conversation-plan-card-composer")).toBe(
+      card
+    )
+    expect(card).toHaveAttribute("data-running", "true")
+    expect(screen.getByRole("button", { name: "停止" })).toBeVisible()
+  })
+
   it.each([false, true])(
     "always displays summaries and gates streamed full reasoning with the saved preference: %s",
     async (showReasoning) => {
