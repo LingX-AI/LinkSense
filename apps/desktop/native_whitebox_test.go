@@ -51,6 +51,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "Native whitebox data directory is unavailable")
 		os.Exit(1)
 	}
+	mygo.App.SetPath(mygo.PathUserData, dataRoot)
 	nativeWhitebox.store = &memoryCredentialStore{}
 	nativeWhitebox.protocol.Store(1)
 	nativeWhitebox.server = httptest.NewServer(http.HandlerFunc(whiteboxAPI))
@@ -97,10 +98,10 @@ func TestMain(m *testing.M) {
 }
 
 func whiteboxAPI(w http.ResponseWriter, r *http.Request) {
-	serveWhiteboxAPI(w, r, strings.Repeat("a", 64))
+	serveWhiteboxAPI(w, r, refreshCookieName, strings.Repeat("a", 64))
 }
 
-func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, refreshToken string) {
+func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, cookieName, refreshToken string) {
 	if r.URL.Path == "/api/v1/desktop/devices/socket" {
 		socket, err := websocket.Accept(w, r, nil)
 		if err != nil {
@@ -171,7 +172,7 @@ func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, refreshToken strin
 		data = map[string]any{"initialized": true, "system_name": "LinkSense", "default_language": "en-US"}
 	case "/api/v1/auth/login", desktopLoginExchangePath, "/api/v1/auth/refresh":
 		if r.URL.Path == "/api/v1/auth/refresh" {
-			cookie, err := r.Cookie(refreshCookieName)
+			cookie, err := r.Cookie(cookieName)
 			if err != nil || cookie.Value != refreshToken {
 				w.WriteHeader(http.StatusUnauthorized)
 				_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error_code": "AUTH_SESSION_EXPIRED"})
@@ -182,7 +183,7 @@ func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, refreshToken strin
 			nativeWhitebox.logins.Add(1)
 		}
 		http.SetCookie(w, &http.Cookie{
-			Name: refreshCookieName, Value: refreshToken,
+			Name: cookieName, Value: refreshToken,
 			Path: "/api/v1/auth", HttpOnly: true, MaxAge: 3600,
 		})
 		if r.URL.Path == desktopLoginExchangePath {
@@ -242,7 +243,12 @@ func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, refreshToken strin
 
 func whiteboxWait(t *testing.T, page *mygo.Page, expression string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	whiteboxWaitContext(t, t.Context(), page, expression)
+}
+
+func whiteboxWaitContext(t *testing.T, parent context.Context, page *mygo.Page, expression string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(parent, 25*time.Second)
 	defer cancel()
 	var last any
 	for ctx.Err() == nil {
@@ -256,12 +262,19 @@ func whiteboxWait(t *testing.T, page *mygo.Page, expression string) {
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-	body, _ := page.Eval("document.body.innerText.slice(0, 1500)")
-	host, _ := page.Eval(`mygo.call("Desktop.Info").then(info => ({bridgeVersion: info.bridgeVersion, platform: info.platform, version: info.version})).catch(error => ({error: String(error)}))`)
+	diagnostic, stop := context.WithTimeout(parent, time.Second)
+	defer stop()
+	body, _ := page.EvalContext(diagnostic, "document.body.innerText.slice(0, 1500)")
+	host, _ := page.EvalContext(diagnostic, `mygo.call("Desktop.Info").then(info => ({bridgeVersion: info.bridgeVersion, platform: info.platform, version: info.version})).catch(error => ({error: String(error)}))`)
 	t.Fatalf("native page condition failed: %s; last=%v; host=%v; body=%v", expression, last, host, body)
 }
 
 func whiteboxReload(t *testing.T, page *mygo.Page) {
+	t.Helper()
+	whiteboxReloadContext(t, t.Context(), page)
+}
+
+func whiteboxReloadContext(t *testing.T, ctx context.Context, page *mygo.Page) {
 	t.Helper()
 	ready := make(chan struct{}, 1)
 	off := page.OnDOMReady(func() {
@@ -274,6 +287,8 @@ func whiteboxReload(t *testing.T, page *mygo.Page) {
 	page.Reload()
 	select {
 	case <-ready:
+	case <-ctx.Done():
+		t.Fatal("the native WebView reload deadline expired")
 	case <-time.After(10 * time.Second):
 		t.Fatal("the native WebView did not reload its document")
 	}

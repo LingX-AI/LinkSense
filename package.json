@@ -35,6 +35,7 @@
     "desktop:build": "node scripts/desktop.mjs build",
     "desktop:test": "node --test scripts/desktop.test.mjs scripts/desktop-resources.test.mjs && node scripts/desktop.mjs test",
     "desktop:whitebox": "node scripts/desktop.mjs whitebox",
+    "desktop:whitebox:os": "node scripts/desktop-browser-os.mjs",
     "test:desktop:postgres": "pnpm --filter @linksense/shared build && pnpm --filter @linksense/api exec tsx test/integration/desktop-devices-postgres.ts",
     "build": "pnpm -r --filter './apps/**' --filter './packages/**' --if-present build",
     "db:generate": "prisma generate",

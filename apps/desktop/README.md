@@ -19,6 +19,7 @@ pnpm desktop:prepare
 pnpm desktop:dev -- --server-url http://localhost:18173
 pnpm desktop:test
 pnpm desktop:whitebox
+pnpm desktop:whitebox:os
 pnpm desktop:build -- --server-url https://linksense.example.com
 pnpm desktop:build -- --platform windows/amd64 --server-url https://linksense.example.com
 ```
@@ -96,9 +97,22 @@ The app supervises the bundled Node process over a private pipe. The macOS
 process group and the Windows Job Object bound the child tree. Device
 execution stays unavailable until the authorized device channel is wired.
 Production signing/notarization, installed Windows runtime, device execution
-and the updater remain subject to their task acceptance gates. The native
-WebView whitebox uses an in-memory credential store; actual OS credential-store
-interaction is still a separate check.
+and the updater remain subject to their task acceptance gates.
+
+`desktop:whitebox` uses an in-memory credential store. On macOS,
+`desktop:whitebox:os` additionally opens the real system browser twice, verifies
+reuse of an isolated fixture session, delivers callbacks through Launch Services
+to the exact running test bundle, and checks real Keychain storage, refresh
+after a WebView reload, and sign-out deletion. It also forces a child-process
+exit after storage and verifies parent-owned cleanup of that unique fixture
+service. Temporary Go data and window state belong to the fixture directory;
+the test does not claim to remove WebKit's system-managed caches.
+
+This is an ad hoc signed acceptance bundle with a synthetic authorization
+endpoint. It does not change the default URL handler or verify an installed
+release's default scheme routing, process-relaunch session restore, real
+identity providers, or clean-system installation. The real authorization SPA
+has a separate browser-to-WebView fixture test.
 
 The reference implementation is `feat-computer-use` at
 `7041e026032b948c5e4e3bae5c0a5b9d5148bdfb`. This module is implemented for the
