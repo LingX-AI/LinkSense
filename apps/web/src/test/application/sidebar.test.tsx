@@ -2038,7 +2038,7 @@ describe("LinkSense application", () => {
     const settingsNavigationLinks = settingsSidebar.querySelectorAll(
       ".settings-navigation-link"
     )
-    expect(settingsNavigationLinks).toHaveLength(24)
+    expect(settingsNavigationLinks).toHaveLength(25)
     settingsNavigationLinks.forEach((link) => {
       expect(
         link.querySelectorAll(":scope > span:not([data-design-icon])")
