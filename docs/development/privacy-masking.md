@@ -27,6 +27,12 @@ The settings are per user:
   the settings page's try-it box. It accepts the unsaved draft settings, is
   never stored, and uses the user's own placeholder key so the placeholders
   match a real turn.
+- `GET /api/v1/me/privacy-masking-activity?days=7|30&before=` lists recent
+  model requests that had values replaced, with totals for the window.
+  Rows contain ids, model, timestamp, and counts per kind only; original
+  values and placeholders are never stored. The runner reports them through
+  `POST /internal/runner/privacy-masking`, and rows older than 30 days are
+  pruned when the next row for that user is written.
 - Settings live in `user_privacy_masking_settings`, encrypted with the
   credential master key. No row means the defaults (masking off).
 - A user's settings are resolved when a turn starts and travel to the
@@ -79,6 +85,13 @@ saves all sections with one revisioned request.
 The masking rules and the masker live in
 `packages/shared/src/privacy-masking-engine`, so the API preview and the
 runner use the same engine.
+
+The same page ends with a masking activity card: a 7- or 30-day total of
+replaced values, the number of affected model requests, and the latest
+requests with their model and kind counts. The gateway reports each request
+once through the runner event sink; a failed report is logged and never
+changes the provider request. Only counts and ids are stored, so the card
+cannot reveal what a value was.
 
 ## Streaming restore
 
