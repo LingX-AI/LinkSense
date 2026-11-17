@@ -349,6 +349,17 @@ export const settingsResources = {
     privacyMaskingKindPhone: "Numéro de téléphone",
     privacyMaskingKindIdCard: "Numéro de pièce d'identité",
     privacyMaskingKindBankCard: "Numéro de carte bancaire",
+    privacyMaskingActivity: "Activité de masquage",
+    privacyMaskingActivityDescription:
+      "Requêtes au modèle où des valeurs ont été remplacées, conservées 30 jours. Seuls les compteurs sont stockés, jamais les valeurs.",
+    privacyMaskingActivityPeriod: "Période",
+    privacyMaskingActivity7Days: "7 jours",
+    privacyMaskingActivity30Days: "30 jours",
+    privacyMaskingActivityMasked: "valeurs remplacées",
+    privacyMaskingActivityRequests: "requêtes",
+    privacyMaskingActivityEmpty:
+      "Aucune requête masquée sur cette période pour l'instant.",
+    privacyMaskingActivityLoadMore: "Charger plus",
     privacyMaskingBehaviorNote:
       "Le modèle voit des jetons au lieu des valeurs réelles. Les tâches qui doivent examiner un secret peuvent échouer tant que vous n’ajoutez pas cette valeur à la liste autorisée.",
     appearancePageDescription:

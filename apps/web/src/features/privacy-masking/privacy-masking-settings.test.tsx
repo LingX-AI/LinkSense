@@ -20,6 +20,18 @@ function envelope(data: unknown, status = 200) {
   })
 }
 
+function emptyActivity() {
+  return envelope({
+    summary: { masked_count: 0, request_count: 0 },
+    records: [],
+    next_before: null,
+  })
+}
+
+function isActivityRequest(input: RequestInfo | URL): boolean {
+  return String(input).includes("/me/privacy-masking-activity")
+}
+
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -41,11 +53,13 @@ describe("privacy masking settings page", () => {
       await i18n.changeLanguage(language)
       vi.stubGlobal(
         "fetch",
-        vi.fn(async () =>
-          envelope({
-            revision: 0,
-            settings: defaultPrivacyMaskingSettings,
-          })
+        vi.fn(async (input: RequestInfo | URL) =>
+          isActivityRequest(input)
+            ? emptyActivity()
+            : envelope({
+                revision: 0,
+                settings: defaultPrivacyMaskingSettings,
+              })
         )
       )
       renderPage()
@@ -74,6 +88,7 @@ describe("privacy masking settings page", () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input)
+        if (isActivityRequest(input)) return emptyActivity()
         if (init?.method === "PUT") {
           const body = JSON.parse(String(init.body)) as {
             expected_revision: number
@@ -131,7 +146,8 @@ describe("privacy masking settings page", () => {
     const savedRevisions: number[] = []
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (isActivityRequest(input)) return emptyActivity()
         if (init?.method !== "PUT") {
           return envelope({ revision, settings })
         }
@@ -196,6 +212,7 @@ describe("privacy masking settings page", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (isActivityRequest(input)) return emptyActivity()
         if (init?.method === "POST") return fetchMock(input, init)
         return envelope({
           revision: 0,

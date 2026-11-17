@@ -817,6 +817,17 @@ export const ptBR = {
     privacyMaskingKindPhone: "Número de telefone",
     privacyMaskingKindIdCard: "Número do documento de identidade",
     privacyMaskingKindBankCard: "Número do cartão bancário",
+    privacyMaskingActivity: "Atividade de mascaramento",
+    privacyMaskingActivityDescription:
+      "Solicitações ao modelo em que valores foram substituídos, mantidas por 30 dias. Apenas contagens são armazenadas, nunca os valores.",
+    privacyMaskingActivityPeriod: "Período",
+    privacyMaskingActivity7Days: "7 dias",
+    privacyMaskingActivity30Days: "30 dias",
+    privacyMaskingActivityMasked: "valores substituídos",
+    privacyMaskingActivityRequests: "solicitações",
+    privacyMaskingActivityEmpty:
+      "Ainda não há solicitações mascaradas neste período.",
+    privacyMaskingActivityLoadMore: "Carregar mais",
     appearancePageDescription:
       "Defina o tema da interface e o tamanho da fonte base do {{productName}}.",
     theme: "Tema",

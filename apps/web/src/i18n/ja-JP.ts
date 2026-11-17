@@ -806,6 +806,17 @@ export const jaJP = {
     privacyMaskingKindPhone: "電話番号",
     privacyMaskingKindIdCard: "身分証番号",
     privacyMaskingKindBankCard: "銀行カード番号",
+    privacyMaskingActivity: "マスキング履歴",
+    privacyMaskingActivityDescription:
+      "値が置き換えられたモデルリクエストです。30 日間保持されます。保存されるのは件数だけで、値そのものは保存されません。",
+    privacyMaskingActivityPeriod: "期間",
+    privacyMaskingActivity7Days: "7 日間",
+    privacyMaskingActivity30Days: "30 日間",
+    privacyMaskingActivityMasked: "件を置換",
+    privacyMaskingActivityRequests: "リクエスト",
+    privacyMaskingActivityEmpty:
+      "この期間にマスクされたリクエストはまだありません。",
+    privacyMaskingActivityLoadMore: "さらに読み込む",
     appearancePageDescription:
       "{{productName}} の画面テーマと基本の文字サイズを設定します。",
     theme: "テーマ",

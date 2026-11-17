@@ -29,6 +29,8 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { PrivacyMaskingActivityCard } from "@/features/privacy-masking/privacy-masking-activity-card";
+import { privacyMaskingKindLabelKeys } from "@/features/privacy-masking/kinds";
 import {
   usePrivacyMaskingPreview,
   usePrivacyMaskingSettings,
@@ -37,19 +39,6 @@ import {
 
 const placeholderPattern = /\{\{[A-Z][A-Z0-9_]*_[0-9a-f]{16,32}\}\}/gu;
 const previewDebounceMs = 300;
-
-const kindLabelKeys: Record<PrivacyMaskingKind, string> = {
-  PRIVATE_KEY: "settings.privacyMaskingKindPrivateKey",
-  API_KEY: "settings.privacyMaskingKindApiKey",
-  TOKEN: "settings.privacyMaskingKindToken",
-  SECRET: "settings.privacyMaskingKindSecret",
-  PASSWORD: "settings.privacyMaskingKindPassword",
-  TERM: "settings.privacyMaskingKindTerm",
-  EMAIL: "settings.privacyMaskingKindEmail",
-  PHONE: "settings.privacyMaskingKindPhone",
-  ID_CARD: "settings.privacyMaskingKindIdCard",
-  BANK_CARD: "settings.privacyMaskingKindBankCard",
-};
 
 function parseLines(value: string): string[] {
   return value
@@ -394,7 +383,7 @@ export function PrivacyMaskingSettingsPage() {
                             key={kind}
                             className="rounded-full border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground"
                           >
-                            {t(kindLabelKeys[kind])} ×{count}
+                            {t(privacyMaskingKindLabelKeys[kind])} ×{count}
                           </span>
                         ))}
                       </div>
@@ -408,6 +397,8 @@ export function PrivacyMaskingSettingsPage() {
               </div>
             </div>
           </SettingsCard>
+
+          <PrivacyMaskingActivityCard />
         </div>
       )}
 

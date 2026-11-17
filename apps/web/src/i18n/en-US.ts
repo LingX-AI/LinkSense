@@ -591,6 +591,17 @@ export const enUS = {
     privacyMaskingKindPhone: "Phone number",
     privacyMaskingKindIdCard: "ID card number",
     privacyMaskingKindBankCard: "Bank card number",
+    privacyMaskingActivity: "Masking activity",
+    privacyMaskingActivityDescription:
+      "Model requests where values were replaced, kept for 30 days. Only counts are stored, never the values.",
+    privacyMaskingActivityPeriod: "Period",
+    privacyMaskingActivity7Days: "7 days",
+    privacyMaskingActivity30Days: "30 days",
+    privacyMaskingActivityMasked: "values replaced",
+    privacyMaskingActivityRequests: "requests",
+    privacyMaskingActivityEmpty:
+      "No requests have been masked in this period yet.",
+    privacyMaskingActivityLoadMore: "Load more",
     appearancePageDescription:
       "Set the {{productName}} interface theme and base font size.",
     theme: "Theme",

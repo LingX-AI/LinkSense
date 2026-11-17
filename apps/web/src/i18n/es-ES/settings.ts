@@ -159,6 +159,17 @@ export const settingsMessages = {
     privacyMaskingKindPhone: "Número de teléfono",
     privacyMaskingKindIdCard: "Número de documento de identidad",
     privacyMaskingKindBankCard: "Número de tarjeta bancaria",
+    privacyMaskingActivity: "Actividad de enmascaramiento",
+    privacyMaskingActivityDescription:
+      "Solicitudes al modelo en las que se sustituyeron valores, conservadas 30 días. Solo se guardan recuentos, nunca los valores.",
+    privacyMaskingActivityPeriod: "Periodo",
+    privacyMaskingActivity7Days: "7 días",
+    privacyMaskingActivity30Days: "30 días",
+    privacyMaskingActivityMasked: "valores sustituidos",
+    privacyMaskingActivityRequests: "solicitudes",
+    privacyMaskingActivityEmpty:
+      "Aún no hay solicitudes enmascaradas en este periodo.",
+    privacyMaskingActivityLoadMore: "Cargar más",
     appearancePageDescription:
       "Configura el tema y el tamaño de letra base de {{productName}}.",
     theme: "Tema",
