@@ -5,6 +5,12 @@
       "name": "linksense-dev",
       "url": "http://127.0.0.1:5273",
       "port": 5273
+    },
+    {
+      "name": "desktop-ui",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "4180", "--bind", "127.0.0.1"],
+      "port": 4180
     }
   ]
 }

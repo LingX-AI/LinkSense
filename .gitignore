@@ -41,3 +41,6 @@ apps/docs/.public-docs/
 
 # TypeScript incremental build info
 *.tsbuildinfo
+
+# Local design mockups (not part of the repo)
+/docs/design/
