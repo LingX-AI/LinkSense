@@ -133,27 +133,39 @@ export const applicationResources = {
     createTypeDescription: "Choisissez comment créer votre application.",
     creation: {
       recommended: "Recommandé",
-      interactiveTitle: "Créer une application interactive par conversation",
+      interactiveTitle: "Créer une application par conversation",
       interactiveDescription:
         "Partagez votre idée et laissez LinkSense la réaliser.",
-      publicSiteTitle: "Créer un site public",
+      publicSiteTitle: "Créer une application web",
       publicSiteDescription:
         "Créez un site ou une application publique et obtenez un lien à ouvrir ou copier.",
       start: "Commencer la création",
     },
+    conversationCreation: {
+      title: "Créer une application par conversation",
+      description:
+        "Décrivez votre objectif. Nous préciserons les accès, les données et les rappels uniquement si nécessaire.",
+      goal: "Que souhaitez-vous accomplir ?",
+      goalPlaceholder:
+        "Par exemple : un assistant pour boire de l’eau. Voir la page d’abord, puis décider des rappels.",
+      defaultGoal: "Précisez uniquement les besoins qui changent le résultat.",
+      start: "Commencer la conversation",
+      prompt:
+        "Aide-moi à atteindre cet objectif : {{goal}}. Réutilise les informations déjà fournies et pose uniquement les questions encore nécessaires qui changent le résultat. Commence par un brouillon fonctionnel ; ne publie pas et n’active pas de tâches planifiées par défaut.",
+    },
     publicSiteCreation: {
-      title: "Créer un site public",
+      title: "Créer une application web",
       description:
         "Créez un site public ou une application dynamique. Précisez les besoins de comptes, de données et de métier dans la conversation.",
       name: "Nom du site",
       goal: "Que doit faire le site ? (facultatif)",
       goalPlaceholder:
         "Par exemple : créez un programme des événements avec un filtre par date",
-      defaultGoal:
-        "Demandez-moi le contenu et les interactions nécessaires.",
-      start: "Créer et commencer",
+      defaultGoal: "Demandez-moi le contenu et les interactions nécessaires.",
+      start: "Créer et publier",
       openLocally: "Ouvrir dans mon navigateur après la publication",
-      openInstruction: "Après la publication, utilise Browser Use pour ouvrir le site une fois dans mon navigateur local.",
+      openInstruction:
+        "Après la publication, utilise Browser Use pour ouvrir le site une fois dans mon navigateur local.",
       prompt:
         "Crée un site ou une application publique pour moi. Nom : {{name}}. Besoins : {{goal}}. Choisis un site statique ou un backend dynamique auto-hébergé selon les besoins, publie le résultat et donne-moi son lien.",
     },

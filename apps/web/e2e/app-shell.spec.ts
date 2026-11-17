@@ -64,6 +64,127 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page)
 })
 
+test("goal-based application creation stays accessible on desktop and mobile", async ({
+  page,
+}) => {
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto("/capabilities?section=application")
+    await page
+      .getByRole("button", { name: "创建应用", exact: true })
+      .first()
+      .click()
+    await page
+      .getByRole("dialog", { name: "创建应用", exact: true })
+      .getByRole("button", { name: "用对话创建应用", exact: true })
+      .click()
+    const dialog = page.getByRole("dialog", {
+      name: "用对话创建应用",
+      exact: true,
+    })
+    await expect(dialog).toBeVisible()
+    const goal = dialog.getByRole("textbox", { name: "你想实现什么？" })
+    await expect(goal).toBeFocused()
+    await expect(dialog.getByRole("textbox")).toHaveCount(1)
+    await expect(dialog.getByRole("checkbox")).toHaveCount(0)
+    await goal.fill("我想做一个喝水助手，先看页面，提醒稍后决定。")
+    await expect(dialog.getByRole("button", { name: "开始对话" })).toBeEnabled()
+    // Audit settled colors after entrance and disabled-opacity transitions.
+    await dialog.evaluate(async (element) => {
+      await Promise.allSettled(
+        element
+          .getAnimations({ subtree: true })
+          .map((animation) => animation.finished)
+      )
+    })
+    await expectNoHorizontalOverflow(page)
+    expect(
+      (await new AxeBuilder({ page }).include('[role="dialog"]').analyze())
+        .violations
+    ).toEqual([])
+    await page.screenshot({
+      path: test.info().outputPath(`goal-creation-${width}.png`),
+      animations: "disabled",
+    })
+    await page.keyboard.press("Escape")
+    await expect(dialog).toHaveCount(0)
+  }
+})
+
+for (const entry of ["new", "existing"] as const) {
+  test(`ordinary ${entry} conversation accepts application creation without choosing a builder`, async ({
+    page,
+  }) => {
+    const conversationId = "20000000-0000-4000-8000-000000000001"
+    await mockTaskHomeApi(page)
+    await page.route(
+      `**/api/v1/conversations/${conversationId}/model-preference`,
+      (route) =>
+        ok(route, {
+          configured: true,
+          models: [
+            {
+              id: "gpt-5.6-terra",
+              display_name: "GPT-5.6 Terra",
+              enabled: true,
+              supported_reasoning_efforts: ["medium"],
+              default_reasoning_effort: "medium",
+            },
+          ],
+          default_model: "gpt-5.6-terra",
+          selected_model: "gpt-5.6-terra",
+          selected_reasoning_effort: "medium",
+        })
+    )
+    const requests: Record<string, unknown>[] = []
+    await page.route("**/api/v1/conversations", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback()
+      return ok(route, {
+        id: conversationId,
+        title: "喝水助手",
+        archive_status: "active",
+        project_id: null,
+        updated_at: NOW,
+      })
+    })
+    await page.route(
+      `**/api/v1/conversations/${conversationId}/turns`,
+      async (route) => {
+        requests.push(route.request().postDataJSON() as Record<string, unknown>)
+        return ok(route, {
+          turn_id: "60000000-0000-4000-8000-000000000001",
+          accepted: true,
+          status: "starting",
+        })
+      }
+    )
+    await page.goto(
+      entry === "new"
+        ? "/conversations/new"
+        : `/conversations/${conversationId}`
+    )
+    const input = page.getByRole("textbox", { name: "任务输入框" })
+    await expect(input).toBeVisible()
+    const dismissNotifications = page.getByRole("button", {
+      name: "暂时不用",
+      exact: true,
+    })
+    if (await dismissNotifications.isVisible())
+      await dismissNotifications.click()
+    await input.fill("做一个喝水提醒小助手，先看效果，不要公开发布。")
+    await page.getByRole("button", { name: "发送", exact: true }).click()
+    await expect.poll(() => requests.length).toBe(1)
+    expect(requests[0]?.input_text).toBe(
+      "做一个喝水提醒小助手，先看效果，不要公开发布。"
+    )
+    expect(requests[0]?.priority_capability_ids ?? []).toEqual([])
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+    await expect(page).toHaveURL(
+      new RegExp(`/conversations/${conversationId}$`)
+    )
+  })
+}
+
 test.describe("sidebar project action layout", () => {
   test.use({ hasTouch: true })
 
@@ -1090,11 +1211,7 @@ for (const width of [1440, 390]) {
       )
     )
     expect((await creationDialog.boundingBox())!.width).toBeLessThanOrEqual(600)
-    for (const name of [
-      "用对话创建交互式应用",
-      "创建普通应用",
-      "导入交互式应用",
-    ]) {
+    for (const name of ["用对话创建应用", "创建普通应用", "导入交互式应用"]) {
       const action = creationDialog.getByRole("button", { name })
       expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(88)
     }

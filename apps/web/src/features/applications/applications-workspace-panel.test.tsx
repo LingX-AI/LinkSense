@@ -1309,7 +1309,7 @@ describe("three application categories", () => {
   })
 
   it.each(["zh-CN", "en-US"])(
-    "opens the development setup from the recommended creation option in %s",
+    "opens a goal-only conversation from the recommended creation option in %s",
     async (locale) => {
       await i18n.changeLanguage(locale)
       const client = new QueryClient({
@@ -1332,18 +1332,20 @@ describe("three application categories", () => {
         })
       )
       const dialog = await screen.findByRole("dialog", {
-        name: i18n.t("applicationDevelopment.create"),
+        name: i18n.t("applications.conversationCreation.title"),
       })
       expect(
         within(dialog).getByRole("textbox", {
-          name: i18n.t("applicationDevelopment.name"),
+          name: i18n.t("applications.conversationCreation.goal"),
         })
       ).toBeVisible()
       expect(
         within(dialog).getByRole("button", {
-          name: i18n.t("applicationDevelopment.start"),
+          name: i18n.t("applications.conversationCreation.start"),
         })
       ).toBeDisabled()
+      expect(within(dialog).getAllByRole("textbox")).toHaveLength(1)
+      expect(within(dialog).queryByRole("checkbox")).not.toBeInTheDocument()
       expect(apiRequest).not.toHaveBeenCalled()
     }
   )

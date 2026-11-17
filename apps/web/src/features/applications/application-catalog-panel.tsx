@@ -16,7 +16,6 @@ import { dialogBodyStyles } from "@/components/ui/dialog-layout"
 import { FilePicker } from "@/components/forms/file-picker"
 import { ApplicationUsageGuideDialog } from "./application-usage-guide-dialog"
 import { ApplicationSetupDialog } from "./application-setup-dialog"
-import { ApplicationDevelopmentCreateDialog } from "./application-development-create-dialog"
 import { ApplicationPublicSiteCreateDialog } from "./application-public-site-create-dialog"
 import {
   ApplicationCreateDialog,
@@ -1288,7 +1287,10 @@ export function ApplicationCreateButton({
         onChoose={choose}
       />
       {step === "development" && (
-        <ApplicationDevelopmentCreateDialog onClose={() => setStep(null)} />
+        <ApplicationPublicSiteCreateDialog
+          mode="auto"
+          onClose={() => setStep(null)}
+        />
       )}
       {step === "public_site" && (
         <ApplicationPublicSiteCreateDialog onClose={() => setStep(null)} />

@@ -166,7 +166,7 @@ export const jaJP = {
     slug: "リンク名",
     slugPlaceholder: "空欄の場合は自動生成",
     slugHelp: "英数字またはハイフンで 3～80 文字にしてください。",
-    slugChanged: "変更すると、古いリンクは直ちに無効になります。",
+    slugChanged: "リンク名を変更しても以前のリンクは利用できます。",
     url: "サイトのリンク",
     publishMode: "公開方法",
     updateExisting: "既存のサイトを更新",
@@ -229,6 +229,8 @@ export const jaJP = {
     visit: "サイトを開く",
     openSite: "サイトを開く",
     localOnly: "この端末でのみアクセスできます",
+    pageOnly: "Web アプリ · データサービス未接続",
+    dataConnected: "Web アプリ · データサービス接続済み",
     copyNamed: "{{name}} のリンクをコピー",
     actions: "{{name}} を管理",
     edit: "編集",
@@ -3197,22 +3199,34 @@ export const jaJP = {
     createTypeDescription: "アプリケーションの作成方法を選択してください。",
     creation: {
       recommended: "おすすめ",
-      interactiveTitle: "会話で操作可能なアプリを作成",
+      interactiveTitle: "対話でアプリを作成",
       interactiveDescription: "アイデアを伝えると、LinkSense が形にします。",
-      publicSiteTitle: "公開サイトを作成",
+      publicSiteTitle: "Web アプリを作成",
       publicSiteDescription:
         "公開サイトやアプリを作成し、開く・コピーできるリンクを受け取ります。",
       start: "作成を開始",
     },
+    conversationCreation: {
+      title: "対話でアプリを作成",
+      description:
+        "目的を教えてください。利用方法、データ、リマインダーは必要な場合だけ確認します。",
+      goal: "何を実現したいですか？",
+      goalPlaceholder:
+        "例：水分補給アシスタント。まず画面を確認し、通知が必要かは後で決めたい。",
+      defaultGoal: "結果を左右する要件だけ確認してください。",
+      start: "対話を始める",
+      prompt:
+        "この目的を実現してください：{{goal}}。すでに伝えた情報を活用し、結果を左右する未確定の要件だけ質問してください。まず動作する下書きを作り、公開や定期タスクの有効化は自動で行わないでください。",
+    },
     publicSiteCreation: {
-      title: "公開サイトを作成",
+      title: "Web アプリを作成",
       description:
         "公開サイトや動的アプリを作成します。アカウント、データ、業務の要件は会話で追加できます。",
       name: "サイト名",
       goal: "サイトで行うこと（任意）",
       goalPlaceholder: "例：日付で絞り込めるイベント日程ページを作成する",
       defaultGoal: "サイトに必要な内容と操作を確認してください。",
-      start: "作成して開始",
+      start: "作成して公開",
       openLocally: "公開後にローカルブラウザーで開く",
       openInstruction:
         "公開後、Browser Use でこのサイトをローカルブラウザーに一度だけ開いてください。",

@@ -147,7 +147,8 @@ export const core = {
     slug: "Nom du lien",
     slugPlaceholder: "Laissez vide pour générer automatiquement",
     slugHelp: "Utilisez entre 3 et 80 lettres, chiffres ou traits d’union.",
-    slugChanged: "Cette modification désactive immédiatement l’ancien lien.",
+    slugChanged:
+      "Les liens précédents restent accessibles après le changement de nom.",
     url: "Lien du site",
     publishMode: "Mode de publication",
     updateExisting: "Mettre à jour un site existant",
@@ -210,6 +211,8 @@ export const core = {
     visit: "Consulter",
     openSite: "Ouvrir le site",
     localOnly: "Accessible uniquement sur cet appareil",
+    pageOnly: "Application web · sans service de données",
+    dataConnected: "Application web · service de données connecté",
     copyNamed: "Copier le lien de {{name}}",
     actions: "Gérer {{name}}",
     edit: "Modifier",

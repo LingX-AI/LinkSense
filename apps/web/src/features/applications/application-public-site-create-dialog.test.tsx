@@ -22,6 +22,77 @@ afterEach(() => {
 })
 
 describe("public site creation dialog", () => {
+  it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
+    "starts a goal-only conversation without selecting a builder or authorizing publication in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const client = new QueryClient(),
+        onClose = vi.fn(),
+        user = userEvent.setup()
+      const taskId = "10000000-0000-4000-8000-000000000001"
+      const request = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          Response.json({
+            success: true,
+            data: {
+              id: taskId,
+              title: "New task",
+              project_id: null,
+              updated_at: "2026-11-17T00:00:00.000Z",
+            },
+          })
+        )
+        .mockResolvedValueOnce(
+          Response.json({
+            success: true,
+            data: {
+              turn_id: "10000000-0000-4000-8000-000000000002",
+              accepted: true,
+              status: "starting",
+            },
+          })
+        )
+      vi.stubGlobal("fetch", request)
+      render(
+        <QueryClientProvider client={client}>
+          <MemoryRouter>
+            <ApplicationPublicSiteCreateDialog mode="auto" onClose={onClose} />
+          </MemoryRouter>
+        </QueryClientProvider>
+      )
+      const fields = screen.getAllByRole("textbox")
+      expect(fields).toHaveLength(1)
+      expect(fields[0]).toHaveAccessibleName(
+        i18n.t("applications.conversationCreation.goal")
+      )
+      expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
+      expect(
+        i18n.getResource(
+          locale,
+          "translation",
+          "applications.conversationCreation.prompt"
+        )
+      ).toContain("{{goal}}")
+      await user.type(fields[0]!, "water reminder")
+      expect(request).not.toHaveBeenCalled()
+      await user.click(
+        screen.getByRole("button", {
+          name: i18n.t("applications.conversationCreation.start"),
+        })
+      )
+      await waitFor(() => expect(onClose).toHaveBeenCalledOnce())
+      const body = JSON.parse(String(request.mock.calls[1]?.[1]?.body))
+      expect(body.priority_capability_ids).toBeUndefined()
+      expect(body.input_text).toBe(
+        i18n.t("applications.conversationCreation.prompt", {
+          goal: "water reminder",
+        })
+      )
+      expect(body.idempotency_key).toMatch(/^[0-9a-f-]{36}$/u)
+      client.clear()
+    }
+  )
   it("starts a site task with the selected local-open request and preserves the general draft", async () => {
     await i18n.changeLanguage("en-US")
     const onClose = vi.fn()

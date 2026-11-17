@@ -166,7 +166,8 @@ export const ptBR = {
     slug: "Nome do link",
     slugPlaceholder: "Deixe em branco para gerar automaticamente",
     slugHelp: "Use de 3 a 80 letras, números ou hífens.",
-    slugChanged: "Esta alteração desativa o link antigo imediatamente.",
+    slugChanged:
+      "Os links anteriores continuam funcionando após a alteração do nome.",
     url: "Link do site",
     publishMode: "Modo de publicação",
     updateExisting: "Atualizar site existente",
@@ -229,6 +230,8 @@ export const ptBR = {
     visit: "Visitar",
     openSite: "Abrir site",
     localOnly: "Acessível apenas neste dispositivo",
+    pageOnly: "Aplicativo web · sem serviço de dados",
+    dataConnected: "Aplicativo web · serviço de dados conectado",
     copyNamed: "Copiar link de {{name}}",
     actions: "Gerenciar {{name}}",
     edit: "Editar",
@@ -3250,16 +3253,28 @@ export const ptBR = {
     createTypeDescription: "Escolha como criar seu aplicativo.",
     creation: {
       recommended: "Recomendado",
-      interactiveTitle: "Criar um aplicativo interativo por conversa",
+      interactiveTitle: "Criar um aplicativo por conversa",
       interactiveDescription:
         "Compartilhe sua ideia e deixe o LinkSense dar vida a ela.",
-      publicSiteTitle: "Criar um site público",
+      publicSiteTitle: "Criar um aplicativo web",
       publicSiteDescription:
         "Crie um site ou aplicativo público e receba um link para abrir ou copiar.",
       start: "Começar a criar",
     },
+    conversationCreation: {
+      title: "Criar um aplicativo por conversa",
+      description:
+        "Descreva seu objetivo. Vamos esclarecer acesso, dados e lembretes apenas quando necessário.",
+      goal: "O que você quer realizar?",
+      goalPlaceholder:
+        "Por exemplo: um assistente para beber água. Quero ver a página primeiro e decidir os lembretes depois.",
+      defaultGoal: "Esclareça apenas os requisitos que mudam o resultado.",
+      start: "Iniciar conversa",
+      prompt:
+        "Ajude-me a realizar este objetivo: {{goal}}. Reutilize as informações que já forneci e pergunte apenas sobre requisitos pendentes que mudem o resultado. Comece com um rascunho funcional; não publique nem ative tarefas agendadas por padrão.",
+    },
     publicSiteCreation: {
-      title: "Criar um site público",
+      title: "Criar um aplicativo web",
       description:
         "Crie um site público ou aplicativo dinâmico. Acrescente os requisitos de contas, dados e negócio na conversa.",
       name: "Nome do site",
@@ -3267,7 +3282,7 @@ export const ptBR = {
       goalPlaceholder:
         "Por exemplo: crie uma programação de eventos com filtro por data",
       defaultGoal: "Pergunte-me quais conteúdos e interações o site precisa.",
-      start: "Criar e começar",
+      start: "Criar e publicar",
       openLocally: "Abrir no meu navegador após publicar",
       openInstruction:
         "Depois de publicar, use o Browser Use para abrir o site uma vez no meu navegador local.",

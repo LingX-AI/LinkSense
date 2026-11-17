@@ -6,7 +6,9 @@ test("sandbox SDK preserves login and data through reload, file transfer and fun
 }) => {
   const fixture = await createSandboxBrowserFixture()
   try {
-    await page.goto(`${fixture.origin}/app/alpha`)
+    await page.goto(
+      `${fixture.origin}/app/id/40000000-0000-4000-8000-000000000001`
+    )
     const frame = page.frameLocator("iframe")
     await expect(frame.locator("#status")).toHaveText("Ready")
     await frame
@@ -65,7 +67,9 @@ test("sandbox SDK preserves login and data through reload, file transfer and fun
       .getByRole("button", { name: "Run function", exact: true })
       .click()
     await expect(frame.locator("#result")).toContainText("responseStatusCode")
-    await expect(page).toHaveURL(`${fixture.origin}/app/alpha`)
+    await expect(page).toHaveURL(
+      `${fixture.origin}/app/id/40000000-0000-4000-8000-000000000001`
+    )
     await frame.getByRole("button", { name: "Logout", exact: true }).click()
     await expect(frame.locator("#result")).toHaveText("done")
     await frame

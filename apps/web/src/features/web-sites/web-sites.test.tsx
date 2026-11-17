@@ -72,33 +72,91 @@ afterEach(() => {
 })
 
 describe("website management", () => {
+  it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
+    "separately displays page and backend capability without claiming reminder delivery in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const delivery = {
+        ...site,
+        turn_id: id,
+        url: `https://apps.example.test/app/id/${id}`,
+      }
+      const { rerender } = render(
+        <MemoryRouter>
+          <ConversationSiteCard site={delivery} />
+        </MemoryRouter>
+      )
+      expect(
+        i18n.getResource(locale, "translation", "webSites.pageOnly")
+      ).toBeTruthy()
+      expect(
+        i18n.getResource(locale, "translation", "webSites.dataConnected")
+      ).toBeTruthy()
+      expect(screen.getByText(i18n.t("webSites.pageOnly"))).toBeVisible()
+      rerender(
+        <MemoryRouter>
+          <ConversationSiteCard site={{ ...delivery, backend_id: id }} />
+        </MemoryRouter>
+      )
+      expect(screen.getByText(i18n.t("webSites.dataConnected"))).toBeVisible()
+      expect(
+        screen.queryByText(i18n.t("webSites.pageOnly"))
+      ).not.toBeInTheDocument()
+    }
+  )
   it("opens and copies the actual dynamic application URL in the library and publication dialog", async () => {
     const user = userEvent.setup()
-    const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined)
+    const copy = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue(undefined)
     const url = `https://${id}.apps.example.test`
     const dynamicSite = { ...site, backend_id: id, url }
-    vi.stubGlobal("fetch", vi.fn(async () => success({ items: [dynamicSite], next_cursor: null })))
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => success({ items: [dynamicSite], next_cursor: null }))
+    )
     const library = mount(<SiteLibrary />)
-    expect(await screen.findByRole("link", { name: i18n.t("webSites.visit") })).toHaveAttribute("href", url)
-    await user.click(screen.getByRole("button", { name: i18n.t("webSites.copyNamed", { name: site.name }) }))
+    expect(
+      await screen.findByRole("link", { name: i18n.t("webSites.visit") })
+    ).toHaveAttribute("href", url)
+    await user.click(
+      screen.getByRole("button", {
+        name: i18n.t("webSites.copyNamed", { name: site.name }),
+      })
+    )
     expect(copy).toHaveBeenLastCalledWith(url)
     library.unmount()
-    mount(<SiteDialog
-      action={{ kind: "share", source: { conversationId: id, fileId, name: "index.html" } }}
-      lookup={{ kind: "ready", site: dynamicSite }}
-      onClose={vi.fn()}
-    />)
-    expect(await screen.findByRole("textbox", { name: i18n.t("webSites.url") })).toHaveValue(url)
-    await user.click(screen.getByRole("button", { name: i18n.t("webSites.copy") }))
+    mount(
+      <SiteDialog
+        action={{
+          kind: "share",
+          source: { conversationId: id, fileId, name: "index.html" },
+        }}
+        lookup={{ kind: "ready", site: dynamicSite }}
+        onClose={vi.fn()}
+      />
+    )
+    expect(
+      await screen.findByRole("textbox", { name: i18n.t("webSites.url") })
+    ).toHaveValue(url)
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("webSites.copy") })
+    )
     expect(copy).toHaveBeenLastCalledWith(url)
   })
 
   it("lets users open and copy a published local site and removes both actions when unpublished", async () => {
     const user = userEvent.setup()
-    const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined)
+    const copy = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue(undefined)
     const url = "http://localhost:5273/web/shanhai"
     const delivery = { ...site, turn_id: id, url }
-    const { rerender } = render(<MemoryRouter><ConversationSiteCard site={delivery} /></MemoryRouter>)
+    const { rerender } = render(
+      <MemoryRouter>
+        <ConversationSiteCard site={delivery} />
+      </MemoryRouter>
+    )
     const open = screen.getByRole("link", { name: "打开网站" })
     expect(open).toHaveAttribute("href", url)
     expect(open).toHaveAttribute("target", "_blank")
@@ -107,10 +165,18 @@ describe("website management", () => {
     await user.click(screen.getByRole("button", { name: "复制链接" }))
     expect(copy).toHaveBeenCalledExactlyOnceWith(url)
     expect(screen.getByRole("status")).toHaveTextContent("链接已复制")
-    rerender(<MemoryRouter><ConversationSiteCard site={{ ...delivery, status: "disabled" }} /></MemoryRouter>)
+    rerender(
+      <MemoryRouter>
+        <ConversationSiteCard site={{ ...delivery, status: "disabled" }} />
+      </MemoryRouter>
+    )
     expect(screen.getByText("未发布")).toBeVisible()
-    expect(screen.queryByRole("link", { name: "打开网站" })).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "复制链接" })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "打开网站" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "复制链接" })
+    ).not.toBeInTheDocument()
   })
   it.each(["zh-CN", "en-US"])(
     "places copy beside each card's URL and shows a temporary check without a success toast in %s",
@@ -397,7 +463,7 @@ describe("website management", () => {
     await userEvent.click(screen.getByRole("button", { name: "Close" }))
     expect(close).toHaveBeenCalledOnce()
   })
-  it("keeps editing open when a slug is taken, and warns that the old address will stop working", async () => {
+  it("keeps editing open when a slug is taken and explains that old aliases remain usable", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -413,7 +479,7 @@ describe("website management", () => {
       screen.getByRole("textbox", { name: "链接名称" }),
       "-changed"
     )
-    expect(screen.getByText("修改后，原来的站点链接将立即失效。")).toBeVisible()
+    expect(screen.getByText("修改链接名称后，原链接仍可访问。")).toBeVisible()
     await userEvent.click(screen.getByRole("button", { name: "保存" }))
     expect(await screen.findByRole("alert")).toHaveTextContent(
       i18n.t("errors.webSites.slugTaken")

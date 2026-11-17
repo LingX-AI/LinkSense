@@ -2746,22 +2746,33 @@ export const zhCN = {
     createTypeDescription: "选择一种方式，开始创建你的应用。",
     creation: {
       recommended: "推荐",
-      interactiveTitle: "用对话创建交互式应用",
+      interactiveTitle: "用对话创建应用",
       interactiveDescription: "说出你的想法，LinkSense帮你实现",
-      publicSiteTitle: "创建公开站点",
+      publicSiteTitle: "创建 Web 应用",
       publicSiteDescription:
         "创建对外访问的网站或应用，交付可打开和复制的链接。",
       start: "开始创建",
     },
+    conversationCreation: {
+      title: "用对话创建应用",
+      description: "说出你的目标，系统会在需要时澄清使用方式、数据和提醒需求。",
+      goal: "你想实现什么？",
+      goalPlaceholder:
+        "例如：做一个喝水助手，先看看页面，之后再决定是否需要提醒。",
+      defaultGoal: "先澄清影响结果的必要需求。",
+      start: "开始对话",
+      prompt:
+        "请帮我实现这个目标：{{goal}}。请复用我已说明的信息，只在关键需求不明确时提问。先提供可用草稿，不要默认公开发布或启用定时任务。",
+    },
     publicSiteCreation: {
-      title: "创建公开站点",
+      title: "创建 Web 应用",
       description:
         "创建公开网站或动态应用。可在对话里补充账号、数据和业务需求。",
       name: "站点名称",
       goal: "网站要做什么（可选）",
       goalPlaceholder: "例如：制作一个可按日期筛选的活动日程页",
       defaultGoal: "请先根据站点名称确认需要哪些内容和交互。",
-      start: "创建并开始",
+      start: "创建并发布",
       openLocally: "发布后在本机浏览器打开",
       openInstruction:
         "发布成功后，请用 Browser Use 在我的本机浏览器中打开这个站点一次。",

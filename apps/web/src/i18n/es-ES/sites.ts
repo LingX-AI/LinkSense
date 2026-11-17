@@ -23,7 +23,7 @@ export const siteMessages = {
     slugPlaceholder: "Deja el campo vacío para generarlo automáticamente",
     slugHelp: "Usa entre 3 y 80 letras inglesas, números o guiones.",
     slugChanged:
-      "Al cambiarlo, el enlace anterior dejará de funcionar inmediatamente.",
+      "Los enlaces anteriores siguen funcionando después del cambio de nombre.",
     url: "Enlace del sitio",
     publishMode: "Modo de publicación",
     updateExisting: "Actualizar sitio existente",
@@ -86,6 +86,8 @@ export const siteMessages = {
     visit: "Visitar",
     openSite: "Abrir sitio web",
     localOnly: "Solo se puede acceder desde este dispositivo",
+    pageOnly: "Aplicación web · sin servicio de datos",
+    dataConnected: "Aplicación web · servicio de datos conectado",
     copyNamed: "Copiar enlace de {{name}}",
     actions: "Gestionar {{name}}",
     edit: "Editar",

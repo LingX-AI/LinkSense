@@ -29,8 +29,10 @@ import { Checkbox } from "@/components/ui/checkbox"
 
 export function ApplicationPublicSiteCreateDialog({
   onClose,
+  mode = "web",
 }: {
   onClose: () => void
+  mode?: "auto" | "web"
 }) {
   const { t } = useTranslation()
   const { user } = useAuth()
@@ -43,7 +45,11 @@ export function ApplicationPublicSiteCreateDialog({
   const [conversationId, setConversationId] = useState<string | null>(null)
   const operation = useRef<OperationReference["current"]>(null)
   const submitting = useRef(false)
-  const valid = name.trim().length > 0
+  const automatic = mode === "auto"
+  const messages = automatic
+    ? "applications.conversationCreation"
+    : "applications.publicSiteCreation"
+  const valid = automatic ? goal.trim().length > 0 : name.trim().length > 0
   const start = useMutation({
     retry: false,
     mutationFn: async (inputText: string) => {
@@ -60,7 +66,13 @@ export function ApplicationPublicSiteCreateDialog({
       const body = {
         input_text: inputText,
         collaboration_mode: "default",
-        priority_capability_ids: [builtInCapabilityId(PUBLIC_SITE_SKILL_NAME)],
+        ...(!automatic
+          ? {
+              priority_capability_ids: [
+                builtInCapabilityId(PUBLIC_SITE_SKILL_NAME),
+              ],
+            }
+          : {}),
       }
       await requestTurnStart(operation, `/conversations/${target}/turns`, {
         ...body,
@@ -90,12 +102,8 @@ export function ApplicationPublicSiteCreateDialog({
     >
       <DialogContent variant="workspace" closeLabel={t("common.close")}>
         <DialogHeader>
-          <DialogTitle>
-            {t("applications.publicSiteCreation.title")}
-          </DialogTitle>
-          <DialogDescription>
-            {t("applications.publicSiteCreation.description")}
-          </DialogDescription>
+          <DialogTitle>{t(`${messages}.title`)}</DialogTitle>
+          <DialogDescription>{t(`${messages}.description`)}</DialogDescription>
         </DialogHeader>
         <form
           className="flex flex-col gap-6"
@@ -105,11 +113,9 @@ export function ApplicationPublicSiteCreateDialog({
             submitting.current = true
             start.mutate(
               [
-                t("applications.publicSiteCreation.prompt", {
+                t(`${messages}.prompt`, {
                   name: name.trim(),
-                  goal:
-                    goal.trim() ||
-                    t("applications.publicSiteCreation.defaultGoal"),
+                  goal: goal.trim() || t(`${messages}.defaultGoal`),
                 }),
                 ...(openInBrowser
                   ? [t("applications.publicSiteCreation.openInstruction")]
@@ -119,47 +125,51 @@ export function ApplicationPublicSiteCreateDialog({
           }}
         >
           <FieldGroup>
+            {!automatic && (
+              <Field>
+                <FieldLabel htmlFor={`${id}-name`} required>
+                  {t("applications.publicSiteCreation.name")}
+                </FieldLabel>
+                <Input
+                  id={`${id}-name`}
+                  aria-required="true"
+                  value={name}
+                  disabled={start.isPending || Boolean(conversationId)}
+                  maxLength={160}
+                  autoFocus
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </Field>
+            )}
             <Field>
-              <FieldLabel htmlFor={`${id}-name`} required>
-                {t("applications.publicSiteCreation.name")}
-              </FieldLabel>
-              <Input
-                id={`${id}-name`}
-                aria-required="true"
-                value={name}
-                disabled={start.isPending || Boolean(conversationId)}
-                maxLength={160}
-                autoFocus
-                onChange={(event) => setName(event.target.value)}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={`${id}-goal`}>
-                {t("applications.publicSiteCreation.goal")}
+              <FieldLabel htmlFor={`${id}-goal`} required={automatic}>
+                {t(`${messages}.goal`)}
               </FieldLabel>
               <Textarea
                 id={`${id}-goal`}
                 value={goal}
+                aria-required={automatic || undefined}
                 disabled={start.isPending || Boolean(conversationId)}
                 maxLength={2_000}
                 rows={4}
-                placeholder={t(
-                  "applications.publicSiteCreation.goalPlaceholder"
-                )}
+                placeholder={t(`${messages}.goalPlaceholder`)}
+                autoFocus={automatic}
                 onChange={(event) => setGoal(event.target.value)}
               />
             </Field>
-            <Field orientation="horizontal">
-              <Checkbox
-                id={`${id}-open`}
-                checked={openInBrowser}
-                disabled={start.isPending || Boolean(conversationId)}
-                onCheckedChange={setOpenInBrowser}
-              />
-              <FieldLabel htmlFor={`${id}-open`}>
-                {t("applications.publicSiteCreation.openLocally")}
-              </FieldLabel>
-            </Field>
+            {!automatic && (
+              <Field orientation="horizontal">
+                <Checkbox
+                  id={`${id}-open`}
+                  checked={openInBrowser}
+                  disabled={start.isPending || Boolean(conversationId)}
+                  onCheckedChange={setOpenInBrowser}
+                />
+                <FieldLabel htmlFor={`${id}-open`}>
+                  {t("applications.publicSiteCreation.openLocally")}
+                </FieldLabel>
+              </Field>
+            )}
           </FieldGroup>
           {start.error && (
             <StatusBanner variant="error">
@@ -179,7 +189,7 @@ export function ApplicationPublicSiteCreateDialog({
               {t(
                 start.isPending
                   ? "applicationDevelopment.creating"
-                  : "applications.publicSiteCreation.start"
+                  : `${messages}.start`
               )}
             </Button>
           </DialogFooter>

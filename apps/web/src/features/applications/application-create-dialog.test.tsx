@@ -171,11 +171,9 @@ it("falls back to Chinese for the creation choices and package instructions", as
       <ApplicationCreateDialog open onChoose={vi.fn()} onOpenChange={vi.fn()} />
     </I18nextProvider>
   )
+  expect(screen.getByRole("button", { name: "用对话创建应用" })).toBeVisible()
   expect(
-    screen.getByRole("button", { name: "用对话创建交互式应用" })
-  ).toBeVisible()
-  expect(
-    screen.getByRole("button", { name: "用对话创建交互式应用" })
+    screen.getByRole("button", { name: "用对话创建应用" })
   ).toHaveAccessibleDescription("说出你的想法，LinkSense帮你实现")
   for (const key of [
     "applications.creation.recommended",

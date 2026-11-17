@@ -34,6 +34,11 @@ export function ConversationSiteCard({ site }: { site: ConversationWebSite }) {
               {t(`webSites.status.${site.status}`)}
             </Badge>
           </div>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              site.backend_id ? "webSites.dataConnected" : "webSites.pageOnly"
+            )}
+          </p>
           {published && (
             <a
               className="block truncate rounded-sm text-sm text-link-foreground underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring"

@@ -2959,23 +2959,35 @@ export const enUS = {
     createTypeDescription: "Choose how to create your application.",
     creation: {
       recommended: "Recommended",
-      interactiveTitle: "Create an interactive app through chat",
+      interactiveTitle: "Create an app through chat",
       interactiveDescription:
         "Share your idea and let LinkSense bring it to life.",
-      publicSiteTitle: "Create a public site",
+      publicSiteTitle: "Create a Web app",
       publicSiteDescription:
         "Create a public website or application and deliver a link to open or copy.",
       start: "Start creating",
     },
+    conversationCreation: {
+      title: "Create an app through chat",
+      description:
+        "Describe your goal. We will clarify access, data and reminders only when needed.",
+      goal: "What would you like to achieve?",
+      goalPlaceholder:
+        "For example: a water assistant. Preview the page first and decide about reminders later.",
+      defaultGoal: "Clarify only requirements that change the outcome.",
+      start: "Start conversation",
+      prompt:
+        "Help me achieve this goal: {{goal}}. Reuse information I have already provided and ask only about unresolved requirements that change the outcome. Start with a usable draft; do not publish publicly or activate schedules by default.",
+    },
     publicSiteCreation: {
-      title: "Create a public site",
+      title: "Create a Web app",
       description:
         "Create a public website or dynamic application. Add account, data and business requirements in the conversation.",
       name: "Site name",
       goal: "What should the site do? (optional)",
       goalPlaceholder: "For example: make an event schedule with a date filter",
       defaultGoal: "Ask me what content and interactions the site needs.",
-      start: "Create and start",
+      start: "Create and publish",
       openLocally: "Open in my browser after publishing",
       openInstruction:
         "After publishing, use Browser Use to open the site once in my local browser.",
