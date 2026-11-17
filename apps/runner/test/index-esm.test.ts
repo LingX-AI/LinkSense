@@ -1,6 +1,7 @@
 import path from "node:path"
 import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises"
 
 import { describe, expect, it } from "vitest"
 
@@ -39,6 +40,21 @@ describe("runner ESM entrypoint", () => {
       isMainModule(pathToFileURL("/tmp/other.js").href, executable),
     ).toBe(false)
     expect(isMainModule(pathToFileURL(executable).href, undefined)).toBe(false)
+  })
+
+  it("recognizes the packaged runner entry through a directory alias", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "linksense-runner-entry-"))
+    try {
+      const target = path.join(root, "package")
+      const alias = path.join(root, "app-resources")
+      await mkdir(target)
+      await writeFile(path.join(target, "index.js"), "")
+      await symlink(target, alias, process.platform === "win32" ? "junction" : "dir")
+      expect(isMainModule(pathToFileURL(await realpath(path.join(target, "index.js"))).href,
+        path.join(alias, "index.js"))).toBe(true)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("uses one owner HOME for workspaces, CODEX_HOME, and persistent runtime", () => {

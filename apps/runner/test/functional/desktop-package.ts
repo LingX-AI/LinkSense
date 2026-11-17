@@ -12,6 +12,8 @@ import { CodexJsonRpcClient } from "../../src/codex/json-rpc-client.js";
 import { CODEX_SCHEMA_VERSION, type JsonRpcNotification } from "../../src/codex/protocol.js";
 import { loadCodexTemplateFeatureOverrides } from "../../src/codex/template-features.js";
 import { builtInMcpConfigOverrides, coreMcpEnvironmentVariables } from "../../src/codex/runtime-config-overrides.js";
+import { DesktopWorkerProvider } from "../../src/controller/desktop-worker-provider.js";
+import { ownerWorkerSecret } from "../../src/controller/storage-key.js";
 
 const sourceRuntime = z.string().refine(path.isAbsolute).parse(process.argv[2]);
 async function verifyRuntime(runtime: string, root: string): Promise<void> {
@@ -33,16 +35,24 @@ async function verifyRuntime(runtime: string, root: string): Promise<void> {
   await mkdir(workspace);
   const featureOverrides = await loadCodexTemplateFeatureOverrides(path.join(runtime, "template"));
   let modelRequests = 0;
+  let workerHeartbeats = 0;
   const failures: unknown[] = [];
   const provider = createServer((request, response) => {
     void (async () => {
       assert.equal(request.method, "POST");
-      assert(request.url?.endsWith("/responses"));
       let bytes = 0;
       for await (const chunk of request) {
         bytes += Buffer.byteLength(chunk);
         assert(bytes <= 2 * 1024 * 1024, "model fixture request exceeded its bound");
       }
+      if (request.url === "/internal/runner/heartbeat") {
+        assert.equal(request.headers.authorization, `Bearer ${ownerWorkerSecret(ownerId, controlToken, conversationId)}`);
+        workerHeartbeats++;
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end('{"data":{"confirmed":true}}');
+        return;
+      }
+      assert(request.url?.endsWith("/responses"));
       modelRequests++;
       response.writeHead(200, { "Content-Type": "text/event-stream" });
       const item = { id: "msg_fixture", type: "message", role: "assistant", status: "completed",
@@ -65,6 +75,11 @@ async function verifyRuntime(runtime: string, root: string): Promise<void> {
   const suffix = manifest.target.startsWith("windows") ? ".exe" : "";
   const node = path.join(runtime, "bin", `node${suffix}`);
   const core = path.join(runtime, "runner/dist/mcp/core-service-server.js");
+  const ownerId = randomUUID(), conversationId = randomUUID(), controlToken = randomBytes(32).toString("hex");
+  const workerProvider = new DesktopWorkerProvider({
+    dataRoot: path.join(root, "workspaces"), runtimeRoot: runtime, controlToken,
+    bridgeUrl: `http://127.0.0.1:${address.port}/`,
+  }, pino({ enabled: false }));
   const coreEnvironment = Object.fromEntries(coreMcpEnvironmentVariables.flatMap(key => {
     if (key.endsWith("_ENDPOINT")) return [[key, `http://127.0.0.1:${address.port}/fixture/${key.toLowerCase()}`]];
     if (key.endsWith("_TOKEN")) return [[key, randomBytes(32).toString("hex")]];
@@ -98,6 +113,36 @@ async function verifyRuntime(runtime: string, root: string): Promise<void> {
     }
   }
   try {
+    const workerPaths = workerProvider.pathsFor(ownerId, conversationId);
+    await workerProvider.prepareOwnerFilesystem(workerPaths);
+    const worker = await workerProvider.acquire({
+      ownerId, serviceSessionId: conversationId, name: "desktop-package-check", storageKey: conversationId, probe: true,
+    });
+    const authorization = `Bearer ${ownerWorkerSecret(ownerId, controlToken, conversationId)}`;
+    const deadline = Date.now() + 30_000;
+    while (true) {
+      const response = await fetch(`${worker.endpoint}/health/ready`, {
+        headers: { authorization }, signal: AbortSignal.timeout(15_000), redirect: "error",
+      }).catch(() => undefined);
+      if (response?.ok) {
+        const health = z.object({ status: z.literal("available"), codex_app_server: z.object({ status: z.literal("available") }) }).parse(await response.json());
+        assert.equal(health.codex_app_server.status, "available");
+        break;
+      }
+      await response?.body?.cancel();
+      assert.equal(await workerProvider.inspect(worker), "running", "packaged worker exited before readiness");
+      assert(Date.now() < deadline, "packaged worker did not pass its Codex readiness probe");
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    const otherTask = await fetch(`${worker.endpoint}/conversations/${randomUUID()}/turns/start`, {
+      method: "POST", headers: { authorization, "x-linksense-owner-id": ownerId, "content-type": "application/json" },
+      body: "{}", signal: AbortSignal.timeout(5_000), redirect: "error",
+    });
+    assert.equal(otherTask.status, 403, "worker accepted an unrelated session");
+    await otherTask.body?.cancel();
+    await waitFor(() => workerHeartbeats > 0);
+    await workerProvider.release(worker);
+    assert.equal(await workerProvider.inspect(worker), "stopped");
     await client.initialize();
     const started = z.object({ thread: z.object({ id: z.string() }) }).parse(await client.request("thread/start", {
       model: "gpt-5.4", modelProvider: "fixture", cwd: workspace, runtimeWorkspaceRoots: [workspace],
@@ -131,9 +176,10 @@ async function verifyRuntime(runtime: string, root: string): Promise<void> {
     }), "the packaged native thread did not retain its model response");
     assert(modelRequests > 0, "the packaged Codex did not call the model fixture");
     assert.deepEqual(failures, []);
-    console.log(JSON.stringify({ target: manifest.target, codex: CODEX_SCHEMA_VERSION,
+    console.log(JSON.stringify({ target: manifest.target, codex: CODEX_SCHEMA_VERSION, packagedWorker: "ready_and_stopped",
       coreMcp: "ready", catalog: "callable", nativeTurn: "completed", providerKeys: "not_required" }));
   } finally {
+    await workerProvider.shutdown();
     await client.close();
     await new Promise<void>((resolve, reject) => provider.close(error => error ? reject(error) : resolve()));
     assert.equal(client.isExited, true, "the packaged native process did not exit");

@@ -86,6 +86,32 @@ afterEach(async () => {
 });
 
 describe("AppServerProcessPool", () => {
+  it("keeps desktop thread and turn admission inside the native task workspace sandbox", async () => {
+    const root = await mkdtemp(join(tmpdir(), "linksense-desktop-native-policy-"));
+    roots.push(root);
+    const controlled = createControlledAppServer();
+    const workspaceManager = createWorkspaceManager(root);
+    const { pool } = createStartOperationPool(root, controlled.factory, workspaceManager, {
+      desktopWorkspace: true, managedBrowserEnabled: false,
+    });
+    const input = startOperationInput();
+    const workspace = workspaceManager.pathsFor(input.conversationId).workspace;
+    try {
+      await pool.startTurn(input);
+      expect(controlled.requests.find(request => request.method === "thread/start")?.params)
+        .toMatchObject({ approvalPolicy: "untrusted", sandbox: "workspace-write" });
+      expect(controlled.requests.find(request => request.method === "turn/start")?.params)
+        .toMatchObject({
+          approvalPolicy: "untrusted",
+          sandboxPolicy: {
+            type: "workspaceWrite", writableRoots: [workspace], networkAccess: false,
+            excludeTmpdirEnvVar: true, excludeSlashTmp: true,
+          },
+        });
+    } finally {
+      await pool.closeAll();
+    }
+  });
   it("passes the dedicated extraction route without changing the task or consolidation model", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-memory-model-"));
     roots.push(root);
@@ -12086,6 +12112,7 @@ function createStartOperationPool(
     idleTtlMs?: number;
     globalFeatureOverrides?: readonly string[];
     managedBrowserEnabled?: boolean;
+    desktopWorkspace?: boolean;
     nativeTurnRegistrationTimeoutMs?: number;
     modelTransitionCompactionTimeoutMs?: number;
     nativeImageTemporaryRootsForOwner?: (ownerId: string) => readonly string[];
@@ -12131,6 +12158,7 @@ function createStartOperationPool(
     overrides.nativePluginManager ?? createNativePluginManagerMock();
   const modelGateway = overrides.modelGateway ?? createModelGatewayMock();
   const pool = new AppServerProcessPool({
+    ...(overrides.desktopWorkspace ? { desktopWorkspace: true } : {}),
     command: "codex",
     model: "test-model",
     ...(overrides.modelCatalog

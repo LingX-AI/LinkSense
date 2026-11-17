@@ -371,7 +371,8 @@ export type TurnStartParams = {
   approvalPolicy: AskForApproval;
   sandboxPolicy:
     | { type: "dangerFullAccess" }
-    | { type: "readOnly"; networkAccess: boolean };
+    | { type: "readOnly"; networkAccess: boolean }
+    | { type: "workspaceWrite"; writableRoots: string[]; networkAccess: boolean; excludeTmpdirEnvVar: boolean; excludeSlashTmp: boolean };
 };
 
 export type ToolRequestUserInputOption = {

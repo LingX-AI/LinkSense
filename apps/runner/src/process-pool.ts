@@ -912,6 +912,7 @@ export class AppServerProcessPool {
         ownerId: string,
       ) => Promise<Record<string, string>>;
       codexProcessIdentity?: { uid: number; gid: number };
+      desktopWorkspace?: boolean;
       nativeImageTemporaryRootsForOwner?: (ownerId: string) => readonly string[];
       browserSessionCleanup?: (input: {
         conversationId: string;
@@ -2089,11 +2090,14 @@ export class AppServerProcessPool {
           this.options.workspaceManager.pathsFor(input.conversationId)
             .workspace,
         ],
-        approvalPolicy: LINKSENSE_APPROVAL_POLICY,
+        approvalPolicy: this.options.desktopWorkspace ? "untrusted" : LINKSENSE_APPROVAL_POLICY,
         sandboxPolicy:
           input.collaborationMode === "plan"
             ? { type: "readOnly", networkAccess: false }
-            : { type: "dangerFullAccess" },
+            : this.options.desktopWorkspace
+              ? { type: "workspaceWrite", writableRoots: [this.options.workspaceManager.pathsFor(input.conversationId).workspace],
+                  networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true }
+              : { type: "dangerFullAccess" },
       };
       if (input.goal) {
         // Active Goals auto-start a continuation, so establish the Goal paused
@@ -2288,7 +2292,7 @@ export class AppServerProcessPool {
     const response = await managed.client.request<ThreadStartResponse>(
       "thread/start",
       {
-        ...linkSenseThreadRuntimeOverrides(model, workspace, modelConfig),
+        ...linkSenseThreadRuntimeOverrides(model, workspace, modelConfig, this.options.desktopWorkspace),
         ephemeral: false,
       },
     );
@@ -2328,6 +2332,7 @@ export class AppServerProcessPool {
           model,
           workspace,
           options.modelConfig,
+          this.options.desktopWorkspace,
         ),
       } satisfies ThreadForkParams,
     );
@@ -2981,7 +2986,7 @@ export class AppServerProcessPool {
             path: canonicalRollout,
             lastTurnId: input.throughCodexTurnId,
             deferGoalContinuation: true,
-            ...linkSenseThreadRuntimeOverrides(input.model, workspace),
+            ...linkSenseThreadRuntimeOverrides(input.model, workspace, undefined, this.options.desktopWorkspace),
           } satisfies ThreadForkParams);
           if (!forked.thread.id || forked.thread.id === source.id) {
             throw new CodexProtocolError("Codex returned an invalid fork thread");
@@ -5921,6 +5926,7 @@ export class AppServerProcessPool {
                     paths.workspace,
                     input.modelTransitionSource?.provider ??
                       input.modelProvider,
+                    this.options.desktopWorkspace,
                   ),
                   excludeTurns: true,
                 },
@@ -7976,8 +7982,8 @@ type LinkSenseThreadRuntimeOverrides = {
   modelProvider: typeof linkSenseModelProviderId;
   cwd: string;
   runtimeWorkspaceRoots: string[];
-  approvalPolicy: typeof LINKSENSE_APPROVAL_POLICY;
-  sandbox: "danger-full-access";
+  approvalPolicy: typeof LINKSENSE_APPROVAL_POLICY | "untrusted";
+  sandbox: "danger-full-access" | "workspace-write";
   config?: Record<string, unknown>;
 };
 
@@ -7985,6 +7991,7 @@ function linkSenseThreadRuntimeOverrides(
   model: string,
   workspace: string,
   modelConfig?: ThreadModelConfig,
+  desktopWorkspace = false,
 ): LinkSenseThreadRuntimeOverrides {
   const autoCompactTokenLimit =
     modelConfig?.modelAutoCompactTokenLimit ??
@@ -8007,8 +8014,8 @@ function linkSenseThreadRuntimeOverrides(
     modelProvider: linkSenseModelProviderId,
     cwd: workspace,
     runtimeWorkspaceRoots: [workspace],
-    approvalPolicy: LINKSENSE_APPROVAL_POLICY,
-    sandbox: "danger-full-access" as const,
+    approvalPolicy: desktopWorkspace ? "untrusted" : LINKSENSE_APPROVAL_POLICY,
+    sandbox: desktopWorkspace ? "workspace-write" : "danger-full-access",
     ...(Object.keys(config).length === 0 ? {} : { config }),
   };
 }

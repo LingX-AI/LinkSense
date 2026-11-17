@@ -79,7 +79,7 @@ const runnerConfigSchema = z
       .enum(["controller", "worker", "standalone"])
       .default("standalone"),
     LINKSENSE_WORKER_PROVIDER: z
-      .enum(["docker", "local-process"])
+      .enum(["docker", "local-process", "desktop"])
       .default("docker"),
     LINKSENSE_WORKER_OWNER_ID: uuid.optional(),
     LINKSENSE_SERVICE_SESSION_ID: uuid.optional(),
@@ -200,6 +200,21 @@ const runnerConfigSchema = z
         path: ["LINKSENSE_WORKER_OWNER_ID"],
         message: "worker_owner_id_required",
       })
+    }
+    if (config.LINKSENSE_WORKER_PROVIDER === "desktop") {
+      const api = URL.parse(config.LINKSENSE_API_INTERNAL_URL)
+      const controller = URL.parse(config.LINKSENSE_CONTROLLER_INTERNAL_URL)
+      if (config.LINKSENSE_RUNNER_MODE !== "worker" ||
+        config.LINKSENSE_RUNNER_HOST !== "127.0.0.1" ||
+        !api || api.protocol !== "http:" || !["127.0.0.1", "[::1]"].includes(api.hostname) ||
+        api.username || api.password || api.search || api.hash || api.pathname !== "/" || api.href !== controller?.href ||
+        !config.LINKSENSE_SERVICE_SESSION_ID ||
+        !config.LINKSENSE_WORKER_CONTROL_ROOT || !config.LINKSENSE_CODEX_HOME_TEMPLATE ||
+        config.LINKSENSE_USER_DATA_VOLUME || config.LINKSENSE_ENABLE_DEVELOPMENT_ENDPOINTS ||
+        config.LINKSENSE_MANAGED_BROWSER_ENABLED) {
+        context.addIssue({ code: "custom", path: ["LINKSENSE_WORKER_PROVIDER"], message: "desktop_worker_requires_supervised_loopback_configuration" })
+      }
+      return
     }
     if (config.LINKSENSE_WORKER_PROVIDER !== "local-process") return
     if (config.NODE_ENV !== "development") {

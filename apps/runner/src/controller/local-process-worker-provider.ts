@@ -23,7 +23,7 @@ import type {
   WorkerInstance,
   WorkerOwnerPaths,
   WorkerProvider,
-  WorkerProviderCapabilities,
+  PosixWorkerProviderCapabilities,
 } from "./worker-provider.js"
 import { isNodeError } from "./worker-provider-utils.js"
 import {
@@ -70,7 +70,7 @@ type ManagedLocalProcess = {
 
 export class LocalProcessWorkerProvider implements WorkerProvider {
   readonly kind = "local-process" as const
-  readonly capabilities: WorkerProviderCapabilities
+  readonly capabilities: PosixWorkerProviderCapabilities
 
   private readonly preparedPaths = new Map<string, WorkerOwnerPaths>()
   private readonly processes = new Map<string, ManagedLocalProcess>()

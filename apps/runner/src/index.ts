@@ -1,5 +1,5 @@
 import { countUserProcesses } from "./user-process-activity.js"
-import { existsSync } from "node:fs"
+import { existsSync, realpathSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -82,6 +82,9 @@ export function resolveNativeImageTemporaryRoots(
 
 export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> {
   const config = parseRunnerConfig(env)
+  if (config.LINKSENSE_WORKER_PROVIDER === "desktop" && !process.connected) {
+    throw new Error("desktop worker requires its supervising process")
+  }
   if (config.LINKSENSE_RUNNER_MODE === "controller") {
     await startController(config)
     flushCompileCache()
@@ -90,7 +93,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
   await assertCodexRuntimeVersion({
     command: config.CODEX_BIN,
     ...(config.LINKSENSE_RUNNER_MODE === "worker" &&
-    config.LINKSENSE_WORKER_PROVIDER !== "local-process"
+    config.LINKSENSE_WORKER_PROVIDER === "docker"
       ? { processIdentity: containerTaskProcessIdentity }
       : {}),
   })
@@ -146,10 +149,11 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   const logger = createLogger("execution")
   const workerOwnerId = config.LINKSENSE_WORKER_OWNER_ID
   const isWorker = config.LINKSENSE_RUNNER_MODE === "worker"
-  const isLocalProcessWorker =
-    isWorker && config.LINKSENSE_WORKER_PROVIDER === "local-process"
+  const isDesktopWorker = isWorker && config.LINKSENSE_WORKER_PROVIDER === "desktop"
+  const isHostWorker =
+    isWorker && config.LINKSENSE_WORKER_PROVIDER !== "docker"
   const managedBrowserEnabled =
-    config.LINKSENSE_MANAGED_BROWSER_ENABLED && !isLocalProcessWorker
+    config.LINKSENSE_MANAGED_BROWSER_ENABLED && !isHostWorker
   const currentProcessIdentity = {
     uid: process.getuid?.() ?? linksenseRuntimeIdentity.taskUid,
     gid: process.getgid?.() ?? linksenseRuntimeIdentity.sharedGid,
@@ -164,7 +168,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   if (isWorker) process.umask(0o007)
   const runtimeRootForOwner = (ownerId: string) =>
     resolveOwnerExecutionPaths(config, ownerId).runtime
-  if (isWorker && !isLocalProcessWorker) {
+  if (isWorker && !isHostWorker) {
     if (!workerOwnerId) throw new Error("worker owner id is required")
     await prepareManagedPackageSourceConfig(
       config.LINKSENSE_PYTHON_PACKAGE_INDEX_URL,
@@ -179,29 +183,31 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     }
   }
   const initializeRuntime = createUserRuntimeEnsurer(runtimeRootForOwner, {
-    ...((isWorker && !isLocalProcessWorker) ||
-    existsSync(config.LINKSENSE_PYTHON_BASE_SITE_PACKAGES)
+    ...((isWorker && !isHostWorker) ||
+    (!isDesktopWorker && existsSync(config.LINKSENSE_PYTHON_BASE_SITE_PACKAGES))
       ? {
           basePythonSitePackages:
             config.LINKSENSE_PYTHON_BASE_SITE_PACKAGES,
         }
       : {}),
-    ...((isWorker && !isLocalProcessWorker) ||
-    existsSync(config.LINKSENSE_NODE_BASE_PROJECT)
+    ...((isWorker && !isHostWorker) ||
+    (!isDesktopWorker && existsSync(config.LINKSENSE_NODE_BASE_PROJECT))
       ? { baseNodeProject: config.LINKSENSE_NODE_BASE_PROJECT }
       : {}),
-    ...((isWorker && !isLocalProcessWorker) ||
-    existsSync(config.LINKSENSE_NODE_REGISTER_HOOK)
+    ...((isWorker && !isHostWorker) ||
+    (!isDesktopWorker && existsSync(config.LINKSENSE_NODE_REGISTER_HOOK))
       ? { nodeRegisterHook: config.LINKSENSE_NODE_REGISTER_HOOK }
       : {}),
     pnpmVersion: config.LINKSENSE_PNPM_VERSION,
+    ...(isDesktopWorker ? { skipPythonBootstrap: true } : {}),
     pythonPackageIndexUrl: config.LINKSENSE_PYTHON_PACKAGE_INDEX_URL,
     nodePackageRegistryUrl: config.LINKSENSE_NODE_PACKAGE_REGISTRY_URL,
     ...(isWorker
-      ? isLocalProcessWorker
+      ? isHostWorker
         ? {
             runtimeToolBin: requiredLocalProcessRuntimeToolBin(process.env),
-            requiredRuntimeTools: ["linksense-plugin-stdio", "linksense-connection-mcp"],
+            requiredRuntimeTools: ["linksense-plugin-stdio", "linksense-connection-mcp"]
+              .map(name => process.platform === "win32" ? `${name}.cmd` : name),
           }
         : {
             bashEnvironmentFile: MANAGED_BASH_ENVIRONMENT_FILE,
@@ -235,7 +241,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
             fixedHomeRoot: config.LINKSENSE_USER_DATA_ROOT,
             fixedControlRoot:
               config.LINKSENSE_WORKER_CONTROL_ROOT ?? workerControlRoot,
-            ...(isLocalProcessWorker
+            ...(isHostWorker
               ? {}
               : {
                   directoryCleanupIdentity: containerTaskProcessIdentity,
@@ -247,7 +253,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
         userRuntimePaths(runtimeRootForOwner(ownerId)).nodeModules,
     },
   )
-  if (isWorker && !isLocalProcessWorker) {
+  if (isWorker && !isHostWorker) {
     await Promise.all([
       verifySharedWorkspaceAccess(
         path.join(config.LINKSENSE_USER_DATA_ROOT, "projects"),
@@ -308,6 +314,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   })
   await modelGateway.start()
   const pool = new AppServerProcessPool({
+    desktopWorkspace: isDesktopWorker,
     command: config.CODEX_BIN,
     processLimit: config.LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT,
     idleTtlMs: config.LINKSENSE_CODEX_APP_SERVER_IDLE_TTL_SECONDS * 1000,
@@ -316,7 +323,7 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     workspaceManager,
     modelGateway,
     capabilityRuntimeManager: new CapabilityRuntimeManager(
-      isLocalProcessWorker
+      isHostWorker
         ? {
             apiIdentity: currentProcessIdentity,
             taskIdentity: currentProcessIdentity,
@@ -366,13 +373,13 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
               codexHome,
               workspace,
               ...(preserveHumanControl ? { preserveHumanControl } : {}),
-              ...(isWorker && !isLocalProcessWorker
+              ...(isWorker && !isHostWorker
                 ? { processIdentity: containerTaskProcessIdentity }
                 : {}),
             }),
         }
       : {}),
-    ...(isWorker && !isLocalProcessWorker
+    ...(isWorker && !isHostWorker
       ? {
           codexProcessIdentity: containerTaskProcessIdentity,
         }
@@ -418,6 +425,10 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     await modelGateway.close()
     await eventSink.close()
   })
+  if (isDesktopWorker && !process.connected) {
+    await Promise.allSettled([server.close(), pool.closeAll(), modelGateway.close(), eventSink.close()])
+    return
+  }
   try {
     await server.listen({
       host: config.LINKSENSE_RUNNER_HOST,
@@ -473,7 +484,13 @@ export function isMainModule(
   executablePath: string | undefined,
 ): boolean {
   if (!executablePath) return false
-  return fileURLToPath(moduleUrl) === path.resolve(executablePath)
+  const entry = fileURLToPath(moduleUrl)
+  if (entry === path.resolve(executablePath)) return true
+  try {
+    return entry === realpathSync(executablePath)
+  } catch {
+    return false
+  }
 }
 
 if (isMainModule(import.meta.url, process.argv[1])) {

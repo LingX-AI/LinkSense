@@ -855,6 +855,9 @@ export function buildRunnerServer(
     if (!conversationId.success || !ownerId.success) {
       return reply.code(403).send({ error_code: "RUNNER_OWNER_REQUIRED" });
     }
+    if (config.LINKSENSE_WORKER_PROVIDER === "desktop" && conversationId.data !== config.LINKSENSE_SERVICE_SESSION_ID) {
+      return reply.code(403).send({ error_code: "RUNNER_OWNER_MISMATCH" });
+    }
     const workspace = userWorkspacePathSchema.optional().safeParse(request.headers[runtimeWorkspaceHeader]);
     if (!workspace.success) return reply.code(400).send({ error_code: "RUNNER_WORKSPACE_INVALID" });
     const bodyOwner =
