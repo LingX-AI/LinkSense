@@ -23,6 +23,10 @@ Codex ── Responses API / WebSocket ──► runner ModelGateway ──► p
 The settings are per user:
 
 - `GET/PUT /api/v1/me/privacy-masking-settings`
+- `POST /api/v1/me/privacy-masking-settings/preview` masks sample text for
+  the settings page's try-it box. It accepts the unsaved draft settings, is
+  never stored, and uses the user's own placeholder key so the placeholders
+  match a real turn.
 - Settings live in `user_privacy_masking_settings`, encrypted with the
   credential master key. No row means the defaults (masking off).
 - A user's settings are resolved when a turn starts and travel to the
@@ -43,7 +47,7 @@ Phase 1 masks:
 - passwords in URLs, `Authorization`/`Cookie` values, and
   `password = ...` / `api_key: ...` assignments;
 - Chinese, Japanese, and Korean “password/key/token is …” phrases;
-- words the user adds in Settings → Personalization → Privacy masking.
+- words the user adds on Settings → Privacy masking (`/settings/mask`).
 
 The request walker keeps structural values intact: model ids, message and
 tool-call ids, tool names and schemas, tool-choice, `prompt_cache_key`,
@@ -62,6 +66,19 @@ rather than leaking.
 Matching respects the user's “any case” and “whole word” choices, and an
 allowlisted value is sent as written. Per-kind actions are supported by the
 engine (`mask`, `warn`, `block`); Phase 1 exposes only `mask`.
+
+## Settings page
+
+`/settings/mask` (Personal settings group) holds the enable switch, the
+secret rules, custom words and their matching options, the allowlist, and a
+try-it box. The try-it masks the sample text with the draft settings,
+highlights the placeholders, and lists the kinds it found; it works while
+masking is off so a user can check the rules before enabling them. The page
+saves all sections with one revisioned request.
+
+The masking rules and the masker live in
+`packages/shared/src/privacy-masking-engine`, so the API preview and the
+runner use the same engine.
 
 ## Streaming restore
 
