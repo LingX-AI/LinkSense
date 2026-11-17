@@ -20,6 +20,10 @@ export interface HostInfo {
   version: string;
 }
 
+export interface RuntimeStatus {
+  state: string;
+}
+
 // ---- Services ----
 
 /** Desktop exposes only the capabilities used by the shared application UI. */
@@ -44,6 +48,9 @@ export const Desktop = {
   },
   resumeDevice(ownerID: string): Promise<DeviceConnectionStatus> {
     return call("Desktop.ResumeDevice", ownerID);
+  },
+  runtimeStatus(): Promise<RuntimeStatus> {
+    return call("Desktop.RuntimeStatus");
   },
   signIn(): Promise<void> {
     return call("Desktop.SignIn");

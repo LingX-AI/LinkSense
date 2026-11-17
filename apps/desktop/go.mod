@@ -5,6 +5,7 @@ go 1.27.3
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/egoist/mygo v0.7.4
+	golang.org/x/sys v0.48.0
 )
 
 require (

@@ -68,13 +68,14 @@ The current `@firecrawl/anydoc` dependency has no Windows ARM64 binding.
 The runtime architecture is explicit in the manifest; Windows 10 ARM64
 cannot provide this x64 runtime.
 
-On the matching host platform, the completed package is checked again:
-critical modules must resolve inside the package, and a separate smoke test
-copies the runtime outside the repository, starts its pinned Codex and real
-Core MCP, calls the rich-output catalog, completes a native turn against a
-local model fixture, and checks process exit. No provider key is needed.
-This verifies the packaged filesystem closure; clean-system installation
-and device-specific behavior have separate acceptance gates.
+On the matching host platform, the completed package is checked again. The
+smoke test copies it outside the repository, launches an actual desktop
+worker, verifies its authenticated Codex health check and session boundary,
+and stops it. It also starts the bundled Codex and Core MCP, calls the
+rich-output catalog and completes a native turn against a local model
+fixture. The Go supervisor is tested against the bundled Node entrypoint
+through one complete heartbeat window. No provider key is needed.
+Clean-system installation and device behavior have separate acceptance gates.
 
 The macOS ARM64 development build measured 174.6 MB for the DMG and 601.6 MB
 for the expanded application. Node and Codex account for approximately
@@ -82,7 +83,10 @@ for the expanded application. Node and Codex account for approximately
 understated installed size; download size and installed size are tracked
 separately for release review.
 
-Production signing/notarization, the local runner supervisor, device execution
+The app supervises the bundled Node process over a private pipe. The macOS
+process group and the Windows Job Object bound the child tree. Device
+execution stays unavailable until the authorized device channel is wired.
+Production signing/notarization, installed Windows runtime, device execution
 and the updater remain subject to their task acceptance gates. The native
 WebView whitebox uses an in-memory credential store; actual OS credential-store
 interaction is still a separate check.

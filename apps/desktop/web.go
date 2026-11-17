@@ -24,14 +24,15 @@ type HostInfo struct {
 
 // Desktop exposes only the capabilities used by the shared application UI.
 type Desktop struct {
-	mu          sync.RWMutex
-	deviceSetup sync.Mutex
-	server      *url.URL
-	window      *mygo.Window
-	session     *sessionTransport
-	device      *deviceConnection
-	login       *browserLoginAttempt
-	openBrowser func(string) error
+	mu           sync.RWMutex
+	deviceSetup  sync.Mutex
+	server       *url.URL
+	window       *mygo.Window
+	session      *sessionTransport
+	device       *deviceConnection
+	login        *browserLoginAttempt
+	openBrowser  func(string) error
+	localRuntime *runtimeSupervisor
 }
 
 func (d *Desktop) configure(server *url.URL, store credentialStore, dataRoot string) {

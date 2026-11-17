@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"path/filepath"
 
 	"github.com/LingX-AI/linksense/apps/desktop/locales"
 	"github.com/egoist/mygo"
@@ -15,6 +16,11 @@ func main() {
 	desktop := &Desktop{}
 	defer desktop.closeDevice()
 	defer desktop.cancelSignIn()
+	defer func() {
+		if desktop.localRuntime != nil {
+			desktop.localRuntime.close()
+		}
+	}()
 	mygo.Bind(desktop)
 	mygo.Use(fetch.New(fetch.Options{
 		Client: &http.Client{
@@ -47,6 +53,9 @@ func main() {
 		}
 		if parsed, err := configuredServerURL(mygo.IsDev()); err == nil {
 			desktop.configure(parsed, mygo.Secrets, root)
+			if resources, err := mygo.App.Path(mygo.PathResources); err == nil {
+				desktop.localRuntime = superviseRuntime(filepath.Join(root, "local-runtime"), filepath.Join(resources, "runtime"))
+			}
 			desktop.openMainWindow()
 			return
 		}

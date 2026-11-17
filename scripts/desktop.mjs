@@ -168,6 +168,9 @@ async function main() {
     await verifyPackagedDesktopRuntime(runtime, target, manifest.versions);
     if (["darwin", "win32"].includes(process.platform) && target === desktopTarget()) {
       await run("pnpm", ["--filter", "@linksense/runner", "exec", "tsx", "test/functional/desktop-package.ts", runtime], { cwd: root });
+      await run("go", ["test", "-tags", "desktop_runtime_package", "-run", "^TestPackagedRuntimeSupervisor$", "-count=1", "-timeout=50s", "./..."], {
+        env: { LINKSENSE_DESKTOP_RUNTIME_DIST: runtime },
+      });
     }
     return;
   }
