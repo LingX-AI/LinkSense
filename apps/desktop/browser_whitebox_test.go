@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -40,6 +41,31 @@ func TestNativeBrowserSignInRoundTrip(t *testing.T) {
 	}
 	ctx, cancel := context.WithDeadline(t.Context(), deadline)
 	defer cancel()
+	if origin := os.Getenv("LINKSENSE_DESKTOP_BROWSER_RESTORE_ORIGIN"); origin != "" {
+		server, err := parseServerURL(origin)
+		if osDriver == "" || err != nil || server.Scheme != "http" || !net.ParseIP(server.Hostname()).IsLoopback() {
+			t.Fatal("session restore requires the parent-owned loopback fixture")
+		}
+		store := browserWhiteboxCredentialStore(t)
+		desktop.configure(server, store, t.TempDir())
+		if _, err := store.Get(desktop.session.secretKey()); err != nil {
+			t.Fatal("the fresh app process could not read the stored Keychain session")
+		}
+		var browserCalls atomic.Int32
+		desktop.openBrowser = func(string) error {
+			browserCalls.Add(1)
+			return fmt.Errorf("session restore must not open the browser")
+		}
+		desktop.openMainWindow()
+		win := desktop.mainWindow()
+		defer win.Destroy()
+		whiteboxWaitContext(t, ctx, win.Page(), `location.pathname === "/conversations/new" && document.body.innerText.includes("Eli")`)
+		if browserCalls.Load() != 0 {
+			t.Fatal("the fresh app process opened the browser instead of restoring its session")
+		}
+		fmt.Printf("BROWSER_WHITEBOX_RESTORED_PID=%d\n", os.Getpid())
+		return
+	}
 	var browserLogins atomic.Int32
 	var nativeRefreshes atomic.Int32
 	var browserAuthorizations atomic.Int32
@@ -166,11 +192,7 @@ func TestNativeBrowserSignInRoundTrip(t *testing.T) {
 		if runtime.GOOS != "darwin" || !filepath.IsAbs(osDriver) || !strings.HasSuffix(bundle, ".app") {
 			t.Fatal("OS browser whitebox requires a macOS test bundle and an absolute helper path")
 		}
-		service := os.Getenv("LINKSENSE_DESKTOP_BROWSER_KEYCHAIN_SERVICE")
-		if !regexp.MustCompile(`^org\.linksense\.desktop\.browser-whitebox\.[a-f0-9-]{36}\.credentials$`).MatchString(service) {
-			t.Fatal("OS browser whitebox requires an isolated parent-owned Keychain service")
-		}
-		store = mygo.Secrets.Service(service)
+		store = browserWhiteboxCredentialStore(t)
 		t.Cleanup(mygo.App.OnOpenURL(desktop.handleOpenURL))
 	}
 	desktop.configure(server, store, t.TempDir())
@@ -268,6 +290,30 @@ func TestNativeBrowserSignInRoundTrip(t *testing.T) {
 		t.Fatal("browser sign-in did not leave a reusable native session")
 	}
 	if osDriver != "" {
+		before = nativeRefreshes.Load()
+		executable, err := os.Executable()
+		if err != nil {
+			t.Fatal("the signed test executable is unavailable")
+		}
+		restoreContext, stop := context.WithTimeout(ctx, 20*time.Second)
+		command := exec.CommandContext(restoreContext, executable,
+			"-test.v", "-test.run", "^TestNativeBrowserSignInRoundTrip$", "-test.timeout", "30s")
+		command.Env = append(os.Environ(),
+			"LINKSENSE_DESKTOP_BROWSER_RESTORE_ORIGIN="+api.URL,
+			"LINKSENSE_DESKTOP_BROWSER_FORCE_EXIT_AFTER_STORE=")
+		command.WaitDelay = time.Second
+		output, err := command.CombinedOutput()
+		stop()
+		if err != nil {
+			t.Fatalf("the fresh app process did not restore its session: %s", output)
+		}
+		if !strings.Contains(string(output), "BROWSER_WHITEBOX_RESTORED_PID=") || nativeRefreshes.Load() <= before {
+			t.Fatal("the fresh app process did not authenticate with its stored session")
+		}
+		fmt.Print(string(output))
+		if browserLogins.Load() != 1 || browserAuthorizations.Load() != 2 {
+			t.Fatal("restoring the fresh app process created another browser authorization")
+		}
 		if _, err := page.EvalContext(ctx, `mygo.call("Desktop.ClearSession")`); err != nil {
 			t.Fatal("could not sign the isolated test app out")
 		}
@@ -275,4 +321,14 @@ func TestNativeBrowserSignInRoundTrip(t *testing.T) {
 			t.Fatal("sign-out did not remove the Keychain entry")
 		}
 	}
+}
+
+func browserWhiteboxCredentialStore(t *testing.T) credentialStore {
+	t.Helper()
+	service := os.Getenv("LINKSENSE_DESKTOP_BROWSER_KEYCHAIN_SERVICE")
+	if runtime.GOOS != "darwin" ||
+		!regexp.MustCompile(`^org\.linksense\.desktop\.browser-whitebox\.[a-f0-9-]{36}\.credentials$`).MatchString(service) {
+		t.Fatal("OS browser whitebox requires an isolated parent-owned Keychain service")
+	}
+	return mygo.Secrets.Service(service)
 }

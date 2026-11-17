@@ -73,6 +73,7 @@ async function main() {
     const env = {
       LINKSENSE_DESKTOP_BROWSER_OS_DRIVER: helper,
       LINKSENSE_DESKTOP_BROWSER_KEYCHAIN_SERVICE: service,
+      LINKSENSE_DESKTOP_BROWSER_RESTORE_ORIGIN: "",
       LINKSENSE_DESKTOP_WEB_DIST: path.join(root, "apps/web/dist"),
       TMPDIR: fixture,
     };

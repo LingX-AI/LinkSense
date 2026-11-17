@@ -108,11 +108,16 @@ exit after storage and verifies parent-owned cleanup of that unique fixture
 service. Temporary Go data and window state belong to the fixture directory;
 the test does not claim to remove WebKit's system-managed caches.
 
+A fresh process of the same signed test executable also starts a separate
+WebView and authenticates from the stored Keychain session without opening
+the browser. The parent fixture server stays running to validate the refresh
+cookie; access tokens are not passed to the new process.
+
 This is an ad hoc signed acceptance bundle with a synthetic authorization
 endpoint. It does not change the default URL handler or verify an installed
-release's default scheme routing, process-relaunch session restore, real
-identity providers, or clean-system installation. The real authorization SPA
-has a separate browser-to-WebView fixture test.
+release's default scheme routing, full quit/relaunch lifecycle, cross-version
+credential access, real identity providers, or clean-system installation.
+The real authorization SPA has a separate browser-to-WebView fixture test.
 
 The reference implementation is `feat-computer-use` at
 `7041e026032b948c5e4e3bae5c0a5b9d5148bdfb`. This module is implemented for the
