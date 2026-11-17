@@ -131,14 +131,39 @@ describe("rich output boundary", () => {
   });
 
   it.each([
-    ["missing child", ["summary"]],
-    ["reordered child", ["notes", "summary"]],
+    ["missing view", ["summary"]],
     ["unrelated reference", ["summary", "missing"]],
     ["shared child", ["summary", "summary"]],
   ])("rejects a tab with a %s", (_description, children) => {
     const output = readingExample();
     output.spec.elements.views.children = children;
     expect(parse(output)).toBeNull();
+  });
+
+  it("pairs tab views with tab labels by position instead of requiring matching IDs", () => {
+    const output = readingExample();
+    output.spec.elements.views.props = {
+      title: "Read the report",
+      tabs: [{ id: "tabOverview", label: "Overview" }, { id: "tabNotes", label: "Preparation" }],
+    };
+    const parsed = parse(output);
+    expect(parsed).not.toBeNull();
+    if (!parsed) throw new Error("Expected tabs to pair views by position");
+    expect(richOutputText(parsed)).toContain("Overview\n\nKeep the main finding visible.");
+  });
+
+  it("accepts a Panel nested inside the root Panel as a titled section", () => {
+    const parsed = parse({
+      ...example(),
+      spec: { root: "panel", elements: {
+        panel: { type: "Panel", props: { title: "Result wall" }, children: ["section"] },
+        section: { type: "Panel", props: { title: "Details section" }, children: ["body"] },
+        body: { type: "Text", props: { text: "Grouped content." } },
+      } },
+    });
+    expect(parsed).not.toBeNull();
+    if (!parsed) throw new Error("Expected a nested Panel to be valid");
+    expect(richOutputText(parsed)).toContain("Details section\n\nGrouped content.");
   });
 
   it("rejects ambiguous tabs, empty details and checklist controls that could supply state or actions", () => {
@@ -175,6 +200,7 @@ describe("rich output boundary", () => {
     { spec: { root: "panel", elements: { panel: { type: "Panel", props: { title: "Result" }, on: { press: { action: "navigate" } } } } } },
     { spec: { root: "panel", elements: { panel: { type: "Panel", props: { title: "Result" }, children: ["constructor"] } } } },
     { spec: { root: "panel", elements: { panel: { type: "Panel", props: { title: "Result" }, children: ["panel"] } } } },
+    { spec: { root: "text", elements: { text: { type: "Text", props: { text: "Root is not a panel" } } } } },
   ])("rejects unsupported versions, executable extensions, props, or broken references: %j", (change) => {
     expect(parse({ ...example(), ...change })).toBeNull();
   });

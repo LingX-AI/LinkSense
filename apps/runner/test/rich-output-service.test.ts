@@ -22,7 +22,7 @@ describe("rich output catalog", () => {
     expect(catalog.instructions.join(" ")).toContain("named baseline")
     expect(catalog.instructions.join(" ")).toContain("date requires YYYY-MM-DD")
     expect(catalog.instructions.join(" ")).toContain("never report native task progress")
-    expect(catalog.instructions.join(" ")).toContain("must match children IDs in the same order")
+    expect(catalog.instructions.join(" ")).toContain("one per tab in the same order")
     expect(catalog.instructions.join(" ")).toContain("never pre-check")
     expect(catalog.instructions.join(" ")).toContain("returned file_id")
     expect(catalog.instructions.join(" ")).toContain("never artifact_id")

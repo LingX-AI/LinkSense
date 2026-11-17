@@ -235,6 +235,47 @@ describe("assistant rich output", () => {
     expect(check).not.toBeChecked()
   })
 
+  it("pairs tab views by position and renders sections nested in the root panel", async () => {
+    render(
+      <AssistantRichOutput
+        source={source(
+          {
+            views: {
+              type: "Tabs",
+              props: {
+                title: "Model views",
+                tabs: [
+                  { id: "tabScope", label: "Scope" },
+                  { id: "tabMetric", label: "Metrics" },
+                ],
+              },
+              children: ["scopeText", "metricText"],
+            },
+            scopeText: { type: "Text", props: { text: "Scope details" } },
+            metricText: {
+              type: "Panel",
+              props: { title: "Metric section" },
+              children: ["metricBody"],
+            },
+            metricBody: { type: "Text", props: { text: "Metric details" } },
+          },
+          "Result wall",
+          ["views"]
+        )}
+      />
+    )
+    expect(
+      await screen.findByTestId("assistant-rich-output")
+    ).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: "Scope" })).toBeVisible()
+    await userEvent.setup().click(screen.getByRole("tab", { name: "Metrics" }))
+    const panel = screen.getByRole("tabpanel", { name: "Metrics" })
+    expect(
+      within(panel).getByRole("heading", { name: "Metric section" })
+    ).toBeVisible()
+    expect(within(panel).getByText("Metric details")).toBeVisible()
+  })
+
   it("starts a fresh card unchecked and includes every hidden item in a read-only copy", async () => {
     const user = userEvent.setup()
     const input = readingSource()

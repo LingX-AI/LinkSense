@@ -187,7 +187,7 @@ function ResultTabs({
   children,
 }: RichOutputProps<"Tabs"> & { children?: ReactNode }) {
   const titleId = useId()
-  // The validated tab IDs and child IDs are in the same order.
+  // Validation guarantees one child per tab, in tab order.
   const panels = Children.toArray(children)
   return (
     <div className="min-w-0 space-y-2">

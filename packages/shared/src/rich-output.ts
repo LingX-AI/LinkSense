@@ -46,7 +46,7 @@ export const richOutputComponents = {
   Panel: {
     props: z.strictObject({ title: label, description: text.optional() }),
     slots: ["default"],
-    description: "Root result panel with a title and child elements.",
+    description: "Root result panel with a title and child elements. A Panel nested inside another Panel renders as a titled section.",
   },
   Grid: {
     props: z.strictObject({ columns: z.union([z.literal(2), z.literal(3)]) }),
@@ -56,7 +56,7 @@ export const richOutputComponents = {
   Tabs: {
     props: tabsPropsSchema,
     slots: ["default"],
-    description: "Switch between 2–5 distinct views of supplied content. The first view is selected by default. Give tabs short, distinct labels. The tab IDs must match this element's children IDs in the same order. Keep the main conclusion visible outside the tabs.",
+    description: "Switch between 2–5 distinct views of supplied content. The first view is selected by default. Give tabs short, distinct labels. Provide one child per tab in the same order. Keep the main conclusion visible outside the tabs.",
   },
   Details: {
     props: z.strictObject({ title: label }),
@@ -256,8 +256,8 @@ export const richOutputSchema = z.strictObject({
     const children = element.children ?? [];
     if (element.type === "Tabs") {
       const tabs = tabsPropsSchema.safeParse(element.props);
-      if (tabs.success && (tabs.data.tabs.length !== children.length ||
-        tabs.data.tabs.some((tab, index) => tab.id !== children[index]))) {
+      // Views pair with tabs by position; tab IDs only label the switch.
+      if (tabs.success && tabs.data.tabs.length !== children.length) {
         context.addIssue({ code: "custom", path: ["spec", "elements", elementId, "children"], message: "invalid_tab_children" });
       }
     } else if (element.type === "Details") {
@@ -280,7 +280,7 @@ export const richOutputSchema = z.strictObject({
     }
     visited.add(next.elementId);
     const element = value.spec.elements[next.elementId];
-    if (!element || (element.type === "Panel") !== (next.depth === 0)) {
+    if (!element || (next.depth === 0 && element.type !== "Panel")) {
       context.addIssue({ code: "custom", message: "invalid_root" });
       return;
     }
@@ -434,10 +434,13 @@ export function richOutputText(output: RichOutput): string {
       ).join("; ")}`));
     }
     if (element.type === "Tabs") {
-      for (const tab of tabsPropsSchema.parse(props).tabs) {
-        lines.push(tab.label);
-        visit(tab.id);
-      }
+      const { tabs } = tabsPropsSchema.parse(props);
+      // Views pair with tab labels by position, not by ID.
+      (element.children ?? []).forEach((child, index) => {
+        const label = tabs[index]?.label;
+        if (label) lines.push(label);
+        visit(child);
+      });
     } else {
       for (const child of element.children ?? []) visit(child);
     }
