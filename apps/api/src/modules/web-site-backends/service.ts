@@ -11,10 +11,7 @@ import { AppwriteClient } from "./appwrite.js";
 import type { WebSiteBackendStore } from "./repository.js";
 
 const secretSchema = z.object({ key: z.string().min(16) });
-export const appHostLabelSchema = z.string().regex(/^[0-9a-f]{12}$/u);
-/** The first 96 bits of the backend UUID: short enough to type, wide enough that a
- * collision is treated as not found (see the repository's host-label lookup). */
-export const appHostLabel = (id: string): string => appHostLabelSchema.parse(z.uuid().parse(id).replaceAll("-", "").slice(0, 12));
+export { generatedWebSiteBackendHostLabel as appHostLabel } from "@linksense/shared";
 const permissions = (publicRead: boolean, clientCreate = true) => [...(clientCreate ? ['create("users")'] : []), ...(publicRead ? ['read("any")'] : [])];
 const privateResourceFields = new Set(["vars", "varsProject", "variables", "secret", "password", "apiKey", "encryptedCredential", "buildLogs", "logs", "errors"]);
 function publicResource(value: unknown): unknown {
@@ -47,7 +44,7 @@ export class WebSiteBackendService {
 
   origin(backend: Pick<BackendRow, "id" | "hostLabel">): string {
     const url = new URL(this.requiredClient().config.appsBaseUrl);
-    url.hostname = `${backend.hostLabel ?? appHostLabel(backend.id)}.${url.hostname}`;
+    url.hostname = `${backend.hostLabel ?? z.uuid().parse(backend.id)}.${url.hostname}`;
     return url.origin;
   }
 
@@ -55,7 +52,29 @@ export class WebSiteBackendService {
   async originFor(id: string): Promise<string> {
     const row = await this.store.findById(id);
     if (!row) throw new AppError("WEB_SITE_NOT_FOUND");
-    return this.origin(row);
+    return this.origin(await this.resolveHost(row));
+  }
+
+  private async resolveHost(row: BackendRow, existingLease?: Date): Promise<BackendRow> {
+    if (row.hostResolved || row.status !== "ready" || !row.encryptedCredential) return row;
+    const lease = existingLease ?? new Date(Date.now() + 60_000);
+    if (!existingLease) await this.store.acquire(row.ownerId, row.id, lease);
+    try {
+      row = await this.store.owned(row.ownerId, row.id);
+      if (row.hostResolved) return row;
+      const platform = await this.requiredClient().request(`/project/platforms/${row.projectId}`, row.projectId, this.key(row));
+      const hostname = z.string().parse(platform.hostname).toLowerCase();
+      const base = new URL(this.requiredClient().config.appsBaseUrl).hostname;
+      const hostLabel = hostname === `${row.id}.${base}` ? null
+        : hostname.endsWith(`.${base}`) ? webSiteBackendHostSchema.safeParse(hostname.slice(0, -(base.length + 1))).data : undefined;
+      if (hostLabel === undefined || hostLabel !== null && (await this.store.findByHostLabel(hostLabel))?.id !== row.id) {
+        throw new AppError("WEB_SITE_BACKEND_UNAVAILABLE");
+      }
+      await this.store.setHostLabel(row.id, lease, hostLabel);
+      return { ...row, hostLabel, hostResolved: true };
+    } finally {
+      if (!existingLease) await this.store.finish(row.id, lease);
+    }
   }
 
   /** Returns the host label; the store resolves it to a backend row. */
@@ -83,36 +102,40 @@ export class WebSiteBackendService {
 
   async prepare(ownerId: string, conversationId: string, name: string, id?: string, address?: string): Promise<WebSiteBackend> {
     const client = this.requiredClient();
-    const reserved = id ? await this.store.owned(ownerId, id) : await this.store.reserve(ownerId, conversationId, name);
-    const row = address && address !== reserved.hostLabel ? await this.rename(reserved, address) : reserved;
-    if (row.status === "ready" && row.encryptedCredential) return this.project(row);
+    let row = id ? await this.store.owned(ownerId, id) : await this.store.reserve(ownerId, conversationId, name);
+    if (!address && row.status === "ready" && row.encryptedCredential) return this.project(row);
     const lease = new Date(Date.now() + 180_000);
     await this.store.acquire(ownerId, row.id, lease);
+    let status: "ready" | "failed" | undefined;
+    let encrypted: string | undefined;
     try {
+      row = await this.store.owned(ownerId, row.id);
+      row = await this.resolveHost(row, lease);
+      if (address) row = await this.rename(row, address, lease);
+      if (row.status === "ready" && row.encryptedCredential) return await this.project(row);
+      status = "failed";
       const key = await client.provision(row.projectId, row.name, this.origin(row));
-      const encrypted = encryptJson({ key }, this.config.credentialMasterKey, this.config.credentialKeyId, `web-site-backend:${row.id}`);
-      await this.store.finish(row.id, lease, "ready", encrypted);
-      return this.project({ ...row, status: "ready" });
-    } catch (error) {
-      await this.store.finish(row.id, lease, "failed");
-      throw error;
-    }
+      encrypted = encryptJson({ key }, this.config.credentialMasterKey, this.config.credentialKeyId, `web-site-backend:${row.id}`);
+      status = "ready";
+      return await this.project({ ...row, status: "ready", hostResolved: true });
+    } finally { await this.store.finish(row.id, lease, status, encrypted); }
   }
 
-  /** The database is the source of truth, so a failed Appwrite update reverts the label. */
-  private async rename(row: BackendRow, address: string): Promise<BackendRow> {
+  /** Keep both origins reserved while the upstream result may still be uncertain. */
+  private async rename(row: BackendRow, address: string, lease: Date): Promise<BackendRow> {
     const taken = await this.store.findByHostLabel(address);
     if (taken && taken.id !== row.id) throw new AppError("WEB_SITE_BACKEND_ADDRESS_TAKEN");
     const previous = row.hostLabel;
-    await this.store.setHostLabel(row.id, address);
-    if (row.status !== "ready") return { ...row, hostLabel: address };
+    await this.store.setHostLabel(row.id, lease, address, row.status !== "ready");
+    if (row.status !== "ready") return { ...row, hostLabel: address, hostResolved: true };
     try {
       await this.requiredClient().setPlatformHostname(row.projectId, new URL(this.origin({ ...row, hostLabel: address })).hostname);
+      await this.store.setHostLabel(row.id, lease, address);
     } catch (error) {
-      await this.store.setHostLabel(row.id, previous);
+      await this.store.setHostLabel(row.id, lease, previous, false);
       throw error;
     }
-    return { ...row, hostLabel: address };
+    return { ...row, hostLabel: address, hostResolved: true };
   }
 
   async inspect(ownerId: string, id: string): Promise<WebSiteBackend> {
@@ -204,7 +227,8 @@ export class WebSiteBackendService {
     } catch { throw new AppError("WEB_SITE_BACKEND_UNAVAILABLE"); }
   }
 
-  private project(row: BackendRow): WebSiteBackend {
+  private async project(row: BackendRow): Promise<WebSiteBackend> {
+    row = await this.resolveHost(row);
     const origin = this.origin(row);
     return webSiteBackendSchema.parse({
       id: row.id, name: row.name, project_id: row.projectId, status: row.status,

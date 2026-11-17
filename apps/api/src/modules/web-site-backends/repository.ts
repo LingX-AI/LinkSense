@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { generatedWebSiteBackendHostLabel } from "@linksense/shared";
 import { Prisma, type PrismaClient, type WebSiteBackend } from "../../generated/prisma/client.js";
 import { AppError } from "../../lib/errors.js";
 
@@ -13,7 +14,9 @@ export class WebSiteBackendRepository {
       if (existing) return existing;
       if (await tx.webSiteBackend.count({ where: { ownerId } }) >= 50) throw new AppError("WEB_SITE_BACKEND_LIMIT_REACHED");
       const id = randomUUID();
-      return tx.webSiteBackend.create({ data: { id, ownerId, conversationId, name, projectId: `ls-${id.replaceAll("-", "")}` } });
+      const hostLabel = generatedWebSiteBackendHostLabel(id);
+      await tx.webSiteBackendAddress.create({ data: { label: hostLabel, backendId: id } });
+      return tx.webSiteBackend.create({ data: { id, ownerId, conversationId, name, hostLabel, hostResolved: true, projectId: `ls-${id.replaceAll("-", "")}` } });
     });
   }
 
@@ -34,16 +37,18 @@ export class WebSiteBackendRepository {
   async finish(id: string, until: Date, status?: "ready" | "failed", encryptedCredential?: string): Promise<void> {
     const result = await this.prisma.webSiteBackend.updateMany({
       where: { id, leaseUntil: until },
-      data: { leaseUntil: null, ...(status ? { status } : {}), ...(encryptedCredential ? { encryptedCredential } : {}) },
+      data: { leaseUntil: null, ...(status ? { status } : {}), ...(status === "ready" ? { hostResolved: true } : {}), ...(encryptedCredential ? { encryptedCredential } : {}) },
     });
     if (result.count !== 1) throw new AppError("CONFLICT");
   }
 
-  /** A label that matches two backends is ambiguous, so it resolves to nothing. */
   async byHostLabel(label: string): Promise<{ id: string } | null> {
     const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-      SELECT id::text AS id FROM web_site_backends
-      WHERE host_label = ${label} OR (host_label IS NULL AND left(replace(id::text, '-', ''), 12) = ${label})
+      SELECT b.id::text AS id FROM web_site_backends b
+      WHERE b.host_label = ${label} OR (b.host_label IS NULL AND b.id::text = ${label})
+        OR (NOT b.host_resolved AND (b.id::text = ${label}
+          OR (b.host_label IS NULL AND left(replace(b.id::text, '-', ''), 12) = ${label})
+          OR EXISTS (SELECT 1 FROM web_site_backend_addresses a WHERE a.backend_id = b.id AND a.label = ${label})))
       LIMIT 2`);
     const [row] = rows;
     return rows.length === 1 && row ? row : null;
@@ -54,12 +59,25 @@ export class WebSiteBackendRepository {
   }
 
   async findByHostLabel(hostLabel: string): Promise<{ id: string } | null> {
-    return this.prisma.webSiteBackend.findFirst({ where: { hostLabel }, select: { id: true } });
+    const address = await this.prisma.webSiteBackendAddress.findUnique({ where: { label: hostLabel } });
+    return address ? { id: address.backendId } : null;
   }
 
-  async setHostLabel(id: string, hostLabel: string | null): Promise<void> {
+  async setHostLabel(id: string, lease: Date, hostLabel: string | null, hostResolved = true): Promise<void> {
     try {
-      await this.prisma.webSiteBackend.update({ where: { id }, data: { hostLabel } });
+      await this.prisma.$transaction(async tx => {
+        const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          SELECT id FROM web_site_backends WHERE id = ${id}::uuid
+          AND lease_until = ${lease} AND lease_until > ${new Date()} FOR UPDATE`);
+        if (!rows.length) throw new AppError("CONFLICT");
+        if (hostLabel !== null) {
+          const address = await tx.webSiteBackendAddress.upsert({
+            where: { label: hostLabel }, create: { label: hostLabel, backendId: id }, update: {},
+          });
+          if (address.backendId !== id) throw new AppError("WEB_SITE_BACKEND_ADDRESS_TAKEN");
+        }
+        await tx.webSiteBackend.update({ where: { id }, data: { hostLabel, hostResolved } });
+      });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new AppError("WEB_SITE_BACKEND_ADDRESS_TAKEN");
       throw error;

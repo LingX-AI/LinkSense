@@ -64,9 +64,14 @@ export class AppwriteClient {
           keyId: projectId, name: "LinkSense control", scopes: managementScopes, expire: null,
         }, scopedSession);
       const key = credential.parse(createdKey).secret;
-      await this.createOrRead("/project/platforms/web", `/project/platforms/${projectId}`, projectId, key, {
-        platformId: projectId, type: "web", name: "LinkSense application", hostname: new URL(origin).hostname,
+      const hostname = new URL(origin).hostname;
+      const platform = await this.createOrRead("/project/platforms/web", `/project/platforms/${projectId}`, projectId, key, {
+        platformId: projectId, type: "web", name: "LinkSense application", hostname,
       });
+      if (z.string().parse(platform.hostname) !== hostname) {
+        await this.request(`/projects/${encodeURIComponent(projectId)}/platforms/${encodeURIComponent(projectId)}`,
+          "console", undefined, "PUT", { name: "LinkSense application", hostname }, session);
+      }
       await this.createOrRead("/tablesdb", "/tablesdb/app", projectId, key, { databaseId: "app", name: "Application" });
       return key;
     });

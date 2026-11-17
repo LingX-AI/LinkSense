@@ -44,7 +44,7 @@
 
 1. 在自有基础设施安装官方 Appwrite，初始化组织与具有该组织 owner 权限的专用管理账号，启用 `node-24` runtime。Appwrite 的 API hostname 必须能从函数执行网络解析并访问，不能把函数容器自己的 `localhost` 当作 API 地址。API、执行器及原生函数域只能从受控网络访问，公众仅访问 LS 应用网关；否则直连原生接口会绕过 LS 停用状态。SMTP、对象存储、备份和监控同样由部署方提供。
 2. 配置 `.env.example` 中的 `LINKSENSE_APPWRITE_ENDPOINT`、`LINKSENSE_APPWRITE_ADMIN_EMAIL`、`LINKSENSE_APPWRITE_ADMIN_PASSWORD`、`LINKSENSE_DYNAMIC_APPS_BASE_URL`。前三项是仅 API 使用的管理配置，不下发 Runner、模型或网页。管理员属于多个组织时，还要指定 `LINKSENSE_APPWRITE_ORGANIZATION_ID`；单组织自动识别。保持密码原有字符，凭据文件和部署配置按现有秘密管理要求保护。
-3. 应用 base URL 使用自有域，如 `https://apps.example.net`，配置通配 DNS 和证书。公开应用必须与 LS 控制台及 Appwrite 管理端使用不同的可注册域名，不能只使用同一域名的不同子域；服务启动时使用公共后缀规则校验，避免公开页面通过父域 Cookie 影响管理端。每应用地址为 `https://<backend-host>.apps.example.net`，`backend-host` 默认是后端 UUID 去掉连字符后的前 12 位，例如 `600000000000`；本地可用 `http://apps.localhost:<api-port>`。创建或更新后端时可用 `prepare_backend` 的 `address` 指定 3–30 位小写 DNS 标签（如 `appointments`）作为固定地址，12 位十六进制留给自动地址；地址被占用时拒绝并返回 `WEB_SITE_BACKEND_ADDRESS_TAKEN`。改名会同步更新 Appwrite 的 Web 平台域名，旧地址随即失效，Appwrite 更新失败时回滚为原地址。修改 base URL 会改变所有动态应用地址及浏览器 origin，不能当作普通重命名操作。
+3. 应用 base URL 使用自有域，如 `https://apps.example.net`，配置通配 DNS 和证书。公开应用必须与 LS 控制台及 Appwrite 管理端使用不同的可注册域名，不能只使用同一域名的不同子域；服务启动时使用公共后缀规则校验，避免公开页面通过父域 Cookie 影响管理端。每应用地址为 `https://<backend-host>.apps.example.net`，新建后端默认持久化后端 UUID 去掉连字符后的前 12 位，例如 `600000000000`；既有后端保留原来的 UUID、短域名或自定义地址。本地可用 `http://apps.localhost:<api-port>`。创建或更新后端时可用 `prepare_backend` 的 `address` 指定 3–30 位小写 DNS 标签（如 `appointments`）作为固定地址，12 位十六进制留给自动地址；地址被占用时拒绝并返回 `WEB_SITE_BACKEND_ADDRESS_TAKEN`。改名与配置、发布共用数据库租约，并同步更新 Appwrite 的 Web 平台域名；旧地址停止提供服务，但永久保留给原后端，防止其他应用接管访客的浏览器存储。Appwrite 更新失败时恢复原地址，尝试过的新地址也继续保留。修改 base URL 会改变所有动态应用地址及浏览器 origin，不能当作普通重命名操作。
 4. 生产域可采用 [Nginx 配置片段](../../deploy/production/dynamic-apps.nginx.example.conf)，通过现有 LS 网关端口的 `/api/v1/public-app-gateway/` 转发到 API，保留原始 Host。也可在受控网络直接转发全部路径到 API。应用主机空间在平台认证、CORS 和请求体解析前被处理，不能通过该域访问平台 API；平台域也不提供应用后端管理代理。
 
 四个必填配置全为空时禁用动态能力，静态发布和已有站点管理照常工作；部分配置或不安全的应用 URL 会在启动时拒绝。Docker 仅把 Appwrite 管理配置传给 API。
@@ -58,6 +58,8 @@
 - 先准备和验证后端，再通过 `publish_web_site` 的 `backend_id` 发布完整前端；恢复已停用应用时也检查后端就绪状态。更新使用现有 `site_id`，保留后端、访客账号、数据和应用地址。前端发布、函数部署和 schema 变更独立；回退前端不自动恢复函数或数据库。
 - 对话卡片、站点列表和复制操作使用实际应用 URL，旧 `/web/{slug}` 入口在权限检查后跳转。Browser Use 沿用已有拥有者检查、扩展权限和独立窗口操作，跳转后打开动态应用，无需改变扩展协议。
 - 网页包入口位于子目录时，应用根地址跳转到该入口并保留查询参数，使相对资源路径继续有效；带尾斜杠的目录地址读取该目录的 `index.html`。
+- 尽量在生成和发布前确定自定义地址。网页应从当前页面 origin 解析 `/appwrite/v1`；显式改名不会重写已发布的 HTML/JavaScript，也不会转移旧 origin 的 Cookie、localStorage 或 IndexedDB。已有前端若写死绝对 endpoint，需要在改名时同步更新并发布前端；访客可能需要重新登录。
+- 改名请求超时或响应丢失时，不能假定 Appwrite 没有执行更新。此时保留新旧地址的归属并把域名标记为待核验；下次读取在租约内检查原生平台的实际域名，只接受当前后端保留的地址并同步映射。不能把失败响应当作已经回滚原生平台的证明。
 
 ### 生命周期与限制
 
@@ -70,6 +72,10 @@
 ### 升级与验证
 
 先执行新增迁移 `20261115000000_add_web_site_backends`，再更新全部 API 实例并配置入口，然后更新 Runner/Web。迁移仅新增后端表、可空绑定字段与新索引，不重建旧站点或修改其原有数据。旧 Web 客户端使用原 `/web/` 入口仍可跳转，旧静态站点不要求重新发布；启用动态应用前应完成全部 API 副本升级。
+
+地址功能还需要依次应用 `20261117120000_add_web_site_backend_host_label`、`20261117160000_reserve_web_site_backend_addresses` 和 `20261117163000_resolve_existing_web_site_backend_hosts`，然后更新全部 API 实例。后两条只增加地址保留表和原生域名核验标记，保留后端项目、账号、数据、文件和加密凭据。历史 `host_label = NULL` 可能来自 UUID 域名版本，也可能来自未持久化短域名的开发版本；首次访问或读取地址时，在租约内读取一次既有 Appwrite Web 平台域名并持久化结果，不修改其原生平台或强制重新发布。首次核验需要 Appwrite 可达；失败会释放租约，恢复后重试即可。不能通过批量截断所有历史 UUID 来完成升级。
+
+`LINKSENSE_TEST_DATABASE_URL=postgresql://.../linksense_backend_addresses_test pnpm --filter @linksense/api exec tsx test/integration/web-site-backend-addresses-postgres.ts` 使用显式指定的、空的本机测试数据库验证升级和地址竞争，不需要 Appwrite；脚本拒绝非本机或已有表的数据库。真实 Appwrite 的完整验证仍使用下方脚本。
 
 从本功能早期开发版本升级时，共用 LS 控制台或 Appwrite 管理端可注册域名的应用配置会被拒绝，需在部署前选择隔离域名。HTTPS 下原先没有 `__Host-` 前缀的访客 Cookie 不再接受，访客重新登录即可恢复；账号、数据和文件保留。本机 HTTP 会话格式不变。
 

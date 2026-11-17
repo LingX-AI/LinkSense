@@ -24,7 +24,8 @@ export function registerWebSiteBackendGateway(app: FastifyInstance, backends: We
     const rawUrl = request.raw.url ?? "/";
     const routedUrl = rawUrl.startsWith(`${gatewayPrefix}/`) ? rawUrl.slice(gatewayPrefix.length) : rawUrl;
     const binding = await backends.store.publicBinding(id);
-    const origin = backends.origin(binding.backend);
+    const origin = await backends.originFor(id);
+    if (backends.matchHost(new URL(origin).host) !== label) throw new AppError("WEB_SITE_NOT_FOUND");
     const url = new URL(routedUrl, origin);
     if (url.origin !== origin || url.pathname.includes("\\")) throw new AppError("WEB_SITE_NOT_FOUND");
     if (request.headers.origin !== undefined && request.headers.origin !== origin) throw new AppError("FORBIDDEN");

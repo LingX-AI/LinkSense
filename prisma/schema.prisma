@@ -1486,6 +1486,7 @@ model WebSiteBackend {
   conversationId      String    @map("conversation_id") @db.Uuid
   name                String    @db.VarChar(128)
   hostLabel           String?   @unique(map: "web_site_backends_host_label_key") @map("host_label") @db.VarChar(30)
+  hostResolved        Boolean   @default(false) @map("host_resolved")
   projectId           String    @unique(map: "web_site_backends_project_key") @map("project_id") @db.VarChar(36)
   status              String    @default("preparing") @db.VarChar(16)
   encryptedCredential String?   @map("encrypted_credential") @db.Text
@@ -1496,6 +1497,16 @@ model WebSiteBackend {
   @@unique([ownerId, conversationId, name], map: "web_site_backends_source_name_key")
   @@index([ownerId, updatedAt], map: "web_site_backends_owner_idx")
   @@map("web_site_backends")
+}
+
+// Browser storage survives an address change, so an old origin must never move
+// to another backend, even after its site is deleted.
+model WebSiteBackendAddress {
+  label     String @id @db.VarChar(30)
+  backendId String @map("backend_id") @db.Uuid
+
+  @@index([backendId], map: "web_site_backend_addresses_backend_idx")
+  @@map("web_site_backend_addresses")
 }
 
 // Reserve retired addresses while a site exists. Deleting the site releases

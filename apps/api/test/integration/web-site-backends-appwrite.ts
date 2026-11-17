@@ -79,7 +79,7 @@ try {
   const migrations = join(repo, "prisma/migrations");
   const before = join(root, "before-backends");
   for (const entry of await readdir(migrations)) {
-    if (entry !== "20261115000000_add_web_site_backends") await cp(join(migrations, entry), join(before, entry), { recursive: true });
+    if (entry < "20261115000000_add_web_site_backends" || entry === "migration_lock.toml") await cp(join(migrations, entry), join(before, entry), { recursive: true });
   }
   const migrate = async (directory: string) => execute("pnpm", ["exec", "prisma", "migrate", "deploy", "--config", "apps/api/test/integration/prisma.config.ts"], {
     cwd: repo, timeout: 120_000, maxBuffer: 4_000_000,

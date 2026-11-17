@@ -51,6 +51,40 @@ describe("public application gateway", () => {
     expect((await fixture.app.inject({ url: "/", headers: { host: `${appHostLabel(backendId)}.apps.example.net` } })).statusCode).toBe(404);
   });
 
+  it("keeps a historical UUID host and its Appwrite origin usable after upgrading", async () => {
+    const fixture = setup();
+    fixture.row.hostLabel = null;
+    fixture.row.hostResolved = false;
+    const host = `${backendId}.apps.example.net`;
+    const origin = `https://${host}`;
+    fixture.fetcher.mockResolvedValueOnce(Response.json({ hostname: host }));
+    expect((await fixture.app.inject({ url: "/", headers: { host } })).statusCode).toBe(200);
+    expect((await fixture.app.inject({ url: "/appwrite/v1/account", headers: { host, origin } })).statusCode).toBe(200);
+    expect(new Headers(fixture.fetcher.mock.calls[1]?.[1]?.headers).get("origin")).toBe(origin);
+    expect((await fixture.app.inject({ url: "/", headers: { host: `${appHostLabel(backendId)}.apps.example.net` } })).statusCode).toBe(404);
+  });
+
+  it("keeps an early short host usable when its backend still has a null label", async () => {
+    const fixture = setup();
+    fixture.row.hostLabel = null;
+    fixture.row.hostResolved = false;
+    fixture.fetcher.mockResolvedValueOnce(Response.json({ hostname: fixture.host }));
+    expect((await fixture.app.inject({ url: "/", headers: { host: fixture.host } })).statusCode).toBe(200);
+    expect(fixture.row.hostLabel).toBe(appHostLabel(backendId));
+    expect((await fixture.app.inject({ url: "/", headers: { host: `${backendId}.apps.example.net` } })).statusCode).toBe(404);
+  });
+
+  it("recovers an interrupted rename when a visitor opens the previously reserved host", async () => {
+    const fixture = setup();
+    fixture.row.hostLabel = "appointments";
+    fixture.row.hostResolved = false;
+    fixture.fetcher.mockResolvedValueOnce(Response.json({ hostname: fixture.host }));
+    expect((await fixture.app.inject({ url: "/", headers: { host: fixture.host } })).statusCode).toBe(200);
+    expect(fixture.row.hostLabel).toBe(appHostLabel(backendId));
+    expect(fixture.row.hostResolved).toBe(true);
+    expect((await fixture.app.inject({ url: "/", headers: { host: "appointments.apps.example.net" } })).statusCode).toBe(404);
+  });
+
   it("pins projects and strips platform authentication before forwarding native API requests", async () => {
     const { app, host, fetcher } = setup();
     const response = await app.inject({

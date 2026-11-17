@@ -54,7 +54,10 @@ try {
   for (const entry of await readdir(migrations, { withFileTypes: true })) {
     if (entry.name === hardDeleteMigration) continue;
     await cp(join(migrations, entry.name), join(beforeHardDelete, entry.name), { recursive: true });
-    if (entry.name !== "20260917180000_add_web_sites" && entry.name !== "20261115000000_add_web_site_backends") await cp(join(migrations, entry.name), join(before, entry.name), { recursive: true });
+    if (entry.name !== "20260917180000_add_web_sites" &&
+        (entry.name < "20261115000000_add_web_site_backends" || entry.name === "migration_lock.toml")) {
+      await cp(join(migrations, entry.name), join(before, entry.name), { recursive: true });
+    }
   }
   const migrate = async (path: string) => { await execute("pnpm", ["exec", "prisma", "migrate", "deploy", "--config", "apps/api/test/integration/prisma.config.ts"], { cwd: repo, timeout: 120_000, env: { ...process.env, DATABASE_URL: databaseUrl, LINKSENSE_TEST_MIGRATIONS_PATH: path }, maxBuffer: 4_000_000 }); };
   await migrate(before);

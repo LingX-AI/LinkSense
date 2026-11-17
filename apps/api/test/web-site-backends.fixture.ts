@@ -19,23 +19,28 @@ export function backendFixture(appsBaseUrl = "https://apps.example.net") {
   const site = siteFixture();
   site.row.site.backendId = backendId;
   const row: WebSiteBackend = {
-    id: backendId, ownerId, conversationId: taskId, projectId: "ls-test-project", hostLabel: null, name: "Appointments",
+    id: backendId, ownerId, conversationId: taskId, projectId: "ls-test-project", hostLabel: appHostLabel(backendId), hostResolved: true, name: "Appointments",
     status: "ready", leaseUntil: null, createdAt: now, updatedAt: now,
     encryptedCredential: encryptJson({ key: "test-project-management-key" }, config.credentialMasterKey, config.credentialKeyId, `web-site-backend:${backendId}`),
   };
   let published = true;
+  const addresses = new Set([appHostLabel(backendId)]);
   const store: WebSiteBackendStore = {
     reserve: vi.fn(async () => row),
     owned: vi.fn(async (owner, id) => {
       if (owner !== ownerId || id !== backendId) throw new AppError("WEB_SITE_NOT_FOUND");
-      return row;
+      return { ...row };
     }),
-    byHostLabel: vi.fn(async label => (row.hostLabel ? label === row.hostLabel : label === appHostLabel(backendId)) ? { id: backendId } : null),
+    byHostLabel: vi.fn(async label => (label === (row.hostLabel ?? backendId) ||
+      (!row.hostResolved && (label === backendId || addresses.has(label)))) ? { id: backendId } : null),
     findById: vi.fn(async id => id === backendId ? row : null),
-    findByHostLabel: vi.fn(async hostLabel => hostLabel === row.hostLabel ? { id: backendId } : null),
-    setHostLabel: vi.fn(async (id, hostLabel) => {
+    findByHostLabel: vi.fn(async hostLabel => addresses.has(hostLabel) ? { id: backendId } : null),
+    setHostLabel: vi.fn(async (id, lease, hostLabel, hostResolved = true) => {
       if (id !== backendId) throw new AppError("WEB_SITE_NOT_FOUND");
+      if (row.leaseUntil?.getTime() !== lease.getTime() || lease.getTime() <= Date.now()) throw new AppError("CONFLICT");
+      if (hostLabel !== null) addresses.add(hostLabel);
       row.hostLabel = hostLabel;
+      row.hostResolved = hostResolved;
     }),
     acquire: vi.fn(async (owner, id, lease) => {
       if (owner !== ownerId || id !== backendId) throw new AppError("WEB_SITE_NOT_FOUND");

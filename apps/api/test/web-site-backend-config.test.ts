@@ -26,7 +26,7 @@ describe("optional dynamic application configuration", () => {
     const { service } = backendFixture();
     const id = "60000000-0000-4000-8000-000000000001";
     expect(service.matchHost(`${appHostLabel(id)}.apps.example.net:443`)).toBe(appHostLabel(id));
-    expect(service.matchHost(`${id}.apps.example.net:443`)).toBeUndefined();
+    expect(service.matchHost(`${id}.apps.example.net:443`)).toBe(id);
     expect(service.matchHost(`${appHostLabel(id)}.apps.example.net.evil.test`)).toBeUndefined();
     expect(service.matchHost(`${appHostLabel(id)}.apps.example.net:444`)).toBeUndefined();
     expect(service.isAppHost(`not-a-backend.apps.example.net`)).toBe(true);

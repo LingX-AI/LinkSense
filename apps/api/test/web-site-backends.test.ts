@@ -12,7 +12,9 @@ describe("self-hosted Appwrite backend", () => {
     const fetcher = vi.fn<typeof fetch>(async (url) => {
       const path = new URL(String(url)).pathname;
       return path.endsWith("/sessions/email") ? Response.json({ secret: "" }, { headers: { "set-cookie": "a_session_console=test-console-session; Path=/; HttpOnly" } })
-        : Response.json(path.endsWith("/keys") ? { secret: "test-project-management-key" } : path === "/v1/teams" ? { total: 1, teams: [{ $id: "organization" }] } : {});
+        : Response.json(path.endsWith("/keys") ? { secret: "test-project-management-key" }
+          : path === "/v1/teams" ? { total: 1, teams: [{ $id: "organization" }] }
+          : path === "/v1/project/platforms/web" ? { hostname: "app.example.test" } : {});
     });
     const client = new AppwriteClient(config.appwrite!, fetcher);
     await expect(client.provision("ls-app", "App", "https://app.example.test")).resolves.toBe("test-project-management-key");
@@ -45,6 +47,59 @@ describe("self-hosted Appwrite backend", () => {
     expect(fetcher.mock.calls.at(-1)?.[1]?.method).toBe("DELETE");
   });
 
+  it("reconciles a platform left by failed provisioning before returning the recovered backend", async () => {
+    const { config } = backendFixture();
+    const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith("/sessions/email")) return Response.json({}, { headers: { "set-cookie": "a_session_console=test-console-session; HttpOnly" } });
+      if (path === "/v1/teams") return Response.json({ total: 1, teams: [{ $id: "organization" }] });
+      if (path.endsWith("/keys")) return Response.json({ secret: "test-project-management-key" });
+      if (path === "/v1/project/platforms/web") return Response.json({}, { status: 409 });
+      if (path === "/v1/project/platforms/ls-app" && init?.method === "GET") return Response.json({ hostname: "old.example.test" });
+      return Response.json({});
+    });
+    const client = new AppwriteClient(config.appwrite!, fetcher);
+    await client.provision("ls-app", "App", "https://new.example.test");
+    const update = fetcher.mock.calls.find(([url, init]) =>
+      new URL(String(url)).pathname === "/v1/projects/ls-app/platforms/ls-app" && init?.method === "PUT");
+    expect(update).toBeDefined();
+    expect(JSON.parse(String(update?.[1]?.body))).toMatchObject({ hostname: "new.example.test" });
+    expect(new Headers(update?.[1]?.headers).get("x-appwrite-session")).toBe("test-console-session");
+    expect(fetcher.mock.calls.at(-1)?.[1]?.method).toBe("DELETE");
+  });
+
+  it("restores only the current address while keeping a failed rename's backend ready", async () => {
+    const fixture = backendFixture();
+    vi.mocked(fixture.store.acquire).mockImplementationOnce(async (_owner, _id, lease) => {
+      fixture.row.hostLabel = "latest-address";
+      fixture.row.leaseUntil = lease;
+    });
+    vi.spyOn(fixture.service.requiredClient(), "setPlatformHostname").mockRejectedValue(new Error("upstream failure"));
+    await expect(fixture.service.prepare(ownerId, taskId, "Appointments", backendId, "appointments"))
+      .rejects.toThrow("upstream failure");
+    expect(fixture.row.hostLabel).toBe("latest-address");
+    expect(fixture.row.status).toBe("ready");
+    expect(fixture.row.leaseUntil).toBeNull();
+  });
+
+  it.each([false, true])("recovers the actual platform origin after a rename response is lost (applied=%s)", async applied => {
+    const fixture = backendFixture();
+    const previous = appHostLabel(backendId);
+    vi.spyOn(fixture.service.requiredClient(), "setPlatformHostname").mockRejectedValue(new Error("response lost"));
+    await expect(fixture.service.prepare(ownerId, taskId, "Appointments", backendId, "appointments"))
+      .rejects.toThrow("response lost");
+    expect(fixture.row.hostResolved).toBe(false);
+    vi.mocked(fixture.store.findByHostLabel).mockImplementation(async label =>
+      [previous, "appointments"].includes(label) ? { id: backendId } : null);
+    const actual = applied ? "appointments" : previous;
+    fixture.fetcher.mockResolvedValueOnce(Response.json({ hostname: `${actual}.apps.example.net` }));
+    await expect(fixture.service.inspect(ownerId, backendId)).resolves.toMatchObject({
+      origin: `https://${actual}.apps.example.net`,
+    });
+    expect(fixture.row.hostResolved).toBe(true);
+    expect(fixture.row.hostLabel).toBe(actual);
+  });
+
   it("renames a backend to a chosen address and moves its web platform", async () => {
     const fixture = backendFixture();
     const setPlatformHostname = vi.spyOn(fixture.service.requiredClient(), "setPlatformHostname").mockResolvedValue();
@@ -61,7 +116,7 @@ describe("self-hosted Appwrite backend", () => {
     const setPlatformHostname = vi.spyOn(fixture.service.requiredClient(), "setPlatformHostname");
     await expect(fixture.service.prepare(ownerId, taskId, "Appointments", backendId, "appointments"))
       .rejects.toMatchObject({ code: "WEB_SITE_BACKEND_ADDRESS_TAKEN" });
-    expect(fixture.row.hostLabel).toBeNull();
+    expect(fixture.row.hostLabel).toBe(appHostLabel(backendId));
     expect(setPlatformHostname).not.toHaveBeenCalled();
   });
 
@@ -69,7 +124,120 @@ describe("self-hosted Appwrite backend", () => {
     const fixture = backendFixture();
     vi.spyOn(fixture.service.requiredClient(), "setPlatformHostname").mockRejectedValue(new Error("upstream failure"));
     await expect(fixture.service.prepare(ownerId, taskId, "Appointments", backendId, "appointments")).rejects.toThrow("upstream failure");
-    expect(fixture.row.hostLabel).toBeNull();
+    expect(fixture.row.hostLabel).toBe(appHostLabel(backendId));
+  });
+
+  it("keeps historical backend origins usable without reprovisioning their Appwrite platforms", async () => {
+    const fixture = backendFixture();
+    fixture.row.hostLabel = null;
+    fixture.row.hostResolved = false;
+    const origin = `https://${backendId}.apps.example.net`;
+    fixture.fetcher.mockResolvedValueOnce(Response.json({ hostname: new URL(origin).hostname }));
+    await expect(fixture.service.inspect(ownerId, backendId)).resolves.toMatchObject({ origin, endpoint: `${origin}/appwrite/v1` });
+    await expect(fixture.service.prepare(ownerId, taskId, "Appointments", backendId)).resolves.toMatchObject({ origin });
+    expect((await fixture.sites.list(ownerId, { limit: 20 })).items[0]?.url).toBe(origin);
+    expect((await fixture.sites.publicEntry("sample")).url).toBe(origin);
+    expect(fixture.fetcher).toHaveBeenCalledOnce();
+    expect(fixture.fetcher.mock.calls[0]?.[1]?.method).toBe("GET");
+  });
+
+  it("keeps a short host created before host labels were persisted without changing its native platform", async () => {
+    const fixture = backendFixture();
+    fixture.row.hostLabel = null;
+    fixture.row.hostResolved = false;
+    const origin = `https://${appHostLabel(backendId)}.apps.example.net`;
+    fixture.fetcher.mockResolvedValueOnce(Response.json({ hostname: new URL(origin).hostname }));
+    await expect(fixture.service.inspect(ownerId, backendId)).resolves.toMatchObject({ origin });
+    expect(fixture.row.hostLabel).toBe(appHostLabel(backendId));
+    expect(fixture.row.hostResolved).toBe(true);
+    await expect(fixture.service.originFor(backendId)).resolves.toBe(origin);
+    expect(fixture.fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("shares host resolution across historical deliveries of the same backend", async () => {
+    const fixture = backendFixture();
+    fixture.row.hostLabel = null;
+    fixture.row.hostResolved = false;
+    const { site } = fixture.site.row;
+    fixture.site.store.conversationDeliveries.mockResolvedValue([
+      { id: site.id, name: site.name, slug: site.slug, status: site.status, backend_id: backendId,
+        source_file_id: fixture.site.source.file.id, turn_id: "70000000-0000-4000-8000-000000000001" },
+      { id: site.id, name: site.name, slug: site.slug, status: site.status, backend_id: backendId,
+        source_file_id: "30000000-0000-4000-8000-000000000002", turn_id: "70000000-0000-4000-8000-000000000002" },
+    ]);
+    fixture.fetcher.mockResolvedValueOnce(Response.json({ hostname: `${backendId}.apps.example.net` }));
+    const deliveries = await fixture.sites.conversationDeliveries(ownerId, taskId, fixture.config.publicBaseUrl);
+    expect(deliveries).toHaveLength(2);
+    expect(deliveries.every(delivery => delivery.url === `https://${backendId}.apps.example.net`)).toBe(true);
+    expect(fixture.fetcher).toHaveBeenCalledOnce();
+    expect(fixture.store.acquire).toHaveBeenCalledOnce();
+  });
+
+  it("leaves an unresolved historical backend retryable if its native platform cannot be read", async () => {
+    const fixture = backendFixture();
+    fixture.row.hostLabel = null;
+    fixture.row.hostResolved = false;
+    fixture.fetcher.mockResolvedValueOnce(Response.json({}, { status: 503 }));
+    await expect(fixture.service.inspect(ownerId, backendId)).rejects.toThrow("WEB_SITE_BACKEND_UNAVAILABLE");
+    expect(fixture.row.hostResolved).toBe(false);
+    expect(fixture.row.leaseUntil).toBeNull();
+    fixture.fetcher.mockResolvedValueOnce(Response.json({ hostname: `${backendId}.apps.example.net` }));
+    await expect(fixture.service.inspect(ownerId, backendId)).resolves.toMatchObject({ origin: `https://${backendId}.apps.example.net` });
+  });
+
+  it.each(["foreign.apps.example.net", "appointments.other.example.net", "70000000-0000-4000-8000-000000000001.apps.example.net"])(
+    "rejects a native platform hostname outside this backend's reserved origins: %s", async hostname => {
+      const fixture = backendFixture();
+      fixture.row.hostLabel = null;
+      fixture.row.hostResolved = false;
+      fixture.fetcher.mockResolvedValueOnce(Response.json({ hostname }));
+      await expect(fixture.service.inspect(ownerId, backendId)).rejects.toThrow("WEB_SITE_BACKEND_UNAVAILABLE");
+      expect(fixture.row.hostLabel).toBeNull();
+      expect(fixture.row.hostResolved).toBe(false);
+      expect(fixture.row.leaseUntil).toBeNull();
+    },
+  );
+
+  it("rejects renaming a backend with an active lease before changing its address", async () => {
+    const fixture = backendFixture();
+    fixture.row.leaseUntil = new Date(Date.now() + 60_000);
+    const previous = fixture.row.hostLabel;
+    const update = vi.spyOn(fixture.service.requiredClient(), "setPlatformHostname").mockResolvedValue();
+    await expect(fixture.service.prepare(ownerId, taskId, "Appointments", backendId, "appointments"))
+      .rejects.toMatchObject({ code: "CONFLICT" });
+    expect(fixture.row.hostLabel).toBe(previous);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it.each(["ready", "preparing"] as const)("serializes address changes while a %s backend is being prepared", async status => {
+    const fixture = backendFixture();
+    fixture.row.status = status;
+    if (status === "preparing") fixture.row.encryptedCredential = null;
+    let markStarted = () => {};
+    let releaseUpdate = () => {};
+    const started = new Promise<void>(resolve => { markStarted = resolve; });
+    const release = new Promise<void>(resolve => { releaseUpdate = resolve; });
+    const update = vi.spyOn(fixture.service.requiredClient(), "setPlatformHostname").mockImplementation(async () => {
+      markStarted();
+      await release;
+    });
+    vi.spyOn(fixture.service.requiredClient(), "provision").mockImplementation(async () => {
+      markStarted();
+      await release;
+      return "test-project-management-key";
+    });
+    const first = fixture.service.prepare(ownerId, taskId, "Appointments", backendId, "appointments");
+    await started;
+    try {
+      await expect(fixture.service.prepare(ownerId, taskId, "Appointments", backendId, "bookings"))
+        .rejects.toMatchObject({ code: "CONFLICT" });
+      expect(fixture.row.hostLabel).toBe("appointments");
+    } finally {
+      releaseUpdate();
+      await first;
+    }
+    expect(fixture.row.leaseUntil).toBeNull();
+    expect(update).toHaveBeenCalledTimes(status === "ready" ? 1 : 0);
   });
 
   it("rejects addresses that are not DNS labels or that mimic generated hosts", () => {

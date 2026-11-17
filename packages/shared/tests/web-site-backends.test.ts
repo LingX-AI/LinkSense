@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { webSiteBackendConfigureSchema, webSiteBackendSchema } from "../src/web-site-backends.js";
+import { generatedWebSiteBackendHostLabel, webSiteBackendConfigureSchema, webSiteBackendHostSchema, webSiteBackendPrepareSchema, webSiteBackendSchema } from "../src/web-site-backends.js";
 import { webSiteCreateSchema, webSiteToolRequestSchema } from "../src/web-sites.js";
 
 const id = "40000000-0000-4000-8000-000000000001";
 describe("public application backend contracts", () => {
+  it("recognizes existing UUID hosts without accepting them as new chosen addresses", () => {
+    expect(webSiteBackendHostSchema.parse(id)).toBe(id);
+    expect(generatedWebSiteBackendHostLabel(id)).toBe("400000000000");
+    expect(webSiteBackendHostSchema.parse(generatedWebSiteBackendHostLabel(id))).toBe("400000000000");
+    expect(webSiteBackendPrepareSchema.safeParse({ name: "App", address: id }).success).toBe(false);
+  });
   it("keeps pre-backend website creation valid and supports explicit dynamic publication", () => {
     const original = { conversation_id: id, file_id: id, name: "Existing website" };
     expect(webSiteCreateSchema.parse(original)).not.toHaveProperty("backend_id");

@@ -16,11 +16,20 @@ export class WebSiteService {
   constructor(private readonly store: WebSiteStore, private readonly storage: ObjectStorage, private readonly backends?: WebSiteBackendService) { this.resources = new WebArtifactResources(store, storage); }
   async conversationDeliveries(ownerId: string, conversationId: string, publicBaseUrl: string): Promise<ConversationWebSite[]> {
     const rows = await this.store.conversationDeliveries(ownerId, conversationId);
+    const origins = new Map<string, Promise<string>>();
     return conversationWebSitesSchema.parse(await Promise.all(rows.map(async row => {
       const delivery = conversationWebSiteSchema.omit({ url: true }).parse(row);
       if (!delivery.backend_id) delete delivery.backend_id;
       const backend = conversationWebSiteSchema.shape.backend_id.safeParse(delivery.backend_id);
-      return { ...delivery, url: backend.success && backend.data && this.backends?.client ? await this.backends.originFor(backend.data) : new URL(`/web/${delivery.slug}`, publicBaseUrl).href };
+      let origin: Promise<string> | undefined;
+      if (backend.success && backend.data && this.backends?.client) {
+        origin = origins.get(backend.data);
+        if (!origin) {
+          origin = this.backends.originFor(backend.data);
+          origins.set(backend.data, origin);
+        }
+      }
+      return { ...delivery, url: origin ? await origin : new URL(`/web/${delivery.slug}`, publicBaseUrl).href };
     })));
   }
   async publishedSlugForOwner(ownerId: string, siteId: string): Promise<string> {
