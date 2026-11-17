@@ -14,6 +14,14 @@ A useful request normally states:
 - Constraints: language, format, length, date range, or mandatory rules.
 - Deliverable: an answer or a Word, Excel, PowerPoint, PDF, image, or archive file.
 
+## Create an app in an ordinary conversation
+
+Describe your goal in a new task or an existing ordinary conversation, such as “Make a water reminder assistant.” You do not need to open a creation page, select a Skill, or choose between static and dynamic apps. LinkSense reuses the information you have supplied and asks a focused form question only when an unknown requirement changes the outcome, such as whether reminders must work after the page closes.
+
+A page alone can use a Web app without a backend. Add data storage, visitor accounts, or business APIs when required. Apps using LinkSense AI, knowledge, files, or task execution use the LS application workflow. A page and an automation may be combined, but a connected data service does not mean reminders are active: a supported schedule and an available notification channel are also required.
+
+A preview stays a draft until you explicitly request publication or a public link. Continue editing an identified existing app in the same or another ordinary conversation. Adding a backend to a static page preserves its application identity and stable link. See [Publish and manage sites](./publish-websites.md) and [Create and manage applications](../plugin-center/create-applications.md).
+
 ## Select a model and reasoning effort
 
 Click the model and reasoning effort button at the bottom of the composer to open the selection card. Drag the slider to preview effort levels and release to save. You can also click a position on the track or use the arrow keys. The slider shows only the levels supported by the current model.

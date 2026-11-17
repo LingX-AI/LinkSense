@@ -34,7 +34,7 @@ Shared users cannot see the application instructions. Plugins use the creator's 
 
 ## Build an interactive application in conversation
 
-1. In My applications, choose Create application → Create an interactive app through chat, enter a name, and start building. You can also ask a regular task to build a LinkSense interactive application.
+1. Describe your goal in a new or existing ordinary conversation, or choose My applications → Create application → Create an app through chat. You do not need to select a Skill or an application type. A form clarifies only unresolved requirements that change the result. For an LS interface, explicitly request an interactive app using LinkSense AI or knowledge; its development preview opens in the same conversation. For standalone Web apps, see [Publish and manage sites](../tasks/publish-websites.md).
 2. Describe your requirements in the development conversation. The adjacent preview updates as files change, without exporting and importing packages. Click the name or description above the preview to edit it. Changes save automatically after you stop typing or leave the field.
 3. Try the application with real tasks, files, and results. Its test conversation is separate from the development conversation.
 4. Use Configure capabilities to search, select, or remove plugins, skills, knowledge bases, and MCP servers the application can use. Saving writes your choices to the application's configuration, updates the preview, and includes them when you install or update the application. If the conversation changes the application at the same time, reload the configuration before saving. Preview errors appear in Debug logs and can be inspected by the assistant.
