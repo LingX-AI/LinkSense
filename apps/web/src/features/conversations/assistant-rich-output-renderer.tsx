@@ -200,7 +200,7 @@ function ResultTabs({
             <TabsTrigger
               key={tab.id}
               value={tab.id}
-              className="min-h-11 max-w-full flex-none text-start wrap-anywhere whitespace-normal"
+              className="max-w-full flex-none text-start wrap-anywhere whitespace-normal"
             >
               {tab.label}
             </TabsTrigger>
