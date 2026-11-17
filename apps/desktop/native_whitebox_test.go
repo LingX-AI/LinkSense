@@ -29,6 +29,7 @@ var nativeWhitebox struct {
 	logins   atomic.Int32
 	refresh  atomic.Int32
 	protocol atomic.Int32
+	cloud    atomic.Pointer[cloudWhitebox]
 }
 
 // The real platform WebView runs on the main thread; fixtures never use an account or a GUI automation permission.
@@ -150,6 +151,9 @@ func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, refreshToken strin
 	} else if r.Header.Get("x-linksense-desktop-protocol") != protocol || r.Header.Get("x-linksense-client-build") != strings.Repeat("0", 64) {
 		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error_code": "DESKTOP_UPDATE_REQUIRED"})
+		return
+	}
+	if cloud := nativeWhitebox.cloud.Load(); cloud != nil && cloud.serve(w, r) {
 		return
 	}
 	data := any(map[string]any{"items": []any{}, "next_cursor": nil})
@@ -275,7 +279,40 @@ func whiteboxReload(t *testing.T, page *mygo.Page) {
 	}
 }
 
+func nativeWhiteboxSession(t *testing.T, signedIn bool) {
+	t.Helper()
+	session := nativeWhitebox.desktop.session
+	if err := session.clearSession(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := session.clearSession(); err != nil {
+			t.Error(err)
+		}
+		nativeWhitebox.protocol.Store(1)
+	})
+	if !signedIn {
+		return
+	}
+	refresh, err := json.Marshal(storedRefreshSession{
+		Token: strings.Repeat("a", 64), ExpiresAt: time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := nativeWhitebox.store.Set(session.secretKey(), refresh); err != nil {
+		t.Fatal(err)
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if err := session.allowNewSession(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestNativeSharedUILoginAndSecureSessionRestore(t *testing.T) {
+	nativeWhiteboxSession(t, false)
+	nativeWhitebox.logins.Store(0)
 	desktop := nativeWhitebox.desktop
 	desktop.openMainWindow()
 	win := desktop.mainWindow()
@@ -320,13 +357,8 @@ func TestNativeSharedUILoginAndSecureSessionRestore(t *testing.T) {
 }
 
 func TestNativeDevicePairResumeLogoutAndRemoteFrameIsolation(t *testing.T) {
+	nativeWhiteboxSession(t, true)
 	desktop := nativeWhitebox.desktop
-	desktop.session.mu.Lock()
-	err := desktop.session.allowNewSession()
-	desktop.session.mu.Unlock()
-	if err != nil {
-		t.Fatal(err)
-	}
 	desktop.openMainWindow()
 	win := desktop.mainWindow()
 	defer win.Destroy()
