@@ -302,6 +302,9 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
       }
       await eventSink.recordMemoryUsage(capture)
     },
+    onPrivacyMasking: async (capture) => {
+      await eventSink.recordPrivacyMasking?.(capture)
+    },
   })
   await modelGateway.start()
   const pool = new AppServerProcessPool({

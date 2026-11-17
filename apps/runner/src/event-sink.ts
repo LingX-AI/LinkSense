@@ -12,6 +12,7 @@ import {
   userWorkspacePathSchema,
   imagePreviewRegistrationSchema,
   imagePreviewRegistrationResultSchema,
+  runnerPrivacyMaskingCaptureSchema,
   type ImagePreviewRegistration,
   type RunnerStartSettled,
 } from "@linksense/shared";
@@ -19,6 +20,7 @@ import type {
   ImageGenerationRequest,
   RunnerMemoryUsageCapture,
   RunnerHeartbeat,
+  RunnerPrivacyMaskingCapture,
 } from "@linksense/shared";
 import type {
   LinkSensePublishedEvent,
@@ -139,6 +141,7 @@ export interface RunnerEventSink {
     codexThreadId: string,
   ): Promise<void>;
   recordMemoryUsage?(capture: RunnerMemoryUsageCapture): Promise<void>;
+  recordPrivacyMasking?(capture: RunnerPrivacyMaskingCapture): Promise<void>;
 }
 
 export type ProcessExitReport = {
@@ -253,6 +256,18 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     }
     const entry = await this.memoryUsageOutbox.append(capture);
     this.startMemoryUsageWorker(entry.ownerId);
+  }
+
+  async recordPrivacyMasking(
+    capture: RunnerPrivacyMaskingCapture,
+  ): Promise<void> {
+    if (!this.accepting) return;
+    const body = runnerPrivacyMaskingCaptureSchema.parse(capture);
+    await this.post(
+      "/internal/runner/privacy-masking",
+      body,
+      body.owner_id,
+    );
   }
 
   async resumeConversation(conversationId: string): Promise<void> {

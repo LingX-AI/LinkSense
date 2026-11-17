@@ -903,6 +903,44 @@ describe("HttpRunnerEventSink", () => {
   });
 });
 
+it("posts a counts-only privacy masking capture with the owner header", async () => {
+  const { workspaceManager } = await createWorkspaceManager();
+  const fetchMock = vi
+    .fn<typeof fetch>()
+    .mockResolvedValue(
+      jsonResponse({ success: true, data: { recorded: true } }),
+    );
+  const sink = new HttpRunnerEventSink(
+    "http://api:4000",
+    "runner-secret",
+    workspaceManager,
+    { fetch: fetchMock },
+  );
+  const capture = {
+    request_id: "01900000-0000-7000-8000-000000000003",
+    owner_id: ownerId,
+    conversation_id: conversationId,
+    turn_id: "turn-1",
+    model: "model-a",
+    kinds: { API_KEY: 2 },
+    masked_count: 2,
+    observed_at: "2026-11-17T08:00:00.000Z",
+  };
+  await sink.recordPrivacyMasking(capture);
+  expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+    "http://api:4000/internal/runner/privacy-masking",
+  );
+  expect(
+    new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get(
+      "x-linksense-owner-id",
+    ),
+  ).toBe(ownerId);
+  expect(
+    JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+  ).toEqual(capture);
+  await sink.close();
+});
+
 async function createWorkspaceManager() {
   const root = await mkdtemp(join(tmpdir(), "linksense-event-outbox-"));
   roots.push(root);

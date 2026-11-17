@@ -27,6 +27,7 @@ import type {
   ModelTokenPricing,
   PrivacyMaskingRuntime,
   RunnerMemoryUsageCapture,
+  RunnerPrivacyMaskingCapture,
 } from "@linksense/shared";
 import {
   createModelProviderFetch,
@@ -234,6 +235,10 @@ type ModelGatewayOptions = {
   closeGraceMs?: number;
   fetch?: typeof fetch;
   onMemoryUsage?: (capture: RunnerMemoryUsageCapture) => Promise<void>;
+  /** Counts only; reported after a request had values replaced. */
+  onPrivacyMasking?: (
+    capture: RunnerPrivacyMaskingCapture,
+  ) => Promise<void>;
 };
 
 class GatewayHttpError extends Error {
@@ -1362,6 +1367,7 @@ export class ModelGateway implements ModelGatewayRuntime {
             hits,
             performance.now() - began,
           );
+          this.reportPrivacyMasking(hits, authorizedLease, context);
         } catch (error) {
           if (error instanceof GatewayHttpError) throw error;
           this.options.logger.warn(
@@ -2102,6 +2108,43 @@ export class ModelGateway implements ModelGatewayRuntime {
         message: publicErrorMessage(code),
       },
     });
+  }
+
+  private reportPrivacyMasking(
+    hits: readonly PrivacyMaskHit[],
+    lease: Pick<
+      ModelGatewayLeaseInput,
+      "ownerId" | "conversationId" | "model"
+    >,
+    context: ModelGatewayRequestContext,
+  ): void {
+    if (!this.options.onPrivacyMasking) return;
+    const kinds: Record<string, number> = {};
+    let maskedCount = 0;
+    for (const hit of hits) {
+      if (hit.action !== "mask") continue;
+      maskedCount += 1;
+      kinds[hit.kind] = Number(kinds[hit.kind] ?? 0) + 1;
+    }
+    if (maskedCount === 0) return;
+    const capture: RunnerPrivacyMaskingCapture = {
+      request_id: context.requestId,
+      owner_id: lease.ownerId,
+      conversation_id: lease.conversationId,
+      turn_id: context.turnId,
+      model: lease.model,
+      kinds,
+      masked_count: maskedCount,
+      observed_at: new Date(context.startedAt).toISOString(),
+    };
+    void Promise.resolve()
+      .then(() => this.options.onPrivacyMasking?.(capture))
+      .catch((error: unknown) => {
+        this.options.logger.warn(
+          { err: error, requestId: capture.request_id },
+          "privacy masking report failed",
+        );
+      });
   }
 }
 

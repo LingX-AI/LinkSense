@@ -12,6 +12,7 @@ import WebSocket from "ws";
 import type {
   PrivacyMaskingRuntime,
   RunnerMemoryUsageCapture,
+  RunnerPrivacyMaskingCapture,
 } from "@linksense/shared";
 
 import { ModelGateway } from "../src/model-gateway/model-gateway.js";
@@ -53,6 +54,9 @@ async function startGateway(
   options: {
     fetch?: typeof fetch;
     onMemoryUsage?: (capture: RunnerMemoryUsageCapture) => Promise<void>;
+    onPrivacyMasking?: (
+      capture: RunnerPrivacyMaskingCapture,
+    ) => Promise<void>;
   } = {},
 ): Promise<ModelGateway> {
   const gateway = new ModelGateway({
@@ -231,6 +235,85 @@ describe("ModelGateway privacy masking", () => {
     const tools = upstreamBody?.tools as Array<JsonObject>;
     expect(String(tools[0]?.description)).not.toContain(secret);
     expect(JSON.stringify(upstreamBody?.metadata)).not.toContain(secret);
+  });
+
+  it("reports one counts-only capture per masked request", async () => {
+    const upstream = await startUpstream(async (_request, response) => {
+      writeJson(response, 200, {
+        id: "resp-activity",
+        object: "response",
+        status: "completed",
+        output: [],
+      });
+    });
+    const reports: RunnerPrivacyMaskingCapture[] = [];
+    const gateway = await startGateway({
+      onPrivacyMasking: async (capture) => {
+        reports.push(capture);
+      },
+    });
+    const lease = gateway.issueLease({
+      ...leaseMetering,
+      conversationId: "activity-masking",
+      revision: 1,
+      upstreamBaseUrl: `${upstream.baseUrl}/v1`,
+      apiKey: "provider-key",
+      protocolMode: "native_responses",
+      model: "model-a",
+      privacyMasking: masking,
+    });
+
+    const response = await requestGateway(gateway, lease.token, {
+      model: "model-a",
+      input: `my key is ${secret}`,
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+
+    await vi.waitFor(() => expect(reports).toHaveLength(1));
+    expect(reports[0]).toMatchObject({
+      owner_id: leaseMetering.ownerId,
+      conversation_id: "activity-masking",
+      model: "model-a",
+      kinds: { API_KEY: 1 },
+      masked_count: 1,
+    });
+  });
+
+  it("does not report a request where nothing was masked", async () => {
+    const upstream = await startUpstream(async (_request, response) => {
+      writeJson(response, 200, {
+        id: "resp-clean",
+        object: "response",
+        status: "completed",
+        output: [],
+      });
+    });
+    const reports: RunnerPrivacyMaskingCapture[] = [];
+    const gateway = await startGateway({
+      onPrivacyMasking: async (capture) => {
+        reports.push(capture);
+      },
+    });
+    const lease = gateway.issueLease({
+      ...leaseMetering,
+      conversationId: "clean-masking",
+      revision: 1,
+      upstreamBaseUrl: `${upstream.baseUrl}/v1`,
+      apiKey: "provider-key",
+      protocolMode: "native_responses",
+      model: "model-a",
+      privacyMasking: masking,
+    });
+
+    const response = await requestGateway(gateway, lease.token, {
+      model: "model-a",
+      input: "a request with nothing sensitive",
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(reports).toHaveLength(0);
   });
 
   it("restores a placeholder split between two native stream deltas", async () => {
