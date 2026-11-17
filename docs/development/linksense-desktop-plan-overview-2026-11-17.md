@@ -3,6 +3,10 @@
 > 这是当前最新方案的整理稿，供评审与沟通使用。权威细节以两份原文为准：
 > [方案 v2](../research/linksense-desktop-dual-mode-plan-2026-11-16.md) · [任务拆解](./linksense-desktop-dual-mode-task-breakdown-2026-11-16.md)。
 > 本文与原文冲突时，以原文为准。
+>
+> 2026-11-17 复审同步：独立设备契约覆盖主模型、记忆提取与模型切换来源；补 Core MCP 受限回调；命令/文件审批分开；Phase 0、M1、M1b 采用各自出口和测试依赖。新增回调任务后约 130 人日，2 人理想开发约 13 周，排期预留 14 周。
+>
+> 2026-11-17 复审补齐：设备通道以真实 Codex 回合验收（回显桩不算）；更新与进行中回合互斥；本地工作区补保留期与清理。均为既有任务内的验收补充，估时不变。
 
 ## 1. 一句话
 
@@ -51,21 +55,21 @@
 - **Go 壳**：窗口生命周期、托盘、菜单、深链、通知、更新、本地 runner 监督、设备桥、computer-use 引擎。不承载 Agent 逻辑。
 - **webview**：全部产品 UI 与交互；通过薄适配层调用 Go 能力。
 - **本地 runner**：复用 `apps/runner` 的 Codex app-server、Core MCP、workspace、事件代码，新增 `desktop` worker provider（详见方案 §5.2）。
-- **API**：设备配对/在线状态、run lease 签发、命令路由、审批转发、事件写入现有 `ConversationEvent`、服务端模型代理。
+- **API**：设备配对/在线状态、run lease 签发、命令路由、审批转发、事件写入现有 `ConversationEvent`、服务端模型代理，以及 Core MCP 受限请求的资源授权与领域 service 调用。
 - **引擎**：只监听 loopback/Unix socket；`computer_*` 经唯一 `ActionExecutor`：授权/暂停校验 → 风险分级 → 审批（如需）→ 执行 → 效果核对 → 审计。本地 Shell/文件由 Codex 原生沙箱与审批约束，不经过 Go 执行器——两层控制不能混。
 
 ### 3.1 代码落点
 
 | 位置 | 内容 |
 | --- | --- |
-| `packages/shared/src` | `computer-use.ts`（工具名/schema/权限 code/事件）、`desktop-device.ts`（设备帧/配对/能力） |
+| `packages/shared/src` | `computer-use.ts`（工具名/schema/权限 code/事件）、`desktop-device.ts`（严格设备入参、按类型审批、设备帧/工具操作） |
 | `apps/api/src/modules/desktop-devices` | 配对、设备列表、设备 WS、撤销、设备任务租约 |
 | `apps/api/src/modules/desktop-credentials` | run lease 签发/校验/撤销 |
 | `apps/api/src/modules/model-proxy` | 服务端受限模型代理（设备不持平台密钥） |
 | `apps/api/src/modules/local-computer` | 本地会话/权限 |
 | `apps/api/src/modules/files` | 附件下发、工件上传确认（扩展） |
 | `apps/api/src/adapters` | `runner.ts`（RunnerTransport）、`desktop-device-transport.ts` |
-| `apps/runner/src` | `controller/desktop-worker-provider.ts`、`mcp/core-services/computer-use-service.ts`、`desktop/computer-tool.ts` |
+| `apps/runner/src` | `controller/desktop-worker-provider.ts`、`desktop/device-event-sink.ts`（受限业务/控制回调）、`mcp/core-services/computer-use-service.ts`、`desktop/computer-tool.ts` |
 | `apps/desktop` | Go module：`main.go`、`web.go`（主窗口）、`view.go`（伴随窗口）、`bridge.go`（设备 WS）、`engine.go`（agent-desktop）、`browser.go`（内置浏览器）、`assets/browser-agent.js`（DOM 注入）、`runtime.go`（supervisor） |
 | `scripts/desktop.mjs` | 构建、打包、签名入口 |
 
@@ -131,7 +135,7 @@
 | 生命周期 | 启动恢复会话、随应用启停本地 runner、崩溃日志、诊断包 |
 | 更新 | 后台检查、签名校验、delta、重启安装、stable/beta |
 
-**首次启动**：登录 → 设备命名与配对 → 系统权限（macOS 辅助功能/屏幕录制）→ 连接浏览器（可选）→ 默认执行目标 → 主界面。
+**首次启动**：M1 登录 → 本地设备命名与配对 → 连接浏览器（可选）→ 默认执行目标 → 主界面；M1b 首次启用 GUI 时再请求辅助功能/屏幕录制等系统权限。
 
 **登录**：深链回调；token 存系统 Keychain，不落 localStorage；退出清理并可解绑设备；一期单账号。
 
@@ -148,7 +152,7 @@
    - **沙箱与审批分档**：本地默认 `untrusted` + `workspaceWrite`（工作区外只读，信任命令集之外逐次确认）；`full_access` 产品模式需显式开启，才用 `dangerFullAccess` + `on-request`。云会话保持 `never`。
    - 只改审批不改沙箱等于没有闸：`dangerFullAccess` + `on-request` 不会产生逐次确认。
    - 卡片展示完整命令、cwd、写入路径、提权/联网标记。
-   - 决策值按 Codex 0.168.0 v2 schema：`accept` / `acceptForSession` / `acceptWithExecpolicyAmendment` / `decline` / `cancel`；UI 对应允许一次 / 本会话 / 始终允许（前缀规则，默认收在"更多"，30 天过期）/ 拒绝 / 取消。超时走 `cancel`。
+   - 命令用 `CommandExecutionApprovalDecision`、文件变更用 `FileChangeApprovalDecision`，事件/API/runner 按原生请求类型分别验证。文件只允许 `accept` / `acceptForSession` / `decline` / `cancel`，不提供命令前缀规则的"始终允许"；命令规则修订仅在原生请求与权限策略允许时显示。完整契约以方案 §7.2 为准，超时走 `cancel`。
    - 撤销"始终允许"必须同时下发 native 规则更新（`acceptWithExecpolicyAmendment` 已写进 Codex 规则表），只删本地记录不够。
    - 串行审批；拒绝不自动重试；只记命令摘要，不记完整输出。
 5. **动作风险分级**：`Read` / `Change` / `External` / `Irreversible` / `Unknown`；`External`、`Irreversible`、`Unknown` 归为 `outward`，审批卡的风险徽标、审计和可选的对外节奏都按这个等级。
@@ -160,7 +164,9 @@
 
 **安全底线**：配对码一次性短 TTL；device token 只存哈希；撤销立即断 WS；引擎不暴露公网；`agent-desktop` 不直接给模型；审计不含截图/剪贴板/键入原文；本地操作时界面固定显示"Agent 正在控制本地电脑"，并提供全局暂停/停止快捷键。
 
-**凭据边界**：设备只拿"用户 + 会话 + 用途"的短期 run lease；平台模型密钥留在服务端，经受限模型代理调用；设备**不持有** `LINKSENSE_RUNNER_SHARED_SECRET`，事件走设备 WS 回传。详见方案 §6.1。
+**凭据边界**：独立严格 Zod 设备契约按白名单构造，不从内部请求只删除主模型 key。主模型、记忆提取与模型切换来源都用受限代理配置；设备不持真实供应商密钥或 `LINKSENSE_RUNNER_SHARED_SECRET`。正常对话、记忆提取与切模型分别验收，云端内部契约保留。详见方案 §6.1。
+
+**Core MCP 回调**：本地工具请求经设备桥受限请求/响应通道到 API，按 run lease、操作白名单及资源权限校验，再调现有领域 service；覆盖 Browser Use、知识库、网页搜索、连接器及必要控制回调。请求关联、超时/取消、迟到响应与副作用不重放均需验收，详见方案 §6.7。
 
 ## 7. UI 基线
 
@@ -181,7 +187,7 @@
 | 用户真实浏览器（扩展） | 登录态、复杂站点、上传/验证码 | 用户 Chrome/Edge | 现有 `browser_use` |
 | 云模式 | 容器内执行 | 容器内 | headless Chromium + 现有 panel |
 
-- **扩展**：沿用 Chrome/Edge MV3（配对 `/api/v1/browser-use/pair`、`/socket`；tab 级授权、虚拟指针、截图浮窗、站点信任与撤销）。桌面不打包 Chromium；webview UA 不是 Chrome/Edge，桌面内改用专用引导：打开系统浏览器 → 登录同一账号 → 扩展自动连接。执行链路仍是 `browser_use` → Worker → API → 扩展 WSS，桌面不参与转发。
+- **扩展**：沿用 Chrome/Edge MV3（配对 `/api/v1/browser-use/pair`、`/socket`；tab 级授权、虚拟指针、截图浮窗、站点信任与撤销）。桌面不打包 Chromium；webview UA 不是 Chrome/Edge，桌面内改用专用引导：打开系统浏览器 → 登录同一账号 → 扩展自动连接。本地执行链路为 `browser_use` → 本地 runner → 设备桥受限请求 → API → 扩展 WSS；扩展授权仍在 API/扩展侧。
 - **内置浏览器**：独立原生窗口（mygo `Window.NewWebView`），标签/下载/查找/隔离会话。Agent 沿用 `browser_*` 语义，按 `browserTarget=builtin|extension` 路由，默认扩展；DOM 快照与 ref 由注入脚本提供，JS 失败时回落到坐标点击。第三方页 `Untrusted`，不能调用 Go；禁止 `file://`，下载需确认，生产禁用 DevTools。
 - **限制**：不是 Chromium/CDP——没有跨域 iframe、文件上传自动化、网络拦截；复杂 SPA 与反爬站点成功率低于扩展。遇到时明确报错并建议改用扩展。
 
@@ -195,11 +201,11 @@ mygo 内置：签名 manifest、bsdiff 增量、失败回退整包、stable/beta
 - `Conversation` 新增：`executionTarget`（默认 `cloud`）、`desktopDeviceId`。
 - API 新增：`/desktop/devices*`（配对/列表/撤销/WS）、`/conversations/:id/local-computer`（启停/状态）、`/computer-permissions`（授权/撤销）、`/approvals/:requestId`（审批回传）、`PATCH /conversations/:id`（仅新建/未开始会话改目标）；`RunnerTransport` 按目标路由 HTTP/设备 WS。
 - 事件：`computer.session.updated`、`computer.permission.requested/resolved`、`computer.action.started/finished`、`approval.requested`；回答后复用 `serverRequest/resolved`。
-- 凭据与文件：run lease（`desktop-credentials`）+ 服务端模型代理（`model-proxy`）；输入附件下发、工件上传确认、`workspaceRelativePath` → 资源 ID 映射（见方案 §6.6）。现有文件服务在 API 机器上读工作区文件，本地 runner 的文件它读不到。
+- 凭据、工具与文件：独立设备契约 + 用途凭据（方案 §6.1）；Core MCP 受限请求/响应（§6.7）；附件下发、工件上传确认、`workspaceRelativePath` → 资源 ID 映射（§6.6）。文件字节走预签名传输，工具帧不承载大文件。
 
 ### 10.1 设备协议与兼容
 
-- WS 帧：`desktopBridge`（注册/心跳/能力）、`desktopCommand`（API→设备：`turns/start`、`steer`、`interrupt`、`runtime`、`fork`、`prewarm`、`mcp-current-user/*`、`health`）、`desktopRequest`（设备→API：事件/结果/文件上传）。
+- WS 契约以方案 §6.2 为准：执行命令、事件、回合内 `tool.request/result/cancel` 与绑定设备连接的 `control.request/result/cancel` 分开；工具及控制各有操作白名单，控制帧不能执行业务工具。设备不提交内部路径或服务端身份。
 - 命令白名单 + `commandId` + 短 TTL；同一连接去重；离线不积压；撤销立即断 WS。
 - 事件注入：校验归属 → 写 `ConversationEvent`；`sse_event_id` 幂等。
 - 错误：设备离线 → `RUNNER_UNAVAILABLE`；结果不明 → `RUNNER_OPERATION_UNCERTAIN`，不重发。
@@ -210,12 +216,14 @@ mygo 内置：签名 manifest、bsdiff 增量、失败回退整包、stable/beta
 
 | 阶段 | 内容 | 估时 |
 | --- | --- | --- |
-| Phase 0 | 在当前 `feat` 新建 `apps/desktop`，参考旧实现重写配对/引擎/打包；主窗口 webview、宿主适配层、runner supervisor；shared schema/executionTarget；设备 WS 骨架；**`desktop` provider + 打包运行时冒烟 + 云模式贯通**（干净机器） | 约 30 人日 |
-| Phase 1 | 设备凭据模型、设备网关、双路由、本地运行时、文件/工件链路、设备租约、沙箱与审批分档、computer use 引擎与动作执行管道、macOS 向导、Windows 本地模式、Browser Use 接入、打包签名更新、E2E | 约 79 人日 |
-| Phase 2 | 云目标在 UI/API 暴露；复用现有 Docker runner；与 Web 一致性验证；内置浏览器窗口 + Agent 适配 + 安全交接 | 约 18 人日 |
-| 合计 | — | **约 127 人日；2 人并行约 13 周** |
+| Phase 0 | 壳、主窗口、宿主适配、配对/WS 骨架；干净机器云模式 + 独立本地运行时 fake model 验证；不依赖设备执行回合/GUI | 约 30 人日 |
+| Phase 1 | M1：严格设备契约/用途凭据、双向受限请求（新增 P1-29）、文件/工件、命令/文件审批、双平台安装/更新与兼容；M1b：GUI 引擎、桌面占用租约、系统权限及增量验收 | 约 82 人日 |
+| Phase 2 | 回归 M1 已有双目标与 Web 一致性；内置浏览器窗口 + Agent 适配 + 安全交接 | 约 18 人日 |
+| 合计 | 拆分验收保留原估时总量，受限回调新增 3 人日 | **约 130 人日；2 人理想开发约 13 周，排期预留 14 周** |
 
-**M1**：第 10 周左右，本地"文件 + Shell + 浏览器"闭环，可发布。**M1b**：GUI 自动化与内置浏览器收尾，不阻塞 M1。
+**Phase 0**：第 1–3 周，独立验壳、云与本地运行时。**M1**：约第 10 周，真实本地文件/Shell/扩展浏览器及知识库/连接器闭环，双平台可发布，GUI 保持不可用。**M1b / Phase 2**：约第 14 周收尾。E2E、安全、Windows 权限/发布与手册按 a/b 分开；M1 的依赖不包含 GUI/UIA。
+
+**通道门槛**：第 4–5 周末以一次真实 Codex 回合（读文件 → 执行命令 → 事件回传 → 取消）验收设备通道；回显桩或只回状态的假回合不算通过，未过不进入文件链路与 UI 集成。
 
 Phase 3（后续）：多设备、配额/usage、审计导出、GA 加固；Linux 云桌面仅在需要时另行评估。
 
@@ -225,12 +233,16 @@ Phase 3（后续）：多设备、配额/usage、审计导出、GA 加固；Linu
 | --- | --- |
 | 单元 | computer schema、权限矩阵、审批决策、设备通道白名单/幂等、transport 路由 |
 | 集成 | device gateway + fake desktop；local runner bridge；Core MCP computer 模块 |
-| E2E | 本地：local 会话 → 文件/Shell（审批）→ 浏览器 → observe/act → 效果/等待 → 暂停/恢复 → 断线重连 → 崩溃不续跑 → 撤销；云：cloud 会话 → Docker runner → 断线重连 → 回收 |
+| E2E | M1：local 文件/Shell/扩展浏览器/知识库/连接器、重连与撤销；M1b：追加 GUI 效果/等待、暂停/恢复、崩溃不续跑；云回归独立执行 |
 | 安全 | 伪造设备、重放命令、越权会话、路径遍历、撤销后重试 |
-| 凭据边界 | 设备侧无平台 key、无 `LINKSENSE_RUNNER_SHARED_SECRET`；run lease 过期/撤销 |
-| 沙箱与审批 | `untrusted` + `workspaceWrite` 生效；直调 AppleScript/PowerShell 被拦；v2 决策值；撤销后 native 规则失效 |
+| 凭据边界 | 正常/记忆/切模型三路径无真实供应商 key 或内部 secret；严格设备 schema 拒绝未知/嵌套内部字段；过期/撤销与云契约回归 |
+| Core MCP 回调 | 本地 Browser Use/知识库/搜索/连接器；操作及资源权限；关联 ID、超时/取消、迟到响应、副作用不重放 |
+| 沙箱与审批 | 原生沙箱生效；默认档系统自动化绕过拦截；命令/文件分别按 v2 schema；文件无前缀规则选项，错类型决策拒绝；命令规则撤销后 native 生效 |
 | 文件链路 | 附件到达设备；工件确认后入列表；本地路径不进事件/日志/模型上下文 |
 | 设备租约 | 第二会话 `DEVICE_BUSY`；崩溃/断线后释放；窗口身份变化报错 |
+| 设备通道 | 一次真实回合（读文件/执行命令/取消）经通道跑通；排序、去重、取消；回显桩不算通过 |
+| 更新 | 安装/重启与进行中回合互斥；重启后按中断处理，不续跑 |
+| 本地工作区 | 保留 14 天/总量上限；清理不影响已上传工件；重开后提示已清理 |
 | 协议兼容 | 上一版安装包连当前 API 可登录、可开会话、升级提示可达 |
 | 内置浏览器 | 导航/标签/下载/查找；DOM 点击/输入/等待；会话隔离；`file://` 拦截；双平台 |
 | 验收 | M1：本地与云都能完成"读文件 + 改文件 + 执行命令 + 浏览器任务"；M1b：本地额外完成 GUI 操作 |
@@ -255,12 +267,14 @@ UI 只借交互模型，视觉按 A/C 重做。
 - **`agent-desktop` 升级**：采用最新版（当前 1.3.1），Phase 0 做 AX/UIA 回归并记录 sha256；许可证随包。
 - **内置浏览器无 CDP**：复杂站点成功率低于扩展；默认仍用扩展，失败时回落到扩展或坐标点击。
 - **WKWebView / WebView2 差异**：UA、下载、媒体、权限行为不一致，需双平台回归，能力差异返回稳定 code。
-- **Windows UIA 差异**：提权窗口、DPI、多显示器需白盒回归（P1-18/19）。
+- **Windows UIA 差异**：提权窗口、DPI、多显示器需白盒回归（P1-18/19b/20b）；M1 安装/沙箱/升级由 P1-19a/20a 独立验收。
 - **设备通道不确定性**：命令用 `commandId` + 短 TTL；不确定结果不重发，UI 显式提示。
 - **API 强依赖**：一期没有纯离线会话；弱网只做提示与重连。
 - **webview UA**：浏览器扩展检测会判不支持，已用桌面专用引导规避。
 - **本地运行时形态**：`local-process` 是 development-only 且要求 POSIX uid/gid，不能直接复用；新增 `desktop` provider，并把 Node + runner + Codex 的打包方式在 Phase 0 定死（干净机器冒烟是出口门槛）。
-- **凭据边界**：现有 start 入参带平台模型 `apiKey`，回调用全局 `LINKSENSE_RUNNER_SHARED_SECRET`；这两样都不能下发到用户机器。设备只拿 run lease，模型走服务端代理。
+- **更新与回合冲突**：更新会替换随包的 runner 与 `agent-desktop`；安装/重启必须等回合结束或用户显式确认，重启后按中断处理、不续跑。
+- **本地磁盘累积**：工作区不设上限会长期增长；按会话保留 14 天 + 总量上限 10 GiB + 设置页一键清理。
+- **凭据边界**：内部请求中的主模型、记忆提取、切换来源均含供应商 key；独立严格设备契约仅下发用途代理配置。Core MCP 业务请求经 §6.7 受限通道，设备不持内部共享密钥。
 - **审批 ≠ 拦截**：只把 `never` 改成 `on-request` 不产生逐次确认；本地默认必须是 `untrusted` + `workspaceWrite`。
 - **旧安装包升级**：内嵌构建被 build ID 锁死，必须把桌面协议版本与 Web 构建 ID 解耦。
 - **其余工程风险**：mygo 生态小（固定版本、升级前白盒回归）；webview 内容按不可信处理、只暴露显式 IPC；Windows 需处理 SmartScreen/WebView2 缺失；更新密钥离线备份；更新主源用自托管对象存储，GitHub 仅备用；证书 Phase 0 申请。
@@ -277,4 +291,4 @@ UI 只借交互模型，视觉按 A/C 重做。
 4. 定义 shared schema：`executionTarget`、computer 工具、设备协议。
 5. 设备配对与 WS 骨架（无 UI），验证 macOS/Windows 双平台构建。
 6. **云模式贯通**：打包后的应用在干净机器完成登录 → 云会话 → SSE → 下载 → 更新检查。
-7. **打包运行时冒烟**：内嵌 Node + runner + Codex，干净机器跑通一轮不含 GUI 的本地对话。这两步是 Phase 0 的出口门槛，不过不进入 Phase 1。
+7. **独立本地运行时冒烟**：随包 Node + runner + Codex，测试专用入口用 fake model 验证启动、临时工作区、Core MCP 装载与退出；不接生产内部接口。壳、云与独立运行时通过后进入 M1，真实设备回合与 GUI 分别在 M1/M1b 验收。

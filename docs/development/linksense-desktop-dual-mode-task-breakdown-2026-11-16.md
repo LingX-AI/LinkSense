@@ -4,7 +4,9 @@
 
 > 2026-11-17 修订：壳改为 Go + mygo；按"完整桌面客户端"重排任务，新增主窗口 webview、桌面宿主适配层、本地 runner supervisor；computer use 按已有初稿扩展而非重写。
 >
-> 2026-11-17 安全边界修订：新增 `desktop` provider（不复用 development-only 的 `local-process`）、设备凭据模型（P1-24）、文件与工件链路（P1-25）、设备任务租约（P1-26）、桌面协议版本兼容（P1-27）、打包运行时冒烟（P0-11）；命令级审批与沙箱分档（P1-07）留在 M1，GUI 授权/暂停/审计拆为 P1-28（M1b）。合计 127 人日。
+> 2026-11-17 安全边界及复审修订：新增 `desktop` provider、独立严格设备契约及用途凭据（P1-24）、文件链路（P1-25）、GUI 设备租约（P1-26）、协议兼容（P1-27）、GUI 授权（P1-28）与 Core MCP 受限回调（P1-29）。命令与文件审批分别校验；E2E、安全、Windows 权限/发布、手册分为 M1 与 GUI 增量。合计 130 人日，理想开发约 13 周，排期预留 14 周。
+>
+> 2026-11-17 复审补齐：设备通道以真实 Codex 回合验收（P1-01/24/02/03/04 后的通道门槛），回显桩不算通过；更新与进行中回合互斥（P1-22）；本地工作区保留期与清理（P0-07、P1-10）。均为既有任务内的验收补充，不改动估时。
 
 范围与前提：
 
@@ -45,31 +47,35 @@
 flowchart LR
     WS0["WS0 参考实现/资产<br/>P0-01,02"] --> WS1["WS1 共享契约<br/>P0-03"]
     WS1 --> WS2["WS2 API<br/>P0-04,05,06"]
-    WS1 --> WS6["WS6 Computer use（M1b）<br/>P1-05,06,08,23,28"]
     WS0 --> WS3["WS3 桌面壳<br/>P0-08,09,10"]
     WS3 --> WS4["WS4 本地运行时<br/>P0-07,11"]
     WS2 --> WS11["WS11 设备凭据<br/>P1-24"]
-    WS11 --> WS5["WS5 设备通道/审批<br/>P1-01,02,03,07"]
+    WS11 --> WS5["WS5 设备通道/审批<br/>P1-02,03,04,07"]
     WS4 --> WS5
-    WS5 --> WS12["WS12 文件链路/租约/协议版本<br/>P1-25,26,27"]
-    WS5 --> WS7["WS7 产品 UI<br/>P1-09,10,11"]
-    WS6 --> WS7
+    WS2 --> Devices["设备管理<br/>P1-01"] --> WS11
+    WS5 --> Tools["受限工具回调<br/>P1-29"]
+    Tools --> WS12["WS12 文件链路/协议版本<br/>P1-25,27"]
+    WS5 --> WS7["WS7 M1 产品 UI<br/>P1-09,10,21"]
     WS12 --> WS7
-    WS7 --> WS8["WS8 打包/发布<br/>P1-12"]
-    WS5 --> WS9["WS9 测试/安全<br/>P1-13..16"]
-    WS6 --> WS9
-    WS8 --> WS10["WS10 云模式<br/>P2-01..04"]
-    WS9 --> WS10
+    WS7 --> WS8["WS8 打包/更新<br/>P1-12,17,22"]
+    WS8 --> Win["Windows M1 验收<br/>P1-19a,20a"]
+    Win --> WS9["WS9 M1 E2E/安全/文档<br/>P1-13a,14a,15,16a"]
+    WS7 --> WS9 --> M1["M1 发布"]
+    M1 --> WS6["WS6 GUI（M1b）<br/>P1-05,06,08,11,23,26,28"]
+    WS6 --> GuiChecks["GUI 增量验收<br/>P1-13b,14b,16b,18,19b,20b"]
+    GuiChecks --> M1b["M1b 发布"]
+    WS7 --> WS10["WS10 云模式回归<br/>P2-01..04"]
+    WS6 --> Browser["内置浏览器<br/>P2-05..07"]
 ```
 
-关键路径：**P0-01 → P0-03 → P0-04/05 → P0-07/10 → P0-11 → P1-24 → P1-02 → P1-04 → P1-07 → P1-10 → P1-13 → P1-12（M1）→ P1-06/23/28（M1b）**。
+M1 主要依赖链：Phase 0 出口 → P1-01 → P1-24 → P1-02/03 → P1-29 → P1-25 → P1-10 → P1-12 → P1-22 → P1-20a → P1-13a/14a → P1-16a。审批（P1-07）和协议兼容（P1-27）也必须在产品 UI 验收前完成；各行依赖是执行依据。
 
-Windows 本地模式（P1-17..20）复用同一批代码，挂在 WS3/WS6/WS8 上并行推进，不在关键路径上。
+Windows M1 安装、沙箱与发布（P1-17/19a/20a）是双平台 M1 的必要门槛；UIA 及 GUI 安全/发布（P1-18/19b/20b）只属于 M1b。M1 的依赖闭包不能包含 GUI 任务。
 
 可并行的三条主线：
 
 1. **Go/桌面壳**：P0-01、P0-08、P0-09、P0-10、P0-11、P1-09、P1-12。
-2. **API/传输**：P0-03、P0-04、P0-05、P0-06、P1-24、P1-01、P1-02、P1-03、P1-04、P1-25、P1-26、P1-27。
+2. **API/传输**：P0-03、P0-04、P0-05、P0-06、P1-24、P1-01、P1-02、P1-03、P1-04、P1-25、P1-27、P1-29；P1-26 在 M1b 接入 GUI 执行器。
 3. **Web/UI**：P0-09、P1-10、P1-15。
 
 ---
@@ -84,63 +90,69 @@ Windows 本地模式（P1-17..20）复用同一批代码，挂在 WS3/WS6/WS8 �
 | P0-04 | Prisma 模型与迁移 | `prisma/schema.prisma` + forward migration | P0-03 | `prisma validate`；新库迁移成功；`Conversation` 新字段默认 cloud；无破坏性变更 | 1.5 |
 | P0-05 | 设备配对 + WS 骨架 | `apps/api/src/modules/desktop-devices/*` | P0-03/04 | 配对码一次性/TTL/限速；token 只存哈希；WS 认证/心跳/撤销；Fastify inject 测试 | 3 |
 | P0-06 | 会话 `executionTarget` | `apps/api/src/modules/conversations/*` | P0-04 | 创建/读取 local/cloud；local 必须绑定已配对设备；默认 cloud；旧会话不受影响 | 1.5 |
-| P0-07 | `desktop` worker provider 最小实现（双平台） | `apps/runner/src/controller/desktop-worker-provider.ts` + `config.ts` 新增枚举；不再走 `local-process`（该 provider 仅 development 且要求 POSIX uid/gid） | 无 | macOS 与 Windows 上各完成一轮 Codex 对话；当前用户身份 + 应用私有目录 `0700` + 单实例锁；确认 Codex app-server 在 Windows 的运行方式（原生或 WSL2）；工作区/事件/Core MCP 正常；`pnpm --filter @linksense/runner test` 通过 | 4 |
+| P0-07 | `desktop` worker provider 最小实现（双平台） | `apps/runner/src/controller/desktop-worker-provider.ts` + `config.ts` 新增枚举；不复用 development-only 的 `local-process` | P0-01 | 测试专用入口 + fake model 验证 Codex 启动、临时工作区、Core MCP 装载与退出；macOS/Windows 当前用户运行；确认 Windows 原生/WSL2 路径；工作区按会话隔离，启动时清理超过 14 天或总量超 10 GiB 的最旧会话；不接生产内部接口或下发平台密钥；runner 相关测试通过 | 4 |
 | P0-08 | 主窗口 webview | `apps/desktop/web.go`：加载 `apps/web` 构建、深链登录、单实例、窗口状态、外部链接策略 | P0-01 | 主窗口显示完整 Web UI；刷新/前进后退正常；外链走系统浏览器；无 Node 暴露 | 4 |
 | P0-09 | 桌面宿主适配层（Web 侧） | `apps/web` 桌面入口 + mygo typed IPC 客户端；环境检测、登录交接、下载/上传、通知、更新入口 | P0-08 | 纯浏览器行为不变；桌面内可用；类型化调用有测试；失败降级 | 3 |
 | P0-10 | 本地 runner supervisor（Go） | `apps/desktop/runtime.go` 扩展：启动/健康检查/退出清理/orphan guard/日志 | P0-01/07 | 应用启动即拉起 runner；崩溃可重启；退出无孤儿进程；日志脱敏 | 3 |
-| P0-11 | 打包运行时冒烟 + 云模式贯通 | 内嵌 Node + `apps/runner` + Codex 的 `resources/<os>-<arch>/`；`scripts/desktop.mjs` 扩展 | P0-07/08/09/10 | **干净机器**（无 Node/无仓库）上：安装 → 登录 → 云会话 → SSE → 下载 → 更新检查 → 不含 GUI 的本地回合各跑通一次；安装体积记录在案（预算 150–250 MB） | 4 |
+| P0-11 | 独立运行时冒烟 + 云模式贯通 | 随包 Node + `apps/runner` + Codex；`scripts/desktop.mjs` 测试入口 | P0-07/08/09/10 | **干净机器**上安装 → 登录 → 云会话 → SSE → 下载 → 更新检查；独立本地运行时用 fake model 验进程/工作区/退出，不依赖设备执行通道或 `computer_use`；记录体积（预算 150–250 MB） | 4 |
 
-**Phase 0 出口标准**：桌面应用能打开主窗口跑完整 Web UI；**打包后的应用在干净机器上跑通云模式完整链路（登录/SSE/下载/更新）与一轮不带 GUI 的本地 Codex 对话**；配对后通过设备 WS 驱动本地 Codex 回合并把事件回传；`computer_use` 引擎可被本地 runner 调用。打包冒烟不过，不进入 Phase 1。
+**Phase 0 出口标准**：打包应用在干净 Mac/Windows 上跑通壳与云模式（登录/SSE/下载/更新检查），独立本地运行时通过 fake model 冒烟；设备配对/WS 只验注册、心跳和撤销骨架。完整设备回合及受限业务请求在 M1 验收，GUI 在 M1b 验收。Phase 0 不依赖任何 P1/P2 任务；出口未过不进入后续集成。
 
 ---
 
-## 4. Phase 1：本地电脑模式 MVP（约 79 人日）
+## 4. Phase 1：本地电脑模式 MVP（约 82 人日）
 
-> 顺序固定：**凭据 → 传输 → 运行时 → 文件链路 → 审批/租约 → 目标选择 UI → GUI**。前六步构成可发布的 M1（本地文件 + Shell + 浏览器），GUI 是 M1b。
+> M1：**设备白名单契约/凭据 → 双向受限请求 → 文件链路/原生审批 → 产品 UI → 双平台发布验收**。GUI、桌面占用租约与其测试归 M1b；M1 只依赖回合凭据租约。后缀 a 为 M1，b 为 GUI 增量；拆分任务保留原估时总量，新增 P1-29 为 3 人日。
+
+**通道门槛（第 4–5 周末）**：P1-01/24/02/03/04 完成后，用**一次真实 Codex 回合**验收设备通道——读文件 → 执行命令 → 事件回传 → 取消各一次，且设备侧全程无供应商密钥。回显桩、只回状态的假回合不算通过；未过不进入 P1-25/P1-29/P1-10。理由：否则事件排序、去重、取消的缺陷要到文件链路和 UI 集成时才暴露。
 
 ### 4.1 API / 设备通道
 
 | ID | 任务 | 产出/落点 | 依赖 | 验收 | 估时 |
 | --- | --- | --- | --- | --- | --- |
 | P1-01 | 设备管理正式化 | `desktop-devices` service/routes；列表、重命名、撤销、在线状态 | P0-05 | 撤销立即断 WS、token 失效；跨 owner 拒绝；审计；测试 | 2 |
-| P1-24 | 设备凭据模型 | `modules/desktop-credentials/`（run lease）、`modules/model-proxy/`；runner start 入参去掉 `apiKey` | P1-01 | 设备只拿 run lease + 模型代理 token；`LINKSENSE_RUNNER_SHARED_SECRET` 不下发；事件走设备 WS 回传；lease 过期/撤销后命令与模型调用同时失效；抓包 + 进程检查确认无平台密钥 | 3 |
+| P1-24 | 严格设备契约与用途凭据 | shared 独立严格设备 schema；`desktop-credentials`、`model-proxy`；保留云端内部契约 | P0-03、P1-01 | 白名单构造设备请求；主模型/记忆提取/模型切换来源均用用途代理 token；未知字段、嵌套内部 provider 拒绝；三条路径抓包/进程检查无真实供应商密钥及内部 secret；过期/撤销生效；云契约回归 | 3 |
 | P1-02 | `RunnerTransport` 抽象 | `apps/api/src/adapters/runner.ts` + `desktop-device-transport.ts` | P0-06/10、P1-24 | cloud 走 HTTP、local 走 WS；设备离线→`RUNNER_UNAVAILABLE`、结果不明→`RUNNER_OPERATION_UNCERTAIN` 且不重发；`turns/start` 幂等；按 requestId 去重；设备方向 body 不含平台凭据 | 3 |
-| P1-03 | 设备桥生产化（Go） | `apps/desktop/bridge.go` 扩展 | P0-10 | 路径白名单；命令 TTL/取消；事件批量/去重；断线重连；日志脱敏；不持有 `/internal` secret | 4 |
+| P1-03 | 设备桥生产化（Go） | `apps/desktop/bridge.go` 扩展 | P0-10、P1-24 | 命令 TTL/取消；事件批量/去重；受限请求帧收发；断线重连；日志脱敏；不持有 `/internal` secret | 4 |
 | P1-04 | 本地会话与权限 API | `apps/api/src/modules/local-computer/*` | P1-01/02 | 启动/停止/状态；grant 创建/撤销/过期；owner/会话校验 | 2.5 |
-| P1-25 | 文件与工件链路 | `modules/files/` 扩展；设备桥上传/下发 | P1-03 | 输入附件下发到设备工作区并回 `ready`；本地工件预签名上传 + API 确认后入列表；`workspaceRelativePath` 在 API 侧换成资源 ID；本地绝对路径不进事件/日志/模型上下文 | 4 |
-| P1-26 | 设备任务租约 | `desktop-devices` + 引擎 | P1-01/04 | 同设备单任务；首次 observe 获取、回合结束/暂停/断线/超时/崩溃释放；第二会话 `DEVICE_BUSY`；窗口身份变化 `COMPUTER_TARGET_CHANGED` | 2 |
+| P1-29 | Core MCP 受限请求/响应 | runner `desktop/device-event-sink.ts` + 设备桥 + API 网关操作白名单，见方案 §6.7 | P1-02/03/24 | Browser Use/知识库/网页搜索/连接器实际闭环；逐项覆盖现有必要工具及启动确认/心跳/退出回调；服务端资源权限；关联 ID、超时/取消、迟到响应、断线副作用不重放；不开放任意内部路径，不下发内部 secret | 3 |
+| P1-25 | 文件与工件链路 | `modules/files/` 扩展；设备桥上传/下发 | P1-03/29 | 输入附件下发到设备工作区并回 `ready`；本地工件预签名上传 + API 确认后入列表；`workspaceRelativePath` 在 API 侧换成资源 ID；本地绝对路径不进事件/日志/模型上下文 | 4 |
 | P1-27 | 桌面协议版本兼容 | API `client-build` 扩展 + Web 宿主适配层 | P0-09 | 桌面上报 `desktopProtocolVersion` + 能力位，API 校验兼容区间；不兼容返回 `DESKTOP_UPDATE_REQUIRED` 并给更新入口；上一版安装包连当前 API 可登录、可开会话；Web 现有构建一致性检查不变 | 2 |
+| P1-07 | 命令/文件审批与沙箱分档（M1） | API + runner + 按请求类型的审批卡 | P1-02/04 | 默认 `untrusted` + `workspaceWrite`，显式 `full_access` 才用宽松档；命令按 `CommandExecutionApprovalDecision`、文件按 `FileChangeApprovalDecision`；文件无前缀规则选项且 API/runner 拒绝错类型决策；超时 `cancel`；命令始终授权显式开启、30 天过期、native 撤销后复测；云保持现有策略 | 3 |
 
-### 4.2 Computer use
+### 4.2 Computer use（M1b）
 
 | ID | 任务 | 产出/落点 | 依赖 | 验收 | 估时 |
 | --- | --- | --- | --- | --- | --- |
-| P1-05 | `computer_use` Core MCP 模块 | `apps/runner/src/mcp/core-services/computer-use-service.ts` + 注册 | P0-03 | `computer_status/observe/act`；Plan 只读；fake 引擎单测；超时/取消 | 3 |
-| P1-06 | 引擎本地入口（Go） | `apps/desktop` loopback RPC：status/observe/act/pause/resume/stop/permissions | P0-01 | 本地 token 校验；action allowlist；ref 校验；截图/树裁剪；JSON 错误归一 | 3 |
-| P1-07 | 命令级审批与沙箱分档（M1） | API + runner + 审批卡 UI | P1-02/04 | **沙箱与审批分档**：本地默认 `untrusted` + `workspaceWrite`，`full_access` 显式开启才用 `dangerFullAccess` + `on-request`，云保持 `never`；审批卡（命令/cwd/写入/提权）；决策按 v2 schema `accept` / `acceptForSession` / `acceptWithExecpolicyAmendment` / `decline` / `cancel`，超时走 `cancel`；串行、不自动重试；始终授权需显式开启、30 天过期、撤销时同步下发 native 规则更新并复测 | 3 |
+| P1-05 | `computer_use` Core MCP 模块 | `apps/runner/src/mcp/core-services/computer-use-service.ts` + 注册 | P0-03、P1-29 | `computer_status/observe/act`；Plan 只读；fake 引擎单测；超时/取消 | 3 |
+| P1-06 | 引擎本地入口（Go） | `apps/desktop` loopback RPC：status/observe/act/pause/resume/stop/permissions | P0-01、P1-24 | 本地 token 校验；action allowlist；ref 校验；截图/树裁剪；JSON 错误归一 | 3 |
+| P1-26 | 设备桌面占用租约 | `desktop-devices` + 引擎 | P1-04/06 | 同设备单 GUI 任务；首次 observe 获取、回合结束/暂停/断线/超时/崩溃释放；第二会话 `DEVICE_BUSY`；窗口身份变化 `COMPUTER_TARGET_CHANGED` | 2 |
 | P1-08 | 桌面操作安全边界 | 引擎 + runner | P1-06/28 | 禁止任意 `--arg/--env/--cdp`；launch 白名单；不记录键入/截图；危险动作二次确认 | 2 |
-| P1-23 | 本地动作执行管道与效果契约 | Go 引擎：`ActionExecutor`、通行证约束、风险分级、`effect`/`wait` 读回、中断语义 | P1-05/06/28 | 所有 GUI 动作只能经执行器；风险等级进审批与审计；`no_effect` 不自动重试；等待默认 8s / 上限 20s；崩溃标 `interrupted` 不重放；单测覆盖 | 3 |
-| P1-28 | GUI 授权、暂停/停止与审计（M1b） | 引擎 + API + 事件 | P1-06/07 | 5 分钟 grant；续期；暂停立即停止输入；停止撤销；拒绝路径；审计；撤销后已授权动作失效 | 2 |
+| P1-23 | 本地动作执行管道与效果契约 | Go 引擎：`ActionExecutor`、通行证约束、风险分级、`effect`/`wait` 读回、中断语义 | P1-05/08/26/28 | 所有 GUI 动作只能经执行器；风险等级进审批与审计；`no_effect` 不自动重试；等待默认 8s / 上限 20s；崩溃标 `interrupted` 不重放；单测覆盖 | 3 |
+| P1-28 | GUI 授权、暂停/停止与审计 | 引擎 + API + 事件 | P1-06/07/26 | 5 分钟 grant；续期；暂停立即停止输入；停止撤销；拒绝路径；审计；撤销后已授权动作失效 | 2 |
+| P1-11 | macOS 权限引导 | 伴随窗口（原生）+ 主窗口联动 | P1-06/28 | 检测 → 分项引导 → 系统设置深链 → 重新检测；拒绝可回落云电脑；屏幕录制授权后重启提示；不崩溃 | 2 |
 
 ### 4.3 桌面壳 / 产品 UI
 
 | ID | 任务 | 产出/落点 | 依赖 | 验收 | 估时 |
 | --- | --- | --- | --- | --- | --- |
 | P1-09 | 桌面产品化（Go） | 托盘、菜单、全局快捷键、通知、多窗口、崩溃日志、单实例深链 | P0-08 | 关窗不退出策略可配；托盘菜单齐全；深链登录/配对可用；六语言 | 3 |
-| P1-10 | 桌面 UI 集成（Web 侧） | `apps/web` 目标选择器（本地/云）、设备设置/配对、本地状态卡、权限卡片、审计页 | P1-02/04 | 复用现有组件；本地/云均可创建会话；权限卡片默认无“始终”、始终需显式开启、设置页可撤销；审计脱敏 | 5 |
-| P1-21 | Browser Use 桌面接入 | 桌面宿主适配层 + 设置页引导 + 状态展示 | P0-09/10 | 桌面内显示扩展状态；系统浏览器完成配对后桌面可见；本地会话 `browser_use` 操作真实标签页；撤销即时；macOS/Windows | 3 |
-| P1-22 | 应用内更新 | `mygo.json` 的 `updates`、更新密钥、`mygo build -upload`、更新窗口/横幅、beta 渠道 | P1-12 | 双平台签名更新；delta 命中与失败回退整包；stable/beta 切换；只读安装位置降级；发布流程文档 | 4 |
-| P1-11 | macOS 权限引导 | 伴随窗口（原生）+ 主窗口联动 | P1-06 | 检测 → 分项引导 → 系统设置深链 → 重新检测；拒绝记录原因并可回落云电脑；屏幕录制授权后重启提示；不崩溃 | 2 |
-| P1-12 | 打包/签名/公证/更新 | `scripts/desktop.mjs`、`mygo.json`、`deploy/desktop/` | P1-09/10 | arm64 `.app`/DMG；Developer ID + 公证；agent-desktop/legal 随包；自动更新（签名 + delta）；干净 Mac 冒烟 | 4 |
+| P1-10 | M1 桌面 UI 集成（Web 侧） | 本地/云目标、设备设置、命令/文件审批、审计页；GUI 卡片由 M1b 补齐 | P1-02/04/07/25/27/29 | 本地/云均可创建会话并确认切换；审批选项按原生类型显示；命令规则可撤销；审计脱敏；设置页显示本地工作区占用并可一键清理；GUI 未启用时不要求其权限 | 5 |
+| P1-21 | Browser Use 桌面接入 | 桌面宿主适配层 + 设置页引导 + 状态展示 | P0-09、P1-29 | 桌面内显示扩展状态；系统浏览器完成配对后桌面可见；本地会话经受限回调操作真实标签页；撤销即时；macOS/Windows | 3 |
+| P1-22 | 应用内更新 | `mygo.json` 的 `updates`、更新密钥、`mygo build -upload`、更新窗口/横幅、beta 渠道 | P1-12 | 双平台签名更新；delta 命中与失败回退整包；stable/beta 切换；只读安装位置降级；安装/重启与进行中回合互斥（待回合结束或显式结束，重启后按中断处理不续跑）；发布流程文档 | 4 |
+| P1-12 | 打包/签名/公证 | `scripts/desktop.mjs`、`mygo.json`、`deploy/desktop/` | P1-09/10 | arm64 `.app`/DMG；Developer ID + 公证；运行时/legal 随包；干净 Mac 冒烟；产物供 P1-22 验证更新，不以更新 UI 为本任务前置 | 4 |
 
 ### 4.4 测试 / 发布
 
 | ID | 任务 | 产出/落点 | 依赖 | 验收 | 估时 |
 | --- | --- | --- | --- | --- | --- |
-| P1-13 | 本地 E2E | Web UI E2E + Go 白盒 + 打包应用冒烟 | P1-09/10 | M1：登录→配对→创建 local 会话→读/写/Shell/浏览器→断线重连→撤销；M1b 追加 observe/act→效果/等待→暂停/恢复→崩溃中断不续跑 | 4 |
-| P1-14 | 安全测试 | API/引擎/协议 | P1-01/03/08 | 未授权设备、伪造 token、重放命令、跨会话、路径遍历、权限绕过、撤销后重试 | 3 |
-| P1-15 | i18n 六语言 | `packages/shared`、`apps/web`、`apps/desktop/locales` | P0-03/09 | 所有新文案六语言；key 覆盖测试；无英文占位 | 1.5 |
-| P1-16 | 文档与运行手册 | `docs/development/desktop-*` | 全部 | 开发/构建/配对/权限/故障排查/回滚 | 1.5 |
+| P1-13a | M1 本地 E2E | Web UI E2E + 打包应用冒烟 | P1-10/21/22/25/27/29/20a | 登录→配对→真实 local 回合→读/写/Shell/扩展浏览器/知识库/连接器→断线重连→撤销；旧安装包连新 API；不依赖 GUI | 3 |
+| P1-13b | GUI 增量 E2E | Go 白盒 + 双平台打包冒烟 | P1-13a/11/23/20b | observe/act→效果/等待→暂停/恢复→崩溃中断不续跑→撤销 | 1 |
+| P1-14a | M1 安全测试 | API/runner/设备协议 | P1-07/24/25/27/29 | 伪造/过期/撤销凭据、跨会话、受限工具越权、路径遍历、嵌套密钥泄露、错类型审批、默认档直调 AppleScript/PowerShell 绕过拦截、云契约回归；不依赖 GUI 执行器 | 2 |
+| P1-14b | GUI 增量安全测试 | API/引擎/设备租约 | P1-08/23/26/28/19b | GUI 授权绕过、同设备并发、窗口变化、暂停/撤销后动作拒绝、断线不续跑 | 1 |
+| P1-15 | M1 i18n 六语言 | `packages/shared`、`apps/web`、`apps/desktop/locales` | P0-03/09 | M1 新文案六语言；key 覆盖测试；无英文占位；GUI 文案在各增量任务按 DoD 验收 | 1.5 |
+| P1-16a | M1 文档与运行手册 | `docs/development/desktop-*` | P1-13a/14a/20a | 开发/构建/配对/模型及工具代理/文件/命令审批/升级/故障排查/回滚 | 1 |
+| P1-16b | GUI 增量手册 | 既有桌面手册补充 | P1-13b/14b | 系统权限、桌面租约、暂停/停止、GUI 故障排查与恢复 | 0.5 |
 
 ### 4.5 Windows 本地模式
 
@@ -148,13 +160,15 @@ Windows 本地模式（P1-17..20）复用同一批代码，挂在 WS3/WS6/WS8 �
 | --- | --- | --- | --- | --- | --- |
 | P1-17 | Windows 构建与安装器 | `mygo.json` Windows 目标、安装器脚本、`deploy/desktop/` | P0-01 | x64/arm64 构建；WebView2 检测与引导；安装/卸载/升级；Authenticode 签名 | 3 |
 | P1-18 | UIA 引擎回归 | `apps/desktop/engine.go`、`process_windows.go` | P1-06 | UIA snapshot/click/type/scroll；DPI/多显示器；提权窗口返回稳定 code；白盒测试 | 3 |
-| P1-19 | Windows 权限与安全差异 | 引擎 + API + UI | P1-07 | 完整性级别约束；无 TCC 的引导路径；SmartScreen 提示；剪贴板/启动白名单 | 1.5 |
-| P1-20 | Windows 测试与发布 | CI + 安装包 | P1-17/18 | Go 测试（arm64 无 `-race`）；安装/升级/自动更新冒烟；干净机器验证 | 2 |
+| P1-19a | Windows M1 权限与沙箱 | runner + API + UI | P1-07/17 | 当前用户文件访问、原生命令/文件审批与沙箱、SmartScreen/WebView2 提示；无 GUI 权限前置 | 1 |
+| P1-19b | Windows GUI 安全差异 | 引擎 + API + UI | P1-18/28 | 完整性级别约束；无 TCC 的引导路径；剪贴板/启动白名单 | 0.5 |
+| P1-20a | Windows M1 测试与发布 | CI + 安装包 | P1-12/17/19a/22 | Go 测试（arm64 无 `-race`）；干净机器安装/升级/自动更新；文件/Shell/扩展浏览器；不依赖 UIA | 1.5 |
+| P1-20b | Windows GUI 增量回归 | 既有安装包 + UIA 白盒 | P1-18/19b/23/20a | GUI 输入、DPI/多显示器、提权拒绝；M1 安装/升级流程继续可用 | 0.5 |
 
 **Phase 1 出口标准**：
 
-- **M1（可发布）**：macOS 与 Windows 安装包可在干净机器安装、登录、配对；完整客户端功能（会话、工件、浏览器面板、设置）可用；本地模式完成"文件 + Shell + 浏览器"闭环；设备凭据、文件链路、审批分档、设备租约、协议版本兼容全部验收；Browser Use 可从桌面完成引导与配对；六语言完整。
-- **M1b（不阻塞 M1）**：两平台完成 GUI 操作闭环（observe/act、效果/等待、暂停/恢复、中断不续跑）。
+- **M1（可发布）**：双平台安装/升级、会话/工件/浏览器/设置、本地文件/Shell/扩展浏览器及知识库/连接器调用均可用；严格设备凭据、受限工具请求、文件链路、分类型审批、协议兼容、六语言全部验收，P1-13a/14a/16a/20a 交付。GUI 不启用、不索取其系统权限，验收不依赖任何 GUI 任务。
+- **M1b（不阻塞 M1）**：两平台完成 GUI 操作与设备桌面占用租约闭环，P1-13b/14b/16b/18/19b/20b 作为增量交付，M1 功能继续可用。
 
 ---
 
@@ -162,7 +176,7 @@ Windows 本地模式（P1-17..20）复用同一批代码，挂在 WS3/WS6/WS8 �
 
 | ID | 任务 | 产出/落点 | 依赖 | 验收 | 估时 |
 | --- | --- | --- | --- | --- | --- |
-| P2-01 | 云目标路由 | API + Web/桌面 UI | P1-02/10 | `executionTarget=cloud` 走现有 `RunnerClient`；本地设备不参与；默认 cloud | 1.5 |
+| P2-01 | 云目标路由回归 | API + Web/桌面 UI | P1-02/10/27 | 回归 M1 已提供的双目标与确认切换；cloud 走现有 `RunnerClient`、本地设备不参与；默认 cloud | 1.5 |
 | P2-02 | 桌面端云模式对齐 | `apps/desktop` + `apps/web` | P2-01 | 会话/SSE/工件/浏览器面板与 Web 一致；断线重连；worker 回收 | 2 |
 | P2-03 | 云模式回归 | 测试 + 部署 | P2-02 | Docker runner 现有测试全绿；`pnpm test` 受影响包；无 Windows 依赖 | 2 |
 | P2-04 | 功能开关/灰度 | API + UI | P2-03 | `desktop.localComputer`、`desktop.cloudTarget` 开关；不可用提示；遥测 | 1.5 |
@@ -170,7 +184,7 @@ Windows 本地模式（P1-17..20）复用同一批代码，挂在 WS3/WS6/WS8 �
 | P2-06 | 内置浏览器 Agent 适配 | `assets/browser-agent.js`（DOM 快照/ref/点击/输入/等待）+ loopback RPC + `browserTarget` 路由 | P1-06/23、P2-05 | navigate/read/click/type/scroll/screenshot/wait；稳定 ref；JS 失败回落坐标点击；不支持项稳定错误码 | 5 |
 | P2-07 | 内置浏览器安全与交接 | 隔离会话、下载/外链策略、登录/验证码交接、审计 | P2-05/06 | 第三方页 `Untrusted`；`file://` 拦截；下载确认；登录交给用户；审计不含正文/键入 | 2 |
 
-**Phase 2 出口标准**：桌面端可在同一 UI 切换本地/云目标；云模式完全复用现有 Docker runner，无新增云桌面基础设施；内置浏览器可独立使用并接受 Agent 操作，扩展仍是默认浏览器。
+**Phase 2 出口标准**：M1 双目标与桌面/Web 行为一致性回归通过；云模式完全复用现有 Docker runner，无新增云桌面基础设施；内置浏览器可独立使用并接受 Agent 操作，扩展仍是默认浏览器。
 
 ---
 
@@ -190,8 +204,10 @@ Windows 本地模式（P1-17..20）复用同一批代码，挂在 WS3/WS6/WS8 �
 | 内置浏览器 | 导航、DOM 操作、下载、隔离会话 | Go 测试 + 桌面冒烟 + 双平台 | 标签/前进后退/下载/查找；点击/输入/等待；`file://` 拦截；会话隔离 |
 | 云模式 | Docker runner 回归 | 现有 runner 测试 + 冒烟 | 文件/Shell/浏览器/SSE/回收 |
 | 安全 | 设备/命令/权限/路径 | 专用测试 | 伪造、重放、越权、路径遍历、日志脱敏 |
-| 凭据边界 | run lease、模型代理、事件回传 | API Vitest + 抓包/进程检查 | 设备侧无平台 key、无 `LINKSENSE_RUNNER_SHARED_SECRET`；lease 过期/撤销；跨会话凭据拒绝 |
-| 沙箱与审批 | 本地 shell/文件 | runner + 真实 Codex | `untrusted` + `workspaceWrite` 生效；`dangerFullAccess` 仅显式开启；直调 AppleScript/PowerShell 被拦；v2 决策值；`cancel` 超时；撤销后 native 规则失效 |
+| 凭据边界 | 严格设备契约、用途代理 token、事件回传 | API Vitest + 抓包/进程检查 | 正常/记忆提取/模型切换均无真实供应商密钥及内部 secret；未知/嵌套字段拒绝；过期/撤销/跨会话拒绝；云契约回归 |
+| Core MCP 回调 | P1-29 受限请求/响应 | API + runner/设备桥 + fake service/冒烟 | Browser Use/知识库/网页搜索/连接器；操作白名单及资源权限；请求关联、超时/取消、迟到响应、副作用不重放 |
+| 沙箱与审批 | 本地 shell/文件 | runner + 真实 Codex | `untrusted` + `workspaceWrite` 生效；默认档直调 AppleScript/PowerShell 绕过拦截；宽松档显式开启；命令/文件各自 v2 schema，文件无前缀选项且错类型决策拒绝；`cancel` 超时；native 命令规则撤销 |
+| 里程碑依赖 | Phase 0 / M1 / M1b | 任务依赖与打包验收清单核对 | Phase 0 不引用 P1/P2 前置；M1 不依赖 GUI；安全/E2E/Windows/手册 a/b 增量分开 |
 | 文件链路 | 附件下发、工件上传、路径映射 | API + 设备桥 + 冒烟 | 附件到达设备；工件确认后入列表；本地路径不进事件/日志/模型上下文 |
 | 设备租约 | 同设备并发、窗口身份 | Go + API 测试 | 第二会话 `DEVICE_BUSY`；崩溃/断线后释放；`COMPUTER_TARGET_CHANGED` |
 | 协议兼容 | 旧安装包 ↔ 新 API | 打包冒烟 | 可登录、可开会话、`DESKTOP_UPDATE_REQUIRED` 可达更新入口；Web 构建检查不变 |
@@ -207,26 +223,20 @@ Definition of Done（每个任务）：
 
 ---
 
-## 7. 排期建议（合计约 127 人日；2 人并行约 13 周）
+## 7. 排期建议（合计约 130 人日）
 
-| 周 | 开发 A（API/传输） | 开发 B（Go 壳/引擎） |
+按 2 人、每周 5 个工作日计算，理想开发约 13 周；里程碑窗口预留 14 周，含集成与双平台回归余量。下表是依赖完成窗口，不是把同一周列出的任务无条件并行。
+
+| 窗口 | 工作 | 出口/先后关系 |
 | --- | --- | --- |
-| 1 | P0-03、P0-04、P0-05 | P0-01、P0-02、P0-08（起） |
-| 2 | P0-05、P0-06、P1-01 | P0-08、P0-09、P0-10 |
-| 3 | P1-24、P1-02 | P0-07（desktop provider）、P1-03（起） |
-| 4 | P1-02、P1-04 | P0-11（干净机器冒烟，Phase 0 出口）、P1-03 |
-| 5 | P1-07（沙箱分档 + 命令审批）、P1-25 | P1-09、P1-12（起） |
-| 6 | P1-25、P1-26 | P1-12、P1-17、P1-20 |
-| 7 | P1-27、P1-10 | P1-21、P1-22 |
-| 8 | P1-10、P1-13 | P1-15、P1-16 |
-| 9 | P1-13、P1-14 | 双平台回归 → **M1 发布** |
-| 10 | P2-01、P2-02 | P1-06、P1-28 |
-| 11 | P2-03、P2-04 | P1-08、P1-23 |
-| 12 | P1-05、P1-11 | P2-05 |
-| 13 | P1-18、P1-19、P2-07 | P2-06 → **M1b** |
+| 第 1–3 周 | P0-01..11；两人分担壳、契约、provider 和测试入口 | P0-07/08/09/10 后完成 P0-11；只验壳、云与独立运行时，不等 Phase 1 的设备回合/GUI |
+| 第 4–5 周 | P1-01 → P1-24 → P1-02/03；P1-09/17 可独立推进 | 先严格契约/凭据，再启设备命令与请求帧；不得临时下发平台 key；周末以真实回合验收通道，回显桩不算 |
+| 第 6–7 周 | P1-04/07/27；P1-29 → P1-25 → P1-21；P1-10 按前置完成后接入 | 受限工具请求、文件、分类型审批与兼容策略先验收，再验产品 UI |
+| 第 8–10 周 | P1-12 → P1-22 → P1-20a；P1-19a/15/14a、P1-13a → P1-16a | Windows 安装/更新在 UIA 前独立通过；M1 全部门槛完成后约第 10 周发布 |
+| 第 10–12 周 | M1b：P1-05/06 → P1-26/28 → P1-08/23；P1-11/18/19b；P2 云回归及浏览器窗口 | 按表中依赖推进；GUI 与内置浏览器的工作不加入 M1 的发布门槛 |
+| 第 13–14 周 | P1-20b → P1-13b/14b → P1-16b；P2-06/07 与双平台回归 | M1b 与 Phase 2 增量验收；UIA 完成后才做 Windows GUI 发布回归 |
 
-> M1 在第 10 周先发布（不含 GUI）；GUI 与内置浏览器在后三周收尾，不阻塞 M1。
-> 若只有 1 人：按依赖顺序串行，约 25 周；Phase 2 的云模式部分可压缩到 3–4 天。
+> 若只有 1 人：理想开发约 26 周，另留集成与双平台回归余量。阶段人日为 Phase 0：30、Phase 1：82、Phase 2：18；GUI 增量拆分没有重复计时。
 
 ---
 
@@ -250,8 +260,9 @@ Definition of Done（每个任务）：
 | 安装位置不可写 | 自更新禁用 | `Enabled()` 检查 + 降级下载链接 |
 | 本地 runner 与桌面应用生命周期 | 稳定性 | P0-10 supervisor + orphan guard；异常退出可重启 |
 | `local-process` 不适用于生产/Windows | 本地模式跑不起来 | P0-07 新增 `desktop` provider；不复用仅 development 的 provider |
-| 平台密钥下发到用户机器 | 凭据泄露 | P1-24 run lease + 服务端模型代理；设备侧抓包验收 |
-| 全局内部 secret 下发 | 内部 API 暴露 | P1-24 设备不持有 `LINKSENSE_RUNNER_SHARED_SECRET`；事件走设备 WS |
+| 平台密钥下发到用户机器 | 凭据泄露 | P1-24 独立严格契约；主模型/记忆/切换来源均走用途代理；三路径抓包验收 |
+| 全局内部 secret 下发 | 内部 API 暴露 | P1-24/29；设备事件与工具回调走受限通道 |
+| Core MCP 回调遗漏 | M1 浏览器/知识库/连接器失效 | P1-29 按 RunnerEventSink 调用方逐项登记与验收 |
 | 只改审批不改沙箱 | 无实际拦截 | P1-07 沙箱与审批分档；`untrusted` + `workspaceWrite` 为本地默认 |
 | 内嵌资源被 build ID 锁死 | 旧客户端无法升级 | P1-27 协议版本与 Web build ID 解耦 |
 | 本地工件无法注册 | 文件功能不可用 | P1-25 附件下发 + 工件上传确认 + 路径映射 |
@@ -272,7 +283,7 @@ Definition of Done（每个任务）：
 - `agent-desktop` 资源与第三方许可；
 - `packages/shared` 新契约与六语言资源；
 - `apps/api` 设备/本地会话/权限模块与迁移；设备凭据（run lease）与模型代理；文件链路扩展；
-- `apps/runner` `desktop` worker provider 与 `computer_use` Core MCP 模块；随包 Node 运行时与构建产物；
+- `apps/runner` `desktop` worker provider、设备回调适配器与 `computer_use` Core MCP 模块；随包 Node 运行时与构建产物；
 - `apps/web` 桌面宿主适配层、目标选择/设备/权限 UI；
 - 测试：单元/集成/Go 白盒/产品 UI/安全/i18n；
 - 文档：运行手册、故障排查、回滚、第三方许可。
