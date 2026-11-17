@@ -1,4 +1,5 @@
 import { useId, useRef, useState } from "react"
+import { getPublicAppOrigin } from "@/adapters/desktop/desktop-adapter"
 import { CopyIcon, GlobeIcon, Link2Icon, UploadIcon, XIcon } from "lucide-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
@@ -184,7 +185,7 @@ export function SiteDialog({
     try {
       await copyConversationShareUrl(
         visibleResult.url ??
-          new URL(visibleResult.url_path, window.location.origin).href
+          new URL(visibleResult.url_path, getPublicAppOrigin()).href
       )
       notify.success(t("webSites.copied"))
     } catch {
@@ -285,7 +286,7 @@ export function SiteDialog({
                   readOnly
                   value={
                     visibleResult.url ??
-                    new URL(visibleResult.url_path, window.location.origin).href
+                    new URL(visibleResult.url_path, getPublicAppOrigin()).href
                   }
                 />
                 {viewingExisting && (
@@ -361,10 +362,8 @@ export function SiteDialog({
                           readOnly
                           value={
                             selectedSite.url ??
-                            new URL(
-                              selectedSite.url_path,
-                              window.location.origin
-                            ).href
+                            new URL(selectedSite.url_path, getPublicAppOrigin())
+                              .href
                           }
                         />
                         <p className="text-xs text-muted-foreground">

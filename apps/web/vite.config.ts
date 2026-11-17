@@ -78,9 +78,42 @@ function emitBuildInfo(): Plugin {
   }
 }
 
+function desktopDocumentPolicy(): Plugin {
+  return {
+    name: "linksense-desktop-document-policy",
+    transformIndexHtml() {
+      if (process.env.LINKSENSE_DESKTOP_BUILD !== "1") return []
+      const nginx = readFileSync(
+        path.resolve(
+          import.meta.dirname,
+          "../../deploy/nginx/default.conf.template"
+        ),
+        "utf8"
+      )
+      const policy = nginx.match(
+        /add_header Content-Security-Policy "([^"]+)"/u
+      )?.[1]
+      if (!policy)
+        throw new Error("The shared Web content security policy is missing")
+      return [
+        {
+          tag: "meta",
+          attrs: {
+            "http-equiv": "Content-Security-Policy",
+            // frame-ancestors is response-only; the native window controls navigation.
+          content: `${policy.replace(/;\s*frame-ancestors[^;]*/u, "")}; frame-src 'self' https: http:`,
+          },
+          injectTo: "head-prepend",
+        },
+      ]
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    desktopDocumentPolicy(),
     {
       name: "linksense-html-preview-shell",
       configureServer(server) {

@@ -22,6 +22,7 @@ import { AuthProvider } from "@/app/auth-context"
 import { useAuth } from "@/app/auth-state"
 import { BootstrapContext } from "@/app/bootstrap-state"
 import { setAppLanguage } from "@/i18n"
+import { clearDesktopSession } from "@/adapters/desktop/desktop-adapter"
 
 const sessionState = vi.hoisted(() => ({
   token: null as string | null,
@@ -51,6 +52,10 @@ vi.mock("@/i18n", () => ({
   setAppLanguage: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock("@/adapters/desktop/desktop-adapter", () => ({
+  clearDesktopSession: vi.fn().mockResolvedValue(undefined),
+}))
+
 const user: User = {
   id: "user-1",
   name: "One",
@@ -72,13 +77,20 @@ const bootstrap = bootstrapSchema.parse({
   default_language: "zh-CN",
 })
 
-function AuthProbe() {
+function AuthProbe({
+  onSignOutError,
+}: {
+  onSignOutError?: (error: unknown) => void
+}) {
   const { status, user: currentUser, signOut } = useAuth()
   return (
     <>
       <output data-testid="auth-status">{status}</output>
       <output data-testid="auth-user">{currentUser?.email ?? ""}</output>
-      <button type="button" onClick={() => void signOut()}>
+      <button
+        type="button"
+        onClick={() => void signOut().catch((error) => onSignOutError?.(error))}
+      >
         sign out
       </button>
     </>
@@ -148,6 +160,7 @@ describe("AuthProvider session restoration", () => {
     vi.mocked(isRetryableApiError).mockReturnValue(false)
     vi.mocked(setAccessToken).mockClear()
     vi.mocked(setAppLanguage).mockClear()
+    vi.mocked(clearDesktopSession).mockReset().mockResolvedValue(undefined)
   })
 
   afterEach(() => {
@@ -168,6 +181,46 @@ describe("AuthProvider session restoration", () => {
     expect(setAccessToken).not.toHaveBeenCalledWith(null)
   })
 
+  it("clears native credentials before completing local sign-out when the API is unreachable", async () => {
+    sessionState.token = "persisted-access-token"
+    const unavailable = new Error("network unavailable")
+    vi.mocked(apiRequest).mockImplementation(async (path) => {
+      if (path === "/auth/logout") throw unavailable
+      return user
+    })
+    const onSignOutError = vi.fn()
+    renderAuthProvider(
+      createAuthQueryClient(),
+      <AuthProbe onSignOutError={onSignOutError} />
+    )
+    await expectAuthStatus("authenticated")
+    fireEvent.click(screen.getByRole("button", { name: "sign out" }))
+    await waitFor(() =>
+      expect(onSignOutError).toHaveBeenCalledWith(unavailable)
+    )
+    expect(clearDesktopSession).toHaveBeenCalledOnce()
+    await expectAuthStatus("anonymous")
+    expect(sessionState.token).toBeNull()
+  })
+
+  it("clears memory and account caches while reporting a failed native credential deletion", async () => {
+    sessionState.token = "persisted-access-token"
+    vi.mocked(apiRequest).mockResolvedValue(user)
+    const lockedStore = new Error("DESKTOP_CREDENTIAL_STORE_UNAVAILABLE")
+    vi.mocked(clearDesktopSession).mockRejectedValueOnce(lockedStore)
+    const onSignOutError = vi.fn()
+    renderAuthProvider(
+      createAuthQueryClient(),
+      <AuthProbe onSignOutError={onSignOutError} />
+    )
+    await expectAuthStatus("authenticated")
+    fireEvent.click(screen.getByRole("button", { name: "sign out" }))
+    await waitFor(() =>
+      expect(onSignOutError).toHaveBeenCalledWith(lockedStore)
+    )
+    await expectAuthStatus("anonymous")
+    expect(sessionState.token).toBeNull()
+  })
   it("applies the database language before exposing the restored session", async () => {
     sessionState.token = "persisted-access-token"
     vi.mocked(apiRequest).mockResolvedValue({ ...user, language: "en-US" })

@@ -1,0 +1,8 @@
+{
+  "serverTitle": "连接 LinkSense",
+  "serverDescription": "输入组织的 LinkSense 服务地址。登录信息会保存在系统凭据库中。",
+  "serverLabel": "服务地址",
+  "connect": "连接",
+  "serverInvalid": "请输入有效的 HTTPS 服务地址。本机服务也支持 HTTP。",
+  "configSaveFailed": "无法保存服务地址，请检查应用数据目录的访问权限。"
+}

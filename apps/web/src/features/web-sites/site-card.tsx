@@ -12,6 +12,7 @@ import { copyConversationShareUrl } from "@/features/conversations/conversation-
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime, formatFileSize } from "@/i18n/date"
 import { cn } from "@/lib/utils"
+import { getPublicAppOrigin } from "@/adapters/desktop/desktop-adapter"
 
 export function SiteCard({
   site,
@@ -22,7 +23,7 @@ export function SiteCard({
 }) {
   const { t, i18n } = useTranslation()
   const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
-  const url = site.url ?? new URL(site.url_path, window.location.origin).href
+  const url = site.url ?? new URL(site.url_path, getPublicAppOrigin()).href
 
   return (
     <Card

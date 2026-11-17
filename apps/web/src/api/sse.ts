@@ -15,6 +15,7 @@ import {
 } from "@/api/contracts"
 import { getAccessToken, setAccessToken } from "@/api/session"
 import { waitForSseReconnectDelay } from "@/api/sse-reconnect-delay"
+import { hostFetch } from "@/adapters/desktop/desktop-adapter"
 
 export type ConversationEventHandlers = {
   /**
@@ -203,7 +204,7 @@ export function connectConversationEvents(
 
       try {
         if (!options?.publicSession) prepareClientBuildRequest(headers)
-        let response = await fetch(
+        let response = await hostFetch(
           buildApiUrl(
             options?.publicSession?.path ??
               `/conversations/${conversationId}/events`,
@@ -242,7 +243,7 @@ export function connectConversationEvents(
           const refreshedToken = getAccessToken()
           if (refreshedToken)
             headers.set("Authorization", `Bearer ${refreshedToken}`)
-          response = await fetch(
+          response = await hostFetch(
             buildApiUrl(`/conversations/${conversationId}/events`, {
               last_event_id: lastEventId || undefined,
             }),
@@ -312,7 +313,7 @@ export function connectConversationEvents(
       } catch (error) {
         if (
           error instanceof ApiError &&
-          error.errorCode === "CLIENT_UPDATE_REQUIRED"
+          ["CLIENT_UPDATE_REQUIRED", "DESKTOP_UPDATE_REQUIRED"].includes(error.errorCode)
         ) {
           controller.abort()
           return

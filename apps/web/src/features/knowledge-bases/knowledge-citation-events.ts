@@ -1,4 +1,5 @@
 import { knowledgeCitationEventSchema } from "@linksense/shared"
+import { hostFetch } from "@/adapters/desktop/desktop-adapter"
 
 import {
   buildApiUrl,
@@ -35,7 +36,7 @@ export function connectKnowledgeCitationEvents(
 
       try {
         prepareClientBuildRequest(headers)
-        let response = await fetch(
+        let response = await hostFetch(
           buildApiUrl(
             `/knowledge-citations/${encodeURIComponent(citationId)}/events`
           ),
@@ -59,7 +60,7 @@ export function connectKnowledgeCitationEvents(
           if (refreshedToken) {
             headers.set("Authorization", `Bearer ${refreshedToken}`)
           }
-          response = await fetch(
+          response = await hostFetch(
             buildApiUrl(
               `/knowledge-citations/${encodeURIComponent(citationId)}/events`
             ),
@@ -117,7 +118,7 @@ export function connectKnowledgeCitationEvents(
       } catch (error) {
         if (
           error instanceof ApiError &&
-          error.errorCode === "CLIENT_UPDATE_REQUIRED"
+          ["CLIENT_UPDATE_REQUIRED", "DESKTOP_UPDATE_REQUIRED"].includes(error.errorCode)
         ) {
           controller.abort()
           return

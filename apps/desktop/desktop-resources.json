@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "versions": {
+    "node": "24.22.1",
+    "codex": "0.168.0",
+    "agent_desktop": "1.3.1"
+  },
+  "platforms": {
+    "darwin/arm64": {
+      "runtime_arch": "arm64",
+      "artifacts": [
+        {
+          "key": "node",
+          "format": "tar.gz",
+          "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-darwin-arm64.tar.gz",
+          "sha256": "89c682593d76cd44233fa53b1563264e7de9cbb189cad169135c5b4fadfbc0a7",
+          "files": [
+            {
+              "source": "node-v24.22.1-darwin-arm64/bin/node",
+              "destination": "bin/node"
+            }
+          ]
+        },
+        {
+          "key": "codex",
+          "format": "tar.gz",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-aarch64-apple-darwin.tar.gz",
+          "sha256": "c94dffc075ce5527a55d060f35412b45d1c1c1d16306a337dcf0d8e3ecfebc98",
+          "files": [
+            {
+              "source": "codex-aarch64-apple-darwin",
+              "destination": "bin/codex"
+            }
+          ]
+        },
+        {
+          "key": "agent-desktop",
+          "format": "tar.gz",
+          "url": "https://github.com/vercel-labs/agent-desktop/releases/download/v1.3.1/agent-desktop-v1.3.1-aarch64-apple-darwin.tar.gz",
+          "sha256": "9b7b7cfc74892eab46c2c85d6cb7dc4863bf8dab0a222cfcfb8ae4604c69c86c",
+          "files": [
+            {
+              "source": "agent-desktop",
+              "destination": "bin/agent-desktop"
+            },
+            {
+              "source": "agent-desktop-macos-helper",
+              "destination": "bin/agent-desktop-macos-helper"
+            }
+          ]
+        }
+      ]
+    },
+    "darwin/amd64": {
+      "runtime_arch": "amd64",
+      "artifacts": [
+        {
+          "key": "node",
+          "format": "tar.gz",
+          "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-darwin-x64.tar.gz",
+          "sha256": "d132557e7ee2b85af08b0c8c34338e65c6430f2238d01f727728ef42dc83b035",
+          "files": [
+            {
+              "source": "node-v24.22.1-darwin-x64/bin/node",
+              "destination": "bin/node"
+            }
+          ]
+        },
+        {
+          "key": "codex",
+          "format": "tar.gz",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-x86_64-apple-darwin.tar.gz",
+          "sha256": "01511787bdecab86e03f55fd390a5998590c7ca5c80fc64f2553b01f14ff9057",
+          "files": [
+            {
+              "source": "codex-x86_64-apple-darwin",
+              "destination": "bin/codex"
+            }
+          ]
+        },
+        {
+          "key": "agent-desktop",
+          "format": "tar.gz",
+          "url": "https://github.com/vercel-labs/agent-desktop/releases/download/v1.3.1/agent-desktop-v1.3.1-x86_64-apple-darwin.tar.gz",
+          "sha256": "469da10cfb68928c58caff88b92b30526e0ca895ac06bc86b7f533b1d9b309b3",
+          "files": [
+            {
+              "source": "agent-desktop",
+              "destination": "bin/agent-desktop"
+            },
+            {
+              "source": "agent-desktop-macos-helper",
+              "destination": "bin/agent-desktop-macos-helper"
+            }
+          ]
+        }
+      ]
+    },
+    "windows/arm64": {
+      "runtime_arch": "amd64",
+      "artifacts": [
+        {
+          "key": "node",
+          "format": "file",
+          "url": "https://nodejs.org/dist/v24.22.1/win-x64/node.exe",
+          "sha256": "d702daa815eabbff763c7d3808e235cf031cf2ca70211b56847bc72f51e240e5",
+          "files": [
+            {
+              "source": null,
+              "destination": "bin/node.exe"
+            }
+          ]
+        },
+        {
+          "key": "codex",
+          "format": "tar.gz",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-x86_64-pc-windows-msvc.exe.tar.gz",
+          "sha256": "d9107b6d376d2921cef1ced33c34aba8cd1300ee496b08c9c077a67ebe03abb9",
+          "files": [
+            {
+              "source": "codex-x86_64-pc-windows-msvc.exe",
+              "destination": "bin/codex.exe"
+            }
+          ]
+        },
+        {
+          "key": "codex-command-runner",
+          "format": "tar.gz",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-command-runner-x86_64-pc-windows-msvc.exe.tar.gz",
+          "sha256": "03af956bff3b636fe2fe507e4b7245c35271e2d992e189b2ed0e0d119ed9b28c",
+          "files": [
+            {
+              "source": "codex-command-runner-x86_64-pc-windows-msvc.exe",
+              "destination": "bin/codex-command-runner.exe"
+            }
+          ]
+        },
+        {
+          "key": "codex-windows-sandbox-setup",
+          "format": "tar.gz",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe.tar.gz",
+          "sha256": "d1b96cda79f4054fe056a867825f99f5f9a14680ab5ba97911e5b744554ad964",
+          "files": [
+            {
+              "source": "codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe",
+              "destination": "bin/codex-windows-sandbox-setup.exe"
+            }
+          ]
+        },
+        {
+          "key": "agent-desktop",
+          "format": "tar.gz",
+          "url": "https://github.com/vercel-labs/agent-desktop/releases/download/v1.3.1/agent-desktop-v1.3.1-aarch64-pc-windows-msvc.tar.gz",
+          "sha256": "805f1f61890f9983fceaf38cda94a37a049c379435d65607db5cedd22c8ef97b",
+          "files": [
+            {
+              "source": "agent-desktop.exe",
+              "destination": "bin/agent-desktop.exe"
+            }
+          ]
+        }
+      ]
+    },
+    "windows/amd64": {
+      "runtime_arch": "amd64",
+      "artifacts": [
+        {
+          "key": "node",
+          "format": "file",
+          "url": "https://nodejs.org/dist/v24.22.1/win-x64/node.exe",
+          "sha256": "d702daa815eabbff763c7d3808e235cf031cf2ca70211b56847bc72f51e240e5",
+          "files": [
+            {
+              "source": null,
+              "destination": "bin/node.exe"
+            }
+          ]
+        },
+        {
+          "key": "codex",
+          "format": "tar.gz",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-x86_64-pc-windows-msvc.exe.tar.gz",
+          "sha256": "d9107b6d376d2921cef1ced33c34aba8cd1300ee496b08c9c077a67ebe03abb9",
+          "files": [
+            {
+              "source": "codex-x86_64-pc-windows-msvc.exe",
+              "destination": "bin/codex.exe"
+            }
+          ]
+        },
+        {
+          "key": "codex-command-runner",
+          "format": "tar.gz",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-command-runner-x86_64-pc-windows-msvc.exe.tar.gz",
+          "sha256": "03af956bff3b636fe2fe507e4b7245c35271e2d992e189b2ed0e0d119ed9b28c",
+          "files": [
+            {
+              "source": "codex-command-runner-x86_64-pc-windows-msvc.exe",
+              "destination": "bin/codex-command-runner.exe"
+            }
+          ]
+        },
+        {
+          "key": "codex-windows-sandbox-setup",
+          "format": "tar.gz",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe.tar.gz",
+          "sha256": "d1b96cda79f4054fe056a867825f99f5f9a14680ab5ba97911e5b744554ad964",
+          "files": [
+            {
+              "source": "codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe",
+              "destination": "bin/codex-windows-sandbox-setup.exe"
+            }
+          ]
+        },
+        {
+          "key": "agent-desktop",
+          "format": "tar.gz",
+          "url": "https://github.com/vercel-labs/agent-desktop/releases/download/v1.3.1/agent-desktop-v1.3.1-x86_64-pc-windows-msvc.tar.gz",
+          "sha256": "6ee4b1e078f4e78792e79f16e32e4a78b9919464aa3c55629b7e27ed53a08c13",
+          "files": [
+            {
+              "source": "agent-desktop.exe",
+              "destination": "bin/agent-desktop.exe"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

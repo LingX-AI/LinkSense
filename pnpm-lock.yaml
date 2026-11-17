@@ -636,6 +636,9 @@ importers:
       '@microsoft/teams-js':
         specifier: ^2.59.0
         version: 2.59.0
+      '@mygo-plugins/fetch':
+        specifier: 0.7.4
+        version: 0.7.4(mygo-runtime@0.7.4)
       '@noble/hashes':
         specifier: 2.4.0
         version: 2.4.0
@@ -711,6 +714,9 @@ importers:
       mermaid:
         specifier: 12.3.0
         version: 12.3.0
+      mygo-runtime:
+        specifier: 0.7.4
+        version: 0.7.4
       papaparse:
         specifier: ^5.7.1
         version: 5.7.1
@@ -3609,6 +3615,11 @@ packages:
     resolution: {integrity: sha512-CmCXPQrkbwExx3j946/PtHWHbYJiCRBRDl4BlkRQcJB/YOwQxJRTpoo7aTsortjgoJ1x7opzTSxn7C+ASSLVjQ==}
     cpu: [x64]
     os: [win32]
+
+  '@mygo-plugins/fetch@0.7.4':
+    resolution: {integrity: sha512-QGjs6xhye+uTRjYa5YCAAO4FgsvOK9XBdU4PqtXDCCy6bCBjKmRwKRtQ175CmmD5mF2cILBoWiQu2vUYyv7lcQ==}
+    peerDependencies:
+      mygo-runtime: ^0.7.4
 
   '@napi-rs/canvas-android-arm64@0.1.100':
     resolution: {integrity: sha512-hjhCKhntPv9+t4ckHymdx0phYNcVW+GKQR6Lzw2zE+pOVjOplSmtx9nNNknTjbEDLcuLZqA1y8ufKg1XfgftzQ==}
@@ -9063,6 +9074,9 @@ packages:
   multicast-dns@7.2.5:
     resolution: {integrity: sha512-2eznPJP8z2BFLX50tf0LuODrpINqP1RVIm/CObbTcBRITQgmC/TjcREF1NeTBzIcR5XO/ukWo+YHOjBbFwIupg==}
     hasBin: true
+
+  mygo-runtime@0.7.4:
+    resolution: {integrity: sha512-11BHbfdLp3OdVb5691zkj4xKtU6Qk9ZCVxbi2xOxPvtGTVo1xwKs1cx61Ow/p95qmJvUp8p+DjeXRnVkeSnFww==}
 
   mysql2@3.24.4:
     resolution: {integrity: sha512-A2olluVlj0mvgyIRRISMEzXc51m+21mRtcMVjJyIpt2GG98+XrC9m9HzsqcMsX2LcnfccJvY5NB22g8fENBnOA==}
@@ -16120,6 +16134,10 @@ snapshots:
   '@msgpackr-extract/msgpackr-extract-win32-x64@3.0.4':
     optional: true
 
+  '@mygo-plugins/fetch@0.7.4(mygo-runtime@0.7.4)':
+    dependencies:
+      mygo-runtime: 0.7.4
+
   '@napi-rs/canvas-android-arm64@0.1.100':
     optional: true
 
@@ -22385,6 +22403,8 @@ snapshots:
     dependencies:
       dns-packet: 5.6.1
       thunky: 1.1.0
+
+  mygo-runtime@0.7.4: {}
 
   mysql2@3.24.4(@types/node@24.13.3):
     dependencies:

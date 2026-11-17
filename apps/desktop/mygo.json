@@ -1,0 +1,12 @@
+{
+  "name": "LinkSense",
+  "slug": "linksense-desktop",
+  "identifier": "org.linksense.desktop",
+  "version": "0.1.0",
+  "buildCommand": "pnpm --dir ../.. desktop:build-web",
+  "frontendDist": "../web/dist",
+  "bindings": "../web/src/adapters/desktop/mygo.ts",
+  "out": "build",
+  "urlSchemes": ["linksense-desktop"],
+  "i18n": { "dir": "locales", "source": "zh-CN" }
+}

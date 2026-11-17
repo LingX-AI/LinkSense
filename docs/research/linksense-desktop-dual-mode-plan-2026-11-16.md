@@ -229,10 +229,11 @@ flowchart TB
 
 **打包方式（Phase 0 定死，不允许"可选随包"）**：
 
-- Node 运行时：随包内嵌固定版本（`node` 可执行 + 单文件 bundle），或改 Bun/SEA 单文件；二选一在 Phase 0 用**干净机器**验证。
-- `apps/runner` 构建产物与 native 依赖（Prisma client、`node-pty` 等）按平台放 `resources/<os>-<arch>/`。
-- Codex 沿用现有 `runtime-version.json`（0.168.0）机制；随包或首启下载二选一，Phase 0 定量。
+- Node 运行时：随包内嵌固定 Node 24.22.1；使用现有 `apps/runner` 的 ESM 产物和完整生产依赖闭包，保留 Core MCP 的独立进程入口及现有文件资源路径。采用 pnpm 的 portable hoisted 部署，避免 mygo 忽略隐藏目录后丢失 `.pnpm` 依赖；在 Phase 0 用**干净机器**验证。
+- `apps/runner` 构建产物与实际 native 依赖（Sharp、anydoc 等）按平台放 `resources/<os>-<arch>/`。Windows ARM64 的 Go 壳与 `agent-desktop` 引擎保持 ARM64；由于 anydoc 0.1.8 没有 Windows ARM64 binding，Node/Codex/npm 闭包暂用 x64，在 Windows 11 内置 x64 兼容运行时上执行。待上游提供绑定后再切换整套运行时并回归，Windows 10 ARM64 不满足该条件。
+- Codex 沿用现有 `runtime-version.json`（0.168.0）机制，固定随包分发；资源 URL、下载 SHA-256 与实际 runtime architecture 记录在 `apps/desktop/desktop-resources.json`。
 - 体积预算：内嵌 Node + runner + Codex 预计 150–250 MB；超 300 MB 需重新评估方案。
+- 2026-11-17 实测与复核：macOS arm64 开发产物 DMG 174.6 MB，展开 `.app` 601.6 MB；其中 Node 122.5 MB、Codex 273.6 MB。原估计低估了展开体积，不能把安装后体积列为已达标。保留已确认的固定版本及完整随包运行方式，发布时分别核对下载量、磁盘占用与更新增量；运行时闭包已在仓库外副本通过真实 Codex/Core MCP 与本地模型 fixture 白盒，干净系统安装仍须单独验收。
 
 **其余**：
 

@@ -11,6 +11,8 @@ import { MaintenancePage } from "@/pages/maintenance-page"
 import { MaintenanceIndicator } from "@/components/shell/maintenance-indicator"
 import { MaintenanceNoticeDialog } from "@/components/shell/maintenance-notice-dialog"
 import { KnowledgeUploadSessionProvider } from "@/features/knowledge-bases/knowledge-upload-session-provider"
+import { ApiError } from "@/api/client"
+import { getErrorMessage } from "@/api/error-message"
 
 const maintenanceAdminAuthPaths = new Set([
   "/login",
@@ -24,7 +26,7 @@ const maintenanceAdminAuthPaths = new Set([
 export function BootstrapGate() {
   const { t } = useTranslation()
   const productName = useProductName()
-  const { bootstrap, isLoading, refetch } = useBootstrap()
+  const { bootstrap, isLoading, error, refetch } = useBootstrap()
   const { status, user } = useAuth()
   const location = useLocation()
   const content = (
@@ -43,7 +45,12 @@ export function BootstrapGate() {
         <div className="public-panel">
           <h1>{t("bootstrap.unavailableTitle", { productName })}</h1>
           <ErrorState
-            message={t("bootstrap.unavailableDescription", { productName })}
+            message={
+              error instanceof ApiError &&
+              error.errorCode === "DESKTOP_UPDATE_REQUIRED"
+                ? getErrorMessage(error, t, { productName })
+                : t("bootstrap.unavailableDescription", { productName })
+            }
             onRetry={refetch}
           />
         </div>
@@ -172,9 +179,11 @@ function resolveAuthenticatedDestination(
     return fallback
   }
 
-  const destination = new URL(state.from, window.location.origin)
+  const source = new URL(window.location.href)
+  const destination = new URL(state.from, source)
   if (
-    destination.origin !== window.location.origin ||
+    destination.protocol !== source.protocol ||
+    destination.host !== source.host ||
     destination.pathname.startsWith("/api/") ||
     [
       "/login",

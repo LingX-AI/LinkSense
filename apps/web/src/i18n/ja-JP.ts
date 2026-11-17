@@ -5847,6 +5847,7 @@ export const jaJP = {
       "サービスから無効なデータが返されました。管理者にお問い合わせください。",
     clientUpdateRequired:
       "システムが更新されました。このページを更新して続行してください。",
+    desktopUpdateRequired: localizedErrorMessage("DESKTOP_UPDATE_REQUIRED", "ja-JP"),
     serviceTemporarilyUnavailable:
       "システムを一時的に利用できません。少し待ってから再試行してください。",
     imageUnderstanding: {

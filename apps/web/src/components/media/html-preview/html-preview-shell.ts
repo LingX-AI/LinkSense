@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { getDesktopServerUrl } from "@/adapters/desktop/desktop-adapter"
 export { interactiveHtmlPreviewSandbox } from "@linksense/shared"
 
 export const htmlPreviewShellPath = "/assistant-html-preview-shell.html"
@@ -17,6 +18,10 @@ export function buildHtmlPreviewShellSource(
   attempt: number,
   entryUrl = htmlPreviewShellPath
 ) {
+  const server = getDesktopServerUrl()
+  if (server && entryUrl.startsWith("/html-preview/")) {
+    entryUrl = new URL(entryUrl, server).href
+  }
   return `${entryUrl}?previewId=${encodeURIComponent(
     previewId
   )}&attempt=${attempt}`

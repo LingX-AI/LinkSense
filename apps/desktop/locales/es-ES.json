@@ -1,0 +1,8 @@
+{
+  "serverTitle": "Conectar con LinkSense",
+  "serverDescription": "Introduce la dirección del servidor LinkSense de tu organización. Las credenciales se guardan en el almacén de credenciales del sistema.",
+  "serverLabel": "Dirección del servidor",
+  "connect": "Conectar",
+  "serverInvalid": "Introduce una dirección HTTPS válida. Los servidores locales también admiten HTTP.",
+  "configSaveFailed": "No se pudo guardar la dirección. Comprueba el acceso al directorio de datos de la aplicación."
+}

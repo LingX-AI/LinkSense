@@ -76,6 +76,7 @@
 - `apps/desktop` 是 Go module，**不进 pnpm workspace**；桌面契约放 `packages/shared`。
 - 引擎与应用同进程，不建 `apps/desktop-helper`；CI 覆盖 macOS/Windows 双平台构建。
 - 本地 runner 复用 `apps/runner`，新增 `WORKER_PROVIDER=desktop`（现有 `local-process` 仅 development 且要求 POSIX uid/gid，Windows 不可用）；Node + runner + Codex 随安装包分发。工作区 macOS `~/Library/Application Support/LinkSense`、Windows `%APPDATA%\LinkSense`。
+- 随包方式已按现有多进程入口选用固定 Node + ESM 依赖闭包。Windows ARM64 保持原生外壳/GUI 引擎，Node/Codex/npm 闭包暂用 Windows 11 的 x64 兼容运行时，以覆盖 anydoc 当前缺失的 ARM64 binding。版本/哈希及体积测量以方案 §5.2 和桌面 README 为准；Windows 实机验收仍是出口条件。
 
 ### 3.2 mygo 与 agent-desktop 落地要求
 

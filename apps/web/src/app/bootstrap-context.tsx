@@ -24,7 +24,7 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
       count < 1 &&
       !(
         error instanceof ApiError &&
-        error.errorCode === "CLIENT_UPDATE_REQUIRED"
+        ["CLIENT_UPDATE_REQUIRED", "DESKTOP_UPDATE_REQUIRED"].includes(error.errorCode)
       ),
   })
   const systemName = query.data?.system_name

@@ -22,6 +22,7 @@ import { AuthContext, type AuthContextValue } from "@/app/auth-state"
 import { useBootstrap } from "@/app/bootstrap-state"
 import { setAppLanguage } from "@/i18n"
 import { z } from "zod"
+import { clearDesktopSession } from "@/adapters/desktop/desktop-adapter"
 
 const AUTH_RESTORE_RETRY_DELAY_MS = 2_000
 const AUTH_RESTORE_MAX_ATTEMPTS = 3
@@ -103,8 +104,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         skipRefresh: true,
       })
     } finally {
-      setAccessToken(null)
-      await resetAccountState()
+      try {
+        await clearDesktopSession()
+      } finally {
+        setAccessToken(null)
+        await resetAccountState()
+      }
     }
   }, [resetAccountState])
 

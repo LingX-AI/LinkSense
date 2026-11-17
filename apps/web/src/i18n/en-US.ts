@@ -5590,6 +5590,7 @@ export const enUS = {
     invalidResponse:
       "The service returned invalid data. Contact an administrator.",
     clientUpdateRequired: errorCatalog.CLIENT_UPDATE_REQUIRED.messages["en-US"],
+    desktopUpdateRequired: errorCatalog.DESKTOP_UPDATE_REQUIRED.messages["en-US"],
     serviceTemporarilyUnavailable:
       errorCatalog.SERVICE_TEMPORARILY_UNAVAILABLE.messages["en-US"],
     imageUnderstanding: {

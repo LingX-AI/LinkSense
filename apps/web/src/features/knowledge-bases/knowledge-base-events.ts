@@ -1,3 +1,4 @@
+import { hostFetch } from "@/adapters/desktop/desktop-adapter"
 import {
   buildApiUrl,
   isDefinitiveAuthenticationError,
@@ -46,7 +47,7 @@ export function connectKnowledgeBaseEvents(
 
       try {
         prepareClientBuildRequest(headers)
-        let response = await fetch(
+        let response = await hostFetch(
           buildApiUrl(`/knowledge-bases/${knowledgeBaseId}/events`),
           {
             headers,
@@ -68,7 +69,7 @@ export function connectKnowledgeBaseEvents(
           if (refreshedToken) {
             headers.set("Authorization", `Bearer ${refreshedToken}`)
           }
-          response = await fetch(
+          response = await hostFetch(
             buildApiUrl(`/knowledge-bases/${knowledgeBaseId}/events`),
             {
               headers,
@@ -125,7 +126,7 @@ export function connectKnowledgeBaseEvents(
       } catch (error) {
         if (
           error instanceof ApiError &&
-          error.errorCode === "CLIENT_UPDATE_REQUIRED"
+          ["CLIENT_UPDATE_REQUIRED", "DESKTOP_UPDATE_REQUIRED"].includes(error.errorCode)
         ) {
           controller.abort()
           return

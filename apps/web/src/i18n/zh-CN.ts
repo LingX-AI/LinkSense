@@ -5185,6 +5185,7 @@ export const zhCN = {
     networkUnavailable: "无法连接服务，请检查网络后重试。",
     invalidResponse: "服务返回了无法识别的数据，请联系管理员。",
     clientUpdateRequired: errorCatalog.CLIENT_UPDATE_REQUIRED.messages["zh-CN"],
+    desktopUpdateRequired: errorCatalog.DESKTOP_UPDATE_REQUIRED.messages["zh-CN"],
     serviceTemporarilyUnavailable:
       errorCatalog.SERVICE_TEMPORARILY_UNAVAILABLE.messages["zh-CN"],
     imageUnderstanding: {

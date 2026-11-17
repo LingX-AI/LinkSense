@@ -4,6 +4,7 @@
   "private": true,
   "license": "CPAL-1.0",
   "type": "module",
+  "files": ["dist"],
   "scripts": {
     "dev": "tsx watch --include \"../../packages/shared/src/**/*.ts\" src/index.ts",
     "build": "tsc -p tsconfig.build.json",

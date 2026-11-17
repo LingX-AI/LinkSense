@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { getPublicAppOrigin } from "@/adapters/desktop/desktop-adapter"
 import {
   conversationShareReceiptSchema,
   conversationShareSnapshotSchema,
@@ -22,7 +23,7 @@ export type PublicConversationShare = z.infer<
 
 export function buildConversationShareUrl(
   urlPath: string,
-  origin = window.location.origin
+  origin = getPublicAppOrigin()
 ) {
   return new URL(urlPath, origin).toString()
 }

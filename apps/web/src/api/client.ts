@@ -1,6 +1,12 @@
 import { z } from "zod"
 import { createRandomUuid } from "@/lib/random-uuid"
 import {
+  getDesktopServerUrl,
+  hostFetch,
+  isDesktopHost,
+  requireDesktopUpdate,
+} from "@/adapters/desktop/desktop-adapter"
+import {
   shouldBlockWorkspaceUiDemoWrite,
   shouldUseWorkspaceUiDemo,
 } from "@/features/ui-demo/workspace-ui-demo-mode"
@@ -8,6 +14,9 @@ import {
   CLIENT_BUILD_HEADER,
   SERVER_BUILD_HEADER,
   isLocale,
+  DESKTOP_PROTOCOL_HEADER,
+  desktopProtocolVersion,
+  DESKTOP_LEGACY_BUILD_SENTINEL,
 } from "@linksense/shared"
 import {
   getClientBuildId,
@@ -72,6 +81,11 @@ export function prepareClientBuildRequest(
   headers: Headers,
   path?: string
 ): void {
+  if (isDesktopHost()) {
+    headers.set(DESKTOP_PROTOCOL_HEADER, String(desktopProtocolVersion))
+    headers.set(CLIENT_BUILD_HEADER, DESKTOP_LEGACY_BUILD_SENTINEL)
+    return
+  }
   if (getPendingClientBuild() && path !== "/system/bootstrap") {
     throw new ApiError({ status: 409, errorCode: "CLIENT_UPDATE_REQUIRED" })
   }
@@ -80,6 +94,15 @@ export function prepareClientBuildRequest(
 }
 
 export function validateResponseBuild(headers: Headers): void {
+  if (isDesktopHost()) {
+    if (
+      headers.get(DESKTOP_PROTOCOL_HEADER) !== String(desktopProtocolVersion)
+    ) {
+      requireDesktopUpdate()
+      throw new ApiError({ status: 409, errorCode: "DESKTOP_UPDATE_REQUIRED" })
+    }
+    return
+  }
   if (observeServerBuild(headers.get(SERVER_BUILD_HEADER))) {
     throw new ApiError({ status: 409, errorCode: "CLIENT_UPDATE_REQUIRED" })
   }
@@ -96,10 +119,11 @@ export function validateUploadResponseBuild(request: XMLHttpRequest): void {
 export type QueryValue = string | number | boolean | null | undefined
 
 export function buildApiUrl(path: string, query?: Record<string, QueryValue>) {
+  const baseUrl = getDesktopServerUrl() ?? API_BASE_URL
   const normalizedPath = path.startsWith("/") ? path : `/${path}`
   const url = new URL(
-    `${API_BASE_URL}/api/v1${normalizedPath}`,
-    window.location.origin
+    `${baseUrl}/api/v1${normalizedPath}`,
+    window.location.href
   )
 
   if (query) {
@@ -110,7 +134,7 @@ export function buildApiUrl(path: string, query?: Record<string, QueryValue>) {
     }
   }
 
-  return API_BASE_URL ? url.toString() : `${url.pathname}${url.search}`
+  return baseUrl ? url.toString() : `${url.pathname}${url.search}`
 }
 
 type RequestOptions<TSchema extends z.ZodType> = {
@@ -284,7 +308,7 @@ async function rawRequest<TSchema extends z.ZodType>(
 
   let response: Response
   try {
-    response = await fetch(buildApiUrl(path, options.query), {
+    response = await hostFetch(buildApiUrl(path, options.query), {
       method: options.method ?? "GET",
       headers,
       body,
@@ -341,6 +365,13 @@ function rawUploadRequest<TSchema extends z.ZodType>(
   options: ApiUploadRequestOptions<TSchema>,
   accessTokenOverride?: string | null
 ): Promise<z.infer<TSchema>> {
+  if (isDesktopHost()) {
+    // Native fetch has no byte-level upload progress; completion is observable.
+    return rawRequest(path, options, accessTokenOverride).then((data) => {
+      options.onUploadProgress?.(100)
+      return data
+    })
+  }
   const buildHeaders = new Headers()
   prepareClientBuildRequest(buildHeaders, path)
   return new Promise((resolve, reject) => {
@@ -515,6 +546,7 @@ async function refreshWithStorageLease(staleAccessToken: string | null) {
 }
 
 async function refreshAcrossTabs(staleAccessToken: string | null) {
+  if (isDesktopHost()) return refreshInsideLock(staleAccessToken)
   if (navigator.locks) {
     return navigator.locks.request(REFRESH_LOCK_NAME, () =>
       refreshInsideLock(staleAccessToken)
@@ -665,7 +697,7 @@ async function rawStreamRequest(
 
   let response: Response
   try {
-    response = await fetch(buildApiUrl(path), {
+    response = await hostFetch(buildApiUrl(path), {
       method: options.method ?? "GET",
       headers,
       body,
@@ -765,7 +797,7 @@ export async function downloadApiFile(
   }
 
   const fetchFile = async () => {
-    const response = await fetch(buildApiUrl(path, query), {
+    const response = await hostFetch(buildApiUrl(path, query), {
       headers,
       credentials: "include",
       signal,

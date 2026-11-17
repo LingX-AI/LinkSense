@@ -14,6 +14,7 @@ import {
 } from "@/app/client-build"
 import { ClientUpdateNotice } from "@/components/shell/client-update-notice"
 import { ApplicationLoadError } from "@/app/application-load-error"
+import { initializeDesktopHost } from "@/adapters/desktop/desktop-adapter"
 
 initializeTheme()
 initializeUiFontSize()
@@ -26,6 +27,7 @@ if (!rootElement) throw new Error("Application root element was not found")
 const router = createBrowserRouter([
   {
     path: "*",
+    loader: initializeDesktopHost,
     errorElement: <ApplicationLoadError />,
     element: (
       <AppProviders>

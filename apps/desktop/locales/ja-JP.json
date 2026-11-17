@@ -1,0 +1,8 @@
+{
+  "serverTitle": "LinkSense に接続",
+  "serverDescription": "組織の LinkSense サーバーのアドレスを入力してください。ログイン情報はシステムの資格情報ストアに保存されます。",
+  "serverLabel": "サーバーアドレス",
+  "connect": "接続",
+  "serverInvalid": "有効な HTTPS アドレスを入力してください。ローカルサーバーでは HTTP も使用できます。",
+  "configSaveFailed": "アドレスを保存できませんでした。アプリのデータディレクトリへのアクセス権を確認してください。"
+}

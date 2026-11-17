@@ -87,6 +87,7 @@ export const errorMessages = {
       "El servicio devolvió datos no válidos. Contacta con un administrador.",
     clientUpdateRequired:
       "El sistema se ha actualizado. Actualiza esta página para continuar.",
+    desktopUpdateRequired: localizedErrorMessage("DESKTOP_UPDATE_REQUIRED", "es-ES"),
     serviceTemporarilyUnavailable:
       "El sistema no está disponible temporalmente. Inténtalo de nuevo en unos instantes.",
     imageUnderstanding: {

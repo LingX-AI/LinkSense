@@ -5945,6 +5945,7 @@ export const ptBR = {
       "O serviço retornou dados inválidos. Entre em contato com um administrador.",
     clientUpdateRequired:
       "O sistema foi atualizado. Atualize esta página para continuar.",
+    desktopUpdateRequired: localizedErrorMessage("DESKTOP_UPDATE_REQUIRED", "pt-BR"),
     serviceTemporarilyUnavailable:
       "O sistema está temporariamente indisponível. Tente novamente em breve.",
     imageUnderstanding: {

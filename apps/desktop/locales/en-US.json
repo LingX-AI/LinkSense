@@ -1,0 +1,8 @@
+{
+  "serverTitle": "Connect to LinkSense",
+  "serverDescription": "Enter your organization's LinkSense server address. Sign-in credentials are kept in the system credential store.",
+  "serverLabel": "Server address",
+  "connect": "Connect",
+  "serverInvalid": "Enter a valid HTTPS server address. HTTP is also supported for local servers.",
+  "configSaveFailed": "Could not save the server address. Check access to the application's data directory."
+}

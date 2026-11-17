@@ -81,6 +81,7 @@ export const errors = {
     "Le service a renvoyé des données invalides. Contactez un administrateur.",
   clientUpdateRequired:
     "Le système a été mis à jour. Actualisez cette page pour continuer.",
+  desktopUpdateRequired: localizedErrorMessage("DESKTOP_UPDATE_REQUIRED", "fr-FR"),
   serviceTemporarilyUnavailable:
     "Le système est temporairement indisponible. Réessayez dans un instant.",
   imageUnderstanding: {

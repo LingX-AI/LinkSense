@@ -9,6 +9,7 @@ import {
 import {
   ApiError,
   apiRequest as realApiRequest,
+  apiUploadRequest,
   buildApiUrl,
   downloadApiFile,
   isDefinitiveAuthenticationError,
@@ -17,6 +18,7 @@ import {
   validateUploadResponseBuild,
 } from "@/api/client"
 import { getAccessToken, setAccessToken } from "@/api/session"
+import { isDesktopHost } from "@/adapters/desktop/desktop-adapter"
 import {
   knowledgeBasePageSchema,
   knowledgeBaseCreationCapabilitySchema,
@@ -649,6 +651,34 @@ function uploadWithToken(
   options: KnowledgeUploadOptions,
   token: string | null
 ): Promise<KnowledgeUploadResult> {
+  const formData = new FormData()
+  if (options.conflictResolution) {
+    formData.set("conflict_resolution", options.conflictResolution)
+  }
+  if (options.replaceDocumentId) {
+    formData.set("replace_document_id", options.replaceDocumentId)
+  }
+  if (options.relativePath) {
+    formData.set("relative_path", options.relativePath)
+  }
+  if (options.parentEntryId) {
+    formData.set("parent_entry_id", options.parentEntryId)
+  }
+  formData.set("ocr_enabled", String(options.ocrEnabled ?? false))
+  formData.set("file", options.file, options.file.name)
+  if (isDesktopHost()) {
+    return apiUploadRequest(
+      `/knowledge-bases/${options.knowledgeBaseId}/documents`,
+      {
+        method: "POST",
+        body: formData,
+        schema: knowledgeUploadResultSchema,
+        skipRefresh: true,
+        signal: options.signal,
+        onUploadProgress: () => options.onProgress?.(10),
+      }
+    )
+  }
   const buildHeaders = new Headers()
   prepareClientBuildRequest(buildHeaders)
   return new Promise((resolve, reject) => {
@@ -665,22 +695,6 @@ function uploadWithToken(
       request.setRequestHeader("Accept-Language", language)
     }
     if (token) request.setRequestHeader("Authorization", `Bearer ${token}`)
-
-    const formData = new FormData()
-    if (options.conflictResolution) {
-      formData.set("conflict_resolution", options.conflictResolution)
-    }
-    if (options.replaceDocumentId) {
-      formData.set("replace_document_id", options.replaceDocumentId)
-    }
-    if (options.relativePath) {
-      formData.set("relative_path", options.relativePath)
-    }
-    if (options.parentEntryId) {
-      formData.set("parent_entry_id", options.parentEntryId)
-    }
-    formData.set("ocr_enabled", String(options.ocrEnabled ?? false))
-    formData.set("file", options.file, options.file.name)
 
     request.upload.addEventListener("progress", (event) => {
       if (!event.lengthComputable || event.total <= 0) return

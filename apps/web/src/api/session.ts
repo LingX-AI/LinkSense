@@ -1,3 +1,5 @@
+import { isDesktopHost } from "@/adapters/desktop/desktop-adapter"
+
 const ACCESS_SESSION_STORAGE_KEY = "linksense.auth.access-session"
 const DEFAULT_ACCESS_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
 const MAX_TIMEOUT_MS = 2_147_483_647
@@ -25,7 +27,7 @@ let expirationTimer: ReturnType<typeof setTimeout> | null = null
 const listeners = new Set<SessionListener>()
 
 function getLocalStorage() {
-  if (typeof window === "undefined") return null
+  if (typeof window === "undefined" || isDesktopHost()) return null
   try {
     return window.localStorage
   } catch {
@@ -76,6 +78,16 @@ function parsePersistedAccessSession(
 }
 
 function readStoredAccessSession(): StorageReadResult {
+  if (isDesktopHost()) {
+    return accessToken &&
+      accessTokenExpiresAt !== null &&
+      accessTokenExpiresAt > Date.now()
+      ? {
+          status: "valid",
+          session: { accessToken, expiresAt: accessTokenExpiresAt },
+        }
+      : { status: "empty" }
+  }
   const storage = getLocalStorage()
   if (!storage) return { status: "unavailable" }
 
@@ -274,6 +286,7 @@ export function subscribeToAccessToken(listener: SessionListener) {
 }
 
 function handleStorageEvent(event: StorageEvent) {
+  if (isDesktopHost()) return
   if (event.key !== null && event.key !== ACCESS_SESSION_STORAGE_KEY) return
 
   if (event.key === ACCESS_SESSION_STORAGE_KEY && event.newValue !== null) {
