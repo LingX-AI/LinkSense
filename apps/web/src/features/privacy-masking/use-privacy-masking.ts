@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
+  privacyMaskingPreviewResponseSchema,
   privacyMaskingSettingsResponseSchema,
   type PrivacyMaskingSettings,
 } from "@linksense/shared"
@@ -20,6 +21,30 @@ export function usePrivacyMaskingSettings() {
         schema: privacyMaskingSettingsResponseSchema,
         signal,
       }),
+    staleTime: Number.POSITIVE_INFINITY,
+  })
+}
+
+export const privacyMaskingPreviewQueryKey = [
+  ...privacyMaskingQueryKey,
+  "preview",
+] as const
+
+/** The try-it box: the draft settings are the ones previewed. */
+export function usePrivacyMaskingPreview(
+  text: string,
+  settings: PrivacyMaskingSettings
+) {
+  return useQuery({
+    queryKey: [...privacyMaskingPreviewQueryKey, text, settings],
+    queryFn: ({ signal }) =>
+      apiRequest("/me/privacy-masking-settings/preview", {
+        method: "POST",
+        body: { text, settings },
+        schema: privacyMaskingPreviewResponseSchema,
+        signal,
+      }),
+    enabled: text.trim().length > 0,
     staleTime: Number.POSITIVE_INFINITY,
   })
 }

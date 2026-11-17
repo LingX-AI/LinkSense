@@ -23,6 +23,7 @@ import {
   UserRoundIcon,
   UserRoundCogIcon,
   UsersRoundIcon,
+  VenetianMaskIcon,
   type LucideIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -94,6 +95,12 @@ const personalSettingsItems: SettingsNavigationItem[] = [
     labelKey: "settings.security",
     descriptionKey: "settings.securityDescription",
     icon: ShieldCheckIcon,
+  },
+  {
+    to: "/settings/mask",
+    labelKey: "settings.privacyMasking",
+    descriptionKey: "settings.privacyMaskingDescription",
+    icon: VenetianMaskIcon,
   },
   {
     to: "/settings/credentials",

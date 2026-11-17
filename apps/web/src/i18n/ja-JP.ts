@@ -784,6 +784,28 @@ export const jaJP = {
     privacyMaskingSave: "プライバシーマスキングを保存",
     privacyMaskingBehaviorNote:
       "モデルには実際の値ではなくプレースホルダーが見えます。秘密情報そのものを確認するタスクは、その値を許可リストへ追加するまで動作しない場合があります。",
+    privacyMaskingPageDescription:
+      "モデルプロバイダーに送らない内容を選び、タスクを実行する前にサンプルテキストでルールを試せます。",
+    privacyMaskingWhatToMask: "マスクする内容",
+    privacyMaskingTryIt: "試してみる",
+    privacyMaskingTryItDescription:
+      "エージェントが送信しそうなテキストを貼り付けてください。実際のリクエストと同じ方法でマスクされ、内容は保存されません。",
+    privacyMaskingTryItPlaceholder:
+      "キー sk-proj-… でデプロイし、ステージング API を呼び出す",
+    privacyMaskingTryItOutput: "プロバイダーが受け取る内容",
+    privacyMaskingTryItEmpty: "このテキストにマスクされる内容はありません。",
+    privacyMaskingTryItOffNote:
+      "マスキングはオフです。このプレビューは、オンにしたときに置き換えられる内容を示します。",
+    privacyMaskingKindPrivateKey: "秘密鍵",
+    privacyMaskingKindApiKey: "API キー",
+    privacyMaskingKindToken: "トークン",
+    privacyMaskingKindSecret: "シークレット",
+    privacyMaskingKindPassword: "パスワード",
+    privacyMaskingKindTerm: "カスタム語",
+    privacyMaskingKindEmail: "メールアドレス",
+    privacyMaskingKindPhone: "電話番号",
+    privacyMaskingKindIdCard: "身分証番号",
+    privacyMaskingKindBankCard: "銀行カード番号",
     appearancePageDescription:
       "{{productName}} の画面テーマと基本の文字サイズを設定します。",
     theme: "テーマ",

@@ -569,6 +569,28 @@ export const enUS = {
     privacyMaskingSave: "Save privacy masking",
     privacyMaskingBehaviorNote:
       "The model sees placeholders instead of the real values. Tasks that must inspect a secret itself may not work until you add that value to the allowed list.",
+    privacyMaskingPageDescription:
+      "Choose what never leaves for the model provider, and test the rules on sample text before a task runs.",
+    privacyMaskingWhatToMask: "What to mask",
+    privacyMaskingTryIt: "Try it",
+    privacyMaskingTryItDescription:
+      "Paste text an agent might send. It is masked here the same way a request is, and nothing is stored.",
+    privacyMaskingTryItPlaceholder:
+      "Deploy with key sk-proj-… and call the staging API",
+    privacyMaskingTryItOutput: "What the provider would get",
+    privacyMaskingTryItEmpty: "Nothing in this text would be masked.",
+    privacyMaskingTryItOffNote:
+      "Masking is off. This preview shows what would be replaced once you turn it on.",
+    privacyMaskingKindPrivateKey: "Private key",
+    privacyMaskingKindApiKey: "API key",
+    privacyMaskingKindToken: "Token",
+    privacyMaskingKindSecret: "Secret",
+    privacyMaskingKindPassword: "Password",
+    privacyMaskingKindTerm: "Custom word",
+    privacyMaskingKindEmail: "Email address",
+    privacyMaskingKindPhone: "Phone number",
+    privacyMaskingKindIdCard: "ID card number",
+    privacyMaskingKindBankCard: "Bank card number",
     appearancePageDescription:
       "Set the {{productName}} interface theme and base font size.",
     theme: "Theme",

@@ -795,6 +795,28 @@ export const ptBR = {
     privacyMaskingSave: "Salvar mascaramento",
     privacyMaskingBehaviorNote:
       "O modelo vê marcadores em vez dos valores reais. Tarefas que precisam inspecionar um segredo podem não funcionar até que você adicione esse valor à lista permitida.",
+    privacyMaskingPageDescription:
+      "Escolha o que nunca chega ao provedor do modelo e teste as regras com um texto de exemplo antes de iniciar uma tarefa.",
+    privacyMaskingWhatToMask: "O que mascarar",
+    privacyMaskingTryIt: "Experimentar",
+    privacyMaskingTryItDescription:
+      "Cole um texto que um agente poderia enviar. Ele é mascarado aqui como em uma solicitação real, e nada é armazenado.",
+    privacyMaskingTryItPlaceholder:
+      "Implante com a chave sk-proj-… e chame a API de homologação",
+    privacyMaskingTryItOutput: "O que o provedor receberia",
+    privacyMaskingTryItEmpty: "Nada neste texto seria mascarado.",
+    privacyMaskingTryItOffNote:
+      "O mascaramento está desativado. Esta prévia mostra o que seria substituído quando você o ativar.",
+    privacyMaskingKindPrivateKey: "Chave privada",
+    privacyMaskingKindApiKey: "Chave de API",
+    privacyMaskingKindToken: "Token",
+    privacyMaskingKindSecret: "Segredo",
+    privacyMaskingKindPassword: "Senha",
+    privacyMaskingKindTerm: "Palavra personalizada",
+    privacyMaskingKindEmail: "Endereço de e-mail",
+    privacyMaskingKindPhone: "Número de telefone",
+    privacyMaskingKindIdCard: "Número do documento de identidade",
+    privacyMaskingKindBankCard: "Número do cartão bancário",
     appearancePageDescription:
       "Defina o tema da interface e o tamanho da fonte base do {{productName}}.",
     theme: "Tema",

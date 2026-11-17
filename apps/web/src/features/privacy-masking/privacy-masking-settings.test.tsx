@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { defaultPrivacyMaskingSettings } from "@linksense/shared"
 
 import i18n from "@/i18n"
-import { PrivacyMaskingSettingsCard } from "@/features/privacy-masking/privacy-masking-settings"
+import { PrivacyMaskingSettingsPage } from "@/features/privacy-masking/privacy-masking-settings"
 
 afterEach(() => {
   cleanup()
@@ -20,7 +20,7 @@ function envelope(data: unknown, status = 200) {
   })
 }
 
-function renderCard() {
+function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -29,12 +29,12 @@ function renderCard() {
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <PrivacyMaskingSettingsCard />
+      <PrivacyMaskingSettingsPage />
     </QueryClientProvider>
   )
 }
 
-describe("privacy masking settings card", () => {
+describe("privacy masking settings page", () => {
   it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
     "renders the saved settings in %s",
     async (language) => {
@@ -48,12 +48,18 @@ describe("privacy masking settings card", () => {
           })
         )
       )
-      renderCard()
+      renderPage()
       expect(
         await screen.findByRole("switch", {
           name: i18n.t("settings.privacyMaskingEnabled"),
         })
       ).not.toBeChecked()
+      expect(
+        screen.getByRole("heading", {
+          level: 1,
+          name: i18n.t("settings.privacyMasking"),
+        })
+      ).toBeInTheDocument()
       expect(
         screen.getByRole("button", {
           name: i18n.t("settings.privacyMaskingSave"),
@@ -82,13 +88,15 @@ describe("privacy masking settings card", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
     const user = userEvent.setup()
-    renderCard()
+    renderPage()
 
     const enable = await screen.findByRole("switch", {
       name: i18n.t("settings.privacyMaskingEnabled"),
     })
     await user.click(enable)
-    const words = screen.getByLabelText(i18n.t("settings.privacyMaskingWords"))
+    const words = screen.getByRole("textbox", {
+      name: i18n.t("settings.privacyMaskingWords"),
+    })
     await user.type(words, "Nightjar\n\nAcme")
     const save = screen.getByRole("button", {
       name: i18n.t("settings.privacyMaskingSave"),
@@ -147,10 +155,10 @@ describe("privacy masking settings card", () => {
       })
     )
     const user = userEvent.setup()
-    renderCard()
-    const words = await screen.findByLabelText(
-      i18n.t("settings.privacyMaskingWords")
-    )
+    renderPage()
+    const words = await screen.findByRole("textbox", {
+      name: i18n.t("settings.privacyMaskingWords"),
+    })
     await user.type(words, "First draft")
     const save = screen.getByRole("button", {
       name: i18n.t("settings.privacyMaskingSave"),
@@ -164,5 +172,55 @@ describe("privacy masking settings card", () => {
     await user.click(save)
     await waitFor(() => expect(savedRevisions).toEqual([0, 1]))
     await waitFor(() => expect(save).toBeDisabled())
+  })
+
+  it("previews the draft rules and highlights the placeholders", async () => {
+    await i18n.changeLanguage("en-US")
+    const placeholder = "{{API_KEY_0123456789abcdef}}"
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe(
+          "/api/v1/me/privacy-masking-settings/preview"
+        )
+        const body = JSON.parse(String(init?.body)) as {
+          text: string
+          settings: { words: string[] }
+        }
+        expect(body.text).toBe("Nightjar ships with sk-1234567890abcdef")
+        return envelope({
+          text: `Nightjar ships with ${placeholder}`,
+          hits: [{ placeholder, kind: "API_KEY", action: "mask" }],
+        })
+      }
+    )
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST") return fetchMock(input, init)
+        return envelope({
+          revision: 0,
+          settings: { ...defaultPrivacyMaskingSettings, enabled: true },
+        })
+      })
+    )
+    const user = userEvent.setup()
+    renderPage()
+    const words = await screen.findByRole("textbox", {
+      name: i18n.t("settings.privacyMaskingWords"),
+    })
+    const tryInput = screen.getByRole("textbox", {
+      name: i18n.t("settings.privacyMaskingTryIt"),
+    })
+    await user.type(tryInput, "Nightjar ships with sk-1234567890abcdef")
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce(), {
+      timeout: 2000,
+    })
+    expect(
+      await screen.findByText(
+        `${i18n.t("settings.privacyMaskingKindApiKey")} ×1`
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByText(placeholder)).toBeInTheDocument()
+    expect(words).toBeInTheDocument()
   })
 })

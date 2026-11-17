@@ -526,6 +526,28 @@ export const zhCN = {
     privacyMaskingSave: "保存隐私脱敏",
     privacyMaskingBehaviorNote:
       "模型看到的是占位符而不是原值。需要检查密钥本身的任务可能无法继续，可把该值加入允许列表。",
+    privacyMaskingPageDescription:
+      "选择哪些内容不发送给模型渠道，并先用示例文本测试规则。",
+    privacyMaskingWhatToMask: "脱敏范围",
+    privacyMaskingTryIt: "试一试",
+    privacyMaskingTryItDescription:
+      "粘贴一段 Agent 可能发送的文本。这里会按真实请求的方式脱敏，且不会保存任何内容。",
+    privacyMaskingTryItPlaceholder:
+      "使用密钥 sk-proj-… 部署，然后调用预发环境 API",
+    privacyMaskingTryItOutput: "渠道实际会收到的内容",
+    privacyMaskingTryItEmpty: "这段文本中没有需要脱敏的内容。",
+    privacyMaskingTryItOffNote:
+      "隐私脱敏当前已关闭。此预览显示开启后会被替换的内容。",
+    privacyMaskingKindPrivateKey: "私钥",
+    privacyMaskingKindApiKey: "API Key",
+    privacyMaskingKindToken: "Token",
+    privacyMaskingKindSecret: "密钥",
+    privacyMaskingKindPassword: "密码",
+    privacyMaskingKindTerm: "自定义词",
+    privacyMaskingKindEmail: "邮箱地址",
+    privacyMaskingKindPhone: "电话号码",
+    privacyMaskingKindIdCard: "身份证号",
+    privacyMaskingKindBankCard: "银行卡号",
     appearancePageDescription: "设置 {{productName}} 的界面主题与基准字号。",
     theme: "主题",
     themeSystem: "系统",

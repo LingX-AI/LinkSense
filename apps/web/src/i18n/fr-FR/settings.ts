@@ -327,6 +327,28 @@ export const settingsResources = {
     privacyMaskingAllowPlaceholder: "exemple@exemple.test",
     privacyMaskingSaved: "Paramètres de masquage enregistrés.",
     privacyMaskingSave: "Enregistrer le masquage",
+    privacyMaskingPageDescription:
+      "Choisissez ce qui ne part jamais vers le fournisseur du modèle et testez les règles sur un texte d'exemple avant de lancer une tâche.",
+    privacyMaskingWhatToMask: "Quoi masquer",
+    privacyMaskingTryIt: "Essayer",
+    privacyMaskingTryItDescription:
+      "Collez un texte qu'un agent pourrait envoyer. Il est masqué ici comme dans une vraie requête, et rien n'est conservé.",
+    privacyMaskingTryItPlaceholder:
+      "Déployez avec la clé sk-proj-… puis appelez l'API de préproduction",
+    privacyMaskingTryItOutput: "Ce que le fournisseur recevrait",
+    privacyMaskingTryItEmpty: "Rien dans ce texte ne serait masqué.",
+    privacyMaskingTryItOffNote:
+      "Le masquage est désactivé. Cet aperçu montre ce qui serait remplacé une fois activé.",
+    privacyMaskingKindPrivateKey: "Clé privée",
+    privacyMaskingKindApiKey: "Clé d'API",
+    privacyMaskingKindToken: "Jeton",
+    privacyMaskingKindSecret: "Secret",
+    privacyMaskingKindPassword: "Mot de passe",
+    privacyMaskingKindTerm: "Mot personnalisé",
+    privacyMaskingKindEmail: "Adresse e-mail",
+    privacyMaskingKindPhone: "Numéro de téléphone",
+    privacyMaskingKindIdCard: "Numéro de pièce d'identité",
+    privacyMaskingKindBankCard: "Numéro de carte bancaire",
     privacyMaskingBehaviorNote:
       "Le modèle voit des jetons au lieu des valeurs réelles. Les tâches qui doivent examiner un secret peuvent échouer tant que vous n’ajoutez pas cette valeur à la liste autorisée.",
     appearancePageDescription:

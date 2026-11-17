@@ -212,6 +212,13 @@ const SettingsSecurityPage = lazy(() =>
     default: module.SettingsSecurityPage,
   }))
 )
+const SettingsMaskPage = lazy(() =>
+  import("@/features/privacy-masking/privacy-masking-settings").then(
+    (module) => ({
+      default: module.PrivacyMaskingSettingsPage,
+    })
+  )
+)
 function NotFoundPage() {
   const { t } = useTranslation()
   return (
@@ -289,6 +296,7 @@ export function App() {
                 path="/settings/security"
                 element={<SettingsSecurityPage />}
               />
+              <Route path="/settings/mask" element={<SettingsMaskPage />} />
               <Route
                 path="/settings/credentials"
                 element={<CredentialManagementPage />}

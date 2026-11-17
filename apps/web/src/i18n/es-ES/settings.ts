@@ -137,6 +137,28 @@ export const settingsMessages = {
     privacyMaskingSave: "Guardar enmascaramiento",
     privacyMaskingBehaviorNote:
       "El modelo ve marcadores en lugar de los valores reales. Las tareas que deben inspeccionar un secreto pueden no funcionar hasta que añadas ese valor a la lista permitida.",
+    privacyMaskingPageDescription:
+      "Elige qué no llega nunca al proveedor del modelo y prueba las reglas con un texto de ejemplo antes de iniciar una tarea.",
+    privacyMaskingWhatToMask: "Qué enmascarar",
+    privacyMaskingTryIt: "Probar",
+    privacyMaskingTryItDescription:
+      "Pega un texto que podría enviar un agente. Aquí se enmascara igual que en una solicitud real y no se guarda nada.",
+    privacyMaskingTryItPlaceholder:
+      "Despliega con la clave sk-proj-… y llama a la API de preproducción",
+    privacyMaskingTryItOutput: "Lo que recibiría el proveedor",
+    privacyMaskingTryItEmpty: "Nada de este texto se enmascararía.",
+    privacyMaskingTryItOffNote:
+      "El enmascaramiento está desactivado. Esta vista previa muestra lo que se sustituiría al activarlo.",
+    privacyMaskingKindPrivateKey: "Clave privada",
+    privacyMaskingKindApiKey: "Clave de API",
+    privacyMaskingKindToken: "Token",
+    privacyMaskingKindSecret: "Secreto",
+    privacyMaskingKindPassword: "Contraseña",
+    privacyMaskingKindTerm: "Palabra personalizada",
+    privacyMaskingKindEmail: "Correo electrónico",
+    privacyMaskingKindPhone: "Número de teléfono",
+    privacyMaskingKindIdCard: "Número de documento de identidad",
+    privacyMaskingKindBankCard: "Número de tarjeta bancaria",
     appearancePageDescription:
       "Configura el tema y el tamaño de letra base de {{productName}}.",
     theme: "Tema",
