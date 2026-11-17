@@ -39,6 +39,14 @@ export class WebSiteBackendRepository {
     if (result.count !== 1) throw new AppError("CONFLICT");
   }
 
+  /** A label that matches two backends is ambiguous, so it resolves to nothing. */
+  async byHostLabel(label: string): Promise<{ id: string } | null> {
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id::text AS id FROM web_site_backends WHERE left(replace(id::text, '-', ''), 12) = ${label} LIMIT 2`);
+    const [row] = rows;
+    return rows.length === 1 && row ? row : null;
+  }
+
   async publicBinding(id: string): Promise<{ backend: WebSiteBackend; siteId: string }> {
     const site = await this.prisma.webSite.findFirst({ where: { backendId: id, status: "published" }, select: { id: true, ownerId: true } });
     if (!site || !await this.prisma.user.count({ where: { id: site.ownerId, status: "active" } })) throw new AppError("WEB_SITE_NOT_FOUND");
@@ -55,4 +63,4 @@ export class WebSiteBackendRepository {
   }
 }
 
-export type WebSiteBackendStore = Pick<WebSiteBackendRepository, "reserve" | "owned" | "acquire" | "finish" | "publicBinding" | "source">;
+export type WebSiteBackendStore = Pick<WebSiteBackendRepository, "reserve" | "owned" | "byHostLabel" | "acquire" | "finish" | "publicBinding" | "source">;

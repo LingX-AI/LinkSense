@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { registerWebSiteBackendGateway } from "../src/modules/web-site-backends/gateway.js";
 import { normalizeError } from "../src/lib/errors.js";
 import { sha256 } from "../src/modules/web-sites/resources.js";
+import { appHostLabel } from "../src/modules/web-site-backends/service.js";
 import { backendFixture, backendId } from "./web-site-backends.fixture.js";
 
 const open: ReturnType<typeof Fastify>[] = [];
@@ -33,6 +34,14 @@ describe("public application gateway", () => {
     expect((await app.inject({ url: "/api/v1/platform", headers: { host } })).statusCode).toBe(404);
     expect((await app.inject({ url: "/api/v1/platform", headers: { host: "linksense.example.test" } })).json()).toEqual({ private_platform: true });
     expect((await app.inject({ url: "/api/v1/platform", headers: { host: "invalid.apps.example.net" } })).statusCode).toBe(404);
+  });
+
+  it("addresses each application by a short host label rather than the backend UUID", async () => {
+    const { app, host, service } = setup();
+    expect(host).toBe(`${appHostLabel(backendId)}.apps.example.net`);
+    expect(new URL(service.origin(backendId)).origin).not.toContain(backendId);
+    expect((await app.inject({ url: "/", headers: { host } })).statusCode).toBe(200);
+    expect((await app.inject({ url: "/", headers: { host: `${"0".repeat(12)}.apps.example.net` } })).statusCode).toBe(404);
   });
 
   it("pins projects and strips platform authentication before forwarding native API requests", async () => {

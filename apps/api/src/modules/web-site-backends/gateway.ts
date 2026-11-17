@@ -16,8 +16,11 @@ export function registerWebSiteBackendGateway(app: FastifyInstance, backends: We
   app.addHook("onRequest", async (request, reply) => {
     const host = request.headers.host ?? "";
     if (!backends.isAppHost(host)) return;
-    const id = backends.matchHost(host);
-    if (!id) throw new AppError("WEB_SITE_NOT_FOUND");
+    const label = backends.matchHost(host);
+    if (!label) throw new AppError("WEB_SITE_NOT_FOUND");
+    const resolved = await backends.store.byHostLabel(label);
+    if (!resolved) throw new AppError("WEB_SITE_NOT_FOUND");
+    const id = resolved.id;
     const origin = backends.origin(id);
     const rawUrl = request.raw.url ?? "/";
     const routedUrl = rawUrl.startsWith(`${gatewayPrefix}/`) ? rawUrl.slice(gatewayPrefix.length) : rawUrl;

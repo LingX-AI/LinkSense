@@ -11,6 +11,10 @@ import { AppwriteClient } from "./appwrite.js";
 import type { WebSiteBackendStore } from "./repository.js";
 
 const secretSchema = z.object({ key: z.string().min(16) });
+export const appHostLabelSchema = z.string().regex(/^[0-9a-f]{12}$/u);
+/** The first 96 bits of the backend UUID: short enough to type, wide enough that a
+ * collision is treated as not found (see the repository's host-label lookup). */
+export const appHostLabel = (id: string): string => appHostLabelSchema.parse(z.uuid().parse(id).replaceAll("-", "").slice(0, 12));
 const permissions = (publicRead: boolean, clientCreate = true) => [...(clientCreate ? ['create("users")'] : []), ...(publicRead ? ['read("any")'] : [])];
 const privateResourceFields = new Set(["vars", "varsProject", "variables", "secret", "password", "apiKey", "encryptedCredential", "buildLogs", "logs", "errors"]);
 function publicResource(value: unknown): unknown {
@@ -43,10 +47,11 @@ export class WebSiteBackendService {
 
   origin(id: string): string {
     const url = new URL(this.requiredClient().config.appsBaseUrl);
-    url.hostname = `${z.uuid().parse(id)}.${url.hostname}`;
+    url.hostname = `${appHostLabel(id)}.${url.hostname}`;
     return url.origin;
   }
 
+  /** Returns the host label; the store resolves it to a backend row. */
   matchHost(host: string): string | undefined {
     if (!this.client) return undefined;
     const base = new URL(this.client.config.appsBaseUrl);
@@ -55,7 +60,8 @@ export class WebSiteBackendService {
       if (candidate.username || candidate.password || candidate.port !== base.port) return undefined;
       const hostname = candidate.hostname.toLowerCase().replace(/\.$/u, "");
       if (!hostname.endsWith(`.${base.hostname}`)) return undefined;
-      return z.uuid().safeParse(hostname.slice(0, -(base.hostname.length + 1))).data;
+      const label = hostname.slice(0, -(base.hostname.length + 1));
+      return appHostLabelSchema.safeParse(label).data;
     } catch { return undefined; }
   }
 

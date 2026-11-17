@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { webSiteBackendConfigureSchema } from "@linksense/shared";
 import { AppwriteClient } from "../src/modules/web-site-backends/appwrite.js";
-import { WebSiteBackendService } from "../src/modules/web-site-backends/service.js";
+import { WebSiteBackendService, appHostLabel } from "../src/modules/web-site-backends/service.js";
 import { WebSiteService } from "../src/modules/web-sites/service.js";
 import { backendFixture, backendId } from "./web-site-backends.fixture.js";
 import { ownerId, taskId } from "./web-sites.fixture.js";
@@ -179,7 +179,7 @@ describe("self-hosted Appwrite backend", () => {
     const fixture = backendFixture();
     const first = await fixture.sites.create(ownerId, { conversation_id: taskId, file_id: fixture.site.source.file.id, name: "App", description: "", backend_id: backendId });
     const second = await fixture.sites.publish(ownerId, first.id, fixture.site.source.file.id);
-    expect(first.url).toBe(`https://${backendId}.apps.example.net`);
+    expect(first.url).toBe(`https://${appHostLabel(backendId)}.apps.example.net`);
     expect(second.url).toBe(first.url);
     expect(second.backend_id).toBe(backendId);
     const entry = await fixture.sites.publicEntry("sample");

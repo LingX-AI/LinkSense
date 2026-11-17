@@ -3,7 +3,7 @@ import type { WebSiteBackend } from "../src/generated/prisma/client.js";
 import { encryptJson } from "../src/lib/crypto.js";
 import { AppError } from "../src/lib/errors.js";
 import type { WebSiteBackendStore } from "../src/modules/web-site-backends/repository.js";
-import { WebSiteBackendService } from "../src/modules/web-site-backends/service.js";
+import { WebSiteBackendService, appHostLabel } from "../src/modules/web-site-backends/service.js";
 import { WebSiteService } from "../src/modules/web-sites/service.js";
 import { testConfig } from "./test-config.js";
 import { ownerId, taskId, siteId, now, siteFixture } from "./web-sites.fixture.js";
@@ -30,6 +30,7 @@ export function backendFixture(appsBaseUrl = "https://apps.example.net") {
       if (owner !== ownerId || id !== backendId) throw new AppError("WEB_SITE_NOT_FOUND");
       return row;
     }),
+    byHostLabel: vi.fn(async label => label === appHostLabel(backendId) ? { id: backendId } : null),
     acquire: vi.fn(async (owner, id, lease) => {
       if (owner !== ownerId || id !== backendId) throw new AppError("WEB_SITE_NOT_FOUND");
       if (row.leaseUntil && row.leaseUntil.getTime() > Date.now()) throw new AppError("CONFLICT");

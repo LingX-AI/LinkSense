@@ -44,7 +44,7 @@
 
 1. 在自有基础设施安装官方 Appwrite，初始化组织与具有该组织 owner 权限的专用管理账号，启用 `node-24` runtime。Appwrite 的 API hostname 必须能从函数执行网络解析并访问，不能把函数容器自己的 `localhost` 当作 API 地址。API、执行器及原生函数域只能从受控网络访问，公众仅访问 LS 应用网关；否则直连原生接口会绕过 LS 停用状态。SMTP、对象存储、备份和监控同样由部署方提供。
 2. 配置 `.env.example` 中的 `LINKSENSE_APPWRITE_ENDPOINT`、`LINKSENSE_APPWRITE_ADMIN_EMAIL`、`LINKSENSE_APPWRITE_ADMIN_PASSWORD`、`LINKSENSE_DYNAMIC_APPS_BASE_URL`。前三项是仅 API 使用的管理配置，不下发 Runner、模型或网页。管理员属于多个组织时，还要指定 `LINKSENSE_APPWRITE_ORGANIZATION_ID`；单组织自动识别。保持密码原有字符，凭据文件和部署配置按现有秘密管理要求保护。
-3. 应用 base URL 使用自有域，如 `https://apps.example.net`，配置通配 DNS 和证书。公开应用必须与 LS 控制台及 Appwrite 管理端使用不同的可注册域名，不能只使用同一域名的不同子域；服务启动时使用公共后缀规则校验，避免公开页面通过父域 Cookie 影响管理端。每应用地址为 `https://<backend-id>.apps.example.net`；本地可用 `http://apps.localhost:<api-port>`。修改 base URL 会改变所有动态应用地址及浏览器 origin，不能当作普通重命名操作。
+3. 应用 base URL 使用自有域，如 `https://apps.example.net`，配置通配 DNS 和证书。公开应用必须与 LS 控制台及 Appwrite 管理端使用不同的可注册域名，不能只使用同一域名的不同子域；服务启动时使用公共后缀规则校验，避免公开页面通过父域 Cookie 影响管理端。每应用地址为 `https://<backend-host>.apps.example.net`，`backend-host` 是后端 UUID 去掉连字符后的前 12 位，例如 `600000000000`；本地可用 `http://apps.localhost:<api-port>`。修改 base URL 会改变所有动态应用地址及浏览器 origin，不能当作普通重命名操作。
 4. 生产域可采用 [Nginx 配置片段](../../deploy/production/dynamic-apps.nginx.example.conf)，通过现有 LS 网关端口的 `/api/v1/public-app-gateway/` 转发到 API，保留原始 Host。也可在受控网络直接转发全部路径到 API。应用主机空间在平台认证、CORS 和请求体解析前被处理，不能通过该域访问平台 API；平台域也不提供应用后端管理代理。
 
 四个必填配置全为空时禁用动态能力，静态发布和已有站点管理照常工作；部分配置或不安全的应用 URL 会在启动时拒绝。Docker 仅把 Appwrite 管理配置传给 API。
