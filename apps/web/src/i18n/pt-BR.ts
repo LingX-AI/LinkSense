@@ -149,7 +149,7 @@ export const ptBR = {
   webSites: {
     title: "Meus sites",
     description:
-      "Gerencie seus sites publicados, atualize seu conteúdo ou retire-os do ar a qualquer momento.",
+      "Gerencie páginas e aplicativos web publicados, seus links, serviços de dados e estado de publicação.",
     share: "Publicar como site",
     dialog: {
       share: "Publicar como site",
@@ -159,13 +159,17 @@ export const ptBR = {
     },
     shareDescription:
       "Qualquer pessoa com o link poderá visitar este site após a publicação.",
+    editDescription:
+      "Edite o nome, a descrição ou o link personalizado. O link estável e os dados do aplicativo permanecem os mesmos.",
     deleteDescription:
       "O site e suas versões publicadas serão excluídos permanentemente. Qualquer pessoa poderá reutilizar o endereço. A tarefa e os arquivos originais serão mantidos.",
     name: "Nome do site",
     summary: "Descrição",
     slug: "Nome do link",
     slugPlaceholder: "Deixe em branco para gerar automaticamente",
-    slugHelp: "Use de 3 a 80 letras, números ou hífens.",
+    slugHelp:
+      "Use de 3 a 80 letras, números ou hífens. Esse nome é usado no link personalizado; o link estável não muda.",
+    slugPreview: "Caminho do link personalizado: {{path}}",
     slugChanged:
       "Os links anteriores continuam funcionando após a alteração do nome.",
     url: "Link do site",
@@ -221,7 +225,7 @@ export const ptBR = {
     },
     empty: "Nenhum site publicado ainda",
     emptyDescription:
-      "Abra uma página da Web gerada em uma tarefa e selecione Publicar como site para gerenciá-la aqui.",
+      "Descreva uma página ou aplicativo em qualquer conversa e confirme a publicação para gerenciá-lo aqui. Você também pode selecionar Publicar como site em uma página existente.",
     noResults: "Nenhum site correspondente",
     sourceTask: "Origem: {{title}}",
     sourceDeleted: "Tarefa de origem excluída",
@@ -240,6 +244,28 @@ export const ptBR = {
     enable: "Republicar",
     download: "Baixar site",
     loadMore: "Carregar mais",
+    details: {
+      open: "Detalhes",
+      description:
+        "Veja os links de acesso, os recursos do aplicativo e os detalhes da publicação atual.",
+      links: "Acesso e compartilhamento",
+      alias: "Link personalizado",
+      aliasHelp:
+        "Usa o nome de link escolhido. Os links anteriores continuam funcionando após a alteração.",
+      stable: "Link estável",
+      stableHelp:
+        "Este endereço permanece o mesmo ao renomear o link, atualizar a página ou adicionar um serviço de dados.",
+      copyAlias: "Copiar link personalizado",
+      copyStable: "Copiar link estável",
+      unpublishedHelp:
+        "Este site está fora do ar e seus links estão indisponíveis. Republique para restaurar o acesso pelos mesmos links.",
+      publication: "Detalhes da publicação",
+      source: "Conversa de origem",
+      files: "Recursos web",
+      publishedAt: "Publicação da versão atual",
+      updatedAt: "Última atualização",
+      createdAt: "Criação",
+    },
     invalidSlug:
       "Insira de 3 a 80 letras, números ou hífens, sem hífen no início ou no fim.",
   },

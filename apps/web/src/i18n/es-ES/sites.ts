@@ -5,7 +5,7 @@ export const siteMessages = {
   webSites: {
     title: "Mis sitios",
     description:
-      "Gestiona tus sitios publicados, actualiza su contenido o retíralos de la publicación en cualquier momento.",
+      "Gestiona páginas y aplicaciones web publicadas, sus enlaces, servicios de datos y estado de publicación.",
     share: "Publicar como sitio",
     dialog: {
       share: "Publicar como sitio",
@@ -15,13 +15,17 @@ export const siteMessages = {
     },
     shareDescription:
       "Tras publicar, cualquier persona que tenga el enlace podrá visitar el sitio.",
+    editDescription:
+      "Edita el nombre, la descripción o el enlace personalizado. El enlace estable y los datos de la aplicación se conservan.",
     deleteDescription:
       "El sitio y sus versiones publicadas se eliminarán permanentemente. Cualquiera podrá reutilizar la dirección. Se conservan la tarea y los archivos originales.",
     name: "Nombre del sitio",
     summary: "Descripción",
     slug: "Nombre del enlace",
     slugPlaceholder: "Deja el campo vacío para generarlo automáticamente",
-    slugHelp: "Usa entre 3 y 80 letras inglesas, números o guiones.",
+    slugHelp:
+      "Usa entre 3 y 80 letras inglesas, números o guiones. Este nombre se usa en el enlace personalizado; el enlace estable no cambia.",
+    slugPreview: "Ruta del enlace personalizado: {{path}}",
     slugChanged:
       "Los enlaces anteriores siguen funcionando después del cambio de nombre.",
     url: "Enlace del sitio",
@@ -77,7 +81,7 @@ export const siteMessages = {
     },
     empty: "Todavía no hay sitios publicados",
     emptyDescription:
-      "Abre una página web generada en una tarea y selecciona Publicar como sitio para gestionarla aquí.",
+      "Describe una página o aplicación en cualquier conversación y confirma su publicación para gestionarla aquí. También puedes seleccionar Publicar como sitio en una página existente.",
     noResults: "No hay sitios coincidentes",
     sourceTask: "Origen: {{title}}",
     sourceDeleted: "Tarea de origen eliminada",
@@ -96,6 +100,28 @@ export const siteMessages = {
     enable: "Volver a publicar",
     download: "Descargar sitio web",
     loadMore: "Cargar más",
+    details: {
+      open: "Detalles",
+      description:
+        "Consulta los enlaces de acceso, las funciones de la aplicación y los detalles de la publicación actual.",
+      links: "Acceso y uso compartido",
+      alias: "Enlace personalizado",
+      aliasHelp:
+        "Usa el nombre de enlace que elegiste. Los enlaces anteriores siguen funcionando después de cambiarlo.",
+      stable: "Enlace estable",
+      stableHelp:
+        "Esta dirección se conserva al cambiar el nombre del enlace, actualizar la página o añadir un servicio de datos.",
+      copyAlias: "Copiar enlace personalizado",
+      copyStable: "Copiar enlace estable",
+      unpublishedHelp:
+        "Este sitio no está publicado y sus enlaces no están disponibles. Vuelve a publicarlo para restaurar el acceso mediante los mismos enlaces.",
+      publication: "Detalles de publicación",
+      source: "Conversación de origen",
+      files: "Recursos web",
+      publishedAt: "Publicación de la versión actual",
+      updatedAt: "Última modificación",
+      createdAt: "Creación",
+    },
     invalidSlug:
       "Introduce entre 3 y 80 letras inglesas, números o guiones, sin guiones al principio ni al final.",
   },

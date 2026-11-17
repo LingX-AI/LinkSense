@@ -6,12 +6,13 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createInstance } from "i18next"
-import { webSiteSchema } from "@linksense/shared"
+import { webSiteSchema, webSiteUpdateSchema } from "@linksense/shared"
 import i18n from "@/i18n"
 import { notify } from "@/components/feedback/notification"
 import { OfficePreviewShell } from "@/components/media/office-preview/office-preview-shell"
@@ -72,6 +73,206 @@ afterEach(() => {
 })
 
 describe("website management", () => {
+  it("shows and copies the custom slug link when the stable application URL is different", async () => {
+    const user = userEvent.setup()
+    const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue()
+    const url = `https://public.example.test/app/id/${id}`
+    const aliasUrl = "https://public.example.test/web/drink-water"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        success({
+          items: [{ ...site, slug: "drink-water", url, alias_url: aliasUrl }],
+          next_cursor: null,
+        })
+      )
+    )
+    mount(<SiteLibrary />)
+    expect(await screen.findByText("/web/drink-water")).toHaveAttribute(
+      "title",
+      aliasUrl
+    )
+    await user.click(
+      screen.getByRole("button", {
+        name: i18n.t("webSites.copyNamed", { name: site.name }),
+      })
+    )
+    expect(copy).toHaveBeenLastCalledWith(aliasUrl)
+    expect(
+      screen.getByRole("link", { name: i18n.t("webSites.visit") })
+    ).toHaveAttribute("href", url)
+  })
+
+  it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
+    "opens site details without another request and restores keyboard focus in %s",
+    async (locale) => {
+      await i18n.changeLanguage(locale)
+      const user = userEvent.setup()
+      const url = `https://public.example.test/app/id/${id}`
+      const aliasUrl = "https://public.example.test/web/shanhai"
+      const fetch = vi.fn(async () =>
+        success({
+          items: [{ ...site, backend_id: id, url, alias_url: aliasUrl }],
+          next_cursor: null,
+        })
+      )
+      vi.stubGlobal("fetch", fetch)
+      mount(<SiteLibrary />)
+      const trigger = await screen.findByRole("button", { name: site.name })
+      await user.click(trigger)
+      const dialog = screen.getByRole("dialog", { name: site.name })
+      expect(within(dialog).getByText(aliasUrl)).toBeVisible()
+      expect(within(dialog).getByText(url)).toBeVisible()
+      expect(within(dialog).getByText(site.slug)).toBeVisible()
+      expect(
+        within(dialog).getByText(i18n.t("webSites.dataConnected"))
+      ).toBeVisible()
+      expect(
+        within(dialog).getByRole("link", {
+          name: i18n.t("webSites.sourceTask", {
+            title: site.source_task_title,
+          }),
+        })
+      ).toHaveAttribute("href", `/conversations/${id}`)
+      expect(dialog.querySelector("iframe")).toBeNull()
+      expect(fetch).toHaveBeenCalledOnce()
+      await user.keyboard("{Escape}")
+      await waitFor(() => expect(dialog).not.toBeInTheDocument())
+      expect(trigger).toHaveFocus()
+    }
+  )
+
+  it("refreshes the open details and custom link after editing a slug", async () => {
+    const user = userEvent.setup()
+    const url = `https://public.example.test/app/id/${id}`
+    let current = {
+      ...site,
+      url,
+      alias_url: "https://public.example.test/web/shanhai",
+    }
+    const fetch = vi.fn(async (_url: string, options?: RequestInit) => {
+      if (options?.method === "PATCH") {
+        const input = webSiteUpdateSchema.parse(
+          JSON.parse(String(options.body))
+        )
+        current = {
+          ...current,
+          ...input,
+          alias_url: `https://public.example.test/web/${input.slug ?? current.slug}`,
+        }
+        return success(current)
+      }
+      return success({ items: [current], next_cursor: null })
+    })
+    vi.stubGlobal("fetch", fetch)
+    mount(<SiteLibrary />)
+    await user.click(await screen.findByRole("button", { name: site.name }))
+    await user.click(
+      within(screen.getByRole("dialog", { name: site.name })).getByRole(
+        "button",
+        { name: i18n.t("webSites.edit") }
+      )
+    )
+    const edit = screen.getByRole("dialog", {
+      name: i18n.t("webSites.dialog.edit"),
+    })
+    const slug = within(edit).getByRole("textbox", {
+      name: i18n.t("webSites.slug"),
+    })
+    await user.clear(slug)
+    await user.type(slug, "drink-water")
+    await user.click(
+      within(edit).getByRole("button", { name: i18n.t("webSites.save") })
+    )
+    await waitFor(() => expect(edit).not.toBeInTheDocument())
+    const details = screen.getByRole("dialog", { name: site.name })
+    expect(
+      within(details).getByText("https://public.example.test/web/drink-water")
+    ).toBeVisible()
+    expect(within(details).getByText(url)).toBeVisible()
+    expect(
+      within(details).queryByText("https://public.example.test/web/shanhai")
+    ).not.toBeInTheDocument()
+    expect(
+      fetch.mock.calls.filter(([, options]) => options?.method === "PATCH")
+    ).toHaveLength(1)
+  })
+
+  it("keeps legacy details usable without an alias or backend and shows a disabled site with its deleted source", async () => {
+    const user = userEvent.setup()
+    const legacy = { ...site, status: "disabled", conversation_id: null }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => success({ items: [legacy], next_cursor: null }))
+    )
+    mount(<SiteLibrary />)
+    await user.click(await screen.findByRole("button", { name: site.name }))
+    const details = screen.getByRole("dialog", { name: site.name })
+    expect(within(details).getByText(i18n.t("webSites.pageOnly"))).toBeVisible()
+    expect(
+      within(details).getByText(i18n.t("webSites.sourceDeleted"))
+    ).toBeVisible()
+    expect(
+      within(details).getByText(i18n.t("webSites.details.unpublishedHelp"))
+    ).toBeVisible()
+    expect(within(details).getByText(site.slug)).toBeVisible()
+    expect(
+      within(details).getByText(
+        new URL(site.url_path, window.location.origin).href
+      )
+    ).toBeVisible()
+    expect(
+      within(details).queryByText(i18n.t("webSites.details.alias"))
+    ).not.toBeInTheDocument()
+    expect(
+      within(details).queryByRole("link", { name: i18n.t("webSites.visit") })
+    ).not.toBeInTheDocument()
+  })
+
+  it("copies each address independently in details and returns to details when editing is cancelled", async () => {
+    const user = userEvent.setup()
+    const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue()
+    const url = "https://legacy-app.apps.example.test"
+    const aliasUrl = "https://public.example.test/web/shanhai"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        success({
+          items: [{ ...site, backend_id: id, url, alias_url: aliasUrl }],
+          next_cursor: null,
+        })
+      )
+    )
+    mount(<SiteLibrary />)
+    await user.click(await screen.findByRole("button", { name: site.name }))
+    const details = screen.getByRole("dialog", { name: site.name })
+    await user.click(
+      within(details).getByRole("button", {
+        name: i18n.t("webSites.details.copyAlias"),
+      })
+    )
+    expect(copy).toHaveBeenLastCalledWith(aliasUrl)
+    await user.click(
+      within(details).getByRole("button", {
+        name: i18n.t("webSites.details.copyStable"),
+      })
+    )
+    expect(copy).toHaveBeenLastCalledWith(url)
+    const editTrigger = within(details).getByRole("button", {
+      name: i18n.t("webSites.edit"),
+    })
+    await user.click(editTrigger)
+    const edit = screen.getByRole("dialog", {
+      name: i18n.t("webSites.dialog.edit"),
+    })
+    await user.click(
+      within(edit).getByRole("button", { name: i18n.t("webSites.cancel") })
+    )
+    await waitFor(() => expect(edit).not.toBeInTheDocument())
+    expect(screen.getByRole("dialog", { name: site.name })).toBeVisible()
+    expect(editTrigger).toHaveFocus()
+  })
+
   it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
     "separately displays page and backend capability without claiming reminder delivery in %s",
     async (locale) => {

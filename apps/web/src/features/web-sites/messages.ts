@@ -1,6 +1,6 @@
 export const webSitesZhCN = {
   title: "我的站点",
-  description: "管理已发布的站点，随时更新内容或取消发布。",
+  description: "统一管理已发布的网页与应用，查看访问链接、数据服务和发布状态。",
   share: "发布为站点",
   dialog: {
     share: "发布为站点",
@@ -9,13 +9,16 @@ export const webSitesZhCN = {
     delete: "删除站点",
   },
   shareDescription: "发布后，任何获得链接的人都可以访问这个站点。",
+  editDescription: "修改名称、简介或自定义链接。稳定链接与应用数据保持不变。",
   deleteDescription:
     "站点及发布版本将永久删除，地址可被任何人重新使用。原任务和文件仍会保留。",
   name: "站点名称",
   summary: "简介",
   slug: "链接名称",
   slugPlaceholder: "留空自动生成",
-  slugHelp: "使用 3–80 位英文字母、数字或连字符。",
+  slugHelp:
+    "使用 3–80 位英文字母、数字或连字符。此名称用于自定义链接，稳定链接不变。",
+  slugPreview: "自定义链接路径：{{path}}",
   slugChanged: "修改链接名称后，原链接仍可访问。",
   url: "站点链接",
   publishMode: "发布方式",
@@ -59,7 +62,8 @@ export const webSitesZhCN = {
   filter: "发布状态",
   status: { all: "全部状态", published: "已发布", disabled: "未发布" },
   empty: "还没有发布的站点",
-  emptyDescription: "打开任务生成的网页，点击“发布为站点”，即可在这里管理。",
+  emptyDescription:
+    "在任意任务中描述想创建的网页或应用，确认发布后即可在这里管理。已有网页也可通过“发布为站点”加入。",
   noResults: "没有找到匹配的站点",
   sourceTask: "来源：{{title}}",
   sourceDeleted: "来源任务已删除",
@@ -78,6 +82,25 @@ export const webSitesZhCN = {
   enable: "重新发布",
   download: "下载网页包",
   loadMore: "加载更多",
+  details: {
+    open: "详情",
+    description: "查看访问链接、应用能力与当前发布信息。",
+    links: "访问与分享",
+    alias: "自定义链接",
+    aliasHelp: "使用你设置的链接名称。改名后，之前的链接仍可访问。",
+    stable: "稳定链接",
+    stableHelp: "修改链接名称、更新页面或增加数据服务时，此入口保持不变。",
+    copyAlias: "复制自定义链接",
+    copyStable: "复制稳定链接",
+    unpublishedHelp:
+      "当前未发布，访问链接暂不可用。重新发布后可通过原链接访问。",
+    publication: "发布信息",
+    source: "来源任务",
+    files: "网页资源",
+    publishedAt: "当前版本发布于",
+    updatedAt: "最近修改",
+    createdAt: "创建时间",
+  },
   invalidSlug:
     "请输入 3–80 位英文字母、数字或连字符，且不能以连字符开头或结尾。",
 }
@@ -85,7 +108,7 @@ export const webSitesZhCN = {
 export const webSitesEnUS = {
   title: "My sites",
   description:
-    "Manage your published sites, update their content, or unpublish them at any time.",
+    "Manage published pages and web apps, their links, data services, and publication status.",
   share: "Publish as site",
   dialog: {
     share: "Publish as site",
@@ -95,13 +118,17 @@ export const webSitesEnUS = {
   },
   shareDescription:
     "Anyone with the link can visit this site after you publish it.",
+  editDescription:
+    "Edit the name, description, or custom link. The stable link and application data stay the same.",
   deleteDescription:
     "The site and its published versions will be permanently deleted. Anyone can reuse the address. The original task and files are kept.",
   name: "Site name",
   summary: "Description",
   slug: "Link name",
   slugPlaceholder: "Leave blank to generate automatically",
-  slugHelp: "Use 3–80 letters, numbers, or hyphens.",
+  slugHelp:
+    "Use 3–80 letters, numbers, or hyphens. This names the custom link; the stable link stays the same.",
+  slugPreview: "Custom link path: {{path}}",
   slugChanged: "Renaming keeps the previous links working.",
   url: "Site link",
   publishMode: "Publish mode",
@@ -156,7 +183,7 @@ export const webSitesEnUS = {
   },
   empty: "No published sites yet",
   emptyDescription:
-    "Open a webpage generated in a task and select Publish as site to manage it here.",
+    "Describe a page or app in any conversation and confirm publication to manage it here. You can also select Publish as site on an existing webpage.",
   noResults: "No matching sites",
   sourceTask: "Source: {{title}}",
   sourceDeleted: "Source task deleted",
@@ -175,6 +202,28 @@ export const webSitesEnUS = {
   enable: "Republish",
   download: "Download website",
   loadMore: "Load more",
+  details: {
+    open: "Details",
+    description:
+      "View access links, application capabilities, and current publication details.",
+    links: "Access and sharing",
+    alias: "Custom link",
+    aliasHelp:
+      "Uses your chosen link name. Previous links keep working after a rename.",
+    stable: "Stable link",
+    stableHelp:
+      "This entry stays the same when you rename the link, update the page, or add a data service.",
+    copyAlias: "Copy custom link",
+    copyStable: "Copy stable link",
+    unpublishedHelp:
+      "This site is unpublished, so its links are unavailable. Republish to restore access through the same links.",
+    publication: "Publication details",
+    source: "Source conversation",
+    files: "Web resources",
+    publishedAt: "Current version published",
+    updatedAt: "Last updated",
+    createdAt: "Created",
+  },
   invalidSlug:
     "Enter 3–80 letters, numbers, or hyphens, without a leading or trailing hyphen.",
 }

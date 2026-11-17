@@ -26,7 +26,7 @@ import {
   LoadingState,
 } from "@/components/feedback/page-state"
 import { notify } from "@/components/feedback/notification"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
 import { SearchInput } from "@/components/ui/search-input"
 import {
@@ -55,6 +55,7 @@ import {
 } from "./api"
 import { SiteDialog, type SiteAction } from "./site-dialog"
 import { SiteCard } from "./site-card"
+import { SiteDetailsDialog } from "./site-details-dialog"
 
 export function SiteLibrary() {
   const { t } = useTranslation()
@@ -73,6 +74,10 @@ export function SiteLibrary() {
     ...(status === "all" ? {} : { status }),
   }
   const [action, setAction] = useState<SiteAction | null>(null)
+  const [details, setDetails] = useState<{
+    site: WebSite
+    trigger: HTMLElement
+  } | null>(null)
   const [downloading, setDownloading] = useState<string | null>(null)
   const downloadLock = useRef(false)
   const statusLock = useRef(false)
@@ -185,30 +190,39 @@ export function SiteLibrary() {
           description={t("webSites.emptyDescription")}
         />
       ) : (
-        <ul className="flex min-w-0 flex-col">
+        <ul className="@container/site-list flex min-w-0 flex-col">
           {items.map((site) => (
             <li key={site.id} className="min-w-0">
               <SiteCard
                 site={site}
+                onDetails={(trigger) => setDetails({ site, trigger })}
                 actions={
                   <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="max-sm:min-h-11"
+                      aria-haspopup="dialog"
+                      onClick={(event) =>
+                        setDetails({ site, trigger: event.currentTarget })
+                      }
+                    >
+                      {t("webSites.details.open")}
+                    </Button>
                     {site.status === "published" && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        nativeButton={false}
-                        render={
-                          <a
-                            href={site.url ?? site.url_path}
-                            role="link"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          />
-                        }
+                      <a
+                        className={buttonVariants({
+                          variant: "outline",
+                          size: "sm",
+                          className: "max-sm:min-h-11",
+                        })}
+                        href={site.url ?? site.url_path}
+                        target="_blank"
+                        rel="noopener noreferrer"
                       >
                         <ExternalLinkIcon aria-hidden="true" />
                         {t("webSites.visit")}
-                      </Button>
+                      </a>
                     )}
                     <DropdownMenu>
                       <DropdownMenuTrigger
@@ -216,6 +230,7 @@ export function SiteLibrary() {
                           <Button
                             variant="ghost"
                             size="icon-sm"
+                            className="max-sm:min-h-11 max-sm:min-w-11"
                             aria-label={t("webSites.actions", {
                               name: site.name,
                             })}
@@ -304,6 +319,16 @@ export function SiteLibrary() {
         </Button>
       )}
       {action && <SiteDialog action={action} onClose={() => setAction(null)} />}
+      {details && (
+        <SiteDetailsDialog
+          site={details.site}
+          trigger={details.trigger}
+          onUpdated={(site) =>
+            setDetails((current) => (current ? { ...current, site } : null))
+          }
+          onClose={() => setDetails(null)}
+        />
+      )}
     </section>
   )
 }

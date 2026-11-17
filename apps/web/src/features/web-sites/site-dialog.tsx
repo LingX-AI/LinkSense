@@ -42,7 +42,7 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
-import { copyConversationShareUrl } from "@/features/conversations/conversation-share-contracts"
+import { copyTextToClipboard } from "@/lib/clipboard"
 import {
   createWebSite,
   deleteWebSite,
@@ -70,11 +70,13 @@ export function SiteDialog({
   onClose,
   portalContainer,
   lookup,
+  returnFocus,
 }: {
   action: SiteAction
-  onClose: () => void
+  onClose: (updated?: WebSite) => void
   portalContainer?: HTMLElement | null
   lookup?: SiteLookup
+  returnFocus?: HTMLElement
 }) {
   const { t, i18n } = useTranslation()
   const language = normalizeLanguage(i18n.resolvedLanguage) ?? "zh-CN"
@@ -174,7 +176,7 @@ export function SiteDialog({
       await client.invalidateQueries({ queryKey: webSiteKeys.all })
       if (site && (action.kind === "share" || action.kind === "publish"))
         setResult(site)
-      else onClose()
+      else onClose(site ?? undefined)
     },
     onSettled: () => {
       inFlight.current = false
@@ -183,7 +185,7 @@ export function SiteDialog({
   const copy = async () => {
     if (!visibleResult) return
     try {
-      await copyConversationShareUrl(
+      await copyTextToClipboard(
         visibleResult.url ??
           new URL(visibleResult.url_path, getPublicAppOrigin()).href
       )
@@ -203,6 +205,7 @@ export function SiteDialog({
         variant="workspace"
         showCloseButton={false}
         portalContainer={portalContainer ?? undefined}
+        finalFocus={returnFocus ? () => returnFocus : undefined}
         className="max-h-[calc(100dvh_-_2rem)] grid-rows-[minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-150"
       >
         <form
@@ -246,9 +249,11 @@ export function SiteDialog({
                         : "webSites.publishedDescription"
                     : action.kind === "delete"
                       ? "webSites.deleteDescription"
-                      : updating
-                        ? "webSites.updateDescription"
-                        : "webSites.shareDescription"
+                      : action.kind === "edit"
+                        ? "webSites.editDescription"
+                        : updating
+                          ? "webSites.updateDescription"
+                          : "webSites.shareDescription"
               )}
             </DialogDescription>
           </DialogHeader>
@@ -421,15 +426,32 @@ export function SiteDialog({
                       <Input
                         id={`${id}-slug`}
                         aria-required={action.kind === "edit"}
+                        aria-describedby={`${id}-slug-help${slug && !webSiteSlugSchema.safeParse(slug).success ? ` ${id}-slug-error` : ""}`}
+                        aria-invalid={Boolean(
+                          slug && !webSiteSlugSchema.safeParse(slug).success
+                        )}
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
                         value={slug}
                         maxLength={80}
                         placeholder={t("webSites.slugPlaceholder")}
                         disabled={mutation.isPending}
                         onChange={(event) => setSlug(event.target.value)}
                       />
-                      <p className="text-xs leading-relaxed text-muted-foreground">
+                      <p
+                        id={`${id}-slug-help`}
+                        className="text-xs leading-relaxed text-muted-foreground"
+                      >
                         {t("webSites.slugHelp")}
                       </p>
+                      {webSiteSlugSchema.safeParse(slug).success && (
+                        <p className="text-xs wrap-anywhere text-muted-foreground">
+                          {t("webSites.slugPreview", {
+                            path: `/web/${slug.trim().toLowerCase()}`,
+                          })}
+                        </p>
+                      )}
                       {action.kind === "edit" &&
                         slug.trim().toLowerCase() !== action.site.slug && (
                           <p className="text-sm text-destructive">
@@ -507,7 +529,7 @@ export function SiteDialog({
             variant="ghost"
             className={action.kind === "delete" ? "h-8 px-4" : undefined}
             disabled={mutation.isPending}
-            onClick={onClose}
+            onClick={() => onClose()}
           >
             {t(visibleResult ? "webSites.done" : "webSites.cancel")}
           </Button>

@@ -130,7 +130,7 @@ export const core = {
   webSites: {
     title: "Mes sites",
     description:
-      "Gérez vos sites publiés, actualisez leur contenu ou retirez-les de la publication à tout moment.",
+      "Gérez les pages et applications web publiées, leurs liens, services de données et état de publication.",
     share: "Publier comme site",
     dialog: {
       share: "Publier comme site",
@@ -140,13 +140,17 @@ export const core = {
     },
     shareDescription:
       "Toute personne disposant du lien pourra consulter ce site après sa publication.",
+    editDescription:
+      "Modifiez le nom, la description ou le lien personnalisé. Le lien stable et les données de l’application sont conservés.",
     deleteDescription:
       "Le site et ses versions publiées seront définitivement supprimés. L’adresse pourra être réutilisée par quiconque. La tâche et les fichiers d’origine seront conservés.",
     name: "Nom du site",
     summary: "Description",
     slug: "Nom du lien",
     slugPlaceholder: "Laissez vide pour générer automatiquement",
-    slugHelp: "Utilisez entre 3 et 80 lettres, chiffres ou traits d’union.",
+    slugHelp:
+      "Utilisez entre 3 et 80 lettres, chiffres ou traits d’union. Ce nom sert au lien personnalisé ; le lien stable ne change pas.",
+    slugPreview: "Chemin du lien personnalisé : {{path}}",
     slugChanged:
       "Les liens précédents restent accessibles après le changement de nom.",
     url: "Lien du site",
@@ -202,7 +206,7 @@ export const core = {
     },
     empty: "Aucun site publié",
     emptyDescription:
-      "Ouvrez une page Web générée dans une tâche et sélectionnez Publier comme site pour la gérer ici.",
+      "Décrivez une page ou une application dans une conversation et confirmez sa publication pour la gérer ici. Vous pouvez aussi sélectionner Publier comme site sur une page existante.",
     noResults: "Aucun site correspondant",
     sourceTask: "Source : {{title}}",
     sourceDeleted: "Tâche source supprimée",
@@ -221,6 +225,28 @@ export const core = {
     enable: "Republier",
     download: "Télécharger le site",
     loadMore: "Charger plus",
+    details: {
+      open: "Détails",
+      description:
+        "Consultez les liens d’accès, les fonctionnalités de l’application et les détails de la publication actuelle.",
+      links: "Accès et partage",
+      alias: "Lien personnalisé",
+      aliasHelp:
+        "Utilise le nom de lien choisi. Les liens précédents restent accessibles après un changement de nom.",
+      stable: "Lien stable",
+      stableHelp:
+        "Cette adresse reste la même lorsque vous renommez le lien, mettez à jour la page ou ajoutez un service de données.",
+      copyAlias: "Copier le lien personnalisé",
+      copyStable: "Copier le lien stable",
+      unpublishedHelp:
+        "Ce site n’est pas publié et ses liens sont indisponibles. Republiez-le pour rétablir l’accès avec les mêmes liens.",
+      publication: "Détails de publication",
+      source: "Conversation d’origine",
+      files: "Ressources web",
+      publishedAt: "Publication de la version actuelle",
+      updatedAt: "Dernière modification",
+      createdAt: "Création",
+    },
     invalidSlug:
       "Saisissez entre 3 et 80 lettres, chiffres ou traits d’union, sans trait d’union au début ni à la fin.",
   },
