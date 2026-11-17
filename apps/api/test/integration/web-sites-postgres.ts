@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
-import { conversationWebSitesSchema, webSiteSchema, htmlPreviewSourceSchema } from "@linksense/shared";
+import { conversationWebSitesSchema, webSiteSchema, htmlPreviewSourceSchema, webApplicationPath } from "@linksense/shared";
 import { createPrismaClient } from "../../src/db.js";
 import { testConfig } from "../test-config.js";
 import { LinkSenseRedis } from "../../src/adapters/redis.js";
@@ -114,6 +114,7 @@ try {
   const otherToken = api.jwt.sign({ sub: other.id, email: other.email, role: other.role, auth_valid_after: other.authValidAfter.toISOString() });
   const headers = { authorization: `Bearer ${token}` };
   const prefix = "/api/v1/web-sites";
+  const publicRequest = (url: string) => api.inject({ url, headers: { host: new URL(publicBaseUrl).host } });
   for (const { site: upgradeSite, deleted } of upgradeSites) {
     if (deleted) continue;
     assert.equal((await api.inject(`/web/${upgradeSite.slug}`)).statusCode, upgradeSite.status === "published" ? 200 : 404);
@@ -130,7 +131,7 @@ try {
   };
   const legacySite = await createSite(legacy.id);
   assert.match(legacySite.slug, /^[a-f0-9-]{36}$/u);
-  assert.equal((await api.inject(legacySite.url_path)).statusCode, 200);
+  assert.equal((await publicRequest(legacySite.url_path)).statusCode, 200);
 
   const workspace = join(config.userDataRoot, task.workspaceRelPath);
   const publicDirectory = join(workspace, "artifacts/site");
@@ -181,20 +182,23 @@ try {
   assert.match((await api.inject(currentEntry.path.replace("index.html", "assets/counter.js"))).body, /第二版/u);
   assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${site.id}`, headers, payload: { slug: legacySite.slug } })).statusCode, 409);
   assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${site.id}`, headers, payload: { status: "disabled" } })).statusCode, 200);
-  assert.equal((await api.inject(site.url_path)).statusCode, 404);
+  assert.equal((await publicRequest(site.url_path)).statusCode, 404);
   assert.equal((await api.inject(originalModule)).statusCode, 404);
   assert.equal((await api.inject(currentEntry.path)).statusCode, 404);
   assert.equal((await api.inject({ url: `${prefix}/${site.id}/download`, headers })).statusCode, 200);
   assert.equal((await api.inject({ method: "PATCH", url: `${prefix}/${site.id}`, headers, payload: { status: "published", slug: "shanhai-published" } })).statusCode, 200);
-  assert.equal((await api.inject(site.url_path)).statusCode, 404);
+  assert.equal((await publicRequest(site.url_path)).statusCode, 200);
+  assert.equal((await publicRequest("/web/shanhai-demo")).statusCode, 200);
   assert.equal((await api.inject("/web/shanhai-published")).statusCode, 200);
   assert.equal((await api.inject({ method: "DELETE", url: `${prefix}/${legacySite.id}`, headers })).statusCode, 204);
-  assert.equal((await api.inject(legacySite.url_path)).statusCode, 404);
+  assert.equal((await publicRequest(legacySite.url_path)).statusCode, 404);
   assert(await db.conversationFile.findUnique({ where: { id: legacy.id } }));
   const recreated = await createSite(legacy.id, legacySite.slug);
   assert.equal(recreated.status, "published");
   assert.notEqual(recreated.id, legacySite.id);
-  assert.equal(recreated.url_path, legacySite.url_path);
+  assert.notEqual(recreated.url_path, legacySite.url_path);
+  assert.equal((await publicRequest(legacySite.url_path)).statusCode, 404);
+  assert.equal((await publicRequest(`/web/${legacySite.slug}`)).statusCode, 200);
   assert.equal(await db.webSite.count({ where: { id: legacySite.id } }), 0);
   assert.equal(await db.webSiteAddress.count({ where: { siteId: legacySite.id } }), 0);
   assert.equal(await db.webSiteRelease.count({ where: { siteId: legacySite.id } }), 0);
@@ -282,7 +286,7 @@ try {
   assert.equal(crossTaskUpdate.statusCode, 201, crossTaskUpdate.body);
   const updatedSite = webSiteSchema.parse(crossTaskUpdate.json().data);
   assert.equal(updatedSite.id, site.id);
-  assert.equal(updatedSite.url_path, `/web/${targetBefore.slug}`);
+  assert.equal(updatedSite.url_path, webApplicationPath(site.id));
   assert.equal(updatedSite.name, targetBefore.name);
   assert.equal(updatedSite.description, targetBefore.description);
   assert.equal(updatedSite.conversation_id, newTask.id);
@@ -309,7 +313,7 @@ try {
     assert.equal(record.status, "disabled");
     assert.equal((await api.inject({ url: `${prefix}/${remaining.id}/download`, headers })).statusCode, 200);
   }
-  assert.equal((await api.inject(updatedSite.url_path)).statusCode, 200);
+  assert.equal((await publicRequest(updatedSite.url_path)).statusCode, 200);
   assert.match((await api.inject(crossEntry.path.replace("index.html", "assets/counter.js"))).body, /跨任务新版/u);
   const retained = remainingSites[0];
   assert(retained, "A retained site from the deleted original task must be available");
@@ -319,7 +323,7 @@ try {
   assert.equal(restoreSource.json().data.conversation_id, newTask.id);
   assert.equal((await api.inject(`/web/${retained.slug}`)).statusCode, 404);
   await services.conversations.delete(owner.id, newTask.id, {});
-  assert.equal((await api.inject(updatedSite.url_path)).statusCode, 404);
+  assert.equal((await publicRequest(updatedSite.url_path)).statusCode, 404);
   assert.equal((await api.inject({ url: `${prefix}/${site.id}/download`, headers })).statusCode, 200);
   console.log("PASS: cross-task replacement preserves URLs and metadata; denies foreign sites/files; failed updates preserve the live release; source lists follow the new task; old task deletion does not disable moved sites; retained sites can receive new content without republishing.");
   console.log("PASS: deleting the source task stops all shares and retains owner downloads.");

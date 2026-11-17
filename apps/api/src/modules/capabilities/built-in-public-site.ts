@@ -1,6 +1,6 @@
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { PUBLIC_SITE_SKILL_NAME, coreMcpServerKey } from "@linksense/shared";
+import { applicationIntentInstructions, PUBLIC_SITE_SKILL_NAME, coreMcpServerKey } from "@linksense/shared";
 
 export async function writeBuiltInPublicSite(skillsRoot: string, name: string = PUBLIC_SITE_SKILL_NAME): Promise<void> {
   const root = join(skillsRoot, name);
@@ -21,6 +21,8 @@ Do not send the user to a creation page or require manual Skill selection.
 
 ## Choose the right delivery shape
 
+${applicationIntentInstructions("this Skill", `${coreMcpServerKey}.request_user_form`)}
+
 - Use this Skill for a public page, landing page, portfolio, calculator, timer,
   tracker, or other browser-only tool that anyone can open with a link and that
   does not need LinkSense login, AI, tasks, files, knowledge bases, plugins, or
@@ -32,18 +34,16 @@ Do not send the user to a creation page or require manual Skill selection.
   uploads or business APIs, follow the dynamic application workflow below.
   These visitors do not need LinkSense accounts.
   Visitor login, data and uploads do not require LinkSense platform identity.
-- If the delivery shape is genuinely ambiguous, ask once with
-  \`${coreMcpServerKey}.request_user_form\` using one \`radio\` field with 2–5
-  short options. In \`message\`, explain what each shape means and when to use
-  it, and give each option a one-line description: public website — anyone with
-  the link can open it, optionally with its own visitor accounts and backend,
-  no LinkSense platform login or AI; LinkSense application —
-  runs inside LinkSense and can use AI, tasks, knowledge, files, plugins, or
-  organization sharing. Do not create either artifact before the answer. Do not
-  ask again when the user already said “public / website / link / no login” or
-  “inside LinkSense / AI / tasks”.
-- The two shapes are separate deliverables. Do not silently convert one into the
-  other, and do not create an interactive application first.
+- Treat static and dynamic pages as one Web application with optional backend.
+  A schedule is an execution capability, not a mutually exclusive application type.
+  Use ordinary outcome language in the user's language. For a water reminder,
+  ask whether it must work after closing the page, with choices such as “yes”,
+  “only while open” and “preview first, decide reminders later”.
+  Use a required form for unresolved publication, recipients or schedule activation.
+  For low-impact unknown details, explain a reversible assumption and build a draft.
+  Resolve essential follow-up details only when needed; “ask once” is not a ban
+  on asking a different necessary question. A chosen Web delivery is not itself
+  permission to publish. An explicit publication request already supplies permission.
 - Ask about the requirement that affects the result, not the technology. For a
   reminder, ask whether it must work after the page closes. If it must, use the
   existing scheduled notification workflow; a static site cannot do that.
@@ -80,18 +80,23 @@ call \`${coreMcpServerKey}.inspect_web_site_backend\` and reuse its configuratio
 even from a different conversation. Only use backend preparation for recovery
 with that same ID; do not prepare a replacement by name.
 
-If an existing static site has no \`backend_id\` and now needs a backend, explain
-that its backend binding cannot be added or replaced by publishing an update.
-Do not overwrite the static site with backend-dependent frontend code.
-Create a separate dynamic application and its new URL only when the user
-requests or approves that change; preserve the original site and link.
+If an existing static site has no \`backend_id\` and now needs a backend, prepare
+a new sandbox backend only for the requested capability. Validate the new frontend
+and backend, then publish with the existing \`site_id\` and prepared \`backend_id\`.
+The platform binds both in one transaction and keeps the application ID and link.
+Never replace an existing backend. A failed preparation or publication leaves
+the previous page available; do not publish backend-dependent code without its binding.
+The stable published address is \`/app/id/<site-id>\`; \`/web/<slug>\` and sandbox
+\`/app/<backend-address>\` remain aliases, including after renaming.
+Return the publishing tool's URL, not a URL inferred from backend preparation.
 
 1. For a new authorized public dynamic application, call
    \`${coreMcpServerKey}.prepare_web_site_backend\` with a short name. It returns
    \`id\` (use as \`backend_id\`), \`runtime_mode\`, \`project_id\`, \`origin\`,
    \`endpoint\` and \`database_id: app\`. New backends have
    \`runtime_mode: sandbox\`, \`url: <LinkSense>/app/<address>\` and \`sdk_url\`.
-   Supply a short readable \`address\` before generating the frontend.
+   The backend \`address\` is an optional alias, not the application's stable
+   identity. Do not ask the user to choose it before building a draft.
    Reuse this backend for subsequent versions. If the service is not configured,
    report the actual error; do not silently use a cloud service or simulate
    successful persistence in localStorage.
@@ -163,11 +168,12 @@ requests or approves that change; preserve the original site and link.
    responses, browser code, the HTML bundle or chat.
 6. Inspect tables, indexes and native function deployments before publishing.
    Register the frontend HTML and complete asset bundle normally, then pass
-   \`backend_id\` to \`publish_web_site\` when creating the site. The tool refuses
+   \`backend_id\` to \`publish_web_site\` when creating the site or adding backend
+   capabilities to an existing static site. The tool refuses
    publication while resources are still building. Use the returned URL as the
    main result. An artifact preview is still sandboxed and does not validate
    the dynamic application's login or backend behavior. Sandbox applications
-   keep the address bar at the returned \`/app/<address>\` URL.
+   keep the address bar at the returned stable application URL.
 7. Update with the existing \`site_id\`; the backend, visitor accounts, data and
    application URL remain unchanged. New function deployments are managed by
    Appwrite separately from frontend releases; do not claim frontend rollback
@@ -196,7 +202,8 @@ requests or approves that change; preserve the original site and link.
    and hyphens, for example \`water-reminder\`. Call
    \`${coreMcpServerKey}.publish_web_site\` with the registered \`file_id\` and the
    new site's \`name\` and \`slug\`, or the existing \`site_id\` for an update.
-   For a new dynamic application, also include its prepared \`backend_id\`.
+   For a new dynamic application or static-to-dynamic enhancement, also include
+   its prepared \`backend_id\`.
    If the chosen slug is taken, ask the user or offer an alternative; never
    silently replace their choice. If publication fails, keep the preview.
 5. A successful publication with status \`published\` delivers the website card
@@ -217,8 +224,9 @@ requests or approves that change; preserve the original site and link.
   \`publish_web_site\` with \`site_id\` and the new \`file_id\`. The slug stays the
   same and the public link keeps working.
 - To change only the name, description, slug, or published status, call
-  \`${coreMcpServerKey}.update_web_site\`. Changing the slug immediately invalidates
-  the old link; confirm before doing it.
+  \`${coreMcpServerKey}.update_web_site\`. Renaming keeps the stable application
+  URL and old aliases usable; do not request repeated confirmation for an
+  already authorized rename.
 - Unpublish with \`update_web_site\` and \`status: "disabled"\`. Republish with
   \`status: "published"\`. Deleting a site is a destructive action and should be
   left to the user in “资料库 → 我的站点” unless they explicitly ask for it.
@@ -229,7 +237,8 @@ requests or approves that change; preserve the original site and link.
   internal addresses, and content that should not be public before publishing.
 - Do not add analytics, tracking, or third-party requests unless the user asks.
 - Treat the published site as an external side effect: only publish when the
-  user asked for a public site or selected the public-website option.
+  user explicitly requested publication or a public link. Selecting a delivery
+  shape alone does not authorize publication.
 - Keep the assistant's final answer short: what was published, the public URL,
   and any limitation that materially affects the user (for example, no local
   persistence in the current public-site sandbox).

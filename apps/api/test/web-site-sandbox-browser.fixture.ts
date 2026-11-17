@@ -42,6 +42,12 @@ export async function createSandboxBrowserFixture() {
       if (disabled.has(backend.name)) throw new AppError("WEB_SITE_NOT_FOUND");
       return { backend, siteId: `40000000-0000-4000-8000-00000000000${rows.indexOf(backend) + 1}` };
     },
+    publicBindingForSite: async id => {
+      const index = rows.findIndex((_row, i) => id === `40000000-0000-4000-8000-00000000000${i + 1}`);
+      const backend = rows[index];
+      if (!backend || disabled.has(backend.name)) throw new AppError("WEB_SITE_NOT_FOUND");
+      return { backend, siteId: id };
+    },
     source: async () => { throw new Error("Unused fixture operation"); },
   };
   const backends = new WebSiteBackendService(store, new LocalFilesystemObjectStorage(config), config, async (input, init) => {
@@ -85,6 +91,12 @@ export async function createSandboxBrowserFixture() {
   }, config);
   const app = Fastify();
   registerPublicAppGateway(app, backends, {
+    publicApplication: async id => {
+      const row = rows.find((_item, index) => id === `40000000-0000-4000-8000-00000000000${index + 1}`);
+      if (!row || disabled.has(row.name)) throw new AppError("WEB_SITE_NOT_FOUND");
+      const releasePath = `/web/${row.name}/_releases/40000000-0000-4000-8000-000000000001/`;
+      return { title: row.name, path: `${releasePath}index.html`, releasePath, backendId: row.id };
+    },
     applicationEntry: async (_owner, id) => {
       const row = rows.find((_item, index) => id === `40000000-0000-4000-8000-00000000000${index + 1}`);
       if (!row) throw new AppError("WEB_SITE_NOT_FOUND");

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import JSZip from "jszip";
-import { conversationWebSiteSchema, conversationWebSitesSchema, webSiteCursorSchema, type ConversationWebSite } from "@linksense/shared";
+import { conversationWebSiteSchema, conversationWebSitesSchema, webSiteCursorSchema, webApplicationPath, type ConversationWebSite } from "@linksense/shared";
 import { webBundleManifestSchema, webSiteSchema, webSiteToolPageSchema, webSiteWithUrlSchema, type WebBundleManifest, type WebSite, type WebSiteCreate, type WebSiteToolPage, type WebSiteToolRequest, type WebSiteUpdate, type WebSiteWithUrl } from "@linksense/shared";
 import type { ObjectStorage } from "../../adapters/object-storage.js";
 import { AppError } from "../../lib/errors.js";
@@ -25,11 +25,11 @@ export class WebSiteService {
       if (backend.success && backend.data && this.backends?.client) {
         origin = origins.get(backend.data);
         if (!origin) {
-          origin = this.backends.originFor(backend.data);
+          origin = this.backends.publishedUrl(backend.data, delivery.id);
           origins.set(backend.data, origin);
         }
       }
-      return { ...delivery, url: origin ? await origin : new URL(`/web/${delivery.slug}`, publicBaseUrl).href };
+      return { ...delivery, url: origin ? await origin : new URL(webApplicationPath(delivery.id), publicBaseUrl).href };
     })));
   }
   async publishedSlugForOwner(ownerId: string, siteId: string): Promise<string> {
@@ -62,12 +62,17 @@ export class WebSiteService {
   }
   async publish(ownerId: string, id: string, fileId: string, expectedBackendId?: string): Promise<WebSite> {
     const { site } = await this.store.owned(ownerId, id);
-    if (expectedBackendId && site.backendId !== expectedBackendId) throw new AppError("CONFLICT");
+    if (expectedBackendId && site.backendId && site.backendId !== expectedBackendId) throw new AppError("CONFLICT");
+    const addingBackend = expectedBackendId && !site.backendId ? expectedBackendId : undefined;
+    if (addingBackend && (await this.requiredBackends().store.owned(ownerId, addingBackend)).runtimeMode !== "sandbox") throw new AppError("CONFLICT");
     const { manifest, conversationId } = await this.sourceBundle(ownerId, null, fileId);
     const releaseId = randomUUID();
-    return await this.project(site.backendId
-      ? await this.requiredBackends().withPublishable(ownerId, site.backendId,
-        lease => this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest, lease))
+    const binding = site.backendId ?? addingBackend;
+    return await this.project(binding
+      ? await this.requiredBackends().withPublishable(ownerId, binding,
+        lease => addingBackend
+          ? this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest, lease, addingBackend)
+          : this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest, lease))
       : await this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest));
   }
   sources(ownerId: string, id: string) { return this.store.sources(ownerId, id); }
@@ -75,7 +80,14 @@ export class WebSiteService {
   async publicEntry(slug: string): Promise<{ title: string; path: string; url?: string }> {
     const { site, release } = await this.store.publicSite(slug);
     const manifest = webBundleManifestSchema.parse(release.manifestJson);
-    return { title: site.name, path: `/web/${site.slug}/_releases/${release.id}/${encodeResourcePath(manifest.entry_path)}`, ...(site.backendId ? { url: await this.requiredBackends().originFor(site.backendId) } : {}) };
+    return { title: site.name, path: `/web/${site.slug}/_releases/${release.id}/${encodeResourcePath(manifest.entry_path)}`, ...(site.backendId ? { url: await this.requiredBackends().publishedUrl(site.backendId, site.id) } : {}) };
+  }
+  async publicApplication(id: string): Promise<{ title: string; path: string; releasePath: string; backendId?: string; url?: string }> {
+    const { site, release } = await this.store.publicSiteById(id);
+    const manifest = webBundleManifestSchema.parse(release.manifestJson);
+    const releasePath = `/web/${webSiteSchema.shape.slug.parse(site.slug)}/_releases/${release.id}/`;
+    return { title: site.name, path: `${releasePath}${encodeResourcePath(manifest.entry_path)}`, releasePath,
+      ...(site.backendId ? { backendId: site.backendId, url: await this.requiredBackends().publishedUrl(site.backendId, site.id) } : {}) };
   }
   async applicationResource(ownerId: string, id: string, path: string): Promise<{ data: Buffer; mimeType: string } | { redirect: string }> {
     const { site, release } = await this.store.owned(ownerId, id);
@@ -146,7 +158,7 @@ export class WebSiteService {
   }
   private async project(row: SiteAndRelease): Promise<WebSite> {
     const result = projectSite(row);
-    return row.site.backendId && this.backends?.client ? { ...result, url: await this.backends.originFor(row.site.backendId) } : result;
+    return row.site.backendId && this.backends?.client ? { ...result, url: await this.backends.publishedUrl(row.site.backendId, row.site.id) } : result;
   }
   private requiredBackends(): WebSiteBackendService {
     if (!this.backends) throw new AppError("WEB_SITE_BACKEND_NOT_CONFIGURED");
@@ -164,7 +176,7 @@ export function projectSite({ site, release }: SiteAndRelease): WebSite {
   const manifest = webBundleManifestSchema.parse(release.manifestJson);
   return webSiteSchema.parse({
     id: site.id, name: site.name, description: site.description, slug: site.slug, status: site.status,
-    url_path: `/web/${site.slug}`, conversation_id: site.conversationId, source_task_title: site.sourceTaskTitle,
+    url_path: webApplicationPath(site.id), conversation_id: site.conversationId, source_task_title: site.sourceTaskTitle,
     source_file_id: site.sourceFileId, release_id: release.id, file_count: manifest.files.length, size_bytes: bundleSize(manifest),
     published_at: release.createdAt.toISOString(), created_at: site.createdAt.toISOString(), updated_at: site.updatedAt.toISOString(),
     ...(site.backendId ? { backend_id: site.backendId } : {}),

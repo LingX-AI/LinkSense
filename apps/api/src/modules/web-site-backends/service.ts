@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getDomain } from "tldts";
-import { webSiteBackendHostSchema, webSiteBackendSchema, type WebSiteBackend, type WebSiteBackendChange } from "@linksense/shared";
+import { webApplicationPath, webSiteBackendHostSchema, webSiteBackendSchema, type WebSiteBackend, type WebSiteBackendChange } from "@linksense/shared";
 import type { AppConfig } from "../../config.js";
 import type { ObjectStorage } from "../../adapters/object-storage.js";
 import type { WebSiteBackend as BackendRow } from "../../generated/prisma/client.js";
@@ -62,6 +62,14 @@ export class WebSiteBackendService {
     const row = await this.store.findById(id);
     if (!row) throw new AppError("WEB_SITE_NOT_FOUND");
     return this.publicUrl(await this.resolveHost(row));
+  }
+
+  async publishedUrl(id: string, siteId: string): Promise<string> {
+    const row = await this.store.findById(id);
+    if (!row) throw new AppError("WEB_SITE_NOT_FOUND");
+    return row.runtimeMode === "sandbox"
+      ? new URL(webApplicationPath(siteId), this.config.publicBaseUrl).href
+      : this.publicUrl(await this.resolveHost(row));
   }
 
   private async resolveHost(row: BackendRow, existingLease?: Date): Promise<BackendRow> {

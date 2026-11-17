@@ -399,7 +399,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     const publicSiteSkill = await readFile(join(next.skillsRoot, "linksense-public-site", "SKILL.md"), "utf8")
     expect(publicSiteSkill).toContain("directly in the current conversation")
     expect(publicSiteSkill).toContain("reuse the prepared `backend_id`")
-    expect(publicSiteSkill).toContain("backend binding cannot be added or replaced by publishing an update")
+    expect(publicSiteSkill).toContain("one transaction and keeps the application ID and link")
     expect(publicSiteSkill).toContain("Call `account.get()` first")
     expect(publicSiteSkill).toContain("never the session `$id`")
     // Subsequent starts reuse the freshly published snapshot.

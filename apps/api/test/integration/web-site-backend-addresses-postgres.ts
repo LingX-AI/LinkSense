@@ -7,9 +7,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { generatedWebSiteBackendHostLabel } from "@linksense/shared";
+import { generatedWebSiteBackendHostLabel, type WebBundleManifest } from "@linksense/shared";
 import { createPrismaClient } from "../../src/db.js";
 import { WebSiteBackendRepository } from "../../src/modules/web-site-backends/repository.js";
+import { WebSiteRepository } from "../../src/modules/web-sites/repository.js";
+import { projectSite } from "../../src/modules/web-sites/service.js";
 
 // This check applies migrations only to an explicitly supplied, empty local
 // test database. It never loads the application .env or contacts Appwrite.
@@ -108,6 +110,60 @@ try {
   await assert.rejects(store.setHostLabel(winner.id, lease, null), { code: "CONFLICT" });
   assert.deepEqual(await store.byHostLabel("bookings"), { id: winner.id });
   console.log("PASS: stale rollback cannot overwrite an address after losing its lease.");
+
+  const sites = new WebSiteRepository(db);
+  const manifest: WebBundleManifest = { entry_path: "index.html", files: [{
+    path: "index.html", object_key: "fixture/index.html", mime_type: "text/html", size_bytes: 1, checksum_sha256: "a".repeat(64),
+  }] };
+  const createStatic = async (slug: string) => {
+    const file = await db.conversationFile.create({ data: {
+      conversationId: task.id, kind: "artifact", source: "agent_generated", status: "registered",
+      filename: `${slug}.html`, mimeType: "text/html", sizeBytes: 1, storageBackend: "minio",
+      minioObjectKey: "fixture/index.html", downloadable: true, downloadCardEventId: randomUUID(),
+    } });
+    return sites.create(owner.id, { conversation_id: task.id, file_id: file.id, name: slug, description: "" },
+      { siteId: randomUUID(), releaseId: randomUUID(), slug }, task.title, manifest);
+  };
+  const preparedBackend = async (name: string) => {
+    const backend = await store.reserve(owner.id, task.id, name);
+    await db.webSiteBackend.update({ where: { id: backend.id }, data: { status: "ready" } });
+    return backend;
+  };
+  const staticApp = await createStatic("water-original");
+  await assert.rejects(store.publicBindingForSite(staticApp.site.id), { code: "WEB_SITE_NOT_FOUND" });
+  const stablePath = projectSite(staticApp).url_path;
+  await sites.update(owner.id, staticApp.site.id, { slug: "water-renamed" });
+  assert.equal((await sites.publicSite("water-original")).site.id, staticApp.site.id);
+  const backend = await preparedBackend("Water data");
+  const enhanced = await sites.publish(owner.id, staticApp.site.id, task.id,
+    staticApp.site.sourceFileId, randomUUID(), manifest, undefined, backend.id);
+  assert.equal(enhanced.site.backendId, backend.id);
+  assert.equal(enhanced.site.id, staticApp.site.id);
+  assert.equal(projectSite(enhanced).url_path, stablePath);
+  assert.equal((await sites.publicSiteById(staticApp.site.id)).site.currentReleaseId, enhanced.release.id);
+  assert.equal((await store.publicBindingForSite(staticApp.site.id)).backend.id, backend.id);
+  await assert.rejects(sites.publish(owner.id, staticApp.site.id, task.id,
+    staticApp.site.sourceFileId, randomUUID(), manifest, undefined, second.id), { code: "CONFLICT" });
+  console.log("PASS: pre-backend static records retain identity, stable URL and retired aliases after atomic enhancement.");
+
+  const rollback = await createStatic("rollback");
+  const rollbackBackend = await preparedBackend("Rollback data");
+  await assert.rejects(sites.publish(owner.id, rollback.site.id, task.id, rollback.site.sourceFileId,
+    enhanced.release.id, manifest, undefined, rollbackBackend.id));
+  const unchanged = (await sites.owned(owner.id, rollback.site.id)).site;
+  assert.equal(unchanged.backendId, null);
+  assert.equal(unchanged.currentReleaseId, rollback.site.currentReleaseId);
+  assert.equal(await db.webSiteRelease.count({ where: { siteId: rollback.site.id } }), 1);
+  const rival = await createStatic("concurrent");
+  const enhancementClaims = await Promise.allSettled([rollback, rival].map(page => sites.publish(owner.id, page.site.id,
+    task.id, page.site.sourceFileId, randomUUID(), manifest, undefined, rollbackBackend.id)));
+  assert.equal(enhancementClaims.filter(result => result.status === "fulfilled").length, 1);
+  assert.equal(await db.webSite.count({ where: { backendId: rollbackBackend.id } }), 1);
+  await sites.update(owner.id, staticApp.site.id, { status: "disabled" });
+  await assert.rejects(sites.publicSiteById(staticApp.site.id), { code: "WEB_SITE_NOT_FOUND" });
+  await assert.rejects(sites.publicSite("water-original"), { code: "WEB_SITE_NOT_FOUND" });
+  await assert.rejects(store.publicBindingForSite(staticApp.site.id), { code: "WEB_SITE_NOT_FOUND" });
+  console.log("PASS: failed enhancement rolls back; concurrent bindings choose one app; disablement fences stable and retired addresses.");
 } finally {
   await db.$disconnect();
   await rm(before, { recursive: true, force: true });

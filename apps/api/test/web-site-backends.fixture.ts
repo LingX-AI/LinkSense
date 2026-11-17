@@ -57,6 +57,10 @@ export function backendFixture(appsBaseUrl: string | null = "https://apps.exampl
       if (!published) throw new AppError("WEB_SITE_NOT_FOUND");
       return { backend: row, siteId };
     }),
+    publicBindingForSite: vi.fn(async id => {
+      if (!published || id !== siteId || !site.row.site.backendId) throw new AppError("WEB_SITE_NOT_FOUND");
+      return { backend: row, siteId };
+    }),
     source: vi.fn(async () => ({ objectKey: "source/code.tar.gz", size: 4, checksum: null })),
   };
   const fetcher = vi.fn<typeof fetch>(async () => Response.json({ total: 0, functions: [], tables: [] }));

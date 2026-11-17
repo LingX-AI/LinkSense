@@ -85,9 +85,19 @@ export class WebSiteRepository {
   }
 
   async publicSite(slug: string, releaseId?: string): Promise<SiteAndRelease> {
-    const site = await this.prisma.webSite.findFirst({ where: { slug, status: "published" } });
+    let site = await this.prisma.webSite.findFirst({ where: { slug, status: "published" } });
+    if (!site) {
+      const alias = await this.prisma.webSiteAddress.findUnique({ where: { slug } });
+      if (alias) site = await this.prisma.webSite.findFirst({ where: { id: alias.siteId, status: "published" } });
+    }
     if (!site || !await this.prisma.user.count({ where: { id: site.ownerId, status: "active" } })) throw new AppError("WEB_SITE_NOT_FOUND");
     return this.withRelease(site, releaseId);
+  }
+
+  async publicSiteById(id: string): Promise<SiteAndRelease> {
+    const site = await this.prisma.webSite.findFirst({ where: { id, status: "published" } });
+    if (!site || !await this.prisma.user.count({ where: { id: site.ownerId, status: "active" } })) throw new AppError("WEB_SITE_NOT_FOUND");
+    return this.withRelease(site);
   }
 
   private async withRelease(site: WebSite, releaseId = site.currentReleaseId): Promise<SiteAndRelease> {
@@ -170,13 +180,21 @@ export class WebSiteRepository {
     } catch (error) { throw translateConflict(error); }
   }
 
-  async publish(ownerId: string, id: string, conversationId: string, fileId: string, releaseId: string, manifest: WebBundleManifest, backendLease?: Date): Promise<SiteAndRelease> {
+  async publish(ownerId: string, id: string, conversationId: string, fileId: string, releaseId: string, manifest: WebBundleManifest, backendLease?: Date, backendId?: string): Promise<SiteAndRelease> {
     return this.prisma.$transaction(async tx => {
       const source = await lockSource(tx, ownerId, conversationId, fileId);
       const existing = await lockSite(tx, ownerId, id);
-      if (existing.backendId) await lockPublicationBackend(tx, ownerId, existing.backendId, backendLease);
+      if (backendId && existing.backendId && existing.backendId !== backendId) throw new AppError("CONFLICT");
+      const binding = existing.backendId ?? backendId;
+      if (binding) await lockPublicationBackend(tx, ownerId, binding, backendLease);
+      if (backendId && !existing.backendId) {
+        // Lock the backend before checking its binding, including concurrent first publications.
+        const backend = await tx.webSiteBackend.findUnique({ where: { id: backendId }, select: { runtimeMode: true } });
+        if (backend?.runtimeMode !== "sandbox" || await tx.webSite.count({ where: { backendId } })) throw new AppError("CONFLICT");
+      }
       const release = await tx.webSiteRelease.create({ data: { id: releaseId, siteId: id, sourceFileId: fileId, manifestJson: manifest } });
-      const site = await tx.webSite.update({ where: { id }, data: { currentReleaseId: release.id, sourceFileId: fileId, conversationId, sourceTaskTitle: source.title } });
+      const site = await tx.webSite.update({ where: { id }, data: { currentReleaseId: release.id, sourceFileId: fileId, conversationId, sourceTaskTitle: source.title,
+        ...(backendId ? { backendId } : {}) } });
       await audit(tx, ownerId, id, "web_site_published");
       return { site, release };
     });
@@ -220,4 +238,4 @@ async function lockPublicationBackend(tx: Prisma.TransactionClient, ownerId: str
 function translateConflict(error: unknown): unknown {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002" ? new AppError("WEB_SITE_SLUG_TAKEN") : error;
 }
-export type WebSiteStore = Pick<WebSiteRepository, "assertActor" | "assertActiveTurn" | "conversationDeliveries" | "list" | "owned" | "publicSite" | "source" | "sources" | "create" | "update" | "publish" | "delete">;
+export type WebSiteStore = Pick<WebSiteRepository, "assertActor" | "assertActiveTurn" | "conversationDeliveries" | "list" | "owned" | "publicSite" | "publicSiteById" | "source" | "sources" | "create" | "update" | "publish" | "delete">;

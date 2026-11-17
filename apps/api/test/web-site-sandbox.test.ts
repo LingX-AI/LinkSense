@@ -57,6 +57,53 @@ function setup() {
 }
 
 describe("same-host public dynamic applications", () => {
+  it("serves a static application's stable address without preparing a backend or visitor session", async () => {
+    const f = setup();
+    delete f.site.row.site.backendId;
+    const response = await f.app.inject({ url: `/app/id/${siteId}`, headers: { host: f.host } });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain(`src="/web/sample/_releases/${f.site.row.release.id}/index.html"`);
+    expect(response.body).not.toContain("allow-same-origin");
+    expect(response.headers["set-cookie"]).toBeUndefined();
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.headers["x-robots-tag"]).toBe("noindex, nofollow");
+    expect(response.body).toContain('sandbox="allow-scripts allow-modals allow-downloads allow-forms"');
+    expect(f.store.publicBinding).not.toHaveBeenCalled();
+    expect(f.store.reserve).not.toHaveBeenCalled();
+    expect(f.fetcher).not.toHaveBeenCalled();
+    expect((await f.app.inject({ url: `/app/id/${siteId}/_rpc`, method: "POST", headers: { host: f.host } })).statusCode).toBe(404);
+  });
+
+  it("keeps a dynamic application's stable address and sessions after renaming its backend alias", async () => {
+    const f = setup();
+    const stable = `/app/id/${siteId}`;
+    const first = await f.app.inject({ url: stable, headers: { host: f.host } });
+    expect(first.statusCode).toBe(200);
+    const packet = JSON.parse(/id="app-config">(.*?)<\/script>/u.exec(first.body)![1]!) as { capability: string; endpoint: string };
+    expect(packet.endpoint).toBe(`${stable}/_rpc`);
+    await f.service.prepare(ownerId, taskId, f.row.name, backendId, "renamed-water");
+    const alias = await f.app.inject({ url: `${f.url}?view=today`, headers: { host: f.host } });
+    expect(alias.statusCode).toBe(302);
+    expect(alias.headers.location).toBe(`${stable}?view=today`);
+    f.site.store.publicSiteById.mockClear();
+    const response = await f.app.inject({ method: "POST", url: `${stable}/_rpc`, payload: { path: "/account", method: "GET" },
+      headers: { host: f.host, cookie: String(first.headers["set-cookie"]).split(";")[0]!,
+        origin: f.config.publicBaseUrl, "x-linksense-app-capability": packet.capability } });
+    expect(response.statusCode).toBe(200);
+    expect(f.site.store.publicSiteById).not.toHaveBeenCalled();
+    f.disable();
+    expect((await f.app.inject({ url: stable, headers: { host: f.host } })).statusCode).toBe(404);
+    expect((await f.app.inject({ url: f.url, headers: { host: f.host } })).statusCode).toBe(404);
+  });
+
+  it("rejects stable-address requests with a mismatched backend binding, host or embedded destination", async () => {
+    const f = setup(), url = `/app/id/${siteId}`;
+    expect((await f.app.inject({ url, headers: { host: "evil.example.test" } })).statusCode).toBe(404);
+    expect((await f.app.inject({ url, headers: { host: f.host, "sec-fetch-dest": "iframe" } })).statusCode).toBe(403);
+    vi.spyOn(f.store, "publicBinding").mockResolvedValueOnce({ backend: f.row, siteId: "40000000-0000-4000-8000-000000000002" });
+    expect((await f.app.inject({ url, headers: { host: f.host } })).statusCode).toBe(404);
+    expect(f.fetcher).not.toHaveBeenCalled();
+  });
   it("requires only Appwrite credentials, while keeping an absent backend disabled", () => {
     expect(testConfig().appwrite).toBeNull();
     const config = testConfig({ LINKSENSE_APPWRITE_ENDPOINT: "http://backend.internal/v1",

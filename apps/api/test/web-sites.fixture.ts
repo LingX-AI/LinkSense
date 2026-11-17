@@ -46,6 +46,7 @@ export function siteFixture() {
     list: vi.fn<WebSiteStore["list"]>(async () => [row]),
     owned: vi.fn<WebSiteStore["owned"]>(async () => row),
     publicSite: vi.fn<WebSiteStore["publicSite"]>(async () => row),
+    publicSiteById: vi.fn<WebSiteStore["publicSiteById"]>(async () => row),
     source: vi.fn<WebSiteStore["source"]>(async () => source),
     sources: vi.fn<WebSiteStore["sources"]>(async () => [{ id: fileId, filename: "index.html", created_at: now.toISOString() }]),
     create: vi.fn<WebSiteStore["create"]>(async () => row),

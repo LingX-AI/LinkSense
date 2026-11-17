@@ -298,8 +298,8 @@ try {
   const hostedSite = await services.webSites.create(owner.id, {
     conversation_id: task.id, file_id: hostedFile.id, name: "Sandbox accounts", description: "", backend_id: hosted.id,
   });
-  assert.equal(hostedSite.url, hosted.url);
-  const hostedUrl = new URL(hosted.url!), hostedRpc = `${hostedUrl.pathname}/_rpc`;
+  assert.equal(hostedSite.url, `${config.publicBaseUrl}/app/id/${hostedSite.id}`);
+  const hostedUrl = new URL(hostedSite.url!), hostedRpc = `${hostedUrl.pathname}/_rpc`;
   const hostedAccess = async (cookie?: string) => {
     const shell = await app!.inject({ url: hostedUrl.pathname, headers: { host: hostedUrl.host, ...(cookie ? { cookie } : {}) } });
     assert.equal(shell.statusCode, 200);

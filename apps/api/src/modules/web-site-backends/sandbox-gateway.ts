@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { webSiteBackendHostSchema, webSiteBackendIdSchema } from "@linksense/shared";
+import { webApplicationPath, webSiteBackendHostSchema, webSiteBackendIdSchema } from "@linksense/shared";
 import type { AppConfig } from "../../config.js";
 import { randomToken } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
 import { containsControlCharacter } from "../../lib/text.js";
 import { escapeHtml } from "../web-sites/public-page.js";
 import type { WebSiteService } from "../web-sites/service.js";
+import { webSiteSandbox } from "../web-sites/routes.js";
 import { publicFunctionExecution, readRequest, readResponse, validatePublicAppUrl } from "./gateway.js";
 import type { WebSiteBackendService } from "./service.js";
 import { publicAppSdkScript, publicAppShellScript } from "./sandbox-runtime.js";
@@ -38,7 +39,7 @@ const hasRoutingField = (keys: Iterable<string>): boolean => {
 };
 
 export function registerPublicAppGateway(
-  app: FastifyInstance, backends: WebSiteBackendService, sites: Pick<WebSiteService, "applicationEntry">,
+  app: FastifyInstance, backends: WebSiteBackendService, sites: Pick<WebSiteService, "applicationEntry" | "publicApplication">,
   sessions: WebSiteVisitorSessions, config: Pick<AppConfig, "publicBaseUrl">,
 ): void {
   const publicUrl = new URL(config.publicBaseUrl);
@@ -55,22 +56,62 @@ export function registerPublicAppGateway(
     if (raw === "/app/_sdk/v1.js" && ["GET", "HEAD"].includes(request.method)) {
       return reply.header("access-control-allow-origin", "*").type("application/javascript; charset=utf-8").send(publicAppSdkScript);
     }
-    const match = /^\/app\/([^/?]+)(\/_rpc(?:\/upload\/[^/?]+\/[^/?]+)?|\/)?(?:\?[^#]*)?$/u.exec(raw);
-    const label = webSiteBackendHostSchema.safeParse(match?.[1]);
-    if (!label.success) throw new AppError("WEB_SITE_NOT_FOUND");
-    const resolved = await backends.store.byHostLabel(label.data);
-    if (!resolved) throw new AppError("WEB_SITE_NOT_FOUND");
-    const { backend, siteId } = await backends.store.publicBinding(resolved.id);
-    if (backend.runtimeMode !== "sandbox" || (backend.hostLabel ?? backend.id) !== label.data) throw new AppError("WEB_SITE_NOT_FOUND");
-    const endpoint = `/app/${label.data}/_rpc`;
-    const suffix = match?.[2] ?? "";
+    const canonical = /^\/app\/id\/([^/?]+)(\/_rpc(?:\/upload\/[^/?]+\/[^/?]+)?|\/)?(?:\?[^#]*)?$/u.exec(raw);
+    let entry: Awaited<ReturnType<WebSiteService["publicApplication"]>> | undefined;
+    let backendId: string;
+    let address: string;
+    let suffix: string;
+    let retiredAlias = false;
+    let binding: Awaited<ReturnType<typeof backends.store.publicBinding>> | undefined;
+    if (canonical) {
+      const id = z.uuid().safeParse(canonical[1]);
+      if (!id.success) throw new AppError("WEB_SITE_NOT_FOUND");
+      address = webApplicationPath(id.data);
+      suffix = canonical[2] ?? "";
+      if (suffix && suffix !== "/") {
+        // RPC needs live authorization, not the immutable frontend manifest.
+        binding = await backends.store.publicBindingForSite(id.data);
+        backendId = binding.backend.id;
+      } else {
+        entry = await sites.publicApplication(id.data);
+        if (!entry.backendId) {
+          if (!["GET", "HEAD"].includes(request.method)) throw new AppError("WEB_SITE_NOT_FOUND");
+          reply.header("content-security-policy", [
+            "default-src 'none'", `style-src 'sha256-${hash(style)}'`, `frame-src ${publicUrl.origin}${entry.releasePath}`,
+            "frame-ancestors 'none'", "base-uri 'none'", "form-action 'none'", "object-src 'none'",
+          ].join("; "));
+          return reply.type("text/html; charset=utf-8").send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(entry.title)}</title><style>${style}</style></head><body><iframe title="${escapeHtml(entry.title)}" sandbox="${webSiteSandbox}" referrerpolicy="no-referrer" src="${escapeHtml(entry.path)}"></iframe></body></html>`);
+        }
+        backendId = entry.backendId;
+      }
+    } else {
+      const match = /^\/app\/([^/?]+)(\/_rpc(?:\/upload\/[^/?]+\/[^/?]+)?|\/)?(?:\?[^#]*)?$/u.exec(raw);
+      const label = webSiteBackendHostSchema.safeParse(match?.[1]);
+      if (!label.success) throw new AppError("WEB_SITE_NOT_FOUND");
+      const resolved = await backends.store.byHostLabel(label.data) ?? await backends.store.findByHostLabel(label.data);
+      if (!resolved) throw new AppError("WEB_SITE_NOT_FOUND");
+      backendId = resolved.id;
+      address = `/app/${label.data}`;
+      suffix = match?.[2] ?? "";
+      const current = await backends.store.findById(backendId);
+      retiredAlias = (current?.hostLabel ?? current?.id) !== label.data;
+    }
+    const { backend, siteId } = binding ?? await backends.store.publicBinding(backendId);
+    if (canonical && siteId !== canonical[1]) throw new AppError("WEB_SITE_NOT_FOUND");
+    if (backend.runtimeMode !== "sandbox") {
+      if (canonical && (!suffix || suffix === "/") && ["GET", "HEAD"].includes(request.method) && entry?.url)
+        return reply.redirect(entry.url);
+      throw new AppError("WEB_SITE_NOT_FOUND");
+    }
+    const endpoint = `${address}/_rpc`;
     if (!suffix || suffix === "/") {
       if (!["GET", "HEAD"].includes(request.method)) throw new AppError("WEB_SITE_NOT_FOUND");
       // A shell embedded by a hostile app must never bootstrap another app's session.
       if (request.headers["sec-fetch-dest"] && request.headers["sec-fetch-dest"] !== "document") throw new AppError("FORBIDDEN");
+      if (retiredAlias) return reply.redirect(`${webApplicationPath(siteId)}${new URL(raw, publicUrl).search}`);
       const visitor = visitorOf(request) ?? randomToken(32);
       if (!visitorOf(request)) reply.header("set-cookie", `${cookieName}=${visitor}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${visitorSessionSeconds}${publicUrl.protocol === "https:" ? "; Secure" : ""}`);
-      const entry = await sites.applicationEntry(backend.ownerId, siteId);
+      entry ??= await sites.applicationEntry(backend.ownerId, siteId);
       await backends.store.publicBinding(backend.id);
       const packet = { path: entry.path, endpoint,
         capability: sessions.capability(backend.id, siteId, visitor) };
@@ -143,6 +184,7 @@ export function registerPublicAppGateway(
     if (request.raw.url !== "/app/_sdk/v1.js") reply.removeHeader("access-control-allow-origin");
     reply.header("cache-control", "no-store").header("referrer-policy", "no-referrer")
       .header("x-content-type-options", "nosniff").header("x-frame-options", "DENY")
+      .header("x-robots-tag", "noindex, nofollow")
       .header("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
     if (!reply.hasHeader("content-security-policy")) reply.header("content-security-policy", "sandbox; default-src 'none'; frame-ancestors 'none'");
     return payload;

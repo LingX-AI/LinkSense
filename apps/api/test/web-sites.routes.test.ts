@@ -36,7 +36,7 @@ describe("website HTTP boundary", () => {
     const response = await fixture.app.inject({ url, headers: { authorization: "Bearer test-owner" } });
     expect(response.statusCode).toBe(200);
     expect(fixture.store.conversationDeliveries).toHaveBeenCalledExactlyOnceWith(ownerId, taskId);
-    expect(response.json().data).toEqual([{ id: siteId, turn_id: turnId, source_file_id: fileId, name: "Sample", slug: "sample", status: "disabled", url: "https://linksense.example.test/web/sample" }]);
+    expect(response.json().data).toEqual([{ id: siteId, turn_id: turnId, source_file_id: fileId, name: "Sample", slug: "sample", status: "disabled", url: `https://linksense.example.test/app/id/${siteId}` }]);
   });
   it("serves an anonymous sandboxed shell and directly sandboxed assets with anonymous CORS", async () => {
     const fixture = await setup();
@@ -176,7 +176,7 @@ describe("website HTTP boundary", () => {
     const headers = { authorization: "Bearer test-owner" };
     const response = await fixture.app.inject({ url: `/api/v1/web-sites?origin_file_id=${fileId}`, headers });
     expect(response.statusCode).toBe(200);
-    expect(response.json().data.items).toEqual([expect.objectContaining({ id: siteId, url_path: "/web/sample" })]);
+    expect(response.json().data.items).toEqual([expect.objectContaining({ id: siteId, url_path: `/app/id/${siteId}` })]);
     expect(fixture.store.list).toHaveBeenCalledWith(ownerId, { originFileId: fileId, limit: 30 });
     expect((await fixture.app.inject({ url: "/api/v1/web-sites?origin_file_id=invalid", headers })).statusCode).toBe(400);
   });

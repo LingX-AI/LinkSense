@@ -34,7 +34,11 @@ export const webSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; public
   });
   app.post("/", async (request, reply) => reply.code(201).send(ok(await service.create((request as AuthenticatedRequest).authUser.id, webSiteCreateSchema.parse(request.body)), request.id)));
   app.patch("/:id", async (request, reply) => reply.send(ok(await service.update((request as AuthenticatedRequest).authUser.id, idParams.parse(request.params).id, webSiteUpdateSchema.parse(request.body)), request.id)));
-  app.post("/:id/releases", async (request, reply) => reply.code(201).send(ok(await service.publish((request as AuthenticatedRequest).authUser.id, idParams.parse(request.params).id, webSitePublishSchema.parse(request.body).file_id), request.id)));
+  app.post("/:id/releases", async (request, reply) => {
+    const input = webSitePublishSchema.parse(request.body);
+    return reply.code(201).send(ok(await service.publish((request as AuthenticatedRequest).authUser.id,
+      idParams.parse(request.params).id, input.file_id, input.backend_id), request.id));
+  });
   app.get("/:id/sources", async (request, reply) => reply.send(ok(await service.sources((request as AuthenticatedRequest).authUser.id, idParams.parse(request.params).id), request.id)));
   app.get("/:id/download", async (request, reply) => {
     const download = await service.download((request as AuthenticatedRequest).authUser.id, idParams.parse(request.params).id);

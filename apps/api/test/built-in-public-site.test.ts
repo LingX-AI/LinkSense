@@ -76,7 +76,7 @@ describe("built-in public site builder", () => {
     }
   });
 
-  it("checks the existing backend before preparing an update and preserves legacy static sites", async () => {
+  it("reuses existing backends and enhances static sites without replacing their identity", async () => {
     const root = await mkdtemp(join(tmpdir(), "linksense-public-site-update-"));
     try {
       await writeBuiltInPublicSite(root);
@@ -90,9 +90,12 @@ describe("built-in public site builder", () => {
       expect(workflow).toContain("linksense_core.inspect_web_site_backend");
       expect(workflow.indexOf("list_web_sites")).toBeLessThan(workflow.indexOf("prepare_web_site_backend"));
       expect(workflow).toContain("even from a different conversation");
-      expect(workflow).toContain("backend binding cannot be added or replaced by publishing an update");
-      expect(workflow).toContain("Do not overwrite the static site with backend-dependent frontend code");
-      expect(workflow).toContain("separate dynamic application and its new URL");
+      expect(workflow).toContain("existing `site_id` and prepared `backend_id`");
+      expect(workflow).toContain("one transaction and keeps the application ID and link");
+      expect(workflow).toContain("Never replace an existing backend");
+      expect(workflow).toContain("previous page available");
+      expect(skill).toContain("choosing a delivery shape alone does not authorize publication");
+      expect(skill).toContain("only the next outcome-changing question");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

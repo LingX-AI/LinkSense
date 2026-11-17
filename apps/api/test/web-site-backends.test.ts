@@ -4,7 +4,7 @@ import { AppwriteClient } from "../src/modules/web-site-backends/appwrite.js";
 import { WebSiteBackendService, appHostLabel } from "../src/modules/web-site-backends/service.js";
 import { WebSiteService } from "../src/modules/web-sites/service.js";
 import { backendFixture, backendId } from "./web-site-backends.fixture.js";
-import { ownerId, taskId } from "./web-sites.fixture.js";
+import { ownerId, taskId, siteId } from "./web-sites.fixture.js";
 
 describe("self-hosted Appwrite backend", () => {
   it("uses native short-lived console authentication and revokes it after provisioning", async () => {
@@ -408,7 +408,7 @@ describe("self-hosted Appwrite backend", () => {
     expect(fixture.fetcher).not.toHaveBeenCalled();
   });
 
-  it.each([undefined, null])("rejects adding a backend to a historical static site with backendId=%s", async (originalBackendId) => {
+  it.each([undefined, null])("rejects adding a legacy origin backend to a static site with backendId=%s", async (originalBackendId) => {
     const fixture = backendFixture();
     if (originalBackendId === undefined) delete fixture.site.row.site.backendId;
     else fixture.site.row.site.backendId = originalBackendId;
@@ -419,12 +419,56 @@ describe("self-hosted Appwrite backend", () => {
     expect(fixture.site.store.publish).not.toHaveBeenCalled();
   });
 
+  it.each([undefined, null])("adds a sandbox backend to an existing static application with backendId=%s", async originalBackendId => {
+    const f = backendFixture();
+    f.row.runtimeMode = "sandbox";
+    if (originalBackendId === undefined) delete f.site.row.site.backendId;
+    else f.site.row.site.backendId = originalBackendId;
+    f.site.store.publish.mockImplementation(async () => ({
+      ...f.site.row, site: { ...f.site.row.site, backendId },
+    }));
+    const before = (await f.sites.list(ownerId, { limit: 20 })).items[0];
+    const result = await f.sites.publish(ownerId, f.site.row.site.id, f.site.source.file.id, backendId);
+    expect(result).toMatchObject({ id: before!.id, backend_id: backendId, url_path: before!.url_path });
+    expect(result.url).toBe(new URL(before!.url_path, f.config.publicBaseUrl).href);
+    expect(f.site.store.publish).toHaveBeenCalledWith(ownerId, before!.id, taskId, f.site.source.file.id,
+      expect.any(String), f.site.manifest, expect.any(Date), backendId);
+    expect(f.row.leaseUntil).toBeNull();
+  });
+
+  it("does not read or publish static artifacts when the requested backend belongs to another owner", async () => {
+    const f = backendFixture();
+    f.row.runtimeMode = "sandbox";
+    f.site.row.site.backendId = null;
+    await expect(f.sites.publish(ownerId, siteId, f.site.source.file.id,
+      "60000000-0000-4000-8000-000000000099")).rejects.toMatchObject({ code: "WEB_SITE_NOT_FOUND" });
+    expect(f.site.store.source).not.toHaveBeenCalled();
+    expect(f.site.store.publish).not.toHaveBeenCalled();
+    expect(f.fetcher).not.toHaveBeenCalled();
+  });
+
+  it("leaves a static application's current release unchanged when its new backend resources are not ready", async () => {
+    const f = backendFixture();
+    f.row.runtimeMode = "sandbox";
+    f.site.row.site.backendId = null;
+    const previousRelease = f.site.row.site.currentReleaseId;
+    f.fetcher.mockResolvedValue(Response.json({
+      total: 1, functions: [{ deploymentId: "", latestDeploymentId: "", latestDeploymentStatus: "building" }],
+    }));
+    await expect(f.sites.publish(ownerId, siteId, f.site.source.file.id, backendId))
+      .rejects.toMatchObject({ code: "WEB_SITE_BACKEND_PENDING" });
+    expect(f.site.row.site.backendId).toBeNull();
+    expect(f.site.row.site.currentReleaseId).toBe(previousRelease);
+    expect(f.site.store.publish).not.toHaveBeenCalled();
+    expect(f.row.leaseUntil).toBeNull();
+  });
+
   it("keeps existing site management usable when the optional backend configuration is removed", async () => {
     const fixture = backendFixture();
     const disabled = new WebSiteBackendService(fixture.store, fixture.site.storage, { ...fixture.config, appwrite: null });
     const sites = new WebSiteService(fixture.site.store, fixture.site.storage, disabled);
     const listed = await sites.list(ownerId, { limit: 20 });
-    expect(listed.items[0]).toMatchObject({ backend_id: backendId, url_path: "/web/sample" });
+    expect(listed.items[0]).toMatchObject({ backend_id: backendId, url_path: `/app/id/${siteId}` });
     await expect(sites.publicEntry("sample")).rejects.toThrow("WEB_SITE_BACKEND_NOT_CONFIGURED");
     fixture.site.store.update.mockImplementation(async (_owner, _id, input) => {
       if (input.status) fixture.site.row.site.status = input.status;

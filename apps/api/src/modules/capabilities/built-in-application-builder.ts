@@ -1,6 +1,6 @@
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { APPLICATION_BUILDER_SKILL_NAME, PUBLIC_SITE_SKILL_NAME, coreMcpServerKey } from "@linksense/shared";
+import { applicationIntentInstructions, APPLICATION_BUILDER_SKILL_NAME, PUBLIC_SITE_SKILL_NAME, coreMcpServerKey } from "@linksense/shared";
 
 export async function writeBuiltInApplicationBuilder(skillsRoot: string, publicSiteName: string = PUBLIC_SITE_SKILL_NAME): Promise<void> {
   const root = join(skillsRoot, APPLICATION_BUILDER_SKILL_NAME);
@@ -15,11 +15,13 @@ description: Create, modify and debug LinkSense interactive applications directl
 
 # Interactive application development
 
+${applicationIntentInstructions(`the ${publicSiteName} Skill`, `${coreMcpServerKey}.request_user_form`)}
+
 If the user wants a standalone public website with a shareable link and no
 LinkSense AI or runtime, use the \`${publicSiteName}\` Skill instead. When the
-delivery shape is genuinely ambiguous, ask once with
-\`${coreMcpServerKey}.request_user_form\` before creating anything; do not create
-an interactive application as a default.
+outcome is genuinely ambiguous, ask the next necessary result-based question with
+\`${coreMcpServerKey}.request_user_form\`; do not default to this builder merely
+because the user said “application” or “assistant”.
 
 Call \`${coreMcpServerKey}.inspect_application_development\` first when resuming
 development. If there is no project, call
