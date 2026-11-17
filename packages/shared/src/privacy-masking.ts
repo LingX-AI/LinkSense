@@ -153,6 +153,69 @@ export type PrivacyMaskingPreviewResponse = z.infer<
   typeof privacyMaskingPreviewResponseSchema
 >;
 
+export const PRIVACY_MASKING_ACTIVITY_RETENTION_DAYS = 30;
+export const PRIVACY_MASKING_ACTIVITY_PAGE_SIZE = 50;
+
+const privacyMaskingKindCountsSchema = z.record(
+  z.string(),
+  z.number().int().nonnegative(),
+);
+
+/**
+ * What the runner reports once per model request where values were replaced.
+ * Counts only: the placeholder registry and original values never leave the
+ * runner.
+ */
+export const runnerPrivacyMaskingCaptureSchema = z
+  .strictObject({
+    request_id: z.uuid(),
+    owner_id: z.uuid(),
+    conversation_id: z.uuid().nullable(),
+    turn_id: z.string().min(1).max(120).nullable(),
+    model: z.string().min(1).max(200),
+    kinds: privacyMaskingKindCountsSchema,
+    masked_count: z.number().int().positive(),
+    observed_at: z.iso.datetime(),
+  })
+  .superRefine((capture, context) => {
+    refineKindKeys(capture.kinds, context, ["kinds"]);
+  });
+
+export type RunnerPrivacyMaskingCapture = z.infer<
+  typeof runnerPrivacyMaskingCaptureSchema
+>;
+
+export const privacyMaskingActivityRecordSchema = z.strictObject({
+  id: z.uuid(),
+  model: z.string(),
+  masked_count: z.number().int().nonnegative(),
+  kinds: privacyMaskingKindCountsSchema,
+  created_at: z.iso.datetime(),
+});
+
+export const privacyMaskingActivityResponseSchema = z.strictObject({
+  summary: z.strictObject({
+    masked_count: z.number().int().nonnegative(),
+    request_count: z.number().int().nonnegative(),
+  }),
+  records: z.array(privacyMaskingActivityRecordSchema),
+  next_before: z.iso.datetime().nullable(),
+});
+
+export type PrivacyMaskingActivityResponse = z.infer<
+  typeof privacyMaskingActivityResponseSchema
+>;
+
+export const privacyMaskingActivityQuerySchema = z.strictObject({
+  days: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(PRIVACY_MASKING_ACTIVITY_RETENTION_DAYS)
+    .default(7),
+  before: z.iso.datetime().optional(),
+});
+
 /**
  * Sent to the runner only while masking is enabled; its presence is the
  * switch. The placeholder key is derived by the API per user so identical

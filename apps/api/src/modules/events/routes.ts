@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto"
 import {
   conversationEventSchema,
   runnerMemoryUsageCaptureSchema,
+  runnerPrivacyMaskingCaptureSchema,
   runnerEventBatchSchema,
   publicKnowledgeRunnerProgressSchema,
   runnerTextDeltaBatchKey,
@@ -186,6 +187,16 @@ export const internalRunnerRoutes: FastifyPluginAsync<{ services: AppServices }>
         observedAt: new Date(body.observed_at),
       })
       return reply.send(ok(result, request.id))
+    })
+
+    app.post("/runner/privacy-masking", async (request, reply) => {
+      const ownerId = parseRunnerOwnerId(request)
+      const body = runnerPrivacyMaskingCaptureSchema.parse(request.body)
+      if (body.owner_id !== ownerId) {
+        throw new AppError("FORBIDDEN")
+      }
+      await services.privacyMaskingActivity.record(body)
+      return reply.send(ok({ recorded: true }, request.id))
     })
 
     app.post("/image-previews", async (request, reply) => {

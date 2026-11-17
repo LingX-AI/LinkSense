@@ -347,6 +347,7 @@ export async function buildApi(
     service: services.users,
     modelProviderSettings: services.modelProviderSettings,
     privacyMaskingSettings: services.privacyMaskingSettings,
+    privacyMaskingActivity: services.privacyMaskingActivity,
     runner: services.runner,
     authentication: userAuthentication,
   });

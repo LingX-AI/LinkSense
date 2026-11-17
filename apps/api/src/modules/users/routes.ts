@@ -5,6 +5,7 @@ import type {
 } from "fastify";
 import {
   creditMicrosToDecimal,
+  privacyMaskingActivityQuerySchema,
   privacyMaskingPreviewRequestSchema,
   updateModelPreferenceSchema,
   updatePersonalizationSettingsSchema,
@@ -18,6 +19,7 @@ import { ok } from "../../lib/http.js";
 import { translateBackend } from "../../lib/i18n.js";
 import { resolveLocale } from "../../lib/locale.js";
 import type { ModelProviderSettingsService } from "../system/model-provider-settings.js";
+import type { PrivacyMaskingActivityService } from "../privacy-masking/activity.js";
 import type { PrivacyMaskingSettingsService } from "../privacy-masking/service.js";
 import type { RunnerClient } from "../../adapters/runner.js";
 import { buildUserImportTemplate } from "./import-workbook.js";
@@ -44,6 +46,10 @@ export const meRoutes: FastifyPluginAsync<{
     PrivacyMaskingSettingsService,
     "getForUser" | "updateForUser" | "previewForUser"
   >;
+  privacyMaskingActivity?: Pick<
+    PrivacyMaskingActivityService,
+    "listForUser"
+  >;
   runner?: RunnerClient;
   authentication: UserRouteAuthentication;
 }> = async (
@@ -52,6 +58,7 @@ export const meRoutes: FastifyPluginAsync<{
     service,
     modelProviderSettings,
     privacyMaskingSettings,
+    privacyMaskingActivity,
     runner,
     authentication,
   },
@@ -151,6 +158,21 @@ export const meRoutes: FastifyPluginAsync<{
         ),
       );
     });
+
+    if (privacyMaskingActivity) {
+      app.get("/privacy-masking-activity", async (request, reply) => {
+        const actor = await authentication.getActor(request);
+        const query = privacyMaskingActivityQuerySchema.parse(request.query);
+        return reply
+          .header("cache-control", "private, no-store")
+          .send(
+            ok(
+              await privacyMaskingActivity.listForUser(actor.id, query),
+              request,
+            ),
+          );
+      });
+    }
 
     app.post("/privacy-masking-settings/preview", async (request, reply) => {
       const actor = await authentication.getActor(request);

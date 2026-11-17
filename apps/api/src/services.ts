@@ -1,4 +1,5 @@
 import { WebSearchSettingsService } from "./modules/system/web-search-settings.js";
+import { PrivacyMaskingActivityService } from "./modules/privacy-masking/activity.js";
 import { PrivacyMaskingSettingsService } from "./modules/privacy-masking/service.js";
 import { PublicKnowledgeService } from "./modules/public-knowledge/service.js";
 import { PrismaPublicKnowledgeProgress } from "./modules/public-knowledge/progress.js";
@@ -214,6 +215,7 @@ export type AppServices = {
   modelProviderSettings: ModelProviderSettingsService;
   webSearchSettings: WebSearchSettingsService;
   privacyMaskingSettings: PrivacyMaskingSettingsService;
+  privacyMaskingActivity: PrivacyMaskingActivityService;
   imageGenerationSettings: ImageGenerationSettingsService;
   voiceTranscriptionSettings: VoiceTranscriptionSettingsService;
   imageUnderstandingSettings: ImageUnderstandingSettingsService;
@@ -302,6 +304,9 @@ export function createServices(input: {
   const privacyMaskingSettings = new PrivacyMaskingSettingsService(
     input.prisma,
     input.config,
+  );
+  const privacyMaskingActivity = new PrivacyMaskingActivityService(
+    input.prisma,
   );
   const imageGenerationSettings = new ImageGenerationSettingsService(
     input.prisma,
@@ -899,6 +904,7 @@ export function createServices(input: {
     modelProviderSettings,
     webSearchSettings,
     privacyMaskingSettings,
+    privacyMaskingActivity,
     imageGenerationSettings,
     voiceTranscriptionSettings,
     imageUnderstandingSettings,

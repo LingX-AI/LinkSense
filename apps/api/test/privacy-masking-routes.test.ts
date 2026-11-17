@@ -29,6 +29,11 @@ describe("privacy masking routes", () => {
     };
     const getForUser = vi.fn().mockResolvedValue(response);
     const updateForUser = vi.fn().mockResolvedValue(response);
+    const listForUser = vi.fn().mockResolvedValue({
+      summary: { masked_count: 3, request_count: 1 },
+      records: [],
+      next_before: null,
+    });
     const previewForUser = vi.fn().mockResolvedValue({
       text: "key {{API_KEY_0123456789abcdef}}",
       hits: [
@@ -42,6 +47,7 @@ describe("privacy masking routes", () => {
     await app.register(meRoutes, {
       service: {} as UserService,
       privacyMaskingSettings: { getForUser, updateForUser, previewForUser },
+      privacyMaskingActivity: { listForUser },
       authentication: {
         authenticate: async () => undefined,
         requireAdmin: async () => undefined,
@@ -113,6 +119,26 @@ describe("privacy masking routes", () => {
     expect(previewForUser).toHaveBeenCalledWith(userId, {
       text: "key sk-1234567890abcdef",
     });
+
+    const activity = await app.inject({
+      method: "GET",
+      url: "/privacy-masking-activity?days=30",
+    });
+    expect(activity.statusCode).toBe(200);
+    expect(activity.headers["cache-control"]).toBe("private, no-store");
+    expect(activity.json().data).toEqual({
+      summary: { masked_count: 3, request_count: 1 },
+      records: [],
+      next_before: null,
+    });
+    expect(listForUser).toHaveBeenCalledWith(userId, { days: 30 });
+
+    const invalidActivity = await app.inject({
+      method: "GET",
+      url: "/privacy-masking-activity?days=31",
+    });
+    expect(invalidActivity.statusCode).toBe(400);
+    expect(listForUser).toHaveBeenCalledTimes(1);
 
     const oversized = await app.inject({
       method: "POST",

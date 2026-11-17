@@ -2427,6 +2427,25 @@ model UserPrivacyMaskingSetting {
   @@map("user_privacy_masking_settings")
 }
 
+// One row per model-provider request where privacy masking replaced values.
+// Counts and ids only: no placeholder, no original value. Rows are deleted
+// after the retention window when the next row is written.
+model UserPrivacyMaskingRecord {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  conversationId String?  @map("conversation_id") @db.Uuid
+  turnId         String?  @map("turn_id") @db.VarChar(120)
+  requestId      String   @map("request_id") @db.VarChar(120)
+  model          String   @db.VarChar(200)
+  maskedCount    Int      @map("masked_count")
+  kinds          Json     @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([userId, requestId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("user_privacy_masking_records")
+}
+
 model BotChannelConnection {
   id                   String    @id @default(uuid()) @db.Uuid
   ownerId              String?    @map("owner_id") @db.Uuid
