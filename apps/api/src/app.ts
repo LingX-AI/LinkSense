@@ -61,6 +61,8 @@ import { conversationRoutes } from "./modules/conversations/routes.js";
 import { publicConversationShareRoutes } from "./modules/conversations/share-routes.js";
 import { internalWebSiteRoutes, publicWebSiteRoutes, webSiteRoutes } from "./modules/web-sites/routes.js";
 import { registerWebSiteBackendGateway } from "./modules/web-site-backends/gateway.js";
+import { registerPublicAppGateway } from "./modules/web-site-backends/sandbox-gateway.js";
+import { WebSiteVisitorSessions } from "./modules/web-site-backends/visitor-sessions.js";
 import { fileRoutes } from "./modules/files/routes.js";
 import { internalRunnerRoutes, sseRoutes } from "./modules/events/routes.js";
 import { auditRoutes } from "./modules/audit/routes.js";
@@ -135,6 +137,8 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   'req.headers["x-appwrite-session"]',
   'req.headers["x-appwrite-jwt"]',
   'req.headers["x-fallback-cookies"]',
+  'req.headers["x-linksense-app-capability"]',
+  'req.headers["x-linksense-file-name"]',
   "req.headers.authorization",
   "req.headers.cookie",
   "req.body.password",
@@ -192,6 +196,8 @@ export async function buildApi(
     bodyLimit: maximumMultipartFileSize + 1024 * 1024,
   });
 
+  registerPublicAppGateway(app, services.webSiteBackends, services.webSites,
+    new WebSiteVisitorSessions(services.redis.client, services.config), services.config);
   registerWebSiteBackendGateway(app, services.webSiteBackends, services.webSites);
   app.addHook("onRequest", (request, _reply, done) => { withTaskLatencyContext(request.log, done); });
   app.addHook("onResponse", async () => { finishTaskRequest(); });

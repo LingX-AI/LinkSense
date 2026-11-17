@@ -34,5 +34,16 @@ describe("public application backend contracts", () => {
       endpoint: "https://app.example.test/appwrite/v1", database_id: "app", secret: "must-not-escape",
     });
     expect(backend).not.toHaveProperty("secret");
+    expect(backend.runtime_mode).toBe("origin");
+  });
+  it("describes sandbox applications without replacing the existing origin contract", () => {
+    const value = webSiteBackendSchema.parse({
+      id, project_id: "ls-app", name: "App", status: "ready", origin: "https://console.example.test",
+      endpoint: "https://console.example.test/app/demo/_rpc", database_id: "app", runtime_mode: "sandbox",
+      url: "https://console.example.test/app/demo", sdk_url: "https://console.example.test/app/_sdk/v1.js",
+    });
+    expect(value.runtime_mode).toBe("sandbox");
+    expect(value.url).toBe("https://console.example.test/app/demo");
+    expect(webSiteBackendSchema.safeParse({ ...value, runtime_mode: "untrusted-origin" }).success).toBe(false);
   });
 });

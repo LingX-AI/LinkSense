@@ -117,7 +117,13 @@ try {
   assert.match((await app.inject(`/web/legacy-dynamic-upgrade/_releases/${oldRelease}/index.html`)).body, /Existing static site.*Preserved/su);
   console.log("PASS: upgrade preserves pre-change static records, links and assets.");
 
-  const backend = await services.webSiteBackends.prepare(owner.id, task.id, "Appointments");
+  // A persisted pre-sandbox reservation must keep the native origin throughout recovery.
+  const legacyBackendId = randomUUID();
+  await db.webSiteBackend.create({ data: { id: legacyBackendId, ownerId: owner.id,
+    conversationId: task.id, name: "Appointments", projectId: `ls-${legacyBackendId.replaceAll("-", "")}`,
+    hostLabel: legacyBackendId.replaceAll("-", "").slice(0, 12), hostResolved: true, runtimeMode: null } });
+  await db.webSiteBackendAddress.create({ data: { label: legacyBackendId.replaceAll("-", "").slice(0, 12), backendId: legacyBackendId } });
+  const backend = await services.webSiteBackends.prepare(owner.id, task.id, "Appointments", legacyBackendId);
   assert.equal((await services.webSiteBackends.prepare(owner.id, task.id, "Appointments")).id, backend.id);
   await assert.rejects(services.webSiteBackends.inspect(other.id, backend.id));
   const change = (input: unknown) => {
@@ -202,6 +208,7 @@ try {
   const appwriteConfig = config.appwrite;
   assert(appwriteConfig);
   const httpBaseUrl = appwriteConfig.appsBaseUrl;
+  assert(httpBaseUrl);
   appwriteConfig.appsBaseUrl = httpBaseUrl.replace(/^http:/u, "https:");
   try {
     const host = new URL(backend.origin).host;
@@ -271,6 +278,70 @@ try {
   assert.equal((await app.inject({ url: rowPath, headers: headers(winner) })).statusCode, 404);
   await db.user.update({ where: { id: owner.id }, data: { status: "active" } });
   console.log("PASS: updates retain URLs/accounts/data; disabling and owner suspension fence existing sessions.");
+  const hosted = await services.webSiteBackends.prepare(owner.id, task.id, "Sandbox accounts");
+  assert.equal(hosted.runtime_mode, "sandbox");
+  await services.webSiteBackends.configure(owner.id, hosted.id, webSiteBackendConfigureSchema.parse({
+    backend_id: hosted.id, change: { action: "create_table", id: "notes", name: "Notes",
+      columns: [{ key: "text", type: "string", size: 100 }] },
+  }).change);
+  await services.webSiteBackends.configure(owner.id, hosted.id, webSiteBackendConfigureSchema.parse({
+    backend_id: hosted.id, change: { action: "create_bucket", id: "uploads", name: "Uploads",
+      extensions: ["txt"], maximum_file_size: 20 * 1024 * 1024 },
+  }).change);
+  const hostedHtml = Buffer.from(`<!doctype html><html><meta charset="utf-8"><title>Sandbox</title><script src="${hosted.sdk_url}"></script><p>Sandbox SDK integration</p></html>`);
+  const hostedKey = `dynamic-test/${randomUUID()}.html`;
+  await storage.putObject(hostedKey, hostedHtml);
+  const hostedFile = await db.conversationFile.create({ data: { conversationId: task.id, kind: "artifact",
+    source: "agent_generated", status: "registered", filename: "sandbox.html", mimeType: "text/html",
+    sizeBytes: hostedHtml.length, storageBackend: "minio", minioObjectKey: hostedKey,
+    checksumSha256: sha256(hostedHtml), downloadable: true, downloadCardEventId: randomUUID() } });
+  const hostedSite = await services.webSites.create(owner.id, {
+    conversation_id: task.id, file_id: hostedFile.id, name: "Sandbox accounts", description: "", backend_id: hosted.id,
+  });
+  assert.equal(hostedSite.url, hosted.url);
+  const hostedUrl = new URL(hosted.url!), hostedRpc = `${hostedUrl.pathname}/_rpc`;
+  const hostedAccess = async (cookie?: string) => {
+    const shell = await app!.inject({ url: hostedUrl.pathname, headers: { host: hostedUrl.host, ...(cookie ? { cookie } : {}) } });
+    assert.equal(shell.statusCode, 200);
+    const packet = z.object({ capability: z.string() }).parse(JSON.parse(/id="app-config">(.*?)<\/script>/u.exec(shell.body)![1]!));
+    const browserCookie = cookie ?? z.array(z.string()).parse(shell.headers["set-cookie"])[0]!.split(";")[0]!;
+    return { cookie: browserCookie, capability: packet.capability };
+  };
+  const hostedRequest = (access: Awaited<ReturnType<typeof hostedAccess>>, path: string, method = "GET", body?: unknown) =>
+    app!.inject({ method: "POST", url: hostedRpc, headers: { host: hostedUrl.host, origin: hostedUrl.origin,
+      cookie: access.cookie, "x-linksense-app-capability": access.capability },
+      payload: { path, method, ...(body !== undefined ? { body } : {}) } });
+  const hostedVisitor = await hostedAccess();
+  const hostedEmail = `${randomUUID()}@example.test`, hostedPassword = `${randomUUID()}aA1!`;
+  assert.equal((await hostedRequest(hostedVisitor, "/account", "POST", { userId: randomUUID(), email: hostedEmail, password: hostedPassword })).statusCode, 201);
+  const hostedLogin = await hostedRequest(hostedVisitor, "/account/sessions/email", "POST", { email: hostedEmail, password: hostedPassword });
+  assert.equal(hostedLogin.statusCode, 201);
+  assert(!Object.hasOwn(hostedLogin.json(), "secret"));
+  assert.equal(hostedLogin.headers["set-cookie"], undefined);
+  const hostedAccount = z.object({ $id: z.string() }).parse((await hostedRequest(hostedVisitor, "/account")).json());
+  const hostedNote = await hostedRequest(hostedVisitor, "/tablesdb/app/tables/notes/rows", "POST",
+    { rowId: "unique()", data: { text: "persisted" }, permissions: [`read("user:${hostedAccount.$id}")`] });
+  assert.equal(hostedNote.statusCode, 201);
+  const hostedNoteId = z.object({ $id: z.string() }).parse(hostedNote.json()).$id;
+  assert.equal((await hostedRequest(await hostedAccess(hostedVisitor.cookie), `/tablesdb/app/tables/notes/rows/${hostedNoteId}`)).statusCode, 200);
+  const hostedOther = await hostedAccess();
+  assert.equal((await hostedRequest(hostedOther, "/account/sessions/anonymous", "POST", {})).statusCode, 201);
+  assert.equal((await hostedRequest(hostedOther, `/tablesdb/app/tables/notes/rows/${hostedNoteId}`)).statusCode, 404);
+  const hostedUpload = await app.inject({ method: "POST", url: `${hostedRpc}/upload/uploads/unique()`,
+    headers: { host: hostedUrl.host, origin: hostedUrl.origin, cookie: hostedVisitor.cookie,
+      "x-linksense-app-capability": hostedVisitor.capability, "x-linksense-file-name": "large.txt",
+      "x-linksense-file-type": "text/plain", "content-type": "application/octet-stream" },
+    payload: Buffer.alloc(6 * 1024 * 1024, "x") });
+  assert.equal(hostedUpload.statusCode, 201);
+  const hostedFileId = z.object({ $id: z.string() }).parse(hostedUpload.json()).$id;
+  assert.equal((await hostedRequest(hostedVisitor, `/storage/buckets/uploads/files/${hostedFileId}/download`)).rawPayload.length, 6 * 1024 * 1024);
+  assert([401, 403, 404].includes((await hostedRequest(hostedOther, `/storage/buckets/uploads/files/${hostedFileId}/download`)).statusCode));
+  assert.equal((await hostedRequest(hostedVisitor, "/account/sessions/current", "DELETE")).statusCode, 204);
+  assert.equal((await hostedRequest(hostedVisitor, "/account")).statusCode, 401);
+  assert.equal((await app.inject({ url: rowPath, headers: headers(winner) })).json().approved, true);
+  await services.webSites.update(owner.id, hostedSite.id, { status: "disabled" });
+  assert.equal((await hostedRequest(hostedOther, "/account")).statusCode, 404);
+  console.log("PASS: sandbox registration/login, server-held session, reload, private rows/files, chunked uploads, logout, revocation and legacy coexistence.");
   if (keep) {
     await app.listen({ host: "127.0.0.1", port: 19563 });
     await writeFile(join(root, "browser-fixture.json"), JSON.stringify({ url: backend.origin, visitors }), { mode: 0o600 });

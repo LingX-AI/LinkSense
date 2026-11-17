@@ -69,7 +69,7 @@ export function publishedResourcePolicy(publicBaseUrl: string, requestOrigin?: s
   const webSources = [...origins].map(origin => `${origin}/web/`).join(" ");
   return [
     `sandbox ${webSiteSandbox}`, "default-src 'none'", "base-uri 'none'", "object-src 'none'", "frame-src 'none'", "worker-src 'none'", "form-action 'none'",
-    `script-src 'unsafe-inline' 'unsafe-eval' https: ${webSources}`,
+    `script-src 'unsafe-inline' 'unsafe-eval' https: ${webSources} ${[...origins].map(origin => `${origin}/app/_sdk/v1.js`).join(" ")}`,
     `style-src 'unsafe-inline' https: ${webSources}`,
     `img-src data: blob: https: ${webSources}`, `font-src data: https: ${webSources}`,
     `media-src blob: https: ${webSources}`, `connect-src https: ${webSources}`,

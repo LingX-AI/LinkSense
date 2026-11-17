@@ -84,6 +84,13 @@ export class WebSiteService {
     if (path === "/" && manifest.entry_path.includes("/")) return { redirect: `/${encodeResourcePath(manifest.entry_path)}` };
     return this.resources.resource(manifest, path === "/" ? manifest.entry_path : path.slice(1));
   }
+  async applicationEntry(ownerId: string, id: string): Promise<{ title: string; path: string; releasePath: string }> {
+    const { site, release } = await this.store.owned(ownerId, id);
+    if (site.status !== "published" || !site.backendId) throw new AppError("WEB_SITE_NOT_FOUND");
+    const manifest = webBundleManifestSchema.parse(release.manifestJson);
+    const releasePath = `/web/${webSiteSchema.shape.slug.parse(site.slug)}/_releases/${webSiteSchema.shape.release_id.parse(release.id)}/`;
+    return { title: site.name, path: `${releasePath}${encodeResourcePath(manifest.entry_path)}`, releasePath };
+  }
   async resource(slug: string, releaseId: string, path: string): Promise<{ data: Buffer; mimeType: string }> {
     const { release } = await this.store.publicSite(slug, releaseId);
     const manifest = webBundleManifestSchema.parse(release.manifestJson);

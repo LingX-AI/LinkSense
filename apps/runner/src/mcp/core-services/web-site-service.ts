@@ -94,7 +94,7 @@ const updateTool: Tool = {
 
 const prepareBackendTool: Tool = {
   name: "prepare_web_site_backend",
-  description: "Prepare an isolated self-hosted Appwrite backend for a public dynamic application. Requires explicit authorization to create a public application. Returns a stable backend_id, project_id, origin and same-origin endpoint; never credentials. Reuse backend_id for updates or recovery. Repeating the same name in the same task reuses the backend. Does not publish a website.",
+  description: "Prepare a self-hosted Appwrite backend for an authorized public dynamic application without publishing it. New backends return runtime_mode sandbox, a main-domain /app/ URL, and sdk_url; use the sandbox SDK, not direct Appwrite requests. Existing backends retain their runtime. Reuse the returned id as backend_id for updates and recovery. Repeating the same name in the same task reuses the backend. No credentials are returned.",
   inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSiteBackendPrepareSchema)),
 };
 const configureBackendTool: Tool = {

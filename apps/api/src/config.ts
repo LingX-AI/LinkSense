@@ -104,15 +104,15 @@ const appwriteSchema = z.object({
     LINKSENSE_APPWRITE_ADMIN_EMAIL: z.email(),
     LINKSENSE_APPWRITE_ADMIN_PASSWORD: z.string().min(8),
     LINKSENSE_APPWRITE_ORGANIZATION_ID: z.string().min(1).max(36).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u).optional(),
-    LINKSENSE_DYNAMIC_APPS_BASE_URL: z.url({ protocol: /^https?$/u }),
+    LINKSENSE_DYNAMIC_APPS_BASE_URL: z.url({ protocol: /^https?$/u }).optional(),
   }).parse(value);
   const endpoint = new URL(complete.LINKSENSE_APPWRITE_ENDPOINT);
-  const apps = new URL(complete.LINKSENSE_DYNAMIC_APPS_BASE_URL);
+  const apps = complete.LINKSENSE_DYNAMIC_APPS_BASE_URL ? new URL(complete.LINKSENSE_DYNAMIC_APPS_BASE_URL) : null;
   if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash ||
       endpoint.pathname.replace(/\/$/u, "") !== "/v1" ||
-      apps.username || apps.password || apps.pathname !== "/" || apps.search || apps.hash ||
+      apps && (apps.username || apps.password || apps.pathname !== "/" || apps.search || apps.hash ||
       z.ipv4().safeParse(apps.hostname).success || apps.hostname.includes(":") ||
-      (apps.protocol !== "https:" && apps.hostname !== "localhost" && !apps.hostname.endsWith(".localhost"))) {
+      (apps.protocol !== "https:" && apps.hostname !== "localhost" && !apps.hostname.endsWith(".localhost")))) {
     throw new Error("Invalid self-hosted Appwrite URL configuration");
   }
   return {
@@ -120,7 +120,7 @@ const appwriteSchema = z.object({
     adminEmail: complete.LINKSENSE_APPWRITE_ADMIN_EMAIL,
     adminPassword: complete.LINKSENSE_APPWRITE_ADMIN_PASSWORD,
     ...(complete.LINKSENSE_APPWRITE_ORGANIZATION_ID ? { organizationId: complete.LINKSENSE_APPWRITE_ORGANIZATION_ID } : {}),
-    appsBaseUrl: apps.origin,
+    appsBaseUrl: apps?.origin ?? null,
   };
 });
 

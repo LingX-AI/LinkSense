@@ -58,8 +58,10 @@ try {
       'appointments', 'ready', 'preserved-test-credential', CURRENT_TIMESTAMP)`;
   const oldRecords = await db.$queryRaw`SELECT to_jsonb(b) AS row FROM web_site_backends b ORDER BY id`;
   await migrate(migrations);
-  assert.deepEqual(await db.$queryRaw`SELECT to_jsonb(b)-'host_resolved' AS row FROM web_site_backends b ORDER BY id`, oldRecords);
+  assert.deepEqual(await db.$queryRaw`SELECT to_jsonb(b)-'host_resolved'-'runtime_mode' AS row FROM web_site_backends b ORDER BY id`, oldRecords);
   const store = new WebSiteBackendRepository(db);
+  assert.equal((await store.owned(owner.id, legacyId)).runtimeMode, null);
+  assert.equal((await store.owned(owner.id, chosenId)).runtimeMode, null);
   assert.deepEqual(await store.byHostLabel(legacyId), { id: legacyId });
   assert.deepEqual(await store.byHostLabel("appointments"), { id: chosenId });
   assert.deepEqual(await store.findByHostLabel("appointments"), { id: chosenId });
@@ -68,6 +70,7 @@ try {
   const first = await store.reserve(owner.id, task.id, "First");
   const second = await store.reserve(owner.id, task.id, "Second");
   assert.equal(first.hostLabel, generatedWebSiteBackendHostLabel(first.id));
+  assert.equal(first.runtimeMode, "sandbox");
   assert.deepEqual(await store.byHostLabel(first.hostLabel!), { id: first.id });
   const lease = new Date(Date.now() + 60_000);
   await store.acquire(owner.id, first.id, lease);

@@ -16,7 +16,7 @@ export class WebSiteBackendRepository {
       const id = randomUUID();
       const hostLabel = generatedWebSiteBackendHostLabel(id);
       await tx.webSiteBackendAddress.create({ data: { label: hostLabel, backendId: id } });
-      return tx.webSiteBackend.create({ data: { id, ownerId, conversationId, name, hostLabel, hostResolved: true, projectId: `ls-${id.replaceAll("-", "")}` } });
+      return tx.webSiteBackend.create({ data: { id, ownerId, conversationId, name, hostLabel, hostResolved: true, runtimeMode: "sandbox", projectId: `ls-${id.replaceAll("-", "")}` } });
     });
   }
 

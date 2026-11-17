@@ -9,18 +9,18 @@ import { testConfig } from "./test-config.js";
 import { ownerId, taskId, siteId, now, siteFixture } from "./web-sites.fixture.js";
 
 export const backendId = "60000000-0000-4000-8000-000000000001";
-export function backendFixture(appsBaseUrl = "https://apps.example.net") {
+export function backendFixture(appsBaseUrl: string | null = "https://apps.example.net") {
   const config = testConfig({
     LINKSENSE_APPWRITE_ENDPOINT: "https://backend.example.test/v1",
     LINKSENSE_APPWRITE_ADMIN_EMAIL: "operator@example.test",
     LINKSENSE_APPWRITE_ADMIN_PASSWORD: "test-operator-password",
-    LINKSENSE_DYNAMIC_APPS_BASE_URL: appsBaseUrl,
+    LINKSENSE_DYNAMIC_APPS_BASE_URL: appsBaseUrl ?? undefined,
   });
   const site = siteFixture();
   site.row.site.backendId = backendId;
   const row: WebSiteBackend = {
     id: backendId, ownerId, conversationId: taskId, projectId: "ls-test-project", hostLabel: appHostLabel(backendId), hostResolved: true, name: "Appointments",
-    status: "ready", leaseUntil: null, createdAt: now, updatedAt: now,
+    status: "ready", runtimeMode: null, leaseUntil: null, createdAt: now, updatedAt: now,
     encryptedCredential: encryptJson({ key: "test-project-management-key" }, config.credentialMasterKey, config.credentialKeyId, `web-site-backend:${backendId}`),
   };
   let published = true;

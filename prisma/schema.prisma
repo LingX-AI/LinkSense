@@ -1487,6 +1487,7 @@ model WebSiteBackend {
   name                String    @db.VarChar(128)
   hostLabel           String?   @unique(map: "web_site_backends_host_label_key") @map("host_label") @db.VarChar(30)
   hostResolved        Boolean   @default(false) @map("host_resolved")
+  runtimeMode         String?   @map("runtime_mode") @db.VarChar(16)
   projectId           String    @unique(map: "web_site_backends_project_key") @map("project_id") @db.VarChar(36)
   status              String    @default("preparing") @db.VarChar(16)
   encryptedCredential String?   @map("encrypted_credential") @db.Text

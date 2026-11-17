@@ -11,6 +11,33 @@ const gatewayPrefix = "/api/v1/public-app-gateway";
 const maximumBytes = 21 * 1024 * 1024;
 const clientPath = /^\/(?:account(?:\/[a-zA-Z0-9_.-]+)*|tablesdb\/[a-zA-Z0-9_.-]+\/tables\/[a-zA-Z0-9_.-]+\/(?:rows|transactions)(?:\/[a-zA-Z0-9_.-]+)*|tablesdb\/transactions(?:\/[a-zA-Z0-9_.-]+)*|storage\/buckets\/[a-zA-Z0-9_.-]+\/files(?:\/[a-zA-Z0-9_.-]+)*|functions\/[a-zA-Z0-9_.-]+\/executions(?:\/[a-zA-Z0-9_.-]+)?)$/u;
 
+export function validatePublicAppUrl(url: URL, projectId: string): void {
+  if (!url.pathname.startsWith(`${apiPrefix}/`) || !clientPath.test(url.pathname.slice(apiPrefix.length)) ||
+      url.searchParams.getAll("project").some(project => project !== projectId)) throw new AppError("FORBIDDEN");
+  for (const key of ["key", "mode", "session", "jwt"]) {
+    if (url.searchParams.has(key)) throw new AppError("FORBIDDEN");
+  }
+}
+
+export function publicFunctionExecution(value: unknown, url: URL): string {
+  if ([...url.searchParams.keys()].some(key => key !== "project")) throw new AppError("VALIDATION_ERROR");
+  const execution = z.strictObject({
+    body: z.string().max(1024 * 1024).optional(),
+    async: z.literal(false).default(false),
+    path: z.string().max(512).optional(),
+    method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]).optional(),
+    headers: z.record(z.string().max(120), z.string().max(4096)).optional(),
+  }).parse(value);
+  if (execution.headers) {
+    let custom: Headers;
+    try { custom = new Headers(execution.headers); } catch { throw new AppError("VALIDATION_ERROR"); }
+    execution.headers = Object.fromEntries([...custom].filter(([key]) =>
+      !key.startsWith("x-appwrite-") && !key.startsWith("x-forwarded-") &&
+      !["host", "cookie", "authorization", "forwarded", "connection", "upgrade", "proxy-authorization"].includes(key)));
+  }
+  return JSON.stringify(execution);
+}
+
 /** Route application hosts before platform authentication, parsing or CORS. */
 export function registerWebSiteBackendGateway(app: FastifyInstance, backends: WebSiteBackendService, sites: WebSiteService): void {
   app.addHook("onRequest", async (request, reply) => {
@@ -24,6 +51,7 @@ export function registerWebSiteBackendGateway(app: FastifyInstance, backends: We
     const rawUrl = request.raw.url ?? "/";
     const routedUrl = rawUrl.startsWith(`${gatewayPrefix}/`) ? rawUrl.slice(gatewayPrefix.length) : rawUrl;
     const binding = await backends.store.publicBinding(id);
+    if (binding.backend.runtimeMode === "sandbox") throw new AppError("WEB_SITE_NOT_FOUND");
     const origin = await backends.originFor(id);
     if (backends.matchHost(new URL(origin).host) !== label) throw new AppError("WEB_SITE_NOT_FOUND");
     const url = new URL(routedUrl, origin);
@@ -66,12 +94,9 @@ async function forward(
   backends: WebSiteBackendService, backendId: string,
 ): Promise<FastifyReply> {
   const path = url.pathname.slice(apiPrefix.length);
-  if (!clientPath.test(path) || request.headers["x-appwrite-key"] || request.headers["x-appwrite-mode"] ||
-      (request.headers["x-appwrite-project"] && request.headers["x-appwrite-project"] !== projectId) ||
-      url.searchParams.getAll("project").some(project => project !== projectId)) throw new AppError("FORBIDDEN");
-  for (const key of ["key", "mode", "session", "jwt"]) {
-    if (url.searchParams.has(key)) throw new AppError("FORBIDDEN");
-  }
+  validatePublicAppUrl(url, projectId);
+  if (request.headers["x-appwrite-key"] || request.headers["x-appwrite-mode"] ||
+      (request.headers["x-appwrite-project"] && request.headers["x-appwrite-project"] !== projectId)) throw new AppError("FORBIDDEN");
   const headers = new Headers({ "x-appwrite-project": projectId, origin, "x-forwarded-for": request.ip });
   for (const key of ["content-type", "accept", "range", "content-range", "x-appwrite-id", "x-appwrite-session", "x-appwrite-jwt", "x-appwrite-response-format"]) {
     const value = request.headers[key];
@@ -98,24 +123,9 @@ async function forward(
   }
   let body = ["GET", "HEAD"].includes(request.method) ? undefined : await readRequest(request);
   if (request.method === "POST" && /^\/functions\/[^/]+\/executions$/u.test(path)) {
-    if ([...url.searchParams.keys()].some(key => key !== "project")) throw new AppError("VALIDATION_ERROR");
     let value: unknown;
     try { value = JSON.parse(body?.toString("utf8") ?? "{}"); } catch { throw new AppError("VALIDATION_ERROR"); }
-    const execution = z.strictObject({
-      body: z.string().max(1024 * 1024).optional(),
-      async: z.literal(false).default(false),
-      path: z.string().max(512).optional(),
-      method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]).optional(),
-      headers: z.record(z.string().max(120), z.string().max(4096)).optional(),
-    }).parse(value);
-    if (execution.headers) {
-      let custom: Headers;
-      try { custom = new Headers(execution.headers); } catch { throw new AppError("VALIDATION_ERROR"); }
-      execution.headers = Object.fromEntries([...custom].filter(([key]) =>
-        !key.startsWith("x-appwrite-") && !key.startsWith("x-forwarded-") &&
-        !["host", "cookie", "authorization", "forwarded", "connection", "upgrade", "proxy-authorization"].includes(key)));
-    }
-    body = Buffer.from(JSON.stringify(execution));
+    body = Buffer.from(publicFunctionExecution(value, url));
     headers.set("content-type", "application/json");
   }
   const response = await backends.requiredClient().forward(`${path}${url.search}`, {
@@ -147,7 +157,7 @@ async function forward(
   return reply.code(response.status).send(data);
 }
 
-async function readRequest(request: FastifyRequest): Promise<Buffer> {
+export async function readRequest(request: FastifyRequest): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const value of request.raw) {
@@ -159,7 +169,7 @@ async function readRequest(request: FastifyRequest): Promise<Buffer> {
   return Buffer.concat(chunks, size);
 }
 
-async function readResponse(response: Response): Promise<Buffer> {
+export async function readResponse(response: Response): Promise<Buffer> {
   if (!response.body) return Buffer.alloc(0);
   const reader = response.body.getReader();
   const chunks: Buffer[] = [];

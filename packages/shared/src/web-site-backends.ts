@@ -25,7 +25,7 @@ export const webSiteBackendPrepareSchema = z.strictObject({
   name,
   backend_id: z.uuid().optional(),
   address: webSiteBackendAddressSchema.optional().describe(
-    "Public address label for the application, for example \"appointments\". Choose it before generating and publishing the frontend. Renaming moves the origin and stops the previous address; it does not rewrite published HTML/JavaScript or transfer browser sessions/storage. Frontends should resolve /appwrite/v1 from their current origin.",
+    "Public address label, for example \"appointments\". New applications use /app/appointments and the returned sandbox SDK. Existing origin applications retain their runtime; renaming those changes their origin and does not transfer browser sessions/storage.",
   ),
 });
 export const webSiteBackendInspectSchema = z.strictObject({ backend_id: z.uuid() });
@@ -91,6 +91,9 @@ export const webSiteBackendSchema = z.object({
   origin: z.url(),
   endpoint: z.url(),
   database_id: z.literal("app"),
+  runtime_mode: z.enum(["origin", "sandbox"]).default("origin"),
+  url: z.url().optional(),
+  sdk_url: z.url().optional(),
 });
 export type WebSiteBackend = z.infer<typeof webSiteBackendSchema>;
 export type WebSiteBackendChange = z.infer<typeof webSiteBackendConfigureSchema>["change"];

@@ -61,7 +61,8 @@ Do not send the user to a creation page or require manual Skill selection.
   External HTTPS assets are loaded by the visitor's browser and remain subject
   to CORS and availability.
 - The preceding static runtime restrictions apply to ordinary static sites.
-  A prepared dynamic backend uses its own isolated top-level origin instead.
+  New dynamic backends use a sandbox SDK and server-side visitor sessions.
+  Existing origin-based backends retain their original runtime.
 - Static sites and HTML artifact previews use a sandboxed iframe without same-origin:
   \`localStorage\`, \`sessionStorage\`, IndexedDB, cookies, Service Workers, and
   browser notifications are unavailable. Keep state in memory or in the URL.
@@ -87,7 +88,10 @@ requests or approves that change; preserve the original site and link.
 
 1. For a new authorized public dynamic application, call
    \`${coreMcpServerKey}.prepare_web_site_backend\` with a short name. It returns
-   \`backend_id\`, \`project_id\`, \`origin\`, \`endpoint\` and \`database_id: app\`.
+   \`id\` (use as \`backend_id\`), \`runtime_mode\`, \`project_id\`, \`origin\`,
+   \`endpoint\` and \`database_id: app\`. New backends have
+   \`runtime_mode: sandbox\`, \`url: <LinkSense>/app/<address>\` and \`sdk_url\`.
+   Supply a short readable \`address\` before generating the frontend.
    Reuse this backend for subsequent versions. If the service is not configured,
    report the actual error; do not silently use a cloud service or simulate
    successful persistence in localStorage.
@@ -100,13 +104,39 @@ requests or approves that change; preserve the original site and link.
    \`client_create: false\` and create records through a function that validates
    fields and assigns owner permissions. Add only optional columns to existing tables. Never recreate
    a database, project or table to implement an update.
-3. Bundle the compatible Appwrite Web SDK locally with the frontend, or use
-   native fetch against the returned same-origin endpoint. Public configuration
-   contains project/database IDs only. Use native visitor Account sessions,
-   never LinkSense credentials or management keys. Build assets locally;
-   external CDN scripts, fonts, analytics, hosted storage and cloud functions
-   are not default dependencies. Relative API URLs must be based on the
-   application's origin, not the HTML artifact preview URL.
+3. Follow the returned runtime; never replace an existing application's runtime.
+   For \`sandbox\`, load the exact returned \`sdk_url\` with a classic
+   \`<script src="..."></script>\` before the app code. Await
+   \`LinkSenseApp.ready()\` before backend operations. The parent shell owns
+   networking and credentials; do not use the Appwrite Web SDK, direct API
+   fetch, localStorage, sessionStorage, IndexedDB, cookies or Service Workers.
+   The SDK rejects in artifact previews; show a localized preview/loading/error
+   state and explain that backend testing needs the published application.
+   Available async operations (database is always \`app\`):
+   - \`account.create({email,password,name?})\`, \`account.login({email,password})\`,
+     \`account.anonymous()\`, \`account.get()\`, \`account.logout()\`.
+   - \`tables.list(tableId, queries?: string[])\`, \`tables.get(tableId,rowId)\`,
+     \`tables.create(tableId,data,permissions?: string[],rowId?: string)\`,
+     \`tables.update(tableId,rowId,data)\`, \`tables.delete(tableId,rowId)\`.
+     Queries use Appwrite's serialized query format. Assign permissions such as
+     \`read("user:<visitor-id>")\`, \`update("user:<visitor-id>")\` and
+     \`delete("user:<visitor-id>")\` explicitly when creating private rows.
+   - \`storage.upload(bucketId, File, fileId?: string)\`,
+     \`storage.download(bucketId,fileId)\` (returns Blob), \`storage.delete(bucketId,fileId)\`.
+     Use \`URL.createObjectURL(blob)\` for images/downloads and revoke it on cleanup.
+     Uploads are limited to 20 MiB and the bucket's own lower limits.
+   - \`functions.execute(functionId,{body?: string,path?,method?,headers?})\`.
+     It returns the native execution object; check \`responseStatusCode\`
+     and parse \`responseBody\` as appropriate.
+   - \`request("/account/prefs",{method:"PATCH",body:{prefs:{...}}})\` covers
+     other allowed visitor operations. Paths are native Appwrite client paths,
+     never arbitrary URLs; project selection, privileged APIs and OAuth are denied.
+   Every SDK error has an optional stable \`code\`; render a localized error.
+   For existing \`origin\` applications only, keep their bundled Appwrite Web SDK
+   or native same-origin fetch against the returned endpoint and native visitor
+   sessions. Never use LinkSense credentials or management keys in either mode.
+   Build assets locally; external CDN scripts, fonts, analytics, hosted storage
+   and cloud functions are not default dependencies. Keep local asset URLs relative.
 4. For business APIs, create a Node.js 24 function, package its source and all
    dependencies as \`code.tar.gz\`, register that archive as a normal artifact,
    and deploy its \`file_id\` with \`deploy_function\`. Builds are asynchronous:
@@ -131,7 +161,8 @@ requests or approves that change; preserve the original site and link.
    \`backend_id\` to \`publish_web_site\` when creating the site. The tool refuses
    publication while resources are still building. Use the returned URL as the
    main result. An artifact preview is still sandboxed and does not validate
-   the dynamic application's login or backend behavior.
+   the dynamic application's login or backend behavior. Sandbox applications
+   keep the address bar at the returned \`/app/<address>\` URL.
 7. Update with the existing \`site_id\`; the backend, visitor accounts, data and
    application URL remain unchanged. New function deployments are managed by
    Appwrite separately from frontend releases; do not claim frontend rollback

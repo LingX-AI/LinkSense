@@ -29,7 +29,7 @@ export class WebSiteBackendService {
     private readonly config: Pick<AppConfig, "appwrite" | "credentialMasterKey" | "credentialKeyId" | "publicBaseUrl">,
     fetcher: typeof fetch = fetch,
   ) {
-    if (config.appwrite) {
+    if (config.appwrite?.appsBaseUrl) {
       const appHost = new URL(config.appwrite.appsBaseUrl).hostname;
       const consoleHost = new URL(config.publicBaseUrl).hostname;
       if (appHost === consoleHost || consoleHost.endsWith(`.${appHost}`)) throw new Error("Dynamic applications require a separate host namespace");
@@ -38,25 +38,34 @@ export class WebSiteBackendService {
       if (appDomain && trustedHosts.some(host => getDomain(host, { allowPrivateDomains: true }) === appDomain)) {
         throw new Error("Dynamic applications and trusted services require separate registrable domains");
       }
-      this.client = new AppwriteClient(config.appwrite, fetcher);
     }
+    if (config.appwrite) this.client = new AppwriteClient(config.appwrite, fetcher);
   }
 
-  origin(backend: Pick<BackendRow, "id" | "hostLabel">): string {
-    const url = new URL(this.requiredClient().config.appsBaseUrl);
+  origin(backend: Pick<BackendRow, "id" | "hostLabel"> & Partial<Pick<BackendRow, "runtimeMode">>): string {
+    if (backend.runtimeMode === "sandbox") return new URL(this.config.publicBaseUrl).origin;
+    const base = this.requiredClient().config.appsBaseUrl;
+    if (!base) throw new AppError("WEB_SITE_BACKEND_NOT_CONFIGURED");
+    const url = new URL(base);
     url.hostname = `${backend.hostLabel ?? z.uuid().parse(backend.id)}.${url.hostname}`;
     return url.origin;
+  }
+
+  publicUrl(backend: Pick<BackendRow, "id" | "hostLabel" | "runtimeMode">): string {
+    return backend.runtimeMode === "sandbox"
+      ? new URL(`/app/${backend.hostLabel ?? backend.id}`, this.config.publicBaseUrl).href
+      : this.origin(backend);
   }
 
   /** Callers that only hold a backend id pay one lookup to learn a chosen address. */
   async originFor(id: string): Promise<string> {
     const row = await this.store.findById(id);
     if (!row) throw new AppError("WEB_SITE_NOT_FOUND");
-    return this.origin(await this.resolveHost(row));
+    return this.publicUrl(await this.resolveHost(row));
   }
 
   private async resolveHost(row: BackendRow, existingLease?: Date): Promise<BackendRow> {
-    if (row.hostResolved || row.status !== "ready" || !row.encryptedCredential) return row;
+    if (row.runtimeMode === "sandbox" || row.hostResolved || row.status !== "ready" || !row.encryptedCredential) return row;
     const lease = existingLease ?? new Date(Date.now() + 60_000);
     if (!existingLease) await this.store.acquire(row.ownerId, row.id, lease);
     try {
@@ -64,7 +73,9 @@ export class WebSiteBackendService {
       if (row.hostResolved) return row;
       const platform = await this.requiredClient().request(`/project/platforms/${row.projectId}`, row.projectId, this.key(row));
       const hostname = z.string().parse(platform.hostname).toLowerCase();
-      const base = new URL(this.requiredClient().config.appsBaseUrl).hostname;
+      const configuredBase = this.requiredClient().config.appsBaseUrl;
+      if (!configuredBase) throw new AppError("WEB_SITE_BACKEND_NOT_CONFIGURED");
+      const base = new URL(configuredBase).hostname;
       const hostLabel = hostname === `${row.id}.${base}` ? null
         : hostname.endsWith(`.${base}`) ? webSiteBackendHostSchema.safeParse(hostname.slice(0, -(base.length + 1))).data : undefined;
       if (hostLabel === undefined || hostLabel !== null && (await this.store.findByHostLabel(hostLabel))?.id !== row.id) {
@@ -79,7 +90,7 @@ export class WebSiteBackendService {
 
   /** Returns the host label; the store resolves it to a backend row. */
   matchHost(host: string): string | undefined {
-    if (!this.client) return undefined;
+    if (!this.client?.config.appsBaseUrl) return undefined;
     const base = new URL(this.client.config.appsBaseUrl);
     try {
       const candidate = new URL(`${base.protocol}//${host}`);
@@ -92,7 +103,7 @@ export class WebSiteBackendService {
   }
 
   isAppHost(host: string): boolean {
-    if (!this.client) return false;
+    if (!this.client?.config.appsBaseUrl) return false;
     const base = new URL(this.client.config.appsBaseUrl).hostname;
     try {
       const hostname = new URL(`http://${host}`).hostname.toLowerCase().replace(/\.$/u, "");
@@ -126,6 +137,10 @@ export class WebSiteBackendService {
     const taken = await this.store.findByHostLabel(address);
     if (taken && taken.id !== row.id) throw new AppError("WEB_SITE_BACKEND_ADDRESS_TAKEN");
     const previous = row.hostLabel;
+    if (row.runtimeMode === "sandbox") {
+      await this.store.setHostLabel(row.id, lease, address);
+      return { ...row, hostLabel: address, hostResolved: true };
+    }
     await this.store.setHostLabel(row.id, lease, address, row.status !== "ready");
     if (row.status !== "ready") return { ...row, hostLabel: address, hostResolved: true };
     try {
@@ -233,6 +248,11 @@ export class WebSiteBackendService {
     return webSiteBackendSchema.parse({
       id: row.id, name: row.name, project_id: row.projectId, status: row.status,
       origin, endpoint: `${origin}/appwrite/v1`, database_id: "app",
+      runtime_mode: row.runtimeMode ?? "origin",
+      ...(row.runtimeMode === "sandbox" ? {
+        url: this.publicUrl(row), endpoint: `${this.publicUrl(row)}/_rpc`,
+        sdk_url: new URL("/app/_sdk/v1.js", origin).href,
+      } : {}),
     });
   }
 
