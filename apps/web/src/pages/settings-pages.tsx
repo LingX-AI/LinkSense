@@ -25,6 +25,8 @@ import {
 import { z } from "zod"
 
 import { apiRequest } from "@/api/client"
+import { isDesktopHost } from "@/adapters/desktop/desktop-adapter"
+import { DesktopUpdateControl } from "@/features/desktop-update/desktop-update-control"
 import {
   personalizationSettingsSchema,
   personalUsageProfileSchema,
@@ -259,6 +261,18 @@ export function SettingsGeneralPage() {
         </SettingsCard>
         <BrowserNotificationSettings userId={user?.id} />
         <BrowserExtensionSettings userId={user?.id} />
+        {isDesktopHost() && (
+          <SettingsCard
+            header={
+              <SettingsSectionHeader
+                id="desktop-update-heading"
+                title={t("desktopUpdate.title")}
+              />
+            }
+          >
+            <DesktopUpdateControl />
+          </SettingsCard>
+        )}
       </div>
     </SettingsPageFrame>
   )

@@ -11,6 +11,19 @@ const hostInfoSchema = z.strictObject({
   version: z.string().min(1),
 })
 
+const desktopUpdateSchema = z.discriminatedUnion("state", [
+  z.strictObject({
+    state: z.literal("available"),
+    version: z.string().min(1).max(80),
+  }),
+  z.strictObject({ state: z.enum(["current", "unavailable", "failed"]) }),
+])
+
+export async function checkDesktopUpdate() {
+  if (!isDesktopHost()) throw new Error("DESKTOP_HOST_UNAVAILABLE")
+  return desktopUpdateSchema.parse(await Desktop.checkForUpdate())
+}
+
 let hostInfo: z.infer<typeof hostInfoSchema> | null = null
 let updateRequired = false
 const updateListeners = new Set<() => void>()

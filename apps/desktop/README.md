@@ -47,6 +47,15 @@ Refresh restores subsequent app launches without opening the browser again.
 Deploy the matching API and Web authorization routes before distributing this
 client. Existing Web sessions and refresh-token records need no migration.
 
+To enable **Check for updates**, supply both
+`LINKSENSE_DESKTOP_UPDATE_FEED` (the target's full update manifest URL) and
+`LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY` (the base64 Ed25519 public key) at build
+time. The client queries the feed through mygo and reports the release version
+in Settings and the protocol update notice. This stage only checks for
+updates; it does not download or install them. mygo requires a writable
+installation location for update checks. Read-only installations and releases
+without a feed show that update checks are unavailable.
+
 The native HTTP transport accepts only the packaged server's `/api/v1/` routes.
 It preserves API authentication and authorization, streams SSE, propagates
 cancellation, and does not follow redirects. Refresh credentials are stored

@@ -3,7 +3,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { desktopBuildServerUrl, desktopCommandInvocation, desktopTarget, desktopTestArguments, stageDesktopNotice, validateDesktopTarget } from "./desktop.mjs";
+import { desktopBuildServerUrl, desktopCommandInvocation, desktopTarget, desktopTestArguments, desktopUpdateBuildFlags, stageDesktopNotice, validateDesktopTarget } from "./desktop.mjs";
 
 test("release builds require an explicit, safe server origin", () => {
   assert.equal(desktopBuildServerUrl("https://example.com/"), "https://example.com");
@@ -17,6 +17,17 @@ test("release builds require an explicit, safe server origin", () => {
   }
 });
 
+test("update checks require a packaged HTTPS feed paired with an Ed25519 public key", () => {
+  const key = Buffer.alloc(32, 1).toString("base64");
+  const feed = "https://updates.example.test/update-darwin-arm64.json";
+  assert.equal(desktopUpdateBuildFlags(undefined, undefined), "");
+  assert.match(desktopUpdateBuildFlags(feed, key), /packageUpdateFeed=https:\/\/updates\.example\.test/u);
+  for (const [url, publicKey] of [[feed, undefined], [undefined, key], [feed, "invalid"],
+    ["https://user@updates.example.test/update.json", key], ["http://updates.example.test", key],
+    [feed + " -X main.host=other", key]]) {
+    assert.throws(() => desktopUpdateBuildFlags(url, publicKey));
+  }
+});
 test("desktop targets cover both supported platforms and architectures", () => {
   assert.equal(desktopTarget("darwin", "arm64"), "darwin/arm64");
   assert.equal(desktopTarget("darwin", "x64"), "darwin/amd64");

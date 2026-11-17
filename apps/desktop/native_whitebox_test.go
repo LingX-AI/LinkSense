@@ -351,6 +351,10 @@ func TestNativeSharedUILoginAndSecureSessionRestore(t *testing.T) {
 	nativeWhitebox.protocol.Store(2)
 	whiteboxReload(t, page)
 	whiteboxWait(t, page, `document.querySelector('[role="dialog"]') !== null && document.body.innerText.includes("incompatible")`)
+	if _, err := page.Eval(`Array.from(document.querySelectorAll('[role="dialog"] button')).find(button => button.textContent.trim() === "Check for updates")?.click()`); err != nil {
+		t.Fatal(err)
+	}
+	whiteboxWait(t, page, `document.body.innerText.includes("This installation cannot check for updates.")`)
 	nativeWhitebox.protocol.Store(1)
 	whiteboxReload(t, page)
 	whiteboxWait(t, page, `location.pathname === "/conversations/new" && document.body.innerText.includes("Eli")`)

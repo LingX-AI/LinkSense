@@ -1,5 +1,6 @@
 import { workspaceUiDemoMessages } from "@/features/ui-demo/messages"
 import { desktopLoginMessages } from "@/features/desktop-login/messages"
+import { desktopUpdateMessages } from "@/features/desktop-update/messages"
 import { browserPanelMessages } from "@/features/browser-panel/messages"
 import { monitoringMessages } from "@/features/automations/monitoring-messages"
 import { automationNotificationMessages } from "@/features/conversations/automation-notification-messages"
@@ -81,6 +82,7 @@ void i18n.use(initReactI18next).init({
         webSearch: webSearchMessages["zh-CN"],
         ...zhCN,
         desktopLogin: desktopLoginMessages["zh-CN"],
+        desktopUpdate: desktopUpdateMessages["zh-CN"],
         accountAccess: accountAccessMessages["zh-CN"],
         workspaceHome: workspaceHomeMessages["zh-CN"],
         settingsInterface: settingsInterfaceMessages["zh-CN"],
@@ -101,6 +103,7 @@ void i18n.use(initReactI18next).init({
         webSearch: webSearchMessages["en-US"],
         ...enUS,
         desktopLogin: desktopLoginMessages["en-US"],
+        desktopUpdate: desktopUpdateMessages["en-US"],
         accountAccess: accountAccessMessages["en-US"],
         workspaceHome: workspaceHomeMessages["en-US"],
         settingsInterface: settingsInterfaceMessages["en-US"],
@@ -121,6 +124,7 @@ void i18n.use(initReactI18next).init({
         webSearch: webSearchMessages["es-ES"],
         ...esES,
         desktopLogin: desktopLoginMessages["es-ES"],
+        desktopUpdate: desktopUpdateMessages["es-ES"],
         accountAccess: accountAccessMessages["es-ES"],
         workspaceHome: workspaceHomeMessages["es-ES"],
         settingsInterface: settingsInterfaceMessages["es-ES"],
@@ -141,6 +145,7 @@ void i18n.use(initReactI18next).init({
         webSearch: webSearchMessages["pt-BR"],
         ...ptBR,
         desktopLogin: desktopLoginMessages["pt-BR"],
+        desktopUpdate: desktopUpdateMessages["pt-BR"],
         accountAccess: accountAccessMessages["pt-BR"],
         workspaceHome: workspaceHomeMessages["pt-BR"],
         settingsInterface: settingsInterfaceMessages["pt-BR"],
@@ -161,6 +166,7 @@ void i18n.use(initReactI18next).init({
         webSearch: webSearchMessages["fr-FR"],
         ...frFR,
         desktopLogin: desktopLoginMessages["fr-FR"],
+        desktopUpdate: desktopUpdateMessages["fr-FR"],
         accountAccess: accountAccessMessages["fr-FR"],
         workspaceHome: workspaceHomeMessages["fr-FR"],
         settingsInterface: settingsInterfaceMessages["fr-FR"],
@@ -181,6 +187,7 @@ void i18n.use(initReactI18next).init({
         webSearch: webSearchMessages["ja-JP"],
         ...jaJP,
         desktopLogin: desktopLoginMessages["ja-JP"],
+        desktopUpdate: desktopUpdateMessages["ja-JP"],
         accountAccess: accountAccessMessages["ja-JP"],
         workspaceHome: workspaceHomeMessages["ja-JP"],
         settingsInterface: settingsInterfaceMessages["ja-JP"],

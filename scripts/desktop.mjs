@@ -39,6 +39,21 @@ export function desktopBuildServerUrl(raw) {
   return `${url.origin}${explicitDefaultPort}`;
 }
 
+export function desktopUpdateBuildFlags(feed, publicKey) {
+  if (feed === undefined && publicKey === undefined) return "";
+  if (!feed || !publicKey || /[\s"'\\?#]/u.test(feed)) throw new Error("Desktop updates require a feed URL and public key");
+  const url = new URL(feed);
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.username || url.password || !(url.protocol === "https:" || (url.protocol === "http:" && loopback))) {
+    throw new Error("Desktop update feed must use HTTPS (or loopback HTTP)");
+  }
+  const key = Buffer.from(publicKey, "base64");
+  if (key.length !== 32 || key.toString("base64") !== publicKey) {
+    throw new Error("Desktop update public key must be a base64 Ed25519 public key");
+  }
+  return `-X github.com/egoist/mygo.packageUpdateFeed=${url.href} -X github.com/egoist/mygo.packageUpdateKey=${publicKey}`;
+}
+
 export function desktopCommandInvocation(command, args, platform = process.platform, environment = process.env) {
   if (command === "pnpm" || command === "pnpm.cmd") {
     const launcher = environment.npm_execpath;
@@ -126,7 +141,7 @@ async function main() {
     await run("go", desktopTestArguments());
     await run(process.platform === "win32" ? "pnpm.cmd" : "pnpm",
       ["--filter", "@linksense/web", "exec", "vitest", "run", "--project", "components", "--project", "shared-components", "--project", "node",
-        "src/adapters/desktop", "src/features/desktop-login", "src/api/session.test.ts", "src/api/client.test.ts", "src/api/client-build-contract.test.ts", "src/api/sse.test.ts",
+        "src/adapters/desktop", "src/features/desktop-login", "src/features/desktop-update", "src/api/session.test.ts", "src/api/client.test.ts", "src/api/client-build-contract.test.ts", "src/api/sse.test.ts",
         "src/app/auth-context.test.tsx", "src/app/route-guards.account-switch.test.tsx",
         "src/features/knowledge-bases/knowledge-base-api.test.ts",
         "src/features/knowledge-bases/knowledge-base-events.test.ts",
@@ -154,11 +169,14 @@ async function main() {
   const server = desktopBuildServerUrl(values["server-url"] ?? process.env.LINKSENSE_DESKTOP_SERVER_URL);
   await stageNotices();
   if (mode === "build") {
+    const updateFlags = desktopUpdateBuildFlags(
+      process.env.LINKSENSE_DESKTOP_UPDATE_FEED, process.env.LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY,
+    );
     const target = validateDesktopTarget(values.platform ?? desktopTarget());
     const { prepareDesktopResources } = await import("./desktop-resources.mjs");
     await prepareDesktopResources(target);
     await run("go", ["tool", "mygo", "build", "-platform", target], {
-      env: { MYGO_LDFLAGS: `${process.env.MYGO_LDFLAGS ?? ""} -X main.desktopServerURL=${server}`.trim() },
+      env: { MYGO_LDFLAGS: `${process.env.MYGO_LDFLAGS ?? ""} -X main.desktopServerURL=${server} ${updateFlags}`.trim() },
     });
     const { verifyPackagedDesktopRuntime } = await import("./desktop-resources.mjs");
     const runtime = target.startsWith("darwin")

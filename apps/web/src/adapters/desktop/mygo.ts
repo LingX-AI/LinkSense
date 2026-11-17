@@ -4,6 +4,13 @@ import { call } from "mygo-runtime";
 
 // ---- Types ----
 
+export interface DesktopUpdateResult {
+  state: DesktopUpdateState;
+  version?: string;
+}
+
+export type DesktopUpdateState = "available" | "current" | "unavailable" | "failed";
+
 export type DeviceConnectionState = "unpaired" | "connecting" | "online" | "offline" | "revoked";
 
 export interface DeviceConnectionStatus {
@@ -30,6 +37,9 @@ export interface RuntimeStatus {
 export const Desktop = {
   cancelSignIn(): Promise<void> {
     return call("Desktop.CancelSignIn");
+  },
+  checkForUpdate(): Promise<DesktopUpdateResult> {
+    return call("Desktop.CheckForUpdate");
   },
   clearSession(): Promise<void> {
     return call("Desktop.ClearSession");
