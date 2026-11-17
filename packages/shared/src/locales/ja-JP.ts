@@ -55,6 +55,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   WEB_SITE_RESOURCES_MISSING: "ウェブページのリソースがありません（{{path}}）。公開前に、作成元のタスクでアシスタントにウェブページとリソースを一緒に保存するよう依頼してください",
   WEB_SITE_BUNDLE_INVALID: "ウェブページのパッケージが不完全か、未対応のファイルを含んでいます。作成元のタスクで更新して再試行してください",
   CLIENT_UPDATE_REQUIRED: "システムが更新されました。このページを更新して続行してください。",
+  DESKTOP_UPDATE_REQUIRED: "デスクトップアプリとサーバーのバージョンに互換性がありません。アプリを更新してください。接続できない場合は管理者にお問い合わせください。",
   SERVICE_TEMPORARILY_UNAVAILABLE: "システムを一時的に利用できません。少し待ってから再試行してください。",
   APPLICATION_VERSION_TOO_LOW: "既存の最新バージョン v{{version}} より高いバージョンを指定してください。",
   APPLICATION_RUNTIME_BUSY: "このアプリケーションには実行中の通常タスクがあるため、保存・更新できません。停止するか完了を待ってから再試行してください。",

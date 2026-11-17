@@ -55,6 +55,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   "WEB_SITE_RESOURCES_MISSING": "Um recurso da página está ausente ({{path}}). Peça ao assistente na tarefa de origem para salvar a página junto com seus recursos antes de publicar",
   "WEB_SITE_BUNDLE_INVALID": "O pacote da página está incompleto ou contém arquivos não compatíveis. Atualize-o na tarefa de origem e tente novamente",
   "CLIENT_UPDATE_REQUIRED": "O sistema foi atualizado. Atualize esta página para continuar.",
+  "DESKTOP_UPDATE_REQUIRED": "O aplicativo e o servidor são incompatíveis. Atualize o aplicativo ou entre em contato com o administrador se ainda não conseguir conectar.",
   "SERVICE_TEMPORARILY_UNAVAILABLE": "O sistema está temporariamente indisponível. Tente novamente em breve.",
   "APPLICATION_VERSION_TOO_LOW": "A versão deve ser maior que a maior versão existente, v{{version}}. Escolha uma versão maior.",
   "APPLICATION_RUNTIME_BUSY": "Este aplicativo tem tarefas comuns em andamento e não pode ser salvo nem atualizado. Interrompa-as ou aguarde a conclusão e tente novamente.",

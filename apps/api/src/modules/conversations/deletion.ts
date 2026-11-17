@@ -135,6 +135,8 @@ async function deleteConversationGraph(
   await tx.webSite.updateMany({ where: { conversationId }, data: { conversationId: null, status: "disabled" } });
   await detachConversationDevelopment(tx, conversationId);
   await tx.conversationShare.deleteMany({ where: { conversationId } });
+  await tx.computerPermissionGrant.deleteMany({ where: { conversationId } });
+  await tx.localComputerSession.deleteMany({ where: { conversationId } });
   await tx.botChannelOutboundDelivery.deleteMany({ where: { conversationId } });
   await tx.botChannelInboundMessage.deleteMany({ where: { conversationId } });
   await tx.botChannelPeerSession.deleteMany({ where: { conversationId } });

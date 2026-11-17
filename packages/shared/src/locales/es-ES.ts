@@ -55,6 +55,7 @@ export const errorMessages = {
   "WEB_SITE_RESOURCES_MISSING": "Falta un recurso de la página ({{path}}). Pide al asistente de la tarea original que guarde la página junto con sus recursos antes de publicar",
   "WEB_SITE_BUNDLE_INVALID": "El paquete de la página está incompleto o contiene archivos no compatibles. Actualízalo en la tarea original y vuelve a intentarlo",
   "CLIENT_UPDATE_REQUIRED": "El sistema se ha actualizado. Actualiza esta página para continuar.",
+  "DESKTOP_UPDATE_REQUIRED": "La aplicación de escritorio y el servidor no son compatibles. Actualiza la aplicación o contacta con tu administrador si sigues sin poder conectarte.",
   "SERVICE_TEMPORARILY_UNAVAILABLE": "El sistema no está disponible temporalmente. Inténtalo de nuevo en unos instantes.",
   "APPLICATION_VERSION_TOO_LOW": "La versión debe ser superior a la más alta existente, v{{version}}. Elige una versión superior.",
   "APPLICATION_RUNTIME_BUSY": "Esta aplicación tiene tareas normales en curso y no se puede guardar ni actualizar. Detén las tareas o espera a que terminen e inténtalo de nuevo.",

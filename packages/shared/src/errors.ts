@@ -150,6 +150,14 @@ export const errorCatalog = {
       "en-US": "The system has been updated. Update this page to continue.",
     },
   },
+  DESKTOP_UPDATE_REQUIRED: {
+    message_key: "errors.desktopUpdateRequired",
+    http_status: 409,
+    messages: {
+      "zh-CN": "桌面客户端与服务端版本不兼容，请更新桌面客户端；如仍无法连接，请联系管理员。",
+      "en-US": "The desktop app and server are incompatible. Update the desktop app, or contact your administrator if you still cannot connect.",
+    },
+  },
   SERVICE_TEMPORARILY_UNAVAILABLE: {
     message_key: "errors.serviceTemporarilyUnavailable",
     http_status: 503,

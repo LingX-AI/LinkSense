@@ -5101,6 +5101,14 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(transaction.conversationShare.deleteMany).toHaveBeenCalledWith({
       where: { conversationId: CONVERSATION_ID },
     });
+    expect(transaction.computerPermissionGrant.deleteMany).toHaveBeenCalledWith({
+      where: { conversationId: CONVERSATION_ID },
+    });
+    expect(transaction.localComputerSession.deleteMany).toHaveBeenCalledWith({
+      where: { conversationId: CONVERSATION_ID },
+    });
+    expect(transaction.localComputerSession.deleteMany.mock.invocationCallOrder[0])
+      .toBeLessThan(transaction.conversation.delete.mock.invocationCallOrder[0]!);
     expect(transaction.usageActivityRecord.deleteMany).not.toHaveBeenCalled();
     expect(transaction.tokenUsageRecord.deleteMany).not.toHaveBeenCalled();
     expect(transaction.modelUsageRecord.deleteMany).not.toHaveBeenCalled();
@@ -13056,6 +13064,8 @@ function transactionFixture() {
     conversationShare: {
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
+    computerPermissionGrant: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    localComputerSession: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     conversationPlanReview: {
       findFirst: vi.fn(async () => null as Record<string, unknown> | null),
       findUnique: vi.fn(async () => null as Record<string, unknown> | null),

@@ -909,6 +909,8 @@ model Conversation {
   codexThreadId                   String?   @unique(map: "conversations_codex_thread_id_key") @map("codex_thread_id") @db.Text
   agentsTemplateVersion           String?   @map("agents_template_version") @db.VarChar(80)
   collaborationMode               String    @default("default") @map("collaboration_mode") @db.VarChar(24)
+  executionTarget                 String    @default("cloud") @map("execution_target") @db.VarChar(16)
+  desktopDeviceId                 String?   @map("desktop_device_id") @db.Uuid
   runtimeGeneration               String    @map("runtime_generation") @db.Uuid
   preferredModel                  String?   @map("preferred_model") @db.VarChar(240)
   lastTurnStatus                  String?   @map("last_turn_status") @db.VarChar(32)
@@ -942,6 +944,70 @@ model Conversation {
   @@index([interactiveApplicationPackageId, ownerId, updatedAt(sort: Desc)], map: "conversations_interactive_package_owner_updated_idx")
   @@index([forkSourceConversationId, forkSourceMessageId], map: "conversations_fork_source_message_idx")
   @@map("conversations")
+}
+
+model DesktopDevice {
+  id               String    @id @default(uuid()) @db.Uuid
+  ownerId          String    @map("owner_id") @db.Uuid
+  name             String    @db.VarChar(120)
+  platform         String    @db.VarChar(32)
+  arch             String    @db.VarChar(32)
+  appVersion       String    @map("app_version") @db.VarChar(40)
+  capabilitiesJson Json      @default("{}") @map("capabilities_json") @db.JsonB
+  tokenHash        String    @unique(map: "desktop_devices_token_hash_key") @map("token_hash") @db.VarChar(64)
+  authValidAfter   DateTime  @map("auth_valid_after") @db.Timestamptz(6)
+  lastSeenAt       DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([ownerId, revokedAt], map: "desktop_devices_owner_revoked_idx")
+  @@map("desktop_devices")
+}
+
+model DesktopDevicePairing {
+  id         String    @id @default(uuid()) @db.Uuid
+  ownerId    String    @map("owner_id") @db.Uuid
+  codeHash   String    @unique(map: "desktop_pairings_code_hash_key") @map("code_hash") @db.VarChar(64)
+  authValidAfter DateTime @map("auth_valid_after") @db.Timestamptz(6)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([ownerId, expiresAt], map: "desktop_pairings_owner_expiry_idx")
+  @@map("desktop_device_pairings")
+}
+
+model LocalComputerSession {
+  id             String    @id @default(uuid()) @db.Uuid
+  ownerId        String    @map("owner_id") @db.Uuid
+  conversationId String    @map("conversation_id") @db.Uuid
+  deviceId       String    @map("device_id") @db.Uuid
+  status         String    @db.VarChar(24)
+  grantScope     String    @map("grant_scope") @db.VarChar(24)
+  expiresAt      DateTime? @map("expires_at") @db.Timestamptz(6)
+  endedAt        DateTime? @map("ended_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([conversationId, status], map: "local_computer_sessions_conversation_status_idx")
+  @@map("local_computer_sessions")
+}
+
+model ComputerPermissionGrant {
+  id             String    @id @default(uuid()) @db.Uuid
+  ownerId        String    @map("owner_id") @db.Uuid
+  conversationId String?   @map("conversation_id") @db.Uuid
+  deviceId       String?   @map("device_id") @db.Uuid
+  capability     String    @db.VarChar(48)
+  scope          String    @db.VarChar(24)
+  targetJson     Json?     @map("target_json") @db.JsonB
+  expiresAt      DateTime? @map("expires_at") @db.Timestamptz(6)
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([ownerId, conversationId, revokedAt], map: "computer_grants_owner_conversation_idx")
+  @@index([ownerId, deviceId, revokedAt], map: "computer_grants_owner_device_idx")
+  @@map("computer_permission_grants")
 }
 
 model ConversationForkCounter {

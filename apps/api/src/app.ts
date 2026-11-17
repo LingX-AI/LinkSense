@@ -11,6 +11,10 @@ import { applicationCenterRoutes, adminApplicationCenterRoutes } from "./modules
 import { applicationDevelopmentRoutes, internalApplicationBuilderRoutes } from "./modules/applications/development-routes.js";
 import { registerRunnerRuntimeScope } from "./modules/events/runtime-scope.js";
 import { registerBrowserUseRoutes } from "./modules/browser-use/routes.js";
+import { registerDesktopDeviceRoutes } from "./modules/desktop-devices/routes.js";
+import { DesktopDeviceService } from "./modules/desktop-devices/service.js";
+import { PrismaDesktopDeviceRepository } from "./modules/desktop-devices/repository.js";
+import { RedisDesktopDeviceCoordinator } from "./modules/desktop-devices/coordinator.js";
 import { BrowserUseService } from "./modules/browser-use/service.js";
 import { BrowserUseIntentService } from "./modules/browser-use/intent.js";
 import { RedisBrowserStore } from "./modules/browser-use/store.js";
@@ -663,6 +667,14 @@ export async function buildApi(
     sharedSecret: services.config.runnerSharedSecret,
     socketPath: `${browserUseEndpoint.pathname}/socket`,
     intent: new BrowserUseIntentService(services.prisma, new RedisBrowserStore(services.redis.client), services.modelProviderSettings, services.usageAnalytics),
+  });
+  await registerDesktopDeviceRoutes(app, {
+    service: new DesktopDeviceService(
+      new PrismaDesktopDeviceRepository(services.prisma),
+      new RedisDesktopDeviceCoordinator(services.redis.client),
+    ),
+    redis: services.redis.client,
+    rateLimitHmacSecret: services.config.loginRateLimitHmacSecret,
   });
   await app.register(internalAutomationRoutes, {
     prefix: "/internal/automations",

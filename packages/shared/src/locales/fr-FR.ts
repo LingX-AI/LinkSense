@@ -55,6 +55,7 @@ export const errorMessages: Record<ErrorCode, string> = {
  WEB_SITE_RESOURCES_MISSING: "Une ressource de la page manque ({{path}}). Demandez à l’assistant de la tâche source d’enregistrer la page avec ses ressources avant de publier",
  WEB_SITE_BUNDLE_INVALID: "Le paquet de la page est incomplet ou contient des fichiers non pris en charge. Corrigez-le dans la tâche source et réessayez",
  CLIENT_UPDATE_REQUIRED: "Le système a été mis à jour. Actualisez cette page pour continuer.",
+ DESKTOP_UPDATE_REQUIRED: "L’application de bureau et le serveur sont incompatibles. Mettez l’application à jour ou contactez votre administrateur si la connexion reste impossible.",
  SERVICE_TEMPORARILY_UNAVAILABLE: "Le système est temporairement indisponible. Réessayez dans un instant.",
  APPLICATION_VERSION_TOO_LOW: "La version doit être supérieure à la dernière version existante v{{version}}. Choisissez une version supérieure.",
  APPLICATION_RUNTIME_BUSY: "Cette application a des tâches ordinaires en cours et ne peut pas être enregistrée ni mise à jour. Arrêtez-les ou attendez leur fin, puis réessayez.",
