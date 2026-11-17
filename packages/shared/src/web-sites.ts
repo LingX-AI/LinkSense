@@ -39,6 +39,7 @@ export const webSiteSchema = z.object({
   updated_at: z.iso.datetime(),
   backend_id: z.uuid().nullable().optional(),
   url: z.url({ protocol: /^https?$/u }).optional(),
+  alias_url: z.url({ protocol: /^https?$/u }).optional(),
 });
 export const webSitePageSchema = z.object({
   items: z.array(webSiteSchema),

@@ -7,7 +7,7 @@ import { attachmentContentDisposition } from "../../lib/content-disposition.js";
 import { ok } from "../../lib/http.js";
 import { AppError, errorDetails, normalizeError } from "../../lib/errors.js";
 import { resolveLocale } from "../../lib/locale.js";
-import { parseWebSiteCursor, type WebSiteService } from "./service.js";
+import { parseWebSiteCursor, withUrl, type WebSiteService } from "./service.js";
 import { resourceContentType } from "./resources.js";
 import { escapeHtml, siteNotFoundPage, siteNotFoundPolicy } from "./public-page.js";
 
@@ -23,21 +23,22 @@ export const webSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; public
   });
   app.get("/", async (request, reply) => {
     const query = z.object({ search: z.string().trim().max(240).optional(), status: webSiteStatusSchema.optional(), conversation_id: z.uuid().optional(), origin_file_id: z.uuid().optional(), cursor: webSiteCursorSchema.optional(), limit: z.coerce.number().int().min(1).max(100).default(30) }).parse(request.query);
-    return reply.send(ok(await service.list((request as AuthenticatedRequest).authUser.id, {
+    const page = await service.list((request as AuthenticatedRequest).authUser.id, {
       limit: query.limit,
       ...(query.search !== undefined ? { search: query.search } : {}),
       ...(query.status !== undefined ? { status: query.status } : {}),
       ...(query.conversation_id !== undefined ? { conversationId: query.conversation_id } : {}),
       ...(query.origin_file_id !== undefined ? { originFileId: query.origin_file_id } : {}),
       ...(query.cursor !== undefined ? { cursor: parseWebSiteCursor(query.cursor) } : {}),
-    }), request.id));
+    });
+    return reply.send(ok({ ...page, items: page.items.map(site => withUrl(site, publicBaseUrl)) }, request.id));
   });
-  app.post("/", async (request, reply) => reply.code(201).send(ok(await service.create((request as AuthenticatedRequest).authUser.id, webSiteCreateSchema.parse(request.body)), request.id)));
-  app.patch("/:id", async (request, reply) => reply.send(ok(await service.update((request as AuthenticatedRequest).authUser.id, idParams.parse(request.params).id, webSiteUpdateSchema.parse(request.body)), request.id)));
+  app.post("/", async (request, reply) => reply.code(201).send(ok(withUrl(await service.create((request as AuthenticatedRequest).authUser.id, webSiteCreateSchema.parse(request.body)), publicBaseUrl), request.id)));
+  app.patch("/:id", async (request, reply) => reply.send(ok(withUrl(await service.update((request as AuthenticatedRequest).authUser.id, idParams.parse(request.params).id, webSiteUpdateSchema.parse(request.body)), publicBaseUrl), request.id)));
   app.post("/:id/releases", async (request, reply) => {
     const input = webSitePublishSchema.parse(request.body);
-    return reply.code(201).send(ok(await service.publish((request as AuthenticatedRequest).authUser.id,
-      idParams.parse(request.params).id, input.file_id, input.backend_id), request.id));
+    return reply.code(201).send(ok(withUrl(await service.publish((request as AuthenticatedRequest).authUser.id,
+      idParams.parse(request.params).id, input.file_id, input.backend_id), publicBaseUrl), request.id));
   });
   app.get("/:id/sources", async (request, reply) => reply.send(ok(await service.sources((request as AuthenticatedRequest).authUser.id, idParams.parse(request.params).id), request.id)));
   app.get("/:id/download", async (request, reply) => {

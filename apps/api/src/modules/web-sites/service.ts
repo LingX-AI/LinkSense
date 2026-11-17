@@ -188,6 +188,10 @@ export function parseWebSiteCursor(value: string): NonNullable<SiteListInput["cu
   if (!time || !id) throw new AppError("VALIDATION_ERROR");
   return { updatedAt: new Date(time), id };
 }
-function withUrl(site: WebSite, publicBaseUrl: string): WebSiteWithUrl {
-  return webSiteWithUrlSchema.parse({ ...site, url: site.url ?? new URL(site.url_path, publicBaseUrl).href });
+export function withUrl(site: WebSite, publicBaseUrl: string): WebSiteWithUrl {
+  return webSiteWithUrlSchema.parse({
+    ...site,
+    url: site.url ?? new URL(site.url_path, publicBaseUrl).href,
+    alias_url: new URL(`/web/${webSiteSchema.shape.slug.parse(site.slug)}`, publicBaseUrl).href,
+  });
 }

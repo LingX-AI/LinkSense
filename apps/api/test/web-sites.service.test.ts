@@ -1,9 +1,21 @@
 import { describe, expect, it } from "vitest";
 import JSZip from "jszip";
 import { AppError } from "../src/lib/errors.js";
+import { withUrl } from "../src/modules/web-sites/service.js";
 import { ownerId, taskId, fileId, siteId, releaseId, siteFixture } from "./web-sites.fixture.js";
 
 describe("website publishing service", () => {
+  it("keeps a historical independent origin while resolving its slug alias on the public platform", async () => {
+    const fixture = siteFixture();
+    const page = await fixture.service.list(ownerId, { limit: 30 });
+    const site = page.items[0]!;
+    const origin = "https://legacy-app.apps.example.test";
+    expect(withUrl({ ...site, backend_id: taskId, url: origin }, "https://public.example.test")).toMatchObject({
+      url: origin,
+      alias_url: "https://public.example.test/web/sample",
+      url_path: `/app/id/${siteId}`,
+    });
+  });
   it("publishes an existing self-contained HTML artifact with a generated UUID and a bounded manifest", async () => {
     const fixture = siteFixture();
     fixture.source.file.checksumSha256 = null;

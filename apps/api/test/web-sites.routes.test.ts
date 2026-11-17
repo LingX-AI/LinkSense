@@ -27,6 +27,27 @@ async function setup() {
   return { ...fixture, app };
 }
 describe("website HTTP boundary", () => {
+  it("returns a configured public slug link separately from the stable URL on list and rename", async () => {
+    const fixture = await setup();
+    const headers = { authorization: "Bearer test-owner" };
+    const listed = await fixture.app.inject({ url: "/api/v1/web-sites", headers });
+    expect(listed.json().data.items[0]).toMatchObject({
+      slug: "sample", alias_url: "https://linksense.example.test/web/sample",
+      url: `https://linksense.example.test/app/id/${siteId}`,
+    });
+    fixture.store.update.mockImplementation(async (_ownerId, _id, input) => {
+      fixture.row.site.slug = input.slug ?? fixture.row.site.slug;
+      return fixture.row;
+    });
+    const renamed = await fixture.app.inject({
+      method: "PATCH", url: `/api/v1/web-sites/${siteId}`, headers, payload: { slug: "drink-water" },
+    });
+    expect(renamed.json().data).toMatchObject({
+      slug: "drink-water", alias_url: "https://linksense.example.test/web/drink-water",
+      url: `https://linksense.example.test/app/id/${siteId}`,
+    });
+  });
+
   it("returns only owner-scoped site delivery metadata with the site's current status", async () => {
     const fixture = await setup();
     const turnId = "60000000-0000-4000-8000-000000000001";
