@@ -36,6 +36,8 @@ docker compose --project-directory "$PWD" --env-file .data/uat/runtime.env -p li
 
 UAT 默认关闭动态应用。在 `.data/uat/runtime.env` 中提供 `LINKSENSE_APPWRITE_ENDPOINT`、`LINKSENSE_APPWRITE_ADMIN_EMAIL`、`LINKSENSE_APPWRITE_ADMIN_PASSWORD`、`LINKSENSE_DYNAMIC_APPS_BASE_URL`（管理员属于多个组织时再加 `LINKSENSE_APPWRITE_ORGANIZATION_ID`）后，`prepare.mjs` 会在后续部署中保留这些值；四项必填全为空时保持关闭。
 
+这些配置沿用 Docker Compose 的 `.env` 语法并保留原始写法；密码中的字面量 `$` 请使用单引号或 `$$`，避免被解释为环境变量。
+
 Appwrite 位于另一个 Compose 项目时，可用 `LINKSENSE_UAT_COMPOSE_OVERRIDE` 追加一个 Git 之外的覆盖文件，例如让 API 加入 Appwrite 网关网络，并增加动态应用 HTTPS 入口：
 
 ```sh
