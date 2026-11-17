@@ -19,7 +19,7 @@ export function backendFixture(appsBaseUrl = "https://apps.example.net") {
   const site = siteFixture();
   site.row.site.backendId = backendId;
   const row: WebSiteBackend = {
-    id: backendId, ownerId, conversationId: taskId, projectId: "ls-test-project", name: "Appointments",
+    id: backendId, ownerId, conversationId: taskId, projectId: "ls-test-project", hostLabel: null, name: "Appointments",
     status: "ready", leaseUntil: null, createdAt: now, updatedAt: now,
     encryptedCredential: encryptJson({ key: "test-project-management-key" }, config.credentialMasterKey, config.credentialKeyId, `web-site-backend:${backendId}`),
   };
@@ -30,7 +30,13 @@ export function backendFixture(appsBaseUrl = "https://apps.example.net") {
       if (owner !== ownerId || id !== backendId) throw new AppError("WEB_SITE_NOT_FOUND");
       return row;
     }),
-    byHostLabel: vi.fn(async label => label === appHostLabel(backendId) ? { id: backendId } : null),
+    byHostLabel: vi.fn(async label => (row.hostLabel ? label === row.hostLabel : label === appHostLabel(backendId)) ? { id: backendId } : null),
+    findById: vi.fn(async id => id === backendId ? row : null),
+    findByHostLabel: vi.fn(async hostLabel => hostLabel === row.hostLabel ? { id: backendId } : null),
+    setHostLabel: vi.fn(async (id, hostLabel) => {
+      if (id !== backendId) throw new AppError("WEB_SITE_NOT_FOUND");
+      row.hostLabel = hostLabel;
+    }),
     acquire: vi.fn(async (owner, id, lease) => {
       if (owner !== ownerId || id !== backendId) throw new AppError("WEB_SITE_NOT_FOUND");
       if (row.leaseUntil && row.leaseUntil.getTime() > Date.now()) throw new AppError("CONFLICT");

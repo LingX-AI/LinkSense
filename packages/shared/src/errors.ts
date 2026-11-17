@@ -32,6 +32,10 @@ export const errorCatalog = {
     message_key: "errors.webSites.backendUnavailable", http_status: 503,
     messages: { "zh-CN": "动态应用后端暂时不可用，请稍后重试。", "en-US": "The application backend is temporarily unavailable. Try again later." },
   },
+  WEB_SITE_BACKEND_ADDRESS_TAKEN: {
+    message_key: "errors.webSites.backendAddressTaken", http_status: 409,
+    messages: { "zh-CN": "这个地址已被其他动态应用使用，请换一个。", "en-US": "Another dynamic application already uses this address. Choose a different one." },
+  },
   WEB_SITE_BACKEND_PENDING: {
     message_key: "errors.webSites.backendPending", http_status: 409,
     messages: { "zh-CN": "后端资源或函数尚未准备完成，请检查构建状态后再发布。", "en-US": "Backend resources or functions are not ready. Check their build status before publishing." },

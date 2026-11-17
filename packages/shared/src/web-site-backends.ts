@@ -12,9 +12,19 @@ const column = z.strictObject({
 }).refine(value => value.type !== "string" || value.size !== undefined, { message: "String columns require a size" });
 const entrypoint = z.string().min(1).max(240).regex(/^[a-zA-Z0-9_./-]+$/u)
   .refine(value => !value.startsWith("/") && value.split("/").every(part => part && part !== "." && part !== ".."));
+/** The public host label an application answers on, either generated or chosen. */
+export const webSiteBackendHostSchema = z.string().trim().toLowerCase().min(3).max(30)
+  .regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])$/u);
+/** Twelve hex characters are reserved for generated labels, so a chosen address
+ * can never be mistaken for another backend's derived host. */
+export const webSiteBackendAddressSchema = webSiteBackendHostSchema
+  .refine(value => !/^[0-9a-f]{12}$/u.test(value), { message: "This address is reserved for generated hosts" });
 export const webSiteBackendPrepareSchema = z.strictObject({
   name,
   backend_id: z.uuid().optional(),
+  address: webSiteBackendAddressSchema.optional().describe(
+    "Public address label for the application, for example \"appointments\". It replaces the generated label, so the site moves to https://<address>.<apps base host> and the previous address stops working.",
+  ),
 });
 export const webSiteBackendInspectSchema = z.strictObject({ backend_id: z.uuid() });
 export const webSiteBackendConfigureSchema = z.strictObject({

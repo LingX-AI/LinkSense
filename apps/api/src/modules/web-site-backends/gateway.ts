@@ -21,12 +21,12 @@ export function registerWebSiteBackendGateway(app: FastifyInstance, backends: We
     const resolved = await backends.store.byHostLabel(label);
     if (!resolved) throw new AppError("WEB_SITE_NOT_FOUND");
     const id = resolved.id;
-    const origin = backends.origin(id);
     const rawUrl = request.raw.url ?? "/";
     const routedUrl = rawUrl.startsWith(`${gatewayPrefix}/`) ? rawUrl.slice(gatewayPrefix.length) : rawUrl;
+    const binding = await backends.store.publicBinding(id);
+    const origin = backends.origin(binding.backend);
     const url = new URL(routedUrl, origin);
     if (url.origin !== origin || url.pathname.includes("\\")) throw new AppError("WEB_SITE_NOT_FOUND");
-    const binding = await backends.store.publicBinding(id);
     if (request.headers.origin !== undefined && request.headers.origin !== origin) throw new AppError("FORBIDDEN");
     if (url.pathname.startsWith(`${apiPrefix}/`)) {
       if (url.pathname.startsWith(`${apiPrefix}/storage/`)) {

@@ -42,9 +42,28 @@ export class WebSiteBackendRepository {
   /** A label that matches two backends is ambiguous, so it resolves to nothing. */
   async byHostLabel(label: string): Promise<{ id: string } | null> {
     const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-      SELECT id::text AS id FROM web_site_backends WHERE left(replace(id::text, '-', ''), 12) = ${label} LIMIT 2`);
+      SELECT id::text AS id FROM web_site_backends
+      WHERE host_label = ${label} OR (host_label IS NULL AND left(replace(id::text, '-', ''), 12) = ${label})
+      LIMIT 2`);
     const [row] = rows;
     return rows.length === 1 && row ? row : null;
+  }
+
+  findById(id: string): Promise<WebSiteBackend | null> {
+    return this.prisma.webSiteBackend.findUnique({ where: { id } });
+  }
+
+  async findByHostLabel(hostLabel: string): Promise<{ id: string } | null> {
+    return this.prisma.webSiteBackend.findFirst({ where: { hostLabel }, select: { id: true } });
+  }
+
+  async setHostLabel(id: string, hostLabel: string | null): Promise<void> {
+    try {
+      await this.prisma.webSiteBackend.update({ where: { id }, data: { hostLabel } });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new AppError("WEB_SITE_BACKEND_ADDRESS_TAKEN");
+      throw error;
+    }
   }
 
   async publicBinding(id: string): Promise<{ backend: WebSiteBackend; siteId: string }> {
@@ -63,4 +82,4 @@ export class WebSiteBackendRepository {
   }
 }
 
-export type WebSiteBackendStore = Pick<WebSiteBackendRepository, "reserve" | "owned" | "byHostLabel" | "acquire" | "finish" | "publicBinding" | "source">;
+export type WebSiteBackendStore = Pick<WebSiteBackendRepository, "reserve" | "owned" | "findById" | "findByHostLabel" | "byHostLabel" | "setHostLabel" | "acquire" | "finish" | "publicBinding" | "source">;

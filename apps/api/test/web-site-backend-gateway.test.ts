@@ -18,7 +18,7 @@ function setup(appsBaseUrl?: string) {
     return reply.code(normalized.code === "FORBIDDEN" ? 403 : 404).send({ error_code: normalized.code });
   });
   app.get("/api/v1/platform", () => ({ private_platform: true }));
-  const host = new URL(fixture.service.origin(backendId)).host;
+  const host = new URL(fixture.service.origin(fixture.row)).host;
   return { ...fixture, app, host };
 }
 
@@ -37,11 +37,18 @@ describe("public application gateway", () => {
   });
 
   it("addresses each application by a short host label rather than the backend UUID", async () => {
-    const { app, host, service } = setup();
+    const { app, host, row, service } = setup();
     expect(host).toBe(`${appHostLabel(backendId)}.apps.example.net`);
-    expect(new URL(service.origin(backendId)).origin).not.toContain(backendId);
+    expect(new URL(service.origin(row)).origin).not.toContain(backendId);
     expect((await app.inject({ url: "/", headers: { host } })).statusCode).toBe(200);
     expect((await app.inject({ url: "/", headers: { host: `${"0".repeat(12)}.apps.example.net` } })).statusCode).toBe(404);
+  });
+
+  it("serves a backend on its chosen address instead of the generated one", async () => {
+    const fixture = setup();
+    fixture.row.hostLabel = "appointments";
+    expect((await fixture.app.inject({ url: "/", headers: { host: "appointments.apps.example.net" } })).statusCode).toBe(200);
+    expect((await fixture.app.inject({ url: "/", headers: { host: `${appHostLabel(backendId)}.apps.example.net` } })).statusCode).toBe(404);
   });
 
   it("pins projects and strips platform authentication before forwarding native API requests", async () => {

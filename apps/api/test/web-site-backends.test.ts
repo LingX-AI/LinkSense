@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { webSiteBackendConfigureSchema } from "@linksense/shared";
+import { webSiteBackendConfigureSchema, webSiteBackendPrepareSchema } from "@linksense/shared";
 import { AppwriteClient } from "../src/modules/web-site-backends/appwrite.js";
 import { WebSiteBackendService, appHostLabel } from "../src/modules/web-site-backends/service.js";
 import { WebSiteService } from "../src/modules/web-sites/service.js";
@@ -43,6 +43,40 @@ describe("self-hosted Appwrite backend", () => {
     const client = new AppwriteClient(config.appwrite!, fetcher);
     await expect(client.provision("ls-app", "App", "https://app.example.test")).rejects.toThrow("WEB_SITE_BACKEND_UNAVAILABLE");
     expect(fetcher.mock.calls.at(-1)?.[1]?.method).toBe("DELETE");
+  });
+
+  it("renames a backend to a chosen address and moves its web platform", async () => {
+    const fixture = backendFixture();
+    const setPlatformHostname = vi.spyOn(fixture.service.requiredClient(), "setPlatformHostname").mockResolvedValue();
+    const result = await fixture.service.prepare(ownerId, taskId, "Appointments", backendId, "appointments");
+    expect(result.origin).toBe("https://appointments.apps.example.net");
+    expect(result.endpoint).toBe("https://appointments.apps.example.net/appwrite/v1");
+    expect(fixture.row.hostLabel).toBe("appointments");
+    expect(setPlatformHostname).toHaveBeenCalledWith(fixture.row.projectId, "appointments.apps.example.net");
+  });
+
+  it("refuses an address another backend owns without touching the platform", async () => {
+    const fixture = backendFixture();
+    vi.mocked(fixture.store.findByHostLabel).mockResolvedValue({ id: "70000000-0000-4000-8000-000000000009" });
+    const setPlatformHostname = vi.spyOn(fixture.service.requiredClient(), "setPlatformHostname");
+    await expect(fixture.service.prepare(ownerId, taskId, "Appointments", backendId, "appointments"))
+      .rejects.toMatchObject({ code: "WEB_SITE_BACKEND_ADDRESS_TAKEN" });
+    expect(fixture.row.hostLabel).toBeNull();
+    expect(setPlatformHostname).not.toHaveBeenCalled();
+  });
+
+  it("restores the previous address when the platform rename fails", async () => {
+    const fixture = backendFixture();
+    vi.spyOn(fixture.service.requiredClient(), "setPlatformHostname").mockRejectedValue(new Error("upstream failure"));
+    await expect(fixture.service.prepare(ownerId, taskId, "Appointments", backendId, "appointments")).rejects.toThrow("upstream failure");
+    expect(fixture.row.hostLabel).toBeNull();
+  });
+
+  it("rejects addresses that are not DNS labels or that mimic generated hosts", () => {
+    for (const address of ["600000000000", "appointments app", "-appointments", "appointments-", "a".repeat(31), "ab"]) {
+      expect(webSiteBackendPrepareSchema.safeParse({ name: "Appointments", address }).success).toBe(false);
+    }
+    expect(webSiteBackendPrepareSchema.parse({ name: "Appointments", address: "Appointments" }).address).toBe("appointments");
   });
 
   it("reuses prepared backends and encrypts newly provisioned credentials", async () => {

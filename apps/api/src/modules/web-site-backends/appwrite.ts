@@ -55,8 +55,34 @@ export class AppwriteClient {
   }
 
   async provision(projectId: string, name: string, origin: string): Promise<string> {
-    // The self-hosted version has no organization-key issuer. Use a short native
-    // console session only for project/key creation and revoke it on completion.
+    return this.consoleSession(async (session, organizationId) => {
+      const scopedSession = { ...session, organizationId };
+      await this.createOrRead("/organization/projects", `/organization/projects/${projectId}`, "console", undefined,
+        { projectId, name }, scopedSession);
+      const createdKey = await this.createOrRead(`/organization/projects/${projectId}/keys`,
+        `/organization/projects/${projectId}/keys/${projectId}`, "console", undefined, {
+          keyId: projectId, name: "LinkSense control", scopes: managementScopes, expire: null,
+        }, scopedSession);
+      const key = credential.parse(createdKey).secret;
+      await this.createOrRead("/project/platforms/web", `/project/platforms/${projectId}`, projectId, key, {
+        platformId: projectId, type: "web", name: "LinkSense application", hostname: new URL(origin).hostname,
+      });
+      await this.createOrRead("/tablesdb", "/tablesdb/app", projectId, key, { databaseId: "app", name: "Application" });
+      return key;
+    });
+  }
+
+  /** A project key cannot rename its own web platform, so renames use the console API. */
+  async setPlatformHostname(projectId: string, hostname: string): Promise<void> {
+    await this.consoleSession(async session => {
+      await this.request(`/projects/${encodeURIComponent(projectId)}/platforms/${encodeURIComponent(projectId)}`,
+        "console", undefined, "PUT", { name: "LinkSense application", hostname }, session);
+    });
+  }
+
+  // The self-hosted version has no organization-key issuer. Use a short native
+  // console session for console-only changes and revoke it on completion.
+  private async consoleSession<T>(run: (session: ConsoleSession, organizationId: string) => Promise<T>): Promise<T> {
     const login = await this.send("/account/sessions/email", "console", undefined, "POST", {
       email: this.config.adminEmail, password: this.config.adminPassword, duration: 300,
     });
@@ -72,19 +98,7 @@ export class AppwriteClient {
         organizationId = teams.total === 1 ? teams.teams[0]?.$id : undefined;
       }
       if (!organizationId) throw new AppError("WEB_SITE_BACKEND_NOT_CONFIGURED");
-      const scopedSession = { ...session, organizationId };
-      await this.createOrRead("/organization/projects", `/organization/projects/${projectId}`, "console", undefined,
-        { projectId, name }, scopedSession);
-      const createdKey = await this.createOrRead(`/organization/projects/${projectId}/keys`,
-        `/organization/projects/${projectId}/keys/${projectId}`, "console", undefined, {
-          keyId: projectId, name: "LinkSense control", scopes: managementScopes, expire: null,
-        }, scopedSession);
-      const key = credential.parse(createdKey).secret;
-      await this.createOrRead("/project/platforms/web", `/project/platforms/${projectId}`, projectId, key, {
-        platformId: projectId, type: "web", name: "LinkSense application", hostname: new URL(origin).hostname,
-      });
-      await this.createOrRead("/tablesdb", "/tablesdb/app", projectId, key, { databaseId: "app", name: "Application" });
-      return key;
+      return await run(session, organizationId);
     } finally {
       await this.request("/account/sessions/current", "console", undefined, "DELETE", undefined, session)
         .catch(() => { /* The native session expires after five minutes if cleanup is unavailable. */ });

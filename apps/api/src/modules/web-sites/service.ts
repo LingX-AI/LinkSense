@@ -16,12 +16,12 @@ export class WebSiteService {
   constructor(private readonly store: WebSiteStore, private readonly storage: ObjectStorage, private readonly backends?: WebSiteBackendService) { this.resources = new WebArtifactResources(store, storage); }
   async conversationDeliveries(ownerId: string, conversationId: string, publicBaseUrl: string): Promise<ConversationWebSite[]> {
     const rows = await this.store.conversationDeliveries(ownerId, conversationId);
-    return conversationWebSitesSchema.parse(rows.map(row => {
+    return conversationWebSitesSchema.parse(await Promise.all(rows.map(async row => {
       const delivery = conversationWebSiteSchema.omit({ url: true }).parse(row);
       if (!delivery.backend_id) delete delivery.backend_id;
       const backend = conversationWebSiteSchema.shape.backend_id.safeParse(delivery.backend_id);
-      return { ...delivery, url: backend.success && backend.data && this.backends?.client ? this.backends.origin(backend.data) : new URL(`/web/${delivery.slug}`, publicBaseUrl).href };
-    }));
+      return { ...delivery, url: backend.success && backend.data && this.backends?.client ? await this.backends.originFor(backend.data) : new URL(`/web/${delivery.slug}`, publicBaseUrl).href };
+    })));
   }
   async publishedSlugForOwner(ownerId: string, siteId: string): Promise<string> {
     const { site } = await this.store.owned(ownerId, siteId);
@@ -30,14 +30,14 @@ export class WebSiteService {
   }
   async list(ownerId: string, input: SiteListInput) {
     const rows = await this.store.list(ownerId, input);
-    const items = rows.slice(0, input.limit).map(row => this.project(row));
+    const items = await Promise.all(rows.slice(0, input.limit).map(row => this.project(row)));
     const last = items.at(-1);
     return { items, next_cursor: rows.length > input.limit && last ? `${last.updated_at}|${last.id}` : null };
   }
   async create(ownerId: string, input: WebSiteCreate): Promise<WebSite> {
     const { sourceTitle, manifest } = await this.sourceBundle(ownerId, input.conversation_id, input.file_id);
     const ids = { siteId: randomUUID(), releaseId: randomUUID(), slug: input.slug ?? randomUUID() };
-    return this.project(input.backend_id
+    return await this.project(input.backend_id
       ? await this.requiredBackends().withPublishable(ownerId, input.backend_id,
         lease => this.store.create(ownerId, input, ids, sourceTitle, manifest, lease))
       : await this.store.create(ownerId, input, ids, sourceTitle, manifest));
@@ -45,18 +45,18 @@ export class WebSiteService {
   async update(ownerId: string, id: string, input: WebSiteUpdate): Promise<WebSite> {
     if (input.status === "published") {
       const { site } = await this.store.owned(ownerId, id);
-      if (site.backendId) return this.project(await this.requiredBackends().withPublishable(
+      if (site.backendId) return await this.project(await this.requiredBackends().withPublishable(
         ownerId, site.backendId, lease => this.store.update(ownerId, id, input, lease),
       ));
     }
-    return this.project(await this.store.update(ownerId, id, input));
+    return await this.project(await this.store.update(ownerId, id, input));
   }
   async publish(ownerId: string, id: string, fileId: string, expectedBackendId?: string): Promise<WebSite> {
     const { site } = await this.store.owned(ownerId, id);
     if (expectedBackendId && site.backendId !== expectedBackendId) throw new AppError("CONFLICT");
     const { manifest, conversationId } = await this.sourceBundle(ownerId, null, fileId);
     const releaseId = randomUUID();
-    return this.project(site.backendId
+    return await this.project(site.backendId
       ? await this.requiredBackends().withPublishable(ownerId, site.backendId,
         lease => this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest, lease))
       : await this.store.publish(ownerId, id, conversationId, fileId, releaseId, manifest));
@@ -66,7 +66,7 @@ export class WebSiteService {
   async publicEntry(slug: string): Promise<{ title: string; path: string; url?: string }> {
     const { site, release } = await this.store.publicSite(slug);
     const manifest = webBundleManifestSchema.parse(release.manifestJson);
-    return { title: site.name, path: `/web/${site.slug}/_releases/${release.id}/${encodeResourcePath(manifest.entry_path)}`, ...(site.backendId ? { url: this.requiredBackends().origin(site.backendId) } : {}) };
+    return { title: site.name, path: `/web/${site.slug}/_releases/${release.id}/${encodeResourcePath(manifest.entry_path)}`, ...(site.backendId ? { url: await this.requiredBackends().originFor(site.backendId) } : {}) };
   }
   async applicationResource(ownerId: string, id: string, path: string): Promise<{ data: Buffer; mimeType: string } | { redirect: string }> {
     const { site, release } = await this.store.owned(ownerId, id);
@@ -95,7 +95,7 @@ export class WebSiteService {
   async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: WebSiteToolRequest, publicBaseUrl: string): Promise<WebSiteWithUrl | WebSiteToolPage | WebSiteBackend | Record<string, unknown>> {
     await this.store.assertActor(ownerId);
     await this.store.assertActiveTurn(ownerId, conversationId, turnId);
-    if (request.operation === "prepare_backend") return this.requiredBackends().prepare(ownerId, conversationId, request.name, request.backend_id);
+    if (request.operation === "prepare_backend") return this.requiredBackends().prepare(ownerId, conversationId, request.name, request.backend_id, request.address);
     if (request.operation === "configure_backend") return this.requiredBackends().configure(ownerId, request.backend_id, request.change);
     if (request.operation === "inspect_backend") return this.requiredBackends().inspect(ownerId, request.backend_id);
     if (request.operation === "list") {
@@ -128,9 +128,9 @@ export class WebSiteService {
       ...(request.slug !== undefined ? { slug: request.slug } : {}),
     }), publicBaseUrl);
   }
-  private project(row: SiteAndRelease): WebSite {
+  private async project(row: SiteAndRelease): Promise<WebSite> {
     const result = projectSite(row);
-    return row.site.backendId && this.backends?.client ? { ...result, url: this.backends.origin(row.site.backendId) } : result;
+    return row.site.backendId && this.backends?.client ? { ...result, url: await this.backends.originFor(row.site.backendId) } : result;
   }
   private requiredBackends(): WebSiteBackendService {
     if (!this.backends) throw new AppError("WEB_SITE_BACKEND_NOT_CONFIGURED");

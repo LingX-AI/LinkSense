@@ -1485,6 +1485,7 @@ model WebSiteBackend {
   ownerId             String    @map("owner_id") @db.Uuid
   conversationId      String    @map("conversation_id") @db.Uuid
   name                String    @db.VarChar(128)
+  hostLabel           String?   @unique(map: "web_site_backends_host_label_key") @map("host_label") @db.VarChar(30)
   projectId           String    @unique(map: "web_site_backends_project_key") @map("project_id") @db.VarChar(36)
   status              String    @default("preparing") @db.VarChar(16)
   encryptedCredential String?   @map("encrypted_credential") @db.Text

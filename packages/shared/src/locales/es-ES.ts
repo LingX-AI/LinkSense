@@ -4,6 +4,7 @@ export const errorMessages = {
   WEB_SITE_BACKEND_LIMIT_REACHED: "Se ha alcanzado el límite de backends de aplicaciones dinámicas. Pide a un administrador que revise los recursos conservados.",
   WEB_SITE_BACKEND_NOT_CONFIGURED: "Un administrador debe configurar el servicio de aplicaciones dinámicas autoalojado.",
   WEB_SITE_BACKEND_UNAVAILABLE: "El backend de la aplicación no está disponible temporalmente. Inténtalo más tarde.",
+  WEB_SITE_BACKEND_ADDRESS_TAKEN: "Otra aplicación dinámica ya usa esta dirección. Elige otra.",
   WEB_SITE_BACKEND_PENDING: "Los recursos o las funciones del backend aún no están listos. Revisa el estado de compilación antes de publicar.",
   AUTOMATION_EXPIRATION_IN_PAST: "La fecha de caducidad no puede ser anterior a hoy en la zona horaria de la automatización. Selecciona otra fecha.",
   BROWSER_USE_PAIR_RATE_LIMITED: "Demasiadas solicitudes de vinculación del navegador. Inténtalo de nuevo más tarde.",
