@@ -38,16 +38,26 @@
 
 ## 自部署动态应用
 
-公开创建流程支持可选 Appwrite 后端，当前适配固定版本 `2.7.2`。普通静态站点继续使用原有 `/web/{slug}` 沙箱；新动态站点在独立应用 origin 托管前端，通过同源 `/appwrite/v1` 使用自己的访客账号、TablesDB、Storage 和 Node.js 24 HTTP Functions。LinkSense 平台认证、Prisma 数据库与运行器职责不变。此路线于 2026-11-15 获准实施，不使用 Appwrite Cloud。
+公开创建流程支持可选 Appwrite 后端，当前适配固定版本 `2.7.2`。普通静态站点继续使用原有 `/web/{slug}` 沙箱；新动态站点使用主域 `/app/{address}` 的可信外壳、opaque-origin iframe 和 `LinkSenseApp` SDK，拥有自己的访客账号、TablesDB、Storage 和 Node.js 24 HTTP Functions。外壳代管网络，访客 Appwrite 会话在 Redis 中按应用和浏览器会话分别加密保存，不向生成的脚本发放平台或 Appwrite 凭据。已有独立 origin 动态应用保持原有运行模式、地址和会话。LinkSense 平台认证、Prisma 数据库与运行器职责不变。此路线于 2026-11-15 获准实施，不使用 Appwrite Cloud；沙箱网关于 2026-11-17 获准实施。
 
 ### 配置与入口
 
 1. 在自有基础设施安装官方 Appwrite，初始化组织与具有该组织 owner 权限的专用管理账号，启用 `node-24` runtime。Appwrite 的 API hostname 必须能从函数执行网络解析并访问，不能把函数容器自己的 `localhost` 当作 API 地址。API、执行器及原生函数域只能从受控网络访问，公众仅访问 LS 应用网关；否则直连原生接口会绕过 LS 停用状态。SMTP、对象存储、备份和监控同样由部署方提供。
-2. 配置 `.env.example` 中的 `LINKSENSE_APPWRITE_ENDPOINT`、`LINKSENSE_APPWRITE_ADMIN_EMAIL`、`LINKSENSE_APPWRITE_ADMIN_PASSWORD`、`LINKSENSE_DYNAMIC_APPS_BASE_URL`。前三项是仅 API 使用的管理配置，不下发 Runner、模型或网页。管理员属于多个组织时，还要指定 `LINKSENSE_APPWRITE_ORGANIZATION_ID`；单组织自动识别。保持密码原有字符，凭据文件和部署配置按现有秘密管理要求保护。
-3. 应用 base URL 使用自有域，如 `https://apps.example.net`，配置通配 DNS 和证书。公开应用必须与 LS 控制台及 Appwrite 管理端使用不同的可注册域名，不能只使用同一域名的不同子域；服务启动时使用公共后缀规则校验，避免公开页面通过父域 Cookie 影响管理端。每应用地址为 `https://<backend-host>.apps.example.net`，新建后端默认持久化后端 UUID 去掉连字符后的前 12 位，例如 `600000000000`；既有后端保留原来的 UUID、短域名或自定义地址。本地可用 `http://apps.localhost:<api-port>`。创建或更新后端时可用 `prepare_backend` 的 `address` 指定 3–30 位小写 DNS 标签（如 `appointments`）作为固定地址，12 位十六进制留给自动地址；地址被占用时拒绝并返回 `WEB_SITE_BACKEND_ADDRESS_TAKEN`。改名与配置、发布共用数据库租约，并同步更新 Appwrite 的 Web 平台域名；旧地址停止提供服务，但永久保留给原后端，防止其他应用接管访客的浏览器存储。Appwrite 更新失败时恢复原地址，尝试过的新地址也继续保留。修改 base URL 会改变所有动态应用地址及浏览器 origin，不能当作普通重命名操作。
-4. 生产域可采用 [Nginx 配置片段](../../deploy/production/dynamic-apps.nginx.example.conf)，通过现有 LS 网关端口的 `/api/v1/public-app-gateway/` 转发到 API，保留原始 Host。也可在受控网络直接转发全部路径到 API。应用主机空间在平台认证、CORS 和请求体解析前被处理，不能通过该域访问平台 API；平台域也不提供应用后端管理代理。
+2. 配置 `.env.example` 中的 `LINKSENSE_APPWRITE_ENDPOINT`、`LINKSENSE_APPWRITE_ADMIN_EMAIL`、`LINKSENSE_APPWRITE_ADMIN_PASSWORD`。三项是仅 API 使用的管理配置，不下发 Runner、模型或网页。新沙箱应用复用 `LINKSENSE_PUBLIC_BASE_URL`、现有入口和证书，无需新增 DNS、泛域名或证书。仅在仍有历史独立 origin 应用时保留 `LINKSENSE_DYNAMIC_APPS_BASE_URL` 及其原有入口。管理员属于多个组织时，还要指定 `LINKSENSE_APPWRITE_ORGANIZATION_ID`；单组织自动识别。保持密码原有字符，凭据文件和部署配置按现有秘密管理要求保护。
+3. 新应用地址为 `<LINKSENSE_PUBLIC_BASE_URL>/app/<address>`。创建或更新后端时可用 `prepare_backend` 的 `address` 指定 3–30 位小写标签（如 `appointments`），未指定则使用后端 UUID 去掉连字符后的前 12 位；12 位十六进制留给自动地址。地址被占用时拒绝并返回 `WEB_SITE_BACKEND_ADDRESS_TAKEN`。改名与配置、发布共用数据库租约；旧地址永久保留给原后端，访客会话按后端 ID 保存，沙箱改名不迁移或丢失账号和数据。历史独立 origin 应用继续使用 `<backend-host>.<apps-base>`，应用 base 与控制台及 Appwrite 管理端必须属于不同可注册域名，其通配 DNS、TLS 和原生平台域名同步规则保持不变。不能删除历史 apps base 或通过改名把原生网页自动改成 SDK 网页。
+4. 主站网关须把 `/app/` 与 `/web/` 都转发给 API，仓库提供的 Nginx 模板和 Vite 开发代理已包含这两个入口。保留原始 Host（含端口），使用匹配的 `LINKSENSE_PUBLIC_BASE_URL`。历史应用仍可采用 [独立域名 Nginx 配置片段](../../deploy/production/dynamic-apps.nginx.example.conf)，通过 `/api/v1/public-app-gateway/` 转发。两类网关都在平台认证、CORS 和请求体解析前处理，不转发平台令牌或提供管理代理。
 
-四个必填配置全为空时禁用动态能力，静态发布和已有站点管理照常工作；部分配置或不安全的应用 URL 会在启动时拒绝。Docker 仅把 Appwrite 管理配置传给 API。
+三项 Appwrite 管理配置及历史应用 base 全为空时禁用动态能力，静态发布和已有站点管理照常工作；部分配置或不安全的历史应用 URL 会在启动时拒绝。Docker 仅把 Appwrite 管理配置传给 API。
+
+### 沙箱 SDK 与会话边界
+
+后端投影返回 `runtime_mode: sandbox`、`url`、`endpoint` 和 `sdk_url`。生成网页用经典 `<script src="返回的 sdk_url"></script>` 加载 SDK，等待 `LinkSenseApp.ready()`，再通过 `account`、`tables`、`storage`、`functions` 调用当前应用。方法与参数以[内置公开站点 Skill](../../apps/api/src/modules/capabilities/built-in-public-site.ts)为准；数据库固定为 `app`，普通数据操作使用访客会话和 Appwrite 原生资源权限。
+
+可信外壳不允许被嵌入，只允许加载当前应用的发布版本。生成页面始终受 iframe 和资源响应 CSP sandbox 双重限制，不授予 `allow-same-origin`。MessageChannel 绑定具体 iframe，文档导航时关闭旧通道；消息不能选择应用、访客、Project、外部 URL 或管理请求头。RPC 必须来自主站精确 Origin，携带与当前应用、站点及 HttpOnly 访客 Cookie 绑定的加密能力；`Origin: null`、其他访客或其他应用的能力均拒绝。上游错误映射为现有稳定错误码，原生会话/OAuth secret 不返回生成页面。Redis 会话使用原子比较写入，避免并发登录或退出覆盖新会话。
+
+浏览器访客标识与能力最长 30 天；Appwrite 会话仍受自身过期与撤销规则约束。Redis 会话丢失需要访客重新登录，Appwrite 账号、表与文件不受影响。主站 HTTPS 使用 Secure、HttpOnly、SameSite=Lax 和 `__Host-` Cookie；主站使用 HTTP 时仍是明文传输，沙箱不能补足 TLS。平台管理员会话与访客会话分开。
+
+沙箱不提供原生 localStorage、IndexedDB、Service Worker、Realtime、OAuth/SMS 或 SSR；持久化业务数据放入 Appwrite。上传经过受控网关，单文件至多 20 MiB，并受 bucket 更低限制约束；下载以 Blob 返回 iframe，不返回带凭据的直连地址。HTML 产物预览没有可信外壳，SDK 不就绪时应展示明确的本地化预览/错误状态，不能声称已验证后端。
 
 ### 生成、发布和维护
 
@@ -58,18 +68,20 @@
 - 先准备和验证后端，再通过 `publish_web_site` 的 `backend_id` 发布完整前端；恢复已停用应用时也检查后端就绪状态。更新使用现有 `site_id`，保留后端、访客账号、数据和应用地址。前端发布、函数部署和 schema 变更独立；回退前端不自动恢复函数或数据库。
 - 对话卡片、站点列表和复制操作使用实际应用 URL，旧 `/web/{slug}` 入口在权限检查后跳转。Browser Use 沿用已有拥有者检查、扩展权限和独立窗口操作，跳转后打开动态应用，无需改变扩展协议。
 - 网页包入口位于子目录时，应用根地址跳转到该入口并保留查询参数，使相对资源路径继续有效；带尾斜杠的目录地址读取该目录的 `index.html`。
-- 尽量在生成和发布前确定自定义地址。网页应从当前页面 origin 解析 `/appwrite/v1`；显式改名不会重写已发布的 HTML/JavaScript，也不会转移旧 origin 的 Cookie、localStorage 或 IndexedDB。已有前端若写死绝对 endpoint，需要在改名时同步更新并发布前端；访客可能需要重新登录。
+- 尽量在生成和发布前确定自定义地址。沙箱网页始终使用 SDK；主地址由后端 `address` 决定，站点的 `slug` 仅决定兼容入口 `/web/{slug}`。历史独立 origin 网页应从当前页面 origin 解析 `/appwrite/v1`。显式改名不会重写已发布的 HTML/JavaScript，也不会转移历史独立 origin 的 Cookie、localStorage 或 IndexedDB。已有前端若写死绝对 endpoint，需要在改名时同步更新并发布前端；访客可能需要重新登录。
 - 改名请求超时或响应丢失时，不能假定 Appwrite 没有执行更新。此时保留新旧地址的归属并把域名标记为待核验；下次读取在租约内检查原生平台的实际域名，只接受当前后端保留的地址并同步映射。不能把失败响应当作已经回滚原生平台的证明。
 
 ### 生命周期与限制
 
-公众 API 请求由网关固定 Project，并拒绝管理 key、管理员模式、跨项目参数及外部 Origin。只转发当前应用的访客 Cookie/JWT；Cookie 改为 host-only、HttpOnly、SameSite=Lax，HTTPS 下设置 Secure 并使用 `__Host-` 名称前缀，防止其他应用通过父域 Cookie 注入会话；网关向 Appwrite 转发时还原原生名称。本机 HTTP 开发使用原生 Cookie 名称。上传文件的响应使用不授予脚本或同源能力的沙箱 CSP，不能把用户上传的 HTML/SVG 当作应用脚本执行。
+公众 API 请求由网关固定 Project，不提供管理 key、管理员模式或跨项目调用。沙箱应用使用上节的服务端访客会话；历史独立 origin 网关只转发当前应用的访客 Cookie/JWT，Cookie 改为 host-only、HttpOnly、SameSite=Lax，HTTPS 下设置 Secure 并使用 `__Host-` 名称前缀，转发到 Appwrite 时还原原生名称。本机 HTTP 原生应用继续使用原生 Cookie 名称。上传文件响应使用不授予脚本或同源能力的沙箱 CSP，不能把用户上传的 HTML/SVG 当作主站脚本执行。
 
 每次页面、资源和 API 请求检查站点发布状态及所有者状态；返回在途后端响应前再次检查。停用、来源任务删除、站点删除或所有者停用会关闭同一网关入口，历史会话也不能继续调用。已经接受执行的操作和已下载数据不能撤回。当前工具只创建无事件、无计划的 HTTP 函数，网关拒绝异步执行，单次函数最多 30 秒。
 
 首版不提供 Realtime、OAuth/SMS、SSR、常驻服务或计划任务托管。每用户最多准备 50 个后端，包含保留资源；单个发布最多检查 100 个表和函数。永久删除站点仍仅删除发布记录，后端账号、数据、文件和密钥映射保留，永久清理需由管理员按明确的数据保留决定执行。网页 ZIP 仍仅包含前端；完整恢复还需要 Appwrite 数据/文件/配置、实例加密密钥和 LS 数据库中的绑定与凭据加密材料。
 
 ### 升级与验证
+
+沙箱功能须先等待使用旧版 Skill 的在途生成/发布结束，再执行追加迁移 `20261117180000_add_web_site_backend_runtime_mode`，更新全部 API/网关及 Runner/Web 后恢复新应用生成，避免混用两种运行约定。迁移只增加可空 `runtime_mode` 和检查约束：全部历史记录保持 `NULL`，不改变账号、数据、地址或加密凭据；新 API 显式给新记录写入 `sandbox`。已发布独立域名应用不会自动转换，旧 Project key 不增加 scope，访客操作继续通过原生会话完成。保留新列后可回退 API，但回退期间旧二进制不能执行新创建的 SDK 应用；恢复新版后继续使用。不能把旧应用改模式或要求批量重建/重新发布来完成升级。
 
 先执行新增迁移 `20261115000000_add_web_site_backends`，再更新全部 API 实例并配置入口，然后更新 Runner/Web。迁移仅新增后端表、可空绑定字段与新索引，不重建旧站点或修改其原有数据。旧 Web 客户端使用原 `/web/` 入口仍可跳转，旧静态站点不要求重新发布；启用动态应用前应完成全部 API 副本升级。
 
