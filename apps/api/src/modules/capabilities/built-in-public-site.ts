@@ -115,12 +115,17 @@ requests or approves that change; preserve the original site and link.
    Available async operations (database is always \`app\`):
    - \`account.create({email,password,name?})\`, \`account.login({email,password})\`,
      \`account.anonymous()\`, \`account.get()\`, \`account.logout()\`.
+     Call \`account.get()\` first and create an anonymous session only when it
+     fails with \`AUTH_REQUIRED\`; \`account.anonymous()\` returns 401 while a
+     session is already active.
    - \`tables.list(tableId, queries?: string[])\`, \`tables.get(tableId,rowId)\`,
      \`tables.create(tableId,data,permissions?: string[],rowId?: string)\`,
      \`tables.update(tableId,rowId,data)\`, \`tables.delete(tableId,rowId)\`.
-     Queries use Appwrite's serialized query format. Assign permissions such as
-     \`read("user:<visitor-id>")\`, \`update("user:<visitor-id>")\` and
-     \`delete("user:<visitor-id>")\` explicitly when creating private rows.
+     Queries use Appwrite's serialized query format. Permission targets are
+     account user IDs: use the \`userId\` from the account or session response,
+     never the session \`$id\`. Assign \`read("user:<userId>")\`,
+     \`update("user:<userId>")\` and \`delete("user:<userId>")\` explicitly when
+     creating private rows.
    - \`storage.upload(bucketId, File, fileId?: string)\`,
      \`storage.download(bucketId,fileId)\` (returns Blob), \`storage.delete(bucketId,fileId)\`.
      Use \`URL.createObjectURL(blob)\` for images/downloads and revoke it on cleanup.
