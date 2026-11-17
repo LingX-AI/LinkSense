@@ -788,7 +788,9 @@ const { registry } = defineRegistry(catalog, {
       <div
         className={cn(
           "grid min-w-0 grid-cols-1 gap-3",
-          props.columns === 3 ? "@lg/rich:grid-cols-3" : "@md/rich:grid-cols-2"
+          props.columns === 3
+            ? "@4xl/rich:grid-cols-3"
+            : "@2xl/rich:grid-cols-2"
         )}
       >
         {children}
