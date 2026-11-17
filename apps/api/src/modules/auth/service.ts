@@ -690,6 +690,20 @@ export class AuthService {
     return this.createSession(user, provider, metadata)
   }
 
+  async createDesktopSession(
+    userId: string,
+    expectedEmail: string,
+    expectedAuthValidAfter: string,
+    metadata: SessionMetadata,
+  ): Promise<AuthSession> {
+    const user = await this.options.persistence.findUserById(userId)
+    if (!user || user.status !== "active" || user.email !== expectedEmail ||
+      user.authValidAfter.toISOString() !== expectedAuthValidAfter) {
+      throw new AppError("AUTH_SESSION_EXPIRED")
+    }
+    return this.createSession(user, user.lastLoginMethod ?? "password", metadata)
+  }
+
   async loginSaml(identity: VerifiedExternalIdentity, metadata: SessionMetadata): Promise<AuthSession> {
     return this.loginExternal(identity, "saml", metadata)
   }

@@ -1,5 +1,5 @@
 import Fastify from "fastify"
-import { authSessionSchema, authUserSchema } from "@linksense/shared"
+import { authSessionSchema, authUserSchema, desktopLoginRedirectUri } from "@linksense/shared"
 import { CompactSign } from "jose"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -18,6 +18,7 @@ import type {
   AuthUserRecord,
 } from "../src/modules/auth/types.js"
 import { authenticationPlugin } from "../src/plugins/authentication.js"
+import { DesktopLoginService } from "../src/modules/auth/desktop-login.js"
 
 const apps: Array<ReturnType<typeof Fastify>> = []
 
@@ -26,6 +27,69 @@ afterEach(async () => {
 })
 
 describe("authentication Fastify integration", () => {
+  it("authorizes only a same-origin signed-in browser and keeps native refresh credentials in an HttpOnly cookie", async () => {
+    const app = Fastify()
+    apps.push(app)
+    await registerAuthentication(app, { jwtSecret: "s".repeat(32) })
+    const user = makeUser()
+    const persistence = authPersistence(user)
+    const service = createService(persistence, authRateLimiter(), true)
+    const store = {
+      save: vi.fn(async () => undefined),
+      consume: vi.fn(async () => ({
+        userId: user.id, email: user.email, authValidAfter: user.authValidAfter.toISOString(),
+        challenge: "c".repeat(43),
+      })),
+      takeRequest: vi.fn(async () => true),
+    }
+    const hooks = createAuthenticationHooks(persistence)
+    app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error))
+    await app.register(authRoutes, {
+      prefix: "/api/v1/auth", service, secureCookies: true,
+      desktopLogin: new DesktopLoginService(service, store),
+      authenticate: async request => { await hooks.authenticate(request) },
+      getAuthenticatedUser: () => user,
+    })
+    await app.ready()
+    const payload = {
+      redirect_uri: desktopLoginRedirectUri,
+      code_challenge: "c".repeat(43), code_challenge_method: "S256", state: "s".repeat(43),
+    }
+    const authorization = `Bearer ${app.jwt.sign({
+      sub: user.id, email: user.email, role: user.role, auth_valid_after: user.authValidAfter.toISOString(),
+    })}`
+    const url = "/api/v1/auth/desktop/authorize"
+    expect((await app.inject({ method: "POST", url, payload })).statusCode).toBe(401)
+    const denied = await app.inject({
+      method: "POST", url, payload,
+      headers: { authorization, origin: "https://evil.example", "sec-fetch-site": "cross-site" },
+    })
+    expect(denied.statusCode).toBe(403)
+    expect(store.save).not.toHaveBeenCalled()
+    const approved = await app.inject({
+      method: "POST", url, payload,
+      headers: { authorization, host: "linksense.example", origin: "https://linksense.example", "sec-fetch-site": "same-origin" },
+    })
+    expect(approved.statusCode).toBe(200)
+    expect(approved.headers["cache-control"]).toBe("no-store")
+    expect(approved.headers["set-cookie"]).toBeUndefined()
+    expect(Object.keys(approved.json().data)).toEqual(["code"])
+    const incompatible = await app.inject({
+      method: "POST", url: "/api/v1/auth/desktop/exchange",
+      payload: { code: approved.json().data.code, code_verifier: "v".repeat(43), redirect_uri: "http://127.0.0.1:49152/desktop/callback" },
+    })
+    expect(incompatible.statusCode).toBe(400)
+    expect(store.consume).not.toHaveBeenCalled()
+    const exchanged = await app.inject({
+      method: "POST", url: "/api/v1/auth/desktop/exchange",
+      payload: { code: approved.json().data.code, code_verifier: "v".repeat(43), redirect_uri: payload.redirect_uri },
+    })
+    expect(exchanged.statusCode).toBe(204)
+    expect(exchanged.headers["set-cookie"]).toContain("HttpOnly")
+    expect(exchanged.headers["set-cookie"]).toContain("Secure")
+    expect(exchanged.headers["cache-control"]).toBe("no-store")
+    expect(exchanged.body).toBe("")
+  })
   it("rejects signed JSON arrays at the JWT verification boundary", async () => {
     const app = Fastify()
     apps.push(app)

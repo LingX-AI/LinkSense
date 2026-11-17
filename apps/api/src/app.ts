@@ -15,6 +15,7 @@ import { registerDesktopDeviceRoutes } from "./modules/desktop-devices/routes.js
 import { DesktopDeviceService } from "./modules/desktop-devices/service.js";
 import { PrismaDesktopDeviceRepository } from "./modules/desktop-devices/repository.js";
 import { RedisDesktopDeviceCoordinator } from "./modules/desktop-devices/coordinator.js";
+import { DesktopLoginService, RedisDesktopLoginStore } from "./modules/auth/desktop-login.js";
 import { BrowserUseService } from "./modules/browser-use/service.js";
 import { BrowserUseIntentService } from "./modules/browser-use/intent.js";
 import { RedisBrowserStore } from "./modules/browser-use/store.js";
@@ -169,6 +170,7 @@ export const SENSITIVE_REQUEST_LOG_PATHS = [
   "req.body.app_secret",
   "req.body.ticket",
   "req.body.code",
+  "req.body.code_verifier",
   "req.body.pairing.code",
   "req.body.session_id",
   "req.body.renewal_token",
@@ -281,13 +283,19 @@ export async function buildApi(
   await app.register(authRoutes, {
     prefix: "/api/v1/auth",
     service: authService,
+    desktopLogin: new DesktopLoginService(authService, new RedisDesktopLoginStore(services.redis)),
     secureCookies: services.config.publicUrlUsesHttps,
     publicBaseUrl: services.config.publicBaseUrl,
     authenticate: app.authenticate,
     getAuthenticatedUser: async (request) => {
       await app.authenticate(request);
       if (!request.authUser) throw new Error("authenticated user missing");
-      return authService.getCurrentUser(request.authUser.id);
+      const user = await authService.getCurrentUser(request.authUser.id);
+      if (user.email !== request.authUser.email || user.role !== request.authUser.role ||
+        user.authValidAfter.toISOString() !== request.authUser.authValidAfter.toISOString()) {
+        throw new AppError("AUTH_SESSION_EXPIRED");
+      }
+      return user;
     },
   });
   const samlSettings = new SamlSettingsService(services.prisma, services.config);

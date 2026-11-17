@@ -22,6 +22,36 @@ import type {
 const NOW = new Date("2026-07-11T08:00:00.456Z");
 
 describe("AuthService", () => {
+  it("delegates browser login to an independent refresh session while preserving the existing authentication method", async () => {
+    const user = makeUser({ lastLoginMethod: "oidc", passwordHash: null })
+    const fixture = authFixture({ user })
+    const session = await fixture.service.createDesktopSession(user.id, user.email, user.authValidAfter.toISOString(), metadata())
+    expect(session.user.lastLoginMethod).toBe("oidc")
+    expect(fixture.persistence.createRefreshSession).toHaveBeenCalledWith(expect.objectContaining({
+      userId: user.id, loginMethod: "oidc", expectedAuthValidAfter: user.authValidAfter,
+    }))
+    expect(fixture.persistence.rotateRefreshSession).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { status: "disabled" as const },
+    { email: "changed@example.com" },
+    { authValidAfter: new Date("2026-07-01T00:00:00.001Z") },
+  ])("rejects browser authorization after account revocation or identity changes: %j", async (changed) => {
+    const user = makeUser()
+    const fixture = authFixture({ user: { ...user, ...changed } })
+    await expect(fixture.service.createDesktopSession(user.id, user.email, user.authValidAfter.toISOString(), metadata()))
+      .rejects.toMatchObject({ code: "AUTH_SESSION_EXPIRED" })
+    expect(fixture.persistence.createRefreshSession).not.toHaveBeenCalled()
+  })
+
+  it("rejects authorization when the account changes during refresh-session creation", async () => {
+    const user = makeUser()
+    const fixture = authFixture({ user })
+    vi.mocked(fixture.persistence.createRefreshSession).mockResolvedValue(false)
+    await expect(fixture.service.createDesktopSession(user.id, user.email, user.authValidAfter.toISOString(), metadata()))
+      .rejects.toMatchObject({ code: "AUTH_INVALID_CREDENTIALS" })
+  })
   it("issues a social session only while the verified user's revocation stamp remains unchanged", async () => {
     const user = makeUser();
     const fixture = authFixture({ user });
