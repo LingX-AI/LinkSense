@@ -1,6 +1,9 @@
 import { privacyMaskingKindValues } from "@linksense/shared";
 
-import type { MaskContext, PrivacyMasker } from "./masker.js";
+import type {
+  MaskContext,
+  PrivacyMasker,
+} from "@linksense/shared/privacy-masking-engine";
 
 type JsonObject = Record<string, unknown>;
 

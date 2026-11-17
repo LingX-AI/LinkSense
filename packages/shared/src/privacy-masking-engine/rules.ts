@@ -1,4 +1,4 @@
-import type { PrivacyMaskingKind } from "@linksense/shared";
+import type { PrivacyMaskingKind } from "../privacy-masking.js";
 
 export type PrivacyRule = {
   kind: PrivacyMaskingKind;

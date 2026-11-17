@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PrivacyMaskingRuntime } from "@linksense/shared";
 
-import { PrivacyMasker } from "../src/privacy-masking/masker.js";
+import { PrivacyMasker } from "@linksense/shared/privacy-masking-engine";
 import { maskResponsesRequest } from "../src/privacy-masking/request.js";
 import {
   PrivacyRestorer,

@@ -4,7 +4,7 @@ import type {
   PrivacyMaskingAction,
   PrivacyMaskingKind,
   PrivacyMaskingRuntime,
-} from "@linksense/shared";
+} from "../privacy-masking.js";
 
 import { privacyRules, type PrivacyRule } from "./rules.js";
 

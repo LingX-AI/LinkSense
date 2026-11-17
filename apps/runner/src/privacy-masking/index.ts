@@ -1,8 +1,8 @@
-export { PrivacyMasker } from "./masker.js";
+export { PrivacyMasker } from "@linksense/shared/privacy-masking-engine";
 export type {
   MaskContext,
   PrivacyMaskHit,
-} from "./masker.js";
+} from "@linksense/shared/privacy-masking-engine";
 export { maskResponsesRequest } from "./request.js";
 export {
   PrivacyRestorer,
