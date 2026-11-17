@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { conversationExecutionSelectionSchema } from "./desktop-protocol.js";
 import { INTERACTIVE_APPLICATION_FILE_SOURCE } from "./interactive-applications.js";
 import { conversationReferenceInputSchema, conversationReferenceDisplaySchema } from "./conversation-side-chat.js";
 import { taskReferencesInputSchema, taskReferencesDisplaySchema } from "./conversation-references.js";
@@ -58,6 +59,11 @@ export const conversationCollaborationModeSchema = z.enum([
   "default",
   "plan",
 ]);
+export const conversationCreateInputSchema = conversationExecutionSelectionSchema.safeExtend({
+  collaboration_mode: conversationCollaborationModeSchema.default("default"),
+  prewarmed_conversation_id: uuidSchema.optional(),
+  project_id: uuidSchema.nullable().optional(),
+});
 export const threadGoalStatusSchema = z.enum([
   "active",
   "paused",
@@ -104,6 +110,7 @@ export const conversationStartFailurePayloadSchema = z.object({
 });
 
 export const conversationSchema = z.strictObject({
+  ...conversationExecutionSelectionSchema.shape,
   id: uuidSchema,
   owner_id: uuidSchema,
   title: z.string().min(1).max(240),

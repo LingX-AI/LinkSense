@@ -11,6 +11,7 @@ import { createPrismaClient } from "../../src/db.js";
 import { sha256 } from "../../src/lib/crypto.js";
 import { PrismaDesktopDeviceRepository } from "../../src/modules/desktop-devices/repository.js";
 import { DesktopDeviceService } from "../../src/modules/desktop-devices/service.js";
+import { assertPairedDesktopDevice } from "../../src/modules/conversations/execution-target.js";
 import { MemoryDesktopDeviceCoordinator } from "../desktop-devices.fixture.js";
 
 // Owns a temporary PostgreSQL cluster; never loads the application environment.
@@ -97,6 +98,16 @@ try {
   assert.equal(stored.tokenHash, sha256(issued.token));
   assert.notEqual(stored.tokenHash, issued.token);
   assert.equal((await service.authenticate(issued.token))?.ownerId, owner);
+  await assert.rejects(assertPairedDesktopDevice(db, other, stored.id), { code: "FORBIDDEN" });
+  const localConversation = await db.$transaction(async tx => {
+    await assertPairedDesktopDevice(tx, owner, stored.id);
+    return tx.conversation.create({ data: {
+      ownerId: owner, title: "Local task", titleSource: "manual", archiveStatus: "active",
+      workspaceRelPath: `${owner}/services/${randomUUID()}/home/workspace`,
+      runtimeGeneration: randomUUID(), executionTarget: "local", desktopDeviceId: stored.id,
+    } });
+  });
+  assert.equal((await db.conversation.findUniqueOrThrow({ where: { id: localConversation.id } })).executionTarget, "local");
   await assert.rejects(service.revoke(other, issued.device.id), { code: "FORBIDDEN" });
   const local = await db.localComputerSession.create({
     data: { ownerId: owner, conversationId: conversation, deviceId: stored.id, status: "active", grantScope: "session" },
@@ -105,6 +116,7 @@ try {
     data: { ownerId: owner, conversationId: conversation, deviceId: stored.id, capability: "local_execution", scope: "session" },
   });
   await service.revoke(owner, issued.device.id);
+  await assert.rejects(assertPairedDesktopDevice(db, owner, stored.id), { code: "FORBIDDEN" });
   assert.equal(await service.authenticate(issued.token), null);
   assert.equal((await db.localComputerSession.findUniqueOrThrow({ where: { id: local.id } })).status, "ended");
   assert((await db.computerPermissionGrant.findUniqueOrThrow({ where: { id: grant.id } })).revokedAt);

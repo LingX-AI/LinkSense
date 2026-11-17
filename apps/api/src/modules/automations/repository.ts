@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 
-import { reasoningEffortSchema, automationNotificationTargetSchema, readAutomationMonitoring, automationRunContextSchema } from "@linksense/shared";
+import { reasoningEffortSchema, automationNotificationTargetSchema, readAutomationMonitoring, automationRunContextSchema, conversationExecutionTargetSchema } from "@linksense/shared";
 import { AppError } from "../../lib/errors.js";
 import { lockAutomationMonitoring } from "./monitoring.js";
 
@@ -49,6 +49,7 @@ const lockedAutomationConversationSchema = z.object({
   archiveStatus: z.string(),
   pinnedAt: z.date().nullable(),
   collaborationMode: z.string(),
+  executionTarget: conversationExecutionTargetSchema.default("cloud"),
 });
 const MANUAL_RUN_TIMESTAMP_ATTEMPTS = 1_000;
 
@@ -102,6 +103,7 @@ export class PrismaAutomationRepository implements AutomationRepository {
         archiveStatus: "active",
         pinnedAt: { not: null },
         collaborationMode: "default",
+        executionTarget: "cloud",
       },
       select: {
         id: true,
@@ -126,6 +128,7 @@ export class PrismaAutomationRepository implements AutomationRepository {
         archiveStatus: "active",
         pinnedAt: { not: null },
         collaborationMode: "default",
+        executionTarget: "cloud",
       },
       select: {
         id: true,
@@ -656,7 +659,8 @@ async function lockPinnedConversation(
       title,
       archive_status AS "archiveStatus",
       pinned_at AS "pinnedAt",
-      collaboration_mode AS "collaborationMode"
+      collaboration_mode AS "collaborationMode",
+      execution_target AS "executionTarget"
     FROM conversations
     WHERE id = ${conversationId}::uuid
       AND owner_id = ${ownerId}::uuid
@@ -674,6 +678,7 @@ async function lockPinnedConversation(
   if (conversation.collaborationMode !== "default") {
     throw new AutomationTargetCollaborationModeError();
   }
+  if (conversation.executionTarget !== "cloud") throw new AppError("RUNNER_UNAVAILABLE");
   return {
     id: conversation.id,
     ownerId: conversation.ownerId,

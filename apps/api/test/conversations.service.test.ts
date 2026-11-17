@@ -8,6 +8,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   stat,
   writeFile,
@@ -87,6 +88,87 @@ afterEach(async () => {
 });
 
 describe("ConversationService ownership and draft lifecycle", () => {
+  it("projects a pre-desktop cloud record without requiring new fields in its stored projection", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findMany.mockResolvedValue([conversationRow()]);
+    const result = await fixture.service.list(OWNER_ID, { archived: false, limit: 30 });
+    expect(result.items[0]).toMatchObject({ id: CONVERSATION_ID, execution_target: "cloud", desktop_device_id: null });
+  });
+
+  it("creates and projects a paired local task without preparing any cloud runtime", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const epochs = [{ deviceEpoch: NOW, ownerEpoch: NOW }];
+    fixture.prisma.$queryRaw.mockResolvedValue(epochs);
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue(epochs);
+    fixture.prisma.conversation.create.mockImplementation(async ({ data }) => conversationRow(data));
+    const result = await fixture.service.create(OWNER_ID, {
+      collaborationMode: "default", executionTarget: "local", desktopDeviceId: deviceId,
+      prewarmedConversationId: SECOND_CONVERSATION_ID,
+    });
+    expect(result).toMatchObject({ execution_target: "local", desktop_device_id: deviceId, codex_thread_id: null });
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      executionTarget: "local", desktopDeviceId: deviceId, agentsTemplateVersion: null,
+      workspaceRelPath: `${OWNER_ID}/services/${result.id}/home/workspace`,
+    }) });
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.runner.inspectRuntime).not.toHaveBeenCalled();
+    expect(fixture.preflight.ensureUserHome).not.toHaveBeenCalled();
+    expect(fixture.redis.claimConversationPrewarm).not.toHaveBeenCalled();
+  });
+
+  it("rejects missing, revoked or another owner's local device before creating storage or calling the cloud", async () => {
+    const fixture = await conversationFixture();
+    await expect(fixture.service.create(OWNER_ID, {
+      collaborationMode: "default", executionTarget: "local", desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.cleanup.enqueueRuntimeCleanup).not.toHaveBeenCalled();
+  });
+
+  it("rechecks the paired device inside the creation transaction when revocation races with storage preparation", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.$queryRaw.mockResolvedValue([{ deviceEpoch: NOW, ownerEpoch: NOW }]);
+    fixture.prisma.conversation.findUnique.mockResolvedValue(null);
+    await expect(fixture.service.create(OWNER_ID, {
+      collaborationMode: "default", executionTarget: "local", desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.cleanup.enqueueRuntimeCleanup).not.toHaveBeenCalled();
+    expect(await readdir(join(fixture.root, OWNER_ID, "services"))).toEqual([]);
+  });
+
+  it("rejects local prewarm before enqueueing or preparing a runtime even if the task is deleted after its read", async () => {
+    const fixture = await conversationFixture();
+    const local = conversationRow({
+      executionTarget: "local", desktopDeviceId: "10000000-0000-4000-8000-000000000009",
+    });
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(local).mockResolvedValue(null);
+    await expect(fixture.service.prewarm(OWNER_ID, {
+      conversationId: CONVERSATION_ID, collaborationMode: "default",
+    })).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    expect(fixture.cleanup.enqueueConversationPrewarm).not.toHaveBeenCalled();
+    fixture.prisma.conversation.findUnique.mockResolvedValueOnce(local).mockResolvedValue(null);
+    await fixture.service.executePrewarm({ ownerId: OWNER_ID, conversationId: CONVERSATION_ID, collaborationMode: "default" });
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.preflight.resolve).not.toHaveBeenCalled();
+  });
+
+  it("does not fork or schedule a local task on the cloud while local transport is unavailable", async () => {
+    const fixture = await conversationFixture();
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({
+      executionTarget: "local", desktopDeviceId: "10000000-0000-4000-8000-000000000009", pinnedAt: NOW,
+    }));
+    await expect(fixture.service.forkConversationAtMessage(OWNER_ID, CONVERSATION_ID, MESSAGE_ID, "fork-local", {
+      actorId: OWNER_ID, ipAddress: null, userAgent: null,
+    })).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    await expect(fixture.service.assertAutomationCompatible(OWNER_ID, CONVERSATION_ID)).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversation.create).not.toHaveBeenCalled();
+  });
+
   it("persists development instructions separately from an installed application snapshot", async () => {
     const fixture = await conversationFixture();
     const developmentInstructions = vi.fn(async () => "Edit the existing application project.");
@@ -1863,7 +1945,7 @@ describe("ConversationService ownership and draft lifecycle", () => {
     expect(created).toMatchObject({ id: SECOND_CONVERSATION_ID, projectId, workspaceRelPath: source.workspaceRelPath, codexThreadId: null, applicationId: null });
     expect(fixture.prisma.conversation.findFirst).toHaveBeenCalledWith({
       where: { id: CONVERSATION_ID, ownerId: OWNER_ID, archiveStatus: "active", pinnedAt: { not: null }, collaborationMode: "default" },
-      select: { projectId: true },
+      select: { projectId: true, executionTarget: true },
     });
     expect(fixture.runner.prepareRuntime).toHaveBeenCalledWith(SECOND_CONVERSATION_ID, OWNER_ID, projectId ? `projects/${projectId}` : "workspace", undefined);
     expect(fixture.runner.forkThread).not.toHaveBeenCalled();
@@ -12128,6 +12210,33 @@ describe("ConversationService pending and turn materialization", () => {
 });
 
 describe("conversation side chats", () => {
+  it("keeps a side chat on its parent's local device without preparing a cloud runtime", async () => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const parent = conversationRow({
+      codexThreadId: "local-parent-thread", executionTarget: "local", desktopDeviceId: deviceId,
+      workspaceRelPath: serviceWorkspaceRelativePath(OWNER_ID, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockImplementation(async input => input?.where?.sideChatParentId ? null : parent);
+    fixture.prisma.conversationTurn.findMany.mockResolvedValue([{ id: TURN_ID }]);
+    fixture.prisma.conversationMessage.findFirst.mockResolvedValue({ sequenceNo: 3 });
+    fixture.prisma.conversation.create.mockImplementation(async ({ data }) => conversationRow(data));
+    fixture.prisma.$queryRaw.mockResolvedValue([{ deviceEpoch: NOW, ownerEpoch: NOW }]);
+    fixture.defaultTransaction.$queryRaw.mockImplementation(async (...input) => {
+      const query = input[0];
+      return Array.isArray(query) && query.join("").includes("FROM desktop_devices")
+        ? [{ deviceEpoch: NOW, ownerEpoch: NOW }]
+        : [{ id: parent.id, projectId: parent.projectId, workspaceRelPath: parent.workspaceRelPath }];
+    });
+    await fixture.service.openSideChat(OWNER_ID, CONVERSATION_ID, {
+      source_message_id: MESSAGE_ID, selection_text: "quote", include_recent_messages: false,
+    });
+    expect(fixture.prisma.conversation.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      executionTarget: "local", desktopDeviceId: deviceId, workspaceRelPath: parent.workspaceRelPath,
+    }) });
+    expect(fixture.runner.prepareRuntime).not.toHaveBeenCalled();
+  });
+
   it("refuses to attach prepared side-chat storage after its parent moves projects", async () => {
     const fixture = await conversationFixture();
     const parent = conversationRow({ codexThreadId: "active-thread", projectId: null });

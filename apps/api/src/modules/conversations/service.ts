@@ -1,4 +1,6 @@
 import { settleCancelledAutomationPending, monitoringInstructionsForStart } from "../automations/monitoring.js";
+import { assertPairedDesktopDevice } from "./execution-target.js";
+import { conversationExecutionSelectionSchema, conversationExecutionTargetSchema, workspacePermissionPolicy, type ConversationExecutionSelection, type ConversationExecutionTarget } from "@linksense/shared";
 import { projectInteractiveTaskState } from "./interactive-task-state.js";
 import { prepareTaskReferences } from "./task-references.js";
 import { indexStopHookSupersededAssistantMessageIds } from "./message-visibility.js";
@@ -21,8 +23,8 @@ import { assertApplicationRuntimeCurrent } from "../applications/runtime-version
 import type { ApplicationRuntimeConfiguration } from "../applications/service.js";
 import type { PublishedCapability } from "../applications/published-definition.js";
 import { createHash } from "node:crypto";
-import { access, constants } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { access, constants, mkdir, rm } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { z } from "zod";
 import { v5 as uuidv5 } from "uuid";
 
@@ -1084,11 +1086,12 @@ export class ConversationService {
     if (input.conversationId) {
       const existing = await this.prisma.conversation.findUnique({
         where: { id: conversationId },
-        select: { ownerId: true },
+        select: { ownerId: true, executionTarget: true },
       });
       if (existing && existing.ownerId !== ownerId) {
         throw new AppError("CONVERSATION_NOT_FOUND");
       }
+      if (existing?.executionTarget === "local") throw new AppError("RUNNER_UNAVAILABLE");
       if (!existing) {
         reservationRevision = crypto.randomUUID();
         const reserved = await this.redis.reserveConversationPrewarm(
@@ -1150,9 +1153,11 @@ export class ConversationService {
         applicationVersionId: true,
         applicationChannel: true,
         workspaceRelPath: true,
+        executionTarget: true,
       },
     });
     if (existing && existing.ownerId !== input.ownerId) return;
+    if (existing?.executionTarget === "local") return;
     // App resources are prepared under the installation gate on submission.
     // Merely opening a draft must not activate a test snapshot or native cache.
     if (existing?.applicationId) return;
@@ -3286,6 +3291,8 @@ export class ConversationService {
       fallbackLocale?: Locale;
       prewarmedConversationId?: string;
       projectId?: string | null;
+      executionTarget?: ConversationExecutionTarget;
+      desktopDeviceId?: string | null;
     },
   ) {
     return this.withActiveUserRuntimeLease(ownerId, async () => {
@@ -3296,6 +3303,10 @@ export class ConversationService {
         {
           collaborationMode: input.collaborationMode,
           projectId: input.projectId ?? null,
+          execution: conversationExecutionSelectionSchema.parse({
+            execution_target: input.executionTarget,
+            desktop_device_id: input.desktopDeviceId,
+          }),
         },
         input.prewarmedConversationId,
       );
@@ -3354,6 +3365,10 @@ export class ConversationService {
             : undefined,
           {
             projectId: parent.projectId,
+            execution: conversationExecutionSelectionSchema.parse({
+              execution_target: parent.executionTarget,
+              desktop_device_id: parent.desktopDeviceId,
+            }),
             sideChat: {
               parentId: parent.id,
               workspaceRelPath: parent.workspaceRelPath,
@@ -4914,6 +4929,7 @@ export class ConversationService {
     if (conversation.collaborationMode !== "default") {
       throw new AppError("COLLABORATION_MODE_UNAVAILABLE");
     }
+    if (conversation.executionTarget === "local") throw new AppError("RUNNER_UNAVAILABLE");
     const context: AuditContext = {
       actorId: ownerId,
       ipAddress: null,
@@ -6732,10 +6748,12 @@ export class ConversationService {
     if (conversation.collaborationMode !== "default") {
       throw new AppError("COLLABORATION_MODE_UNAVAILABLE");
     }
+    if (conversation.executionTarget === "local") throw new AppError("RUNNER_UNAVAILABLE");
   }
 
   async forkConversationAtMessage(ownerId: string, conversationId: string, messageId: string, idempotencyKey: string, context: AuditContext) {
     const source = await this.assertOwner(ownerId, conversationId);
+    if (source.executionTarget === "local") throw new AppError("RUNNER_UNAVAILABLE");
     const fork = () => this.forkInEnvironment(ownerId, conversationId, messageId, idempotencyKey, context);
     if (!source.applicationId) return fork();
     if (!this.applicationResolver) throw new AppError("APPLICATION_NOT_FOUND");
@@ -7416,10 +7434,11 @@ export class ConversationService {
       const source = sourceConversationId
         ? await this.prisma.conversation.findFirst({
             where: { id: sourceConversationId, ownerId, archiveStatus: "active", pinnedAt: { not: null }, collaborationMode: "default" },
-            select: { projectId: true },
+            select: { projectId: true, executionTarget: true },
           })
         : null;
       if (sourceConversationId && !source) throw new AppError("AUTOMATION_TASK_NOT_PINNED");
+      if (source?.executionTarget === "local") throw new AppError("RUNNER_UNAVAILABLE");
       return this.createConversation(ownerId, fallbackLocale, undefined, {
         title,
         pinned: true,
@@ -7454,9 +7473,16 @@ export class ConversationService {
       projectId?: string | null;
       projectSourceConversationId?: string;
       sideChat?: { parentId: string; workspaceRelPath: string; reference: SideChatReference; preferredModel: string | null; knowledgeBaseIds: Prisma.JsonValue };
+      execution?: ConversationExecutionSelection;
     },
     prewarmedConversationId?: string,
   ) {
+    const execution = options?.execution ?? conversationExecutionSelectionSchema.parse({});
+    const local = execution.execution_target === "local";
+    if (local) {
+      await assertPairedDesktopDevice(this.prisma, ownerId, z.uuid().parse(execution.desktop_device_id));
+      prewarmedConversationId = undefined;
+    }
     let id = options?.conversationId ?? prewarmedConversationId ?? crypto.randomUUID();
     const applicationRuntime = options?.resolvedApplicationRuntime ?? (application
       ? options?.development && this.applicationResolver
@@ -7472,10 +7498,13 @@ export class ConversationService {
       if (reused) return reused;
     }
     const serviceSessionId = application?.id;
-    const workspaceRelPath = options?.sideChat?.workspaceRelPath ?? (serviceSessionId
+    const workspaceRelPath = options?.sideChat?.workspaceRelPath ?? (local
+      ? serviceWorkspaceRelativePath(ownerId, id)
+      : serviceSessionId
       ? serviceWorkspaceRelativePath(ownerId, serviceSessionId)
       : projectWorkspaceRelativePath(ownerId, options?.projectId ?? null));
     let claimedPrewarm = false;
+    let localStagingRoot: string | null = null;
     if (prewarmedConversationId) {
       const collision = await this.prisma.conversation.findUnique({
         where: { id: prewarmedConversationId },
@@ -7495,8 +7524,10 @@ export class ConversationService {
       const prewarmedRuntime = claimedPrewarm
         ? await this.runner.inspectPrewarmedConversation(id, ownerId).catch(() => null)
         : null;
-      let runtime: Awaited<ReturnType<RunnerClient["prepareRuntime"]>>;
-      if (prewarmedRuntime) {
+      let runtime: { agentsTemplateVersion: string | null; runtimeGeneration: string };
+      if (local) {
+        runtime = { agentsTemplateVersion: null, runtimeGeneration: crypto.randomUUID() };
+      } else if (prewarmedRuntime) {
         runtime = prewarmedRuntime;
       } else {
         const reservedRuntime = claimedPrewarm
@@ -7518,6 +7549,15 @@ export class ConversationService {
         ownerId,
         workspaceRelPath,
       );
+      if (local) {
+        if (!options?.sideChat) {
+          const root = dirname(dirname(workspace));
+          await ensureSharedWorkspaceDirectory(this.workspaceRoot, dirname(root));
+          await mkdir(root, { mode: workspacePermissionPolicy.sharedDirectory });
+          localStagingRoot = root;
+        }
+        await ensureSharedWorkspaceDirectory(this.workspaceRoot, workspace);
+      }
       await Promise.all(
         ["attachments", "artifacts", "temp"].map((directory) =>
           ensureSharedWorkspaceDirectory(
@@ -7532,6 +7572,7 @@ export class ConversationService {
         where: { runtimePrincipalId: ownerId }, select: { preferredLocale: true },
       });
       return await this.prisma.$transaction(async (tx) => {
+        if (local) await assertPairedDesktopDevice(tx, ownerId, z.uuid().parse(execution.desktop_device_id));
         if (options?.projectId) {
           await lockOwnedProject(tx, ownerId, options.projectId);
         }
@@ -7574,6 +7615,8 @@ export class ConversationService {
             workspaceRelPath,
             agentsTemplateVersion: runtime.agentsTemplateVersion,
             collaborationMode: options?.collaborationMode ?? "default",
+            executionTarget: execution.execution_target,
+            desktopDeviceId: execution.desktop_device_id,
             runtimeGeneration: runtime.runtimeGeneration,
             codexThreadId: prewarmedRuntime?.codexThreadId ?? null,
             applicationId: application?.id ?? null,
@@ -7615,13 +7658,18 @@ export class ConversationService {
         return created;
       });
     } catch (error) {
+      if (localStagingRoot && !await this.prisma.conversation.findUnique({ where: { id }, select: { id: true } })) {
+        await rm(localStagingRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      }
       if (options?.reusePinnedCreation) {
         const existing = await this.prisma.conversation.findUnique({ where: { id } });
         if (existing?.ownerId === ownerId && !existing.applicationId && existing.archiveStatus === "active" && existing.pinnedAt) return existing;
       }
-      await this.cleanup
-        .enqueueRuntimeCleanup(ownerId, id, serviceSessionId)
-        .catch(() => undefined);
+      if (!local) {
+        await this.cleanup
+          .enqueueRuntimeCleanup(ownerId, id, serviceSessionId)
+          .catch(() => undefined);
+      }
       throw error;
     }
   }
@@ -10231,6 +10279,8 @@ type ConversationProjection = {
   codexThreadId: string | null;
   agentsTemplateVersion: string | null;
   collaborationMode: string;
+  executionTarget?: string;
+  desktopDeviceId?: string | null;
   lastTurnStatus: string | null;
   lastRunAt: Date | null;
   completionUnread: boolean;
@@ -10319,6 +10369,8 @@ export function projectConversation(
     collaboration_mode: conversationCollaborationModeSchema.parse(
       row.collaborationMode,
     ),
+    execution_target: conversationExecutionTargetSchema.parse(row.executionTarget ?? "cloud"),
+    desktop_device_id: row.desktopDeviceId ?? null,
     last_turn_status: row.lastTurnStatus,
     execution_status: executionStatus,
     last_run_at: row.lastRunAt?.toISOString() ?? null,

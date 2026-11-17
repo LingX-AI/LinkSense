@@ -144,8 +144,9 @@ export async function main(): Promise<void> {
   const runner = new RunnerClient(config, async (ownerId, conversationId) => {
     const conversation = await prisma.conversation.findFirst({
       where: { id: conversationId, ownerId },
-      select: { workspaceRelPath: true },
+      select: { workspaceRelPath: true, executionTarget: true },
     });
+    if (conversation?.executionTarget === "local") return "local";
     return conversation ? runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath) : null;
   });
   const storage = createObjectStorage(config);

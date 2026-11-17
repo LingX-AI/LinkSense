@@ -308,11 +308,11 @@ function repositoryFixture(options?: { unreadConversationIds?: string[] }) {
 }
 
 describe("automation creation and pinning transactions", () => {
-  function fixture(pinnedAt: Date | null = null) {
+  function fixture(pinnedAt: Date | null = null, executionTarget = "cloud") {
     const row = automationRow();
     const transaction = {
       $executeRaw: vi.fn(async () => 1),
-      $queryRaw: vi.fn(async () => [{ id: CONVERSATION_ID, ownerId: OWNER_ID, title: "Current", archiveStatus: "active", collaborationMode: "default", pinnedAt }]),
+      $queryRaw: vi.fn(async () => [{ id: CONVERSATION_ID, ownerId: OWNER_ID, title: "Current", archiveStatus: "active", collaborationMode: "default", executionTarget, pinnedAt }]),
       conversation: { update: vi.fn(async () => ({ pinnedAt: NOW })) },
       automation: {
         findUnique: vi.fn(async (): Promise<ReturnType<typeof automationRow> | null> => null),
@@ -329,6 +329,14 @@ describe("automation creation and pinning transactions", () => {
     };
     return { transaction, repository, input, row };
   }
+
+  it("rejects a local target under the same lock before persisting or pinning an automation", async () => {
+    const f = fixture(NOW, "local");
+    await expect(f.repository.createWithinOwnerLimit(f.input, 100, { pinTarget: true }))
+      .rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    expect(f.transaction.conversation.update).not.toHaveBeenCalled();
+    expect(f.transaction.automation.create).not.toHaveBeenCalled();
+  });
 
   it("pins the current task inside the same transaction as creating its automation", async () => {
     const f = fixture();

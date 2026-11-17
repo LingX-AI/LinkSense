@@ -412,13 +412,16 @@ export class RunnerClient {
   }
   constructor(
     private readonly config: AppConfig,
-    private readonly resolveWorkspace?: (ownerId: string, conversationId: string) => Promise<RuntimePlacement | null>,
+    private readonly resolveWorkspace?: (ownerId: string, conversationId: string) => Promise<RuntimePlacement | "local" | null>,
   ) {}
 
   private async workspaceHeaders(pathname: string, ownerId?: string, workspacePath?: string, serviceSessionId?: string): Promise<Record<string, string>> {
     const conversationId = /^\/conversations\/([0-9a-f-]{36})(?:\/|$)/iu.exec(pathname)?.[1];
     if (!ownerId || !conversationId) return {};
-    const selected = workspacePath === undefined ? await this.resolveWorkspace?.(ownerId, conversationId) : { workspacePath, ...(serviceSessionId ? { serviceSessionId } : {}) };
+    const resolved = await this.resolveWorkspace?.(ownerId, conversationId);
+    // shortcut: reject local calls until the device transport is enabled in P1-02.
+    if (resolved === "local") throw new AppError("RUNNER_UNAVAILABLE");
+    const selected = workspacePath === undefined ? resolved : { workspacePath, ...(serviceSessionId ? { serviceSessionId } : {}) };
     if (selected == null) return {};
     const placement = runtimePlacementSchema.parse(selected);
     return { [runtimeWorkspaceHeader]: placement.workspacePath, ...(placement.serviceSessionId ? { [runtimeServiceSessionHeader]: placement.serviceSessionId } : {}) };

@@ -5,6 +5,7 @@ import {
   conversationShareCreateSchema,
   sideChatSelectionSchema,
   conversationCollaborationModeSchema,
+  conversationCreateInputSchema,
   conversationHistoryQuerySchema,
   conversationSourcesSchema,
   conversationOrderUpdateSchema,
@@ -209,17 +210,11 @@ export const conversationRoutes: FastifyPluginAsync<{
 
   app.post("/", async (request, reply) => {
     const user = (request as AuthenticatedRequest).authUser;
-    const body = z
-      .strictObject({
-        collaboration_mode: conversationCollaborationModeSchema.default(
-          "default",
-        ),
-        prewarmed_conversation_id: z.string().uuid().optional(),
-        project_id: z.string().uuid().nullable().optional(),
-      })
-      .parse(request.body);
+    const body = conversationCreateInputSchema.parse(request.body);
     const result = await services.conversations.create(user.id, {
       collaborationMode: body.collaboration_mode,
+      executionTarget: body.execution_target,
+      desktopDeviceId: body.desktop_device_id,
       ...(body.project_id !== undefined ? { projectId: body.project_id } : {}),
       ...(body.prewarmed_conversation_id
         ? { prewarmedConversationId: body.prewarmed_conversation_id }

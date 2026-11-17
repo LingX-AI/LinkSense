@@ -227,8 +227,27 @@ describe("conversation create route", () => {
     expect(response.statusCode, response.body).toBe(201);
     expect(create).toHaveBeenCalledWith(OWNER_ID, {
       collaborationMode: "plan",
+      executionTarget: "cloud",
+      desktopDeviceId: null,
       fallbackLocale: "zh-CN",
     });
+  });
+
+  it("passes an explicit local device and rejects inconsistent execution selections", async () => {
+    const { app, create } = await conversationRouteFixture();
+    const device = "10000000-0000-4000-8000-000000000009";
+    expect((await app.inject({
+      method: "POST", url: "/conversations", payload: { execution_target: "local", desktop_device_id: device },
+    })).statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(OWNER_ID, expect.objectContaining({ executionTarget: "local", desktopDeviceId: device }));
+    create.mockClear();
+    for (const payload of [
+      { execution_target: "local" }, { execution_target: "cloud", desktop_device_id: device },
+      { execution_target: "local", desktop_device_id: "invalid" }, { execution_target: "hybrid" },
+    ]) {
+      expect((await app.inject({ method: "POST", url: "/conversations", payload })).statusCode).toBe(400);
+    }
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("rejects removed server-draft fields", async () => {
