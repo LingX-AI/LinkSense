@@ -1595,6 +1595,62 @@ trust_level = "trusted"
     await plan.pool.closeAll();
   });
 
+  it.each([undefined, "existing-ordinary-thread"])(
+    "makes both application builders available in an ordinary conversation with native thread %s and no selected Skill",
+    async codexThreadId => {
+      const root = await mkdtemp(join(tmpdir(), "linksense-ordinary-app-"));
+      roots.push(root);
+      const controlled = createControlledAppServer({
+        ...(codexThreadId ? { threadReadTurns: [{
+          id: "previous-ordinary-turn", status: "completed", items: [], error: null,
+        }] } : {}),
+      });
+      const { pool, eventSink } = createStartOperationPool(root, controlled.factory);
+      const input = startOperationInput();
+      input.context.userInput = "做一个喝水提醒小助手，先确认关掉页面后是否需要提醒。";
+      eventSink.webSite.mockResolvedValue({ id: "40000000-0000-4000-8000-000000000001" });
+      try {
+        await pool.startTurn({ ...input, ...(codexThreadId ? { codexThreadId } : {}) });
+        expect(input.context.prioritySkills).toEqual([]);
+        expect(input.capabilities).toEqual([]);
+        const start = controlled.requests.find(request => request.method === "turn/start");
+        const params = z.object({
+          input: z.array(z.object({ text: z.string() })),
+          additionalContext: z.record(z.string(), z.object({
+            kind: z.enum(["application", "untrusted"]), value: z.string(),
+          })),
+        }).parse(start?.params);
+        expect(params.input[0]?.text).toBe(input.context.userInput);
+        expect(params.additionalContext["linksense.deliverable-routing"]?.value)
+          .toContain("no creation page or Skill selection");
+        expect(params.additionalContext["linksense.deliverable-routing"]?.value)
+          .toContain("after the page closes");
+        const builderToken = controlled.environment?.LINKSENSE_APPLICATION_BUILDER_TOKEN;
+        const siteToken = controlled.environment?.LINKSENSE_WEB_SITE_TOKEN;
+        if (!builderToken || !siteToken) throw new Error("missing ordinary-conversation builder tools");
+        await pool.applicationBuilder(input.conversationId, builderToken, {
+          operation: "open", name: "Water assistant",
+        });
+        expect(eventSink.applicationBuilder).toHaveBeenCalledWith({
+          conversationId: input.conversationId, turnId: input.projectionTurnId,
+          request: { operation: "open", name: "Water assistant" },
+        });
+        const publication = {
+          operation: "publish" as const, file_id: "30000000-0000-4000-8000-000000000001", name: "Water assistant",
+        };
+        await pool.webSite(input.conversationId, siteToken, publication);
+        expect(eventSink.webSite).toHaveBeenCalledWith({
+          conversationId: input.conversationId, turnId: input.projectionTurnId, request: publication,
+        });
+        await expect(pool.webSite(input.conversationId, "wrong", publication))
+          .rejects.toMatchObject({ code: "WEB_SITE_FORBIDDEN" });
+        expect(controlled.methods).toContain(codexThreadId ? "thread/resume" : "thread/start");
+      } finally {
+        await pool.closeAll();
+      }
+    },
+  );
+
   it.each(["default", "plan"] as const)("binds Skill management to the logical turn and scoped token in %s mode", async collaborationMode => {
     const root = await mkdtemp(join(tmpdir(), "linksense-skill-management-token-"));
     roots.push(root);
@@ -12057,6 +12113,7 @@ function createStartOperationPool(
     registerImagePreview: vi.fn<RunnerEventSink["registerImagePreview"]>(async () => ({})),
     previewSkillZip: vi.fn(async () => ({})),
     applicationBuilder: vi.fn(async () => null),
+    webSite: vi.fn<NonNullable<RunnerEventSink["webSite"]>>(async () => ({})),
     confirmSkillInstall: vi.fn(async () => ({})),
     manageSkills: vi.fn(async () => ({})),
     searchKnowledge: vi.fn(async () => ({})),

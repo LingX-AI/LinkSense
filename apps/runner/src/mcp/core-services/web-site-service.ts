@@ -74,7 +74,7 @@ export const webSiteCoreMcpModule: CoreMcpModuleDefinition = {
 const publishTool: Tool = {
   name: "publish_web_site",
   description:
-    "Publish a complete public website from an HTML artifact registered by register_artifact. For a dynamic application, first prepare and configure a self-hosted backend, then pass backend_id when creating its site. The backend must be ready. New sites require name and optionally description and slug. Updates require site_id and file_id, and retain the original backend and URL. Publication takes effect immediately. Returns the public URL. Applications using LinkSense tasks, AI, knowledge, plugins or organization sharing use the interactive application builder instead.",
+    "Publish a complete Web application from an HTML artifact registered in this ordinary conversation by register_artifact. Requires the user's request to publish or deliver a public link; choosing a delivery shape alone is insufficient. Prepare a self-hosted backend only for requested data capabilities. Pass its ready backend_id for a new dynamic app or to add a backend to an existing static site_id, together with the new file_id. Existing backends cannot be replaced. Returns the stable public URL, preserving site identity, aliases and publication status on updates. New sites require name and optionally description and slug. LinkSense AI, tasks, knowledge, plugins or organization sharing use the interactive application builder.",
   inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSitePublishToolSchema)),
 };
 
@@ -88,13 +88,13 @@ const listTool: Tool = {
 const updateTool: Tool = {
   name: "update_web_site",
   description:
-    "Update an existing public site's name, description, slug, or published status without changing its content. Changing the slug immediately invalidates the old link.",
+    "Update an owned Web application's name, description, slug, or published status without changing its content. The stable application URL and retired aliases remain usable after renaming. Unpublishing closes the stable entry, aliases, resources and backend gateway.",
   inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSiteUpdateToolSchema)),
 };
 
 const prepareBackendTool: Tool = {
   name: "prepare_web_site_backend",
-  description: "Prepare a self-hosted Appwrite backend for an authorized public dynamic application without publishing it. New backends return runtime_mode sandbox, a main-domain /app/ URL, and sdk_url; use the sandbox SDK, not direct Appwrite requests. Existing backends retain their runtime. Reuse the returned id as backend_id for updates and recovery. Repeating the same name in the same task reuses the backend. No credentials are returned.",
+  description: "Prepare a self-hosted Appwrite backend for requested data capabilities in the current conversation without publishing it. New backends return runtime_mode sandbox, an optional main-domain /app/ alias and sdk_url; use the sandbox SDK. The publishing result supplies the stable application URL. Reuse an existing backend_id; do not create a replacement. Repeating a name in the same task reuses the backend. Existing backends retain their runtime. No credentials are returned.",
   inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSiteBackendPrepareSchema)),
 };
 const configureBackendTool: Tool = {

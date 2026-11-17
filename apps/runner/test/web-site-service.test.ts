@@ -99,6 +99,19 @@ describe("public site Core MCP tools", () => {
     });
   });
 
+  it("passes an existing application's identity and newly prepared backend together to the publication service", async () => {
+    const f = fixture();
+    const result = await f.call("publish_web_site", {
+      site_id: site.id, file_id: site.source_file_id,
+      backend_id: "60000000-0000-4000-8000-000000000001",
+    });
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(String(f.fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      operation: "publish", site_id: site.id, file_id: site.source_file_id,
+      backend_id: "60000000-0000-4000-8000-000000000001",
+    });
+  });
+
   it("rejects unsafe input without a network request", async () => {
     const f = fixture();
     expect((await f.call("publish_web_site", { name: "App", slug: "Not A Slug", file_id: site.source_file_id })).isError).toBe(true);

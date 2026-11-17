@@ -85,7 +85,7 @@ describe("buildTurnInput", () => {
     expect(encode(entries.map((entry) => entry.value).join("\n")).length).toBeLessThanOrEqual(1_300);
   });
 
-  it("asks once before choosing between a public site and an interactive application", () => {
+  it("clarifies the next outcome difference and allows combined page and automation delivery", () => {
     const base = {
       userInput: "做一个每 2 小时提醒喝水的小工具",
       attachments: [],
@@ -105,6 +105,11 @@ describe("buildTurnInput", () => {
     expect(routing?.value).toContain("explain what each option means");
     expect(routing?.value).toContain("one-line description");
     expect(routing?.value).toContain("Do not silently default");
+    expect(routing?.value).toContain("reuse confirmed answers");
+    expect(routing?.value).toContain("only the next outcome-changing question");
+    expect(routing?.value).toContain("A page and an automation may be combined");
+    expect(routing?.value).toContain("choosing a delivery shape alone does not authorize");
+    expect(routing?.value).toContain("page, data and reminder readiness separately");
     expect(buildTurnAdditionalContext(base, undefined, "plan")).not.toHaveProperty("linksense.deliverable-routing");
   });
 

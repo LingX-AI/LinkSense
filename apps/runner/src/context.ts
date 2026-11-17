@@ -2,6 +2,7 @@ import { interactiveFormInstructions } from "./interactive-form-instructions.js"
 import { serializePromptLink } from "./codex/prompt.js";
 import type { RunnerKnowledgeBaseSelection } from "@linksense/shared";
 import { buildKnowledgeSelectionContext } from "./knowledge-selection-context.js";
+import { applicationIntentInstructions } from "@linksense/shared";
 
 export type TurnContextInput = {
   userInput: string;
@@ -86,11 +87,8 @@ const KNOWLEDGE_GROUNDING_INSTRUCTIONS = [
 ].join("\n");
 const deliverableRoutingInstructions = (publicSiteName?: string): string => [
   "<linksense_deliverable_routing>",
-  "Create requested apps and websites in the current conversation; no creation page or manual Skill selection. Determine delivery shape first.",
-  `Use ${publicSiteName ? `the ${publicSiteName} Skill` : "the public-site workflow"} for public websites, browser-only tools and dynamic applications with their own visitor accounts, persistent data, uploads or business APIs on the self-hosted backend. Preview requests do not authorize public publishing. Explicit public-site or public-link requests need no delivery-shape question.`,
-  "Clarify requirements that change delivery. For a reminder, ask whether it must work after the page closes; if so, use the scheduled notification workflow.",
-  "Use linksense-interactive-app-builder for explicit requests using LinkSense AI, tasks, knowledge bases, files, plugins, or organization sharing.",
-  `If the delivery shape is genuinely ambiguous, call mcp__${coreMcpServerKey}__request_user_form once with a radio field containing 2–5 short options before creating either artifact. In message, explain what each option means and when to use it, and give each option a one-line description. Do not silently default to an interactive application.`,
+  applicationIntentInstructions(publicSiteName ? `the ${publicSiteName} Skill` : "the public-site workflow",
+    `mcp__${coreMcpServerKey}__request_user_form`),
   "</linksense_deliverable_routing>",
 ].join("\n");
 const INLINE_HTML_PREVIEW_INSTRUCTIONS = [
