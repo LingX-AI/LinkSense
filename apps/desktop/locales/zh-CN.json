@@ -1,8 +1,5 @@
 {
-  "serverTitle": "连接 LinkSense",
-  "serverDescription": "输入组织的 LinkSense 服务地址。登录信息会保存在系统凭据库中。",
-  "serverLabel": "服务地址",
-  "connect": "连接",
-  "serverInvalid": "请输入有效的 HTTPS 服务地址。本机服务也支持 HTTP。",
-  "configSaveFailed": "无法保存服务地址，请检查应用数据目录的访问权限。"
+  "buildConfigurationTitle": "无法启动 LinkSense",
+  "buildConfigurationInvalid": "此安装包未配置有效的服务地址。请联系管理员获取配置正确的安装包。",
+  "quit": "退出"
 }

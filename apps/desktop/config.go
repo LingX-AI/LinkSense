@@ -1,17 +1,22 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"net"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
-type desktopConfig struct {
-	ServerURL string `json:"serverUrl"`
+// Set by the release build; installed apps never select a server at runtime.
+var desktopServerURL string
+
+func configuredServerURL(development bool) (*url.URL, error) {
+	raw := desktopServerURL
+	if raw == "" && development {
+		raw = os.Getenv("LINKSENSE_DESKTOP_DEV_SERVER_URL")
+	}
+	return parseServerURL(raw)
 }
 
 func parseServerURL(raw string) (*url.URL, error) {
@@ -30,49 +35,4 @@ func parseServerURL(raw string) (*url.URL, error) {
 	u.Host = strings.ToLower(u.Host)
 	u.Path, u.RawPath = "", ""
 	return u, nil
-}
-
-func loadDesktopConfig(file string) (desktopConfig, error) {
-	data, err := os.ReadFile(file)
-	if errors.Is(err, os.ErrNotExist) {
-		return desktopConfig{}, nil
-	}
-	if err != nil {
-		return desktopConfig{}, err
-	}
-	var config desktopConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return desktopConfig{}, errors.New("DESKTOP_CONFIG_INVALID")
-	}
-	if config.ServerURL != "" {
-		u, err := parseServerURL(config.ServerURL)
-		if err != nil {
-			return desktopConfig{}, err
-		}
-		config.ServerURL = u.String()
-	}
-	return config, nil
-}
-
-func saveDesktopConfig(file string, server *url.URL) error {
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
-		return err
-	}
-	data, err := json.Marshal(desktopConfig{ServerURL: server.String()})
-	if err != nil {
-		return err
-	}
-	temp, err := os.CreateTemp(filepath.Dir(file), ".config-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(temp.Name())
-	if _, err = temp.Write(data); err != nil {
-		temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temp.Name(), file)
 }

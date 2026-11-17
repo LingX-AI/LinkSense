@@ -45,7 +45,8 @@ type sessionTransport struct {
 
 func allowsAPIRequest(server *url.URL, request *http.Request) bool {
 	u := request.URL
-	if u.Scheme != server.Scheme || !strings.EqualFold(u.Host, server.Host) ||
+	if u.Scheme != server.Scheme || !strings.EqualFold(u.Hostname(), server.Hostname()) ||
+		effectivePort(u) != effectivePort(server) ||
 		u.User != nil || u.Fragment != "" || request.Host != u.Host ||
 		!strings.HasPrefix(u.Path, "/api/v1/") || path.Clean(u.Path) != u.Path {
 		return false
@@ -61,6 +62,16 @@ func allowsAPIRequest(server *url.URL, request *http.Request) bool {
 	default:
 		return false
 	}
+}
+
+func effectivePort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	if u.Scheme == "https" {
+		return "443"
+	}
+	return "80"
 }
 
 func (t *sessionTransport) secretKey() string {
@@ -129,6 +140,13 @@ func (t *sessionTransport) RoundTrip(request *http.Request) (*http.Response, err
 	if err != nil {
 		return nil, errors.New("DESKTOP_API_UNAVAILABLE")
 	}
+	loginExchange := request.URL.Path == desktopLoginExchangePath
+	if loginExchange && (response.StatusCode != http.StatusNoContent ||
+		response.Header.Get("X-Linksense-Desktop-Protocol") != "1" || out.Context().Err() != nil) {
+		response.Body.Close()
+		return nil, errors.New("DESKTOP_LOGIN_FAILED")
+	}
+	storedSession := false
 	for _, cookie := range response.Cookies() {
 		if !authRequest || cookie.Name != refreshCookieName {
 			continue
@@ -157,11 +175,23 @@ func (t *sessionTransport) RoundTrip(request *http.Request) (*http.Response, err
 				request.URL.Path != "/api/v1/auth/refresh" {
 				err = t.allowNewSession()
 			}
+			if loginExchange && out.Context().Err() != nil {
+				response.Body.Close()
+				if clearErr := t.clearSessionLocked(); clearErr != nil {
+					return nil, clearErr
+				}
+				return nil, errors.New("DESKTOP_LOGIN_CANCELLED")
+			}
+			storedSession = err == nil
 		}
 		if err != nil {
 			response.Body.Close()
 			return nil, errors.New("DESKTOP_CREDENTIAL_STORE_UNAVAILABLE")
 		}
+	}
+	if loginExchange && !storedSession {
+		response.Body.Close()
+		return nil, errors.New("DESKTOP_LOGIN_FAILED")
 	}
 	response.Header.Del("Set-Cookie")
 	response.Body = &sessionResponseBody{ReadCloser: response.Body, cancel: cancel}
@@ -193,6 +223,10 @@ func newDesktopHTTPClient(server *url.URL, store credentialStore) *http.Client {
 func (t *sessionTransport) clearSession() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.clearSessionLocked()
+}
+
+func (t *sessionTransport) clearSessionLocked() error {
 	t.signedOut = true
 	var markerErr error
 	if t.signedOutPath != "" {

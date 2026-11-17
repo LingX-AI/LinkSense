@@ -81,6 +81,30 @@ func TestNativeHTTPWhitelistRejectsOtherServersAndInternalPaths(t *testing.T) {
 	}
 }
 
+func TestDefaultPortNormalizationKeepsNativeAdmissionAndExistingCredentialKeys(t *testing.T) {
+	for _, origin := range []string{"https://example.com:443", "http://localhost:80"} {
+		server, err := parseServerURL(origin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		canonical := *server
+		canonical.Host = canonical.Hostname()
+		request, _ := http.NewRequest(http.MethodGet, canonical.String()+"/api/v1/system/bootstrap", nil)
+		if !allowsAPIRequest(server, request) {
+			t.Fatal("the packaged default port rejected a URL normalized by the Web frontend")
+		}
+		if serverCredentialKey(server, "refresh") == serverCredentialKey(&canonical, "refresh") ||
+			serverCredentialKey(server, "device") == serverCredentialKey(&canonical, "device") {
+			t.Fatal("pre-change credential identities were silently normalized")
+		}
+		request.URL.Host += ":444"
+		request.Host = request.URL.Host
+		if allowsAPIRequest(server, request) {
+			t.Fatal("effective-port admission allowed a different service")
+		}
+	}
+}
+
 func TestRefreshSessionRotatesInNativeStoreAndNeverReachesOtherRoutes(t *testing.T) {
 	token := strings.Repeat("a", 64)
 	var received string

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -23,24 +21,24 @@ func TestServerURLRequiresAnOriginWithoutCredentials(t *testing.T) {
 	}
 }
 
-func TestServerConfigurationRoundTripAndCorruption(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "settings", "config.json")
-	config, err := loadDesktopConfig(file)
-	if err != nil || config.ServerURL != "" {
-		t.Fatal("a new install should require server setup")
+func TestPackagedServerCannotBeOverriddenByRuntimeConfiguration(t *testing.T) {
+	previous := desktopServerURL
+	defer func() { desktopServerURL = previous }()
+	desktopServerURL = "https://example.com"
+	t.Setenv("LINKSENSE_DESKTOP_SERVER_URL", "https://attacker.example")
+	t.Setenv("LINKSENSE_DESKTOP_DEV_SERVER_URL", "http://localhost:4000")
+	for _, development := range []bool{true, false} {
+		server, err := configuredServerURL(development)
+		if err != nil || server.String() != "https://example.com" {
+			t.Fatal("runtime environment overrode the packaged origin")
+		}
 	}
-	server, _ := parseServerURL("https://example.com/")
-	if err := saveDesktopConfig(file, server); err != nil {
-		t.Fatal(err)
+	desktopServerURL = ""
+	if _, err := configuredServerURL(false); err == nil {
+		t.Fatal("an unconfigured release accepted a runtime origin")
 	}
-	config, err = loadDesktopConfig(file)
-	if err != nil || config.ServerURL != "https://example.com" {
-		t.Fatalf("configuration did not survive restart: %+v %v", config, err)
-	}
-	if err := os.WriteFile(file, []byte("{"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := loadDesktopConfig(file); err == nil {
-		t.Fatal("corrupt configuration was accepted")
+	server, err := configuredServerURL(true)
+	if err != nil || server.String() != "http://localhost:4000" {
+		t.Fatal("development launcher could not select its fixture server")
 	}
 }

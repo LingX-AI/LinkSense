@@ -30,6 +30,8 @@ type Desktop struct {
 	window      *mygo.Window
 	session     *sessionTransport
 	device      *deviceConnection
+	login       *browserLoginAttempt
+	openBrowser func(string) error
 }
 
 func (d *Desktop) configure(server *url.URL, store credentialStore, dataRoot string) {
@@ -46,6 +48,7 @@ func (d *Desktop) ClearSession(ctx context.Context) error {
 		return err
 	}
 	d.closeDevice()
+	d.cancelSignIn()
 	refreshErr := d.session.clearSession()
 	deviceErr := d.session.store.Delete(serverCredentialKey(d.server, "device"))
 	if refreshErr != nil || deviceErr != nil {

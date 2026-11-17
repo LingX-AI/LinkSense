@@ -24,6 +24,9 @@ export interface HostInfo {
 
 /** Desktop exposes only the capabilities used by the shared application UI. */
 export const Desktop = {
+  cancelSignIn(): Promise<void> {
+    return call("Desktop.CancelSignIn");
+  },
   clearSession(): Promise<void> {
     return call("Desktop.ClearSession");
   },
@@ -41,5 +44,8 @@ export const Desktop = {
   },
   resumeDevice(ownerID: string): Promise<DeviceConnectionStatus> {
     return call("Desktop.ResumeDevice", ownerID);
+  },
+  signIn(): Promise<void> {
+    return call("Desktop.SignIn");
   },
 } as const;

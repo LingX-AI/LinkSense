@@ -3,7 +3,19 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { desktopCommandInvocation, desktopTarget, desktopTestArguments, stageDesktopNotice, validateDesktopTarget } from "./desktop.mjs";
+import { desktopBuildServerUrl, desktopCommandInvocation, desktopTarget, desktopTestArguments, stageDesktopNotice, validateDesktopTarget } from "./desktop.mjs";
+
+test("release builds require an explicit, safe server origin", () => {
+  assert.equal(desktopBuildServerUrl("https://example.com/"), "https://example.com");
+  assert.equal(desktopBuildServerUrl("https://example.com:443/"), "https://example.com:443");
+  assert.equal(desktopBuildServerUrl("http://localhost:80"), "http://localhost:80");
+  assert.equal(desktopBuildServerUrl("http://127.0.0.1:4000"), "http://127.0.0.1:4000");
+  for (const raw of [undefined, "", "http://example.com", "https://user:pass@example.com",
+    "https://example.com/path", "https://example.com?token=secret", "https://example.com#",
+    "https://example.com -X main.other=value", "https://exa'mple.com"]) {
+    assert.throws(() => desktopBuildServerUrl(raw));
+  }
+});
 
 test("desktop targets cover both supported platforms and architectures", () => {
   assert.equal(desktopTarget("darwin", "arm64"), "darwin/arm64");

@@ -4,29 +4,17 @@ import { createCatalog } from "mygo-runtime/i18n";
 /** The messages of the app in one language. */
 export interface Messages {
   /**
-   * `连接 LinkSense`
+   * `无法启动 LinkSense`
    */
-  serverTitle(): string;
+  buildConfigurationTitle(): string;
   /**
-   * `输入组织的 LinkSense 服务地址。登录信息会保存在系统凭据库中。`
+   * `此安装包未配置有效的服务地址。请联系管理员获取配置正确的安装包。`
    */
-  serverDescription(): string;
+  buildConfigurationInvalid(): string;
   /**
-   * `服务地址`
+   * `退出`
    */
-  serverLabel(): string;
-  /**
-   * `连接`
-   */
-  connect(): string;
-  /**
-   * `请输入有效的 HTTPS 服务地址。本机服务也支持 HTTP。`
-   */
-  serverInvalid(): string;
-  /**
-   * `无法保存服务地址，请检查应用数据目录的访问权限。`
-   */
-  configSaveFailed(): string;
+  quit(): string;
 }
 
 const catalog = createCatalog<Messages>({
@@ -41,61 +29,40 @@ const catalog = createCatalog<Messages>({
     "pt-BR": ["pt-BR", "zh-CN"],
   },
   params: {
-    "serverTitle": [],
-    "serverDescription": [],
-    "serverLabel": [],
-    "connect": [],
-    "serverInvalid": [],
-    "configSaveFailed": [],
+    "buildConfigurationTitle": [],
+    "buildConfigurationInvalid": [],
+    "quit": [],
   },
   messages: {
     "zh-CN": {
-      "serverTitle": "连接 LinkSense",
-      "serverDescription": "输入组织的 LinkSense 服务地址。登录信息会保存在系统凭据库中。",
-      "serverLabel": "服务地址",
-      "connect": "连接",
-      "serverInvalid": "请输入有效的 HTTPS 服务地址。本机服务也支持 HTTP。",
-      "configSaveFailed": "无法保存服务地址，请检查应用数据目录的访问权限。",
+      "buildConfigurationTitle": "无法启动 LinkSense",
+      "buildConfigurationInvalid": "此安装包未配置有效的服务地址。请联系管理员获取配置正确的安装包。",
+      "quit": "退出",
     },
     "en-US": {
-      "serverTitle": "Connect to LinkSense",
-      "serverDescription": "Enter your organization's LinkSense server address. Sign-in credentials are kept in the system credential store.",
-      "serverLabel": "Server address",
-      "connect": "Connect",
-      "serverInvalid": "Enter a valid HTTPS server address. HTTP is also supported for local servers.",
-      "configSaveFailed": "Could not save the server address. Check access to the application's data directory.",
+      "buildConfigurationTitle": "Unable to start LinkSense",
+      "buildConfigurationInvalid": "This application package has no valid server address. Contact your administrator for a correctly configured installer.",
+      "quit": "Quit",
     },
     "es-ES": {
-      "serverTitle": "Conectar con LinkSense",
-      "serverDescription": "Introduce la dirección del servidor LinkSense de tu organización. Las credenciales se guardan en el almacén de credenciales del sistema.",
-      "serverLabel": "Dirección del servidor",
-      "connect": "Conectar",
-      "serverInvalid": "Introduce una dirección HTTPS válida. Los servidores locales también admiten HTTP.",
-      "configSaveFailed": "No se pudo guardar la dirección. Comprueba el acceso al directorio de datos de la aplicación.",
+      "buildConfigurationTitle": "No se puede iniciar LinkSense",
+      "buildConfigurationInvalid": "Este paquete no tiene una dirección de servidor válida. Contacta con el administrador para obtener un instalador configurado correctamente.",
+      "quit": "Salir",
     },
     "fr-FR": {
-      "serverTitle": "Se connecter à LinkSense",
-      "serverDescription": "Saisissez l’adresse du serveur LinkSense de votre organisation. Les identifiants sont conservés dans le gestionnaire d’identifiants du système.",
-      "serverLabel": "Adresse du serveur",
-      "connect": "Se connecter",
-      "serverInvalid": "Saisissez une adresse HTTPS valide. Les serveurs locaux acceptent également HTTP.",
-      "configSaveFailed": "Impossible d’enregistrer l’adresse. Vérifiez l’accès au répertoire de données de l’application.",
+      "buildConfigurationTitle": "Impossible de démarrer LinkSense",
+      "buildConfigurationInvalid": "Ce paquet ne contient pas d’adresse de serveur valide. Contactez votre administrateur pour obtenir un programme d’installation correctement configuré.",
+      "quit": "Quitter",
     },
     "ja-JP": {
-      "serverTitle": "LinkSense に接続",
-      "serverDescription": "組織の LinkSense サーバーのアドレスを入力してください。ログイン情報はシステムの資格情報ストアに保存されます。",
-      "serverLabel": "サーバーアドレス",
-      "connect": "接続",
-      "serverInvalid": "有効な HTTPS アドレスを入力してください。ローカルサーバーでは HTTP も使用できます。",
-      "configSaveFailed": "アドレスを保存できませんでした。アプリのデータディレクトリへのアクセス権を確認してください。",
+      "buildConfigurationTitle": "LinkSense を起動できません",
+      "buildConfigurationInvalid": "このアプリには有効なサーバーアドレスが設定されていません。正しく設定されたインストーラーを管理者に依頼してください。",
+      "quit": "終了",
     },
     "pt-BR": {
-      "serverTitle": "Conectar ao LinkSense",
-      "serverDescription": "Digite o endereço do servidor LinkSense da sua organização. As credenciais ficam no gerenciador de credenciais do sistema.",
-      "serverLabel": "Endereço do servidor",
-      "connect": "Conectar",
-      "serverInvalid": "Digite um endereço HTTPS válido. Servidores locais também aceitam HTTP.",
-      "configSaveFailed": "Não foi possível salvar o endereço. Verifique o acesso ao diretório de dados do aplicativo.",
+      "buildConfigurationTitle": "Não foi possível iniciar o LinkSense",
+      "buildConfigurationInvalid": "Este pacote não tem um endereço de servidor válido. Entre em contato com o administrador para obter um instalador configurado corretamente.",
+      "quit": "Sair",
     },
   },
 });

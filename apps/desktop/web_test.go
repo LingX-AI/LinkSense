@@ -26,6 +26,12 @@ func TestOnlyApplicationFrontendCanStayInTheMainWindow(t *testing.T) {
 	if err := desktop.OpenExternal(context.Background(), "https://example.com"); err == nil {
 		t.Fatal("an unbound caller opened a system URL")
 	}
+	if err := desktop.SignIn(context.Background()); err == nil {
+		t.Fatal("an unbound caller started native sign-in")
+	}
+	if err := desktop.CancelSignIn(context.Background()); err == nil {
+		t.Fatal("an unbound caller cancelled native sign-in")
+	}
 }
 
 func TestDeepLinksAcceptOnlyConversationIdentifiers(t *testing.T) {

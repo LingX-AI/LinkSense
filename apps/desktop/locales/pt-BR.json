@@ -1,8 +1,5 @@
 {
-  "serverTitle": "Conectar ao LinkSense",
-  "serverDescription": "Digite o endereço do servidor LinkSense da sua organização. As credenciais ficam no gerenciador de credenciais do sistema.",
-  "serverLabel": "Endereço do servidor",
-  "connect": "Conectar",
-  "serverInvalid": "Digite um endereço HTTPS válido. Servidores locais também aceitam HTTP.",
-  "configSaveFailed": "Não foi possível salvar o endereço. Verifique o acesso ao diretório de dados do aplicativo."
+  "buildConfigurationTitle": "Não foi possível iniciar o LinkSense",
+  "buildConfigurationInvalid": "Este pacote não tem um endereço de servidor válido. Entre em contato com o administrador para obter um instalador configurado corretamente.",
+  "quit": "Sair"
 }

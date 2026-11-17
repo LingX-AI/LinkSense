@@ -41,6 +41,9 @@ import {
   setAppLanguage,
 } from "@/i18n"
 import { passwordSchema } from "@/lib/password"
+import { isDesktopHost } from "@/adapters/desktop/desktop-adapter"
+import { DesktopSignInPage } from "@/features/desktop-login/desktop-login-page"
+import { desktopLoginReturn } from "@/features/desktop-login/return-destination"
 
 const emailSchema = z.email()
 
@@ -59,6 +62,10 @@ function PublicPanel({
 }
 
 export function LoginPage() {
+  return isDesktopHost() ? <DesktopSignInPage /> : <WebLoginPage />
+}
+
+function WebLoginPage() {
   const { t } = useTranslation()
   const productName = useProductName()
   const location = useLocation()
@@ -912,7 +919,7 @@ export function EnterpriseCallbackPage() {
 
   useEffect(() => {
     if (callbackResult === "success" && status === "authenticated") {
-      navigate("/conversations/new", { replace: true })
+      navigate(desktopLoginReturn() ?? "/conversations/new", { replace: true })
     }
   }, [callbackResult, navigate, status])
 

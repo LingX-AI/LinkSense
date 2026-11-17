@@ -26,6 +26,19 @@ export function desktopTestArguments(platform = process.platform, arch = process
   return ["test", ...(platform === "win32" && arch === "arm64" ? [] : ["-race"]), "-count=1", "./..."];
 }
 
+export function desktopBuildServerUrl(raw) {
+  if (!raw || /[\s"'\\?#]/u.test(raw)) throw new Error("Supply --server-url with the LinkSense server origin");
+  const url = new URL(raw);
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.username || url.password || url.pathname !== "/" || url.search || url.hash ||
+    !(url.protocol === "https:" || (url.protocol === "http:" && loopback))) {
+    throw new Error("Desktop server URL must be an HTTPS origin (loopback HTTP is allowed for development)");
+  }
+  const explicitDefaultPort = (url.protocol === "https:" && /:443\/?$/u.test(raw)) ? ":443"
+    : (url.protocol === "http:" && /:80\/?$/u.test(raw)) ? ":80" : "";
+  return `${url.origin}${explicitDefaultPort}`;
+}
+
 export function desktopCommandInvocation(command, args, platform = process.platform, environment = process.env) {
   if (command === "pnpm" || command === "pnpm.cmd") {
     const launcher = environment.npm_execpath;
@@ -94,7 +107,7 @@ async function main() {
   const mode = process.argv[2] ?? "dev";
   const { values } = parseArgs({
     args: process.argv.slice(3).filter(value => value !== "--"),
-    options: { platform: { type: "string" } },
+    options: { platform: { type: "string" }, "server-url": { type: "string" } },
   });
   if (!["dev", "build", "prepare", "generate", "test", "whitebox", "web"].includes(mode)) {
     throw new Error("Use desktop:dev, desktop:build, desktop:generate, desktop:test or desktop:whitebox");
@@ -113,7 +126,7 @@ async function main() {
     await run("go", desktopTestArguments());
     await run(process.platform === "win32" ? "pnpm.cmd" : "pnpm",
       ["--filter", "@linksense/web", "exec", "vitest", "run", "--project", "components", "--project", "shared-components", "--project", "node",
-        "src/adapters/desktop", "src/api/session.test.ts", "src/api/client.test.ts", "src/api/client-build-contract.test.ts", "src/api/sse.test.ts",
+        "src/adapters/desktop", "src/features/desktop-login", "src/api/session.test.ts", "src/api/client.test.ts", "src/api/client-build-contract.test.ts", "src/api/sse.test.ts",
         "src/app/auth-context.test.tsx", "src/app/route-guards.account-switch.test.tsx",
         "src/features/knowledge-bases/knowledge-base-api.test.ts",
         "src/features/knowledge-bases/knowledge-base-events.test.ts",
@@ -138,12 +151,15 @@ async function main() {
     await prepareDesktopResources(validateDesktopTarget(values.platform ?? desktopTarget()));
     return;
   }
+  const server = desktopBuildServerUrl(values["server-url"] ?? process.env.LINKSENSE_DESKTOP_SERVER_URL);
   await stageNotices();
   if (mode === "build") {
     const target = validateDesktopTarget(values.platform ?? desktopTarget());
     const { prepareDesktopResources } = await import("./desktop-resources.mjs");
     await prepareDesktopResources(target);
-    await run("go", ["tool", "mygo", "build", "-platform", target]);
+    await run("go", ["tool", "mygo", "build", "-platform", target], {
+      env: { MYGO_LDFLAGS: `${process.env.MYGO_LDFLAGS ?? ""} -X main.desktopServerURL=${server}`.trim() },
+    });
     const { verifyPackagedDesktopRuntime } = await import("./desktop-resources.mjs");
     const runtime = target.startsWith("darwin")
       ? path.join(desktop, "build", target.replace("/", "-"), "LinkSense.app/Contents/Resources/runtime")
@@ -157,7 +173,7 @@ async function main() {
   }
   await run("go", ["tool", "mygo", "generate"]);
   await run(process.platform === "win32" ? "pnpm.cmd" : "pnpm", ["desktop:build-web"], { cwd: root });
-  await run("go", ["tool", "mygo", "dev"]);
+  await run("go", ["tool", "mygo", "dev"], { env: { LINKSENSE_DESKTOP_DEV_SERVER_URL: server } });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

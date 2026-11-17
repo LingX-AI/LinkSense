@@ -16,22 +16,41 @@ official `mygo-runtime` and `@mygo-plugins/fetch` packages.
 ```sh
 pnpm desktop:generate
 pnpm desktop:prepare
-pnpm desktop:dev
+pnpm desktop:dev -- --server-url http://localhost:18173
 pnpm desktop:test
 pnpm desktop:whitebox
-pnpm desktop:build
-pnpm desktop:build -- --platform windows/amd64
+pnpm desktop:build -- --server-url https://linksense.example.com
+pnpm desktop:build -- --platform windows/amd64 --server-url https://linksense.example.com
 ```
 
-The first launch asks for a LinkSense server origin. Only HTTPS is accepted,
-with HTTP allowed for loopback development servers. The optional
-`LINKSENSE_DESKTOP_SERVER_URL` environment variable selects a server for an
-isolated development run; it is not written to the saved configuration.
+The server origin is supplied by the packager with `--server-url` (or the
+build-time `LINKSENSE_DESKTOP_SERVER_URL` environment variable) and linked into
+the executable. End users are never asked for a URL. Only HTTPS is accepted,
+with HTTP allowed for loopback development servers. Installed releases ignore
+runtime URL environment variables and the former `config.json`; development
+uses the origin passed to `desktop:dev`.
 
-The native HTTP transport accepts only the selected server's `/api/v1/` routes.
+Sign-in opens the system browser at the packaged server. An existing browser
+session continues automatically; otherwise the existing Web login, registration
+and enterprise/social sign-in flows are used. The browser returns a one-time
+authorization code through the OS-registered `linksense-desktop://auth/callback`
+link. If the browser blocks automatic app launch, the same page offers a
+Return to the app link. The native client checks random state and exchanges the
+code with an S256 PKCE verifier kept only in Go memory. Codes expire after
+60 seconds and are consumed atomically across API replicas; the browser flow
+times out after five minutes and can be cancelled. Neither access nor refresh
+tokens appear in callback URLs.
+
+The desktop gets an independent refresh session. Browser cookies are not copied
+into the WebView, and signing out of the desktop preserves the browser session.
+Refresh restores subsequent app launches without opening the browser again.
+Deploy the matching API and Web authorization routes before distributing this
+client. Existing Web sessions and refresh-token records need no migration.
+
+The native HTTP transport accepts only the packaged server's `/api/v1/` routes.
 It preserves API authentication and authorization, streams SSE, propagates
 cancellation, and does not follow redirects. Refresh credentials are stored
-in the OS credential store, scoped to the selected server. Access tokens are
+in the OS credential store, scoped to the packaged server. Access tokens are
 kept only in memory in desktop mode; browser session storage is unchanged.
 
 Builds embed the Web application's current build and bundle fixed Node.js

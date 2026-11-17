@@ -91,7 +91,7 @@ Windows M1 安装、沙箱与发布（P1-17/19a/20a）是双平台 M1 的必要�
 | P0-05 | 设备配对 + WS 骨架 | `apps/api/src/modules/desktop-devices/*` | P0-03/04 | 配对码一次性/TTL/限速；token 只存哈希；WS 认证/心跳/撤销；Fastify inject 测试 | 3 |
 | P0-06 | 会话 `executionTarget` | `apps/api/src/modules/conversations/*` | P0-04 | 创建/读取 local/cloud；local 必须绑定已配对设备；默认 cloud；旧会话不受影响 | 1.5 |
 | P0-07 | `desktop` worker provider 最小实现（双平台） | `apps/runner/src/controller/desktop-worker-provider.ts` + `config.ts` 新增枚举；不复用 development-only 的 `local-process` | P0-01 | 测试专用入口 + fake model 验证 Codex 启动、临时工作区、Core MCP 装载与退出；macOS/Windows 当前用户运行；确认 Windows 原生/WSL2 路径；工作区按会话隔离，启动时清理超过 14 天或总量超 10 GiB 的最旧会话；不接生产内部接口或下发平台密钥；runner 相关测试通过 | 4 |
-| P0-08 | 主窗口 webview | `apps/desktop/web.go`：加载 `apps/web` 构建、深链登录、单实例、窗口状态、外部链接策略 | P0-01 | 主窗口显示完整 Web UI；刷新/前进后退正常；外链走系统浏览器；无 Node 暴露 | 4 |
+| P0-08 | 主窗口 webview | `apps/desktop/web.go`：加载 `apps/web` 构建、系统浏览器登录、单实例、窗口状态、外部链接策略 | P0-01 | 服务地址打包注入、首启无 URL 表单；复用浏览器 session，经 state/PKCE 一次性授权码交接；主窗口显示完整 Web UI；刷新/前进后退正常；外链走系统浏览器；无 Node 暴露 | 4 |
 | P0-09 | 桌面宿主适配层（Web 侧） | `apps/web` 桌面入口 + mygo typed IPC 客户端；环境检测、登录交接、下载/上传、通知、更新入口 | P0-08 | 纯浏览器行为不变；桌面内可用；类型化调用有测试；失败降级 | 3 |
 | P0-10 | 本地 runner supervisor（Go） | `apps/desktop/runtime.go` 扩展：启动/健康检查/退出清理/orphan guard/日志 | P0-01/07 | 应用启动即拉起 runner；崩溃可重启；退出无孤儿进程；日志脱敏 | 3 |
 | P0-11 | 独立运行时冒烟 + 云模式贯通 | 随包 Node + `apps/runner` + Codex；`scripts/desktop.mjs` 测试入口 | P0-07/08/09/10 | **干净机器**上安装 → 登录 → 云会话 → SSE → 下载 → 更新检查；独立本地运行时用 fake model 验进程/工作区/退出，不依赖设备执行通道或 `computer_use`；记录体积（预算 150–250 MB） | 4 |
@@ -136,7 +136,7 @@ Windows M1 安装、沙箱与发布（P1-17/19a/20a）是双平台 M1 的必要�
 
 | ID | 任务 | 产出/落点 | 依赖 | 验收 | 估时 |
 | --- | --- | --- | --- | --- | --- |
-| P1-09 | 桌面产品化（Go） | 托盘、菜单、全局快捷键、通知、多窗口、崩溃日志、单实例深链 | P0-08 | 关窗不退出策略可配；托盘菜单齐全；深链登录/配对可用；六语言 | 3 |
+| P1-09 | 桌面产品化（Go） | 托盘、菜单、全局快捷键、通知、多窗口、崩溃日志、单实例深链 | P0-08 | 关窗不退出策略可配；托盘菜单齐全；浏览器登录与深链配对可用；六语言 | 3 |
 | P1-10 | M1 桌面 UI 集成（Web 侧） | 本地/云目标、设备设置、命令/文件审批、审计页；GUI 卡片由 M1b 补齐 | P1-02/04/07/25/27/29 | 本地/云均可创建会话并确认切换；审批选项按原生类型显示；命令规则可撤销；审计脱敏；设置页显示本地工作区占用并可一键清理；GUI 未启用时不要求其权限 | 5 |
 | P1-21 | Browser Use 桌面接入 | 桌面宿主适配层 + 设置页引导 + 状态展示 | P0-09、P1-29 | 桌面内显示扩展状态；系统浏览器完成配对后桌面可见；本地会话经受限回调操作真实标签页；撤销即时；macOS/Windows | 3 |
 | P1-22 | 应用内更新 | `mygo.json` 的 `updates`、更新密钥、`mygo build -upload`、更新窗口/横幅、beta 渠道 | P1-12 | 双平台签名更新；delta 命中与失败回退整包；stable/beta 切换；只读安装位置降级；安装/重启与进行中回合互斥（待回合结束或显式结束，重启后按中断处理不续跑）；发布流程文档 | 4 |
@@ -292,7 +292,7 @@ Definition of Done（每个任务）：
 
 Phase 0 正在实现，设备基础与会话目标按已验证的子任务分批提交；尚未满足整个阶段的出口。操作入口见 [`apps/desktop/README.md`](../../apps/desktop/README.md)。
 
-- P0-01/08/09：已新增 Go/mygo 模块、共享 Web 构建内嵌、服务地址配置、类型化 IPC、原生 API/SSE 传输、系统凭据库中的刷新凭据、内存 access token、退出清理、外链与连接器 OAuth 宿主适配。macOS 真实 WKWebView 已通过登录、刷新恢复、CSP、不同 Web build ID 和协议不兼容后的提示与恢复白盒。
+- P0-01/08/09：已新增 Go/mygo 模块、共享 Web 构建内嵌、类型化 IPC、原生 API/SSE 传输、系统凭据库中的刷新凭据、内存 access token、退出清理、外链与连接器 OAuth 宿主适配。首启服务地址现由打包注入；登录交接见方案 §5.7。API/Auth 100 项（含真实 Redis 并发兑换）、Web 定向 61 项、共享契约 2 项、构建/资源 9 项及 Go race/vet 通过。真实浏览器运行编译后的 React 页面并与 WKWebView 联测，两次交接只输入一次密码，深链通过测试夹具投递。macOS ARM64 示例包已重新打包并确认编译地址、Info.plist URL scheme、ad hoc 签名验证和包内 Codex/Core MCP 冒烟。仍须实测安装后的系统深链唤起、系统凭据库及真实企业/社交身份源；本次未发布安装包。
 - 协议兼容已前移部分 P1-27：桌面上报独立协议版本；浏览器保留原 build ID 检查；另用保留 build ID 让前桌面版本的生产 API 在业务副作用前拒绝桌面请求。保留值已通过 API、Web 定向及原生回归；正式安装包的跨版本兼容矩阵仍属于 P1-27。
 - P0-03/04/05：设备严格契约、增量迁移、一次性配对、认证 epoch、Redis 在线租约和跨副本撤销已提交 `b7ab4ccc`。两轴 code review 后补了并发配对、订阅恢复、延迟替换通知、握手替换竞态和凭据库故障回归，并自主修复发现的问题。
 - PostgreSQL 白盒使用独立临时数据库，验证了新库安装、旧会话字段保留及继续读写、并发一次消费、跨 owner 拒绝、撤销与认证 epoch；迁移只应用于该临时数据库，未改开发/生产数据。

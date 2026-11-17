@@ -36,62 +36,32 @@ type Messages struct{ locale string }
 // source language.
 func In(locale string) Messages { return Messages{locale} }
 
-// ServerTitle says "连接 LinkSense"
+// BuildConfigurationTitle says "无法启动 LinkSense"
 // in the language the app shows.
-func ServerTitle() string { return In(i18n.Locale()).ServerTitle() }
+func BuildConfigurationTitle() string { return In(i18n.Locale()).BuildConfigurationTitle() }
 
-// ServerTitle says "连接 LinkSense"
+// BuildConfigurationTitle says "无法启动 LinkSense"
 // in the language of msgs.
-func (msgs Messages) ServerTitle() string {
-	return Catalog.Format(msgs.locale, "serverTitle", nil)
+func (msgs Messages) BuildConfigurationTitle() string {
+	return Catalog.Format(msgs.locale, "buildConfigurationTitle", nil)
 }
 
-// ServerDescription says "输入组织的 LinkSense 服务地址。登录信息会保存在系统凭据库中。"
+// BuildConfigurationInvalid says "此安装包未配置有效的服务地址。请联系管理员获取配置正确的安装包。"
 // in the language the app shows.
-func ServerDescription() string { return In(i18n.Locale()).ServerDescription() }
+func BuildConfigurationInvalid() string { return In(i18n.Locale()).BuildConfigurationInvalid() }
 
-// ServerDescription says "输入组织的 LinkSense 服务地址。登录信息会保存在系统凭据库中。"
+// BuildConfigurationInvalid says "此安装包未配置有效的服务地址。请联系管理员获取配置正确的安装包。"
 // in the language of msgs.
-func (msgs Messages) ServerDescription() string {
-	return Catalog.Format(msgs.locale, "serverDescription", nil)
+func (msgs Messages) BuildConfigurationInvalid() string {
+	return Catalog.Format(msgs.locale, "buildConfigurationInvalid", nil)
 }
 
-// ServerLabel says "服务地址"
+// Quit says "退出"
 // in the language the app shows.
-func ServerLabel() string { return In(i18n.Locale()).ServerLabel() }
+func Quit() string { return In(i18n.Locale()).Quit() }
 
-// ServerLabel says "服务地址"
+// Quit says "退出"
 // in the language of msgs.
-func (msgs Messages) ServerLabel() string {
-	return Catalog.Format(msgs.locale, "serverLabel", nil)
-}
-
-// Connect says "连接"
-// in the language the app shows.
-func Connect() string { return In(i18n.Locale()).Connect() }
-
-// Connect says "连接"
-// in the language of msgs.
-func (msgs Messages) Connect() string {
-	return Catalog.Format(msgs.locale, "connect", nil)
-}
-
-// ServerInvalid says "请输入有效的 HTTPS 服务地址。本机服务也支持 HTTP。"
-// in the language the app shows.
-func ServerInvalid() string { return In(i18n.Locale()).ServerInvalid() }
-
-// ServerInvalid says "请输入有效的 HTTPS 服务地址。本机服务也支持 HTTP。"
-// in the language of msgs.
-func (msgs Messages) ServerInvalid() string {
-	return Catalog.Format(msgs.locale, "serverInvalid", nil)
-}
-
-// ConfigSaveFailed says "无法保存服务地址，请检查应用数据目录的访问权限。"
-// in the language the app shows.
-func ConfigSaveFailed() string { return In(i18n.Locale()).ConfigSaveFailed() }
-
-// ConfigSaveFailed says "无法保存服务地址，请检查应用数据目录的访问权限。"
-// in the language of msgs.
-func (msgs Messages) ConfigSaveFailed() string {
-	return Catalog.Format(msgs.locale, "configSaveFailed", nil)
+func (msgs Messages) Quit() string {
+	return Catalog.Format(msgs.locale, "quit", nil)
 }

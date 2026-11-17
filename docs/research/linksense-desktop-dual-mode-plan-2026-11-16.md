@@ -192,8 +192,8 @@ flowchart TB
 - 形态：**完整客户端**，不是伴随程序。
   - 主窗口：mygo webview（macOS WKWebView / Windows WebView2）加载 `apps/web` 构建产物，复用全部会话、计划、表单、工件、知识库、浏览器面板与设置 UI。
   - 伴随窗口：保留现有 mygo 原生 UI（配对、设备状态、权限引导、暂停），与主窗口共存；系统级交互不走 webview。
-- Go 侧职责：单实例锁、深链 `linksense-desktop://`（登录回调、配对）、托盘与菜单、窗口状态、通知、文件选择/下载、自动更新（mygo updater：签名 + delta）、崩溃日志、本地 runner supervisor、设备桥、computer-use 引擎。
-- Web 侧新增：桌面宿主适配层（环境检测、mygo 生成类型化 IPC 客户端、深链登录、更新入口、本地/云目标选择、设备与权限面板）；没有桌面宿主时（纯浏览器）保持现状。
+- Go 侧职责：打包时固定服务地址、系统浏览器登录交接、单实例锁、深链 `linksense-desktop://`（登录回调、配对、会话）、托盘与菜单、窗口状态、通知、文件选择/下载、自动更新（mygo updater：签名 + delta）、崩溃日志、本地 runner supervisor、设备桥、computer-use 引擎。
+- Web 侧新增：桌面宿主适配层（环境检测、mygo 生成类型化 IPC 客户端、浏览器登录交接、更新入口、本地/云目标选择、设备与权限面板）；没有桌面宿主时（纯浏览器）保持现状。
 - 安全：webview 内容按不可信处理，由 mygo 的 content rules / protocol / permissions 限制导航、新窗口与外部打开；Go 只暴露显式绑定的 IPC 方法，不暴露任意文件或命令执行；CSP 沿用 Web 构建。
 - 取舍：壳比 Electron 小一个数量级、无 Node 运行时；代价是 mygo 生态较小，原生 UI 能力以其 toolkit 为界，复杂页面一律放 webview。
 - Windows：WebView2（系统自带）；安装器 + Authenticode 签名；SmartScreen 信誉随下载量积累，早期可能提示风险。
@@ -357,7 +357,7 @@ flowchart TB
 
 **主窗口页面**
 
-- 复用 Web 全部路由与组件：登录/注册、会话列表与详情（对话、计划、表单、工件）、知识库、浏览器面板、设置。
+- 复用 Web 路由与组件：会话列表与详情（对话、计划、表单、工件）、知识库、浏览器面板、设置；登录/注册在系统浏览器完成，桌面内提供登录交接页。
 - 桌面新增页面：设备与权限（配对、在线状态、任务授权、授权记录、撤销）、本地电脑状态、更新、关于/诊断。
 - 桌面隐藏或外跳：需要独立浏览器窗口的流程（支付、第三方 OAuth 页面、营销页）交给系统浏览器。
 
@@ -374,7 +374,10 @@ flowchart TB
 
 **登录与账号**
 
-- 深链回调完成登录；token 存系统 Keychain（mygo secrets），不落 localStorage。
+- 服务 Base URL 在打包时注入，安装后的运行时环境和旧配置文件均不能覆盖；首次启动不向用户索要 URL。构建命令见 `apps/desktop/README.md`。
+- 登录打开系统浏览器，已有有效会话直接复用；未登录时使用现有 Web 登录/注册和企业/第三方登录。
+- 登录交接使用短时一次性授权码、随机 state 和 S256 PKCE，只允许 `linksense-desktop://auth/callback`；Go 不启动回环监听。浏览器若拦截自动打开，页面保留“返回客户端”入口。登录五分钟超时并支持取消；授权码 60 秒到期，跨 API 副本原子消费，兑换时再次校验账号状态与认证 epoch。URL 不含 access/refresh token；verifier 仅保存在原生内存。
+- 客户端创建独立 refresh session，refresh token 存系统 Keychain（mygo secrets），access token 只在内存；不读取或复制浏览器 Cookie。完成后恢复客户端焦点，后续启动静默刷新；客户端退出不退出系统浏览器。
 - 过期静默刷新；退出登录清理本地 token；设备与账号绑定，退出时提示是否同时解绑。
 - 一期单账号；切换账号需重新登录并重新配对本地设备。
 
@@ -385,7 +388,7 @@ flowchart TB
 
 **首次启动引导**
 
-1. 登录（深链/浏览器）。
+1. 进入使用固定服务地址的客户端，通过系统浏览器完成登录。
 2. 设备命名与配对（准备使用本地模式时）。
 3. 系统权限：仅在 M1b 首次启用 GUI 时检测/请求；macOS 辅助功能 + 屏幕录制，Windows 受完整性级别约束。M1 跳过此步。
 4. 连接浏览器（可选）：安装 Chrome/Edge 扩展并在系统浏览器里完成配对。

@@ -13,6 +13,7 @@ import { MaintenanceNoticeDialog } from "@/components/shell/maintenance-notice-d
 import { KnowledgeUploadSessionProvider } from "@/features/knowledge-bases/knowledge-upload-session-provider"
 import { ApiError } from "@/api/client"
 import { getErrorMessage } from "@/api/error-message"
+import { desktopLoginReturn } from "@/features/desktop-login/return-destination"
 
 const maintenanceAdminAuthPaths = new Set([
   "/login",
@@ -158,7 +159,7 @@ function resolveAuthenticatedDestination(
   state: unknown,
   userId: string | undefined
 ): string {
-  const fallback = "/conversations/new"
+  const fallback = desktopLoginReturn() ?? "/conversations/new"
   if (
     typeof state !== "object" ||
     state === null ||

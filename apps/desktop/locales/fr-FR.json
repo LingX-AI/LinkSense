@@ -1,8 +1,5 @@
 {
-  "serverTitle": "Se connecter à LinkSense",
-  "serverDescription": "Saisissez l’adresse du serveur LinkSense de votre organisation. Les identifiants sont conservés dans le gestionnaire d’identifiants du système.",
-  "serverLabel": "Adresse du serveur",
-  "connect": "Se connecter",
-  "serverInvalid": "Saisissez une adresse HTTPS valide. Les serveurs locaux acceptent également HTTP.",
-  "configSaveFailed": "Impossible d’enregistrer l’adresse. Vérifiez l’accès au répertoire de données de l’application."
+  "buildConfigurationTitle": "Impossible de démarrer LinkSense",
+  "buildConfigurationInvalid": "Ce paquet ne contient pas d’adresse de serveur valide. Contactez votre administrateur pour obtenir un programme d’installation correctement configuré.",
+  "quit": "Quitter"
 }

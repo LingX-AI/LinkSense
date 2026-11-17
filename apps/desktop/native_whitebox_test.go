@@ -56,6 +56,18 @@ func TestMain(m *testing.M) {
 	server, _ := url.Parse(nativeWhitebox.server.URL)
 	nativeWhitebox.desktop = &Desktop{}
 	nativeWhitebox.desktop.configure(server, nativeWhitebox.store, dataRoot)
+	nativeWhitebox.desktop.openBrowser = func(raw string) error {
+		authorization, err := url.Parse(raw)
+		if err != nil || authorization.Path != "/desktop/authorize" || authorization.Query().Get("redirect_uri") != desktopLoginRedirectURI {
+			return fmt.Errorf("unexpected browser authorization destination")
+		}
+		callback := url.Values{
+			"state": {authorization.Query().Get("state")},
+			"code":  {strings.Repeat("c", 43)},
+		}.Encode()
+		nativeWhitebox.desktop.handleOpenURL(desktopLoginRedirectURI + "?" + callback)
+		return nil
+	}
 	mygo.Bind(nativeWhitebox.desktop)
 	mygo.Use(fetch.New(fetch.Options{
 		Client: &http.Client{
@@ -64,7 +76,8 @@ func TestMain(m *testing.M) {
 		},
 		Allow: func(request *http.Request) bool {
 			return nativeWhitebox.desktop.checkCaller(request.Context()) == nil &&
-				allowsAPIRequest(server, request)
+				request.URL.Path != desktopLoginExchangePath &&
+				allowsAPIRequest(nativeWhitebox.desktop.server, request)
 		},
 	}))
 	mygo.App.WhenReady(func() {
@@ -83,6 +96,10 @@ func TestMain(m *testing.M) {
 }
 
 func whiteboxAPI(w http.ResponseWriter, r *http.Request) {
+	serveWhiteboxAPI(w, r, strings.Repeat("a", 64))
+}
+
+func serveWhiteboxAPI(w http.ResponseWriter, r *http.Request, refreshToken string) {
 	if r.URL.Path == "/api/v1/desktop/devices/socket" {
 		socket, err := websocket.Accept(w, r, nil)
 		if err != nil {
@@ -128,7 +145,9 @@ func whiteboxAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("x-linksense-build", strings.Repeat("b", 64))
 	protocol := fmt.Sprint(nativeWhitebox.protocol.Load())
 	w.Header().Set("x-linksense-desktop-protocol", protocol)
-	if r.Header.Get("x-linksense-desktop-protocol") != protocol || r.Header.Get("x-linksense-client-build") != strings.Repeat("0", 64) {
+	if r.Header.Get("x-linksense-desktop-protocol") == "" {
+		w.Header().Set("x-linksense-build", r.Header.Get("x-linksense-client-build"))
+	} else if r.Header.Get("x-linksense-desktop-protocol") != protocol || r.Header.Get("x-linksense-client-build") != strings.Repeat("0", 64) {
 		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error_code": "DESKTOP_UPDATE_REQUIRED"})
 		return
@@ -146,10 +165,10 @@ func whiteboxAPI(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/v1/system/bootstrap":
 		data = map[string]any{"initialized": true, "system_name": "LinkSense", "default_language": "en-US"}
-	case "/api/v1/auth/login", "/api/v1/auth/refresh":
+	case "/api/v1/auth/login", desktopLoginExchangePath, "/api/v1/auth/refresh":
 		if r.URL.Path == "/api/v1/auth/refresh" {
 			cookie, err := r.Cookie(refreshCookieName)
-			if err != nil || cookie.Value != strings.Repeat("a", 64) {
+			if err != nil || cookie.Value != refreshToken {
 				w.WriteHeader(http.StatusUnauthorized)
 				_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error_code": "AUTH_SESSION_EXPIRED"})
 				return
@@ -159,9 +178,13 @@ func whiteboxAPI(w http.ResponseWriter, r *http.Request) {
 			nativeWhitebox.logins.Add(1)
 		}
 		http.SetCookie(w, &http.Cookie{
-			Name: refreshCookieName, Value: strings.Repeat("a", 64),
+			Name: refreshCookieName, Value: refreshToken,
 			Path: "/api/v1/auth", HttpOnly: true, MaxAge: 3600,
 		})
+		if r.URL.Path == desktopLoginExchangePath {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		authUser := maps.Clone(user)
 		for _, key := range []string{"avatar_url", "language", "registration_source"} {
 			delete(authUser, key)
@@ -258,19 +281,15 @@ func TestNativeSharedUILoginAndSecureSessionRestore(t *testing.T) {
 	win := desktop.mainWindow()
 	defer win.Destroy()
 	page := win.Page()
-	whiteboxWait(t, page, `document.querySelector("#login-email") !== null`)
+	whiteboxWait(t, page, `document.querySelector("[data-desktop-sign-in]") !== null`)
 	policy, err := page.Eval(`document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content.includes("script-src 'self' 'wasm-unsafe-eval'") === true`)
 	if err != nil || policy != true {
 		t.Fatal("the embedded UI lost the shared Web content security policy")
 	}
 	if _, err := page.Eval(`
-		const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-		for (const [id, value] of [["login-email", "eli@example.com"], ["login-password", "whitebox-password"]]) {
-			const input = document.getElementById(id);
-			set.call(input, value);
-			input.dispatchEvent(new Event("input", { bubbles: true }));
-		}
-		document.querySelector("#login-email").closest("form").requestSubmit();
+		if (document.querySelector("#login-email") || document.querySelector('input[type="password"]'))
+			throw new Error("desktop retained its embedded password login");
+		document.querySelector("[data-desktop-sign-in]").click();
 	`); err != nil {
 		t.Fatal(err)
 	}
