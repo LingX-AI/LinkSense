@@ -125,6 +125,10 @@ export default defineConfig({
         target:
           process.env.LINKSENSE_DEV_API_PROXY_TARGET ?? "http://localhost:4000",
       },
+      "/app": {
+        target:
+          process.env.LINKSENSE_DEV_API_PROXY_TARGET ?? "http://localhost:4000",
+      },
       "/help": {
         target:
           process.env.LINKSENSE_DEV_DOCS_PROXY_TARGET ??

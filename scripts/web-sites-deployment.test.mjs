@@ -19,6 +19,13 @@ for (const file of ["deploy/nginx/default.conf.template", "deploy/nginx/producti
     assert.match(preview, /proxy_pass http:/u);
     assert.match(preview, /add_header Cache-Control "no-store" always;/u);
     assert.doesNotMatch(preview, /try_files|add_header (?:Content-Security-Policy|X-Frame-Options)/u);
+    const appBegin = config.indexOf("location ^~ /app/");
+    assert(appBegin >= 0 && appBegin < begin);
+    const applications = config.slice(appBegin, begin);
+    assert.match(applications, /proxy_pass http:/u);
+    assert.match(applications, /proxy_set_header Host \$http_host;/u);
+    assert.match(applications, /add_header Cache-Control "no-store" always;/u);
+    assert.doesNotMatch(applications, /try_files|add_header (?:Content-Security-Policy|X-Frame-Options)/u);
   });
 }
 test("website storage migration only adds isolated tables without foreign keys", async () => {
@@ -27,4 +34,10 @@ test("website storage migration only adds isolated tables without foreign keys",
   assert.equal([...sql.matchAll(/CREATE TABLE/gu)].length, 4);
   assert.match(sql, /CREATE UNIQUE INDEX "web_sites_slug_key"/u);
   assert.match(sql, /web_sites_owner_updated_idx/u);
+});
+test("sandbox runtime migration preserves existing application modes", async () => {
+  const sql = await readFile("prisma/migrations/20261117180000_add_web_site_backend_runtime_mode/migration.sql", "utf8");
+  assert.match(sql, /ADD COLUMN "runtime_mode" VARCHAR\(16\)/u);
+  assert.doesNotMatch(sql, /\b(?:DROP|TRUNCATE|DELETE|UPDATE|NOT NULL|DEFAULT)\b/iu);
+  assert.match(sql, /"runtime_mode" IS NULL OR "runtime_mode" = 'sandbox'/u);
 });
