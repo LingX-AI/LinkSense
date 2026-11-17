@@ -1,13 +1,17 @@
 import {
   defaultPrivacyMaskingSettings,
+  privacyMaskingPreviewResponseSchema,
   privacyMaskingRuntimeSchema,
   privacyMaskingSettingsSchema,
   updatePrivacyMaskingSettingsSchema,
+  type PrivacyMaskingPreviewRequest,
+  type PrivacyMaskingPreviewResponse,
   type PrivacyMaskingRuntime,
   type PrivacyMaskingSettings,
   type PrivacyMaskingSettingsResponse,
   type UpdatePrivacyMaskingSettings,
 } from "@linksense/shared";
+import { PrivacyMasker } from "@linksense/shared/privacy-masking-engine";
 
 import type { AppConfig } from "../../config.js";
 import type { PrismaClient } from "../../generated/prisma/client.js";
@@ -161,12 +165,60 @@ export class PrivacyMaskingSettingsService {
       words_whole: stored.settings.words_whole,
       actions: stored.settings.actions,
       allow: stored.settings.allow,
-      placeholder_key: hmacSha256(
-        this.config.credentialMasterKey,
-        PLACEHOLDER_KEY_NAMESPACE,
-        userId,
-      ),
+      placeholder_key: this.placeholderKeyFor(userId),
     });
+  }
+
+  /**
+   * The settings page's try-it: the text masked with the saved settings or
+   * the unsaved draft. The preview runs while masking is off, so a user can
+   * check the rules before enabling them, and it uses the user's own
+   * placeholder key so the placeholders match what a turn would send.
+   * Nothing here is stored.
+   */
+  async previewForUser(
+    userId: string,
+    input: PrivacyMaskingPreviewRequest,
+  ): Promise<PrivacyMaskingPreviewResponse> {
+    const settings =
+      input.settings ?? (await this.readForUser(userId)).settings;
+    const masker = new PrivacyMasker({
+      revision: 0,
+      secrets: settings.secrets,
+      personal: settings.personal,
+      kinds: settings.kinds,
+      words: settings.words,
+      words_any_case: settings.words_any_case,
+      words_whole: settings.words_whole,
+      actions: settings.actions,
+      allow: settings.allow,
+      placeholder_key: this.placeholderKeyFor(userId),
+    });
+    const masked = masker.maskText(input.text);
+    const seen = new Set<string>();
+    const hits = masked.hits
+      .filter((hit) => {
+        if (seen.has(hit.placeholder)) return false;
+        seen.add(hit.placeholder);
+        return true;
+      })
+      .map(({ placeholder, kind, action }) => ({
+        placeholder,
+        kind,
+        action,
+      }));
+    return privacyMaskingPreviewResponseSchema.parse({
+      text: masked.text,
+      hits,
+    });
+  }
+
+  private placeholderKeyFor(userId: string): string {
+    return hmacSha256(
+      this.config.credentialMasterKey,
+      PLACEHOLDER_KEY_NAMESPACE,
+      userId,
+    );
   }
 
   private async readForUser(

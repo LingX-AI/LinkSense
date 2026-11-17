@@ -29,9 +29,19 @@ describe("privacy masking routes", () => {
     };
     const getForUser = vi.fn().mockResolvedValue(response);
     const updateForUser = vi.fn().mockResolvedValue(response);
+    const previewForUser = vi.fn().mockResolvedValue({
+      text: "key {{API_KEY_0123456789abcdef}}",
+      hits: [
+        {
+          placeholder: "{{API_KEY_0123456789abcdef}}",
+          kind: "API_KEY",
+          action: "mask",
+        },
+      ],
+    });
     await app.register(meRoutes, {
       service: {} as UserService,
-      privacyMaskingSettings: { getForUser, updateForUser },
+      privacyMaskingSettings: { getForUser, updateForUser, previewForUser },
       authentication: {
         authenticate: async () => undefined,
         requireAdmin: async () => undefined,
@@ -82,6 +92,35 @@ describe("privacy masking routes", () => {
     });
     expect(invalid.statusCode).toBe(400);
     expect(updateForUser).toHaveBeenCalledTimes(1);
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/privacy-masking-settings/preview",
+      payload: { text: "key sk-1234567890abcdef" },
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.headers["cache-control"]).toBe("private, no-store");
+    expect(preview.json().data).toEqual({
+      text: "key {{API_KEY_0123456789abcdef}}",
+      hits: [
+        {
+          placeholder: "{{API_KEY_0123456789abcdef}}",
+          kind: "API_KEY",
+          action: "mask",
+        },
+      ],
+    });
+    expect(previewForUser).toHaveBeenCalledWith(userId, {
+      text: "key sk-1234567890abcdef",
+    });
+
+    const oversized = await app.inject({
+      method: "POST",
+      url: "/privacy-masking-settings/preview",
+      payload: { text: "x".repeat(8001) },
+    });
+    expect(oversized.statusCode).toBe(400);
+    expect(previewForUser).toHaveBeenCalledTimes(1);
     await app.close();
   });
 
@@ -89,9 +128,14 @@ describe("privacy masking routes", () => {
     const app = appFixture();
     const getForUser = vi.fn();
     const updateForUser = vi.fn();
+    const previewForUser = vi.fn();
     await app.register(meRoutes, {
       service: {} as UserService,
-      privacyMaskingSettings: { getForUser, updateForUser },
+      privacyMaskingSettings: {
+        getForUser,
+        updateForUser,
+        previewForUser,
+      },
       authentication: {
         authenticate: async () => {
           throw new AppError("AUTH_REQUIRED");

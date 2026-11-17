@@ -5,6 +5,7 @@ import type {
 } from "fastify";
 import {
   creditMicrosToDecimal,
+  privacyMaskingPreviewRequestSchema,
   updateModelPreferenceSchema,
   updatePersonalizationSettingsSchema,
   updatePrivacyMaskingSettingsSchema,
@@ -41,7 +42,7 @@ export const meRoutes: FastifyPluginAsync<{
   modelProviderSettings?: ModelProviderSettingsService;
   privacyMaskingSettings?: Pick<
     PrivacyMaskingSettingsService,
-    "getForUser" | "updateForUser"
+    "getForUser" | "updateForUser" | "previewForUser"
   >;
   runner?: RunnerClient;
   authentication: UserRouteAuthentication;
@@ -149,6 +150,19 @@ export const meRoutes: FastifyPluginAsync<{
           request,
         ),
       );
+    });
+
+    app.post("/privacy-masking-settings/preview", async (request, reply) => {
+      const actor = await authentication.getActor(request);
+      const input = privacyMaskingPreviewRequestSchema.parse(request.body);
+      return reply
+        .header("cache-control", "private, no-store")
+        .send(
+          ok(
+            await privacyMaskingSettings.previewForUser(actor.id, input),
+            request,
+          ),
+        );
     });
   }
 

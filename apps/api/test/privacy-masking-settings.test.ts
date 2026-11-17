@@ -206,6 +206,35 @@ describe("privacy masking settings", () => {
     });
   });
 
+  it("previews the draft settings with the user's own stable placeholders", async () => {
+    const f = fixture();
+    const text =
+      "Nightjar deploys with sk-proj-abcdefghijklmnopqrstuvwx and mails example@example.test";
+    const first = await f.service.previewForUser(userA, {
+      text,
+      settings: settings(),
+    });
+    expect(first.text).not.toContain("Nightjar");
+    expect(first.text).not.toContain("sk-proj-abcdefghijklmnopqrstuvwx");
+    expect(first.text).toContain("example@example.test");
+    expect(first.hits.map((hit) => hit.kind).sort()).toEqual([
+      "API_KEY",
+      "TERM",
+    ]);
+    expect(first.hits.every((hit) => hit.action === "mask")).toBe(true);
+
+    const again = await f.service.previewForUser(userA, {
+      text,
+      settings: settings(),
+    });
+    expect(again.text).toBe(first.text);
+    const otherUser = await f.service.previewForUser(userB, {
+      text,
+      settings: settings(),
+    });
+    expect(otherUser.text).not.toBe(first.text);
+  });
+
   it("validates the settings before storing them", async () => {
     const f = fixture();
     await expect(

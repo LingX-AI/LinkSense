@@ -123,6 +123,36 @@ export type UpdatePrivacyMaskingSettings = z.infer<
   typeof updatePrivacyMaskingSettingsSchema
 >;
 
+export const MAX_PRIVACY_MASKING_PREVIEW_LENGTH = 8000;
+
+/**
+ * The settings page's try-it box. `settings` carries the unsaved draft so a
+ * user can check words before saving; omitted, the saved settings apply.
+ */
+export const privacyMaskingPreviewRequestSchema = z.strictObject({
+  text: z.string().max(MAX_PRIVACY_MASKING_PREVIEW_LENGTH),
+  settings: privacyMaskingSettingsSchema.optional(),
+});
+
+export type PrivacyMaskingPreviewRequest = z.infer<
+  typeof privacyMaskingPreviewRequestSchema
+>;
+
+export const privacyMaskingPreviewHitSchema = z.strictObject({
+  placeholder: z.string(),
+  kind: privacyMaskingKindSchema,
+  action: privacyMaskingActionSchema,
+});
+
+export const privacyMaskingPreviewResponseSchema = z.strictObject({
+  text: z.string(),
+  hits: z.array(privacyMaskingPreviewHitSchema),
+});
+
+export type PrivacyMaskingPreviewResponse = z.infer<
+  typeof privacyMaskingPreviewResponseSchema
+>;
+
 /**
  * Sent to the runner only while masking is enabled; its presence is the
  * switch. The placeholder key is derived by the API per user so identical
