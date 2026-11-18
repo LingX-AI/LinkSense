@@ -17,6 +17,7 @@ import dayjs from "dayjs";
 import { z } from "zod";
 
 import type { AppConfig } from "../config.js";
+import { createMinioTransport } from "./minio-transport.js";
 
 const localObjectMetadataSchema = z.record(z.string(), z.string());
 
@@ -26,6 +27,7 @@ export interface ObjectStorage {
     key: string,
     data: Buffer,
     metadata?: Record<string, string>,
+    signal?: AbortSignal,
   ): Promise<void>;
   getObjectSize(key: string): Promise<number>;
   getObjectStream(key: string): Promise<Readable>;
@@ -34,7 +36,7 @@ export interface ObjectStorage {
     start: number,
     length: number,
   ): Promise<Readable>;
-  removeObject(key: string): Promise<void>;
+  removeObject(key: string, signal?: AbortSignal): Promise<void>;
   presignedGetObject(key: string, expiresSeconds: number): Promise<string>;
   health(): Promise<void>;
 }
@@ -48,6 +50,7 @@ export function createObjectStorage(config: AppConfig): ObjectStorage {
 export class MinioObjectStorage implements ObjectStorage {
   readonly client: Client;
   readonly presignClient: Client;
+  private readonly transport: ReturnType<typeof createMinioTransport>;
 
   constructor(private readonly config: AppConfig) {
     if (config.objectStorage.provider !== "minio") {
@@ -58,10 +61,12 @@ export class MinioObjectStorage implements ObjectStorage {
       secretKey: config.minio.secretKey,
       region: config.minio.region,
     };
+    this.transport = createMinioTransport(config.minio.useSsl);
     this.client = new Client({
       endPoint: config.minio.endpoint,
       port: config.minio.port,
       useSSL: config.minio.useSsl,
+      transport: this.transport.transport,
       ...credentials,
     });
     this.presignClient = new Client({
@@ -81,18 +86,19 @@ export class MinioObjectStorage implements ObjectStorage {
     key: string,
     data: Buffer,
     metadata: Record<string, string> = {},
+    signal?: AbortSignal,
   ): Promise<void> {
-    await this.client.putObject(
+    await this.transport.run(signal, () => this.client.putObject(
       this.config.minio.bucket,
       key,
       data,
       data.byteLength,
       encodeMetadataHeaderValues(metadata),
-    );
+    ));
   }
 
-  async removeObject(key: string): Promise<void> {
-    await this.client.removeObject(this.config.minio.bucket, key);
+  async removeObject(key: string, signal?: AbortSignal): Promise<void> {
+    await this.transport.run(signal, () => this.client.removeObject(this.config.minio.bucket, key));
   }
 
   getObjectStream(key: string): Promise<Readable> {
@@ -161,17 +167,28 @@ export class LocalFilesystemObjectStorage implements ObjectStorage {
     key: string,
     data: Buffer,
     metadata: Record<string, string> = {},
+    signal?: AbortSignal,
   ): Promise<void> {
+    signal?.throwIfAborted();
     const objectPath = this.resolveObjectPath(key);
     const metadataPath = this.resolveMetadataPath(key);
     await Promise.all([
       mkdir(dirname(objectPath), { recursive: true, mode: 0o700 }),
       mkdir(dirname(metadataPath), { recursive: true, mode: 0o700 }),
     ]);
-    await Promise.all([
-      writeAtomic(objectPath, data),
-      writeAtomic(metadataPath, Buffer.from(JSON.stringify(metadata), "utf8")),
-    ]);
+    const files = [
+      { destination: objectPath, data },
+      { destination: metadataPath, data: Buffer.from(JSON.stringify(metadata), "utf8") },
+    ].map(file => ({ ...file, temporary: `${file.destination}.${randomUUID()}.tmp` }));
+    try {
+      await settleFileOperations(files.map(file =>
+        writeFile(file.temporary, file.data, { mode: 0o600, signal }),
+      ));
+      signal?.throwIfAborted();
+      await settleFileOperations(files.map(file => rename(file.temporary, file.destination)));
+    } finally {
+      await settleFileOperations(files.map(file => rm(file.temporary, { force: true })));
+    }
   }
 
   async getObjectSize(key: string): Promise<number> {
@@ -200,7 +217,8 @@ export class LocalFilesystemObjectStorage implements ObjectStorage {
     return createReadStream(objectPath, { start, end: start + length - 1 });
   }
 
-  async removeObject(key: string): Promise<void> {
+  async removeObject(key: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     await Promise.all([
       rm(this.resolveObjectPath(key), { force: true }),
       rm(this.resolveMetadataPath(key), { force: true }),
@@ -274,13 +292,9 @@ export class LocalFilesystemObjectStorage implements ObjectStorage {
   }
 }
 
-async function writeAtomic(destination: string, data: Buffer): Promise<void> {
-  const temporaryPath = `${destination}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporaryPath, data, { mode: 0o600 });
-    await rename(temporaryPath, destination);
-  } finally {
-    await rm(temporaryPath, { force: true });
+async function settleFileOperations(operations: Promise<void>[]): Promise<void> {
+  for (const result of await Promise.allSettled(operations)) {
+    if (result.status === "rejected") throw result.reason;
   }
 }
 

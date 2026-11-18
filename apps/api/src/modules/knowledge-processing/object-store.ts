@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto"
-import { Readable, Transform } from "node:stream"
+import { addAbortSignal, Readable, Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
 
 import { Client } from "minio"
 import { z } from "zod"
 
+import { createMinioTransport } from "../../adapters/minio-transport.js"
 import { KnowledgeProcessingError } from "./errors.js"
 
 const HEALTH_PROBE_PREFIX = "_linksense-health/knowledge-object-store/"
@@ -71,6 +72,7 @@ export type KnowledgeObjectStoreConfig = {
 
 export class KnowledgeObjectStore {
   private readonly client: KnowledgeObjectStorageClient
+  private readonly transport: ReturnType<typeof createMinioTransport>
   private healthCacheExpiresAt = 0
   private healthInFlight: Promise<void> | undefined
 
@@ -83,6 +85,7 @@ export class KnowledgeObjectStore {
       createProbeId?: () => string
     } = {},
   ) {
+    this.transport = createMinioTransport(config.useSsl)
     this.client =
       client ??
       new Client({
@@ -91,6 +94,7 @@ export class KnowledgeObjectStore {
         useSSL: config.useSsl,
         accessKey: config.accessKey,
         secretKey: config.secretKey,
+        transport: this.transport.transport,
       })
   }
 
@@ -238,12 +242,12 @@ export class KnowledgeObjectStore {
     }
   }
 
-  getStream(key: string): Promise<Readable> {
+  getStream(key: string, signal?: AbortSignal): Promise<Readable> {
     assertManagedKnowledgeObjectKey(key)
-    return this.client.getObject(this.config.bucket, key)
+    return this.transport.run(signal, () => this.client.getObject(this.config.bucket, key))
   }
 
-  getRangeStream(key: string, offset: number, length: number): Promise<Readable> {
+  getRangeStream(key: string, offset: number, length: number, signal?: AbortSignal): Promise<Readable> {
     assertManagedKnowledgeObjectKey(key)
     if (!Number.isSafeInteger(offset) || offset < 0) {
       throw new KnowledgeProcessingError(
@@ -255,18 +259,19 @@ export class KnowledgeObjectStore {
         "KNOWLEDGE_OBJECT_STORAGE_UNAVAILABLE",
       )
     }
-    return this.client.getPartialObject(
+    return this.transport.run(signal, () => this.client.getPartialObject(
       this.config.bucket,
       key,
       offset,
       length,
-    )
+    ))
   }
 
   async verifyIntegrity(input: {
     key: string
     expectedSha256: string
     expectedSizeBytes: bigint | number
+    signal?: AbortSignal
   }): Promise<boolean> {
     try {
       assertManagedKnowledgeObjectKey(input.key)
@@ -286,12 +291,15 @@ export class KnowledgeObjectStore {
       return false
     }
     try {
-      const stored = await this.client.statObject(
+      input.signal?.throwIfAborted()
+      const stored = await this.transport.run(input.signal, () => this.client.statObject(
         this.config.bucket,
         input.key,
-      )
+      ))
+      input.signal?.throwIfAborted()
       if (stored.size !== expectedSize) return false
-      const stream = await this.client.getObject(this.config.bucket, input.key)
+      const stream = await this.getStream(input.key, input.signal)
+      if (input.signal) addAbortSignal(input.signal, stream)
       const hash = createHash("sha256")
       let actualSize = 0
       for await (const chunk of stream) {
@@ -308,6 +316,7 @@ export class KnowledgeObjectStore {
         hash.digest("hex") === expectedSha256.data
       )
     } catch (error) {
+      input.signal?.throwIfAborted()
       if (isMissingObjectError(error)) return false
       throw new KnowledgeProcessingError(
         "KNOWLEDGE_OBJECT_STORAGE_UNAVAILABLE",

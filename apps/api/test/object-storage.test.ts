@@ -110,6 +110,7 @@ describe("MinioObjectStorage deployment boundary", () => {
         endPoint: "host.docker.internal",
         port: 9000,
         useSSL: false,
+        transport: { request: expect.any(Function) },
         accessKey: "test-access",
         secretKey: "test-secret",
         region: "us-east-1",
@@ -182,6 +183,20 @@ describe("LocalFilesystemObjectStorage development boundary", () => {
     await expect(
       storage.putObject("../outside.txt", Buffer.from("no")),
     ).rejects.toThrow("LOCAL_OBJECT_STORAGE_KEY_INVALID")
+  })
+
+  it("keeps the existing object and metadata when a write or delete is already cancelled", async () => {
+    const storage = await createStorage()
+    const objectKey = "artifacts/example.txt"
+    await storage.putObject(objectKey, Buffer.from("original"), { "content-type": "text/plain" })
+    const signal = AbortSignal.abort()
+
+    await expect(storage.putObject(objectKey, Buffer.from("replacement"), {}, signal))
+      .rejects.toMatchObject({ name: "AbortError" })
+    await expect(storage.removeObject(objectKey, signal))
+      .rejects.toMatchObject({ name: "AbortError" })
+    await expect(streamText(await storage.getObjectStream(objectKey))).resolves.toBe("original")
+    expect(await storage.getObjectContentType(objectKey)).toBe("text/plain")
   })
 
   it("creates signed browser URLs and rejects tampering", async () => {
