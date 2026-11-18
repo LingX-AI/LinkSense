@@ -69,6 +69,14 @@ ${applicationIntentInstructions("this Skill", `${coreMcpServerKey}.request_user_
   If the user needs progress to survive reloads or needs reminders, explain the
   limitation and use the self-hosted dynamic workflow if appropriate; never
   claim that local persistence works.
+- Every site ships with a favicon; generate it automatically instead of leaving
+  the browser tab blank. Draw a small self-contained \`favicon.svg\` in the same
+  directory (the key noun, a monogram, or a simple mark derived from the page's
+  palette), keep it legible at 16px, and link it with a relative URL:
+  \`<link rel="icon" type="image/svg+xml" href="favicon.svg">\`. Never point at a
+  root-absolute \`/favicon.ico\`; the release is served under a release path.
+  Do not ask the user to design the favicon first — ship a reasonable one and
+  offer to regenerate it.
 - Match the language the user asked for. Keep the page usable on mobile and
   cover loading, empty, and error states where relevant.
 
@@ -223,10 +231,19 @@ Return the publishing tool's URL, not a URL inferred from backend preparation.
 - To change content, rebuild the site, register the new HTML entry, and call
   \`publish_web_site\` with \`site_id\` and the new \`file_id\`. The slug stays the
   same and the public link keeps working.
+- To change or regenerate the favicon, update or redraw \`favicon.svg\` in the
+  site bundle (same palette, same relative \`<link rel="icon">\`), register the
+  new entry, and republish with the existing \`site_id\`. A favicon-only request
+  is a normal content update, not a new site.
 - To change only the name, description, slug, or published status, call
   \`${coreMcpServerKey}.update_web_site\`. Renaming keeps the stable application
   URL and old aliases usable; do not request repeated confirmation for an
   already authorized rename.
+- To require an access passcode, call \`update_web_site\` with
+  \`passcode: "<code>"\` (4–128 characters); \`passcode: null\` removes it.
+  Visitors then unlock the site on a LinkSense passcode page, and changing the
+  passcode immediately revokes earlier unlocks. Never put the passcode in the
+  page bundle or logs, and do not invent one if the user has not chosen a code.
 - Unpublish with \`update_web_site\` and \`status: "disabled"\`. Republish with
   \`status: "published"\`. Deleting a site is a destructive action and should be
   left to the user in Apps & Tools → Applications → My sites unless they
