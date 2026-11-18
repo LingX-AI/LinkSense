@@ -20,6 +20,7 @@ pnpm desktop:dev -- --server-url http://localhost:18173
 pnpm desktop:test
 pnpm desktop:whitebox
 pnpm desktop:whitebox:os
+pnpm desktop:whitebox:engine
 pnpm desktop:build -- --server-url https://linksense.example.com
 pnpm desktop:build -- --platform windows/amd64 --server-url https://linksense.example.com
 ```
@@ -118,6 +119,15 @@ endpoint. It does not change the default URL handler or verify an installed
 release's default scheme routing, full quit/relaunch lifecycle, cross-version
 credential access, real identity providers, or clean-system installation.
 The real authorization SPA has a separate browser-to-WebView fixture test.
+
+`desktop:whitebox:engine` checks the staged macOS engine and helper against the
+checksum-pinned archive retained by `desktop:prepare`. It types Unicode into an
+owned AppKit window, clicks its button and checks both the AX result and the
+file written by the click handler. Run it in an unlocked, isolated macOS login
+with Xcode command-line tools and Accessibility permission. Do not run another
+agent-desktop process in that login: the pinned engine can stop legacy command
+hosts owned by the same account. Windows UIA and installed app validation are
+separate acceptance gates.
 
 The reference implementation is `feat-computer-use` at
 `7041e026032b948c5e4e3bae5c0a5b9d5148bdfb`. This module is implemented for the
