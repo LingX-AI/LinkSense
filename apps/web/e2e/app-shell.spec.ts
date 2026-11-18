@@ -2123,6 +2123,20 @@ for (const width of [1440, 390]) {
     await expect(
       published.getByRole("button", { name: "使用", exact: true })
     ).toBeVisible()
+    const applicationActionStyle = await published
+      .getByRole("button", { name: "使用", exact: true })
+      .evaluate((element) => {
+        const style = getComputedStyle(element)
+        return {
+          backgroundColor: style.backgroundColor,
+          borderColor: style.borderColor,
+          borderRadius: style.borderRadius,
+          fontSize: style.fontSize,
+          height: style.height,
+          paddingLeft: style.paddingLeft,
+          paddingRight: style.paddingRight,
+        }
+      })
     await expect(published.getByRole("list", { name: "应用资源" })).toHaveCount(0)
     const publishedBounds = await published.boundingBox()
     const draftBounds = await draft.boundingBox()
@@ -2158,6 +2172,20 @@ for (const width of [1440, 390]) {
       "href",
       publishedSite.url
     )
+    expect(
+      await site.getByRole("link", { name: "访问" }).evaluate((element) => {
+        const style = getComputedStyle(element)
+        return {
+          backgroundColor: style.backgroundColor,
+          borderColor: style.borderColor,
+          borderRadius: style.borderRadius,
+          fontSize: style.fontSize,
+          height: style.height,
+          paddingLeft: style.paddingLeft,
+          paddingRight: style.paddingRight,
+        }
+      })
+    ).toEqual(applicationActionStyle)
     await expect(unpublished.getByRole("link", { name: "访问" })).toHaveCount(0)
     await expect(unpublished.getByText("未发布", { exact: true })).toBeVisible()
     await expect(

@@ -26,7 +26,7 @@ import {
   LoadingState,
 } from "@/components/feedback/page-state"
 import { notify } from "@/components/feedback/notification"
-import { Button, buttonVariants } from "@/components/ui/button"
+import { Button } from "@/components/ui/button"
 import { catalogResourceListClassName } from "@/components/ui/catalog-resource-row"
 import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
 import { SearchInput } from "@/components/ui/search-input"
@@ -200,23 +200,23 @@ export function SiteLibrary() {
                 actions={
                   <>
                     {site.status === "published" && (
-                      <a
-                        className={buttonVariants({
-                          variant: "outline",
-                          size: "sm",
-                          className:
-                            "h-auto min-h-8 max-w-full whitespace-normal pointer-coarse:min-h-11",
-                        })}
-                        href={site.url ?? site.url_path}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        render={
+                          <a
+                            href={site.url ?? site.url_path}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          />
+                        }
                       >
                         {t("webSites.visit")}
                         <ArrowUpRightIcon
                           data-icon="inline-end"
                           aria-hidden="true"
                         />
-                      </a>
+                      </Button>
                     )}
                     <DropdownMenu>
                       <DropdownMenuTrigger
