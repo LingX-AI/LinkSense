@@ -2,6 +2,8 @@
 
 > 这是当前最新方案的整理稿，供评审与沟通使用。权威细节以两份原文为准：
 > [方案 v2](../research/linksense-desktop-dual-mode-plan-2026-11-16.md) · [任务拆解](./linksense-desktop-dual-mode-task-breakdown-2026-11-16.md)。
+>
+> 2026-11-18：本轮先完成 macOS 的全部功能。下文保留 Windows 架构与双平台交付要求供后续参考，macOS 不等待 Windows。
 > 本文与原文冲突时，以原文为准。
 >
 > 2026-11-17 复审同步：独立设备契约覆盖主模型、记忆提取与模型切换来源；补 Core MCP 受限回调；命令/文件审批分开；Phase 0、M1、M1b 采用各自出口和测试依赖。新增回调任务后约 130 人日，2 人理想开发约 13 周，排期预留 14 周。
@@ -16,7 +18,7 @@
 
 | 项 | 决定 |
 | --- | --- |
-| 桌面壳 | Go 1.27.3 + `github.com/egoist/mygo` v0.7.4（MIT）；不用 Electron/Tauri |
+| 桌面壳 | Go 1.27.3 + `github.com/egoist/mygo` v0.10.0（MIT）；不用 Electron/Tauri |
 | 客户端形态 | **完整桌面应用**：会话、计划、表单、工件、知识库、浏览器面板、设置；不是 companion |
 | UI 复用 | 主窗口加载 `apps/web` 构建，**一套 UI 不 fork**；Go 只做窗口/系统层，禁止在 Go 里重画侧栏或聊天 |
 | 本地模式 | macOS + Windows 双平台 |
@@ -76,7 +78,7 @@
 - `apps/desktop` 是 Go module，**不进 pnpm workspace**；桌面契约放 `packages/shared`。
 - 引擎与应用同进程，不建 `apps/desktop-helper`；CI 覆盖 macOS/Windows 双平台构建。
 - 本地 runner 复用 `apps/runner`，新增 `WORKER_PROVIDER=desktop`（现有 `local-process` 仅 development 且要求 POSIX uid/gid，Windows 不可用）；Node + runner + Codex 随安装包分发。工作区 macOS `~/Library/Application Support/LinkSense`、Windows `%APPDATA%\LinkSense`。
-- 随包方式已按现有多进程入口选用固定 Node + ESM 依赖闭包。Windows ARM64 保持原生外壳/GUI 引擎，Node/Codex/npm 闭包暂用 Windows 11 的 x64 兼容运行时，以覆盖 anydoc 当前缺失的 ARM64 binding。版本/哈希及体积测量以方案 §5.2 和桌面 README 为准；Windows 实机验收仍是出口条件。
+- 随包方式已按现有多进程入口选用固定 Node + ESM 依赖闭包。Windows ARM64 保持原生外壳/GUI 引擎，Node/Codex/npm 闭包暂用 Windows 11 的 x64 兼容运行时，以覆盖 anydoc 当前缺失的 ARM64 binding。版本/哈希及体积测量以方案 §5.2 和桌面 README 为准；Windows 实机验收留待其实施阶段。
 
 ### 3.2 mygo 与 agent-desktop 落地要求
 
@@ -159,7 +161,7 @@
 5. **动作风险分级**：`Read` / `Change` / `External` / `Irreversible` / `Unknown`；`External`、`Irreversible`、`Unknown` 归为 `outward`，审批卡的风险徽标、审计和可选的对外节奏都按这个等级。
 6. **动作效果契约**：`computer_act` 返回 `effect`（`done` / `small_change` / `no_effect` / `place_changed`）与 `wait`；支持 `expect` / `expectGone` / `waitStable`（默认 8s、上限 20s）；`computer_observe` 带 `treeQuality`，树不可用时附截图。`no_effect` 不自动重试。
 
-**OS 权限向导**（参考豆包 `INIT_LOCAL_APP`）：检测 0/2–2/2 → 分项说明 + 系统设置深链 → 重新检测（不重启会话）→ 屏幕录制授权后提示重启；拒绝记录原因并可"先用云电脑"。
+**macOS 权限引导**：仅 M1b 的 GUI 能力按需触发。用 mygo `permissionflow` 在系统设置旁展示可拖拽的 LinkSense，用户在系统设置中完成授权；详见[方案 §7.2](../research/linksense-desktop-dual-mode-plan-2026-11-16.md#72-本地权限)。
 
 **单应用授权**：默认只给一次 / 本次会话；“始终允许”需显式开启（确认卡展开或设备设置），按应用授权、最长 30 天过期、设置里可撤销、撤销立即生效；付款、删除、`Unknown`、工作区外写入、`sudo` 不吃“始终”，仍逐次确认。整桌面接管单独确认（`MAIN_DESKTOP_PERMISSION`）。
 
@@ -213,18 +215,16 @@ mygo 内置：签名 manifest、bsdiff 增量、失败回退整包、stable/beta
 - 兼容：新字段 nullable/default；旧客户端忽略未知事件；不修改已应用迁移；Web 端不显示本地设备入口。
 - **桌面协议版本与 Web build ID 解耦**：现有 `CLIENT_BUILD_HEADER` 要求 build ID 完全相等，内嵌资源又在安装包里，旧安装包连新 API 会永久 `CLIENT_UPDATE_REQUIRED`。桌面改为上报 `desktopProtocolVersion` + 能力位，API 校验兼容区间；不兼容返回 `DESKTOP_UPDATE_REQUIRED` 并给更新入口。Web 端现有检查不动。
 
-## 11. 阶段与工作量
+## 11. macOS 阶段
 
-| 阶段 | 内容 | 估时 |
-| --- | --- | --- |
-| Phase 0 | 壳、主窗口、宿主适配、配对/WS 骨架；干净机器云模式 + 独立本地运行时 fake model 验证；不依赖设备执行回合/GUI | 约 30 人日 |
-| Phase 1 | M1：严格设备契约/用途凭据、双向受限请求（新增 P1-29）、文件/工件、命令/文件审批、双平台安装/更新与兼容；M1b：GUI 引擎、桌面占用租约、系统权限及增量验收 | 约 82 人日 |
-| Phase 2 | 回归 M1 已有双目标与 Web 一致性；内置浏览器窗口 + Agent 适配 + 安全交接 | 约 18 人日 |
-| 合计 | 拆分验收保留原估时总量，受限回调新增 3 人日 | **约 130 人日；2 人理想开发约 13 周，排期预留 14 周** |
+| 阶段 | 内容 |
+| --- | --- |
+| Phase 0 | 壳、系统浏览器登录、独立本地运行时、云模式和配对/WS 骨架 |
+| M1 | 设备凭据与通道、受限工具与文件链路、原生审批、安装与更新 |
+| M1b | GUI 引擎、桌面租约、macOS 权限引导、暂停/停止和审计 |
+| Phase 2 | 云模式回归、内置浏览器、Agent 适配与安全交接 |
 
-**Phase 0**：第 1–3 周，独立验壳、云与本地运行时。**M1**：约第 10 周，真实本地文件/Shell/扩展浏览器及知识库/连接器闭环，双平台可发布，GUI 保持不可用。**M1b / Phase 2**：约第 14 周收尾。E2E、安全、Windows 权限/发布与手册按 a/b 分开；M1 的依赖不包含 GUI/UIA。
-
-**通道门槛**：第 4–5 周末以一次真实 Codex 回合（读文件 → 执行命令 → 事件回传 → 取消）验收设备通道；回显桩或只回状态的假回合不算通过，未过不进入文件链路与 UI 集成。
+各阶段完成后先审查，再跑白盒、修复和复测，通过后提交。通道门槛与详细依赖见[任务拆解](./linksense-desktop-dual-mode-task-breakdown-2026-11-16.md#7-macos-实施顺序)。
 
 Phase 3（后续）：多设备、配额/usage、审计导出、GA 加固；Linux 云桌面仅在需要时另行评估。
 
@@ -264,7 +264,7 @@ UI 只借交互模型，视觉按 A/C 重做。
 - **参考实现**：`feat-computer-use` 只作参考；照搬会带入旧结构，按当前主线重写并记录参考 commit 与摘取范围。
 - **本地 computer use 占用真实桌面**：会抢鼠标键盘，不能像手机虚拟屏那样后台跑；靠任务授权、明确横幅、全局暂停/停止缓解。
 - **崩溃/断线**：界面状态不可重建，回合标 `interrupted`，不重放已投递动作；`UNCERTAIN` 命令不自动重发。
-- **macOS TCC 不可自动化**：权限引导只能深链 + 重新检测；E2E 需已授权环境或 mock。
+- **macOS TCC 由用户授权**：拖拽引导不替用户打开开关；引擎在执行前重新校验权限。
 - **`agent-desktop` 升级**：采用最新版（当前 1.3.1），Phase 0 做 AX/UIA 回归并记录 sha256；许可证随包。
 - **内置浏览器无 CDP**：复杂站点成功率低于扩展；默认仍用扩展，失败时回落到扩展或坐标点击。
 - **WKWebView / WebView2 差异**：UA、下载、媒体、权限行为不一致，需双平台回归，能力差异返回稳定 code。

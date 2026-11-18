@@ -1,6 +1,6 @@
 # LinkSense 桌面端方案（v2）：本地电脑 + 云电脑（Docker Runner）
 
-日期：2026-11-16，2026-11-17 修订。依据：本仓库现有实现，以及 WorkBuddy、商汤小浣熊、豆包工作三份逆向调研。本文是**方案**，不包含实现改动。
+日期：2026-11-16，2026-11-18 修订。依据：本仓库现有实现，以及 WorkBuddy、商汤小浣熊、豆包工作三份逆向调研。本文是**方案**，不包含实现改动。
 
 > 2026-11-17 修订：桌面壳由 Electron 改为 **Go + mygo**；明确客户端是**完整应用**（主窗口 webview 承载 `apps/web` 全量 UI），computer use 参考 `feat-computer-use:apps/desktop` 的初稿实现，在当前 `feat` 上重建并扩展。
 >
@@ -9,12 +9,14 @@
 > 2026-11-17 复审修订：设备入参改用独立严格 schema，覆盖主模型、记忆提取与模型切换来源；新增 §6.7 Core MCP 受限请求/响应通道；命令与文件变更审批分开校验；Phase 0 只验壳、云模式与独立本地运行时，M1 与 M1b 的测试及发布依赖分开。工作量以任务拆解为准。
 >
 > 2026-11-17 复审补齐：设备通道以**一次真实 Codex 回合**（读文件、执行命令、事件回传、取消）作为阶段门槛，回显桩不算通过（§9）；应用内更新与进行中的本地回合互斥（§5.10）；本地工作区补保留期、总量上限与清理策略（§5.2）。
+>
+> 2026-11-18 实施顺序调整：先完成 macOS 的壳、云模式、本地运行、GUI 和内置浏览器。下文保留 Windows 架构与要求供下一轮使用；Windows 专属实现、构建和验收不阻塞 macOS。安装验收使用可用的实体 Mac，不下载系统镜像、不创建虚拟机。
 
 已确认的产品决策：
 
-- 桌面壳：**Go + mygo**（`github.com/egoist/mygo` v0.7.4，MIT）。客户端是**完整 LinkSense 桌面应用**：主窗口用 mygo webview 承载 `apps/web` 全量 UI，Go 侧提供窗口、托盘、深链、更新、本地 runner 监督、设备桥与 computer-use 引擎；外壳单二进制，无 Electron/Node 运行时（本地执行运行时随包分发，见 §5.2）。
+- 桌面壳：**Go + mygo**（`github.com/egoist/mygo` v0.10.0，MIT）。客户端是**完整 LinkSense 桌面应用**：主窗口用 mygo webview 承载 `apps/web` 全量 UI，Go 侧提供窗口、托盘、深链、更新、本地 runner 监督、设备桥与 computer-use 引擎；外壳单二进制，无 Electron/Node 运行时（本地执行运行时随包分发，见 §5.2）。
 - 开发基线：**当前 `feat` 分支**。`feat-computer-use` 分支的 `apps/desktop` 只作为 **computer use 的参考实现**（Go + mygo：配对、设备 WS、引擎、权限/暂停、打包脚本），不整分支合并、不 cherry-pick；需要的代码按当前主线结构重写/摘取并逐文件 review。
-- 本地电脑：**macOS + Windows**（两个客户端平台）；不做 Linux 客户端。
+- 本地电脑：**macOS 优先**，Mac 功能全部完成后再推进 Windows；不做 Linux 客户端。
 - 云电脑：**就是现有的 Docker 隔离 runner**（Linux），不新建 Windows VM / WebRTC / PIP 基础设施。
 - `agent-desktop`：确认上游为 `vercel-labs/agent-desktop`（Apache-2.0）；现有桌面应用已封装它，本期继续用它实现 local computer use，并采用**最新版**（当前 1.3.1）。
 
@@ -188,7 +190,7 @@ flowchart TB
 
 ### 5.1 Desktop App（Go + mygo）
 
-- 栈：Go 1.27.3 + `github.com/egoist/mygo` v0.7.4（MIT）；纯 Go、无 cgo，壳单二进制几 MB；**外壳**不含 Node/Electron。本地执行运行时是随安装包分发的独立进程，见 §5.2。
+- 栈：Go 1.27.3 + `github.com/egoist/mygo` v0.10.0（MIT）；纯 Go、无 cgo，壳单二进制；**外壳**不含 Node/Electron。本地执行运行时是随安装包分发的独立进程，见 §5.2。
 - 形态：**完整客户端**，不是伴随程序。
   - 主窗口：mygo webview（macOS WKWebView / Windows WebView2）加载 `apps/web` 构建产物，复用全部会话、计划、表单、工件、知识库、浏览器面板与设置 UI。
   - 伴随窗口：保留现有 mygo 原生 UI（配对、设备状态、权限引导、暂停），与主窗口共存；系统级交互不走 webview。
@@ -390,10 +392,11 @@ flowchart TB
 
 1. 进入使用固定服务地址的客户端，通过系统浏览器完成登录。
 2. 设备命名与配对（准备使用本地模式时）。
-3. 系统权限：仅在 M1b 首次启用 GUI 时检测/请求；macOS 辅助功能 + 屏幕录制，Windows 受完整性级别约束。M1 跳过此步。
-4. 连接浏览器（可选）：安装 Chrome/Edge 扩展并在系统浏览器里完成配对。
-5. 默认执行目标（本地/云）。
-6. 进入主界面。
+3. 连接浏览器（可选）：安装 Chrome/Edge 扩展并在系统浏览器里完成配对。
+4. 默认执行目标（本地/云）。
+5. 进入主界面。
+
+首次启动和登录不请求桌面控制权限。M1b 按实际用到的 GUI 能力提供系统权限引导，见 §7.2。
 
 **诊断与遥测**
 
@@ -420,7 +423,7 @@ flowchart TB
 
 ### 5.9 mygo 能力清单（可直接用）
 
-依据 mygo v0.7.4 文档（`mygo.run/docs`）与 `examples/`。只列与本项目直接相关的：
+依据 [mygo v0.10.0 发布说明](https://github.com/egoist/mygo/releases/tag/v0.10.0)、该版本文档与 `examples/`。本版修复了 WebKit 返回缓存后 `OnDOMReady`、跨导航 `Page.Eval` 挂起和首屏加载失败时窗口不显示的问题。移动端与开发热重启不属于本轮范围。
 
 | 能力 | mygo 提供 | LinkSense 用法 |
 | --- | --- | --- |
@@ -428,30 +431,30 @@ flowchart TB
 | 类型化 IPC | `mygo.Bind` + 生成的 TS 客户端；`isMyGo()`、`runtime()`、`currentWindow` | 桌面宿主适配层：只在 `isMyGo()` 时启用；Go 只绑定明确方法 |
 | 事件 / 通道 | `mygo.Event` 的 `Broadcast`/`Emit`/`EmitPage`；`Channel` 流式值 | 更新进度、设备在线状态、任务授权倒计时推给页面 |
 | 原生 UI | `ui` 包（flexbox/grid、控件、文本编辑、可访问性、动画）；`embed-webview` 示例演示原生壳内嵌 webview | 伴随窗口；复杂页面放 webview，原生只做系统级交互 |
-| 窗口 / 菜单 / 托盘 | 窗口选项与状态、应用菜单、上下文菜单、托盘与 flyout、`menubar-*` 示例 | 托盘菜单（打开、新建会话、暂停、退出）、关闭到托盘 |
+| 窗口 / 菜单 / 托盘 | [窗口状态](https://github.com/egoist/mygo/blob/v0.10.0/docs/windows.md#remember-where-windows-were)、[原生菜单/托盘](https://github.com/egoist/mygo/blob/v0.10.0/docs/menus.md#tray-icons) | 复用 `Window.OnClose`、`Hide` 和带稳定 ID 的 `NewTray`；使用原生菜单、快捷键和通知，暂停/停止有菜单入口 |
 | 系统集成 | 对话框、通知、剪贴板、Shell（开浏览器/Finder）、显示器、深链 `OnOpenURL`、单实例 `RequestSingleInstanceLock`、文件关联、最近文档、拖放（带路径）、全局快捷键、主题/强调色/减少动态、电源、网络代理 | §5.7 的壳能力清单逐项对应，不需要自己写平台代码 |
 | 安全存储 | `mygo.Secrets`（macOS Keychain / Windows Credential Manager，单条 ≤2560 字节） | 登录 token、device token；超限则文件加密 + 密钥进 Secrets |
 | i18n | 原生 UI 的 `locales/` 目录；`mygo.locale` / `onLocaleChange` 注入页面 | 六语言与 Web 对齐；伴随窗口复用现有 catalog |
 | 资源打包 | `resources/<os>-<arch>/` 平台目录；helper 可执行随包并一起签名 | `agent-desktop` 按平台放入；本地 runner 可选随包 |
-| 打包 / 签名 | macOS `.app`/DMG、Developer ID + notarytool；Windows NSIS 安装器（per-user `%LOCALAPPDATA%\Programs`）、Authenticode（PFX / `signtool` / `osslsigncode` / Azure Trusted Signing `signCommand`） | Phase 1 发布；Windows 免管理员安装，便于自更新 |
+| macOS 系统权限 | [`permissionflow.Check` / `Guide`](https://github.com/egoist/mygo/blob/v0.10.0/docs/plugins/permissionflow.md) | M1b 按需引导用户拖拽 `.app`，见 §7.2 |
+| 打包 / 签名 | [macOS `.app`/DMG、Developer ID、公证及嵌套 helper 签名](https://github.com/egoist/mygo/blob/v0.10.0/docs/distribution.md#macos) | macOS 优先；打包时核对运行时、实际执行 helper 和权限签名身份 |
 | 更新 | 见 §5.10 | 应用内更新 |
-| CI | `docs/github-actions.md` 提供构建、签名、公证、上传的 workflow | 双平台流水线 |
 
 参考示例：`embed-webview`（原生壳 + webview 混排）、`markdown-chat`（流式聊天）、`chart-streaming`（Channel 流）、`menubar-flyout`（托盘）、`drag-drop`（文件拖入路径）。
 
 ### 5.10 应用内更新（自动更新）
 
-- **机制**：`mygo build` 用更新密钥签名每个平台的产物；应用内嵌公钥，`mygo.Updater.Check/Install` 校验签名后替换自身；支持 bsdiff delta（默认最近 3 个版本），delta 校验失败自动回退整包；逐文件 SHA-256 校验，结果与发布版本完全一致。
+- **机制**：`mygo build` 对整包和增量签名，应用内嵌公钥。[`Updater.Check` 读取 manifest；`Update.Install` 下载、验签并暂存](https://github.com/egoist/mygo/blob/v0.10.0/updater.go)。增量失败可回退整包，进度随之重新开始。更新说明仍按不可信内容渲染。
 - **发布源**：`updates.github`（公开仓库 + `tagPrefix: desktop-v`）或自托管 `updates.url` + `updates.s3`（S3 兼容：R2 等）。建议主源用自托管对象存储 + CDN（国内可达），GitHub 作为内部/备用；`mygo build -upload` 直接上传 archives、deltas、manifest、install 脚本。需要账号鉴权或自定义渠道时用 `Updater.SetSource`（仍校验同一把更新公钥）。
-- **渠道**：stable = latest release；beta = prerelease + `Updater.SetPrereleases(true)`（用户选择持久化在设置里）。切换渠道不回退旧版本。
-- **UI**：优先复用 mygo updater 插件（Sparkle 风格窗口：版本说明 Markdown、安装/跳过/稍后）；也可以在 Web UI 里做自定义横幅：`Check` → 显示 notes → `Install` 进度事件 → `App.Relaunch`；菜单提供“检查更新…”，启动后延迟检查一次，之后每 6–24 小时一次（含手动）。
+- **渠道**：`SetPrereleases` 对 GitHub 源生效；自托管源按 stable/beta 返回相应的 manifest，可用 `Updater.SetSource`。持久化用户选择；切换渠道不降级。
+- **UI**：沿用设置页和菜单入口，复用 [mygo 更新原语](https://github.com/egoist/mygo/blob/v0.10.0/docs/updates.md#your-own-update-ui)。上游插件的 `OnInstalled` 在暂存后才触发，不能作为回合准入门控。
 - **安装位置**：`Enabled()` 只在应用可写时返回 true——macOS `/Applications` 或 `~/Applications`；Windows per-user 安装目录。只读位置或开发构建降级为“下载安装包”链接，不静默失败。
 - **升级范围**：应用二进制、内嵌前端、`resources` 里的 `agent-desktop` 与本地 runner 一起升级；Chrome/Edge 扩展独立更新（设置页重新下载）。客户端上报版本，API 对过旧版本给升级提示但不强制。
-- **与进行中的本地回合互斥**（M1 必须）：下载与校验可后台进行；**安装/重启只在没有运行中的本地回合时执行**。有回合时状态机进入"待回合结束"并提示，用户也可显式选择"结束当前回合并安装"——按中断处理，重启后不续跑。Windows 安装器必须等本地 runner 退出后再替换 `resources/` 文件；启动时若检测到更新半完成，回退到当前版本。
+- **与本地回合互斥**（M1 必须）：macOS 上 `Install` 开始下载与暂存；暂存完成后，进程退出即触发 `.app` 替换，`App.Relaunch` 只是重启入口。在调用 `Install` **之前**原子锁住本地任务准入并确认回合已结束，或由用户显式中断；安装失败解锁，安装已暂存则维持到退出。退出时等待本地 runner 停止，重启后不续跑旧回合。更新检查可在运行中进行。
 - **安全**：更新私钥只存密码管理器与 CI secrets，不进仓库；公钥固定在构建里；拒绝未签名、篡改与降级；只走 HTTPS；日志不打印密钥与签名内容。
-- **发布流程**：CI 在 macOS runner 签名 + 公证、在任何 runner 交叉构建 Windows 并 Authenticode 签名 → 上传为 draft/prerelease → 内部验证 → 转 latest；保留最近 3 个版本供 delta。
+- **发布流程**：macOS runner 签名、公证及 staple → 预发布 → 内部验证 → 正式发布；保留最近 3 个版本供增量使用。Windows 发布留待后续。
 - **已知限制**：GitHub 源的检查受 60 次/小时/地址限制（自托管 `url` 无此限制）；delta 构建时需要能读取已发布 manifest，失败则本次不产 delta（整包更新仍可用）。
-- **UI 状态机**（已是最新 / 可更新 / 下载中 / 待重启 / 待回合结束 / 检查失败 / 只读安装位置）：可更新时展示增量/完整大小与验证点；失败保留当前版本；只读安装位置降级为下载安装包。设置页布局见本地设计评审稿 `docs/design/desktop-ui/`（未入库）。
+- **UI 状态机**（已是最新 / 可更新 / 下载中 / 已暂存待退出 / 待回合结束 / 检查失败 / 只读安装位置）：下载后用 mygo 回调显示真实进度。`Update` 不公开预下载包大小，缺失时不估算。失败保留当前版本；只读安装位置降级为下载安装包。
 
 ### 5.11 内置浏览器（客户端自带）
 
@@ -467,8 +470,8 @@ flowchart TB
 
 - 独立原生窗口：`WindowOptions.Content`（native UI）+ `Window.NewWebView`，不复用主窗口；主窗口仍是整页 webview，**不改成 native UI**。
 - 工具条：后退/前进/刷新/停止、地址栏、标签页（每个标签一个 webview）、下载、页内查找、缩放；DevTools 仅开发构建。
-- 会话：`mygo.NewSession("browser")` 独立 cookie/storage，不共享应用 webview；设置里可清空；可选 ephemeral。
-- 下载：`Page.OnWillDownload` 确认后落盘到下载目录；`mailto:` 等外部协议交给系统。
+- 会话：[`mygo.NewSession("browser")`](https://github.com/egoist/mygo/blob/v0.10.0/docs/app.md#sessions) 独立 cookie/storage，macOS 14 起持久化；前一版本仅内存。第三方页始终 `Untrusted`，清理时关闭仍持有旧数据的页；隐私模式用 `NewEphemeralSession`。
+- 下载与导航：[`Page.OnWillDownload`](https://github.com/egoist/mygo/blob/v0.10.0/docs/windows.md#downloads) 显式确认并使用安全目标路径。地址栏、程序导航、新窗口和页面导航分别校验协议；`mailto:` 等允许的外部协议交系统。依赖 `window.opener` 的 OAuth 弹窗回到系统浏览器或扩展。
 - 链接：应用内链接默认内置浏览器打开；`target=_blank` 新标签；设置可改回系统浏览器。
 
 **Agent 操作**
@@ -653,11 +656,10 @@ approval.requested
 - 产品模式：`ask_always` / `ask_on_risk` / `full_access`。
 - 能力：`computer.observe`、`computer.act`、`computer.launch`、`computer.clipboard`。
 - 范围：应用、目录、动作、时间（5 分钟任务授权）。
-- OS 权限（参考豆包 `INIT_LOCAL_APP` 的“检查 → 确认 → 复查 → 回传”）：
-  - 首次进入本地会话时自动检测 Accessibility / Screen Recording，显示 0/2–2/2 状态；
-  - 分项说明用途，提供系统设置深链；“重新检测”不重启会话；Screen Recording 授权后提示需重启应用生效；
-  - 检测失败或用户拒绝：记录原因，提供“先用云电脑”，不重复弹窗；
-  - Windows 无 TCC 等价授权，受进程完整性级别约束（提权应用可能不可操作）。
+- **OS 权限（M1b）**：只在用户启用桌面控制或实际使用相关 GUI 能力时检测所需权限。辅助功能用于操控应用；屏幕录制只在需要截图时单独引导。已有权限不弹窗。
+  - macOS 直接复用 [mygo `plugins/permissionflow`](https://github.com/egoist/mygo/blob/v0.10.0/docs/plugins/permissionflow.md) 的 `Check` 与 `Guide`，无需额外引入 Swift PermissionFlow。用户点击授权后，打开对应隐私页，在系统设置窗口旁显示可拖拽的当前 `LinkSense.app`；用户拖入列表并在系统设置中开启权限。面板不可用时提供手动添加路径。
+  - 返回应用时复查。录屏仍显示未授权时，仅在用户确认已打开系统开关后提示「重启后复查」；重启并检测通过才标记可用。向导关闭、权限拒绝或检测失败时记录稳定原因码，提供取消与「先用云电脑」，用户主动操作才重新打开。不会自动重启或重放回合。
+  - 产品授权与 OS 权限独立。只把固定的权限项暴露给可信主窗口，模型不能发起系统授权；引擎须验证实际执行进程有权限，不能仅依赖主窗口状态。Windows 沿用完整性级别约束，不弹出 macOS 向导。
 - 单应用授权：默认只给 **一次 / 本次会话**；**“始终允许”需显式开启**（确认卡展开或设备设置），按应用（bundle id/包名）授权，最长 30 天自动过期，设置里可查看/撤销、撤销立即生效；付款、删除、`Unknown`、工作区外写入、`sudo` 等高风险动作不吃“始终”，仍逐次确认。整桌面接管单独确认（对应 `MAIN_DESKTOP_PERMISSION`）。
 - **沙箱与审批分档**（两层控制，见 §5.4.2）：
   - 云会话：容器边界，`approvalPolicy=never` + 现有策略不变。
@@ -800,21 +802,21 @@ desktopDeviceId String? @map("desktop_device_id") @db.Uuid
 
 ## 9. 分阶段落地
 
-### Phase 0（第 1–3 周）
+### Phase 0：macOS 基线
 
-- 在当前 `feat` 新建 `apps/desktop`（Go + mygo），参考 `feat-computer-use` 的 computer use 实现按需摘取/重写；固定 mygo v0.7.4 / Go 1.27.3，`agent-desktop` 使用最新版（当前 1.3.1，见 §14）；验证 macOS/Windows 双平台构建。
+- 在当前 `feat` 新建 `apps/desktop`（Go + mygo），参考 `feat-computer-use` 的 computer use 实现按需摘取/重写；固定 mygo v0.10.0 / Go 1.27.3，`agent-desktop` 1.3.1（见 §14）；验证 macOS 构建。
 - 桌面壳扩展：主窗口 webview 加载 `apps/web` 构建、桌面宿主适配层、本地 runner supervisor。
 - 定义 `computer-use` shared schema、设备通道、`executionTarget`。
 - API 增加 DesktopDevice/Pairing、设备 WS 骨架（无 UI）。
-- **云模式贯通（先做，风险最低）**：打包后的应用在干净 Mac/Windows 上完成登录 → 云会话 → SSE → 下载 → 更新检查。这一步不依赖设备通道与本地执行，先把 mygo 的 webview/登录/更新风险验掉。
+- **云模式贯通**：打包后的应用在干净 Mac 上完成登录 → 云会话 → SSE → 下载 → 更新检查，不依赖设备通道与本地执行。
 - **独立本地运行时验证（Phase 0 出口）**：内嵌 Node + `apps/runner` + Codex 随包，以测试专用入口在干净机器上验证进程启动、Core MCP 装载、临时工作区与退出清理；对话链路用 fake model 验证，不下发平台供应商密钥、不接生产内部接口。生产模型经设备通道的一轮真实本地对话在 M1 验收。
 - Phase 0 不要求经设备 WS 执行产品回合，也不要求调用 `computer_use` 引擎；设备凭据、受限工具请求、完整执行与 GUI 分别在 M1/M1b 验收。通过壳、云模式和独立运行时出口后，才进入依赖它们的 Phase 1 集成。
 
-### Phase 1（第 4–10 周出 M1；M1b 到第 14 周）
+### Phase 1：macOS 本地模式与 GUI
 
-M1 依赖顺序：**设备白名单契约与凭据 → 双向受限请求 → 文件链路与原生审批 → 目标选择 UI → 双平台发布验收**。独立运行时已在 Phase 0 验证；GUI 自动化及设备桌面占用租约归 M1b。
+M1 依赖顺序：**设备白名单契约与凭据 → 双向受限请求 → 文件链路与原生审批 → 目标选择 UI → macOS 发布验收**。GUI 自动化及设备桌面占用租约归 M1b。
 
-**通道门槛（第 4–5 周末，P1-01/24/02/03/04 完成后）**：不是"请求能往返"就算过，而是**一次真实 Codex 回合经设备通道完整跑通**——读文件、执行命令、事件回传、取消各一次，且设备侧全程无供应商密钥。用回显桩或假回合通过，会把事件排序、去重、取消的缺陷推到文件链路和 UI 集成阶段。未过不进入文件链路与 UI 集成。
+**通道门槛（P1-01/24/02/03/04 完成后）**：**一次真实 Codex 回合经设备通道跑通**，验证读文件、执行命令、事件回传、取消，且设备侧全程无供应商密钥。回显桩或假回合不能替代；未过不进入文件链路与 UI 集成。
 
 - **设备凭据模型先行**（§6.1）：独立设备 schema、按用途的模型代理 token、事件回传去掉全局 secret；覆盖记忆提取和模型切换来源。
 - 设备网关正式化 + `RunnerTransport` 双路由。
@@ -822,15 +824,14 @@ M1 依赖顺序：**设备白名单契约与凭据 → 双向受限请求 → �
 - 文件与工件链路（§6.6）：附件下发、工件上传确认、路径映射。
 - 沙箱与审批分档、命令/文件审批分别校验、native 命令规则撤销；本地/云目标选择与设备设置 UI。
 - 桌面协议版本兼容（§8.3）。
-- Windows M1：WebView2 主窗口、安装器与 Authenticode、文件/Shell 沙箱及权限验证、安装/升级/更新验收；不依赖 UIA 回归。
 - Browser Use：桌面端状态/引导/系统浏览器配对入口；本地模式 `browser_use` 走现有扩展链路。
-- 打包/签名/公证（双平台）+ 应用内更新（签名 manifest、delta、stable/beta 渠道）；M1 的 E2E、安全与运行手册各自交付。
+- macOS 打包、签名、公证与应用内更新；M1 的 E2E、安全与运行手册各自交付。
 
-**里程碑 M1（可发布）**：本地"文件 + Shell + 浏览器"及知识库/连接器调用闭环；命令和文件审批、旧安装包兼容、双平台安装/升级均通过。`computer_*` 入口保持不可用，不要求用户提前授予 GUI 权限。
+**里程碑 M1（macOS 可发布）**：本地"文件 + Shell + 浏览器"及知识库/连接器调用闭环；命令和文件审批、旧安装包兼容、Mac 安装/升级均通过。`computer_*` 入口保持不可用，不要求用户提前授予 GUI 权限。
 
-**里程碑 M1b**：新增 `computer_use` Core MCP、引擎本地入口、设备桌面占用租约、窗口身份校验、GUI 授权/暂停/审计、macOS 权限向导与 Windows UIA 回归。GUI E2E、安全、Windows 回归和手册作为增量验收，不成为 M1 的依赖。
+**里程碑 M1b（macOS）**：新增 `computer_use` Core MCP、引擎本地入口、设备桌面占用租约、窗口身份校验、GUI 授权/暂停/审计和 macOS 权限向导。GUI E2E、安全和手册作为增量验收，不成为 M1 的依赖。
 
-### Phase 2（第 10–14 周，与 M1b 并行）
+### Phase 2：macOS 云模式回归与内置浏览器
 
 - 云模式：回归 M1 已提供的双目标路由与切换、桌面/Web 行为一致性；不把云目标入口延迟到 M1 发布之后。
 - 验证桌面端与 Web 端的会话、SSE、工件、浏览器面板一致。
@@ -838,9 +839,9 @@ M1 依赖顺序：**设备白名单契约与凭据 → 双向受限请求 → �
 - 内置浏览器：独立原生窗口 + 隔离会话 + 标签/下载/查找；Agent 通过 DOM/JS 操作，必要时坐标兜底；`browserTarget` 路由。
 - 保持扩展为默认；内置浏览器不替代用户真实浏览器。
 
-### Phase 3（后续）
+### 后续平台
 
-- Linux 桌面客户端不做；Windows **云电脑**（VM/RDP/视频流）不做。
+- macOS 全部完成后推进 Windows 本地客户端。Linux 桌面客户端、Windows **云电脑**（VM/RDP/视频流）不在范围。
 - 可选“可视化云桌面”：仅在 Linux Docker 内做 Xvfb + WebRTC + `agent-desktop` Linux（AT-SPI），不引入 Windows（见 §15.1）。
 - 多设备、配额/usage、审计导出、GA 加固。
 
@@ -874,7 +875,7 @@ M1 依赖顺序：**设备白名单契约与凭据 → 双向受限请求 → �
 | --- | --- | --- |
 | `agent-desktop` 旧版（1.0.2）与最新版差异 | 兼容/安全 | Phase 0 升级到最新版（当前 1.3.1）并回归；记录 release/sha256 |
 | 参考实现只在 `feat-computer-use` 分支 | 照搬带入旧结构 | 只作参考；按当前主线重写，记录参考 commit，跑通 `go test ./...` 再扩展 |
-| mygo v0.7.4 生态较小 | 壳能力受限/升级风险 | 固定版本；升级前跑白盒测试；必要时本地补丁或 fork |
+| mygo 升级 | 壳、WebView 桥接及打包兼容 | Go 模块、Web 运行库和 fetch 插件固定同一版本；升级后跑白盒和打包回归 |
 | Go 1.27.3 工具链 | 本机与 CI 版本 | `go.mod` 已声明 1.27.3，Go 1.23+ 自动下载 toolchain；CI 固定 `GOTOOLCHAIN` |
 | webview 内容安全 | 注入/外链/权限提升 | 内容按不可信处理；content rules 限制导航与新窗口；只暴露显式 IPC |
 | 本地 OS 权限引导 | 首次体验 | 向导 + 系统设置深链；失败可回落云模式 |
@@ -968,7 +969,7 @@ prisma/migrations/                    # desktop_devices/pairings/local_sessions/
 2. **Web 复用**：mygo webview 直接加载 `apps/web` 构建，共享路由、组件、i18n、设计系统；独立项目需要复制或私有包。
 3. **Runner 同源**：本地模式复用 `apps/runner`；API/runner/desktop 的协议改动应在一个 PR 内完成并一起测试。
 4. **CI/版本/发布一致**：一个 lockfile、一套 lint/typecheck/test；Go 模块单独一个 job；桌面产物仍可有独立版本号，但源码同仓。
-5. **Go 模块独立**：`apps/desktop` 用自己的 `go.mod`（mygo v0.7.4 / Go 1.27.3），不影响 pnpm；若未来需要独立团队维护，再拆仓库。
+5. **Go 模块独立**：`apps/desktop` 用自己的 `go.mod`，应用桥接依赖与 Web 端的版本同步；不拆仓库。
 
 依赖边界：
 
