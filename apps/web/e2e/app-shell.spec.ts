@@ -2169,6 +2169,21 @@ for (const width of [1440, 390]) {
       animations: "disabled",
     })
 
+    const dataCapability = site.getByRole("img", {
+      name: "页面应用. 未连接数据服务",
+    })
+    await expect(dataCapability).toHaveAttribute("data-connected", "false")
+    await dataCapability.hover()
+    const capabilityTooltip = page.getByRole("tooltip")
+    await expect(
+      capabilityTooltip.getByText("页面应用", { exact: true })
+    ).toBeVisible()
+    await expect(
+      capabilityTooltip.getByText("未连接数据服务", { exact: true })
+    ).toBeVisible()
+    await page.mouse.move(0, 0)
+    await expect(capabilityTooltip).toBeHidden()
+
     const title = site.getByRole("button", {
       name: publishedSite.name,
       exact: true,

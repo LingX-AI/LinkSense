@@ -106,6 +106,11 @@ describe("website management", () => {
       screen.queryByRole("dialog", { name: site.name })
     ).not.toBeInTheDocument()
     await user.keyboard("{Escape}")
+    expect(
+      within(row).getByRole("img", {
+        name: `${i18n.t("webSites.dataCapabilityTitle")}. ${i18n.t("webSites.dataServiceDisconnected")}`,
+      })
+    ).toHaveAttribute("data-connected", "false")
     await user.click(within(row).getByText(site.description))
     const details = screen.getByRole("dialog", { name: site.name })
     expect(within(details).getByText(aliasUrl)).toBeVisible()
@@ -135,7 +140,13 @@ describe("website management", () => {
       )
       vi.stubGlobal("fetch", fetch)
       mount(<SiteLibrary />)
-      const trigger = await screen.findByRole("button", { name: site.name })
+      const row = await screen.findByRole("article", { name: site.name })
+      expect(
+        within(row).getByRole("img", {
+          name: `${i18n.t("webSites.dataCapabilityTitle")}. ${i18n.t("webSites.dataServiceConnected")}`,
+        })
+      ).toHaveAttribute("data-connected", "true")
+      const trigger = within(row).getByRole("button", { name: site.name })
       await user.click(trigger)
       const dialog = screen.getByRole("dialog", { name: site.name })
       expect(within(dialog).getByText(aliasUrl)).toBeVisible()
