@@ -73,6 +73,14 @@ describe("parseConfig", () => {
     ).toBe(false)
   })
 
+  it("requires explicit Mac execution opt-in and rejects it in production", () => {
+    expect(parseConfig(testEnvironment()).desktopLocalExecutionEnabled).toBe(false)
+    const optIn = { LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: "true" }
+    expect(parseConfig(testEnvironment(optIn)).desktopLocalExecutionEnabled).toBe(true)
+    expect(() => parseConfig(testEnvironment({ ...optIn, NODE_ENV: "production" })))
+      .toThrow("desktop_local_execution_not_released")
+  })
+
   it("keeps local filesystem storage out of production and the Full edition", () => {
     expect(() =>
       parseConfig(

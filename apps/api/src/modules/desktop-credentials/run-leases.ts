@@ -48,7 +48,7 @@ type StartModels = Pick<RunnerStartInput,
   "ownerId" | "conversationId" | "projectionTurnId" | "expectedRuntimeGeneration" |
   "model" | "modelProvider" | "modelTransitionSource"
 >;
-export type DesktopRunAuthorizationPhase = "issue" | "use" | "transition";
+export type DesktopRunAuthorizationPhase = "issue" | "use" | "transition" | "settle";
 type RunAuthorization = (scope: DesktopRunScope, phase: DesktopRunAuthorizationPhase) => Promise<boolean>;
 
 export class DesktopRunLeases {
@@ -111,6 +111,17 @@ export class DesktopRunLeases {
     return credentials;
   }
 
+  async discardUndelivered(turnId: string, runToken: string): Promise<void> {
+    const leaseKey = key(runIdSchema.parse(turnId));
+    const raw = await this.redis.get(leaseKey);
+    const lease = parseLease(raw);
+    if (!raw || !lease || !tokenMatches(runToken, lease.runHash)) return;
+    await this.redis.eval(
+      "if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end; return redis.call('DEL', KEYS[1])",
+      1, leaseKey, raw,
+    );
+  }
+
   async authorizeModel(input: {
     turnId: string;
     purpose: DesktopModelPurpose;
@@ -146,7 +157,16 @@ export class DesktopRunLeases {
     if (!desktopRunTokenSchema.safeParse(token).success) throw new AppError("AUTH_REQUIRED");
     await this.authorize(scope.turnId, lease =>
       matchesScope(lease.scope, scope) && tokenMatches(token, lease.runHash),
+      "settle",
     );
+  }
+
+  /** Use only while the corresponding database authority is locked. */
+  async fenceRunBinding(scope: DesktopRunScope, token: string): Promise<void> {
+    const lease = parseLease(await this.redis.get(key(scope.turnId)));
+    if (!lease || lease.expiresAt <= this.now() || !matchesScope(lease.scope, scope) || !tokenMatches(token, lease.runHash)) {
+      throw new AppError("AUTH_REQUIRED");
+    }
   }
 
   async renew(scope: DesktopRunScope): Promise<number> {

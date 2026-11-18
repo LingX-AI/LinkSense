@@ -87,14 +87,25 @@ export class DesktopLink {
   async callback(
     run: DesktopRuntimeRun,
     operation: DesktopExecutionCallback["operation"],
-    body: DesktopExecutionCallback["body"],
+    body?: Extract<DesktopExecutionCallback, { body: unknown }>["body"],
   ): Promise<DesktopExecutionAck> {
     if (run.scope.owner_id !== this.ownerId) throw new Error("desktop callback unavailable")
     const { conversation_id, runtime_generation, turn_id } = run.scope
     const frame = desktopExecutionCallbackSchema.parse({
-      type: "execution.callback", id: randomUUID(), conversation_id, runtime_generation, turn_id, run_token: run.token, operation, body,
+      type: "execution.callback", id: randomUUID(), conversation_id, runtime_generation, turn_id, run_token: run.token, operation,
+      ...(body !== undefined && { body }),
     })
     return this.sendCallback(frame, this.lifetime.signal)
+  }
+
+  async reportTurnExit(run: DesktopRuntimeRun): Promise<void> {
+    if (this.lifetime.signal.aborted) return
+    try {
+      const ack = await this.callback(run, "turn.exited")
+      if (!ack.ok || ack.operation !== "turn.exited") throw new Error("desktop turn exit was not acknowledged")
+    } catch (error) {
+      if (!this.lifetime.signal.aborted) throw error
+    }
   }
 
   private recover(

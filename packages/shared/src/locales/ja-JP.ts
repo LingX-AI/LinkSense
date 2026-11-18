@@ -228,6 +228,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   EXTERNAL_IMAGE_DOWNLOAD_FAILED: "外部の画像をダウンロードできませんでした。画像 URL を確認して再試行してください。",
   TURN_START_CLOSED: "前の送信は終了しています。このリクエストは実行されていません。再送信してください。",
   RUNNER_UNAVAILABLE: "実行サービスを利用できません。しばらくしてから再試行してください。",
+  RUNNER_OPERATION_UNCERTAIN: "Macでこの操作が実行されたかはまだ確認できていません。再送信する前に、状態が更新されるまでお待ちください。",
   DEPLOYMENT_STOPPED: "システム更新のため、このタスクを停止しました。既存の内容は保持されています。進行状況を確認してから手動で続行してください。",
   EXECUTION_SERVICE_INCOMPATIBLE: "実行サービスのバージョンに互換性がありません。しばらくしてから再試行し、問題が続く場合は管理者にお問い合わせください。",
   AUTH_INVALID_CREDENTIALS: "メールアドレスまたはパスワードが正しくありません。",

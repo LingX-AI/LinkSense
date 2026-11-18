@@ -6,9 +6,6 @@ import {
   runnerPrivacyMaskingCaptureSchema,
   runnerEventBatchSchema,
   publicKnowledgeRunnerProgressSchema,
-  runnerTextDeltaBatchKey,
-  isRunnerTextDeltaEvent,
-  type RunnerTextDeltaEvent,
   runnerHeartbeatSchema,
   runnerStartSettledSchema,
   runtimeServiceSessionHeader,
@@ -24,6 +21,7 @@ import { ok } from "../../lib/http.js"
 import type { AuthenticatedRequest } from "../../plugins/authentication.js"
 import type { AppServices } from "../../services.js"
 import { createReplayPump } from "./replay-pump.js"
+import { projectRunnerEventBatch } from "./runner-batch.js"
 
 const interactiveApplicationCustomEventSchema = z.strictObject({
   conversationId: z.uuid(),
@@ -84,37 +82,20 @@ export const internalRunnerRoutes: FastifyPluginAsync<{ services: AppServices }>
         return reply.send(ok({ accepted_delivery_ids: entries.map(({ deliveryId }) => deliveryId) }, request.id));
       }
       await services.conversations.assertOwner(ownerId, body.conversationId)
-      const acceptedDeliveryIds: string[] = []
-      for (let index = 0; index < body.events.length;) {
-        const entry = body.events[index]
-        if (!entry) break
-        if (request.raw.aborted || reply.raw.destroyed) break
-        const textEntries: Array<{ deliveryId: string; event: RunnerTextDeltaEvent }> = []
-        const key = runnerTextDeltaBatchKey(entry.event)
-        if (key !== null) {
-          for (const next of body.events.slice(index)) {
-            if (!isRunnerTextDeltaEvent(next.event) || runnerTextDeltaBatchKey(next.event) !== key) break
-            textEntries.push({ deliveryId: next.deliveryId, event: next.event })
-          }
-        }
-        const groupSize = Math.max(1, textEntries.length)
-        try {
+      const acceptedDeliveryIds = await projectRunnerEventBatch(body.events,
+        async (entry, textEntries) => {
+          if (request.raw.aborted || reply.raw.destroyed) return false
           const result = textEntries.length > 1
             ? await services.events.ingestTextDeltaBatch(body.conversationId, textEntries)
             : await services.events.ingest(body.conversationId, entry.event, entry.deliveryId)
-          if (!result.accepted) break
-          acceptedDeliveryIds.push(...body.events.slice(index, index + groupSize).map(item => item.deliveryId))
-          index += groupSize
-        } catch (error) {
-          if (acceptedDeliveryIds.length === 0) throw error
-          request.log.error({
+          return result.accepted === true
+        },
+        (error, deliveryId) => request.log.error({
             conversationId: body.conversationId,
-            deliveryId: entry.deliveryId,
+            deliveryId,
             errorCode: error instanceof AppError ? error.code : "INTERNAL_ERROR",
-          }, "runner event batch stopped before acknowledgement")
-          break
-        }
-      }
+        }, "runner event batch stopped before acknowledgement"),
+      )
       return reply.send(ok({ accepted_delivery_ids: acceptedDeliveryIds }, request.id))
     })
 

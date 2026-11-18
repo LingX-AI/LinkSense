@@ -15,6 +15,7 @@ import { PrismaDesktopDeviceRepository } from "../../src/modules/desktop-devices
 import { DesktopDeviceService } from "../../src/modules/desktop-devices/service.js";
 import { assertPairedDesktopDevice } from "../../src/modules/conversations/execution-target.js";
 import { MemoryDesktopDeviceCoordinator } from "../desktop-devices.fixture.js";
+import { verifyDesktopExecutionProjection } from "./desktop-execution-projection.js";
 
 // Owns a temporary PostgreSQL cluster; never loads the application environment.
 const execute = promisify(execFile);
@@ -67,9 +68,10 @@ try {
   const db = createPrismaClient(databaseUrl("desktop_upgrade"));
   connections.push(db);
   const owner = randomUUID(), other = randomUUID(), conversation = randomUUID(), thread = randomUUID();
-  await db.$executeRaw`INSERT INTO users (id, email, name, role, status, updated_at)
-    VALUES (${owner}::uuid, 'desktop-owner@example.test', 'Owner', 'user', 'active', now()),
-           (${other}::uuid, 'desktop-other@example.test', 'Other', 'user', 'active', now())`;
+  await db.$executeRaw`INSERT INTO users (id, email, name, role, status, created_at, auth_valid_after, updated_at)
+    VALUES (${owner}::uuid, 'desktop-owner@example.test', 'Owner', 'user', 'active',
+      '2026-01-01T00:00:00.123456Z'::timestamptz, '2026-01-01T00:00:00.123456Z'::timestamptz, now()),
+           (${other}::uuid, 'desktop-other@example.test', 'Other', 'user', 'active', now(), now(), now())`;
   await db.$executeRaw`INSERT INTO conversations
     (id, owner_id, title, title_source, archive_status, workspace_rel_path, codex_thread_id, runtime_generation, updated_at)
     VALUES (${conversation}::uuid, ${owner}::uuid, 'Existing task', 'manual', 'active',
@@ -114,12 +116,13 @@ try {
   assert.notEqual(stored.tokenHash, issued.token);
   assert.equal((await service.authenticate(issued.token))?.ownerId, owner);
   await assert.rejects(assertPairedDesktopDevice(db, other, stored.id), { code: "FORBIDDEN" });
+  const localThread = randomUUID();
   const localConversation = await db.$transaction(async tx => {
     await assertPairedDesktopDevice(tx, owner, stored.id);
     return tx.conversation.create({ data: {
       ownerId: owner, title: "Local task", titleSource: "manual", archiveStatus: "active",
       workspaceRelPath: `${owner}/services/${randomUUID()}/home/workspace`,
-      runtimeGeneration: randomUUID(), executionTarget: "local", desktopDeviceId: stored.id,
+      runtimeGeneration: randomUUID(), executionTarget: "local", desktopDeviceId: stored.id, codexThreadId: localThread,
     } });
   });
   assert.equal((await db.conversation.findUniqueOrThrow({ where: { id: localConversation.id } })).executionTarget, "local");
@@ -160,7 +163,7 @@ try {
     db.conversationTurnStartIntent.delete({ where: { projectionTurnId: scope.turnId } }),
     db.conversationTurn.create({ data: {
       id: scope.turnId, conversationId: scope.conversationId, sequenceNo: 1,
-      submittedBy: owner, codexThreadId: randomUUID(), codexTurnId: randomUUID(),
+      submittedBy: owner, codexThreadId: localThread, codexTurnId: randomUUID(),
       status: "running", submitMode: "normal", capabilityGeneration: "0".repeat(64),
       capabilitiesJson: [], startedAt: new Date(),
     } }),
@@ -184,6 +187,10 @@ try {
   assert.equal(await authority(), false);
   await db.conversation.update({ where: { id: scope.conversationId }, data: { desktopDeviceId: scope.deviceId } });
   assert.equal(await authority(), true);
+  await verifyDesktopExecutionProjection({
+    prisma: db, ownerId: owner, deviceId: stored.id, token: issued.token,
+    databaseUrl: databaseUrl("desktop_upgrade"), workspaceRoot: join(root, "workspaces"),
+  });
   await assert.rejects(service.revoke(other, issued.device.id), { code: "FORBIDDEN" });
   const local = await db.localComputerSession.create({
     data: { ownerId: owner, conversationId: conversation, deviceId: stored.id, status: "active", grantScope: "session" },
@@ -225,7 +232,7 @@ try {
   connections.push(fresh);
   assert.equal(await fresh.desktopDevice.count(), 0);
   assert.equal(await fresh.conversation.count(), 0);
-  console.log("Desktop PostgreSQL whitebox passed: cloud upgrade, device lifecycle and audit, and exact run authorization through start, interrupt, unbind, and revoke.");
+  console.log("Desktop PostgreSQL whitebox passed: cloud upgrade, device lifecycle, historical auth epoch, exact WebSocket scope, and idempotent reconnect replay.");
 } finally {
   await Promise.all(connections.map(connection => connection.$disconnect()));
   if (started) await execute("pg_ctl", ["-D", data, "-m", "immediate", "-w", "stop"], { timeout: 30_000 });

@@ -54,6 +54,21 @@ function fixture() {
 }
 
 describe("desktop run leases", () => {
+  it("accepts an exact settlement after model access is closed, until the run is revoked", async () => {
+    const { input, scope } = fixture();
+    const live = vi.fn(async (_scope: DesktopRunScope, phase: string) => phase === "issue" || phase === "settle");
+    const leases = new DesktopRunLeases(redis.client, live);
+    const credentials = await leases.issue(scope, input);
+
+    await expect(leases.authorizeModel({ turnId: scope.turnId, ...credentials.primary }))
+      .rejects.toMatchObject({ code: "AUTH_REQUIRED" });
+    await expect(leases.verifyRunBinding(scope, credentials.run_token)).resolves.toBeUndefined();
+    await expect(leases.verifyRunBinding({ ...scope, runtimeGeneration: randomUUID() }, credentials.run_token))
+      .rejects.toMatchObject({ code: "AUTH_REQUIRED" });
+    await leases.revoke(scope.turnId);
+    await expect(leases.verifyRunBinding(scope, credentials.run_token)).rejects.toMatchObject({ code: "AUTH_REQUIRED" });
+  });
+
   it("allows each credential to call only its own model and purpose without shipping or storing provider secrets", async () => {
     const { input, scope } = fixture();
     const live = vi.fn(async () => true);

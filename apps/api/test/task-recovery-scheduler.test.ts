@@ -9,10 +9,60 @@ const ownerId = "10000000-0000-4000-8000-000000000001";
 const bootId = "10000000-0000-4000-8000-000000000002";
 const conversationId = "10000000-0000-4000-8000-000000000003";
 const projectionTurnId = "10000000-0000-4000-8000-000000000004";
+const deviceId = "10000000-0000-4000-8000-000000000005";
+const connectionId = "10000000-0000-4000-8000-000000000006";
+const runtimeGeneration = "10000000-0000-4000-8000-000000000007";
 const capabilityGeneration = "a".repeat(64);
+const desktop = { ownerId, deviceId, connectionId };
+const desktopTurn = { ...desktop, conversationId, projectionTurnId, runtimeGeneration };
 afterEach(() => vi.useRealTimers());
 
 describe("targeted task recovery", () => {
+  it("queues exact read-only recovery when a Mac reports exit even while its cloud runner is live", async () => {
+    const f = fixture();
+    f.prisma.conversationTurnStartIntent.findFirst.mockResolvedValueOnce({ projectionTurnId });
+    f.redis.runnerOwnerDeadline.mockResolvedValue(Date.now() + 60_000);
+    await f.scheduler.enqueueDesktopRecovery(desktopTurn);
+    const job = f.queue.add.mock.calls[0]?.[1];
+    expect(job).toEqual({ type: "desktop-turn", ...desktopTurn });
+    await f.scheduler.process({ data: job });
+    expect(f.conversations.recoverStartIntent).toHaveBeenCalledExactlyOnceWith(
+      projectionTurnId, { resubmitNonTerminal: false, desktopConnectionId: connectionId },
+    );
+    expect(f.events.reconcileAfterProcessExit).toHaveBeenCalledExactlyOnceWith(
+      { conversationId, projectionTurnId, capabilityGeneration }, { desktopConnectionId: connectionId },
+    );
+    expect(f.redis.runnerOwnerDeadline).not.toHaveBeenCalled();
+  });
+
+  it("reconciles a terminal turn whose reservation survived an API crash before release", async () => {
+    const f = fixture();
+    f.redis.runningTurnSlotsForOwner.mockResolvedValueOnce({
+      slots: [{ conversationId, turnId: projectionTurnId }], after: null,
+    });
+    f.prisma.$queryRaw.mockImplementationOnce(async (_sql, ...params) =>
+      params.some(value => Array.isArray(value) && value.includes(projectionTurnId))
+        ? [{ conversationId, runtimeGeneration, startId: null, turnIds: [projectionTurnId] }]
+        : [],
+    );
+    await f.scheduler.process({ data: { type: "desktop", ...desktop } });
+    const job = f.queue.add.mock.calls[0]?.[1];
+    expect(job).toEqual({ type: "desktop-turn", ...desktopTurn });
+    await f.scheduler.process({ data: job });
+    expect(f.events.reconcileAfterProcessExit).toHaveBeenCalledExactlyOnceWith(
+      { conversationId, projectionTurnId, capabilityGeneration }, { desktopConnectionId: connectionId },
+    );
+    expect(f.conversations.recoverStartIntent).not.toHaveBeenCalled();
+  });
+
+  it("ignores an exit job after its Mac connection was replaced", async () => {
+    const f = fixture();
+    f.redis.client.mget.mockResolvedValueOnce([bootId, `${bootId}:${deviceId}`]);
+    await f.scheduler.process({ data: { type: "desktop-turn", ...desktopTurn } });
+    expect(f.conversations.recoverStartIntent).not.toHaveBeenCalled();
+    expect(f.events.reconcileAfterProcessExit).not.toHaveBeenCalled();
+  });
+
   it("checks only expired workers and indexed pending records during ordinary maintenance", async () => {
     const f = fixture();
     await f.scheduler.process({ data: { type: "maintenance" } });
@@ -274,15 +324,21 @@ function fixture() {
   };
   const worker = { close: vi.fn(async () => undefined) };
   const prisma = {
+    $queryRaw: vi.fn<(...params: unknown[]) => Promise<unknown[]>>(async () => []),
     $transaction: vi.fn(
       (run: (tx: unknown) => Promise<unknown>): Promise<unknown> => run(prisma),
     ),
+    conversation: {
+      findFirst: vi.fn(async () => ({ id: conversationId, runtimeGeneration })),
+    },
     conversationTurn: {
+      findFirst: vi.fn(async () => ({ capabilityGeneration })),
       findMany: vi.fn<(...args: unknown[]) => Promise<unknown[]>>(
         async () => [],
       ),
     },
     conversationTurnStartIntent: {
+      findFirst: vi.fn<() => Promise<{ projectionTurnId: string } | null>>(async () => null),
       findMany: vi.fn<(...args: unknown[]) => Promise<unknown[]>>(
         async () => [],
       ),
@@ -294,6 +350,9 @@ function fixture() {
     },
   };
   const redis = {
+    client: {
+      mget: vi.fn(async () => [connectionId, `${connectionId}:${deviceId}`]),
+    },
     runningTurnRecoveryStatus: vi.fn<
       () => Promise<{ outcome: string; last_success_at: string | null }>
     >(async () => ({

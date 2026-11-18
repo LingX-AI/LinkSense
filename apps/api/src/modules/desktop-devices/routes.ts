@@ -31,7 +31,13 @@ const revocationCheckIntervalMs = 5_000;
 
 export async function registerDesktopDeviceRoutes(
   app: FastifyInstance,
-  options: { service: DesktopDeviceService; redis: Redis; rateLimitHmacSecret: string; execution?: DesktopDeviceTransport },
+  options: {
+    service: DesktopDeviceService;
+    redis: Redis;
+    rateLimitHmacSecret: string;
+    execution?: DesktopDeviceTransport;
+    onExecutionReady?: (binding: { deviceId: string; ownerId: string; connectionId: string }) => Promise<void>;
+  },
 ): Promise<void> {
   const { service, execution } = options;
   await app.register(async routes => {
@@ -79,6 +85,7 @@ export async function registerDesktopDeviceRoutes(
   const connected = new Map<WebSocket, {
     device: DesktopDeviceRecord; connectionId: string; execution: boolean; detach?: () => void;
   }>();
+  const recoveryEnqueues = new Set<Promise<void>>();
   let subscription: Promise<() => void> | null = null;
   let subscriptionGeneration = 0;
   let closing = false;
@@ -213,6 +220,15 @@ export async function registerDesktopDeviceRoutes(
             ...ready, execution_protocol_version: desktopExecutionProtocolVersion,
           }) : ready));
           readySent = true;
+          if (state.execution && options.onExecutionReady) {
+            const enqueue = options.onExecutionReady({ deviceId: device.id, ownerId: device.ownerId, connectionId })
+              .catch(() => {
+                app.log.warn({ deviceId: device.id }, "desktop reconnect recovery could not be queued");
+                socket.terminate();
+              })
+              .finally(() => { recoveryEnqueues.delete(enqueue); });
+            recoveryEnqueues.add(enqueue);
+          }
           return;
         }
         if (frame.type !== "ping") {
@@ -261,6 +277,7 @@ export async function registerDesktopDeviceRoutes(
     for (const socket of server.clients) socket.terminate();
     await new Promise<void>(resolve => server.close(() => resolve()));
     await revocationCheck;
+    await Promise.all(recoveryEnqueues);
     const unsubscribe = await subscription?.catch(() => undefined);
     unsubscribe?.();
     await execution?.close();

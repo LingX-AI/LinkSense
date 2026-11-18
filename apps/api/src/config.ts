@@ -329,6 +329,10 @@ const rawConfigSchema = z
       .enum(["true", "false"])
       .default("true")
       .transform((value) => value === "true"),
+    LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
     LINKSENSE_TINYTRAFFIC_URL: optionalString,
     LINKSENSE_TINYTRAFFIC_API_KEY: optionalSecret,
     LINKSENSE_PUBLIC_BASE_URL: z.url(),
@@ -430,6 +434,14 @@ const rawConfigSchema = z
       .default("false"),
   })
   .superRefine((config, context) => {
+    // Production admission needs server-side metering, masking and crash cleanup.
+    if (config.NODE_ENV === "production" && config.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED) {
+      context.addIssue({
+        code: "custom",
+        path: ["LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED"],
+        message: "desktop_local_execution_not_released",
+      });
+    }
     const objectStorageProvider = resolveObjectStorageProvider(config);
     if (objectStorageProvider === "minio") {
       for (const [path, value] of [
@@ -564,6 +576,7 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
       raw.LINKSENSE_CLAWHUB_SYNC_TRANSACTION_TIMEOUT_MS,
     adminModelManagementEnabled: raw.LINKSENSE_ADMIN_MODEL_MANAGEMENT_ENABLED,
     managedBrowserEnabled: raw.LINKSENSE_MANAGED_BROWSER_ENABLED,
+    desktopLocalExecutionEnabled: raw.LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED,
     publicBaseUrl: raw.LINKSENSE_PUBLIC_BASE_URL,
     appwrite,
     analytics,

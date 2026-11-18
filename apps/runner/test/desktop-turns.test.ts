@@ -1,19 +1,118 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
 import pino from "pino"
 import { expect, it, vi } from "vitest"
-import { desktopExecutionCommandSchema } from "@linksense/shared"
+import { desktopExecutionAckSchema, desktopExecutionCommandSchema } from "@linksense/shared"
 
 import { DesktopWorkerProvider } from "../src/controller/desktop-worker-provider.js"
 import { DesktopLink } from "../src/desktop/link.js"
 import { DesktopTurns } from "../src/desktop/turns.js"
+import { desktopWorkerCallbacks } from "../src/desktop/worker-callbacks.js"
 import { StartOperationStore } from "../src/start-operation.js"
 import { prepareConversationControl, WorkspaceManager } from "../src/workspace/workspace-manager.js"
 import { deferred } from "./deferred.js"
 
 const logger = pino({ enabled: false })
+
+it("reports app-server exit on the same link after retiring the actual worker process", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linksense-desktop-exit-"))
+  const runtimeRoot = path.join(root, "runtime")
+  const scope = { owner_id: randomUUID(), conversation_id: randomUUID(), runtime_generation: randomUUID(), turn_id: randomUUID() }
+  const controlToken = "a".repeat(64)
+  const fail = vi.fn()
+  const state: { current?: { link: DesktopLink; turns: DesktopTurns } } = {}
+  const callbacks = desktopWorkerCallbacks(controlToken, () => state.current)
+  const origin = await callbacks.listen({ host: "127.0.0.1", port: 0 })
+  const provider = new DesktopWorkerProvider({ dataRoot: path.join(root, "sessions"), runtimeRoot, controlToken, bridgeUrl: `${origin}/` }, logger, fail)
+  const turns = new DesktopTurns(provider, runtimeRoot, origin, fail, logger)
+  const started = vi.fn()
+  const exited = vi.fn()
+  const link = new DesktopLink(randomUUID(), scope.owner_id, turns, async output => {
+    if (output.type !== "link.frame") return
+    const frame = output.frame
+    if (frame.type === "command.result" && frame.operation === "turn.start") {
+      expect(frame.ok).toBe(true)
+      started()
+    }
+    if (frame.type !== "execution.callback") return
+    expect(frame).toMatchObject({
+      operation: "turn.exited", conversation_id: scope.conversation_id,
+      turn_id: scope.turn_id, runtime_generation: scope.runtime_generation,
+    })
+    expect(await provider.hasWorkerForEnvironment(scope.owner_id, scope.conversation_id)).toBe(false)
+    link.receive(desktopExecutionAckSchema.parse({
+      type: "execution.ack", id: frame.id, operation: "turn.exited", ok: true,
+    }))
+    exited()
+  }, fail)
+  state.current = { link, turns }
+  try {
+    const generation = "0".repeat(64)
+    const bundle = path.join(runtimeRoot, "capabilities")
+    const script = path.join(runtimeRoot, "runner", "dist", "index.js")
+    for (const directory of ["skills", "plugins", "plugin-sources"].map(name => path.join(bundle, name))
+      .concat(path.dirname(script), path.join(runtimeRoot, "bin"))) await mkdir(directory, { recursive: true })
+    await symlink(process.execPath, path.join(runtimeRoot, "bin", "node"))
+    await writeFile(path.join(bundle, "capability-snapshot.json"), JSON.stringify({
+      version: 1, id: `${generation}-${randomUUID()}`, generation, contentDigest: generation, sourceDigest: generation, pluginNames: [],
+    }))
+    await writeFile(script, `
+      const { existsSync } = require("node:fs")
+      const { createServer } = require("node:http")
+      const env = process.env
+      const server = createServer((request, response) => {
+        response.setHeader("content-type", "application/json")
+        if (request.url === "/health/ready") return response.end('{"status":"available"}')
+        if (request.url !== "/conversations/" + env.LINKSENSE_SERVICE_SESSION_ID + "/turns/start") {
+          response.statusCode = 404
+          return response.end()
+        }
+        const now = new Date().toISOString()
+        response.end(JSON.stringify({
+          status: "starting", createdAt: now, updatedAt: now,
+          conversationId: env.LINKSENSE_SERVICE_SESSION_ID, projectionTurnId: env.LINKSENSE_DESKTOP_TURN_ID,
+        }))
+        const exit = setInterval(() => {
+          if (!existsSync("fixture-exit")) return
+          clearInterval(exit)
+          fetch(env.LINKSENSE_API_INTERNAL_URL + "internal/runner/process-exit", {
+            method: "POST",
+            headers: {
+              authorization: "Bearer " + env.LINKSENSE_RUNNER_SHARED_SECRET,
+              "x-linksense-owner-id": env.LINKSENSE_WORKER_OWNER_ID,
+              "x-linksense-service-session": env.LINKSENSE_SERVICE_SESSION_ID,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              conversationId: env.LINKSENSE_SERVICE_SESSION_ID, projectionTurnId: env.LINKSENSE_DESKTOP_TURN_ID,
+              capabilityGeneration: "0".repeat(64),
+            }),
+          }).then(reply => reply.arrayBuffer()).catch(() => process.exit(1))
+        }, 10).unref()
+      }).listen({ fd: 4 })
+      process.on("disconnect", () => server.close(() => process.exit(0)))
+    `)
+    const expiresAt = new Date(Date.now() + 10_000).toISOString()
+    link.receive(desktopExecutionCommandSchema.parse({
+      ...scope, type: "command", operation: "turn.start", id: randomUUID(), expires_at: expiresAt,
+      body: { native_thread_id: null, input: "Fixture", reasoning_effort: "low", credentials: {
+        turn_id: scope.turn_id, expires_at: expiresAt, run_token: `lsdr_${"a".repeat(43)}`,
+        primary: { purpose: "primary", token: `lsdm_${"b".repeat(43)}`, model: "fixture", revision: 1, protocol_mode: "native_responses" },
+      } },
+    }))
+    await vi.waitFor(() => expect(started).toHaveBeenCalledOnce(), { timeout: 2_000 })
+    await writeFile(path.join(provider.pathsFor(scope.owner_id, scope.conversation_id).home, "fixture-exit"), "")
+    await vi.waitFor(() => expect(exited).toHaveBeenCalledOnce(), { timeout: 2_000 })
+    expect(fail).not.toHaveBeenCalled()
+  } finally {
+    await link.close()
+    await provider.shutdown()
+    await callbacks.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 it.each(["rejected", "canceled"] as const)("retires and seals a %s start before a journal was created", async failure => {
   const root = await mkdtemp(path.join(tmpdir(), "linksense-desktop-canceled-start-"))

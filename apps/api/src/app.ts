@@ -15,6 +15,7 @@ import { registerDesktopDeviceRoutes } from "./modules/desktop-devices/routes.js
 import { DesktopDeviceService } from "./modules/desktop-devices/service.js";
 import { PrismaDesktopDeviceRepository } from "./modules/desktop-devices/repository.js";
 import { RedisDesktopDeviceCoordinator } from "./modules/desktop-devices/coordinator.js";
+import { registerDesktopExecution } from "./modules/desktop-devices/execution.js";
 import { DesktopLoginService, RedisDesktopLoginStore } from "./modules/auth/desktop-login.js";
 import { BrowserUseService } from "./modules/browser-use/service.js";
 import { BrowserUseIntentService } from "./modules/browser-use/intent.js";
@@ -677,13 +678,19 @@ export async function buildApi(
     socketPath: `${browserUseEndpoint.pathname}/socket`,
     intent: new BrowserUseIntentService(services.prisma, new RedisBrowserStore(services.redis.client), services.modelProviderSettings, services.usageAnalytics),
   });
+  const desktopCoordinator = new RedisDesktopDeviceCoordinator(services.redis.client);
+  const desktopExecution = await registerDesktopExecution(app, services, desktopCoordinator);
   await registerDesktopDeviceRoutes(app, {
     service: new DesktopDeviceService(
       new PrismaDesktopDeviceRepository(services.prisma),
-      new RedisDesktopDeviceCoordinator(services.redis.client),
+      desktopCoordinator,
     ),
     redis: services.redis.client,
     rateLimitHmacSecret: services.config.loginRateLimitHmacSecret,
+    ...(desktopExecution ? {
+      execution: desktopExecution,
+      onExecutionReady: (binding) => services.events.scheduleDesktopRecovery(binding),
+    } : {}),
   });
   await app.register(internalAutomationRoutes, {
     prefix: "/internal/automations",

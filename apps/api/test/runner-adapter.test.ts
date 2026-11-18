@@ -1,7 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { RUNNER_TURN_START_CONTRACT_VERSION } from "@linksense/shared";
 
+import { randomUUID } from "node:crypto";
+import { DesktopCommandUncertainError, DesktopCommandUndeliveredError, type DesktopDeviceTransport } from "../src/adapters/desktop-device-transport.js";
+import { DesktopRunner } from "../src/adapters/desktop-runner.js";
 import {
   RunnerClient,
   RunnerRuntimeCleanupError,
@@ -10,6 +13,8 @@ import {
   type RunnerStartInput,
   type RunnerSteerInput,
 } from "../src/adapters/runner.js";
+import { DesktopRunLeases } from "../src/modules/desktop-credentials/run-leases.js";
+import { createRedisFixture } from "./fixtures/redis.js";
 import { testConfig } from "./test-config.js";
 
 const conversationId = "01900000-0000-7000-8000-000000000001";
@@ -67,6 +72,62 @@ describe("RunnerClient start operation", () => {
       await expect(operation()).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
     }
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  describe("Mac dispatch", () => {
+    let redis: Awaited<ReturnType<typeof createRedisFixture>>;
+    beforeAll(async () => { redis = await createRedisFixture(); });
+    afterAll(async () => { await redis?.close(); });
+
+    it("queues exact-turn lease expiry recovery before a Mac start can be delivered", async () => {
+      const { client, binding, lease, scheduleExpiry, send } = desktopRunnerFixture(redis.client);
+      const input = { ...startInput(), projectionTurnId: randomUUID() };
+      scheduleExpiry.mockRejectedValueOnce(new Error("recovery queue is unavailable"));
+      await expect(client.acceptStartTurn(input)).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+      expect(await lease(input.projectionTurnId)).toBeNull();
+      expect(send).not.toHaveBeenCalled();
+
+      send.mockImplementationOnce(async (_binding, command) => {
+        if (command.operation !== "turn.start") throw new Error("expected start");
+        expect(scheduleExpiry).toHaveBeenLastCalledWith({
+          ownerId, deviceId: binding.deviceId, connectionId: binding.connectionId,
+          conversationId, turnId: input.projectionTurnId, runtimeGeneration,
+        }, Date.parse(command.body.credentials.expires_at));
+        return {
+          type: "command.result", id: command.id, operation: command.operation, ok: true,
+          result: { ...startingOperation(), status: "starting", projectionTurnId: input.projectionTurnId },
+        };
+      });
+      await expect(client.acceptStartTurn(input)).resolves.toMatchObject({ status: "starting" });
+    });
+
+    it("releases an undelivered Mac start lease but preserves a possibly delivered start for read-only recovery", async () => {
+      const { client, lease, fetchMock, send } = desktopRunnerFixture(redis.client);
+      send.mockRejectedValueOnce(new DesktopCommandUndeliveredError());
+      await expect(client.acceptStartTurn(startInput())).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+      expect(await lease()).toBeNull();
+
+      send.mockRejectedValueOnce(new DesktopCommandUncertainError());
+      const error = await client.acceptStartTurn(startInput()).catch((error: unknown) => error);
+      expect(error).toBeInstanceOf(RunnerStartOperationUncertainError);
+      expect(error).toMatchObject({ code: "RUNNER_OPERATION_UNCERTAIN" });
+      expect(await lease()).not.toBeNull();
+      send.mockImplementationOnce(async (_binding, command) => ({
+        type: "command.result", id: command.id, operation: "turn.inspect", ok: true, result: null,
+      }));
+      await expect(client.inspectStartOperation(conversationId, projectionTurnId, ownerId, { runtimeGeneration })).resolves.toBeNull();
+      expect(send.mock.calls.map(([, command]) => command.operation)).toEqual(["turn.start", "turn.start", "turn.inspect"]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("reports an unconfirmed Mac interrupt without pretending the device was unavailable", async () => {
+      const { client, fetchMock, send } = desktopRunnerFixture(redis.client);
+      send.mockRejectedValueOnce(new DesktopCommandUncertainError());
+      await expect(client.interruptStartOperation(conversationId, projectionTurnId, ownerId, runtimeGeneration))
+        .rejects.toMatchObject({ code: "RUNNER_OPERATION_UNCERTAIN" });
+      expect(send).toHaveBeenCalledOnce();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
   it("resolves each task's current project cwd and forwards it without changing the caller identity", async () => {
     const resolveWorkspace = vi.fn(async (): Promise<import("@linksense/shared").RuntimePlacement> => ({ workspacePath: `projects/${projectionTurnId}` }));
@@ -1522,6 +1583,20 @@ function startInput(): RunnerStartInput {
     environment: {},
     ...modelRuntime,
   };
+}
+
+function desktopRunnerFixture(redis: Awaited<ReturnType<typeof createRedisFixture>>["client"]) {
+  const deviceId = randomUUID();
+  const binding = { deviceId, connectionId: randomUUID(), gatewayId: randomUUID() };
+  const findConversation = async () => ({ desktopDeviceId: deviceId, runtimeGeneration });
+  const send = vi.fn<DesktopDeviceTransport["send"]>();
+  const scheduleExpiry = vi.fn(async () => undefined);
+  const runner = new DesktopRunner(findConversation, { connection: async () => binding, send }, new DesktopRunLeases(redis, async () => true), scheduleExpiry);
+  const client = new RunnerClient(testConfig(), async () => "local");
+  client.useDesktopRunner(runner);
+  const fetchMock = vi.fn<typeof fetch>();
+  vi.stubGlobal("fetch", fetchMock);
+  return { client, binding, send, fetchMock, scheduleExpiry, lease: (turnId = projectionTurnId) => redis.get(`linksense:desktop-run:${turnId}`) };
 }
 
 function componentHealth() {

@@ -305,7 +305,7 @@ describe("desktop execution transport", () => {
 
   it("leaves presence compatible for Windows and unrecognized execution protocol versions", async () => {
     const { app, execution } = await fixture();
-    for (const [platform, version] of [["windows", desktopExecutionProtocolVersion], ["darwin", desktopExecutionProtocolVersion + 1]] as const) {
+    for (const [platform, version] of [["windows", desktopExecutionProtocolVersion], ["darwin", 1], ["darwin", desktopExecutionProtocolVersion + 1]] as const) {
       const { device, token } = await paired(app, platform);
       const { socket, ready } = await connect(app, token, version);
       expect(desktopDeviceServerFrameSchema.parse(ready).type).toBe("ready");

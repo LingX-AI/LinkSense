@@ -14,11 +14,23 @@ import type {
 } from "../../adapters/redis.js";
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import type { ConversationService } from "../conversations/service.js";
+import { RedisDesktopDeviceCoordinator } from "../desktop-devices/coordinator.js";
 import type { ConversationEventService } from "./service.js";
 
 const queueName = "linksense-task-recovery";
 const pageSize = 100;
 const logger = createLogger("task-recovery");
+const desktopBindingSchema = z.strictObject({ ownerId: z.uuid(), deviceId: z.uuid(), connectionId: z.uuid() });
+const desktopRecoveryJobSchema = desktopBindingSchema.extend({
+  type: z.literal("desktop"),
+  after: z.uuid().optional(),
+});
+const desktopTurnRecoveryJobSchema = desktopBindingSchema.extend({
+  type: z.literal("desktop-turn"),
+  conversationId: z.uuid(),
+  projectionTurnId: z.uuid(),
+  runtimeGeneration: z.uuid(),
+});
 const jobSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("maintenance") }),
   z.strictObject({
@@ -41,8 +53,12 @@ const jobSchema = z.discriminatedUnion("type", [
     projectionTurnId: z.uuid(),
   }),
   z.strictObject({ type: z.literal("context"), attemptId: z.uuid() }),
+  desktopRecoveryJobSchema,
+  desktopTurnRecoveryJobSchema,
 ]);
 type RecoveryJob = z.infer<typeof jobSchema>;
+type DesktopTurnRecoveryRequest = Omit<z.infer<typeof desktopTurnRecoveryJobSchema>, "type"> & { expiresAt?: number };
+type DesktopRecoveryRequest = Omit<z.infer<typeof desktopRecoveryJobSchema>, "type"> | DesktopTurnRecoveryRequest;
 type RecoveryQueue = Queue<RecoveryJob, void, RecoveryJob["type"]>;
 export type TaskRecoveryQueueControl = Pick<
   RecoveryQueue,
@@ -212,6 +228,25 @@ export class TaskRecoveryScheduler {
     });
   }
 
+  async enqueueDesktopRecovery(input: DesktopRecoveryRequest): Promise<void> {
+    if ("projectionTurnId" in input) {
+      await this.enqueueDesktopTurn(input, "exit");
+      return;
+    }
+    const data = desktopRecoveryJobSchema.parse({ type: "desktop", ...input });
+    await this.queue.add("desktop", data, { jobId: `desktop-${data.connectionId}-${data.after ?? "first"}` });
+  }
+
+  private async enqueueDesktopTurn(input: DesktopTurnRecoveryRequest, trigger: "reconnect" | "exit"): Promise<void> {
+    const { expiresAt, ...scope } = input;
+    const data = desktopTurnRecoveryJobSchema.parse({ type: "desktop-turn", ...scope });
+    const deadline = expiresAt === undefined ? undefined : z.number().int().positive().parse(expiresAt);
+    await this.queue.add("desktop-turn", data, {
+      jobId: `desktop-${deadline === undefined ? trigger : `expiry-${deadline}`}-${data.connectionId}-${data.projectionTurnId}`,
+      ...(deadline === undefined ? {} : { delay: Math.max(0, deadline - Date.now()) }),
+    });
+  }
+
   async process(job: { data: unknown }): Promise<void> {
     const data = jobSchema.parse(job.data);
     switch (data.type) {
@@ -220,6 +255,9 @@ export class TaskRecoveryScheduler {
         return;
       case "owner":
         await this.dispatchOwner(data);
+        return;
+      case "desktop":
+        await this.dispatchDesktop(data);
         return;
       case "context":
         if (
@@ -230,6 +268,7 @@ export class TaskRecoveryScheduler {
           throw new Error("TASK_RECOVERY_PENDING");
         return;
       case "start":
+      case "desktop-turn":
       case "turn": {
         // Longer than the Runner's 100s reconciliation HTTP timeout. Database
         // transitions and the Runner's native identity checks remain the fence.
@@ -245,6 +284,8 @@ export class TaskRecoveryScheduler {
               { resubmitNonTerminal: false },
             );
             if (outcome === "pending") throw new Error("TASK_RECOVERY_PENDING");
+          } else if (data.type === "desktop-turn") {
+            await this.recoverDesktopTurn(data);
           } else {
             const result = await this.events.reconcileAfterProcessExit({
               conversationId: data.conversationId,
@@ -258,6 +299,70 @@ export class TaskRecoveryScheduler {
         }
       }
     }
+  }
+
+  private async dispatchDesktop(data: Extract<RecoveryJob, { type: "desktop" }>): Promise<void> {
+    const { ownerId, deviceId, connectionId } = data;
+    const coordinator = new RedisDesktopDeviceCoordinator(this.redis.client);
+    if ((await coordinator.executionConnection(deviceId))?.connectionId !== connectionId) return;
+    const { slots, after: slotBoundary } = await this.redis.runningTurnSlotsForOwner(ownerId, data.after);
+    const rows = await this.prisma.$queryRaw<Array<{
+      conversationId: string; runtimeGeneration: string; startId: string | null; turnIds: string[];
+    }>>`
+      SELECT c.id AS "conversationId", c.runtime_generation AS "runtimeGeneration",
+        i.projection_turn_id AS "startId", COALESCE(array_agg(t.id) FILTER (WHERE t.id IS NOT NULL), '{}') AS "turnIds"
+      FROM conversations c
+      LEFT JOIN unnest(${slots.map(slot => slot.conversationId)}::uuid[], ${slots.map(slot => slot.turnId)}::uuid[])
+        AS slot(conversation_id, turn_id) ON slot.conversation_id = c.id
+      LEFT JOIN conversation_turn_start_intents i ON i.conversation_id = c.id
+        AND i.owner_id = c.owner_id AND i.runtime_generation = c.runtime_generation
+      LEFT JOIN conversation_turns t ON t.conversation_id = c.id AND t.submitted_by = c.owner_id
+        AND (t.status = 'running' OR t.id = slot.turn_id)
+      WHERE c.execution_target = 'local' AND c.archive_status = 'active'
+        AND c.owner_id = ${ownerId}::uuid AND c.desktop_device_id = ${deviceId}::uuid
+        AND (${data.after ?? null}::uuid IS NULL OR c.id > ${data.after ?? null}::uuid)
+        AND (${slotBoundary}::uuid IS NULL OR c.id <= ${slotBoundary}::uuid)
+        AND (i.projection_turn_id IS NOT NULL OR t.id IS NOT NULL)
+      GROUP BY c.id, i.projection_turn_id
+      ORDER BY c.id LIMIT ${pageSize}`;
+    for (const { conversationId, runtimeGeneration, startId, turnIds } of rows) {
+      const projectionTurnIds = new Set(startId ? [startId, ...turnIds] : turnIds);
+      for (const projectionTurnId of projectionTurnIds) {
+        await this.enqueueDesktopTurn({ ownerId, deviceId, connectionId, conversationId, projectionTurnId, runtimeGeneration }, "reconnect");
+      }
+    }
+    const after = rows.length === pageSize ? rows.at(-1)?.conversationId : slotBoundary;
+    if (after) await this.enqueueDesktopRecovery({ ownerId, deviceId, connectionId, after });
+  }
+
+  private async recoverDesktopTurn(data: Extract<RecoveryJob, { type: "desktop-turn" }>): Promise<void> {
+    const { ownerId, deviceId, connectionId, conversationId, projectionTurnId, runtimeGeneration } = data;
+    const coordinator = new RedisDesktopDeviceCoordinator(this.redis.client);
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, ownerId, executionTarget: "local", desktopDeviceId: deviceId, archiveStatus: "active", runtimeGeneration },
+      select: { id: true },
+    });
+    if (!conversation || (await coordinator.executionConnection(deviceId))?.connectionId !== connectionId) return;
+    const intent = await this.prisma.conversationTurnStartIntent.findFirst({
+      where: { projectionTurnId, conversationId, ownerId, runtimeGeneration },
+      select: { projectionTurnId: true },
+    });
+    if (intent) {
+      const outcome = await this.conversations.recoverStartIntent(projectionTurnId, {
+        resubmitNonTerminal: false, desktopConnectionId: connectionId,
+      });
+      if (outcome === "pending") throw new Error("TASK_RECOVERY_PENDING");
+      if (outcome === "released") return;
+    }
+    const turn = await this.prisma.conversationTurn.findFirst({
+      where: { id: projectionTurnId, conversationId, submittedBy: ownerId },
+      select: { capabilityGeneration: true },
+    });
+    if (!turn) return;
+    const result = await this.events.reconcileAfterProcessExit({
+      conversationId, projectionTurnId, capabilityGeneration: turn.capabilityGeneration,
+    }, { desktopConnectionId: connectionId });
+    if (result.outcome === "failed") throw new Error(result.reasonCode);
   }
 
   private async maintain(): Promise<void> {

@@ -83,6 +83,13 @@ export class DesktopTurns {
           : await this.withRecovery(command.conversation_id, () => this.readJournal(command, false, signal))
         return { ...envelope, operation: command.operation, ok: true, result }
       }
+      if (command.operation === "turn.seal") {
+        uncertain = true
+        // Never interrupt a native start that won the race against recovery.
+        if (session || this.recovering.has(command.conversation_id)) throw new Error("desktop start is not yet sealable")
+        const result = await this.sealUnstarted(command)
+        return { ...envelope, operation: command.operation, ok: true, result }
+      }
       if (command.operation === "turn.drain") {
         if (!deliver || session || this.seals.has(command.conversation_id)) throw new Error("desktop outbox is not available")
         uncertain = true
@@ -163,8 +170,8 @@ export class DesktopTurns {
     if (session?.run === run) await this.release(session)
   }
 
-  finishAfterAcknowledgement(run: DesktopRuntimeRun): void {
-    void this.finish(run).catch(this.workerLost)
+  finishAfterAcknowledgement(run: DesktopRuntimeRun, afterExit?: () => Promise<void>): void {
+    void this.finish(run).then(afterExit).catch(this.workerLost)
   }
 
   private release(session: Session): Promise<void> {

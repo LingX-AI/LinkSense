@@ -1613,6 +1613,14 @@ export const errorCatalog = {
       "en-US": "The execution service is unavailable. Try again later.",
     },
   },
+  RUNNER_OPERATION_UNCERTAIN: {
+    message_key: "errors.runnerOperationUncertain",
+    http_status: 503,
+    messages: {
+      "zh-CN": "尚未确认 Mac 是否已执行此操作。请等待状态更新，暂勿重新提交。",
+      "en-US": "It’s not yet confirmed whether your Mac ran this operation. Wait for a status update before submitting again.",
+    },
+  },
   DEPLOYMENT_STOPPED: {
     message_key: "errors.deploymentStopped",
     http_status: 503,

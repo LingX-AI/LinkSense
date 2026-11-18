@@ -44,7 +44,7 @@ type deviceConnection struct {
 }
 
 const (
-	desktopExecutionVersion = 1
+	desktopExecutionVersion = 2
 	desktopExecutionHeader  = "X-LinkSense-Desktop-Execution"
 )
 

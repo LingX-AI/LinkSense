@@ -25,9 +25,10 @@ export function registerRunnerRuntimeScope(
     if (!conversationId) return; // Each route validates its complete input.
     const ownerId = z.uuid().parse(request.headers["x-linksense-owner-id"]);
     const conversation = await prisma.conversation.findFirst({
-      where: { id: conversationId, ownerId }, select: { workspaceRelPath: true },
+      where: { id: conversationId, ownerId }, select: { workspaceRelPath: true, executionTarget: true },
     });
-    if (!conversation || runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath).serviceSessionId !== serviceSessionId) {
+    if (!conversation || conversation.executionTarget === "local" ||
+        runtimePlacementForWorkspace(ownerId, conversation.workspaceRelPath).serviceSessionId !== serviceSessionId) {
       throw new AppError("CONVERSATION_NOT_FOUND");
     }
   });

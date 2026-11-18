@@ -15,6 +15,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { v5 as uuidv5 } from "uuid";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "../src/generated/prisma/client.js";
@@ -40,6 +41,7 @@ import {
 } from "../src/modules/conversations/service.js";
 import type { CapabilityRuntimeVerification } from "../src/modules/capabilities/user-home-materializer.js";
 import { ConversationTitleService } from "../src/modules/conversations/title-service.js";
+import type { DesktopProjectionFence } from "../src/modules/desktop-credentials/run-authority.js";
 import { AppError } from "../src/lib/errors.js";
 
 const OWNER_ID = "10000000-0000-4000-8000-000000000001";
@@ -990,6 +992,35 @@ describe("ConversationService ownership and draft lifecycle", () => {
     fixture.prisma.conversationTurnStartIntent.findUnique.mockResolvedValue(null);
     await expect(fixture.service.settleStartOperation(OWNER_ID, input)).resolves.toBe(true);
     expect(recover).toHaveBeenCalledOnce();
+    expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+  });
+
+  it("does not project an already recorded Mac start after its delivery authorization expires", async () => {
+    const fixture = await conversationFixture();
+    const intent = startIntentRow({
+      runnerStatus: "runner_succeeded", codexThreadId: "native-mac-thread", codexTurnId: "native-mac-turn",
+    });
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const transaction = transactionFixture();
+    transaction.$queryRaw.mockResolvedValueOnce([{
+      codexThreadId: null, revokedAt: null, ownerStatus: "active", deviceEpoch: NOW, ownerEpoch: NOW,
+    }]);
+    fixture.prisma.conversationTurnStartIntent.findUnique.mockResolvedValue(intent);
+    fixture.runner.inspectStartOperation.mockResolvedValueOnce({
+      conversationId: CONVERSATION_ID, projectionTurnId: intent.projectionTurnId, status: "succeeded",
+      result: { codexThreadId: "native-mac-thread", codexTurnId: "native-mac-turn" },
+      createdAt: NOW.toISOString(), updatedAt: NOW.toISOString(),
+    });
+    fixture.prisma.$transaction.mockImplementationOnce(async action => action(transaction));
+    const check = vi.fn(async () => { throw new AppError("AUTH_REQUIRED"); });
+    const input = { conversationId: CONVERSATION_ID, projectionTurnId: intent.projectionTurnId, runtimeGeneration: intent.runtimeGeneration };
+    await expect(fixture.service.settleStartOperation(OWNER_ID, input, {
+      connectionId: "10000000-0000-4000-8000-000000000010",
+      scope: { ownerId: OWNER_ID, deviceId, conversationId: CONVERSATION_ID, runtimeGeneration: intent.runtimeGeneration, turnId: intent.projectionTurnId },
+      check,
+    })).rejects.toMatchObject({ code: "AUTH_REQUIRED" });
+    expect(check).toHaveBeenCalledOnce();
+    expect(transaction.conversationTurn.create).not.toHaveBeenCalled();
     expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
   });
 
@@ -6781,6 +6812,62 @@ describe("ConversationService subagent detail", () => {
 });
 
 describe("ConversationService pending and turn materialization", () => {
+  it("does not persist an inspected Mac start after its delivering connection changes", async () => {
+    const fixture = await conversationFixture();
+    const connectionId = "10000000-0000-4000-8000-000000000009";
+    const deviceId = "10000000-0000-4000-8000-000000000008";
+    const intent = startIntentRow();
+    const scope = { ownerId: OWNER_ID, conversationId: CONVERSATION_ID, deviceId, turnId: intent.projectionTurnId, runtimeGeneration: intent.runtimeGeneration };
+    let current = true;
+    fixture.runner.isDesktopConversation.mockResolvedValue(true);
+    fixture.runner.desktopProjectionFence.mockResolvedValue({
+      scope, connectionId,
+      check: async () => { if (!current) throw new AppError("FORBIDDEN"); },
+    });
+    fixture.defaultTransaction.$queryRaw.mockResolvedValue([{
+      revokedAt: null, deviceEpoch: NOW, ownerEpoch: NOW, ownerStatus: "active", codexThreadId: "codex-thread-1",
+    }]);
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    fixture.runner.inspectStartOperation.mockImplementationOnce(async () => {
+      current = false;
+      return {
+        conversationId: CONVERSATION_ID, projectionTurnId: intent.projectionTurnId, status: "succeeded",
+        result: { codexThreadId: "codex-thread-1", codexTurnId: "codex-turn-1" },
+        createdAt: NOW.toISOString(), updatedAt: NOW.toISOString(),
+      };
+    });
+    await expect(fixture.service.recoverStartIntent(intent.projectionTurnId, { resubmitNonTerminal: false }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(fixture.runner.inspectStartOperation).toHaveBeenCalledWith(CONVERSATION_ID, intent.projectionTurnId, OWNER_ID, {
+      runtimeGeneration: intent.runtimeGeneration, connectionId,
+    });
+    expect(fixture.prisma.conversationTurnStartIntent.updateMany).not.toHaveBeenCalled();
+    expect(fixture.prisma.conversationTurn.create).not.toHaveBeenCalled();
+  });
+
+  it.each(["uncertain", "missing"] as const)("preserves a matching Mac start with a %s receipt without replaying it", async (receipt) => {
+    const fixture = await conversationFixture();
+    const deviceId = "10000000-0000-4000-8000-000000000009";
+    const idempotencyKey = "mac-uncertain-start";
+    const intent = startIntentRow({
+      idempotencyKey,
+      projectionTurnId: uuidv5(`turn-start:${idempotencyKey}`, CONVERSATION_ID),
+    });
+    fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow({ executionTarget: "local", desktopDeviceId: deviceId }));
+    await fixture.prisma.conversationTurnStartIntent.create({ data: intent });
+    fixture.runner.inspectStartOperation.mockResolvedValueOnce(receipt === "missing" ? null : {
+      conversationId: CONVERSATION_ID, projectionTurnId: intent.projectionTurnId, status: "uncertain",
+      errorCode: "RUNNER_TURN_START_RESULT_UNCERTAIN", createdAt: NOW.toISOString(), updatedAt: NOW.toISOString(),
+    });
+
+    await expect(fixture.service.acceptTurn(OWNER_ID, CONVERSATION_ID, {
+      inputText: intent.inputText, idempotencyKey, priorityCapabilityIds: [], submitMode: "normal",
+    }, {})).rejects.toMatchObject({ code: "RUNNER_OPERATION_UNCERTAIN" });
+    expect(fixture.runner.inspectStartOperation).toHaveBeenCalledOnce();
+    expect(fixture.runner.acceptStartTurn).not.toHaveBeenCalled();
+    expect(fixture.redis.releaseTurnSlot).not.toHaveBeenCalled();
+  });
+
   it("returns a starting receipt once the durable runner operation is accepted and tracks projection recovery", async () => {
     const fixture = await conversationFixture();
     fixture.prisma.conversation.findFirst.mockResolvedValue(conversationRow());
@@ -12622,6 +12709,8 @@ async function conversationFixture() {
       updatedAt: NOW.toISOString(),
     })),
     reconcile: vi.fn(async () => ({ thread: {}, goal: null })),
+    isDesktopConversation: vi.fn(async () => false),
+    desktopProjectionFence: vi.fn<() => Promise<DesktopProjectionFence & { connectionId: string }>>(),
     inspectStartOperation: vi.fn<() => Promise<RunnerStartOperation | null>>(
       async () => null,
     ),

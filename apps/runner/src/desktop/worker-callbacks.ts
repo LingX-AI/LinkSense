@@ -80,13 +80,13 @@ export function desktopWorkerCallbacks(
     return { data: receipt.data }
   })
   app.post("/internal/runner/process-exit", async (request, reply) => {
-    const { turns, run } = authenticate(request.headers)
+    const { link, turns, run } = authenticate(request.headers)
     const body = processExit.parse(request.body)
     if (body.conversationId !== run.scope.conversation_id || body.projectionTurnId !== run.scope.turn_id) {
       throw new Error("desktop process exit scope unavailable")
     }
     // The app-server has stopped; retire its wrapper before reading the journal.
-    reply.raw.once("finish", () => turns.finishAfterAcknowledgement(run))
+    reply.raw.once("finish", () => turns.finishAfterAcknowledgement(run, () => link.reportTurnExit(run)))
     return { data: { confirmed: true, outcome: "not_applicable" } }
   })
   return app

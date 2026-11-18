@@ -9,10 +9,10 @@ import type { PrismaClient } from "../src/generated/prisma/client.js";
 const owner = randomUUID(), service = randomUUID(), task = randomUUID();
 const apps: ReturnType<typeof Fastify>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map(app => app.close())); });
-function fixture(workspace = serviceWorkspaceRelativePath(owner, service)) {
+function fixture(workspace = serviceWorkspaceRelativePath(owner, service), executionTarget = "cloud") {
   const app = Fastify(); apps.push(app);
   const findFirst = vi.fn(async ({ where }: { where: { id: string; ownerId: string } }) =>
-    where.id === task && where.ownerId === owner ? { workspaceRelPath: workspace } : null);
+    where.id === task && where.ownerId === owner ? { workspaceRelPath: workspace, executionTarget } : null);
   registerRunnerRuntimeScope(app, { conversation: { findFirst } } as unknown as Pick<PrismaClient, "conversation">, "test-controller-secret");
   app.setErrorHandler((error, _request, reply) => reply.code(403).send({ error: error instanceof Error ? error.message : "error" }));
   app.post("/internal/runner/events", () => ({ accepted: true }));
@@ -43,5 +43,9 @@ describe("runner callback environment authorization", () => {
   it("rejects an unauthenticated callback before reading task data", async () => {
     const f = fixture(); expect((await f.send(service, task, "wrong")).statusCode).toBe(403);
     expect(f.findFirst).not.toHaveBeenCalled();
+  });
+  it("rejects cloud Runner callbacks for Mac conversations even with matching owner and service", async () => {
+    const f = fixture(serviceWorkspaceRelativePath(owner, service), "local");
+    expect((await f.send(service)).json()).toEqual({ error: "CONVERSATION_NOT_FOUND" });
   });
 });

@@ -32,6 +32,7 @@ const envelopeSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({
     kind: z.literal("reply"), binding: desktopExecutionBindingSchema, frame: desktopExecutionResultSchema,
+    beforeDelivery: z.literal(true).optional(),
   }),
 ]);
 type Envelope = z.infer<typeof envelopeSchema>;
@@ -76,6 +77,13 @@ export class DesktopCommandUncertainError extends Error {
   constructor() {
     super("RUNNER_OPERATION_UNCERTAIN");
     this.name = "DesktopCommandUncertainError";
+  }
+}
+
+export class DesktopCommandUndeliveredError extends AppError {
+  constructor(code: "RUNNER_UNAVAILABLE" | "FORBIDDEN" = "RUNNER_UNAVAILABLE") {
+    super(code);
+    this.name = "DesktopCommandUndeliveredError";
   }
 }
 
@@ -150,11 +158,16 @@ export class DesktopDeviceTransport {
     const request: Dispatch = { kind: "dispatch", binding, replyGatewayId: this.id, frame: command };
     if (lifetime <= 0 || lifetime > desktopExecutionCommandLifetimeMs || signal?.aborted ||
       Buffer.byteLength(JSON.stringify(command)) > desktopExecutionMaxFrameBytes) {
-      throw new AppError("RUNNER_UNAVAILABLE");
+      throw new DesktopCommandUndeliveredError();
     }
-    await this.ready();
+    try {
+      await this.ready();
+    } catch {
+      throw new DesktopCommandUndeliveredError();
+    }
     if (signal?.aborted || this.closed || this.publisher.status !== "ready" || Date.now() >= expiresAt ||
-      this.waiting.size >= 1000 || this.waiting.has(command.id)) throw new AppError("RUNNER_UNAVAILABLE");
+      this.waiting.size >= 1000) throw new DesktopCommandUndeliveredError();
+    if (this.waiting.has(command.id)) throw new DesktopCommandUncertainError();
     let timeout: NodeJS.Timeout | undefined;
     let abort: (() => void) | undefined;
     try {
@@ -172,7 +185,7 @@ export class DesktopDeviceTransport {
         signal?.addEventListener("abort", abort, { once: true });
         // A failed Redis reply does not prove the publish did not happen.
         void this.publish(request, expiresAt).then(status => {
-          if (status === "unavailable") reject(new AppError("RUNNER_UNAVAILABLE"));
+          if (status === "unavailable") reject(new DesktopCommandUndeliveredError());
           if (status === "duplicate") reject(new DesktopCommandUncertainError());
         }, () => {
           this.logger.warn({ commandId: command.id }, "desktop command publication result unavailable");
@@ -302,7 +315,13 @@ export class DesktopDeviceTransport {
         const waiting = this.waiting.get(envelope.frame.id);
         if (waiting && waiting.expiresAt > Date.now() &&
           sameBinding(waiting.binding, envelope.binding) && matchesResult(waiting.command, envelope.frame)) {
-          waiting.resolve(envelope.frame);
+          const { frame } = envelope;
+          if (envelope.beforeDelivery && !frame.ok && frame.operation === "turn.start" &&
+              frame.error_code !== "RUNNER_OPERATION_UNCERTAIN") {
+            waiting.reject(new DesktopCommandUndeliveredError(frame.error_code));
+          } else {
+            waiting.resolve(frame);
+          }
         }
       } else {
         void this.dispatch(envelope).catch(() => {
@@ -337,7 +356,7 @@ export class DesktopDeviceTransport {
     const socket = this.sockets.get(request.binding.connectionId);
     const { frame } = request;
     if (!socket || !sameBinding(socket.binding, request.binding)) {
-      if (frame.type === "command") await this.reply(request, failure(frame, "RUNNER_UNAVAILABLE"));
+      if (frame.type === "command") await this.reply(request, failure(frame, "RUNNER_UNAVAILABLE"), true);
       return;
     }
     const pending = socket.pending.get(frame.id);
@@ -352,11 +371,11 @@ export class DesktopDeviceTransport {
     const remaining = expiresAt - Date.now();
     if (remaining <= 0 || remaining > desktopExecutionCommandLifetimeMs ||
       socket.pending.size >= desktopExecutionMaxInFlight) {
-      await this.reply(request, failure(frame, "RUNNER_UNAVAILABLE"));
+      await this.reply(request, failure(frame, "RUNNER_UNAVAILABLE"), true);
       return;
     }
     if (frame.owner_id !== socket.ownerId) {
-      await this.reply(request, failure(frame, "FORBIDDEN"));
+      await this.reply(request, failure(frame, "FORBIDDEN"), true);
       return;
     }
     const timer = setTimeout(() => {
@@ -381,7 +400,7 @@ export class DesktopDeviceTransport {
 
   private finish(socket: DeviceSocket, pending: PendingDelivery, frame: DesktopExecutionResult): void {
     this.remove(socket, pending);
-    void this.reply(pending.request, frame).catch(() =>
+    void this.reply(pending.request, frame, pending.state === "checking").catch(() =>
       this.logger.warn({ commandId: frame.id }, "desktop command receipt publication failed"));
   }
 
@@ -391,12 +410,14 @@ export class DesktopDeviceTransport {
     pending.lifetime.abort();
   }
 
-  private async reply(request: Dispatch, frame: DesktopExecutionResult): Promise<void> {
-    await this.publisher.publish(channel(request.replyGatewayId), this.encodeReply(request, frame));
+  private async reply(request: Dispatch, frame: DesktopExecutionResult, beforeDelivery = false): Promise<void> {
+    await this.publisher.publish(channel(request.replyGatewayId), this.encodeReply(request, frame, beforeDelivery));
   }
 
-  private encodeReply(request: Dispatch, frame: DesktopExecutionResult): string {
-    return this.encode({ kind: "reply", binding: request.binding, frame }, request.replyGatewayId);
+  private encodeReply(request: Dispatch, frame: DesktopExecutionResult, beforeDelivery = false): string {
+    return this.encode({
+      kind: "reply", binding: request.binding, frame, ...(beforeDelivery && { beforeDelivery: true }),
+    }, request.replyGatewayId);
   }
 
   private encode(envelope: Envelope, gatewayId: string): string {

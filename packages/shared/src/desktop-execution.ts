@@ -8,11 +8,11 @@ import { runnerStartSettledReceiptSchema, runnerStartSettledSchema, runnerTurnIn
 
 // Negotiate execution independently of the login and device presence protocol.
 export const DESKTOP_EXECUTION_PROTOCOL_HEADER = "x-linksense-desktop-execution";
-export const desktopExecutionProtocolVersion = 1;
+export const desktopExecutionProtocolVersion = 2;
 export const desktopExecutionMaxFrameBytes = 1024 * 1024;
 export const desktopExecutionMaxInFlight = 8;
 export const desktopExecutionCommandLifetimeMs = 65_000;
-export const desktopExecutionOperation = z.enum(["turn.start", "turn.inspect", "turn.interrupt", "turn.drain"]);
+export const desktopExecutionOperation = z.enum(["turn.start", "turn.inspect", "turn.seal", "turn.interrupt", "turn.drain"]);
 export const desktopExecutionDeviceReadySchema = desktopDeviceReadySchema.extend({
   execution_protocol_version: z.literal(desktopExecutionProtocolVersion),
 });
@@ -37,6 +37,7 @@ export const desktopExecutionCommandSchema = z.discriminatedUnion("operation", [
     }),
   }),
   command.extend({ operation: z.literal("turn.inspect") }),
+  command.extend({ operation: z.literal("turn.seal") }),
   command.extend({ operation: z.literal("turn.interrupt") }),
   command.extend({ operation: z.literal("turn.drain") }),
 ]).refine(frame => frame.operation !== "turn.start" || frame.turn_id === frame.body.credentials.turn_id, {
@@ -88,7 +89,7 @@ export const desktopExecutionResultSchema = z.union([
   }),
   receipt.extend({
     ok: z.literal(true),
-    operation: z.literal("turn.start"),
+    operation: z.enum(["turn.start", "turn.seal"]),
     result: desktopExecutionStartReceiptSchema,
   }),
   receipt.extend({
@@ -133,6 +134,7 @@ export const desktopExecutionCallbackSchema = z.union([
     operation: z.literal("start.settled"),
     body: runnerStartSettledSchema,
   }),
+  callback.extend({ operation: z.literal("turn.exited") }),
   // The live gateway authorizes recovery against its pending drain command.
   // There is no bearer or model credential for a replacement worker.
   callbackScope.extend({
@@ -141,14 +143,14 @@ export const desktopExecutionCallbackSchema = z.union([
     operation: z.literal("events"),
     body: runnerEventBatchSchema,
   }),
-]).refine(frame => frame.body.conversationId === frame.conversation_id &&
+]).refine(frame => frame.operation === "turn.exited" || (frame.body.conversationId === frame.conversation_id &&
   (frame.operation !== "start.settled" || (frame.body.projectionTurnId === frame.turn_id &&
-    frame.body.runtimeGeneration === frame.runtime_generation)), { error: "desktop_callback_scope_mismatch" });
+    frame.body.runtimeGeneration === frame.runtime_generation))), { error: "desktop_callback_scope_mismatch" });
 const callbackResult = z.strictObject({ type: z.literal("execution.ack"), id: uuidSchema });
 export const desktopExecutionAckSchema = z.union([
   callbackResult.extend({
     ok: z.literal(false),
-    operation: z.enum(["events", "start.settled"]),
+    operation: z.enum(["events", "start.settled", "turn.exited"]),
     error_code: z.enum(["FORBIDDEN", "RUNNER_UNAVAILABLE"]),
   }),
   callbackResult.extend({
@@ -161,11 +163,13 @@ export const desktopExecutionAckSchema = z.union([
     operation: z.literal("start.settled"),
     data: runnerStartSettledReceiptSchema,
   }),
+  callbackResult.extend({ ok: z.literal(true), operation: z.literal("turn.exited") }),
 ]);
 
 export type DesktopExecutionCommand = z.infer<typeof desktopExecutionCommandSchema>;
 export type DesktopExecutionCancel = z.infer<typeof desktopExecutionCancelSchema>;
 export type DesktopExecutionResult = z.infer<typeof desktopExecutionResultSchema>;
+export type DesktopExecutionTerminal = z.infer<typeof desktopExecutionTerminalSchema>;
 export type DesktopExecutionCallback = z.infer<typeof desktopExecutionCallbackSchema>;
 export type DesktopExecutionRecovery = Extract<DesktopExecutionCallback, { type: "execution.recovery" }>;
 export type DesktopExecutionAck = z.infer<typeof desktopExecutionAckSchema>;
