@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { runnerEventBatchSchema } from "@linksense/shared";
+import { desktopExecutionMaxFrameBytes, runnerEventBatchSchema } from "@linksense/shared";
 
 import { HttpRunnerEventSink } from "../src/event-sink.js";
 import type {
@@ -36,6 +36,52 @@ afterEach(async () => {
 });
 
 describe("HttpRunnerEventSink", () => {
+  it("delivers a bounded multibyte final answer before native completion on desktop", async () => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const batches: ReturnType<typeof runnerEventBatchSchema.parse>[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (_url, init) => {
+      const body = String(init?.body);
+      expect(Buffer.byteLength(body)).toBeLessThan(desktopExecutionMaxFrameBytes);
+      const batch = runnerEventBatchSchema.parse(JSON.parse(body));
+      batches.push(batch);
+      return Response.json({ data: { accepted_delivery_ids: batch.events.map(({ deliveryId }) => deliveryId) } });
+    });
+    const sink = new HttpRunnerEventSink("http://api:4000", "runner-secret", workspaceManager, {
+      fetch: fetchMock, desktopOutboxScope: { generation: ownerId, turnId: conversationId },
+    });
+    const text = '界🧪"\\\n'.repeat(110_000);
+    const final: LinkSenseCodexEvent = {
+      method: "item/completed", visibility: "user_visible",
+      params: { threadId: "native-thread", turnId: "native-turn",
+        item: { type: "agentMessage", id: "answer", phase: "final_answer", text } },
+    };
+    const terminal: LinkSenseCodexEvent = {
+      method: "turn/completed", visibility: "user_visible",
+      params: { threadId: "native-thread", turn: { id: "native-turn", status: "completed" } },
+    };
+    try {
+      await sink.publish(conversationId, final);
+      await sink.publish(conversationId, terminal);
+      await sink.flushConversation(conversationId);
+      const [answer, notice, completed] = batches.flatMap(({ events }) => events.map(({ event }) => event));
+      expect(notice).toMatchObject({
+        eventType: "conversation.error", threadId: "native-thread", turnId: "native-turn",
+        payload: { error_code: "DESKTOP_OUTPUT_LIMIT", message_key: "errors.desktopOutputLimit" },
+      });
+      expect(completed).toEqual(terminal);
+      if (!answer || !("method" in answer) || answer.method !== "item/completed" ||
+        answer.params.item.type !== "agentMessage") throw new Error("final answer not delivered");
+      const preview = answer.params.item.text;
+      expect(answer.params.item).toMatchObject({ id: "answer", phase: "final_answer" });
+      expect(preview.endsWith("…")).toBe(true);
+      expect(preview.length).toBeGreaterThan(100_000);
+      expect(text.startsWith(preview.slice(0, -1))).toBe(true);
+      expect(preview).not.toMatch(/[\uD800-\uDBFF]…$/u);
+    } finally {
+      await sink.close();
+    }
+  });
+
   it("relays web search with the task owner, cancellation, and redacted failures without retrying", async () => {
     const { workspaceManager } = await createWorkspaceManager();
     const result = { success: true, provider: "deepseek", query: "test", results: [] };
@@ -431,6 +477,34 @@ describe("HttpRunnerEventSink", () => {
     ]);
     expect(await outboxFiles(root)).toEqual([]);
     await sink.close();
+  });
+
+  it("lets the desktop supervisor retire the writer while events still await delivery", async () => {
+    const { workspaceManager } = await createWorkspaceManager();
+    const pending = new AbortController();
+    const fetchMock = vi.fn<typeof fetch>((url, init) => {
+      if (String(url).endsWith("/runner/process-exit")) {
+        return Promise.resolve(jsonResponse({ data: { confirmed: true, outcome: "not_applicable" } }));
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+        pending.signal.addEventListener("abort", () => reject(pending.signal.reason), { once: true });
+      });
+    });
+    const turnId = "01900000-0000-7000-8000-000000000003";
+    const sink = new HttpRunnerEventSink("http://127.0.0.1:4000", "fixture", workspaceManager, {
+      fetch: fetchMock, processExitTimeoutMs: 100,
+      desktopOutboxScope: { turnId, generation: "01900000-0000-7000-8000-000000000004" },
+    });
+    try {
+      await sink.publish(conversationId, statusEvent());
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      await sink.reportProcessExit({ conversationId, projectionTurnId: turnId, capabilityGeneration: "a".repeat(64) });
+      expect(String(fetchMock.mock.calls[1]?.[0])).toMatch(/\/runner\/process-exit$/u);
+    } finally {
+      pending.abort();
+      await sink.close();
+    }
   });
 
   it("forwards automation management with bound ownership and redacts upstream errors", async () => {

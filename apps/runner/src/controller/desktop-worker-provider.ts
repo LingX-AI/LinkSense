@@ -1,11 +1,11 @@
 import { spawn, type ChildProcess } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { chmod, lstat, mkdir, opendir, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises"
-import { createServer } from "node:net"
+import * as net from "node:net"
 import path from "node:path"
 import type { Logger } from "pino"
 import { z } from "zod"
-import { runtimeEnvironmentPath } from "@linksense/shared"
+import { desktopServerOriginSchema, runtimeEnvironmentPath } from "@linksense/shared"
 import { ownerWorkerSecret } from "./storage-key.js"
 import { isNodeError, safeChildPath } from "./worker-provider-utils.js"
 import { prepareLocalProcessRuntimeTools } from "./local-process-runtime-tools.js"
@@ -21,6 +21,7 @@ const configurationSchema = z.strictObject({
   dataRoot: z.string().refine(path.isAbsolute),
   runtimeRoot: z.string().refine(path.isAbsolute),
   controlToken: z.string().regex(/^[a-f0-9]{64}$/u),
+  serverOrigin: desktopServerOriginSchema.optional(),
   bridgeUrl: z.url().refine(value => {
     const url = URL.parse(value)
     return url !== null && url.protocol === "http:" && ["127.0.0.1", "[::1]"].includes(url.hostname) &&
@@ -28,7 +29,17 @@ const configurationSchema = z.strictObject({
   }).optional(),
 })
 export type DesktopWorkerConfiguration = z.infer<typeof configurationSchema>
-type ManagedDesktopWorker = { child: ChildProcess; worker: WorkerInstance; paths: WorkerOwnerPaths; exited: Promise<void> }
+type ManagedDesktopWorker = {
+  child: ChildProcess
+  worker: WorkerInstance
+  paths: WorkerOwnerPaths
+  exited: Promise<void>
+  lifetime: AbortController
+  run: DesktopWorkerRun | undefined
+}
+type DesktopWorkerRun = { turnId: string; runtimeGeneration: string }
+type DesktopListener = { address: () => net.AddressInfo; fd: () => number; close: () => void }
+export const desktopWorkerListenerFd = 4
 
 export class DesktopWorkerProvider implements WorkerProvider {
   readonly kind = "desktop" as const
@@ -121,11 +132,11 @@ export class DesktopWorkerProvider implements WorkerProvider {
 
   private async prepareFilesystem(paths: WorkerOwnerPaths, ownerId: string, sessionId: string): Promise<void> {
     await this.initialize()
-    for (const directory of [paths.owner, paths.home, paths.managed, paths.managedAgents, paths.managedSkills,
-      paths.managedPluginSources, paths.managedPlugins, paths.control, paths.workspaces,
+    for (const directory of [paths.owner, paths.home, paths.managed, paths.managedAgents, paths.control, paths.workspaces,
       path.join(paths.home, ".codex"), path.join(paths.home, "workspace")]) {
       await ensureDesktopDirectory(paths.root, directory)
     }
+    await chmod(paths.managedAgents, 0o750)
     let link
     try { link = await lstat(paths.homeAgentsMountpoint) } catch (error) { if (!isNodeError(error, "ENOENT")) throw error }
     if (link) {
@@ -140,7 +151,7 @@ export class DesktopWorkerProvider implements WorkerProvider {
     this.prepared.set(paths.owner, paths)
   }
 
-  async acquire(input: WorkerAcquireInput): Promise<WorkerInstance> {
+  async acquire(input: WorkerAcquireInput & { run?: DesktopWorkerRun }): Promise<WorkerInstance> {
     const conversationId = z.uuid().parse(input.serviceSessionId)
     const canonical = this.pathsFor(input.ownerId, conversationId)
     if (this.closing || this.failed || this.acquisitions.has(canonical.owner) || this.findWorker(input.ownerId, conversationId)) {
@@ -155,34 +166,53 @@ export class DesktopWorkerProvider implements WorkerProvider {
     }
   }
 
-  private async acquireOnce(input: WorkerAcquireInput, conversationId: string, canonical: WorkerOwnerPaths): Promise<WorkerInstance> {
+  private async acquireOnce(input: WorkerAcquireInput & { run?: DesktopWorkerRun }, conversationId: string, canonical: WorkerOwnerPaths): Promise<WorkerInstance> {
     await this.initialize()
     if (this.closing || !this.runtimeToolBin) throw new Error("desktop runtime is not accepting workers")
     await this.preparations.get(canonical.owner)
     const paths = this.prepared.get(canonical.owner)
     if (!paths) throw new Error("desktop session filesystem has not been prepared")
     await assertPrivateDirectory(paths.root, paths.home)
-    const port = await allocateDesktopPort()
-    if (this.closing || this.failed) throw new Error("desktop runtime is stopping")
     const bridgeUrl = this.configuration.bridgeUrl
     if (!bridgeUrl) throw new Error("desktop device bridge is unavailable")
+    if (this.configuration.serverOrigin && !input.run) throw new Error("desktop worker needs a fixed run scope")
+    const listener = input.run ? bindDesktopListener() : undefined
+    const port = listener?.address().port ?? await allocateDesktopPort()
+    if (this.closing || this.failed) {
+      listener?.close()
+      throw new Error("desktop runtime is stopping")
+    }
     const worker: WorkerInstance = {
       id: randomUUID(), ownerId: input.ownerId, serviceSessionId: conversationId,
       storageKey: input.storageKey, name: input.name, endpoint: `http://127.0.0.1:${port}`, state: "running",
     }
-    const child = spawn(desktopNodeBinary(this.configuration.runtimeRoot), [path.join(this.configuration.runtimeRoot, "runner/dist/index.js")], {
-      cwd: paths.home, shell: false,
-      env: desktopWorkerEnvironment({ ...this.configuration, bridgeUrl }, input.ownerId, conversationId, paths, port, this.runtimeToolBin),
-      stdio: ["ignore", "ignore", "pipe", "ipc"], windowsHide: true,
+    let child: ChildProcess
+    try {
+      child = spawn(desktopNodeBinary(this.configuration.runtimeRoot), [path.join(this.configuration.runtimeRoot, "runner/dist/index.js")], {
+        cwd: paths.home, shell: false,
+        env: desktopWorkerEnvironment({ ...this.configuration, bridgeUrl }, input.ownerId, conversationId, paths, port, this.runtimeToolBin, input.run),
+        stdio: ["ignore", "ignore", "pipe", "ipc", ...(listener ? [listener.fd()] : [])], windowsHide: true,
+      })
+    } catch (error) {
+      listener?.close()
+      throw error
+    }
+    // Keep the parent descriptor until exit; no process can bind between allocation and startup.
+    const lifetime = new AbortController()
+    child.once("close", () => {
+      lifetime.abort()
+      listener?.close()
     })
     let stderrBytes = 0
     child.stderr?.on("data", (chunk: Buffer) => { stderrBytes += chunk.byteLength })
     const exited = new Promise<void>(resolve => {
       child.on("error", () => {
+        lifetime.abort()
         worker.state = "failed"
         if (child.pid === undefined) resolve()
       })
       child.once("exit", code => {
+        lifetime.abort()
         worker.state = code === 0 ? "stopped" : "failed"
         if (stderrBytes > 0) this.logger.warn({ bytes: stderrBytes, workerId: worker.id }, "desktop worker emitted diagnostics")
         if (!this.closing && (code !== 0 || !this.releases.has(worker.id))) {
@@ -196,8 +226,28 @@ export class DesktopWorkerProvider implements WorkerProvider {
       await exited
       throw new Error("desktop worker failed to start")
     }
-    this.workers.set(worker.id, { child, worker, paths, exited })
+    this.workers.set(worker.id, { child, worker, paths, exited, lifetime, run: input.run })
     return worker
+  }
+
+  request(worker: WorkerInstance, route: string, signal: AbortSignal, body?: unknown): Promise<Response> {
+    const managed = this.workers.get(worker.id)
+    if (!managed?.run || managed.worker !== worker || worker.state !== "running" || this.releases.has(worker.id)) {
+      throw new Error("desktop worker is unavailable")
+    }
+    const url = new URL(worker.endpoint)
+    url.pathname = route
+    return fetch(url, {
+      method: body === undefined ? "GET" : "POST",
+      redirect: "error", signal: AbortSignal.any([signal, managed.lifetime.signal, AbortSignal.timeout(15_000)]),
+      headers: {
+        authorization: `Bearer ${desktopWorkerSecret(worker.ownerId, this.configuration.controlToken,
+          z.uuid().parse(worker.serviceSessionId), managed.run)}`,
+        "x-linksense-owner-id": worker.ownerId,
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    })
   }
 
   async resume(): Promise<WorkerInstance> {
@@ -219,7 +269,8 @@ export class DesktopWorkerProvider implements WorkerProvider {
   private async releaseOnce(worker: WorkerInstance): Promise<void> {
     const managed = this.workers.get(worker.id)
     if (!managed) return
-    const { child, exited } = managed
+    const { child, exited, lifetime } = managed
+    lifetime.abort()
     if (child.connected) child.disconnect()
     if (!await waitForExit(exited, 5000)) {
       this.failed = true
@@ -230,10 +281,14 @@ export class DesktopWorkerProvider implements WorkerProvider {
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
       if (!await waitForExit(exited, 2000)) throw new Error("desktop worker did not stop")
     }
-    await this.touch(managed.paths, managed.worker.ownerId, z.uuid().parse(managed.worker.serviceSessionId))
-    worker.state = "stopped"
-    managed.worker.state = "stopped"
-    this.workers.delete(worker.id)
+    try {
+      await this.touch(managed.paths, managed.worker.ownerId, z.uuid().parse(managed.worker.serviceSessionId))
+    } finally {
+      worker.state = "stopped"
+      managed.worker.state = "stopped"
+      this.workers.delete(worker.id)
+      this.prepared.delete(managed.paths.owner)
+    }
   }
 
   async hasWorkerForEnvironment(ownerId: string, serviceSessionId?: string): Promise<boolean> {
@@ -252,6 +307,10 @@ export class DesktopWorkerProvider implements WorkerProvider {
 
   async shutdown(): Promise<void> {
     this.closing = true
+    await this.stopWorkers()
+  }
+
+  async stopWorkers(): Promise<void> {
     await Promise.allSettled([...this.preparations.values(), ...this.acquisitions.values()])
     const results = await Promise.allSettled([...this.workers.values()].map(current => this.release(current.worker)))
     const failed = results.filter(result => result.status === "rejected")
@@ -272,7 +331,7 @@ export class DesktopWorkerProvider implements WorkerProvider {
 
   async pruneWorkspaces(now = Date.now()): Promise<{ deleted: number; retainedBytes: number }> {
     const root = this.configuration.dataRoot
-    const sessions: Array<{ directory: string; lastUsedAt: number; bytes: number }> = []
+    const sessions: Array<{ directory: string; ownerId: string; conversationId: string; lastUsedAt: number; bytes: number }> = []
     for await (const owner of await opendir(root)) {
       if (!owner.isDirectory() || !z.uuid().safeParse(owner.name).success) continue
       const services = path.join(root, owner.name, "services")
@@ -282,8 +341,8 @@ export class DesktopWorkerProvider implements WorkerProvider {
       for await (const entry of await opendir(services)) {
         if (!entry.isDirectory() || !z.uuid().safeParse(entry.name).success) continue
         if (await this.hasWorkerForEnvironment(owner.name, entry.name)) continue
-        const directory = path.join(services, entry.name)
-        const markerFile = path.join(directory, markerName)
+        const paths = this.pathsFor(owner.name, entry.name)
+        const markerFile = path.join(paths.owner, markerName)
         let marker
         try {
           const markerInfo = await lstat(markerFile)
@@ -291,7 +350,23 @@ export class DesktopWorkerProvider implements WorkerProvider {
           marker = sessionMarkerSchema.safeParse(JSON.parse(await readFile(markerFile, "utf8")))
         } catch (error) { if (isNodeError(error, "ENOENT") || error instanceof SyntaxError) continue; throw error }
         if (!marker.success || marker.data.ownerId !== owner.name || marker.data.conversationId !== entry.name) continue
-        sessions.push({ directory, lastUsedAt: marker.data.lastUsedAt, bytes: await desktopDirectoryBytes(directory) })
+        // Control and Codex history are needed for idempotency and read-only recovery;
+        // eviction applies only to task files once this runtime has a control directory.
+        const control = await lstat(path.join(paths.control, "workspaces", entry.name)).catch((error: unknown) => {
+          if (!isNodeError(error, "ENOENT")) throw error
+          return null
+        })
+        const directory = control ? path.join(paths.home, "workspace") : paths.owner
+        const present = await lstat(directory).catch((error: unknown) => {
+          if (!isNodeError(error, "ENOENT")) throw error
+          return null
+        })
+        if (!present?.isDirectory()) continue
+        await assertPrivateDirectory(root, directory)
+        sessions.push({
+          directory, ownerId: owner.name, conversationId: entry.name,
+          lastUsedAt: marker.data.lastUsedAt, bytes: await desktopDirectoryBytes(directory),
+        })
       }
     }
     sessions.sort((a, b) => a.lastUsedAt - b.lastUsedAt || a.directory.localeCompare(b.directory))
@@ -299,6 +374,8 @@ export class DesktopWorkerProvider implements WorkerProvider {
     for (const session of sessions) {
       if (now - session.lastUsedAt < retentionMilliseconds && retainedBytes <= workspaceBudgetBytes) continue
       await assertPrivateDirectory(root, session.directory)
+      const owner = this.pathsFor(session.ownerId, session.conversationId).owner
+      if (this.preparations.has(owner) || this.acquisitions.has(owner) || this.findWorker(session.ownerId, session.conversationId)) continue
       await rm(session.directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
       retainedBytes -= session.bytes
       deleted++
@@ -313,7 +390,7 @@ function desktopNodeBinary(runtimeRoot: string): string {
 
 export function desktopWorkerEnvironment(
   configuration: DesktopWorkerConfiguration & { bridgeUrl: string }, ownerId: string, conversationId: string,
-  paths: WorkerOwnerPaths, port: number, runtimeToolBin: string,
+  paths: WorkerOwnerPaths, port: number, runtimeToolBin: string, run?: DesktopWorkerRun,
 ): NodeJS.ProcessEnv {
   const environment = Object.fromEntries(["PATH", "LANG", "LC_ALL", "SHELL", "TMPDIR", "TMP", "TEMP",
     "SystemRoot", "WINDIR", "ComSpec", "PATHEXT", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"]
@@ -329,20 +406,36 @@ export function desktopWorkerEnvironment(
     LINKSENSE_RUNTIME_TOOL_BIN: runtimeToolBin,
     LINKSENSE_CODEX_HOME_TEMPLATE: path.join(configuration.runtimeRoot, "template"),
     LINKSENSE_RUNNER_HOST: "127.0.0.1", LINKSENSE_RUNNER_PORT: String(port),
-    LINKSENSE_RUNNER_SHARED_SECRET: ownerWorkerSecret(ownerId, configuration.controlToken, conversationId),
+    LINKSENSE_RUNNER_SHARED_SECRET: desktopWorkerSecret(ownerId, configuration.controlToken, conversationId, run),
     LINKSENSE_API_INTERNAL_URL: configuration.bridgeUrl, LINKSENSE_CONTROLLER_INTERNAL_URL: configuration.bridgeUrl,
     LINKSENSE_MANAGED_BROWSER_ENABLED: "false", LINKSENSE_MAX_CONCURRENT_CONVERSATIONS: "1",
     LINKSENSE_RUNNER_APP_SERVER_PROCESS_LIMIT: "1",
+    ...(configuration.serverOrigin ? { LINKSENSE_DESKTOP_PROXY_ORIGIN: configuration.serverOrigin } : {}),
+    ...(run ? { LINKSENSE_DESKTOP_TURN_ID: run.turnId, LINKSENSE_DESKTOP_RUNTIME_GENERATION: run.runtimeGeneration } : {}),
   }
+}
+
+export function desktopWorkerSecret(ownerId: string, secret: string, conversationId: string, run?: DesktopWorkerRun): string {
+  return ownerWorkerSecret(ownerId, secret, run
+    ? `${conversationId}:${run.runtimeGeneration}:${run.turnId}` : conversationId)
+}
+
+function bindDesktopListener(): DesktopListener {
+  // The bundled Node supports BoundSocket; @types/node 24 does not yet expose it.
+  const BoundSocket = z.custom<new (options: { host: string; port: number }) => DesktopListener>(
+    value => typeof value === "function",
+  ).parse(Reflect.get(net, "BoundSocket"))
+  return new BoundSocket({ host: "127.0.0.1", port: 0 })
 }
 
 async function assertPrivateDirectory(root: string, directory: string): Promise<void> {
   const info = await lstat(directory)
   if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("desktop runtime requires real private directories")
   const canonicalRoot = await realpath(root), canonicalDirectory = await realpath(directory)
-  const relative = path.relative(canonicalRoot, canonicalDirectory)
-  if (relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) {
-    throw new Error("desktop directory escapes its root")
+  const relative = path.relative(root, directory)
+  if (relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative) ||
+      path.resolve(canonicalRoot, relative) !== canonicalDirectory) {
+    throw new Error("desktop directory escapes its root or crosses an alias")
   }
 }
 
@@ -368,7 +461,7 @@ async function desktopDirectoryBytes(directory: string): Promise<number> {
 }
 
 async function allocateDesktopPort(): Promise<number> {
-  const server = createServer()
+  const server = net.createServer()
   return new Promise((resolve, reject) => {
     server.once("error", reject)
     server.listen(0, "127.0.0.1", () => {

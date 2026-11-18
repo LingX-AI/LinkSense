@@ -96,6 +96,8 @@ import {
   builtInMcpConfigOverrides,
   linkSenseModelProviderConfigOverrides,
   linkSenseSkillConfigOverrides,
+  desktopPermissionConfigOverrides,
+  desktopPermissionProfiles,
   linkSenseModelProviderId,
 } from "./codex/runtime-config-overrides.js";
 import {
@@ -171,6 +173,7 @@ import {
   type ModelGatewayRuntime,
 } from "./model-gateway/model-gateway.js";
 import {
+  correlateStartOperation,
   CorruptStartOperationError,
   StartOperationInterruptedError,
   StartOperationStore,
@@ -1207,7 +1210,7 @@ export class AppServerProcessPool {
         } else {
           assertStartOperationMatches(existing, input, requestFingerprint);
         }
-        if (isSafelyRetryableStartOperation(existing)) {
+        if (!this.options.desktopWorkspace && isSafelyRetryableStartOperation(existing)) {
           const activeStart = this.activeStartOperations.get(key);
           if (activeStart) await activeStart;
 
@@ -2091,13 +2094,11 @@ export class AppServerProcessPool {
             .workspace,
         ],
         approvalPolicy: this.options.desktopWorkspace ? "untrusted" : LINKSENSE_APPROVAL_POLICY,
-        sandboxPolicy:
-          input.collaborationMode === "plan"
-            ? { type: "readOnly", networkAccess: false }
-            : this.options.desktopWorkspace
-              ? { type: "workspaceWrite", writableRoots: [this.options.workspaceManager.pathsFor(input.conversationId).workspace],
-                  networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true }
-              : { type: "dangerFullAccess" },
+        ...(this.options.desktopWorkspace
+          ? { permissions: desktopPermissionProfiles[input.collaborationMode] }
+          : input.collaborationMode === "plan"
+            ? { sandboxPolicy: { type: "readOnly", networkAccess: false } }
+            : { sandboxPolicy: { type: "dangerFullAccess" } }),
       };
       if (input.goal) {
         // Active Goals auto-start a continuation, so establish the Goal paused
@@ -3041,6 +3042,9 @@ export class AppServerProcessPool {
         runtimeEnvironment,
         configOverrides: [
           ...this.globalFeatureOverrides,
+          ...(this.options.desktopWorkspace ? desktopPermissionConfigOverrides({
+            control: paths.ownerControl, codex: this.options.command,
+          }) : []),
           ...(input.modelProvider ? linkSenseModelProviderConfigOverrides({ baseUrl: this.options.modelGateway.baseUrl, protocolMode: input.modelProvider.protocolMode }) : []),
           "features.plugins=false",
           "features.memories=false",
@@ -4970,31 +4974,14 @@ export class AppServerProcessPool {
     eventProjectionTurnId = state.projectionTurnId,
     collaborationMode?: StartTurnInput["collaborationMode"],
   ): Promise<StartOperationState> {
-    const baseline = new Set(state.correlation!.baselineTurnIds);
-    const isGoal = state.correlation!.operationKind === "goal";
-    const isCompact = state.correlation!.operationKind === "compact";
-    const candidates = (thread.turns ?? []).filter((turn) => {
-      if (baseline.has(turn.id)) return false;
-      return (
-        isGoal ||
-        (turn.items ?? []).some((item) =>
-          isCompact
-            ? item.type === "contextCompaction"
-            : item.type === "userMessage" &&
-              item.clientId === state.projectionTurnId,
-        )
-      );
-    });
-    if (
-      (isGoal && candidates.length === 0) ||
-      (!isGoal && candidates.length !== 1)
-    ) {
-      return this.markStartOperationUncertain(state);
-    }
-    const startedTurn = candidates[0]!;
+    const { correlation } = state;
+    if (!correlation) return this.markStartOperationUncertain(state);
+    const match = correlateStartOperation(correlation, state.projectionTurnId, thread.turns);
+    if (!match) return this.markStartOperationUncertain(state);
+    const isGoal = correlation.operationKind === "goal";
     this.applyRecoveredTurnState(
       managed,
-      candidates.at(-1)!,
+      match.latest,
       eventProjectionTurnId,
       collaborationMode,
     );
@@ -5002,7 +4989,7 @@ export class AppServerProcessPool {
       ? (
           await managed.client.request<ThreadGoalGetResponse>(
             "thread/goal/get",
-            { threadId: state.correlation!.codexThreadId },
+            { threadId: correlation.codexThreadId },
           )
         ).goal
       : null;
@@ -5019,8 +5006,8 @@ export class AppServerProcessPool {
     return this.startOperationStore.update(state, {
       status: "succeeded",
       result: {
-        codexThreadId: state.correlation!.codexThreadId,
-        codexTurnId: startedTurn.id,
+        codexThreadId: correlation.codexThreadId,
+        codexTurnId: match.started.id,
         ...(goal && managed.activeGoal ? { goal: managed.activeGoal } : {}),
       },
     });
@@ -5595,6 +5582,9 @@ export class AppServerProcessPool {
           // config.toml. Codex alone persists native plugin selections there.
           configOverrides: [
             ...this.globalFeatureOverrides,
+            ...(this.options.desktopWorkspace ? desktopPermissionConfigOverrides({
+              control: paths.ownerControl, codex: this.options.command,
+            }) : []),
             ...linkSenseSkillConfigOverrides(input.collaborationMode),
             ...linkSenseModelProviderConfigOverrides({
               baseUrl: this.options.modelGateway.baseUrl,
@@ -7983,9 +7973,8 @@ type LinkSenseThreadRuntimeOverrides = {
   cwd: string;
   runtimeWorkspaceRoots: string[];
   approvalPolicy: typeof LINKSENSE_APPROVAL_POLICY | "untrusted";
-  sandbox: "danger-full-access" | "workspace-write";
   config?: Record<string, unknown>;
-};
+} & ({ sandbox: "danger-full-access"; permissions?: never } | { permissions: string; sandbox?: never });
 
 function linkSenseThreadRuntimeOverrides(
   model: string,
@@ -8015,7 +8004,7 @@ function linkSenseThreadRuntimeOverrides(
     cwd: workspace,
     runtimeWorkspaceRoots: [workspace],
     approvalPolicy: desktopWorkspace ? "untrusted" : LINKSENSE_APPROVAL_POLICY,
-    sandbox: desktopWorkspace ? "workspace-write" : "danger-full-access",
+    ...(desktopWorkspace ? { permissions: desktopPermissionProfiles.default } : { sandbox: "danger-full-access" }),
     ...(Object.keys(config).length === 0 ? {} : { config }),
   };
 }

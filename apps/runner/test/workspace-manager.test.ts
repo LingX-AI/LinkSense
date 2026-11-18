@@ -61,6 +61,30 @@ async function tempRoot(): Promise<string> {
 }
 
 describe("storage-only conversation preparation", () => {
+  it("seeds a desktop workspace with its assigned generation and never replaces it with a competing generation", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    const owner = await manager.ensureOwner(ownerA)
+    const assigned = "00000000-0000-4000-8000-000000000003"
+    const otherGeneration = "00000000-0000-4000-8000-000000000004"
+    const initial = await prepareConversationControl(owner, taskA, "workspace", undefined, assigned)
+    expect(initial.runtimeGeneration).toBe(assigned)
+    await expect(prepareConversationControl(owner, taskA, "workspace", undefined, otherGeneration))
+      .rejects.toBeInstanceOf(RuntimeGenerationIntegrityError)
+    const reopened = new WorkspaceManager(root)
+    reopened.bindOwner(taskA, ownerA)
+    expect((await reopened.ensureConversation(taskA)).runtimeGeneration).toBe(assigned)
+
+    const concurrent = await Promise.allSettled(
+      [assigned, otherGeneration].map(value => prepareConversationControl(owner, taskB, "workspace", undefined, value)),
+    )
+    expect(concurrent.map(result => result.status).sort()).toEqual(["fulfilled", "rejected"])
+    reopened.bindOwner(taskB, ownerA)
+    const winner = concurrent.find(result => result.status === "fulfilled")
+    if (!winner) throw new Error("workspace generation was never published")
+    expect(await reopened.readRuntimeGeneration(taskB)).toBe(winner.value.runtimeGeneration)
+  })
+
   it("preserves existing generations and workspace files when the native worker starts later", async () => {
     const root = await tempRoot()
     const manager = new WorkspaceManager(root)

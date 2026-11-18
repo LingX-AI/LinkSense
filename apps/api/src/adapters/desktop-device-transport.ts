@@ -7,6 +7,8 @@ import {
   desktopExecutionMaxFrameBytes,
   desktopExecutionMaxInFlight,
   desktopExecutionResultSchema,
+  type DesktopExecutionAck,
+  type DesktopExecutionCallback,
   type DesktopExecutionCancel,
   type DesktopExecutionCommand,
   type DesktopExecutionResult,
@@ -40,15 +42,18 @@ type PendingDelivery = {
   command: DesktopExecutionCommand;
   timer: NodeJS.Timeout;
   expiresAt: number;
+  lifetime: AbortController;
   state: "checking" | "sent" | "receiving";
 };
 type DeviceSocket = {
   ownerId: string;
   binding: DesktopExecutionBinding;
   verifyCredential: () => Promise<boolean>;
-  send: (frame: DesktopExecutionCommand | DesktopExecutionCancel) => boolean;
+  send: (frame: DesktopExecutionCommand | DesktopExecutionCancel | DesktopExecutionAck) => boolean;
   close: () => void;
   pending: Map<string, PendingDelivery>;
+  callbacks: Set<string>;
+  lifetime: AbortController;
 };
 type PendingReply = {
   binding: DesktopExecutionBinding;
@@ -58,6 +63,11 @@ type PendingReply = {
   reject: (error: Error) => void;
 };
 type ExecutionAuthority = (binding: DesktopExecutionBinding, command: DesktopExecutionCommand) => Promise<boolean>;
+type ExecutionCallback = (
+  binding: DesktopExecutionBinding & { ownerId: string },
+  frame: DesktopExecutionCallback,
+  signal: AbortSignal,
+) => Promise<DesktopExecutionAck>;
 
 const channel = (gatewayId: string) => `linksense:desktop-execution:${gatewayId}`;
 const encryptedEnvelopeSchema = z.string().max(2 * desktopExecutionMaxFrameBytes);
@@ -86,6 +96,7 @@ export class DesktopDeviceTransport {
     private readonly authorize: ExecutionAuthority,
     private readonly logger: Pick<Logger, "warn">,
     private readonly encryption: { masterKey: string; keyId: string },
+    private readonly callback?: ExecutionCallback,
   ) {
     this.coordinator = new RedisDesktopDeviceCoordinator(redis);
     this.publisher = redis.duplicate({
@@ -97,16 +108,19 @@ export class DesktopDeviceTransport {
   }
 
   async attach(
-    socket: Omit<DeviceSocket, "binding" | "pending"> & Pick<DesktopExecutionBinding, "deviceId" | "connectionId">,
+    socket: Omit<DeviceSocket, "binding" | "pending" | "callbacks" | "lifetime"> & Pick<DesktopExecutionBinding, "deviceId" | "connectionId">,
   ): Promise<(() => void) | null> {
     await this.ready();
     const { ownerId, deviceId, connectionId, verifyCredential, send, close } = socket;
     const binding = { deviceId, connectionId, gatewayId: this.id };
-    const connection: DeviceSocket = { ownerId, binding, verifyCredential, send, close, pending: new Map() };
+    const connection: DeviceSocket = {
+      ownerId, binding, verifyCredential, send, close, pending: new Map(), callbacks: new Set(), lifetime: new AbortController(),
+    };
     this.sockets.set(connectionId, connection);
     const detach = () => {
       if (this.sockets.get(connectionId) !== connection) return;
       this.sockets.delete(connectionId);
+      connection.lifetime.abort();
       for (const delivery of connection.pending.values()) {
         this.finish(connection, delivery, deliveryFailure(delivery));
       }
@@ -196,6 +210,60 @@ export class DesktopDeviceTransport {
     });
     if (status !== "sent") await this.reply(pending.request, deliveryFailure(pending)).catch(() =>
       this.logger.warn({ commandId: frame.id }, "desktop command uncertainty publication failed"));
+  }
+
+  async receiveCallback(connectionId: string, frame: DesktopExecutionCallback): Promise<void> {
+    const socket = this.sockets.get(connectionId);
+    if (!socket) return;
+    // Only one request per turn and operation may advance while the previous
+    // batch is being projected. Start settlement can still unblock event IO.
+    const key = `${frame.turn_id}:${frame.operation}`;
+    const reject = (error_code: "FORBIDDEN" | "RUNNER_UNAVAILABLE"): DesktopExecutionAck =>
+      ({ type: "execution.ack", id: frame.id, operation: frame.operation, ok: false, error_code });
+    const reply = (ack: DesktopExecutionAck) => {
+      if (!socket.lifetime.signal.aborted && !socket.send(ack)) socket.close();
+    };
+    if (socket.callbacks.has(key) || socket.callbacks.size >= desktopExecutionMaxInFlight) {
+      reply(reject("RUNNER_UNAVAILABLE"));
+      return;
+    }
+    socket.callbacks.add(key);
+    const pending = frame.type === "execution.recovery" ? socket.pending.get(frame.drain_id) : undefined;
+    const signal = AbortSignal.any([
+      socket.lifetime.signal, AbortSignal.timeout(4_000), ...(pending ? [pending.lifetime.signal] : []),
+    ]);
+    try {
+      const { binding, ownerId } = socket;
+      if (!await socket.verifyCredential()) {
+        socket.close();
+        return;
+      }
+      if (frame.type === "execution.recovery") {
+        const command = pending?.command;
+        if (!pending || pending.state !== "sent" || pending.expiresAt <= Date.now() || command?.operation !== "turn.drain" ||
+            command.conversation_id !== frame.conversation_id || command.runtime_generation !== frame.runtime_generation ||
+            command.turn_id !== frame.turn_id || !await this.authorize(binding, command) ||
+            !await this.coordinator.mayDispatch(binding, command.id) || socket.pending.get(command.id) !== pending) {
+          reply(reject("FORBIDDEN"));
+          return;
+        }
+      } else if (!await this.coordinator.isCurrentConnection(binding.deviceId, binding.connectionId)) {
+        reply(reject("FORBIDDEN"));
+        return;
+      }
+      signal.throwIfAborted();
+      if (!this.callback) {
+        reply(reject("FORBIDDEN"));
+        return;
+      }
+      const ack = await this.callback({ ...binding, ownerId }, frame, signal);
+      if (!signal.aborted && (frame.type !== "execution.recovery" || socket.pending.get(frame.drain_id) === pending)) reply(ack);
+    } catch (error) {
+      if (!signal.aborted) reply(reject(error instanceof AppError && (error.code === "FORBIDDEN" || error.code === "AUTH_REQUIRED")
+        ? "FORBIDDEN" : "RUNNER_UNAVAILABLE"));
+    } finally {
+      socket.callbacks.delete(key);
+    }
   }
 
   async close(): Promise<void> {
@@ -298,7 +366,7 @@ export class DesktopDeviceTransport {
         this.finish(socket, pending, deliveryFailure(pending));
       }
     }, remaining);
-    const delivery: PendingDelivery = { request, command: frame, timer, expiresAt, state: "checking" };
+    const delivery: PendingDelivery = { request, command: frame, timer, expiresAt, lifetime: new AbortController(), state: "checking" };
     socket.pending.set(frame.id, delivery);
     const authorized = await socket.verifyCredential() && await this.authorize(socket.binding, frame);
     const current = authorized && await this.coordinator.mayDispatch(socket.binding, frame.id);
@@ -320,6 +388,7 @@ export class DesktopDeviceTransport {
   private remove(socket: DeviceSocket, pending: PendingDelivery): void {
     clearTimeout(pending.timer);
     socket.pending.delete(pending.command.id);
+    pending.lifetime.abort();
   }
 
   private async reply(request: Dispatch, frame: DesktopExecutionResult): Promise<void> {
@@ -342,7 +411,7 @@ function sameBinding(a: DesktopExecutionBinding, b: DesktopExecutionBinding): bo
 
 function matchesResult(command: DesktopExecutionCommand, frame: DesktopExecutionResult): boolean {
   if (frame.operation !== command.operation) return false;
-  if (!frame.ok || frame.operation === "turn.interrupt" || frame.result === null) return true;
+  if (!frame.ok || frame.operation === "turn.interrupt" || frame.operation === "turn.drain" || frame.result === null) return true;
   return frame.result.conversationId === command.conversation_id && frame.result.projectionTurnId === command.turn_id;
 }
 

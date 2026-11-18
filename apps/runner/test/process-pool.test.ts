@@ -99,15 +99,12 @@ describe("AppServerProcessPool", () => {
     try {
       await pool.startTurn(input);
       expect(controlled.requests.find(request => request.method === "thread/start")?.params)
-        .toMatchObject({ approvalPolicy: "untrusted", sandbox: "workspace-write" });
+        .toMatchObject({ approvalPolicy: "untrusted", permissions: "linksense-workspace" });
       expect(controlled.requests.find(request => request.method === "turn/start")?.params)
         .toMatchObject({
-          approvalPolicy: "untrusted",
-          sandboxPolicy: {
-            type: "workspaceWrite", writableRoots: [workspace], networkAccess: false,
-            excludeTmpdirEnvVar: true, excludeSlashTmp: true,
-          },
+          approvalPolicy: "untrusted", permissions: "linksense-workspace", runtimeWorkspaceRoots: [workspace],
         });
+      expect(controlled.args).toContain("permissions.linksense-workspace.network.enabled=false");
     } finally {
       await pool.closeAll();
     }

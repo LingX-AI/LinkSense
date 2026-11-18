@@ -45,7 +45,7 @@ import {
   DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS,
   deriveKnowledgeSearchTimeouts,
 } from "./knowledge-search-timeout.js";
-import { RunnerEventOutboxStore, type RunnerEventOutboxEntry } from "./workspace/event-outbox.js";
+import { RunnerEventOutboxStore, type DesktopOutboxScope, type RunnerEventOutboxEntry } from "./workspace/event-outbox.js";
 import { MemoryUsageOutboxStore } from "./workspace/memory-usage-outbox.js";
 import { WorkspaceManager } from "./workspace/workspace-manager.js";
 
@@ -152,6 +152,7 @@ export type ProcessExitReport = {
 
 type HttpRunnerEventSinkOptions = {
   serviceSessionId?: string;
+  desktopOutboxScope?: DesktopOutboxScope;
   logger?: Pick<Logger, "warn" | "error">;
   fetch?: typeof fetch;
   requestTimeoutMs?: number;
@@ -186,7 +187,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     private readonly workspaceManager: WorkspaceManager,
     private readonly options: HttpRunnerEventSinkOptions = {},
   ) {
-    this.outbox = new RunnerEventOutboxStore(workspaceManager);
+    this.outbox = new RunnerEventOutboxStore(workspaceManager, options.desktopOutboxScope);
     this.memoryUsageOutbox = new MemoryUsageOutboxStore(workspaceManager);
   }
 
@@ -324,10 +325,13 @@ export class HttpRunnerEventSink implements RunnerEventSink {
   }
 
   async reportProcessExit(input: ProcessExitReport): Promise<void> {
-    await this.drainConversationOutbox(
-      input.conversationId,
-      this.options.processExitTimeoutMs ?? 150_000,
-    );
+    // Desktop recovery drains after the supervisor stops the only writer.
+    if (!this.options.desktopOutboxScope) {
+      await this.drainConversationOutbox(
+        input.conversationId,
+        this.options.processExitTimeoutMs ?? 150_000,
+      );
+    }
     const response = await this.post(
       "/internal/runner/process-exit",
       input,
@@ -768,10 +772,7 @@ export class HttpRunnerEventSink implements RunnerEventSink {
     const receipt = runnerEventBatchReceiptSchema.parse(envelope.data);
     // Only an exact prefix is removable. Reject gaps, reordered ids, unknown
     // ids and oversized receipts without deleting any durable entry.
-    if (receipt.accepted_delivery_ids.some((id, index) => entries[index]?.deliveryId !== id)) {
-      throw new Error("runner event batch acknowledgement is not an ordered prefix");
-    }
-    return receipt.accepted_delivery_ids.length;
+    return acknowledgedEventCount(entries, receipt.accepted_delivery_ids);
   }
 
   private startMemoryUsageWorker(ownerId: string): void {
@@ -911,6 +912,16 @@ async function parseResponseBody(response: Response): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+export function acknowledgedEventCount(
+  entries: readonly { deliveryId: string }[],
+  accepted: readonly string[],
+): number {
+  if (accepted.some((id, index) => entries[index]?.deliveryId !== id)) {
+    throw new Error("runner event batch acknowledgement is not an ordered prefix");
+  }
+  return accepted.length;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

@@ -1,5 +1,6 @@
 import path from "node:path"
 
+import { desktopServerOriginSchema } from "@linksense/shared"
 import { z } from "zod"
 
 import {
@@ -83,6 +84,9 @@ const runnerConfigSchema = z
       .default("docker"),
     LINKSENSE_WORKER_OWNER_ID: uuid.optional(),
     LINKSENSE_SERVICE_SESSION_ID: uuid.optional(),
+    LINKSENSE_DESKTOP_PROXY_ORIGIN: desktopServerOriginSchema.optional(),
+    LINKSENSE_DESKTOP_TURN_ID: uuid.optional(),
+    LINKSENSE_DESKTOP_RUNTIME_GENERATION: uuid.optional(),
     LINKSENSE_USER_DATA_ROOT: absoluteDirectory,
     LINKSENSE_USER_DATA_VOLUME: dockerVolumeName.optional(),
     LINKSENSE_PYTHON_BASE_SITE_PACKAGES: z
@@ -210,6 +214,8 @@ const runnerConfigSchema = z
         api.username || api.password || api.search || api.hash || api.pathname !== "/" || api.href !== controller?.href ||
         !config.LINKSENSE_SERVICE_SESSION_ID ||
         !config.LINKSENSE_WORKER_CONTROL_ROOT || !config.LINKSENSE_CODEX_HOME_TEMPLATE ||
+        (config.LINKSENSE_DESKTOP_TURN_ID !== undefined) !== (config.LINKSENSE_DESKTOP_RUNTIME_GENERATION !== undefined) ||
+        (config.LINKSENSE_DESKTOP_TURN_ID !== undefined && !config.LINKSENSE_DESKTOP_PROXY_ORIGIN) ||
         config.LINKSENSE_USER_DATA_VOLUME || config.LINKSENSE_ENABLE_DEVELOPMENT_ENDPOINTS ||
         config.LINKSENSE_MANAGED_BROWSER_ENABLED) {
         context.addIssue({ code: "custom", path: ["LINKSENSE_WORKER_PROVIDER"], message: "desktop_worker_requires_supervised_loopback_configuration" })

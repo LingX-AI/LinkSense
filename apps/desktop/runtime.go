@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -24,15 +25,18 @@ type runtimeSupervisor struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	ready  atomic.Bool
+	pipe   atomic.Pointer[runtimePipe]
 }
 
 const (
 	runtimeStartupTimeout = 45 * time.Second
 	runtimeExitGrace      = 3 * time.Second
 	runtimeHealthTimeout  = 10 * time.Second
+	desktopFrameLimit     = 1024 * 1024
+	runtimeFrameLimit     = desktopFrameLimit + 1024
 )
 
-func superviseRuntime(dataRoot, runtimeRoot string) *runtimeSupervisor {
+func superviseRuntime(dataRoot, runtimeRoot, serverOrigin string) *runtimeSupervisor {
 	ctx, cancel := context.WithCancel(context.Background())
 	supervisor := &runtimeSupervisor{cancel: cancel, done: make(chan struct{})}
 	go func() {
@@ -43,7 +47,7 @@ func superviseRuntime(dataRoot, runtimeRoot string) *runtimeSupervisor {
 			return
 		}
 		for attempt := 0; attempt < 4 && ctx.Err() == nil; attempt++ {
-			if err := supervisor.run(ctx, dataRoot, runtimeRoot); err != nil && ctx.Err() == nil {
+			if err := supervisor.run(ctx, dataRoot, runtimeRoot, serverOrigin); err != nil && ctx.Err() == nil {
 				log.Printf("DESKTOP_RUNTIME_STOPPED attempt=%d", attempt+1)
 			}
 			if attempt == 3 {
@@ -65,7 +69,7 @@ func (s *runtimeSupervisor) close() {
 	<-s.done
 }
 
-func (s *runtimeSupervisor) run(ctx context.Context, dataRoot, runtimeRoot string) error {
+func (s *runtimeSupervisor) run(ctx context.Context, dataRoot, runtimeRoot, serverOrigin string) error {
 	binary := "node"
 	if goruntime.GOOS == "windows" {
 		binary += ".exe"
@@ -74,12 +78,13 @@ func (s *runtimeSupervisor) run(ctx context.Context, dataRoot, runtimeRoot strin
 		filepath.Join(runtimeRoot, "runner", "dist", "desktop-supervised.js"))
 	cmd.Dir = dataRoot
 	cmd.Env = desktopRuntimeEnvironment(os.Environ())
-	// Runner output is private. Only the fixed readiness frame crosses stdout.
-	input, err := cmd.StdinPipe()
+	inputReader, input, err := os.Pipe()
 	if err != nil {
 		return err
 	}
+	defer inputReader.Close()
 	defer input.Close()
+	cmd.Stdin = inputReader
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		return err
@@ -92,6 +97,7 @@ func (s *runtimeSupervisor) run(ctx context.Context, dataRoot, runtimeRoot strin
 		return err
 	}
 	defer stopTree()
+	_ = inputReader.Close()
 	_ = writer.Close()
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
@@ -110,7 +116,8 @@ func (s *runtimeSupervisor) run(ctx context.Context, dataRoot, runtimeRoot strin
 		DataRoot     string `json:"data_root"`
 		RuntimeRoot  string `json:"runtime_root"`
 		ControlToken string `json:"control_token"`
-	}{dataRoot, runtimeRoot, hex.EncodeToString(randomLoginBytes())}
+		ServerOrigin string `json:"server_origin,omitempty"`
+	}{dataRoot, runtimeRoot, hex.EncodeToString(randomLoginBytes()), serverOrigin}
 	initDone := make(chan error, 1)
 	go func() { initDone <- json.NewEncoder(input).Encode(startup) }()
 	frames := make(chan string)
@@ -119,7 +126,7 @@ func (s *runtimeSupervisor) run(ctx context.Context, dataRoot, runtimeRoot strin
 	go func() {
 		defer close(frames)
 		scanner := bufio.NewScanner(reader)
-		scanner.Buffer(make([]byte, 256), 4096)
+		scanner.Buffer(make([]byte, 256), runtimeFrameLimit)
 		for scanner.Scan() {
 			select {
 			case frames <- scanner.Text():
@@ -161,8 +168,14 @@ func (s *runtimeSupervisor) run(ctx context.Context, dataRoot, runtimeRoot strin
 		}
 	}
 	timer.Reset(runtimeHealthTimeout)
+	pipe := &runtimePipe{input: input, done: make(chan struct{})}
+	s.pipe.Store(pipe)
 	s.ready.Store(true)
-	defer s.ready.Store(false)
+	defer func() {
+		s.ready.Store(false)
+		s.pipe.Store(nil)
+		close(pipe.done)
+	}()
 	for {
 		select {
 		case <-ctx.Done():
@@ -175,13 +188,110 @@ func (s *runtimeSupervisor) run(ctx context.Context, dataRoot, runtimeRoot strin
 		case err := <-exited:
 			return err
 		case frame := <-frames:
-			if frame != `{"type":"heartbeat","version":1}` {
+			if frame == `{"type":"heartbeat","version":1}` {
+				timer.Reset(runtimeHealthTimeout)
+			} else if !pipe.deliver(frame) {
 				s.ready.Store(false)
 				stop()
 				return errors.New("DESKTOP_RUNTIME_PROTOCOL_ERROR")
 			}
-			timer.Reset(runtimeHealthTimeout)
 		}
+	}
+}
+
+type runtimePipeMessage struct {
+	Type    string          `json:"type"`
+	LinkID  string          `json:"link_id"`
+	OwnerID string          `json:"owner_id,omitempty"`
+	Frame   json.RawMessage `json:"frame,omitempty"`
+}
+
+type runtimePipe struct {
+	input *os.File
+	done  chan struct{}
+	mu    sync.Mutex
+	link  atomic.Pointer[runtimeLink]
+}
+
+type runtimeLink struct {
+	id     string
+	pipe   *runtimePipe
+	frames chan json.RawMessage
+}
+
+func (s *runtimeSupervisor) attach(id, owner string) (*runtimeLink, error) {
+	pipe := s.pipe.Load()
+	if pipe == nil || !validUUID(id) || !validUUID(owner) {
+		return nil, errors.New("DESKTOP_RUNTIME_UNAVAILABLE")
+	}
+	link := &runtimeLink{id: id, pipe: pipe, frames: make(chan json.RawMessage, 16)}
+	pipe.mu.Lock()
+	defer pipe.mu.Unlock()
+	if pipe.link.Load() != nil {
+		return nil, errors.New("DESKTOP_RUNTIME_UNAVAILABLE")
+	}
+	if err := pipe.writeLocked(runtimePipeMessage{Type: "link.open", LinkID: id, OwnerID: owner}); err != nil {
+		return nil, err
+	}
+	pipe.link.Store(link)
+	return link, nil
+}
+
+func (pipe *runtimePipe) writeLocked(message runtimePipeMessage) error {
+	if err := pipe.input.SetWriteDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		_ = pipe.input.Close()
+		return err
+	}
+	encoder := json.NewEncoder(pipe.input)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(message); err != nil {
+		_ = pipe.input.Close()
+		return err
+	}
+	return nil
+}
+
+func (link *runtimeLink) send(frame json.RawMessage) error {
+	link.pipe.mu.Lock()
+	defer link.pipe.mu.Unlock()
+	if link.pipe.link.Load() != link || len(frame) > desktopFrameLimit || !json.Valid(frame) {
+		return errors.New("DESKTOP_RUNTIME_PROTOCOL_ERROR")
+	}
+	return link.pipe.writeLocked(runtimePipeMessage{Type: "link.frame", LinkID: link.id, Frame: frame})
+}
+
+func (link *runtimeLink) close() {
+	link.pipe.mu.Lock()
+	defer link.pipe.mu.Unlock()
+	if link.pipe.link.CompareAndSwap(link, nil) {
+		_ = link.pipe.writeLocked(runtimePipeMessage{Type: "link.close", LinkID: link.id})
+	}
+}
+
+func (pipe *runtimePipe) deliver(raw string) bool {
+	var message runtimePipeMessage
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if !json.Valid([]byte(raw)) || decoder.Decode(&message) != nil || message.Type != "link.frame" ||
+		!validUUID(message.LinkID) || message.OwnerID != "" || len(message.Frame) > desktopFrameLimit || !json.Valid(message.Frame) {
+		return false
+	}
+	var header struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(message.Frame, &header) != nil ||
+		(header.Type != "command.result" && header.Type != "execution.callback" && header.Type != "execution.recovery") {
+		return false
+	}
+	link := pipe.link.Load()
+	if link == nil || message.LinkID != link.id {
+		return true
+	}
+	select {
+	case link.frames <- message.Frame:
+		return true
+	default:
+		return false
 	}
 }
 

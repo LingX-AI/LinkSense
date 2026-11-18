@@ -15,6 +15,7 @@ import { cleanupManagedBrowserSession } from "./browser/session-cleanup.js"
 import { loadCodexTemplateFeatureOverrides } from "./codex/template-features.js"
 import { assertCodexRuntimeVersion } from "./codex/runtime-version.js"
 import { parseRunnerConfig, type RunnerConfig } from "./config.js"
+import { desktopWorkerListenerFd } from "./controller/desktop-worker-provider.js"
 import { FetchWorkerTransport } from "./controller/worker-http-client.js"
 import { WorkerManager } from "./controller/worker-manager.js"
 import { createWorkerProvider } from "./controller/worker-provider-registry.js"
@@ -269,6 +270,9 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     workspaceManager,
     {
       ...(config.LINKSENSE_SERVICE_SESSION_ID ? { serviceSessionId: config.LINKSENSE_SERVICE_SESSION_ID } : {}),
+      ...(isDesktopWorker && config.LINKSENSE_DESKTOP_TURN_ID && config.LINKSENSE_DESKTOP_RUNTIME_GENERATION
+        ? { desktopOutboxScope: { turnId: config.LINKSENSE_DESKTOP_TURN_ID, generation: config.LINKSENSE_DESKTOP_RUNTIME_GENERATION } }
+        : {}),
       logger,
       knowledgeSearchTimeoutMs:
         config.LINKSENSE_KNOWLEDGE_SEARCH_TIMEOUT_MS,
@@ -302,6 +306,9 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
   )
   const modelGateway = new ModelGateway({
     logger,
+    ...(isDesktopWorker && config.LINKSENSE_DESKTOP_PROXY_ORIGIN
+      ? { desktopProxyOrigin: config.LINKSENSE_DESKTOP_PROXY_ORIGIN }
+      : {}),
     onMemoryUsage: async (capture) => {
       if (!eventSink.recordMemoryUsage) {
         throw new Error("memory usage sink is unavailable")
@@ -430,10 +437,12 @@ async function startExecutionRunner(config: RunnerConfig): Promise<void> {
     return
   }
   try {
-    await server.listen({
+    const listenOptions = {
       host: config.LINKSENSE_RUNNER_HOST,
       port: config.LINKSENSE_RUNNER_PORT,
-    })
+      ...(isDesktopWorker && config.LINKSENSE_DESKTOP_TURN_ID ? { fd: desktopWorkerListenerFd } : {}),
+    }
+    await server.listen(listenOptions)
     heartbeat.start()
   } catch (error) {
     await Promise.allSettled([

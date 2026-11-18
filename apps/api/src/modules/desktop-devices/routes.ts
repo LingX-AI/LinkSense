@@ -12,6 +12,7 @@ import {
   desktopDevicePairInputSchema,
   desktopDeviceRenameInputSchema,
   desktopDeviceRenameResultSchema,
+  desktopExecutionCallbackSchema,
   desktopExecutionDeviceReadySchema,
   desktopExecutionMaxFrameBytes,
   desktopExecutionProtocolVersion,
@@ -155,6 +156,11 @@ export async function registerDesktopDeviceRoutes(
         const result = desktopExecutionResultSchema.safeParse(value);
         if (result.success) {
           await execution?.receive(current.connectionId, result.data);
+          return;
+        }
+        const callback = desktopExecutionCallbackSchema.safeParse(value);
+        if (callback.success) {
+          await execution?.receiveCallback(current.connectionId, callback.data);
           return;
         }
       }

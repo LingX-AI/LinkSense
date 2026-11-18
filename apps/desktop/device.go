@@ -205,6 +205,9 @@ func (d *Desktop) DeviceStatus(ctx context.Context) (DeviceConnectionStatus, err
 func (d *Desktop) connectDevice(credential deviceCredential) DeviceConnectionStatus {
 	d.closeDevice()
 	connection := newDeviceConnection(d.server, credential)
+	if runtime.GOOS == "darwin" {
+		connection.runtime = d.localRuntime
+	}
 	d.mu.Lock()
 	d.device = connection
 	d.mu.Unlock()

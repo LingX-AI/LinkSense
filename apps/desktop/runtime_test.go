@@ -108,7 +108,7 @@ func runtimeFixturePID(t *testing.T, path string) int {
 
 func TestSupervisorRestartsAfterRuntimeCrashAndClosesItsPipeOnExit(t *testing.T) {
 	data, runtime := runtimeFixture(t)
-	supervisor := superviseRuntime(data, runtime)
+	supervisor := superviseRuntime(data, runtime, "")
 	t.Cleanup(supervisor.close)
 	runtimeEventually(t, "fixture did not become ready", supervisor.ready.Load)
 	oldPID := runtimeFixturePID(t, filepath.Join(data, "pid"))
@@ -132,7 +132,7 @@ func TestSupervisorKillsItsProcessGroupWhenRuntimeIgnoresShutdown(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(data, "hang"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	supervisor := superviseRuntime(data, runtime)
+	supervisor := superviseRuntime(data, runtime, "")
 	t.Cleanup(supervisor.close)
 	runtimeEventually(t, "fixture did not become ready", supervisor.ready.Load)
 	descendant := runtimeFixturePID(t, filepath.Join(data, "descendant"))
@@ -144,7 +144,7 @@ func TestSupervisorKillsItsProcessGroupWhenRuntimeIgnoresShutdown(t *testing.T) 
 
 func TestSupervisorRestartsAfterTheRuntimeStopsSendingHeartbeats(t *testing.T) {
 	data, runtime := runtimeFixture(t)
-	supervisor := superviseRuntime(data, runtime)
+	supervisor := superviseRuntime(data, runtime, "")
 	t.Cleanup(supervisor.close)
 	runtimeEventually(t, "fixture did not become ready", supervisor.ready.Load)
 	oldPID := runtimeFixturePID(t, filepath.Join(data, "pid"))

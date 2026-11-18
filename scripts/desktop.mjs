@@ -194,9 +194,12 @@ async function main() {
     await verifyPackagedDesktopRuntime(runtime, target, manifest.versions);
     if (["darwin", "win32"].includes(process.platform) && target === desktopTarget()) {
       await run("pnpm", ["--filter", "@linksense/runner", "exec", "tsx", "test/functional/desktop-package.ts", runtime], { cwd: root });
-      await run("go", ["test", "-tags", "desktop_runtime_package", "-run", "^TestPackagedRuntimeSupervisor$", "-count=1", "-timeout=50s", "./..."], {
+      const tests = target.startsWith("darwin") ? "^TestPackaged(RuntimeSupervisor|DesktopDeviceTurn)$" : "^TestPackagedRuntimeSupervisor$";
+      await run("go", ["test", "-tags", "desktop_runtime_package", "-run", tests, "-count=1", "-timeout=100s", "./..."], {
         env: { LINKSENSE_DESKTOP_RUNTIME_DIST: runtime },
       });
+    } else if (target.startsWith("darwin/")) {
+      console.warn(`Built ${target} without native verification. Run the macOS runtime gate on the target architecture before release.`);
     }
     return;
   }

@@ -17,6 +17,28 @@ import {
 
 export const linkSenseModelProviderId = "link-sense" as const;
 
+export const desktopPermissionProfiles = { default: "linksense-workspace", plan: "linksense-read-only" } as const;
+
+export function desktopPermissionConfigOverrides(input: { control: string; codex: string }): string[] {
+  const systemRead = [
+    `":minimal"="read"`,
+    `${JSON.stringify(input.codex)}="read"`,
+    `${JSON.stringify(input.control)}="deny"`,
+    `":slash_tmp"="deny"`,
+    `"/private/var/tmp"="deny"`,
+  ].join(",");
+  return [
+    `default_permissions="${desktopPermissionProfiles.default}"`,
+    ...Object.entries(desktopPermissionProfiles).flatMap(([mode, profile]) => {
+      const prefix = `permissions.${profile}`;
+      return [
+        `${prefix}.network.enabled=false`,
+        `${prefix}.filesystem={${systemRead},":workspace_roots"="${mode === "default" ? "write" : "read"}"}`,
+      ];
+    }),
+  ];
+}
+
 /**
  * Native discovery must reach the model as well as skills/list. CLI overrides
  * also cover existing task homes, without rewriting Codex-owned config files.

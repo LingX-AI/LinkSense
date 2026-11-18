@@ -90,6 +90,27 @@ export type StartOperationState = {
     | "RUNNER_TURN_START_SEALED"
 }
 
+export function correlateStartOperation<T extends {
+  id: string
+  items?: readonly { type: string; clientId?: unknown }[]
+}>(
+  correlation: StartOperationCorrelation,
+  projectionTurnId: string,
+  turns: readonly T[] = [],
+): { started: T; latest: T } | null {
+  const baseline = new Set(correlation.baselineTurnIds)
+  const { operationKind } = correlation
+  const candidates = turns.filter(turn => !baseline.has(turn.id) && (
+    operationKind === "goal" ||
+    turn.items?.some(item => operationKind === "compact"
+      ? item.type === "contextCompaction"
+      : item.type === "userMessage" && item.clientId === projectionTurnId)
+  ))
+  const started = candidates[0], latest = candidates.at(-1)
+  return started && latest && (operationKind === "goal" || candidates.length === 1)
+    ? { started, latest } : null
+}
+
 export class CorruptStartOperationError extends Error {
   constructor() {
     super("start operation state is corrupt")

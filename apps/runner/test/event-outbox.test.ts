@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT } from "@linksense/shared";
+import { desktopExecutionMaxFrameBytes, RUNNER_EVENT_OUTBOX_BATCH_MAX_COUNT } from "@linksense/shared";
 
 import type { LinkSensePublishedEvent } from "../src/codex/event-mapper.js";
 import { RunnerEventOutboxStore } from "../src/workspace/event-outbox.js";
@@ -33,6 +33,60 @@ afterEach(async () => {
 });
 
 describe("durable event batch append", () => {
+  it("preserves oversized desktop deltas in order and reports an oversized final snapshot", async () => {
+    const { manager } = await fixture();
+    const outbox = new RunnerEventOutboxStore(manager, {
+      generation: "01900000-0000-7000-8000-000000000003", turnId: "01900000-0000-7000-8000-000000000004",
+    });
+    const head = await outbox.append(conversationId, delta("before"));
+    const text = "界🌐\\\n".repeat(120_000);
+    await outbox.appendBatch(conversationId, [
+      delta(text),
+      {
+        method: "item/completed", visibility: "user_visible",
+        params: { threadId: "thread-1", turnId: "turn-1", item: { type: "agentMessage", id: "item-1", phase: "final_answer", text } },
+      },
+      {
+        method: "turn/completed", visibility: "user_visible",
+        params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } },
+      },
+    ]);
+    const [first, ...entries] = await outbox.list(conversationId);
+    expect(first).toEqual(head);
+    const events = entries.map(({ event }) => event);
+    const chunks = events.flatMap(event => "method" in event && event.method === "item/agentMessage/delta" ? [event.params.delta] : []);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every(chunk => Buffer.from(chunk).toString("utf8") === chunk)).toBe(true);
+    expect(chunks.join("")).toBe(text);
+    expect(events.slice(-3)).toMatchObject([
+      { method: "item/completed", params: { item: { text: expect.stringMatching(/…$/u) } } },
+      { eventType: "conversation.error", payload: { error_code: "DESKTOP_OUTPUT_LIMIT" } },
+      { method: "turn/completed", params: { turn: { status: "completed" } } },
+    ]);
+    for (const { deliveryId, event } of entries) {
+      expect(Buffer.byteLength(JSON.stringify({ deliveryId, event }))).toBeLessThan(desktopExecutionMaxFrameBytes - 512);
+    }
+  });
+
+  it("restores only the original desktop generation and turn, leaving earlier pending entries untouched", async () => {
+    const { manager, outbox: legacy } = await fixture();
+    const old = { generation: "01900000-0000-7000-8000-000000000003", turnId: "01900000-0000-7000-8000-000000000004" };
+    const prior = await new RunnerEventOutboxStore(manager, old).append(conversationId, delta("prior"));
+    const cloud = await legacy.append(conversationId, delta("legacy"));
+    for (const scope of [
+      { ...old, turnId: "01900000-0000-7000-8000-000000000005" },
+      { ...old, generation: "01900000-0000-7000-8000-000000000006" },
+    ]) {
+      const replacement = new RunnerEventOutboxStore(manager, scope);
+      expect(await replacement.peek(conversationId)).toBeNull();
+      const current = await replacement.append(conversationId, delta("current"));
+      expect(await replacement.peekBatch(conversationId, 10, 100_000)).toEqual([current]);
+      await replacement.remove(current);
+    }
+    expect(await new RunnerEventOutboxStore(manager, old).peek(conversationId)).toEqual(prior);
+    expect(await legacy.peek(conversationId)).toEqual(cloud);
+  });
+
   it("reads a bounded batch concurrently while returning original event order", async () => {
     const { outbox } = await fixture();
     const expected = await outbox.appendBatch(conversationId, [delta("a"), delta("b"), delta("c")]);

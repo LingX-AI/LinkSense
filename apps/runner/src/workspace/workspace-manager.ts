@@ -123,19 +123,23 @@ export async function prepareConversationControl(
   owner: OwnerPaths,
   conversationId: string,
   workspacePath: string,
-  supervisor: { uid: number; gid: number },
+  supervisor?: { uid: number; gid: number },
+  expectedGeneration?: string,
 ): Promise<{ runtimeGeneration: string }> {
   if (!conversationIdPattern.test(conversationId)) throw new WorkspaceBoundaryError("invalid conversation id")
   const relativeWorkspace = userWorkspacePathSchema.parse(workspacePath)
+  const expected = z.uuid().optional().parse(expectedGeneration)
   const taskControl = path.join(owner.control, "workspaces", conversationId)
   await assertTaskDirectoryParents(owner.home, path.join(owner.home, relativeWorkspace, ".boundary"))
   await assertTaskDirectoryParents(owner.control, taskControl)
   await ensureSupervisorDirectory(owner.control, 0o700, supervisor)
   await ensureSupervisorDirectory(path.dirname(taskControl), 0o700, supervisor)
   await ensureSupervisorDirectory(taskControl, 0o700, supervisor)
+  // Never change the workspace binding if a desktop opens an existing generation by mistake.
+  const assigned = expected === undefined ? undefined : await ensureRuntimeGeneration(taskControl, supervisor, expected)
   const binding = path.join(taskControl, "workspace.json")
   await writeSharedRegularFileAtomically(binding, JSON.stringify(relativeWorkspace), 0o600, supervisor)
-  return { runtimeGeneration: await ensureRuntimeGeneration(taskControl, supervisor) }
+  return { runtimeGeneration: assigned ?? await ensureRuntimeGeneration(taskControl, supervisor) }
 }
 
 export type WorkspaceManagerOptions = {
@@ -383,9 +387,11 @@ export class WorkspaceManager {
     return { ...paths, runtimeGeneration: verifiedRuntimeGeneration }
   }
 
-  async readRuntimeGeneration(conversationId: string): Promise<string | null> {
+  async readRuntimeGeneration(conversationId: string, expected?: string): Promise<string | null> {
     const { taskControl } = this.pathsFor(conversationId)
-    const state = await inspectRuntimeGeneration(taskControl)
+    const state = expected === undefined
+      ? await inspectRuntimeGeneration(taskControl)
+      : await inspectExpectedRuntimeGeneration(taskControl, expected)
     return state.status === "valid" ? state.runtimeGeneration : null
   }
 
@@ -935,6 +941,30 @@ async function inspectRuntimeGeneration(
   }
 }
 
+async function inspectExpectedRuntimeGeneration(
+  taskControl: string,
+  expected: string,
+  supervisorUid?: number,
+): Promise<RuntimeGenerationInspection> {
+  const state = await inspectRuntimeGeneration(taskControl, supervisorUid)
+  if (state.status === "invalid" || (state.status === "valid" && state.runtimeGeneration !== expected)) {
+    throw new RuntimeGenerationIntegrityError()
+  }
+  if (state.status === "missing") {
+    const entries = await readdir(taskControl, { withFileTypes: true }).catch((error: unknown) => {
+      if (isNodeError(error) && error.code === "ENOENT") return []
+      throw error
+    })
+    // Desktop publishes the generation before the binding or journal. Only
+    // empty directories and orphan generation staging files can predate it.
+    if (entries.some(entry => !entry.isFile() || !entry.name.startsWith(".") ||
+      !entry.name.endsWith(".tmp") || !conversationIdPattern.test(entry.name.slice(1, -4)))) {
+      throw new RuntimeGenerationIntegrityError()
+    }
+  }
+  return state
+}
+
 async function ensureSupervisorDirectory(
   directory: string,
   mode: number,
@@ -1206,18 +1236,23 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 async function ensureRuntimeGeneration(
   taskControl: string,
   identity?: { uid: number; gid: number },
+  expected?: string,
 ): Promise<string> {
   await ensureSupervisorDirectory(taskControl, 0o700, identity)
-  const current = await inspectRuntimeGeneration(taskControl, identity?.uid)
-  if (current.status === "valid") return current.runtimeGeneration
+  const current = expected === undefined
+    ? await inspectRuntimeGeneration(taskControl, identity?.uid)
+    : await inspectExpectedRuntimeGeneration(taskControl, expected, identity?.uid)
+  if (current.status === "valid") {
+    return current.runtimeGeneration
+  }
   if (current.status === "invalid") {
     throw new RuntimeGenerationIntegrityError()
   }
 
-  const runtimeGeneration = randomUUID()
+  const runtimeGeneration = expected ?? randomUUID()
   const temporaryPath = path.join(
     taskControl,
-    `.${runtimeGeneration}.tmp`,
+    `.${randomUUID()}.tmp`,
   )
   const generationPath = path.join(
     taskControl,
@@ -1239,7 +1274,7 @@ async function ensureRuntimeGeneration(
       if (!isNodeError(error) || error.code !== "EEXIST") throw error
     }
     const published = await inspectRuntimeGeneration(taskControl, identity?.uid)
-    if (published.status !== "valid") {
+    if (published.status !== "valid" || (expected !== undefined && published.runtimeGeneration !== expected)) {
       throw new RuntimeGenerationIntegrityError()
     }
     return published.runtimeGeneration

@@ -5,7 +5,7 @@ import { WebSocket } from "ws";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DESKTOP_EXECUTION_PROTOCOL_HEADER, desktopDeviceServerFrameSchema, desktopExecutionCommandSchema,
-  desktopExecutionDeviceReadySchema, desktopExecutionProtocolVersion, type DesktopExecutionCommand,
+  desktopExecutionDeviceReadySchema, desktopExecutionProtocolVersion, type DesktopExecutionCallback, type DesktopExecutionCommand,
 } from "@linksense/shared";
 import { DesktopCommandUncertainError, DesktopDeviceTransport } from "../src/adapters/desktop-device-transport.js";
 import { AppError } from "../src/lib/errors.js";
@@ -43,7 +43,13 @@ async function fixture(repository = new MemoryDesktopDeviceRepository()) {
   const app = Fastify();
   const authority = vi.fn<(binding: DesktopExecutionBinding, command: DesktopExecutionCommand) => Promise<boolean>>()
     .mockResolvedValue(true);
-  const execution = new DesktopDeviceTransport(redis.client, authority, app.log, executionKey);
+  const recover = vi.fn(async (_scope: DesktopExecutionBinding & { ownerId: string }, frame: DesktopExecutionCallback, signal: AbortSignal) => {
+    signal.throwIfAborted();
+    if (frame.operation !== "events") throw new AppError("FORBIDDEN");
+    return { type: "execution.ack", operation: "events", id: frame.id, ok: true,
+      data: { accepted_delivery_ids: frame.body.events.map(event => event.deliveryId) } } as const;
+  });
+  const execution = new DesktopDeviceTransport(redis.client, authority, app.log, executionKey, recover);
   applications.push(app);
   registerClientBuildGuard(app, null);
   app.decorate("authenticate", async request => {
@@ -59,7 +65,7 @@ async function fixture(repository = new MemoryDesktopDeviceRepository()) {
     service, redis: redis.client, rateLimitHmacSecret: "test-only-desktop-rate-limit-secret", execution,
   });
   await app.ready();
-  return { app, service, coordinator, repository, execution, authority };
+  return { app, service, coordinator, repository, execution, authority, recover };
 }
 
 async function paired(app: ReturnType<typeof Fastify>, platform = registration.platform) {
@@ -138,6 +144,87 @@ function acknowledgeStart(socket: WebSocket, command: DesktopExecutionCommand, o
 }
 
 describe("desktop execution transport", () => {
+  it("accepts a recovery batch only under the exact pending drain on the current connection", async () => {
+    const gateway = await fixture();
+    const origin = await fixture(gateway.repository);
+    const { device, token } = await paired(gateway.app);
+    const { socket } = await connect(gateway.app, token, desktopExecutionProtocolVersion);
+    const binding = await origin.execution.connection(device.id);
+    if (!binding) throw new Error("Mac did not negotiate execution");
+    const command = desktopExecutionCommandSchema.parse({ ...inspection(), operation: "turn.drain" });
+    const recovery = {
+      type: "execution.recovery", operation: "events", id: randomUUID(), drain_id: command.id,
+      conversation_id: command.conversation_id, turn_id: command.turn_id, runtime_generation: command.runtime_generation,
+      body: { conversationId: command.conversation_id, events: [{
+        deliveryId: randomUUID(), event: { method: "turn/completed", visibility: "user_visible",
+          params: { threadId: randomUUID(), turn: { id: randomUUID(), status: "completed" } } },
+      }] },
+    };
+    const send = (frame: unknown) => {
+      const response = readFrame(socket);
+      socket.send(JSON.stringify(frame));
+      return response;
+    };
+    expect(await send(recovery)).toMatchObject({ type: "execution.ack", ok: false, error_code: "FORBIDDEN" });
+    const request = readFrame(socket);
+    const result = origin.execution.send(binding, command);
+    try {
+      expect(await request).toEqual(command);
+      expect(await send({ ...recovery, runtime_generation: randomUUID() })).toMatchObject({ ok: false, error_code: "FORBIDDEN" });
+      gateway.authority.mockResolvedValueOnce(false);
+      expect(await send(recovery)).toMatchObject({ ok: false, error_code: "FORBIDDEN" });
+      expect(gateway.recover).not.toHaveBeenCalled();
+      expect(await send(recovery)).toEqual({
+        type: "execution.ack", operation: "events", id: recovery.id, ok: true,
+        data: { accepted_delivery_ids: recovery.body.events.map(event => event.deliveryId) },
+      });
+      expect(gateway.recover).toHaveBeenCalledTimes(1);
+    } finally {
+      socket.send(JSON.stringify({ type: "command.result", id: command.id, operation: "turn.drain", ok: true, result: { drained: true } }));
+      await result;
+    }
+    expect(await send(recovery)).toMatchObject({ ok: false, error_code: "FORBIDDEN" });
+  });
+
+  it("aborts in-flight recovery projection when the originating API cancels the drain", async () => {
+    const gateway = await fixture();
+    const origin = await fixture(gateway.repository);
+    const { device, token } = await paired(gateway.app);
+    const { socket } = await connect(gateway.app, token, desktopExecutionProtocolVersion);
+    const binding = await origin.execution.connection(device.id);
+    if (!binding) throw new Error("Mac did not negotiate execution");
+    const command = desktopExecutionCommandSchema.parse({ ...inspection(), operation: "turn.drain" });
+    const abort = new AbortController();
+    const started = barrier();
+    const finished = barrier();
+    gateway.recover.mockImplementationOnce(async (_scope, _frame, signal) => {
+      started.resolve();
+      try { await once(signal, "abort", { signal: AbortSignal.timeout(500) }); }
+      finally { finished.resolve(); }
+      throw new AppError("RUNNER_UNAVAILABLE");
+    });
+    const sent = readFrame(socket);
+    const result = origin.execution.send(binding, command, abort.signal);
+    const uncertain = expect(result).rejects.toBeInstanceOf(DesktopCommandUncertainError);
+    expect(await sent).toEqual(command);
+    const callbackId = randomUUID();
+    socket.send(JSON.stringify({
+      type: "execution.recovery", operation: "events", id: callbackId, drain_id: command.id,
+      conversation_id: command.conversation_id, turn_id: command.turn_id, runtime_generation: command.runtime_generation,
+      body: { conversationId: command.conversation_id, events: [{
+        deliveryId: randomUUID(), event: { method: "turn/completed", visibility: "user_visible",
+          params: { threadId: randomUUID(), turn: { id: randomUUID(), status: "completed" } } },
+      }] },
+    }));
+    await started.promise;
+    const cancelled = readFrame(socket);
+    abort.abort();
+    await uncertain;
+    expect(await cancelled).toEqual({ type: "command.cancel", id: command.id });
+    await finished.promise;
+    expect(gateway.recover.mock.calls[0]?.[2].aborted).toBe(true);
+  });
+
   it("sends a command to the current negotiated Mac across API replicas and correlates its receipt", async () => {
     const first = await fixture();
     const second = await fixture(first.repository);

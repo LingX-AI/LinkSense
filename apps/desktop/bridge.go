@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -39,7 +40,13 @@ type deviceConnection struct {
 	cancel     context.CancelFunc
 	done       chan struct{}
 	status     DeviceConnectionStatus
+	runtime    *runtimeSupervisor
 }
+
+const (
+	desktopExecutionVersion = 1
+	desktopExecutionHeader  = "X-LinkSense-Desktop-Execution"
+)
 
 func newDeviceConnection(server *url.URL, credential deviceCredential) *deviceConnection {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -111,8 +118,13 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	dialContext, cancelDial := context.WithTimeout(connection.ctx, 10*time.Second)
+	headers := make(http.Header)
+	offerExecution := connection.runtime != nil && connection.runtime.ready.Load()
+	if offerExecution {
+		headers.Set(desktopExecutionHeader, strconv.Itoa(desktopExecutionVersion))
+	}
 	socket, _, err := websocket.Dial(dialContext, endpoint.String(), &websocket.DialOptions{
-		HTTPClient: client, CompressionMode: websocket.CompressionDisabled,
+		HTTPClient: client, HTTPHeader: headers, CompressionMode: websocket.CompressionDisabled,
 	})
 	cancelDial()
 	if err != nil {
@@ -141,15 +153,38 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	if kind != websocket.MessageText || err != nil || ready.DeviceID != connection.credential.DeviceID {
 		return true, "DESKTOP_PROTOCOL_ERROR"
 	}
+	if ready.ExecutionVersion != nil && !offerExecution {
+		return true, "DESKTOP_PROTOCOL_ERROR"
+	}
+	var link *runtimeLink
+	if ready.ExecutionVersion != nil {
+		link, err = connection.runtime.attach(ready.ConnectionID, connection.credential.OwnerID)
+		if err != nil {
+			return false, "RUNNER_UNAVAILABLE"
+		}
+		defer link.close()
+		socket.SetReadLimit(desktopFrameLimit)
+	}
 	connection.setStatus(DeviceOnline, "")
 	heartbeatContext, stopHeartbeat := context.WithCancel(connection.ctx)
-	defer stopHeartbeat()
+	keepaliveDone := make(chan struct{})
+	defer func() {
+		stopHeartbeat()
+		<-keepaliveDone
+	}()
 	go func() {
+		defer close(keepaliveDone)
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
+		var frames <-chan json.RawMessage
+		var runtimeDone <-chan struct{}
+		if link != nil {
+			frames, runtimeDone = link.frames, link.pipe.done
+		}
+		frame := []byte(`{"type":"ping"}`)
 		for {
 			ctx, cancel := context.WithTimeout(heartbeatContext, 5*time.Second)
-			err := socket.Write(ctx, websocket.MessageText, []byte(`{"type":"ping"}`))
+			err := socket.Write(ctx, websocket.MessageText, frame)
 			cancel()
 			if err != nil {
 				_ = socket.CloseNow()
@@ -158,7 +193,16 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 			select {
 			case <-heartbeatContext.Done():
 				return
+			case <-runtimeDone:
+				_ = socket.CloseNow()
+				return
+			case frame = <-frames:
 			case <-ticker.C:
+				if !offerExecution && connection.runtime != nil && connection.runtime.ready.Load() {
+					_ = socket.CloseNow()
+					return
+				}
+				frame = []byte(`{"type":"ping"}`)
 			}
 		}
 	}()
@@ -169,10 +213,29 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 		if err != nil {
 			return deviceSocketError(err)
 		}
-		if kind != websocket.MessageText || !decodeDevicePong(data) {
+		if kind != websocket.MessageText {
 			return true, "DESKTOP_PROTOCOL_ERROR"
 		}
+		if decodeDevicePong(data) {
+			continue
+		}
+		if link == nil || !isDesktopExecutionInput(data) {
+			return true, "DESKTOP_PROTOCOL_ERROR"
+		}
+		if err := link.send(data); err != nil {
+			return false, "RUNNER_UNAVAILABLE"
+		}
 	}
+}
+
+func isDesktopExecutionInput(data []byte) bool {
+	var frame struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(data, &frame) != nil {
+		return false
+	}
+	return frame.Type == "command" || frame.Type == "command.cancel" || frame.Type == "execution.ack"
 }
 
 type deviceReady struct {
@@ -181,6 +244,7 @@ type deviceReady struct {
 	ConnectionID        string `json:"connection_id"`
 	ProtocolVersion     int    `json:"protocol_version"`
 	HeartbeatIntervalMS int    `json:"heartbeat_interval_ms"`
+	ExecutionVersion    *int   `json:"execution_protocol_version,omitempty"`
 }
 
 func decodeDeviceReady(data []byte) (deviceReady, error) {
@@ -192,7 +256,8 @@ func decodeDeviceReady(data []byte) (deviceReady, error) {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&ready); err != nil || ready.Type != "ready" ||
 		!validUUID(ready.DeviceID) || !validUUID(ready.ConnectionID) ||
-		ready.ProtocolVersion != 1 || ready.HeartbeatIntervalMS != 15_000 {
+		ready.ProtocolVersion != 1 || ready.HeartbeatIntervalMS != 15_000 ||
+		(ready.ExecutionVersion != nil && *ready.ExecutionVersion != desktopExecutionVersion) {
 		return deviceReady{}, errors.New("DESKTOP_PROTOCOL_ERROR")
 	}
 	return ready, nil

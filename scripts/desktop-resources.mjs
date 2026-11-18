@@ -195,6 +195,10 @@ export async function prepareDesktopResources(target) {
     }
     await run("pnpm", ["--filter", "@linksense/shared", "build"], { cwd: root });
     await run("pnpm", ["--filter", "@linksense/runner", "build"], { cwd: root });
+    if (target.startsWith("darwin")) {
+      await run("pnpm", ["--filter", "@linksense/api", "exec", "tsx", "src/commands/bundle-desktop-capabilities.ts",
+        path.join(staging, "capabilities")], { cwd: root });
+    }
     await stageDesktopRunner(path.join(staging, "runner"), target, platform.runtime_arch);
     await mkdir(path.join(staging, "template"));
     await copyFile(path.join(root, "deploy/codex-home-template/config.toml"), path.join(staging, "template/config.toml"));
