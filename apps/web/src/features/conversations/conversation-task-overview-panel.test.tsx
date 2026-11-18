@@ -479,9 +479,14 @@ describe("ConversationTaskOverviewPanel", () => {
 
     expect(appStyles).toContain("--text-sm: var(--app-ui-font-size);")
     expect(screen.queryByText("会话侧栏")).not.toBeInTheDocument()
-    expect(screen.getByText("产出文件")).toHaveClass("text-sm")
-    expect(screen.getByText("产出文件")).not.toHaveClass("text-base")
-    expect(fileRow).toHaveClass("text-sm", "hover:bg-hover")
+    expect(screen.getByText("产出文件")).toHaveClass(
+      "text-[length:var(--app-font-13)]"
+    )
+    expect(screen.getByText("产出文件")).not.toHaveClass("text-sm")
+    expect(fileRow).toHaveClass(
+      "text-[length:var(--app-font-13)]",
+      "hover:bg-hover"
+    )
     expect(fileIcon).toHaveClass("size-5")
     expect(fileIcon?.parentElement).toHaveClass("size-6")
   })

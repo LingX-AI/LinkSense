@@ -755,6 +755,29 @@ describe("sidebar task project controls", () => {
     )
   })
 
+  it("starts a blank new task from the Recent section header", async () => {
+    const interaction = userEvent.setup()
+    const onNewTask = vi.fn()
+    render(
+      <SidebarTaskGroups
+        userId="first"
+        pinned={[]}
+        recent={[]}
+        projects={[project]}
+        loadingMore={false}
+        onAction={vi.fn()}
+        onNewTask={onNewTask}
+      >
+        {() => null}
+      </SidebarTaskGroups>
+    )
+
+    await interaction.click(
+      screen.getByRole("button", { name: i18n.t("nav.newConversation") })
+    )
+    expect(onNewTask).toHaveBeenCalledOnce()
+  })
+
   it("starts a new task in the project from the project row", async () => {
     const interaction = userEvent.setup()
     const onStartTask = vi.fn()

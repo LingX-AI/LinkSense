@@ -1143,6 +1143,12 @@ function AppSidebarContent({
               }
               onAction={setProjectAction}
               onStartTask={startTaskInProject}
+              onNewTask={() => {
+                onNavigate?.()
+                navigate("/conversations/new", {
+                  state: newTaskNavigationState,
+                })
+              }}
             >
               {(group) => (
                 <SortableConversationGroup
@@ -1186,23 +1192,6 @@ function AppSidebarContent({
                         actions={
                           <SidebarConversationActions
                             title={title}
-                            projects={projectsQuery.data ?? []}
-                            currentProjectId={conversation.project_id}
-                            moveDisabled={
-                              projectsQuery.isPending ||
-                              projectsQuery.isError ||
-                              moveProjectMutation.isPending
-                            }
-                            onMoveToProject={
-                              conversation.application_development_role ===
-                              "development"
-                                ? undefined
-                                : (projectId) =>
-                                    moveProjectMutation.mutate({
-                                      conversation,
-                                      projectId,
-                                    })
-                            }
                             pinned={pinned}
                             pinDisabled={pinMutation.isPending}
                             archiveDisabled={archiveMutation.isPending}

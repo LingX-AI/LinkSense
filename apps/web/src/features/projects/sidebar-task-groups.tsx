@@ -43,6 +43,7 @@ export function SidebarTaskGroups({
   onSortModeChange,
   onAction,
   onStartTask,
+  onNewTask,
   children,
 }: {
   userId: string | undefined
@@ -59,6 +60,7 @@ export function SidebarTaskGroups({
   ) => void
   onAction: (action: ProjectAction) => void
   onStartTask?: (projectId: string) => void
+  onNewTask?: () => void
   children: (group: SidebarTaskGroupData) => ReactNode
 }) {
   const { t } = useTranslation()
@@ -199,7 +201,25 @@ export function SidebarTaskGroups({
         key={JSON.stringify([userId, "recent"])}
         titleId="recent-conversations-title"
         label={t("nav.recent")}
-        action={sortMenu("recent", t("nav.recent"))}
+        action={
+          <>
+            {sortMenu("recent", t("nav.recent"))}
+            {onNewTask && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="hover:bg-transparent aria-expanded:bg-transparent"
+                aria-label={t("nav.newConversation")}
+                onClick={onNewTask}
+              >
+                <SidebarActionIcon>
+                  <PlusIcon className="size-3.5" aria-hidden="true" />
+                </SidebarActionIcon>
+              </Button>
+            )}
+          </>
+        }
       >
         {byProject.has(null) && renderProject(null)}
         {!loadingMore && !byProject.has(null) && (

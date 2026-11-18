@@ -52,10 +52,9 @@ describe("task archive notification", () => {
       if (pinned) {
         await hoverTask(interaction, title)
         await interaction.click(
-          within(sidebar).getByRole("button", { name: `${title}的更多操作` })
-        )
-        await interaction.click(
-          await screen.findByRole("menuitem", { name: "置顶任务" })
+          within(sidebar).getByRole("button", {
+            name: `置顶任务“${title}”`,
+          })
         )
         await within(sidebar).findByRole("heading", { name: "置顶" })
       }

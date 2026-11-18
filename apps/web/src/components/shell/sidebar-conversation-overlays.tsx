@@ -14,9 +14,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
-import { DropdownMenu } from "@/components/ui/dropdown-menu"
 import { Tooltip, ActionTooltipContent } from "@/components/ui/tooltip"
-import { SidebarConversationMenu } from "./sidebar-conversation-actions"
 import {
   createSidebarConversationOverlayHandles,
   SidebarConversationOverlayContext,
@@ -95,9 +93,6 @@ export function SidebarConversationOverlays({
           )
         }
       </HoverCard>
-      <DropdownMenu handle={handles.menu}>
-        {({ payload }) => payload && <SidebarConversationMenu {...payload} />}
-      </DropdownMenu>
       <Tooltip
         handle={handles.tooltip}
         onOpenChange={(open, details) => {

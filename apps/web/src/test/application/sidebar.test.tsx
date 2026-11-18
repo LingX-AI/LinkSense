@@ -682,8 +682,8 @@ describe("LinkSense application", () => {
     ).not.toBeInTheDocument()
 
     fireEvent.pointerEnter(item as HTMLElement)
-    const moreButton = within(item as HTMLElement).getByRole("button", {
-      name: /的更多操作$/u,
+    const pinButton = within(item as HTMLElement).getByRole("button", {
+      name: /^(置顶|取消置顶)任务/u,
     })
     const archiveButton = within(item as HTMLElement).getByRole("button", {
       name: /^归档任务/u,
@@ -693,7 +693,7 @@ describe("LinkSense application", () => {
         name: /^删除任务/u,
       })
     ).not.toBeInTheDocument()
-    for (const button of [moreButton, archiveButton]) {
+    for (const button of [pinButton, archiveButton]) {
       expect(button).toHaveClass(
         "size-7",
         "transition-none",
@@ -703,16 +703,18 @@ describe("LinkSense application", () => {
       )
       expect(button).not.toHaveClass("hover:bg-[var(--app-sidebar-active)]")
     }
-    const moreIcon = moreButton.querySelector("svg")
+    const pinIcon = pinButton.querySelector(
+      "[data-design-icon=pin], [data-icon=sidebar-pin-filled]"
+    )
     const archiveIcon = archiveButton.querySelector(
       "[data-design-icon=archive]"
     )
-    expect(moreIcon).toHaveClass("size-4")
+    expect(pinIcon).toHaveClass("size-4")
     expect(archiveIcon).toHaveClass("size-4")
-    expect(moreIcon).toHaveAttribute("aria-hidden", "true")
+    expect(pinIcon).toHaveAttribute("aria-hidden", "true")
     expect(archiveIcon).toHaveAttribute("aria-hidden", "true")
     const actions = archiveButton.parentElement
-    expect(actions).toContainElement(moreButton)
+    expect(actions).toContainElement(pinButton)
     expect(actions).toContainElement(archiveButton)
     expect(actions).toHaveClass(
       "opacity-0",
@@ -998,7 +1000,7 @@ describe("LinkSense application", () => {
     await interaction.hover(remainingItem as HTMLElement)
     expect(
       within(remainingItem as HTMLElement).getByRole("button", {
-        name: /的更多操作$/u,
+        name: /^(置顶|取消置顶)任务/u,
       })
     ).toBeInTheDocument()
     expect(
@@ -1037,12 +1039,9 @@ describe("LinkSense application", () => {
     )
     expect(taskItem).not.toBeNull()
     await interaction.hover(taskItem as HTMLElement)
-    await interaction.click(
-      within(taskItem as HTMLElement).getByRole("button", {
-        name: `${taskTitle}的更多操作`,
-      })
-    )
-    const pinButton = await screen.findByRole("menuitem", { name: "置顶任务" })
+    const pinButton = within(taskItem as HTMLElement).getByRole("button", {
+      name: `置顶任务“${taskTitle}”`,
+    })
     expect(pinButton.querySelector("[data-design-icon=pin]")).toHaveAttribute(
       "aria-hidden",
       "true"
@@ -1073,19 +1072,14 @@ describe("LinkSense application", () => {
       .closest(".sidebar-conversation-item")
     expect(pinnedItem).not.toBeNull()
     await interaction.hover(pinnedItem as HTMLElement)
-    await interaction.click(
-      within(pinnedItem as HTMLElement).getByRole("button", {
-        name: `${taskTitle}的更多操作`,
-      })
-    )
-    const unpinButton = await screen.findByRole("menuitem", {
-      name: "取消置顶",
+    const unpinButton = within(pinnedItem as HTMLElement).getByRole("button", {
+      name: `取消置顶任务“${taskTitle}”`,
     })
     expect(unpinButton.querySelector("svg")).toHaveAttribute(
       "data-icon",
       "sidebar-pin-filled"
     )
-    expect(unpinButton.querySelector("svg")).toHaveClass("size-3.5")
+    expect(unpinButton.querySelector("svg")).toHaveClass("size-4")
     expect(unpinButton.querySelector("svg")).toHaveAttribute(
       "stroke-width",
       "0"
@@ -1165,10 +1159,10 @@ describe("LinkSense application", () => {
     expect(firstTask).toHaveClass("cursor-grab")
 
     fireEvent.pointerEnter(firstTask)
-    const moreButton = within(firstTask).getByRole("button", {
-      name: `${conversations[1]!.title}的更多操作`,
+    const pinButton = within(firstTask).getByRole("button", {
+      name: /^(置顶|取消置顶)任务/u,
     })
-    fireEvent.pointerDown(moreButton, {
+    fireEvent.pointerDown(pinButton, {
       button: 0,
       clientX: 10,
       clientY: 10,
@@ -1238,12 +1232,8 @@ describe("LinkSense application", () => {
 
     await interaction.click(
       within(taskItem as HTMLElement).getByRole("button", {
-        name: `${task.title}的更多操作`,
+        name: `取消置顶任务“${task.title}”`,
       })
-    )
-
-    await interaction.click(
-      await screen.findByRole("menuitem", { name: "取消置顶" })
     )
     const dialog = await screen.findByRole("dialog", {
       name: "无法取消置顶",
@@ -1512,10 +1502,11 @@ describe("LinkSense application", () => {
     expect(
       within(item).getByRole("button", { name: /^归档任务/u })
     ).toBeEnabled()
-    await interaction.click(
-      within(item).getByRole("button", { name: /的更多操作$/u })
-    )
-    expect(await screen.findByRole("menu")).toBeVisible()
+    expect(
+      within(item).getByRole("button", {
+        name: /^(置顶|取消置顶)任务/u,
+      })
+    ).toBeEnabled()
     expect(status).toBeInTheDocument()
     const completedLink = within(sidebar).getByRole("link", {
       name: conversations[1]!.title,

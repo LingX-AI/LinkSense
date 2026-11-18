@@ -59,7 +59,7 @@ export function NewTaskWelcome({
       className="conversation-welcome @container/task-home grid w-full gap-4 font-interface @min-[44rem]/conversation-workspace:gap-6 @min-[60rem]/conversation-workspace:gap-10"
       aria-labelledby="new-task-welcome-title"
     >
-      <div className="conversation-welcome-banner relative isolate flex min-h-40 items-center justify-between gap-6 overflow-clip rounded-2xl bg-card px-4 py-5 @min-[44rem]/task-home:min-h-48 @min-[44rem]/task-home:px-8 @min-[44rem]/task-home:py-6 @min-[60rem]/task-home:min-h-61 @min-[60rem]/task-home:px-10 @min-[60rem]/task-home:py-8">
+      <div className="conversation-welcome-banner relative isolate flex min-h-36 items-center justify-between gap-4 overflow-clip rounded-2xl bg-card px-4 py-4 @min-[44rem]/task-home:min-h-40 @min-[44rem]/task-home:px-6 @min-[44rem]/task-home:py-5 @min-[60rem]/task-home:min-h-48 @min-[60rem]/task-home:px-8 @min-[60rem]/task-home:py-6">
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 -z-10 dark:hidden [&>svg]:h-full [&>svg]:w-full"
@@ -70,19 +70,19 @@ export function NewTaskWelcome({
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 -z-10 bg-white/50 dark:bg-transparent"
         />
-        <div className="grid min-w-0 gap-2 @min-[44rem]/task-home:gap-3">
-          <p className="text-xs leading-[var(--app-line-22)] text-muted-foreground @min-[44rem]/task-home:text-sm">
+        <div className="grid min-w-0 gap-1.5 @min-[44rem]/task-home:gap-2">
+          <p className="text-xs leading-[var(--app-line-22)] text-muted-foreground">
             {userName
               ? t("workspaceHome.greetingName", { name: userName })
               : t("workspaceHome.greeting")}
           </p>
           <h2
             id="new-task-welcome-title"
-            className="max-w-[24ch] text-xl font-semibold tracking-tight text-balance text-home-heading @min-[44rem]/task-home:text-2xl @min-[60rem]/task-home:text-home-title"
+            className="max-w-[24ch] text-lg font-semibold tracking-tight text-balance text-home-heading @min-[44rem]/task-home:text-xl @min-[60rem]/task-home:text-2xl"
           >
             {t("conversation.newTaskWelcome", { productName })}
           </h2>
-          <p className="text-sm leading-[var(--app-line-24)] text-muted-foreground @min-[44rem]/task-home:text-base">
+          <p className="text-xs leading-[var(--app-line-24)] text-muted-foreground @min-[44rem]/task-home:text-sm">
             {t("workspaceHome.description")}
           </p>
         </div>

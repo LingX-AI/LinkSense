@@ -21,57 +21,6 @@ beforeEach(async () => {
 afterEach(cleanup)
 
 describe("shared sidebar conversation overlays", () => {
-  it("uses the active task's state and callback when different rows share one menu", async () => {
-    const interaction = userEvent.setup()
-    const firstPin = vi.fn()
-    const secondPin = vi.fn()
-    render(
-      <SidebarConversationOverlays>
-        <SidebarConversationActions
-          title="First"
-          pinned={false}
-          pinDisabled={false}
-          archiveDisabled={false}
-          onTogglePinned={firstPin}
-          onArchive={vi.fn()}
-        />
-        <SidebarConversationActions
-          title="Second"
-          pinned
-          pinDisabled={false}
-          archiveDisabled={false}
-          onTogglePinned={secondPin}
-          onArchive={vi.fn()}
-        />
-      </SidebarConversationOverlays>
-    )
-    await interaction.click(
-      screen.getByRole("button", {
-        name: i18n.t("common.moreActionsNamed", { name: "First" }),
-      })
-    )
-    await screen.findByRole("menu")
-    expect(screen.getAllByRole("menu")).toHaveLength(1)
-    await interaction.click(
-      screen.getByRole("menuitem", { name: i18n.t("conversation.pin") })
-    )
-    expect(firstPin).toHaveBeenCalledOnce()
-    expect(secondPin).not.toHaveBeenCalled()
-
-    await interaction.click(
-      screen.getByRole("button", {
-        name: i18n.t("common.moreActionsNamed", { name: "Second" }),
-      })
-    )
-    await screen.findByRole("menu")
-    expect(screen.getAllByRole("menu")).toHaveLength(1)
-    await interaction.click(
-      screen.getByRole("menuitem", { name: i18n.t("conversation.unpin") })
-    )
-    expect(firstPin).toHaveBeenCalledOnce()
-    expect(secondPin).toHaveBeenCalledOnce()
-  })
-
   it("shows each trigger's title and timestamp without keeping a preview per row", async () => {
     const interaction = userEvent.setup()
     render(

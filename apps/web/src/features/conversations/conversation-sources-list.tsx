@@ -26,7 +26,7 @@ export function ConversationSourcesList({
       className="flex min-h-0 flex-col gap-1"
     >
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm leading-[var(--app-line-20)] font-medium text-foreground">
+        <h3 className="text-[length:var(--app-font-13)] leading-[var(--app-line-18)] font-medium text-foreground">
           {t("conversation.taskOverview.sources")}
         </h3>
         <span className="inline-flex min-w-5 items-center justify-center rounded-md bg-muted px-1.5 text-xs leading-[var(--app-line-18)] font-normal text-(--app-task-overview-muted) tabular-nums">
@@ -79,7 +79,7 @@ export function ConversationSourcesList({
                         )}
                       </span>
                       <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate text-sm leading-[var(--app-line-20)] font-medium text-foreground">
+                        <span className="truncate text-[length:var(--app-font-13)] leading-[var(--app-line-18)] font-medium text-foreground">
                           {source.title ?? source.url}
                         </span>
                         <span className="truncate text-xs leading-[var(--app-line-18)] text-(--app-task-overview-muted)">
