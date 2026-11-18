@@ -382,6 +382,7 @@ export const errors = {
   codexTurnFailed:
     "Cette exécution a échoué. Vous pouvez ajuster la saisie et réessayer.",
   modelGateway: modelGatewayMessages["fr-FR"],
+  desktopOutputLimit: "Une partie des résultats de la tâche sur Mac dépasse la taille autorisée pour le transfert et ne peut pas être affichée en entier.",
   turnCompletedWithoutOutput:
     "L’exécution s’est terminée sans produire de résultat affichable. Relancez-la.",
   automation: {

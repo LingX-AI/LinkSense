@@ -392,6 +392,7 @@ export const errorMessages = {
     codexTurnFailed:
       "Esta ejecución falló. Puedes ajustar la entrada e intentarlo de nuevo.",
     modelGateway: modelGatewayMessages["es-ES"],
+    desktopOutputLimit: "Parte de los resultados de la tarea en Mac superó el límite de transferencia y no pudo mostrarse por completo.",
     turnCompletedWithoutOutput:
       "Esta ejecución terminó sin resultados que se puedan mostrar. Ejecútala de nuevo.",
     automation: {

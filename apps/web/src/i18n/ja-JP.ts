@@ -6188,6 +6188,7 @@ export const jaJP = {
     codexTurnFailed:
       "今回の実行に失敗しました。メッセージを確認して再試行してください。",
     modelGateway: modelGatewayMessages["ja-JP"],
+    desktopOutputLimit: "Macで実行したタスクの出力の一部が転送上限を超えたため、すべてを表示できませんでした。",
     turnCompletedWithoutOutput:
       "今回の実行は終了しましたが、表示可能な出力がありません。再実行してください。",
     automation: {

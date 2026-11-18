@@ -5406,6 +5406,7 @@ export const zhCN = {
       "初始化凭据无效，请使用安装成功时显示的一次性凭据。",
     teamsFailed: "Teams 登录失败，请重试或使用其他登录方式。",
     codexTurnFailed: "本轮执行失败。你可以调整输入后继续重试。",
+    desktopOutputLimit: "部分 Mac 任务输出超出传输大小限制，未完整显示。",
     modelGateway: modelGatewayMessages["zh-CN"],
     turnCompletedWithoutOutput:
       "本轮执行已结束，但没有产出可展示的内容，请重新执行。",

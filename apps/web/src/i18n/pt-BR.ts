@@ -6295,6 +6295,7 @@ export const ptBR = {
     codexTurnFailed:
       "Esta execução falhou. Você pode ajustar a entrada e tentar novamente.",
     modelGateway: modelGatewayMessages["pt-BR"],
+    desktopOutputLimit: "Parte da saída da tarefa no Mac ultrapassou o limite de transferência e não pôde ser exibida por completo.",
     turnCompletedWithoutOutput:
       "Esta execução terminou sem produzir um resultado exibível. Execute novamente.",
     automation: {

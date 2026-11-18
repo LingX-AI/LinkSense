@@ -57,6 +57,17 @@ function interpolationTokens(value: string): string[] {
 }
 
 describe("i18n resources", () => {
+  it.each(supportedLanguages)("explains the Mac output limit in %s", (locale) => {
+    const key = "errors.desktopOutputLimit"
+    const translation = i18n.getResource(locale, "translation", key)
+    expect(translation).toBeTypeOf("string")
+    expect(translation).not.toBe(key)
+    if (locale !== "zh-CN") {
+      expect(translation).not.toBe(i18n.t(key, { lng: "zh-CN" }))
+    }
+    expect(i18n.t(key, { lng: "de-DE" })).toBe(i18n.t(key, { lng: "zh-CN" }))
+  })
+
   it.each([
     ["zh-CN", "1 条新回复", "2 条新回复"],
     ["en-US", "1 new reply", "2 new replies"],

@@ -5882,6 +5882,7 @@ export const enUS = {
       "The initialization credential is invalid. Use the one-time credential shown after installation.",
     teamsFailed: "Teams sign-in failed. Retry or use another sign-in method.",
     codexTurnFailed: "This run failed. You can adjust the input and try again.",
+    desktopOutputLimit: "Some Mac task output exceeded the transfer limit and could not be shown in full.",
     modelGateway: modelGatewayMessages["en-US"],
     turnCompletedWithoutOutput:
       "This run finished without producing displayable output. Run it again.",
