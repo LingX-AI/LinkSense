@@ -44,3 +44,6 @@ apps/docs/.public-docs/
 
 # Local design mockups (not part of the repo)
 /docs/design/
+
+# Local Claude Code session config (launch.json etc.)
+.claude/
