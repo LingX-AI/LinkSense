@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   act,
   cleanup,
-  fireEvent,
   render,
   screen,
   waitFor,
@@ -76,7 +75,7 @@ afterEach(() => {
 })
 
 describe("website management", () => {
-  it("shows and copies the custom slug link when the stable application URL is different", async () => {
+  it("keeps the custom slug link in details when the stable application URL is different", async () => {
     const user = userEvent.setup()
     const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue()
     const url = `https://public.example.test/app/id/${id}`
@@ -91,13 +90,19 @@ describe("website management", () => {
       )
     )
     mount(<SiteLibrary />)
-    expect(await screen.findByText("/web/drink-water")).toHaveAttribute(
-      "title",
-      aliasUrl
-    )
-    await user.click(
-      screen.getByRole("button", {
+    const row = await screen.findByRole("article", { name: site.name })
+    expect(within(row).queryByText("/web/drink-water")).not.toBeInTheDocument()
+    expect(
+      within(row).queryByRole("button", {
         name: i18n.t("webSites.copyNamed", { name: site.name }),
+      })
+    ).not.toBeInTheDocument()
+    await user.click(within(row).getByRole("button", { name: site.name }))
+    const details = screen.getByRole("dialog", { name: site.name })
+    expect(within(details).getByText(aliasUrl)).toBeVisible()
+    await user.click(
+      within(details).getByRole("button", {
+        name: i18n.t("webSites.details.copyAlias"),
       })
     )
     expect(copy).toHaveBeenLastCalledWith(aliasUrl)
@@ -308,7 +313,7 @@ describe("website management", () => {
       ).not.toBeInTheDocument()
     }
   )
-  it("opens and copies the actual dynamic application URL in the library and publication dialog", async () => {
+  it("opens the actual dynamic application URL from the row and publication dialog", async () => {
     const user = userEvent.setup()
     const copy = vi
       .spyOn(navigator.clipboard, "writeText")
@@ -322,17 +327,8 @@ describe("website management", () => {
     const library = mount(<SiteLibrary />)
     const row = await screen.findByRole("article", { name: site.name })
     expect(
-      within(row).getByText(`${i18n.t("webSites.slug")}: ${site.slug}`)
-    ).toBeVisible()
-    expect(
       within(row).getByRole("link", { name: i18n.t("webSites.visit") })
     ).toHaveAttribute("href", url)
-    await user.click(
-      screen.getByRole("button", {
-        name: i18n.t("webSites.copyNamed", { name: site.name }),
-      })
-    )
-    expect(copy).toHaveBeenLastCalledWith(url)
     library.unmount()
     mount(
       <SiteDialog
@@ -393,7 +389,7 @@ describe("website management", () => {
     ).not.toBeInTheDocument()
   })
   it.each(["zh-CN", "en-US"])(
-    "places copy beside each card's URL and shows a temporary check without a success toast in %s",
+    "keeps technical URLs and copy controls out of site rows in %s",
     async (language) => {
       await i18n.changeLanguage(language)
       const secondSite = {
@@ -409,42 +405,22 @@ describe("website management", () => {
           success({ items: [site, secondSite], next_cursor: null })
         )
       )
-      userEvent.setup()
-      const writeText = vi
-        .spyOn(navigator.clipboard, "writeText")
-        .mockResolvedValue(undefined)
-      const successToast = vi.spyOn(notify, "success")
       mount(<SiteLibrary />)
-      const copy = await screen.findByRole("button", {
-        name: i18n.t("webSites.copyNamed", { name: site.name }),
-      })
-      const otherCopy = screen.getByRole("button", {
-        name: i18n.t("webSites.copyNamed", { name: secondSite.name }),
-      })
       const url = new URL(site.url_path, window.location.origin).href
-      expect(copy.parentElement).toContainElement(screen.getByText(url))
-      expect(copy).toHaveClass("size-6", "text-muted-foreground/70")
-      const cards = screen.getAllByRole("listitem")
+      const cards = await screen.findAllByRole("listitem")
       expect(cards).toHaveLength(2)
       expect(cards.map((card) => within(card).getByRole("article"))).toEqual([
         screen.getByRole("article", { name: site.name }),
         screen.getByRole("article", { name: secondSite.name }),
       ])
-      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
-      await act(async () => {
-        fireEvent.click(copy)
-      })
-      expect(writeText).toHaveBeenCalledExactlyOnceWith(url)
-      expect(copy).toHaveAttribute("data-copy-state", "copied")
-      expect(copy).toHaveAccessibleName(i18n.t("webSites.copied"))
-      expect(copy.querySelector(".lucide-check")).not.toBeNull()
-      expect(otherCopy).toHaveAttribute("data-copy-state", "idle")
-      expect(successToast).not.toHaveBeenCalled()
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2_000)
-      })
-      expect(copy).toHaveAttribute("data-copy-state", "idle")
-      expect(copy.querySelector(".lucide-copy")).not.toBeNull()
+      for (const card of cards) {
+        expect(within(card).queryByText(url)).not.toBeInTheDocument()
+        expect(
+          within(card).queryByRole("button", {
+            name: i18n.t("webSites.copyNamed", { name: site.name }),
+          })
+        ).not.toBeInTheDocument()
+      }
     }
   )
   it("disables copy while pending and allows retry after a clipboard failure", async () => {
@@ -466,8 +442,10 @@ describe("website management", () => {
     const errorToast = vi.spyOn(notify, "error").mockReturnValue("copy-error")
     const successToast = vi.spyOn(notify, "success")
     mount(<SiteLibrary />)
-    const copy = await screen.findByRole("button", {
-      name: "复制 山海集 的链接",
+    await user.click(await screen.findByRole("button", { name: site.name }))
+    const details = screen.getByRole("dialog", { name: site.name })
+    const copy = within(details).getByRole("button", {
+      name: i18n.t("webSites.details.copyStable"),
     })
     await user.click(copy)
     expect(copy).toBeDisabled()

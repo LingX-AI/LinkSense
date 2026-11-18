@@ -2148,7 +2148,12 @@ for (const width of [1440, 390]) {
     const unpublished = page.getByRole("article", {
       name: "Archived field notes",
     })
-    await expect(site.getByText(`/web/${slug}`)).toBeVisible()
+    await expect(site.getByText(`/web/${slug}`)).toHaveCount(0)
+    await expect(
+      site.getByRole("button", {
+        name: `复制 ${publishedSite.name} 的链接`,
+      })
+    ).toHaveCount(0)
     await expect(site.getByRole("link", { name: "访问" })).toHaveAttribute(
       "href",
       publishedSite.url
