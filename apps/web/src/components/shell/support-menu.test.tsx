@@ -84,7 +84,7 @@ describe("support menu", () => {
     async (locale, help, feedback) => {
       await i18n.changeLanguage(locale)
       const interaction = userEvent.setup()
-      renderSupportMenu("/knowledge-bases?tab=sites")
+      renderSupportMenu("/capabilities?section=application&app_scope=sites")
 
       await interaction.click(screen.getByRole("button", { name: "账户菜单" }))
       const menu = await screen.findByRole("menu")

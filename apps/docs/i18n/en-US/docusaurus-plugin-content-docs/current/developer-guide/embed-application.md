@@ -5,7 +5,7 @@ description: Securely embed a LinkSense application in an external business syst
 
 # Embed a LinkSense application
 
-An embedded LinkSense application shows only that application's chat interface. Users do not see the LinkSense main navigation, Plugin Center, or administration pages.
+An embedded LinkSense application shows only that application's chat interface. Users do not see the LinkSense main navigation, Apps & Tools, or administration pages.
 
 ## System maintenance
 

@@ -37,7 +37,7 @@ export const pluginResources = {
     confirmDeletions: "Je confirme la suppression de ces {{count}} fichiers",
   },
   marketplace: {
-    title: "Centre de plugins",
+    title: "Applications et outils",
     description:
       "Parcourez les plugins et compétences publics et gérez les éléments installés, vos contenus personnels et les connexions MCP au même endroit.",
     personalAccountDescription:
@@ -53,7 +53,7 @@ export const pluginResources = {
       reviews: "Demandes de référencement",
       listings: "Tous les éléments référencés",
     },
-    catalogTabsLabel: "Catégories du Centre de plugins",
+    catalogTabsLabel: "Catégories de la rubrique Applications et outils",
     catalogTabs: {
       plugin: "Plugins",
       skill: "Compétences",
@@ -214,7 +214,7 @@ export const pluginResources = {
       "Le plugin ou la compétence personnel actuel est copié dans un instantané immuable, soumis à la révision d’un administrateur.",
     sourceCapability: "Source du plugin ou de la compétence personnel",
     noPublishableSource:
-      "Aucun plugin ou compétence personnel publiable ne porte le même nom et le même type que cet élément. Importez ou mettez d’abord à jour la source dans le Centre.",
+      "Aucun plugin ni aucune compétence de même nom et de même type ne peut être publié. Importez ou mettez d’abord à jour la source dans Applications et outils.",
     immutableSnapshotNotice:
       "La révision porte sur un instantané indépendant et immuable. Les modifications ultérieures de votre contenu personnel ne peuvent pas changer cette version en attente.",
     submitForReview: "Soumettre à révision",
@@ -228,7 +228,7 @@ export const pluginResources = {
       "Vous n’avez encore soumis aucune application, aucun plugin ni aucune compétence.",
     publicationsDescription:
       "Gérez vos soumissions, suivez les révisions et publiez des mises à jour.",
-    backToCenter: "Retour au Centre de plugins",
+    backToCenter: "Retour à la rubrique Applications et outils",
     manageApplicationListing: "Gérer le référencement",
     selectApplication: "Choisir une application à référencer",
     selectApplicationDescription:

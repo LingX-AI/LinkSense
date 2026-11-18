@@ -1,17 +1,17 @@
 ---
 title: Discover, install, and update capabilities
-description: Install plugins, Skills, MCP extensions, and organization content from Plugin Center.
+description: Install plugins, Skills, MCP extensions, and organization content from Apps & Tools.
 ---
 
 # Discover, install, and update capabilities
 
-Plugin Center provides one catalog for published plugins, Skills, MCP extensions, and applications.
+Use Apps & Tools to manage applications and sites and find plugins, Skills, connectors, and MCP extensions.
 
 The **ClawHub Skill repository** is a separate external Skill source. See [Install Skills from ClawHub](./clawhub.md) for its pre-install checks and trust boundary.
 
 ## Browse and search
 
-1. Open **Plugin Center**.
+1. Open **Apps & Tools** from the sidebar.
 2. Select Plugins, Skills, MCP, or Applications.
 3. Search by name, description, or publisher.
 4. Open details and review the publisher, release notes, risk summary, manifest, and content hash.

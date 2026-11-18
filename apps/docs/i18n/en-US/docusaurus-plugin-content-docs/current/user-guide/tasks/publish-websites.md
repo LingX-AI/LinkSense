@@ -39,14 +39,15 @@ When publishing from a newer HTML deliverable, choose **Update existing site**, 
 - the source task becomes the task that supplied the new page;
 - an unpublished site remains unpublished until you republish it from **My sites**.
 
-You can also open **Resource library → My sites**, choose **Publish update** from a site's menu, and select an HTML deliverable from its current source task. If that task was deleted, start from a deliverable in another task and choose **Update existing site**.
+You can also choose **Publish update** from a site's menu in **My sites**, then select an HTML deliverable from its current source task. If that task was deleted, start from a deliverable in another task and choose **Update existing site**.
 
 ## Manage My sites
 
-Open **Resource library → My sites** to search by site name or link and filter by **Published** or **Unpublished**.
+Open **Apps & Tools → Applications → My sites** to search by site name or link and filter by **Published** or **Unpublished**. Existing Resource library site bookmarks open this tab with their filters intact.
 
 Each site provides these actions:
 
+- **Details:** select the site name to view the stable link, custom link, data service binding, source task, and publication information.
 - **Visit or copy link:** open the current public version or share its link.
 - **Edit:** change its name, description, or link name. Its stable application address stays the same, and previous link names still open the same app.
 - **Publish update:** select a newer HTML deliverable from the source task.

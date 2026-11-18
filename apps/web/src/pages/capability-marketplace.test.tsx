@@ -929,7 +929,7 @@ describe("capability marketplace pages", () => {
     renderUserPage()
 
     const catalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     expect(catalogTabs).toHaveAttribute("data-variant", "navigation")
     await interaction.click(
@@ -1866,7 +1866,7 @@ describe("capability marketplace pages", () => {
     renderUserPage()
 
     const catalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     await interaction.click(
       within(catalogTabs).getByRole("tab", { name: "技能" })
@@ -2018,7 +2018,7 @@ describe("capability marketplace pages", () => {
       within(header).queryByRole("button", { name: "插件中心" })
     ).not.toBeInTheDocument()
     const catalogTabs = screen.getByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     const expectAddButtonBesideSearch = (
       searchLabel: string,
@@ -2225,7 +2225,7 @@ describe("capability marketplace pages", () => {
     renderUserPageWithSettingsDestination()
 
     const catalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     const installedPluginList = await screen.findByRole("list", {
       name: "已安装的插件",
@@ -2395,7 +2395,7 @@ describe("capability marketplace pages", () => {
 
     await interaction.click(screen.getByRole("button", { name: "测试返回" }))
     const returnedCatalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     expect(
       within(returnedCatalogTabs).getByRole("tab", { name: "MCP" })
@@ -2506,7 +2506,7 @@ describe("capability marketplace pages", () => {
     const { router } = renderUserPageWithRouter("/capabilities?section=plugin")
 
     const catalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     await interaction.click(
       within(catalogTabs).getByRole("tab", { name: "应用" })
@@ -3483,7 +3483,7 @@ describe("capability marketplace pages", () => {
       renderUserPageWithApplicationCreateRoute()
 
       const catalogTabs = await screen.findByRole("tablist", {
-        name: "插件中心内容分类",
+        name: "应用与工具分类",
       })
       await interaction.click(
         within(catalogTabs).getByRole("tab", { name: "应用" })
@@ -4484,7 +4484,7 @@ describe("capability marketplace pages", () => {
     renderUserPage()
 
     const catalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     await interaction.click(
       within(catalogTabs).getByRole("tab", { name: "技能" })
@@ -4839,7 +4839,7 @@ describe("capability marketplace pages", () => {
     renderUserPage()
 
     const catalogTabs = await screen.findByRole("tablist", {
-      name: "插件中心内容分类",
+      name: "应用与工具分类",
     })
     await interaction.click(
       within(catalogTabs).getByRole("tab", { name: "技能" })

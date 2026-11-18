@@ -172,7 +172,7 @@ function mockCatalog(ownedApplications: Application[] = [owned, installed]) {
   })
 }
 
-describe("three application categories", () => {
+describe("application workspace categories", () => {
   it.each(supportedLocales)(
     "renders all application kinds in the same compact list in %s",
     async (language) => {
@@ -1450,6 +1450,7 @@ describe("three application categories", () => {
           .map((tab) => tab.textContent)
       ).toEqual([
         i18n.t("applications.distribution.myApplications"),
+        i18n.t("webSites.title"),
         i18n.t("applications.distribution.sharedApplications"),
         i18n.t("applications.distribution.center"),
       ])
@@ -1595,6 +1596,50 @@ describe("three application categories", () => {
     )
     expect(screen.getByTestId("application-location")).toHaveTextContent(
       "app_search=report"
+    )
+  })
+
+  it("loads sites only when activated and preserves each tab's search", async () => {
+    await i18n.changeLanguage("en-US")
+    mockCatalog()
+    show(
+      "/capabilities?section=application&app_search=report&site_search=water&site_status=published"
+    )
+    const user = userEvent.setup()
+    const tabs = within(
+      screen.getByRole("tablist", { name: i18n.t("applications.scopeLabel") })
+    )
+    const ownedTab = tabs.getByRole("tab", { name: "My applications" })
+    const siteTab = tabs.getByRole("tab", { name: "My sites" })
+
+    await user.click(ownedTab)
+    await user.keyboard("{ArrowRight}")
+    expect(siteTab).toHaveFocus()
+    expect(ownedTab).toHaveAttribute("aria-selected", "true")
+    expect(apiRequest).not.toHaveBeenCalledWith("/web-sites", expect.anything())
+    await user.keyboard("{Enter}")
+    expect(siteTab).toHaveAttribute("aria-selected", "true")
+    expect(
+      screen.getByRole("textbox", { name: i18n.t("webSites.search") })
+    ).toHaveValue("water")
+    expect(
+      screen.queryByRole("textbox", { name: i18n.t("applications.search") })
+    ).not.toBeInTheDocument()
+    expect(apiRequest).toHaveBeenCalledWith(
+      "/web-sites",
+      expect.objectContaining({
+        query: expect.objectContaining({
+          search: "water",
+          status: "published",
+        }),
+      })
+    )
+    await user.click(ownedTab)
+    expect(
+      screen.getByRole("textbox", { name: i18n.t("applications.search") })
+    ).toHaveValue("report")
+    expect(screen.getByTestId("application-location")).toHaveTextContent(
+      "site_search=water"
     )
   })
 

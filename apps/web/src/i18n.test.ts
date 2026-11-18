@@ -1054,7 +1054,7 @@ describe("i18n resources", () => {
     )
   })
 
-  it("uses Plugin Center terminology in every user-visible translation", () => {
+  it("keeps publication governance and catalog categories distinct from the workspace name", () => {
     expect(
       leafStrings(zhCN).filter((value) => /(商店|商城)/u.test(value))
     ).toEqual([])
@@ -1063,9 +1063,7 @@ describe("i18n resources", () => {
         /\b(?:marketplace|store)\b/iu.test(value)
       )
     ).toEqual([])
-    expect(zhCN.nav.capabilities).toBe("插件中心")
     expect(zhCN.nav.adminCapabilities).toBe("插件中心")
-    expect(zhCN.marketplace.title).toBe("插件中心")
     expect(zhCN.marketplace.adminTitle).toBe("插件中心")
     expect(zhCN.marketplace.catalogTabs).toEqual({
       plugin: "插件",
@@ -1074,9 +1072,7 @@ describe("i18n resources", () => {
       mcp: "MCP",
       application: "应用",
     })
-    expect(enUS.nav.capabilities).toBe("Plugin Center")
     expect(enUS.nav.adminCapabilities).toBe("Plugin Center")
-    expect(enUS.marketplace.title).toBe("Plugin Center")
     expect(enUS.marketplace.adminTitle).toBe("Plugin Center")
     expect(enUS.marketplace.catalogTabs).toEqual({
       plugin: "Plugins",
@@ -1091,6 +1087,29 @@ describe("i18n resources", () => {
     expect(
       leafStrings(enUS).filter((value) => /Skill Center/iu.test(value))
     ).toEqual([])
+  })
+
+  it.each([
+    ["zh-CN", "应用与工具"],
+    ["en-US", "Apps & Tools"],
+    ["es-ES", "Apps y herramientas"],
+    ["pt-BR", "Apps e ferramentas"],
+    ["fr-FR", "Applications et outils"],
+    ["ja-JP", "アプリとツール"],
+  ])("uses the localized workspace name in %s", (locale, label) => {
+    const keys = [
+      "nav.capabilities",
+      "marketplace.title",
+      "marketplace.backToCenter",
+      "marketplace.catalogTabsLabel",
+      "marketplace.noPublishableSource",
+    ]
+    const fallback = i18n.cloneInstance({ forkResourceStore: true })
+    if (locale !== "zh-CN") fallback.removeResourceBundle(locale, "translation")
+    for (const key of keys) {
+      expect(i18n.getResource(locale, "translation", key)).toContain(label)
+      expect(fallback.t(key, { lng: locale })).toContain("应用与工具")
+    }
   })
 
   it("uses audit log terminology in navigation and page titles", () => {

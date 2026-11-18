@@ -56,7 +56,7 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "category",
-          label: "插件中心",
+          label: "应用与工具",
           items: [
             "user-guide/plugin-center/discover-and-install",
             "user-guide/plugin-center/clawhub",

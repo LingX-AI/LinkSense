@@ -1190,7 +1190,7 @@ for (const width of [1440, 390]) {
       "/capabilities?section=mcp",
       "/knowledge-bases",
       "/knowledge-bases?tab=artifacts",
-      "/knowledge-bases?tab=sites",
+      "/capabilities?section=application&app_scope=sites",
     ]) {
       await page.goto(route)
       await expect(
@@ -1250,6 +1250,13 @@ for (const width of [1440, 390]) {
       })
     )
     await page.goto("/knowledge-bases?tab=sites")
+    await expect(page).toHaveURL(
+      /\/capabilities\?section=application&app_scope=sites$/u
+    )
+    await expect(page.getByRole("tab", { name: "我的站点" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    )
     await page.getByRole("button", { name: "管理 Figma site" }).click()
     await page.getByRole("menuitem", { name: "编辑", exact: true }).click()
     const siteDialog = page.getByRole("dialog", { name: "编辑站点" })
@@ -2107,7 +2114,7 @@ test("design icon controls and selected navigation survive forced colors", async
     page.getByRole("dialog").locator('[data-design-icon="close"]')
   ).toHaveCSS("forced-color-adjust", "none")
   await page.keyboard.press("Escape")
-  await sidebar.getByRole("link", { name: "插件中心" }).click()
+  await sidebar.getByRole("link", { name: "应用与工具" }).click()
   const selected = page
     .locator('[data-variant="navigation"]')
     .getByRole("tab", { selected: true })
@@ -3343,7 +3350,7 @@ test("sidebars share the design palette and preserve distinct active states in b
   await expect(
     appSidebar.locator(".sidebar-conversation-item.sidebar-link-active")
   ).toHaveCSS("background-color", "color(srgb 0.0313726 0.454902 1 / 0.06)")
-  const capabilitiesLink = appSidebar.getByRole("link", { name: "插件中心" })
+  const capabilitiesLink = appSidebar.getByRole("link", { name: "应用与工具" })
   await capabilitiesLink.hover()
   await expect(capabilitiesLink).toHaveCSS(
     "background-color",
@@ -3869,7 +3876,7 @@ test("navigation, menus, and tabs preserve the design typography hierarchy", asy
   await expect(
     sidebar.getByRole("link", { name: "任务", exact: true })
   ).toHaveCount(0)
-  await expect(sidebar.getByRole("link", { name: "插件中心" })).toHaveAttribute(
+  await expect(sidebar.getByRole("link", { name: "应用与工具" })).toHaveAttribute(
     "href",
     "/capabilities"
   )
@@ -6214,7 +6221,10 @@ for (const locale of supportedLocales) {
     )
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 1000 })
-      for (const route of ["/automations", "/knowledge-bases?tab=sites"]) {
+      for (const route of [
+        "/automations",
+        "/capabilities?section=application&app_scope=sites",
+      ]) {
         await page.goto(route)
         await expect(page.locator("html")).toHaveAttribute("lang", locale)
         await page.locator('main [data-slot="dropdown-menu-trigger"]').click()

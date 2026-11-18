@@ -220,7 +220,7 @@ export const settingsResources = {
     channelAccessDescription:
       "Gérer Weixin, WeCom, DingTalk, Teams, Feishu et les autres canaux",
     capabilitiesDescription:
-      "Parcourir le Centre de plugins et gérer les plugins et compétences personnels",
+      "Parcourez et gérez les applications, les sites et les outils",
     archivedDescription: "Consulter les tâches archivées",
     usersDescription:
       "Gérer les comptes, les rôles et les états des utilisateurs",

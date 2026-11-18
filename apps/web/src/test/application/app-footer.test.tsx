@@ -10,7 +10,7 @@ import {
 
 const sections = [
   { path: "/automations", label: "自动化" },
-  { path: "/capabilities", label: "插件中心" },
+  { path: "/capabilities", label: "应用与工具" },
   { path: "/knowledge-bases", label: "资料库" },
 ]
 

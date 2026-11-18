@@ -10,10 +10,53 @@ import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { StrictMode } from "react"
 import { MemoryRouter } from "react-router-dom"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 describe("LinkSense application", () => {
   setupApplicationTests()
+
+  it("opens a legacy site bookmark with its filters for a personal account", async () => {
+    const { fetchMock } = installApiMock({
+      userOverride: { registration_source: "self_registration" },
+    })
+    const siteRequests: URL[] = []
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), window.location.origin)
+      if (url.pathname !== "/api/v1/web-sites") return fetchMock(input, init)
+      siteRequests.push(url)
+      return Promise.resolve(
+        json({ success: true, data: { items: [], next_cursor: null } })
+      )
+    })
+
+    renderApp(
+      "/knowledge-bases?tab=sites&site_search=water&site_status=disabled"
+    )
+
+    expect(
+      await screen.findByRole("tab", { name: "我的站点" })
+    ).toHaveAttribute("aria-selected", "true")
+    expect(
+      screen.getByRole("heading", { name: "应用", level: 1 })
+    ).toBeVisible()
+    expect(screen.getByRole("tab", { name: "我的应用" })).toBeVisible()
+    expect(
+      screen.queryByRole("tab", { name: "共享我的" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("tab", { name: "应用中心" })
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "创建应用" })).toBeVisible()
+    expect(await screen.findByText("没有找到匹配的站点")).toBeVisible()
+    expect(siteRequests).toHaveLength(1)
+    expect(
+      Object.fromEntries(siteRequests[0]?.searchParams ?? [])
+    ).toMatchObject({
+      search: "water",
+      status: "disabled",
+    })
+  })
+
   it("redirects an uninitialized system to the first-administrator wizard", async () => {
     installApiMock({ initialized: false, refreshFails: true })
     renderApp("/login")

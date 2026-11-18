@@ -182,7 +182,7 @@ export const enUS = {
     automations: "Automations",
     conversations: "Tasks",
     archived: "Archived tasks",
-    capabilities: "Plugin Center",
+    capabilities: "Apps & Tools",
     knowledgeBases: "Resource library",
     pinned: "Pinned",
     projects: "Projects",
@@ -462,8 +462,7 @@ export const enUS = {
     channelAccess: "Message channels",
     channelAccessDescription:
       "Manage Weixin, WeCom, DingTalk, Teams, Feishu, and other channels",
-    capabilitiesDescription:
-      "Browse the Plugin Center and manage personal plugins and Skills",
+    capabilitiesDescription: "Browse and manage apps, sites, and tools",
     archivedDescription: "View archived tasks",
     usersDescription: "Manage user accounts, roles, and status",
     rolesDescription: "Review fixed roles and permission boundaries",
@@ -3350,7 +3349,7 @@ export const enUS = {
     confirmDeletions: "I confirm deleting these {{count}} files",
   },
   marketplace: {
-    title: "Plugin Center",
+    title: "Apps & Tools",
     description:
       "Browse public plugins and Skills, and manage installed content, personal content, and MCP connections in one place.",
     personalAccountDescription:
@@ -3366,7 +3365,7 @@ export const enUS = {
       reviews: "Listing reviews",
       listings: "All listings",
     },
-    catalogTabsLabel: "Plugin Center content categories",
+    catalogTabsLabel: "Apps & Tools categories",
     catalogTabs: {
       plugin: "Plugins",
       skill: "Skills",
@@ -3525,7 +3524,7 @@ export const enUS = {
       "The current personal plugin or skill is copied into an immutable snapshot and submitted for administrator review.",
     sourceCapability: "Personal plugin/skill source",
     noPublishableSource:
-      "No publishable personal plugin or skill has the same name and type as this listing. Import or update the source in the Plugin Center first.",
+      "No publishable personal plugin or skill has the same name and type as this listing. Import or update the source in Apps & Tools first.",
     immutableSnapshotNotice:
       "Review applies to an independent immutable snapshot. Later edits to your personal plugin or skill cannot change this pending release.",
     submitForReview: "Submit for review",
@@ -3538,7 +3537,7 @@ export const enUS = {
       "You have not submitted any applications, plugins, or skills yet.",
     publicationsDescription:
       "Manage your submitted applications, plugins, and skills, track reviews, and publish updates.",
-    backToCenter: "Back to plugin center",
+    backToCenter: "Back to Apps & Tools",
     manageApplicationListing: "Manage listing",
     selectApplication: "Select an application to list",
     selectApplicationDescription:

@@ -435,7 +435,7 @@ export const ptBR = {
     automations: "Automações",
     conversations: "Tarefas",
     archived: "Tarefas arquivadas",
-    capabilities: "Central de plugins",
+    capabilities: "Apps e ferramentas",
     knowledgeBases: "Biblioteca de recursos",
     pinned: "Fixados",
     projects: "Projetos",
@@ -716,8 +716,7 @@ export const ptBR = {
     channelAccess: "Canais de mensagens",
     channelAccessDescription:
       "Gerencie Weixin, WeCom, DingTalk, Teams, Feishu e outros canais",
-    capabilitiesDescription:
-      "Explore a Central de plugins e gerencie seus plugins e habilidades pessoais",
+    capabilitiesDescription: "Explore e gerencie apps, sites e ferramentas",
     archivedDescription: "Ver tarefas arquivadas",
     usersDescription: "Gerencie contas, funções e status dos usuários",
     rolesDescription: "Consulte as funções fixas e seus limites de permissão",
@@ -3679,7 +3678,7 @@ export const ptBR = {
     confirmDeletions: "Confirmo a exclusão destes {{count}} arquivos",
   },
   marketplace: {
-    title: "Central de plugins",
+    title: "Apps e ferramentas",
     description:
       "Explore plugins e habilidades públicos e gerencie conteúdos instalados, conteúdos pessoais e conexões MCP em um só lugar.",
     personalAccountDescription:
@@ -3695,7 +3694,7 @@ export const ptBR = {
       reviews: "Revisões de listagem",
       listings: "Todas as listagens",
     },
-    catalogTabsLabel: "Categorias de conteúdo da Central de plugins",
+    catalogTabsLabel: "Categorias de Apps e ferramentas",
     catalogTabs: {
       plugin: "Plugins",
       skill: "Habilidades",
@@ -3857,7 +3856,7 @@ export const ptBR = {
       "O plugin ou habilidade pessoal atual é copiado para uma versão imutável e enviado para revisão do administrador.",
     sourceCapability: "Origem do plugin/habilidade pessoal",
     noPublishableSource:
-      "Nenhum plugin ou habilidade pessoal publicável tem o mesmo nome e tipo desta listagem. Importe ou atualize a origem na Central de plugins primeiro.",
+      "Nenhum plugin ou habilidade pessoal publicável tem o mesmo nome e tipo desta listagem. Primeiro, importe ou atualize a origem em Apps e ferramentas.",
     immutableSnapshotNotice:
       "A revisão se aplica a uma versão imutável independente. Edições posteriores no seu plugin ou habilidade pessoal não alteram esta versão pendente.",
     submitForReview: "Enviar para revisão",
@@ -3870,7 +3869,7 @@ export const ptBR = {
       "Você ainda não enviou aplicativos, plugins ou habilidades.",
     publicationsDescription:
       "Gerencie seus aplicativos, plugins e habilidades enviados, acompanhe as revisões e publique atualizações.",
-    backToCenter: "Voltar à Central de plugins",
+    backToCenter: "Voltar para Apps e ferramentas",
     manageApplicationListing: "Gerenciar listagem",
     selectApplication: "Selecionar um aplicativo para listar",
     selectApplicationDescription:

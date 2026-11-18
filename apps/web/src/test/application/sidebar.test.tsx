@@ -1827,7 +1827,7 @@ describe("LinkSense application", () => {
       name: "自动化",
     })
     const capabilitiesLink = within(sidebar).getByRole("link", {
-      name: "插件中心",
+      name: "应用与工具",
     })
     const knowledgeBasesLink = within(sidebar).getByRole("link", {
       name: "资料库",
@@ -1909,7 +1909,7 @@ describe("LinkSense application", () => {
       name: "自动化",
     })
     const pluginLink = within(sidebar).getByRole("link", {
-      name: "插件中心",
+      name: "应用与工具",
     })
     const knowledgeBaseLink = within(sidebar).getByRole("link", {
       name: "资料库",

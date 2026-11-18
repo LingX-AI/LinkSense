@@ -29,7 +29,7 @@ export const settingsMessages = {
     channelAccessDescription:
       "Gestiona Weixin, WeCom, DingTalk, Teams, Feishu y otros canales",
     capabilitiesDescription:
-      "Explora el centro de plugins y gestiona tus plugins y Skills",
+      "Explora y gestiona apps, sitios y herramientas",
     archivedDescription: "Consulta las tareas archivadas",
     usersDescription: "Gestiona cuentas, roles y estados de usuarios",
     rolesDescription: "Consulta los roles predefinidos y sus permisos",

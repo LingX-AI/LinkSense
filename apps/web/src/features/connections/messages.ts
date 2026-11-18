@@ -36,10 +36,10 @@ export const connectionMessages = {
     errors: {
       fileConflict: "文件已被修改或存在同名文件，请重新读取文件状态后再操作。",
       writeRequired:
-        "当前连接仅有读取权限，请在插件中心的「连接器」中启用读写并重新授权。",
+        "当前连接仅有读取权限，请在「应用与工具 → 连接器」中启用读写并重新授权。",
       notConfigured: "管理员尚未配置此连接。",
       authFailed: "授权未完成或已失效，请重新连接。",
-      required: "请先在插件中心的「连接器」中连接此服务。",
+      required: "请先在「应用与工具 → 连接器」中连接此服务。",
       unavailable: "暂时无法访问此服务，请稍后重试。",
       accessDenied: "当前账号无法访问此内容，请检查账号和权限。",
       fileTooLarge:
@@ -88,10 +88,10 @@ export const connectionMessages = {
       fileConflict:
         "The file has changed or a file with this name already exists. Read its current state before trying again.",
       writeRequired:
-        "This connection only allows reading. Enable read and write in Plugin Center → Connectors and authorize again.",
+        "This connection only allows reading. Enable read and write in Apps & Tools → Connectors and authorize again.",
       notConfigured: "An administrator must configure this connection first.",
       authFailed: "Authorization failed or expired. Connect again.",
-      required: "Connect this service in Plugin Center → Connectors first.",
+      required: "Connect this service in Apps & Tools → Connectors first.",
       unavailable: "This service is temporarily unavailable. Try again later.",
       accessDenied:
         "This account cannot access this content. Check your account and permissions.",
@@ -141,10 +141,10 @@ export const connectionMessages = {
       fileConflict:
         "El archivo ha cambiado o ya existe otro con ese nombre. Consulta su estado actual antes de volver a intentarlo.",
       writeRequired:
-        "Esta conexión solo permite leer. Activa la lectura y escritura en Centro de plugins → Conectores y autoriza de nuevo.",
+        "Esta conexión solo permite leer. Activa la lectura y escritura en Apps y herramientas → Conectores y autoriza de nuevo.",
       notConfigured: "Un administrador debe configurar esta conexión.",
       authFailed: "La autorización falló o caducó. Vuelve a conectar.",
-      required: "Conecta este servicio en Centro de plugins → Conectores.",
+      required: "Conecta este servicio en Apps y herramientas → Conectores.",
       unavailable:
         "Este servicio no está disponible temporalmente. Inténtalo más tarde.",
       accessDenied:
@@ -195,10 +195,10 @@ export const connectionMessages = {
       fileConflict:
         "O arquivo mudou ou já existe outro com esse nome. Consulte o estado atual antes de tentar novamente.",
       writeRequired:
-        "Esta conexão permite apenas leitura. Ative a leitura e gravação em Central de plugins → Conectores e autorize novamente.",
+        "Esta conexão permite apenas leitura. Ative a leitura e gravação em Apps e ferramentas → Conectores e autorize novamente.",
       notConfigured: "Um administrador precisa configurar esta conexão.",
       authFailed: "A autorização falhou ou expirou. Conecte novamente.",
-      required: "Conecte este serviço em Central de plugins → Conectores.",
+      required: "Conecte este serviço em Apps e ferramentas → Conectores.",
       unavailable:
         "Este serviço está temporariamente indisponível. Tente mais tarde.",
       accessDenied:
@@ -250,10 +250,10 @@ export const connectionMessages = {
       fileConflict:
         "Le fichier a été modifié ou un fichier de ce nom existe déjà. Consultez son état actuel avant de réessayer.",
       writeRequired:
-        "Cette connexion permet uniquement la lecture. Activez l’écriture dans Centre de plugins → Connecteurs et autorisez à nouveau l’accès.",
+        "Cette connexion permet uniquement la lecture. Activez l’écriture dans Applications et outils → Connecteurs et autorisez à nouveau l’accès.",
       notConfigured: "Un administrateur doit configurer cette connexion.",
       authFailed: "L’autorisation a échoué ou a expiré. Reconnectez-vous.",
-      required: "Connectez ce service dans Centre de plugins → Connecteurs.",
+      required: "Connectez ce service dans Applications et outils → Connecteurs.",
       unavailable:
         "Ce service est temporairement indisponible. Réessayez plus tard.",
       accessDenied:
@@ -303,12 +303,12 @@ export const connectionMessages = {
       fileConflict:
         "ファイルが変更されたか、同じ名前のファイルが存在します。最新の状態を確認してから再試行してください。",
       writeRequired:
-        "この接続は読み取り専用です。プラグインセンターの「コネクター」で書き込みを許可し、再認証してください。",
+        "この接続は読み取り専用です。「アプリとツール → コネクター」で書き込みを許可し、再認証してください。",
       notConfigured: "管理者による接続設定が必要です。",
       authFailed:
         "認証が完了しなかったか、有効期限が切れました。再接続してください。",
       required:
-        "先にプラグインセンターの「コネクター」でこのサービスに接続してください。",
+        "先に「アプリとツール → コネクター」でこのサービスに接続してください。",
       unavailable:
         "現在このサービスにアクセスできません。しばらくしてから再試行してください。",
       accessDenied:

@@ -127,7 +127,7 @@ export const esES = {
     automations: "Automatizaciones",
     conversations: "Tareas",
     archived: "Tareas archivadas",
-    capabilities: "Centro de complementos",
+    capabilities: "Apps y herramientas",
     knowledgeBases: "Biblioteca de recursos",
     pinned: "Fijados",
     projects: "Proyectos",

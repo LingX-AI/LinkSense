@@ -435,7 +435,7 @@ export const jaJP = {
     automations: "自動化",
     conversations: "タスク",
     archived: "アーカイブ済みタスク",
-    capabilities: "プラグインセンター",
+    capabilities: "アプリとツール",
     knowledgeBases: "リソースライブラリ",
     pinned: "ピン留め",
     projects: "プロジェクト",
@@ -708,8 +708,7 @@ export const jaJP = {
     channelAccess: "メッセージチャネル",
     channelAccessDescription:
       "Weixin、WeCom、DingTalk、Teams、Feishu などのチャネルを管理",
-    capabilitiesDescription:
-      "プラグインセンターを閲覧し、個人のプラグインとスキルを管理",
+    capabilitiesDescription: "アプリ、サイト、ツールを探して管理します",
     archivedDescription: "アーカイブ済みタスクを表示",
     usersDescription: "ユーザーアカウント、ロール、ステータスを管理",
     rolesDescription: "固定ロールと権限の範囲を確認",
@@ -3617,7 +3616,7 @@ export const jaJP = {
       "これら {{count}} 個のファイルを削除することを確認しました",
   },
   marketplace: {
-    title: "プラグインセンター",
+    title: "アプリとツール",
     description:
       "公開プラグインとスキルを閲覧し、インストール済みコンテンツ、個人用コンテンツ、MCP 接続を一元管理します。",
     personalAccountDescription:
@@ -3633,7 +3632,7 @@ export const jaJP = {
       reviews: "掲載審査",
       listings: "すべての掲載項目",
     },
-    catalogTabsLabel: "プラグインセンターのカテゴリ",
+    catalogTabsLabel: "アプリとツールのカテゴリ",
     catalogTabs: {
       plugin: "プラグイン",
       skill: "スキル",
@@ -3799,7 +3798,7 @@ export const jaJP = {
       "現在の個人用プラグインまたはスキルを変更不可のスナップショットとしてコピーし、管理者に審査を申請します。",
     sourceCapability: "個人用プラグイン・スキルのソース",
     noPublishableSource:
-      "この掲載項目と同じ名前・種類の公開可能な個人用プラグインまたはスキルがありません。先にプラグインセンターでソースをインポートまたは更新してください。",
+      "この掲載項目と同じ名前・種類の公開可能な個人用プラグインまたはスキルがありません。先に「アプリとツール」でソースをインポートまたは更新してください。",
     immutableSnapshotNotice:
       "審査対象は独立した変更不可のスナップショットです。後から個人用プラグインやスキルを編集しても、この審査中のリリースは変わりません。",
     submitForReview: "審査を申請",
@@ -3812,7 +3811,7 @@ export const jaJP = {
       "アプリケーション、プラグイン、スキルの申請はまだありません。",
     publicationsDescription:
       "申請済みのアプリケーション、プラグイン、スキルを管理し、審査状況を確認して更新を公開します。",
-    backToCenter: "プラグインセンターに戻る",
+    backToCenter: "アプリとツールに戻る",
     manageApplicationListing: "掲載項目を管理",
     selectApplication: "掲載するアプリケーションを選択",
     selectApplicationDescription:

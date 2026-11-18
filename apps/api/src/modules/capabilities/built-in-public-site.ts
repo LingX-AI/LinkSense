@@ -229,7 +229,8 @@ Return the publishing tool's URL, not a URL inferred from backend preparation.
   already authorized rename.
 - Unpublish with \`update_web_site\` and \`status: "disabled"\`. Republish with
   \`status: "published"\`. Deleting a site is a destructive action and should be
-  left to the user in “资料库 → 我的站点” unless they explicitly ask for it.
+  left to the user in Apps & Tools → Applications → My sites unless they
+  explicitly ask for it.
 
 ## Safety
 

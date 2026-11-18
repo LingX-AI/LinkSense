@@ -3,7 +3,7 @@ import type { Locale } from "@linksense/shared"
 export const workspaceUiDemoMessages = {
   "zh-CN": {
     readOnly:
-      "本地 UI 测试数据 · 自动化、插件中心和资料库均为虚构示例，仅供浏览，不会执行任务或修改真实数据。",
+      "本地 UI 测试数据 · 自动化、应用与工具和资料库均为虚构示例，仅供浏览，不会执行任务或修改真实数据。",
     exit: "退出示例",
   },
   "en-US": {

@@ -5,7 +5,7 @@ description: 在外部业务系统中安全嵌入 LinkSense 应用，并传递 H
 
 # 嵌入 LinkSense 应用
 
-把 LinkSense 应用嵌入业务系统后，用户只会看到该应用的聊天界面，不会看到 LinkSense 的主导航、插件中心或管理页面。
+把 LinkSense 应用嵌入业务系统后，用户只会看到该应用的聊天界面，不会看到 LinkSense 的主导航、应用与工具或管理页面。
 
 ## 系统维护
 

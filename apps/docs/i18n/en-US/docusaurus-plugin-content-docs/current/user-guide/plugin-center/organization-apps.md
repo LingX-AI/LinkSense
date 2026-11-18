@@ -11,7 +11,7 @@ Applications can be standard or interactive. An interactive application opens a 
 
 ## Find an application
 
-Open **Plugin Center → Applications**:
+Open **Apps & Tools → Applications**:
 
 - **Shared with me** contains versions granted directly to you or one of your groups.
 - **Application Center** contains administrator-approved public releases.

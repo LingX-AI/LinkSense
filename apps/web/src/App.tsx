@@ -5,7 +5,7 @@ import {
 import { lazy, Suspense } from "react"
 import { SocialCallbackPage } from "@/features/social-auth/social-callback-page"
 import { useTranslation } from "react-i18next"
-import { Navigate, Route, Routes } from "react-router-dom"
+import { Navigate, Route, Routes, useSearchParams } from "react-router-dom"
 
 import {
   AdminRoute,
@@ -14,6 +14,7 @@ import {
   PublicAuthRoute,
 } from "@/app/route-guards"
 import { ApplicationOpeningPage } from "@/features/applications/application-opening-page"
+import { webSiteManagementPath } from "@/features/web-sites/site-navigation"
 import { AppShell } from "@/components/shell/app-shell"
 import { SettingsShell } from "@/components/shell/settings-shell"
 import { EmptyState, LoadingState } from "@/components/feedback/page-state"
@@ -77,6 +78,7 @@ const KnowledgeBaseListPage = lazy(() =>
     default: module.KnowledgeBaseListPage,
   }))
 )
+
 const KnowledgeBaseDetailPage = lazy(() =>
   import("@/pages/knowledge-base-pages").then((module) => ({
     default: module.KnowledgeBaseDetailPage,
@@ -235,6 +237,15 @@ function NotFoundPage() {
         description={t("common.notFoundDescription")}
       />
     </div>
+  )
+}
+
+function ResourceLibraryRoute() {
+  const [searchParams] = useSearchParams()
+  return searchParams.get("tab") === "sites" ? (
+    <Navigate to={webSiteManagementPath(searchParams)} replace />
+  ) : (
+    <KnowledgeBaseListPage />
   )
 }
 
@@ -443,7 +454,7 @@ export function App() {
               />
               <Route
                 path="/knowledge-bases"
-                element={<KnowledgeBaseListPage />}
+                element={<ResourceLibraryRoute />}
               />
               <Route
                 path="/knowledge-bases/:knowledgeBaseId"

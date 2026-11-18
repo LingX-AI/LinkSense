@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { SiteLibrary } from "@/features/web-sites/site-library"
 import { ApplicationCatalogPanel } from "./application-catalog-panel"
 import { ApplicationSetupDialog } from "./application-setup-dialog"
 import {
@@ -64,6 +65,8 @@ export function ApplicationsWorkspacePanel(
     searchParams,
     organizationSharingEnabled
   )
+  const normalizeMarketplaceScope =
+    !organizationSharingEnabled && searchParams.get("scope") === "public"
   const search = searchParams.get("app_search") ?? ""
   const state = readUrlEnum(
     searchParams,
@@ -82,12 +85,16 @@ export function ApplicationsWorkspacePanel(
   const [setupTarget, setSetupTarget] = useState<Application | null>(null)
   const startInstalled = useOpenApplicationConversation()
   useEffect(() => {
-    if (organizationSharingEnabled || requestedTab === "owned") return
+    if (!normalizeMarketplaceScope && requestedTab === tab) return
     setSearchParams(
-      (current) => updateUrlSearchParams(current, { app_scope: "owned" }),
+      (current) =>
+        updateUrlSearchParams(current, {
+          ...(normalizeMarketplaceScope ? { scope: "personal" } : {}),
+          ...(requestedTab !== tab ? { app_scope: tab } : {}),
+        }),
       { replace: true }
     )
-  }, [organizationSharingEnabled, requestedTab, setSearchParams])
+  }, [normalizeMarketplaceScope, requestedTab, setSearchParams, tab])
   const selectTab = (value: string) => {
     setSearchParams(
       (current) => updateUrlSearchParams(current, { app_scope: value }),
@@ -115,83 +122,91 @@ export function ApplicationsWorkspacePanel(
         data-slot="application-catalog-toolbar"
         className="flex min-w-0 flex-col gap-6"
       >
-        {organizationSharingEnabled && (
-          <TabsList
-            variant="catalog"
-            aria-label={t("applications.scopeLabel")}
-            className="justify-start"
-          >
-            <TabsTrigger value="owned" className="flex-none">
-              {t("applications.distribution.myApplications")}
-            </TabsTrigger>
-            <TabsTrigger value="shared" className="flex-none">
-              {t("applications.distribution.sharedApplications")}
-            </TabsTrigger>
-            <TabsTrigger value="center" className="flex-none">
-              {t("applications.distribution.center")}
-            </TabsTrigger>
-          </TabsList>
-        )}
-        <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
-          <InputGroup className="min-w-0 flex-1 basis-64">
-            <InputGroupAddon className="pl-3">
-              <SearchIcon aria-hidden="true" />
-            </InputGroupAddon>
-            <SearchInput
-              aria-label={t(
-                tab === "center"
-                  ? "applications.distribution.centerSearch"
-                  : "applications.search"
-              )}
-              placeholder={t("applications.searchPlaceholder")}
-              value={tab === "center" ? centerSearch : search}
-              onValueChange={(value) => {
-                if (tab === "center") {
-                  setCenterSearch(value)
-                } else {
+        <TabsList
+          variant="catalog"
+          aria-label={t("applications.scopeLabel")}
+          activateOnFocus={false}
+          className="justify-start"
+        >
+          <TabsTrigger value="owned" className="flex-none">
+            {t("applications.distribution.myApplications")}
+          </TabsTrigger>
+          <TabsTrigger value="sites" className="flex-none">
+            {t("webSites.title")}
+          </TabsTrigger>
+          {organizationSharingEnabled && (
+            <>
+              <TabsTrigger value="shared" className="flex-none">
+                {t("applications.distribution.sharedApplications")}
+              </TabsTrigger>
+              <TabsTrigger value="center" className="flex-none">
+                {t("applications.distribution.center")}
+              </TabsTrigger>
+            </>
+          )}
+        </TabsList>
+        {tab !== "sites" && (
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+            <InputGroup className="min-w-0 flex-1 basis-64">
+              <InputGroupAddon className="pl-3">
+                <SearchIcon aria-hidden="true" />
+              </InputGroupAddon>
+              <SearchInput
+                aria-label={t(
+                  tab === "center"
+                    ? "applications.distribution.centerSearch"
+                    : "applications.search"
+                )}
+                placeholder={t("applications.searchPlaceholder")}
+                value={tab === "center" ? centerSearch : search}
+                onValueChange={(value) => {
+                  if (tab === "center") {
+                    setCenterSearch(value)
+                  } else {
+                    setSearchParams(
+                      (current) =>
+                        updateUrlSearchParams(current, { app_search: value }),
+                      { replace: true }
+                    )
+                  }
+                }}
+              />
+            </InputGroup>
+            {tab === "owned" && (
+              <Select
+                items={stateOptions}
+                value={state}
+                onValueChange={(value) => {
+                  if (!value) return
                   setSearchParams(
                     (current) =>
-                      updateUrlSearchParams(current, { app_search: value }),
+                      updateUrlSearchParams(current, {
+                        app_state: value === "all" ? null : value,
+                      }),
                     { replace: true }
                   )
-                }
-              }}
-            />
-          </InputGroup>
-          {tab === "owned" && (
-            <Select
-              items={stateOptions}
-              value={state}
-              onValueChange={(value) => {
-                if (!value) return
-                setSearchParams(
-                  (current) =>
-                    updateUrlSearchParams(current, {
-                      app_state: value === "all" ? null : value,
-                    }),
-                  { replace: true }
-                )
-              }}
-            >
-              <SelectTrigger
-                aria-label={t("applicationDevelopment.catalog.filter")}
-                className="shrink-0"
+                }}
               >
-                <ListFilterIcon aria-hidden="true" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end" alignItemWithTrigger={false}>
-                <SelectGroup>
-                  {stateOptions.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          )}
-        </div>
+                <SelectTrigger
+                  aria-label={t("applicationDevelopment.catalog.filter")}
+                  className="shrink-0"
+                >
+                  <ListFilterIcon aria-hidden="true" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end" alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    {stateOptions.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+        )}
       </div>
       <TabsContent value="owned">
         {tab === "owned" && (
@@ -202,6 +217,9 @@ export function ApplicationsWorkspacePanel(
             state={state}
           />
         )}
+      </TabsContent>
+      <TabsContent value="sites">
+        {tab === "sites" && <SiteLibrary />}
       </TabsContent>
       {organizationSharingEnabled && (
         <>

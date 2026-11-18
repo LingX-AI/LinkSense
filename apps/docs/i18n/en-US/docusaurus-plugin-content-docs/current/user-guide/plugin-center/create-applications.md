@@ -23,7 +23,7 @@ Click the body of an application card in **My applications**, **Shared with me**
 
 ## Create a standard application
 
-1. Go to **Plugin Center → Applications → My applications**.
+1. Go to **Apps & Tools → Applications → My applications**.
 2. Select **Create application → Create standard application**.
 3. Enter a name and description and choose a preset icon or upload an image. Standard and interactive applications default to the colorful cube icon. Existing icon settings are preserved.
 4. Fix a model and reasoning effort, or let users choose them in chat.
@@ -79,6 +79,6 @@ For both standard and interactive apps, choose **Edit**, then **Save**. Editing 
 - Configuration edits are saved to the current application. Use **Save sharing** to update organization sharing, and update the Application Center listing separately. Neither action rewrites running turns or historical results.
 - Disabling prevents new tasks but keeps existing task history.
 - The application becomes unavailable when a required dependency is disabled, deleted, or no longer accessible. Repair the dependency before enabling or testing again.
-- Deleting removes the application from the Plugin Center and prevents new tasks; it does not delete users' existing tasks.
+- Deleting removes the application from the Apps & Tools and prevents new tasks; it does not delete users' existing tasks.
 
 Before organizational release, also review [sharing and external access](./application-access.md) and [application usage](./application-usage.md).

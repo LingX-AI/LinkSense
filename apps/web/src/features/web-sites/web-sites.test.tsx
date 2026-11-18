@@ -42,7 +42,10 @@ const site = webSiteSchema.parse({
   updated_at: "2026-09-17T09:00:00.000Z",
 })
 const clients: QueryClient[] = []
-function mount(element: React.ReactNode, url = "/knowledge-bases?tab=sites") {
+function mount(
+  element: React.ReactNode,
+  url = "/capabilities?section=application&app_scope=sites"
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -359,6 +362,12 @@ describe("website management", () => {
       </MemoryRouter>
     )
     const open = screen.getByRole("link", { name: "打开网站" })
+    expect(
+      screen.getByRole("link", { name: i18n.t("webSites.title") })
+    ).toHaveAttribute(
+      "href",
+      "/capabilities?section=application&app_scope=sites"
+    )
     expect(open).toHaveAttribute("href", url)
     expect(open).toHaveAttribute("target", "_blank")
     expect(open).toHaveAttribute("rel", "noopener noreferrer")

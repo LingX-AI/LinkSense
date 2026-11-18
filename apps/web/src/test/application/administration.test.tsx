@@ -1246,7 +1246,7 @@ describe("LinkSense application", () => {
     const accountTrigger = await screen.findByRole("button", {
       name: "林晓",
     })
-    expect(screen.getByRole("link", { name: "插件中心" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "应用与工具" })).toHaveAttribute(
       "href",
       "/capabilities"
     )

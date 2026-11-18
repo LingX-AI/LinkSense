@@ -1,4 +1,6 @@
 import type { SupportedLanguage } from "@/i18n"
+import { applicationWorkspaceScope } from "@/features/applications/application-workspace-scope"
+import { capabilityCenterLocationFromSearch } from "@/features/capabilities/capability-center-navigation"
 
 type HelpRoute = {
   matches: (pathname: string) => boolean
@@ -152,10 +154,18 @@ const helpRoutes: readonly HelpRoute[] = [
 ]
 
 export function resolveHelpDocumentPath(pathname: string, search = ""): string {
+  const params = new URLSearchParams(search)
   if (pathname === "/knowledge-bases") {
-    const tab = new URLSearchParams(search).get("tab")
+    const tab = params.get("tab")
     if (tab === "artifacts") return "user-guide/tasks/files-and-results"
     if (tab === "sites") return "user-guide/tasks/publish-websites"
+  }
+  if (
+    (pathname === "/capabilities" || pathname === "/capabilities/") &&
+    capabilityCenterLocationFromSearch(search).section === "application" &&
+    applicationWorkspaceScope(params) === "sites"
+  ) {
+    return "user-guide/tasks/publish-websites"
   }
   return helpRoutes.find((route) => route.matches(pathname))?.documentPath ?? ""
 }

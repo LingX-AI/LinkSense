@@ -3,13 +3,13 @@ import { readUrlEnum } from "@/lib/url-search-params"
 export function applicationWorkspaceScope(
   searchParams: URLSearchParams,
   organizationSharingEnabled = true
-): "owned" | "shared" | "center" {
-  return organizationSharingEnabled
-    ? readUrlEnum(
-        searchParams,
-        "app_scope",
-        ["owned", "shared", "center"] as const,
-        "owned"
-      )
-    : "owned"
+): "owned" | "sites" | "shared" | "center" {
+  return readUrlEnum(
+    searchParams,
+    "app_scope",
+    organizationSharingEnabled
+      ? ["owned", "sites", "shared", "center"]
+      : ["owned", "sites"],
+    "owned"
+  )
 }

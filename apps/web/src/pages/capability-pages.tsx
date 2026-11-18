@@ -2178,6 +2178,7 @@ function MarketplaceCatalogPanel({
   const normalizedPersonalPath = capabilityCenterPath(catalogLocation)
   useEffect(() => {
     if (
+      section === "application" ||
       organizationMarketplaceEnabled ||
       requestedCatalogLocation.scope !== "public" ||
       `${location.pathname}${location.search}` === normalizedPersonalPath
@@ -2192,6 +2193,7 @@ function MarketplaceCatalogPanel({
     normalizedPersonalPath,
     organizationMarketplaceEnabled,
     requestedCatalogLocation.scope,
+    section,
   ])
   const deferredSearch = useDeferredValue(search.trim())
   const updateCatalogLocation = (
@@ -3702,6 +3704,10 @@ export function CapabilityManagementPage() {
   const { section } = capabilityCenterLocationFromSearch(location.search)
   const organizationMarketplaceEnabled =
     user?.registration_source === "organization_invitation"
+  const applicationTab = applicationWorkspaceScope(
+    new URLSearchParams(location.search),
+    organizationMarketplaceEnabled
+  )
   const [view, setView] = useState<UserCapabilityView>("store")
   const [error, setError] = useState<string | null>(null)
   const feedback = (message: string, isError = false) => {
@@ -3777,16 +3783,15 @@ export function CapabilityManagementPage() {
         )}
         description={t(
           view === "store"
-            ? `marketplace.catalogDescriptions.${section}`
+            ? section === "application" && applicationTab === "sites"
+              ? "webSites.description"
+              : `marketplace.catalogDescriptions.${section}`
             : "marketplace.publicationsDescription"
         )}
         actions={
           view === "store" &&
           section === "application" &&
-          applicationWorkspaceScope(
-            new URLSearchParams(location.search),
-            organizationMarketplaceEnabled
-          ) === "owned" ? (
+          (applicationTab === "owned" || applicationTab === "sites") ? (
             <ApplicationCreateButton onFeedback={feedback} />
           ) : undefined
         }

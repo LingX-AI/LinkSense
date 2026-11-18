@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { copyTextToClipboard } from "@/lib/clipboard"
+import { webSiteManagementPath } from "./site-navigation"
 
 export function ConversationSiteCard({ site }: { site: ConversationWebSite }) {
   const { t } = useTranslation()
@@ -93,7 +94,7 @@ export function ConversationSiteCard({ site }: { site: ConversationWebSite }) {
         )}
         <Link
           className={buttonVariants({ variant: "ghost", size: "sm" })}
-          to="/knowledge-bases?tab=sites"
+          to={webSiteManagementPath()}
         >
           {t("webSites.title")}
         </Link>

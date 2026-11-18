@@ -175,7 +175,7 @@ export const zhCN = {
     automations: "自动化",
     conversations: "任务",
     archived: "已归档任务",
-    capabilities: "插件中心",
+    capabilities: "应用与工具",
     knowledgeBases: "资料库",
     pinned: "置顶",
     projects: "项目",
@@ -432,7 +432,7 @@ export const zhCN = {
     mcpDescription: "管理个人 HTTP 与 STDIO MCP 服务器",
     channelAccess: "消息渠道",
     channelAccessDescription: "管理微信、企业微信、钉钉、Teams、飞书等消息渠道",
-    capabilitiesDescription: "浏览插件中心并管理个人插件与 Skill",
+    capabilitiesDescription: "浏览和管理应用、站点与工具",
     archivedDescription: "查看已归档任务",
     usersDescription: "管理用户账号、角色和状态",
     rolesDescription: "查看固定角色与权限边界",
@@ -3115,7 +3115,7 @@ export const zhCN = {
     confirmDeletions: "我确认删除以上 {{count}} 个文件",
   },
   marketplace: {
-    title: "插件中心",
+    title: "应用与工具",
     description:
       "浏览公开的插件与技能，并在同一处管理已安装内容、个人内容与 MCP 连接。",
     personalAccountDescription:
@@ -3131,7 +3131,7 @@ export const zhCN = {
       reviews: "上架审核",
       listings: "全部上架项",
     },
-    catalogTabsLabel: "插件中心内容分类",
+    catalogTabsLabel: "应用与工具分类",
     catalogTabs: {
       plugin: "插件",
       skill: "技能",
@@ -3276,7 +3276,7 @@ export const zhCN = {
       "系统会复制当前个人插件或技能形成不可变快照，并将该快照送交管理员审核。",
     sourceCapability: "个人插件/技能来源",
     noPublishableSource:
-      "没有名称和类型与该上架项一致的可发布个人插件或技能，请先在“插件中心”中导入或更新来源。",
+      "没有名称和类型与该上架项一致的可发布个人插件或技能，请先在“应用与工具”中导入或更新来源。",
     immutableSnapshotNotice:
       "提交后审核的是独立不可变快照；之后修改个人插件或技能不会改变本次待审核内容。",
     submitForReview: "提交审核",
@@ -3288,7 +3288,7 @@ export const zhCN = {
     publicationsEmpty: "你还没有提交任何应用、插件或技能。",
     publicationsDescription:
       "管理你提交的应用、插件和技能，查看审核状态并发布更新。",
-    backToCenter: "返回插件中心",
+    backToCenter: "返回应用与工具",
     manageApplicationListing: "管理上架",
     selectApplication: "选择要上架的应用",
     selectApplicationDescription:
