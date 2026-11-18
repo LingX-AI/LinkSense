@@ -91,6 +91,9 @@ describe("website management", () => {
     )
     mount(<SiteLibrary />)
     const row = await screen.findByRole("article", { name: site.name })
+    expect(
+      within(row).getByRole("link", { name: i18n.t("webSites.visit") })
+    ).toHaveAttribute("href", aliasUrl)
     expect(within(row).queryByText("/web/drink-water")).not.toBeInTheDocument()
     expect(
       within(row).queryByRole("button", {
@@ -120,8 +123,45 @@ describe("website management", () => {
       })
     )
     expect(copy).toHaveBeenLastCalledWith(aliasUrl)
+    const openAlias = within(details).getByRole("link", {
+      name: i18n.t("webSites.details.openAlias"),
+    })
+    expect(openAlias).toHaveAttribute("href", aliasUrl)
+    expect(openAlias).toHaveAttribute("target", "_blank")
+    expect(
+      within(details).getByRole("link", {
+        name: i18n.t("webSites.details.openStable"),
+      })
+    ).toHaveAttribute("href", url)
+    // The footer Visit button follows the custom slug as well.
     expect(
       screen.getByRole("link", { name: i18n.t("webSites.visit") })
+    ).toHaveAttribute("href", aliasUrl)
+  })
+
+  it("visits the stable application URL when the slug is auto-generated", async () => {
+    const slug = "30000000-0000-4000-8000-000000000001"
+    const url = `https://public.example.test/app/s/${id}`
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        success({
+          items: [
+            {
+              ...site,
+              slug,
+              url,
+              alias_url: `https://public.example.test/web/${slug}`,
+            },
+          ],
+          next_cursor: null,
+        })
+      )
+    )
+    mount(<SiteLibrary />)
+    const row = await screen.findByRole("article", { name: site.name })
+    expect(
+      within(row).getByRole("link", { name: i18n.t("webSites.visit") })
     ).toHaveAttribute("href", url)
   })
 
@@ -151,15 +191,12 @@ describe("website management", () => {
       const dialog = screen.getByRole("dialog", { name: site.name })
       expect(within(dialog).getByText(aliasUrl)).toBeVisible()
       expect(within(dialog).getByText(url)).toBeVisible()
-      expect(within(dialog).getByText(site.slug)).toBeVisible()
       expect(
         within(dialog).getByText(i18n.t("webSites.dataConnected"))
       ).toBeVisible()
       expect(
         within(dialog).getByRole("link", {
-          name: i18n.t("webSites.sourceTask", {
-            title: site.source_task_title,
-          }),
+          name: site.source_task_title,
         })
       ).toHaveAttribute("href", `/conversations/${id}`)
       expect(dialog.querySelector("iframe")).toBeNull()
@@ -240,10 +277,6 @@ describe("website management", () => {
     expect(
       within(details).getByText(i18n.t("webSites.sourceDeleted"))
     ).toBeVisible()
-    expect(
-      within(details).getByText(i18n.t("webSites.details.unpublishedHelp"))
-    ).toBeVisible()
-    expect(within(details).getByText(site.slug)).toBeVisible()
     expect(
       within(details).getByText(
         new URL(site.url_path, window.location.origin).href
@@ -604,18 +637,18 @@ describe("website management", () => {
         `label[for='${nameInput.id}'] span.text-destructive[aria-hidden='true']`
       )
     ).toHaveTextContent("*")
-    const slugInput = screen.getByRole("textbox", { name: "链接名称" })
+    const slugInput = screen.getByRole("textbox", { name: "自定义 Slug" })
     expect(
       document.querySelector(
         `label[for='${slugInput.id}'] span.text-destructive`
       )
     ).not.toBeInTheDocument()
     await userEvent.type(
-      screen.getByRole("textbox", { name: "链接名称" }),
+      screen.getByRole("textbox", { name: "自定义 Slug" }),
       "../bad"
     )
     expect(screen.getByRole("button", { name: "发布站点" })).toBeDisabled()
-    await userEvent.clear(screen.getByRole("textbox", { name: "链接名称" }))
+    await userEvent.clear(screen.getByRole("textbox", { name: "自定义 Slug" }))
     await userEvent.click(screen.getByRole("button", { name: "发布站点" }))
     expect(
       await screen.findByRole("heading", { name: "站点已发布" })
@@ -684,10 +717,9 @@ describe("website management", () => {
     const close = vi.fn()
     mount(<SiteDialog action={{ kind: "edit", site }} onClose={close} />)
     await userEvent.type(
-      screen.getByRole("textbox", { name: "链接名称" }),
+      screen.getByRole("textbox", { name: "自定义 Slug" }),
       "-changed"
     )
-    expect(screen.getByText("修改链接名称后，原链接仍可访问。")).toBeVisible()
     await userEvent.click(screen.getByRole("button", { name: "保存" }))
     expect(await screen.findByRole("alert")).toHaveTextContent(
       i18n.t("errors.webSites.slugTaken")

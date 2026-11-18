@@ -141,18 +141,15 @@ export const core = {
     shareDescription:
       "Toute personne disposant du lien pourra consulter ce site après sa publication.",
     editDescription:
-      "Modifiez le nom, la description ou le lien personnalisé. Le lien stable et les données de l’application sont conservés.",
+      "Modifiez le nom, la description ou le lien personnalisé. Le lien d’origine et les données de l’application sont conservés.",
     deleteDescription:
       "Le site et ses versions publiées seront définitivement supprimés. L’adresse pourra être réutilisée par quiconque. La tâche et les fichiers d’origine seront conservés.",
     name: "Nom du site",
     summary: "Description",
-    slug: "Nom du lien",
+    slug: "Slug personnalisé",
     slugPlaceholder: "Laissez vide pour générer automatiquement",
     slugHelp:
-      "Utilisez entre 3 et 80 lettres, chiffres ou traits d’union. Ce nom sert au lien personnalisé ; le lien stable ne change pas.",
-    slugPreview: "Chemin du lien personnalisé : {{path}}",
-    slugChanged:
-      "Les liens précédents restent accessibles après le changement de nom.",
+      "Utilisez entre 3 et 80 lettres, chiffres ou traits d’union. Ce nom sert au lien personnalisé ; le lien d’origine ne change pas.",
     url: "Lien du site",
     publishMode: "Mode de publication",
     updateExisting: "Mettre à jour un site existant",
@@ -208,7 +205,6 @@ export const core = {
     emptyDescription:
       "Décrivez une page ou une application dans une conversation et confirmez sa publication pour la gérer ici. Vous pouvez aussi sélectionner Publier comme site sur une page existante.",
     noResults: "Aucun site correspondant",
-    sourceTask: "Source : {{title}}",
     sourceDeleted: "Tâche source supprimée",
     publishedAt: "Publié le {{date}}",
     resources: "{{count}} fichiers · {{size}}",
@@ -234,15 +230,11 @@ export const core = {
         "Consultez les liens d’accès, les fonctionnalités de l’application et les détails de la publication actuelle.",
       links: "Accès et partage",
       alias: "Lien personnalisé",
-      aliasHelp:
-        "Utilise le nom de lien choisi. Les liens précédents restent accessibles après un changement de nom.",
-      stable: "Lien stable",
-      stableHelp:
-        "Cette adresse reste la même lorsque vous renommez le lien, mettez à jour la page ou ajoutez un service de données.",
+      stable: "Lien d’origine",
       copyAlias: "Copier le lien personnalisé",
-      copyStable: "Copier le lien stable",
-      unpublishedHelp:
-        "Ce site n’est pas publié et ses liens sont indisponibles. Republiez-le pour rétablir l’accès avec les mêmes liens.",
+      copyStable: "Copier le lien d’origine",
+      openAlias: "Ouvrir le lien personnalisé",
+      openStable: "Ouvrir le lien d’origine",
       publication: "Détails de publication",
       source: "Conversation d’origine",
       files: "Ressources web",

@@ -56,6 +56,7 @@ import {
 } from "./api"
 import { SiteDialog, type SiteAction } from "./site-dialog"
 import { SiteCard } from "./site-card"
+import { siteVisitUrl } from "./site-url"
 import { SiteDetailsDialog } from "./site-details-dialog"
 
 export function SiteLibrary() {
@@ -205,7 +206,7 @@ export function SiteLibrary() {
                         size="sm"
                         render={
                           <a
-                            href={site.url ?? site.url_path}
+                            href={siteVisitUrl(site)}
                             target="_blank"
                             rel="noopener noreferrer"
                           />

@@ -445,19 +445,6 @@ export function SiteDialog({
                       >
                         {t("webSites.slugHelp")}
                       </p>
-                      {webSiteSlugSchema.safeParse(slug).success && (
-                        <p className="text-xs wrap-anywhere text-muted-foreground">
-                          {t("webSites.slugPreview", {
-                            path: `/web/${slug.trim().toLowerCase()}`,
-                          })}
-                        </p>
-                      )}
-                      {action.kind === "edit" &&
-                        slug.trim().toLowerCase() !== action.site.slug && (
-                          <p className="text-sm text-destructive">
-                            {t("webSites.slugChanged")}
-                          </p>
-                        )}
                     </FieldShell>
                   </>
                 )}

@@ -160,17 +160,15 @@ export const jaJP = {
     shareDescription:
       "公開すると、リンクを知っているすべての人がこのサイトを閲覧できます。",
     editDescription:
-      "名前、説明、カスタムリンクを変更します。固定リンクとアプリのデータは保持されます。",
+      "名前、説明、カスタムリンクを変更します。オリジンリンクとアプリのデータは保持されます。",
     deleteDescription:
       "サイトと公開済みバージョンは完全に削除されます。このアドレスは誰でも再利用できるようになります。元のタスクとファイルは保持されます。",
     name: "サイト名",
     summary: "説明",
-    slug: "リンク名",
+    slug: "カスタム Slug",
     slugPlaceholder: "空欄の場合は自動生成",
     slugHelp:
-      "英数字またはハイフンで 3～80 文字にしてください。この名前はカスタムリンクに使われ、固定リンクは変わりません。",
-    slugPreview: "カスタムリンクのパス：{{path}}",
-    slugChanged: "リンク名を変更しても以前のリンクは利用できます。",
+      "英数字またはハイフンで 3～80 文字にしてください。この名前はカスタムリンクに使われ、オリジンリンクは変わりません。",
     url: "サイトのリンク",
     publishMode: "公開方法",
     updateExisting: "既存のサイトを更新",
@@ -226,7 +224,6 @@ export const jaJP = {
     emptyDescription:
       "通常の会話で作成したいページやアプリを伝え、公開を確認するとここで管理できます。既存のページから「サイトとして公開」を選択することもできます。",
     noResults: "一致するサイトがありません",
-    sourceTask: "作成元：{{title}}",
     sourceDeleted: "作成元のタスクは削除済みです",
     publishedAt: "公開日：{{date}}",
     resources: "{{count}} ファイル · {{size}}",
@@ -252,15 +249,11 @@ export const jaJP = {
         "アクセスリンク、アプリの機能、現在の公開情報を確認できます。",
       links: "アクセスと共有",
       alias: "カスタムリンク",
-      aliasHelp:
-        "設定したリンク名を使います。名前を変更しても以前のリンクは利用できます。",
-      stable: "固定リンク",
-      stableHelp:
-        "リンク名の変更、ページの更新、データサービスの追加を行っても、このアドレスは変わりません。",
+      stable: "オリジンリンク",
       copyAlias: "カスタムリンクをコピー",
-      copyStable: "固定リンクをコピー",
-      unpublishedHelp:
-        "現在は非公開のため、リンクからアクセスできません。再公開すると同じリンクでアクセスできます。",
+      copyStable: "オリジンリンクをコピー",
+      openAlias: "カスタムリンクを開く",
+      openStable: "オリジンリンクを開く",
       publication: "公開情報",
       source: "作成元の会話",
       files: "ウェブリソース",
@@ -5875,7 +5868,10 @@ export const jaJP = {
       "サービスから無効なデータが返されました。管理者にお問い合わせください。",
     clientUpdateRequired:
       "システムが更新されました。このページを更新して続行してください。",
-    desktopUpdateRequired: localizedErrorMessage("DESKTOP_UPDATE_REQUIRED", "ja-JP"),
+    desktopUpdateRequired: localizedErrorMessage(
+      "DESKTOP_UPDATE_REQUIRED",
+      "ja-JP"
+    ),
     serviceTemporarilyUnavailable:
       "システムを一時的に利用できません。少し待ってから再試行してください。",
     imageUnderstanding: {

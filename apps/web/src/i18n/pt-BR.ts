@@ -160,18 +160,15 @@ export const ptBR = {
     shareDescription:
       "Qualquer pessoa com o link poderá visitar este site após a publicação.",
     editDescription:
-      "Edite o nome, a descrição ou o link personalizado. O link estável e os dados do aplicativo permanecem os mesmos.",
+      "Edite o nome, a descrição ou o link personalizado. O link de origem e os dados do aplicativo permanecem os mesmos.",
     deleteDescription:
       "O site e suas versões publicadas serão excluídos permanentemente. Qualquer pessoa poderá reutilizar o endereço. A tarefa e os arquivos originais serão mantidos.",
     name: "Nome do site",
     summary: "Descrição",
-    slug: "Nome do link",
+    slug: "Slug personalizado",
     slugPlaceholder: "Deixe em branco para gerar automaticamente",
     slugHelp:
-      "Use de 3 a 80 letras, números ou hífens. Esse nome é usado no link personalizado; o link estável não muda.",
-    slugPreview: "Caminho do link personalizado: {{path}}",
-    slugChanged:
-      "Os links anteriores continuam funcionando após a alteração do nome.",
+      "Use de 3 a 80 letras, números ou hífens. Esse nome é usado no link personalizado; o link de origem não muda.",
     url: "Link do site",
     publishMode: "Modo de publicação",
     updateExisting: "Atualizar site existente",
@@ -227,7 +224,6 @@ export const ptBR = {
     emptyDescription:
       "Descreva uma página ou aplicativo em qualquer conversa e confirme a publicação para gerenciá-lo aqui. Você também pode selecionar Publicar como site em uma página existente.",
     noResults: "Nenhum site correspondente",
-    sourceTask: "Origem: {{title}}",
     sourceDeleted: "Tarefa de origem excluída",
     publishedAt: "Publicado em {{date}}",
     resources: "{{count}} arquivos · {{size}}",
@@ -253,15 +249,11 @@ export const ptBR = {
         "Veja os links de acesso, os recursos do aplicativo e os detalhes da publicação atual.",
       links: "Acesso e compartilhamento",
       alias: "Link personalizado",
-      aliasHelp:
-        "Usa o nome de link escolhido. Os links anteriores continuam funcionando após a alteração.",
-      stable: "Link estável",
-      stableHelp:
-        "Este endereço permanece o mesmo ao renomear o link, atualizar a página ou adicionar um serviço de dados.",
+      stable: "Link de origem",
       copyAlias: "Copiar link personalizado",
-      copyStable: "Copiar link estável",
-      unpublishedHelp:
-        "Este site está fora do ar e seus links estão indisponíveis. Republique para restaurar o acesso pelos mesmos links.",
+      copyStable: "Copiar link de origem",
+      openAlias: "Abrir link personalizado",
+      openStable: "Abrir link de origem",
       publication: "Detalhes da publicação",
       source: "Conversa de origem",
       files: "Recursos web",
@@ -5973,7 +5965,10 @@ export const ptBR = {
       "O serviço retornou dados inválidos. Entre em contato com um administrador.",
     clientUpdateRequired:
       "O sistema foi atualizado. Atualize esta página para continuar.",
-    desktopUpdateRequired: localizedErrorMessage("DESKTOP_UPDATE_REQUIRED", "pt-BR"),
+    desktopUpdateRequired: localizedErrorMessage(
+      "DESKTOP_UPDATE_REQUIRED",
+      "pt-BR"
+    ),
     serviceTemporarilyUnavailable:
       "O sistema está temporariamente indisponível. Tente novamente em breve.",
     imageUnderstanding: {

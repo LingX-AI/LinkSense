@@ -16,18 +16,15 @@ export const siteMessages = {
     shareDescription:
       "Tras publicar, cualquier persona que tenga el enlace podrá visitar el sitio.",
     editDescription:
-      "Edita el nombre, la descripción o el enlace personalizado. El enlace estable y los datos de la aplicación se conservan.",
+      "Edita el nombre, la descripción o el enlace personalizado. El enlace de origen y los datos de la aplicación se conservan.",
     deleteDescription:
       "El sitio y sus versiones publicadas se eliminarán permanentemente. Cualquiera podrá reutilizar la dirección. Se conservan la tarea y los archivos originales.",
     name: "Nombre del sitio",
     summary: "Descripción",
-    slug: "Nombre del enlace",
+    slug: "Slug personalizado",
     slugPlaceholder: "Deja el campo vacío para generarlo automáticamente",
     slugHelp:
-      "Usa entre 3 y 80 letras inglesas, números o guiones. Este nombre se usa en el enlace personalizado; el enlace estable no cambia.",
-    slugPreview: "Ruta del enlace personalizado: {{path}}",
-    slugChanged:
-      "Los enlaces anteriores siguen funcionando después del cambio de nombre.",
+      "Usa entre 3 y 80 letras inglesas, números o guiones. Este nombre se usa en el enlace personalizado; el enlace de origen no cambia.",
     url: "Enlace del sitio",
     publishMode: "Modo de publicación",
     updateExisting: "Actualizar sitio existente",
@@ -83,7 +80,6 @@ export const siteMessages = {
     emptyDescription:
       "Describe una página o aplicación en cualquier conversación y confirma su publicación para gestionarla aquí. También puedes seleccionar Publicar como sitio en una página existente.",
     noResults: "No hay sitios coincidentes",
-    sourceTask: "Origen: {{title}}",
     sourceDeleted: "Tarea de origen eliminada",
     publishedAt: "Publicado el {{date}}",
     resources: "{{count}} archivos · {{size}}",
@@ -109,15 +105,11 @@ export const siteMessages = {
         "Consulta los enlaces de acceso, las funciones de la aplicación y los detalles de la publicación actual.",
       links: "Acceso y uso compartido",
       alias: "Enlace personalizado",
-      aliasHelp:
-        "Usa el nombre de enlace que elegiste. Los enlaces anteriores siguen funcionando después de cambiarlo.",
-      stable: "Enlace estable",
-      stableHelp:
-        "Esta dirección se conserva al cambiar el nombre del enlace, actualizar la página o añadir un servicio de datos.",
+      stable: "Enlace de origen",
       copyAlias: "Copiar enlace personalizado",
-      copyStable: "Copiar enlace estable",
-      unpublishedHelp:
-        "Este sitio no está publicado y sus enlaces no están disponibles. Vuelve a publicarlo para restaurar el acceso mediante los mismos enlaces.",
+      copyStable: "Copiar enlace de origen",
+      openAlias: "Abrir enlace personalizado",
+      openStable: "Abrir enlace de origen",
       publication: "Detalles de publicación",
       source: "Conversación de origen",
       files: "Recursos web",
