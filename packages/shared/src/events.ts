@@ -915,6 +915,7 @@ export const runnerCodexErrorInfoSchema = z.union([
     "serverOverloaded",
     "modelNotFound",
     "policyCapacityUnavailable",
+    "inferenceHookDenied",
     "cyberPolicy",
     "misalignmentPolicyViolation",
     "tooManyDenials",

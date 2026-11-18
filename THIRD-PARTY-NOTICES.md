@@ -1,7 +1,7 @@
 # Third-party deployment components
 
 Desktop packages additionally bundle Node.js 24.22.1 (MIT and its bundled
-third-party notices), OpenAI Codex 0.168.0 (Apache-2.0), and
+third-party notices), OpenAI Codex 0.170.0 (Apache-2.0), and
 vercel-labs/agent-desktop 1.3.1 (Apache-2.0). Their license texts are shipped
 with the desktop runtime. The exact upstream release URLs and archive SHA-256
 checksums are pinned in `apps/desktop/desktop-resources.json`; the generated

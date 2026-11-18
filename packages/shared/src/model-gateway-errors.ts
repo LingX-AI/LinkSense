@@ -56,7 +56,7 @@ function isVllmContextLengthExceededError(error: Record<string, unknown>): boole
   );
 }
 
-// Safe protocol values recognized by the pinned Codex 0.168.0 error handlers.
+// Safe protocol values recognized by the pinned Codex 0.170.0 error handlers.
 const nativeProviderCodes = new Set([
   CONTEXT_LENGTH_EXCEEDED,
   "insufficient_quota", "credit_balance_exhausted", "organization_spend_limit_exceeded", "project_spend_limit_exceeded",

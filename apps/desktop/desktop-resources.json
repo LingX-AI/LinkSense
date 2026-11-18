@@ -2,7 +2,7 @@
   "schema_version": 1,
   "versions": {
     "node": "24.22.1",
-    "codex": "0.168.0",
+    "codex": "0.170.0",
     "agent_desktop": "1.3.1"
   },
   "platforms": {
@@ -24,8 +24,8 @@
         {
           "key": "codex",
           "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-aarch64-apple-darwin.tar.gz",
-          "sha256": "c94dffc075ce5527a55d060f35412b45d1c1c1d16306a337dcf0d8e3ecfebc98",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-aarch64-apple-darwin.tar.gz",
+          "sha256": "7c9f21d5cbae4860d14b379fdcf709ff399ce874fd714b58783e1b4199c2b9a9",
           "files": [
             {
               "source": "codex-aarch64-apple-darwin",
@@ -69,8 +69,8 @@
         {
           "key": "codex",
           "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-x86_64-apple-darwin.tar.gz",
-          "sha256": "01511787bdecab86e03f55fd390a5998590c7ca5c80fc64f2553b01f14ff9057",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-x86_64-apple-darwin.tar.gz",
+          "sha256": "c858bb0149b003a8cf8840a1143c4d953f18bea23ba6ea861d5fdf0b5e29a5a3",
           "files": [
             {
               "source": "codex-x86_64-apple-darwin",
@@ -114,8 +114,8 @@
         {
           "key": "codex",
           "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-x86_64-pc-windows-msvc.exe.tar.gz",
-          "sha256": "d9107b6d376d2921cef1ced33c34aba8cd1300ee496b08c9c077a67ebe03abb9",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-x86_64-pc-windows-msvc.exe.tar.gz",
+          "sha256": "f32cad4e92e17f5ba1a4836f0bacca3950457cb204a4274dcb75fec99fbd82cd",
           "files": [
             {
               "source": "codex-x86_64-pc-windows-msvc.exe",
@@ -126,8 +126,8 @@
         {
           "key": "codex-command-runner",
           "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-command-runner-x86_64-pc-windows-msvc.exe.tar.gz",
-          "sha256": "03af956bff3b636fe2fe507e4b7245c35271e2d992e189b2ed0e0d119ed9b28c",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-command-runner-x86_64-pc-windows-msvc.exe.tar.gz",
+          "sha256": "3bcdf35967c754509649652abfa736ccd4802e2e5348354c60bf210f19951154",
           "files": [
             {
               "source": "codex-command-runner-x86_64-pc-windows-msvc.exe",
@@ -138,8 +138,8 @@
         {
           "key": "codex-windows-sandbox-setup",
           "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe.tar.gz",
-          "sha256": "d1b96cda79f4054fe056a867825f99f5f9a14680ab5ba97911e5b744554ad964",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe.tar.gz",
+          "sha256": "034fe88cb2fb112d9020a0c4b508fe4720fa1f04b6e1854bc03b987879e6df2d",
           "files": [
             {
               "source": "codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe",
@@ -179,8 +179,8 @@
         {
           "key": "codex",
           "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-x86_64-pc-windows-msvc.exe.tar.gz",
-          "sha256": "d9107b6d376d2921cef1ced33c34aba8cd1300ee496b08c9c077a67ebe03abb9",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-x86_64-pc-windows-msvc.exe.tar.gz",
+          "sha256": "f32cad4e92e17f5ba1a4836f0bacca3950457cb204a4274dcb75fec99fbd82cd",
           "files": [
             {
               "source": "codex-x86_64-pc-windows-msvc.exe",
@@ -191,8 +191,8 @@
         {
           "key": "codex-command-runner",
           "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-command-runner-x86_64-pc-windows-msvc.exe.tar.gz",
-          "sha256": "03af956bff3b636fe2fe507e4b7245c35271e2d992e189b2ed0e0d119ed9b28c",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-command-runner-x86_64-pc-windows-msvc.exe.tar.gz",
+          "sha256": "3bcdf35967c754509649652abfa736ccd4802e2e5348354c60bf210f19951154",
           "files": [
             {
               "source": "codex-command-runner-x86_64-pc-windows-msvc.exe",
@@ -203,8 +203,8 @@
         {
           "key": "codex-windows-sandbox-setup",
           "format": "tar.gz",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.168.0/codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe.tar.gz",
-          "sha256": "d1b96cda79f4054fe056a867825f99f5f9a14680ab5ba97911e5b744554ad964",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.170.0/codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe.tar.gz",
+          "sha256": "034fe88cb2fb112d9020a0c4b508fe4720fa1f04b6e1854bc03b987879e6df2d",
           "files": [
             {
               "source": "codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe",

@@ -6,6 +6,7 @@ const newErrorCodes = [
   "flexUnavailable",
   "modelNotFound",
   "policyCapacityUnavailable",
+  "inferenceHookDenied",
   "tooManyDenials",
 ] as const;
 
