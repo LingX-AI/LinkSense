@@ -49,6 +49,7 @@ import {
   type TestModelProviderConnectionInput,
   type DiscoverModelProviderResult,
   type TestModelProviderConnectionResult,
+  type DesktopModelPurpose,
 } from "@linksense/shared"
 import { z } from "zod"
 
@@ -1154,6 +1155,23 @@ export class ModelProviderSettingsService
       modelId,
       expectedKind
     )
+  }
+
+  async resolveDesktopProxyProvider(input: {
+    model: string
+    revision: number
+    protocolMode: ModelProviderProtocolMode
+    purpose: DesktopModelPurpose
+  }): Promise<{ baseUrl: string; apiKey: string }> {
+    const stored = await this.readStoredSettings()
+    if (!stored || stored.revision !== input.revision) throw new AppError("MODEL_SELECTION_INVALID")
+    const { channel, model } = projectManagedRuntime(stored, input.model, "chat")
+    if (!channel.apiKey || channel.protocolMode !== input.protocolMode ||
+      (input.purpose === "primary" && !model.enabled) ||
+      (input.purpose === "memory_extraction" && stored.memoryExtractionModel !== null && stored.memoryExtractionModel !== input.model)) {
+      throw new AppError("MODEL_SELECTION_INVALID")
+    }
+    return { baseUrl: channel.baseUrl, apiKey: channel.apiKey }
   }
 
   async resolveTaskTitleModel(): Promise<ResolvedManagedModelRuntime | null> {

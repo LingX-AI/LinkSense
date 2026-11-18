@@ -179,7 +179,7 @@ describe("desktop device HTTP and WebSocket boundaries", () => {
     const second = await fixture(first.repository);
     const device = await paired(first.app);
     const { socket } = await connect(first.app, device.token);
-    vi.spyOn(redis.client, "publish").mockRejectedValueOnce(new Error("test publication unavailable"));
+    vi.spyOn(redis.client, "eval").mockRejectedValueOnce(new Error("test revocation broadcast unavailable"));
     const url = `/api/v1/desktop/devices/${device.device.id}`;
     expect((await second.app.inject({ method: "DELETE", url, headers })).statusCode).toBe(500);
     expect(await first.service.authenticate(device.token)).toBeNull();

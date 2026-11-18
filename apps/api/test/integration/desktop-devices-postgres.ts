@@ -143,6 +143,7 @@ try {
     submitMode: "normal", runnerStatus: "prepared",
   } });
   assert.equal(await authority(scope, "issue"), true);
+  assert.equal(await authority(scope, "transition"), true);
   assert.equal(await authority(), true);
   for (const binding of [
     { ...scope, ownerId: other },
@@ -165,6 +166,7 @@ try {
     } }),
   ]);
   assert.equal(await authority(scope, "issue"), false);
+  assert.equal(await authority(scope, "transition"), false);
   assert.equal(await authority(), true);
   await db.user.update({ where: { id: owner }, data: { status: "disabled" } });
   assert.equal(await authority(), false);

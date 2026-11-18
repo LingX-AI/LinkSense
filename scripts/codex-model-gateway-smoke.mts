@@ -13,6 +13,7 @@ import type { ModelProviderProtocolMode } from "@linksense/shared";
 import WebSocket, { WebSocketServer, type RawData } from "ws";
 
 import pino from "../apps/runner/node_modules/pino/pino.js";
+import { desktopModelProviders } from "../apps/runner/src/desktop/model-providers.js";
 import { CodexJsonRpcClient } from "../apps/runner/src/codex/json-rpc-client.ts";
 import {
   CODEX_SCHEMA_VERSION,
@@ -37,6 +38,7 @@ const execFileAsync = promisify(execFile);
 const model = "gpt-5.3-codex";
 const forceWebSocketFallback =
   process.env.LINKSENSE_SMOKE_FORCE_WS_FALLBACK === "true";
+const useDesktopProxy = process.argv.includes("--desktop-proxy");
 const codexVersionOutput = await codexVersion();
 const actualCodexVersion = codexVersionOutput.match(
   /\bcodex-cli\s+(\d+\.\d+\.\d+)\b/u,
@@ -112,7 +114,14 @@ if (!upstreamAddress || typeof upstreamAddress === "string") {
   throw new Error("smoke upstream did not bind a TCP port");
 }
 const upstreamBaseUrl = `http://127.0.0.1:${upstreamAddress.port}/v1`;
-const gateway = new ModelGateway({ logger });
+const desktopProxy = useDesktopProxy
+  ? await (await import("../apps/api/test/fixtures/desktop-model-proxy.js")).startDesktopModelProxyFixture(
+    modes.map((protocolMode, index) => ({ model, revision: index + 1, protocolMode, upstreamBaseUrl, upstreamKey: "smoke-upstream-key" })),
+  )
+  : undefined;
+const gateway = new ModelGateway({
+  logger, ...(desktopProxy && { desktopProxyOrigin: desktopProxy.origin, fetch: desktopProxy.fetch }),
+});
 await gateway.start();
 
 try {
@@ -144,6 +153,7 @@ try {
         "check_for_update_on_startup = false",
         'forced_login_method = "api"',
         "allow_login_shell = false",
+        ...(useDesktopProxy ? ['web_search = "disabled"'] : []),
         "",
         "[features]",
         "shell_snapshot = false",
@@ -158,19 +168,22 @@ try {
         `base_url = ${JSON.stringify(gateway.baseUrl)}`,
         'wire_api = "responses"',
         `env_key = ${JSON.stringify(modelGatewayEnvironmentKey)}`,
-        `supports_websockets = ${mode !== "chat_completions_bridge"}`,
+        `supports_websockets = ${!useDesktopProxy && mode !== "chat_completions_bridge"}`,
         "stream_max_retries = 2",
         "websocket_connect_timeout_ms = 12000",
         "requires_openai_auth = false",
         "",
       ].join("\n"),
     );
+    const provider = desktopProxy
+      ? desktopModelProviders(desktopProxy.origin, await desktopProxy.issue(index + 1)).modelProvider
+      : { baseUrl: upstreamBaseUrl, apiKey: "smoke-upstream-key" };
     const lease = gateway.issueLease({
       conversationId: `gateway-smoke-${index}`,
       ownerId: `10000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
       revision: index + 1,
-      upstreamBaseUrl,
-      apiKey: "smoke-upstream-key",
+      upstreamBaseUrl: provider.baseUrl,
+      apiKey: provider.apiKey,
       protocolMode: mode,
       model,
       pricing: {
@@ -285,12 +298,14 @@ try {
       status: "ok",
       codexVersion: codexVersionOutput,
       forcedWebSocketFallback: forceWebSocketFallback,
+      desktopProxy: useDesktopProxy,
       modes: results,
       upstreamRequestCount: requests.length,
     }),
   );
 } finally {
   await gateway.close().catch(() => undefined);
+  await desktopProxy?.close();
   await new Promise<void>((resolve) => {
     upstreamWebSocketServer.close(() => undefined);
     upstream.close(() => resolve());
@@ -702,8 +717,8 @@ function assertUpstreamRequests(
     "native_responses",
     "responses_tool_compat",
   ] as const) {
-    if (!upgradeAttempts.includes(mode)) {
-      throw new Error(`${mode} did not attempt a websocket upgrade`);
+    if (upgradeAttempts.includes(mode) === useDesktopProxy) {
+      throw new Error(`${mode} ${useDesktopProxy ? "unexpectedly used" : "did not attempt"} a websocket upgrade`);
     }
   }
   if (upgradeAttempts.includes("chat_completions_bridge")) {
@@ -750,7 +765,7 @@ function assertUpstreamRequests(
       }
     }
     const expectedTransport =
-      forceWebSocketFallback && entry.mode === "native_responses"
+      useDesktopProxy || (forceWebSocketFallback && entry.mode === "native_responses")
         ? "http"
         : "websocket";
     if (entry.transport !== expectedTransport) {
@@ -780,7 +795,7 @@ function assertUpstreamRequests(
           "compat mode did not return the Codex tool output upstream",
         );
       }
-      if (typeof modeRequests[1]?.body.previous_response_id !== "string") {
+      if (!useDesktopProxy && typeof modeRequests[1]?.body.previous_response_id !== "string") {
         throw new Error(
           "compat websocket mode did not continue from previous_response_id",
         );

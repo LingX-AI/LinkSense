@@ -68,7 +68,16 @@ export const desktopDeviceServerFrameSchema = z.discriminatedUnion("type", [
 
 export const desktopRunTokenSchema = z.string().regex(/^lsdr_[A-Za-z0-9_-]{43}$/u);
 export const desktopModelTokenSchema = z.string().regex(/^lsdm_[A-Za-z0-9_-]{43}$/u);
+export const DESKTOP_MODEL_PROXY_PATH = "/api/v1/desktop/models";
+export const DESKTOP_MODEL_PURPOSE_HEADER = "x-linksense-model-purpose";
 export const desktopModelPurposeSchema = z.enum(["primary", "memory_extraction", "transition_source"]);
+export const desktopServerOriginSchema = z.url().refine(value => {
+  const url = URL.parse(value);
+  return url !== null && !url.username && !url.password && url.pathname === "/" &&
+    !value.includes("?") && !value.includes("#") &&
+    (url.protocol === "https:" || (url.protocol === "http:" &&
+      ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)));
+}).transform(value => new URL(value).origin);
 const desktopModelAccessSchema = z.strictObject({
   model: modelIdentifierSchema,
   revision: z.number().int().nonnegative(),
@@ -100,6 +109,13 @@ export const desktopRunCredentialsSchema = z.strictObject({
 
 export type DesktopModelPurpose = z.infer<typeof desktopModelPurposeSchema>;
 export type DesktopRunCredentials = z.infer<typeof desktopRunCredentialsSchema>;
+
+export function desktopModelProxyUrl(serverOrigin: string, turnId: string, purpose: DesktopModelPurpose): string {
+  const origin = desktopServerOriginSchema.parse(serverOrigin);
+  const id = uuidSchema.parse(turnId).toLowerCase();
+  return new URL(`${DESKTOP_MODEL_PROXY_PATH}/${id}/${desktopModelPurposeSchema.parse(purpose)}`, origin).href;
+}
+
 export type DesktopDevice = z.infer<typeof desktopDeviceSchema>;
 export type DesktopDeviceRenameResult = z.infer<typeof desktopDeviceRenameResultSchema>;
 export type DesktopDeviceRegistration = z.infer<typeof desktopDeviceRegistrationSchema>;

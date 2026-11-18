@@ -67,7 +67,7 @@ export async function registerDesktopDeviceRoutes(
 
   const server = new WebSocketServer({ noServer: true, maxPayload: 8192, perMessageDeflate: false });
   const connected = new Map<WebSocket, { device: DesktopDeviceRecord; connectionId: string }>();
-  let subscription: Promise<() => Promise<void>> | null = null;
+  let subscription: Promise<() => void> | null = null;
   let subscriptionGeneration = 0;
   let closing = false;
   let revocationCheck: Promise<void> | null = null;
@@ -200,6 +200,6 @@ export async function registerDesktopDeviceRoutes(
     await new Promise<void>(resolve => server.close(() => resolve()));
     await revocationCheck;
     const unsubscribe = await subscription;
-    if (unsubscribe) await unsubscribe();
+    unsubscribe?.();
   });
 }

@@ -26,6 +26,29 @@ const noModelMetadata: ModelProviderMetadataClient = {
 }
 
 describe("ModelProviderSettingsService", () => {
+  it("resolves the exact desktop model revision and protocol without probing providers", async () => {
+    const database = inMemoryDatabase()
+    const readContextWindows = vi.fn(async () => new Map<string, number>())
+    const service = new ModelProviderSettingsService(database.prisma, testConfig(), { readContextWindows })
+    const channel = provider("native", "https://models.example.test/v1", [
+      pricedModel("desktop-model", ["medium"], "medium"),
+    ], "native_responses", "test-key")
+    await service.update(ACTOR_ID, { expected_revision: 0, providers: [channel], default_model: "desktop-model" }, {})
+    readContextWindows.mockClear()
+    const selected = { model: "desktop-model", revision: 1, protocolMode: "native_responses", purpose: "primary" } as const
+    await expect(service.resolveDesktopProxyProvider(selected)).resolves.toEqual({
+      baseUrl: channel.base_url, apiKey: channel.api_key,
+    })
+    await expect(service.resolveDesktopProxyProvider({ ...selected, protocolMode: "chat_completions_bridge" })).rejects.toMatchObject({
+      code: "MODEL_SELECTION_INVALID",
+    })
+    expect(readContextWindows).not.toHaveBeenCalled()
+    await service.update(ACTOR_ID, {
+      expected_revision: 1, providers: [{ ...channel, api_key: "rotated-fixture-key" }], default_model: "desktop-model",
+    }, {})
+    await expect(service.resolveDesktopProxyProvider(selected)).rejects.toMatchObject({ code: "MODEL_SELECTION_INVALID" })
+  })
+
   it("persists a channel's test model independently and preserves it when an older update omits it", async () => {
     const database = inMemoryDatabase()
     const service = new ModelProviderSettingsService(database.prisma, testConfig(), noModelMetadata)

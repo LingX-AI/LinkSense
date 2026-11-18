@@ -108,8 +108,8 @@ export class MemoryDesktopDeviceCoordinator implements DesktopDeviceCoordinator 
     this.connections.delete(deviceId);
     for (const listener of this.listeners) listener({ type: "revoked", deviceId });
   }
-  async subscribe(listener: (notice: DesktopConnectionNotice) => void): Promise<() => Promise<void>> {
+  async subscribe(listener: (notice: DesktopConnectionNotice) => void): Promise<() => void> {
     this.listeners.add(listener);
-    return async () => { this.listeners.delete(listener); };
+    return () => { this.listeners.delete(listener); };
   }
 }

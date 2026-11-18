@@ -4,8 +4,10 @@ import {
   desktopModelTokenSchema,
   desktopRunCredentialsSchema,
   desktopRunTokenSchema,
+  reasoningEffortSchema,
   type DesktopModelPurpose,
   type DesktopRunCredentials,
+  type ReasoningEffort,
 } from "@linksense/shared";
 import type { Redis } from "ioredis";
 import { z } from "zod";
@@ -13,6 +15,7 @@ import { z } from "zod";
 import type { RunnerModelProviderRuntime, RunnerStartInput } from "../../adapters/runner.js";
 import { randomToken, sha256 } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
+import { desktopNoticeChannel, type DesktopNotice } from "../desktop-devices/notices.js";
 
 const leaseTtlMs = 10 * 60 * 1000;
 const runIdSchema = z.uuid().transform(value => value.toLowerCase());
@@ -34,6 +37,7 @@ const storedLeaseSchema = z.strictObject({
     revision: desktopRunCredentialsSchema.shape.primary.shape.revision,
     protocolMode: desktopRunCredentialsSchema.shape.primary.shape.protocol_mode,
     tokenHash: credentialHash,
+    reasoningEffort: reasoningEffortSchema.optional(),
   })),
 });
 
@@ -44,7 +48,7 @@ type StartModels = Pick<RunnerStartInput,
   "ownerId" | "conversationId" | "projectionTurnId" | "expectedRuntimeGeneration" |
   "model" | "modelProvider" | "modelTransitionSource"
 >;
-export type DesktopRunAuthorizationPhase = "issue" | "use";
+export type DesktopRunAuthorizationPhase = "issue" | "use" | "transition";
 type RunAuthorization = (scope: DesktopRunScope, phase: DesktopRunAuthorizationPhase) => Promise<boolean>;
 
 export class DesktopRunLeases {
@@ -111,17 +115,29 @@ export class DesktopRunLeases {
     turnId: string;
     purpose: DesktopModelPurpose;
     token: string;
+    model?: string;
+  }): Promise<{
+    scope: DesktopRunScope;
     model: string;
-  }): Promise<{ scope: DesktopRunScope; revision: number; protocolMode: ModelGrant["protocolMode"]; expiresAt: number }> {
+    revision: number;
+    protocolMode: ModelGrant["protocolMode"];
+    expiresAt: number;
+    reasoningEffort?: ReasoningEffort;
+  }> {
     const parsed = desktopModelTokenSchema.safeParse(input.token);
     if (!parsed.success || !desktopModelPurposeSchema.safeParse(input.purpose).success) throw new AppError("AUTH_REQUIRED");
     const lease = await this.authorize(input.turnId, candidate => {
       const grant = candidate.models[input.purpose];
-      return grant !== undefined && grant.model === input.model && tokenMatches(parsed.data, grant.tokenHash);
-    });
+      return grant !== undefined && (input.model === undefined || grant.model === input.model) &&
+        tokenMatches(parsed.data, grant.tokenHash);
+    }, input.purpose === "transition_source" ? "transition" : "use");
     const grant = lease.models[input.purpose];
     if (!grant) throw new AppError("AUTH_REQUIRED");
-    return { scope: lease.scope, revision: grant.revision, protocolMode: grant.protocolMode, expiresAt: lease.expiresAt };
+    return {
+      scope: lease.scope, model: grant.model, revision: grant.revision,
+      protocolMode: grant.protocolMode, expiresAt: lease.expiresAt,
+      ...(grant.reasoningEffort === undefined ? {} : { reasoningEffort: grant.reasoningEffort }),
+    };
   }
 
   /** Verifies the binding; the device gateway must still authorize the specific operation. */
@@ -156,10 +172,19 @@ export class DesktopRunLeases {
 
   async revoke(turnId: string): Promise<void> {
     // The marker must also win if issuance has checked the DB but not yet written.
-    await this.redis.set(key(runIdSchema.parse(turnId)), "revoked", "PX", leaseTtlMs);
+    const id = runIdSchema.parse(turnId);
+    await this.redis.eval(
+      "redis.call('SET', KEYS[1], 'revoked', 'PX', ARGV[1]); return redis.call('PUBLISH', ARGV[2], ARGV[3])",
+      1, key(id), String(leaseTtlMs), desktopNoticeChannel,
+      JSON.stringify({ type: "run_revoked", turnId: id } satisfies DesktopNotice),
+    );
   }
 
-  private async authorize(rawId: string, matches: (lease: StoredLease) => boolean): Promise<StoredLease> {
+  private async authorize(
+    rawId: string,
+    matches: (lease: StoredLease) => boolean,
+    phase: Exclude<DesktopRunAuthorizationPhase, "issue"> = "use",
+  ): Promise<StoredLease> {
     const parsed = runIdSchema.safeParse(rawId);
     if (!parsed.success) throw new AppError("AUTH_REQUIRED");
     const turnId = parsed.data;
@@ -170,7 +195,7 @@ export class DesktopRunLeases {
       throw new AppError("AUTH_REQUIRED");
     }
     // Recheck after the DB/connection lookup so revocation cannot race a stale read.
-    if (!await this.isActive(lease.scope, "use")) throw new AppError("AUTH_REQUIRED");
+    if (!await this.isActive(lease.scope, phase)) throw new AppError("AUTH_REQUIRED");
     const current = parseLease(await this.redis.get(leaseKey));
     if (!current || !matchesScope(lease.scope, current.scope) || !matches(current) || current.expiresAt <= this.now()) {
       throw new AppError("AUTH_REQUIRED");
@@ -210,8 +235,13 @@ function projectProvider(model: string, provider: RunnerModelProviderRuntime): O
   };
 }
 
-function storeModel(input: Pick<DesktopRunCredentials["primary"], "model" | "revision" | "protocol_mode" | "token">): ModelGrant {
-  return { model: input.model, revision: input.revision, protocolMode: input.protocol_mode, tokenHash: sha256(input.token) };
+function storeModel(input: Pick<DesktopRunCredentials["primary"], "model" | "revision" | "protocol_mode" | "token"> & {
+  reasoning_effort?: ReasoningEffort;
+}): ModelGrant {
+  return {
+    model: input.model, revision: input.revision, protocolMode: input.protocol_mode, tokenHash: sha256(input.token),
+    ...(input.reasoning_effort === undefined ? {} : { reasoningEffort: input.reasoning_effort }),
+  };
 }
 
 function tokenMatches(token: string, hash: string): boolean {

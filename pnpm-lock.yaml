@@ -238,6 +238,9 @@ importers:
       es-module-lexer:
         specifier: 2.3.0
         version: 2.3.0
+      eventsource-parser:
+        specifier: 3.1.0
+        version: 3.1.0
       exceljs:
         specifier: 4.4.0
         version: 4.4.0

@@ -11,6 +11,7 @@ import { promisify } from "node:util";
 
 import pino from "../apps/runner/node_modules/pino/pino.js";
 
+import { desktopModelProviders } from "../apps/runner/src/desktop/model-providers.js";
 import { CodexJsonRpcClient } from "../apps/runner/src/codex/json-rpc-client.ts";
 import {
   CODEX_SCHEMA_VERSION,
@@ -28,6 +29,7 @@ type ResponseStreamEvent = { event: string; data: JsonObject };
 
 const execFileAsync = promisify(execFile);
 const deepSeekToLuna = process.argv.includes("--deepseek-to-luna");
+const useDesktopProxy = process.argv.includes("--desktop-proxy");
 const sourceModel = deepSeekToLuna ? "deepseek-flash" : "gpt-5.6-luna";
 const targetModel = deepSeekToLuna ? "gpt-5.6-luna" : "qwen3.8-27b";
 const encryptedReasoning = "ZW5jcnlwdGVkLXByb3ZpZGVyLXN0YXRl";
@@ -91,7 +93,15 @@ if (!upstreamAddress || typeof upstreamAddress === "string") {
 const upstreamOrigin = `http://127.0.0.1:${upstreamAddress.port}`;
 const sourceBaseUrl = `${upstreamOrigin}/source/v1`;
 const targetBaseUrl = `${upstreamOrigin}/target/v1`;
-const gateway = new ModelGateway({ logger });
+const desktopProxy = useDesktopProxy
+  ? await (await import("../apps/api/test/fixtures/desktop-model-proxy.js")).startDesktopModelProxyFixture([
+    { model: sourceModel, revision: 1, protocolMode: "native_responses", upstreamBaseUrl: sourceBaseUrl, upstreamKey: "source-provider-key" },
+    { model: targetModel, revision: 2, protocolMode: "native_responses", upstreamBaseUrl: targetBaseUrl, upstreamKey: "target-provider-key" },
+  ])
+  : undefined;
+const gateway = new ModelGateway({
+  logger, ...(desktopProxy && { desktopProxyOrigin: desktopProxy.origin, fetch: desktopProxy.fetch }),
+});
 await gateway.start();
 
 try {
@@ -101,6 +111,7 @@ try {
       "check_for_update_on_startup = false",
       'forced_login_method = "api"',
       "allow_login_shell = false",
+      ...(useDesktopProxy ? ['web_search = "disabled"'] : []),
       "",
       "[features]",
       "shell_snapshot = false",
@@ -122,12 +133,15 @@ try {
     ].join("\n"),
   );
 
+  const sourceProvider = desktopProxy
+    ? desktopModelProviders(desktopProxy.origin, await desktopProxy.issue(1)).modelProvider
+    : { baseUrl: sourceBaseUrl, apiKey: "source-provider-key" };
   const sourceLease = gateway.issueLease({
     conversationId: "model-switch-smoke-source",
     ownerId: "10000000-0000-4000-8000-000000000001",
     revision: 1,
-    upstreamBaseUrl: sourceBaseUrl,
-    apiKey: "source-provider-key",
+    upstreamBaseUrl: sourceProvider.baseUrl,
+    apiKey: sourceProvider.apiKey,
     protocolMode: "native_responses",
     model: sourceModel,
     pricing: zeroPricing(),
@@ -178,12 +192,16 @@ try {
     sourceLease.release();
   }
 
+  const desktopTarget = desktopProxy
+    ? desktopModelProviders(desktopProxy.origin, await desktopProxy.issue(2, 1))
+    : undefined;
+  if (desktopTarget && !desktopTarget.modelTransitionSource) throw new Error("Missing scoped transition credential");
   const targetLease = gateway.issueLease({
     conversationId: "model-switch-smoke-target",
     ownerId: "10000000-0000-4000-8000-000000000001",
     revision: 2,
-    upstreamBaseUrl: targetBaseUrl,
-    apiKey: "target-provider-key",
+    upstreamBaseUrl: desktopTarget?.modelProvider.baseUrl ?? targetBaseUrl,
+    apiKey: desktopTarget?.modelProvider.apiKey ?? "target-provider-key",
     protocolMode: "native_responses",
     model: targetModel,
     pricing: zeroPricing(),
@@ -192,8 +210,8 @@ try {
   targetLease.setModelTransition(
     {
       revision: 1,
-      upstreamBaseUrl: sourceBaseUrl,
-      apiKey: "source-provider-key",
+      upstreamBaseUrl: desktopTarget?.modelTransitionSource?.provider.baseUrl ?? sourceBaseUrl,
+      apiKey: desktopTarget?.modelTransitionSource?.provider.apiKey ?? "source-provider-key",
       protocolMode: "native_responses",
       model: sourceModel,
       pricing: zeroPricing(),
@@ -353,9 +371,13 @@ try {
       `unexpected generated request counts: source=${sourceRequests.length}, target=${targetRequests.length}`,
     );
   }
+  if (desktopProxy && !desktopProxy.purposes.has("transition_source")) {
+    throw new Error("Native compaction did not use the scoped transition credential");
+  }
   console.log(
     JSON.stringify({
       status: "ok",
+      desktopProxy: useDesktopProxy,
       codexVersion: codexVersionOutput,
       sourceModel,
       targetModel,
@@ -375,6 +397,7 @@ try {
   );
 } finally {
   await gateway.close().catch(() => undefined);
+  await desktopProxy?.close();
   await new Promise<void>((resolve) => {
     upstream.close(() => resolve());
     upstream.closeAllConnections();
@@ -455,15 +478,21 @@ async function handleUpstream(
       if (deepSeekToLuna && !JSON.stringify(body).includes(sourceReasoningText)) {
         throw new Error("source compaction did not receive its plaintext reasoning");
       }
-      const metadata = turnMetadata(body);
-      if (
-        metadata.request_kind !== "compaction" ||
-        !isRecord(metadata.compaction) ||
-        metadata.compaction.trigger !== "manual" ||
-        metadata.compaction.reason !== "user_requested" ||
-        metadata.compaction.phase !== "standalone_turn"
-      ) {
-        throw new Error("source compaction metadata was not native manual mode");
+      if (useDesktopProxy) {
+        if (body.client_metadata !== undefined || body.tools !== undefined) {
+          throw new Error("The desktop transition forwarded client metadata or tool declarations");
+        }
+      } else {
+        const metadata = turnMetadata(body);
+        if (
+          metadata.request_kind !== "compaction" ||
+          !isRecord(metadata.compaction) ||
+          metadata.compaction.trigger !== "manual" ||
+          metadata.compaction.reason !== "user_requested" ||
+          metadata.compaction.phase !== "standalone_turn"
+        ) {
+          throw new Error("source compaction metadata was not native manual mode");
+        }
       }
       // Keep the actual upstream response pending until app-server emits the
       // start notification. Checking only thread/read after completion cannot
