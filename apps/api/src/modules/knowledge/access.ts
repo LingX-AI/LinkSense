@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Readable } from "node:stream";
+import { addAbortSignal, type Readable } from "node:stream";
 
 import { z } from "zod";
 
@@ -57,6 +57,7 @@ export class PrismaMinioKnowledgeDocumentAccessAdapter
     byteOffset: number;
     maxBytes: number;
     verifyIntegrity: boolean;
+    signal?: AbortSignal;
   }): Promise<{
     markdown: string;
     byteStart: number;
@@ -64,6 +65,7 @@ export class PrismaMinioKnowledgeDocumentAccessAdapter
     totalBytes: number;
     complete: boolean;
   }> {
+    input.signal?.throwIfAborted();
     const object = await this.findVersionObject({
       knowledgeBaseId: input.knowledgeBaseId,
       documentId: input.documentId,
@@ -86,16 +88,19 @@ export class PrismaMinioKnowledgeDocumentAccessAdapter
       throw new AppError("KNOWLEDGE_DOCUMENT_CONTENT_NOT_READY");
     }
     try {
+      input.signal?.throwIfAborted();
       if (
         input.verifyIntegrity &&
         !(await this.objectStore.verifyIntegrity({
           key: object.objectKey,
           expectedSha256: object.checksumSha256,
           expectedSizeBytes: object.sizeBytes,
+          ...(input.signal ? { signal: input.signal } : {}),
         }))
       ) {
         throw new AppError("KNOWLEDGE_DOCUMENT_CONTENT_NOT_READY");
       }
+      input.signal?.throwIfAborted();
       if (totalBytes === 0) {
         return {
           markdown: "",
@@ -115,8 +120,10 @@ export class PrismaMinioKnowledgeDocumentAccessAdapter
           object.objectKey,
           input.byteOffset,
           rangeLength,
+          input.signal,
         ),
         rangeLength,
+        input.signal,
       );
       const chunkLength =
         remaining <= input.maxBytes
@@ -133,6 +140,7 @@ export class PrismaMinioKnowledgeDocumentAccessAdapter
         complete: input.byteOffset + chunkLength === totalBytes,
       };
     } catch (error) {
+      input.signal?.throwIfAborted();
       if (error instanceof AppError) throw error;
       throw new AppError("KNOWLEDGE_PROCESSING_UNAVAILABLE");
     }
@@ -164,6 +172,7 @@ export class PrismaMinioKnowledgeDocumentAccessAdapter
     documentId: string;
     documentVersionId: string;
     assetReferenceId: string;
+    signal?: AbortSignal;
   }): Promise<KnowledgeAssetFile> {
     const object = await this.findVersionObject({
       ...input,
@@ -172,13 +181,15 @@ export class PrismaMinioKnowledgeDocumentAccessAdapter
     });
     if (!object) throw new AppError("KNOWLEDGE_DOCUMENT_NOT_FOUND");
     try {
+      input.signal?.throwIfAborted();
       return {
         filename: `asset-${object.assetReferenceId ?? object.id}.png`,
         mimeType: object.mimeType,
         sizeBytes: object.sizeBytes,
-        stream: await this.objectStore.getStream(object.objectKey),
+        stream: await this.objectStore.getStream(object.objectKey, input.signal),
       };
     } catch {
+      input.signal?.throwIfAborted();
       throw new AppError("KNOWLEDGE_PROCESSING_UNAVAILABLE");
     }
   }
@@ -285,7 +296,9 @@ async function readAndVerifyStream(
 async function readExactRange(
   stream: Readable,
   expectedSize: number,
+  signal?: AbortSignal,
 ): Promise<Buffer> {
+  if (signal) addAbortSignal(signal, stream);
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of stream) {

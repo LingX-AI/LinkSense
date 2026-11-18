@@ -1,12 +1,15 @@
 import { timingSafeEqual } from "node:crypto"
 import Fastify from "fastify"
-import { desktopExecutionMaxFrameBytes, runnerEventBatchSchema, runnerHeartbeatSchema, runnerStartSettledSchema, webSearchRequestSchema } from "@linksense/shared"
+import {
+  desktopExecutionMaxFrameBytes, errorCatalog, internalKnowledgeDocumentListRequestSchema,
+  internalKnowledgeDocumentMarkdownRequestSchema, internalKnowledgeSearchRequestSchema,
+  runnerEventBatchSchema, runnerHeartbeatSchema, runnerStartSettledSchema, webSearchRequestSchema,
+} from "@linksense/shared"
 import { z } from "zod"
 import { desktopWorkerSecret } from "../controller/desktop-worker-provider.js"
 import { acknowledgedEventCount } from "../event-sink.js"
-import type { DesktopLink } from "./link.js"
+import type { DesktopLink, DesktopToolInvocation } from "./link.js"
 import type { DesktopTurns } from "./turns.js"
-import { WebSearchRequestError, webSearchErrorFromApi } from "../web-search-error.js"
 
 const workerIdentity = z.strictObject({ ownerId: z.uuid(), conversationId: z.uuid() })
 const processExit = runnerStartSettledSchema.pick({ conversationId: true }).extend({
@@ -90,31 +93,42 @@ export function desktopWorkerCallbacks(
     reply.raw.once("finish", () => turns.finishAfterAcknowledgement(run, () => link.reportTurnExit(run)))
     return { data: { confirmed: true, outcome: "not_applicable" } }
   })
-  const searchBody = z.strictObject({ conversationId: z.uuid(), turnId: z.uuid(), request: webSearchRequestSchema })
-  app.post("/internal/web-search/search", { bodyLimit: 8_192 }, async (request, reply) => {
-    const { link, run } = authenticate(request.headers)
-    const body = searchBody.parse(request.body)
-    if (body.conversationId !== run.scope.conversation_id || body.turnId !== run.scope.turn_id) {
-      return reply.code(403).send({ error_code: "WEB_SEARCH_FORBIDDEN" })
-    }
-    const controller = new AbortController()
-    const abort = () => controller.abort()
-    const onClose = () => { if (!reply.raw.writableEnded) abort() }
-    request.raw.once("aborted", abort)
-    reply.raw.once("close", onClose)
-    try {
-      const result = await link.searchWeb(run, body.request, controller.signal)
-      if (result.type !== "tool.result") throw new Error("desktop search response unavailable")
-      if (result.ok) return result.data
-      const error = webSearchErrorFromApi(result)
-      return reply.code(error.statusCode).send({ error_code: error.code })
-    } catch (error) {
-      if (error instanceof WebSearchRequestError) return reply.code(error.statusCode).send({ error_code: error.code })
-      throw error
-    } finally {
-      request.raw.off("aborted", abort)
-      reply.raw.off("close", onClose)
-    }
-  })
+  const toolScope = z.strictObject({ conversationId: z.uuid(), turnId: z.uuid() })
+  const registerTool = <T extends z.infer<typeof toolScope>>(
+    path: string, schema: z.ZodType<T>, invoke: (body: T) => DesktopToolInvocation, bodyLimit = 8_192,
+  ) => {
+    app.post(path, { bodyLimit }, async (request, reply) => {
+      const { link, run } = authenticate(request.headers)
+      const body = schema.safeParse(request.body)
+      if (!body.success) return reply.code(400).send({ error_code: "VALIDATION_ERROR" })
+      if (body.data.conversationId !== run.scope.conversation_id || body.data.turnId !== run.scope.turn_id) {
+        return reply.code(403).send({ error_code: "FORBIDDEN" })
+      }
+      const controller = new AbortController()
+      const abort = () => controller.abort()
+      const onClose = () => { if (!reply.raw.writableEnded) abort() }
+      request.raw.once("aborted", abort)
+      reply.raw.once("close", onClose)
+      try {
+        const result = await link.requestTool(run, invoke(body.data), controller.signal)
+        if (result.ok) return result.data
+        return reply.code(errorCatalog[result.error_code].http_status).send({ error_code: result.error_code })
+      } finally {
+        request.raw.off("aborted", abort)
+        reply.raw.off("close", onClose)
+      }
+    })
+  }
+  registerTool("/internal/web-search/search", toolScope.extend({ request: webSearchRequestSchema }),
+    ({ request }) => ({ operation: "web.search", body: request }))
+  registerTool("/internal/knowledge/search", internalKnowledgeSearchRequestSchema,
+    ({ query, finalTopK, candidateMultiplier, numCandidates, minScore }) => ({
+    operation: "knowledge.search",
+    body: { query, final_top_k: finalTopK, candidate_multiplier: candidateMultiplier, num_candidates: numCandidates, min_score: minScore },
+  }), desktopExecutionMaxFrameBytes)
+  registerTool("/internal/knowledge/documents", internalKnowledgeDocumentListRequestSchema,
+    ({ cursor }) => ({ operation: "knowledge.documents", body: { cursor } }))
+  registerTool("/internal/knowledge/document-markdown", internalKnowledgeDocumentMarkdownRequestSchema,
+    ({ cursor, documentRef }) => ({ operation: "knowledge.markdown", body: { cursor, document_ref: documentRef } }))
   return app
 }

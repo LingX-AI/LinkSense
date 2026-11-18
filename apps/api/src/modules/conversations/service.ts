@@ -9784,8 +9784,7 @@ export class ConversationService {
       let modelRuntime: ResolvedModelRuntime;
       try {
         if (desktop) {
-          if (files.length || input.collaborationMode !== "default" || input.priorityCapabilityIds.length ||
-              input.knowledgeBaseIds.length || input.messageDisplay) {
+          if (files.length || input.collaborationMode !== "default" || input.priorityCapabilityIds.length || input.messageDisplay) {
             throw new AppError("RUNNER_UNAVAILABLE");
           }
           await this.runner.assertDesktopAvailable(ownerId, conversationId);
@@ -10063,7 +10062,7 @@ export class ConversationService {
           modelRuntime,
           modelTransitionSource,
           executionConcurrency,
-          desktop ? [] : await resolveRunnerKnowledgeSelection(
+          await resolveRunnerKnowledgeSelection(
             this.prisma,
             this.knowledgeStore,
             startIntent.ownerId,

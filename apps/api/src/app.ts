@@ -695,6 +695,7 @@ export async function buildApi(
     rateLimitHmacSecret: services.config.loginRateLimitHmacSecret,
     ...(desktopExecution ? {
       execution: desktopExecution,
+      knowledgeTools: services.knowledgeSearch !== null,
       onExecutionReady: (binding) => services.events.scheduleDesktopRecovery(binding),
     } : {}),
   });

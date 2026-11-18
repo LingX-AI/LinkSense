@@ -307,6 +307,50 @@ function createHarness(
 }
 
 describe("InternalKnowledgeSearchService", () => {
+  it.each(["current", "grant revoked", "version replaced"])("revalidates buffered handles when the document is %s", async (state) => {
+    const h = createHarness({
+      scopes: [{
+        requested_ids: [BASE_ID],
+        usable_ids: state === "grant revoked" ? [UNRELATED_ASSET_ID] : [BASE_ID],
+        unavailable_ids: state === "grant revoked" ? [BASE_ID] : [],
+      }],
+      documents: [{
+        id: DOCUMENT_ID, knowledgeBaseId: BASE_ID, displayName: "Guide", canonicalExtension: "md",
+        currentVersionId: state === "version replaced" ? UNRELATED_ASSET_ID : VERSION_ID,
+        activeProcessingVersionId: null,
+      }],
+    });
+    const check = h.service.assertDocumentReferencesCurrent(input(), ["document_ref_0000000000000000001"]);
+    if (state === "current") await expect(check).resolves.toBeUndefined();
+    else await expect(check).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("does not write Redis handles if the search is cancelled during image capture", async () => {
+    const h = createHarness();
+    const controller = new AbortController();
+    h.capture.mockImplementationOnce(async () => controller.abort());
+    await expect(h.service.search({ ...input(), signal: controller.signal }))
+      .rejects.toMatchObject({ name: "AbortError" });
+    expect(h.register).not.toHaveBeenCalled();
+    expect(h.registerDocument).not.toHaveBeenCalled();
+  });
+
+  it("does not write Redis handles if the Markdown read is cancelled", async () => {
+    const h = createHarness();
+    const controller = new AbortController();
+    h.getParsedContentChunk.mockReset().mockImplementationOnce(async () => {
+      controller.abort();
+      return { markdown: "sample", byteStart: 0, byteEnd: 6, totalBytes: 8, complete: false };
+    });
+    await expect(h.service.getDocumentMarkdown({
+      ownerId: OWNER_ID, conversationId: CONVERSATION_ID, turnId: TURN_ID,
+      documentRef: "document_ref_0000000000000000001", signal: controller.signal,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(h.markContentVerified).not.toHaveBeenCalled();
+    expect(h.registerMarkdownCursor).not.toHaveBeenCalled();
+    expect(h.capture).not.toHaveBeenCalled();
+  });
+
   it.each([[], ["00000000-0000-4000-8000-000000000099"]].map((selected) => ({ selected })))(
     "searches, lists and reads an authorized unselected library with selection %j",
     async ({ selected }) => {

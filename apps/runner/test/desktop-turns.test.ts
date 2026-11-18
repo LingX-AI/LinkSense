@@ -354,9 +354,9 @@ it("keeps lifecycle callbacks available when the search lane is full", async () 
     if (frame.type === "execution.callback" && frame.operation === "turn.exited") {
       link.receive({ type: "execution.ack", id: frame.id, operation: "turn.exited", ok: true })
     }
-  }, fail, true)
+  }, fail, ["web.search"])
   const pending = Promise.allSettled(Array.from({ length: 5 }, () =>
-    link.searchWeb(run, { query: "sample" }, controller.signal)))
+    link.requestTool(run, { operation: "web.search", body: { query: "sample" } }, controller.signal)))
   try {
     expect(searchIds.size).toBe(4)
     await expect(link.callback(run, "turn.exited")).resolves.toMatchObject({ ok: true, operation: "turn.exited" })
@@ -368,5 +368,5 @@ it("keeps lifecycle callbacks available when the search lane is full", async () 
     await provider.shutdown()
     await rm(root, { recursive: true, force: true })
   }
-  expect((await pending).at(-1)).toMatchObject({ status: "rejected", reason: { code: "WEB_SEARCH_UNAVAILABLE" } })
+  expect((await pending).at(-1)).toMatchObject({ status: "fulfilled", value: { ok: false, error_code: "RUNNER_UNAVAILABLE" } })
 })

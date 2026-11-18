@@ -44,10 +44,11 @@ type deviceConnection struct {
 }
 
 const (
-	desktopExecutionVersion = 2
-	desktopExecutionHeader  = "X-LinkSense-Desktop-Execution"
-	desktopToolVersion      = 1
-	desktopToolHeader       = "X-LinkSense-Desktop-Tools"
+	desktopExecutionVersion     = 2
+	desktopExecutionHeader      = "X-LinkSense-Desktop-Execution"
+	desktopToolVersion          = 1
+	desktopToolHeader           = "X-LinkSense-Desktop-Tools"
+	desktopToolOperationsHeader = "X-LinkSense-Desktop-Tool-Operations"
 )
 
 func newDeviceConnection(server *url.URL, credential deviceCredential) *deviceConnection {
@@ -125,6 +126,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	if offerExecution {
 		headers.Set(desktopExecutionHeader, strconv.Itoa(desktopExecutionVersion))
 		headers.Set(desktopToolHeader, strconv.Itoa(desktopToolVersion))
+		headers.Set(desktopToolOperationsHeader, "web.search,knowledge.search,knowledge.documents,knowledge.markdown")
 	}
 	socket, _, err := websocket.Dial(dialContext, endpoint.String(), &websocket.DialOptions{
 		HTTPClient: client, HTTPHeader: headers, CompressionMode: websocket.CompressionDisabled,
@@ -161,7 +163,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	}
 	var link *runtimeLink
 	if ready.ExecutionVersion != nil {
-		link, err = connection.runtime.attach(ready.ConnectionID, connection.credential.OwnerID, ready.ToolVersion)
+		link, err = connection.runtime.attach(ready.ConnectionID, connection.credential.OwnerID, ready.ToolVersion, ready.ToolOperations)
 		if err != nil {
 			return false, "RUNNER_UNAVAILABLE"
 		}
@@ -242,13 +244,14 @@ func isDesktopExecutionInput(data []byte) bool {
 }
 
 type deviceReady struct {
-	Type                string `json:"type"`
-	DeviceID            string `json:"device_id"`
-	ConnectionID        string `json:"connection_id"`
-	ProtocolVersion     int    `json:"protocol_version"`
-	HeartbeatIntervalMS int    `json:"heartbeat_interval_ms"`
-	ExecutionVersion    *int   `json:"execution_protocol_version,omitempty"`
-	ToolVersion         *int   `json:"tool_protocol_version,omitempty"`
+	Type                string   `json:"type"`
+	DeviceID            string   `json:"device_id"`
+	ConnectionID        string   `json:"connection_id"`
+	ProtocolVersion     int      `json:"protocol_version"`
+	HeartbeatIntervalMS int      `json:"heartbeat_interval_ms"`
+	ExecutionVersion    *int     `json:"execution_protocol_version,omitempty"`
+	ToolVersion         *int     `json:"tool_protocol_version,omitempty"`
+	ToolOperations      []string `json:"tool_operations,omitempty"`
 }
 
 func decodeDeviceReady(data []byte) (deviceReady, error) {
@@ -262,7 +265,8 @@ func decodeDeviceReady(data []byte) (deviceReady, error) {
 		!validUUID(ready.DeviceID) || !validUUID(ready.ConnectionID) ||
 		ready.ProtocolVersion != 1 || ready.HeartbeatIntervalMS != 15_000 ||
 		(ready.ExecutionVersion != nil && *ready.ExecutionVersion != desktopExecutionVersion) ||
-		(ready.ToolVersion != nil && (ready.ExecutionVersion == nil || *ready.ToolVersion != desktopToolVersion)) {
+		(ready.ToolVersion != nil && (ready.ExecutionVersion == nil || *ready.ToolVersion != desktopToolVersion)) ||
+		(len(ready.ToolOperations) > 0 && ready.ToolVersion == nil) {
 		return deviceReady{}, errors.New("DESKTOP_PROTOCOL_ERROR")
 	}
 	return ready, nil

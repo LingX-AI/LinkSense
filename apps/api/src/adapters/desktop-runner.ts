@@ -23,7 +23,7 @@ type CommandInput = Pick<StartCommand, "operation" | "body"> |
 export class DesktopRunner {
   constructor(
     private readonly findConversation: (scope: ConversationScope) => Promise<{ desktopDeviceId: string | null; runtimeGeneration: string } | null>,
-    private readonly transport: Pick<DesktopDeviceTransport, "connection" | "send">,
+    private readonly transport: Pick<DesktopDeviceTransport, "connection" | "send" | "supportsKnowledge">,
     private readonly leases: Pick<DesktopRunLeases, "issue" | "discardUndelivered">,
     private readonly scheduleExpiry: (scope: DesktopRunScope, expiresAt: number) => Promise<void>,
   ) {}
@@ -40,13 +40,16 @@ export class DesktopRunner {
         input.mcpServers.length || Object.keys(input.environment).length || input.modelProvider.privacyMasking ||
         input.modelTransitionSource?.provider.privacyMasking || context.applicationInstructions ||
         context.approvedPlanImplementation || context.automationExecution || context.requireFinalResponse ||
-        context.officeSelectionContext || context.selectedKnowledgeBases?.length ||
+        context.officeSelectionContext ||
         context.attachments.length || context.priorityPlugins.length || context.prioritySkills.length) {
       throw new AppError("RUNNER_UNAVAILABLE");
     }
     const scope = { ownerId: input.ownerId, conversationId: input.conversationId, turnId: input.projectionTurnId, runtimeGeneration: input.expectedRuntimeGeneration };
     const target = await this.resolve({ ...scope, ...(connectionId ? { connectionId } : {}) });
     const binding = target.binding;
+    if (context.selectedKnowledgeBases?.length && !await this.transport.supportsKnowledge(binding)) {
+      throw new DesktopCommandUndeliveredError();
+    }
     const credentials = await this.leases.issue(binding, input);
     try {
       // A worker cannot report its exit with an expired lease.
@@ -57,7 +60,10 @@ export class DesktopRunner {
     }
     const frame = await this.send(target, scope, {
       operation: "turn.start",
-      body: { native_thread_id: input.codexThreadId ?? null, input: context.userInput, reasoning_effort: input.reasoningEffort, credentials },
+      body: {
+        native_thread_id: input.codexThreadId ?? null, input: context.userInput, reasoning_effort: input.reasoningEffort, credentials,
+        ...(context.selectedKnowledgeBases?.length ? { selected_knowledge_bases: context.selectedKnowledgeBases } : {}),
+      },
     }).catch(async (error: unknown) => {
       if (error instanceof DesktopCommandUndeliveredError) {
         await this.leases.discardUndelivered(credentials.turn_id, credentials.run_token);

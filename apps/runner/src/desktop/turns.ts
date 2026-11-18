@@ -354,7 +354,10 @@ export class DesktopTurns {
       codexThreadId: command.body.native_thread_id, appServerProcessLimit: 1,
       capabilityGeneration, mcpGeneration: emptyMcpGeneration, mcpServers: [],
       collaborationMode: "default", capabilities: [], environment: {},
-      context: { userInput: command.body.input, attachments: [], priorityPlugins: [], prioritySkills: [] },
+      context: {
+        userInput: command.body.input, attachments: [], priorityPlugins: [], prioritySkills: [],
+        ...(command.body.selected_knowledge_bases ? { selectedKnowledgeBases: command.body.selected_knowledge_bases } : {}),
+      },
       reasoningEffort: command.body.reasoning_effort,
       ...desktopModelProviders(this.origin, command.body.credentials),
     }

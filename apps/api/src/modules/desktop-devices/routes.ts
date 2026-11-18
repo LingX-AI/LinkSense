@@ -8,6 +8,7 @@ import { z, ZodError } from "zod";
 import {
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
   DESKTOP_TOOL_PROTOCOL_HEADER,
+  DESKTOP_TOOL_OPERATIONS_HEADER,
   desktopDeviceClientFrameSchema,
   desktopDeviceListSchema,
   desktopDevicePairInputSchema,
@@ -20,7 +21,9 @@ import {
   desktopExecutionResultSchema,
   desktopProtocolVersion,
   desktopToolCancelSchema,
+  desktopToolOperationSchema,
   desktopToolProtocolVersion,
+  type DesktopToolOperation,
 } from "@linksense/shared";
 import type { DesktopDeviceTransport } from "../../adapters/desktop-device-transport.js";
 import { hmacSha256 } from "../../lib/crypto.js";
@@ -39,6 +42,7 @@ export async function registerDesktopDeviceRoutes(
     redis: Redis;
     rateLimitHmacSecret: string;
     execution?: DesktopDeviceTransport;
+    knowledgeTools?: boolean;
     onExecutionReady?: (binding: { deviceId: string; ownerId: string; connectionId: string }) => Promise<void>;
   },
 ): Promise<void> {
@@ -86,7 +90,7 @@ export async function registerDesktopDeviceRoutes(
     noServer: true, maxPayload: execution ? desktopExecutionMaxFrameBytes : presenceMaxFrameBytes, perMessageDeflate: false,
   });
   const connected = new Map<WebSocket, {
-    device: DesktopDeviceRecord; connectionId: string; execution: boolean; tools: boolean; detach?: () => void;
+    device: DesktopDeviceRecord; connectionId: string; execution: boolean; tools: readonly DesktopToolOperation[]; detach?: () => void;
   }>();
   const recoveryEnqueues = new Set<Promise<void>>();
   let subscription: Promise<() => void> | null = null;
@@ -158,6 +162,11 @@ export async function registerDesktopDeviceRoutes(
       request.headers[DESKTOP_EXECUTION_PROTOCOL_HEADER] === String(desktopExecutionProtocolVersion);
     const supportsTools = supportsExecution &&
       request.headers[DESKTOP_TOOL_PROTOCOL_HEADER] === String(desktopToolProtocolVersion);
+    const toolOffer = request.headers[DESKTOP_TOOL_OPERATIONS_HEADER];
+    const offered = typeof toolOffer === "string" ? new Set(toolOffer.split(",")) : undefined;
+    const tools = !supportsTools ? [] : !offered ? ["web.search"] as const
+      : desktopToolOperationSchema.options.filter(operation => offered.has(operation) &&
+        (operation === "web.search" || options.knowledgeTools));
     let handling = false;
     let lastPing = Date.now();
     const authDeadline = setTimeout(() => socket.close(4401), 5000);
@@ -176,12 +185,12 @@ export async function registerDesktopDeviceRoutes(
         }
         const callback = desktopExecutionCallbackSchema.safeParse(value);
         if (callback.success) {
-          if (callback.data.type === "tool.request" && !current.tools) { socket.close(4400); return; }
+          if (callback.data.type === "tool.request" && !current.tools.includes(callback.data.operation)) { socket.close(4400); return; }
           await execution?.receiveCallback(current.connectionId, callback.data);
           return;
         }
         const cancel = desktopToolCancelSchema.safeParse(value);
-        if (cancel.success && current.tools) {
+        if (cancel.success && current.tools.includes(cancel.data.operation)) {
           execution?.cancelTool(current.connectionId, cancel.data);
           return;
         }
@@ -198,7 +207,7 @@ export async function registerDesktopDeviceRoutes(
           const connectionId = await service.connect(device);
           const state: NonNullable<ReturnType<typeof connected.get>> = {
             device, connectionId, execution: supportsExecution && device.platform === "darwin",
-            tools: supportsTools && device.platform === "darwin",
+            tools: device.platform === "darwin" ? tools : [],
           };
           connected.set(socket, state);
           const active = await service.maintain(device, connectionId);
@@ -216,6 +225,7 @@ export async function registerDesktopDeviceRoutes(
           if (state.execution && execution) {
             const detach = await execution.attach({
               ownerId: device.ownerId, deviceId: device.id, connectionId,
+              toolOperations: state.tools,
               verifyCredential: () => service.hasCurrentCredential(device),
               send: frame => {
                 if (!readySent || socket.readyState !== WebSocket.OPEN || socket.bufferedAmount >= desktopExecutionMaxFrameBytes) return false;
@@ -234,7 +244,10 @@ export async function registerDesktopDeviceRoutes(
           clearTimeout(authDeadline);
           socket.send(JSON.stringify(state.execution ? desktopExecutionDeviceReadySchema.parse({
             ...ready, execution_protocol_version: desktopExecutionProtocolVersion,
-            ...(state.tools ? { tool_protocol_version: desktopToolProtocolVersion } : {}),
+            ...(state.tools.length ? {
+              tool_protocol_version: desktopToolProtocolVersion,
+              ...(offered ? { tool_operations: state.tools } : {}),
+            } : {}),
           }) : ready));
           readySent = true;
           if (state.execution && options.onExecutionReady) {

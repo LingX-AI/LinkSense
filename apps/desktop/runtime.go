@@ -200,11 +200,12 @@ func (s *runtimeSupervisor) run(ctx context.Context, dataRoot, runtimeRoot, serv
 }
 
 type runtimePipeMessage struct {
-	Type         string          `json:"type"`
-	LinkID       string          `json:"link_id"`
-	OwnerID      string          `json:"owner_id,omitempty"`
-	Frame        json.RawMessage `json:"frame,omitempty"`
-	ToolsVersion *int            `json:"tools_version,omitempty"`
+	Type           string          `json:"type"`
+	LinkID         string          `json:"link_id"`
+	OwnerID        string          `json:"owner_id,omitempty"`
+	Frame          json.RawMessage `json:"frame,omitempty"`
+	ToolsVersion   *int            `json:"tools_version,omitempty"`
+	ToolOperations []string        `json:"tool_operations,omitempty"`
 }
 
 type runtimePipe struct {
@@ -220,7 +221,7 @@ type runtimeLink struct {
 	frames chan json.RawMessage
 }
 
-func (s *runtimeSupervisor) attach(id, owner string, toolsVersion *int) (*runtimeLink, error) {
+func (s *runtimeSupervisor) attach(id, owner string, toolsVersion *int, toolOperations []string) (*runtimeLink, error) {
 	pipe := s.pipe.Load()
 	if pipe == nil || !validUUID(id) || !validUUID(owner) {
 		return nil, errors.New("DESKTOP_RUNTIME_UNAVAILABLE")
@@ -231,7 +232,7 @@ func (s *runtimeSupervisor) attach(id, owner string, toolsVersion *int) (*runtim
 	if pipe.link.Load() != nil {
 		return nil, errors.New("DESKTOP_RUNTIME_UNAVAILABLE")
 	}
-	if err := pipe.writeLocked(runtimePipeMessage{Type: "link.open", LinkID: id, OwnerID: owner, ToolsVersion: toolsVersion}); err != nil {
+	if err := pipe.writeLocked(runtimePipeMessage{Type: "link.open", LinkID: id, OwnerID: owner, ToolsVersion: toolsVersion, ToolOperations: toolOperations}); err != nil {
 		return nil, err
 	}
 	pipe.link.Store(link)
@@ -274,7 +275,8 @@ func (pipe *runtimePipe) deliver(raw string) bool {
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if !json.Valid([]byte(raw)) || decoder.Decode(&message) != nil || message.Type != "link.frame" ||
-		!validUUID(message.LinkID) || message.OwnerID != "" || message.ToolsVersion != nil || len(message.Frame) > desktopFrameLimit || !json.Valid(message.Frame) {
+		!validUUID(message.LinkID) || message.OwnerID != "" || message.ToolsVersion != nil || len(message.ToolOperations) > 0 ||
+		len(message.Frame) > desktopFrameLimit || !json.Valid(message.Frame) {
 		return false
 	}
 	var header struct {

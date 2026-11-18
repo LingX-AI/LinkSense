@@ -281,6 +281,9 @@ describe("Core MCP module registry", () => {
     expect(registry.tools.map((tool) => tool.name)).toEqual(
       coreMcpToolNamesFor("plan"),
     )
+    for (const name of ["search_knowledge_base", "list_knowledge_documents", "get_knowledge_document_markdown"]) {
+      expect(registry.tools.find((tool) => tool.name === name)?.annotations?.readOnlyHint).toBe(true)
+    }
     expect(
       registry.tools.find((tool) => tool.name === "request_user_form")
         ?.annotations,

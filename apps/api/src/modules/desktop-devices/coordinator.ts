@@ -5,6 +5,7 @@ import { desktopNoticeChannel, subscribeDesktopNotices, type DesktopNotice } fro
 const leaseMilliseconds = 45_000;
 const presenceKey = (id: string) => `linksense:desktop-devices:${id}:connection`;
 const executionKey = (id: string) => `linksense:desktop-devices:${id}:execution`;
+const knowledgeExecutionKey = (id: string) => `linksense:desktop-devices:${id}:execution-knowledge`;
 const commandKey = (id: string) => `linksense:desktop-execution:command:${id}`;
 export type DesktopConnectionNotice = Exclude<DesktopNotice, { type: "disconnected" }>;
 export const desktopExecutionBindingSchema = z.strictObject({
@@ -41,17 +42,27 @@ export class RedisDesktopDeviceCoordinator implements DesktopDeviceCoordinator {
     return desktopExecutionBindingSchema.parse({ deviceId, connectionId, gatewayId: execution.slice(prefix.length) });
   }
 
-  async enableExecution(binding: DesktopExecutionBinding): Promise<boolean> {
+  async enableExecution(binding: DesktopExecutionBinding, knowledge = false): Promise<boolean> {
     const enabled = await this.redis.eval(
       `if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
        local ttl = redis.call('PTTL', KEYS[1])
        if ttl <= 0 then return 0 end
        redis.call('SET', KEYS[2], ARGV[2], 'PX', ttl)
+       if ARGV[3] == '1' then redis.call('SET', KEYS[3], ARGV[2], 'PX', ttl)
+       else redis.call('DEL', KEYS[3]) end
        return 1`,
-      2, presenceKey(binding.deviceId), executionKey(binding.deviceId),
-      binding.connectionId, executionValue(binding),
+      3, presenceKey(binding.deviceId), executionKey(binding.deviceId), knowledgeExecutionKey(binding.deviceId),
+      binding.connectionId, executionValue(binding), knowledge ? "1" : "0",
     );
     return enabled === 1;
+  }
+
+  async supportsKnowledge(binding: DesktopExecutionBinding): Promise<boolean> {
+    const [presence, execution, knowledge] = await this.redis.mget(
+      presenceKey(binding.deviceId), executionKey(binding.deviceId), knowledgeExecutionKey(binding.deviceId),
+    );
+    const expected = executionValue(binding);
+    return presence === binding.connectionId && execution === expected && knowledge === expected;
   }
 
   async mayDispatch(binding: DesktopExecutionBinding, commandId: string): Promise<boolean> {
@@ -90,12 +101,12 @@ export class RedisDesktopDeviceCoordinator implements DesktopDeviceCoordinator {
     await this.redis.eval(
       `local previous = redis.call('GET', KEYS[1])
        redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
-       redis.call('DEL', KEYS[3])
+       redis.call('DEL', KEYS[3], KEYS[4])
        if previous and previous ~= ARGV[1] then
          redis.call('PUBLISH', KEYS[2], cjson.encode({type='replaced', deviceId=ARGV[3], supersededConnectionId=previous}))
        end
        return 1`,
-      3, presenceKey(deviceId), desktopNoticeChannel, executionKey(deviceId),
+      4, presenceKey(deviceId), desktopNoticeChannel, executionKey(deviceId), knowledgeExecutionKey(deviceId),
       connectionId, String(leaseMilliseconds), deviceId,
     );
   }
@@ -106,8 +117,9 @@ export class RedisDesktopDeviceCoordinator implements DesktopDeviceCoordinator {
        if not current then return 0 end
        if current ~= ARGV[1] then return 2 end
        redis.call('PEXPIRE', KEYS[2], ARGV[2])
+       redis.call('PEXPIRE', KEYS[3], ARGV[2])
        return redis.call('PEXPIRE', KEYS[1], ARGV[2])`,
-      2, presenceKey(deviceId), executionKey(deviceId), connectionId, String(leaseMilliseconds),
+      3, presenceKey(deviceId), executionKey(deviceId), knowledgeExecutionKey(deviceId), connectionId, String(leaseMilliseconds),
     );
     return result === 1 ? "online" : result === 2 ? "replaced" : "expired";
   }
@@ -115,9 +127,9 @@ export class RedisDesktopDeviceCoordinator implements DesktopDeviceCoordinator {
   async disconnect(deviceId: string, connectionId: string): Promise<void> {
     await this.redis.eval(
       `if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
-       redis.call('DEL', KEYS[1], KEYS[2])
+       redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
        return redis.call('PUBLISH', ARGV[2], ARGV[3])`,
-      2, presenceKey(deviceId), executionKey(deviceId), connectionId, desktopNoticeChannel,
+      3, presenceKey(deviceId), executionKey(deviceId), knowledgeExecutionKey(deviceId), connectionId, desktopNoticeChannel,
       JSON.stringify({ type: "disconnected", deviceId, connectionId } satisfies DesktopNotice),
     );
   }
@@ -130,8 +142,8 @@ export class RedisDesktopDeviceCoordinator implements DesktopDeviceCoordinator {
 
   async revoke(deviceId: string): Promise<void> {
     await this.redis.eval(
-      "redis.call('DEL', KEYS[1], KEYS[2]); return redis.call('PUBLISH', ARGV[1], ARGV[2])",
-      2, presenceKey(deviceId), executionKey(deviceId), desktopNoticeChannel,
+      "redis.call('DEL', KEYS[1], KEYS[2], KEYS[3]); return redis.call('PUBLISH', ARGV[1], ARGV[2])",
+      3, presenceKey(deviceId), executionKey(deviceId), knowledgeExecutionKey(deviceId), desktopNoticeChannel,
       JSON.stringify({ type: "revoked", deviceId } satisfies DesktopNotice),
     );
   }

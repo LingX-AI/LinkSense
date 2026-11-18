@@ -23,6 +23,9 @@ export function knowledgeServiceErrorFromApi(
 ): KnowledgeServiceRequestError {
   const value = asRecord(responseBody)
   const apiCode = typeof value.error_code === "string" ? value.error_code : null
+  if (apiCode === "RUNNER_OPERATION_UNCERTAIN") {
+    return new KnowledgeServiceRequestError(apiCode, false, statusCode)
+  }
   if (apiCode === "KNOWLEDGE_NO_AVAILABLE_BASES") {
     return new KnowledgeServiceRequestError(
       "KNOWLEDGE_NO_AVAILABLE_BASES",

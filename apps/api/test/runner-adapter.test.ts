@@ -1591,7 +1591,7 @@ function desktopRunnerFixture(redis: Awaited<ReturnType<typeof createRedisFixtur
   const findConversation = async () => ({ desktopDeviceId: deviceId, runtimeGeneration });
   const send = vi.fn<DesktopDeviceTransport["send"]>();
   const scheduleExpiry = vi.fn(async () => undefined);
-  const runner = new DesktopRunner(findConversation, { connection: async () => binding, send }, new DesktopRunLeases(redis, async () => true), scheduleExpiry);
+  const runner = new DesktopRunner(findConversation, { connection: async () => binding, send, supportsKnowledge: async () => false }, new DesktopRunLeases(redis, async () => true), scheduleExpiry);
   const client = new RunnerClient(testConfig(), async () => "local");
   client.useDesktopRunner(runner);
   const fetchMock = vi.fn<typeof fetch>();

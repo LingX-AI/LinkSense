@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { Readable } from "node:stream";
+import { EventEmitter, once } from "node:events";
+import { PassThrough, Readable } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -118,6 +119,31 @@ describe("PrismaMinioKnowledgeDocumentAccessAdapter", () => {
     });
     expect(fixture.objectStore.getRangeStream).not.toHaveBeenCalled();
   });
+
+  it("destroys a pending Markdown range when its caller cancels", async () => {
+    const fixture = accessFixture();
+    const stream = new PassThrough();
+    const controller = new AbortController();
+    const events = new EventEmitter();
+    const reading = once(events, "reading");
+    fixture.objectStore.getRangeStream.mockImplementation(async () => {
+      events.emit("reading");
+      return stream;
+    });
+    const result = fixture.adapter.getParsedContentChunk({
+      knowledgeBaseId, documentId, documentVersionId,
+      byteOffset: 0, maxBytes: 8, verifyIntegrity: false, signal: controller.signal,
+    });
+    const rejected = expect(result).rejects.toMatchObject({ name: "AbortError" });
+    await reading;
+    controller.abort();
+    try {
+      await rejected;
+      expect(stream.destroyed).toBe(true);
+    } finally {
+      stream.destroy();
+    }
+  }, 1_000);
 
   it("serves only assets from the display Markdown generation", async () => {
     const fixture = accessFixture();

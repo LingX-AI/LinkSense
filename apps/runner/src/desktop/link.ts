@@ -2,12 +2,11 @@ import { randomUUID } from "node:crypto"
 import {
   desktopExecutionCallbackSchema, desktopExecutionCommandLifetimeMs, desktopExecutionMaxInFlight,
   desktopExecutionResultSchema, desktopRuntimeInputSchema, desktopRuntimeOutputSchema,
-  desktopToolMaxInFlight, desktopToolRequestLifetimeMs, desktopToolRequestSchema,
+  desktopToolMaxInFlight, desktopToolLifetimeFor, desktopToolRequestSchema,
   type DesktopExecutionAck, type DesktopExecutionCallback, type DesktopExecutionCommand,
-  type WebSearchRequest,
+  type DesktopToolOperation, type DesktopToolRequest, type DesktopToolResult,
 } from "@linksense/shared"
 import type { z } from "zod"
-import { WebSearchRequestError } from "../web-search-error.js"
 import type { DesktopRuntimeRun, DesktopTurns } from "./turns.js"
 
 type Input = z.infer<typeof desktopRuntimeInputSchema>
@@ -17,6 +16,9 @@ type Waiting = {
   operation: DesktopExecutionCallback["operation"]
   resolve: (ack: DesktopExecutionAck) => void
 }
+export type DesktopToolInvocation = {
+  [Operation in DesktopToolOperation]: Pick<Extract<DesktopToolRequest, { operation: Operation }>, "operation" | "body">
+}[DesktopToolOperation]
 const maxRecentCommands = 1024
 
 export class DesktopLink {
@@ -32,7 +34,7 @@ export class DesktopLink {
     private readonly turns: DesktopTurns,
     private readonly write: (frame: Output) => Promise<void>,
     private readonly fail: () => void,
-    private readonly toolsEnabled = false,
+    private readonly toolOperations: readonly DesktopToolOperation[] = [],
   ) {}
 
   receive(frame: Extract<Input, { type: "link.frame" }>["frame"]): void {
@@ -107,29 +109,35 @@ export class DesktopLink {
     return this.sendCallback(frame, this.lifetime.signal)
   }
 
-  async searchWeb(run: DesktopRuntimeRun, body: WebSearchRequest, signal: AbortSignal): Promise<DesktopExecutionAck> {
-    if (!this.toolsEnabled || run.scope.owner_id !== this.ownerId) throw new Error("desktop tool unavailable")
+  async requestTool(run: DesktopRuntimeRun, input: DesktopToolInvocation, signal: AbortSignal): Promise<DesktopToolResult> {
+    const id = randomUUID()
+    const { operation } = input
+    const failure = (error_code: "FORBIDDEN" | "RUNNER_UNAVAILABLE" | "RUNNER_OPERATION_UNCERTAIN"): DesktopToolResult =>
+      ({ type: "tool.result", id, operation, ok: false, error_code })
+    if (run.scope.owner_id !== this.ownerId) return failure("FORBIDDEN")
+    if (!this.toolOperations.includes(operation)) return failure("RUNNER_UNAVAILABLE")
     if (this.callbacks.size >= desktopExecutionMaxInFlight ||
       [...this.callbacks.values()].filter(pending => pending.type === "tool.result").length >= desktopToolMaxInFlight) {
-      throw new WebSearchRequestError("WEB_SEARCH_UNAVAILABLE")
+      return failure("RUNNER_UNAVAILABLE")
     }
     const { conversation_id, runtime_generation, turn_id } = run.scope
     const frame = desktopToolRequestSchema.parse({
-      type: "tool.request", id: randomUUID(), conversation_id, runtime_generation, turn_id,
-      expires_at: new Date(Date.now() + desktopToolRequestLifetimeMs).toISOString(),
-      run_token: run.token, operation: "web.search", body,
+      ...input, type: "tool.request", id, conversation_id, runtime_generation, turn_id,
+      expires_at: new Date(Date.now() + desktopToolLifetimeFor(operation)).toISOString(),
+      run_token: run.token,
     })
     const lifetime = AbortSignal.any([this.lifetime.signal, signal])
     lifetime.throwIfAborted()
     try {
-      return await this.sendCallback(frame, lifetime)
+      const result = await this.sendCallback(frame, lifetime)
+      return result.type === "tool.result" ? result : failure("RUNNER_OPERATION_UNCERTAIN")
     } catch {
       if (!this.lifetime.signal.aborted) {
         this.track(this.write({ type: "link.frame", link_id: this.id, frame: {
           type: "tool.cancel", id: frame.id, operation: frame.operation, conversation_id, runtime_generation, turn_id,
         } }))
       }
-      throw new WebSearchRequestError("RUNNER_OPERATION_UNCERTAIN")
+      return failure("RUNNER_OPERATION_UNCERTAIN")
     }
   }
 
@@ -157,7 +165,7 @@ export class DesktopLink {
 
   private async sendCallback(frame: DesktopExecutionCallback, lifetime: AbortSignal): Promise<DesktopExecutionAck> {
     const signal = AbortSignal.any([
-      lifetime, AbortSignal.timeout(frame.type === "tool.request" ? desktopToolRequestLifetimeMs + 1_000 : 4_000),
+      lifetime, AbortSignal.timeout(frame.type === "tool.request" ? desktopToolLifetimeFor(frame.operation) + 1_000 : 4_000),
     ])
     signal.throwIfAborted()
     if (this.callbacks.size >= desktopExecutionMaxInFlight) throw new Error("desktop callback unavailable")

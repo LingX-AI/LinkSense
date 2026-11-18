@@ -5,12 +5,19 @@ import { desktopDeviceReadySchema, desktopRunCredentialsSchema, desktopRunTokenS
 import { runnerCodexGoalSchema, runnerCodexTurnSchema, runnerEventBatchReceiptSchema, runnerEventBatchSchema } from "./events.js";
 import { reasoningEffortSchema } from "./model-provider.js";
 import { runnerStartSettledReceiptSchema, runnerStartSettledSchema, runnerTurnInterruptResultSchema } from "./runner.js";
+import { runnerKnowledgeBaseSelectionSchema } from "./runner.js";
+import {
+  DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS, getKnowledgeDocumentMarkdownInputSchema, knowledgeDocumentListSuccessSchema,
+  knowledgeDocumentMarkdownSuccessSchema,
+  knowledgeSearchSuccessSchema, listKnowledgeDocumentsInputSchema, searchKnowledgeBaseInputSchema,
+} from "./knowledge.js";
 import { WEB_SEARCH_MAX_TIMEOUT_MS, webSearchFailureCodeSchema, webSearchRequestSchema, webSearchSuccessSchema } from "./web-search.js";
 
 // Negotiate execution independently of the login and device presence protocol.
 export const DESKTOP_EXECUTION_PROTOCOL_HEADER = "x-linksense-desktop-execution";
 export const desktopExecutionProtocolVersion = 2;
 export const DESKTOP_TOOL_PROTOCOL_HEADER = "x-linksense-desktop-tools";
+export const DESKTOP_TOOL_OPERATIONS_HEADER = "x-linksense-desktop-tool-operations";
 export const desktopToolProtocolVersion = 1;
 export const desktopToolRequestLifetimeMs = WEB_SEARCH_MAX_TIMEOUT_MS + 2_000;
 export const desktopToolClockSkewAllowanceMs = 5_000;
@@ -20,9 +27,16 @@ export const desktopExecutionMaxInFlight = 8;
 export const desktopToolMaxInFlight = 4;
 export const desktopExecutionCommandLifetimeMs = 65_000;
 export const desktopExecutionOperation = z.enum(["turn.start", "turn.inspect", "turn.seal", "turn.interrupt", "turn.drain"]);
+export const desktopToolOperationSchema = z.enum(["web.search", "knowledge.search", "knowledge.documents", "knowledge.markdown"]);
+export type DesktopToolOperation = z.infer<typeof desktopToolOperationSchema>;
+export function desktopToolLifetimeFor(operation: DesktopToolOperation): number {
+  return operation === "web.search" ? desktopToolRequestLifetimeMs : DEFAULT_KNOWLEDGE_SEARCH_TIMEOUT_MS + 2_000;
+}
+const toolOperations = z.array(desktopToolOperationSchema).max(desktopToolOperationSchema.options.length);
 export const desktopExecutionDeviceReadySchema = desktopDeviceReadySchema.extend({
   execution_protocol_version: z.literal(desktopExecutionProtocolVersion),
   tool_protocol_version: z.literal(desktopToolProtocolVersion).optional(),
+  tool_operations: toolOperations.optional(),
 });
 
 const command = z.strictObject({
@@ -40,6 +54,7 @@ export const desktopExecutionCommandSchema = z.discriminatedUnion("operation", [
     body: z.strictObject({
       native_thread_id: uuidSchema.nullable(),
       input: z.string().trim().min(1).max(128_000),
+      selected_knowledge_bases: runnerKnowledgeBaseSelectionSchema.optional(),
       reasoning_effort: reasoningEffortSchema,
       credentials: desktopRunCredentialsSchema,
     }),
@@ -133,16 +148,19 @@ const callback = callbackScope.extend({
   type: z.literal("execution.callback"),
   run_token: desktopRunTokenSchema,
 });
-const toolOperation = z.literal("web.search");
-export const desktopToolRequestSchema = callback.extend({
+const request = callback.extend({
   type: z.literal("tool.request"),
-  operation: toolOperation,
   expires_at: timestampSchema,
-  body: webSearchRequestSchema,
 });
+export const desktopToolRequestSchema = z.discriminatedUnion("operation", [
+  request.extend({ operation: z.literal("web.search"), body: webSearchRequestSchema }),
+  request.extend({ operation: z.literal("knowledge.search"), body: searchKnowledgeBaseInputSchema }),
+  request.extend({ operation: z.literal("knowledge.documents"), body: listKnowledgeDocumentsInputSchema }),
+  request.extend({ operation: z.literal("knowledge.markdown"), body: getKnowledgeDocumentMarkdownInputSchema }),
+]);
 export const desktopToolCancelSchema = callbackScope.extend({
   type: z.literal("tool.cancel"),
-  operation: toolOperation,
+  operation: desktopToolOperationSchema,
 });
 export const desktopExecutionCallbackSchema = z.union([
   desktopToolRequestSchema,
@@ -167,13 +185,22 @@ export const desktopExecutionCallbackSchema = z.union([
   (frame.operation !== "start.settled" || (frame.body.projectionTurnId === frame.turn_id &&
     frame.body.runtimeGeneration === frame.runtime_generation))), { error: "desktop_callback_scope_mismatch" });
 const callbackResult = z.strictObject({ type: z.literal("execution.ack"), id: uuidSchema });
-const toolResult = callbackResult.extend({ type: z.literal("tool.result"), operation: toolOperation });
-export const desktopToolResultSchema = z.discriminatedUnion("ok", [
-  toolResult.extend({ ok: z.literal(true), data: webSearchSuccessSchema }),
-  toolResult.extend({
-    ok: z.literal(false),
-    error_code: z.union([webSearchFailureCodeSchema, z.enum(["FORBIDDEN", "RUNNER_UNAVAILABLE"])]),
-  }),
+const toolResult = callbackResult.extend({ type: z.literal("tool.result"), ok: z.literal(true) });
+export const desktopToolErrorSchema = z.union([
+  webSearchFailureCodeSchema,
+  z.enum([
+    "FORBIDDEN", "RUNNER_UNAVAILABLE", "VALIDATION_ERROR", "KNOWLEDGE_PROCESSING_UNAVAILABLE",
+    "KNOWLEDGE_SEARCH_UNAVAILABLE", "KNOWLEDGE_NO_AVAILABLE_BASES",
+    "KNOWLEDGE_MAINTENANCE_UNAVAILABLE", "KNOWLEDGE_DOCUMENT_CONTENT_NOT_READY", "FILE_LIMIT_EXCEEDED",
+    "KNOWLEDGE_BASE_NOT_FOUND", "KNOWLEDGE_BASE_ACCESS_DENIED", "KNOWLEDGE_BASE_DISABLED", "KNOWLEDGE_DOCUMENT_NOT_FOUND",
+  ]),
+]);
+export const desktopToolResultSchema = z.union([
+  toolResult.extend({ operation: z.literal("web.search"), data: webSearchSuccessSchema }),
+  toolResult.extend({ operation: z.literal("knowledge.search"), data: knowledgeSearchSuccessSchema }),
+  toolResult.extend({ operation: z.literal("knowledge.documents"), data: knowledgeDocumentListSuccessSchema }),
+  toolResult.extend({ operation: z.literal("knowledge.markdown"), data: knowledgeDocumentMarkdownSuccessSchema }),
+  toolResult.extend({ operation: desktopToolOperationSchema, ok: z.literal(false), error_code: desktopToolErrorSchema }),
 ]);
 export const desktopExecutionAckSchema = z.union([
   desktopToolResultSchema,
@@ -204,11 +231,15 @@ export type DesktopExecutionRecovery = Extract<DesktopExecutionCallback, { type:
 export type DesktopExecutionAck = z.infer<typeof desktopExecutionAckSchema>;
 export type DesktopToolRequest = z.infer<typeof desktopToolRequestSchema>;
 export type DesktopToolCancel = z.infer<typeof desktopToolCancelSchema>;
+export type DesktopToolResult = z.infer<typeof desktopToolResultSchema>;
 
 // The native host associates pipe messages with exactly one negotiated socket.
 const link = z.strictObject({ link_id: uuidSchema });
 export const desktopRuntimeInputSchema = z.union([
-  link.extend({ type: z.literal("link.open"), owner_id: uuidSchema, tools_version: z.literal(desktopToolProtocolVersion).optional() }),
+  link.extend({
+    type: z.literal("link.open"), owner_id: uuidSchema, tools_version: z.literal(desktopToolProtocolVersion).optional(),
+    tool_operations: toolOperations.optional(),
+  }),
   link.extend({ type: z.literal("link.close") }),
   link.extend({
     type: z.literal("link.frame"),

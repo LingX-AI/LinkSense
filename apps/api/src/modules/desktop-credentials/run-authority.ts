@@ -31,7 +31,7 @@ export async function lockDesktopConversation(
 }
 
 export async function isDesktopRunActive(
-  prisma: PrismaClient,
+  prisma: Pick<PrismaClient, "$queryRaw">,
   coordinator: Pick<RedisDesktopDeviceCoordinator, "isCurrentConnection">,
   scope: DesktopRunScope,
   phase: DesktopRunAuthorizationPhase,

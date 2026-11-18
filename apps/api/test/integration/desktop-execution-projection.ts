@@ -7,12 +7,15 @@ import {
   conversationStartFailurePayloadSchema,
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
   DESKTOP_TOOL_PROTOCOL_HEADER,
+  DESKTOP_TOOL_OPERATIONS_HEADER,
   desktopExecutionAckSchema,
   desktopExecutionCommandSchema,
   desktopExecutionDeviceReadySchema,
   desktopExecutionProtocolVersion,
   desktopProtocolVersion,
   desktopToolMaxInFlight,
+  desktopToolLifetimeFor,
+  desktopToolOperationSchema,
   desktopToolProtocolVersion,
   desktopToolRequestLifetimeMs,
   desktopToolResultSchema,
@@ -25,7 +28,7 @@ import Fastify from "fastify";
 import { WebSocket } from "ws";
 
 import { LinkSenseRedis } from "../../src/adapters/redis.js";
-import { RunnerClient } from "../../src/adapters/runner.js";
+import { RunnerClient, type RunnerStartInput } from "../../src/adapters/runner.js";
 import type { PrismaClient } from "../../src/generated/prisma/client.js";
 import { projectWorkspaceRelativePath } from "../../src/lib/user-runtime-paths.js";
 import { AuditService } from "../../src/modules/audit/service.js";
@@ -46,6 +49,7 @@ import { createRedisFixture } from "../fixtures/redis.js";
 import { testConfig } from "../test-config.js";
 import { verifyPackagedDesktopGateway } from "./desktop-package-roundtrip.js";
 import { verifyLocalComputerSessions } from "./local-computer-sessions.js";
+import { createDesktopKnowledgeFixture, verifyDesktopKnowledgePublication } from "./desktop-knowledge-fixture.js";
 
 const capabilityGeneration = "0".repeat(64);
 type RecoveryJobData = Parameters<TaskRecoveryQueueControl["add"]>[1];
@@ -81,6 +85,7 @@ export async function verifyDesktopExecutionProjection(input: {
   const sockets: WebSocket[] = [];
   try {
     const redis = new LinkSenseRedis(config, fixture.client);
+    const knowledge = await createDesktopKnowledgeFixture(prisma, redis.client, ownerId, input.otherOwnerId);
     const coordinator = new RedisDesktopDeviceCoordinator(redis.client);
     const runner = new RunnerClient(config, async (owner, conversationId) => {
       const row = await prisma.conversation.findFirst({
@@ -97,16 +102,16 @@ export async function verifyDesktopExecutionProjection(input: {
     const searchKey = randomUUID();
     const searchCalls: string[] = [];
     const searchMarker = `desktop-search-result-${randomUUID()}`;
+    const searchResult = {
+      title: searchMarker, url: "https://fixture.example.test/", snippet: "Isolated search result", summary: null, published_at: null,
+    };
     let searchAborts = 0;
     const webSearchSettings = new WebSearchSettingsService(prisma, config, async (_runtime, request, signal) => {
       searchCalls.push(request.query);
       if (request.query === "fixture pending search") {
         try { await delay(15_000, null, { signal }); } finally { if (signal?.aborted) searchAborts++; }
       }
-      return {
-        success: true, provider: "brave", query: request.query,
-        results: [{ title: searchMarker, url: "https://fixture.example.test/", snippet: "Isolated search result", summary: null, published_at: null }],
-      };
+      return { success: true, provider: "brave", query: request.query, results: [searchResult] };
     });
     await webSearchSettings.update(ownerId, {
       enabled: true, provider: "brave", base_url: null, search_engine_id: null,
@@ -123,15 +128,15 @@ export async function verifyDesktopExecutionProjection(input: {
         enqueueRuntimeCleanup: outsideFixture, enqueueConversationPrewarm: outsideFixture,
         enqueueFormRecommendation: outsideFixture,
       },
-      undefined, modelProviderSettings, undefined, creditLimits,
+      knowledge.store, modelProviderSettings, undefined, creditLimits,
     );
-    const events = new ConversationEventService(prisma, redis, conversations);
+    const events = new ConversationEventService(prisma, redis, conversations, undefined, knowledge.sources);
     const local = await verifyLocalComputerSessions({ ...input, conversations });
     const recovery = new TaskRecoveryScheduler(config, prisma, redis, events, conversations, queue);
     events.configureRecoveryScheduler(recovery);
     const execution = await registerDesktopExecution(app, {
       config, prisma, redis, runner, conversations, events,
-      modelProviderSettings, creditLimits, privacyMaskingSettings, webSearchSettings, audit,
+      modelProviderSettings, creditLimits, privacyMaskingSettings, webSearchSettings, audit, knowledgeSearch: knowledge.service,
     }, coordinator);
     assert(execution, "Mac execution must be enabled in this fixture");
     let rejectNextRecovery = false;
@@ -144,6 +149,7 @@ export async function verifyDesktopExecutionProjection(input: {
     await registerDesktopDeviceRoutes(app, {
       service: new DesktopDeviceService(new PrismaDesktopDeviceRepository(prisma), coordinator),
       redis: redis.client, rateLimitHmacSecret: config.loginRateLimitHmacSecret, execution,
+      knowledgeTools: true,
       onExecutionReady: binding => {
         if (!rejectNextRecovery) return events.scheduleDesktopRecovery(binding);
         rejectNextRecovery = false;
@@ -151,13 +157,14 @@ export async function verifyDesktopExecutionProjection(input: {
       },
     });
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
-    const connect = async (expectRecovery = true, tools = false) => {
+    const connect = async (expectRecovery = true, tools = false, operations = false) => {
       const url = new URL("/api/v1/desktop/devices/socket", address);
       url.protocol = "ws:";
       const socket = new WebSocket(url, {
         headers: {
-          [DESKTOP_EXECUTION_PROTOCOL_HEADER]: String(desktopExecutionProtocolVersion),
-          ...(tools ? { [DESKTOP_TOOL_PROTOCOL_HEADER]: String(desktopToolProtocolVersion) } : {}),
+          [DESKTOP_EXECUTION_PROTOCOL_HEADER]: operations ? String(desktopExecutionProtocolVersion) : "2",
+          ...(tools ? { [DESKTOP_TOOL_PROTOCOL_HEADER]: operations ? String(desktopToolProtocolVersion) : "1" } : {}),
+          ...(operations ? { [DESKTOP_TOOL_OPERATIONS_HEADER]: desktopToolOperationSchema.options.join(",") } : {}),
         },
       });
       sockets.push(socket);
@@ -168,6 +175,7 @@ export async function verifyDesktopExecutionProjection(input: {
       }));
       assert.equal(ready.device_id, deviceId);
       assert.equal(ready.tool_protocol_version, tools ? desktopToolProtocolVersion : undefined);
+      assert.deepEqual(ready.tool_operations, operations ? desktopToolOperationSchema.options : undefined);
       if (!expectRecovery) {
         await Promise.race([closed, delay(5_000, null, { ref: false }).then(() => { throw new Error("socket did not close"); })]);
         return { socket, connectionId: ready.connection_id, recoveryJob: null };
@@ -182,7 +190,9 @@ export async function verifyDesktopExecutionProjection(input: {
     };
     rejectNextRecovery = true;
     await connect(false);
-    const initial = await connect(true, true);
+    const legacyTools = await connect(true, true);
+    await legacyTools.recoveryJob?.remove();
+    const initial = await connect(true, true, true);
     await initial.recoveryJob?.remove();
     await events.recoverRunningTurns();
 
@@ -197,6 +207,7 @@ export async function verifyDesktopExecutionProjection(input: {
     await prisma.conversationTurnStartIntent.create({ data: {
       projectionTurnId: turnId, ownerId, conversationId, runtimeGeneration, capabilityGeneration,
       inputText: "Confirm this Mac can publish", capabilitiesJson: [], attachmentsJson: [],
+      knowledgeBaseIdsJson: [knowledge.owned.base.id, knowledge.foreign.base.id],
       submitMode: "normal", runnerStatus: "prepared",
     } });
     assert.equal((await redis.acquireTurnSlot(conversationId, turnId, ownerId)).acquired, true);
@@ -253,14 +264,14 @@ export async function verifyDesktopExecutionProjection(input: {
       expires_at: new Date(Date.now() + desktopToolRequestLifetimeMs).toISOString(),
       run_token: start.body.credentials.run_token, body: { query: "fixture search" },
     };
-    const invokeTool = async (frame = tool) => desktopToolResultSchema.parse(await exchange(initial.socket, frame));
+    const invokeTool = async (frame: DesktopToolRequest = tool) => desktopToolResultSchema.parse(await exchange(initial.socket, frame));
     const unauthorized = await invokeTool({ ...tool, turn_id: randomUUID() });
     assert(!unauthorized.ok && unauthorized.error_code === "FORBIDDEN");
     const expired = await invokeTool({ ...tool, expires_at: new Date(Date.now() - 1).toISOString() });
     assert(!expired.ok && expired.error_code === "RUNNER_UNAVAILABLE");
     assert.equal(searchCalls.length, 0);
     const search = await invokeTool();
-    assert(search.ok && search.data.results[0]?.title === searchMarker);
+    assert(search.ok && search.operation === "web.search" && search.data.results[0]?.title === searchMarker);
     const replay = await invokeTool({ ...tool, id: tool.id.toUpperCase() });
     assert(!replay.ok && replay.error_code === "RUNNER_OPERATION_UNCERTAIN");
     assert.deepEqual(searchCalls, [tool.body.query]);
@@ -272,6 +283,33 @@ export async function verifyDesktopExecutionProjection(input: {
       result: "success", actorId: ownerId,
       metadataJson: { operation: "web.search", conversation_id: conversationId, turn_id: turnId, device_id: deviceId },
     }]);
+    const knowledgeScope = {
+      type: "tool.request", ...callbackScope, run_token: tool.run_token,
+      expires_at: new Date(Date.now() + desktopToolLifetimeFor("knowledge.search")).toISOString(),
+    } as const;
+    const retrieved = await invokeTool({
+      ...knowledgeScope, id: randomUUID(), operation: "knowledge.search",
+      body: { query: "fixture reference", final_top_k: 5, candidate_multiplier: 3, min_score: 0.2 },
+    });
+    assert(retrieved.ok && retrieved.operation === "knowledge.search");
+    assert.deepEqual(retrieved.data.results.map(result => result.content), [knowledge.owned.content]);
+    assert.equal(retrieved.data.unavailable_knowledge_base_count, 1);
+    const documents = await invokeTool({ ...knowledgeScope, id: randomUUID(), operation: "knowledge.documents", body: {} });
+    assert(documents.ok && documents.operation === "knowledge.documents");
+    assert.deepEqual(documents.data.documents.map(doc => doc.document_name), [knowledge.owned.document.displayName]);
+    const documentRef = documents.data.documents[0]!.document_ref;
+    const markdown = await invokeTool({
+      ...knowledgeScope, id: randomUUID(), operation: "knowledge.markdown", body: { document_ref: documentRef },
+    });
+    assert(markdown.ok && markdown.operation === "knowledge.markdown" && markdown.data.markdown === knowledge.owned.content);
+    const deniedDoc = await invokeTool({
+      ...knowledgeScope, id: randomUUID(), operation: "knowledge.markdown", body: { document_ref: documentRef },
+      conversation_id: randomUUID(),
+    });
+    assert(!deniedDoc.ok && deniedDoc.error_code === "FORBIDDEN");
+    await verifyDesktopKnowledgePublication(prisma, {
+      ownerId, deviceId, connectionId: initial.connectionId, conversationId, turnId, runtimeGeneration,
+    }, knowledge.foreign);
     const pendingTool = { ...tool, id: randomUUID(), body: { query: "fixture pending search" } };
     const searches = [pendingTool, ...Array.from({ length: desktopToolMaxInFlight - 1 }, () =>
       ({ ...pendingTool, id: randomUUID() }))];
@@ -403,7 +441,7 @@ export async function verifyDesktopExecutionProjection(input: {
     ]);
     await expiryJob.remove();
 
-    const replacement = await connect();
+    const replacement = await connect(true, true);
     assert.notEqual(replacement.connectionId, initial.connectionId);
     const stale = await sendLive(replacement.socket, [terminal]);
     assert(!stale.ok && stale.error_code === "FORBIDDEN", "Reconnect must not adopt the prior connection's lease");
@@ -452,6 +490,94 @@ export async function verifyDesktopExecutionProjection(input: {
     await recovery.process(release);
     assert.equal(await redis.hasTurnSlot(conversationId, turnId, ownerId), false);
 
+    const legacyProbe = await prisma.conversation.create({ data: {
+      ownerId, title: "Legacy Mac knowledge compatibility", titleSource: "manual", archiveStatus: "active",
+      workspaceRelPath: projectWorkspaceRelativePath(ownerId, null), runtimeGeneration: randomUUID(),
+      executionTarget: "local", desktopDeviceId: deviceId,
+    } });
+    const probeId = randomUUID();
+    await prisma.conversationTurnStartIntent.create({ data: {
+      projectionTurnId: probeId, ownerId, conversationId: legacyProbe.id,
+      runtimeGeneration: legacyProbe.runtimeGeneration, capabilityGeneration,
+      inputText: "Check the old desktop capability", capabilitiesJson: [], attachmentsJson: [],
+      submitMode: "normal", runnerStatus: "prepared",
+    } });
+    const legacyInput = {
+      ownerId, conversationId: legacyProbe.id, projectionTurnId: probeId, expectedRuntimeGeneration: legacyProbe.runtimeGeneration,
+      appServerProcessLimit: 1, capabilityGeneration, mcpGeneration: capabilityGeneration,
+      collaborationMode: "default", mcpServers: [], capabilities: [], environment: {},
+      context: {
+        userInput: "Check the old desktop capability", attachments: [], prioritySkills: [], priorityPlugins: [],
+        selectedKnowledgeBases: [],
+      },
+      model: "fixture-model", reasoningEffort: "low",
+      modelProvider: { revision: 1, baseUrl: "https://fixture-provider.example.test", apiKey: randomUUID(), protocolMode: "native_responses" },
+    } satisfies RunnerStartInput;
+    await assert.rejects(runner.acceptStartTurn({
+      ...legacyInput,
+      context: { ...legacyInput.context, selectedKnowledgeBases: [{ id: knowledge.owned.base.id, name: knowledge.owned.base.name }] },
+    }), { code: "RUNNER_UNAVAILABLE" });
+    assert((await redis.acquireTurnSlot(legacyProbe.id, probeId, ownerId)).acquired);
+    const probeStartedAt = new Date().toISOString();
+    const probeReceipt = {
+      conversationId: legacyProbe.id, projectionTurnId: probeId, createdAt: probeStartedAt, updatedAt: probeStartedAt,
+    };
+    const [accepted, legacyStart] = await Promise.all([
+      runner.acceptStartTurn(legacyInput),
+      readCommand(replacement.socket).then(command => {
+        assert(command.operation === "turn.start");
+        send(replacement.socket, {
+          type: "command.result", id: command.id, operation: command.operation, ok: true,
+          result: { ...probeReceipt, status: "starting" },
+        });
+        return command;
+      }),
+    ]);
+    assert.equal(accepted.status, "starting");
+    assert.equal(legacyStart.conversation_id, legacyProbe.id);
+    assert.equal(legacyStart.turn_id, probeId);
+    assert.deepEqual(Object.keys(legacyStart.body).sort(), ["credentials", "input", "native_thread_id", "reasoning_effort"]);
+    const legacyScope = {
+      conversation_id: legacyProbe.id, runtime_generation: legacyProbe.runtimeGeneration, turn_id: probeId,
+      run_token: legacyStart.body.credentials.run_token,
+    };
+    const legacyInspect = desktopExecutionCommandSchema.parse(await exchange(replacement.socket, {
+      type: "execution.callback", id: randomUUID(), operation: "start.settled", ...legacyScope,
+      body: { conversationId: legacyProbe.id, projectionTurnId: probeId, runtimeGeneration: legacyProbe.runtimeGeneration },
+    } satisfies DesktopExecutionCallback));
+    assert.equal(legacyInspect.operation, "turn.inspect");
+    const legacyThreadId = randomUUID(), legacyNativeTurnId = randomUUID();
+    const legacySettlement = desktopExecutionAckSchema.parse(await exchange(replacement.socket, {
+      type: "command.result", id: legacyInspect.id, operation: legacyInspect.operation, ok: true,
+      result: { ...probeReceipt, status: "succeeded", result: { codexThreadId: legacyThreadId, codexTurnId: legacyNativeTurnId } },
+    }));
+    assert(legacySettlement.ok && legacySettlement.operation === "start.settled" && legacySettlement.data.settled);
+    const legacyTool = {
+      type: "tool.request", id: randomUUID(), operation: "web.search", ...legacyScope,
+      expires_at: new Date(Date.now() + 62_000).toISOString(),
+      body: { query: "legacy fixture search" },
+    } satisfies DesktopToolRequest;
+    assert.deepEqual(await exchange(replacement.socket, legacyTool), {
+      type: "tool.result", id: legacyTool.id, operation: "web.search", ok: true,
+      data: { success: true, provider: "brave", query: legacyTool.body.query, results: [searchResult] },
+    });
+    assert.equal(searchCalls.at(-1), legacyTool.body.query);
+    const legacyTerminal = {
+      deliveryId: randomUUID(),
+      event: {
+        ...terminal.event, params: { threadId: legacyThreadId, turn: { id: legacyNativeTurnId, status: "completed" } },
+      },
+    } satisfies EventDelivery;
+    assertAccepted(await sendEvents(replacement.socket, {
+      type: "execution.callback", id: randomUUID(), operation: "events", ...legacyScope,
+      body: { conversationId: legacyProbe.id, events: [legacyTerminal] },
+    }), [legacyTerminal.deliveryId]);
+    assert.equal(await redis.hasTurnSlot(legacyProbe.id, probeId, ownerId), false);
+    for (const job of await queue.getJobs(["delayed"])) {
+      if (job.data.type === "desktop-turn" && job.data.projectionTurnId === probeId) await job.remove();
+    }
+    await conversations.delete(ownerId, legacyProbe.id, {});
+
     const runtimeRoot = process.env.LINKSENSE_DESKTOP_RUNTIME_DIST;
     if (runtimeRoot) {
       replacement.socket.terminate();
@@ -460,6 +586,10 @@ export async function verifyDesktopExecutionProjection(input: {
         events, modelProviderSettings, ownerId, deviceId, token, previousConnectionId: replacement.connectionId,
         serverSecrets: [config.credentialMasterKey, config.runnerSharedSecret, searchKey],
         searchMarker,
+        knowledge: {
+          baseId: knowledge.owned.base.id, baseName: knowledge.owned.base.name,
+          documentName: knowledge.owned.document.displayName, content: knowledge.owned.content,
+        },
       });
     }
     const revokedThread = randomUUID();

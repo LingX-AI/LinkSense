@@ -9,13 +9,14 @@ import {
   desktopExecutionResultSchema,
   desktopToolClockSkewAllowanceMs,
   desktopToolMaxInFlight,
-  desktopToolRequestLifetimeMs,
+  desktopToolLifetimeFor,
   type DesktopExecutionAck,
   type DesktopExecutionCallback,
   type DesktopExecutionCancel,
   type DesktopExecutionCommand,
   type DesktopExecutionResult,
   type DesktopToolCancel,
+  type DesktopToolOperation,
   type DesktopToolRequest,
 } from "@linksense/shared";
 import type { Redis } from "ioredis";
@@ -59,6 +60,7 @@ type DeviceSocket = {
   close: () => void;
   pending: Map<string, PendingDelivery>;
   callbacks: Set<string>;
+  toolOperations: readonly DesktopToolOperation[];
   tools: Map<string, { frame: DesktopToolRequest; controller: AbortController }>;
   lifetime: AbortController;
 };
@@ -78,6 +80,7 @@ type ExecutionCallback = (
 
 const channel = (gatewayId: string) => `linksense:desktop-execution:${gatewayId}`;
 const encryptedEnvelopeSchema = z.string().max(2 * desktopExecutionMaxFrameBytes);
+const knowledgeTools = ["knowledge.search", "knowledge.documents", "knowledge.markdown"] as const;
 
 export class DesktopCommandUncertainError extends Error {
   constructor() {
@@ -125,10 +128,10 @@ export class DesktopDeviceTransport {
     socket: Omit<DeviceSocket, "binding" | "pending" | "callbacks" | "tools" | "lifetime"> & Pick<DesktopExecutionBinding, "deviceId" | "connectionId">,
   ): Promise<(() => void) | null> {
     await this.ready();
-    const { ownerId, deviceId, connectionId, verifyCredential, send, close } = socket;
+    const { ownerId, deviceId, connectionId, verifyCredential, send, close, toolOperations } = socket;
     const binding = { deviceId, connectionId, gatewayId: this.id };
     const connection: DeviceSocket = {
-      ownerId, binding, verifyCredential, send, close, pending: new Map(), callbacks: new Set(), tools: new Map(), lifetime: new AbortController(),
+      ownerId, binding, verifyCredential, send, close, toolOperations, pending: new Map(), callbacks: new Set(), tools: new Map(), lifetime: new AbortController(),
     };
     this.sockets.set(connectionId, connection);
     const detach = () => {
@@ -140,7 +143,8 @@ export class DesktopDeviceTransport {
       }
     };
     try {
-      if (await this.coordinator.enableExecution(binding) && this.sockets.get(connectionId) === connection) return detach;
+      if (await this.coordinator.enableExecution(binding, knowledgeTools.every(op => toolOperations.includes(op))) &&
+        this.sockets.get(connectionId) === connection) return detach;
       detach();
       return null;
     } catch (error) {
@@ -151,6 +155,10 @@ export class DesktopDeviceTransport {
 
   connection(deviceId: string): Promise<DesktopExecutionBinding | null> {
     return this.coordinator.executionConnection(deviceId);
+  }
+
+  supportsKnowledge(binding: DesktopExecutionBinding): Promise<boolean> {
+    return this.coordinator.supportsKnowledge(binding);
   }
 
   async send(
@@ -249,10 +257,11 @@ export class DesktopDeviceTransport {
       reply(reject("RUNNER_UNAVAILABLE"));
       return;
     }
+    const lifetime = frame.type === "tool.request" ? desktopToolLifetimeFor(frame.operation) : 4_000;
     const remaining = frame.type === "tool.request"
       ? dayjs(frame.expires_at).valueOf() - Date.now()
-      : 4_000;
-    if (remaining <= 0 || remaining > desktopToolRequestLifetimeMs + desktopToolClockSkewAllowanceMs) {
+      : lifetime;
+    if (remaining <= 0 || remaining > lifetime + desktopToolClockSkewAllowanceMs) {
       reply(reject("RUNNER_UNAVAILABLE"));
       return;
     }
@@ -261,7 +270,7 @@ export class DesktopDeviceTransport {
     const tool = frame.type === "tool.request" ? { frame, controller: new AbortController() } : undefined;
     if (tool) socket.tools.set(frame.id, tool);
     const signal = AbortSignal.any([
-      socket.lifetime.signal, AbortSignal.timeout(Math.min(remaining, desktopToolRequestLifetimeMs)),
+      socket.lifetime.signal, AbortSignal.timeout(Math.min(remaining, lifetime)),
       ...(pending ? [pending.lifetime.signal] : []), ...(tool ? [tool.controller.signal] : []),
     ]);
     try {
@@ -404,6 +413,11 @@ export class DesktopDeviceTransport {
       return;
     }
     if (pending) return;
+    if (frame.operation === "turn.start" && frame.body.selected_knowledge_bases?.length &&
+      !knowledgeTools.every(op => socket.toolOperations.includes(op))) {
+      await this.reply(request, failure(frame, "RUNNER_UNAVAILABLE"), true);
+      return;
+    }
     const expiresAt = dayjs(frame.expires_at).valueOf();
     const remaining = expiresAt - Date.now();
     if (remaining <= 0 || remaining > desktopExecutionCommandLifetimeMs ||

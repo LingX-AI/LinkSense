@@ -4,37 +4,15 @@ import type { FastifyPluginAsync } from "fastify"
 import { z } from "zod"
 
 import {
-  getKnowledgeDocumentMarkdownInputSchema,
-  listKnowledgeDocumentsInputSchema,
-  searchKnowledgeBaseInputSchema,
+  internalKnowledgeDocumentListRequestSchema,
+  internalKnowledgeDocumentMarkdownRequestSchema,
+  internalKnowledgeSearchRequestSchema,
 } from "@linksense/shared"
 
 import { AppError } from "../../lib/errors.js"
 import type { InternalKnowledgeSearchService } from "./internal-search.js"
 
 const ownerIdHeaderSchema = z.uuid()
-const internalKnowledgeSearchInputSchema = z.strictObject({
-  conversationId: z.uuid(),
-  turnId: z.uuid(),
-  query: searchKnowledgeBaseInputSchema.shape.query,
-  finalTopK: searchKnowledgeBaseInputSchema.shape.final_top_k,
-  candidateMultiplier:
-    searchKnowledgeBaseInputSchema.shape.candidate_multiplier,
-  numCandidates: searchKnowledgeBaseInputSchema.shape.num_candidates,
-  minScore: searchKnowledgeBaseInputSchema.shape.min_score,
-})
-const internalKnowledgeDocumentListInputSchema = z.strictObject({
-  conversationId: z.uuid(),
-  turnId: z.uuid(),
-  cursor: listKnowledgeDocumentsInputSchema.shape.cursor,
-})
-const internalKnowledgeDocumentMarkdownInputSchema = z.strictObject({
-  conversationId: z.uuid(),
-  turnId: z.uuid(),
-  documentRef:
-    getKnowledgeDocumentMarkdownInputSchema.shape.document_ref,
-  cursor: getKnowledgeDocumentMarkdownInputSchema.shape.cursor,
-})
 
 export const internalKnowledgeSearchRoutes: FastifyPluginAsync<{
   service: InternalKnowledgeSearchService
@@ -51,7 +29,7 @@ export const internalKnowledgeSearchRoutes: FastifyPluginAsync<{
     const ownerId = ownerIdHeaderSchema.parse(
       request.headers["x-linksense-owner-id"],
     )
-    const body = internalKnowledgeSearchInputSchema.parse(request.body)
+    const body = internalKnowledgeSearchRequestSchema.parse(request.body)
     const controller = new AbortController()
     const abortRequest = () => controller.abort()
     const abortDisconnectedReply = () => {
@@ -88,7 +66,7 @@ export const internalKnowledgeSearchRoutes: FastifyPluginAsync<{
     const ownerId = ownerIdHeaderSchema.parse(
       request.headers["x-linksense-owner-id"],
     )
-    const body = internalKnowledgeDocumentListInputSchema.parse(request.body)
+    const body = internalKnowledgeDocumentListRequestSchema.parse(request.body)
     try {
       return reply.send(
         await options.service.listDocuments({
@@ -108,7 +86,7 @@ export const internalKnowledgeSearchRoutes: FastifyPluginAsync<{
     const ownerId = ownerIdHeaderSchema.parse(
       request.headers["x-linksense-owner-id"],
     )
-    const body = internalKnowledgeDocumentMarkdownInputSchema.parse(
+    const body = internalKnowledgeDocumentMarkdownRequestSchema.parse(
       request.body,
     )
     try {

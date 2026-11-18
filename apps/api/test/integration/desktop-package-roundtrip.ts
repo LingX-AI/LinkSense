@@ -8,7 +8,12 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { RUNNER_TURN_INTERRUPT_REQUESTED } from "@linksense/shared";
+import {
+  knowledgeDocumentListSuccessSchema,
+  knowledgeDocumentMarkdownSuccessSchema,
+  knowledgeSearchSuccessSchema,
+  RUNNER_TURN_INTERRUPT_REQUESTED,
+} from "@linksense/shared";
 import Fastify from "fastify";
 import { z } from "zod";
 
@@ -40,6 +45,7 @@ export async function verifyPackagedDesktopGateway(input: {
   previousConnectionId: string;
   serverSecrets: string[];
   searchMarker: string;
+  knowledge: { baseId: string; baseName: string; documentName: string; content: string };
 }): Promise<void> {
   assert(process.platform === "darwin" && process.arch === "arm64" && isAbsolute(input.runtimeRoot),
     "the package regression requires a local Mac arm64 app runtime");
@@ -66,10 +72,14 @@ export async function verifyPackagedDesktopGateway(input: {
   const modelRequests = { read: 0, interrupt: 0, aborted: false };
   let closeModelStream: (() => void) | undefined;
   let modelFailure: string | undefined;
+  let citation: string | undefined;
+  let documentRef: string | undefined;
   model.setErrorHandler((error, _request, reply) => {
     modelFailure = error instanceof assert.AssertionError
       ? `Synthetic provider: ${error.message}`
-      : "Synthetic provider received an unexpected request schema";
+      : error instanceof z.ZodError
+        ? `Synthetic provider schema: ${error.issues.map(issue => `${issue.path.join(".")}:${issue.code}`).join(",")}`
+        : "Synthetic provider received an invalid tool result";
     void reply.code(400).send({ error: { code: "invalid_fixture_request" } });
   });
   model.post("/v1/responses", async (request, reply) => {
@@ -95,7 +105,18 @@ export async function verifyPackagedDesktopGateway(input: {
     }
     assert(text.includes(readPrompt), "unexpected input");
     const call = ++modelRequests.read;
+    const functions = body.tools?.find(tool => tool.type === "namespace" &&
+      tool.tools?.some(member => member.type === "function" && member.name === "search_web"));
+    const callTool = (name: string, args: object) => {
+      assert(functions?.name && functions.tools?.some(member => member.type === "function" && member.name === name),
+        `Fixture tool unavailable: ${name}`);
+      return reply.type("text/event-stream").send(responseStream({
+        id: `fixture-tool-${call}`, type: "function_call", call_id: `fixture-call-${call}`, name,
+        namespace: functions.name, arguments: JSON.stringify(args), status: "completed",
+      }));
+    };
     if (call === 1) {
+      assert(text.includes(input.knowledge.baseName), "selected knowledge base did not reach Codex");
       assert(body.tools?.some(tool => tool.type === "function" && tool.name === "exec_command"));
       return reply.type("text/event-stream").send(responseStream({
         id: "fixture-tool", type: "function_call", call_id: "fixture-call", name: "exec_command",
@@ -104,19 +125,45 @@ export async function verifyPackagedDesktopGateway(input: {
     }
     if (call === 2) {
       assert(text.includes(marker), "native shell did not return the local file");
-      const namespace = body.tools?.find(tool => tool.type === "namespace" &&
-        tool.tools?.some(member => member.type === "function" && member.name === "search_web"));
-      assert(namespace?.name, "web search namespace unavailable in the desktop Codex turn");
-      return reply.type("text/event-stream").send(responseStream({
-        id: "fixture-search-tool", type: "function_call", call_id: "fixture-search-call", name: "search_web",
-        namespace: namespace.name,
-        arguments: JSON.stringify({ query: "packaged mac fixture search" }), status: "completed",
-      }));
+      return callTool("search_web", { query: "packaged mac fixture search" });
     }
-    assert(call === 3 && text.includes(input.searchMarker), "native search did not return the server result");
+    if (call === 3) {
+      assert(text.includes(input.searchMarker), "native web search did not return the server result");
+      return callTool("search_knowledge_base", { query: "fixture reference" });
+    }
+    if (call === 4) {
+      const result = knowledgeSearchSuccessSchema.parse(toolOutput(body.input, "fixture-call-3"));
+      const [match] = result.results;
+      assert(
+        result.results.length === 1 && match?.content === input.knowledge.content &&
+        match.knowledge_base_name === input.knowledge.baseName && match.document_name === input.knowledge.documentName,
+        "native knowledge search did not return only the authorized fixture document",
+      );
+      citation = match.citation_marker;
+      return callTool("list_knowledge_documents", {});
+    }
+    if (call === 5) {
+      const list = knowledgeDocumentListSuccessSchema.parse(toolOutput(body.input, "fixture-call-4"));
+      const [listed] = list.documents;
+      assert(
+        list.documents.length === 1 && list.next_cursor === null &&
+        listed?.document_name === input.knowledge.documentName && listed.knowledge_base_name === input.knowledge.baseName,
+        "native knowledge listing did not return only the authorized fixture document",
+      );
+      documentRef = listed.document_ref;
+      return callTool("get_knowledge_document_markdown", { document_ref: documentRef });
+    }
+    assert.equal(call, 6, "unexpected number of native knowledge calls");
+    const markdown = knowledgeDocumentMarkdownSuccessSchema.parse(toolOutput(body.input, "fixture-call-5"));
+    assert(
+      markdown.document_ref === documentRef && markdown.markdown === input.knowledge.content &&
+      markdown.complete && markdown.next_cursor === null,
+      "native knowledge reader did not return the complete document",
+    );
+    assert(citation, "native knowledge search did not return a citation");
     return reply.type("text/event-stream").send(responseStream({
       id: "fixture-answer", type: "message", role: "assistant", status: "completed", phase: "final_answer",
-      content: [{ type: "output_text", text: answer, annotations: [] }],
+      content: [{ type: "output_text", text: `${answer} ${citation}`, annotations: [] }],
     }));
   });
 
@@ -196,20 +243,51 @@ export async function verifyPackagedDesktopGateway(input: {
     }, 25_000);
     const submission = (inputText: string, idempotencyKey: string) =>
       ({ inputText, idempotencyKey, submitMode: "normal" as const, priorityCapabilityIds: [] });
-    const completed = await conversations.acceptTurn(ownerId, read.id, submission(readPrompt, "desktop-read"), {});
+    const completed = await conversations.acceptTurn(ownerId, read.id, {
+      ...submission(readPrompt, "desktop-read"), knowledgeBaseIds: [input.knowledge.baseId],
+    }, {});
     const status = async (id: string) =>
       (await prisma.conversationTurn.findUnique({ where: { id }, select: { status: true } }))?.status;
-    await waitFor("completed workspace read and slot release", async () =>
-      await status(completed.turn_id) === "completed" && !await redis.hasTurnSlot(read.id, completed.turn_id, ownerId),
-    );
-    assert.equal(modelRequests.read, 3);
+    try {
+      await waitFor("completed workspace read and slot release", async () =>
+        await status(completed.turn_id) === "completed" && !await redis.hasTurnSlot(read.id, completed.turn_id, ownerId),
+      );
+    } catch (error) {
+      const intent = await prisma.conversationTurnStartIntent.findUnique({
+        where: { projectionTurnId: completed.turn_id }, select: { runnerStatus: true },
+      });
+      const events = await prisma.conversationEvent.findMany({
+        where: { conversationId: read.id }, select: { eventType: true, payloadJson: true },
+        orderBy: { sequenceNo: "desc" }, take: 8,
+      });
+      const toolAudits = await prisma.auditLog.findMany({
+        where: { action: "desktop_tool_requested", metadataJson: { path: ["turn_id"], equals: completed.turn_id } },
+        select: { result: true, metadataJson: true }, orderBy: { createdAt: "asc" },
+      });
+      const itemType = z.object({ params: z.object({ item: z.object({ type: z.string() }) }) });
+      const auditOutcome = z.object({ operation: z.string(), reason_code: z.string().optional() });
+      throw new Error(
+        `Packaged turn status=${await status(completed.turn_id) ?? "none"} intent=${intent?.runnerStatus ?? "none"} modelCalls=${modelRequests.read} events=${events.map(row => `${row.eventType}/${itemType.safeParse(row.payloadJson).data?.params.item.type ?? "-"}`).join(",")} toolAudits=${JSON.stringify(toolAudits.map(row => ({ result: row.result, ...auditOutcome.safeParse(row.metadataJson).data })))}`,
+        { cause: error },
+      );
+    }
+    assert.equal(modelRequests.read, 6);
     const readHistory = await events.historyPage(ownerId, read.id, { afterSequence: 0n, limit: 50 });
     assert(readHistory.items.some(event => event.event_type === "item/completed" &&
       JSON.stringify(event.payload).includes("commandExecution") && event.turn_id === completed.turn_id));
-    assert.equal((await prisma.conversationMessage.findFirst({
+    const message = await prisma.conversationMessage.findFirst({
       where: { conversationId: read.id, turnId: completed.turn_id, role: "assistant" },
-      select: { contentText: true },
-    }))?.contentText, answer);
+      select: { id: true, contentText: true },
+    });
+    assert(message);
+    assert(message.contentText.trimEnd() === answer, "the projected answer retained a private citation marker");
+    const citations = await prisma.conversationMessageKnowledgeCitation.findMany({
+      where: { messageId: message.id },
+      select: { knowledgeBaseId: true, documentNameSnapshot: true, citationNo: true },
+    });
+    assert.deepEqual(citations, [{
+      knowledgeBaseId: input.knowledge.baseId, documentNameSnapshot: input.knowledge.documentName, citationNo: 1,
+    }]);
 
     const stopRequest = submission(interruptPrompt, "desktop-interrupt");
     const pending = await conversations.acceptTurn(ownerId, stop.id, stopRequest, {});
@@ -236,7 +314,7 @@ export async function verifyPackagedDesktopGateway(input: {
     assert(!modelFailure, "synthetic provider rejected the round trip");
     assert(!serverSecretInNativeOutput, "server credential reached native logs");
     await assertNoServerSecrets(dataRoot, secrets);
-    console.log("Packaged Mac gateway passed: local Shell, scoped web search, durable output, interrupt, provider cancellation, and start idempotency.");
+    console.log("Packaged Mac gateway passed: local Shell, scoped web and knowledge tools, citations, interrupt, and start idempotency.");
   } finally {
     closeModelStream?.();
     if (child?.stdin && !child.stdin.destroyed) child.stdin.end();
@@ -247,6 +325,20 @@ export async function verifyPackagedDesktopGateway(input: {
     }
     await model.close();
   }
+}
+
+function toolOutput(input: unknown, callId: string): unknown {
+  const item = z.looseObject({ type: z.string(), call_id: z.string().optional(), output: z.unknown().optional() });
+  const match = z.array(item).parse(input).find(entry =>
+    entry.type === "function_call_output" && entry.call_id === callId,
+  );
+  assert(match, "native tool output missing");
+  const textItem = z.object({ type: z.literal("input_text"), text: z.string() });
+  const [, payload] = z.tuple([
+    textItem.extend({ text: z.string().regex(/^Wall time: \d+(?:\.\d+)? seconds\nOutput:$/u) }),
+    textItem,
+  ]).parse(match.output);
+  return JSON.parse(payload.text);
 }
 
 function responseStream(item: Record<string, unknown>): string {

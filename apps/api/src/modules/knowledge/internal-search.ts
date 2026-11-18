@@ -17,7 +17,7 @@ import type { TurnKnowledgeDocumentReferenceStore } from "./knowledge-document-r
 import { collectKnowledgeAssetReferenceIds } from "./knowledge-asset-reference.js";
 import type { KnowledgeMaintenanceGate } from "./maintenance.js";
 import type { KnowledgeActor } from "./types.js";
-import type { ConversationAssetSnapshotWriter } from "./conversation-asset-snapshots.js";
+import type { CheckKnowledgeAssetPublication, ConversationAssetSnapshotWriter } from "./conversation-asset-snapshots.js";
 
 const MAX_MCP_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_DOCUMENTS_PER_TOOL_PAGE = 100;
@@ -25,31 +25,31 @@ const MAX_MARKDOWN_BYTES_PER_TOOL_PAGE = 128 * 1024;
 const SOURCE_REF_PLACEHOLDER = "x".repeat(32);
 const DOCUMENT_REF_PLACEHOLDER = "d".repeat(32);
 
-export type InternalKnowledgeSearchInput = {
+type KnowledgeTurnInput = {
   ownerId: string;
   conversationId: string;
   turnId: string;
+  signal?: AbortSignal;
+  checkRun?: () => Promise<void>;
+  checkPublication?: CheckKnowledgeAssetPublication;
+};
+
+export type InternalKnowledgeSearchInput = KnowledgeTurnInput & {
   query: string;
   finalTopK: number;
   candidateMultiplier: number;
   numCandidates?: number;
   minScore: number;
-  signal?: AbortSignal;
+  maxResponseBytes?: number;
 };
 
 export type InternalKnowledgeSearchResult = KnowledgeSearchSuccess;
 
-export type InternalKnowledgeDocumentListInput = {
-  ownerId: string;
-  conversationId: string;
-  turnId: string;
+export type InternalKnowledgeDocumentListInput = KnowledgeTurnInput & {
   cursor?: string;
 };
 
-export type InternalKnowledgeDocumentMarkdownInput = {
-  ownerId: string;
-  conversationId: string;
-  turnId: string;
+export type InternalKnowledgeDocumentMarkdownInput = KnowledgeTurnInput & {
   documentRef: string;
   cursor?: string;
 };
@@ -92,6 +92,7 @@ export interface TurnKnowledgeScopeResolver {
       maxBytes: number;
       verifyIntegrity: boolean;
       turnId: string;
+      signal?: AbortSignal;
     },
   ): Promise<{
     markdown: string;
@@ -111,7 +112,7 @@ export class InternalKnowledgeSearchService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly scopes: TurnKnowledgeScopeResolver,
-    private readonly retrieval: KnowledgeRetrievalOrchestrator,
+    private readonly retrieval: Pick<KnowledgeRetrievalOrchestrator, "search">,
     private readonly sourceStore: TurnKnowledgeSourceStore,
     private readonly documentReferences: TurnKnowledgeDocumentReferenceStore,
     private readonly assetSnapshots: ConversationAssetSnapshotWriter,
@@ -127,6 +128,7 @@ export class InternalKnowledgeSearchService {
     const { actor, projectionTurnId, scope } =
       await this.#resolveTurnContext(input);
     await this.maintenanceGate?.assertAvailable();
+    input.signal?.throwIfAborted();
 
     let parents: ParentSearchHit[];
     try {
@@ -141,6 +143,7 @@ export class InternalKnowledgeSearchService {
           },
           ...(input.signal ? { signal: input.signal } : {}),
           filterCandidates: async (candidates) => {
+            input.signal?.throwIfAborted();
             const currentScope = await this.scopes.getTurnRetrievalScope(
               actor,
               {
@@ -165,6 +168,7 @@ export class InternalKnowledgeSearchService {
         })
       ).parents;
     } catch (error) {
+      input.signal?.throwIfAborted();
       if (
         isKnowledgeProcessingError(error) &&
         error.code === "KNOWLEDGE_RETRIEVAL_PARAMETERS_INVALID"
@@ -176,6 +180,7 @@ export class InternalKnowledgeSearchService {
 
     // Recheck after the external request so a concurrent revoke/archive cannot
     // leak a result that was authorized only at the start of this call.
+    input.signal?.throwIfAborted();
     const finalScope = await this.scopes.getTurnRetrievalScope(actor, {
       turnId: projectionTurnId,
     });
@@ -196,16 +201,20 @@ export class InternalKnowledgeSearchService {
       location: parentLocation(parent, document.canonicalExtension),
       content: parent.parentText,
     }));
+    input.signal?.throwIfAborted();
     assertResponseSize({
       success: true,
       results: preflight,
       unavailable_knowledge_base_count: finalScope.unavailable_ids.length,
-    });
+    }, "KNOWLEDGE_SEARCH_UNAVAILABLE", input.maxResponseBytes);
 
     await this.assetSnapshots.capture({
       actor,
       conversationId: input.conversationId,
       turnId: projectionTurnId,
+      ...(input.signal ? { signal: input.signal } : {}),
+      ...(input.checkRun ? { checkRun: input.checkRun } : {}),
+      ...(input.checkPublication ? { checkPublication: input.checkPublication } : {}),
       sources: safeParents.map(({ parent }) => ({
         knowledgeBaseId: parent.knowledgeBaseId,
         documentId: parent.documentId,
@@ -213,6 +222,8 @@ export class InternalKnowledgeSearchService {
         assetReferenceIds: collectKnowledgeAssetReferenceIds(parent.parentText),
       })),
     });
+    await input.checkRun?.();
+    input.signal?.throwIfAborted();
     const registered = await this.sourceStore.register(
       projectionTurnId,
       safeParents.map(({ parent }) => ({
@@ -225,6 +236,8 @@ export class InternalKnowledgeSearchService {
         pageNumbers: evidencePageNumbers(parent),
       })),
     );
+    await input.checkRun?.();
+    input.signal?.throwIfAborted();
     const documentRefs = await Promise.all(
       safeParents.map(({ parent }) =>
         this.documentReferences.registerDocument(projectionTurnId, {
@@ -281,6 +294,7 @@ export class InternalKnowledgeSearchService {
       select: { id: true, name: true },
     });
     if (base === null) throw new AppError("FORBIDDEN");
+    input.signal?.throwIfAborted();
     const page = await this.scopes.listDocuments(actor, base.id, {
       status: "ready",
       ...(cursor.documentCursor === null
@@ -301,6 +315,8 @@ export class InternalKnowledgeSearchService {
     if (!finalScope.usable_ids.includes(base.id)) {
       throw new AppError("FORBIDDEN");
     }
+    await input.checkRun?.();
+    input.signal?.throwIfAborted();
     const documentRefs = await Promise.all(
       visible.map((document) =>
         this.documentReferences.registerDocument(projectionTurnId, {
@@ -322,6 +338,8 @@ export class InternalKnowledgeSearchService {
               documentCursor: null,
             }
           : null;
+    await input.checkRun?.();
+    input.signal?.throwIfAborted();
     const nextCursor =
       nextState === null
         ? null
@@ -378,6 +396,7 @@ export class InternalKnowledgeSearchService {
       throw new AppError("VALIDATION_ERROR");
     }
 
+    input.signal?.throwIfAborted();
     const chunk = await this.scopes.getParsedContentChunk(
       actor,
       reference.knowledgeBaseId,
@@ -388,20 +407,13 @@ export class InternalKnowledgeSearchService {
         maxBytes: MAX_MARKDOWN_BYTES_PER_TOOL_PAGE,
         verifyIntegrity: !reference.contentVerified,
         turnId: projectionTurnId,
+        ...(input.signal ? { signal: input.signal } : {}),
       },
     );
-    if (
-      !reference.contentVerified &&
-      !(await this.documentReferences.markContentVerified(
-        projectionTurnId,
-        input.documentRef,
-      ))
-    ) {
-      throw new AppError("KNOWLEDGE_PROCESSING_UNAVAILABLE");
-    }
 
     // Recheck after object storage access so a concurrent revoke, archive, or
     // disable cannot leak bytes that were only authorized at call start.
+    input.signal?.throwIfAborted();
     const finalScope = await this.scopes.getTurnRetrievalScope(actor, {
       turnId: projectionTurnId,
     });
@@ -433,13 +445,9 @@ export class InternalKnowledgeSearchService {
     if (base === null || document === null) {
       throw new AppError("KNOWLEDGE_DOCUMENT_NOT_FOUND");
     }
-    const nextCursor = chunk.complete
-      ? null
-      : await this.documentReferences.registerMarkdownCursor(projectionTurnId, {
-          documentRef: input.documentRef,
-          byteOffset: chunk.byteEnd,
-          chunkIndex: markdownCursor.chunkIndex + 1,
-        });
+    if (!chunk.complete && chunk.byteEnd <= markdownCursor.byteOffset) {
+      throw new AppError("KNOWLEDGE_PROCESSING_UNAVAILABLE");
+    }
     const result: KnowledgeDocumentMarkdownSuccess = {
       success: true,
       document_ref: input.documentRef,
@@ -453,7 +461,7 @@ export class InternalKnowledgeSearchService {
       byte_start: chunk.byteStart,
       byte_end: chunk.byteEnd,
       total_bytes: chunk.totalBytes,
-      next_cursor: nextCursor,
+      next_cursor: chunk.complete ? null : DOCUMENT_REF_PLACEHOLDER,
       complete: chunk.complete,
     };
     assertResponseSize(result, "KNOWLEDGE_PROCESSING_UNAVAILABLE");
@@ -463,6 +471,9 @@ export class InternalKnowledgeSearchService {
         actor,
         conversationId: input.conversationId,
         turnId: projectionTurnId,
+        ...(input.signal ? { signal: input.signal } : {}),
+        ...(input.checkRun ? { checkRun: input.checkRun } : {}),
+        ...(input.checkPublication ? { checkPublication: input.checkPublication } : {}),
         sources: [{
           knowledgeBaseId: reference.knowledgeBaseId,
           documentId: reference.documentId,
@@ -471,14 +482,51 @@ export class InternalKnowledgeSearchService {
         }],
       });
     }
+    await input.checkRun?.();
+    input.signal?.throwIfAborted();
+    if (
+      !reference.contentVerified &&
+      !(await this.documentReferences.markContentVerified(projectionTurnId, input.documentRef))
+    ) {
+      throw new AppError("KNOWLEDGE_PROCESSING_UNAVAILABLE");
+    }
+    if (!chunk.complete) {
+      await input.checkRun?.();
+      input.signal?.throwIfAborted();
+      result.next_cursor = await this.documentReferences.registerMarkdownCursor(projectionTurnId, {
+        documentRef: input.documentRef,
+        byteOffset: chunk.byteEnd,
+        chunkIndex: markdownCursor.chunkIndex + 1,
+      });
+    }
     return result;
   }
 
-  async #resolveTurnContext(input: {
-    ownerId: string;
-    conversationId: string;
-    turnId: string;
-  }): Promise<{
+  /** Buffered tool output may outlive a grant or document version while audit IO is pending. */
+  async assertDocumentReferencesCurrent(input: KnowledgeTurnInput, refs: readonly string[]): Promise<void> {
+    if (refs.length === 0) return;
+    input.signal?.throwIfAborted();
+    const documents = (await Promise.all(
+      [...new Set(refs)].map(ref => this.documentReferences.readDocument(input.turnId, ref)),
+    )).map(ref => {
+      if (!ref) throw new AppError("FORBIDDEN");
+      return ref;
+    });
+    const current = await this.prisma.knowledgeBaseDocument.findMany({
+      where: { id: { in: [...new Set(documents.map(doc => doc.documentId))] }, status: "ready" },
+      select: { id: true, knowledgeBaseId: true, currentVersionId: true },
+    });
+    const byId = new Map(current.map(doc => [doc.id, doc]));
+    const { scope } = await this.#resolveTurnContext(input);
+    const allowed = new Set(scope.usable_ids);
+    if (documents.some(expected => {
+      const doc = byId.get(expected.documentId);
+      return !allowed.has(expected.knowledgeBaseId) ||
+        doc?.knowledgeBaseId !== expected.knowledgeBaseId || doc.currentVersionId !== expected.documentVersionId;
+    })) throw new AppError("FORBIDDEN");
+  }
+
+  async #resolveTurnContext(input: KnowledgeTurnInput): Promise<{
     actor: KnowledgeActor;
     projectionTurnId: string;
     scope: {
@@ -487,6 +535,7 @@ export class InternalKnowledgeSearchService {
       unavailable_ids: string[];
     };
   }> {
+    input.signal?.throwIfAborted();
     const [turn, startIntent, user] = await Promise.all([
       this.prisma.conversationTurn.findFirst({
         where: {
@@ -528,6 +577,7 @@ export class InternalKnowledgeSearchService {
     const scope = await this.scopes.getTurnRetrievalScope(actor, {
       turnId: projectionTurnId,
     });
+    input.signal?.throwIfAborted();
     if (scope.usable_ids.length === 0) {
       throw new AppError("KNOWLEDGE_NO_AVAILABLE_BASES");
     }
@@ -686,9 +736,10 @@ function assertResponseSize(
   errorCode:
     | "KNOWLEDGE_SEARCH_UNAVAILABLE"
     | "KNOWLEDGE_PROCESSING_UNAVAILABLE" = "KNOWLEDGE_SEARCH_UNAVAILABLE",
+  maxResponseBytes = MAX_MCP_RESPONSE_BYTES,
 ): void {
   if (
-    Buffer.byteLength(JSON.stringify(value), "utf8") > MAX_MCP_RESPONSE_BYTES
+    Buffer.byteLength(JSON.stringify(value), "utf8") > maxResponseBytes
   ) {
     throw new AppError(errorCode);
   }
