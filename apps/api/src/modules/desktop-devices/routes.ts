@@ -9,6 +9,8 @@ import {
   desktopDeviceClientFrameSchema,
   desktopDeviceListSchema,
   desktopDevicePairInputSchema,
+  desktopDeviceRenameInputSchema,
+  desktopDeviceRenameResultSchema,
   desktopProtocolVersion,
 } from "@linksense/shared";
 import { hmacSha256 } from "../../lib/crypto.js";
@@ -16,6 +18,9 @@ import { AppError } from "../../lib/errors.js";
 import { ok } from "../../lib/http.js";
 import type { DesktopDeviceRecord } from "./repository.js";
 import type { DesktopDeviceService } from "./service.js";
+
+const deviceParamsSchema = z.strictObject({ id: z.uuid() });
+const revocationCheckIntervalMs = 5_000;
 
 export async function registerDesktopDeviceRoutes(
   app: FastifyInstance,
@@ -37,8 +42,13 @@ export async function registerDesktopDeviceRoutes(
     });
     routes.get("/", async request =>
       ok(desktopDeviceListSchema.parse(await service.list(request.authUser!.id)), request.id));
+    routes.patch("/:id", { bodyLimit: 1024 }, async request => {
+      const { id } = deviceParamsSchema.parse(request.params);
+      const { name } = desktopDeviceRenameInputSchema.parse(request.body);
+      return ok(desktopDeviceRenameResultSchema.parse(await service.rename(request.authUser!.id, id, name)), request.id);
+    });
     routes.delete("/:id", async request => {
-      const { id } = z.strictObject({ id: z.uuid() }).parse(request.params);
+      const { id } = deviceParamsSchema.parse(request.params);
       await service.revoke(request.authUser!.id, id);
       return ok({ revoked: true }, request.id);
     });
@@ -60,6 +70,21 @@ export async function registerDesktopDeviceRoutes(
   let subscription: Promise<() => Promise<void>> | null = null;
   let subscriptionGeneration = 0;
   let closing = false;
+  let revocationCheck: Promise<void> | null = null;
+  const revocations = setInterval(() => {
+    if (closing || revocationCheck || connected.size === 0) return;
+    const connections = [...connected];
+    const ids = [...new Set(connections.map(([, current]) => current.device.id))];
+    revocationCheck = service.revokedIds(ids).then(revoked => {
+      for (const [socket, current] of connections) {
+        if (revoked.has(current.device.id)) socket.close(4403);
+      }
+    }).catch(() => {
+      app.log.warn("desktop device revocation check unavailable");
+      for (const [socket] of connections) socket.close(4500);
+    }).finally(() => { revocationCheck = null; });
+  }, revocationCheckIntervalMs);
+  revocations.unref();
   const ensureSubscription = async () => {
     if (closing) return Promise.reject(new Error("desktop device gateway is closing"));
     if (!subscription) {
@@ -169,9 +194,11 @@ export async function registerDesktopDeviceRoutes(
   });
   app.addHook("onClose", async () => {
     closing = true;
+    clearInterval(revocations);
     app.server.off("upgrade", upgrade);
     for (const socket of server.clients) socket.terminate();
     await new Promise<void>(resolve => server.close(() => resolve()));
+    await revocationCheck;
     const unsubscribe = await subscription;
     if (unsubscribe) await unsubscribe();
   });

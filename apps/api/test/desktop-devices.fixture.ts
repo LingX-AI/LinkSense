@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { AppError } from "../src/lib/errors.js";
-import type { DesktopDeviceRegistration } from "@linksense/shared";
+import type { DesktopDeviceRegistration, DesktopDeviceRenameResult } from "@linksense/shared";
 import type {
   DesktopDeviceRecord, DesktopDeviceRepository, DeviceCredentialRecord,
 } from "../src/modules/desktop-devices/repository.js";
@@ -51,15 +51,30 @@ export class MemoryDesktopDeviceRepository implements DesktopDeviceRepository {
   }
 
   async findOwned(ownerId: string, deviceId: string): Promise<DesktopDeviceRecord | null> {
-    const row = this.devices.get(deviceId);
+    const row = this.devices.get(deviceId.toLowerCase());
     return row?.ownerId === ownerId ? row : null;
   }
 
-  async revoke(ownerId: string, deviceId: string, now: Date): Promise<boolean> {
+  async listUnrevokedIds(deviceIds: readonly string[]): Promise<string[]> {
+    return deviceIds.filter(id => {
+      const device = this.devices.get(id);
+      return device && !device.revokedAt;
+    });
+  }
+
+  async rename(ownerId: string, deviceId: string, name: string, now: Date): Promise<DesktopDeviceRenameResult | null> {
     const row = await this.findOwned(ownerId, deviceId);
-    if (!row) return false;
-    row.revokedAt = now;
-    return true;
+    if (!row || row.revokedAt) return null;
+    row.name = name;
+    row.updatedAt = now;
+    return { id: row.id, name };
+  }
+
+  async revoke(ownerId: string, deviceId: string, now: Date): Promise<string | null> {
+    const row = await this.findOwned(ownerId, deviceId);
+    if (!row) return null;
+    row.revokedAt ??= now;
+    return row.id;
   }
 
   async touch(deviceId: string, now: Date): Promise<void> {

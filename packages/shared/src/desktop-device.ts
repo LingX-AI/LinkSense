@@ -16,6 +16,7 @@ export const desktopDeviceRegistrationSchema = z.strictObject({
     local_execution: false, browser_extension: false, computer_use: false,
   }),
 });
+export const desktopDeviceRenameInputSchema = desktopDeviceRegistrationSchema.pick({ name: true });
 export const desktopPairingCodeSchema = z.string().regex(/^[a-f0-9]{32}$/u);
 export const desktopDeviceTokenSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 export const desktopDevicePairInputSchema = desktopDeviceRegistrationSchema.extend({
@@ -33,6 +34,7 @@ export const desktopDeviceSchema = desktopDeviceRegistrationSchema.extend({
   created_at: timestampSchema,
   updated_at: timestampSchema,
 });
+export const desktopDeviceRenameResultSchema = desktopDeviceSchema.pick({ id: true, name: true });
 export const desktopDevicePairResultSchema = z.strictObject({
   token: desktopDeviceTokenSchema,
   owner_id: uuidSchema,
@@ -59,6 +61,7 @@ export const desktopDeviceServerFrameSchema = z.discriminatedUnion("type", [
 ]);
 
 export type DesktopDevice = z.infer<typeof desktopDeviceSchema>;
+export type DesktopDeviceRenameResult = z.infer<typeof desktopDeviceRenameResultSchema>;
 export type DesktopDeviceRegistration = z.infer<typeof desktopDeviceRegistrationSchema>;
 export type DesktopDeviceCapabilities = z.infer<typeof desktopDeviceCapabilitiesSchema>;
 export type DesktopPairing = z.infer<typeof desktopPairingSchema>;

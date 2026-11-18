@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir, userInfo } from "node:os";
@@ -88,6 +88,19 @@ try {
   const repository = new PrismaDesktopDeviceRepository(db);
   const service = new DesktopDeviceService(repository, new MemoryDesktopDeviceCoordinator());
   const sessionEpoch = (await db.user.findUniqueOrThrow({ where: { id: owner } })).authValidAfter;
+  const legacyToken = randomBytes(32).toString("hex");
+  const legacyDevice = await db.desktopDevice.create({
+    data: {
+      ownerId: owner, tokenHash: sha256(legacyToken), authValidAfter: sessionEpoch,
+      name: "Existing desktop", platform: "windows", arch: "amd64", appVersion: "0.1.0",
+    },
+  });
+  await assert.rejects(service.rename(other, legacyDevice.id, "Foreign name"), { code: "FORBIDDEN" });
+  assert.deepEqual(await service.rename(owner, legacyDevice.id, "Renamed desktop"), {
+    id: legacyDevice.id, name: "Renamed desktop",
+  });
+  assert.equal((await service.authenticate(legacyToken))?.id, legacyDevice.id);
+  assert.equal((await service.list(owner)).items.find(item => item.id === legacyDevice.id)?.name, "Renamed desktop");
   const pairing = await service.pairing(owner, sessionEpoch);
   const registration = { code: pairing.code, name: "Mac", platform: "darwin", arch: "arm64", app_version: "0.1.0" };
   const attempts = await Promise.allSettled(Array.from({ length: 8 }, () => service.pair(registration)));
@@ -115,11 +128,26 @@ try {
   const grant = await db.computerPermissionGrant.create({
     data: { ownerId: owner, conversationId: conversation, deviceId: stored.id, capability: "local_execution", scope: "session" },
   });
-  await service.revoke(owner, issued.device.id);
+  await Promise.all([service.revoke(owner, stored.id), service.revoke(owner, stored.id)]);
+  const revoked = await db.desktopDevice.findUniqueOrThrow({ where: { id: stored.id } });
+  await service.revoke(owner, stored.id);
+  assert.deepEqual((await db.desktopDevice.findUniqueOrThrow({ where: { id: stored.id } })).revokedAt, revoked.revokedAt);
+  await assert.rejects(service.rename(owner, stored.id, "Revoked device"), { code: "FORBIDDEN" });
   await assert.rejects(assertPairedDesktopDevice(db, owner, stored.id), { code: "FORBIDDEN" });
   assert.equal(await service.authenticate(issued.token), null);
+  assert.deepEqual(await service.revokedIds([legacyDevice.id, stored.id]), new Set([stored.id]));
   assert.equal((await db.localComputerSession.findUniqueOrThrow({ where: { id: local.id } })).status, "ended");
   assert((await db.computerPermissionGrant.findUniqueOrThrow({ where: { id: grant.id } })).revokedAt);
+  const audit = await db.auditLog.findMany({
+    where: { targetType: "desktop_device", targetId: { in: [legacyDevice.id, stored.id] } },
+    select: { action: true, actorId: true, targetId: true, result: true, metadataJson: true },
+    orderBy: { action: "asc" },
+  });
+  assert.deepEqual(audit, [
+    { action: "desktop_device_paired", actorId: owner, targetId: stored.id, result: "success", metadataJson: {} },
+    { action: "desktop_device_renamed", actorId: owner, targetId: legacyDevice.id, result: "success", metadataJson: {} },
+    { action: "desktop_device_revoked", actorId: owner, targetId: stored.id, result: "success", metadataJson: {} },
+  ]);
   const pending = await service.pairing(owner, sessionEpoch);
   await db.user.update({ where: { id: owner }, data: { authValidAfter: new Date(Date.now() + 1000) } });
   await assert.rejects(service.pairing(owner, sessionEpoch), { code: "AUTH_SESSION_EXPIRED" });
@@ -133,7 +161,7 @@ try {
   connections.push(fresh);
   assert.equal(await fresh.desktopDevice.count(), 0);
   assert.equal(await fresh.conversation.count(), 0);
-  console.log("Desktop PostgreSQL whitebox passed: fresh install, preserved cloud history, concurrent pairing, ownership, revocation, authentication epoch.");
+  console.log("Desktop PostgreSQL whitebox passed: fresh install, cloud history, existing device rename, concurrent pairing and revocation, redacted audit, ownership, and credential epoch.");
 } finally {
   await Promise.all(connections.map(connection => connection.$disconnect()));
   if (started) await execute("pg_ctl", ["-D", data, "-m", "immediate", "-w", "stop"], { timeout: 30_000 });

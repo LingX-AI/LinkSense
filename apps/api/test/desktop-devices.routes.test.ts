@@ -8,6 +8,7 @@ import { sendAppError } from "../src/lib/http.js";
 import { RedisDesktopDeviceCoordinator } from "../src/modules/desktop-devices/coordinator.js";
 import { registerDesktopDeviceRoutes } from "../src/modules/desktop-devices/routes.js";
 import { DesktopDeviceService } from "../src/modules/desktop-devices/service.js";
+import { registerClientBuildGuard } from "../src/plugins/client-build.js";
 import { MemoryDesktopDeviceRepository } from "./desktop-devices.fixture.js";
 import { createRedisFixture } from "./fixtures/redis.js";
 
@@ -24,6 +25,7 @@ beforeEach(async () => { await redis.client.flushdb(); });
 afterEach(async () => {
   for (const socket of sockets.splice(0)) socket.terminate();
   await Promise.all(applications.splice(0).map(app => app.close()));
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 afterAll(async () => { await redis.close(); });
@@ -34,6 +36,7 @@ async function fixture(repository = new MemoryDesktopDeviceRepository()) {
   const service = new DesktopDeviceService(repository, coordinator);
   const app = Fastify();
   applications.push(app);
+  registerClientBuildGuard(app, null);
   app.decorate("authenticate", async request => {
     if (!["Bearer user", "Bearer other"].includes(request.headers.authorization ?? "")) throw new AppError("AUTH_REQUIRED");
     request.authUser = {
@@ -120,7 +123,36 @@ describe("desktop device HTTP and WebSocket boundaries", () => {
     }
   });
 
-  it("authenticates and heartbeats, then revokes the socket from another API replica", async () => {
+  it("renames only the caller's active device and accepts only a valid display name", async () => {
+    const { app } = await fixture();
+    const { device, token } = await paired(app);
+    const url = `/api/v1/desktop/devices/${device.id}`;
+    const rename = (payload: object, authorization?: string) => app.inject({
+      method: "PATCH", url, payload, headers: authorization ? { authorization } : {},
+    });
+    expect((await rename({ name: "Home PC" })).statusCode).toBe(401);
+    expect((await rename({ name: "Home PC" }, "Bearer other")).statusCode).toBe(403);
+    for (const payload of [{ name: " " }, { name: "line\nbreak" }, { name: "x".repeat(121) },
+      { name: "Home PC", owner_id: other }]) {
+      expect((await rename(payload, headers.authorization)).statusCode).toBe(400);
+    }
+    const { socket } = await connect(app, token);
+    const renamed = await rename({ name: "  家里的电脑  " }, headers.authorization);
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json().data).toEqual({ id: device.id, name: "家里的电脑" });
+    expect(renamed.headers["cache-control"]).toBe("private, no-store");
+    const pong = nextFrame(socket);
+    socket.send(JSON.stringify({ type: "ping" }));
+    expect(await pong).toEqual({ type: "pong" });
+    const list = await app.inject({ url: "/api/v1/desktop/devices", headers });
+    expect(list.json().data.items).toMatchObject([{ id: device.id, name: "家里的电脑", online: true }]);
+    const closed = once(socket, "close");
+    expect((await app.inject({ method: "DELETE", url, headers })).statusCode).toBe(200);
+    expect((await closed)[0]).toBe(4403);
+    expect((await rename({ name: "Revoked device" }, headers.authorization)).statusCode).toBe(403);
+  });
+
+  it("authenticates and heartbeats, then revokes the socket from another API replica using an uppercase device ID", async () => {
     const first = await fixture();
     const second = await fixture(first.repository);
     const device = await paired(first.app);
@@ -133,11 +165,30 @@ describe("desktop device HTTP and WebSocket boundaries", () => {
     expect((await second.app.inject({
       method: "DELETE", url: `/api/v1/desktop/devices/${device.device.id}`, headers: { authorization: "Bearer other" },
     })).statusCode).toBe(403);
-    const closed = once(socket, "close");
+    const closed = once(socket, "close", { signal: AbortSignal.timeout(1_000) });
     expect((await second.app.inject({
-      method: "DELETE", url: `/api/v1/desktop/devices/${device.device.id}`, headers,
+      method: "DELETE", url: `/api/v1/desktop/devices/${device.device.id.toUpperCase()}`, headers,
     })).statusCode).toBe(200);
     expect((await closed)[0]).toBe(4403);
+    expect((await second.app.inject({ url: "/api/v1/desktop/devices", headers })).json().data.items[0].online).toBe(false);
+  });
+
+  it("closes a revoked connection after a failed publication without a DELETE retry or client heartbeat", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const first = await fixture();
+    const second = await fixture(first.repository);
+    const device = await paired(first.app);
+    const { socket } = await connect(first.app, device.token);
+    vi.spyOn(redis.client, "publish").mockRejectedValueOnce(new Error("test publication unavailable"));
+    const url = `/api/v1/desktop/devices/${device.device.id}`;
+    expect((await second.app.inject({ method: "DELETE", url, headers })).statusCode).toBe(500);
+    expect(await first.service.authenticate(device.token)).toBeNull();
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+
+    const closed = once(socket, "close", { signal: AbortSignal.timeout(1_000) });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect((await closed)[0]).toBe(4403);
+    expect((await second.app.inject({ method: "DELETE", url, headers })).statusCode).toBe(200);
   });
 
   it("ignores delayed replacement notices for the already superseded socket", async () => {

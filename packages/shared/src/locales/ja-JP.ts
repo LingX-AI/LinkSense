@@ -391,6 +391,9 @@ export const auditMessages = {
     credential_updated: "認証情報を更新",
     credential_usage_commit_failed: "認証情報の使用記録に失敗",
     credential_used: "認証情報を使用",
+    desktop_device_paired: "デスクトップ端末をペアリング",
+    desktop_device_renamed: "デスクトップ端末の名前を変更",
+    desktop_device_revoked: "デスクトップ端末のアクセス権を取り消し",
     execution_concurrency_settings_updated: "同時実行数の設定を更新",
     external_application_session_id_updated: "外部アプリケーションのセッション ID を更新",
     feedback_replied: "ユーザーのフィードバックに返信",
@@ -502,6 +505,7 @@ export const auditMessages = {
     weixin_connection_updated: "Weixin の接続を更新",
   },
   targetTypes: {
+    desktop_device: "デスクトップ端末",
     web_search: "ウェブ検索設定",
     connection_provider: "コネクタ",
     connection: "個人用接続",

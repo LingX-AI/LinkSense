@@ -6,6 +6,7 @@ import {
   desktopDeviceSchema,
   desktopDeviceTokenSchema,
   type DesktopDevice,
+  type DesktopDeviceRenameResult,
   type DesktopPairing,
 } from "@linksense/shared";
 import { sha256 } from "../../lib/crypto.js";
@@ -50,10 +51,21 @@ export class DesktopDeviceService {
     return { items: rows.map(row => projectDevice(row, !row.revokedAt && online.has(row.id))) };
   }
 
+  async rename(ownerId: string, deviceId: string, name: string): Promise<DesktopDeviceRenameResult> {
+    const renamed = await this.repository.rename(ownerId, deviceId, name, this.now());
+    if (!renamed) throw new AppError("FORBIDDEN");
+    return renamed;
+  }
+
   async assertOwned(ownerId: string, deviceId: string): Promise<DesktopDeviceRecord> {
     const device = await this.repository.findOwned(ownerId, deviceId);
     if (!device || device.revokedAt) throw new AppError("FORBIDDEN");
     return device;
+  }
+
+  async revokedIds(deviceIds: readonly string[]): Promise<Set<string>> {
+    const unrevoked = new Set(await this.repository.listUnrevokedIds(deviceIds));
+    return new Set(deviceIds.filter(id => !unrevoked.has(id)));
   }
 
   async connect(device: DesktopDeviceRecord): Promise<string> {
@@ -75,8 +87,9 @@ export class DesktopDeviceService {
   }
 
   async revoke(ownerId: string, deviceId: string): Promise<void> {
-    if (!await this.repository.revoke(ownerId, deviceId, this.now())) throw new AppError("FORBIDDEN");
-    await this.coordinator.revoke(deviceId);
+    const revokedId = await this.repository.revoke(ownerId, deviceId, this.now());
+    if (!revokedId) throw new AppError("FORBIDDEN");
+    await this.coordinator.revoke(revokedId);
   }
 }
 

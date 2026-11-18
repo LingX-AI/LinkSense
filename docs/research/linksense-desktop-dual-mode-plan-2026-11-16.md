@@ -772,6 +772,7 @@ desktopDeviceId String? @map("desktop_device_id") @db.Uuid
 | POST | `/desktop/devices/pairing` | 登录用户生成配对码 |
 | POST | `/desktop/devices/pair` | 桌面应用换 device token |
 | GET | `/desktop/devices` | 设备列表/在线状态 |
+| PATCH | `/desktop/devices/:id` | 修改本人未撤销设备的显示名称 |
 | DELETE | `/desktop/devices/:id` | 撤销设备 |
 | GET | `/desktop/devices/socket` | 设备 WS |
 | POST | `/conversations/:id/local-computer` | 启动本地电脑会话/授权 |
