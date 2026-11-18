@@ -15,6 +15,7 @@ import type {
 import type { PrismaClient } from "../../generated/prisma/client.js";
 import type { ConversationService } from "../conversations/service.js";
 import { RedisDesktopDeviceCoordinator } from "../desktop-devices/coordinator.js";
+import { recoverableSlotOwners, revokedMacRecoveryPage, type RevokedMacTurn } from "../desktop-devices/revoked-execution.js";
 import type { ConversationEventService } from "./service.js";
 
 const queueName = "linksense-task-recovery";
@@ -83,7 +84,7 @@ export class TaskRecoveryScheduler {
     private readonly redis: LinkSenseRedis,
     private readonly events: Pick<
       ConversationEventService,
-      "recoverRunningTurns" | "reconcileAfterProcessExit"
+      "recoverRunningTurns" | "reconcileAfterProcessExit" | "settleRevokedMacTurn"
     >,
     private readonly conversations: Pick<
       ConversationService,
@@ -368,8 +369,7 @@ export class TaskRecoveryScheduler {
   private async maintain(): Promise<void> {
     const status = await this.redis.runningTurnRecoveryStatus();
     if (!status.last_success_at) {
-      // Full reconciliation is reserved for startup or loss of the Redis
-      // capacity baseline. Ordinary ticks never enumerate running turns.
+      // Only startup or Redis baseline loss needs full runner reconciliation.
       await this.events.recoverRunningTurns({ requireObserved: false });
     }
     for (const entry of await this.redis.expiredRunnerOwners()) {
@@ -386,6 +386,57 @@ export class TaskRecoveryScheduler {
     }
     await this.dispatchPendingStarts();
     await this.dispatchPendingContexts();
+    await this.maintainRevokedMacTurns();
+  }
+
+  private async maintainRevokedMacTurns(): Promise<void> {
+    // Revocation survives both notification loss and removal of BullMQ jobs.
+    const after = await this.redis.revokedMacRecoveryCursor();
+    const [rows, slots] = await Promise.all([
+      revokedMacRecoveryPage(this.prisma, after.conversation, pageSize),
+      this.redis.runningTurnSlotPage(after.slot, pageSize),
+    ]);
+    const work = new Map<string, RevokedMacTurn>();
+    for (const slot of await recoverableSlotOwners(this.prisma, slots.slots)) {
+      if (slot.deviceId !== null) {
+        work.set(slot.projectionTurnId, slot);
+        continue;
+      }
+      // A reservation can only be taken after the conversation and intent commit.
+      try {
+        await this.redis.releaseTurnSlot(slot.conversationId, slot.projectionTurnId, { databaseSettled: true });
+      } catch {
+        logger.warn({ conversationId: slot.conversationId, projectionTurnId: slot.projectionTurnId }, "Deleted task slot could not be released");
+      }
+    }
+    for (const { turnIds, ...scope } of rows) {
+      for (const projectionTurnId of turnIds) work.set(projectionTurnId, { ...scope, projectionTurnId });
+    }
+    for (const scope of work.values()) {
+      try {
+        await this.events.settleRevokedMacTurn(scope);
+      } catch {
+        logger.warn({ conversationId: scope.conversationId, projectionTurnId: scope.projectionTurnId }, "Revoked Mac turn could not be settled");
+      }
+    }
+    // Hold each tick to one page; revisit outstanding failures on the next pass.
+    await this.redis.setRevokedMacRecoveryCursor(
+      rows.length === pageSize ? rows.at(-1)?.conversationId ?? null : null, slots.after,
+    );
+
+    const releases = await this.prisma.desktopTurnSlotRelease.findMany({
+      orderBy: [{ createdAt: "asc" }, { turnId: "asc" }],
+      take: pageSize,
+      select: { conversationId: true, turnId: true },
+    });
+    for (const { conversationId, turnId } of releases) {
+      try {
+        await this.redis.releaseTurnSlot(conversationId, turnId, { databaseSettled: true });
+        await this.prisma.desktopTurnSlotRelease.deleteMany({ where: { conversationId, turnId } });
+      } catch {
+        logger.warn({ conversationId, projectionTurnId: turnId }, "Revoked Mac slot could not be released");
+      }
+    }
   }
 
   private async enqueueOwner(

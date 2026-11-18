@@ -290,6 +290,24 @@ describe("Redis atomic protection", () => {
     expect(await protection.runnerOwnerDeadline(first.ownerId)).toBeNull()
   })
 
+  it("continues a bounded slot scan after the previous page is released", async () => {
+    const ownerId = "10000000-0000-4000-8000-000000000001"
+    const slots = [
+      { ownerId, conversationId: "10000000-0000-4000-8000-000000000003", turnId: "10000000-0000-4000-8000-000000000004" },
+      { ownerId, conversationId: "10000000-0000-4000-8000-000000000005", turnId: "10000000-0000-4000-8000-000000000006" },
+    ] as const
+    for (const { conversationId, turnId } of slots) {
+      expect((await protection.acquireTurnSlot(conversationId, turnId, ownerId)).acquired).toBe(true)
+    }
+    const first = await protection.runningTurnSlotPage(null, 1)
+    expect(first.slots).toEqual([slots[0]])
+    await protection.releaseTurnSlot(slots[0].conversationId, slots[0].turnId)
+    await protection.setRevokedMacRecoveryCursor(null, first.after)
+    const secondReplica = new LinkSenseRedis(testConfig(), client)
+    const cursor = await secondReplica.revokedMacRecoveryCursor()
+    expect(await secondReplica.runningTurnSlotPage(cursor.slot, 2)).toEqual({ slots: [slots[1]], after: null })
+  })
+
   it("persists dispatch pagination across API instances and clears it at the end", async () => {
     const other = new LinkSenseRedis(testConfig(), client)
     const cursor = { id: "10000000-0000-4000-8000-000000000001", createdAt: "2026-09-07T00:00:00.000Z" }
@@ -316,8 +334,10 @@ describe("Redis atomic protection", () => {
         await protection.releaseTurnSlot(conversationId, projectionTurnId)
         return { outcome: "not_applicable" }
       })
-    const events = { recoverRunningTurns: vi.fn(), reconcileAfterProcessExit }
+    const events = { recoverRunningTurns: vi.fn(), reconcileAfterProcessExit, settleRevokedMacTurn: vi.fn() }
     const prisma = {
+      $queryRaw: vi.fn(async () => []),
+      desktopTurnSlotRelease: { findMany: vi.fn(async () => []) },
       $transaction: vi.fn((run: (tx: unknown) => Promise<unknown>): Promise<unknown> => run(prisma)),
       conversationTurn: { findMany: vi.fn(async () => [{ id: projectionTurnId, conversationId, capabilityGeneration, submittedBy: ownerId }]) },
       conversationTurnStartIntent: { findMany: vi.fn(async () => []) },
@@ -762,6 +782,18 @@ describe("Redis atomic protection", () => {
       lease!,
     )
 
+    expect(await protection.runningTurnCount()).toBe(0)
+  })
+
+  it("does not recreate a durably settled Mac slot that was absent when release ran", async () => {
+    const lease = await protection.acquireRunningTurnReconcileLease()
+    expect(lease).not.toBeNull()
+    await protection.releaseTurnSlot("conversation-mac", "turn-mac", { databaseSettled: true })
+    const reconciled = await protection.reconcileRunningTurnSlots(
+      [{ conversationId: "conversation-mac", turnId: "turn-mac", ownerId: "owner-mac" }],
+      lease!,
+    )
+    expect(reconciled.applied).toBe(true)
     expect(await protection.runningTurnCount()).toBe(0)
   })
 

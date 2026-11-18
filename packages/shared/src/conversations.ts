@@ -196,6 +196,7 @@ export const pendingRequestBlockCodeSchema = z.enum([
   "agents_template_unavailable",
   "workspace_invalid",
   "runner_unavailable",
+  "desktop_device_revoked",
   "deployment_stopped",
   "execution_environment_invalid",
   "credit_limit_exceeded",

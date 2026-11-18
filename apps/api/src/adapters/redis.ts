@@ -97,16 +97,17 @@ return {1, count + 1, 1}
 `
 
 const RELEASE_CONCURRENCY_SCRIPT = `
-if redis.call('HGET', KEYS[1], ARGV[1]) == ARGV[2] then
+local exact = redis.call('HGET', KEYS[1], ARGV[1]) == ARGV[2]
+-- A concurrent database snapshot can include a durably settled turn even
+-- when its slot was already absent.
+if (exact or ARGV[3] == 'settled') and redis.call('EXISTS', KEYS[5]) == 1 then
+  redis.call('HSET', KEYS[3], ARGV[1] .. ':' .. ARGV[2], '1')
+end
+if exact then
   local owner = redis.call('HGET', KEYS[2], ARGV[1])
   if owner then redis.call('ZREM', KEYS[4], owner .. ':' .. ARGV[1]) end
   redis.call('HDEL', KEYS[1], ARGV[1])
   redis.call('HDEL', KEYS[2], ARGV[1])
-  -- Only a concurrent bootstrap snapshot can resurrect a released token.
-  -- Ordinary event-driven releases must not accumulate historical markers.
-  if redis.call('EXISTS', KEYS[5]) == 1 then
-    redis.call('HSET', KEYS[3], ARGV[1] .. ':' .. ARGV[2], '1')
-  end
   return 1
 end
 return 0
@@ -224,6 +225,7 @@ return 1
 const RUNNING_TURN_SLOTS_KEY = "linksense:running-turn-slots"
 const RUNNER_OWNER_DEADLINES_KEY = "linksense:runner-owner-deadlines"
 const RUNNING_TURN_OWNER_INDEX_KEY = "linksense:running-turn-owner-index"
+const runningTurnSlotKeySchema = z.templateLiteral([z.uuid(), ":", z.uuid()])
 const RECOVERY_DISPATCH_CURSORS_KEY = "linksense:recovery-dispatch-cursors"
 const recoveryDispatchCursorSchema = z.strictObject({
   id: z.uuid(),
@@ -569,7 +571,7 @@ export class LinkSenseRedis {
     }
   }
 
-  async releaseTurnSlot(conversationId: string, turnId: string): Promise<void> {
+  async releaseTurnSlot(conversationId: string, turnId: string, options?: { databaseSettled: true }): Promise<void> {
     try {
       await this.client.eval(
         RELEASE_CONCURRENCY_SCRIPT,
@@ -581,6 +583,7 @@ export class LinkSenseRedis {
         RUNNING_TURN_RECONCILE_LOCK_KEY,
         conversationId,
         turnId,
+        options?.databaseSettled ? "settled" : "",
       )
     } catch {
       throw new RedisUnavailableError("concurrency_release")
@@ -1115,6 +1118,64 @@ export class LinkSenseRedis {
       )
     } else {
       await this.client.hdel(RECOVERY_DISPATCH_CURSORS_KEY, kind)
+    }
+  }
+
+  async revokedMacRecoveryCursor(): Promise<{ conversation: string | null; slot: string | null }> {
+    const [conversation, slot] = await this.client.hmget(RECOVERY_DISPATCH_CURSORS_KEY, "revoked-mac", "revoked-mac-slot")
+    return {
+      conversation: z.uuid().nullable().parse(conversation),
+      slot: runningTurnSlotKeySchema.nullable().parse(slot),
+    }
+  }
+
+  async setRevokedMacRecoveryCursor(conversation: string | null, slot: string | null): Promise<void> {
+    const entries = [
+      ["revoked-mac", z.uuid().nullable().parse(conversation)],
+      ["revoked-mac-slot", runningTurnSlotKeySchema.nullable().parse(slot)],
+    ] as const
+    const transaction = this.client.multi()
+    for (const [key, value] of entries) {
+      if (value) transaction.hset(RECOVERY_DISPATCH_CURSORS_KEY, key, value)
+      else transaction.hdel(RECOVERY_DISPATCH_CURSORS_KEY, key)
+    }
+    const result = await transaction.exec()
+    if (!result || result.some(([error]) => error !== null)) throw new RedisUnavailableError("concurrency_recovery_cursor")
+  }
+
+  async runningTurnSlotPage(after: string | null, limit: number): Promise<{
+    slots: RunningTurnSlot[]
+    after: string | null
+  }> {
+    try {
+      const [next, ...entries] = z.array(z.string()).parse(await this.client.eval(`
+        local keys = redis.call('ZRANGEBYLEX', KEYS[1], ARGV[1], '+', 'LIMIT', 0, ARGV[2])
+        local result = {#keys == tonumber(ARGV[2]) and keys[#keys] or ''}
+        for _, key in ipairs(keys) do
+          local owner, conversation = string.match(key, '^([^:]+):([^:]+)$')
+          if conversation and redis.call('HGET', KEYS[3], conversation) == owner then
+            local turn = redis.call('HGET', KEYS[2], conversation)
+            if turn then
+              table.insert(result, key)
+              table.insert(result, turn)
+            end
+          end
+        end
+        return result
+      `, 3, RUNNING_TURN_OWNER_INDEX_KEY, RUNNING_TURN_SLOTS_KEY, RUNNING_TURN_SLOT_OWNERS_KEY,
+      after ? `(${runningTurnSlotKeySchema.parse(after)}` : "-", limit))
+      const slots: RunningTurnSlot[] = []
+      for (let index = 0; index < entries.length; index += 2) {
+        const [ownerId, conversationId] = runningTurnSlotKeySchema.parse(entries[index]).split(":")
+        slots.push({
+          ownerId: z.uuid().parse(ownerId),
+          conversationId: z.uuid().parse(conversationId),
+          turnId: z.uuid().parse(entries[index + 1]),
+        })
+      }
+      return { slots, after: next ? runningTurnSlotKeySchema.parse(next) : null }
+    } catch {
+      throw new RedisUnavailableError("concurrency_recovery_page")
     }
   }
 

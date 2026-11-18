@@ -9903,8 +9903,8 @@ describe("ConversationService pending and turn materialization", () => {
       [PENDING_ID, 2],
     ]);
     expect(transaction.pendingRequest.update.mock.calls).toEqual([
-      [{ where: { id: SECOND_PENDING_ID }, data: { queueNo: -1n } }],
-      [{ where: { id: PENDING_ID }, data: { queueNo: -2n } }],
+      [{ where: { id: SECOND_PENDING_ID }, data: { queueNo: 3n } }],
+      [{ where: { id: PENDING_ID }, data: { queueNo: 4n } }],
       [{ where: { id: SECOND_PENDING_ID }, data: { queueNo: 1n } }],
       [{ where: { id: PENDING_ID }, data: { queueNo: 2n } }],
     ]);

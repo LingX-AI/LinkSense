@@ -53,7 +53,8 @@ const pendingRequestOrderBodySchema = z.strictObject({
   request_ids: z
     .array(z.string().uuid())
     .min(2)
-    .max(5)
+    // A revoked Mac start can become an editable sixth draft.
+    .max(6)
     .refine((ids) => new Set(ids).size === ids.length, "duplicate_request_id"),
 });
 const contextCompactionBodySchema = z.strictObject({

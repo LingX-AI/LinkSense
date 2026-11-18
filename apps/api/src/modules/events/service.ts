@@ -43,6 +43,12 @@ import { AppError } from "../../lib/errors.js";
 import { truncateConversationTitle } from "../../lib/conversation-title.js";
 import { settleMonitoringStop, settleMonitoringRunStop } from "../automations/monitoring.js";
 import type { ConversationService } from "../conversations/service.js";
+import { settleRevokedMacTurn, type RevokedMacTurn } from "../desktop-devices/revoked-execution.js";
+import {
+  loadInterruptedAssistantOutputs,
+  persistInterruptedAssistantOutputs,
+  type InterruptedMessageCompletionEvent,
+} from "./interrupted-assistant-output.js";
 import { projectKnowledgeCitations } from "./knowledge-citations.js";
 import { createProjectedAssistantMessage } from "./knowledge-message-projection.js";
 import type { TurnKnowledgeSourceStore } from "./knowledge-source-store.js";
@@ -149,11 +155,6 @@ type PlanOutputMissingEvent = {
     message_key: "errors.conversation.planOutputMissing";
     retryable: true;
   };
-};
-
-type InterruptedMessageCompletionEvent = {
-  event: ConversationEvent;
-  payload: Record<string, unknown>;
 };
 
 type TerminalProjectionResult = {
@@ -870,11 +871,12 @@ export class ConversationEventService {
       : null;
     const interruptedAssistantOutputs =
       terminalStatus === "interrupted"
-        ? await this.loadInterruptedAssistantOutputs(
+        ? await loadInterruptedAssistantOutputs(
+            this.prisma,
             conversationId,
             turn.id,
             turnId,
-            turn,
+            (text) => this.projectCompletedAssistantMessage(turn, text),
           )
         : [];
 
@@ -1053,44 +1055,9 @@ export class ConversationEventService {
       if (terminalStatus) {
         const terminalAt = new Date();
         if (terminalStatus === "interrupted") {
-          for (const output of interruptedAssistantOutputs) {
-            if (output.existingCompletion) {
-              interruptedMessageEvents.push(output.existingCompletion);
-              continue;
-            }
-            if (!output.projection) continue;
-            const message = await createProjectedAssistantMessage(tx, {
-              conversationId,
-              turnId: turn.id,
-              projection: output.projection,
-              now: terminalAt,
-            });
-            const messageSequenceNo = await nextConversationEventSequence(
-              tx,
-              conversationId,
-            );
-            const messagePayload = {
-              schema_version: 1 as const,
-              message_id: message.id,
-              role: "assistant" as const,
-              item_id: output.itemId,
-            };
-            const messageEvent = await tx.conversationEvent.create({
-              data: {
-                conversationId,
-                turnId: turn.id,
-                sequenceNo: messageSequenceNo,
-                eventType: "conversation.message.completed",
-                visibility: "user_visible",
-                payloadJson: messagePayload,
-                sseEventId: `${conversationId}:${messageSequenceNo}`,
-              },
-            });
-            interruptedMessageEvents.push({
-              event: messageEvent,
-              payload: messagePayload,
-            });
-          }
+          interruptedMessageEvents.push(...await persistInterruptedAssistantOutputs(
+            tx, conversationId, turn.id, interruptedAssistantOutputs, terminalAt,
+          ));
         }
         if (projection.attemptPersisted) {
           await tx.conversationTurnAttempt.updateMany({
@@ -3188,6 +3155,13 @@ export class ConversationEventService {
     await this.recoveryScheduler.enqueueDesktopRecovery(input);
   }
 
+  async settleRevokedMacTurn(scope: RevokedMacTurn): Promise<void> {
+    const events = await settleRevokedMacTurn(this.prisma, this.redis, scope, (text) =>
+      this.projectCompletedAssistantMessage({ id: scope.projectionTurnId }, text),
+    );
+    await this.redis.publishConversationEvents(scope.conversationId, events.map(row => projectEvent(row, asObject(row.payloadJson))));
+  }
+
   async startRecoveryMonitor(): Promise<void> {
     if (!this.recoveryScheduler) throw new AppError("RUNNER_UNAVAILABLE");
     await this.recoveryScheduler.start();
@@ -3236,45 +3210,6 @@ export class ConversationEventService {
       ? await this.knowledgeSources.read(turn.id)
       : new Map();
     return projectKnowledgeCitations(text, sources);
-  }
-
-  private async loadInterruptedAssistantOutputs(
-    conversationId: string,
-    projectionTurnId: string,
-    codexTurnId: string,
-    turn: GroundedTurn,
-  ) {
-    const events = await this.prisma.conversationEvent.findMany({
-      where: {
-        conversationId,
-        turnId: projectionTurnId,
-        eventType: {
-          in: [
-            "item/agentMessage/delta",
-            "item/completed",
-            "conversation.message.completed",
-          ],
-        },
-      },
-      orderBy: [{ sequenceNo: "asc" }, { id: "asc" }],
-    });
-    const outputs = collectInterruptedAssistantOutputs(events, codexTurnId);
-    return Promise.all(
-      outputs.map(async (output) => {
-        if (output.existingCompletion) {
-          return { ...output, projection: null };
-        }
-        const projection = await this.projectCompletedAssistantMessage(
-          turn,
-          output.text,
-        );
-        return {
-          ...output,
-          projection:
-            projection.contentText.trim().length > 0 ? projection : null,
-        };
-      }),
-    );
   }
 
   private async attachGoalContinuation(
@@ -4225,92 +4160,6 @@ function recoveryAttemptIsAtLeast(
   return (
     Number.isFinite(observed) && Number.isFinite(minimum) && observed >= minimum
   );
-}
-
-const MAX_INTERRUPTED_ASSISTANT_TEXT_CHARACTERS = 10_000_000;
-
-function collectInterruptedAssistantOutputs(
-  events: ConversationEvent[],
-  codexTurnId: string,
-): Array<{
-  itemId: string;
-  text: string;
-  existingCompletion: InterruptedMessageCompletionEvent | null;
-}> {
-  const completedNativeItemIds = new Set<string>();
-  const existingCompletionsByItemId = new Map<
-    string,
-    InterruptedMessageCompletionEvent
-  >();
-  const textByItemId = new Map<string, string>();
-
-  for (const event of events) {
-    const payload = asObject(event.payloadJson);
-    if (event.eventType === "conversation.message.completed") {
-      const itemId = payload.item_id;
-      const messageId = payload.message_id;
-      if (
-        typeof itemId === "string" &&
-        itemId.length > 0 &&
-        payload.role === "assistant" &&
-        typeof messageId === "string" &&
-        z.uuid().safeParse(messageId).success
-      ) {
-        existingCompletionsByItemId.set(itemId, { event, payload });
-      }
-      continue;
-    }
-    if (
-      payload.source !== "codex_app_server" ||
-      payload.method !== event.eventType
-    ) {
-      continue;
-    }
-    const params = asObject(payload.params);
-    if (params.turnId !== codexTurnId) continue;
-    if (event.eventType === "item/completed") {
-      const item = asObject(params.item);
-      if (
-        item.type === "agentMessage" &&
-        typeof item.id === "string" &&
-        item.id.length > 0
-      ) {
-        completedNativeItemIds.add(item.id);
-      }
-      continue;
-    }
-    if (event.eventType !== "item/agentMessage/delta") continue;
-    const itemId = params.itemId;
-    const delta = params.delta;
-    if (
-      typeof itemId !== "string" ||
-      itemId.length === 0 ||
-      typeof delta !== "string" ||
-      delta.length === 0
-    ) {
-      continue;
-    }
-    const current = textByItemId.get(itemId) ?? "";
-    if (current.length >= MAX_INTERRUPTED_ASSISTANT_TEXT_CHARACTERS) continue;
-    textByItemId.set(
-      itemId,
-      `${current}${delta}`.slice(
-        0,
-        MAX_INTERRUPTED_ASSISTANT_TEXT_CHARACTERS,
-      ),
-    );
-  }
-
-  return [...textByItemId]
-    .filter(
-      ([itemId, text]) =>
-        !completedNativeItemIds.has(itemId) && text.trim().length > 0,
-    )
-    .map(([itemId, text]) => ({
-      itemId,
-      text,
-      existingCompletion: existingCompletionsByItemId.get(itemId) ?? null,
-    }));
 }
 
 function asObject(value: unknown): Record<string, unknown> {

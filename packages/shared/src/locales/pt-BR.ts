@@ -229,6 +229,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   "TURN_START_CLOSED": "O envio anterior foi encerrado. Esta solicitação não foi executada. Envie-a novamente.",
   "RUNNER_UNAVAILABLE": "O serviço de execução está indisponível. Tente novamente mais tarde.",
   "RUNNER_OPERATION_UNCERTAIN": "Ainda não foi confirmado se o seu Mac executou esta operação. Aguarde a atualização do status antes de enviá-la novamente.",
+  "DESKTOP_DEVICE_REVOKED": "O acesso a este Mac foi revogado. O conteúdo existente foi mantido. Verifique no Mac até onde a tarefa avançou.",
   "DEPLOYMENT_STOPPED": "Esta tarefa foi interrompida para uma atualização do sistema. O conteúdo existente foi mantido. Revise o progresso antes de continuar manualmente.",
   "EXECUTION_SERVICE_INCOMPATIBLE": "As versões do serviço de execução são incompatíveis. Tente novamente mais tarde. Se o problema persistir, entre em contato com um administrador.",
   "AUTH_INVALID_CREDENTIALS": "E-mail ou senha inválidos.",

@@ -978,6 +978,15 @@ model DesktopDevicePairing {
   @@map("desktop_device_pairings")
 }
 
+model DesktopTurnSlotRelease {
+  turnId         String   @id @map("turn_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt, turnId], map: "desktop_turn_slot_releases_created_idx")
+  @@map("desktop_turn_slot_releases")
+}
+
 model LocalComputerSession {
   id             String    @id @default(uuid()) @db.Uuid
   ownerId        String    @map("owner_id") @db.Uuid

@@ -1361,14 +1361,17 @@ describe("conversation pending request route", () => {
     });
   });
 
-  it("reorders the complete pending request queue", async () => {
+  it.each([2, 6])("reorders the complete pending request queue of %i items", async (count) => {
     const { app, reorderPending } = await conversationRouteFixture();
+    const ids = Array.from({ length: count }, (_item, index) =>
+      `30000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    );
 
     const response = await app.inject({
       method: "PUT",
       url: `/conversations/${CONVERSATION_ID}/pending-requests/order`,
       payload: {
-        request_ids: [SECOND_PENDING_REQUEST_ID, PENDING_REQUEST_ID],
+        request_ids: ids,
       },
     });
 
@@ -1376,7 +1379,7 @@ describe("conversation pending request route", () => {
     expect(reorderPending).toHaveBeenCalledWith(
       OWNER_ID,
       CONVERSATION_ID,
-      [SECOND_PENDING_REQUEST_ID, PENDING_REQUEST_ID],
+      ids,
       expect.any(Object),
     );
   });

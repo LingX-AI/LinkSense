@@ -3953,10 +3953,14 @@ export class ConversationService {
           });
         if (protectedByStartIntent) throw new AppError("CONFLICT");
 
+        // Move every row above both ranges to keep the positive and unique constraints valid.
+        const lastQueueNo = current.at(-1)?.queueNo ?? 0n;
+        const finalQueueNo = BigInt(pendingIds.length);
+        const temporaryBase = lastQueueNo > finalQueueNo ? lastQueueNo : finalQueueNo;
         for (const [index, pendingId] of pendingIds.entries()) {
           await tx.pendingRequest.update({
             where: { id: pendingId },
-            data: { queueNo: BigInt(-(index + 1)) },
+            data: { queueNo: temporaryBase + BigInt(index + 1) },
           });
         }
         for (const [index, pendingId] of pendingIds.entries()) {
@@ -7847,6 +7851,14 @@ export class ConversationService {
         cleanup
       ) {
         throw new AppError("CONFLICT");
+      }
+      if (conversation.executionTarget === "local") {
+        const { desktopDeviceId: deviceId } = conversation;
+        if (!deviceId) throw new AppError("FORBIDDEN");
+        await lockDesktopConversation(tx, {
+          ownerId: input.ownerId, conversationId: input.conversationId, deviceId,
+          runtimeGeneration: input.expectedRuntimeGeneration,
+        });
       }
       if (input.planReviewAction) {
         await tx.$queryRaw<Array<{ id: string }>>`

@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
+  conversationStartFailurePayloadSchema,
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
   desktopExecutionAckSchema,
   desktopExecutionCommandSchema,
@@ -20,6 +21,7 @@ import { WebSocket } from "ws";
 import { LinkSenseRedis } from "../../src/adapters/redis.js";
 import { RunnerClient } from "../../src/adapters/runner.js";
 import type { PrismaClient } from "../../src/generated/prisma/client.js";
+import { projectWorkspaceRelativePath } from "../../src/lib/user-runtime-paths.js";
 import { AuditService } from "../../src/modules/audit/service.js";
 import { ConversationService } from "../../src/modules/conversations/service.js";
 import { RedisDesktopDeviceCoordinator } from "../../src/modules/desktop-devices/coordinator.js";
@@ -101,7 +103,12 @@ export async function verifyDesktopExecutionProjection(input: {
     }, coordinator);
     assert(execution, "Mac execution must be enabled in this fixture");
     let rejectNextRecovery = false;
-    app.decorate("authenticate", outsideFixture);
+    app.decorate("authenticate", async request => {
+      request.authUser = {
+        id: ownerId, name: "Desktop owner", email: "desktop-owner@example.test",
+        role: "user", status: "active", preferredLocale: null, avatarObjectKey: null, authValidAfter: new Date(0),
+      };
+    });
     await registerDesktopDeviceRoutes(app, {
       service: new DesktopDeviceService(new PrismaDesktopDeviceRepository(prisma), coordinator),
       redis: redis.client, rateLimitHmacSecret: config.loginRateLimitHmacSecret, execution,
@@ -369,6 +376,154 @@ export async function verifyDesktopExecutionProjection(input: {
         serverSecrets: [config.credentialMasterKey, config.runnerSharedSecret],
       });
     }
+    const revokedThread = randomUUID();
+    const running = await prisma.conversation.create({ data: {
+      ownerId, title: "Mac task awaiting a native outcome", titleSource: "manual", archiveStatus: "archived",
+      archivedAt: new Date(),
+      workspaceRelPath: `${ownerId}/services/${randomUUID()}/home/workspace`,
+      runtimeGeneration: randomUUID(), executionTarget: "local", desktopDeviceId: deviceId, codexThreadId: revokedThread,
+    } });
+    const runningTurn = await prisma.conversationTurn.create({ data: {
+      conversationId: running.id, submittedBy: ownerId, sequenceNo: 1, status: "running",
+      codexThreadId: revokedThread, codexTurnId: randomUUID(), startedAt: new Date(), submitMode: "normal",
+      capabilityGeneration, capabilitiesJson: [],
+    } });
+    const partial = await prisma.conversationMessage.create({ data: {
+      conversationId: running.id, turnId: runningTurn.id, sequenceNo: 1,
+      role: "assistant", contentText: "Already delivered output",
+    } });
+    const completeItem = "completed-mac-item";
+    const streamingItem = "streaming-mac-item";
+    const nativeParams = { threadId: revokedThread, turnId: runningTurn.codexTurnId };
+    for (const [index, [method, params]] of ([
+      ["item/agentMessage/delta", { ...nativeParams, itemId: completeItem, delta: partial.contentText }],
+      ["item/completed", { ...nativeParams, item: { type: "agentMessage", id: completeItem, text: partial.contentText, phase: "commentary" } }],
+      ["item/agentMessage/delta", { ...nativeParams, itemId: streamingItem, delta: "Streamed " }],
+      ["item/agentMessage/delta", { ...nativeParams, itemId: streamingItem, delta: "before revocation" }],
+    ] as const).entries()) {
+      await prisma.conversationEvent.create({ data: {
+        conversationId: running.id, turnId: runningTurn.id, sequenceNo: index + 1,
+        sseEventId: `${running.id}:${index + 1}`, eventType: method, visibility: "user_visible",
+        payloadJson: { schema_version: 2, source: "codex_app_server", method, params },
+      } });
+    }
+    const starting = await prisma.conversation.create({ data: {
+      ownerId, title: "Mac task waiting for a receipt", titleSource: "manual", archiveStatus: "active",
+      workspaceRelPath: `${ownerId}/services/${randomUUID()}/home/workspace`,
+      runtimeGeneration: randomUUID(), executionTarget: "local", desktopDeviceId: deviceId,
+    } });
+    const intent = await prisma.conversationTurnStartIntent.create({ data: {
+      projectionTurnId: randomUUID(), ownerId, conversationId: starting.id, runtimeGeneration: starting.runtimeGeneration,
+      capabilityGeneration, inputText: "Preserve this input", capabilitiesJson: [], attachmentsJson: [],
+      submitMode: "normal", runnerStatus: "prepared", idempotencyKey: "mac-revoked-before-projection",
+    } });
+    const queuedIds = Array.from({ length: 5 }, () => randomUUID());
+    await prisma.pendingRequest.createMany({ data: queuedIds.map((id, index) => ({
+      id, conversationId: starting.id, submittedBy: ownerId, queueNo: index + 1,
+      inputText: `Queued request ${index + 1}`, status: "waiting_previous_turn",
+    })) });
+    const discardedThread = randomUUID();
+    const discarded = await prisma.conversation.create({ data: {
+      ownerId, title: "Mac task deleted after settlement", titleSource: "manual", archiveStatus: "active",
+      workspaceRelPath: projectWorkspaceRelativePath(ownerId, null),
+      runtimeGeneration: randomUUID(), executionTarget: "local", desktopDeviceId: deviceId, codexThreadId: discardedThread,
+    } });
+    const discardedTurn = await prisma.conversationTurn.create({ data: {
+      conversationId: discarded.id, submittedBy: ownerId, sequenceNo: 1, status: "running",
+      codexThreadId: discardedThread, codexTurnId: randomUUID(), startedAt: new Date(), submitMode: "normal",
+      capabilityGeneration, capabilitiesJson: [],
+    } });
+    const cloudThread = randomUUID();
+    const cloud = await prisma.conversation.create({ data: {
+      ownerId, title: "Unrelated cloud task", titleSource: "manual", archiveStatus: "active",
+      workspaceRelPath: projectWorkspaceRelativePath(ownerId, null),
+      runtimeGeneration: randomUUID(), codexThreadId: cloudThread,
+    } });
+    const cloudTurn = await prisma.conversationTurn.create({ data: {
+      conversationId: cloud.id, submittedBy: ownerId, sequenceNo: 1, status: "running",
+      codexThreadId: cloudThread, codexTurnId: randomUUID(), startedAt: new Date(), submitMode: "normal",
+      capabilityGeneration, capabilitiesJson: [],
+    } });
+    const legacy = await prisma.conversation.create({ data: {
+      ownerId, title: "Legacy terminal Mac task", titleSource: "manual", archiveStatus: "active",
+      workspaceRelPath: projectWorkspaceRelativePath(ownerId, null),
+      runtimeGeneration: randomUUID(), executionTarget: "local", desktopDeviceId: deviceId,
+    } });
+    const legacyTurn = await prisma.conversationTurn.create({ data: {
+      conversationId: legacy.id, submittedBy: ownerId, sequenceNo: 1, status: "completed",
+      codexThreadId: randomUUID(), codexTurnId: randomUUID(), startedAt: new Date(),
+      completedAt: new Date(), submitMode: "normal", capabilityGeneration, capabilitiesJson: [],
+    } });
+    // The start intent has no reservation: PostgreSQL must still discover it.
+    for (const [id, turn] of [[running.id, runningTurn.id], [discarded.id, discardedTurn.id], [conversationId, turnId], [cloud.id, cloudTurn.id], [legacy.id, legacyTurn.id]] as const) {
+      assert.equal((await redis.acquireTurnSlot(id, turn, ownerId, 10)).acquired, true);
+    }
+    // Drop every queued wake-up and fail the Redis notification after the DB commit.
+    await queue.drain(true);
+    const revoke = coordinator.revoke;
+    coordinator.revoke = async () => { throw new Error("fixture notification unavailable"); };
+    try {
+      const revocation = await app.inject({ method: "DELETE", url: `/api/v1/desktop/devices/${deviceId}` });
+      assert.equal(revocation.statusCode, 500);
+    } finally {
+      coordinator.revoke = revoke;
+    }
+    assert((await prisma.desktopDevice.findUniqueOrThrow({ where: { id: deviceId } })).revokedAt);
+    await conversations.delete(ownerId, legacy.id, {});
+    assert.equal(await redis.hasTurnSlot(legacy.id, legacyTurn.id, ownerId), true);
+    // A new scheduler can finish without any in-memory state, retry, or current socket.
+    const restartedRecovery = new TaskRecoveryScheduler(config, prisma, redis, events, conversations, queue);
+    const releaseTurnSlot = redis.releaseTurnSlot;
+    redis.releaseTurnSlot = async (id, turn, options) => {
+      if (turn === discardedTurn.id) throw new Error("fixture Redis release unavailable after commit");
+      await releaseTurnSlot.call(redis, id, turn, options);
+    };
+    try {
+      await restartedRecovery.process({ data: { type: "maintenance" } });
+    } finally {
+      redis.releaseTurnSlot = releaseTurnSlot;
+    }
+    assert.equal((await prisma.conversationTurn.findUniqueOrThrow({ where: { id: discardedTurn.id } })).status, "failed");
+    assert.equal(await redis.hasTurnSlot(discarded.id, discardedTurn.id, ownerId), true);
+    await conversations.delete(ownerId, discarded.id, {});
+    await queue.drain(true);
+    const afterDeletion = new TaskRecoveryScheduler(config, prisma, redis, events, conversations, queue);
+    await afterDeletion.process({ data: { type: "maintenance" } });
+    await restartedRecovery.process({ data: { type: "maintenance" } });
+    assert.equal(await redis.hasTurnSlot(legacy.id, legacyTurn.id, ownerId), false);
+    assert.equal(await redis.hasTurnSlot(discarded.id, discardedTurn.id, ownerId), false);
+    assert.equal(await redis.hasTurnSlot(running.id, runningTurn.id, ownerId), false);
+    assert.equal(await redis.hasTurnSlot(starting.id, intent.projectionTurnId, ownerId), false);
+    assert.equal(await redis.hasTurnSlot(conversationId, turnId, ownerId), false);
+    assert.equal(await redis.hasTurnSlot(cloud.id, cloudTurn.id, ownerId), true);
+    assert.equal((await prisma.conversationTurn.findUniqueOrThrow({ where: { id: cloudTurn.id } })).status, "running");
+    const failed = await prisma.conversationTurn.findUniqueOrThrow({ where: { id: runningTurn.id } });
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.errorCode, "DESKTOP_DEVICE_REVOKED");
+    assert.equal((await prisma.conversationMessage.findUniqueOrThrow({ where: { id: partial.id } })).contentText, partial.contentText);
+    const reloaded = await conversations.get(ownerId, running.id);
+    assert.deepEqual(reloaded.messages.map(message => message.content_text), [partial.contentText, "Streamed before revocation"]);
+    assert.equal(await prisma.conversationTurnStartIntent.findUnique({ where: { projectionTurnId: intent.projectionTurnId } }), null);
+    const draft = await prisma.pendingRequest.findUniqueOrThrow({ where: { id: intent.projectionTurnId } });
+    assert.equal(draft.status, "blocked_preflight");
+    assert.equal(draft.inputText, intent.inputText);
+    assert.equal((await conversations.get(ownerId, starting.id)).pending_requests.find(row => row.id === draft.id)?.block_code, "desktop_device_revoked");
+    const draftEvents = (await events.historyPage(ownerId, starting.id, { afterSequence: 0n, limit: 50 })).items;
+    assert.deepEqual(draftEvents.map(event => event.event_type), [
+      "conversation.pending_request.updated", "conversation.error", "conversation.error",
+    ]);
+    assert.deepEqual(conversationStartFailurePayloadSchema.parse(draftEvents[1]?.payload), {
+      schema_version: 1, error_code: "RUNNER_UNAVAILABLE", message_key: "errors.runnerUnavailable", retryable: true,
+      start_failure: { turn_id: intent.projectionTurnId, idempotency_key: intent.idempotencyKey },
+    });
+    const reordered = [draft.id, ...[...queuedIds].reverse()];
+    assert.deepEqual((await conversations.reorderPending(ownerId, starting.id, reordered, {})).items.map(item => item.id), reordered);
+    assert.equal((await conversations.restorePendingToInput(ownerId, starting.id, draft.id, {})).input_text, intent.inputText);
+    const revokedEvents = (await events.historyPage(ownerId, running.id, { afterSequence: 0n, limit: 50 })).items;
+    assert.deepEqual(revokedEvents.slice(4).map(event => event.event_type), [
+      "conversation.message.completed", "conversation.status.changed", "conversation.error",
+    ]);
+    assert.equal((await prisma.conversationTurn.findUniqueOrThrow({ where: { id: turnId } })).status, "completed");
   } finally {
     for (const socket of sockets) socket.terminate();
     await app.close().finally(() => queue.close()).finally(() => fixture.close());

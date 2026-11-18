@@ -1621,6 +1621,14 @@ export const errorCatalog = {
       "en-US": "It’s not yet confirmed whether your Mac ran this operation. Wait for a status update before submitting again.",
     },
   },
+  DESKTOP_DEVICE_REVOKED: {
+    message_key: "errors.desktopDeviceRevoked",
+    http_status: 403,
+    messages: {
+      "zh-CN": "这台 Mac 的授权已撤销。已有内容已保留，请在 Mac 上确认任务实际执行到了哪一步。",
+      "en-US": "Access to this Mac was revoked. Existing content was kept. Check the Mac to see how far the task got.",
+    },
+  },
   DEPLOYMENT_STOPPED: {
     message_key: "errors.deploymentStopped",
     http_status: 503,

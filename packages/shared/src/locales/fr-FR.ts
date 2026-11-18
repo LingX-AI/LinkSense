@@ -229,6 +229,7 @@ export const errorMessages: Record<ErrorCode, string> = {
  TURN_START_CLOSED: "La soumission précédente est terminée. Cette demande n’a pas été exécutée. Envoyez-la à nouveau.",
  RUNNER_UNAVAILABLE: "Le service d’exécution est indisponible. Réessayez plus tard.",
  RUNNER_OPERATION_UNCERTAIN: "Il n’est pas encore confirmé que votre Mac a exécuté cette opération. Attendez la mise à jour de son état avant de la renvoyer.",
+ DESKTOP_DEVICE_REVOKED: "L’accès à ce Mac a été révoqué. Le contenu existant a été conservé. Vérifiez sur le Mac où la tâche s’est arrêtée.",
  DEPLOYMENT_STOPPED: "Cette tâche a été arrêtée pour une mise à jour du système. Le contenu existant est conservé. Vérifiez la progression avant de continuer manuellement.",
  EXECUTION_SERVICE_INCOMPATIBLE: "Les versions du service d’exécution sont incompatibles. Réessayez plus tard. Si le problème persiste, contactez un administrateur.",
  AUTH_INVALID_CREDENTIALS: "E-mail ou mot de passe invalide.",

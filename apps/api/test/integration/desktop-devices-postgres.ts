@@ -22,6 +22,7 @@ const execute = promisify(execFile);
 const root = await mkdtemp(join(tmpdir(), "linksense-desktop-pg-"));
 const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 const migrationName = "20261117200000_add_desktop_devices";
+const slotReleaseMigrationName = "20261119040000_add_desktop_turn_slot_releases";
 const data = join(root, "data");
 const port = await new Promise<number>((resolve, reject) => {
   const server = createServer();
@@ -53,9 +54,13 @@ try {
   } finally { await control.$disconnect(); }
   const migrations = join(repositoryRoot, "prisma/migrations");
   const historical = join(root, "migrations");
+  const beforeSlotRelease = join(root, "before-slot-release");
   for (const entry of await readdir(migrations, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.name < migrationName) {
       await cp(join(migrations, entry.name), join(historical, entry.name), { recursive: true });
+    }
+    if (!entry.isDirectory() || entry.name < slotReleaseMigrationName) {
+      await cp(join(migrations, entry.name), join(beforeSlotRelease, entry.name), { recursive: true });
     }
   }
   const migrate = async (name: string, migrationsPath = migrations) => execute("pnpm", [
@@ -79,7 +84,7 @@ try {
   const before = await db.$queryRaw<Array<{ row: Record<string, unknown> }>>`
     SELECT to_jsonb(c) AS row FROM conversations c WHERE id = ${conversation}::uuid`;
   const checksums = await db.$queryRaw`SELECT migration_name, checksum FROM _prisma_migrations ORDER BY migration_name`;
-  await migrate("desktop_upgrade");
+  await migrate("desktop_upgrade", beforeSlotRelease);
   const after = await db.$queryRaw<Array<{ row: Record<string, unknown> }>>`
     SELECT to_jsonb(c) AS row FROM conversations c WHERE id = ${conversation}::uuid`;
   assert.deepEqual(after[0]?.row, { ...before[0]!.row, execution_target: "cloud", desktop_device_id: null });
@@ -187,10 +192,15 @@ try {
   assert.equal(await authority(), false);
   await db.conversation.update({ where: { id: scope.conversationId }, data: { desktopDeviceId: scope.deviceId } });
   assert.equal(await authority(), true);
+  await migrate("desktop_upgrade");
+  assert.equal(await authority(), true);
   await verifyDesktopExecutionProjection({
     prisma: db, ownerId: owner, deviceId: stored.id, token: issued.token,
     databaseUrl: databaseUrl("desktop_upgrade"), workspaceRoot: join(root, "workspaces"),
   });
+  const settledExistingTurn = await db.conversationTurn.findUniqueOrThrow({ where: { id: scope.turnId } });
+  assert.equal(settledExistingTurn.status, "failed");
+  assert.equal(settledExistingTurn.errorCode, "DESKTOP_DEVICE_REVOKED");
   await assert.rejects(service.revoke(other, issued.device.id), { code: "FORBIDDEN" });
   const local = await db.localComputerSession.create({
     data: { ownerId: owner, conversationId: conversation, deviceId: stored.id, status: "active", grantScope: "session" },
@@ -232,7 +242,7 @@ try {
   connections.push(fresh);
   assert.equal(await fresh.desktopDevice.count(), 0);
   assert.equal(await fresh.conversation.count(), 0);
-  console.log("Desktop PostgreSQL whitebox passed: cloud upgrade, device lifecycle, historical auth epoch, exact WebSocket scope, and idempotent reconnect replay.");
+  console.log("Desktop PostgreSQL whitebox passed: cloud upgrade, device lifecycle, exact WebSocket scope, reconnect, and revoked-turn settlement.");
 } finally {
   await Promise.all(connections.map(connection => connection.$disconnect()));
   if (started) await execute("pg_ctl", ["-D", data, "-m", "immediate", "-w", "stop"], { timeout: 30_000 });

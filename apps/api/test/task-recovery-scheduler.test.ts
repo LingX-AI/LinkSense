@@ -63,6 +63,24 @@ describe("targeted task recovery", () => {
     expect(f.events.reconcileAfterProcessExit).not.toHaveBeenCalled();
   });
 
+  it("keeps settling revoked Mac work when a conversation is locked and revisits it on the next sweep", async () => {
+    const f = fixture();
+    const nextTurnId = "10000000-0000-4000-8000-000000000008";
+    const row = { ownerId, deviceId, conversationId, runtimeGeneration };
+    const mac = { ...row, projectionTurnId };
+    f.prisma.$queryRaw
+      .mockResolvedValueOnce([{ ...row, turnIds: [projectionTurnId, nextTurnId] }])
+      .mockResolvedValueOnce([{ ...row, turnIds: [projectionTurnId] }]);
+    f.events.settleRevokedMacTurn.mockRejectedValueOnce(new Error("TASK_RECOVERY_BUSY"));
+    await f.scheduler.process({ data: { type: "maintenance" } });
+    await f.scheduler.process({ data: { type: "maintenance" } });
+    expect(f.events.settleRevokedMacTurn.mock.calls).toEqual([
+      [mac], [{ ...mac, projectionTurnId: nextTurnId }], [mac],
+    ]);
+    expect(f.events.reconcileAfterProcessExit).not.toHaveBeenCalled();
+    expect(f.conversations.recoverStartIntent).not.toHaveBeenCalled();
+  });
+
   it("checks only expired workers and indexed pending records during ordinary maintenance", async () => {
     const f = fixture();
     await f.scheduler.process({ data: { type: "maintenance" } });
@@ -325,6 +343,7 @@ function fixture() {
   const worker = { close: vi.fn(async () => undefined) };
   const prisma = {
     $queryRaw: vi.fn<(...params: unknown[]) => Promise<unknown[]>>(async () => []),
+    desktopTurnSlotRelease: { findMany: vi.fn(async () => []) },
     $transaction: vi.fn(
       (run: (tx: unknown) => Promise<unknown>): Promise<unknown> => run(prisma),
     ),
@@ -372,6 +391,9 @@ function fixture() {
       }>
     >(async () => ({ slots: [], after: null })),
     releaseTurnSlot: vi.fn(async () => undefined),
+    runningTurnSlotPage: vi.fn(async () => ({ slots: [], after: null })),
+    revokedMacRecoveryCursor: vi.fn(async () => ({ conversation: null, slot: null })),
+    setRevokedMacRecoveryCursor: vi.fn(async () => undefined),
     recoveryDispatchCursor: vi.fn(async () => null),
     setRecoveryDispatchCursor: vi.fn(async () => undefined),
     acquireRecoveryLock: vi.fn<() => Promise<string | null>>(
@@ -382,6 +404,13 @@ function fixture() {
   const events = {
     recoverRunningTurns: vi.fn(async () => undefined),
     reconcileAfterProcessExit: vi.fn(async () => ({ outcome: "succeeded" })),
+    settleRevokedMacTurn: vi.fn<(input: {
+      ownerId: string;
+      conversationId: string;
+      deviceId: string;
+      projectionTurnId: string;
+      runtimeGeneration: string;
+    }) => Promise<void>>(async () => undefined),
   };
   const conversations = {
     recoverStartIntent: vi.fn(async () => "projected"),

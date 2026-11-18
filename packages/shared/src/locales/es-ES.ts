@@ -229,6 +229,7 @@ export const errorMessages = {
   "TURN_START_CLOSED": "El envío anterior ha finalizado. Esta solicitud no se ha ejecutado. Vuelve a enviarla.",
   "RUNNER_UNAVAILABLE": "El servicio de ejecución no está disponible. Inténtalo más tarde.",
   "RUNNER_OPERATION_UNCERTAIN": "Aún no se ha confirmado si tu Mac ejecutó esta operación. Espera a que se actualice el estado antes de volver a enviarla.",
+  "DESKTOP_DEVICE_REVOKED": "Se revocó el acceso a este Mac. Se conservó el contenido existente. Comprueba en el Mac hasta dónde llegó la tarea.",
   "DEPLOYMENT_STOPPED": "Esta tarea se detuvo por una actualización del sistema. Se conservó el contenido existente. Revisa su progreso antes de continuar manualmente.",
   "EXECUTION_SERVICE_INCOMPATIBLE": "Las versiones del servicio de ejecución son incompatibles. Inténtalo más tarde. Si el problema persiste, contacta con un administrador.",
   "AUTH_INVALID_CREDENTIALS": "Correo o contraseña incorrectos.",
