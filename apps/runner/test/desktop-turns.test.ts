@@ -335,3 +335,38 @@ it("does not dispatch a completed command ID again on the same connection", asyn
     await rm(root, { recursive: true, force: true })
   }
 })
+
+it("keeps lifecycle callbacks available when the search lane is full", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linksense-desktop-tools-"))
+  const origin = "https://server.example.test"
+  const fail = vi.fn()
+  const provider = new DesktopWorkerProvider({ dataRoot: root, runtimeRoot: root, controlToken: "a".repeat(64) }, logger)
+  const turns = new DesktopTurns(provider, root, origin, fail, logger)
+  const scope = {
+    owner_id: randomUUID(), conversation_id: randomUUID(), runtime_generation: randomUUID(), turn_id: randomUUID(),
+  }
+  const timer = setTimeout(() => {}, 1_000)
+  const run = { scope, token: `lsdr_${"a".repeat(43)}`, expiresAt: Date.now() + 60_000, timer }
+  const controller = new AbortController()
+  const searchIds = new Set<string>()
+  const link = new DesktopLink(randomUUID(), scope.owner_id, turns, async ({ frame }) => {
+    if (frame.type === "tool.request") searchIds.add(frame.id)
+    if (frame.type === "execution.callback" && frame.operation === "turn.exited") {
+      link.receive({ type: "execution.ack", id: frame.id, operation: "turn.exited", ok: true })
+    }
+  }, fail, true)
+  const pending = Promise.allSettled(Array.from({ length: 5 }, () =>
+    link.searchWeb(run, { query: "sample" }, controller.signal)))
+  try {
+    expect(searchIds.size).toBe(4)
+    await expect(link.callback(run, "turn.exited")).resolves.toMatchObject({ ok: true, operation: "turn.exited" })
+  } finally {
+    clearTimeout(timer)
+    controller.abort()
+    await pending
+    await link.close()
+    await provider.shutdown()
+    await rm(root, { recursive: true, force: true })
+  }
+  expect((await pending).at(-1)).toMatchObject({ status: "rejected", reason: { code: "WEB_SEARCH_UNAVAILABLE" } })
+})

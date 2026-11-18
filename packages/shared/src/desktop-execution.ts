@@ -5,16 +5,24 @@ import { desktopDeviceReadySchema, desktopRunCredentialsSchema, desktopRunTokenS
 import { runnerCodexGoalSchema, runnerCodexTurnSchema, runnerEventBatchReceiptSchema, runnerEventBatchSchema } from "./events.js";
 import { reasoningEffortSchema } from "./model-provider.js";
 import { runnerStartSettledReceiptSchema, runnerStartSettledSchema, runnerTurnInterruptResultSchema } from "./runner.js";
+import { WEB_SEARCH_MAX_TIMEOUT_MS, webSearchFailureCodeSchema, webSearchRequestSchema, webSearchSuccessSchema } from "./web-search.js";
 
 // Negotiate execution independently of the login and device presence protocol.
 export const DESKTOP_EXECUTION_PROTOCOL_HEADER = "x-linksense-desktop-execution";
 export const desktopExecutionProtocolVersion = 2;
+export const DESKTOP_TOOL_PROTOCOL_HEADER = "x-linksense-desktop-tools";
+export const desktopToolProtocolVersion = 1;
+export const desktopToolRequestLifetimeMs = WEB_SEARCH_MAX_TIMEOUT_MS + 2_000;
+export const desktopToolClockSkewAllowanceMs = 5_000;
 export const desktopExecutionMaxFrameBytes = 1024 * 1024;
 export const desktopExecutionMaxInFlight = 8;
+// Leave room for lifecycle callbacks while tool requests wait on providers.
+export const desktopToolMaxInFlight = 4;
 export const desktopExecutionCommandLifetimeMs = 65_000;
 export const desktopExecutionOperation = z.enum(["turn.start", "turn.inspect", "turn.seal", "turn.interrupt", "turn.drain"]);
 export const desktopExecutionDeviceReadySchema = desktopDeviceReadySchema.extend({
   execution_protocol_version: z.literal(desktopExecutionProtocolVersion),
+  tool_protocol_version: z.literal(desktopToolProtocolVersion).optional(),
 });
 
 const command = z.strictObject({
@@ -125,7 +133,19 @@ const callback = callbackScope.extend({
   type: z.literal("execution.callback"),
   run_token: desktopRunTokenSchema,
 });
+const toolOperation = z.literal("web.search");
+export const desktopToolRequestSchema = callback.extend({
+  type: z.literal("tool.request"),
+  operation: toolOperation,
+  expires_at: timestampSchema,
+  body: webSearchRequestSchema,
+});
+export const desktopToolCancelSchema = callbackScope.extend({
+  type: z.literal("tool.cancel"),
+  operation: toolOperation,
+});
 export const desktopExecutionCallbackSchema = z.union([
+  desktopToolRequestSchema,
   callback.extend({
     operation: z.literal("events"),
     body: runnerEventBatchSchema,
@@ -143,11 +163,20 @@ export const desktopExecutionCallbackSchema = z.union([
     operation: z.literal("events"),
     body: runnerEventBatchSchema,
   }),
-]).refine(frame => frame.operation === "turn.exited" || (frame.body.conversationId === frame.conversation_id &&
+]).refine(frame => frame.type === "tool.request" || frame.operation === "turn.exited" || (frame.body.conversationId === frame.conversation_id &&
   (frame.operation !== "start.settled" || (frame.body.projectionTurnId === frame.turn_id &&
     frame.body.runtimeGeneration === frame.runtime_generation))), { error: "desktop_callback_scope_mismatch" });
 const callbackResult = z.strictObject({ type: z.literal("execution.ack"), id: uuidSchema });
+const toolResult = callbackResult.extend({ type: z.literal("tool.result"), operation: toolOperation });
+export const desktopToolResultSchema = z.discriminatedUnion("ok", [
+  toolResult.extend({ ok: z.literal(true), data: webSearchSuccessSchema }),
+  toolResult.extend({
+    ok: z.literal(false),
+    error_code: z.union([webSearchFailureCodeSchema, z.enum(["FORBIDDEN", "RUNNER_UNAVAILABLE"])]),
+  }),
+]);
 export const desktopExecutionAckSchema = z.union([
+  desktopToolResultSchema,
   callbackResult.extend({
     ok: z.literal(false),
     operation: z.enum(["events", "start.settled", "turn.exited"]),
@@ -173,11 +202,13 @@ export type DesktopExecutionTerminal = z.infer<typeof desktopExecutionTerminalSc
 export type DesktopExecutionCallback = z.infer<typeof desktopExecutionCallbackSchema>;
 export type DesktopExecutionRecovery = Extract<DesktopExecutionCallback, { type: "execution.recovery" }>;
 export type DesktopExecutionAck = z.infer<typeof desktopExecutionAckSchema>;
+export type DesktopToolRequest = z.infer<typeof desktopToolRequestSchema>;
+export type DesktopToolCancel = z.infer<typeof desktopToolCancelSchema>;
 
 // The native host associates pipe messages with exactly one negotiated socket.
 const link = z.strictObject({ link_id: uuidSchema });
 export const desktopRuntimeInputSchema = z.union([
-  link.extend({ type: z.literal("link.open"), owner_id: uuidSchema }),
+  link.extend({ type: z.literal("link.open"), owner_id: uuidSchema, tools_version: z.literal(desktopToolProtocolVersion).optional() }),
   link.extend({ type: z.literal("link.close") }),
   link.extend({
     type: z.literal("link.frame"),
@@ -186,5 +217,5 @@ export const desktopRuntimeInputSchema = z.union([
 ]);
 export const desktopRuntimeOutputSchema = link.extend({
   type: z.literal("link.frame"),
-  frame: z.union([desktopExecutionResultSchema, desktopExecutionCallbackSchema]),
+  frame: z.union([desktopExecutionResultSchema, desktopExecutionCallbackSchema, desktopToolCancelSchema]),
 });

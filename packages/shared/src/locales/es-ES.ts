@@ -399,6 +399,7 @@ export const auditMessages = {
     "desktop_device_paired": "Dispositivo de escritorio vinculado",
     "desktop_device_renamed": "Nombre del dispositivo de escritorio cambiado",
     "desktop_device_revoked": "Acceso del dispositivo de escritorio revocado",
+    "desktop_tool_requested": "Solicitud de herramienta de escritorio",
     "computer_session_started": "Sesión del ordenador local iniciada",
     "computer_session_stopped": "Sesión del ordenador local detenida",
     "computer_permission_granted": "Permiso del ordenador local concedido",

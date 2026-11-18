@@ -399,6 +399,7 @@ export const auditMessages = {
     desktop_device_paired: "デスクトップ端末をペアリング",
     desktop_device_renamed: "デスクトップ端末の名前を変更",
     desktop_device_revoked: "デスクトップ端末のアクセス権を取り消し",
+    desktop_tool_requested: "デスクトップツールのリクエスト",
     computer_session_started: "ローカルコンピュータのセッションを開始",
     computer_session_stopped: "ローカルコンピュータのセッションを停止",
     computer_permission_granted: "ローカルコンピュータの権限を付与",

@@ -2,14 +2,21 @@ import { randomUUID } from "node:crypto"
 import {
   desktopExecutionCallbackSchema, desktopExecutionCommandLifetimeMs, desktopExecutionMaxInFlight,
   desktopExecutionResultSchema, desktopRuntimeInputSchema, desktopRuntimeOutputSchema,
+  desktopToolMaxInFlight, desktopToolRequestLifetimeMs, desktopToolRequestSchema,
   type DesktopExecutionAck, type DesktopExecutionCallback, type DesktopExecutionCommand,
+  type WebSearchRequest,
 } from "@linksense/shared"
 import type { z } from "zod"
+import { WebSearchRequestError } from "../web-search-error.js"
 import type { DesktopRuntimeRun, DesktopTurns } from "./turns.js"
 
 type Input = z.infer<typeof desktopRuntimeInputSchema>
 type Output = z.infer<typeof desktopRuntimeOutputSchema>
-type Waiting = { operation: DesktopExecutionCallback["operation"]; resolve: (ack: DesktopExecutionAck) => void }
+type Waiting = {
+  type: DesktopExecutionAck["type"]
+  operation: DesktopExecutionCallback["operation"]
+  resolve: (ack: DesktopExecutionAck) => void
+}
 const maxRecentCommands = 1024
 
 export class DesktopLink {
@@ -25,6 +32,7 @@ export class DesktopLink {
     private readonly turns: DesktopTurns,
     private readonly write: (frame: Output) => Promise<void>,
     private readonly fail: () => void,
+    private readonly toolsEnabled = false,
   ) {}
 
   receive(frame: Extract<Input, { type: "link.frame" }>["frame"]): void {
@@ -36,9 +44,10 @@ export class DesktopLink {
       case "command.cancel":
         this.commands.get(frame.id)?.abort()
         return
-      case "execution.ack": {
+      case "execution.ack":
+      case "tool.result": {
         const pending = this.callbacks.get(frame.id)
-        if (pending?.operation === frame.operation) pending.resolve(frame)
+        if (pending?.type === frame.type && pending.operation === frame.operation) pending.resolve(frame)
       }
     }
   }
@@ -86,8 +95,8 @@ export class DesktopLink {
 
   async callback(
     run: DesktopRuntimeRun,
-    operation: DesktopExecutionCallback["operation"],
-    body?: Extract<DesktopExecutionCallback, { body: unknown }>["body"],
+    operation: Extract<DesktopExecutionCallback, { type: "execution.callback" }>["operation"],
+    body?: Extract<DesktopExecutionCallback, { type: "execution.callback"; body: unknown }>["body"],
   ): Promise<DesktopExecutionAck> {
     if (run.scope.owner_id !== this.ownerId) throw new Error("desktop callback unavailable")
     const { conversation_id, runtime_generation, turn_id } = run.scope
@@ -96,6 +105,32 @@ export class DesktopLink {
       ...(body !== undefined && { body }),
     })
     return this.sendCallback(frame, this.lifetime.signal)
+  }
+
+  async searchWeb(run: DesktopRuntimeRun, body: WebSearchRequest, signal: AbortSignal): Promise<DesktopExecutionAck> {
+    if (!this.toolsEnabled || run.scope.owner_id !== this.ownerId) throw new Error("desktop tool unavailable")
+    if (this.callbacks.size >= desktopExecutionMaxInFlight ||
+      [...this.callbacks.values()].filter(pending => pending.type === "tool.result").length >= desktopToolMaxInFlight) {
+      throw new WebSearchRequestError("WEB_SEARCH_UNAVAILABLE")
+    }
+    const { conversation_id, runtime_generation, turn_id } = run.scope
+    const frame = desktopToolRequestSchema.parse({
+      type: "tool.request", id: randomUUID(), conversation_id, runtime_generation, turn_id,
+      expires_at: new Date(Date.now() + desktopToolRequestLifetimeMs).toISOString(),
+      run_token: run.token, operation: "web.search", body,
+    })
+    const lifetime = AbortSignal.any([this.lifetime.signal, signal])
+    lifetime.throwIfAborted()
+    try {
+      return await this.sendCallback(frame, lifetime)
+    } catch {
+      if (!this.lifetime.signal.aborted) {
+        this.track(this.write({ type: "link.frame", link_id: this.id, frame: {
+          type: "tool.cancel", id: frame.id, operation: frame.operation, conversation_id, runtime_generation, turn_id,
+        } }))
+      }
+      throw new WebSearchRequestError("RUNNER_OPERATION_UNCERTAIN")
+    }
   }
 
   async reportTurnExit(run: DesktopRuntimeRun): Promise<void> {
@@ -121,7 +156,9 @@ export class DesktopLink {
   }
 
   private async sendCallback(frame: DesktopExecutionCallback, lifetime: AbortSignal): Promise<DesktopExecutionAck> {
-    const signal = AbortSignal.any([lifetime, AbortSignal.timeout(4_000)])
+    const signal = AbortSignal.any([
+      lifetime, AbortSignal.timeout(frame.type === "tool.request" ? desktopToolRequestLifetimeMs + 1_000 : 4_000),
+    ])
     signal.throwIfAborted()
     if (this.callbacks.size >= desktopExecutionMaxInFlight) throw new Error("desktop callback unavailable")
     const { id, operation } = frame
@@ -129,7 +166,7 @@ export class DesktopLink {
     try {
       return await new Promise<DesktopExecutionAck>((resolve, reject) => {
         abort = () => reject(new Error("desktop callback was not acknowledged"))
-        this.callbacks.set(id, { operation, resolve })
+        this.callbacks.set(id, { type: frame.type === "tool.request" ? "tool.result" : "execution.ack", operation, resolve })
         signal.addEventListener("abort", abort, { once: true })
         void this.write({ type: "link.frame", link_id: this.id, frame }).catch(reject)
       })

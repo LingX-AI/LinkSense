@@ -112,6 +112,7 @@ const actionMessages = {
   desktop_device_paired: ["已配对桌面设备", "Desktop device paired"],
   desktop_device_renamed: ["已重命名桌面设备", "Desktop device renamed"],
   desktop_device_revoked: ["已撤销桌面设备", "Desktop device revoked"],
+  desktop_tool_requested: ["桌面工具请求", "Desktop tool request"],
   computer_session_started: ["已开启本地电脑会话", "Local computer session started"],
   computer_session_stopped: ["已停止本地电脑会话", "Local computer session stopped"],
   computer_permission_granted: ["已授予本地电脑权限", "Local computer permission granted"],

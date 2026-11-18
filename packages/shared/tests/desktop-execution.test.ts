@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { desktopExecutionCommandSchema, desktopExecutionResultSchema } from "../src/desktop-execution.js";
+import {
+  desktopExecutionCommandSchema, desktopExecutionResultSchema,
+  desktopRuntimeOutputSchema, desktopToolCancelSchema, desktopToolRequestSchema, desktopToolResultSchema,
+} from "../src/desktop-execution.js";
 
 const id = "10000000-0000-4000-8000-000000000001";
 const turnId = "10000000-0000-4000-8000-000000000002";
@@ -46,5 +49,35 @@ describe("desktop execution wire contract", () => {
     const unknown = { type: "command.result", id, operation: "turn.start", ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" };
     expect(desktopExecutionResultSchema.parse(unknown)).toEqual(unknown);
     expect(desktopExecutionResultSchema.safeParse({ ...unknown, message: "test-only diagnostics" }).success).toBe(false);
+  });
+
+  it("accepts only the typed search request and a scoped cancellation", () => {
+    const request = {
+      type: "tool.request", id, operation: "web.search",
+      conversation_id: id, runtime_generation: id, turn_id: turnId,
+      expires_at: expiresAt,
+      run_token: start.body.credentials.run_token,
+      body: { query: "Sample question", max_results: 2 },
+    };
+    expect(desktopToolRequestSchema.parse(request)).toEqual(request);
+    for (const invalid of [
+      { ...request, operation: "internal.request" },
+      { ...request, endpoint: "/internal/web-search/search" },
+      { ...request, owner_id: id },
+      { ...request, expires_at: undefined },
+      { ...request, run_token: start.body.credentials.primary.token },
+      { ...request, body: { ...request.body, provider: "brave" } },
+    ]) expect(desktopToolRequestSchema.safeParse(invalid).success).toBe(false);
+    const cancel = { type: "tool.cancel", id, operation: "web.search", conversation_id: id, runtime_generation: id, turn_id: turnId };
+    expect(desktopRuntimeOutputSchema.parse({ type: "link.frame", link_id: id, frame: cancel }).frame).toEqual(cancel);
+    expect(desktopToolCancelSchema.safeParse({ ...cancel, turn_id: null }).success).toBe(false);
+  });
+
+  it("rejects provider internals and untyped result data", () => {
+    const data = { success: true, provider: "brave", query: "Sample question", results: [] };
+    const response = { type: "tool.result", operation: "web.search", id, ok: true, data };
+    expect(desktopToolResultSchema.parse(response)).toEqual(response);
+    expect(desktopToolResultSchema.safeParse({ ...response, data: { ...data, headers: {} } }).success).toBe(false);
+    expect(desktopToolResultSchema.safeParse({ ...response, ok: false, error_code: "UNKNOWN_PROVIDER_FAILURE", data: undefined }).success).toBe(false);
   });
 });

@@ -39,6 +39,7 @@ export async function verifyPackagedDesktopGateway(input: {
   token: string;
   previousConnectionId: string;
   serverSecrets: string[];
+  searchMarker: string;
 }): Promise<void> {
   assert(process.platform === "darwin" && process.arch === "arm64" && isAbsolute(input.runtimeRoot),
     "the package regression requires a local Mac arm64 app runtime");
@@ -65,15 +66,20 @@ export async function verifyPackagedDesktopGateway(input: {
   const modelRequests = { read: 0, interrupt: 0, aborted: false };
   let closeModelStream: (() => void) | undefined;
   let modelFailure: string | undefined;
-  model.setErrorHandler((_error, _request, reply) => {
-    modelFailure = "Synthetic provider received an unexpected header, schema, request count, or tool output";
+  model.setErrorHandler((error, _request, reply) => {
+    modelFailure = error instanceof assert.AssertionError
+      ? `Synthetic provider: ${error.message}`
+      : "Synthetic provider received an unexpected request schema";
     void reply.code(400).send({ error: { code: "invalid_fixture_request" } });
   });
   model.post("/v1/responses", async (request, reply) => {
     assert(request.headers.authorization === `Bearer ${providerKey}`, "provider authorization mismatch");
     const body = z.object({
       model: z.literal(fixtureModel), input: z.unknown(), stream: z.literal(true),
-      tools: z.array(z.object({ name: z.string().optional(), type: z.string() })).optional(),
+      tools: z.array(z.object({
+        name: z.string().optional(), type: z.string(),
+        tools: z.array(z.object({ type: z.string(), name: z.string() })).optional(),
+      })).optional(),
     }).parse(request.body);
     const text = JSON.stringify(body.input);
     assert(!secrets.some(secret => text.includes(secret)), "server secret in model input");
@@ -96,7 +102,18 @@ export async function verifyPackagedDesktopGateway(input: {
         arguments: JSON.stringify({ cmd: "cat fixture.txt", yield_time_ms: 1000 }), status: "completed",
       }));
     }
-    assert(call === 2 && text.includes(marker), "native shell did not return the local file");
+    if (call === 2) {
+      assert(text.includes(marker), "native shell did not return the local file");
+      const namespace = body.tools?.find(tool => tool.type === "namespace" &&
+        tool.tools?.some(member => member.type === "function" && member.name === "search_web"));
+      assert(namespace?.name, "web search namespace unavailable in the desktop Codex turn");
+      return reply.type("text/event-stream").send(responseStream({
+        id: "fixture-search-tool", type: "function_call", call_id: "fixture-search-call", name: "search_web",
+        namespace: namespace.name,
+        arguments: JSON.stringify({ query: "packaged mac fixture search" }), status: "completed",
+      }));
+    }
+    assert(call === 3 && text.includes(input.searchMarker), "native search did not return the server result");
     return reply.type("text/event-stream").send(responseStream({
       id: "fixture-answer", type: "message", role: "assistant", status: "completed", phase: "final_answer",
       content: [{ type: "output_text", text: answer, annotations: [] }],
@@ -185,7 +202,7 @@ export async function verifyPackagedDesktopGateway(input: {
     await waitFor("completed workspace read and slot release", async () =>
       await status(completed.turn_id) === "completed" && !await redis.hasTurnSlot(read.id, completed.turn_id, ownerId),
     );
-    assert.equal(modelRequests.read, 2);
+    assert.equal(modelRequests.read, 3);
     const readHistory = await events.historyPage(ownerId, read.id, { afterSequence: 0n, limit: 50 });
     assert(readHistory.items.some(event => event.event_type === "item/completed" &&
       JSON.stringify(event.payload).includes("commandExecution") && event.turn_id === completed.turn_id));
@@ -219,7 +236,7 @@ export async function verifyPackagedDesktopGateway(input: {
     assert(!modelFailure, "synthetic provider rejected the round trip");
     assert(!serverSecretInNativeOutput, "server credential reached native logs");
     await assertNoServerSecrets(dataRoot, secrets);
-    console.log("Packaged Mac gateway passed: local Shell read, durable output, interrupt, provider cancellation, and start idempotency.");
+    console.log("Packaged Mac gateway passed: local Shell, scoped web search, durable output, interrupt, provider cancellation, and start idempotency.");
   } finally {
     closeModelStream?.();
     if (child?.stdin && !child.stdin.destroyed) child.stdin.end();

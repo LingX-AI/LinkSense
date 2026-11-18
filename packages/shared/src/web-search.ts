@@ -89,6 +89,7 @@ export const webSearchFailureCodeSchema = z.enum([
   "WEB_SEARCH_NOT_CONFIGURED", "WEB_SEARCH_DISABLED", "WEB_SEARCH_FORBIDDEN",
   "WEB_SEARCH_INVALID", "WEB_SEARCH_UNAVAILABLE", "WEB_SEARCH_AUTH_FAILED",
   "WEB_SEARCH_RATE_LIMITED", "WEB_SEARCH_RESPONSE_INVALID", "WEB_SEARCH_TIMEOUT",
+  "RUNNER_OPERATION_UNCERTAIN",
 ]);
 export const webSearchFailureSchema = z.strictObject({
   code: webSearchFailureCodeSchema, retryable: z.boolean(),

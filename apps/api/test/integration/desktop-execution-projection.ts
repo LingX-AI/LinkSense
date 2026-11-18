@@ -6,13 +6,19 @@ import { setTimeout as delay } from "node:timers/promises";
 import {
   conversationStartFailurePayloadSchema,
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
+  DESKTOP_TOOL_PROTOCOL_HEADER,
   desktopExecutionAckSchema,
   desktopExecutionCommandSchema,
   desktopExecutionDeviceReadySchema,
   desktopExecutionProtocolVersion,
   desktopProtocolVersion,
+  desktopToolMaxInFlight,
+  desktopToolProtocolVersion,
+  desktopToolRequestLifetimeMs,
+  desktopToolResultSchema,
   type DesktopExecutionCallback,
   type DesktopExecutionCommand,
+  type DesktopToolRequest,
 } from "@linksense/shared";
 import { Queue } from "bullmq";
 import Fastify from "fastify";
@@ -26,6 +32,7 @@ import { AuditService } from "../../src/modules/audit/service.js";
 import { ConversationService } from "../../src/modules/conversations/service.js";
 import { RedisDesktopDeviceCoordinator } from "../../src/modules/desktop-devices/coordinator.js";
 import { registerDesktopExecution } from "../../src/modules/desktop-devices/execution.js";
+import { desktopNoticeChannel, type DesktopNotice } from "../../src/modules/desktop-devices/notices.js";
 import { PrismaDesktopDeviceRepository } from "../../src/modules/desktop-devices/repository.js";
 import { registerDesktopDeviceRoutes } from "../../src/modules/desktop-devices/routes.js";
 import { DesktopDeviceService } from "../../src/modules/desktop-devices/service.js";
@@ -33,6 +40,7 @@ import { TaskRecoveryScheduler, type TaskRecoveryQueueControl } from "../../src/
 import { ConversationEventService } from "../../src/modules/events/service.js";
 import { PrivacyMaskingSettingsService } from "../../src/modules/privacy-masking/service.js";
 import { ModelProviderSettingsService } from "../../src/modules/system/model-provider-settings.js";
+import { WebSearchSettingsService } from "../../src/modules/system/web-search-settings.js";
 import { CreditLimitService } from "../../src/modules/usage/credit-limit.js";
 import { createRedisFixture } from "../fixtures/redis.js";
 import { testConfig } from "../test-config.js";
@@ -85,8 +93,27 @@ export async function verifyDesktopExecutionProjection(input: {
     const modelProviderSettings = new ModelProviderSettingsService(prisma, config);
     const creditLimits = new CreditLimitService(prisma, { timeZone: config.billingTimeZone });
     const privacyMaskingSettings = new PrivacyMaskingSettingsService(prisma, config);
+    const audit = new AuditService(prisma);
+    const searchKey = randomUUID();
+    const searchCalls: string[] = [];
+    const searchMarker = `desktop-search-result-${randomUUID()}`;
+    let searchAborts = 0;
+    const webSearchSettings = new WebSearchSettingsService(prisma, config, async (_runtime, request, signal) => {
+      searchCalls.push(request.query);
+      if (request.query === "fixture pending search") {
+        try { await delay(15_000, null, { signal }); } finally { if (signal?.aborted) searchAborts++; }
+      }
+      return {
+        success: true, provider: "brave", query: request.query,
+        results: [{ title: searchMarker, url: "https://fixture.example.test/", snippet: "Isolated search result", summary: null, published_at: null }],
+      };
+    });
+    await webSearchSettings.update(ownerId, {
+      enabled: true, provider: "brave", base_url: null, search_engine_id: null,
+      default_max_results: 1, timeout_ms: 20_000, expected_revision: 0, api_key: searchKey,
+    }, {});
     const conversations = new ConversationService(
-      prisma, redis, runner, new AuditService(prisma),
+      prisma, redis, runner, audit,
       {
         ensureUserHome: outsideFixture, resolve: outsideFixture, resolveRecovery: outsideFixture,
         resolveStartIntentRecovery: outsideFixture, withCapabilityStartBarrier: outsideFixture,
@@ -104,7 +131,7 @@ export async function verifyDesktopExecutionProjection(input: {
     events.configureRecoveryScheduler(recovery);
     const execution = await registerDesktopExecution(app, {
       config, prisma, redis, runner, conversations, events,
-      modelProviderSettings, creditLimits, privacyMaskingSettings,
+      modelProviderSettings, creditLimits, privacyMaskingSettings, webSearchSettings, audit,
     }, coordinator);
     assert(execution, "Mac execution must be enabled in this fixture");
     let rejectNextRecovery = false;
@@ -124,11 +151,14 @@ export async function verifyDesktopExecutionProjection(input: {
       },
     });
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
-    const connect = async (expectRecovery = true) => {
+    const connect = async (expectRecovery = true, tools = false) => {
       const url = new URL("/api/v1/desktop/devices/socket", address);
       url.protocol = "ws:";
       const socket = new WebSocket(url, {
-        headers: { [DESKTOP_EXECUTION_PROTOCOL_HEADER]: String(desktopExecutionProtocolVersion) },
+        headers: {
+          [DESKTOP_EXECUTION_PROTOCOL_HEADER]: String(desktopExecutionProtocolVersion),
+          ...(tools ? { [DESKTOP_TOOL_PROTOCOL_HEADER]: String(desktopToolProtocolVersion) } : {}),
+        },
       });
       sockets.push(socket);
       await once(socket, "open", { signal: AbortSignal.timeout(5_000) });
@@ -137,6 +167,7 @@ export async function verifyDesktopExecutionProjection(input: {
         type: "hello", token, protocol_version: desktopProtocolVersion,
       }));
       assert.equal(ready.device_id, deviceId);
+      assert.equal(ready.tool_protocol_version, tools ? desktopToolProtocolVersion : undefined);
       if (!expectRecovery) {
         await Promise.race([closed, delay(5_000, null, { ref: false }).then(() => { throw new Error("socket did not close"); })]);
         return { socket, connectionId: ready.connection_id, recoveryJob: null };
@@ -151,7 +182,7 @@ export async function verifyDesktopExecutionProjection(input: {
     };
     rejectNextRecovery = true;
     await connect(false);
-    const initial = await connect();
+    const initial = await connect(true, true);
     await initial.recoveryJob?.remove();
     await events.recoverRunningTurns();
 
@@ -217,6 +248,40 @@ export async function verifyDesktopExecutionProjection(input: {
     }));
     assert(settlement.ok && settlement.operation === "start.settled" && settlement.data.settled);
 
+    const tool: DesktopToolRequest = {
+      type: "tool.request", id: randomUUID(), operation: "web.search", ...callbackScope,
+      expires_at: new Date(Date.now() + desktopToolRequestLifetimeMs).toISOString(),
+      run_token: start.body.credentials.run_token, body: { query: "fixture search" },
+    };
+    const invokeTool = async (frame = tool) => desktopToolResultSchema.parse(await exchange(initial.socket, frame));
+    const unauthorized = await invokeTool({ ...tool, turn_id: randomUUID() });
+    assert(!unauthorized.ok && unauthorized.error_code === "FORBIDDEN");
+    const expired = await invokeTool({ ...tool, expires_at: new Date(Date.now() - 1).toISOString() });
+    assert(!expired.ok && expired.error_code === "RUNNER_UNAVAILABLE");
+    assert.equal(searchCalls.length, 0);
+    const search = await invokeTool();
+    assert(search.ok && search.data.results[0]?.title === searchMarker);
+    const replay = await invokeTool({ ...tool, id: tool.id.toUpperCase() });
+    assert(!replay.ok && replay.error_code === "RUNNER_OPERATION_UNCERTAIN");
+    assert.deepEqual(searchCalls, [tool.body.query]);
+    const audits = await prisma.auditLog.findMany({
+      where: { action: "desktop_tool_requested", targetId: tool.id },
+      select: { result: true, actorId: true, metadataJson: true },
+    });
+    assert.deepEqual(audits, [{
+      result: "success", actorId: ownerId,
+      metadataJson: { operation: "web.search", conversation_id: conversationId, turn_id: turnId, device_id: deviceId },
+    }]);
+    const pendingTool = { ...tool, id: randomUUID(), body: { query: "fixture pending search" } };
+    const searches = [pendingTool, ...Array.from({ length: desktopToolMaxInFlight - 1 }, () =>
+      ({ ...pendingTool, id: randomUUID() }))];
+    const expectedSearchCalls = searchCalls.length + searches.length;
+    for (const request of searches) send(initial.socket, request);
+    for (let retry = 0; searchCalls.length < expectedSearchCalls && retry < 100; retry++) await delay(10);
+    assert.equal(searchCalls.length, expectedSearchCalls);
+    const full = await invokeTool({ ...tool, id: randomUUID() });
+    assert(!full.ok && full.error_code === "RUNNER_UNAVAILABLE");
+
     const answer = {
       deliveryId: randomUUID(),
       event: {
@@ -247,6 +312,11 @@ export async function verifyDesktopExecutionProjection(input: {
     const history = () => events.historyPage(ownerId, conversationId, { afterSequence: 0n, limit: 50 });
     assert.deepEqual((await history()).items, []);
     assertAccepted(await sendLive(initial.socket, [answer]), [answer.deliveryId]);
+    for (const request of searches) {
+      send(initial.socket, { type: "tool.cancel", ...callbackScope, id: request.id, operation: tool.operation });
+    }
+    for (let retry = 0; searchAborts < searches.length && retry < 100; retry++) await delay(10);
+    assert.equal(searchAborts, searches.length);
     const unsupportedGoal = {
       deliveryId: randomUUID(),
       event: {
@@ -297,12 +367,22 @@ export async function verifyDesktopExecutionProjection(input: {
     assert((expiryJob.opts.delay ?? 0) > 0);
     // Accelerate Redis expiry; neither the Mac nor its cloud runner disconnects.
     const leaseKey = `linksense:desktop-run:${turnId}`;
+    const revokingTool = {
+      ...pendingTool, id: randomUUID(),
+      expires_at: new Date(Date.now() + desktopToolRequestLifetimeMs).toISOString(),
+    };
+    send(initial.socket, revokingTool);
+    for (let retry = 0; searchCalls.length <= expectedSearchCalls && retry < 100; retry++) await delay(10);
+    assert.equal(searchCalls.length, expectedSearchCalls + 1);
     assert.equal(await redis.client.pexpire(leaseKey, 1), 1);
     const expiryDeadline = Date.now() + 1_000;
     while (await redis.client.exists(leaseKey)) {
       assert(Date.now() < expiryDeadline, "fixture lease did not expire");
       await delay(10);
     }
+    await redis.client.publish(desktopNoticeChannel, JSON.stringify({ type: "run_revoked", turnId } satisfies DesktopNotice));
+    for (let retry = 0; searchAborts <= searches.length && retry < 100; retry++) await delay(10);
+    assert.equal(searchAborts, searches.length + 1);
     const expiredAck = await sendLive(initial.socket, [terminal]);
     assert(!expiredAck.ok && expiredAck.error_code === "FORBIDDEN");
     await Promise.all([
@@ -378,7 +458,8 @@ export async function verifyDesktopExecutionProjection(input: {
       await verifyPackagedDesktopGateway({
         runtimeRoot, scratch: input.workspaceRoot, address, prisma, redis, coordinator, conversations,
         events, modelProviderSettings, ownerId, deviceId, token, previousConnectionId: replacement.connectionId,
-        serverSecrets: [config.credentialMasterKey, config.runnerSharedSecret],
+        serverSecrets: [config.credentialMasterKey, config.runnerSharedSecret, searchKey],
+        searchMarker,
       });
     }
     const revokedThread = randomUUID();

@@ -7,6 +7,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { z, ZodError } from "zod";
 import {
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
+  DESKTOP_TOOL_PROTOCOL_HEADER,
   desktopDeviceClientFrameSchema,
   desktopDeviceListSchema,
   desktopDevicePairInputSchema,
@@ -18,6 +19,8 @@ import {
   desktopExecutionProtocolVersion,
   desktopExecutionResultSchema,
   desktopProtocolVersion,
+  desktopToolCancelSchema,
+  desktopToolProtocolVersion,
 } from "@linksense/shared";
 import type { DesktopDeviceTransport } from "../../adapters/desktop-device-transport.js";
 import { hmacSha256 } from "../../lib/crypto.js";
@@ -83,7 +86,7 @@ export async function registerDesktopDeviceRoutes(
     noServer: true, maxPayload: execution ? desktopExecutionMaxFrameBytes : presenceMaxFrameBytes, perMessageDeflate: false,
   });
   const connected = new Map<WebSocket, {
-    device: DesktopDeviceRecord; connectionId: string; execution: boolean; detach?: () => void;
+    device: DesktopDeviceRecord; connectionId: string; execution: boolean; tools: boolean; detach?: () => void;
   }>();
   const recoveryEnqueues = new Set<Promise<void>>();
   let subscription: Promise<() => void> | null = null;
@@ -109,6 +112,10 @@ export async function registerDesktopDeviceRoutes(
     if (!subscription) {
       const generation = ++subscriptionGeneration;
       subscription = service.coordinator.subscribe(notice => {
+        if (notice.type === "run_revoked") {
+          execution?.cancelRunTools(notice.turnId);
+          return;
+        }
         for (const [socket, current] of connected) {
           if (current.device.id === notice.deviceId &&
             (notice.type === "revoked" || current.connectionId === notice.supersededConnectionId)) {
@@ -149,6 +156,8 @@ export async function registerDesktopDeviceRoutes(
   server.on("connection", (socket, request: IncomingMessage) => {
     const supportsExecution = execution !== undefined &&
       request.headers[DESKTOP_EXECUTION_PROTOCOL_HEADER] === String(desktopExecutionProtocolVersion);
+    const supportsTools = supportsExecution &&
+      request.headers[DESKTOP_TOOL_PROTOCOL_HEADER] === String(desktopToolProtocolVersion);
     let handling = false;
     let lastPing = Date.now();
     const authDeadline = setTimeout(() => socket.close(4401), 5000);
@@ -167,7 +176,13 @@ export async function registerDesktopDeviceRoutes(
         }
         const callback = desktopExecutionCallbackSchema.safeParse(value);
         if (callback.success) {
+          if (callback.data.type === "tool.request" && !current.tools) { socket.close(4400); return; }
           await execution?.receiveCallback(current.connectionId, callback.data);
+          return;
+        }
+        const cancel = desktopToolCancelSchema.safeParse(value);
+        if (cancel.success && current.tools) {
+          execution?.cancelTool(current.connectionId, cancel.data);
           return;
         }
       }
@@ -183,6 +198,7 @@ export async function registerDesktopDeviceRoutes(
           const connectionId = await service.connect(device);
           const state: NonNullable<ReturnType<typeof connected.get>> = {
             device, connectionId, execution: supportsExecution && device.platform === "darwin",
+            tools: supportsTools && device.platform === "darwin",
           };
           connected.set(socket, state);
           const active = await service.maintain(device, connectionId);
@@ -218,6 +234,7 @@ export async function registerDesktopDeviceRoutes(
           clearTimeout(authDeadline);
           socket.send(JSON.stringify(state.execution ? desktopExecutionDeviceReadySchema.parse({
             ...ready, execution_protocol_version: desktopExecutionProtocolVersion,
+            ...(state.tools ? { tool_protocol_version: desktopToolProtocolVersion } : {}),
           }) : ready));
           readySent = true;
           if (state.execution && options.onExecutionReady) {

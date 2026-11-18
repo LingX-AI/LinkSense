@@ -7,11 +7,16 @@ import {
   desktopExecutionMaxFrameBytes,
   desktopExecutionMaxInFlight,
   desktopExecutionResultSchema,
+  desktopToolClockSkewAllowanceMs,
+  desktopToolMaxInFlight,
+  desktopToolRequestLifetimeMs,
   type DesktopExecutionAck,
   type DesktopExecutionCallback,
   type DesktopExecutionCancel,
   type DesktopExecutionCommand,
   type DesktopExecutionResult,
+  type DesktopToolCancel,
+  type DesktopToolRequest,
 } from "@linksense/shared";
 import type { Redis } from "ioredis";
 import type { Logger } from "pino";
@@ -54,6 +59,7 @@ type DeviceSocket = {
   close: () => void;
   pending: Map<string, PendingDelivery>;
   callbacks: Set<string>;
+  tools: Map<string, { frame: DesktopToolRequest; controller: AbortController }>;
   lifetime: AbortController;
 };
 type PendingReply = {
@@ -116,13 +122,13 @@ export class DesktopDeviceTransport {
   }
 
   async attach(
-    socket: Omit<DeviceSocket, "binding" | "pending" | "callbacks" | "lifetime"> & Pick<DesktopExecutionBinding, "deviceId" | "connectionId">,
+    socket: Omit<DeviceSocket, "binding" | "pending" | "callbacks" | "tools" | "lifetime"> & Pick<DesktopExecutionBinding, "deviceId" | "connectionId">,
   ): Promise<(() => void) | null> {
     await this.ready();
     const { ownerId, deviceId, connectionId, verifyCredential, send, close } = socket;
     const binding = { deviceId, connectionId, gatewayId: this.id };
     const connection: DeviceSocket = {
-      ownerId, binding, verifyCredential, send, close, pending: new Map(), callbacks: new Set(), lifetime: new AbortController(),
+      ownerId, binding, verifyCredential, send, close, pending: new Map(), callbacks: new Set(), tools: new Map(), lifetime: new AbortController(),
     };
     this.sockets.set(connectionId, connection);
     const detach = () => {
@@ -230,20 +236,33 @@ export class DesktopDeviceTransport {
     if (!socket) return;
     // Only one request per turn and operation may advance while the previous
     // batch is being projected. Start settlement can still unblock event IO.
-    const key = `${frame.turn_id}:${frame.operation}`;
-    const reject = (error_code: "FORBIDDEN" | "RUNNER_UNAVAILABLE"): DesktopExecutionAck =>
-      ({ type: "execution.ack", id: frame.id, operation: frame.operation, ok: false, error_code });
+    const key = frame.type === "tool.request" ? `tool:${frame.id}` : `${frame.turn_id}:${frame.operation}`;
+    const reject = (error_code: "FORBIDDEN" | "RUNNER_UNAVAILABLE"): DesktopExecutionAck => frame.type === "tool.request"
+      ? { type: "tool.result", id: frame.id, operation: frame.operation, ok: false, error_code }
+      : { type: "execution.ack", id: frame.id, operation: frame.operation, ok: false, error_code };
     const reply = (ack: DesktopExecutionAck) => {
       if (!socket.lifetime.signal.aborted && !socket.send(ack)) socket.close();
     };
-    if (socket.callbacks.has(key) || socket.callbacks.size >= desktopExecutionMaxInFlight) {
+    if (frame.type === "tool.request" && socket.callbacks.has(key)) return;
+    if (socket.callbacks.has(key) || socket.callbacks.size >= desktopExecutionMaxInFlight ||
+      (frame.type === "tool.request" && socket.tools.size >= desktopToolMaxInFlight)) {
+      reply(reject("RUNNER_UNAVAILABLE"));
+      return;
+    }
+    const remaining = frame.type === "tool.request"
+      ? dayjs(frame.expires_at).valueOf() - Date.now()
+      : 4_000;
+    if (remaining <= 0 || remaining > desktopToolRequestLifetimeMs + desktopToolClockSkewAllowanceMs) {
       reply(reject("RUNNER_UNAVAILABLE"));
       return;
     }
     socket.callbacks.add(key);
     const pending = frame.type === "execution.recovery" ? socket.pending.get(frame.drain_id) : undefined;
+    const tool = frame.type === "tool.request" ? { frame, controller: new AbortController() } : undefined;
+    if (tool) socket.tools.set(frame.id, tool);
     const signal = AbortSignal.any([
-      socket.lifetime.signal, AbortSignal.timeout(4_000), ...(pending ? [pending.lifetime.signal] : []),
+      socket.lifetime.signal, AbortSignal.timeout(Math.min(remaining, desktopToolRequestLifetimeMs)),
+      ...(pending ? [pending.lifetime.signal] : []), ...(tool ? [tool.controller.signal] : []),
     ]);
     try {
       const { binding, ownerId } = socket;
@@ -276,6 +295,24 @@ export class DesktopDeviceTransport {
         ? "FORBIDDEN" : "RUNNER_UNAVAILABLE"));
     } finally {
       socket.callbacks.delete(key);
+      if (tool) socket.tools.delete(frame.id);
+    }
+  }
+
+  cancelTool(connectionId: string, cancel: DesktopToolCancel): void {
+    const pending = this.sockets.get(connectionId)?.tools.get(cancel.id);
+    const request = pending?.frame;
+    if (request && request.operation === cancel.operation && request.turn_id === cancel.turn_id &&
+      request.conversation_id === cancel.conversation_id && request.runtime_generation === cancel.runtime_generation) {
+      pending.controller.abort();
+    }
+  }
+
+  cancelRunTools(turnId: string): void {
+    for (const socket of this.sockets.values()) {
+      for (const request of socket.tools.values()) {
+        if (request.frame.turn_id.toLowerCase() === turnId) request.controller.abort();
+      }
     }
   }
 

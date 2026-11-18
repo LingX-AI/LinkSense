@@ -75,6 +75,9 @@ describe("web search worker boundary", () => {
       searchWeb.mockRejectedValue(new WebSearchRequestError("WEB_SEARCH_DISABLED"))
       expect((await server.inject(input)).json()).toEqual({ code: "WEB_SEARCH_DISABLED", retryable: false })
       expect(webSearchErrorFromApi({ error_code: "FORBIDDEN" }).code).toBe("WEB_SEARCH_FORBIDDEN")
+      const uncertain = webSearchErrorFromApi({ error_code: "RUNNER_OPERATION_UNCERTAIN" })
+      expect(uncertain.code).toBe("RUNNER_OPERATION_UNCERTAIN")
+      expect(uncertain.retryable).toBe(false)
       expect(webSearchErrorFromApi({ error_code: "untrusted-provider-text" }).message).toBe("WEB_SEARCH_UNAVAILABLE")
     } finally {
       await server.close(); await rm(root, { recursive: true, force: true })

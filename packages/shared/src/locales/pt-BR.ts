@@ -399,6 +399,7 @@ export const auditMessages = {
     "desktop_device_paired": "Computador pareado",
     "desktop_device_renamed": "Computador renomeado",
     "desktop_device_revoked": "Acesso do computador revogado",
+    "desktop_tool_requested": "Solicitação de ferramenta de desktop",
     "computer_session_started": "Sessão do computador local iniciada",
     "computer_session_stopped": "Sessão do computador local encerrada",
     "computer_permission_granted": "Permissão do computador local concedida",

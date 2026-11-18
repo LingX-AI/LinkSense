@@ -152,12 +152,12 @@ export class DesktopRunLeases {
   }
 
   /** Verifies the binding; the device gateway must still authorize the specific operation. */
-  async verifyRunBinding(scope: DesktopRunScope, token: string): Promise<void> {
+  async verifyRunBinding(scope: DesktopRunScope, token: string, phase: "use" | "settle" = "settle"): Promise<void> {
     scope = scopeSchema.parse(scope);
     if (!desktopRunTokenSchema.safeParse(token).success) throw new AppError("AUTH_REQUIRED");
     await this.authorize(scope.turnId, lease =>
       matchesScope(lease.scope, scope) && tokenMatches(token, lease.runHash),
-      "settle",
+      phase,
     );
   }
 
@@ -167,6 +167,12 @@ export class DesktopRunLeases {
     if (!lease || lease.expiresAt <= this.now() || !matchesScope(lease.scope, scope) || !tokenMatches(token, lease.runHash)) {
       throw new AppError("AUTH_REQUIRED");
     }
+  }
+
+  async claimToolRequest(turnId: string, requestId: string): Promise<boolean> {
+    const turn = runIdSchema.parse(turnId);
+    const request = runIdSchema.parse(requestId);
+    return await this.redis.set(`linksense:desktop-tool:${turn}:${request}`, "1", "PX", leaseTtlMs, "NX") === "OK";
   }
 
   async renew(scope: DesktopRunScope): Promise<number> {

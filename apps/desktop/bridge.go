@@ -46,6 +46,8 @@ type deviceConnection struct {
 const (
 	desktopExecutionVersion = 2
 	desktopExecutionHeader  = "X-LinkSense-Desktop-Execution"
+	desktopToolVersion      = 1
+	desktopToolHeader       = "X-LinkSense-Desktop-Tools"
 )
 
 func newDeviceConnection(server *url.URL, credential deviceCredential) *deviceConnection {
@@ -122,6 +124,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	offerExecution := connection.runtime != nil && connection.runtime.ready.Load()
 	if offerExecution {
 		headers.Set(desktopExecutionHeader, strconv.Itoa(desktopExecutionVersion))
+		headers.Set(desktopToolHeader, strconv.Itoa(desktopToolVersion))
 	}
 	socket, _, err := websocket.Dial(dialContext, endpoint.String(), &websocket.DialOptions{
 		HTTPClient: client, HTTPHeader: headers, CompressionMode: websocket.CompressionDisabled,
@@ -158,7 +161,7 @@ func (connection *deviceConnection) runOnce() (bool, string) {
 	}
 	var link *runtimeLink
 	if ready.ExecutionVersion != nil {
-		link, err = connection.runtime.attach(ready.ConnectionID, connection.credential.OwnerID)
+		link, err = connection.runtime.attach(ready.ConnectionID, connection.credential.OwnerID, ready.ToolVersion)
 		if err != nil {
 			return false, "RUNNER_UNAVAILABLE"
 		}
@@ -235,7 +238,7 @@ func isDesktopExecutionInput(data []byte) bool {
 	if json.Unmarshal(data, &frame) != nil {
 		return false
 	}
-	return frame.Type == "command" || frame.Type == "command.cancel" || frame.Type == "execution.ack"
+	return frame.Type == "command" || frame.Type == "command.cancel" || frame.Type == "execution.ack" || frame.Type == "tool.result"
 }
 
 type deviceReady struct {
@@ -245,6 +248,7 @@ type deviceReady struct {
 	ProtocolVersion     int    `json:"protocol_version"`
 	HeartbeatIntervalMS int    `json:"heartbeat_interval_ms"`
 	ExecutionVersion    *int   `json:"execution_protocol_version,omitempty"`
+	ToolVersion         *int   `json:"tool_protocol_version,omitempty"`
 }
 
 func decodeDeviceReady(data []byte) (deviceReady, error) {
@@ -257,7 +261,8 @@ func decodeDeviceReady(data []byte) (deviceReady, error) {
 	if err := decoder.Decode(&ready); err != nil || ready.Type != "ready" ||
 		!validUUID(ready.DeviceID) || !validUUID(ready.ConnectionID) ||
 		ready.ProtocolVersion != 1 || ready.HeartbeatIntervalMS != 15_000 ||
-		(ready.ExecutionVersion != nil && *ready.ExecutionVersion != desktopExecutionVersion) {
+		(ready.ExecutionVersion != nil && *ready.ExecutionVersion != desktopExecutionVersion) ||
+		(ready.ToolVersion != nil && (ready.ExecutionVersion == nil || *ready.ToolVersion != desktopToolVersion)) {
 		return deviceReady{}, errors.New("DESKTOP_PROTOCOL_ERROR")
 	}
 	return ready, nil

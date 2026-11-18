@@ -6,7 +6,7 @@ const leaseMilliseconds = 45_000;
 const presenceKey = (id: string) => `linksense:desktop-devices:${id}:connection`;
 const executionKey = (id: string) => `linksense:desktop-devices:${id}:execution`;
 const commandKey = (id: string) => `linksense:desktop-execution:command:${id}`;
-export type DesktopConnectionNotice = Extract<DesktopNotice, { type: "revoked" | "replaced" }>;
+export type DesktopConnectionNotice = Exclude<DesktopNotice, { type: "disconnected" }>;
 export const desktopExecutionBindingSchema = z.strictObject({
   deviceId: z.uuid(),
   connectionId: z.uuid(),
@@ -138,7 +138,7 @@ export class RedisDesktopDeviceCoordinator implements DesktopDeviceCoordinator {
 
   subscribe(listener: (notice: DesktopConnectionNotice) => void, onUnavailable: () => void): Promise<() => void> {
     return subscribeDesktopNotices(this.redis, notice => {
-      if (notice.type === "revoked" || notice.type === "replaced") listener(notice);
+      if (notice.type !== "disconnected") listener(notice);
     }, onUnavailable);
   }
 }

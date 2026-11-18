@@ -8,10 +8,11 @@ import { isDesktopRunActive } from "../desktop-credentials/run-authority.js";
 import { DesktopRunLeases } from "../desktop-credentials/run-leases.js";
 import { desktopModelProxyRoutes } from "../model-proxy/routes.js";
 import type { RedisDesktopDeviceCoordinator } from "./coordinator.js";
+import { executeDesktopTool } from "./tool-requests.js";
 
 type ExecutionServices = Pick<AppServices,
   "config" | "redis" | "prisma" | "runner" | "conversations" | "events" |
-  "modelProviderSettings" | "creditLimits" | "privacyMaskingSettings"
+  "modelProviderSettings" | "creditLimits" | "privacyMaskingSettings" | "webSearchSettings" | "audit"
 >;
 
 export async function registerDesktopExecution(
@@ -34,6 +35,9 @@ export async function registerDesktopExecution(
     app.log, { masterKey: config.credentialMasterKey, keyId: config.credentialKeyId },
     async ({ ownerId, ...binding }, frame, signal) => {
       const scope = { ownerId, deviceId: binding.deviceId, connectionId: binding.connectionId, ...turnScope(frame) };
+      if (frame.type === "tool.request") {
+        return executeDesktopTool({ leases, audit: services.audit, webSearchSettings: services.webSearchSettings }, scope, frame, signal);
+      }
       if (frame.type === "execution.callback") await leases.verifyRunBinding(scope, frame.run_token);
       const check = async () => {
         signal.throwIfAborted();

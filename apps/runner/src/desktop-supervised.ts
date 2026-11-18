@@ -96,7 +96,7 @@ try {
       current = {
         turns,
         link: new DesktopLink(message.link_id, message.owner_id, turns, frame =>
-          writeLine(desktopRuntimeOutputSchema.parse(frame)), fail),
+          writeLine(desktopRuntimeOutputSchema.parse(frame)), fail, message.tools_version !== undefined),
       }
     } else if (current?.link.id === message.link_id) {
       if (message.type === "link.close") {
