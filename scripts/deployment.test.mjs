@@ -438,7 +438,7 @@ for (const template of [
   "deploy/nginx/production-gateway.conf.template",
   "deploy/release/gateway.conf.template",
 ]) {
-  for (const channel of ["local-browser", "browser-use"]) {
+  for (const channel of ["local-browser", "browser-use", "desktop/devices"]) {
     test(`${template} forwards the authenticated ${channel} WebSocket`, async () => {
       const gateway = await readFile(resolve(template), "utf8");
       const location = gateway.match(
@@ -459,6 +459,18 @@ for (const template of [
     });
   }
 }
+
+test("host Nginx forwards the desktop WebSocket upgrade to the production gateway", async () => {
+  const host = await readFile(productionHostNginxExamplePath, "utf8");
+  const socket = /location = \/api\/v1\/desktop\/devices\/socket \{([^}]+)\}/u.exec(host)?.[1];
+  assert.ok(socket);
+  assert.match(socket, /proxy_pass http:\/\/127\.0\.0\.1:8080;/u);
+  assert.match(socket, /proxy_http_version 1\.1;/u);
+  assert.match(socket, /proxy_set_header Upgrade \$http_upgrade;/u);
+  assert.match(socket, /proxy_set_header Connection "upgrade";/u);
+  assert.match(socket, /proxy_set_header X-Forwarded-Proto https;/u);
+  assert.match(socket, /proxy_read_timeout 1h;/u);
+});
 
 test("production gateway preserves HTTPS proxy semantics, SSE, and signed MinIO paths", async () => {
   const [gateway, hostExample] = await Promise.all([
@@ -500,11 +512,22 @@ test("production gateway preserves HTTPS proxy semantics, SSE, and signed MinIO 
     gateway,
     /error_page 502 503 504 =503 @linksense_maintenance;/u,
   );
-  const maintenanceChecks =
-    gateway.match(
-      /if \(-f \/tmp\/linksense-maintenance\) \{\s*return 503;\s*\}/gu,
-    ) ?? [];
-  assert.equal(maintenanceChecks.length, 8);
+  for (const location of [
+    "^~ /html-preview/",
+    "^~ /app/",
+    "^~ /web/",
+    "= /api/v1/local-browser/socket",
+    "= /api/v1/browser-use/socket",
+    "= /api/v1/desktop/devices/socket",
+    "/api/",
+    "~ ^/linksense-(?:files|knowledge)(?:/|$)",
+    "= /assistant-html-preview-shell.html",
+    "/",
+  ]) {
+    const start = `  location ${location} {`;
+    const body = section(gateway, start, "\n  }");
+    assert.match(body, /if \(-f \/tmp\/linksense-maintenance\) \{\s*return 503;\s*\}/u, `${start} must respect maintenance mode`);
+  }
   const siteLocation = section(gateway, "  location ^~ /web/", "  location /api/");
   assert.match(siteLocation, /if \(-f \/tmp\/linksense-maintenance\)/u);
   assert.match(siteLocation, /proxy_set_header X-Forwarded-Proto \$linksense_forwarded_proto;/u);
