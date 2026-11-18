@@ -154,6 +154,14 @@ export function SiteDetailsDialog({
                     t("webSites.sourceDeleted")
                   )}
                 </dd>
+                <dt>{t("webSites.details.passcode")}</dt>
+                <dd>
+                  {t(
+                    site.passcode_protected
+                      ? "webSites.details.passcodeOn"
+                      : "webSites.details.passcodeOff"
+                  )}
+                </dd>
                 <dt>{t("webSites.details.files")}</dt>
                 <dd>
                   {t("webSites.resources", {

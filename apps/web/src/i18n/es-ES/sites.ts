@@ -25,6 +25,13 @@ export const siteMessages = {
     slugPlaceholder: "Deja el campo vacío para generarlo automáticamente",
     slugHelp:
       "Usa entre 3 y 80 letras inglesas, números o guiones. Este nombre se usa en el enlace personalizado; el enlace de origen no cambia.",
+    passcode: "Código de acceso",
+    passcodePlaceholder: "Establecer un código",
+    passcodeHelp:
+      "Los visitantes deben introducir este código para abrir el sitio. Déjalo vacío para mantener el acceso público.",
+    invalidPasscode: "Usa al menos 4 caracteres.",
+    passcodeRemove: "Quitar el código",
+    passcodeKeep: "Mantener el código",
     url: "Enlace del sitio",
     publishMode: "Modo de publicación",
     updateExisting: "Actualizar sitio existente",
@@ -111,6 +118,9 @@ export const siteMessages = {
       openAlias: "Abrir enlace personalizado",
       openStable: "Abrir enlace de origen",
       publication: "Detalles de publicación",
+      passcode: "Código de acceso",
+      passcodeOn: "Activado",
+      passcodeOff: "Desactivado",
       source: "Conversación de origen",
       files: "Recursos web",
       publishedAt: "Publicación de la versión actual",

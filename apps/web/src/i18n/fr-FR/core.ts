@@ -150,6 +150,13 @@ export const core = {
     slugPlaceholder: "Laissez vide pour générer automatiquement",
     slugHelp:
       "Utilisez entre 3 et 80 lettres, chiffres ou traits d’union. Ce nom sert au lien personnalisé ; le lien d’origine ne change pas.",
+    passcode: "Code d’accès",
+    passcodePlaceholder: "Définir un code",
+    passcodeHelp:
+      "Les visiteurs doivent saisir ce code pour ouvrir le site. Laissez vide pour conserver l’accès public.",
+    invalidPasscode: "Utilisez au moins 4 caractères.",
+    passcodeRemove: "Supprimer le code",
+    passcodeKeep: "Conserver le code",
     url: "Lien du site",
     publishMode: "Mode de publication",
     updateExisting: "Mettre à jour un site existant",
@@ -236,6 +243,9 @@ export const core = {
       openAlias: "Ouvrir le lien personnalisé",
       openStable: "Ouvrir le lien d’origine",
       publication: "Détails de publication",
+      passcode: "Code d’accès",
+      passcodeOn: "Activé",
+      passcodeOff: "Désactivé",
       source: "Conversation d’origine",
       files: "Ressources web",
       publishedAt: "Publication de la version actuelle",

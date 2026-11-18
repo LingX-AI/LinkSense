@@ -169,6 +169,13 @@ export const ptBR = {
     slugPlaceholder: "Deixe em branco para gerar automaticamente",
     slugHelp:
       "Use de 3 a 80 letras, números ou hífens. Esse nome é usado no link personalizado; o link de origem não muda.",
+    passcode: "Código de acesso",
+    passcodePlaceholder: "Definir um código",
+    passcodeHelp:
+      "Os visitantes precisam informar este código para abrir o site. Deixe em branco para manter o acesso público.",
+    invalidPasscode: "Use pelo menos 4 caracteres.",
+    passcodeRemove: "Remover o código",
+    passcodeKeep: "Manter o código",
     url: "Link do site",
     publishMode: "Modo de publicação",
     updateExisting: "Atualizar site existente",
@@ -255,6 +262,9 @@ export const ptBR = {
       openAlias: "Abrir link personalizado",
       openStable: "Abrir link de origem",
       publication: "Detalhes da publicação",
+      passcode: "Código de acesso",
+      passcodeOn: "Ativado",
+      passcodeOff: "Desativado",
       source: "Conversa de origem",
       files: "Recursos web",
       publishedAt: "Publicação da versão atual",

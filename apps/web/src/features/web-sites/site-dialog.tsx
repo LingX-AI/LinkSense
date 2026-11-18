@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next"
 import {
   webSiteCreateSchema,
   webSiteUpdateSchema,
+  webSitePasscodeSchema,
   webSiteSlugSchema,
   type WebSite,
 } from "@linksense/shared"
@@ -13,6 +14,7 @@ import { getErrorMessage } from "@/api/error-message"
 import { StatusBanner } from "@/components/feedback/status-banner"
 import { notify } from "@/components/feedback/notification"
 import { FieldShell } from "@/components/forms/form-field"
+import { PasswordInput } from "@/components/forms/password-input"
 import { FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field"
 import {
   RadioGroup,
@@ -95,6 +97,8 @@ export function SiteDialog({
   const [slug, setSlug] = useState(
     action.kind === "share" ? "" : action.site.slug
   )
+  const [passcode, setPasscode] = useState("")
+  const [removePasscode, setRemovePasscode] = useState(false)
   const [publishMode, setPublishMode] = useState<"new" | "update">("new")
   const [selectedSite, setSelectedSite] = useState<WebSite | null>(null)
   const [fileId, setFileId] = useState("")
@@ -120,6 +124,11 @@ export function SiteDialog({
     action.kind === "publish" ||
     (action.kind === "share" && publishMode === "update")
   const metadata = { name, description, ...(slug.trim() ? { slug } : {}) }
+  const passcodeUpdate = removePasscode
+    ? { passcode: null }
+    : passcode.trim()
+      ? { passcode: passcode.trim() }
+      : {}
   const sourceItems = (sources.data ?? []).map((file, index) => ({
     value: file.id,
     label: t(
@@ -144,7 +153,12 @@ export function SiteDialog({
               file_id: action.source.fileId,
             }).success
       : action.kind === "edit"
-        ? webSiteUpdateSchema.safeParse({ name, description, slug }).success
+        ? webSiteUpdateSchema.safeParse({
+            name,
+            description,
+            slug,
+            ...passcodeUpdate,
+          }).success
         : action.kind === "publish"
           ? Boolean(fileId)
           : true
@@ -165,7 +179,12 @@ export function SiteDialog({
       if (action.kind === "edit")
         return updateWebSite(
           action.site.id,
-          webSiteUpdateSchema.parse({ name, description, slug })
+          webSiteUpdateSchema.parse({
+            name,
+            description,
+            slug,
+            ...passcodeUpdate,
+          })
         )
       if (action.kind === "publish")
         return publishWebSite(action.site.id, fileId)
@@ -446,6 +465,60 @@ export function SiteDialog({
                         {t("webSites.slugHelp")}
                       </p>
                     </FieldShell>
+                    {action.kind === "edit" && (
+                      <FieldShell
+                        id={`${id}-passcode`}
+                        label={t("webSites.passcode")}
+                        error={
+                          passcode &&
+                          !webSitePasscodeSchema.safeParse(passcode).success
+                            ? t("webSites.invalidPasscode")
+                            : undefined
+                        }
+                      >
+                        <PasswordInput
+                          id={`${id}-passcode`}
+                          fieldLabel={t("webSites.passcode")}
+                          autoComplete="new-password"
+                          aria-describedby={`${id}-passcode-help`}
+                          aria-invalid={Boolean(
+                            passcode &&
+                            !webSitePasscodeSchema.safeParse(passcode).success
+                          )}
+                          value={passcode}
+                          maxLength={128}
+                          placeholder={t("webSites.passcodePlaceholder")}
+                          disabled={mutation.isPending || removePasscode}
+                          onChange={(event) => {
+                            setPasscode(event.target.value)
+                            setRemovePasscode(false)
+                          }}
+                        />
+                        <p
+                          id={`${id}-passcode-help`}
+                          className="text-xs leading-relaxed text-muted-foreground"
+                        >
+                          {t("webSites.passcodeHelp")}
+                        </p>
+                        {action.site.passcode_protected && !passcode && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="self-start"
+                            aria-pressed={removePasscode}
+                            disabled={mutation.isPending}
+                            onClick={() => setRemovePasscode((value) => !value)}
+                          >
+                            {t(
+                              removePasscode
+                                ? "webSites.passcodeKeep"
+                                : "webSites.passcodeRemove"
+                            )}
+                          </Button>
+                        )}
+                      </FieldShell>
+                    )}
                   </>
                 )}
                 {action.kind === "publish" && (

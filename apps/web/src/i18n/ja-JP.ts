@@ -169,6 +169,13 @@ export const jaJP = {
     slugPlaceholder: "空欄の場合は自動生成",
     slugHelp:
       "英数字またはハイフンで 3～80 文字にしてください。この名前はカスタムリンクに使われ、オリジンリンクは変わりません。",
+    passcode: "アクセスコード",
+    passcodePlaceholder: "アクセスコードを設定",
+    passcodeHelp:
+      "サイトを開くには訪問者がこのコードを入力する必要があります。空欄のままにすると公開のままです。",
+    invalidPasscode: "4 文字以上で入力してください。",
+    passcodeRemove: "アクセスコードを削除",
+    passcodeKeep: "アクセスコードを保持",
     url: "サイトのリンク",
     publishMode: "公開方法",
     updateExisting: "既存のサイトを更新",
@@ -255,6 +262,9 @@ export const jaJP = {
       openAlias: "カスタムリンクを開く",
       openStable: "オリジンリンクを開く",
       publication: "公開情報",
+      passcode: "アクセスコード",
+      passcodeOn: "有効",
+      passcodeOff: "無効",
       source: "作成元の会話",
       files: "ウェブリソース",
       publishedAt: "現在のバージョンの公開日時",

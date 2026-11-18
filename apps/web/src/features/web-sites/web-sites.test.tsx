@@ -117,6 +117,9 @@ describe("website management", () => {
     await user.click(within(row).getByText(site.description))
     const details = screen.getByRole("dialog", { name: site.name })
     expect(within(details).getByText(aliasUrl)).toBeVisible()
+    expect(
+      within(details).getByText(i18n.t("webSites.details.passcodeOff"))
+    ).toBeVisible()
     await user.click(
       within(details).getByRole("button", {
         name: i18n.t("webSites.details.copyAlias"),
@@ -163,6 +166,25 @@ describe("website management", () => {
     expect(
       within(row).getByRole("link", { name: i18n.t("webSites.visit") })
     ).toHaveAttribute("href", url)
+  })
+
+  it("shows whether an access passcode is enabled in publication details", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        success({
+          items: [{ ...site, passcode_protected: true }],
+          next_cursor: null,
+        })
+      )
+    )
+    mount(<SiteLibrary />)
+    await user.click(await screen.findByRole("button", { name: site.name }))
+    const details = screen.getByRole("dialog", { name: site.name })
+    expect(
+      within(details).getByText(i18n.t("webSites.details.passcodeOn"))
+    ).toBeVisible()
   })
 
   it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
