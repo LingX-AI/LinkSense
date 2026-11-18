@@ -6146,6 +6146,10 @@ export const jaJP = {
     downloadForbidden: "この成果物をダウンロードする権限がありません。",
     runnerUnavailable:
       "実行サービスを利用できません。しばらくしてから再試行してください。",
+    runnerOperationUncertain: localizedErrorMessage(
+      "RUNNER_OPERATION_UNCERTAIN",
+      "ja-JP"
+    ),
     turnStartClosed:
       "前の送信は終了しています。このリクエストは実行されていません。再送信してください。",
     deploymentStopped:

@@ -351,6 +351,10 @@ export const errorMessages = {
       "El servicio de ejecución no está disponible. Inténtalo más tarde.",
     turnStartClosed:
       "El envío anterior ha finalizado. Esta solicitud no se ha ejecutado. Vuelve a enviarla.",
+    runnerOperationUncertain: localizedErrorMessage(
+      "RUNNER_OPERATION_UNCERTAIN",
+      "es-ES"
+    ),
     deploymentStopped:
       "Esta tarea se detuvo por una actualización del sistema. Se conservó el contenido existente. Revisa su progreso antes de continuar manualmente.",
     creditLimitExceeded:

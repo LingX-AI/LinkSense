@@ -338,6 +338,10 @@ export const errors = {
     "Vous n’avez pas l’autorisation de télécharger ce fichier produit.",
   runnerUnavailable:
     "Le service d’exécution est indisponible. Réessayez plus tard.",
+  runnerOperationUncertain: localizedErrorMessage(
+    "RUNNER_OPERATION_UNCERTAIN",
+    "fr-FR"
+  ),
   turnStartClosed:
     "La soumission précédente est terminée. Cette demande n’a pas été exécutée. Envoyez-la à nouveau.",
   deploymentStopped:

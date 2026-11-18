@@ -41,6 +41,20 @@ describe("getErrorMessage", () => {
     )
   })
 
+  it("keeps the uncertain Mac operation message distinct from offline in all locales and uses the Chinese fallback", () => {
+    const error = new ApiError({ status: 503, errorCode: "RUNNER_OPERATION_UNCERTAIN" })
+    for (const locale of supportedLocales) {
+      const message = getErrorMessage(error, i18n.getFixedT(locale))
+      expect(message).toBe(localizedErrorMessage("RUNNER_OPERATION_UNCERTAIN", locale))
+      expect(message).not.toBe(localizedErrorMessage("RUNNER_UNAVAILABLE", locale))
+    }
+    const instance = i18n.cloneInstance({ forkResourceStore: true })
+    instance.removeResourceBundle("en-US", "translation")
+    expect(getErrorMessage(error, instance.getFixedT("en-US"))).toBe(
+      localizedErrorMessage("RUNNER_OPERATION_UNCERTAIN", "zh-CN")
+    )
+  })
+
   it.each([
     ["APPLICATION_NOT_FOUND", "notFound"],
     ["APPLICATION_DISABLED", "disabled"],

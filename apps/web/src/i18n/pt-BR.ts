@@ -6252,6 +6252,10 @@ export const ptBR = {
       "Você não tem permissão para baixar este arquivo gerado.",
     runnerUnavailable:
       "O serviço de execução está indisponível. Tente novamente mais tarde.",
+    runnerOperationUncertain: localizedErrorMessage(
+      "RUNNER_OPERATION_UNCERTAIN",
+      "pt-BR"
+    ),
     turnStartClosed:
       "O envio anterior foi encerrado. Esta solicitação não foi executada. Envie-a novamente.",
     deploymentStopped:

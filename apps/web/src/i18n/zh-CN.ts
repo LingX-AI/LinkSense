@@ -5374,6 +5374,10 @@ export const zhCN = {
     artifactNotFound: "未找到该产物。",
     downloadForbidden: "你无权下载该产物。",
     runnerUnavailable: "执行服务暂不可用，请稍后重试。",
+    runnerOperationUncertain: localizedErrorMessage(
+      "RUNNER_OPERATION_UNCERTAIN",
+      "zh-CN"
+    ),
     turnStartClosed: errorCatalog.TURN_START_CLOSED.messages["zh-CN"],
     deploymentStopped:
       "本次任务因系统更新而中止，已有内容已保留。请确认进度后手动继续。",
