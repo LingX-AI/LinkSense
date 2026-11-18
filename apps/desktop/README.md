@@ -65,7 +65,7 @@ in the OS credential store, scoped to the packaged server. Access tokens are
 kept only in memory in desktop mode; browser session storage is unchanged.
 
 Builds embed the Web application's current build and bundle fixed Node.js
-24.22.1, Codex 0.168.0, agent-desktop 1.3.1, and the runner's production
+24.22.1, Codex 0.170.0, agent-desktop 1.3.1, and the runner's production
 dependency closure. The release manifest pins upstream download SHA-256
 checksums; the generated runtime manifest records executable hashes.
 Preparation checks executable versions and native imports on the build host.
@@ -95,11 +95,17 @@ for the expanded application. Node and Codex account for approximately
 understated installed size; download size and installed size are tracked
 separately for release review.
 
-The app supervises the bundled Node process over a private pipe. The macOS
-process group and the Windows Job Object bound the child tree. Device
-execution stays unavailable until the authorized device channel is wired.
-Production signing/notarization, installed Windows runtime, device execution
-and the updater remain subject to their task acceptance gates.
+The app supervises the bundled Node process over a private pipe. Mac device
+execution is off by default and `LINKSENSE_DESKTOP_LOCAL_EXECUTION_ENABLED=true`
+is accepted only by the development/test API. The gateway negotiates execution
+protocol v2; clients below v2 retain device presence. Upgrade every API replica
+and task-recovery consumer before enabling the switch in a shared environment.
+The PostgreSQL fixture can also verify the packaged Go bridge and local Codex
+using `LINKSENSE_DESKTOP_RUNTIME_DIST` pointed at the built app's
+`Contents/Resources/runtime` directory and `pnpm test:desktop:postgres`.
+The fixture uses a local synthetic provider. Separate acceptance is required
+for orphaned Shell processes after a force quit, installed upgrades and
+production signing/notarization.
 
 `desktop:whitebox` uses an in-memory credential store. On macOS,
 `desktop:whitebox:os` additionally opens the real system browser twice, verifies
