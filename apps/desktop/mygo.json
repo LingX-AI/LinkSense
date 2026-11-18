@@ -7,6 +7,7 @@
   "frontendDist": "../web/dist",
   "bindings": "../web/src/adapters/desktop/mygo.ts",
   "out": "build",
+  "macos": { "signingIdentity": "-" },
   "urlSchemes": ["linksense-desktop"],
   "i18n": { "dir": "locales", "source": "zh-CN" }
 }

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -99,23 +99,31 @@ export async function stageDesktopNotice(source, destination) {
   await chmod(destination, 0o644);
 }
 
-async function stageNotices() {
+export async function stageDesktopDependencyNotices(target, destination, cwd = desktop) {
+  const [GOOS, GOARCH] = validateDesktopTarget(target).split("/");
+  // A module-only listing omits sources that have not been extracted on a cold builder.
+  const modules = await run("go", [
+    "list", "-deps", "-f", "{{with .Module}}{{if not .Main}}{{.Path}}|{{.Dir}}{{end}}{{end}}", ".",
+  ], { cwd, capture: true, env: { GOOS, GOARCH, CGO_ENABLED: process.env.CGO_ENABLED || "0" } });
+  await rm(destination, { recursive: true, force: true });
+  for (const entry of new Set(modules.split(/\r?\n/u).filter(Boolean))) {
+    const [name, directory] = entry.split("|");
+    if (!directory) throw new Error(`Missing source directory for desktop dependency: ${name}`);
+    const licensePath = path.join(directory, name === "github.com/coder/websocket" ? "LICENSE.txt" : "LICENSE");
+    if (!(await readFile(licensePath, "utf8")).trim()) throw new Error(`Empty dependency license: ${name}`);
+    const output = path.join(destination, name);
+    await mkdir(output, { recursive: true });
+    await stageDesktopNotice(licensePath, path.join(output, "LICENSE"));
+  }
+}
+
+async function stageNotices(target) {
   const destination = path.join(desktop, "resources/legal");
   await mkdir(destination, { recursive: true });
   for (const file of ["LICENSE", "LICENSE-EXCEPTIONS.md", "NOTICE", "ATTRIBUTION.md", "TRADEMARK.md", "THIRD-PARTY-NOTICES.md"]) {
     await stageDesktopNotice(path.join(root, file), path.join(destination, file));
   }
-  const modules = await run("go", ["list", "-m", "-f", "{{if .Dir}}{{.Path}}|{{.Dir}}{{end}}", "all"], { capture: true });
-  for (const entry of modules.split("\n").filter(Boolean)) {
-    const [name, directory] = entry.split("|");
-    if (name === "github.com/LingX-AI/linksense/apps/desktop") continue;
-    const licensePath = path.join(directory, name === "github.com/coder/websocket" ? "LICENSE.txt" : "LICENSE");
-    const license = await readFile(licensePath);
-    const output = path.join(destination, "dependencies", name);
-    await mkdir(output, { recursive: true });
-    await stageDesktopNotice(licensePath, path.join(output, "LICENSE"));
-    if (license.length === 0) throw new Error(`Empty dependency license: ${name}`);
-  }
+  await stageDesktopDependencyNotices(target, path.join(destination, "dependencies"));
 }
 
 async function main() {
@@ -167,12 +175,12 @@ async function main() {
     return;
   }
   const server = desktopBuildServerUrl(values["server-url"] ?? process.env.LINKSENSE_DESKTOP_SERVER_URL);
-  await stageNotices();
   if (mode === "build") {
     const updateFlags = desktopUpdateBuildFlags(
       process.env.LINKSENSE_DESKTOP_UPDATE_FEED, process.env.LINKSENSE_DESKTOP_UPDATE_PUBLIC_KEY,
     );
     const target = validateDesktopTarget(values.platform ?? desktopTarget());
+    await stageNotices(target);
     const { prepareDesktopResources } = await import("./desktop-resources.mjs");
     await prepareDesktopResources(target);
     await run("go", ["tool", "mygo", "build", "-platform", target], {
@@ -192,6 +200,7 @@ async function main() {
     }
     return;
   }
+  await stageNotices(desktopTarget());
   await run("go", ["tool", "mygo", "generate"]);
   await run(process.platform === "win32" ? "pnpm.cmd" : "pnpm", ["desktop:build-web"], { cwd: root });
   await run("go", ["tool", "mygo", "dev"], { env: { LINKSENSE_DESKTOP_DEV_SERVER_URL: server } });

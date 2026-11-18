@@ -10,7 +10,7 @@ Phase 0 is in progress; the shell alone is not a completed local execution envir
 ## Development
 
 Use the repository's Node/pnpm versions and Go's automatic toolchain selection.
-The Go module pins Go 1.27.3 and mygo 0.7.4. The frontend uses the matching
+The Go module pins Go 1.27.3 and mygo 0.10.0. The frontend uses the matching
 official `mygo-runtime` and `@mygo-plugins/fetch` packages.
 
 ```sh
@@ -71,7 +71,8 @@ checksums; the generated runtime manifest records executable hashes.
 Preparation checks executable versions and native imports on the build host.
 The runner uses pnpm's portable, hoisted deployment so mygo's resource copier
 retains its complete dependency tree. Runtime license texts ship alongside
-the repository and Go dependency notices.
+the repository and the target Go application's dependency notices. Local
+macOS builds use ad hoc signing; release signing must select a Developer ID.
 
 Windows ARM64 keeps the native Go shell and agent-desktop engine, and uses
 x64 Node/Codex and npm bindings under Windows 11's built-in x64 emulation.

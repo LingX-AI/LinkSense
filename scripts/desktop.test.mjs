@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { desktopBuildServerUrl, desktopCommandInvocation, desktopTarget, desktopTestArguments, desktopUpdateBuildFlags, stageDesktopNotice, validateDesktopTarget } from "./desktop.mjs";
+import { desktopBuildServerUrl, desktopCommandInvocation, desktopTarget, desktopTestArguments, desktopUpdateBuildFlags, stageDesktopDependencyNotices, stageDesktopNotice, validateDesktopTarget } from "./desktop.mjs";
 
 test("release builds require an explicit, safe server origin", () => {
   assert.equal(desktopBuildServerUrl("https://example.com/"), "https://example.com");
@@ -71,6 +71,37 @@ test("repeated builds refresh notices copied from read-only Go module files", as
     await chmod(destination, 0o444);
     await stageDesktopNotice(source, destination);
     assert.equal(await readFile(destination, "utf8"), "upstream license\n");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("macOS packaging includes notices for linked dependencies, not unused tools or stale modules", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "linksense-desktop-notice-graph-"));
+  const output = path.join(directory, "notices");
+  try {
+    await writeFile(path.join(directory, "go.mod"), `module fixture.test/desktop
+go 1.27.3
+require (
+  fixture.test/runtime v0.0.0
+  fixture.test/tooling v0.0.0
+)
+replace fixture.test/runtime => ./runtime
+replace fixture.test/tooling => ./tooling
+`);
+    await writeFile(path.join(directory, "main.go"), `package main
+import _ "fixture.test/runtime"
+func main() {}
+`);
+    for (const name of ["runtime", "tooling"]) {
+      const module = path.join(directory, name);
+      await mkdir(module);
+      await writeFile(path.join(module, "go.mod"), `module fixture.test/${name}\ngo 1.27.3\n`);
+      await writeFile(path.join(module, "module.go"), `package ${name}\n`);
+      await writeFile(path.join(module, "LICENSE"), `${name} license\n`);
+    }
+    await mkdir(path.join(output, "fixture.test", "stale"), { recursive: true });
+    await stageDesktopDependencyNotices("darwin/arm64", output, directory);
+    assert.deepEqual(await readdir(path.join(output, "fixture.test")), ["runtime"]);
+    assert.equal(await readFile(path.join(output, "fixture.test/runtime/LICENSE"), "utf8"), "runtime license\n");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
