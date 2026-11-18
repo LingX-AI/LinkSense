@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { runtimeServiceSessionHeader, webSiteCreateSchema, webSiteCursorSchema, webSitePublishSchema, webSiteSlugSchema, webSiteStatusSchema, webSiteToolRequestSchema, webSiteUpdateSchema } from "@linksense/shared";
 import type { AuthenticatedRequest } from "../../plugins/authentication.js";
@@ -10,6 +10,8 @@ import { resolveLocale } from "../../lib/locale.js";
 import { parseWebSiteCursor, withUrl, type WebSiteService } from "./service.js";
 import { resourceContentType } from "./resources.js";
 import { escapeHtml, siteNotFoundPage, siteNotFoundPolicy } from "./public-page.js";
+import { hasSiteAccess, safeAccessNext, siteAccessCookie, sitePasscodePage } from "./access.js";
+import { verifyPassword } from "../../lib/password.js";
 
 const idParams = z.object({ id: z.uuid() });
 export const webSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; publicBaseUrl: string }> = async (app, { service, publicBaseUrl }) => {
@@ -81,7 +83,22 @@ export function publishedResourcePolicy(publicBaseUrl: string, requestOrigin?: s
   ].join("; ");
 }
 
-export const publicWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; publicBaseUrl: string }> = async (app, { service, publicBaseUrl }) => {
+export const publicWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; publicBaseUrl: string; accessSecret: string }> = async (app, { service, publicBaseUrl, accessSecret }) => {
+  // The passcode form posts urlencoded, which no other route parses.
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string", bodyLimit: 4_096 },
+    (_request, body, done) => done(null, body));
+  const promptPasscode = (request: FastifyRequest, reply: FastifyReply, address: string, incorrect = false) => {
+    const next = safeAccessNext(request.raw.url ?? null);
+    const page = sitePasscodePage(resolveLocale(request), {
+      action: `/web/${encodeURIComponent(address)}/unlock`,
+      ...(next !== undefined ? { next } : {}),
+      incorrect,
+    });
+    return reply.code(401).type("text/html; charset=utf-8")
+      .header("content-security-policy", page.policy)
+      .header("cache-control", "no-store").header("x-robots-tag", "noindex, nofollow")
+      .send(page.html);
+  };
   // Run after the host's onSend hook, including for nested release documents.
   app.addHook("onSend", async (_request, reply, payload) => {
     reply.removeHeader("x-frame-options");
@@ -112,12 +129,26 @@ export const publicWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; 
   };
   for (const path of ["/:slug", "/:slug/"]) app.get(path, async (request, reply) => {
     const { slug } = z.object({ slug: webSiteSlugSchema }).parse(request.params);
+    if (!hasSiteAccess(request.headers.cookie, accessSecret, await service.publicAccess(slug))) return promptPasscode(request, reply, slug);
     const page = await service.publicEntry(slug);
     if (page.url) return reply.redirect(page.url);
     return reply.type("text/html; charset=utf-8").header("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'").send(entry(page));
   });
+  app.post("/:address/unlock", async (request, reply) => {
+    const { address } = z.object({ address: z.string().trim().min(1).max(128) }).parse(request.params);
+    const form = new URLSearchParams(typeof request.body === "string" ? request.body : "");
+    const next = safeAccessNext(form.get("next"));
+    const access = await service.publicAccess(address);
+    if (!access.passcodeHash) return reply.redirect(next ?? `/web/${encodeURIComponent(access.slug)}`, 303);
+    if (!(await verifyPassword(access.passcodeHash, (form.get("passcode") ?? "").slice(0, 128)))) {
+      return promptPasscode(request, reply, address, true);
+    }
+    reply.header("set-cookie", siteAccessCookie(accessSecret, { id: access.id, passcodeHash: access.passcodeHash }));
+    return reply.redirect(next ?? `/web/${encodeURIComponent(access.slug)}`, 303);
+  });
   app.get("/:slug/_releases/:releaseId/*", async (request, reply) => {
     const { slug, releaseId, "*": path } = z.object({ slug: webSiteSlugSchema, releaseId: z.uuid(), "*": z.string().min(1).max(1_000) }).parse(request.params);
+    if (!hasSiteAccess(request.headers.cookie, accessSecret, await service.publicAccess(slug))) return promptPasscode(request, reply, slug);
     const resource = await service.resource(slug, releaseId, path);
     return reply.type(resourceContentType(resource.mimeType)).header("access-control-allow-origin", "*")
       .header("cross-origin-resource-policy", "cross-origin")

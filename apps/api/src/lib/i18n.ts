@@ -386,6 +386,17 @@ function backendTranslationResource(locale: Locale): Record<string, string> {
     "webSitePage.notFoundDescription": chinese
       ? "站点可能已删除或取消发布，请检查链接后再试。"
       : "This site may have been deleted or unpublished. Please check the link and try again.",
+    "webSitePage.passcodeTitle": chinese ? "该站点已设置访问密码" : "This site is protected",
+    "webSitePage.passcodeDescription": chinese
+      ? "请输入站点所有者提供的访问密码。"
+      : "Enter the access passcode the owner shared with you.",
+    "webSitePage.passcodeLabel": chinese ? "访问密码" : "Passcode",
+    "webSitePage.passcodeSubmit": chinese ? "进入站点" : "Open site",
+    "webSitePage.passcodeIncorrect": chinese
+      ? "访问密码不正确，请重试。"
+      : "That passcode is not correct. Please try again.",
+    "webSitePage.passcodeShow": chinese ? "显示密码" : "Show passcode",
+    "webSitePage.passcodeHide": chinese ? "隐藏密码" : "Hide passcode",
     "applicationDevelopment.taskTitle": chinese
       ? "开发 {{name}}"
       : "Develop {{name}}",

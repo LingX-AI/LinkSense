@@ -7,6 +7,7 @@ import { randomToken } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
 import { containsControlCharacter } from "../../lib/text.js";
 import { escapeHtml, siteNotFoundPage, siteNotFoundPolicy } from "../web-sites/public-page.js";
+import { hasSiteAccess, sitePasscodePage } from "../web-sites/access.js";
 import { resolveLocale } from "../../lib/locale.js";
 import type { WebSiteService } from "../web-sites/service.js";
 import { webSiteSandbox } from "../web-sites/routes.js";
@@ -41,11 +42,11 @@ const hasRoutingField = (keys: Iterable<string>): boolean => {
 
 export function registerPublicAppGateway(
   app: FastifyInstance, backends: WebSiteBackendService,
-  sites: Pick<WebSiteService, "applicationEntry" | "publicApplication" | "publishedSiteIdByAddress">,
-  sessions: WebSiteVisitorSessions, config: Pick<AppConfig, "publicBaseUrl">,
+  sites: Pick<WebSiteService, "applicationEntry" | "publicApplication" | "publishedSiteIdByAddress" | "publicAccess">,
+  sessions: WebSiteVisitorSessions, config: Pick<AppConfig, "publicBaseUrl" | "jwtSecret">,
 ): void {
   const publicUrl = new URL(config.publicBaseUrl);
-  const cookieName = `${publicUrl.protocol === "https:" ? "__Host-" : ""}linksense-app-visitor`;
+  const cookieName =`${publicUrl.protocol === "https:" ? "__Host-" : ""}linksense-app-visitor`;
   const visitorOf = (request: FastifyRequest): string | undefined => {
     const values = (request.headers.cookie ?? "").split(";").map(part => part.trim())
       .filter(part => part.startsWith(`${cookieName}=`)).map(part => part.slice(cookieName.length + 1));
@@ -67,10 +68,22 @@ export function registerPublicAppGateway(
     let retiredAlias = false;
     let canonicalSiteId: string | undefined;
     let binding: Awaited<ReturnType<typeof backends.store.publicBinding>> | undefined;
+    const passcodeGate = async (siteId: string) => {
+      if (hasSiteAccess(request.headers.cookie, config.jwtSecret, await sites.publicAccess(siteId))) return false;
+      if (!["GET", "HEAD"].includes(request.method)) throw new AppError("AUTH_REQUIRED");
+      const next = request.raw.url && request.raw.url.startsWith("/") ? request.raw.url : undefined;
+      const page = sitePasscodePage(resolveLocale(request), { action: `/web/${siteId}/unlock`, ...(next ? { next } : {}) });
+      reply.code(401).type("text/html; charset=utf-8")
+        .header("content-security-policy", page.policy)
+        .header("cache-control", "no-store").header("x-robots-tag", "noindex, nofollow")
+        .send(page.html);
+      return true;
+    };
     if (canonical) {
       if (!canonical[1]) throw new AppError("WEB_SITE_NOT_FOUND");
       // A UUID address is the site id; anything else resolves as a current or retired slug.
       canonicalSiteId = await sites.publishedSiteIdByAddress(canonical[1]);
+      if (await passcodeGate(canonicalSiteId)) return;
       address = webApplicationPath(canonicalSiteId);
       suffix = canonical[2] ?? "";
       if (suffix && suffix !== "/") {
@@ -103,6 +116,7 @@ export function registerPublicAppGateway(
     }
     const { backend, siteId } = binding ?? await backends.store.publicBinding(backendId);
     if (canonical && siteId !== canonicalSiteId) throw new AppError("WEB_SITE_NOT_FOUND");
+    if (!canonical && await passcodeGate(siteId)) return;
     if (backend.runtimeMode !== "sandbox") {
       if (canonical && (!suffix || suffix === "/") && ["GET", "HEAD"].includes(request.method) && entry?.url)
         return reply.redirect(entry.url);

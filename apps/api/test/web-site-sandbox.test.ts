@@ -129,12 +129,10 @@ describe("same-host public dynamic applications", () => {
     const alias = await f.app.inject({ url: `${f.url}?view=today`, headers: { host: f.host } });
     expect(alias.statusCode).toBe(302);
     expect(alias.headers.location).toBe(`${stable}?view=today`);
-    f.site.store.publicSiteById.mockClear();
     const response = await f.app.inject({ method: "POST", url: `${stable}/_rpc`, payload: { path: "/account", method: "GET" },
       headers: { host: f.host, cookie: String(first.headers["set-cookie"]).split(";")[0]!,
         origin: f.config.publicBaseUrl, "x-linksense-app-capability": packet.capability } });
     expect(response.statusCode).toBe(200);
-    expect(f.site.store.publicSiteById).not.toHaveBeenCalled();
     f.disable();
     expect((await f.app.inject({ url: stable, headers: { host: f.host } })).statusCode).toBe(404);
     expect((await f.app.inject({ url: f.url, headers: { host: f.host } })).statusCode).toBe(404);

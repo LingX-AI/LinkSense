@@ -3,6 +3,7 @@ import JSZip from "jszip";
 import { conversationWebSiteSchema, conversationWebSitesSchema, webSiteCursorSchema, webApplicationPath, type ConversationWebSite } from "@linksense/shared";
 import { webBundleManifestSchema, webSiteSchema, webSiteToolPageSchema, webSiteWithUrlSchema, type WebBundleManifest, type WebSite, type WebSiteCreate, type WebSiteToolPage, type WebSiteToolRequest, type WebSiteUpdate, type WebSiteWithUrl } from "@linksense/shared";
 import type { ObjectStorage } from "../../adapters/object-storage.js";
+import { hashPassword } from "../../lib/password.js";
 import { AppError } from "../../lib/errors.js";
 import type { SiteAndRelease, SiteListInput, WebSiteStore } from "./repository.js";
 import { bundleSize, prepareWebResource } from "./resources.js";
@@ -39,6 +40,17 @@ export class WebSiteService {
     if (!slug.success) throw new AppError("WEB_SITE_NOT_FOUND");
     return (await this.store.publicSite(slug.data)).site.id;
   }
+  /** Published access state for the passcode gate; the hash itself stays server-side. */
+  async publicAccess(address: string): Promise<{ id: string; slug: string; passcodeHash: string | null }> {
+    const siteId = await this.publishedSiteIdByAddress(address);
+    const { site } = await this.store.publicSiteById(siteId);
+    return { id: site.id, slug: site.slug, passcodeHash: site.passcodeHash ?? null };
+  }
+  private async passcodeHash(passcode: string | null | undefined): Promise<string | null | undefined> {
+    if (passcode === undefined) return undefined;
+    if (passcode === null) return null;
+    return await hashPassword(passcode);
+  }
   async publishedSlugForOwner(ownerId: string, siteId: string): Promise<string> {
     const { site } = await this.store.owned(ownerId, siteId);
     if (site.status !== "published") throw new AppError("WEB_SITE_NOT_FOUND");
@@ -53,19 +65,21 @@ export class WebSiteService {
   async create(ownerId: string, input: WebSiteCreate): Promise<WebSite> {
     const { sourceTitle, manifest } = await this.sourceBundle(ownerId, input.conversation_id, input.file_id);
     const ids = { siteId: randomUUID(), releaseId: randomUUID(), slug: input.slug ?? randomUUID() };
+    const passcodeHash = await this.passcodeHash(input.passcode);
     return await this.project(input.backend_id
       ? await this.requiredBackends().withPublishable(ownerId, input.backend_id,
-        lease => this.store.create(ownerId, input, ids, sourceTitle, manifest, lease))
-      : await this.store.create(ownerId, input, ids, sourceTitle, manifest));
+        lease => this.store.create(ownerId, input, ids, sourceTitle, manifest, lease, passcodeHash))
+      : await this.store.create(ownerId, input, ids, sourceTitle, manifest, undefined, passcodeHash));
   }
   async update(ownerId: string, id: string, input: WebSiteUpdate): Promise<WebSite> {
+    const passcodeHash = await this.passcodeHash(input.passcode);
     if (input.status === "published") {
       const { site } = await this.store.owned(ownerId, id);
       if (site.backendId) return await this.project(await this.requiredBackends().withPublishable(
-        ownerId, site.backendId, lease => this.store.update(ownerId, id, input, lease),
+        ownerId, site.backendId, lease => this.store.update(ownerId, id, input, lease, passcodeHash),
       ));
     }
-    return await this.project(await this.store.update(ownerId, id, input));
+    return await this.project(await this.store.update(ownerId, id, input, undefined, passcodeHash));
   }
   async publish(ownerId: string, id: string, fileId: string, expectedBackendId?: string): Promise<WebSite> {
     const { site } = await this.store.owned(ownerId, id);
@@ -183,6 +197,7 @@ export function projectSite({ site, release }: SiteAndRelease): WebSite {
   const manifest = webBundleManifestSchema.parse(release.manifestJson);
   return webSiteSchema.parse({
     id: site.id, name: site.name, description: site.description, slug: site.slug, status: site.status,
+    passcode_protected: Boolean(site.passcodeHash),
     url_path: webApplicationPath(site.id), conversation_id: site.conversationId, source_task_title: site.sourceTaskTitle,
     source_file_id: site.sourceFileId, release_id: release.id, file_count: manifest.files.length, size_bytes: bundleSize(manifest),
     published_at: release.createdAt.toISOString(), created_at: site.createdAt.toISOString(), updated_at: site.updatedAt.toISOString(),

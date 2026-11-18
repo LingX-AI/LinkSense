@@ -8,6 +8,7 @@ import { sendAppError } from "../src/lib/http.js";
 import { createApiCorsOptions } from "../src/lib/cors.js";
 import { publicWebSiteRoutes, webSiteRoutes } from "../src/modules/web-sites/routes.js";
 import { ownerId, taskId, fileId, siteId, releaseId, siteFixture } from "./web-sites.fixture.js";
+import { hashPassword } from "../src/lib/password.js";
 
 const apps: Array<ReturnType<typeof Fastify>> = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map(app => app.close())); });
@@ -23,7 +24,7 @@ async function setup() {
     Object.assign(request, { authUser: { id: ownerId } });
   });
   await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: fixture.service, publicBaseUrl: "https://linksense.example.test" });
-  await app.register(publicWebSiteRoutes, { prefix: "/web", service: fixture.service, publicBaseUrl: "https://linksense.example.test" });
+  await app.register(publicWebSiteRoutes, { prefix: "/web", service: fixture.service, publicBaseUrl: "https://linksense.example.test", accessSecret: "test-access-secret" });
   return { ...fixture, app };
 }
 describe("website HTTP boundary", () => {
@@ -168,6 +169,43 @@ describe("website HTTP boundary", () => {
     expect(response.body).not.toContain("private database connection");
     expect(response.body).not.toContain('aria-hidden="true">404</p>');
   });
+  it("gates a passcode-protected site behind an unlock cookie for pages and release assets", async () => {
+    const fixture = await setup();
+    fixture.row.site.passcodeHash = await hashPassword("sunrise");
+    const locked = await fixture.app.inject({ url: "/web/sample", headers: { "accept-language": "en-US", accept: "text/html" } });
+    expect(locked.statusCode).toBe(401);
+    expect(locked.headers["content-security-policy"]).toContain("form-action 'self'");
+    expect(locked.body).toContain("This site is protected");
+    expect(locked.body).toContain('action="/web/sample/unlock"');
+    const asset = await fixture.app.inject({ url: `/web/sample/_releases/${releaseId}/index.html`, headers: { "accept-language": "en-US" } });
+    expect(asset.statusCode).toBe(401);
+    expect(asset.body).toContain("This site is protected");
+
+    const form = { "content-type": "application/x-www-form-urlencoded", "accept-language": "en-US" };
+    const wrong = await fixture.app.inject({ method: "POST", url: "/web/sample/unlock", payload: "passcode=wrong", headers: form });
+    expect(wrong.statusCode).toBe(401);
+    expect(wrong.body).toContain("That passcode is not correct");
+    const unlock = await fixture.app.inject({ method: "POST", url: "/web/sample/unlock", payload: "passcode=sunrise&next=%2Fweb%2Fsample", headers: form });
+    expect(unlock.statusCode).toBe(303);
+    expect(unlock.headers.location).toBe("/web/sample");
+    const cookie = String(unlock.headers["set-cookie"]).split(";")[0]!;
+    expect(cookie).toMatch(/^linksense_site_access_[a-f0-9]{32}=/u);
+    const open = await fixture.app.inject({ url: "/web/sample", headers: { cookie } });
+    expect(open.statusCode).toBe(200);
+    expect(open.body).toContain("iframe");
+    const gatedAsset = await fixture.app.inject({ url: `/web/sample/_releases/${releaseId}/index.html`, headers: { "accept-language": "en-US" } });
+    expect(gatedAsset.statusCode).toBe(401);
+    const openAsset = await fixture.app.inject({ url: `/web/sample/_releases/${releaseId}/index.html`, headers: { cookie } });
+    expect(openAsset.statusCode).toBe(200);
+
+    // Changing the passcode revokes the existing unlock.
+    fixture.row.site.passcodeHash = await hashPassword("sunset");
+    expect((await fixture.app.inject({ url: "/web/sample", headers: { cookie } })).statusCode).toBe(401);
+    // Removing it makes the site public again.
+    fixture.row.site.passcodeHash = null;
+    expect((await fixture.app.inject("/web/sample")).statusCode).toBe(200);
+  });
+
   it("requires authentication for all management operations and checks resource ownership", async () => {
     const fixture = await setup();
     for (const method of ["GET", "PATCH", "DELETE"] as const) {
@@ -185,7 +223,7 @@ describe("website HTTP boundary", () => {
     const fixture = await setup();
     const headers = { authorization: "Bearer test-owner" };
     expect((await fixture.app.inject({ method: "POST", url: "/api/v1/web-sites", headers, payload: { conversation_id: taskId, file_id: fileId, name: "Page", slug: "My-Page" } })).statusCode).toBe(201);
-    expect(fixture.store.create).toHaveBeenCalledWith(ownerId, expect.objectContaining({ slug: "my-page" }), expect.any(Object), "Source", expect.any(Object));
+    expect(fixture.store.create).toHaveBeenCalledWith(ownerId, expect.objectContaining({ slug: "my-page" }), expect.any(Object), "Source", expect.any(Object), undefined, undefined);
     expect((await fixture.app.inject({ method: "PATCH", url: `/api/v1/web-sites/${siteId}`, headers, payload: { owner_id: taskId } })).statusCode).toBe(400);
     expect((await fixture.app.inject({ url: "/api/v1/web-sites?cursor=garbage", headers })).statusCode).toBe(400);
     expect(fixture.store.update).not.toHaveBeenCalled();

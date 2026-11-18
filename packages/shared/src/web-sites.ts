@@ -6,6 +6,8 @@ export const webSiteSlugSchema = z.string().trim().toLowerCase().min(3).max(80)
 export const webSiteStatusSchema = z.enum(["published", "disabled"]);
 /** Stable application identity, independent of aliases and optional backend. */
 export const webApplicationPath = (id: string): string => `/app/s/${z.uuid().parse(id)}`;
+/** Optional per-site visitor passcode. `null` removes it. */
+export const webSitePasscodeSchema = z.string().min(4).max(128).nullable();
 export const webSiteCreateSchema = z.strictObject({
   conversation_id: z.uuid(),
   file_id: z.uuid(),
@@ -13,12 +15,14 @@ export const webSiteCreateSchema = z.strictObject({
   description: z.string().trim().max(1_000).default(""),
   slug: webSiteSlugSchema.optional(),
   backend_id: z.uuid().optional(),
+  passcode: webSitePasscodeSchema.optional(),
 });
 export const webSiteUpdateSchema = z.strictObject({
   name: z.string().trim().min(1).max(240).optional(),
   description: z.string().trim().max(1_000).optional(),
   slug: webSiteSlugSchema.optional(),
   status: webSiteStatusSchema.optional(),
+  passcode: webSitePasscodeSchema.optional(),
 }).refine(value => Object.keys(value).length > 0);
 export const webSitePublishSchema = z.strictObject({ file_id: z.uuid(), backend_id: z.uuid().optional() });
 export const webSiteSchema = z.object({
@@ -27,6 +31,8 @@ export const webSiteSchema = z.object({
   description: z.string(),
   slug: webSiteSlugSchema,
   status: webSiteStatusSchema,
+  /** The hash itself never leaves the server. */
+  passcode_protected: z.boolean().default(false),
   url_path: z.string(),
   conversation_id: z.uuid().nullable(),
   source_task_title: z.string(),
@@ -81,6 +87,7 @@ export const webSiteUpdateToolSchema = z.strictObject({
   description: z.string().trim().max(1_000).optional(),
   slug: webSiteSlugSchema.optional(),
   status: webSiteStatusSchema.optional(),
+  passcode: webSitePasscodeSchema.optional(),
 });
 export const webSiteToolRequestSchema = z.discriminatedUnion("operation", [
   webSitePublishToolSchema.extend({ operation: z.literal("publish") }),

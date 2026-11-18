@@ -128,7 +128,7 @@ export class WebSiteRepository {
     return files.map(file => ({ id: file.id, filename: file.filename, created_at: file.createdAt.toISOString() }));
   }
 
-  async create(ownerId: string, input: WebSiteCreate, ids: { siteId: string; releaseId: string; slug: string }, sourceTitle: string, manifest: WebBundleManifest, backendLease?: Date): Promise<SiteAndRelease> {
+  async create(ownerId: string, input: WebSiteCreate, ids: { siteId: string; releaseId: string; slug: string }, sourceTitle: string, manifest: WebBundleManifest, backendLease?: Date, passcodeHash?: string | null): Promise<SiteAndRelease> {
     try {
       return await this.prisma.$transaction(async tx => {
         await lockSource(tx, ownerId, input.conversation_id, input.file_id);
@@ -148,6 +148,7 @@ export class WebSiteRepository {
           sourceFileId: input.file_id, sourceTaskTitle: sourceTitle, name: input.name,
           description: input.description, slug: ids.slug, status: "published", currentReleaseId: ids.releaseId,
           ...(input.backend_id ? { backendId: input.backend_id } : {}),
+          ...(passcodeHash ? { passcodeHash } : {}),
         } });
         const release = await tx.webSiteRelease.create({ data: { id: ids.releaseId, siteId: site.id, sourceFileId: input.file_id, manifestJson: manifest } });
         await audit(tx, ownerId, site.id, "web_site_created");
@@ -156,7 +157,7 @@ export class WebSiteRepository {
     } catch (error) { throw translateConflict(error); }
   }
 
-  async update(ownerId: string, id: string, input: WebSiteUpdate, backendLease?: Date): Promise<SiteAndRelease> {
+  async update(ownerId: string, id: string, input: WebSiteUpdate, backendLease?: Date, passcodeHash?: string | null): Promise<SiteAndRelease> {
     try {
       await this.prisma.$transaction(async tx => {
         const site = await lockSite(tx, ownerId, id);
@@ -173,6 +174,8 @@ export class WebSiteRepository {
           ...(input.description !== undefined ? { description: input.description } : {}),
           ...(input.slug !== undefined ? { slug: input.slug } : {}),
           ...(input.status !== undefined ? { status: input.status } : {}),
+          // `null` removes the passcode; `undefined` keeps the current one.
+          ...(passcodeHash !== undefined ? { passcodeHash } : {}),
         } });
         await audit(tx, ownerId, id, "web_site_updated");
       });

@@ -19,12 +19,26 @@ describe("website publishing service", () => {
     expect(withUrl({ ...site, slug: "60000000-0000-4000-8000-000000000001" }, "https://public.example.test"))
       .not.toHaveProperty("alias_url");
   });
+  it("hashes site passcodes and exposes only the protection state", async () => {
+    const fixture = siteFixture();
+    fixture.store.update.mockImplementation(async (_owner, _id, _input, _lease, passcodeHash) => ({
+      site: { ...fixture.row.site, passcodeHash: passcodeHash ?? null },
+      release: fixture.row.release,
+    }));
+    const protectedSite = await fixture.service.update(ownerId, siteId, { passcode: "sunrise" });
+    expect(fixture.store.update).toHaveBeenCalledWith(ownerId, siteId, { passcode: "sunrise" }, undefined, expect.stringMatching(/^\$argon2id\$/u));
+    expect(protectedSite.passcode_protected).toBe(true);
+    expect(JSON.stringify(protectedSite)).not.toContain("$argon2");
+    const openSite = await fixture.service.update(ownerId, siteId, { passcode: null });
+    expect(fixture.store.update).toHaveBeenLastCalledWith(ownerId, siteId, { passcode: null }, undefined, null);
+    expect(openSite.passcode_protected).toBe(false);
+  });
   it("publishes an existing self-contained HTML artifact with a generated UUID and a bounded manifest", async () => {
     const fixture = siteFixture();
     fixture.source.file.checksumSha256 = null;
     const site = await fixture.service.create(ownerId, { conversation_id: taskId, file_id: fileId, name: "Existing page", description: "" });
     expect(fixture.store.source).toHaveBeenCalledWith(ownerId, taskId, fileId);
-    expect(fixture.store.create).toHaveBeenCalledWith(ownerId, expect.any(Object), expect.objectContaining({ slug: expect.stringMatching(/^[a-f0-9-]{36}$/u) }), "Source", fixture.manifest);
+    expect(fixture.store.create).toHaveBeenCalledWith(ownerId, expect.any(Object), expect.objectContaining({ slug: expect.stringMatching(/^[a-f0-9-]{36}$/u) }), "Source", fixture.manifest, undefined, undefined);
     expect(site.url_path).toBe(`/app/s/${siteId}`);
     expect(JSON.stringify(site)).not.toContain("object_key");
     expect(fixture.storage.putObject).not.toHaveBeenCalled();

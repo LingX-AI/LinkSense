@@ -1535,6 +1535,7 @@ model WebSite {
   description      String    @default("") @db.VarChar(1000)
   slug             String    @unique(map: "web_sites_slug_key") @db.VarChar(80)
   status           String    @db.VarChar(32)
+  passcodeHash     String?   @map("passcode_hash") @db.VarChar(255)
   currentReleaseId String    @map("current_release_id") @db.Uuid
   backendId        String?   @unique(map: "web_sites_backend_key") @map("backend_id") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

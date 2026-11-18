@@ -91,6 +91,13 @@ export async function createSandboxBrowserFixture() {
   }, config);
   const app = Fastify();
   registerPublicAppGateway(app, backends, {
+    publicAccess: async address => {
+      const index = rows.findIndex((row, item) =>
+        address === `40000000-0000-4000-8000-00000000000${item + 1}` || address === row.name);
+      const row = rows[index];
+      if (!row || disabled.has(row.name)) throw new AppError("WEB_SITE_NOT_FOUND");
+      return { id: `40000000-0000-4000-8000-00000000000${index + 1}`, slug: row.name, passcodeHash: null };
+    },
     publishedSiteIdByAddress: async address => {
       const index = rows.findIndex((row, item) =>
         address === `40000000-0000-4000-8000-00000000000${item + 1}` || address === row.name);
