@@ -118,8 +118,9 @@ describe("website management", () => {
     const details = screen.getByRole("dialog", { name: site.name })
     expect(within(details).getByText(aliasUrl)).toBeVisible()
     expect(
-      within(details).getByText(i18n.t("webSites.details.passcodeOff"))
-    ).toBeVisible()
+      within(details).getByText(i18n.t("webSites.details.passcode"))
+        .nextElementSibling
+    ).toHaveTextContent(i18n.t("webSites.details.passcodeOff"))
     await user.click(
       within(details).getByRole("button", {
         name: i18n.t("webSites.details.copyAlias"),
@@ -183,8 +184,103 @@ describe("website management", () => {
     await user.click(await screen.findByRole("button", { name: site.name }))
     const details = screen.getByRole("dialog", { name: site.name })
     expect(
-      within(details).getByText(i18n.t("webSites.details.passcodeOn"))
-    ).toBeVisible()
+      within(details).getByText(i18n.t("webSites.details.passcode"))
+        .nextElementSibling
+    ).toHaveTextContent(i18n.t("webSites.details.passcodeOn"))
+  })
+
+  it("links to the analytics dashboard in publication details when enabled", async () => {
+    const user = userEvent.setup()
+    const analyticsUrl = "http://stats.example.test/sites/7"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        success({
+          items: [
+            { ...site, analytics_enabled: true, analytics_url: analyticsUrl },
+          ],
+          next_cursor: null,
+        })
+      )
+    )
+    mount(<SiteLibrary />)
+    await user.click(await screen.findByRole("button", { name: site.name }))
+    const details = screen.getByRole("dialog", { name: site.name })
+    expect(
+      within(details).getByRole("link", {
+        name: i18n.t("webSites.details.openAnalytics"),
+      })
+    ).toHaveAttribute("href", analyticsUrl)
+  })
+
+  it("does not require a custom slug when editing and keeps the current link when cleared", async () => {
+    const fetch = vi.fn(async () => success(site))
+    vi.stubGlobal("fetch", fetch)
+    const close = vi.fn()
+    mount(<SiteDialog action={{ kind: "edit", site }} onClose={close} />)
+    const slug = screen.getByRole("textbox", {
+      name: i18n.t("webSites.slug"),
+    })
+    expect(slug).not.toHaveAttribute("aria-required")
+    await userEvent.clear(slug)
+    await userEvent.click(
+      screen.getByRole("button", { name: i18n.t("webSites.save") })
+    )
+    await waitFor(() => expect(close).toHaveBeenCalled())
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining(`/web-sites/${id}`),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          name: site.name,
+          description: site.description,
+        }),
+      })
+    )
+  })
+
+  it("keeps the custom slug field blank for an auto-generated address", () => {
+    mount(
+      <SiteDialog
+        action={{ kind: "edit", site: { ...site, slug: id } }}
+        onClose={vi.fn()}
+      />
+    )
+    expect(
+      screen.getByRole("textbox", { name: i18n.t("webSites.slug") })
+    ).toHaveValue("")
+  })
+
+  it("enables visitor analytics from the edit dialog", async () => {
+    const fetch = vi.fn(async () =>
+      success({
+        ...site,
+        analytics_enabled: true,
+        analytics_url: "http://stats.example.test/sites/7",
+      })
+    )
+    vi.stubGlobal("fetch", fetch)
+    const close = vi.fn()
+    mount(<SiteDialog action={{ kind: "edit", site }} onClose={close} />)
+    await userEvent.click(
+      screen.getByRole("switch", { name: i18n.t("webSites.analytics") })
+    )
+    await userEvent.click(
+      screen.getByRole("button", { name: i18n.t("webSites.save") })
+    )
+    await waitFor(() => expect(close).toHaveBeenCalled())
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining(`/web-sites/${id}`),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          name: site.name,
+          description: site.description,
+          slug: site.slug,
+          analytics: true,
+        }),
+      })
+    )
   })
 
   it.each(["zh-CN", "en-US", "es-ES", "pt-BR", "fr-FR", "ja-JP"])(
@@ -707,14 +803,23 @@ describe("website management", () => {
     expect(dialog.querySelector('[data-slot="dialog-footer"]')).toHaveClass(
       "sm:justify-end"
     )
-    for (const key of ["webSites.name", "webSites.slug"]) {
-      const input = screen.getByRole("textbox", { name: i18n.t(key) })
-      expect(
-        document.querySelector(
-          `label[for='${input.id}'] span.text-destructive[aria-hidden='true']`
-        )
-      ).toHaveTextContent("*")
-    }
+    const nameInput = screen.getByRole("textbox", {
+      name: i18n.t("webSites.name"),
+    })
+    expect(
+      document.querySelector(
+        `label[for='${nameInput.id}'] span.text-destructive[aria-hidden='true']`
+      )
+    ).toHaveTextContent("*")
+    const slugInput = screen.getByRole("textbox", {
+      name: i18n.t("webSites.slug"),
+    })
+    expect(slugInput).not.toHaveAttribute("aria-required")
+    expect(
+      document.querySelector(
+        `label[for='${slugInput.id}'] span.text-destructive[aria-hidden='true']`
+      )
+    ).toBeNull()
     expect(
       view.container.ownerDocument.querySelector(
         '[data-slot="site-dialog-hero"]'

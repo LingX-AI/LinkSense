@@ -124,6 +124,22 @@ const appwriteSchema = z.object({
   };
 });
 
+const analyticsSchema = z.object({
+  LINKSENSE_TINYTRAFFIC_URL: optionalString,
+  LINKSENSE_TINYTRAFFIC_API_KEY: optionalSecret,
+}).transform(value => {
+  if (!value.LINKSENSE_TINYTRAFFIC_URL && !value.LINKSENSE_TINYTRAFFIC_API_KEY) return null;
+  const complete = z.object({
+    LINKSENSE_TINYTRAFFIC_URL: z.url({ protocol: /^https?$/u }),
+    LINKSENSE_TINYTRAFFIC_API_KEY: z.string().min(16).max(1_024),
+  }).parse(value);
+  const url = new URL(complete.LINKSENSE_TINYTRAFFIC_URL);
+  if (url.username || url.password || url.search || url.hash || url.pathname !== "/") {
+    throw new Error("Invalid analytics URL configuration");
+  }
+  return { baseUrl: url.origin, apiKey: complete.LINKSENSE_TINYTRAFFIC_API_KEY };
+});
+
 const optionalMimeTypeList = z.preprocess(
   (value) =>
     typeof value === "string" && value.trim() === "" ? undefined : value,
@@ -313,6 +329,8 @@ const rawConfigSchema = z
       .enum(["true", "false"])
       .default("true")
       .transform((value) => value === "true"),
+    LINKSENSE_TINYTRAFFIC_URL: optionalString,
+    LINKSENSE_TINYTRAFFIC_API_KEY: optionalSecret,
     LINKSENSE_PUBLIC_BASE_URL: z.url(),
     LINKSENSE_JWT_SECRET: z.string().min(32),
     LINKSENSE_INITIALIZATION_TOKEN: optionalSecret,
@@ -522,6 +540,7 @@ export function requireFullAppConfig(config: AppConfig): FullAppConfig {
 
 export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
   const appwrite = appwriteSchema.parse(env);
+  const analytics = analyticsSchema.parse(env);
   const raw = rawConfigSchema.parse(env);
   const userDataRoot = resolve(raw.LINKSENSE_USER_DATA_ROOT);
   const objectStorageProvider = resolveObjectStorageProvider(raw);
@@ -547,6 +566,7 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env) {
     managedBrowserEnabled: raw.LINKSENSE_MANAGED_BROWSER_ENABLED,
     publicBaseUrl: raw.LINKSENSE_PUBLIC_BASE_URL,
     appwrite,
+    analytics,
     publicUrlUsesHttps:
       new URL(raw.LINKSENSE_PUBLIC_BASE_URL).protocol === "https:",
     jwtSecret: raw.LINKSENSE_JWT_SECRET,

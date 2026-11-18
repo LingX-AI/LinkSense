@@ -68,22 +68,26 @@ export const internalWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService
 };
 
 export const webSiteSandbox = "allow-scripts allow-modals allow-downloads allow-forms";
-export function publishedResourcePolicy(publicBaseUrl: string, requestOrigin?: string): string {
+export function publishedResourcePolicy(publicBaseUrl: string, requestOrigin?: string, analyticsOrigin?: string): string {
   const origins = new Set([new URL(publicBaseUrl).origin]);
   if (requestOrigin) {
     try { origins.add(new URL(requestOrigin).origin); } catch { /* Keep the configured origin when the request host is malformed. */ }
   }
   const webSources = [...origins].map(origin => `${origin}/web/`).join(" ");
+  // The tracker is a cross-origin script that reports over fetch; the configured
+  // analytics origin must be allowed even when the public site is plain HTTP.
+  const analytics = analyticsOrigin ? [analyticsOrigin] : [];
   return [
     `sandbox ${webSiteSandbox}`, "default-src 'none'", "base-uri 'none'", "object-src 'none'", "frame-src 'none'", "worker-src 'none'", "form-action 'none'",
-    `script-src 'unsafe-inline' 'unsafe-eval' https: ${webSources} ${[...origins].map(origin => `${origin}/app/_sdk/v1.js`).join(" ")}`,
+    `script-src 'unsafe-inline' 'unsafe-eval' https: ${webSources} ${[...origins].map(origin => `${origin}/app/_sdk/v1.js`).join(" ")} ${analytics.join(" ")}`,
     `style-src 'unsafe-inline' https: ${webSources}`,
     `img-src data: blob: https: ${webSources}`, `font-src data: https: ${webSources}`,
-    `media-src blob: https: ${webSources}`, `connect-src https: ${webSources}`,
+    `media-src blob: https: ${webSources}`, `connect-src https: ${webSources} ${analytics.join(" ")}`,
   ].join("; ");
 }
 
-export const publicWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; publicBaseUrl: string; accessSecret: string }> = async (app, { service, publicBaseUrl, accessSecret }) => {
+export const publicWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; publicBaseUrl: string; accessSecret: string; analyticsBaseUrl?: string }> = async (app, { service, publicBaseUrl, accessSecret, analyticsBaseUrl }) => {
+  const analyticsOrigin = analyticsBaseUrl ? new URL(analyticsBaseUrl).origin : undefined;
   // The passcode form posts urlencoded, which no other route parses.
   app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string", bodyLimit: 4_096 },
     (_request, body, done) => done(null, body));
@@ -152,7 +156,7 @@ export const publicWebSiteRoutes: FastifyPluginAsync<{ service: WebSiteService; 
     const resource = await service.resource(slug, releaseId, path);
     return reply.type(resourceContentType(resource.mimeType)).header("access-control-allow-origin", "*")
       .header("cross-origin-resource-policy", "cross-origin")
-      .header("content-security-policy", publishedResourcePolicy(publicBaseUrl, `${request.protocol}://${request.host}`))
+      .header("content-security-policy", publishedResourcePolicy(publicBaseUrl, `${request.protocol}://${request.host}`, analyticsOrigin))
       .send(resource.data);
   });
 };

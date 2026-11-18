@@ -157,7 +157,7 @@ export class WebSiteRepository {
     } catch (error) { throw translateConflict(error); }
   }
 
-  async update(ownerId: string, id: string, input: WebSiteUpdate, backendLease?: Date, passcodeHash?: string | null): Promise<SiteAndRelease> {
+  async update(ownerId: string, id: string, input: WebSiteUpdate, backendLease?: Date, passcodeHash?: string | null, analytics?: { enabled: boolean; siteId?: number; domain?: string }): Promise<SiteAndRelease> {
     try {
       await this.prisma.$transaction(async tx => {
         const site = await lockSite(tx, ownerId, id);
@@ -176,6 +176,11 @@ export class WebSiteRepository {
           ...(input.status !== undefined ? { status: input.status } : {}),
           // `null` removes the passcode; `undefined` keeps the current one.
           ...(passcodeHash !== undefined ? { passcodeHash } : {}),
+          ...(analytics ? {
+            analyticsEnabled: analytics.enabled,
+            ...(analytics.siteId !== undefined ? { analyticsSiteId: analytics.siteId } : {}),
+            ...(analytics.domain !== undefined ? { analyticsDomain: analytics.domain } : {}),
+          } : {}),
         } });
         await audit(tx, ownerId, id, "web_site_updated");
       });

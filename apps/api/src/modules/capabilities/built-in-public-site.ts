@@ -244,6 +244,13 @@ Return the publishing tool's URL, not a URL inferred from backend preparation.
   Visitors then unlock the site on a LinkSense passcode page, and changing the
   passcode immediately revokes earlier unlocks. Never put the passcode in the
   page bundle or logs, and do not invent one if the user has not chosen a code.
+- To collect visitor statistics, call \`update_web_site\` with
+  \`analytics: true\` after the site is published, then share the returned
+  \`analytics_url\` as the dashboard link. Only a published site can enable it;
+  \`analytics: false\` stops collection but keeps its history. This built-in
+  setting is the only supported analytics integration. Never embed a
+  third-party analytics script or invent a dashboard URL, and report an
+  unconfigured analytics service as an actual error.
 - Unpublish with \`update_web_site\` and \`status: "disabled"\`. Republish with
   \`status: "published"\`. Deleting a site is a destructive action and should be
   left to the user in Apps & Tools → Applications → My sites unless they
@@ -254,6 +261,8 @@ Return the publishing tool's URL, not a URL inferred from backend preparation.
 - The published page is public. Remove credentials, tokens, personal data,
   internal addresses, and content that should not be public before publishing.
 - Do not add analytics, tracking, or third-party requests unless the user asks.
+  For visitor statistics, use the site's \`analytics\` setting; do not embed a
+  third-party tracker yourself.
 - Treat the published site as an external side effect: only publish when the
   user explicitly requested publication or a public link. Selecting a delivery
   shape alone does not authorize publication.

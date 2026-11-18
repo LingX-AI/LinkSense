@@ -88,7 +88,7 @@ const listTool: Tool = {
 const updateTool: Tool = {
   name: "update_web_site",
   description:
-    "Update an owned Web application's name, description, slug, or published status without changing its content. The stable application URL and retired aliases remain usable after renaming. Unpublishing closes the stable entry, aliases, resources and backend gateway.",
+    "Update an owned Web application's name, description, slug, published status, access passcode, or visitor analytics without changing its content. The stable application URL and retired aliases remain usable after renaming. Unpublishing closes the stable entry, aliases, resources and backend gateway. analytics: true enables privacy-friendly visitor statistics for a published site and returns analytics_url for the owner; analytics: false stops collection but keeps historical data. Never invent an analytics URL.",
   inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSiteUpdateToolSchema)),
 };
 

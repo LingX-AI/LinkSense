@@ -183,6 +183,7 @@ import {
 } from "./modules/application-embed/service.js";
 import { ConversationShareService } from "./modules/conversations/sharing.js";
 import { WebSiteService } from "./modules/web-sites/service.js";
+import { WebSiteAnalytics } from "./modules/web-sites/analytics.js";
 import { WebSiteRepository } from "./modules/web-sites/repository.js";
 import { WebSiteBackendRepository } from "./modules/web-site-backends/repository.js";
 import { WebSiteBackendService } from "./modules/web-site-backends/service.js";
@@ -896,6 +897,7 @@ export function createServices(input: {
     input.redis,
   );
   const webSiteBackends = new WebSiteBackendService(new WebSiteBackendRepository(input.prisma), input.storage, input.config);
+  const webSiteAnalytics = input.config.analytics ? new WebSiteAnalytics(input.config.analytics) : undefined;
   return {
     ...input,
     projects: new ProjectService(new ProjectRepository(input.prisma)),
@@ -914,7 +916,7 @@ export function createServices(input: {
     conversations,
     conversationShares,
     webSiteBackends,
-    webSites: new WebSiteService(new WebSiteRepository(input.prisma), input.storage, webSiteBackends),
+    webSites: new WebSiteService(new WebSiteRepository(input.prisma), input.storage, webSiteBackends, webSiteAnalytics),
     htmlPreviews: new HtmlPreviewService(new WebArtifactResources(new WebSiteRepository(input.prisma), input.storage), new RedisHtmlPreviewSessionStore(input.redis), async ownerId => Boolean(await input.prisma.user.count({ where: { id: ownerId, status: "active" } }))),
     automations,
     conversationAutomations: new ConversationAutomationService(input.prisma, automations),

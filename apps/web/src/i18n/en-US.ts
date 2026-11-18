@@ -5559,6 +5559,12 @@ export const enUS = {
       resourcesMissing:
         errorCatalog.WEB_SITE_RESOURCES_MISSING.messages["en-US"],
       bundleInvalid: errorCatalog.WEB_SITE_BUNDLE_INVALID.messages["en-US"],
+      analyticsNotConfigured:
+        errorCatalog.WEB_SITE_ANALYTICS_NOT_CONFIGURED.messages["en-US"],
+      analyticsUnavailable:
+        errorCatalog.WEB_SITE_ANALYTICS_UNAVAILABLE.messages["en-US"],
+      analyticsUnpublished:
+        errorCatalog.WEB_SITE_ANALYTICS_UNPUBLISHED.messages["en-US"],
     },
     feishu: {
       connectionNotFound:

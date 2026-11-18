@@ -52,6 +52,12 @@ export const errors = {
       "Une ressource de la page manque ({{path}}). Demandez à l’assistant de la tâche source d’enregistrer la page avec ses ressources avant de publier",
     bundleInvalid:
       "Le paquet de la page est incomplet ou contient des fichiers non pris en charge. Corrigez-le dans la tâche source et réessayez",
+    analyticsNotConfigured:
+      "Un administrateur doit configurer le service de statistiques du site",
+    analyticsUnavailable:
+      "Le service de statistiques est temporairement indisponible. Réessayez plus tard",
+    analyticsUnpublished:
+      "Seul un site publié peut activer les statistiques de visites",
   },
   feishu: {
     connectionNotFound: "Connexion Feishu introuvable. Connectez-la à nouveau.",

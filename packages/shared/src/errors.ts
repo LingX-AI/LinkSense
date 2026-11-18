@@ -40,6 +40,18 @@ export const errorCatalog = {
     message_key: "errors.webSites.backendPending", http_status: 409,
     messages: { "zh-CN": "后端资源或函数尚未准备完成，请检查构建状态后再发布。", "en-US": "Backend resources or functions are not ready. Check their build status before publishing." },
   },
+  WEB_SITE_ANALYTICS_NOT_CONFIGURED: {
+    message_key: "errors.webSites.analyticsNotConfigured", http_status: 503,
+    messages: { "zh-CN": "管理员尚未配置站点统计服务。", "en-US": "An administrator must configure the site analytics service." },
+  },
+  WEB_SITE_ANALYTICS_UNAVAILABLE: {
+    message_key: "errors.webSites.analyticsUnavailable", http_status: 502,
+    messages: { "zh-CN": "统计服务暂时不可用，请稍后重试。", "en-US": "The analytics service is temporarily unavailable. Try again later." },
+  },
+  WEB_SITE_ANALYTICS_UNPUBLISHED: {
+    message_key: "errors.webSites.analyticsUnpublished", http_status: 409,
+    messages: { "zh-CN": "只有已发布的站点才能开启访问统计。", "en-US": "Only a published site can enable visitor analytics." },
+  },
   AUTOMATION_RUN_LIMIT_REACHED: {"message_key": "monitoring.runLimitReached", "http_status": 409, "messages": {"zh-CN": "自动运行次数已用尽，请先提高或取消次数上限。", "en-US": "The automatic run limit is exhausted. Increase or remove the limit before resuming."}},
   BROWSER_PANEL_UNAVAILABLE: {"message_key": "browserPanel.unavailable", "http_status": 409, "messages": {"zh-CN": "当前任务没有可查看的浏览器会话。", "en-US": "This task has no available browser session."}},
   BROWSER_CONTROL_BUSY: {"message_key": "browserPanel.busy", "http_status": 409, "messages": {"zh-CN": "浏览器正在执行操作，请稍后重试。", "en-US": "The browser is performing an action. Try again shortly."}},

@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { pathToFileURL } from "node:url";
 
-const optionalEnvironmentKeys = ["LINKSENSE_APPWRITE_ENDPOINT", "LINKSENSE_APPWRITE_ADMIN_EMAIL", "LINKSENSE_APPWRITE_ADMIN_PASSWORD", "LINKSENSE_APPWRITE_ORGANIZATION_ID", "LINKSENSE_DYNAMIC_APPS_BASE_URL"];
+const optionalEnvironmentKeys = ["LINKSENSE_APPWRITE_ENDPOINT", "LINKSENSE_APPWRITE_ADMIN_EMAIL", "LINKSENSE_APPWRITE_ADMIN_PASSWORD", "LINKSENSE_APPWRITE_ORGANIZATION_ID", "LINKSENSE_DYNAMIC_APPS_BASE_URL", "LINKSENSE_TINYTRAFFIC_URL", "LINKSENSE_TINYTRAFFIC_API_KEY"];
 const optionalEnvironmentPattern = new RegExp(
   `^[ \\t]*(?:export[ \\t]+)?(${optionalEnvironmentKeys.join("|")})[ \\t]*[=:][ \\t]*(?:"(?:[^"\\\\]|\\\\[\\s\\S])*"|'(?:[^'\\\\]|\\\\[\\s\\S])*'|[^\\r\\n]*)[^\\r\\n]*(?:\\r?\\n|$)`, "gm",
 );

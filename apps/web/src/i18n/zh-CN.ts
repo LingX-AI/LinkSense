@@ -5166,6 +5166,12 @@ export const zhCN = {
       resourcesMissing:
         errorCatalog.WEB_SITE_RESOURCES_MISSING.messages["zh-CN"],
       bundleInvalid: errorCatalog.WEB_SITE_BUNDLE_INVALID.messages["zh-CN"],
+      analyticsNotConfigured:
+        errorCatalog.WEB_SITE_ANALYTICS_NOT_CONFIGURED.messages["zh-CN"],
+      analyticsUnavailable:
+        errorCatalog.WEB_SITE_ANALYTICS_UNAVAILABLE.messages["zh-CN"],
+      analyticsUnpublished:
+        errorCatalog.WEB_SITE_ANALYTICS_UNPUBLISHED.messages["zh-CN"],
     },
     feishu: {
       connectionNotFound: "未找到飞书连接，请重新连接。",

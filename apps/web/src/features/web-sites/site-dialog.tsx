@@ -1,10 +1,19 @@
 import { useId, useRef, useState } from "react"
 import { getPublicAppOrigin } from "@/adapters/desktop/desktop-adapter"
-import { CopyIcon, GlobeIcon, Link2Icon, UploadIcon, XIcon } from "lucide-react"
+import {
+  CopyIcon,
+  GlobeIcon,
+  Link2Icon,
+  LockIcon,
+  LockOpenIcon,
+  UploadIcon,
+  XIcon,
+} from "lucide-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
 import {
   webSiteCreateSchema,
+  webSiteSchema,
   webSiteUpdateSchema,
   webSitePasscodeSchema,
   webSiteSlugSchema,
@@ -42,6 +51,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { Switch } from "@/components/ui/switch"
 import { normalizeLanguage } from "@/i18n"
 import { formatDateTime } from "@/i18n/date"
 import { copyTextToClipboard } from "@/lib/clipboard"
@@ -95,10 +105,18 @@ export function SiteDialog({
     action.kind === "share" ? "" : action.site.description
   )
   const [slug, setSlug] = useState(
-    action.kind === "share" ? "" : action.site.slug
+    action.kind === "share"
+      ? ""
+      : action.kind === "edit" &&
+          webSiteSchema.shape.id.safeParse(action.site.slug).success
+        ? ""
+        : action.site.slug
   )
   const [passcode, setPasscode] = useState("")
   const [removePasscode, setRemovePasscode] = useState(false)
+  const [analytics, setAnalytics] = useState(
+    action.kind === "edit" ? action.site.analytics_enabled : false
+  )
   const [publishMode, setPublishMode] = useState<"new" | "update">("new")
   const [selectedSite, setSelectedSite] = useState<WebSite | null>(null)
   const [fileId, setFileId] = useState("")
@@ -129,6 +147,15 @@ export function SiteDialog({
     : passcode.trim()
       ? { passcode: passcode.trim() }
       : {}
+  const slugUpdate = slug.trim() ? { slug: slug.trim() } : {}
+  const analyticsUpdate =
+    action.kind === "edit" && analytics !== action.site.analytics_enabled
+      ? { analytics }
+      : {}
+  const analyticsLocked =
+    action.kind === "edit" &&
+    action.site.status !== "published" &&
+    !analytics
   const sourceItems = (sources.data ?? []).map((file, index) => ({
     value: file.id,
     label: t(
@@ -156,8 +183,9 @@ export function SiteDialog({
         ? webSiteUpdateSchema.safeParse({
             name,
             description,
-            slug,
+            ...slugUpdate,
             ...passcodeUpdate,
+            ...analyticsUpdate,
           }).success
         : action.kind === "publish"
           ? Boolean(fileId)
@@ -182,8 +210,9 @@ export function SiteDialog({
           webSiteUpdateSchema.parse({
             name,
             description,
-            slug,
+            ...slugUpdate,
             ...passcodeUpdate,
+            ...analyticsUpdate,
           })
         )
       if (action.kind === "publish")
@@ -435,7 +464,6 @@ export function SiteDialog({
                     <FieldShell
                       id={`${id}-slug`}
                       label={t("webSites.slug")}
-                      required={action.kind === "edit"}
                       error={
                         slug && !webSiteSlugSchema.safeParse(slug).success
                           ? t("webSites.invalidSlug")
@@ -444,7 +472,6 @@ export function SiteDialog({
                     >
                       <Input
                         id={`${id}-slug`}
-                        aria-required={action.kind === "edit"}
                         aria-describedby={`${id}-slug-help${slug && !webSiteSlugSchema.safeParse(slug).success ? ` ${id}-slug-error` : ""}`}
                         aria-invalid={Boolean(
                           slug && !webSiteSlugSchema.safeParse(slug).success
@@ -454,7 +481,11 @@ export function SiteDialog({
                         spellCheck={false}
                         value={slug}
                         maxLength={80}
-                        placeholder={t("webSites.slugPlaceholder")}
+                        placeholder={t(
+                          action.kind === "edit"
+                            ? "webSites.slugPlaceholderEdit"
+                            : "webSites.slugPlaceholder"
+                        )}
                         disabled={mutation.isPending}
                         onChange={(event) => setSlug(event.target.value)}
                       />
@@ -503,13 +534,26 @@ export function SiteDialog({
                         {action.site.passcode_protected && !passcode && (
                           <Button
                             type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="self-start"
+                            variant="outline"
+                            size="xs"
+                            className="mt-0.5 w-fit self-start justify-self-start rounded-full border-border/70 bg-transparent px-2.5 text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground aria-pressed:bg-muted aria-pressed:text-foreground max-sm:min-h-11"
                             aria-pressed={removePasscode}
                             disabled={mutation.isPending}
                             onClick={() => setRemovePasscode((value) => !value)}
                           >
+                            {removePasscode ? (
+                              <LockIcon
+                                className="size-3"
+                                data-icon="inline-start"
+                                aria-hidden="true"
+                              />
+                            ) : (
+                              <LockOpenIcon
+                                className="size-3"
+                                data-icon="inline-start"
+                                aria-hidden="true"
+                              />
+                            )}
                             {t(
                               removePasscode
                                 ? "webSites.passcodeKeep"
@@ -517,6 +561,32 @@ export function SiteDialog({
                             )}
                           </Button>
                         )}
+                      </FieldShell>
+                    )}
+                    {action.kind === "edit" && (
+                      <FieldShell
+                        id={`${id}-analytics`}
+                        label={t("webSites.analytics")}
+                      >
+                        <div className="flex items-center justify-between gap-4">
+                          <p
+                            id={`${id}-analytics-help`}
+                            className="min-w-0 text-xs leading-relaxed text-muted-foreground"
+                          >
+                            {t(
+                              analyticsLocked
+                                ? "webSites.analyticsDisabledHelp"
+                                : "webSites.analyticsHelp"
+                            )}
+                          </p>
+                          <Switch
+                            id={`${id}-analytics`}
+                            checked={analytics}
+                            disabled={mutation.isPending || analyticsLocked}
+                            aria-describedby={`${id}-analytics-help`}
+                            onCheckedChange={setAnalytics}
+                          />
+                        </div>
                       </FieldShell>
                     )}
                   </>

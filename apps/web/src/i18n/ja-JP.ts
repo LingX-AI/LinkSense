@@ -166,6 +166,7 @@ export const jaJP = {
     name: "サイト名",
     summary: "説明",
     slug: "カスタム Slug",
+    slugPlaceholderEdit: "空欄のままにすると現在のリンクを維持します",
     slugPlaceholder: "空欄の場合は自動生成",
     slugHelp:
       "英数字またはハイフンで 3～80 文字にしてください。この名前はカスタムリンクに使われ、オリジンリンクは変わりません。",
@@ -176,6 +177,11 @@ export const jaJP = {
     invalidPasscode: "4 文字以上で入力してください。",
     passcodeRemove: "アクセスコードを削除",
     passcodeKeep: "アクセスコードを保持",
+    analytics: "アクセス統計",
+    analyticsHelp:
+      "サイトの訪問を記録し、詳細から統計ダッシュボードに移動できます。公開中のサイトのみ利用できます。",
+    analyticsDisabledHelp:
+      "サイトを再公開してからアクセス統計を有効にしてください。",
     url: "サイトのリンク",
     publishMode: "公開方法",
     updateExisting: "既存のサイトを更新",
@@ -265,6 +271,10 @@ export const jaJP = {
       passcode: "アクセスコード",
       passcodeOn: "有効",
       passcodeOff: "無効",
+      analytics: "アクセス統計",
+      analyticsOn: "有効",
+      analyticsOff: "無効",
+      openAnalytics: "統計ダッシュボードを開く",
       source: "作成元の会話",
       files: "ウェブリソース",
       publishedAt: "現在のバージョンの公開日時",
@@ -5848,6 +5858,12 @@ export const jaJP = {
         "ウェブページのリソースがありません（{{path}}）。公開前に、作成元のタスクでアシスタントにウェブページとリソースを一緒に保存するよう依頼してください",
       bundleInvalid:
         "ウェブページのパッケージが不完全か、未対応のファイルを含んでいます。作成元のタスクで更新して再試行してください",
+      analyticsNotConfigured:
+        "管理者がサイト統計サービスを設定する必要があります",
+      analyticsUnavailable:
+        "統計サービスは一時的に利用できません。しばらくしてから再試行してください",
+      analyticsUnpublished:
+        "公開中のサイトのみアクセス統計を有効にできます",
     },
     feishu: {
       connectionNotFound: "Feishu の接続が見つかりません。再接続してください。",

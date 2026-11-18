@@ -23,7 +23,7 @@ describe("public site agent tool service", () => {
       name: "Water reminder",
       description: "",
       slug: "water-reminder",
-    }, expect.any(Object), "Source", fixture.manifest);
+    }, expect.any(Object), "Source", fixture.manifest, undefined, undefined);
     expect(result).toMatchObject({
       id: siteId,
       url_path: `/app/s/${siteId}`,
@@ -61,8 +61,18 @@ describe("public site agent tool service", () => {
       site_id: siteId,
       status: "disabled",
     }, publicBaseUrl);
-    expect(fixture.store.update).toHaveBeenCalledWith(ownerId, siteId, { status: "disabled" });
+    expect(fixture.store.update).toHaveBeenCalledWith(ownerId, siteId, { status: "disabled" }, undefined, undefined, undefined);
     expect(updated).toMatchObject({ id: siteId, url: `${publicBaseUrl}/app/s/${siteId}` });
+  });
+
+  it("passes an analytics change through the agent update tool", async () => {
+    const fixture = siteFixture();
+    await fixture.service.toolForOwner(ownerId, taskId, turnId, {
+      operation: "update",
+      site_id: siteId,
+      analytics: false,
+    }, publicBaseUrl);
+    expect(fixture.store.update).toHaveBeenCalledWith(ownerId, siteId, { analytics: false }, undefined, undefined, { enabled: false });
   });
 
   it("rejects an inactive turn and an empty metadata update", async () => {

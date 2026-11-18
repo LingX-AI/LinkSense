@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import JSZip from "jszip";
 import { AppError } from "../src/lib/errors.js";
-import { withUrl } from "../src/modules/web-sites/service.js";
+import type { WebSiteAnalytics } from "../src/modules/web-sites/analytics.js";
+import { sha256 } from "../src/modules/web-sites/resources.js";
+import { publishedResourcePolicy } from "../src/modules/web-sites/routes.js";
+import { WebSiteService, withUrl } from "../src/modules/web-sites/service.js";
 import { ownerId, taskId, fileId, siteId, releaseId, siteFixture } from "./web-sites.fixture.js";
 
 describe("website publishing service", () => {
@@ -26,12 +29,75 @@ describe("website publishing service", () => {
       release: fixture.row.release,
     }));
     const protectedSite = await fixture.service.update(ownerId, siteId, { passcode: "sunrise" });
-    expect(fixture.store.update).toHaveBeenCalledWith(ownerId, siteId, { passcode: "sunrise" }, undefined, expect.stringMatching(/^\$argon2id\$/u));
+    expect(fixture.store.update).toHaveBeenCalledWith(ownerId, siteId, { passcode: "sunrise" }, undefined, expect.stringMatching(/^\$argon2id\$/u), undefined);
     expect(protectedSite.passcode_protected).toBe(true);
     expect(JSON.stringify(protectedSite)).not.toContain("$argon2");
     const openSite = await fixture.service.update(ownerId, siteId, { passcode: null });
-    expect(fixture.store.update).toHaveBeenLastCalledWith(ownerId, siteId, { passcode: null }, undefined, null);
+    expect(fixture.store.update).toHaveBeenLastCalledWith(ownerId, siteId, { passcode: null }, undefined, null, undefined);
     expect(openSite.passcode_protected).toBe(false);
+  });
+  it("enables analytics for a published site and exposes its dashboard", async () => {
+    const ensureSite = vi.fn(async () => ({ id: 7, domain: `${siteId}.linksense.invalid` }));
+    const fixture = siteFixture();
+    const service = new WebSiteService(fixture.store, fixture.storage, undefined, {
+      ensureSite, dashboardUrl: (remoteId: number) => `http://stats.example.test/sites/${remoteId}`,
+    } as unknown as WebSiteAnalytics);
+    fixture.store.update.mockImplementation(async (_owner, _id, _input, _lease, _passcode, analytics) => ({
+      site: { ...fixture.row.site, analyticsEnabled: analytics?.enabled ?? false,
+        analyticsSiteId: analytics?.siteId ?? null, analyticsDomain: analytics?.domain ?? null },
+      release: fixture.row.release,
+    }));
+    const result = await service.update(ownerId, siteId, { analytics: true });
+    expect(ensureSite).toHaveBeenCalledWith({ name: "Sample", domain: `${siteId}.linksense.invalid` });
+    expect(fixture.store.update).toHaveBeenCalledWith(ownerId, siteId, { analytics: true }, undefined, undefined,
+      { enabled: true, siteId: 7, domain: `${siteId}.linksense.invalid` });
+    expect(result).toMatchObject({ analytics_enabled: true, analytics_url: "http://stats.example.test/sites/7" });
+  });
+  it("stops analytics without creating a remote site and keeps history", async () => {
+    const ensureSite = vi.fn(async () => ({ id: 7, domain: `${siteId}.linksense.invalid` }));
+    const fixture = siteFixture();
+    const service = new WebSiteService(fixture.store, fixture.storage, undefined,
+      { ensureSite, dashboardUrl: () => "http://stats.example.test/sites/7" } as unknown as WebSiteAnalytics);
+    await service.update(ownerId, siteId, { analytics: false });
+    expect(ensureSite).not.toHaveBeenCalled();
+    expect(fixture.store.update).toHaveBeenCalledWith(ownerId, siteId, { analytics: false }, undefined, undefined,
+      { enabled: false });
+  });
+  it("refuses to enable analytics for an unpublished or unconfigured site", async () => {
+    const ensureSite = vi.fn(async () => ({ id: 7, domain: `${siteId}.linksense.invalid` }));
+    const fixture = siteFixture();
+    fixture.row.site.status = "disabled";
+    const service = new WebSiteService(fixture.store, fixture.storage, undefined,
+      { ensureSite, dashboardUrl: () => "http://stats.example.test/sites/7" } as unknown as WebSiteAnalytics);
+    await expect(service.update(ownerId, siteId, { analytics: true }))
+      .rejects.toMatchObject({ code: "WEB_SITE_ANALYTICS_UNPUBLISHED" });
+    expect(ensureSite).not.toHaveBeenCalled();
+    await expect(siteFixture().service.update(ownerId, siteId, { analytics: true }))
+      .rejects.toMatchObject({ code: "WEB_SITE_ANALYTICS_NOT_CONFIGURED" });
+  });
+  it("injects the analytics tracker into published HTML but never duplicates it", async () => {
+    const fixture = siteFixture();
+    fixture.row.site.analyticsEnabled = true;
+    fixture.row.site.analyticsDomain = `${siteId}.linksense.invalid`;
+    const service = new WebSiteService(fixture.store, fixture.storage, undefined,
+      { ensureSite: vi.fn(), dashboardUrl: () => "http://stats.example.test/sites/7",
+        scriptTag: () => '<script data-linksense-analytics="1"></script>' } as unknown as WebSiteAnalytics);
+    const injected = await service.resource("sample", releaseId, "index.html");
+    expect(injected.data.toString()).toContain("data-linksense-analytics");
+    expect(injected.mimeType).toBe("text/html");
+    const html = Buffer.from(`<html><head>${injected.data.toString()}</head></html>`);
+    fixture.objects.set("original/index.html", html);
+    const file = fixture.manifest.files[0]!;
+    fixture.manifest.files[0] = { ...file, size_bytes: html.length, checksum_sha256: sha256(html) };
+    fixture.row.release.manifestJson = fixture.manifest;
+    const again = await service.resource("sample", releaseId, "index.html");
+    expect(again.data.toString().match(/data-linksense-analytics/gu)).toHaveLength(1);
+  });
+  it("allows the configured analytics origin in the published resource policy", () => {
+    const policy = publishedResourcePolicy("https://public.example.test", undefined, "http://stats.example.test:8091");
+    expect(policy).toContain("script-src 'unsafe-inline' 'unsafe-eval' https:");
+    expect(policy).toContain("http://stats.example.test:8091");
+    expect(policy).toMatch(/connect-src [^;]*http:\/\/stats\.example\.test:8091/u);
   });
   it("publishes an existing self-contained HTML artifact with a generated UUID and a bounded manifest", async () => {
     const fixture = siteFixture();

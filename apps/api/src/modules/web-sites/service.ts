@@ -9,12 +9,18 @@ import type { SiteAndRelease, SiteListInput, WebSiteStore } from "./repository.j
 import { bundleSize, prepareWebResource } from "./resources.js";
 
 import { WebArtifactResources } from "./artifact-resources.js";
+import { analyticsDomain, type WebSiteAnalytics } from "./analytics.js";
 import type { WebSiteBackendService } from "../web-site-backends/service.js";
 import type { WebSiteBackend } from "@linksense/shared";
 
 export class WebSiteService {
   private readonly resources: WebArtifactResources;
-  constructor(private readonly store: WebSiteStore, private readonly storage: ObjectStorage, private readonly backends?: WebSiteBackendService) { this.resources = new WebArtifactResources(store, storage); }
+  constructor(
+    private readonly store: WebSiteStore,
+    private readonly storage: ObjectStorage,
+    private readonly backends?: WebSiteBackendService,
+    private readonly analytics?: WebSiteAnalytics,
+  ) { this.resources = new WebArtifactResources(store, storage); }
   async conversationDeliveries(ownerId: string, conversationId: string, publicBaseUrl: string): Promise<ConversationWebSite[]> {
     const rows = await this.store.conversationDeliveries(ownerId, conversationId);
     const origins = new Map<string, Promise<string>>();
@@ -73,13 +79,29 @@ export class WebSiteService {
   }
   async update(ownerId: string, id: string, input: WebSiteUpdate): Promise<WebSite> {
     const passcodeHash = await this.passcodeHash(input.passcode);
+    const analytics = await this.analyticsUpdate(ownerId, id, input.analytics);
     if (input.status === "published") {
       const { site } = await this.store.owned(ownerId, id);
       if (site.backendId) return await this.project(await this.requiredBackends().withPublishable(
-        ownerId, site.backendId, lease => this.store.update(ownerId, id, input, lease, passcodeHash),
+        ownerId, site.backendId, lease => this.store.update(ownerId, id, input, lease, passcodeHash, analytics),
       ));
     }
-    return await this.project(await this.store.update(ownerId, id, input, undefined, passcodeHash));
+    return await this.project(await this.store.update(ownerId, id, input, undefined, passcodeHash, analytics));
+  }
+  /** Enabling needs the remote site first; disabling only stops injection and keeps its history. */
+  private async analyticsUpdate(
+    ownerId: string, id: string, enabled: boolean | undefined,
+  ): Promise<{ enabled: boolean; siteId?: number; domain?: string } | undefined> {
+    if (enabled === undefined) return undefined;
+    // Turning collection off needs no upstream call, even if the service was
+    // removed from configuration after the site had enabled it.
+    if (!enabled) return { enabled: false };
+    if (!this.analytics) throw new AppError("WEB_SITE_ANALYTICS_NOT_CONFIGURED");
+    const { site } = await this.store.owned(ownerId, id);
+    if (site.status !== "published") throw new AppError("WEB_SITE_ANALYTICS_UNPUBLISHED");
+    const domain = site.analyticsDomain ?? analyticsDomain(site.id);
+    const remote = await this.analytics.ensureSite({ name: site.name, domain });
+    return { enabled: true, siteId: remote.id, domain: remote.domain };
   }
   async publish(ownerId: string, id: string, fileId: string, expectedBackendId?: string): Promise<WebSite> {
     const { site } = await this.store.owned(ownerId, id);
@@ -125,9 +147,34 @@ export class WebSiteService {
     return { title: site.name, path: `${releasePath}${encodeResourcePath(manifest.entry_path)}`, releasePath };
   }
   async resource(slug: string, releaseId: string, path: string): Promise<{ data: Buffer; mimeType: string }> {
-    const { release } = await this.store.publicSite(slug, releaseId);
+    const { site, release } = await this.store.publicSite(slug, releaseId);
     const manifest = webBundleManifestSchema.parse(release.manifestJson);
-    return this.resources.resource(manifest, path);
+    return this.injectAnalytics(site, await this.resources.resource(manifest, path));
+  }
+  /** Publishes the tracker into HTML documents only; other assets pass through untouched. */
+  private injectAnalytics(
+    site: { analyticsEnabled: boolean; analyticsDomain: string | null },
+    resource: { data: Buffer; mimeType: string },
+  ): { data: Buffer; mimeType: string } {
+    if (!site.analyticsEnabled || !site.analyticsDomain || !this.analytics ||
+        resource.mimeType.toLowerCase() !== "text/html") return resource;
+    const html = resource.data.toString("utf8");
+    if (html.includes("data-linksense-analytics")) return resource;
+    const tag = this.analytics.scriptTag(site.analyticsDomain);
+    if (/<\/head\s*>/iu.test(html)) {
+      return { ...resource, data: Buffer.from(html.replace(/<\/head\s*>/iu, match => `${tag}${match}`)) };
+    }
+    const body = /<body[^>]*>/iu.exec(html);
+    if (body) {
+      const index = body.index + body[0].length;
+      return { ...resource, data: Buffer.from(`${html.slice(0, index)}${tag}${html.slice(index)}`) };
+    }
+    const doctype = /^<!doctype[^>]*>/iu.exec(html);
+    if (doctype) {
+      const index = doctype[0].length;
+      return { ...resource, data: Buffer.from(`${html.slice(0, index)}${tag}${html.slice(index)}`) };
+    }
+    return { ...resource, data: Buffer.from(`${tag}${html}`) };
   }
   async download(ownerId: string, id: string): Promise<{ data: Buffer; filename: string }> {
     const { site, release } = await this.store.owned(ownerId, id);
@@ -162,6 +209,7 @@ export class WebSiteService {
         ...(request.description !== undefined ? { description: request.description } : {}),
         ...(request.slug !== undefined ? { slug: request.slug } : {}),
         ...(request.status !== undefined ? { status: request.status } : {}),
+        ...(request.analytics !== undefined ? { analytics: request.analytics } : {}),
       };
       if (Object.keys(input).length === 0) throw new AppError("VALIDATION_ERROR");
       return withUrl(await this.update(ownerId, request.site_id, input), publicBaseUrl);
@@ -179,7 +227,12 @@ export class WebSiteService {
   }
   private async project(row: SiteAndRelease): Promise<WebSite> {
     const result = projectSite(row);
-    return row.site.backendId && this.backends?.client ? { ...result, url: await this.backends.publishedUrl(row.site.backendId, row.site.id) } : result;
+    const analyticsUrl = result.analytics_enabled && row.site.analyticsSiteId && this.analytics
+      ? this.analytics.dashboardUrl(row.site.analyticsSiteId) : undefined;
+    const projected = { ...result, ...(analyticsUrl ? { analytics_url: analyticsUrl } : {}) };
+    return row.site.backendId && this.backends?.client
+      ? { ...projected, url: await this.backends.publishedUrl(row.site.backendId, row.site.id) }
+      : projected;
   }
   private requiredBackends(): WebSiteBackendService {
     if (!this.backends) throw new AppError("WEB_SITE_BACKEND_NOT_CONFIGURED");
@@ -198,6 +251,7 @@ export function projectSite({ site, release }: SiteAndRelease): WebSite {
   return webSiteSchema.parse({
     id: site.id, name: site.name, description: site.description, slug: site.slug, status: site.status,
     passcode_protected: Boolean(site.passcodeHash),
+    analytics_enabled: Boolean(site.analyticsEnabled),
     url_path: webApplicationPath(site.id), conversation_id: site.conversationId, source_task_title: site.sourceTaskTitle,
     source_file_id: site.sourceFileId, release_id: release.id, file_count: manifest.files.length, size_bytes: bundleSize(manifest),
     published_at: release.createdAt.toISOString(), created_at: site.createdAt.toISOString(), updated_at: site.updatedAt.toISOString(),

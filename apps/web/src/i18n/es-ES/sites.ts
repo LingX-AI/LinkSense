@@ -22,6 +22,7 @@ export const siteMessages = {
     name: "Nombre del sitio",
     summary: "Descripción",
     slug: "Slug personalizado",
+    slugPlaceholderEdit: "Déjalo vacío para mantener el enlace actual",
     slugPlaceholder: "Deja el campo vacío para generarlo automáticamente",
     slugHelp:
       "Usa entre 3 y 80 letras inglesas, números o guiones. Este nombre se usa en el enlace personalizado; el enlace de origen no cambia.",
@@ -32,6 +33,11 @@ export const siteMessages = {
     invalidPasscode: "Usa al menos 4 caracteres.",
     passcodeRemove: "Quitar el código",
     passcodeKeep: "Mantener el código",
+    analytics: "Estadísticas de visitas",
+    analyticsHelp:
+      "Registra las visitas del sitio y enlaza su panel de estadísticas desde los detalles. Solo para sitios publicados.",
+    analyticsDisabledHelp:
+      "Vuelve a publicar el sitio para activar las estadísticas de visitas.",
     url: "Enlace del sitio",
     publishMode: "Modo de publicación",
     updateExisting: "Actualizar sitio existente",
@@ -121,6 +127,10 @@ export const siteMessages = {
       passcode: "Código de acceso",
       passcodeOn: "Activado",
       passcodeOff: "Desactivado",
+      analytics: "Estadísticas de visitas",
+      analyticsOn: "Activado",
+      analyticsOff: "Desactivado",
+      openAnalytics: "Abrir el panel de estadísticas",
       source: "Conversación de origen",
       files: "Recursos web",
       publishedAt: "Publicación de la versión actual",

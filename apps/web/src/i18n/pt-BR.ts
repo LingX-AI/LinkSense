@@ -166,6 +166,7 @@ export const ptBR = {
     name: "Nome do site",
     summary: "Descrição",
     slug: "Slug personalizado",
+    slugPlaceholderEdit: "Deixe em branco para manter o link atual",
     slugPlaceholder: "Deixe em branco para gerar automaticamente",
     slugHelp:
       "Use de 3 a 80 letras, números ou hífens. Esse nome é usado no link personalizado; o link de origem não muda.",
@@ -176,6 +177,11 @@ export const ptBR = {
     invalidPasscode: "Use pelo menos 4 caracteres.",
     passcodeRemove: "Remover o código",
     passcodeKeep: "Manter o código",
+    analytics: "Estatísticas de visitas",
+    analyticsHelp:
+      "Registra as visitas do site e vincula o painel de estatísticas nos detalhes. Disponível apenas para sites publicados.",
+    analyticsDisabledHelp:
+      "Publique o site novamente antes de ativar as estatísticas de visitas.",
     url: "Link do site",
     publishMode: "Modo de publicação",
     updateExisting: "Atualizar site existente",
@@ -265,6 +271,10 @@ export const ptBR = {
       passcode: "Código de acesso",
       passcodeOn: "Ativado",
       passcodeOff: "Desativado",
+      analytics: "Estatísticas de visitas",
+      analyticsOn: "Ativado",
+      analyticsOff: "Desativado",
+      openAnalytics: "Abrir o painel de estatísticas",
       source: "Conversa de origem",
       files: "Recursos web",
       publishedAt: "Publicação da versão atual",
@@ -5943,6 +5953,12 @@ export const ptBR = {
         "Um recurso da página está ausente ({{path}}). Peça ao assistente na tarefa de origem para salvar a página junto com seus recursos antes de publicar",
       bundleInvalid:
         "O pacote da página está incompleto ou contém arquivos não compatíveis. Atualize-o na tarefa de origem e tente novamente",
+      analyticsNotConfigured:
+        "Um administrador precisa configurar o serviço de estatísticas do site",
+      analyticsUnavailable:
+        "O serviço de estatísticas está temporariamente indisponível. Tente novamente mais tarde",
+      analyticsUnpublished:
+        "Somente um site publicado pode ativar as estatísticas de visitas",
     },
     feishu: {
       connectionNotFound:

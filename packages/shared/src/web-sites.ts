@@ -23,6 +23,8 @@ export const webSiteUpdateSchema = z.strictObject({
   slug: webSiteSlugSchema.optional(),
   status: webSiteStatusSchema.optional(),
   passcode: webSitePasscodeSchema.optional(),
+  /** Visitor analytics; only a published site may enable it. */
+  analytics: z.boolean().optional(),
 }).refine(value => Object.keys(value).length > 0);
 export const webSitePublishSchema = z.strictObject({ file_id: z.uuid(), backend_id: z.uuid().optional() });
 export const webSiteSchema = z.object({
@@ -33,6 +35,9 @@ export const webSiteSchema = z.object({
   status: webSiteStatusSchema,
   /** The hash itself never leaves the server. */
   passcode_protected: z.boolean().default(false),
+  analytics_enabled: z.boolean().default(false),
+  /** Owner-facing dashboard; present only while analytics is enabled and configured. */
+  analytics_url: z.url({ protocol: /^https?$/u }).optional(),
   url_path: z.string(),
   conversation_id: z.uuid().nullable(),
   source_task_title: z.string(),
@@ -88,6 +93,7 @@ export const webSiteUpdateToolSchema = z.strictObject({
   slug: webSiteSlugSchema.optional(),
   status: webSiteStatusSchema.optional(),
   passcode: webSitePasscodeSchema.optional(),
+  analytics: z.boolean().optional(),
 });
 export const webSiteToolRequestSchema = z.discriminatedUnion("operation", [
   webSitePublishToolSchema.extend({ operation: z.literal("publish") }),

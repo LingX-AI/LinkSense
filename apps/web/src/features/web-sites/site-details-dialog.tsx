@@ -162,6 +162,32 @@ export function SiteDetailsDialog({
                       : "webSites.details.passcodeOff"
                   )}
                 </dd>
+                <dt>{t("webSites.details.analytics")}</dt>
+                <dd>
+                  {site.analytics_enabled ? (
+                    site.analytics_url ? (
+                      <a
+                        className="inline-flex min-w-0 items-center gap-1.5 rounded-sm text-link-foreground underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                        href={site.analytics_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={t("webSites.details.openAnalytics")}
+                      >
+                        <span className="wrap-anywhere">
+                          {site.analytics_url}
+                        </span>
+                        <ExternalLinkIcon
+                          className="size-3 shrink-0"
+                          aria-hidden="true"
+                        />
+                      </a>
+                    ) : (
+                      t("webSites.details.analyticsOn")
+                    )
+                  ) : (
+                    t("webSites.details.analyticsOff")
+                  )}
+                </dd>
                 <dt>{t("webSites.details.files")}</dt>
                 <dd>
                   {t("webSites.resources", {

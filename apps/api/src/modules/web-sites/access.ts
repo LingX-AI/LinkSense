@@ -31,11 +31,6 @@ button:hover{background:#a6c6ff}
 
 const styleHash = createHash("sha256").update(styles).digest("base64");
 
-const toggleScript = (show: string, hide: string): string =>
-  `(function(){var i=document.getElementById("passcode"),t=document.getElementById("passcode-toggle");if(!i||!t)return;` +
-  `t.addEventListener("click",function(){var visible=i.type==="password";i.type=visible?"text":"password";` +
-  `t.setAttribute("aria-pressed",String(visible));t.setAttribute("aria-label",visible?${JSON.stringify(JSON.stringify(hide))}.slice(1,-1):${JSON.stringify(JSON.stringify(show))}.slice(1,-1));i.focus();});})();`;
-
 export function sitePasscodePolicy(script: string): string {
   const scriptHash = createHash("sha256").update(script).digest("base64");
   return `sandbox allow-forms allow-scripts; default-src 'none'; style-src 'sha256-${styleHash}'; script-src 'sha256-${scriptHash}'; form-action 'self'; base-uri 'none'`;

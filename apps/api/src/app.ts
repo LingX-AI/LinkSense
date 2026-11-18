@@ -578,7 +578,8 @@ export async function buildApi(
   await app.register(htmlPreviewRoutes, { prefix: "/api/v1/conversations", service: services.htmlPreviews });
   await app.register(htmlPreviewResourceRoutes, { prefix: "/html-preview", service: services.htmlPreviews });
   await app.register(webSiteRoutes, { prefix: "/api/v1/web-sites", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl });
-  await app.register(publicWebSiteRoutes, { prefix: "/web", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl, accessSecret: services.config.jwtSecret });
+  await app.register(publicWebSiteRoutes, { prefix: "/web", service: services.webSites, publicBaseUrl: services.config.publicBaseUrl, accessSecret: services.config.jwtSecret,
+    ...(services.config.analytics ? { analyticsBaseUrl: services.config.analytics.baseUrl } : {}) });
   await app.register(internalWebSiteRoutes, { prefix: "/internal/web-sites", service: services.webSites, sharedSecret: services.config.runnerSharedSecret, publicBaseUrl: services.config.publicBaseUrl });
   await app.register(automationRoutes, {
     prefix: "/api/v1/automations",

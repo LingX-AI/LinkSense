@@ -147,6 +147,7 @@ export const core = {
     name: "Nom du site",
     summary: "Description",
     slug: "Slug personnalisé",
+    slugPlaceholderEdit: "Laissez vide pour conserver le lien actuel",
     slugPlaceholder: "Laissez vide pour générer automatiquement",
     slugHelp:
       "Utilisez entre 3 et 80 lettres, chiffres ou traits d’union. Ce nom sert au lien personnalisé ; le lien d’origine ne change pas.",
@@ -157,6 +158,11 @@ export const core = {
     invalidPasscode: "Utilisez au moins 4 caractères.",
     passcodeRemove: "Supprimer le code",
     passcodeKeep: "Conserver le code",
+    analytics: "Statistiques de visites",
+    analyticsHelp:
+      "Enregistre les visites du site et relie son tableau de bord depuis les détails. Réservé aux sites publiés.",
+    analyticsDisabledHelp:
+      "Republiez le site avant d’activer les statistiques de visites.",
     url: "Lien du site",
     publishMode: "Mode de publication",
     updateExisting: "Mettre à jour un site existant",
@@ -246,6 +252,10 @@ export const core = {
       passcode: "Code d’accès",
       passcodeOn: "Activé",
       passcodeOff: "Désactivé",
+      analytics: "Statistiques de visites",
+      analyticsOn: "Activé",
+      analyticsOff: "Désactivé",
+      openAnalytics: "Ouvrir le tableau de bord des statistiques",
       source: "Conversation d’origine",
       files: "Ressources web",
       publishedAt: "Publication de la version actuelle",
