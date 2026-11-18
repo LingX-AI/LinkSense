@@ -64,17 +64,14 @@ export function ApplicationDevelopmentCard({
   return (
     <>
       <ApplicationCard
-        layout="row"
+        layout="managed"
         id={development.id}
         name={development.name}
         kind="interactive"
         developing
         onOpenDetails={setDetailsTarget}
         icon={development.icon ?? defaultApplicationIcon}
-        description={
-          development.description ??
-          t("applicationDevelopment.catalog.draftDescription")
-        }
+        description={development.description ?? null}
         footer={t("applications.createdByMe")}
         headerActions={
           <DropdownMenu>

@@ -11,11 +11,13 @@ export function SiteLink({
   copyLabel,
   displayText,
   multiline = false,
+  className,
 }: {
   url: string
   copyLabel: string
   displayText?: string
   multiline?: boolean
+  className?: string
 }) {
   const { t } = useTranslation()
   const [copyState, setCopyState] = useState<"idle" | "copying" | "copied">(
@@ -49,7 +51,8 @@ export function SiteLink({
     <div
       className={cn(
         "flex max-w-full min-w-0 items-center gap-1",
-        multiline ? "justify-between" : "w-fit"
+        multiline ? "justify-between" : "w-fit",
+        className
       )}
     >
       <p

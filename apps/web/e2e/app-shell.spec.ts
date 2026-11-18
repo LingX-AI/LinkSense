@@ -1988,10 +1988,36 @@ for (const width of [1440, 390]) {
 }
 
 for (const width of [1440, 390]) {
-  test(`published applications and existing drafts share the design list at ${width}px`, async ({
+  test(`application and site rows fit their controls at ${width}px`, async ({
     page,
   }) => {
+    const applicationId = "50000000-0000-4000-8000-000000000001"
+    const siteId = "50000000-0000-4000-8000-000000000003"
+    const slug = "community-water-break-reminder-for-busy-teams"
+    const publishedSite = {
+      id: siteId,
+      name: "Team water break reminder",
+      description: "A shared reminder to take a break and drink water.",
+      slug,
+      url_path: `/app/id/${siteId}`,
+      url: `https://example.test/app/id/${siteId}`,
+      alias_url: `https://example.test/web/${slug}`,
+      status: "published",
+      conversation_id: null,
+      source_task_title: "",
+      source_file_id: siteId,
+      release_id: siteId,
+      file_count: 3,
+      size_bytes: 12000,
+      published_at: NOW,
+      created_at: NOW,
+      updated_at: NOW,
+    }
     await page.setViewportSize({ width, height: 900 })
+    await page.emulateMedia({
+      colorScheme: width === 1440 ? "dark" : "light",
+      reducedMotion: "reduce",
+    })
     await page.route("**/api/v1/applications/catalog**", (route) =>
       ok(route, {
         items: [
@@ -1999,7 +2025,7 @@ for (const width of [1440, 390]) {
             type: "application",
             development: null,
             application: {
-              id: "50000000-0000-4000-8000-000000000001",
+              id: applicationId,
               owner: { id: ADMIN.id, name: ADMIN.name },
               name: "Published research assistant",
               icon: { type: "preset", preset: "sparkles" },
@@ -2040,6 +2066,46 @@ for (const width of [1440, 390]) {
         next_cursor: null,
       })
     )
+    await page.route("**/api/v1/applications/distribution**", (route) =>
+      ok(route, {
+        items: [
+          {
+            application_id: applicationId,
+            published_version_id: applicationId,
+            published_version_number: "1.0.0",
+            usage_modes: ["service"],
+            installation: null,
+            installed_application_id: null,
+            service_installation: {
+              installed_version_id: applicationId,
+              installed_version_number: "1.0.0",
+              available_version_id: applicationId,
+              available_version_number: "1.0.0",
+              update_available: false,
+            },
+          },
+        ],
+      })
+    )
+    await page.route("**/api/v1/web-sites**", (route) =>
+      ok(route, {
+        items: [
+          publishedSite,
+          {
+            ...publishedSite,
+            id: "50000000-0000-4000-8000-000000000004",
+            name: "Archived field notes",
+            description: "",
+            slug: "field-notes",
+            url_path: "/web/field-notes",
+            url: "https://example.test/web/field-notes",
+            alias_url: "https://example.test/web/field-notes",
+            status: "disabled",
+          },
+        ],
+        next_cursor: null,
+      })
+    )
     await page.goto("/capabilities")
     const published = page.getByRole("article", {
       name: "Published research assistant",
@@ -2053,6 +2119,11 @@ for (const width of [1440, 390]) {
       await expect(row).toHaveCSS("border-radius", "0px")
       await expect(row.getByRole("button").first()).toBeVisible()
     }
+    await expect(published).toHaveCSS("border-bottom-width", "1px")
+    await expect(
+      published.getByRole("button", { name: "使用", exact: true })
+    ).toBeVisible()
+    await expect(published.getByRole("list", { name: "应用资源" })).toHaveCount(0)
     const publishedBounds = await published.boundingBox()
     const draftBounds = await draft.boundingBox()
     if (!publishedBounds || !draftBounds)
@@ -2069,7 +2140,40 @@ for (const width of [1440, 390]) {
     expect(contrast.violations).toEqual([])
     await page.screenshot({
       path: test.info().outputPath(`application-design-rows-${width}.png`),
+      animations: "disabled",
     })
+
+    await page.getByRole("tab", { name: "我的站点" }).click()
+    const site = page.getByRole("article", { name: publishedSite.name })
+    const unpublished = page.getByRole("article", {
+      name: "Archived field notes",
+    })
+    await expect(site.getByText(`/web/${slug}`)).toBeVisible()
+    await expect(site.getByRole("link", { name: "访问" })).toHaveAttribute(
+      "href",
+      publishedSite.url
+    )
+    await expect(unpublished.getByRole("link", { name: "访问" })).toHaveCount(0)
+    await expect(unpublished.getByText("未发布", { exact: true })).toBeVisible()
+    await expect(
+      site.getByRole("button", { name: `管理 ${publishedSite.name}` })
+    ).toBeInViewport()
+    await expectNoHorizontalOverflow(page)
+    await page.screenshot({
+      path: test.info().outputPath(`site-design-rows-${width}.png`),
+      animations: "disabled",
+    })
+
+    const title = site.getByRole("button", {
+      name: publishedSite.name,
+      exact: true,
+    })
+    await title.press("Enter")
+    const details = page.getByRole("dialog", { name: publishedSite.name })
+    await expect(details.getByText(publishedSite.alias_url)).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(details).toBeHidden()
+    await expect(title).toBeFocused()
   })
 }
 

@@ -238,6 +238,40 @@ describe("application workspace categories", () => {
     }
   )
 
+  it("keeps existing apps with no description or resources usable without empty placeholders", async () => {
+    await i18n.changeLanguage("en-US")
+    mockCatalog([
+      applicationSchema.parse({
+        ...owned,
+        description: null,
+        capability_count: 0,
+        knowledge_base_count: 0,
+        mcp_server_count: 0,
+      }),
+    ])
+    show()
+    const row = await screen.findByRole("article", { name: owned.name })
+    expect(within(row).queryByText(i18n.t("applications.noDescription"))).toBeNull()
+    expect(
+      within(row).queryByRole("list", {
+        name: i18n.t("applications.details.resources"),
+      })
+    ).toBeNull()
+    expect(
+      within(row).getByText(i18n.t("applications.status.active"))
+    ).toBeVisible()
+    expect(
+      within(row).getByRole("button", {
+        name: i18n.t("applications.details.open", { name: owned.name }),
+      })
+    ).toBeEnabled()
+    expect(
+      await within(row).findByRole("button", {
+        name: i18n.t("applications.distribution.useService"),
+      })
+    ).toBeEnabled()
+  })
+
   it.each([
     {
       selected: "1.2.0",
@@ -473,7 +507,7 @@ describe("application workspace categories", () => {
       expect(draftDetails).toHaveTextContent(
         i18n.t("applications.card.mcpServerCount", { count: 3 })
       )
-      expect(card).toHaveTextContent(
+      expect(card).not.toHaveTextContent(
         i18n.t("applications.card.mcpServerCount", { count: 0 })
       )
       expect(dialog).toHaveTextContent(

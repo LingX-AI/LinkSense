@@ -32,10 +32,12 @@ import { PublicKnowledgeEditDialog } from "./edit-dialog"
 
 export function PublicKnowledgeApplicationCard({
   application,
+  managed = false,
   onDelete,
   onFeedback,
 }: {
   application: Application
+  managed?: boolean
   onDelete: (application: Application) => void
   onFeedback: (message: string, isError?: boolean) => void
 }) {
@@ -61,6 +63,7 @@ export function PublicKnowledgeApplicationCard({
   return (
     <>
       <ApplicationCard
+        layout={managed ? "managed" : "row"}
         id={application.id}
         name={application.name}
         kind={application.kind}
@@ -142,6 +145,7 @@ export function PublicKnowledgeApplicationCard({
           capability_count={application.capability_count}
           knowledge_base_count={application.knowledge_base_count}
           mcp_server_count={0}
+          hideEmpty={managed}
         />
         <ApplicationCardModel model={application.model} />
       </ApplicationCard>

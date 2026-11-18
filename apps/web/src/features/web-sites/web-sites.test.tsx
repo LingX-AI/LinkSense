@@ -320,8 +320,12 @@ describe("website management", () => {
       vi.fn(async () => success({ items: [dynamicSite], next_cursor: null }))
     )
     const library = mount(<SiteLibrary />)
+    const row = await screen.findByRole("article", { name: site.name })
     expect(
-      await screen.findByRole("link", { name: i18n.t("webSites.visit") })
+      within(row).getByText(`${i18n.t("webSites.slug")}: ${site.slug}`)
+    ).toBeVisible()
+    expect(
+      within(row).getByRole("link", { name: i18n.t("webSites.visit") })
     ).toHaveAttribute("href", url)
     await user.click(
       screen.getByRole("button", {
@@ -422,14 +426,10 @@ describe("website management", () => {
       expect(copy).toHaveClass("size-6", "text-muted-foreground/70")
       const cards = screen.getAllByRole("listitem")
       expect(cards).toHaveLength(2)
-      for (const card of cards) {
-        expect(card.querySelector(".lucide-globe")).toBeNull()
-        expect(card.querySelector('[data-slot="card"]')).toHaveClass(
-          "rounded-none",
-          "border-b",
-          "border-divider"
-        )
-      }
+      expect(cards.map((card) => within(card).getByRole("article"))).toEqual([
+        screen.getByRole("article", { name: site.name }),
+        screen.getByRole("article", { name: secondSite.name }),
+      ])
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
       await act(async () => {
         fireEvent.click(copy)

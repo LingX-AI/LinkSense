@@ -2849,7 +2849,6 @@ describe("capability marketplace pages", () => {
       '[data-slot="card-header"]'
     )
     const cardAction = cardHeader
-    const description = within(card).getByText("暂无说明")
     const statistics = within(card).getByRole("list", { name: "应用资源" })
     const status = card.querySelector<HTMLElement>(
       '[data-slot="application-card-status"]'
@@ -2860,40 +2859,29 @@ describe("capability marketplace pages", () => {
     )
     const shareSummary = within(card).getByText("已共享 · 林老师、教务组…")
 
-    expect(list).toHaveClass("flex", "flex-col")
+    expect(list).toHaveClass("flex", "flex-col", "rounded-xl")
     expect(list).not.toHaveClass("grid", "md:grid-cols-2")
     expect(card).toHaveAttribute("data-layout", "row")
     expect(card).toHaveClass("gap-0", "rounded-none", "shadow-none")
-    expect(cardHeader).toHaveClass("grid", "min-w-0", "gap-x-4")
     expect(cardHeader).toContainElement(
       within(card).getByRole("button", {
         name: applications[0]!.name + "的更多操作",
       })
     )
-    expect(description).toHaveClass(
-      "line-clamp-2",
-      "wrap-anywhere",
-      "leading-[var(--app-line-22)]"
-    )
+    expect(within(card).queryByText("暂无说明")).not.toBeInTheDocument()
     expect(card.querySelector('[data-slot="card-content"]')).toContainElement(
       statistics
     )
-    expect(description).toHaveClass("line-clamp-2", "wrap-anywhere")
-    expect(description).not.toHaveClass("min-h-10")
-    expect(description.nextElementSibling).toContainElement(statistics)
     expect(statistics).toHaveClass("flex-wrap", "tabular-nums")
-    expect(statistics).toHaveTextContent("插件 / Skill 0")
+    expect(statistics).not.toHaveTextContent("插件 / Skill 0")
     expect(statistics).toHaveTextContent("知识库 1")
-    const mcpCount = within(statistics).getByText("MCP 0").closest("li")
-    expect(mcpCount?.querySelector("svg.lucide-server")).toBeVisible()
+    expect(statistics).not.toHaveTextContent("MCP 0")
     expect(statistics).not.toHaveTextContent("已启用")
     expect(status).toHaveTextContent("已启用")
     expect(cardHeader).toContainElement(status)
     expect(
       card.querySelector('[data-slot="application-card-model"]')
     ).toBeNull()
-    expect(footer).toHaveClass("contents")
-    expect(footer).not.toHaveClass("border-t")
     expect(footer).toContainElement(shareSummary)
     expect(statistics).not.toContainElement(shareSummary)
     expect(within(card).queryByText(/王老师/u)).toBeNull()

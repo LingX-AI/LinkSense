@@ -7,7 +7,7 @@ import {
 import { type WebSite, webSiteStatusSchema } from "@linksense/shared"
 import {
   DownloadIcon,
-  ExternalLinkIcon,
+  ArrowUpRightIcon,
   EyeIcon,
   EyeOffIcon,
   GlobeIcon,
@@ -27,6 +27,7 @@ import {
 } from "@/components/feedback/page-state"
 import { notify } from "@/components/feedback/notification"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { catalogResourceListClassName } from "@/components/ui/catalog-resource-row"
 import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
 import { SearchInput } from "@/components/ui/search-input"
 import {
@@ -190,7 +191,7 @@ export function SiteLibrary() {
           description={t("webSites.emptyDescription")}
         />
       ) : (
-        <ul className="@container/site-list flex min-w-0 flex-col">
+        <ul className={catalogResourceListClassName}>
           {items.map((site) => (
             <li key={site.id} className="min-w-0">
               <SiteCard
@@ -198,30 +199,23 @@ export function SiteLibrary() {
                 onDetails={(trigger) => setDetails({ site, trigger })}
                 actions={
                   <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="max-sm:min-h-11"
-                      aria-haspopup="dialog"
-                      onClick={(event) =>
-                        setDetails({ site, trigger: event.currentTarget })
-                      }
-                    >
-                      {t("webSites.details.open")}
-                    </Button>
                     {site.status === "published" && (
                       <a
                         className={buttonVariants({
                           variant: "outline",
                           size: "sm",
-                          className: "max-sm:min-h-11",
+                          className:
+                            "h-auto min-h-8 max-w-full whitespace-normal pointer-coarse:min-h-11",
                         })}
                         href={site.url ?? site.url_path}
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        <ExternalLinkIcon aria-hidden="true" />
                         {t("webSites.visit")}
+                        <ArrowUpRightIcon
+                          data-icon="inline-end"
+                          aria-hidden="true"
+                        />
                       </a>
                     )}
                     <DropdownMenu>
