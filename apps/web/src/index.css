@@ -130,7 +130,6 @@
   --color-automation-template-review: var(--automation-template-review);
   --color-automation-template-monitor: var(--automation-template-monitor);
   --shadow-automation-template-icon: var(--home-icon-shadow);
-  --shadow-segmented-active: 0 1px 3px rgb(41 31 61 / 4%);
   --color-application-icon-sand: color-mix(in oklab, #c59b59 14%, var(--card));
   --color-application-icon-rose: color-mix(in oklab, #ce8590 12%, var(--card));
   /* Fixed illustration palette for the maintenance announcement banner. */

@@ -1064,8 +1064,10 @@ function AppSidebarContent({
                     )
                   }
                 >
-                  <DesignIcon name={icon} />
-                  <span>{t(labelKey)}</span>
+                  <DesignIcon name={icon} className="size-(--app-font-15)" />
+                  <span className="text-[length:var(--app-font-13)]">
+                    {t(labelKey)}
+                  </span>
                 </NavLink>
               ))}
           </nav>

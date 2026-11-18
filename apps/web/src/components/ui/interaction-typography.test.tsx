@@ -74,7 +74,7 @@ describe("interactive typography", () => {
     }
   })
 
-  it("uses a segmented track with separate active-background and label layers", () => {
+  it("keeps the segmented track transparent and highlights only the active label", () => {
     render(
       <>
         <Command>
@@ -107,11 +107,9 @@ describe("interactive typography", () => {
       "gap-3"
     )
     expect(tabList).toHaveClass(
-      "rounded-xl",
-      "bg-muted",
-      "gap-1",
-      "p-1",
-      "group-data-horizontal/tabs:min-h-10",
+      "bg-transparent",
+      "gap-2",
+      "group-data-horizontal/tabs:min-h-9",
       "overflow-x-auto",
       "overflow-y-hidden",
       "[scrollbar-width:none]",
@@ -119,14 +117,13 @@ describe("interactive typography", () => {
     )
     expect(firstTab).toHaveClass(
       "rounded-lg",
-      "font-medium",
+      "font-normal",
       "h-auto",
-      "min-h-8",
+      "min-h-9",
       "px-3",
       "py-1.5",
       "text-muted-foreground",
-      "not-data-active:hover:bg-hover",
-      "data-active:text-foreground",
+      "data-active:text-link-foreground",
       "z-10"
     )
     expect(firstTab).not.toHaveClass("font-semibold")

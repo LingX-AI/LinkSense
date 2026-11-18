@@ -269,7 +269,7 @@ export function KnowledgeBaseListPage() {
                 activeTab === "knowledge" ? "mb-4" : "mb-6"
               )}
             >
-              <TabsList variant="pills" aria-label={t("library.tabsLabel")}>
+              <TabsList aria-label={t("library.tabsLabel")}>
                 <TabsTrigger value="knowledge">
                   {t("library.tabs.knowledge")}
                 </TabsTrigger>

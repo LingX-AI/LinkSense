@@ -214,7 +214,6 @@ export function KnowledgeShareDialog({
                 }}
               >
                 <TabsList
-                  variant="pills"
                   className="knowledge-share-type-options"
                   aria-label={t("knowledge.share.targetType")}
                 >

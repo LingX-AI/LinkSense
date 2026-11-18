@@ -2785,7 +2785,6 @@ function MarketplaceCatalogPanel({
                     }}
                   >
                     <TabsList
-                      variant="catalog"
                       aria-label={t("marketplace.catalogScopesLabel")}
                     >
                       <TabsTrigger value="personal">

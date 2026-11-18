@@ -123,7 +123,6 @@ export function ApplicationsWorkspacePanel(
         className="flex min-w-0 flex-col gap-6"
       >
         <TabsList
-          variant="catalog"
           aria-label={t("applications.scopeLabel")}
           activateOnFocus={false}
           className="justify-start"

@@ -1228,13 +1228,12 @@ describe("administrator authentication settings", () => {
       "系统维护",
     ])
     expect(productTab.closest('[data-slot="tabs-list"]')).toHaveClass(
-      "rounded-xl",
-      "bg-muted"
+      "bg-transparent"
     )
     expect(productTab).toHaveClass(
       "rounded-lg",
-      "font-medium",
-      "data-active:text-foreground"
+      "font-normal",
+      "data-active:text-link-foreground"
     )
     expect(productTab).not.toHaveClass("rounded-2xl")
     expect(

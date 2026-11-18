@@ -534,10 +534,7 @@ export function AutomationPage() {
               }}
               className="gap-4"
             >
-              <TabsList
-                variant="pills"
-                aria-label={t("automation.filterLabel")}
-              >
+              <TabsList aria-label={t("automation.filterLabel")}>
                 {automationFilterValues.map((value) => (
                   <TabsTrigger key={value} value={value}>
                     {t(`automation.filter.${value}`)}

@@ -1021,7 +1021,7 @@ describe("capability marketplace pages", () => {
       within(installedSection).getByRole("list", { name: "已安装的技能" })
     ).toBeVisible()
     const scopeToggle = screen.getByLabelText("内容范围")
-    expect(scopeToggle).toHaveAttribute("data-variant", "catalog")
+    expect(scopeToggle).toHaveAttribute("data-variant", "segmented")
     expect(scopeToggle).toHaveAttribute("role", "tablist")
     expect(
       within(scopeToggle)
@@ -3156,8 +3156,8 @@ describe("capability marketplace pages", () => {
     expect(groupTab).toHaveAttribute("data-slot", "tabs-trigger")
     expect(userTab).toHaveAttribute("aria-selected", "true")
     expect(userTab).toHaveAttribute("data-active")
-    expect(targetTypeSelector).toHaveAttribute("data-variant", "pills")
-    expect(userTab).toHaveClass("data-active:text-foreground")
+    expect(targetTypeSelector).toHaveAttribute("data-variant", "segmented")
+    expect(userTab).toHaveClass("data-active:text-link-foreground")
     expect(groupTab).toHaveAttribute("aria-selected", "false")
     expect(groupTab).not.toHaveAttribute("data-active")
     expect(

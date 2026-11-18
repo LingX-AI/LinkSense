@@ -2100,7 +2100,15 @@ test("design icon controls and selected navigation survive forced colors", async
   await page.emulateMedia({ forcedColors: "active" })
   await page.goto("/conversations/new")
   const sidebar = page.getByRole("complementary", { name: "LinkSense 导航" })
-  for (const name of ["sidebar", "automations", "plugins", "library"]) {
+  const collapseIcon = sidebar.locator('svg[data-design-icon="sidebar"]')
+  await expect(collapseIcon).toBeVisible()
+  expect(
+    await collapseIcon.evaluate((element) => {
+      const { color, stroke } = getComputedStyle(element)
+      return stroke === color
+    })
+  ).toBe(true)
+  for (const name of ["automations", "plugins", "library"]) {
     const icon = sidebar.locator(`[data-design-icon="${name}"]`)
     await expect(icon).toHaveCSS("forced-color-adjust", "none")
     await expect(icon).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
@@ -2115,16 +2123,54 @@ test("design icon controls and selected navigation survive forced colors", async
   ).toHaveCSS("forced-color-adjust", "none")
   await page.keyboard.press("Escape")
   await sidebar.getByRole("link", { name: "应用与工具" }).click()
-  const selected = page
-    .locator('[data-variant="navigation"]')
-    .getByRole("tab", { selected: true })
-  await expect(selected).not.toHaveCSS(
-    "border-bottom-color",
-    "rgba(0, 0, 0, 0)"
-  )
+  for (const variant of ["navigation", "segmented"]) {
+    const list = page.locator(`[role="tablist"][data-variant="${variant}"]`)
+    const selected = list.getByRole("tab", { selected: true })
+    const inactive = list.getByRole("tab", { selected: false }).first()
+    await expect(inactive).toBeVisible()
+    const inactiveBorder = await inactive.evaluate(
+      (element) => getComputedStyle(element).borderBottomColor
+    )
+    await expect(selected).not.toHaveCSS("border-bottom-color", inactiveBorder)
+  }
   await page.screenshot({
     path: test.info().outputPath("design-forced-colors.png"),
   })
+})
+
+test("application segments remain reachable by keyboard at 390px", async ({
+  page,
+}) => {
+  await page.route("**/api/v1/auth/refresh", (route) =>
+    ok(route, createE2EAuthSession("en-US"))
+  )
+  await page.route("**/api/v1/me", (route) =>
+    ok(route, { ...ADMIN, preferred_locale: "en-US", language: "en-US" })
+  )
+  await page.route("**/api/v1/web-sites**", (route) =>
+    ok(route, { items: [], next_cursor: null })
+  )
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto("/capabilities?section=application")
+  const list = page.getByRole("tablist", { name: "Application scope" })
+  const owned = list.getByRole("tab", { name: "My applications" })
+  const sites = list.getByRole("tab", { name: "My sites" })
+  const center = list.getByRole("tab", { name: "Application center" })
+  await expect(list).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+  await expect(list.locator('[data-slot="tabs-indicator"]')).toBeVisible()
+  await owned.press("ArrowRight")
+  await expect(sites).toBeFocused()
+  await expect(owned).toHaveAttribute("aria-selected", "true")
+  await page.keyboard.press("Enter")
+  await expect(sites).toHaveAttribute("aria-selected", "true")
+  await expect(page.getByRole("tabpanel", { name: "My sites" })).toBeVisible()
+
+  await page.keyboard.press("End")
+  await expect(center).toBeFocused()
+  await page.keyboard.press("Space")
+  await expect(center).toHaveAttribute("aria-selected", "true")
+  await expect(center).toBeInViewport({ ratio: 1 })
+  await expectNoHorizontalOverflow(page)
 })
 
 test("settings controls stack below their labels when their container is narrow", async ({
@@ -3702,6 +3748,33 @@ test("appearance supports themes and a persistent UI font size without backend p
   expect(composerPlaceholderStyle.color).toBe(placeholderTokenColor)
 })
 
+test("workspace labels and icons scale together without shrinking their rows", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  for (const [fontSize, labelSize, iconSize] of [
+    ["12", "11px", "13px"],
+    ["14", "13px", "15px"],
+    ["18", "17px", "19px"],
+  ]) {
+    await page.goto("/settings/appearance")
+    await page.getByRole("spinbutton", { name: "UI 字号" }).fill(fontSize)
+    await page.goto("/conversations/new")
+    const sidebar = page.getByRole("complementary", { name: "LinkSense 导航" })
+    for (const name of ["自动化", "应用与工具", "资料库"]) {
+      const link = sidebar.getByRole("link", { name, exact: true })
+      await expect(link.getByText(name, { exact: true })).toHaveCSS(
+        "font-size",
+        labelSize
+      )
+      await expect(link).toHaveCSS("height", "34px")
+      const icon = link.locator("[data-design-icon]")
+      await expect(icon).toHaveCSS("width", iconSize)
+      await expect(icon).toHaveCSS("height", iconSize)
+    }
+  }
+})
+
 test("design icons follow the UI font size across the sidebar and conversation", async ({
   page,
 }) => {
@@ -3715,11 +3788,6 @@ test("design icons follow the UI font size across the sidebar and conversation",
     await page.getByRole("spinbutton", { name: "UI 字号" }).fill(fontSize)
     await page.goto("/conversations/new")
     const sidebar = page.getByRole("complementary", { name: "LinkSense 导航" })
-    for (const name of ["automations"]) {
-      const icon = sidebar.locator(`[data-design-icon="${name}"]`)
-      await expect(icon).toHaveCSS("width", iconSize)
-      await expect(icon).toHaveCSS("height", iconSize)
-    }
     const sidebarToggle = sidebar.locator('[data-design-icon="sidebar"]')
     await expect(sidebarToggle).toHaveCSS("width", "16px")
     await expect(sidebarToggle).toHaveCSS("height", "16px")
