@@ -2173,6 +2173,8 @@ for (const width of [1440, 390]) {
       name: publishedSite.name,
       exact: true,
     })
+    await title.hover()
+    await expect(title).toHaveCSS("text-decoration-line", "none")
     const details = page.getByRole("dialog", { name: publishedSite.name })
     await site.getByText(publishedSite.description).click()
     await expect(details.getByText(publishedSite.alias_url)).toBeVisible()

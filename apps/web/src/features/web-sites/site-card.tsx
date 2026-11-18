@@ -51,7 +51,7 @@ export function SiteCard({
           type="button"
           variant="link"
           aria-haspopup="dialog"
-          className="h-auto max-w-full min-w-0 justify-start px-0 py-0 text-left text-[length:var(--app-font-15)] leading-[var(--app-line-22)] font-semibold whitespace-normal text-foreground pointer-coarse:min-h-11"
+          className="h-auto max-w-full min-w-0 justify-start px-0 py-0 text-left text-[length:var(--app-font-15)] leading-[var(--app-line-22)] font-semibold whitespace-normal text-foreground hover:no-underline pointer-coarse:min-h-11"
           onClick={(event) => onDetails(event.currentTarget)}
         >
           <span className="line-clamp-2 wrap-anywhere">{site.name}</span>
