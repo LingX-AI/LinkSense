@@ -192,11 +192,22 @@ try {
   assert.equal(await authority(), false);
   await db.conversation.update({ where: { id: scope.conversationId }, data: { desktopDeviceId: scope.deviceId } });
   assert.equal(await authority(), true);
+  // Both of these grants predate the session and runtime binding columns.
+  const legacyGrantId = randomUUID();
+  await db.$executeRaw`INSERT INTO local_computer_sessions
+    (id, owner_id, conversation_id, device_id, status, grant_scope, expires_at)
+    VALUES (${randomUUID()}::uuid, ${owner}::uuid, ${scope.conversationId}::uuid, ${stored.id}::uuid, 'active', 'session', now() + interval '1 day')`;
+  await db.$executeRaw`INSERT INTO computer_permission_grants
+    (id, owner_id, conversation_id, device_id, capability, scope, target_json, expires_at)
+    VALUES (${legacyGrantId}::uuid, ${owner}::uuid, ${scope.conversationId}::uuid, ${stored.id}::uuid,
+      'computer.act', 'session', '{"bundle_id":"com.example.Legacy"}'::jsonb, now() + interval '1 day')`;
   await migrate("desktop_upgrade");
+  assert.equal((await db.computerPermissionGrant.findUniqueOrThrow({ where: { id: legacyGrantId } })).sessionId, null);
   assert.equal(await authority(), true);
   await verifyDesktopExecutionProjection({
     prisma: db, ownerId: owner, deviceId: stored.id, token: issued.token,
     databaseUrl: databaseUrl("desktop_upgrade"), workspaceRoot: join(root, "workspaces"),
+    otherOwnerId: other, legacyConversationId: scope.conversationId, cloudConversationId: conversation,
   });
   const settledExistingTurn = await db.conversationTurn.findUniqueOrThrow({ where: { id: scope.turnId } });
   assert.equal(settledExistingTurn.status, "failed");
@@ -242,7 +253,7 @@ try {
   connections.push(fresh);
   assert.equal(await fresh.desktopDevice.count(), 0);
   assert.equal(await fresh.conversation.count(), 0);
-  console.log("Desktop PostgreSQL whitebox passed: cloud upgrade, device lifecycle, exact WebSocket scope, reconnect, and revoked-turn settlement.");
+  console.log("Desktop PostgreSQL whitebox passed: cloud upgrade, device lifecycle, bounded Mac grants, exact WebSocket scope, reconnect, and revoked-turn settlement.");
 } finally {
   await Promise.all(connections.map(connection => connection.$disconnect()));
   if (started) await execute("pg_ctl", ["-D", data, "-m", "immediate", "-w", "stop"], { timeout: 30_000 });

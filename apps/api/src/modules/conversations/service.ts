@@ -1,6 +1,7 @@
 import { settleCancelledAutomationPending, monitoringInstructionsForStart } from "../automations/monitoring.js";
 import { assertPairedDesktopDevice } from "./execution-target.js";
 import { lockDesktopConversation, type DesktopProjectionFence } from "../desktop-credentials/run-authority.js";
+import { endLocalComputerSessions } from "../local-computer/repository.js";
 import { conversationExecutionSelectionSchema, conversationExecutionTargetSchema, workspacePermissionPolicy, type ConversationExecutionSelection, type ConversationExecutionTarget } from "@linksense/shared";
 import { projectInteractiveTaskState } from "./interactive-task-state.js";
 import { prepareTaskReferences } from "./task-references.js";
@@ -3520,6 +3521,9 @@ export class ConversationService {
           where: { conversationId, deletedAt: null },
         });
         if (automationCount > 0) throw new AppError("AUTOMATION_TASK_IN_USE");
+      }
+      if (input.archiveStatus === "archived" && lockedConversation.executionTarget === "local") {
+        await endLocalComputerSessions(tx, { ownerId, conversationId }, new Date());
       }
       if (input.completionRead) {
         await tx.automationRun.updateMany({

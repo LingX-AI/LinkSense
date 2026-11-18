@@ -992,6 +992,7 @@ model LocalComputerSession {
   ownerId        String    @map("owner_id") @db.Uuid
   conversationId String    @map("conversation_id") @db.Uuid
   deviceId       String    @map("device_id") @db.Uuid
+  runtimeGeneration String? @map("runtime_generation") @db.Uuid
   status         String    @db.VarChar(24)
   grantScope     String    @map("grant_scope") @db.VarChar(24)
   expiresAt      DateTime? @map("expires_at") @db.Timestamptz(6)
@@ -1007,6 +1008,7 @@ model ComputerPermissionGrant {
   ownerId        String    @map("owner_id") @db.Uuid
   conversationId String?   @map("conversation_id") @db.Uuid
   deviceId       String?   @map("device_id") @db.Uuid
+  sessionId      String?   @map("session_id") @db.Uuid
   capability     String    @db.VarChar(48)
   scope          String    @db.VarChar(24)
   targetJson     Json?     @map("target_json") @db.JsonB
@@ -1016,6 +1018,7 @@ model ComputerPermissionGrant {
 
   @@index([ownerId, conversationId, revokedAt], map: "computer_grants_owner_conversation_idx")
   @@index([ownerId, deviceId, revokedAt], map: "computer_grants_owner_device_idx")
+  @@index([sessionId, revokedAt], map: "computer_grants_session_revoked_idx")
   @@map("computer_permission_grants")
 }
 

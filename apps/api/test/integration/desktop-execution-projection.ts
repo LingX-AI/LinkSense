@@ -37,6 +37,7 @@ import { CreditLimitService } from "../../src/modules/usage/credit-limit.js";
 import { createRedisFixture } from "../fixtures/redis.js";
 import { testConfig } from "../test-config.js";
 import { verifyPackagedDesktopGateway } from "./desktop-package-roundtrip.js";
+import { verifyLocalComputerSessions } from "./local-computer-sessions.js";
 
 const capabilityGeneration = "0".repeat(64);
 type RecoveryJobData = Parameters<TaskRecoveryQueueControl["add"]>[1];
@@ -49,6 +50,9 @@ export async function verifyDesktopExecutionProjection(input: {
   token: string;
   databaseUrl: string;
   workspaceRoot: string;
+  otherOwnerId: string;
+  legacyConversationId: string;
+  cloudConversationId: string;
 }): Promise<void> {
   const { prisma, ownerId, deviceId, token } = input;
   const config = testConfig({
@@ -95,6 +99,7 @@ export async function verifyDesktopExecutionProjection(input: {
       undefined, modelProviderSettings, undefined, creditLimits,
     );
     const events = new ConversationEventService(prisma, redis, conversations);
+    const local = await verifyLocalComputerSessions({ ...input, conversations });
     const recovery = new TaskRecoveryScheduler(config, prisma, redis, events, conversations, queue);
     events.configureRecoveryScheduler(recovery);
     const execution = await registerDesktopExecution(app, {
@@ -463,12 +468,17 @@ export async function verifyDesktopExecutionProjection(input: {
     const revoke = coordinator.revoke;
     coordinator.revoke = async () => { throw new Error("fixture notification unavailable"); };
     try {
-      const revocation = await app.inject({ method: "DELETE", url: `/api/v1/desktop/devices/${deviceId}` });
+      const [revocation] = await Promise.all([
+        app.inject({ method: "DELETE", url: `/api/v1/desktop/devices/${deviceId}` }),
+        conversations.patch(ownerId, local.conversationId, { archiveStatus: "archived" }),
+      ]);
       assert.equal(revocation.statusCode, 500);
     } finally {
       coordinator.revoke = revoke;
     }
     assert((await prisma.desktopDevice.findUniqueOrThrow({ where: { id: deviceId } })).revokedAt);
+    assert.equal((await prisma.localComputerSession.findUniqueOrThrow({ where: { id: local.sessionId } })).status, "ended");
+    assert((await prisma.computerPermissionGrant.findUniqueOrThrow({ where: { id: local.grantId } })).revokedAt);
     await conversations.delete(ownerId, legacy.id, {});
     assert.equal(await redis.hasTurnSlot(legacy.id, legacyTurn.id, ownerId), true);
     // A new scheduler can finish without any in-memory state, retry, or current socket.

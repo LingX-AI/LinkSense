@@ -15,7 +15,7 @@ export type DesktopProjectionFence = {
 export async function lockDesktopConversation(
   tx: Prisma.TransactionClient,
   { ownerId, deviceId, conversationId, runtimeGeneration }: DesktopConversationBinding,
-): Promise<{ codexThreadId: string | null }> {
+): Promise<{ codexThreadId: string | null; ownerEpoch: Date }> {
   const [row] = await tx.$queryRaw<Array<BoundDeviceCredential & { codexThreadId: string | null }>>`
     SELECT d.revoked_at AS "revokedAt", d.auth_valid_after AS "deviceEpoch",
       u.auth_valid_after AS "ownerEpoch", u.status AS "ownerStatus", c.codex_thread_id AS "codexThreadId"

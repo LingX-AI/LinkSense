@@ -16,6 +16,8 @@ import { DesktopDeviceService } from "./modules/desktop-devices/service.js";
 import { PrismaDesktopDeviceRepository } from "./modules/desktop-devices/repository.js";
 import { RedisDesktopDeviceCoordinator } from "./modules/desktop-devices/coordinator.js";
 import { registerDesktopExecution } from "./modules/desktop-devices/execution.js";
+import { localComputerRoutes } from "./modules/local-computer/routes.js";
+import { LocalComputerService } from "./modules/local-computer/service.js";
 import { DesktopLoginService, RedisDesktopLoginStore } from "./modules/auth/desktop-login.js";
 import { BrowserUseService } from "./modules/browser-use/service.js";
 import { BrowserUseIntentService } from "./modules/browser-use/intent.js";
@@ -680,6 +682,10 @@ export async function buildApi(
   });
   const desktopCoordinator = new RedisDesktopDeviceCoordinator(services.redis.client);
   const desktopExecution = await registerDesktopExecution(app, services, desktopCoordinator);
+  if (desktopExecution) await app.register(localComputerRoutes, {
+    prefix: "/api/v1/conversations",
+    service: new LocalComputerService(services.prisma),
+  });
   await registerDesktopDeviceRoutes(app, {
     service: new DesktopDeviceService(
       new PrismaDesktopDeviceRepository(services.prisma),

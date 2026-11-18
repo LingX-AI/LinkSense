@@ -118,11 +118,11 @@ export class PrismaDesktopDeviceRepository implements DesktopDeviceRepository {
         await tx.desktopDevice.update({ where: { id: device.id }, data: { revokedAt: now, updatedAt: now } });
         await writeDeviceAudit(tx, ownerId, device.id, "desktop_device_revoked");
       }
-      await tx.computerPermissionGrant.updateMany({
-        where: { ownerId, deviceId: device.id, revokedAt: null }, data: { revokedAt: now },
-      });
       await tx.localComputerSession.updateMany({
         where: { ownerId, deviceId: device.id, endedAt: null }, data: { status: "ended", endedAt: now },
+      });
+      await tx.computerPermissionGrant.updateMany({
+        where: { ownerId, deviceId: device.id, revokedAt: null }, data: { revokedAt: now },
       });
       return device.id;
     });
