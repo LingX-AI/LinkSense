@@ -95,4 +95,5 @@ export * from "./public-knowledge-output.js";
 export * from "./privacy-masking.js";
 export * from "./desktop-protocol.js";
 export * from "./desktop-device.js";
+export * from "./desktop-execution.js";
 export * from "./desktop-login.js";

@@ -10,9 +10,19 @@ const desktopNoticeSchema = z.discriminatedUnion("type", [
 ]);
 export type DesktopNotice = z.infer<typeof desktopNoticeSchema>;
 
-export async function subscribeDesktopNotices(
+export function subscribeDesktopNotices(
   redis: Redis,
   listener: (notice: DesktopNotice) => void,
+  onUnavailable: () => void,
+): Promise<() => void> {
+  return subscribeDesktopChannel(redis, desktopNoticeChannel, desktopNoticeSchema, listener, onUnavailable);
+}
+
+export async function subscribeDesktopChannel<T>(
+  redis: Redis,
+  channel: string,
+  schema: z.ZodType<T>,
+  listener: (notice: T) => void,
   onUnavailable: () => void,
 ): Promise<() => void> {
   const subscriber = redis.duplicate({
@@ -34,7 +44,7 @@ export async function subscribeDesktopNotices(
   };
   const onMessage = (_channel: string, value: string) => {
     try {
-      const parsed = desktopNoticeSchema.safeParse(JSON.parse(value));
+      const parsed = schema.safeParse(JSON.parse(value));
       if (parsed.success) listener(parsed.data);
     } catch { /* Pub/sub is an untrusted data boundary. */ }
   };
@@ -43,7 +53,7 @@ export async function subscribeDesktopNotices(
   subscriber.on("close", unavailable);
   try {
     await subscriber.connect();
-    await subscriber.subscribe(desktopNoticeChannel);
+    await subscriber.subscribe(channel);
     return stop;
   } catch (error) {
     stop();

@@ -55,14 +55,15 @@ export const desktopDeviceClientFrameSchema = z.discriminatedUnion("type", [
   }),
   z.strictObject({ type: z.literal("ping") }),
 ]);
+export const desktopDeviceReadySchema = z.strictObject({
+  type: z.literal("ready"),
+  device_id: uuidSchema,
+  connection_id: uuidSchema,
+  protocol_version: z.literal(desktopProtocolVersion),
+  heartbeat_interval_ms: z.literal(15_000),
+});
 export const desktopDeviceServerFrameSchema = z.discriminatedUnion("type", [
-  z.strictObject({
-    type: z.literal("ready"),
-    device_id: uuidSchema,
-    connection_id: uuidSchema,
-    protocol_version: z.literal(desktopProtocolVersion),
-    heartbeat_interval_ms: z.literal(15_000),
-  }),
+  desktopDeviceReadySchema,
   z.strictObject({ type: z.literal("pong") }),
 ]);
 

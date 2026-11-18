@@ -6,13 +6,19 @@ import type { Redis } from "ioredis";
 import { WebSocket, WebSocketServer } from "ws";
 import { z, ZodError } from "zod";
 import {
+  DESKTOP_EXECUTION_PROTOCOL_HEADER,
   desktopDeviceClientFrameSchema,
   desktopDeviceListSchema,
   desktopDevicePairInputSchema,
   desktopDeviceRenameInputSchema,
   desktopDeviceRenameResultSchema,
+  desktopExecutionDeviceReadySchema,
+  desktopExecutionMaxFrameBytes,
+  desktopExecutionProtocolVersion,
+  desktopExecutionResultSchema,
   desktopProtocolVersion,
 } from "@linksense/shared";
+import type { DesktopDeviceTransport } from "../../adapters/desktop-device-transport.js";
 import { hmacSha256 } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
 import { ok } from "../../lib/http.js";
@@ -24,9 +30,9 @@ const revocationCheckIntervalMs = 5_000;
 
 export async function registerDesktopDeviceRoutes(
   app: FastifyInstance,
-  options: { service: DesktopDeviceService; redis: Redis; rateLimitHmacSecret: string },
+  options: { service: DesktopDeviceService; redis: Redis; rateLimitHmacSecret: string; execution?: DesktopDeviceTransport },
 ): Promise<void> {
-  const { service } = options;
+  const { service, execution } = options;
   await app.register(async routes => {
     routes.addHook("preHandler", routes.authenticate);
     await routes.register(rateLimit, {
@@ -65,8 +71,13 @@ export async function registerDesktopDeviceRoutes(
       ok(await service.pair(desktopDevicePairInputSchema.parse(request.body)), request.id));
   });
 
-  const server = new WebSocketServer({ noServer: true, maxPayload: 8192, perMessageDeflate: false });
-  const connected = new Map<WebSocket, { device: DesktopDeviceRecord; connectionId: string }>();
+  const presenceMaxFrameBytes = 8192;
+  const server = new WebSocketServer({
+    noServer: true, maxPayload: execution ? desktopExecutionMaxFrameBytes : presenceMaxFrameBytes, perMessageDeflate: false,
+  });
+  const connected = new Map<WebSocket, {
+    device: DesktopDeviceRecord; connectionId: string; execution: boolean; detach?: () => void;
+  }>();
   let subscription: Promise<() => void> | null = null;
   let subscriptionGeneration = 0;
   let closing = false;
@@ -124,10 +135,12 @@ export async function registerDesktopDeviceRoutes(
       socket.destroy();
       return;
     }
-    server.handleUpgrade(request, socket, head, ws => server.emit("connection", ws));
+    server.handleUpgrade(request, socket, head, ws => server.emit("connection", ws, request));
   };
   app.server.on("upgrade", upgrade);
-  server.on("connection", socket => {
+  server.on("connection", (socket, request: IncomingMessage) => {
+    const supportsExecution = execution !== undefined &&
+      request.headers[DESKTOP_EXECUTION_PROTOCOL_HEADER] === String(desktopExecutionProtocolVersion);
     let handling = false;
     let lastPing = Date.now();
     const authDeadline = setTimeout(() => socket.close(4401), 5000);
@@ -136,18 +149,29 @@ export async function registerDesktopDeviceRoutes(
     }, 15_000);
     heartbeat.unref();
     const handle = async (raw: string) => {
+      const current = connected.get(socket);
+      const value: unknown = JSON.parse(raw);
+      if (current?.execution) {
+        const result = desktopExecutionResultSchema.safeParse(value);
+        if (result.success) {
+          await execution?.receive(current.connectionId, result.data);
+          return;
+        }
+      }
       if (handling) { socket.close(4400); return; }
       handling = true;
       try {
-        const frame = desktopDeviceClientFrameSchema.parse(JSON.parse(raw));
-        const current = connected.get(socket);
+        const frame = desktopDeviceClientFrameSchema.parse(value);
         if (!current) {
           if (frame.type !== "hello") { socket.close(4401); return; }
           await ensureSubscription();
           const device = await service.authenticate(frame.token);
           if (!device) { socket.close(4401); return; }
           const connectionId = await service.connect(device);
-          connected.set(socket, { device, connectionId });
+          const state: NonNullable<ReturnType<typeof connected.get>> = {
+            device, connectionId, execution: supportsExecution && device.platform === "darwin",
+          };
+          connected.set(socket, state);
           const active = await service.maintain(device, connectionId);
           if (socket.readyState !== WebSocket.OPEN || active !== "online") {
             socket.close(active === "revoked" ? 4403 : active === "replaced" ? 4409 : 4500);
@@ -155,11 +179,34 @@ export async function registerDesktopDeviceRoutes(
             connected.delete(socket);
             return;
           }
-          clearTimeout(authDeadline);
-          socket.send(JSON.stringify({
+          const ready = {
             type: "ready", device_id: device.id, connection_id: connectionId,
             protocol_version: desktopProtocolVersion, heartbeat_interval_ms: 15_000,
-          }));
+          };
+          let readySent = false;
+          if (state.execution && execution) {
+            const detach = await execution.attach({
+              ownerId: device.ownerId, deviceId: device.id, connectionId,
+              verifyCredential: () => service.hasCurrentCredential(device),
+              send: frame => {
+                if (!readySent || socket.readyState !== WebSocket.OPEN || socket.bufferedAmount >= desktopExecutionMaxFrameBytes) return false;
+                socket.send(JSON.stringify(frame), error => { if (error) socket.terminate(); });
+                return true;
+              },
+              close: () => socket.terminate(),
+            });
+            if (socket.readyState !== WebSocket.OPEN || !detach) {
+              detach?.();
+              socket.close(4500);
+              return;
+            }
+            state.detach = detach;
+          }
+          clearTimeout(authDeadline);
+          socket.send(JSON.stringify(state.execution ? desktopExecutionDeviceReadySchema.parse({
+            ...ready, execution_protocol_version: desktopExecutionProtocolVersion,
+          }) : ready));
+          readySent = true;
           return;
         }
         if (frame.type !== "ping") {
@@ -177,7 +224,15 @@ export async function registerDesktopDeviceRoutes(
         handling = false;
       }
     };
-    socket.on("message", data => {
+    socket.on("message", (data, isBinary) => {
+      if (isBinary || !Buffer.isBuffer(data)) {
+        socket.terminate();
+        return;
+      }
+      if (!connected.get(socket)?.execution && data.length > presenceMaxFrameBytes) {
+        socket.close(1009);
+        return;
+      }
       void handle(data.toString()).catch((error: unknown) => {
         socket.close(error instanceof ZodError || error instanceof SyntaxError ? 4400 : 4500);
       });
@@ -188,18 +243,20 @@ export async function registerDesktopDeviceRoutes(
       clearInterval(heartbeat);
       const current = connected.get(socket);
       connected.delete(socket);
+      current?.detach?.();
       if (current) void service.coordinator.disconnect(current.device.id, current.connectionId)
         .catch(() => app.log.warn("desktop device disconnect cleanup failed"));
     });
   });
-  app.addHook("onClose", async () => {
+  app.addHook("preClose", async () => {
     closing = true;
     clearInterval(revocations);
     app.server.off("upgrade", upgrade);
     for (const socket of server.clients) socket.terminate();
     await new Promise<void>(resolve => server.close(() => resolve()));
     await revocationCheck;
-    const unsubscribe = await subscription;
+    const unsubscribe = await subscription?.catch(() => undefined);
     unsubscribe?.();
+    await execution?.close();
   });
 }

@@ -1,11 +1,16 @@
 import Fastify from "fastify";
+import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { WebSocket } from "ws";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { desktopDeviceServerFrameSchema } from "@linksense/shared";
+import {
+  DESKTOP_EXECUTION_PROTOCOL_HEADER, desktopDeviceServerFrameSchema, desktopExecutionCommandSchema,
+  desktopExecutionDeviceReadySchema, desktopExecutionProtocolVersion, type DesktopExecutionCommand,
+} from "@linksense/shared";
+import { DesktopCommandUncertainError, DesktopDeviceTransport } from "../src/adapters/desktop-device-transport.js";
 import { AppError } from "../src/lib/errors.js";
 import { sendAppError } from "../src/lib/http.js";
-import { RedisDesktopDeviceCoordinator } from "../src/modules/desktop-devices/coordinator.js";
+import { RedisDesktopDeviceCoordinator, type DesktopExecutionBinding } from "../src/modules/desktop-devices/coordinator.js";
 import { registerDesktopDeviceRoutes } from "../src/modules/desktop-devices/routes.js";
 import { DesktopDeviceService } from "../src/modules/desktop-devices/service.js";
 import { registerClientBuildGuard } from "../src/plugins/client-build.js";
@@ -16,6 +21,7 @@ const owner = "10000000-0000-4000-8000-000000000001";
 const other = "10000000-0000-4000-8000-000000000002";
 const headers = { authorization: "Bearer user" };
 const registration = { name: "Work laptop", platform: "darwin", arch: "arm64", app_version: "0.1.0" };
+const executionKey = { masterKey: randomBytes(32).toString("base64"), keyId: "test" };
 let redis: Awaited<ReturnType<typeof createRedisFixture>>;
 const applications: ReturnType<typeof Fastify>[] = [];
 const sockets: WebSocket[] = [];
@@ -35,6 +41,9 @@ async function fixture(repository = new MemoryDesktopDeviceRepository()) {
   const coordinator = new RedisDesktopDeviceCoordinator(redis.client);
   const service = new DesktopDeviceService(repository, coordinator);
   const app = Fastify();
+  const authority = vi.fn<(binding: DesktopExecutionBinding, command: DesktopExecutionCommand) => Promise<boolean>>()
+    .mockResolvedValue(true);
+  const execution = new DesktopDeviceTransport(redis.client, authority, app.log, executionKey);
   applications.push(app);
   registerClientBuildGuard(app, null);
   app.decorate("authenticate", async request => {
@@ -47,25 +56,29 @@ async function fixture(repository = new MemoryDesktopDeviceRepository()) {
   });
   app.setErrorHandler((error, request, reply) => sendAppError(reply, request, error));
   await registerDesktopDeviceRoutes(app, {
-    service, redis: redis.client, rateLimitHmacSecret: "test-only-desktop-rate-limit-secret",
+    service, redis: redis.client, rateLimitHmacSecret: "test-only-desktop-rate-limit-secret", execution,
   });
   await app.ready();
-  return { app, service, coordinator, repository };
+  return { app, service, coordinator, repository, execution, authority };
 }
 
-async function paired(app: ReturnType<typeof Fastify>) {
+async function paired(app: ReturnType<typeof Fastify>, platform = registration.platform) {
   const pairing = await app.inject({ method: "POST", url: "/api/v1/desktop/devices/pairing", headers, payload: {} });
   expect(pairing.statusCode).toBe(200);
   const response = await app.inject({
     method: "POST", url: "/api/v1/desktop/devices/pair",
-    payload: { ...registration, code: pairing.json().data.code },
+    payload: { ...registration, platform, code: pairing.json().data.code },
   });
   expect(response.statusCode).toBe(200);
   return response.json().data as { token: string; owner_id: string; device: { id: string } };
 }
 
+function readFrame(socket: WebSocket): Promise<unknown> {
+  return once(socket, "message", { signal: AbortSignal.timeout(2_000) }).then(([data]) => JSON.parse(String(data)));
+}
+
 function nextFrame(socket: WebSocket) {
-  return once(socket, "message").then(([data]) => desktopDeviceServerFrameSchema.parse(JSON.parse(String(data))));
+  return readFrame(socket).then(frame => desktopDeviceServerFrameSchema.parse(frame));
 }
 
 function barrier() {
@@ -74,17 +87,294 @@ function barrier() {
   return { promise, resolve: () => release() };
 }
 
-async function connect(app: ReturnType<typeof Fastify>, token: string) {
+async function connect(app: ReturnType<typeof Fastify>, token: string, executionVersion?: number) {
   const address = app.server.listening
     ? `http://127.0.0.1:${(app.server.address() as import("node:net").AddressInfo).port}`
     : await app.listen({ host: "127.0.0.1", port: 0 });
-  const socket = new WebSocket(`${address.replace(/^http/u, "ws")}/api/v1/desktop/devices/socket`);
+  const socket = new WebSocket(`${address.replace(/^http/u, "ws")}/api/v1/desktop/devices/socket`, {
+    headers: executionVersion === undefined ? {} : { [DESKTOP_EXECUTION_PROTOCOL_HEADER]: String(executionVersion) },
+  });
   sockets.push(socket);
   await once(socket, "open");
-  const ready = nextFrame(socket);
+  const ready = readFrame(socket).then(frame => {
+    const negotiated = desktopExecutionDeviceReadySchema.safeParse(frame);
+    return negotiated.success ? negotiated.data : desktopDeviceServerFrameSchema.parse(frame);
+  });
   socket.send(JSON.stringify({ type: "hello", token, protocol_version: 1 }));
   return { socket, ready: await ready };
 }
+
+function inspection(overrides: Partial<Extract<DesktopExecutionCommand, { operation: "turn.inspect" }>> = {}): DesktopExecutionCommand {
+  return {
+    type: "command", operation: "turn.inspect", id: randomUUID(), owner_id: owner,
+    conversation_id: randomUUID(), runtime_generation: randomUUID(), turn_id: randomUUID(),
+    expires_at: new Date(Date.now() + 4_000).toISOString(), ...overrides,
+  };
+}
+
+function acknowledgeInspection(socket: WebSocket, command: DesktopExecutionCommand) {
+  socket.send(JSON.stringify({
+    type: "command.result", operation: command.operation, id: command.id, ok: true, result: null,
+  }));
+}
+
+function acknowledgeStart(socket: WebSocket, command: DesktopExecutionCommand, objective: string) {
+  const codexThreadId = randomUUID();
+  const timestamp = new Date().toISOString();
+  socket.send(JSON.stringify({
+    type: "command.result", operation: command.operation, id: command.id, ok: true,
+    result: {
+      conversationId: command.conversation_id, projectionTurnId: command.turn_id,
+      status: "succeeded", createdAt: timestamp, updatedAt: timestamp,
+      result: {
+        codexThreadId, codexTurnId: randomUUID(),
+        goal: {
+          threadId: codexThreadId, objective, status: "active", tokenBudget: null,
+          tokensUsed: 0, timeUsedSeconds: 0, createdAt: 1, updatedAt: 1,
+        },
+      },
+    },
+  }));
+}
+
+describe("desktop execution transport", () => {
+  it("sends a command to the current negotiated Mac across API replicas and correlates its receipt", async () => {
+    const first = await fixture();
+    const second = await fixture(first.repository);
+    const { device, token } = await paired(first.app);
+    const { socket, ready } = await connect(first.app, token, desktopExecutionProtocolVersion);
+    expect(desktopExecutionDeviceReadySchema.parse(ready).device_id).toBe(device.id);
+    const binding = await second.execution.connection(device.id);
+    if (!binding) throw new Error("Mac did not negotiate execution");
+    const command = inspection();
+    const frame = readFrame(socket);
+    const receipt = second.execution.send(binding, command);
+    expect(desktopExecutionCommandSchema.parse(await frame)).toEqual(command);
+    acknowledgeInspection(socket, { ...command, id: randomUUID() });
+    acknowledgeInspection(socket, command);
+    await expect(receipt).resolves.toMatchObject({ ok: true, id: command.id, result: null });
+    await expect(second.execution.send(binding, command)).rejects.toBeInstanceOf(DesktopCommandUncertainError);
+  });
+
+  it("does not publish plaintext input or credentials to Redis", async () => {
+    const first = await fixture();
+    const second = await fixture(first.repository);
+    const { device, token } = await paired(first.app);
+    const { socket } = await connect(first.app, token, desktopExecutionProtocolVersion);
+    const binding = await second.execution.connection(device.id);
+    if (!binding) throw new Error("Mac did not negotiate execution");
+    const observer = redis.client.duplicate();
+    try {
+      await observer.subscribe(`linksense:desktop-execution:${binding.gatewayId}`);
+      const observed = once(observer, "message", { signal: AbortSignal.timeout(2_000) });
+      const command = desktopExecutionCommandSchema.parse({
+        ...inspection(), operation: "turn.start",
+        body: {
+          native_thread_id: null, input: "Private whitebox prompt", reasoning_effort: "low",
+          credentials: {
+            turn_id: owner, expires_at: new Date(Date.now() + 60_000).toISOString(),
+            run_token: `lsdr_${"a".repeat(43)}`,
+            primary: { purpose: "primary", model: "sample", revision: 1, protocol_mode: "native_responses", token: `lsdm_${"b".repeat(43)}` },
+          },
+        },
+        turn_id: owner,
+      });
+      const delivered = readFrame(socket);
+      const result = second.execution.send(binding, command);
+      expect(await delivered).toEqual(command);
+      acknowledgeStart(socket, command, "Whitebox");
+      await expect(result).resolves.toMatchObject({ ok: true, id: command.id });
+      const [, encrypted] = await observed;
+      expect(String(encrypted)).toMatch(/^"v1\.test\./u);
+      expect(String(encrypted)).not.toMatch(/lsd[rm]_|Private whitebox prompt/u);
+    } finally {
+      observer.disconnect();
+    }
+  });
+
+  it("retains old presence, never sends to a replaced connection, and distinguishes a lost response", async () => {
+    const first = await fixture();
+    const second = await fixture(first.repository);
+    const { device, token } = await paired(first.app);
+    const mac = await connect(first.app, token, desktopExecutionProtocolVersion);
+    const binding = await second.execution.connection(device.id);
+    if (!binding) throw new Error("Mac did not negotiate execution");
+    const command = inspection();
+    const frame = readFrame(mac.socket);
+    const receipt = second.execution.send(binding, command);
+    expect(await frame).toEqual(command);
+    const closed = once(mac.socket, "close", { signal: AbortSignal.timeout(2_000) });
+    const lost = expect(receipt).resolves.toMatchObject({ ok: false, error_code: "RUNNER_OPERATION_UNCERTAIN" });
+    const legacy = await connect(second.app, token);
+    expect((await closed)[0]).toBe(4409);
+    expect(desktopDeviceServerFrameSchema.parse(legacy.ready).type).toBe("ready");
+    expect(await second.execution.connection(device.id)).toBeNull();
+    await lost;
+    await expect(second.execution.send(binding, inspection())).rejects.toMatchObject({ code: "RUNNER_UNAVAILABLE" });
+    const pong = nextFrame(legacy.socket);
+    legacy.socket.send(JSON.stringify({ type: "ping" }));
+    await expect(pong).resolves.toEqual({ type: "pong" });
+  });
+
+  it("leaves presence compatible for Windows and unrecognized execution protocol versions", async () => {
+    const { app, execution } = await fixture();
+    for (const [platform, version] of [["windows", desktopExecutionProtocolVersion], ["darwin", desktopExecutionProtocolVersion + 1]] as const) {
+      const { device, token } = await paired(app, platform);
+      const { socket, ready } = await connect(app, token, version);
+      expect(desktopDeviceServerFrameSchema.parse(ready).type).toBe("ready");
+      expect(await execution.connection(device.id)).toBeNull();
+      const pong = nextFrame(socket);
+      socket.send(JSON.stringify({ type: "ping" }));
+      await expect(pong).resolves.toEqual({ type: "pong" });
+    }
+  });
+
+  it("accepts a valid multibyte receipt above the legacy presence limit", async () => {
+    const first = await fixture();
+    const second = await fixture(first.repository);
+    const { device, token } = await paired(first.app);
+    const { socket } = await connect(first.app, token, desktopExecutionProtocolVersion);
+    const binding = await second.execution.connection(device.id);
+    if (!binding) throw new Error("Mac did not negotiate execution");
+    const command = inspection();
+    const delivered = readFrame(socket);
+    const result = second.execution.send(binding, command);
+    expect(await delivered).toEqual(command);
+    const objective = "目标".repeat(2_000);
+    acknowledgeStart(socket, command, objective);
+    const response = await result;
+    if (!response.ok || response.operation !== "turn.inspect" || response.result?.status !== "succeeded") {
+      throw new Error("valid device receipt was rejected");
+    }
+    expect(response.result.result.goal?.objective.length).toBe(objective.length);
+  });
+
+  it("rejects a command outside the device's authorized conversation scope before delivery", async () => {
+    const first = await fixture();
+    const second = await fixture(first.repository);
+    const { device, token } = await paired(first.app);
+    const { socket } = await connect(first.app, token, desktopExecutionProtocolVersion);
+    const binding = await second.execution.connection(device.id);
+    if (!binding) throw new Error("Mac did not negotiate execution");
+    const command = inspection();
+    const messages = vi.fn();
+    socket.on("message", messages);
+    first.authority.mockResolvedValue(false);
+    await expect(second.execution.send(binding, command)).resolves.toMatchObject({ ok: false, error_code: "FORBIDDEN" });
+    expect(first.authority).toHaveBeenCalledWith(binding, command);
+    expect(messages).not.toHaveBeenCalled();
+  });
+
+  it("checks a repeated receipt only once while device authorization is pending", async () => {
+    const first = await fixture();
+    const second = await fixture(first.repository);
+    const { device, token } = await paired(first.app);
+    const { socket } = await connect(first.app, token, desktopExecutionProtocolVersion);
+    const binding = await second.execution.connection(device.id);
+    if (!binding) throw new Error("Mac did not negotiate execution");
+    const command = inspection();
+    const delivered = readFrame(socket);
+    const receipt = second.execution.send(binding, command);
+    expect(await delivered).toEqual(command);
+    const gate = barrier();
+    const started = barrier();
+    const verify = vi.spyOn(first.service, "hasCurrentCredential").mockImplementation(async () => {
+      started.resolve();
+      await gate.promise;
+      return true;
+    });
+    const receive = vi.spyOn(first.execution, "receive");
+    try {
+      acknowledgeInspection(socket, command);
+      await started.promise;
+      acknowledgeInspection(socket, command);
+      await vi.waitFor(() => expect(receive).toHaveBeenCalledTimes(2));
+      expect(verify).toHaveBeenCalledTimes(1);
+    } finally {
+      gate.resolve();
+      await receipt;
+    }
+  });
+
+  it("rejects another owner's command and propagates cancellation without accepting a late reply", async () => {
+    const first = await fixture();
+    const second = await fixture(first.repository);
+    const { device, token } = await paired(first.app);
+    const { socket } = await connect(first.app, token, desktopExecutionProtocolVersion);
+    const binding = await second.execution.connection(device.id);
+    if (!binding) throw new Error("Mac did not negotiate execution");
+    await expect(second.execution.send(binding, inspection({ owner_id: other })))
+      .resolves.toMatchObject({ ok: false, error_code: "FORBIDDEN" });
+    const controller = new AbortController();
+    const command = inspection();
+    const delivered = readFrame(socket);
+    const receipt = second.execution.send(binding, command, controller.signal);
+    expect(await delivered).toEqual(command);
+    const cancelled = readFrame(socket);
+    controller.abort();
+    await expect(receipt).rejects.toBeInstanceOf(DesktopCommandUncertainError);
+    expect(await cancelled).toEqual({ type: "command.cancel", id: command.id });
+    acknowledgeInspection(socket, command);
+    const next = inspection();
+    const nextDelivery = readFrame(socket);
+    const nextReceipt = second.execution.send(binding, next);
+    expect(await nextDelivery).toEqual(next);
+    acknowledgeInspection(socket, next);
+    await expect(nextReceipt).resolves.toMatchObject({ id: next.id, ok: true });
+  });
+
+  it("does not deliver a command cancelled while its authorization is in progress", async () => {
+    const first = await fixture();
+    const second = await fixture(first.repository);
+    const { device, token } = await paired(first.app);
+    const { socket } = await connect(first.app, token, desktopExecutionProtocolVersion);
+    const binding = await second.execution.connection(device.id);
+    if (!binding) throw new Error("Mac did not negotiate execution");
+    const gate = barrier();
+    const started = barrier();
+    first.authority.mockImplementationOnce(async () => {
+      started.resolve();
+      await gate.promise;
+      return true;
+    });
+    const signal = new AbortController();
+    const command = inspection();
+    const receipt = second.execution.send(binding, command, signal.signal);
+    await started.promise;
+    try {
+      signal.abort();
+      await expect(receipt).rejects.toBeInstanceOf(DesktopCommandUncertainError);
+      await vi.waitFor(async () => expect(await first.coordinator.mayDispatch(binding, command.id)).toBe(false));
+      gate.resolve();
+      const next = inspection();
+      const nextDelivery = readFrame(socket);
+      const nextReceipt = second.execution.send(binding, next);
+      expect(await nextDelivery).toEqual(next);
+      acknowledgeInspection(socket, next);
+      await expect(nextReceipt).resolves.toMatchObject({ id: next.id, ok: true });
+    } finally {
+      gate.resolve();
+    }
+  });
+
+  it("fences receipt publication after replacement and prevents a delayed dispatch after cancellation", async () => {
+    const { app, coordinator, execution } = await fixture();
+    const { device, token } = await paired(app);
+    const original = await connect(app, token, desktopExecutionProtocolVersion);
+    const binding = await execution.connection(device.id);
+    if (!binding) throw new Error("Mac did not negotiate execution");
+    const command = inspection();
+    const expiresAt = Date.parse(command.expires_at);
+    const recipient = "test:desktop-execution";
+    await coordinator.publishExecution(binding, recipient, "cancel", { expiresAt, command: { id: command.id, kind: "cancel" } });
+    await expect(coordinator.publishExecution(binding, recipient, "dispatch", { expiresAt, command: { id: command.id, kind: "dispatch" } }))
+      .resolves.toBe("duplicate");
+    const closed = once(original.socket, "close", { signal: AbortSignal.timeout(2_000) });
+    await connect(app, token, desktopExecutionProtocolVersion);
+    expect((await closed)[0]).toBe(4409);
+    await expect(coordinator.publishExecution(binding, recipient, "old receipt", { expiresAt })).resolves.toBe("unavailable");
+  });
+});
 
 describe("desktop device HTTP and WebSocket boundaries", () => {
   it("requires login, rejects spoofed ownership, consumes pairing once and redacts credentials", async () => {

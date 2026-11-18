@@ -74,10 +74,13 @@ export class DesktopDeviceService {
     return connectionId;
   }
 
-  async maintain(device: DesktopDeviceRecord, connectionId: string): Promise<"online" | "replaced" | "expired" | "revoked"> {
-    // Re-read revocation and credential epochs before renewing any device lease.
+  async hasCurrentCredential(device: DesktopDeviceRecord): Promise<boolean> {
     const current = await this.repository.findCredential(device.tokenHash);
-    if (!current || !isCurrentDeviceCredential(current.device, current.owner)) return "revoked";
+    return current !== null && isCurrentDeviceCredential(current.device, current.owner);
+  }
+
+  async maintain(device: DesktopDeviceRecord, connectionId: string): Promise<"online" | "replaced" | "expired" | "revoked"> {
+    if (!await this.hasCurrentCredential(device)) return "revoked";
     const state = await this.coordinator.maintain(device.id, connectionId);
     if (state !== "online") return state;
     await this.repository.touch(device.id, this.now());
