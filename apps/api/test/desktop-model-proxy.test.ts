@@ -97,6 +97,21 @@ async function fixture(options: { deadline?: number; trustProxy?: boolean } = {}
 }
 
 describe("desktop model proxy", () => {
+  it("forwards a bounded native preloaded tool output without a call ID", async () => {
+    const test = await fixture();
+    const input = [{
+      type: "function_call_output", name: "read_skill", namespace: "skills",
+      output: [{ type: "input_text", text: "Fixture skill instructions" }],
+    }];
+    const token = test.credentials.primary.token;
+    expect((await test.request("primary/responses", token, { ...nativeInput, input })).statusCode).toBe(200);
+    expect(JSON.parse(String(test.fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({ input });
+    expect((await test.request("primary/responses", token, {
+      ...nativeInput, input: [{ ...input[0], headers: { authorization: "test-only" } }],
+    })).statusCode).toBe(400);
+    expect(test.fetcher).toHaveBeenCalledOnce();
+  });
+
   it("uses the lease and server registry for primary and memory inference, with sanitized responses", async () => {
     const test = await fixture();
     const { primary, memory_extraction: memory } = test.credentials;

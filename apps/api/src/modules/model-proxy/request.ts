@@ -61,8 +61,9 @@ const responseItem = z.discriminatedUnion("type", [
   }),
   z.strictObject({
     type: z.literal("function_call_output"), id: identifier.optional(),
-    call_id: identifier, output: responseOutput,
-  }),
+    // Codex 0.170 also sends preloaded Skill output identified by names rather than a preceding model call.
+    call_id: identifier.optional(), name: identifier.optional(), namespace: identifier.optional(), output: responseOutput,
+  }).refine(item => item.call_id !== undefined || item.name !== undefined),
   z.strictObject({
     type: z.literal("custom_tool_call"), id: identifier.optional(),
     call_id: identifier, name: identifier, namespace: identifier.optional(),
