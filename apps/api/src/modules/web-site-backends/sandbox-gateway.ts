@@ -6,7 +6,8 @@ import type { AppConfig } from "../../config.js";
 import { randomToken } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
 import { containsControlCharacter } from "../../lib/text.js";
-import { escapeHtml } from "../web-sites/public-page.js";
+import { escapeHtml, siteNotFoundPage, siteNotFoundPolicy } from "../web-sites/public-page.js";
+import { resolveLocale } from "../../lib/locale.js";
 import type { WebSiteService } from "../web-sites/service.js";
 import { webSiteSandbox } from "../web-sites/routes.js";
 import { publicFunctionExecution, readRequest, readResponse, validatePublicAppUrl } from "./gateway.js";
@@ -39,7 +40,8 @@ const hasRoutingField = (keys: Iterable<string>): boolean => {
 };
 
 export function registerPublicAppGateway(
-  app: FastifyInstance, backends: WebSiteBackendService, sites: Pick<WebSiteService, "applicationEntry" | "publicApplication">,
+  app: FastifyInstance, backends: WebSiteBackendService,
+  sites: Pick<WebSiteService, "applicationEntry" | "publicApplication" | "publishedSiteIdByAddress">,
   sessions: WebSiteVisitorSessions, config: Pick<AppConfig, "publicBaseUrl">,
 ): void {
   const publicUrl = new URL(config.publicBaseUrl);
@@ -53,6 +55,7 @@ export function registerPublicAppGateway(
     const raw = request.raw.url ?? "/";
     if (!raw.startsWith("/app/")) return;
     if (request.headers.host !== publicUrl.host) throw new AppError("WEB_SITE_NOT_FOUND");
+    try {
     if (raw === "/app/_sdk/v1.js" && ["GET", "HEAD"].includes(request.method)) {
       return reply.header("access-control-allow-origin", "*").type("application/javascript; charset=utf-8").send(publicAppSdkScript);
     }
@@ -62,18 +65,20 @@ export function registerPublicAppGateway(
     let address: string;
     let suffix: string;
     let retiredAlias = false;
+    let canonicalSiteId: string | undefined;
     let binding: Awaited<ReturnType<typeof backends.store.publicBinding>> | undefined;
     if (canonical) {
-      const id = z.uuid().safeParse(canonical[1]);
-      if (!id.success) throw new AppError("WEB_SITE_NOT_FOUND");
-      address = webApplicationPath(id.data);
+      if (!canonical[1]) throw new AppError("WEB_SITE_NOT_FOUND");
+      // A UUID address is the site id; anything else resolves as a current or retired slug.
+      canonicalSiteId = await sites.publishedSiteIdByAddress(canonical[1]);
+      address = webApplicationPath(canonicalSiteId);
       suffix = canonical[2] ?? "";
       if (suffix && suffix !== "/") {
         // RPC needs live authorization, not the immutable frontend manifest.
-        binding = await backends.store.publicBindingForSite(id.data);
+        binding = await backends.store.publicBindingForSite(canonicalSiteId);
         backendId = binding.backend.id;
       } else {
-        entry = await sites.publicApplication(id.data);
+        entry = await sites.publicApplication(canonicalSiteId);
         if (!entry.backendId) {
           if (!["GET", "HEAD"].includes(request.method)) throw new AppError("WEB_SITE_NOT_FOUND");
           reply.header("content-security-policy", [
@@ -97,7 +102,7 @@ export function registerPublicAppGateway(
       retiredAlias = (current?.hostLabel ?? current?.id) !== label.data;
     }
     const { backend, siteId } = binding ?? await backends.store.publicBinding(backendId);
-    if (canonical && siteId !== canonical[1]) throw new AppError("WEB_SITE_NOT_FOUND");
+    if (canonical && siteId !== canonicalSiteId) throw new AppError("WEB_SITE_NOT_FOUND");
     if (backend.runtimeMode !== "sandbox") {
       if (canonical && (!suffix || suffix === "/") && ["GET", "HEAD"].includes(request.method) && entry?.url)
         return reply.redirect(entry.url);
@@ -177,6 +182,16 @@ export function registerPublicAppGateway(
     const response = upload ? await forwardVisitorUpload(backends, backend.id, path, headers, upload)
       : await backends.requiredClient().forward(path, { method, headers, ...(body !== undefined ? { body } : {}) });
     return sendVisitorResponse(reply, response, method, url, backend.id, backend.projectId, visitor, previous, sessions, backends);
+    } catch (error) {
+      // A visitor opening a missing address gets the branded page; RPCs and assets keep the JSON error.
+      const wantsPage = ["GET", "HEAD"].includes(request.method) && !raw.includes("/_rpc")
+        && (request.headers["sec-fetch-dest"] === "document" || request.headers.accept?.includes("text/html"));
+      if (!wantsPage || !(error instanceof AppError) || error.code !== "WEB_SITE_NOT_FOUND") throw error;
+      return reply.code(404).type("text/html; charset=utf-8")
+        .header("content-security-policy", siteNotFoundPolicy)
+        .header("cache-control", "no-store").header("x-robots-tag", "noindex, nofollow")
+        .send(siteNotFoundPage(resolveLocale(request)));
+    }
   });
   app.addHook("onSend", async (request, reply, payload) => {
     if (!(request.raw.url ?? "").startsWith("/app/")) return payload;

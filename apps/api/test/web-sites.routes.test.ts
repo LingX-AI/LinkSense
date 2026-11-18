@@ -32,7 +32,7 @@ describe("website HTTP boundary", () => {
     const headers = { authorization: "Bearer test-owner" };
     const listed = await fixture.app.inject({ url: "/api/v1/web-sites", headers });
     expect(listed.json().data.items[0]).toMatchObject({
-      slug: "sample", alias_url: "https://linksense.example.test/web/sample",
+      slug: "sample", alias_url: "https://linksense.example.test/app/s/sample",
       url: `https://linksense.example.test/app/s/${siteId}`,
     });
     fixture.store.update.mockImplementation(async (_ownerId, _id, input) => {
@@ -43,7 +43,7 @@ describe("website HTTP boundary", () => {
       method: "PATCH", url: `/api/v1/web-sites/${siteId}`, headers, payload: { slug: "drink-water" },
     });
     expect(renamed.json().data).toMatchObject({
-      slug: "drink-water", alias_url: "https://linksense.example.test/web/drink-water",
+      slug: "drink-water", alias_url: "https://linksense.example.test/app/s/drink-water",
       url: `https://linksense.example.test/app/s/${siteId}`,
     });
   });

@@ -32,6 +32,13 @@ export class WebSiteService {
       return { ...delivery, url: origin ? await origin : new URL(webApplicationPath(delivery.id), publicBaseUrl).href };
     })));
   }
+  /** UUID addresses are site ids; any other address is a current or retired owner-chosen slug. */
+  async publishedSiteIdByAddress(address: string): Promise<string> {
+    if (webSiteSchema.shape.id.safeParse(address).success) return address;
+    const slug = webSiteSchema.shape.slug.safeParse(address);
+    if (!slug.success) throw new AppError("WEB_SITE_NOT_FOUND");
+    return (await this.store.publicSite(slug.data)).site.id;
+  }
   async publishedSlugForOwner(ownerId: string, siteId: string): Promise<string> {
     const { site } = await this.store.owned(ownerId, siteId);
     if (site.status !== "published") throw new AppError("WEB_SITE_NOT_FOUND");
@@ -189,9 +196,12 @@ export function parseWebSiteCursor(value: string): NonNullable<SiteListInput["cu
   return { updatedAt: new Date(time), id };
 }
 export function withUrl(site: WebSite, publicBaseUrl: string): WebSiteWithUrl {
+  const slug = webSiteSchema.shape.slug.parse(site.slug);
+  // Auto-generated slugs are UUIDs: /app/s/ treats a UUID as the site id, so only a chosen slug is addressable.
+  const custom = !webSiteSchema.shape.id.safeParse(slug).success;
   return webSiteWithUrlSchema.parse({
     ...site,
     url: site.url ?? new URL(site.url_path, publicBaseUrl).href,
-    alias_url: new URL(`/web/${webSiteSchema.shape.slug.parse(site.slug)}`, publicBaseUrl).href,
+    ...(custom ? { alias_url: new URL(`/app/s/${slug}`, publicBaseUrl).href } : {}),
   });
 }

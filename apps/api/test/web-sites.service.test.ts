@@ -12,9 +12,12 @@ describe("website publishing service", () => {
     const origin = "https://legacy-app.apps.example.test";
     expect(withUrl({ ...site, backend_id: taskId, url: origin }, "https://public.example.test")).toMatchObject({
       url: origin,
-      alias_url: "https://public.example.test/web/sample",
+      alias_url: "https://public.example.test/app/s/sample",
       url_path: `/app/s/${siteId}`,
     });
+    // Auto-generated UUID slugs are not addressable as slugs, so no custom link is advertised.
+    expect(withUrl({ ...site, slug: "60000000-0000-4000-8000-000000000001" }, "https://public.example.test"))
+      .not.toHaveProperty("alias_url");
   });
   it("publishes an existing self-contained HTML artifact with a generated UUID and a bounded manifest", async () => {
     const fixture = siteFixture();

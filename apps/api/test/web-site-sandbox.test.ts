@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerPublicAppGateway } from "../src/modules/web-site-backends/sandbox-gateway.js";
 import { registerWebSiteBackendGateway } from "../src/modules/web-site-backends/gateway.js";
 import { WebSiteVisitorSessions } from "../src/modules/web-site-backends/visitor-sessions.js";
-import { normalizeError } from "../src/lib/errors.js";
+import { AppError, normalizeError } from "../src/lib/errors.js";
 import { backendFixture, backendId } from "./web-site-backends.fixture.js";
 import { ownerId, taskId, siteId } from "./web-sites.fixture.js";
 import { testConfig } from "./test-config.js";
@@ -73,6 +73,49 @@ describe("same-host public dynamic applications", () => {
     expect(f.fetcher).not.toHaveBeenCalled();
     expect((await f.app.inject({ url: `/app/id/${siteId}`, headers: { host: f.host } })).statusCode).toBe(404);
     expect((await f.app.inject({ url: `/app/s/${siteId}/_rpc`, method: "POST", headers: { host: f.host } })).statusCode).toBe(404);
+  });
+
+  it("serves a static application from its slug address exactly like its stable id address", async () => {
+    const f = setup();
+    delete f.site.row.site.backendId;
+    const stable = await f.app.inject({ url: `/app/s/${siteId}`, headers: { host: f.host } });
+    const slug = await f.app.inject({ url: "/app/s/sample", headers: { host: f.host } });
+    expect(slug.statusCode).toBe(200);
+    expect(slug.body).toBe(stable.body);
+    expect(f.site.store.publicSite).toHaveBeenCalledWith("sample");
+    expect(f.site.store.publicSiteById).toHaveBeenCalledWith(siteId);
+  });
+
+  it("rejects unknown and malformed slug addresses", async () => {
+    const f = setup();
+    delete f.site.row.site.backendId;
+    f.site.store.publicSite.mockRejectedValueOnce(new AppError("WEB_SITE_NOT_FOUND"));
+    expect((await f.app.inject({ url: "/app/s/unknown-slug", headers: { host: f.host } })).statusCode).toBe(404);
+    expect((await f.app.inject({ url: "/app/s/Bad_Slug", headers: { host: f.host } })).statusCode).toBe(404);
+    expect(f.site.store.publicSiteById).not.toHaveBeenCalled();
+  });
+
+  it("returns the branded LinkSense 404 page for a missing site address opened as a document", async () => {
+    const f = setup();
+    delete f.site.row.site.backendId;
+    f.site.store.publicSite.mockRejectedValueOnce(new AppError("WEB_SITE_NOT_FOUND"));
+    const response = await f.app.inject({
+      url: "/app/s/water-reminde",
+      headers: { host: f.host, accept: "text/html,application/xhtml+xml", "sec-fetch-dest": "document" },
+    });
+    expect(response.statusCode).toBe(404);
+    expect(response.headers["content-type"]).toContain("text/html");
+    expect(response.headers["content-security-policy"]).toContain("sandbox");
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toContain("LinkSense");
+    expect(response.body).toContain("404");
+    // RPC and non-document requests keep the JSON error.
+    const rpc = await f.app.inject({
+      url: "/app/s/missing/_rpc", method: "POST", payload: {},
+      headers: { host: f.host, accept: "text/html", "content-type": "application/json" },
+    });
+    expect(rpc.headers["content-type"]).toContain("application/json");
+    expect(rpc.body).not.toContain("LinkSense");
   });
 
   it("keeps a dynamic application's stable address and sessions after renaming its backend alias", async () => {
