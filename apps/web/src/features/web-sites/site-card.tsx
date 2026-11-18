@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import { useRef, type ReactNode } from "react"
 import type { WebSite } from "@linksense/shared"
 import { GlobeIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -18,10 +18,14 @@ export function SiteCard({
   onDetails: (trigger: HTMLElement) => void
 }) {
   const { t } = useTranslation()
+  const titleButton = useRef<HTMLButtonElement>(null)
 
   return (
     <CatalogResourceRow
       name={site.name}
+      onActivate={() => {
+        if (titleButton.current) onDetails(titleButton.current)
+      }}
       icon={
         <span className="grid size-10 place-items-center rounded-lg border border-divider bg-muted text-muted-foreground">
           <GlobeIcon className="size-[1.125rem]" aria-hidden="true" />
@@ -43,6 +47,7 @@ export function SiteCard({
     >
       <h3 className="min-w-0 leading-[var(--app-line-22)]" title={site.name}>
         <Button
+          ref={titleButton}
           type="button"
           variant="link"
           aria-haspopup="dialog"

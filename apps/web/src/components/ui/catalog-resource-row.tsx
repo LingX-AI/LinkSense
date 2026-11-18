@@ -6,25 +6,45 @@ import { cn } from "@/lib/utils"
 export const catalogResourceListClassName =
   "@container/catalog-list flex min-w-0 flex-col overflow-clip rounded-xl border border-divider bg-card [&>:not(:last-child)]:border-b [&>:not(:last-child)]:border-divider"
 
+const interactiveElementSelector =
+  "a,button,input,select,textarea,label,[contenteditable=true],[role=button],[role=link],[role=menuitem],[role=menuitemcheckbox],[role=menuitemradio]"
+
 export function CatalogResourceRow({
   name,
   icon,
   children,
   summary,
   actions,
+  onActivate,
 }: {
   name: string
   icon: ReactNode
   children: ReactNode
   summary: ReactNode
   actions?: ReactNode
+  onActivate?: () => void
 }) {
   return (
     <Card
       role="article"
       aria-label={name}
       data-layout="row"
-      className="relative min-h-19 min-w-0 justify-center gap-0 rounded-none border-0 bg-transparent px-3 py-3 shadow-none transition-colors focus-within:bg-(--app-hover-subtle) hover:bg-(--app-hover-subtle) sm:px-4"
+      className={cn(
+        "relative min-h-19 min-w-0 justify-center gap-0 rounded-none border-0 bg-transparent px-3 py-3 shadow-none transition-colors focus-within:bg-(--app-hover-subtle) hover:bg-(--app-hover-subtle) sm:px-4",
+        onActivate && "cursor-pointer"
+      )}
+      onClick={
+        onActivate
+          ? (event) => {
+              if (
+                event.target instanceof Element &&
+                event.target.closest(interactiveElementSelector)
+              )
+                return
+              onActivate()
+            }
+          : undefined
+      }
     >
       <CardHeader className="@container-normal min-w-0 grid-cols-[2.5rem_minmax(0,1fr)] items-start gap-x-3 gap-y-3 p-0 has-data-[slot=card-description]:grid-rows-none @min-[42rem]/catalog-list:grid-cols-[2.5rem_minmax(0,1fr)_minmax(8rem,0.34fr)_minmax(7rem,0.28fr)] @min-[42rem]/catalog-list:items-center @min-[42rem]/catalog-list:gap-x-4">
         {icon}

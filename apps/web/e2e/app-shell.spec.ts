@@ -2173,12 +2173,16 @@ for (const width of [1440, 390]) {
       name: publishedSite.name,
       exact: true,
     })
-    await title.press("Enter")
     const details = page.getByRole("dialog", { name: publishedSite.name })
+    await site.getByText(publishedSite.description).click()
     await expect(details.getByText(publishedSite.alias_url)).toBeVisible()
     await page.keyboard.press("Escape")
     await expect(details).toBeHidden()
     await expect(title).toBeFocused()
+    await title.press("Enter")
+    await expect(details).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(details).toBeHidden()
   })
 }
 

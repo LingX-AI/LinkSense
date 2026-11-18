@@ -97,7 +97,16 @@ describe("website management", () => {
         name: i18n.t("webSites.copyNamed", { name: site.name }),
       })
     ).not.toBeInTheDocument()
-    await user.click(within(row).getByRole("button", { name: site.name }))
+    await user.click(
+      within(row).getByRole("button", {
+        name: i18n.t("webSites.actions", { name: site.name }),
+      })
+    )
+    expect(
+      screen.queryByRole("dialog", { name: site.name })
+    ).not.toBeInTheDocument()
+    await user.keyboard("{Escape}")
+    await user.click(within(row).getByText(site.description))
     const details = screen.getByRole("dialog", { name: site.name })
     expect(within(details).getByText(aliasUrl)).toBeVisible()
     await user.click(
