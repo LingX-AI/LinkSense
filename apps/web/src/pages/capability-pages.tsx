@@ -2771,38 +2771,41 @@ function MarketplaceCatalogPanel({
                     }))
                   }
                 />
-                <div className="capability-center-scope-row">
-                  <Tabs
-                    value={scope}
-                    onValueChange={(value) => {
-                      if (
-                        (value === "public" && publicScopeAvailable) ||
-                        value === "personal" ||
-                        (value === "clawhub" && section === "skill")
-                      ) {
-                        updateCatalogLocation({ scope: value })
-                      }
-                    }}
-                  >
-                    <TabsList
-                      aria-label={t("marketplace.catalogScopesLabel")}
+                {/* A single scope has nothing to switch between; only render the switcher when there is a choice. */}
+                {(publicScopeAvailable || section === "skill") && (
+                  <div className="capability-center-scope-row">
+                    <Tabs
+                      value={scope}
+                      onValueChange={(value) => {
+                        if (
+                          (value === "public" && publicScopeAvailable) ||
+                          value === "personal" ||
+                          (value === "clawhub" && section === "skill")
+                        ) {
+                          updateCatalogLocation({ scope: value })
+                        }
+                      }}
                     >
-                      <TabsTrigger value="personal">
-                        {t("marketplace.scopes.personal")}
-                      </TabsTrigger>
-                      {publicScopeAvailable && (
-                        <TabsTrigger value="public">
-                          {t("marketplace.scopes.public")}
+                      <TabsList
+                        aria-label={t("marketplace.catalogScopesLabel")}
+                      >
+                        <TabsTrigger value="personal">
+                          {t("marketplace.scopes.personal")}
                         </TabsTrigger>
-                      )}
-                      {section === "skill" && (
-                        <TabsTrigger value="clawhub">
-                          {t("clawHub.repository")}
-                        </TabsTrigger>
-                      )}
-                    </TabsList>
-                  </Tabs>
-                </div>
+                        {publicScopeAvailable && (
+                          <TabsTrigger value="public">
+                            {t("marketplace.scopes.public")}
+                          </TabsTrigger>
+                        )}
+                        {section === "skill" && (
+                          <TabsTrigger value="clawhub">
+                            {t("clawHub.repository")}
+                          </TabsTrigger>
+                        )}
+                      </TabsList>
+                    </Tabs>
+                  </div>
+                )}
                 <section
                   className="capability-center-directory"
                   aria-label={t(
