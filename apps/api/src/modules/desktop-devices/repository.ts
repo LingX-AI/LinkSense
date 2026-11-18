@@ -8,6 +8,14 @@ export type DeviceCredentialRecord = {
   owner: { status: string; authValidAfter: Date };
 };
 
+export function isCurrentDeviceCredential(
+  device: Pick<DesktopDeviceRecord, "revokedAt" | "authValidAfter">,
+  owner: DeviceCredentialRecord["owner"],
+): boolean {
+  return !device.revokedAt && owner.status === "active" &&
+    device.authValidAfter.getTime() === owner.authValidAfter.getTime();
+}
+
 export interface DesktopDeviceRepository {
   createPairing(ownerId: string, authValidAfter: Date, codeHash: string, expiresAt: Date, now: Date): Promise<void>;
   consumePairing(codeHash: string, tokenHash: string, registration: DesktopDeviceRegistration, now: Date): Promise<DesktopDeviceRecord | null>;

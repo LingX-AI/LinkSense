@@ -22,6 +22,10 @@ export interface DesktopDeviceCoordinator {
 export class RedisDesktopDeviceCoordinator implements DesktopDeviceCoordinator {
   constructor(private readonly redis: Redis) {}
 
+  async isCurrentConnection(deviceId: string, connectionId: string): Promise<boolean> {
+    return await this.redis.get(presenceKey(deviceId)) === connectionId;
+  }
+
   async connect(deviceId: string, connectionId: string): Promise<void> {
     await this.redis.eval(
       `local previous = redis.call('GET', KEYS[1])

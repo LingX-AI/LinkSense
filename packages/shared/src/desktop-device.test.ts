@@ -4,11 +4,42 @@ import {
   desktopDevicePairInputSchema,
   desktopDeviceRegistrationSchema,
   desktopDeviceSchema,
+  desktopRunCredentialsSchema,
 } from "./desktop-device.js";
 
 const registration = { name: "Work laptop", platform: "darwin", arch: "arm64", app_version: "0.1.0" };
 
 describe("desktop device trust boundaries", () => {
+  it("accepts only purpose-scoped model access and rejects cloud credentials even when nested", () => {
+    const model = {
+      purpose: "primary",
+      model: "fixture-model",
+      revision: 1,
+      protocol_mode: "native_responses",
+      token: `lsdm_${"a".repeat(43)}`,
+    };
+    const credentials = {
+      turn_id: "10000000-0000-4000-8000-000000000001",
+      expires_at: "2026-11-18T00:10:00Z",
+      run_token: `lsdr_${"b".repeat(43)}`,
+      primary: model,
+      memory_extraction: { ...model, purpose: "memory_extraction", reasoning_effort: "low" },
+      transition_source: { ...model, purpose: "transition_source" },
+    };
+    expect(desktopRunCredentialsSchema.parse(credentials)).toEqual(credentials);
+    for (const input of [
+      { ...credentials, environment: { RUNNER_SECRET: "fixture-only" } },
+      { ...credentials, run_token: model.token },
+      { ...credentials, primary: { ...model, apiKey: "fixture-only" } },
+      { ...credentials, primary: { ...model, baseUrl: "https://upstream.example.test" } },
+      { ...credentials, memory_extraction: { ...credentials.memory_extraction, apiKey: "fixture-only" } },
+      { ...credentials, transition_source: { ...credentials.transition_source, provider: { apiKey: "fixture-only" } } },
+      { ...credentials, transition_source: { ...credentials.transition_source, purpose: "primary" } },
+    ]) {
+      expect(desktopRunCredentialsSchema.safeParse(input).success).toBe(false);
+    }
+  });
+
   it("does not advertise local execution or GUI capabilities by default", () => {
     expect(desktopDeviceRegistrationSchema.parse(registration).capabilities).toEqual({
       local_execution: false, browser_extension: false, computer_use: false,

@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { timestampSchema, uuidSchema } from "./common.js";
 import { desktopProtocolVersion } from "./desktop-protocol.js";
+import {
+  modelContextWindowSchema,
+  modelIdentifierSchema,
+  modelProviderProtocolModeSchema,
+  reasoningEffortSchema,
+} from "./model-provider.js";
 
 export const desktopDeviceCapabilitiesSchema = z.strictObject({
   local_execution: z.boolean().default(false),
@@ -60,6 +66,40 @@ export const desktopDeviceServerFrameSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("pong") }),
 ]);
 
+export const desktopRunTokenSchema = z.string().regex(/^lsdr_[A-Za-z0-9_-]{43}$/u);
+export const desktopModelTokenSchema = z.string().regex(/^lsdm_[A-Za-z0-9_-]{43}$/u);
+export const desktopModelPurposeSchema = z.enum(["primary", "memory_extraction", "transition_source"]);
+const desktopModelAccessSchema = z.strictObject({
+  model: modelIdentifierSchema,
+  revision: z.number().int().nonnegative(),
+  protocol_mode: modelProviderProtocolModeSchema,
+  token: desktopModelTokenSchema,
+});
+const desktopModelContextShape = {
+  context_window: modelContextWindowSchema.optional(),
+  auto_compact_token_limit: modelContextWindowSchema.optional(),
+};
+
+export const desktopRunCredentialsSchema = z.strictObject({
+  turn_id: uuidSchema,
+  expires_at: timestampSchema,
+  run_token: desktopRunTokenSchema,
+  primary: desktopModelAccessSchema.extend({
+    purpose: z.literal(desktopModelPurposeSchema.enum.primary),
+    ...desktopModelContextShape,
+  }),
+  memory_extraction: desktopModelAccessSchema.extend({
+    purpose: z.literal(desktopModelPurposeSchema.enum.memory_extraction),
+    reasoning_effort: reasoningEffortSchema,
+  }).optional(),
+  transition_source: desktopModelAccessSchema.extend({
+    purpose: z.literal(desktopModelPurposeSchema.enum.transition_source),
+    ...desktopModelContextShape,
+  }).optional(),
+});
+
+export type DesktopModelPurpose = z.infer<typeof desktopModelPurposeSchema>;
+export type DesktopRunCredentials = z.infer<typeof desktopRunCredentialsSchema>;
 export type DesktopDevice = z.infer<typeof desktopDeviceSchema>;
 export type DesktopDeviceRenameResult = z.infer<typeof desktopDeviceRenameResultSchema>;
 export type DesktopDeviceRegistration = z.infer<typeof desktopDeviceRegistrationSchema>;

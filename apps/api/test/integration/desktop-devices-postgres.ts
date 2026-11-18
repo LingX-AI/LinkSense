@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { createPrismaClient } from "../../src/db.js";
 import { sha256 } from "../../src/lib/crypto.js";
+import { isDesktopRunActive } from "../../src/modules/desktop-credentials/run-authority.js";
+import type { DesktopRunAuthorizationPhase } from "../../src/modules/desktop-credentials/run-leases.js";
 import { PrismaDesktopDeviceRepository } from "../../src/modules/desktop-devices/repository.js";
 import { DesktopDeviceService } from "../../src/modules/desktop-devices/service.js";
 import { assertPairedDesktopDevice } from "../../src/modules/conversations/execution-target.js";
@@ -121,6 +123,65 @@ try {
     } });
   });
   assert.equal((await db.conversation.findUniqueOrThrow({ where: { id: localConversation.id } })).executionTarget, "local");
+  const scope = {
+    ownerId: owner,
+    deviceId: stored.id,
+    connectionId: randomUUID(),
+    conversationId: localConversation.id,
+    turnId: randomUUID(),
+    runtimeGeneration: localConversation.runtimeGeneration,
+  };
+  const authority = (binding = scope, phase: DesktopRunAuthorizationPhase = "use") => isDesktopRunActive(db, {
+    isCurrentConnection: async (deviceId, connectionId) =>
+      deviceId === scope.deviceId && connectionId === scope.connectionId,
+  }, binding, phase);
+  assert.equal(await authority(), false);
+  await db.conversationTurnStartIntent.create({ data: {
+    projectionTurnId: scope.turnId, ownerId: owner, conversationId: scope.conversationId,
+    runtimeGeneration: scope.runtimeGeneration, capabilityGeneration: "0".repeat(64),
+    inputText: "Isolated desktop fixture", capabilitiesJson: [], attachmentsJson: [],
+    submitMode: "normal", runnerStatus: "prepared",
+  } });
+  assert.equal(await authority(scope, "issue"), true);
+  assert.equal(await authority(), true);
+  for (const binding of [
+    { ...scope, ownerId: other },
+    { ...scope, deviceId: legacyDevice.id },
+    { ...scope, connectionId: randomUUID() },
+    { ...scope, runtimeGeneration: randomUUID() },
+    { ...scope, conversationId: conversation },
+  ]) assert.equal(await authority(binding), false);
+  await db.conversationTurnStartIntent.update({
+    where: { projectionTurnId: scope.turnId }, data: { runnerStatus: "release_pending" },
+  });
+  assert.equal(await authority(), false);
+  await db.$transaction([
+    db.conversationTurnStartIntent.delete({ where: { projectionTurnId: scope.turnId } }),
+    db.conversationTurn.create({ data: {
+      id: scope.turnId, conversationId: scope.conversationId, sequenceNo: 1,
+      submittedBy: owner, codexThreadId: randomUUID(), codexTurnId: randomUUID(),
+      status: "running", submitMode: "normal", capabilityGeneration: "0".repeat(64),
+      capabilitiesJson: [], startedAt: new Date(),
+    } }),
+  ]);
+  assert.equal(await authority(scope, "issue"), false);
+  assert.equal(await authority(), true);
+  await db.user.update({ where: { id: owner }, data: { status: "disabled" } });
+  assert.equal(await authority(), false);
+  await db.user.update({ where: { id: owner }, data: {
+    status: "active", authValidAfter: new Date(sessionEpoch.getTime() + 1000),
+  } });
+  assert.equal(await authority(), false);
+  // Restore the fixture's original epoch without truncating PostgreSQL's microseconds.
+  await db.$executeRaw`UPDATE users SET auth_valid_after = created_at WHERE id = ${owner}::uuid`;
+  assert.equal(await authority(), true);
+  await db.conversationTurn.update({ where: { id: scope.turnId }, data: { interruptRequestedAt: new Date() } });
+  assert.equal(await authority(), false);
+  await db.conversationTurn.update({ where: { id: scope.turnId }, data: { interruptRequestedAt: null } });
+  await db.conversation.update({ where: { id: scope.conversationId }, data: { desktopDeviceId: null } });
+  assert.equal(await authority(), false);
+  await db.conversation.update({ where: { id: scope.conversationId }, data: { desktopDeviceId: scope.deviceId } });
+  assert.equal(await authority(), true);
   await assert.rejects(service.revoke(other, issued.device.id), { code: "FORBIDDEN" });
   const local = await db.localComputerSession.create({
     data: { ownerId: owner, conversationId: conversation, deviceId: stored.id, status: "active", grantScope: "session" },
@@ -129,6 +190,7 @@ try {
     data: { ownerId: owner, conversationId: conversation, deviceId: stored.id, capability: "local_execution", scope: "session" },
   });
   await Promise.all([service.revoke(owner, stored.id), service.revoke(owner, stored.id)]);
+  assert.equal(await authority(), false);
   const revoked = await db.desktopDevice.findUniqueOrThrow({ where: { id: stored.id } });
   await service.revoke(owner, stored.id);
   assert.deepEqual((await db.desktopDevice.findUniqueOrThrow({ where: { id: stored.id } })).revokedAt, revoked.revokedAt);
@@ -161,7 +223,7 @@ try {
   connections.push(fresh);
   assert.equal(await fresh.desktopDevice.count(), 0);
   assert.equal(await fresh.conversation.count(), 0);
-  console.log("Desktop PostgreSQL whitebox passed: fresh install, cloud history, existing device rename, concurrent pairing and revocation, redacted audit, ownership, and credential epoch.");
+  console.log("Desktop PostgreSQL whitebox passed: cloud upgrade, device lifecycle and audit, and exact run authorization through start, interrupt, unbind, and revoke.");
 } finally {
   await Promise.all(connections.map(connection => connection.$disconnect()));
   if (started) await execute("pg_ctl", ["-D", data, "-m", "immediate", "-w", "stop"], { timeout: 30_000 });

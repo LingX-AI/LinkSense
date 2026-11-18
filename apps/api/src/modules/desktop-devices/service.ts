@@ -11,7 +11,7 @@ import {
 } from "@linksense/shared";
 import { sha256 } from "../../lib/crypto.js";
 import { AppError } from "../../lib/errors.js";
-import type { DesktopDeviceRepository, DesktopDeviceRecord } from "./repository.js";
+import { isCurrentDeviceCredential, type DesktopDeviceRepository, type DesktopDeviceRecord } from "./repository.js";
 import type { DesktopDeviceCoordinator } from "./coordinator.js";
 
 export class DesktopDeviceService {
@@ -40,8 +40,7 @@ export class DesktopDeviceService {
   async authenticate(token: string): Promise<DesktopDeviceRecord | null> {
     if (!desktopDeviceTokenSchema.safeParse(token).success) return null;
     const record = await this.repository.findCredential(sha256(token));
-    if (!record || record.device.revokedAt || record.owner.status !== "active" ||
-      record.device.authValidAfter.getTime() !== record.owner.authValidAfter.getTime()) return null;
+    if (!record || !isCurrentDeviceCredential(record.device, record.owner)) return null;
     return record.device;
   }
 
@@ -78,8 +77,7 @@ export class DesktopDeviceService {
   async maintain(device: DesktopDeviceRecord, connectionId: string): Promise<"online" | "replaced" | "expired" | "revoked"> {
     // Re-read revocation and credential epochs before renewing any device lease.
     const current = await this.repository.findCredential(device.tokenHash);
-    if (!current || current.device.revokedAt || current.owner.status !== "active" ||
-      current.device.authValidAfter.getTime() !== current.owner.authValidAfter.getTime()) return "revoked";
+    if (!current || !isCurrentDeviceCredential(current.device, current.owner)) return "revoked";
     const state = await this.coordinator.maintain(device.id, connectionId);
     if (state !== "online") return state;
     await this.repository.touch(device.id, this.now());
