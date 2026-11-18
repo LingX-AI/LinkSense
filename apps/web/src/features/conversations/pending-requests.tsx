@@ -74,7 +74,7 @@ export function PendingRequests({
   reorderDisabled?: boolean
   taskStartDisabled?: boolean
   onGuide: (request: PendingRequest) => void
-  onStart: (request: PendingRequest) => void
+  onStart?: (request: PendingRequest) => void
   onEdit: (request: PendingRequest) => void
   onCancel: (request: PendingRequest) => void
   onReorder?: (requestIds: string[]) => void | Promise<void>
@@ -172,9 +172,12 @@ export function PendingRequests({
               const blocked =
                 request.status === "blocked_overload" ||
                 request.status === "blocked_preflight"
-              const blockKey = request.block_code
-                ? `conversation.pendingBlockCodes.${request.block_code}`
-                : undefined
+              const blockKey =
+                request.block_code === "desktop_device_revoked"
+                  ? "errors.desktopDeviceRevoked"
+                  : request.block_code
+                    ? `conversation.pendingBlockCodes.${request.block_code}`
+                    : undefined
               const translatedBlock = blockKey ? t(blockKey) : undefined
               const priorityCapabilities = (
                 request.priority_capability_ids ?? []
@@ -412,7 +415,7 @@ export function PendingRequests({
                                     ? translatedBlock
                                     : t("conversation.pendingBlockedPreflight")}
                               </DropdownMenuLabel>
-                              {index === 0 && (
+                              {index === 0 && onStart && (
                                 <DropdownMenuItem
                                   disabled={
                                     taskStartDisabled ||

@@ -3772,6 +3772,10 @@ function TurnSummary({
 }) {
   const { t, i18n } = useTranslation()
   const productName = useProductName()
+  const revokedDeviceMessage =
+    turn.error_code === "DESKTOP_DEVICE_REVOKED"
+      ? t("errors.desktopDeviceRevoked")
+      : undefined
   const rawRunning = turn.status === "running"
   const interruptRequestedAt = turn.interrupt_requested_at ?? null
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -4213,11 +4217,12 @@ function TurnSummary({
             <p className="text-sm text-destructive">
               {completedWithoutOutput
                 ? t("errors.turnCompletedWithoutOutput")
-                : getPublicRuntimeMessage(
+                : (revokedDeviceMessage ??
+                  getPublicRuntimeMessage(
                     turn.error_message ?? terminalErrorActivity?.label,
                     t("errors.codexTurnFailed"),
                     (key) => t(key)
-                  )}
+                  ))}
             </p>
           )}
         </div>
@@ -4337,11 +4342,12 @@ function TurnSummary({
             <div className="activity-panel-inner">
               {turn.status === "failed" && (
                 <p className="text-[var(--destructive)]">
-                  {getPublicRuntimeMessage(
-                    turn.error_message,
-                    t("errors.codexTurnFailed"),
-                    (key) => t(key)
-                  )}
+                  {revokedDeviceMessage ??
+                    getPublicRuntimeMessage(
+                      turn.error_message,
+                      t("errors.codexTurnFailed"),
+                      (key) => t(key)
+                    )}
                 </p>
               )}
               {completedWithoutOutput && !terminalErrorActivity && (

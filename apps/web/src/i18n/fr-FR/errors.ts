@@ -338,6 +338,7 @@ export const errors = {
     "Vous n’avez pas l’autorisation de télécharger ce fichier produit.",
   runnerUnavailable:
     "Le service d’exécution est indisponible. Réessayez plus tard.",
+  desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "fr-FR"),
   runnerOperationUncertain: localizedErrorMessage(
     "RUNNER_OPERATION_UNCERTAIN",
     "fr-FR"

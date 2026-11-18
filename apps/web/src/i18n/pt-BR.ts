@@ -6252,6 +6252,7 @@ export const ptBR = {
       "Você não tem permissão para baixar este arquivo gerado.",
     runnerUnavailable:
       "O serviço de execução está indisponível. Tente novamente mais tarde.",
+    desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "pt-BR"),
     runnerOperationUncertain: localizedErrorMessage(
       "RUNNER_OPERATION_UNCERTAIN",
       "pt-BR"

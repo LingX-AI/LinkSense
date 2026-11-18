@@ -30,6 +30,7 @@ import {
   registrationSettingsSchema as sharedRegistrationSettingsSchema,
   capabilityRiskSummarySchema as sharedCapabilityRiskSummarySchema,
   conversationEventSchema,
+  conversationExecutionTargetSchema,
   conversationFileKindSchema,
   conversationCollaborationModeSchema,
   conversationApplicationDevelopmentRoleSchema,
@@ -882,6 +883,7 @@ export const conversationSchema = z
   .object({
     id: z.string(),
     title: z.string(),
+    execution_target: conversationExecutionTargetSchema.optional(),
     title_source: z.enum(["generated", "fallback", "manual"]).optional(),
     archived: z.boolean().optional(),
     archive_status: z.enum(["active", "archived"]).optional(),

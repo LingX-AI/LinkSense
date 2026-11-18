@@ -13,6 +13,41 @@ describe("pending request summaries", () => {
 
   afterEach(cleanup)
 
+  it("lets the user edit a local draft without offering to restart it", async () => {
+    const interaction = userEvent.setup()
+    const onEdit = vi.fn()
+    const request = {
+      id: "mac-draft",
+      sequence_no: 1,
+      status: "blocked_preflight",
+      block_code: "desktop_device_revoked",
+      input_text: "Keep this draft",
+      priority_capability_ids: [],
+      attachments: [],
+    }
+    render(
+      <PendingRequests
+        requests={[request]}
+        capabilities={[]}
+        onGuide={vi.fn()}
+        onEdit={onEdit}
+        onCancel={vi.fn()}
+      />
+    )
+    const trigger = screen.getByRole("button", { name: "查看后续请求详情" })
+    trigger.focus()
+    await interaction.keyboard("{Enter}")
+    const edit = await screen.findByRole("menuitem", { name: "编辑信息" })
+    expect(
+      screen.getByText(i18n.t("errors.desktopDeviceRevoked"))
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("menuitem", { name: "继续执行" })
+    ).not.toBeInTheDocument()
+    await interaction.click(edit)
+    expect(onEdit).toHaveBeenCalledWith(request)
+  })
+
   it("does not offer plain-text editing for a queued reference snapshot", async () => {
     const interaction = userEvent.setup()
     render(

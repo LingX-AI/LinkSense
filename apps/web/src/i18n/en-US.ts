@@ -5848,6 +5848,7 @@ export const enUS = {
       "RUNNER_OPERATION_UNCERTAIN",
       "en-US"
     ),
+    desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "en-US"),
     turnStartClosed: errorCatalog.TURN_START_CLOSED.messages["en-US"],
     deploymentStopped:
       "This task was stopped for a system update. Existing content was kept. Review its progress before continuing manually.",

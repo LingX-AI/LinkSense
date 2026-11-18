@@ -6146,6 +6146,7 @@ export const jaJP = {
     downloadForbidden: "この成果物をダウンロードする権限がありません。",
     runnerUnavailable:
       "実行サービスを利用できません。しばらくしてから再試行してください。",
+    desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "ja-JP"),
     runnerOperationUncertain: localizedErrorMessage(
       "RUNNER_OPERATION_UNCERTAIN",
       "ja-JP"

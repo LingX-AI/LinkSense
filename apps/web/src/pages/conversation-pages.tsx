@@ -6409,10 +6409,14 @@ export function ConversationPage({
               scrollToBottom("auto")
               pendingActionMutation.mutate({ request, action: "guide" })
             }}
-            onStart={(request) => {
-              scrollToBottom("auto")
-              pendingActionMutation.mutate({ request, action: "start" })
-            }}
+            onStart={
+              displayConversation.execution_target === "local"
+                ? undefined
+                : (request) => {
+                    scrollToBottom("auto")
+                    pendingActionMutation.mutate({ request, action: "start" })
+                  }
+            }
             onEdit={(request) => restorePendingMutation.mutate(request)}
             onCancel={(request) =>
               pendingActionMutation.mutate({ request, action: "cancel" })

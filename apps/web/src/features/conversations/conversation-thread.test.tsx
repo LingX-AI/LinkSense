@@ -6723,33 +6723,41 @@ describe("conversation turn responses", () => {
     ).toHaveAttribute("data-final-answer-visible", "false")
   })
 
-  it("falls back to the generic failure text for historical turns without a reason", async () => {
-    const interaction = userEvent.setup()
-    render(
-      <ConversationThread
-        conversation={{
-          ...completedConversation,
-          turns: [
-            {
-              id: "turn-1",
-              status: "failed",
-              started_at: "2026-07-11T08:00:00.000Z",
-              completed_at: "2026-07-11T08:00:03.250Z",
-            },
-          ],
-        }}
-        onDownload={vi.fn()}
-      />
-    )
+  it.each([
+    [undefined, "本轮执行失败。你可以调整输入后继续重试。"],
+    [
+      "DESKTOP_DEVICE_REVOKED",
+      "这台 Mac 的授权已撤销。已有内容已保留，请在 Mac 上确认任务实际执行到了哪一步。",
+    ],
+  ])(
+    "projects the persisted failure reason %s after reopening the task",
+    async (errorCode, message) => {
+      const interaction = userEvent.setup()
+      render(
+        <ConversationThread
+          conversation={{
+            ...completedConversation,
+            turns: [
+              {
+                id: "turn-1",
+                status: "failed",
+                error_code: errorCode,
+                started_at: "2026-07-11T08:00:00.000Z",
+                completed_at: "2026-07-11T08:00:03.250Z",
+              },
+            ],
+          }}
+          onDownload={vi.fn()}
+        />
+      )
 
-    const summary = screen.getByTestId("turn-summary-turn-1")
-    await interaction.click(
-      within(summary).getByRole("button", { name: "展开中间过程" })
-    )
-    expect(
-      within(summary).getByText("本轮执行失败。你可以调整输入后继续重试。")
-    ).toBeVisible()
-  })
+      const summary = screen.getByTestId("turn-summary-turn-1")
+      await interaction.click(
+        within(summary).getByRole("button", { name: "展开中间过程" })
+      )
+      expect(within(summary).getByText(message)).toBeVisible()
+    }
+  )
 
   it("does not expose the internal execution platform from a raw turn failure", async () => {
     const interaction = userEvent.setup()

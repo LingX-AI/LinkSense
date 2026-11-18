@@ -351,6 +351,7 @@ export const errorMessages = {
       "El servicio de ejecución no está disponible. Inténtalo más tarde.",
     turnStartClosed:
       "El envío anterior ha finalizado. Esta solicitud no se ha ejecutado. Vuelve a enviarla.",
+    desktopDeviceRevoked: localizedErrorMessage("DESKTOP_DEVICE_REVOKED", "es-ES"),
     runnerOperationUncertain: localizedErrorMessage(
       "RUNNER_OPERATION_UNCERTAIN",
       "es-ES"
