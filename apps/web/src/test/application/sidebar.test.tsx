@@ -703,12 +703,8 @@ describe("LinkSense application", () => {
       )
       expect(button).not.toHaveClass("hover:bg-[var(--app-sidebar-active)]")
     }
-    const pinIcon = pinButton.querySelector(
-      "[data-design-icon=pin], [data-icon=sidebar-pin-filled]"
-    )
-    const archiveIcon = archiveButton.querySelector(
-      "[data-design-icon=archive]"
-    )
+    const pinIcon = pinButton.querySelector("svg")
+    const archiveIcon = archiveButton.querySelector("svg")
     expect(pinIcon).toHaveClass("size-4")
     expect(archiveIcon).toHaveClass("size-4")
     expect(pinIcon).toHaveAttribute("aria-hidden", "true")
@@ -1042,7 +1038,7 @@ describe("LinkSense application", () => {
     const pinButton = within(taskItem as HTMLElement).getByRole("button", {
       name: `置顶任务“${taskTitle}”`,
     })
-    expect(pinButton.querySelector("[data-design-icon=pin]")).toHaveAttribute(
+    expect(pinButton.querySelector("svg")).toHaveAttribute(
       "aria-hidden",
       "true"
     )

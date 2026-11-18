@@ -1,10 +1,8 @@
 import { useEffect, useId } from "react"
-import { TbPinFilled } from "react-icons/tb"
+import { Archive, Pin } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
-import { DesignIcon } from "@/components/ui/design-icon"
-import { HeaderIcon } from "@/components/ui/header-icon-button"
 import { SidebarActionIcon } from "./sidebar-action-icon"
 import { TooltipTrigger } from "@/components/ui/tooltip"
 import { useSidebarConversationOverlays } from "./sidebar-conversation-overlays-state"
@@ -73,15 +71,13 @@ export function SidebarConversationActions(props: SidebarConversationActionsProp
         }
       >
         <SidebarActionIcon>
-          {pinned ? (
-            <TbPinFilled
-              className="size-4"
-              data-icon="sidebar-pin-filled"
-              aria-hidden="true"
-            />
-          ) : (
-            <DesignIcon name="pin" className="size-4" />
-          )}
+          <Pin
+            className="size-4"
+            fill={pinned ? "currentColor" : "none"}
+            strokeWidth={pinned ? 0 : undefined}
+            data-icon={pinned ? "sidebar-pin-filled" : undefined}
+            aria-hidden="true"
+          />
         </SidebarActionIcon>
       </TooltipTrigger>
       <TooltipTrigger
@@ -102,7 +98,7 @@ export function SidebarConversationActions(props: SidebarConversationActionsProp
         }
       >
         <SidebarActionIcon>
-          <HeaderIcon name="archive" className="size-4" />
+          <Archive className="size-4" aria-hidden="true" />
         </SidebarActionIcon>
       </TooltipTrigger>
     </div>
