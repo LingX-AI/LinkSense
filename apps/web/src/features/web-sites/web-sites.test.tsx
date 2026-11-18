@@ -78,7 +78,7 @@ describe("website management", () => {
   it("keeps the custom slug link in details when the stable application URL is different", async () => {
     const user = userEvent.setup()
     const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue()
-    const url = `https://public.example.test/app/id/${id}`
+    const url = `https://public.example.test/app/s/${id}`
     const aliasUrl = "https://public.example.test/web/drink-water"
     vi.stubGlobal(
       "fetch",
@@ -116,7 +116,7 @@ describe("website management", () => {
     async (locale) => {
       await i18n.changeLanguage(locale)
       const user = userEvent.setup()
-      const url = `https://public.example.test/app/id/${id}`
+      const url = `https://public.example.test/app/s/${id}`
       const aliasUrl = "https://public.example.test/web/shanhai"
       const fetch = vi.fn(async () =>
         success({
@@ -152,7 +152,7 @@ describe("website management", () => {
 
   it("refreshes the open details and custom link after editing a slug", async () => {
     const user = userEvent.setup()
-    const url = `https://public.example.test/app/id/${id}`
+    const url = `https://public.example.test/app/s/${id}`
     let current = {
       ...site,
       url,
@@ -288,7 +288,7 @@ describe("website management", () => {
       const delivery = {
         ...site,
         turn_id: id,
-        url: `https://apps.example.test/app/id/${id}`,
+        url: `https://apps.example.test/app/s/${id}`,
       }
       const { rerender } = render(
         <MemoryRouter>

@@ -402,6 +402,7 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     expect(publicSiteSkill).toContain("one transaction and keeps the application ID and link")
     expect(publicSiteSkill).toContain("Call `account.get()` first")
     expect(publicSiteSkill).toContain("never the session `$id`")
+    expect(publicSiteSkill).toContain("/app/s/<site-id>")
     expect(publicSiteSkill).toContain("Apps & Tools → Applications → My sites")
     // Subsequent starts reuse the freshly published snapshot.
     await materializer.resolvePublishedRuntimeWithinPublicationStartFence(input)

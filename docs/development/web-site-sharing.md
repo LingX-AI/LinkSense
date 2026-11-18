@@ -8,7 +8,7 @@
 
 ## 地址与访问
 
-- 静态页面和沙箱动态应用统一使用主域稳定入口 `/app/id/{site-id}`，复用现有站点 UUID。标题、链接名称、后端别名和静态增加后端都不改变此入口；历史独立 origin 应用保持原地址。`/web/{slug}` 和 `/app/{backend-address}` 保留为别名，不新增 DNS、证书或迁移。
+- 静态页面和沙箱动态应用统一使用主域稳定入口 `/app/s/{site-id}`，复用现有站点 UUID。标题、链接名称、后端别名和静态增加后端都不改变此入口；历史独立 origin 应用保持原地址。`/web/{slug}` 和 `/app/{backend-address}` 保留为别名，不新增 DNS、证书或迁移。
 - 分享无需访客登录。管理接口 `/api/v1/web-sites` 使用现有 JWT 验证和服务端所有权检查。
 - 修改链接名称后旧 `/web/{slug}` 仍可访问同一应用；沙箱后端旧别名跳转到稳定入口并保留查询参数。地址保留期间不能被其他应用接管。
 - 删除站点会在同一事务中永久移除站点、全部发布版本与全部地址占用记录，保留操作审计和原任务文件。原用户及其他用户均可重新使用地址，新建站点拥有新的 ID 和发布版本，已删除版本的资源地址不会恢复。取消发布仍保留地址占用。
@@ -48,7 +48,7 @@
 
 1. 在自有基础设施安装官方 Appwrite，初始化组织与具有该组织 owner 权限的专用管理账号，启用 `node-24` runtime。Appwrite 的 API hostname 必须能从函数执行网络解析并访问，不能把函数容器自己的 `localhost` 当作 API 地址。API、执行器及原生函数域只能从受控网络访问，公众仅访问 LS 应用网关；否则直连原生接口会绕过 LS 停用状态。SMTP、对象存储、备份和监控同样由部署方提供。
 2. 配置 `.env.example` 中的 `LINKSENSE_APPWRITE_ENDPOINT`、`LINKSENSE_APPWRITE_ADMIN_EMAIL`、`LINKSENSE_APPWRITE_ADMIN_PASSWORD`。三项是仅 API 使用的管理配置，不下发 Runner、模型或网页。新沙箱应用复用 `LINKSENSE_PUBLIC_BASE_URL`、现有入口和证书，无需新增 DNS、泛域名或证书。仅在仍有历史独立 origin 应用时保留 `LINKSENSE_DYNAMIC_APPS_BASE_URL` 及其原有入口。管理员属于多个组织时，还要指定 `LINKSENSE_APPWRITE_ORGANIZATION_ID`；单组织自动识别。保持密码原有字符，凭据文件和部署配置按现有秘密管理要求保护。
-3. 发布工具返回 `<LINKSENSE_PUBLIC_BASE_URL>/app/id/<site-id>`。准备后端时尚无站点，返回的 `/app/<address>` 只是别名；address 可选，3–30 位小写标签，默认后端 UUID 的前 12 位十六进制。改名与配置、发布共用租约，旧别名归属保留、账号和数据不变。历史独立 origin 继续使用 `<backend-host>.<apps-base>`；保持原 DNS、TLS、不同可注册域名和原生平台域名同步规则，不通过改名转换运行模式。
+3. 发布工具返回 `<LINKSENSE_PUBLIC_BASE_URL>/app/s/<site-id>`。准备后端时尚无站点，返回的 `/app/<address>` 只是别名；address 可选，3–30 位小写标签，默认后端 UUID 的前 12 位十六进制。改名与配置、发布共用租约，旧别名归属保留、账号和数据不变。历史独立 origin 继续使用 `<backend-host>.<apps-base>`；保持原 DNS、TLS、不同可注册域名和原生平台域名同步规则，不通过改名转换运行模式。
 4. 主站网关须把 `/app/` 与 `/web/` 都转发给 API，仓库提供的 Nginx 模板和 Vite 开发代理已包含这两个入口。保留原始 Host（含端口），使用匹配的 `LINKSENSE_PUBLIC_BASE_URL`。历史应用仍可采用 [独立域名 Nginx 配置片段](../../deploy/production/dynamic-apps.nginx.example.conf)，通过 `/api/v1/public-app-gateway/` 转发。两类网关都在平台认证、CORS 和请求体解析前处理，不转发平台令牌或提供管理代理。
 
 三项 Appwrite 管理配置及历史应用 base 全为空时禁用动态能力，静态发布和已有站点管理照常工作；部分配置或不安全的历史应用 URL 会在启动时拒绝。Docker 仅把 Appwrite 管理配置传给 API。

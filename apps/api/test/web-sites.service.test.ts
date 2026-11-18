@@ -13,7 +13,7 @@ describe("website publishing service", () => {
     expect(withUrl({ ...site, backend_id: taskId, url: origin }, "https://public.example.test")).toMatchObject({
       url: origin,
       alias_url: "https://public.example.test/web/sample",
-      url_path: `/app/id/${siteId}`,
+      url_path: `/app/s/${siteId}`,
     });
   });
   it("publishes an existing self-contained HTML artifact with a generated UUID and a bounded manifest", async () => {
@@ -22,7 +22,7 @@ describe("website publishing service", () => {
     const site = await fixture.service.create(ownerId, { conversation_id: taskId, file_id: fileId, name: "Existing page", description: "" });
     expect(fixture.store.source).toHaveBeenCalledWith(ownerId, taskId, fileId);
     expect(fixture.store.create).toHaveBeenCalledWith(ownerId, expect.any(Object), expect.objectContaining({ slug: expect.stringMatching(/^[a-f0-9-]{36}$/u) }), "Source", fixture.manifest);
-    expect(site.url_path).toBe(`/app/id/${siteId}`);
+    expect(site.url_path).toBe(`/app/s/${siteId}`);
     expect(JSON.stringify(site)).not.toContain("object_key");
     expect(fixture.storage.putObject).not.toHaveBeenCalled();
   });
@@ -58,7 +58,7 @@ describe("website publishing service", () => {
     expect(fixture.store.owned).toHaveBeenCalledWith(ownerId, siteId);
     expect(fixture.store.source).toHaveBeenCalledWith(ownerId, null, fileId);
     expect(fixture.store.publish).toHaveBeenCalledWith(ownerId, siteId, newTaskId, fileId, expect.any(String), fixture.manifest);
-    expect(result).toMatchObject({ id: siteId, url_path: `/app/id/${siteId}`, name: "Sample", description: "", status, conversation_id: newTaskId, source_task_title: "Redesigned page" });
+    expect(result).toMatchObject({ id: siteId, url_path: `/app/s/${siteId}`, name: "Sample", description: "", status, conversation_id: newTaskId, source_task_title: "Redesigned page" });
     expect(result.release_id).not.toBe(releaseId);
   });
   it("can update a retained site after its original task was deleted", async () => {

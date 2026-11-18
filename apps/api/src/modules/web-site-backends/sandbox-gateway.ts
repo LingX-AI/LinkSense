@@ -56,7 +56,7 @@ export function registerPublicAppGateway(
     if (raw === "/app/_sdk/v1.js" && ["GET", "HEAD"].includes(request.method)) {
       return reply.header("access-control-allow-origin", "*").type("application/javascript; charset=utf-8").send(publicAppSdkScript);
     }
-    const canonical = /^\/app\/id\/([^/?]+)(\/_rpc(?:\/upload\/[^/?]+\/[^/?]+)?|\/)?(?:\?[^#]*)?$/u.exec(raw);
+    const canonical = /^\/app\/s\/([^/?]+)(\/_rpc(?:\/upload\/[^/?]+\/[^/?]+)?|\/)?(?:\?[^#]*)?$/u.exec(raw);
     let entry: Awaited<ReturnType<WebSiteService["publicApplication"]>> | undefined;
     let backendId: string;
     let address: string;

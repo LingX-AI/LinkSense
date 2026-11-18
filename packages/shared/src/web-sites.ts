@@ -5,7 +5,7 @@ export const webSiteSlugSchema = z.string().trim().toLowerCase().min(3).max(80)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
 export const webSiteStatusSchema = z.enum(["published", "disabled"]);
 /** Stable application identity, independent of aliases and optional backend. */
-export const webApplicationPath = (id: string): string => `/app/id/${z.uuid().parse(id)}`;
+export const webApplicationPath = (id: string): string => `/app/s/${z.uuid().parse(id)}`;
 export const webSiteCreateSchema = z.strictObject({
   conversation_id: z.uuid(),
   file_id: z.uuid(),

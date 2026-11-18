@@ -26,8 +26,8 @@ describe("public site agent tool service", () => {
     }, expect.any(Object), "Source", fixture.manifest);
     expect(result).toMatchObject({
       id: siteId,
-      url_path: `/app/id/${siteId}`,
-      url: `${publicBaseUrl}/app/id/${siteId}`,
+      url_path: `/app/s/${siteId}`,
+      url: `${publicBaseUrl}/app/s/${siteId}`,
     });
   });
 
@@ -41,7 +41,7 @@ describe("public site agent tool service", () => {
 
     expect(fixture.store.owned).toHaveBeenCalledWith(ownerId, siteId);
     expect(fixture.store.publish).toHaveBeenCalledWith(ownerId, siteId, taskId, fileId, expect.any(String), fixture.manifest);
-    expect(result).toMatchObject({ id: siteId, url: `${publicBaseUrl}/app/id/${siteId}` });
+    expect(result).toMatchObject({ id: siteId, url: `${publicBaseUrl}/app/s/${siteId}` });
   });
 
   it("lists owned sites and updates metadata without changing the release", async () => {
@@ -52,7 +52,7 @@ describe("public site agent tool service", () => {
       limit: 20,
     }, publicBaseUrl);
     expect(page).toEqual({
-      items: [expect.objectContaining({ id: siteId, url: `${publicBaseUrl}/app/id/${siteId}` })],
+      items: [expect.objectContaining({ id: siteId, url: `${publicBaseUrl}/app/s/${siteId}` })],
       next_cursor: null,
     });
 
@@ -62,7 +62,7 @@ describe("public site agent tool service", () => {
       status: "disabled",
     }, publicBaseUrl);
     expect(fixture.store.update).toHaveBeenCalledWith(ownerId, siteId, { status: "disabled" });
-    expect(updated).toMatchObject({ id: siteId, url: `${publicBaseUrl}/app/id/${siteId}` });
+    expect(updated).toMatchObject({ id: siteId, url: `${publicBaseUrl}/app/s/${siteId}` });
   });
 
   it("rejects an inactive turn and an empty metadata update", async () => {

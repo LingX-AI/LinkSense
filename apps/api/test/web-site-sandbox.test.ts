@@ -60,7 +60,7 @@ describe("same-host public dynamic applications", () => {
   it("serves a static application's stable address without preparing a backend or visitor session", async () => {
     const f = setup();
     delete f.site.row.site.backendId;
-    const response = await f.app.inject({ url: `/app/id/${siteId}`, headers: { host: f.host } });
+    const response = await f.app.inject({ url: `/app/s/${siteId}`, headers: { host: f.host } });
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain(`src="/web/sample/_releases/${f.site.row.release.id}/index.html"`);
     expect(response.body).not.toContain("allow-same-origin");
@@ -71,12 +71,13 @@ describe("same-host public dynamic applications", () => {
     expect(f.store.publicBinding).not.toHaveBeenCalled();
     expect(f.store.reserve).not.toHaveBeenCalled();
     expect(f.fetcher).not.toHaveBeenCalled();
-    expect((await f.app.inject({ url: `/app/id/${siteId}/_rpc`, method: "POST", headers: { host: f.host } })).statusCode).toBe(404);
+    expect((await f.app.inject({ url: `/app/id/${siteId}`, headers: { host: f.host } })).statusCode).toBe(404);
+    expect((await f.app.inject({ url: `/app/s/${siteId}/_rpc`, method: "POST", headers: { host: f.host } })).statusCode).toBe(404);
   });
 
   it("keeps a dynamic application's stable address and sessions after renaming its backend alias", async () => {
     const f = setup();
-    const stable = `/app/id/${siteId}`;
+    const stable = `/app/s/${siteId}`;
     const first = await f.app.inject({ url: stable, headers: { host: f.host } });
     expect(first.statusCode).toBe(200);
     const packet = JSON.parse(/id="app-config">(.*?)<\/script>/u.exec(first.body)![1]!) as { capability: string; endpoint: string };
@@ -97,7 +98,7 @@ describe("same-host public dynamic applications", () => {
   });
 
   it("rejects stable-address requests with a mismatched backend binding, host or embedded destination", async () => {
-    const f = setup(), url = `/app/id/${siteId}`;
+    const f = setup(), url = `/app/s/${siteId}`;
     expect((await f.app.inject({ url, headers: { host: "evil.example.test" } })).statusCode).toBe(404);
     expect((await f.app.inject({ url, headers: { host: f.host, "sec-fetch-dest": "iframe" } })).statusCode).toBe(403);
     vi.spyOn(f.store, "publicBinding").mockResolvedValueOnce({ backend: f.row, siteId: "40000000-0000-4000-8000-000000000002" });

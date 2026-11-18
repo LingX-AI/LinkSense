@@ -33,6 +33,7 @@ describe("built-in public site builder", () => {
       expect(skill).toContain("browser notifications");
       expect(skill).toContain("web_root_relative_path");
       expect(skill).toContain("water-reminder");
+      expect(skill).toContain("/app/s/<site-id>");
       expect(skill).toContain('action: "open_site"');
       expect(skill).toContain("Do not publish");
       expect(parse(await readFile(join(path, "agents/openai.yaml"), "utf8"))).toMatchObject({

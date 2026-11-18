@@ -33,7 +33,7 @@ describe("website HTTP boundary", () => {
     const listed = await fixture.app.inject({ url: "/api/v1/web-sites", headers });
     expect(listed.json().data.items[0]).toMatchObject({
       slug: "sample", alias_url: "https://linksense.example.test/web/sample",
-      url: `https://linksense.example.test/app/id/${siteId}`,
+      url: `https://linksense.example.test/app/s/${siteId}`,
     });
     fixture.store.update.mockImplementation(async (_ownerId, _id, input) => {
       fixture.row.site.slug = input.slug ?? fixture.row.site.slug;
@@ -44,7 +44,7 @@ describe("website HTTP boundary", () => {
     });
     expect(renamed.json().data).toMatchObject({
       slug: "drink-water", alias_url: "https://linksense.example.test/web/drink-water",
-      url: `https://linksense.example.test/app/id/${siteId}`,
+      url: `https://linksense.example.test/app/s/${siteId}`,
     });
   });
 
@@ -57,7 +57,7 @@ describe("website HTTP boundary", () => {
     const response = await fixture.app.inject({ url, headers: { authorization: "Bearer test-owner" } });
     expect(response.statusCode).toBe(200);
     expect(fixture.store.conversationDeliveries).toHaveBeenCalledExactlyOnceWith(ownerId, taskId);
-    expect(response.json().data).toEqual([{ id: siteId, turn_id: turnId, source_file_id: fileId, name: "Sample", slug: "sample", status: "disabled", url: `https://linksense.example.test/app/id/${siteId}` }]);
+    expect(response.json().data).toEqual([{ id: siteId, turn_id: turnId, source_file_id: fileId, name: "Sample", slug: "sample", status: "disabled", url: `https://linksense.example.test/app/s/${siteId}` }]);
   });
   it("serves an anonymous sandboxed shell and directly sandboxed assets with anonymous CORS", async () => {
     const fixture = await setup();
@@ -197,7 +197,7 @@ describe("website HTTP boundary", () => {
     const headers = { authorization: "Bearer test-owner" };
     const response = await fixture.app.inject({ url: `/api/v1/web-sites?origin_file_id=${fileId}`, headers });
     expect(response.statusCode).toBe(200);
-    expect(response.json().data.items).toEqual([expect.objectContaining({ id: siteId, url_path: `/app/id/${siteId}` })]);
+    expect(response.json().data.items).toEqual([expect.objectContaining({ id: siteId, url_path: `/app/s/${siteId}` })]);
     expect(fixture.store.list).toHaveBeenCalledWith(ownerId, { originFileId: fileId, limit: 30 });
     expect((await fixture.app.inject({ url: "/api/v1/web-sites?origin_file_id=invalid", headers })).statusCode).toBe(400);
   });

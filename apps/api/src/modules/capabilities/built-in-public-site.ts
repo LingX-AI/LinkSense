@@ -86,7 +86,7 @@ and backend, then publish with the existing \`site_id\` and prepared \`backend_i
 The platform binds both in one transaction and keeps the application ID and link.
 Never replace an existing backend. A failed preparation or publication leaves
 the previous page available; do not publish backend-dependent code without its binding.
-The stable published address is \`/app/id/<site-id>\`; \`/web/<slug>\` and sandbox
+The stable published address is \`/app/s/<site-id>\`; \`/web/<slug>\` and sandbox
 \`/app/<backend-address>\` remain aliases, including after renaming.
 Return the publishing tool's URL, not a URL inferred from backend preparation.
 

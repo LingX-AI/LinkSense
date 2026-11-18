@@ -468,7 +468,7 @@ describe("self-hosted Appwrite backend", () => {
     const disabled = new WebSiteBackendService(fixture.store, fixture.site.storage, { ...fixture.config, appwrite: null });
     const sites = new WebSiteService(fixture.site.store, fixture.site.storage, disabled);
     const listed = await sites.list(ownerId, { limit: 20 });
-    expect(listed.items[0]).toMatchObject({ backend_id: backendId, url_path: `/app/id/${siteId}` });
+    expect(listed.items[0]).toMatchObject({ backend_id: backendId, url_path: `/app/s/${siteId}` });
     await expect(sites.publicEntry("sample")).rejects.toThrow("WEB_SITE_BACKEND_NOT_CONFIGURED");
     fixture.site.store.update.mockImplementation(async (_owner, _id, input) => {
       if (input.status) fixture.site.row.site.status = input.status;
