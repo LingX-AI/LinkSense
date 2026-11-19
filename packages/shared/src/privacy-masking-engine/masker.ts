@@ -58,17 +58,73 @@ function escapeRegExp(value: string): string {
 function buildWordPattern(
   words: readonly string[],
   anyCase: boolean,
-  whole: boolean,
 ): RegExp | null {
   if (words.length === 0) return null;
   const alternatives = [...words]
     .sort((left, right) => right.length - left.length)
     .map(escapeRegExp)
     .join("|");
-  const body = whole
-    ? String.raw`(?<![\p{L}\p{N}_])(?:${alternatives})(?![\p{L}\p{N}_])`
-    : `(?:${alternatives})`;
-  return new RegExp(body, anyCase ? "giu" : "gu");
+  return new RegExp(`(?:${alternatives})`, anyCase ? "giu" : "gu");
+}
+
+const wordRunePattern = /[\p{L}\p{N}_]/u;
+const digitRunePattern = /\p{Nd}/u;
+const noSpaceScriptPattern =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+
+/**
+ * A letter, digit or _ of a script that separates words with spaces.
+ * Chinese and Japanese do not, so a word of theirs is found inside their
+ * text, and a Latin word right beside one ("用ABC做") is still whole.
+ * Mirrors magpie's wordRune.
+ */
+function isWordRune(rune: string): boolean {
+  return wordRunePattern.test(rune) && !noSpaceScriptPattern.test(rune);
+}
+
+function runeAt(text: string, index: number): string | undefined {
+  const code = text.codePointAt(index);
+  return code === undefined ? undefined : String.fromCodePoint(code);
+}
+
+/** The code point that ends right before index (surrogate pairs included). */
+function runeBefore(text: string, index: number): string | undefined {
+  if (index <= 0) return undefined;
+  const unit = text.charCodeAt(index - 1);
+  const from = unit >= 0xdc00 && unit <= 0xdfff && index >= 2
+    ? index - 2
+    : index - 1;
+  const code = text.codePointAt(from);
+  return code === undefined ? undefined : String.fromCodePoint(code);
+}
+
+/**
+ * True when text[start:end] is a word of its own: where its first or last
+ * character is a word rune, the character beside it in the text is not.
+ * A number is one with its decimals, so 123456 is not whole in 0.123456
+ * or 123456.78, while "v1." ends a sentence. Mirrors magpie's wholeWord.
+ */
+function wholeWord(text: string, start: number, end: number): boolean {
+  const first = runeAt(text, start);
+  const last = runeBefore(text, end);
+  if (first === undefined || last === undefined) return true;
+  if (isWordRune(first) && start > 0) {
+    const before = runeBefore(text, start);
+    if (before !== undefined && isWordRune(before)) return false;
+    if (digitRunePattern.test(first) && before === ".") {
+      const further = runeBefore(text, start - 1);
+      if (further !== undefined && digitRunePattern.test(further)) return false;
+    }
+  }
+  if (isWordRune(last) && end < text.length) {
+    const after = runeAt(text, end);
+    if (after !== undefined && isWordRune(after)) return false;
+    if (digitRunePattern.test(last) && after === ".") {
+      const further = runeAt(text, end + 1);
+      if (further !== undefined && digitRunePattern.test(further)) return false;
+    }
+  }
+  return true;
 }
 
 function hasMarker(text: string, markers: readonly string[]): boolean {
@@ -149,7 +205,6 @@ export class PrivacyMasker {
     this.wordPattern = buildWordPattern(
       this.words,
       config.words_any_case,
-      config.words_whole,
     );
     this.allow = new Set(
       config.allow.map((value) => value.trim().toLowerCase()),
@@ -177,9 +232,12 @@ export class PrivacyMasker {
       for (const match of text.matchAll(this.wordPattern)) {
         const value = match[0];
         if (value.length === 0) continue;
+        const start = match.index;
+        const end = start + value.length;
+        if (this.config.words_whole && !wholeWord(text, start, end)) continue;
         spans.push({
-          start: match.index,
-          end: match.index + value.length,
+          start,
+          end,
           kind: "TERM",
           value,
         });

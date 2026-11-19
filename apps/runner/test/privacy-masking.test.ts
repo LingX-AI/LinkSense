@@ -131,6 +131,34 @@ describe("PrivacyMasker", () => {
     expect(exact.maskText("nightjar Nightjar").text).not.toContain("Nightjar");
   });
 
+  it("counts Chinese text as wordless like magpie's wordRune", () => {
+    const mask = masker({
+      secrets: false,
+      words: ["Nightjar", "哈哈哈"],
+      words_any_case: true,
+      words_whole: true,
+    });
+    // Chinese puts no spaces between words, so its words match inside text.
+    const chinese = mask.maskText("Nightjar 与哈哈哈今天上线。").text;
+    expect(chinese).not.toContain("哈哈哈");
+    expect(chinese.match(/\{\{TERM_/g)).toHaveLength(2);
+    // A Latin word right beside a Chinese letter is still whole.
+    expect(mask.maskText("用Nightjar做演示。").text).not.toContain("Nightjar");
+    // A longer Latin token beside Chinese still keeps the word inside it.
+    expect(mask.maskText("用XNightjar做演示。").text).toContain("XNightjar");
+  });
+
+  it("treats a number with its decimals as one whole word", () => {
+    const mask = masker({
+      secrets: false,
+      words: ["123456"],
+      words_whole: true,
+    });
+    expect(mask.maskText("code 123456.").text).not.toContain("123456");
+    expect(mask.maskText("0.123456").text).toBe("0.123456");
+    expect(mask.maskText("123456.78").text).toBe("123456.78");
+  });
+
   it("leaves ids, schemas and sealed values alone while masking text", () => {
     const mask = masker({ words: ["Acme"] });
     const body = {
