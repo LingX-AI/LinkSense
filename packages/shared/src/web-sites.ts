@@ -95,10 +95,12 @@ export const webSiteUpdateToolSchema = z.strictObject({
   passcode: webSitePasscodeSchema.optional(),
   analytics: z.boolean().optional(),
 });
+export const webSiteDeleteToolSchema = z.strictObject({ site_id: z.uuid() });
 export const webSiteToolRequestSchema = z.discriminatedUnion("operation", [
   webSitePublishToolSchema.extend({ operation: z.literal("publish") }),
   webSiteListToolSchema.extend({ operation: z.literal("list") }),
   webSiteUpdateToolSchema.extend({ operation: z.literal("update") }),
+  webSiteDeleteToolSchema.extend({ operation: z.literal("delete") }),
   webSiteBackendPrepareSchema.extend({ operation: z.literal("prepare_backend") }),
   webSiteBackendConfigureSchema.extend({ operation: z.literal("configure_backend") }),
   webSiteBackendInspectSchema.extend({ operation: z.literal("inspect_backend") }),

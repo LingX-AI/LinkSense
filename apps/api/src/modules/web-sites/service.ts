@@ -187,6 +187,7 @@ export class WebSiteService {
   /** Owner- and active-turn-scoped entry point for the agent publishing tool. */
   async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: Extract<WebSiteToolRequest, { operation: "list" }>, publicBaseUrl: string): Promise<WebSiteToolPage>;
   async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: Extract<WebSiteToolRequest, { operation: "publish" | "update" }>, publicBaseUrl: string): Promise<WebSiteWithUrl>;
+  async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: Extract<WebSiteToolRequest, { operation: "delete" }>, publicBaseUrl: string): Promise<{ deleted: true }>;
   async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: WebSiteToolRequest, publicBaseUrl: string): Promise<WebSiteWithUrl | WebSiteToolPage | WebSiteBackend | Record<string, unknown>>;
   async toolForOwner(ownerId: string, conversationId: string, turnId: string, request: WebSiteToolRequest, publicBaseUrl: string): Promise<WebSiteWithUrl | WebSiteToolPage | WebSiteBackend | Record<string, unknown>> {
     await this.store.assertActor(ownerId);
@@ -203,12 +204,17 @@ export class WebSiteService {
       });
       return webSiteToolPageSchema.parse({ items: page.items.map(site => withUrl(site, publicBaseUrl)), next_cursor: page.next_cursor });
     }
+    if (request.operation === "delete") {
+      await this.delete(ownerId, request.site_id);
+      return { deleted: true };
+    }
     if (request.operation === "update") {
       const input: WebSiteUpdate = {
         ...(request.name !== undefined ? { name: request.name } : {}),
         ...(request.description !== undefined ? { description: request.description } : {}),
         ...(request.slug !== undefined ? { slug: request.slug } : {}),
         ...(request.status !== undefined ? { status: request.status } : {}),
+        ...(request.passcode !== undefined ? { passcode: request.passcode } : {}),
         ...(request.analytics !== undefined ? { analytics: request.analytics } : {}),
       };
       if (Object.keys(input).length === 0) throw new AppError("VALIDATION_ERROR");

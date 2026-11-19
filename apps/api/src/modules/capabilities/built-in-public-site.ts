@@ -251,10 +251,14 @@ Return the publishing tool's URL, not a URL inferred from backend preparation.
   setting is the only supported analytics integration. Never embed a
   third-party analytics script or invent a dashboard URL, and report an
   unconfigured analytics service as an actual error.
-- Unpublish with \`update_web_site\` and \`status: "disabled"\`. Republish with
-  \`status: "published"\`. Deleting a site is a destructive action and should be
-  left to the user in Apps & Tools → Applications → My sites unless they
-  explicitly ask for it.
+- Unpublish with \`${coreMcpServerKey}.update_web_site\` and \`status: "disabled"\`.
+  Republish with \`status: "published"\`.
+- Delete only when the user explicitly asks to delete a specific site. Confirm
+  its name and public URL first, then call \`${coreMcpServerKey}.delete_web_site\`
+  with its \`site_id\`. Deletion is permanent: releases, the address and any
+  backend binding go away, and the freed address may be reused by others. When
+  the user only wants to withdraw the site, unpublish instead. Never delete as
+  a side effect of another request.
 
 ## Safety
 

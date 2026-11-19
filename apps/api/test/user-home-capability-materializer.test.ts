@@ -403,7 +403,8 @@ describe.concurrent("UserHomeCapabilityMaterializer", () => {
     expect(publicSiteSkill).toContain("Call `account.get()` first")
     expect(publicSiteSkill).toContain("never the session `$id`")
     expect(publicSiteSkill).toContain("/app/s/<site-id>")
-    expect(publicSiteSkill).toContain("Apps & Tools → Applications → My sites")
+    expect(publicSiteSkill).toContain("linksense_core.delete_web_site")
+    expect(publicSiteSkill).toContain("Deletion is permanent")
     // Subsequent starts reuse the freshly published snapshot.
     await materializer.resolvePublishedRuntimeWithinPublicationStartFence(input)
     expect(onStage).toHaveBeenCalledOnce()

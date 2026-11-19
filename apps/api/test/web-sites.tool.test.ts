@@ -75,6 +75,36 @@ describe("public site agent tool service", () => {
     expect(fixture.store.update).toHaveBeenCalledWith(ownerId, siteId, { analytics: false }, undefined, undefined, { enabled: false });
   });
 
+  it("passes a passcode change through the agent update tool", async () => {
+    const fixture = siteFixture();
+    await fixture.service.toolForOwner(ownerId, taskId, turnId, {
+      operation: "update",
+      site_id: siteId,
+      passcode: "open-sesame",
+    }, publicBaseUrl);
+    expect(fixture.store.update).toHaveBeenCalledWith(ownerId, siteId, { passcode: "open-sesame" }, undefined, expect.any(String), undefined);
+  });
+
+  it("removes the passcode through the agent update tool", async () => {
+    const fixture = siteFixture();
+    await fixture.service.toolForOwner(ownerId, taskId, turnId, {
+      operation: "update",
+      site_id: siteId,
+      passcode: null,
+    }, publicBaseUrl);
+    expect(fixture.store.update).toHaveBeenCalledWith(ownerId, siteId, { passcode: null }, undefined, null, undefined);
+  });
+
+  it("deletes an owned site through the agent tool", async () => {
+    const fixture = siteFixture();
+    const result = await fixture.service.toolForOwner(ownerId, taskId, turnId, {
+      operation: "delete",
+      site_id: siteId,
+    }, publicBaseUrl);
+    expect(fixture.store.delete).toHaveBeenCalledWith(ownerId, siteId);
+    expect(result).toEqual({ deleted: true });
+  });
+
   it("rejects an inactive turn and an empty metadata update", async () => {
     const fixture = siteFixture();
     fixture.store.assertActiveTurn.mockRejectedValueOnce(new AppError("FORBIDDEN"));

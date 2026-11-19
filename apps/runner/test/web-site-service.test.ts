@@ -40,7 +40,7 @@ function fixture() {
 
 describe("public site Core MCP tools", () => {
   it("registers publishing tools only in default mode", () => {
-    for (const name of ["publish_web_site", "list_web_sites", "update_web_site", "prepare_web_site_backend", "configure_web_site_backend", "inspect_web_site_backend"]) {
+    for (const name of ["publish_web_site", "list_web_sites", "update_web_site", "delete_web_site", "prepare_web_site_backend", "configure_web_site_backend", "inspect_web_site_backend"]) {
       expect(coreMcpToolNamesFor("default")).toContain(name);
       expect(coreMcpToolNamesFor("plan")).not.toContain(name);
     }
@@ -96,6 +96,16 @@ describe("public site Core MCP tools", () => {
     expect((await f.call("update_web_site", { site_id: site.id, status: "disabled" })).isError).toBe(false);
     expect(JSON.parse(String(f.fetch.mock.calls[2]?.[1]?.body))).toEqual({
       operation: "update", site_id: site.id, status: "disabled",
+    });
+  });
+
+  it("forwards a delete request for an owned site", async () => {
+    const f = fixture();
+    f.fetch.mockResolvedValueOnce(Response.json({ deleted: true }));
+    const result = await f.call("delete_web_site", { site_id: site.id });
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(String(f.fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      operation: "delete", site_id: site.id,
     });
   });
 

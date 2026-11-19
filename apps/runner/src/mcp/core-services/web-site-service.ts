@@ -4,6 +4,7 @@ import {
   webSiteToolPageSchema,
   webSiteToolRequestSchema,
   webSiteUpdateToolSchema,
+  webSiteDeleteToolSchema,
   webSiteWithUrlSchema,
   webSiteBackendPrepareSchema,
   webSiteBackendConfigureSchema,
@@ -23,17 +24,19 @@ import {
 export const webSiteCoreMcpModule: CoreMcpModuleDefinition = {
   key: "web_site",
   modes: ["default"],
-  toolNames: ["publish_web_site", "list_web_sites", "update_web_site", "prepare_web_site_backend", "configure_web_site_backend", "inspect_web_site_backend"],
+  toolNames: ["publish_web_site", "list_web_sites", "update_web_site", "delete_web_site", "prepare_web_site_backend", "configure_web_site_backend", "inspect_web_site_backend"],
   create({ environment, fetch: fetcher = globalThis.fetch }) {
     return {
       key: "web_site",
-      tools: [publishTool, listTool, updateTool, prepareBackendTool, configureBackendTool, inspectBackendTool],
+      tools: [publishTool, listTool, updateTool, deleteTool, prepareBackendTool, configureBackendTool, inspectBackendTool],
       async callTool(input) {
         try {
           const request = input.toolName === "publish_web_site"
             ? { operation: "publish" as const, ...webSitePublishToolSchema.parse(input.argumentsValue) }
             : input.toolName === "update_web_site"
               ? { operation: "update" as const, ...webSiteUpdateToolSchema.parse(input.argumentsValue) }
+              : input.toolName === "delete_web_site"
+                ? { operation: "delete" as const, ...webSiteDeleteToolSchema.parse(input.argumentsValue) }
               : input.toolName === "prepare_web_site_backend"
                 ? { operation: "prepare_backend" as const, ...webSiteBackendPrepareSchema.parse(input.argumentsValue) }
               : input.toolName === "configure_web_site_backend"
@@ -54,6 +57,7 @@ export const webSiteCoreMcpModule: CoreMcpModuleDefinition = {
             const failure = webSiteFailureSchema.safeParse(result);
             return failureToolResult(failure.success ? failure.data : { code: "WEB_SITE_UNAVAILABLE", retryable: response.status >= 500 });
           }
+          if (request.operation === "delete") return successToolResult(z.object({ deleted: z.literal(true) }).parse(result));
           if (request.operation === "prepare_backend" || request.operation === "inspect_backend") return successToolResult(webSiteBackendSchema.parse(result));
           if (request.operation === "configure_backend") return successToolResult(z.record(z.string(), z.unknown()).parse(result));
           return successToolResult(request.operation === "list"
@@ -90,6 +94,14 @@ const updateTool: Tool = {
   description:
     "Update an owned Web application's name, description, slug, published status, access passcode, or visitor analytics without changing its content. The stable application URL and retired aliases remain usable after renaming. Unpublishing closes the stable entry, aliases, resources and backend gateway. analytics: true enables privacy-friendly visitor statistics for a published site and returns analytics_url for the owner; analytics: false stops collection but keeps historical data. Never invent an analytics URL.",
   inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSiteUpdateToolSchema)),
+};
+
+const deleteTool: Tool = {
+  name: "delete_web_site",
+  description:
+    "Permanently delete an owned public site together with its releases, its address and any backend binding. Only call this when the user explicitly asks to delete a specific site; confirm the site name and public URL first. To withdraw a site without deleting it, use update_web_site with status: \"disabled\" instead. Deletion cannot be undone, and the freed address may be taken by someone else.",
+  inputSchema: ToolSchema.shape.inputSchema.parse(z.toJSONSchema(webSiteDeleteToolSchema)),
+  annotations: { title: "Delete public site", destructiveHint: true, idempotentHint: false, openWorldHint: false },
 };
 
 const prepareBackendTool: Tool = {

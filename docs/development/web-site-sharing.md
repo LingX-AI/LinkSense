@@ -43,7 +43,7 @@
 用户可在普通对话描述目标，或通过“用对话创建应用”入口只填写目标；不预选 builder，不默认公开或启用计划。普通对话和两种 builder 共享意图指令：复用已有答案，只问下一项影响结果的未知需求，选项表达使用效果。静态和动态统一为 Web 应用，后端按需开通；需要平台 AI、知识库、身份或组织分发时使用 LS 应用。页面和自动化可组合，分别报告页面、数据和提醒状态。卡片显示页面及后端配置；提醒须以实际计划和渠道结果为准。“创建 Web 应用”保留为明确创建并发布的快捷流程。
 
 - 助手先在 `artifacts/<site-name>/` 生成完整静态站点，再用 `register_artifact` 登记 HTML 入口和 `web_root_relative_path`，最后调用 `publish_web_site`。工具返回 `url` 和 `slug`，一次对话即可拿到外链。
-- `publish_web_site` 支持带 `site_id` 发布已有站点的新版本；`list_web_sites` 用于在后续任务中查找站点；`update_web_site` 只修改名称、简介、slug 或发布状态。
+- `publish_web_site` 支持带 `site_id` 发布已有站点的新版本；`list_web_sites` 用于在后续任务中查找站点；`update_web_site` 修改名称、简介、slug、发布状态、访问密码和访问统计；`delete_web_site` 只在用户明确要求删除具体站点时使用，须先确认站点名称和公开地址，删除后发布版本、地址和后端绑定一并移除，地址可被他人复用。
 - 修改已有动态应用前先查询站点并检查其 `backend_id`，跨对话复用原后端。静态应用增加数据能力时，使用原 `site_id` 和新的 sandbox `backend_id` 发布，保持身份、稳定入口和旧别名。
 - 工具只在 `default` 协作模式、当前用户、运行中的轮次内可用。API 内部路由 `/internal/web-sites` 使用 runner shared secret 和 owner header，复用现有 `WebSiteService` 的所有权、来源任务、资源包和 slug 唯一约束；没有新增表或迁移。
 - 发布即公开。用户明确要求发布或公开链接才执行；选择交付形态本身不授权发布或启用自动化。已有明确授权不重复确认，不把 LS 交互式应用自动转换或公开。
