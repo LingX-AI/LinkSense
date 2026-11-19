@@ -22,6 +22,7 @@ type FixtureProvider = {
   protocolMode: ModelProviderProtocolMode;
   upstreamBaseUrl: string;
   upstreamKey: string;
+  supportsImageInput?: boolean;
 };
 
 export async function startDesktopModelProxyFixture(configured: readonly FixtureProvider[]) {
@@ -48,7 +49,11 @@ export async function startDesktopModelProxyFixture(configured: readonly Fixture
         if (!configured || model !== configured.model || protocolMode !== configured.protocolMode) {
           throw new Error("Unexpected desktop fixture provider");
         }
-        return { baseUrl: configured.upstreamBaseUrl, apiKey: configured.upstreamKey };
+        return {
+          baseUrl: configured.upstreamBaseUrl,
+          apiKey: configured.upstreamKey,
+          supportsImageInput: configured.supportsImageInput === true,
+        };
       } },
       creditLimits: { assertCanStartTask: async () => undefined },
       privacyMasking: { runtimeForUser: async () => undefined },

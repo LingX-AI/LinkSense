@@ -37,7 +37,7 @@ describe("ModelProviderSettingsService", () => {
     readContextWindows.mockClear()
     const selected = { model: "desktop-model", revision: 1, protocolMode: "native_responses", purpose: "primary" } as const
     await expect(service.resolveDesktopProxyProvider(selected)).resolves.toEqual({
-      baseUrl: channel.base_url, apiKey: channel.api_key,
+      baseUrl: channel.base_url, apiKey: channel.api_key, supportsImageInput: false,
     })
     await expect(service.resolveDesktopProxyProvider({ ...selected, protocolMode: "chat_completions_bridge" })).rejects.toMatchObject({
       code: "MODEL_SELECTION_INVALID",
@@ -1157,6 +1157,7 @@ describe("ModelProviderSettingsService", () => {
           cached_input_price_per_million: "2",
           output_price_per_million: "20",
         },
+        supportsImageInput: false,
         modelContextWindow: 200_000,
       },
     })

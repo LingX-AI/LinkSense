@@ -88,6 +88,7 @@ const desktopModelAccessSchema = z.strictObject({
 const desktopModelContextShape = {
   context_window: modelContextWindowSchema.optional(),
   auto_compact_token_limit: modelContextWindowSchema.optional(),
+  supports_image_input: z.boolean().optional(),
 };
 
 export const desktopRunCredentialsSchema = z.strictObject({

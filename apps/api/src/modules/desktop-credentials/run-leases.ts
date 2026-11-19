@@ -275,6 +275,7 @@ function projectProvider(model: string, provider: RunnerModelProviderRuntime): O
     token: `lsdm_${randomToken(32)}`,
     ...(provider.modelContextWindow === undefined ? {} : { context_window: provider.modelContextWindow }),
     ...(provider.modelAutoCompactTokenLimit === undefined ? {} : { auto_compact_token_limit: provider.modelAutoCompactTokenLimit }),
+    ...(provider.supportsImageInput === undefined ? {} : { supports_image_input: provider.supportsImageInput }),
   };
 }
 

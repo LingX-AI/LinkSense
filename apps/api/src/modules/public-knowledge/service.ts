@@ -1007,6 +1007,11 @@ export class PublicKnowledgeService {
           ...(runtime.provider.pricing
             ? { pricing: runtime.provider.pricing }
             : {}),
+          ...(runtime.provider.supportsImageInput === undefined
+            ? {}
+            : {
+                supportsImageInput: runtime.provider.supportsImageInput,
+              }),
           ...(runtime.provider.modelContextWindow
             ? { modelContextWindow: runtime.provider.modelContextWindow }
             : {}),

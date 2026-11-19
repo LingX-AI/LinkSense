@@ -227,6 +227,7 @@ export type RunnerModelProviderRuntime = {
   pricing?: ModelTokenPricing;
   modelContextWindow?: number;
   modelAutoCompactTokenLimit?: number;
+  supportsImageInput?: boolean;
   memoryExtraction?: MemoryExtractionRuntime;
   privacyMasking?: PrivacyMaskingRuntime;
 };

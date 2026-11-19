@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { DESKTOP_MODEL_PROXY_PATH, DESKTOP_MODEL_PURPOSE_HEADER } from "@linksense/shared";
+import {
+  DESKTOP_MODEL_PROXY_PATH,
+  DESKTOP_MODEL_PURPOSE_HEADER,
+  modelImageOmittedPlaceholder,
+} from "@linksense/shared";
 import Fastify from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -66,8 +70,8 @@ async function fixture(options: { deadline?: number; trustProxy?: boolean } = {}
       },
     },
   });
-  const resolveDesktopProxyProvider = vi.fn<(input: unknown) => Promise<{ baseUrl: string; apiKey: string }>>(async () => ({
-    baseUrl: "https://server-configured.example.test/v1", apiKey: upstreamKey,
+  const resolveDesktopProxyProvider = vi.fn<(input: unknown) => Promise<{ baseUrl: string; apiKey: string; supportsImageInput: boolean }>>(async () => ({
+    baseUrl: "https://server-configured.example.test/v1", apiKey: upstreamKey, supportsImageInput: false,
   }));
   const assertCanStartTask = vi.fn<(ownerId: string) => Promise<void>>(async () => undefined);
   const fetcher = vi.fn<typeof fetch>(async (_input, init) => init?.headers &&
@@ -97,6 +101,36 @@ async function fixture(options: { deadline?: number; trustProxy?: boolean } = {}
 }
 
 describe("desktop model proxy", () => {
+  it("replaces image parts for text-only models and preserves them for image-capable models", async () => {
+    const test = await fixture();
+    const token = test.credentials.primary.token;
+    const image = {
+      type: "input_image",
+      image_url: "data:image/png;base64,AAAA",
+    };
+    const input = [{
+      type: "message", role: "user",
+      content: [{ type: "input_text", text: "look" }, image],
+    }];
+
+    expect((await test.request("primary/responses", token, { ...nativeInput, input })).statusCode).toBe(200);
+    const textOnly = JSON.parse(String(test.fetcher.mock.calls[0]?.[1]?.body));
+    expect(JSON.stringify(textOnly)).not.toContain("base64");
+    expect(textOnly.input[0].content[1]).toEqual({
+      type: "input_text",
+      text: modelImageOmittedPlaceholder,
+    });
+
+    test.resolveDesktopProxyProvider.mockResolvedValueOnce({
+      baseUrl: "https://server-configured.example.test/v1",
+      apiKey: upstreamKey,
+      supportsImageInput: true,
+    });
+    expect((await test.request("primary/responses", token, { ...nativeInput, input })).statusCode).toBe(200);
+    const withImages = JSON.parse(String(test.fetcher.mock.calls[1]?.[1]?.body));
+    expect(withImages.input[0].content[1]).toEqual(image);
+  });
+
   it("forwards a bounded native preloaded tool output without a call ID", async () => {
     const test = await fixture();
     const input = [{

@@ -7,6 +7,7 @@ import {
   modelGatewayFailureCode,
   modelProviderBaseUrlSchema,
   nativeProviderFailureCode,
+  omitUnsupportedModelImages,
 } from "@linksense/shared";
 import { createParser, type EventSourceMessage } from "eventsource-parser";
 import { z } from "zod";
@@ -62,6 +63,11 @@ export async function forwardDesktopModel(
   ]), signal);
   // shortcut: keep protected accounts on cloud until the proxy applies and restores their masking policy.
   if (privacy) throw new AppError("FORBIDDEN");
+  // Desktop Codex may replay historical screenshots and tool results. Never
+  // forward image parts to a model that does not declare image input support.
+  if (!provider.supportsImageInput) {
+    omitUnsupportedModelImages(projected.body);
+  }
   if (auth.purpose === "memory_extraction") {
     if (!lease.reasoningEffort) throw new AppError("FORBIDDEN");
     if (endpoint === "responses") projected.body.reasoning = { effort: lease.reasoningEffort };

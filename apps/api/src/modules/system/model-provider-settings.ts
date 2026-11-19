@@ -322,6 +322,8 @@ export type ResolvedModelRuntime = {
     pricing?: ModelTokenPricing
     modelContextWindow?: number
     modelAutoCompactTokenLimit?: number
+    /** Declared by the provider model settings; false/absent means text only. */
+    supportsImageInput?: boolean
     memoryExtraction?: MemoryExtractionRuntime
     privacyMasking?: PrivacyMaskingRuntime
   }
@@ -1162,7 +1164,11 @@ export class ModelProviderSettingsService
     revision: number
     protocolMode: ModelProviderProtocolMode
     purpose: DesktopModelPurpose
-  }): Promise<{ baseUrl: string; apiKey: string }> {
+  }): Promise<{
+    baseUrl: string
+    apiKey: string
+    supportsImageInput: boolean
+  }> {
     const stored = await this.readStoredSettings()
     if (!stored || stored.revision !== input.revision) throw new AppError("MODEL_SELECTION_INVALID")
     const { channel, model } = projectManagedRuntime(stored, input.model, "chat")
@@ -1171,7 +1177,11 @@ export class ModelProviderSettingsService
       (input.purpose === "memory_extraction" && stored.memoryExtractionModel !== null && stored.memoryExtractionModel !== input.model)) {
       throw new AppError("MODEL_SELECTION_INVALID")
     }
-    return { baseUrl: channel.baseUrl, apiKey: channel.apiKey }
+    return {
+      baseUrl: channel.baseUrl,
+      apiKey: channel.apiKey,
+      supportsImageInput: model.kind === "chat" && model.supports_image_input,
+    }
   }
 
   async resolveTaskTitleModel(): Promise<ResolvedManagedModelRuntime | null> {
@@ -1920,6 +1930,7 @@ function projectRuntime(
           selectedModel.cached_input_price_per_million,
         output_price_per_million: selectedModel.output_price_per_million,
       },
+      supportsImageInput: selectedModel.supports_image_input,
       ...(selectedModel.context_window === null
         ? {}
         : { modelContextWindow: selectedModel.context_window }),
@@ -1986,6 +1997,7 @@ function projectModelTransitionRuntime(
           selectedModel.cached_input_price_per_million,
         output_price_per_million: selectedModel.output_price_per_million,
       },
+      supportsImageInput: selectedModel.supports_image_input,
       ...(selectedModel.context_window === null
         ? {}
         : { modelContextWindow: selectedModel.context_window }),
