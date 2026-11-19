@@ -36,7 +36,7 @@ type AttachmentReady = (command: StartCommand, signal: AbortSignal) => Promise<v
 export type DesktopRuntimeRun = {
   scope: Scope; token: string; expiresAt: number; timer: NodeJS.Timeout
   confirmAttachments?: (signal: AbortSignal) => Promise<number>
-  artifacts?: { workspace: string; check: () => Promise<void>; signal: AbortSignal }
+  artifacts?: { workspace: string; check: () => Promise<void>; signal: AbortSignal; multipart?: boolean }
 }
 const emptyMcpGeneration = createHash("sha256").update("").digest("hex")
 const healthSchema = z.object({ status: z.literal("available") })
@@ -305,6 +305,7 @@ export class DesktopTurns {
         timer: setTimeout(() => { void this.finish(run).catch(this.workerLost) }, expiresAt - Date.now()),
         ...(artifactWorkspace && { artifacts: {
           workspace: artifactWorkspace.path, check: artifactWorkspace.check, signal: session.preparation.signal,
+          multipart: this.toolOperations.includes("artifact.multipart"),
         } }),
         ...(materialized && attachmentsReady && {
           confirmAttachments: async (requestSignal: AbortSignal) => {

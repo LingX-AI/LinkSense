@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { desktopArtifactMaxParts } from "@linksense/shared";
 import { z } from "zod";
 import { AppError } from "../../lib/errors.js";
 
@@ -8,8 +9,17 @@ function artifactUuid(value: string): string {
   return parsed.data.toLowerCase();
 }
 
+export const desktopArtifactStagingPrefix = "desktop-artifact-staging/";
+export const desktopArtifactPartPrefix = "desktop-artifact-parts/";
+
 export const desktopArtifactStagingKey = (artifactId: string): string =>
-  `desktop-artifact-staging/${artifactUuid(artifactId)}`;
+  `${desktopArtifactStagingPrefix}${artifactUuid(artifactId)}`;
+
+export const desktopArtifactPartKey = (artifactId: string, index: number): string => {
+  const parsed = z.number().int().min(0).max(desktopArtifactMaxParts - 1).safeParse(index);
+  if (!parsed.success) throw new AppError("VALIDATION_ERROR");
+  return `${desktopArtifactPartPrefix}${artifactUuid(artifactId)}/${parsed.data}`;
+};
 
 export const desktopArtifactObjectKey = (conversationId: string, artifactId: string): string =>
   `conversations/${artifactUuid(conversationId)}/artifacts/${artifactUuid(artifactId)}/content`;

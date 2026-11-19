@@ -11,6 +11,8 @@ import {
   DESKTOP_EXECUTION_PROTOCOL_HEADER,
   DESKTOP_TOOL_PROTOCOL_HEADER,
   DESKTOP_TOOL_OPERATIONS_HEADER,
+  desktopArtifactMaxParts,
+  desktopArtifactPartBytes,
   desktopArtifactPath,
   desktopArtifactReceiptSchema,
   desktopExecutionAckSchema,
@@ -58,7 +60,7 @@ import { DesktopDeviceService } from "../../src/modules/desktop-devices/service.
 import { TaskRecoveryScheduler, type TaskRecoveryQueueControl } from "../../src/modules/events/recovery-scheduler.js";
 import { ConversationEventService } from "../../src/modules/events/service.js";
 import { FileService } from "../../src/modules/files/service.js";
-import { desktopArtifactObjectKey, desktopArtifactStagingKey } from "../../src/modules/files/desktop-artifact-storage.js";
+import { desktopArtifactObjectKey, desktopArtifactPartKey, desktopArtifactStagingKey } from "../../src/modules/files/desktop-artifact-storage.js";
 import { PrivacyMaskingSettingsService } from "../../src/modules/privacy-masking/service.js";
 import { ModelProviderSettingsService } from "../../src/modules/system/model-provider-settings.js";
 import { WebSearchSettingsService } from "../../src/modules/system/web-search-settings.js";
@@ -639,12 +641,19 @@ export async function verifyDesktopExecutionProjection(input: {
       await conversations.delete(ownerId, task.id, {});
       if (minio) {
         const staleKey = desktopArtifactStagingKey(pending.id);
-        const uploadId = await minio.storage.client.initiateNewMultipartUpload(minio.bucket, staleKey, {});
-        assert(uploadId);
+        const firstUpload = await minio.storage.client.initiateNewMultipartUpload(minio.bucket, staleKey, {});
+        const secondUpload = await minio.storage.client.initiateNewMultipartUpload(minio.bucket, staleKey, {});
+        assert.notEqual(firstUpload, secondUpload);
+        const neighbor = `${staleKey}/other`;
+        const neighborUpload = await minio.storage.client.initiateNewMultipartUpload(minio.bucket, neighbor, {});
+        await cleanup(pending.id);
+        assert.equal(await minio.storage.client.findUploadId(minio.bucket, staleKey), undefined);
+        assert.equal(await minio.storage.client.findUploadId(minio.bucket, neighbor), neighborUpload);
+        await minio.storage.client.abortMultipartUpload(minio.bucket, neighbor, neighborUpload);
+      } else {
+        await cleanup(pending.id);
       }
-      await cleanup(pending.id);
       await assert.rejects(storage.getObjectSize(desktopArtifactObjectKey(task.id, pending.id)));
-      if (minio) assert.equal(await minio.storage.client.findUploadId(minio.bucket, desktopArtifactStagingKey(pending.id)), undefined);
       if (committed) {
         const retained = await prisma.retainedArtifact.findUniqueOrThrow({ where: { originalFileId: committed.id } });
         await cleanup(committed.id);
@@ -866,6 +875,7 @@ export async function verifyDesktopExecutionProjection(input: {
       const artifact = await verifyPackagedDesktopGateway({
         runtimeRoot, scratch: input.workspaceRoot, address, attachmentTransfer, prisma, redis, coordinator, conversations,
         events, files, modelProviderSettings, ownerId, deviceId, token, previousConnectionId: replacement.connectionId,
+        ...(minio && { artifactSizeBytes: config.upload.maxFileSizeBytes + 11 }),
         revokeAttachmentRun: turnId => leases.revoke(turnId),
         disconnectAttachmentSocket: async connectionId => {
           assert.equal((await coordinator.executionConnection(deviceId))?.connectionId, connectionId);
@@ -882,10 +892,37 @@ export async function verifyDesktopExecutionProjection(input: {
         },
       });
       if (minio) {
+        const one = desktopArtifactPartKey(artifact.id, desktopArtifactMaxParts - 1);
+        const copy = `${desktopArtifactStagingKey(artifact.id)}/single-part-test`;
+        const sample = Buffer.from("Small fixture above a deployment's configured threshold");
+        const signal = AbortSignal.timeout(3_000);
+        try {
+          await minio.storage.putObject(one, sample, {}, signal);
+          await minio.storage.composeObject(copy, [one], signal);
+          assert.deepEqual(await buffer(await minio.storage.getObjectStream(copy, signal)), sample);
+        } finally {
+          await minio.storage.removeObject(one, AbortSignal.timeout(3_000));
+          await minio.storage.removeObject(copy, AbortSignal.timeout(3_000));
+        }
         assert(!relayUploads.has(`${desktopArtifactPath}/${artifact.turnId}/${artifact.id}/upload`),
           "the native artifact used the API fallback instead of the presigned form");
+        const partKeys = Array.from({ length: Math.ceil(artifact.sizeBytes / desktopArtifactPartBytes) },
+          (_, index) => desktopArtifactPartKey(artifact.id, index));
+        assert(partKeys.length > 1, "the native artifact must cross a part boundary");
+        for (const [index, key] of partKeys.entries()) {
+          assert.equal(await minio.storage.getObjectSize(key),
+            Math.min(desktopArtifactPartBytes, artifact.sizeBytes - index * desktopArtifactPartBytes));
+        }
         assert.equal(await minio.storage.getObjectSize(desktopArtifactStagingKey(artifact.id)), artifact.sizeBytes);
-        console.log("Packaged Mac used the MinIO presigned POST; verified bytes and exact-key multipart cleanup.");
+        const delayed = (await maintenance.getJobs(["delayed"])).filter(job =>
+          job.data.type === "object-delete" && partKeys.includes(job.data.objectKey));
+        assert.equal(delayed.length, partKeys.length);
+        for (const job of delayed) {
+          await jobs["process"](job, { cleanupInvalidTokens: outsideFixture });
+          await job.remove();
+        }
+        for (const key of partKeys) await assert.rejects(minio.storage.getObjectSize(key));
+        console.log("Packaged Mac used presigned MinIO parts, composed and verified the result, and cleaned the exact staging keys.");
       }
       assert.deepEqual({
         graph: connector.stats.graph, workspace: connector.stats.workspace,

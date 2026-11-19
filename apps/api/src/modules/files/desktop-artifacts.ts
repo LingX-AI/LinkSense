@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { addAbortSignal, Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
-  desktopArtifactPrepareSchema, desktopArtifactReceiptSchema, desktopArtifactUploadGrantSchema,
+  desktopArtifactMaxParts, desktopArtifactPartBytes, desktopArtifactPrepareSchema,
+  desktopArtifactReceiptSchema, desktopArtifactUploadGrantSchema,
   desktopArtifactUploadLifetimeMs, type DesktopArtifactPrepare, type DesktopArtifactReceipt, type DesktopArtifactUploadGrant,
 } from "@linksense/shared";
 import { z } from "zod";
@@ -16,11 +17,15 @@ import { desktopRunScopeSchema, type DesktopRunScope } from "../desktop-credenti
 import {
   resolveVerifiedArtifactMetadata, type FileService,
 } from "./service.js";
-import { desktopArtifactObjectKey, desktopArtifactScratchPath, desktopArtifactStagingKey } from "./desktop-artifact-storage.js";
+import {
+  desktopArtifactObjectKey, desktopArtifactPartKey, desktopArtifactPartPrefix, desktopArtifactScratchPath,
+  desktopArtifactStagingKey, desktopArtifactStagingPrefix,
+} from "./desktop-artifact-storage.js";
 
 const storedGrantSchema = z.strictObject({
   scope: desktopRunScopeSchema, metadata: desktopArtifactPrepareSchema,
   artifactId: z.uuid(), expiresAt: z.number().int().positive(),
+  partCount: z.number().int().min(1).max(desktopArtifactMaxParts).optional(),
 });
 type StoredGrant = z.infer<typeof storedGrantSchema>;
 type Check = () => Promise<void>;
@@ -32,10 +37,10 @@ type DesktopArtifactOptions = {
     set(key: string, value: string, mode: "PX", ttl: number, when: "NX"): Promise<"OK" | null>;
     eval(script: string, count: 1, key: string, value: string): Promise<unknown>;
   };
-  storage: Pick<ObjectStorage, "getObjectStream" | "putObjectStream" | "presignedPostObject">;
+  storage: Pick<ObjectStorage, "getObjectStream" | "putObjectStream" | "hasPrefixExpiry" | "presignedPostObject" | "composeObject">;
   maximumBytes: number;
   scratchRoot: string;
-  scheduleCleanup: (conversationId: string, artifactId: string, expiresAt: number) => Promise<void>;
+  scheduleCleanup: (conversationId: string, artifactId: string, expiresAt: number, partCount?: number) => Promise<void>;
   reserveTransfer?: () => Promise<() => Promise<void>>;
   running: (scope: DesktopRunScope) => Promise<boolean>;
   exists: (conversationId: string, artifactId: string) => Promise<boolean>;
@@ -50,10 +55,21 @@ const unavailable = () => new AppError("RUNNER_UNAVAILABLE");
 export class DesktopArtifacts {
   constructor(private readonly options: DesktopArtifactOptions) {}
 
-  async prepare(scope: DesktopRunScope, input: DesktopArtifactPrepare, signal: AbortSignal, check: Check): Promise<DesktopArtifactUploadGrant> {
+  async prepare(scope: DesktopRunScope, input: DesktopArtifactPrepare, signal: AbortSignal, check: Check, allowParts = false): Promise<DesktopArtifactUploadGrant> {
     const metadata = desktopArtifactPrepareSchema.parse(input);
-    if (metadata.size_bytes > this.options.maximumBytes) throw new AppError("FILE_LIMIT_EXCEEDED");
+    const multipart = metadata.size_bytes > this.options.maximumBytes;
+    if (multipart && (!allowParts || !this.options.storage.presignedPostObject || !this.options.storage.composeObject)) {
+      throw new AppError("FILE_LIMIT_EXCEEDED");
+    }
     await this.checkRunning(scope, signal, check);
+    // An upload admitted before a policy expires can finish after queued cleanup.
+    const expiry = AbortSignal.any([signal, AbortSignal.timeout(2_000)]);
+    const direct = await this.options.storage.hasPrefixExpiry?.(
+      multipart ? [desktopArtifactStagingPrefix, desktopArtifactPartPrefix] : [desktopArtifactStagingPrefix], expiry,
+    ).catch(() => false);
+    signal.throwIfAborted();
+    if (multipart && !direct) throw new AppError("FILE_LIMIT_EXCEEDED");
+    const partCount = multipart ? Math.ceil(metadata.size_bytes / desktopArtifactPartBytes) : undefined;
     const artifactId = randomUUID();
     const expiresAt = Date.now() + desktopArtifactUploadLifetimeMs;
     const pending = pendingKey(scope.turnId);
@@ -61,18 +77,31 @@ export class DesktopArtifacts {
       throw new AppError("CONFLICT");
     }
     try {
-      const post = await this.options.storage.presignedPostObject?.(
-        desktopArtifactStagingKey(artifactId), metadata.size_bytes, new Date(expiresAt), signal,
-      ).catch(() => undefined);
       const base = { artifact_id: artifactId, expires_at: new Date(expiresAt).toISOString() };
-      const direct = post && desktopArtifactUploadGrantSchema.safeParse({
-        ...base, destination: { kind: "presigned_post", ...post },
-      });
-      const grant: DesktopArtifactUploadGrant = direct?.success ? direct.data : { ...base, destination: { kind: "api" } };
+      let grant: DesktopArtifactUploadGrant;
+      if (partCount) {
+        const parts = [];
+        for (let index = 0; index < partCount; index++) {
+          signal.throwIfAborted();
+          const size = Math.min(desktopArtifactPartBytes, metadata.size_bytes - index * desktopArtifactPartBytes);
+          const part = await this.options.storage.presignedPostObject?.(desktopArtifactPartKey(artifactId, index), size, new Date(expiresAt), signal);
+          if (!part) throw unavailable();
+          parts.push(part);
+        }
+        grant = desktopArtifactUploadGrantSchema.parse({ ...base, destination: { kind: "presigned_parts", parts } });
+      } else {
+        const post = direct && await this.options.storage.presignedPostObject?.(
+          desktopArtifactStagingKey(artifactId), metadata.size_bytes, new Date(expiresAt), signal,
+        ).catch(() => undefined);
+        const form = post && desktopArtifactUploadGrantSchema.safeParse({
+          ...base, destination: { kind: "presigned_post", ...post },
+        });
+        grant = form && form.success ? form.data : { ...base, destination: { kind: "api" } };
+      }
       // Persist cleanup before exposing a credential that can write storage.
-      await this.options.scheduleCleanup(scope.conversationId, artifactId, expiresAt);
+      await this.options.scheduleCleanup(scope.conversationId, artifactId, expiresAt, partCount);
       await this.checkRunning(scope, signal, check);
-      const stored = storedGrantSchema.parse({ scope, metadata, artifactId, expiresAt });
+      const stored = storedGrantSchema.parse({ scope, metadata, artifactId, expiresAt, ...(partCount && { partCount }) });
       if (await this.options.redis.set(grantKey(artifactId), JSON.stringify(stored), "PX", Math.max(1, expiresAt - Date.now())) !== "OK") {
         throw unavailable();
       }
@@ -85,6 +114,7 @@ export class DesktopArtifacts {
 
   async upload(scope: DesktopRunScope, artifactId: string, contentLength: number, stream: Readable, signal: AbortSignal, check: Check): Promise<void> {
     await this.withGrant(scope, artifactId, signal, check, async (stored, lifetime, authorize) => {
+      if (stored.partCount) throw new AppError("FORBIDDEN");
       if (contentLength !== stored.metadata.size_bytes) throw invalid();
       if (await this.options.exists(scope.conversationId, artifactId)) throw new AppError("CONFLICT");
       await authorize();
@@ -94,11 +124,18 @@ export class DesktopArtifacts {
   }
 
   async confirm(scope: DesktopRunScope, artifactId: string, signal: AbortSignal, check: Check, fence: Fence): Promise<DesktopArtifactReceipt> {
-    return this.withGrant(scope, artifactId, signal, check, async ({ metadata }, lifetime, authorize) => {
+    return this.withGrant(scope, artifactId, signal, check, async ({ metadata, partCount }, lifetime, authorize) => {
       const objectKey = desktopArtifactObjectKey(scope.conversationId, artifactId);
       const committed = await this.options.exists(scope.conversationId, artifactId);
       // Verify the immutable final object on replay; a presigned form can still replace staging before it expires.
       const sourceKey = committed ? objectKey : desktopArtifactStagingKey(artifactId);
+      if (partCount && !committed) {
+        if (!this.options.storage.composeObject) throw unavailable();
+        await authorize();
+        await this.options.storage.composeObject(sourceKey, Array.from({ length: partCount }, (_, index) =>
+          desktopArtifactPartKey(artifactId, index)), lifetime);
+        await authorize();
+      }
       const scratch = desktopArtifactScratchPath(this.options.scratchRoot, artifactId);
       await mkdir(scratch, { recursive: true, mode: 0o700 });
       await using directory = await mkdtempDisposable(join(scratch, "verify-"));
@@ -116,6 +153,7 @@ export class DesktopArtifacts {
       const receipt = desktopArtifactReceiptSchema.parse(await this.options.register({
         ownerId: scope.ownerId, conversationId: scope.conversationId, projectionTurnId: scope.turnId,
         artifactId, displayName: media.filename, mimeType: media.mimeType, sizeBytes: metadata.size_bytes, sha256: metadata.sha256,
+        ...(partCount && { multipart: true }),
       }, async tx => {
         await fence(tx);
         lifetime.throwIfAborted();

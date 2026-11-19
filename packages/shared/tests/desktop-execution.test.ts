@@ -3,7 +3,7 @@ import {
   desktopExecutionCommandSchema, desktopExecutionResultSchema,
   desktopRuntimeOutputSchema, desktopToolCancelSchema, desktopToolRequestSchema, desktopToolResultSchema,
 } from "../src/desktop-execution.js";
-import { desktopArtifactReceiptSchema, desktopArtifactUploadGrantSchema } from "../src/desktop-artifacts.js";
+import { desktopArtifactMaxParts, desktopArtifactReceiptSchema, desktopArtifactUploadGrantSchema } from "../src/desktop-artifacts.js";
 
 const id = "10000000-0000-4000-8000-000000000001";
 const turnId = "10000000-0000-4000-8000-000000000002";
@@ -125,5 +125,21 @@ describe("desktop execution wire contract", () => {
       success: true, artifact_id: id, file_id: id, display_name: "Notes.md", download_card_event_id: id,
       workspace_path: "/fixture/notes.md",
     }).success).toBe(false);
+  });
+
+  it("offers bounded presigned parts only for the new artifact operation", () => {
+    const part = { url: "https://objects.example.test/bucket", fields: { key: "stage/1" } };
+    const result = {
+      type: "tool.result", operation: "artifact.multipart", id, ok: true,
+      data: { artifact_id: id, expires_at: expiresAt, destination: { kind: "presigned_parts", parts: [part] } },
+    };
+    expect(desktopToolResultSchema.parse(result)).toEqual(result);
+    expect(desktopToolResultSchema.safeParse({ ...result, operation: "artifact.prepare" }).success).toBe(false);
+    for (const parts of [[], Array.from({ length: desktopArtifactMaxParts + 1 }, () => part),
+      [{ ...part, url: "https://user:password@objects.example.test/bucket" }]]) {
+      expect(desktopArtifactUploadGrantSchema.safeParse({
+        ...result.data, destination: { kind: "presigned_parts", parts },
+      }).success).toBe(false);
+    }
   });
 });

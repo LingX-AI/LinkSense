@@ -14,7 +14,7 @@ vi.mock("bullmq", () => ({
 describe("system maintenance expiry jobs", () => {
   function setup() {
     const queue = {
-      add: vi.fn(), close: vi.fn(), getJob: vi.fn(),
+      add: vi.fn(), addBulk: vi.fn(), close: vi.fn(), getJob: vi.fn(),
       getJobs: vi.fn<MaintenanceQueueControl["getJobs"]>(async () => []), upsertJobScheduler: vi.fn(),
     } satisfies MaintenanceQueueControl
     const jobs = new BackgroundJobs(

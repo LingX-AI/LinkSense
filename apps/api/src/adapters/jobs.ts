@@ -6,6 +6,8 @@ import { relative, resolve, sep } from "node:path"
 import { Queue, Worker, type ConnectionOptions, type RedisOptions, type Job } from "bullmq"
 import { z } from "zod"
 
+import { desktopArtifactMaxParts } from "@linksense/shared"
+
 import type { AppConfig } from "../config.js"
 import type { PrismaClient } from "../generated/prisma/client.js"
 import type { ObjectStorage } from "./object-storage.js"
@@ -21,7 +23,7 @@ import { pruneExpiredCapabilityPreviews } from "../modules/capabilities/preview.
 import { removeConversationArtifactThumbnails } from "../modules/files/artifact-thumbnail.js"
 import { assertConversationWorkspacePath } from "../lib/user-runtime-paths.js"
 import {
-  desktopArtifactObjectKey, desktopArtifactScratchPath, desktopArtifactStagingKey,
+  desktopArtifactObjectKey, desktopArtifactPartKey, desktopArtifactScratchPath, desktopArtifactStagingKey,
 } from "../modules/files/desktop-artifact-storage.js"
 import {
   conversationPrewarmInputSchema,
@@ -89,7 +91,7 @@ const MAINTENANCE_QUEUE_NAME = "linksense-maintenance"
 
 export type MaintenanceQueueControl = Pick<
   MaintenanceQueue,
-  "add" | "close" | "getJob" | "getJobs" | "upsertJobScheduler"
+  "add" | "addBulk" | "close" | "getJob" | "getJobs" | "upsertJobScheduler"
 >
 
 export type CleanupFailure = {
@@ -288,9 +290,31 @@ export class BackgroundJobs {
     )
   }
 
-  async enqueueDesktopArtifactCleanup(conversationId: string, artifactId: string, delay: number): Promise<void> {
-    await this.queue.add("desktop-artifact-cleanup", { type: "desktop-artifact-cleanup", conversationId, artifactId },
-      { jobId: `desktop-artifact-${artifactId}`, delay })
+  async enqueueDesktopArtifactCleanup(
+    conversationId: string,
+    artifactId: string,
+    delay: number,
+    partCount = 0,
+  ): Promise<void> {
+    const cleanup = {
+      name: "desktop-artifact-cleanup" as const,
+      data: { type: "desktop-artifact-cleanup" as const, conversationId, artifactId },
+      opts: { jobId: `desktop-artifact-${artifactId}`, delay },
+    }
+    const count = z.number().int().min(0).max(desktopArtifactMaxParts).parse(partCount)
+    if (count === 0) {
+      await this.queue.add(cleanup.name, cleanup.data, cleanup.opts)
+      return
+    }
+    const parts = Array.from({ length: count }, (_, index) => {
+      const objectKey = desktopArtifactPartKey(artifactId, index)
+      return {
+        name: "object-delete" as const,
+        data: { type: "object-delete" as const, objectKey },
+        opts: { jobId: `object-${digest(objectKey)}`, delay },
+      }
+    })
+    await this.queue.addBulk([cleanup, ...parts])
   }
 
   async enqueueRuntimeCleanup(
@@ -454,7 +478,7 @@ export class BackgroundJobs {
       return { delivered: true }
     }
     if (data.type === "object-delete") {
-      await this.storage.removeObject(data.objectKey)
+      await this.storage.removeObject(data.objectKey, AbortSignal.timeout(30_000))
       return { deleted: true }
     }
     if (data.type === "desktop-artifact-cleanup") {

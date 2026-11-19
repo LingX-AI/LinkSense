@@ -11,6 +11,7 @@ import type { Readable } from "node:stream";
 
 import {
   conversationEventSchema,
+  desktopArtifactMaxBytes,
   INTERACTIVE_APPLICATION_FILE_SOURCE,
   interactiveApplicationFileSchema,
   type InteractiveApplicationFile,
@@ -137,6 +138,7 @@ const verifiedDesktopArtifactInputSchema = z.strictObject({
   displayName: z.string().min(1).max(260),
   mimeType: z.string().min(1).max(160),
   sizeBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  multipart: z.literal(true).optional(),
   sha256: z
     .string()
     .regex(/^[a-f0-9]{64}$/iu)
@@ -1131,7 +1133,7 @@ export class FileService {
     if (!isStructuredMimeType(mimeType)) {
       throw new AppError("ARTIFACT_REGISTRATION_INVALID");
     }
-    if (verified.sizeBytes > this.config.upload.maxFileSizeBytes) {
+    if (verified.sizeBytes > (verified.multipart ? desktopArtifactMaxBytes : this.config.upload.maxFileSizeBytes)) {
       throw new AppError("FILE_LIMIT_EXCEEDED");
     }
     const displayName = artifactDisplayName(verified.displayName, mimeType);

@@ -176,7 +176,8 @@ export async function registerDesktopDeviceRoutes(
         (operation === "web.search" ||
           (operation === "connection.execute" ? options.connectionTools
             : operation === "browser.execute" ? options.browserTools
-            : operation === "artifact.prepare" ? options.artifactTools : options.knowledgeTools)));
+            : operation === "artifact.prepare" || operation === "artifact.multipart"
+              ? options.artifactTools && offered.has("artifact.prepare") : options.knowledgeTools)));
     let handling = false;
     let lastPing = Date.now();
     const authDeadline = setTimeout(() => socket.close(4401), 5000);

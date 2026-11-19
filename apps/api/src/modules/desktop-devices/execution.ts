@@ -49,10 +49,10 @@ export async function registerDesktopExecution(
     })),
     register: (input, fence) => services.files.registerVerifiedDesktopArtifact(input, fence),
     reserveTransfer: () => reserveDesktopArtifactSlot(redis.client),
-    scheduleCleanup: async (conversationId, artifactId, expiresAt) => {
+    scheduleCleanup: async (conversationId, artifactId, expiresAt, partCount) => {
       // An admitted upload can still be writing when the signed form expires.
       const delay = Math.max(0, expiresAt - Date.now()) + 5 * 60_000;
-      await services.jobs.enqueueDesktopArtifactCleanup(conversationId, artifactId, delay);
+      await services.jobs.enqueueDesktopArtifactCleanup(conversationId, artifactId, delay, partCount);
     },
   }) : undefined;
   const turnScope = (frame: Pick<DesktopExecutionCommand, "conversation_id" | "turn_id" | "runtime_generation">) => ({

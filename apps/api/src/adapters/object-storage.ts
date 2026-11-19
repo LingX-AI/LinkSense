@@ -15,7 +15,7 @@ import { addAbortSignal, Transform } from "node:stream";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
-import { Client } from "minio";
+import { Client, CopyDestinationOptions, CopySourceOptions } from "minio";
 import dayjs from "dayjs";
 import { z } from "zod";
 
@@ -51,12 +51,18 @@ export interface ObjectStorage {
   removeObject(key: string, signal?: AbortSignal): Promise<void>;
   removeIncompleteUpload?(key: string, signal: AbortSignal): Promise<void>;
   presignedGetObject(key: string, expiresSeconds: number): Promise<string>;
+  hasPrefixExpiry?(prefixes: readonly string[], signal: AbortSignal): Promise<boolean>;
   presignedPostObject?(
     key: string,
     sizeBytes: number,
     expiresAt: Date,
     signal?: AbortSignal,
   ): Promise<{ url: string; fields: Record<string, string> }>;
+  composeObject?(
+    key: string,
+    parts: readonly string[],
+    signal: AbortSignal,
+  ): Promise<void>;
   health(): Promise<void>;
 }
 
@@ -160,8 +166,15 @@ export class MinioObjectStorage implements ObjectStorage {
   async removeIncompleteUpload(key: string, signal: AbortSignal): Promise<void> {
     await this.transport.run(signal, async () => {
       const bucket = this.config.minio.bucket;
-      const id = await this.client.findUploadId(bucket, key);
-      if (id) await this.client.abortMultipartUpload(bucket, key, id);
+      // The SDK finds only the latest upload for this exact key.
+      for (;;) {
+        signal.throwIfAborted();
+        const id = await this.client.findUploadId(bucket, key);
+        if (!id) return;
+        await this.client.abortMultipartUpload(bucket, key, id).catch((error: unknown) => {
+          if (!error || typeof error !== "object" || !("code" in error) || error.code !== "NoSuchUpload") throw error;
+        });
+      }
     });
   }
 
@@ -200,6 +213,27 @@ export class MinioObjectStorage implements ObjectStorage {
     );
   }
 
+  async hasPrefixExpiry(prefixes: readonly string[], signal: AbortSignal): Promise<boolean> {
+    const lifecycle = await this.transport.run(signal, () =>
+      this.client.getBucketLifecycle(this.config.minio.bucket),
+    );
+    const rule = z.object({
+      Status: z.literal("Enabled"),
+      Filter: z.strictObject({ Prefix: z.string() }),
+      Expiration: z.object({ Days: z.literal(1) }),
+      NoncurrentVersionExpiration: z.object({
+        NoncurrentDays: z.literal(1), NewerNoncurrentVersions: z.literal(0).optional(),
+      }),
+    });
+    // The SDK's XML parser returns one rule as an object, despite the array type.
+    const rules = Array.isArray(lifecycle?.Rule) ? lifecycle.Rule : [lifecycle?.Rule];
+    const expiringPrefixes = new Set(rules.flatMap(candidate => {
+      const parsed = rule.safeParse(candidate);
+      return parsed.success ? [parsed.data.Filter.Prefix] : [];
+    }));
+    return prefixes.every(prefix => expiringPrefixes.has(prefix));
+  }
+
   async presignedPostObject(
     key: string,
     sizeBytes: number,
@@ -220,6 +254,19 @@ export class MinioObjectStorage implements ObjectStorage {
     const post = await this.presignClient.presignedPostPolicy(policy);
     signal?.throwIfAborted();
     return { url: post.postURL, fields: post.formData };
+  }
+
+  async composeObject(key: string, parts: readonly string[], signal: AbortSignal): Promise<void> {
+    const Bucket = this.config.minio.bucket;
+    const result = await this.transport.run(signal, () => this.client.composeObject(
+      new CopyDestinationOptions({ Bucket, Object: key }),
+      parts.map(Object => new CopySourceOptions({ Bucket, Object })),
+      { maxConcurrency: 4 },
+    ));
+    // A single source uses CopyObject; a failed compose can resolve without a result.
+    if (!result || typeof result !== "object" || !("etag" in result ? result.etag : result.Etag)) {
+      throw new Error("MINIO_COMPOSE_FAILED");
+    }
   }
 
   async health(): Promise<void> {

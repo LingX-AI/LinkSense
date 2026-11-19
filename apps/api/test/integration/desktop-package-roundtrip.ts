@@ -3,10 +3,9 @@ import { execFile, spawn } from "node:child_process";
 import { randomUUID, createHash } from "node:crypto";
 import { once } from "node:events";
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { Readable } from "node:stream";
-import { buffer } from "node:stream/consumers";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -61,6 +60,7 @@ export async function verifyPackagedDesktopGateway(input: {
   previousConnectionId: string;
   revokeAttachmentRun: (turnId: string) => Promise<void>;
   disconnectAttachmentSocket: (connectionId: string) => Promise<void>;
+  artifactSizeBytes?: number;
   serverSecrets: string[];
   searchMarker: string;
   connector: { driveName: string; documentName: string; documentText: string };
@@ -94,7 +94,9 @@ export async function verifyPackagedDesktopGateway(input: {
   const attachmentChecksum = createHash("sha256").update(attachmentData).digest("hex");
   const artifactDisplayName = "packaged-artifact.txt";
   const artifactRelativePath = `artifacts/${artifactDisplayName}`;
-  const artifactContent = `packaged artifact ${randomUUID()}\n`;
+  const artifactMarker = `packaged artifact ${randomUUID()}\n`;
+  const artifactSizeBytes = input.artifactSizeBytes ?? Buffer.byteLength(artifactMarker);
+  let artifactChecksum: string | undefined;
   let artifactWorkspace: string | undefined;
   let artifactReceipt: DesktopArtifactReceipt | undefined;
   const model = Fastify();
@@ -265,8 +267,9 @@ export async function verifyPackagedDesktopGateway(input: {
     }
     if (browserStep === 6) {
       assert(artifactWorkspace);
-      const written = await readFile(join(artifactWorkspace, artifactRelativePath), "utf8").catch(() => null);
-      assert.equal(written, artifactContent, "native cp did not create the workspace artifact");
+      const copied = join(artifactWorkspace, artifactRelativePath);
+      assert.equal((await stat(copied)).size, artifactSizeBytes, "native cp did not create the workspace artifact");
+      assert.equal(await checksum(createReadStream(copied)), artifactChecksum);
       modelRequests.artifact++;
       assert.equal(modelRequests.artifact, 1, "native artifact registration was replayed");
       const artifactTool = body.tools?.find(tool => tool.type === "namespace" &&
@@ -349,7 +352,19 @@ export async function verifyPackagedDesktopGateway(input: {
     };
     const read = await task("Packaged Mac workspace read");
     artifactWorkspace = join(dataRoot, ownerId, "services", read.id, "home", "workspace");
-    await writeFile(join(artifactWorkspace, "artifact-seed.txt"), artifactContent, { mode: 0o600 });
+    const seed = join(artifactWorkspace, "artifact-seed.txt");
+    {
+      await using file = await open(seed, "wx", 0o600);
+      const hash = createHash("sha256");
+      const chunk = Buffer.alloc(Math.min(artifactSizeBytes, 1024 * 1024), artifactMarker);
+      for (let offset = 0; offset < artifactSizeBytes; offset += chunk.length) {
+        const bytes = chunk.subarray(0, Math.min(chunk.length, artifactSizeBytes - offset));
+        if (offset > 0) bytes.write(`${offset}:`);
+        await file.writeFile(bytes);
+        hash.update(bytes);
+      }
+      artifactChecksum = hash.digest("hex");
+    }
     const uploaded = await input.files.uploadAttachment(ownerId, read.id, {
       filename: attachmentName, reportedMimeType: "text/plain", data: attachmentData,
     }, {});
@@ -677,7 +692,7 @@ export async function verifyPackagedDesktopGateway(input: {
     assert.equal(artifactFile.turnId, completed.turn_id);
     assert.equal(artifactFile.filename, artifactDisplayName);
     assert.equal(artifactFile.mimeType, "text/plain");
-    assert.equal(artifactFile.sizeBytes, BigInt(Buffer.byteLength(artifactContent)));
+    assert.equal(artifactFile.sizeBytes, BigInt(artifactSizeBytes));
     assert.equal(artifactFile.status, "registered");
     assert.equal(artifactFile.downloadable, true);
     assert.equal(artifactFile.storageBackend, "minio");
@@ -691,7 +706,7 @@ export async function verifyPackagedDesktopGateway(input: {
       file_id: artifactFile.id,
       display_name: artifactFile.filename,
       mime_type: "text/plain",
-      size_bytes: Buffer.byteLength(artifactContent),
+      size_bytes: artifactSizeBytes,
     });
     const artifactAudits = await prisma.auditLog.findMany({
       where: { action: "conversation_artifact_registered", targetType: "conversation_file", targetId: artifactFile.id },
@@ -714,8 +729,8 @@ export async function verifyPackagedDesktopGateway(input: {
     const download = await input.files.readArtifactDownload(ownerId, read.id, artifactFile.id, {});
     assert.equal(download.filename, artifactDisplayName);
     assert.equal(download.mimeType, "text/plain");
-    assert.equal(download.sizeBytes, Buffer.byteLength(artifactContent));
-    assert.equal((await buffer(download.data)).toString("utf8"), artifactContent,
+    assert.equal(download.sizeBytes, artifactSizeBytes);
+    assert.equal(await checksum(download.data), artifactChecksum,
       "the authenticated artifact download did not return the native file bytes");
 
     const pendingApproval = await conversations.acceptTurn(ownerId, stopApproval.id,
@@ -777,6 +792,12 @@ export async function verifyPackagedDesktopGateway(input: {
     }
     await model.close();
   }
+}
+
+async function checksum(data: Readable): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of data) hash.update(chunk);
+  return hash.digest("hex");
 }
 
 type AttachmentTransfer = {

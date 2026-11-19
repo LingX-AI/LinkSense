@@ -192,9 +192,10 @@ export function desktopWorkerCallbacks(
             sha256: source.sha256,
           })
           if (!prepared.success) throw invalidArtifact()
-          const grant = await link.requestTool(run, { operation: "artifact.prepare", body: prepared.data }, lifetime)
+          const operation = artifacts.multipart ? "artifact.multipart" : "artifact.prepare"
+          const grant = await link.requestTool(run, { operation, body: prepared.data }, lifetime)
           if (!grant.ok) throw artifactToolFailure(grant)
-          if (grant.operation !== "artifact.prepare") {
+          if (grant.operation !== operation) {
             throw new FileServiceRequestError("ARTIFACT_REGISTRATION_UNAVAILABLE", true, 503)
           }
           return await uploadDesktopArtifact({

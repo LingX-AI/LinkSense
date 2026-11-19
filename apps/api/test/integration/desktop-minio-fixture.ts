@@ -7,6 +7,9 @@ import { isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { MinioObjectStorage } from "../../src/adapters/object-storage.js";
+import {
+  desktopArtifactPartPrefix, desktopArtifactStagingPrefix,
+} from "../../src/modules/files/desktop-artifact-storage.js";
 import { testConfig } from "../test-config.js";
 
 export async function createDesktopMinioFixture(scratch: string): Promise<{
@@ -60,6 +63,19 @@ export async function createDesktopMinioFixture(scratch: string): Promise<{
       MINIO_ACCESS_KEY: accessKey, MINIO_SECRET_KEY: secretKey, MINIO_BUCKET: bucket,
     }));
     await storage.client.makeBucket(bucket, "us-east-1");
+    const rule = (Prefix: string) => ({
+      ID: Prefix.slice(0, -1), Status: "Enabled", Filter: { Prefix },
+      Expiration: { Days: 1 }, NoncurrentVersionExpiration: { NoncurrentDays: 1 },
+    });
+    // Exercise the SDK's XML parsing for both one rule and an array.
+    await storage.client.setBucketLifecycle(bucket, { Rule: [rule(desktopArtifactStagingPrefix)] });
+    if (!await storage.hasPrefixExpiry([desktopArtifactStagingPrefix], startup) ||
+        await storage.hasPrefixExpiry([desktopArtifactPartPrefix], startup)) {
+      throw new Error("The staging expiration must match only its own prefix");
+    }
+    await storage.client.setBucketLifecycle(bucket, {
+      Rule: [rule(desktopArtifactStagingPrefix), rule(desktopArtifactPartPrefix)],
+    });
     return { storage, bucket, close };
   } catch (error) {
     await close();

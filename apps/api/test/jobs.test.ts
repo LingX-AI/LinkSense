@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { mkdir, mkdtempDisposable, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -5,6 +6,7 @@ import { join } from "node:path"
 import type { Job } from "bullmq"
 import { describe, expect, it, vi } from "vitest"
 
+import { desktopArtifactMaxParts } from "@linksense/shared"
 import {
   BackgroundJobs,
   CleanupJobNotRetryableError,
@@ -18,6 +20,7 @@ import { LocalFilesystemObjectStorage, type ObjectStorage } from "../src/adapter
 import type { RunnerClient } from "../src/adapters/runner.js"
 import { RunnerRuntimeCleanupError } from "../src/adapters/runner.js"
 import type { AuditService } from "../src/modules/audit/service.js"
+import { desktopArtifactPartKey, desktopArtifactStagingKey } from "../src/modules/files/desktop-artifact-storage.js"
 import type { PrismaClient } from "../src/generated/prisma/client.js"
 import { testConfig } from "./test-config.js"
 
@@ -694,6 +697,7 @@ describe("desktop artifact cleanup", () => {
   const conversationId = "01900000-0000-7000-8000-000000000001"
   const artifactId = "30000000-0000-4000-8000-000000000001"
   const stageKey = `desktop-artifact-staging/${artifactId}`
+  const partPrefix = `desktop-artifact-parts/${artifactId}`
   const finalKey = `conversations/${conversationId}/artifacts/${artifactId}/content`
   const job = failedJob("desktop-artifact", { type: "desktop-artifact-cleanup", conversationId, artifactId }, "")
   const auth = { cleanupInvalidTokens: vi.fn() }
@@ -727,6 +731,62 @@ describe("desktop artifact cleanup", () => {
     expect(removeObject.mock.calls.map(([key]) => key)).toEqual([stageKey, stageKey, finalKey])
   })
 
+  it("keeps the single cleanup enqueue when no staging parts were uploaded", async () => {
+    const queue = queueControl({ failedJobs: [] })
+    await createBackgroundJobs(queue).enqueueDesktopArtifactCleanup(conversationId, artifactId, 60_000)
+
+    expect(queue.add).toHaveBeenCalledWith(
+      "desktop-artifact-cleanup",
+      { type: "desktop-artifact-cleanup", conversationId, artifactId },
+      { jobId: `desktop-artifact-${artifactId}`, delay: 60_000 },
+    )
+    expect(queue.addBulk).not.toHaveBeenCalled()
+  })
+
+  it("queues deletion of each exact staging part with the same delay as artifact cleanup", async () => {
+    const queue = queueControl({ failedJobs: [] })
+    await createBackgroundJobs(queue).enqueueDesktopArtifactCleanup(conversationId, artifactId, 30_000, 3)
+
+    expect(queue.add).not.toHaveBeenCalled()
+    expect(vi.mocked(queue.addBulk).mock.calls).toEqual([[
+      [
+        {
+          name: "desktop-artifact-cleanup",
+          data: { type: "desktop-artifact-cleanup", conversationId, artifactId },
+          opts: { jobId: `desktop-artifact-${artifactId}`, delay: 30_000 },
+        },
+        ...[0, 1, 2].map(index => {
+          const objectKey = `${partPrefix}/${index}`
+          return {
+            name: "object-delete",
+            data: { type: "object-delete", objectKey },
+            opts: { jobId: objectJobId(objectKey), delay: 30_000 },
+          }
+        }),
+      ],
+    ]])
+  })
+
+  it("bounds part keys to zero-based indices below the shared maximum", async () => {
+    expect(desktopArtifactStagingKey(artifactId)).toBe(stageKey)
+    expect(desktopArtifactPartKey(artifactId, 0)).toBe(`${partPrefix}/0`)
+    expect(desktopArtifactPartKey(artifactId, desktopArtifactMaxParts - 1)).toBe(`${partPrefix}/${desktopArtifactMaxParts - 1}`)
+    expect(() => desktopArtifactPartKey(artifactId, -1)).toThrow()
+    expect(() => desktopArtifactPartKey(artifactId, desktopArtifactMaxParts)).toThrow()
+    expect(() => desktopArtifactPartKey(artifactId, 1.5)).toThrow()
+
+    const queue = queueControl({ failedJobs: [] })
+    const jobs = createBackgroundJobs(queue)
+    await expect(jobs.enqueueDesktopArtifactCleanup(conversationId, artifactId, 0, -1)).rejects.toThrow()
+    await expect(jobs.enqueueDesktopArtifactCleanup(conversationId, artifactId, 0, desktopArtifactMaxParts + 1)).rejects.toThrow()
+    expect(queue.add).not.toHaveBeenCalled()
+    expect(queue.addBulk).not.toHaveBeenCalled()
+  })
+
+  function objectJobId(objectKey: string): string {
+    return `object-${createHash("sha256").update(objectKey).digest("hex").slice(0, 32)}`
+  }
+
   function fixture(capabilityRoot: string, referenced: boolean | undefined) {
     const removeObject = vi.fn<ObjectStorage["removeObject"]>().mockResolvedValue(undefined)
     const removeIncompleteUpload = vi.fn<NonNullable<ObjectStorage["removeIncompleteUpload"]>>().mockResolvedValue(undefined)
@@ -755,6 +815,7 @@ function queueControl(input: {
     getJobs: vi.fn().mockResolvedValue(input.failedJobs),
     getJob: vi.fn().mockResolvedValue(input.selectedJob),
     add: vi.fn(),
+    addBulk: vi.fn(),
     close: vi.fn(),
     upsertJobScheduler: vi.fn(),
   } as unknown as MaintenanceQueueControl

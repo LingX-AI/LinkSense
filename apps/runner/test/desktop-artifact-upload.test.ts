@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 
 import {
+  desktopArtifactPartBytes,
   desktopArtifactPath,
   type DesktopArtifactUploadGrant,
 } from "@linksense/shared"
@@ -44,7 +45,7 @@ function receipt() {
 }
 
 function apiGrant(
-  overrides: Partial<DesktopArtifactUploadGrant> = {},
+  overrides: Partial<Pick<DesktopArtifactUploadGrant, "artifact_id" | "expires_at">> = {},
 ): DesktopArtifactUploadGrant {
   return {
     artifact_id: artifactId,
@@ -67,19 +68,50 @@ function presignedGrant(
 
 const storageGrant = () => presignedGrant("https://objects.example.test/bucket", { key: "artifact" })
 
+function partsGrant(
+  parts: { url: string; fields: Record<string, string> }[],
+): DesktopArtifactUploadGrant {
+  return {
+    artifact_id: artifactId,
+    expires_at: futureExpiry(),
+    destination: { kind: "presigned_parts", parts },
+  }
+}
+
+function storagePart(index: number) {
+  return {
+    url: `https://objects.example.test/part-${index}`,
+    fields: {
+      key: `artifacts/desktop/report.bin.${index}`,
+      "x-amz-signature": String(index).repeat(64),
+    },
+  }
+}
+
+/** Just over one part, with markers on both sides of the part boundary. */
+function partFixtureBytes(): Buffer {
+  const bytes = Buffer.alloc(desktopArtifactPartBytes + 5, 0x5a)
+  bytes.writeUInt32LE(0xdeadbeef, 0)
+  bytes.writeUInt32LE(0xdeadbeef, desktopArtifactPartBytes - 4)
+  bytes.writeUInt32LE(0xdeadbeef, desktopArtifactPartBytes)
+  bytes.writeUInt32LE(0xdeadbeef, bytes.length - 4)
+  return bytes
+}
+
 function artifactSource(
   bytes: Buffer,
   options: { chunkSize: number; failAtEnd?: boolean },
 ): {
   source: DesktopArtifactSource
-  state: { started: boolean; validated: boolean; returnCalls: number; closeCalls: number }
+  state: { started: boolean; validated: boolean; returnCalls: number; closeCalls: number; readCalls: number }
 } {
-  const state = { started: false, validated: false, returnCalls: 0, closeCalls: 0 }
+  const state = { started: false, validated: false, returnCalls: 0, closeCalls: 0, readCalls: 0 }
   const source: DesktopArtifactSource = {
     sizeBytes: bytes.byteLength,
     sha256: createHash("sha256").update(bytes).digest("hex"),
     async *read(signal) {
       state.started = true
+      state.readCalls += 1
       try {
         for (
           let offset = 0;
@@ -145,6 +177,35 @@ async function readBodyChunks(
     reader.releaseLock()
   }
   return chunks
+}
+
+function formField(text: string, name: string): string | undefined {
+  const marker = `Content-Disposition: form-data; name="${name}"\r\n\r\n`
+  const start = text.indexOf(marker)
+  if (start < 0) return undefined
+  const valueStart = start + marker.length
+  return text.slice(valueStart, text.indexOf("\r\n", valueStart))
+}
+
+/** Byte-safe parse of one presigned form so 32 MiB file parts stay exact. */
+function parsePresignedForm(body: Buffer, contentType: string) {
+  const boundary = /^multipart\/form-data; boundary=(.+)$/u.exec(contentType)?.[1]
+  if (!boundary) throw new Error("Missing multipart boundary")
+  const closing = Buffer.from(`\r\n--${boundary}--\r\n\r\n`)
+  if (!body.subarray(body.length - closing.length).equals(closing)) {
+    throw new Error("Missing multipart closing boundary")
+  }
+  const fileHeader = Buffer.from(
+    'Content-Disposition: form-data; name="file"; filename="artifact"\r\n' +
+    "Content-Type: application/octet-stream\r\n\r\n",
+  )
+  const headerStart = body.indexOf(fileHeader)
+  if (headerStart < 0) throw new Error("Missing multipart file part")
+  const contentStart = headerStart + fileHeader.length
+  return {
+    fieldText: body.subarray(0, contentStart).toString("latin1"),
+    file: body.subarray(contentStart, body.length - closing.length),
+  }
 }
 
 function run(
@@ -662,5 +723,199 @@ it("rejects an already expired grant before reading the source", async () => {
     ),
   ).rejects.toBeInstanceOf(FileServiceRequestError)
   expect(state.returnCalls).toBe(0)
+  expect(fetcher).not.toHaveBeenCalled()
+})
+
+it("uploads every presigned part in grant order with exact source slices", async () => {
+  const bytes = partFixtureBytes()
+  // 3 MiB chunks straddle the 32 MiB part boundary, so the slice carry is exercised.
+  const { source, state } = artifactSource(bytes, { chunkSize: 3 * 1024 * 1024 })
+  const parts = [storagePart(0), storagePart(1)]
+  const stored: { url: URL; init: RequestInit; headers: Headers; body: Buffer; validated: boolean }[] = []
+  const fetcher = installFetch(async ({ url, init }) => {
+    if (url.hostname === "objects.example.test") {
+      if (!init) throw new Error("Missing storage init")
+      stored.push({
+        url,
+        init,
+        headers: new Headers(init.headers),
+        body: Buffer.concat(await readBodyChunks(init)),
+        validated: state.validated,
+      })
+      return new Response(null, { status: 204 })
+    }
+    return Response.json(receipt())
+  })
+
+  await expect(
+    run(partsGrant(parts), source, AbortSignal.timeout(30_000)),
+  ).resolves.toEqual(receipt())
+
+  expect(stored.map(entry => entry.url.href)).toEqual(parts.map(part => part.url))
+  const expectedFiles = [
+    bytes.subarray(0, desktopArtifactPartBytes),
+    bytes.subarray(desktopArtifactPartBytes),
+  ]
+  stored.forEach((entry, index) => {
+    const part = parts[index]
+    const expectedFile = expectedFiles[index]
+    if (!part || !expectedFile) throw new Error("Missing part request")
+    expect(entry.init.method).toBe("POST")
+    expect(entry.init.redirect).toBe("error")
+    expect(entry.init.credentials).toBe("omit")
+    // Only multipart framing headers cross to storage: no bearer, cookies or device headers.
+    expect([...entry.headers.keys()].sort()).toEqual(["content-length", "content-type"])
+    expect(entry.headers.get("authorization")).toBeNull()
+    expect(entry.headers.get("cookie")).toBeNull()
+    expect(Number(entry.headers.get("content-length"))).toBe(entry.body.byteLength)
+    const form = parsePresignedForm(entry.body, entry.headers.get("content-type") ?? "")
+    for (const [name, value] of Object.entries(part.fields)) {
+      expect(formField(form.fieldText, name)).toBe(value)
+    }
+    expect(form.file.equals(expectedFile)).toBe(true)
+  })
+
+  // The final form is withheld until the source verified EOF count and digest.
+  expect(stored.map(entry => entry.validated)).toEqual([false, true])
+  // One verified source read serves every part; no reread or replay.
+  expect(state.readCalls).toBe(1)
+  expect(state.validated).toBe(true)
+  expect(state.closeCalls).toBe(0)
+
+  const confirm = fetcher.mock.calls.at(-1)
+  if (!confirm) throw new Error("Missing confirm request")
+  expect(requestUrl(confirm[0]).href).toBe(
+    new URL(`${desktopArtifactPath}/${turnId}/${artifactId}/confirm`, origin).href,
+  )
+  expect(confirm[1]?.method).toBe("POST")
+  expect(confirm[1]?.body ?? null).toBeNull()
+  expect(new Headers(confirm[1]?.headers).get("authorization")).toBe(`Bearer ${runToken}`)
+  expect(fetcher).toHaveBeenCalledTimes(3)
+})
+
+it("rejects a part count that does not match the source size before any transfer", async () => {
+  const { source, state } = artifactSource(Buffer.from("artifact-bytes-fixture"), { chunkSize: 4 })
+  const part = storagePart(0)
+  const fetcher = installFetch(() => new Response(null, { status: 204 }))
+
+  await expect(run(partsGrant([part, storagePart(1)]), source)).rejects.toMatchObject({
+    code: "ARTIFACT_REGISTRATION_INVALID",
+  })
+  await expect(run(partsGrant([]), source)).rejects.toMatchObject({
+    code: "ARTIFACT_REGISTRATION_INVALID",
+  })
+  await expect(
+    run(partsGrant([part]), { ...source, sizeBytes: desktopArtifactPartBytes + 1 }),
+  ).rejects.toMatchObject({ code: "ARTIFACT_REGISTRATION_INVALID" })
+
+  expect(state.readCalls).toBe(0)
+  expect(fetcher).not.toHaveBeenCalled()
+})
+
+it("stops on a part transfer error without api fallback or confirmation", async () => {
+  const bytes = partFixtureBytes()
+  const { source, state } = artifactSource(bytes, { chunkSize: desktopArtifactPartBytes })
+  const parts = [storagePart(0), storagePart(1)]
+  const [firstPart] = parts
+  if (!firstPart) throw new Error("Expected a first part")
+  const fetcher = installFetch(async ({ url, init }) => {
+    if (url.hostname === "objects.example.test") {
+      await readBodyChunks(init)
+      return new Response(null, { status: 403 })
+    }
+    return Response.json(receipt())
+  })
+
+  await expect(
+    run(partsGrant(parts), source, AbortSignal.timeout(30_000)),
+  ).rejects.toMatchObject({
+    code: "ARTIFACT_REGISTRATION_FAILED",
+    retryable: false,
+    statusCode: 400,
+  })
+  expect(fetcher.mock.calls.map(([url]) => requestUrl(url).href)).toEqual([firstPart.url])
+  expect(state.readCalls).toBe(1)
+  expect(state.validated).toBe(false)
+})
+
+it("withholds the final part and confirmation when the source fails trailing verification", async () => {
+  const bytes = partFixtureBytes()
+  const { source, state } = artifactSource(bytes, {
+    chunkSize: 3 * 1024 * 1024,
+    failAtEnd: true,
+  })
+  const parts = [storagePart(0), storagePart(1)]
+  const [firstPart] = parts
+  if (!firstPart) throw new Error("Expected a first part")
+  const requested: string[] = []
+  const fetcher = installFetch(async ({ url, init }) => {
+    if (url.hostname === "objects.example.test") {
+      requested.push(url.href)
+      await readBodyChunks(init).catch(() => undefined)
+      return new Response(null, { status: 204 })
+    }
+    return Response.json(receipt())
+  })
+
+  await expect(
+    run(partsGrant(parts), source, AbortSignal.timeout(30_000)),
+  ).rejects.toMatchObject({
+    code: "ARTIFACT_REGISTRATION_BUSY",
+    retryable: true,
+    statusCode: 409,
+  })
+  expect(requested).toEqual([firstPart.url])
+  expect(state.validated).toBe(false)
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+it("stops the parts upload on caller abort and never confirms", async () => {
+  const bytes = Buffer.from("parts-abort-fixture")
+  const { source, state } = artifactSource(bytes, { chunkSize: 3 })
+  const controller = new AbortController()
+  const reason = new Error("caller stopped the parts upload")
+  const fetcher = installFetch(async ({ url }) => {
+    if (url.hostname === "objects.example.test") {
+      controller.abort(reason)
+      throw reason
+    }
+    return Response.json(receipt())
+  })
+
+  await expect(
+    run(partsGrant([storagePart(0)]), source, controller.signal),
+  ).rejects.toBe(reason)
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(state.closeCalls).toBe(0)
+})
+
+it("stops buffering the final part when the caller aborts before eof", async () => {
+  const controller = new AbortController()
+  const reason = new Error("stopped before eof")
+  const state = { readCalls: 0, returned: false }
+  const source: DesktopArtifactSource = {
+    sizeBytes: 64,
+    sha256: "0".repeat(64),
+    async *read(signal) {
+      state.readCalls += 1
+      try {
+        yield Buffer.from([1, 2, 3, 4])
+        // The caller aborts while the runner is still buffering the final slice.
+        controller.abort(reason)
+        signal.throwIfAborted()
+        yield Buffer.alloc(0)
+      } finally {
+        state.returned = true
+      }
+    },
+    async close() {},
+  }
+  const fetcher = installFetch(() => new Response(null, { status: 204 }))
+
+  await expect(
+    run(partsGrant([storagePart(0)]), source, controller.signal),
+  ).rejects.toBe(reason)
+  expect(state.readCalls).toBe(1)
+  expect(state.returned).toBe(true)
   expect(fetcher).not.toHaveBeenCalled()
 })

@@ -42,6 +42,7 @@ export async function executeDesktopTool(
   }
   let recheckResource: (() => Promise<void>) | undefined;
   let browserMutationMayHaveRun = false;
+  const artifact = frame.operation === "artifact.prepare" || frame.operation === "artifact.multipart";
   let result: DesktopToolResult;
   try {
     await authorize();
@@ -62,9 +63,9 @@ export async function executeDesktopTool(
         (browser.data.result.ok || browser.data.result.code === "RUNNER_OPERATION_UNCERTAIN");
       recheckResource = browser.assertCurrent;
       data = browser.data;
-    } else if (frame.operation === "artifact.prepare") {
+    } else if (artifact) {
       if (!services.artifacts) throw new AppError("RUNNER_UNAVAILABLE");
-      data = await services.artifacts.prepare(scope, frame.body, signal, authorize);
+      data = await services.artifacts.prepare(scope, frame.body, signal, authorize, frame.operation === "artifact.multipart");
     } else {
       data = await dispatchTool(services, scope, frame, signal, authorize);
     }
@@ -76,7 +77,8 @@ export async function executeDesktopTool(
     if (Buffer.byteLength(JSON.stringify(result)) > desktopExecutionMaxFrameBytes) {
       result = frame.operation === "browser.execute"
         ? { ...base, operation: frame.operation, ok: true, data: { result: browserUseFailure("BROWSER_USE_COMMAND_FAILED") } }
-        : { ...base, ok: false, error_code: frame.operation === "web.search" ? "WEB_SEARCH_RESPONSE_INVALID" : "KNOWLEDGE_PROCESSING_UNAVAILABLE" };
+        : { ...base, ok: false, error_code: artifact ? "RUNNER_UNAVAILABLE"
+          : frame.operation === "web.search" ? "WEB_SEARCH_RESPONSE_INVALID" : "KNOWLEDGE_PROCESSING_UNAVAILABLE" };
     }
   } catch (error) {
     const errorCode = error instanceof AppError ? error.code : undefined;
@@ -95,7 +97,7 @@ export async function executeDesktopTool(
       actorId: scope.ownerId, action: "desktop_tool_requested", targetId: frame.id,
       targetType: frame.operation === "web.search" ? "web_search" : frame.operation === "browser.execute" ? "browser_use"
         : frame.operation === "connection.execute" ? "connection"
-        : frame.operation === "artifact.prepare" ? "conversation_file" : "knowledge_base",
+        : artifact ? "conversation_file" : "knowledge_base",
       result: reason ? "failed" : "success",
       metadata: {
         operation: frame.operation, conversation_id: scope.conversationId, turn_id: scope.turnId, device_id: scope.deviceId,
@@ -183,7 +185,7 @@ function pageWorkspaceText(
 async function dispatchTool(
   { webSearchSettings, knowledgeSearch, checkPublication }: ToolRequestServices,
   { ownerId, conversationId, turnId }: DesktopRunScope,
-  frame: Exclude<DesktopToolRequest, { operation: "connection.execute" | "browser.execute" | "artifact.prepare" }>,
+  frame: Exclude<DesktopToolRequest, { operation: "connection.execute" | "browser.execute" | "artifact.prepare" | "artifact.multipart" }>,
   signal: AbortSignal,
   checkRun: () => Promise<void>,
 ): Promise<Extract<DesktopToolResult, { ok: true }>["data"]> {
