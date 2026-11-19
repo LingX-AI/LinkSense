@@ -169,6 +169,14 @@ export class WorkspaceBoundaryError extends Error {
   }
 }
 
+/** A conversation is bound to a different owner or has no owner yet. */
+export class WorkspaceOwnerMismatchError extends WorkspaceBoundaryError {
+  constructor(message: string) {
+    super(message)
+    this.name = "WorkspaceOwnerMismatchError"
+  }
+}
+
 export class RuntimeGenerationIntegrityError extends Error {
   constructor() {
     super("runtime generation state is invalid")
@@ -210,11 +218,11 @@ export class WorkspaceManager {
       this.options.fixedOwnerId &&
       ownerId !== this.options.fixedOwnerId
     ) {
-      throw new WorkspaceBoundaryError("conversation owner mismatch")
+      throw new WorkspaceOwnerMismatchError("conversation owner mismatch")
     }
     const current = this.conversationOwners.get(conversationId)
     if (current && current !== ownerId) {
-      throw new WorkspaceBoundaryError("conversation owner mismatch")
+      throw new WorkspaceOwnerMismatchError("conversation owner mismatch")
     }
     this.conversationOwners.set(conversationId, ownerId)
   }
@@ -223,7 +231,7 @@ export class WorkspaceManager {
     const ownerId = this.conversationOwners.get(conversationId)
     if (ownerId) return ownerId
     if (this.options.fixedOwnerId) return this.options.fixedOwnerId
-    throw new WorkspaceBoundaryError("conversation owner is not bound")
+    throw new WorkspaceOwnerMismatchError("conversation owner is not bound")
   }
 
   bindWorkspace(conversationId: string, workspacePath: string): void {
@@ -616,7 +624,7 @@ export class WorkspaceManager {
       this.options.fixedOwnerId &&
       ownerId !== this.options.fixedOwnerId
     ) {
-      throw new WorkspaceBoundaryError("conversation owner mismatch")
+      throw new WorkspaceOwnerMismatchError("conversation owner mismatch")
     }
   }
 

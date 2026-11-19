@@ -89,7 +89,10 @@ import {
   sanitizeZodIssues,
   TURN_START_CONTRACT_VERSION,
 } from "./turn-start-contract.js";
-import type { WorkspaceManager } from "./workspace/workspace-manager.js";
+import {
+  WorkspaceOwnerMismatchError,
+  type WorkspaceManager,
+} from "./workspace/workspace-manager.js";
 import {
   proxyUserMcpHttpRequest,
   UserMcpProxyRequestError,
@@ -887,7 +890,7 @@ export function buildRunnerServer(
     } catch (error) {
       if (
         error instanceof ConversationOwnerMismatchError ||
-        (error instanceof Error && error.message.includes("owner"))
+        error instanceof WorkspaceOwnerMismatchError
       ) {
         return reply.code(403).send({ error_code: "RUNNER_OWNER_MISMATCH" });
       }

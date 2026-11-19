@@ -30,6 +30,7 @@ import {
   setManagedDirectoryMode,
   WorkspaceBoundaryError,
   WorkspaceManager,
+  WorkspaceOwnerMismatchError,
 } from "../src/workspace/workspace-manager.js"
 import {
   chmodWithFallbackIdentity,
@@ -420,6 +421,14 @@ describe("workspace filesystem helpers", () => {
 })
 
 describe("WorkspaceManager", () => {
+  it("raises a dedicated owner mismatch error for conflicting or unbound owners", async () => {
+    const root = await tempRoot()
+    const manager = new WorkspaceManager(root)
+    manager.bindOwner(taskA, ownerA)
+    expect(() => manager.bindOwner(taskA, ownerB)).toThrow(WorkspaceOwnerMismatchError)
+    expect(() => manager.ownerFor(taskB)).toThrow(WorkspaceOwnerMismatchError)
+  })
+
   it("rejects a substituted project parent during preparation and cleanup", async () => {
     const root = await tempRoot()
     const manager = new WorkspaceManager(root)
